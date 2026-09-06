@@ -71,8 +71,15 @@ endif()
 # The converter derives + validates the vanilla base master from $SKYRIM_DATASOURCE and packs it into
 # the plugin's .hky stage, so cb_deploy's bundle merge-copy carries a fresh Skyrim.hky into the mod.
 # Gated on SKYRIM_DATASOURCE: unset -> skipped, the already-deployed Skyrim.hky stays. See the helper.
-set(SCT_BASE_MASTER_DIR "D:/sct-base-master" CACHE PATH
-    "Short-path dir where the unpacked Skyrim.hky base tree is kept for observation")
+# Short-path root for the unpacked master (regen's kept-unpacked tree + cb_deploy's cross-build diff
+# unpack both land here). Honors the SCT_BASE_MASTER_DIR env var when set (the one knob), else defaults.
+if(DEFINED ENV{SCT_BASE_MASTER_DIR})
+    set(_base_master_default "$ENV{SCT_BASE_MASTER_DIR}")
+else()
+    set(_base_master_default "D:/sct-base-master")
+endif()
+set(SCT_BASE_MASTER_DIR "${_base_master_default}" CACHE PATH
+    "Short-path dir where the unpacked Skyrim.hky base tree is kept (env SCT_BASE_MASTER_DIR)")
 file(GLOB_RECURSE _bconv_template_files CONFIGURE_DEPENDS "${BCONV_TEMPLATES}/*")
 include(GenerateBaseMaster)
 sct_generate_base_master(

@@ -45,4 +45,20 @@ function(cb_deploy TARGET MOD_NAME)
             COMMENT "cb_deploy: packed .hky bundles -> ${MOD_NAME}/community_behaviors/plugins"
             VERBATIM)
     endif()
+
+    # 4. Unpack the deployed master into a short D-drive root for the cross-build diff strategy.
+    #    Env-gated on SCT_BASE_MASTER_DIR (a SHORT path — these trees blow past MAX_PATH otherwise).
+    #    Packed .hky is not bit-reproducible, so only the unpacked tree diffs meaningfully; the helper
+    #    rotates current->previous so a two-point diff is always available. Needs havok-core-cli, which
+    #    pack-hky-bundles (a dependency of ${TARGET}) already builds first.
+    if(DEFINED ENV{SCT_BASE_MASTER_DIR} AND TARGET havok-core-cli)
+        add_custom_command(TARGET ${TARGET} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                    "-DCLI=$<TARGET_FILE:havok-core-cli>"
+                    "-DMASTER=${_mod}/community_behaviors/plugins/Skyrim.hky"
+                    "-DOUT=$ENV{SCT_BASE_MASTER_DIR}"
+                    -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/UnpackMaster.cmake"
+            COMMENT "cb_deploy: unpack master -> $ENV{SCT_BASE_MASTER_DIR}/current (diff root)"
+            VERBATIM)
+    endif()
 endfunction()
