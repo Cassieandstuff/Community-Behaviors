@@ -275,6 +275,40 @@ int doHkyPack(const std::string& dir, const std::string& out) {
     return 0;
 }
 
+// hky-unpack: the inverse of hky-pack — decompress a single-file .hky into its uncompressed YAML tree
+// on disk, ORIGINAL path case preserved (Havok is case-sensitive). For inspecting/diffing a packed
+// master (Skyrim.hky) or any bundle. Usage: hky-unpack <in.hky> -o <outDir>.
+int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
+    if (outDir.empty()) {
+        std::printf("usage: hky-unpack <in.hky> -o <outDir>\n");
+        return 2;
+    }
+    std::string err;
+    auto arc = havok::model::HkyArchive::LoadFromFile(hkyPath, err);
+    if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+
+    // Same ordered range, two views: normalized keys drive file() lookup; original-case paths give the
+    // on-disk layout (index-aligned — both iterate m_files in order).
+    const auto keys  = arc->filesUnder("");
+    const auto paths = arc->filesUnderOrig("");
+    namespace fs = std::filesystem;
+    std::size_t written = 0;
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        const auto content = arc->file(keys[i]);
+        if (!content) continue;   // keys come from the same map — should always resolve
+        const fs::path dst = fs::path(outDir) / fs::path(paths[i]);
+        std::error_code ec;
+        fs::create_directories(dst.parent_path(), ec);
+        std::ofstream os(dst, std::ios::binary);
+        if (!os) { std::printf("FAIL: cannot write %s\n", dst.string().c_str()); return 1; }
+        os.write(content->data(), static_cast<std::streamsize>(content->size()));
+        ++written;
+    }
+    std::printf("OK: hky-unpack '%s' -> %s (%zu file(s), %zu unit(s)).\n",
+                hkyPath.c_str(), outDir.c_str(), written, arc->units().size());
+    return 0;
+}
+
 // hky-merge-compile: merge ONE serve-path unit across several .hky bundles (base first,
 // deltas after — the same LoadMerged the runtime resolver uses) and compile+validate the
 // result. The offline gate for a DELTA bundle: a delta compiles only when merged onto its
@@ -5511,6 +5545,7 @@ int main(int argc, char** argv) {
     if (verb == "decompile") return doDecompile(in, out, skel);
     if (verb == "hky-compile") return doHkyCompile(in, extra, out);
     if (verb == "hky-pack")    return doHkyPack(in, out);
+    if (verb == "hky-unpack")  return doHkyUnpack(in, out);
     if (verb == "hky-merge-compile") return doHkyMergeCompile(in, extra, out, schema, strictSchema);
     if (verb == "schema-merge-tag")  return doSchemaMergeTag(in, extra.empty() ? std::string{} : extra[0],
                                                              extra.size() > 1 ? extra[1] : std::string{});
