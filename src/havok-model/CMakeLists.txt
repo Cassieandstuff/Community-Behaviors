@@ -18,7 +18,8 @@ sct_collect_sources(HAVOK_MODEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_C
 add_library(havok-model STATIC ${HAVOK_MODEL_SOURCES})
 
 target_include_directories(havok-model
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")   # <havok-model/HavokModel.h> + havok/model/*, havok/anim/*, havok/sct/*, havok/cross/*
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>   # <havok-model/HavokModel.h> + havok/model/*, havok/anim/*, havok/sct/*, havok/cross/*
+           $<INSTALL_INTERFACE:include>)
 
 # havok-io provides the SchemaObject graph + framing; havok-schema the ClassSchema descriptors
 # (and ryml, PUBLIC-propagated — the moved YAML loaders need it). havok-framing comes transitively.

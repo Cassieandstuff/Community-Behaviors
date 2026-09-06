@@ -11,7 +11,8 @@ sct_collect_sources(HAVOK_IO_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURR
 add_library(havok-io STATIC ${HAVOK_IO_SOURCES})
 
 target_include_directories(havok-io
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)   # <havok-io/HavokIo.h>
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>   # <havok-io/HavokIo.h>
+           $<INSTALL_INTERFACE:include>)
 
 # havok-framing provides the packfile framing + BinaryReader/Writer;
 # havok-schema provides the ClassSchema descriptors.

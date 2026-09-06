@@ -11,8 +11,9 @@ sct_collect_sources(HAVOK_SCHEMA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_
 add_library(havok-schema STATIC ${HAVOK_SCHEMA_SOURCES})
 
 target_include_directories(havok-schema
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include             # <havok-schema/HavokSchema.h>
-           ${CMAKE_CURRENT_SOURCE_DIR}/include/external)   # RymlInclude.h (the ryml shim)
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>            # <havok-schema/HavokSchema.h>
+           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/external>  # RymlInclude.h (build-only shim)
+           $<INSTALL_INTERFACE:include>)
 
 find_package(ryml CONFIG REQUIRED)                 # descriptor YAML parsing
 target_link_libraries(havok-schema PUBLIC ryml::ryml)

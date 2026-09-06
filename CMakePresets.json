@@ -20,6 +20,13 @@
       "inherits": "release",
       "displayName": "Community Behaviors — Debug (x64-windows-static)",
       "binaryDir": "${sourceDir}/build/debug"
+    },
+    {
+      "name": "resolve",
+      "inherits": "release",
+      "displayName": "Community Behaviors — cb-resolve only (library export)",
+      "binaryDir": "${sourceDir}/build/resolve",
+      "cacheVariables": { "CB_RESOLVE_ONLY": "ON" }
     }
   ],
   "buildPresets": [

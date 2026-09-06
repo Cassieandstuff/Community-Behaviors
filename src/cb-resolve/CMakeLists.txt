@@ -11,7 +11,13 @@
 
 add_library(cb-resolve INTERFACE)
 
-target_include_directories(cb-resolve INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(cb-resolve INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+
+# A namespaced alias so consumers link `cb::cb-resolve` in BOTH modes — FetchContent
+# (this alias) and find_package (the exported cb:: namespace). One link name everywhere.
+add_library(cb::cb-resolve ALIAS cb-resolve)
 
 # havok-model brings the .hky document + merge + resolved model (and havok-io/framing
 # transitively); havok-schema brings the SchemaRegistry classifier. Both PUBLIC on those

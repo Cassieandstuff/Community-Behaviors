@@ -33,8 +33,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # add_subdirectory'd into another project (consumed mode — CMAKE_SOURCE_DIR would be the consumer's root).
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# Consumption mode: are we the top-level project, or add_subdirectory'd into another build?
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+# Consumption mode. Full standalone build ONLY when CB is the top-level project AND not asked for the
+# resolve-only surface. Two ways to get resolve-only: add_subdirectory'd into another build (FetchContent
+# — not top-level), or CB_RESOLVE_ONLY=ON (vcpkg builds CB as top-level, so the portfile passes this).
+option(CB_RESOLVE_ONLY "Build only the cb-resolve surface (for vcpkg / library consumers)" OFF)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CB_RESOLVE_ONLY)
     set(CB_STANDALONE ON)
 else()
     set(CB_STANDALONE OFF)
@@ -52,6 +55,37 @@ add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/cb-resolve)
+
+# ── Install / export rules for the cb-resolve surface ────────────────────────────
+# So a consumer can `find_package(cb-resolve)` (vcpkg, or a manual cmake --install). Inert unless someone
+# actually installs — FetchContent (add_subdirectory) ignores these; vcpkg's vcpkg_cmake_install() runs them.
+# Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
+include(CMakePackageConfigHelpers)
+install(TARGETS cb-resolve havok-framing havok-schema havok-io havok-model
+        EXPORT  cb-resolve-targets
+        ARCHIVE DESTINATION lib
+        INCLUDES DESTINATION include)
+# Headers: each module's full include/ tree (havok-model's public headers pull havok-framing's, etc.).
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/include/" DESTINATION include)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/include/"  DESTINATION include)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/include/"      DESTINATION include)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/include/"   DESTINATION include)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/include/"    DESTINATION include)
+install(EXPORT cb-resolve-targets
+        NAMESPACE cb::
+        FILE      cb-resolve-targets.cmake
+        DESTINATION share/cb-resolve)
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cb-resolve-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config.cmake"
+    INSTALL_DESTINATION share/cb-resolve)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config-version.cmake"
+    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config-version.cmake"
+    DESTINATION share/cb-resolve)
 
 # When consumed as a subproject, the resolution surface is all we expose — stop here so a consumer
 # never configures the plugin / converter / CommonLibSSE / havok-core.

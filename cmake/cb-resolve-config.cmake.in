@@ -1,0 +1,30 @@
+@PACKAGE_INIT@
+
+# cb-resolve links ryml transitively (havok-schema/model), so a consumer's find_package(cb-resolve)
+# must be able to find ryml too. It's impl-only in the public headers but a real link dependency.
+include(CMakeFindDependencyMacro)
+find_dependency(ryml)
+
+include("${CMAKE_CURRENT_LIST_DIR}/cb-resolve-targets.cmake")
+
+# Config mapping: this package may ship a single build config (e.g. a manual cmake --install of
+# RelWithDebInfo), but a multi-config consumer (VS: Debug/Release/RelWithDebInfo/MinSizeRel) needs an
+# imported location for EVERY config it enumerates at generate time. Map any config lacking its own
+# location onto a shipped one (RELEASE if present, else the first). MAP_IMPORTED_CONFIG_<c> is consulted
+# ONLY when config <c> has no IMPORTED_LOCATION, so setting all four is safe — a config that WAS shipped
+# (e.g. Debug + Release under vcpkg) keeps its own location and ignores the map.
+get_property(_cb_cfgs TARGET cb::havok-model PROPERTY IMPORTED_CONFIGURATIONS)
+if("RELEASE" IN_LIST _cb_cfgs)
+    set(_cb_fallback RELEASE)
+elseif(_cb_cfgs)
+    list(GET _cb_cfgs 0 _cb_fallback)
+endif()
+if(_cb_fallback)
+    foreach(_cb_t cb::cb-resolve cb::havok-framing cb::havok-schema cb::havok-io cb::havok-model)
+        foreach(_cb_c DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+            set_property(TARGET ${_cb_t} PROPERTY MAP_IMPORTED_CONFIG_${_cb_c} "${_cb_fallback}")
+        endforeach()
+    endforeach()
+endif()
+
+check_required_components(cb-resolve)
