@@ -124,3 +124,52 @@ endif()
 cb_deploy(CommunityBehaviors "Community Behaviors"
     SCHEMA_DIR "${CMAKE_SOURCE_DIR}/Havok"
     HKY_STAGE  "${CB_HKY_STAGE}")
+
+# ── The Behavior Converter (end-user + author GUI tool) ──────────────────────────
+# An end-user/author tool that shares CB's whole engine (havok-core/model/schema), so it lives in this
+# repo. It's a GLFW + Dear ImGui desktop app — a heavier dependency set (glfw + imgui cloned via
+# FetchContent) than the plugin needs, so it's gated: -DCB_BUILD_CONVERTER=OFF gives a lean plugin-only
+# configure.
+option(CB_BUILD_CONVERTER "Build the Behavior Converter GUI tool" ON)
+if(CB_BUILD_CONVERTER)
+    include(FetchContent)
+
+    # ── GLFW (windowing) ──────────────────────────────────────────────────────
+    FetchContent_Declare(glfw
+        GIT_REPOSITORY https://github.com/glfw/glfw.git
+        GIT_TAG        3.4
+        GIT_SHALLOW    TRUE)
+    set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(glfw)
+
+    # ── glad (bundled pre-generated OpenGL 4.5 Core loader) ───────────────────
+    # Before imgui, so imgui_impl_opengl3.cpp finds <glad/gl.h>.
+    add_library(glad_gl_45_core STATIC "${CMAKE_SOURCE_DIR}/cmake/glad/src/gl.c")
+    target_include_directories(glad_gl_45_core PUBLIC "${CMAKE_SOURCE_DIR}/cmake/glad/include")
+
+    # ── Dear ImGui (docking branch) ───────────────────────────────────────────
+    FetchContent_Declare(imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG        docking
+        GIT_SHALLOW    TRUE)
+    FetchContent_MakeAvailable(imgui)
+    add_library(imgui STATIC
+        "${imgui_SOURCE_DIR}/imgui.cpp"
+        "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+        "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+        "${imgui_SOURCE_DIR}/imgui_demo.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp")
+    target_include_directories(imgui PUBLIC
+        "${imgui_SOURCE_DIR}"
+        "${imgui_SOURCE_DIR}/backends")
+    target_link_libraries(imgui PUBLIC glfw glad_gl_45_core)
+    target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
+    set_target_properties(imgui PROPERTIES CXX_STANDARD 17)
+
+    add_subdirectory(src/sct-utilities)     # folder picker + zip (converter-only)
+    add_subdirectory("APP/Behavior Converter")
+endif()
