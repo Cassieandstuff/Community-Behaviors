@@ -1,14 +1,25 @@
 # ============================================================================
-# Community Behaviors — standalone build environment.
+# Community Behaviors.
 #
-# A runtime SKSE plugin (CommonLibSSE-NG) that compiles Havok behavior graphs over
-# a mod load order and serves them to the live game. Purpose-built, single-project
-# build — no monorepo machinery.
+# TOP-LEVEL build: the runtime SKSE plugin (CommonLibSSE-NG) that compiles Havok
+# behavior graphs over a mod load order + serves them, the Behavior Converter, and
+# the build-time gates.
 #
-# Env contract (same as the monorepo it grew out of):
+# CONSUMED as a subproject (FetchContent / add_subdirectory): exposes ONLY the
+# shareable load-order resolution surface — the `cb-resolve` target and its engine
+# modules — so a tool (e.g. a behavior editor) links `cb-resolve` and resolves a
+# load order IDENTICALLY to the CB compiler, WITHOUT pulling in CommonLibSSE, the
+# SKSE plugin, or the converter. See src/cb-resolve.
+#
+# Env contract (top-level build only):
 #   VCPKG_ROOT            — vcpkg clone (toolchain, via the preset)
 #   COMMONLIB_SSE_FOLDER  — a local CommonLibSSE-NG clone (add_subdirectory'd, offline)
 #   SKYRIM_MODS_FOLDER    — MO2 mods folder (deploy target)
+#   SKYRIM_DATASOURCE     — unpacked vanilla data (arms the Skyrim.hky regen)
+#   SCT_BASE_MASTER_DIR   — short D-drive path for the unpacked-master diff tree
+#
+# Consumer contract (subproject): the consumer's toolchain must provide `ryml`
+# (find_package(ryml CONFIG) — the engine modules' YAML front-end). Link `cb-resolve`.
 # ============================================================================
 cmake_minimum_required(VERSION 3.25)
 project(CommunityBehaviors VERSION 0.3.1 LANGUAGES CXX C
@@ -17,13 +28,46 @@ project(CommunityBehaviors VERSION 0.3.1 LANGUAGES CXX C
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# CMAKE_CURRENT_SOURCE_DIR (not CMAKE_SOURCE_DIR) so the CB cmake/ modules resolve even when CB is
+# add_subdirectory'd into another project (consumed mode — CMAKE_SOURCE_DIR would be the consumer's root).
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# Consumption mode: are we the top-level project, or add_subdirectory'd into another build?
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(CB_STANDALONE ON)
+else()
+    set(CB_STANDALONE OFF)
+endif()
+
+add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+
+# ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
+# The data-driven modules ARE CB's source. cb-resolve is the curated, havok-core-free public
+# contract (<cb-resolve/CbResolve.h>) a consumer links; it PUBLIC-pulls havok-model + havok-schema
+# (→ havok-io + havok-framing transitively), so linking cb-resolve is all a consumer needs.
+include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
+add_subdirectory(src/havok-framing)
+add_subdirectory(src/havok-schema)
+add_subdirectory(src/havok-io)
+add_subdirectory(src/havok-model)
+add_subdirectory(src/cb-resolve)
+
+# When consumed as a subproject, the resolution surface is all we expose — stop here so a consumer
+# never configures the plugin / converter / CommonLibSSE / havok-core.
+if(NOT CB_STANDALONE)
+    message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-resolve + engine modules "
+                   "only (plugin, converter, havok-core, CommonLibSSE skipped). Consumer must provide ryml.")
+    return()
+endif()
+
+# ════════════════════════════════════════════════════════════════════════════════
+# TOP-LEVEL ONLY below here — the full CB build (plugin + converter + gates).
+# ════════════════════════════════════════════════════════════════════════════════
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
-
 # CommonLibSSE (powerof3 fork) build options — set BEFORE it configures. AE (1.6.x) exposes the
-# modern SKSE plugin-version format (SKSE::PluginVersionData); xbyak enables trampoline hooks (CB uses
-# them). Target is SSE 1.170 = AE.
+# modern SKSE plugin-version format (SKSE::PluginVersionData); xbyak enables trampoline hooks. SSE 1.170 = AE.
 set(SKYRIM_SUPPORT_AE  ON CACHE BOOL "" FORCE)
 set(SKSE_SUPPORT_XBYAK ON CACHE BOOL "" FORCE)
 
@@ -44,39 +88,25 @@ endif()
 include(CommonLibSSE)   # add_commonlibsse_plugin() — SHARED lib + generated version-data TU
 include(Deploy)         # cb_deploy() — MO2 deploy
 
-add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-
-# ── Havok compile/convert stack ────────────────────────────────────────────────
-# The data-driven modules ARE CB's source — they live flat under src/ alongside the plugin. The legacy
-# typed backbone (havok-core) is QUARANTINED under "Retirement Home/" (see its README). havok-core links
-# the 5 modules, so the whole stack builds as one wave. HAVOK_CORE_BUILD_TOOLS=ON gives havok-core-cli
-# (build-time gates + master regen).
-include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
-add_subdirectory(src/havok-framing)
-add_subdirectory(src/havok-schema)
-add_subdirectory(src/havok-io)
-add_subdirectory(src/havok-model)
+# havok-pipeline (feature SDK), sct-config (config scanner), havok-core (quarantined backbone + CLI) —
+# needed only by the plugin/converter/gates, so top-level only.
 add_subdirectory(src/havok-pipeline)
-add_subdirectory(src/cb-resolve)        # minimal havok-core-free load-order resolution + .hky document (shared with tools)
-add_subdirectory(src/sct-config)        # shared config scanner (JSON/YAML/INI) the resolver reads
+add_subdirectory(src/sct-config)
 set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
 add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
 
 # ── The plugin ─────────────────────────────────────────────────────────────────
-# The runtime behavior-graph compiler. Sources are FLAT: each Foo.cpp sits beside its Foo.h directly
-# under src/ (no cpp/hpp split — src/ IS the private include root, so same-name quoted includes and
-# the flat headers like "ERGate.h" resolve). The plugin's OWN sources are the flat .cpp at the src/
-# ROOT (non-recursive glob, so the sibling engine modules under src/havok-*/ + src/sct-config/ — their
-# own targets — are NOT swept in) PLUS the compile-time graph features under features/.
+# Sources are FLAT: each Foo.cpp beside its Foo.h directly under src/ (src/ IS the private include root).
+# The plugin's OWN sources are the flat .cpp at the src/ ROOT (non-recursive glob, so the sibling engine
+# modules under src/havok-*/ + src/sct-config/ are NOT swept in) PLUS the graph features under features/.
 find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
-find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link below)
+find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link)
 
 file(GLOB CB_ROOT_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
 sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
 
-# add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) and links
-# CommonLibSSE — Plugin.cpp defines only SKSEPluginLoad. (Works now that SKYRIM_SUPPORT_AE is ON;
-# the earlier raw-export hack in main.cpp is gone.)
+# add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) + links CommonLibSSE
+# — Plugin.cpp defines only SKSEPluginLoad.
 add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_FEATURE_SOURCES})
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 
@@ -85,8 +115,8 @@ target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src")
 
 # havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
-# (PUBLIC-exposes "FeatureRegistry.h" for features/<Owner>/ + Resolver.cpp); sct-config = the config
-# scanner; ryml = YAML front-end; minhook = function-ENTRY hooks (the BSResource stream ctor).
+# (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
+# minhook = function-ENTRY hooks (the BSResource stream ctor).
 target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
@@ -97,7 +127,7 @@ target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/PC
 # to a single-file .hky under CB_HKY_STAGE, already shaped as the runtime serve path
 # (community_behaviors/plugins/<Bundle>.hky) so the deploy is a straight mirror. Adding a bundle = drop a
 # hky/<Name>.hky/ folder (CONFIGURE_DEPENDS). Skyrim.hky (the vanilla master) is NOT packed here — it
-# regenerates from the vanilla datasource via the converter (wave 6); only the small mutable bundles pack.
+# regenerates from the vanilla datasource via the converter; only the small mutable bundles pack.
 set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
 file(GLOB CB_HKY_BUNDLES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/hky/*.hky")
 set(_cb_hky_outputs "")
@@ -127,10 +157,8 @@ cb_deploy(CommunityBehaviors "Community Behaviors"
     HKY_STAGE  "${CB_HKY_STAGE}")
 
 # ── The Behavior Converter (end-user + author GUI tool) ──────────────────────────
-# An end-user/author tool that shares CB's whole engine (havok-core/model/schema), so it lives in this
-# repo. It's a GLFW + Dear ImGui desktop app — a heavier dependency set (glfw + imgui cloned via
-# FetchContent) than the plugin needs, so it's gated: -DCB_BUILD_CONVERTER=OFF gives a lean plugin-only
-# configure.
+# Shares CB's whole engine; a GLFW + Dear ImGui desktop app — heavier deps (glfw + imgui via
+# FetchContent), so gated: -DCB_BUILD_CONVERTER=OFF gives a lean plugin-only configure.
 option(CB_BUILD_CONVERTER "Build the Behavior Converter GUI tool" ON)
 if(CB_BUILD_CONVERTER)
     include(FetchContent)
