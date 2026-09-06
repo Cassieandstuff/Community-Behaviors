@@ -45,6 +45,19 @@ include(Deploy)         # cb_deploy() — MO2 deploy
 
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
+# ── Havok compile/convert stack ────────────────────────────────────────────────
+# The data-driven libs (the FUTURE) live under libs/; the legacy typed backbone (havok-core) is
+# QUARANTINED under "Retirement Home/" (see its README). havok-core links the 5 libs, so the whole
+# stack builds as one wave. HAVOK_CORE_BUILD_TOOLS=ON gives havok-core-cli (build-time gates + regen).
+include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
+add_subdirectory(libs/havok-framing)
+add_subdirectory(libs/havok-schema)
+add_subdirectory(libs/havok-io)
+add_subdirectory(libs/havok-model)
+add_subdirectory(libs/havok-pipeline)
+set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
+add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
+
 # ── The plugin ─────────────────────────────────────────────────────────────────
 # A plain SHARED lib linking CommonLibSSE::CommonLibSSE. The SKSE plugin version data + entry point
 # are defined directly in src/main.cpp (raw exports) rather than via the helper's generated version
