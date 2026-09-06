@@ -601,7 +601,11 @@ namespace CB::adserve {
                 // motion deltas (no Nemesis patch dir), so this is collected independent of LoadBundlePatches.
                 // (A native bundle already applied its motion above, so this only runs for legacy bundles.)
                 std::unordered_map<std::string, std::vector<animdata::MotionRecord>> modMotion;  // project -> records
-                for (const std::string& path : rd->filesUnder("meshes/animationdatasinglefile.txt/motion", ".yaml")) {
+                // filesUnderOrig (NOT filesUnder): `key` becomes the motion record's clip-name label,
+                // which is resolved against the base clips' ORIGINAL-CASE names below (clipIdxByName).
+                // filesUnder lowercases, so a mixed-case clip name ("1HMDual") would silently never
+                // match and the override would be dropped — same case rule the base motion leg follows.
+                for (const std::string& path : rd->filesUnderOrig("meshes/animationdatasinglefile.txt/motion", ".yaml")) {
                     const auto y = rd->read(path);
                     if (!y) continue;
                     const auto last = path.find_last_of('/');

@@ -108,7 +108,10 @@ namespace CB::byteserve {
 
         std::int64_t Hook_Resolve(const char* a_path, void* a_entry, std::uint64_t a_flag, void* a_ctx) {
             if (s_resolver && a_path) {
-                char raw[300];
+                // Sized well above any real Meshes-relative typed-hkx path (deep authored/VFS trees can
+                // exceed the old 300): a truncated copy would clip the ".hkx" suffix, fail EndsHkx, and
+                // silently pass a legitimately-owned graph through to vanilla with no swap.
+                char raw[1024];
                 if (SehCopy(a_path, raw, sizeof raw)) {
                     const std::size_t rn = std::char_traits<char>::length(raw);
                     if (EndsHkx(raw, rn)) {

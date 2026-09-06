@@ -69,17 +69,24 @@ namespace CB {
             RE::BSResource::SeekMode a_mode,
             std::uint64_t&           a_sought) const override
         {
-            const auto size = static_cast<std::uint64_t>(m_data->size());
-            std::uint64_t newPos;
+            // a_offset is unsigned in the vtable signature, but kCur/kEnd offsets are conceptually
+            // SIGNED (a trailing-field read seeks kEnd with a negative delta). Reinterpret the bit
+            // pattern as int64 so a backward seek lands at the intended position instead of wrapping
+            // to a huge value and clamping to EOF. kSet is an absolute (non-negative) position.
+            const auto    size = static_cast<std::int64_t>(m_data->size());
+            const auto    off  = static_cast<std::int64_t>(a_offset);
+            std::int64_t  newPos;
             switch (a_mode) {
-            case RE::BSResource::SeekMode::kSet: newPos = a_offset;         break;
-            case RE::BSResource::SeekMode::kCur: newPos = m_pos + a_offset; break;
-            case RE::BSResource::SeekMode::kEnd: newPos = size + a_offset;  break;
+            case RE::BSResource::SeekMode::kSet: newPos = off;                                    break;
+            case RE::BSResource::SeekMode::kCur: newPos = static_cast<std::int64_t>(m_pos) + off; break;
+            case RE::BSResource::SeekMode::kEnd: newPos = size + off;                             break;
             default:
                 a_sought = m_pos;
                 return RE::BSResource::ErrorCode::kUnsupported;
             }
-            m_pos    = (newPos < size) ? newPos : size;
+            if (newPos < 0)    newPos = 0;
+            if (newPos > size) newPos = size;
+            m_pos    = static_cast<std::uint64_t>(newPos);
             a_sought = m_pos;
             return RE::BSResource::ErrorCode::kNone;
         }
