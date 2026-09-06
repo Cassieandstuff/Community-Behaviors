@@ -1,0 +1,6 @@
+parent: "Head Tongue 4"
+lockTranslation: true
+pose:
+  translation: [1.79749703, -4.6000001e-05, 0, 0]
+  rotation: [9.99999997e-07, 0, 0, 1]
+  scale: [1, 1, 1, 0]

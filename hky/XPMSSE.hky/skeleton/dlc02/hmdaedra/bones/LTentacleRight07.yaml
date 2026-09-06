@@ -1,0 +1,6 @@
+parent: "LTentacleRight08"
+lockTranslation: true
+pose:
+  translation: [4.78923798, 0.000174999994, 0, 0]
+  rotation: [0, -0, -2.90000007e-05, 1]
+  scale: [1.00000203, 1, 1, 0]

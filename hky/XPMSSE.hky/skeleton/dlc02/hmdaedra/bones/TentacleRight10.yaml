@@ -1,0 +1,6 @@
+parent: "TentacleRight11"
+lockTranslation: true
+pose:
+  translation: [4.92278719, -1.99999999e-06, -7.99999998e-06, 0]
+  rotation: [0, 0, 0, 1]
+  scale: [1.00000095, 1, 1, 0]

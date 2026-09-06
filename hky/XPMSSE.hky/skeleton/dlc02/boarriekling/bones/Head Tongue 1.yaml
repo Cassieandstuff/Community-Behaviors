@@ -1,0 +1,6 @@
+parent: "Boar_Reikling_Jaw"
+lockTranslation: true
+pose:
+  translation: [-4.64968109, 0.860732973, -0.0886090025, 0]
+  rotation: [-0.983488023, 0.180727005, -0.00935699977, 0.000981000019]
+  scale: [1, 1, 1, 0]

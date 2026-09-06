@@ -1,0 +1,6 @@
+parent: "CDmiddle 3"
+lockTranslation: true
+pose:
+  translation: [2.91544509, 0.668776989, 6.00000021e-06, 0]
+  rotation: [-1.99999999e-06, -1.99999999e-06, -0.0806640014, 0.996740997]
+  scale: [1, 1, 1, 0]

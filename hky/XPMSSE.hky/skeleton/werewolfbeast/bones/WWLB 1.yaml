@@ -1,0 +1,6 @@
+parent: "WWD 2"
+lockTranslation: true
+pose:
+  translation: [0.214215994, -8.58176422, -2.40002298, 0]
+  rotation: [-0.716574013, 0.697511017, -9.99999997e-07, 1.99999999e-06]
+  scale: [1, 1, 1, 0]

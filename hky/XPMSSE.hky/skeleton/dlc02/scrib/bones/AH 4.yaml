@@ -1,0 +1,6 @@
+parent: "AH 3"
+lockTranslation: true
+pose:
+  translation: [7.99999998e-06, -6.60057783, -3.65957189, 0]
+  rotation: [-0, 0, 0, 1]
+  scale: [1, 1, 1, 0]

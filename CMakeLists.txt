@@ -91,4 +91,36 @@ target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-c
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/PCH.h")
 
-cb_deploy(CommunityBehaviors "Community Behaviors")
+# ── Pack the .hky bundle YAML trees at build time ─────────────────────────────
+# Each hky/<Bundle>.hky/ is the uncompressed, git-tracked YAML tree; the build packs every such folder
+# to a single-file .hky under CB_HKY_STAGE, already shaped as the runtime serve path
+# (community_behaviors/plugins/<Bundle>.hky) so the deploy is a straight mirror. Adding a bundle = drop a
+# hky/<Name>.hky/ folder (CONFIGURE_DEPENDS). Skyrim.hky (the vanilla master) is NOT packed here — it
+# regenerates from the vanilla datasource via the converter (wave 6); only the small mutable bundles pack.
+set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
+file(GLOB CB_HKY_BUNDLES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/hky/*.hky")
+set(_cb_hky_outputs "")
+foreach(_hky_src ${CB_HKY_BUNDLES})
+    if(NOT IS_DIRECTORY "${_hky_src}")
+        continue()   # a stray packed .hky FILE in the source tree, not a bundle folder
+    endif()
+    get_filename_component(_hky_name "${_hky_src}" NAME)   # "<Bundle>.hky"
+    set(_hky_out "${CB_HKY_STAGE}/community_behaviors/plugins/${_hky_name}")
+    file(GLOB_RECURSE _hky_files CONFIGURE_DEPENDS "${_hky_src}/*")
+    add_custom_command(
+        OUTPUT  "${_hky_out}"
+        COMMAND "$<TARGET_FILE:havok-core-cli>" hky-pack "${_hky_src}" -o "${_hky_out}"
+        DEPENDS havok-core-cli ${_hky_files}
+        COMMENT "Community Behaviors: packing ${_hky_name} from source YAML tree"
+        VERBATIM)
+    list(APPEND _cb_hky_outputs "${_hky_out}")
+endforeach()
+if(_cb_hky_outputs)
+    add_custom_target(pack-hky-bundles DEPENDS ${_cb_hky_outputs})
+    add_dependencies(CommunityBehaviors pack-hky-bundles)
+endif()
+
+# Deploy: DLL + the class schema tree (Havok/, clean) + the packed bundles (merge, preserving Skyrim.hky).
+cb_deploy(CommunityBehaviors "Community Behaviors"
+    SCHEMA_DIR "${CMAKE_SOURCE_DIR}/Havok"
+    HKY_STAGE  "${CB_HKY_STAGE}")

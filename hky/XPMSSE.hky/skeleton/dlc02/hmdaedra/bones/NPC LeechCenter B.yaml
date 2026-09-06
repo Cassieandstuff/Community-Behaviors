@@ -1,0 +1,6 @@
+parent: "NPC COM [COM ]"
+lockTranslation: true
+pose:
+  translation: [44.3424225, -9.43040466, -0.000142999997, 0]
+  rotation: [0.602185011, 0.370638996, -0.602185011, 0.370638996]
+  scale: [1, 1, 1, 0]

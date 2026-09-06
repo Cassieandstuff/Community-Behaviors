@@ -1,0 +1,6 @@
+parent: "AH Base"
+lockTranslation: true
+pose:
+  translation: [0.0999990031, -2.83209991, -1.48434997, 0]
+  rotation: [0, 0, 0, 1]
+  scale: [1, 1, 1, 0]

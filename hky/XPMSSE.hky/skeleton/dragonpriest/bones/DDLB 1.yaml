@@ -1,0 +1,6 @@
+parent: "NPC R MagicNode [RMag]"
+lockTranslation: true
+pose:
+  translation: [16.6054955, -6.20926714, -1.54043603, 0]
+  rotation: [-0.241576001, -0.664556026, 0.664564013, 0.241578996]
+  scale: [1.00000095, 1, 1, 0]

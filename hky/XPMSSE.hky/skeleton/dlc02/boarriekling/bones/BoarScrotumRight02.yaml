@@ -1,0 +1,6 @@
+parent: "BoarScrotumRight01"
+lockTranslation: true
+pose:
+  translation: [-0.5, 4.00001907, 3.79998899, 0]
+  rotation: [0, -0, 0, 1]
+  scale: [1, 1, 1, 0]

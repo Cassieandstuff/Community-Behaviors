@@ -1,0 +1,6 @@
+parent: "TD Base"
+lockTranslation: true
+pose:
+  translation: [3.18067908, 0, -0.111221999, 0]
+  rotation: [0.243645996, 0.663805008, -0.663803995, 0.243645996]
+  scale: [1, 1, 1, 0]

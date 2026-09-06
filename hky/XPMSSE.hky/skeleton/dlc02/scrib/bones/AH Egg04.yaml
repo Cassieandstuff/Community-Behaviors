@@ -1,0 +1,6 @@
+parent: "Tail2"
+lockTranslation: true
+pose:
+  translation: [-0.339931011, -1.118765, -0.0999789983, 0]
+  rotation: [0.504343987, -0.495617002, -0.504343987, -0.495617986]
+  scale: [1, 1, 1, 0]

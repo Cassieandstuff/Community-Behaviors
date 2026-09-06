@@ -1,0 +1,6 @@
+parent: "NPC IceGenitalBase"
+lockTranslation: true
+pose:
+  translation: [10.7987823, 8.06798553, 4.99999987e-06, 0]
+  rotation: [0, -0, 0.265296996, 0.964166999]
+  scale: [1, 1, 1, 0]

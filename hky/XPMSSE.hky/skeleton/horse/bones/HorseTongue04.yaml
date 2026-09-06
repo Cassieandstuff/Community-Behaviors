@@ -1,0 +1,6 @@
+parent: "HorseTongue03"
+lockTranslation: true
+pose:
+  translation: [7.34433413, 3.09999996e-05, -1.89999992e-05, 0]
+  rotation: [-0, -0, -0.0827149972, 0.996572971]
+  scale: [1.00000298, 1, 1, 0]

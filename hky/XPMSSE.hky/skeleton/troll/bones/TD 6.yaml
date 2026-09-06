@@ -1,0 +1,6 @@
+parent: "TD 5"
+lockTranslation: true
+pose:
+  translation: [4.10592079, 3.09999996e-05, 3.79999983e-05, 0]
+  rotation: [0, -9.99999997e-07, 0.0384059995, 0.999261975]
+  scale: [0.999998987, 1, 1, 0]

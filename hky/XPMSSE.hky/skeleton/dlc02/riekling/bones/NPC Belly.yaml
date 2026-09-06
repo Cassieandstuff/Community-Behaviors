@@ -1,0 +1,6 @@
+parent: "NPC Spine"
+lockTranslation: true
+pose:
+  translation: [0, -0.617457986, 0.30014801, 0]
+  rotation: [0.181035995, 0, 0, 0.983476996]
+  scale: [1, 1, 1, 0]

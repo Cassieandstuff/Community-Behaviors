@@ -1,0 +1,6 @@
+parent: "Boar_ReiklingPelvis"
+lockTranslation: true
+pose:
+  translation: [-0.67137903, 2.439713, 0, 0]
+  rotation: [0.51880002, 0.854894996, -0, -0]
+  scale: [1, 1, 1, 0]

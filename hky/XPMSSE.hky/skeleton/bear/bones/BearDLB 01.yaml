@@ -1,0 +1,6 @@
+parent: "BearD 1"
+lockTranslation: true
+pose:
+  translation: [11.7739487, -11.6944199, -2.81488299, 0]
+  rotation: [-0.451402009, -0.544275999, 0.544275999, 0.451400995]
+  scale: [1, 1, 1, 0]

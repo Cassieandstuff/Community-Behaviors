@@ -1,0 +1,6 @@
+parent: "BearTongue 1"
+lockTranslation: true
+pose:
+  translation: [6.5140152, -4.6000001e-05, -9.99999975e-06, 0]
+  rotation: [-0, 0, -0.022713, 0.999741971]
+  scale: [1, 1, 1, 0]

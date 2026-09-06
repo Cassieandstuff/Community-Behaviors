@@ -1,0 +1,7 @@
+{
+    "name": "XPMSSE",
+    "version": "1.0.0",
+    "author": "BehaviorRelay",
+    "description": "XP32 Maximum Skeleton Special Extended bone extensions as a Behavior Relay skeleton layer (27 bones over vanilla: wings, item nodes, belly, etc.). BR merges these onto the vanilla skeleton base and serves the compiled skeleton.",
+    "masters": ["Skyrim"]
+}

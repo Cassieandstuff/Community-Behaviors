@@ -1,0 +1,6 @@
+parent: "Sabrecat_[pelv]"
+lockTranslation: true
+pose:
+  translation: [1.60176694, 28.6009674, 3.99999999e-06, 0]
+  rotation: [0.296564996, -0.955012977, -0, -0]
+  scale: [1, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "Boar_Tongue4"
+lockTranslation: true
+pose:
+  translation: [4.29911423, -2.30000005e-05, 1.10000001e-05, 0]
+  rotation: [-0, -0, -0.109229997, 0.994015992]
+  scale: [1, 1, 1, 0]

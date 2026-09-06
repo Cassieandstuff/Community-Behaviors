@@ -1,0 +1,6 @@
+parent: "GD 2"
+lockTranslation: true
+pose:
+  translation: [7.71489716, -6.09999988e-05, 1.99999999e-06, 0]
+  rotation: [0, -0, 0.112323001, 0.993672013]
+  scale: [1, 1, 1, 0]

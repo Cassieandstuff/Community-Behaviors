@@ -1,0 +1,6 @@
+parent: "DDRB 1"
+lockTranslation: true
+pose:
+  translation: [-7.99999998e-06, -6.40183401, -7.68216705, 0]
+  rotation: [0.0453150012, 0, 0, 0.998973012]
+  scale: [1, 1, 1, 0]

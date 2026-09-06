@@ -1,0 +1,6 @@
+parent: "Worm Base"
+lockTranslation: true
+pose:
+  translation: [1.132254, -0.151161, -1.99999999e-06, 0]
+  rotation: [0, 9.99999997e-07, 0.00583400019, 0.999983013]
+  scale: [0.999966979, 0.999998987, 1, 0]

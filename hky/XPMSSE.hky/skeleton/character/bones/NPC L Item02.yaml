@@ -1,0 +1,5 @@
+parent: "NPC L Item01"
+pose:
+  translation: [-0.0155509999, 0.258720011, 4.25051498, 0]
+  rotation: [0, 0, 0, 1]
+  scale: [1, 1, 1, 0]

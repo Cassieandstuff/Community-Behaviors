@@ -1,0 +1,6 @@
+parent: "Head[Tongue 0]"
+lockTranslation: true
+pose:
+  translation: [1.84839201, -1.29999999e-05, -1.49999996e-05, 0]
+  rotation: [-0, -0, 0, 1]
+  scale: [1, 1, 1, 0]

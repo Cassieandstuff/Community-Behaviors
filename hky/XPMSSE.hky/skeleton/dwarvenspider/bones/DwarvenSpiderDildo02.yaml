@@ -1,0 +1,5 @@
+parent: "DwarvenSpiderDildo01"
+pose:
+  translation: [3.47711205, 0.00042299999, 3.99999999e-06, 0]
+  rotation: [-0, 0, 0, 1]
+  scale: [0.999998987, 1, 1, 0]

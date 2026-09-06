@@ -1,0 +1,6 @@
+parent: "CO Base"
+lockTranslation: true
+pose:
+  translation: [5.27757978, 4.00109911, 1.99999999e-06, 0]
+  rotation: [9.00000032e-06, 3.00000011e-06, -0.999998987, 0.00147200003]
+  scale: [1, 1, 1, 0]

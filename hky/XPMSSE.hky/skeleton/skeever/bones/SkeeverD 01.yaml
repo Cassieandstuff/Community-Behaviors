@@ -1,0 +1,6 @@
+parent: "SkeeverDBase"
+lockTranslation: true
+pose:
+  translation: [5.39496613, 2.87394905, -3.99999999e-06, 0]
+  rotation: [-0, -0, -0.991949975, -0.126633003]
+  scale: [0.999998987, 1, 1, 0]

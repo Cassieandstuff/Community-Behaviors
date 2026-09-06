@@ -1,0 +1,6 @@
+parent: "SkeeverD 02"
+lockTranslation: true
+pose:
+  translation: [4.95948219, 3.99999999e-06, 3.00000011e-06, 0]
+  rotation: [9.99999997e-07, -0, 0.0591019988, 0.998251975]
+  scale: [1, 1, 1, 0]

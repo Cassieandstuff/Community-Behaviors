@@ -1,0 +1,6 @@
+parent: "RTentacleLeft01"
+lockTranslation: true
+pose:
+  translation: [5.00457811, -3.99999999e-06, -3.99999999e-06, 0]
+  rotation: [0, 0, 0, 1]
+  scale: [0.99999702, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "String00"
+lockTranslation: true
+pose:
+  translation: [10.0000019, 7.99999998e-06, 0, 0]
+  rotation: [-0, -0.766044021, 0, 0.642787993]
+  scale: [1, 1, 1, 0]

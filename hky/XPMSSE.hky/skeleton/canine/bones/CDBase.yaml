@@ -1,0 +1,6 @@
+parent: "Canine_Pelvis"
+lockTranslation: true
+pose:
+  translation: [-1.29999999e-05, 1.89833105, -5.45290422, 0]
+  rotation: [0.144816995, -0.692117989, 0.144816995, -0.692119002]
+  scale: [1, 1, 1, 0]

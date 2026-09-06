@@ -1,0 +1,6 @@
+parent: "FD 2"
+lockTranslation: true
+pose:
+  translation: [-5.03133821, -7.69717407, 1.51158595, 0]
+  rotation: [0.60609901, 0.364203006, 0.364201993, 0.606100023]
+  scale: [1, 1, 1, 0]

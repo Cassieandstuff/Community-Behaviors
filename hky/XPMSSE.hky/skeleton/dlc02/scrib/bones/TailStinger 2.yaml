@@ -1,0 +1,6 @@
+parent: "TailStinger"
+lockTranslation: true
+pose:
+  translation: [8.9743576, -11.498148, 3.99999999e-06, 0]
+  rotation: [-0.634373009, 0.312362999, 0.312362999, -0.634373009]
+  scale: [1, 1, 1, 0]

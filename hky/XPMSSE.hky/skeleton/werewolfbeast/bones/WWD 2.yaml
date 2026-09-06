@@ -1,0 +1,6 @@
+parent: "WWD 1"
+lockTranslation: true
+pose:
+  translation: [8.13358688, -1.49999996e-05, 1.99999999e-06, 0]
+  rotation: [-9.99999997e-07, 9.99999997e-07, 0.436426014, 0.899739981]
+  scale: [1, 1, 1, 0]

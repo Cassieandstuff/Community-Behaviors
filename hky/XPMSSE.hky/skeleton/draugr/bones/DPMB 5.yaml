@@ -1,0 +1,6 @@
+parent: "DPMB 4"
+lockTranslation: true
+pose:
+  translation: [-3.99999999e-06, -8.57493305, 5.14496613, 0]
+  rotation: [0.067110002, 0, 0, 0.997745991]
+  scale: [1, 1, 1, 0]

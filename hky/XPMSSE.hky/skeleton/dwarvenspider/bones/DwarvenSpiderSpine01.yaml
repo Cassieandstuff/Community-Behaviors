@@ -1,0 +1,5 @@
+parent: "DwarvenSpiderSpine02"
+pose:
+  translation: [-6.00000021e-06, 0.826599002, 14.218154, 0]
+  rotation: [0.978906989, 0, -0, 0.204306006]
+  scale: [1, 1, 1, 0]

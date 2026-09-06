@@ -1,0 +1,6 @@
+parent: "WormSpineRight01"
+lockTranslation: true
+pose:
+  translation: [1.29421794, 5.29999998e-05, 1.99999999e-06, 0]
+  rotation: [-0, 9.99999997e-07, 0.0144480001, 0.99989599]
+  scale: [1.00000298, 1.00000095, 1, 0]

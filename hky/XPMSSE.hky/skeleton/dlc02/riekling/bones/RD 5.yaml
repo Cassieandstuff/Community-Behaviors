@@ -1,0 +1,6 @@
+parent: "RD 4"
+lockTranslation: true
+pose:
+  translation: [2.67304993, 0.000232999999, 3.00000011e-06, 0]
+  rotation: [-9.99999997e-07, 0, 0, 1]
+  scale: [0.999998987, 1, 1, 0]

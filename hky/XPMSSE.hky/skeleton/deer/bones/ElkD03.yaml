@@ -1,0 +1,6 @@
+parent: "ElkD02"
+lockTranslation: true
+pose:
+  translation: [13.3581095, -0.000159999996, 9.99999975e-06, 0]
+  rotation: [0, 0, 0.00592999998, 0.999981999]
+  scale: [1, 1, 1, 0]

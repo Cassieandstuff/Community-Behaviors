@@ -1,0 +1,6 @@
+parent: "BoarDick01"
+lockTranslation: true
+pose:
+  translation: [-9.99999997e-07, 6.5, -1.10000001e-05, 0]
+  rotation: [-0.00268699997, 0.0356119983, 7.6999997e-05, 0.999361992]
+  scale: [1, 1, 1, 0]

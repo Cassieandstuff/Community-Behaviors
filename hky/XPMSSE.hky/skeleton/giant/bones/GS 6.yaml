@@ -1,0 +1,6 @@
+parent: "GS 5"
+lockTranslation: true
+pose:
+  translation: [4.84648085, -6.90000015e-05, 5.09999991e-05, 0]
+  rotation: [-1.99999999e-06, 0, 0.000632999989, 1]
+  scale: [1.00000095, 1, 1, 0]

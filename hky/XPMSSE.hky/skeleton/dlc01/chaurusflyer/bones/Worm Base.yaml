@@ -1,0 +1,6 @@
+parent: "ChaurusFlyerTail7"
+lockTranslation: true
+pose:
+  translation: [-7.0000001e-06, 3.83493805, -1.42493403, 0]
+  rotation: [-0.707102001, -0.00262499996, 0.707102001, 0.00263100001]
+  scale: [1.00003302, 1, 1, 0]

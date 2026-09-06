@@ -1,0 +1,6 @@
+parent: "SCD 1"
+lockTranslation: true
+pose:
+  translation: [14.8058891, -7.0000001e-06, 7.99999998e-06, 0]
+  rotation: [-0, 0, 0.0446280017, 0.999004006]
+  scale: [1.00000095, 1, 1, 0]

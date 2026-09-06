@@ -1,0 +1,6 @@
+parent: "BoarDickBase"
+lockTranslation: true
+pose:
+  translation: [-0, -2.00000405, 4.00001097, 0]
+  rotation: [-0, 0, 0, 1]
+  scale: [1, 1, 1, 0]

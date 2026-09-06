@@ -1,0 +1,6 @@
+parent: "Pelvis"
+lockTranslation: true
+pose:
+  translation: [7.0000001e-06, 8.0713768, -1.59260094, 0]
+  rotation: [0.210108995, -0.675170004, 0.210108995, -0.675170004]
+  scale: [1.00000095, 1, 1, 0]

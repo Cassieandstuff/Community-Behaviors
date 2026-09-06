@@ -1,0 +1,6 @@
+parent: "Genitals"
+lockTranslation: true
+pose:
+  translation: [-6.99999809, 16.0000076, 4.99999987e-06, 0]
+  rotation: [0.175469995, 0.684989989, 0.175469995, -0.684988976]
+  scale: [1, 1, 1, 0]

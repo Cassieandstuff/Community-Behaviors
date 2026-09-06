@@ -1,0 +1,6 @@
+parent: "WWTongue 3"
+lockTranslation: true
+pose:
+  translation: [3.71589303, 0, -9.99999975e-06, 0]
+  rotation: [-0, -0, -0.00636299979, 0.999979973]
+  scale: [1, 1, 1, 0]

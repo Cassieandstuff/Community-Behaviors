@@ -1,0 +1,6 @@
+parent: "NPC LeechFront2 A"
+lockTranslation: true
+pose:
+  translation: [0, 0, 1.80039406, 0]
+  rotation: [0, 0, 0, 1]
+  scale: [1, 1, 1, 0]

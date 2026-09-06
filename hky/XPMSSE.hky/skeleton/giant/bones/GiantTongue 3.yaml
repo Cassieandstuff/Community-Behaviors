@@ -1,0 +1,6 @@
+parent: "GiantTongue 2"
+lockTranslation: true
+pose:
+  translation: [1.29722595, -0.000153000001, 9.99999997e-07, 0]
+  rotation: [0, 0, -0.0192050003, 0.999816]
+  scale: [1.00000298, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "NPC IceCover01"
+lockTranslation: true
+pose:
+  translation: [4.44340515, -2.99999992e-05, -1.99999995e-05, 0]
+  rotation: [9.99999997e-07, 1.99999999e-06, 0.286794007, -0.957992017]
+  scale: [1.00000095, 1.00000095, 1, 0]

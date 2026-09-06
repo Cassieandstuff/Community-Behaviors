@@ -1,0 +1,5 @@
+parent: "DwarvenSpiderTail"
+pose:
+  translation: [15.9595928, -7.99999998e-06, -9.99999997e-07, 0]
+  rotation: [0, -0, 0.820133984, 0.572170973]
+  scale: [1, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "HS 5"
+lockTranslation: true
+pose:
+  translation: [7.48035383, 0, -1.10000001e-05, 0]
+  rotation: [0, 0, -0.100321002, 0.994955003]
+  scale: [1, 1, 1, 0]

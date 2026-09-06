@@ -1,0 +1,6 @@
+parent: "RD Base"
+lockTranslation: true
+pose:
+  translation: [7.102633, -8.75713253, -1.047086, 0]
+  rotation: [-0.299037009, -0.640761971, 0.640762985, 0.299037993]
+  scale: [1.00000095, 1, 1, 0]

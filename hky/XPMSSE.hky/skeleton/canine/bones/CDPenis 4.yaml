@@ -1,0 +1,6 @@
+parent: "CDPenis 3"
+lockTranslation: true
+pose:
+  translation: [2.09553504, -0.000442999997, -1.99999999e-06, 0]
+  rotation: [9.99999997e-07, 1.99999999e-06, 0.0243159998, 0.999704003]
+  scale: [1, 1, 1, 0]

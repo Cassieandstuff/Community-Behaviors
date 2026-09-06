@@ -1,0 +1,6 @@
+parent: "ElkPelvis"
+lockTranslation: true
+pose:
+  translation: [-7.99999998e-06, 9.90666962, -23.8023853, 0]
+  rotation: [0.371895999, 0.601409972, 0.371895999, 0.601409018]
+  scale: [1, 1, 1, 0]

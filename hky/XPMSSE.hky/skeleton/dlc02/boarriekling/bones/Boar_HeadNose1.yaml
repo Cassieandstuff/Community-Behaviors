@@ -1,0 +1,6 @@
+parent: "Boar_Head"
+lockTranslation: true
+pose:
+  translation: [25.2117767, 7.16633606, -1.10000001e-05, 0]
+  rotation: [-0, 0, 0.258819014, 0.965925992]
+  scale: [1, 1, 1, 0]

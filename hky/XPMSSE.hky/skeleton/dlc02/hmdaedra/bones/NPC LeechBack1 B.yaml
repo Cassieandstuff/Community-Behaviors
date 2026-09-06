@@ -1,0 +1,6 @@
+parent: "NPC LeechCenter B"
+lockTranslation: true
+pose:
+  translation: [0.000234000006, 2.30000005e-05, -1.22667897, 0]
+  rotation: [0, -0, 0, 1]
+  scale: [1, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "NPC Head [Head]"
+lockTranslation: true
+pose:
+  translation: [-3.5618751, 13.5571213, 6.5266571, 0]
+  rotation: [0.107864998, -0.0146679999, 0.0400619991, 0.993250012]
+  scale: [1, 1, 1, 0]

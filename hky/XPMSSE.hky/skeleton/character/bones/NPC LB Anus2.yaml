@@ -1,0 +1,6 @@
+parent: "NPC LB Anus1"
+lockTranslation: true
+pose:
+  translation: [-0.753203988, -0.0598599985, 0.431540012, 0]
+  rotation: [0.005076, 0, 0, 0.999987006]
+  scale: [1, 1, 1, 0]

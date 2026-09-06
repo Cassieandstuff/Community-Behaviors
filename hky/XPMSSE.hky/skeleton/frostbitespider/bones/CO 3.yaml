@@ -1,0 +1,6 @@
+parent: "CO 2"
+lockTranslation: true
+pose:
+  translation: [4.69736481, 1.10000001e-05, 2.20000002e-05, 0]
+  rotation: [-0, 1.99999999e-06, 0.0710899979, -0.997470021]
+  scale: [1.00000298, 1, 1, 0]

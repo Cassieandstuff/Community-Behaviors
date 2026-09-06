@@ -1,0 +1,34 @@
+# Added-bone order for this skeleton layer, in the SOURCE skeleton's native bone order
+# (XP32 Maximum Skeleton Special Extended). Vanilla HKX-target animations resolve bone
+# tracks by INDEX, so the appended bones must land at the same indices XPMSSE uses or every
+# track maps to the wrong bone -> A-pose. Without this list the loader falls back to
+# alphabetical filename order, which scrambles indices 99+. (BR-native animations resolve by
+# name and don't need this; it's the compat layer for the existing HKX animation corpus.)
+index:
+  - "NPC L Item01"
+  - "NPC L Item02"
+  - "NPC L Item03"
+  - "NPC R Item01"
+  - "NPC R Item02"
+  - "NPC R Item03"
+  - "LeftWing1"
+  - "LeftWing2"
+  - "LeftWing3"
+  - "LeftWing4"
+  - "LeftWing5"
+  - "RightWing1"
+  - "RightWing2"
+  - "RightWing3"
+  - "RightWing4"
+  - "RightWing5"
+  - "Belly"
+  - "NPC Anus Deep1"
+  - "NPC RB Anus1"
+  - "NPC LB Anus1"
+  - "NPC LT Anus1"
+  - "NPC RT Anus1"
+  - "NPC Anus Deep2"
+  - "NPC RB Anus2"
+  - "NPC LB Anus2"
+  - "NPC LT Anus2"
+  - "NPC RT Anus2"

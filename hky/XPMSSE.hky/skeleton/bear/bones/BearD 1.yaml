@@ -1,0 +1,6 @@
+parent: "BearDBase"
+lockTranslation: true
+pose:
+  translation: [-5.04679918, 3.9486239, 1.99999999e-06, 0]
+  rotation: [-0, -0, -0.994493008, -0.104808003]
+  scale: [1, 1, 1, 0]

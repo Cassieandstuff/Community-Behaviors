@@ -1,0 +1,6 @@
+parent: "DD 2"
+lockTranslation: true
+pose:
+  translation: [4.26434278, -1.49999996e-05, 9.99999997e-07, 0]
+  rotation: [-1.99999999e-06, -1.99999999e-06, 0.0206799991, 0.999786019]
+  scale: [1, 1, 1, 0]

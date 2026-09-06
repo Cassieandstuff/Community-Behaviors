@@ -1,0 +1,6 @@
+parent: "NPC Root [Root]"
+lockTranslation: true
+pose:
+  translation: [4.99999987e-06, 49.9999886, -1.10000001e-05, 0]
+  rotation: [-0.5, -0.5, -0.5, 0.5]
+  scale: [1, 1, 1, 0]

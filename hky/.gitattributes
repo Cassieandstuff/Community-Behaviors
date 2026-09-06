@@ -1,0 +1,8 @@
+# .hky source trees are BYTE-SENSITIVE and must round-trip through hky-pack unchanged:
+#   - the frozen vanilla master's animationdata / setdata / roster .txt are CRLF-terminated
+#     (the animdata format is CRLF; the root .gitattributes would otherwise normalize them to LF),
+#   - skeleton units ship as binary .hkx.
+# `* -text` disables EOL conversion (byte-preserve) while still allowing text diffs on the YAML;
+# `*.hkx binary` also suppresses diff/merge on the binaries.
+* -text
+*.hkx binary

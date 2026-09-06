@@ -1,0 +1,6 @@
+parent: "Tail[Tal3]"
+lockTranslation: true
+pose:
+  translation: [0.84552002, -3.95097709, -7.59999966e-05, 0]
+  rotation: [0, -0, -0.0810099989, 0.996712983]
+  scale: [1, 1, 1, 0]

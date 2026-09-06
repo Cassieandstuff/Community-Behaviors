@@ -1,0 +1,6 @@
+parent: "DPMA 4"
+lockTranslation: true
+pose:
+  translation: [-9.99999975e-06, -9.28476238, -3.71391296, 0]
+  rotation: [0.0914269984, 0, -0, 0.995811999]
+  scale: [1, 1, 1, 0]

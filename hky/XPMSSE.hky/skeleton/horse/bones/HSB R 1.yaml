@@ -1,0 +1,6 @@
+parent: "HS Base"
+lockTranslation: true
+pose:
+  translation: [22.0594177, 10.2408009, -3.11138296, 0]
+  rotation: [-0.242445007, 0.685581982, 0.647163987, -0.228859007]
+  scale: [1.00000095, 1, 1, 0]

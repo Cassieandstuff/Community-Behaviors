@@ -1,0 +1,6 @@
+parent: "CDBase"
+lockTranslation: true
+pose:
+  translation: [2.30024695, 10.3750839, 3.99999999e-06, 0]
+  rotation: [-0, 0, -0.710402012, -0.703796029]
+  scale: [1, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "HorsePenisFlareTop1"
+lockTranslation: true
+pose:
+  translation: [4.47989988, -0.00579999993, 0, 0]
+  rotation: [0, 0, 0, 1]
+  scale: [1, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "NPC Jaw [Jaw]"
+lockTranslation: true
+pose:
+  translation: [0.212060004, -3.60890198, 0.0946350023, 0]
+  rotation: [-0.0868370011, -0.705238998, 0.0847840011, 0.698504984]
+  scale: [1, 1, 1, 0]

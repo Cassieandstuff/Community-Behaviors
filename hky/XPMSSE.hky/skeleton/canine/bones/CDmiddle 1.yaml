@@ -1,0 +1,6 @@
+parent: "CD 1"
+lockTranslation: true
+pose:
+  translation: [2.93046188, 0.00546299992, 1.99999999e-06, 0]
+  rotation: [0, 0, 0.638309002, 0.76977998]
+  scale: [1, 1, 1, 0]

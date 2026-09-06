@@ -1,0 +1,6 @@
+parent: "GS Base"
+lockTranslation: true
+pose:
+  translation: [23.3272705, -7.37886, 2.25366402, 0]
+  rotation: [-0.0213040002, -0.136573002, -0.490287006, 0.860530019]
+  scale: [1, 1, 1, 0]
