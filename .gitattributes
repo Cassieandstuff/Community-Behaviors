@@ -1,0 +1,18 @@
+# Default: normalize text to CRLF on this Windows-only project.
+* text=auto eol=crlf
+
+# Binary assets — never touch.
+*.hkx  binary
+*.hky  binary
+*.bsa  binary
+*.nif  binary
+*.dds  binary
+*.tri  binary
+*.esp  binary
+*.esm  binary
+*.esl  binary
+
+# .hky YAML bundle trees carry CRLF-terminated animationdata/setdata .txt whose bytes are
+# CRC-significant — LF normalization corrupts the packed output. Keep the whole tree verbatim.
+hky/** -text
+Havok/** -text
