@@ -1,0 +1,12 @@
+name:      hkbExpressionData
+parent:    null
+signature: 0x6740042a
+size:      24
+fields:
+  - { name: expression,              type: string }
+  - { name: assignmentVariableIndex, type: int32 }
+  - { name: assignmentEventIndex,    type: int32 }
+  - { name: eventMode,               type: int8 }
+  - { name: raisedEvent,             type: bool }
+  - { name: wasTrueInPreviousFrame,  type: bool }
+  - { skip: 5 }

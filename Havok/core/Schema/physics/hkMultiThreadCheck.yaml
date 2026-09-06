@@ -1,0 +1,7 @@
+name:      hkMultiThreadCheck
+parent:    null
+signature: 0x11e4408b
+size:      12
+# All fields SERIALIZE_IGNORED (a 12-byte skip).
+fields:
+  - { skip: 12 }

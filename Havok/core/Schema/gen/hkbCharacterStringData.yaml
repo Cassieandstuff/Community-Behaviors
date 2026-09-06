@@ -1,0 +1,18 @@
+name:      hkbCharacterStringData
+parent:    hkReferencedObject
+signature: 0x655b42bc
+size:      192
+fields:
+  - { name: deformableSkinNames, type: stringarray }
+  - { name: rigidSkinNames,      type: stringarray }
+  - { name: animationNames,      type: stringarray }
+  - { name: animationFilenames,  type: stringarray }
+  - { name: characterPropertyNames, type: stringarray }
+  - { name: retargetingSkeletonMapperFilenames, type: stringarray }
+  - { name: lodNames,            type: stringarray }
+  - { name: mirroredSyncPointSubstringsA, type: stringarray }
+  - { name: mirroredSyncPointSubstringsB, type: stringarray }
+  - { name: name,             type: string }
+  - { name: rigName,          type: string }
+  - { name: ragdollName,      type: string }
+  - { name: behaviorFilename, type: string }

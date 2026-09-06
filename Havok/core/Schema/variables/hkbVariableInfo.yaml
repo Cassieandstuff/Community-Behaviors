@@ -1,0 +1,8 @@
+name:      hkbVariableInfo
+parent:    null
+signature: 0x9e746ba2
+size:      6
+fields:
+  - { name: role, type: struct, ref: hkbRoleAttribute }   # inline value member
+  - { name: type, type: int8 }                            # ReadSByte (enum VariableType)
+  - { skip: 1 }

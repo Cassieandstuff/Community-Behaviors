@@ -1,0 +1,9 @@
+name:      hkpSetLocalTransformsConstraintAtom
+parent:    null
+signature: 0x6e2a5198
+size:      144
+fields:
+  - { name: type,       type: uint16 }                    # @0
+  - { skip: 14 }                                          # pad -> 16
+  - { name: transformA, type: struct, ref: hkTransform }  # @16 (64B)
+  - { name: transformB, type: struct, ref: hkTransform }  # @80 (64B)

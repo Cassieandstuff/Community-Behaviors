@@ -1,0 +1,7 @@
+name:      hkbRoleAttribute
+parent:    null
+signature: 0x3eb2e082
+size:      4
+fields:
+  - { name: role,  type: int16 }
+  - { name: flags, type: int16 }

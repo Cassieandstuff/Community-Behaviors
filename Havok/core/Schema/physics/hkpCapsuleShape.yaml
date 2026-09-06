@@ -1,0 +1,8 @@
+name:      hkpCapsuleShape
+parent:    hkpConvexShape
+signature: 0xdd0b1fd3
+size:      80
+fields:
+  - { skip: 8 }                     # pad 40 -> 48 (16-align the Vector4 pair)
+  - { name: vertexA, type: vector4 }
+  - { name: vertexB, type: vector4 }

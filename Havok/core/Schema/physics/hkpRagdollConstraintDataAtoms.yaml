@@ -1,0 +1,14 @@
+name:      hkpRagdollConstraintDataAtoms
+parent:    null
+signature: 0xeed76b00
+size:      352
+fields:
+  - { name: transforms,         type: struct, ref: hkpSetLocalTransformsConstraintAtom }  # @0   (144B)
+  - { name: setupStabilization, type: struct, ref: hkpSetupStabilizationAtom }            # @144 (16B)
+  - { name: ragdollMotors,      type: struct, ref: hkpRagdollMotorConstraintAtom }        # @160 (96B)
+  - { name: angFriction,        type: struct, ref: hkpAngFrictionConstraintAtom }         # @256 (12B)
+  - { name: twistLimit,         type: struct, ref: hkpTwistLimitConstraintAtom }          # @268 (20B)
+  - { name: coneLimit,          type: struct, ref: hkpConeLimitConstraintAtom }           # @288 (20B)
+  - { name: planesLimit,        type: struct, ref: hkpConeLimitConstraintAtom }           # @308 (20B, same type)
+  - { name: ballSocket,         type: struct, ref: hkpBallSocketConstraintAtom }          # @328 (16B)
+  - { skip: 8 }                                                                           # tail pad -> 352

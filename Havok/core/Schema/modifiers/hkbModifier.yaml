@@ -1,0 +1,8 @@
+name:      hkbModifier
+parent:    hkbNode
+signature: 0x96ec5ced
+size:      80
+fields:
+  - { name: enable,      type: bool }
+  - { name: padModifier, type: boolarray, count: 3, ignored: true }
+  - { skip: 4 }

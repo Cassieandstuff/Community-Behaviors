@@ -1,0 +1,6 @@
+name:      hkTransform
+parent:    null
+size:      64
+# 64-byte value type (no HK_CLASS_ID / signature): 4 consecutive Vector4 (rotation cols + translation).
+fields:
+  - { name: data, type: vector4, count: 4 }

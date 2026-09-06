@@ -1,0 +1,10 @@
+name:      hkpSetupStabilizationAtom
+parent:    null
+signature: 0xf05d137e
+size:      16
+fields:
+  - { name: type,     type: uint16 }             # @0
+  - { name: enabled,  type: bool }               # @2
+  - { skip: 1 }                                  # @3 pad
+  - { name: maxAngle, type: float }              # @4
+  - { name: padding,  type: byte, count: 8 }     # @8 real serialized [u8;8]

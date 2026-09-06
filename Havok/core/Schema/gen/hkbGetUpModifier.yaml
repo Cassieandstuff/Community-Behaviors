@@ -1,0 +1,16 @@
+name:      hkbGetUpModifier
+parent:    hkbModifier
+signature: 0x61cb7ac0
+size:      128
+fields:
+  - { name: groundNormal, type: vector4 }
+  - { name: duration,                type: float }
+  - { name: alignWithGroundDuration, type: float }
+  - { name: rootBoneIndex,    type: int16 }
+  - { name: otherBoneIndex,   type: int16 }
+  - { name: anotherBoneIndex, type: int16 }
+  - { skip: 2 }
+  - { name: timeSinceBegin, type: float , ignored: true }
+  - { name: timeStep,       type: float , ignored: true }
+  - { name: initNextModify, type: bool , ignored: true }
+  - { skip: 7 }

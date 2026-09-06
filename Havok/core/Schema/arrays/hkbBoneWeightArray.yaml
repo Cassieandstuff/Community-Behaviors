@@ -1,0 +1,6 @@
+name:      hkbBoneWeightArray
+parent:    hkbBindable
+signature: 0xcd902b77
+size:      64
+fields:
+  - { name: boneWeights, type: scalararray, scalar: float }   # ReadSingleArray

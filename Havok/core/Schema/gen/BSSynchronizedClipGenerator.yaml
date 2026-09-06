@@ -1,0 +1,30 @@
+name:      BSSynchronizedClipGenerator
+parent:    hkbGenerator
+signature: 0xd83bea64
+size:      304
+fields:
+  - { skip: 8 }
+  - { name: pClipGenerator,   type: ptr, ref: hkbGenerator }
+  - { name: SyncAnimPrefix,   type: cstring }
+  - { name: bSyncClipIgnoreMarkPlacement, type: bool }
+  - { skip: 3 }
+  - { name: fGetToMarkTime,      type: float }
+  - { name: fMarkErrorThreshold, type: float }
+  - { name: bLeadCharacter,      type: bool }
+  - { name: bReorientSupportChar, type: bool }
+  - { name: bApplyMotionFromRoot, type: bool }
+  - { skip: 1 }
+  - { empty: ptr }
+  - { skip: 8 }
+  - { name: StartMarkWS, type: qstransform }
+  - { name: EndMarkWS,   type: qstransform }
+  - { name: StartMarkMS, type: qstransform }
+  - { name: fCurrentLerp, type: float }
+  - { skip: 4 }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { name: sAnimationBindingIndex, type: int16 }
+  - { name: bAtMark,               type: bool }
+  - { name: bAllCharactersInScene, type: bool }
+  - { name: bAllCharactersAtMarks, type: bool }
+  - { skip: 3 }

@@ -1,0 +1,12 @@
+name:      hkbClipTrigger
+parent:    null
+signature: 0x7eb45cea
+size:      32
+fields:
+  - { name: localTime,          type: float }
+  - { skip: 4 }
+  - { name: event,              type: struct, ref: hkbEventProperty }
+  - { name: relativeToEndOfClip, type: bool }
+  - { name: acyclic,            type: bool }
+  - { name: isAnnotation,       type: bool }
+  - { skip: 5 }

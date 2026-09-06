@@ -1,0 +1,16 @@
+name:      hkpConeLimitConstraintAtom
+parent:    null
+signature: 0xf19443c8
+size:      20
+# Reused for both coneLimit and planesLimit.
+fields:
+  - { name: type,                  type: uint16 }   # @0
+  - { name: isEnabled,             type: byte }     # @2
+  - { name: twistAxisInA,          type: byte }     # @3
+  - { name: refAxisInB,            type: byte }     # @4
+  - { name: angleMeasurementMode,  type: byte }     # @5
+  - { name: memOffsetToAngleOffset, type: byte }    # @6
+  - { skip: 1 }                                     # @7 pad
+  - { name: minAngle,  type: float }    # @8
+  - { name: maxAngle,  type: float }    # @12
+  - { name: angularLimitsTauFactor, type: float }  # @16

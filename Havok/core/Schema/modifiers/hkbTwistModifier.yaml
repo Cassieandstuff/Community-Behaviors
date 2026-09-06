@@ -1,0 +1,15 @@
+name:      hkbTwistModifier
+parent:    hkbModifier
+signature: 0xb6b76b32
+size:      144
+fields:
+  - { name: axisOfRotation,          type: vector4 }
+  - { name: twistAngle,              type: float }
+  - { name: startBoneIndex,          type: int16 }
+  - { name: endBoneIndex,            type: int16 }
+  - { name: setAngleMethod,          type: int8, enum: SetAngleMethod }
+  - { name: rotationAxisCoordinates, type: int8, enum: RotationAxisCoordinates }
+  - { name: isAdditive,              type: bool }
+  - { skip: 5 }
+  - { name: boneChainIndices,  type: scalararray, scalar: int16 }
+  - { name: parentBoneIndices, type: scalararray, scalar: int16 }

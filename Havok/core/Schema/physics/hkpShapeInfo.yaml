@@ -1,0 +1,12 @@
+name:      hkpShapeInfo
+parent:    hkReferencedObject
+signature: 0xea7f1d08
+size:      128
+fields:
+  - { name: shape,                  type: ptr, ref: hkpShape }   # @16
+  - { name: isHierarchicalCompound, type: bool }                 # @24
+  - { name: hkdShapesCollected,     type: bool }                 # @25
+  - { skip: 6 }                                                  # pad -> 32
+  - { name: childShapeNames,        type: stringarray }          # @32
+  - { name: childTransforms,        type: structarray, ref: hkTransform }  # @48
+  - { name: transform,              type: struct, ref: hkTransform }       # @64 (64B)

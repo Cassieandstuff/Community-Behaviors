@@ -1,0 +1,13 @@
+name:      hkpWorldObject
+parent:    hkReferencedObject
+signature: 0x49fb6f2e
+size:      208
+fields:
+  - { empty: ptr }                                 # @16 m_world (IGNORED)
+  - { name: userData,       type: uint64 }         # @24 hkUlong
+  - { name: collidable,     type: struct, ref: hkpLinkedCollidable }  # @32 (128B)
+  - { name: multiThreadCheck, type: struct, ref: hkMultiThreadCheck } # @160 (12B)
+  - { skip: 4 }                                     # pad -> 176
+  - { name: name,           type: string }          # @176
+  - { name: properties,     type: structarray, ref: hkpProperty }     # @184
+  - { empty: ptr }                                  # @200 m_treeData (IGNORED)

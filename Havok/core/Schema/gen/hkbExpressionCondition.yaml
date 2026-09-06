@@ -1,0 +1,7 @@
+name:      hkbExpressionCondition
+parent:    hkbCondition
+signature: 0x1c3c1045
+size:      32
+fields:
+  - { name: expression, type: string }
+  - { empty: ptr }

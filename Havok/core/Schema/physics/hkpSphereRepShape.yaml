@@ -1,0 +1,6 @@
+name:      hkpSphereRepShape
+parent:    hkpShape
+signature: 0xe7eca7eb
+size:      32
+# Abstract intermediate, no own serialized members.
+fields: []

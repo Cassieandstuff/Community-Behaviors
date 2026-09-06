@@ -1,0 +1,9 @@
+name:      hkaBone
+parent:    null
+signature: 0x35912f8a
+size:      16
+# Plain inline struct stored by value in hkaSkeleton::m_bones.
+fields:
+  - { name: name,            type: string }
+  - { name: lockTranslation, type: bool }
+  - { skip: 7 }

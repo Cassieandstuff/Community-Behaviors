@@ -1,0 +1,6 @@
+name:      hkbFootIkControlData
+parent:    null
+signature: 0xa111b704
+size:      48
+fields:
+  - { name: gains, type: struct, ref: hkbFootIkGains }

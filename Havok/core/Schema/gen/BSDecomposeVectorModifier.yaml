@@ -1,0 +1,10 @@
+name:      BSDecomposeVectorModifier
+parent:    hkbModifier
+signature: 0x31f6b8b6
+size:      112
+fields:
+  - { name: vector, type: vector4 }
+  - { name: x, type: float }
+  - { name: y, type: float }
+  - { name: z, type: float }
+  - { name: w, type: float }

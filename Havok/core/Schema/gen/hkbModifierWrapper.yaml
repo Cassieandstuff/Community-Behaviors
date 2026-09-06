@@ -1,0 +1,6 @@
+name:      hkbModifierWrapper
+parent:    hkbModifier
+signature: 0x3697e044
+size:      88
+fields:
+  - { name: modifier, type: ptr, ref: hkbModifier }

@@ -1,0 +1,7 @@
+name:      hkbMirroredSkeletonInfo
+parent:    hkReferencedObject
+signature: 0xc6c2da4f
+size:      48
+fields:
+  - { name: mirrorAxis,  type: vector4 }
+  - { name: bonePairMap, type: scalararray, scalar: int16 }

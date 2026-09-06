@@ -1,0 +1,11 @@
+name:      hkpMaterial
+parent:    null
+signature: 0x33be6570
+size:      16
+fields:
+  - { name: responseType,              type: byte }   # @0 enum ResponseType
+  - { skip: 1 }
+  - { name: rollingFrictionMultiplier, type: half }   # @2
+  - { name: friction,                  type: float }  # @4
+  - { name: restitution,               type: float }  # @8
+  - { skip: 4 }                                        # tail pad -> 16

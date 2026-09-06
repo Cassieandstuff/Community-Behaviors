@@ -1,0 +1,17 @@
+name:      hkbFootIkGains
+parent:    null
+signature: 0xa681b7f0
+size:      48
+fields:
+  - { name: onOffGain,                 type: float }
+  - { name: groundAscendingGain,       type: float }
+  - { name: groundDescendingGain,      type: float }
+  - { name: footPlantedGain,           type: float }
+  - { name: footRaisedGain,            type: float }
+  - { name: footUnlockGain,            type: float }
+  - { name: worldFromModelFeedbackGain, type: float }
+  - { name: errorUpDownBias,           type: float }
+  - { name: alignWorldFromModelGain,   type: float }
+  - { name: hipOrientationGain,        type: float }
+  - { name: maxKneeAngleDifference,    type: float }
+  - { name: ankleOrientationGain,      type: float }

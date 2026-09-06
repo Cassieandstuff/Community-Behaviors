@@ -1,0 +1,10 @@
+name:      hkpCdBody
+parent:    null
+signature: 0x54a4b841
+size:      32
+fields:
+  - { name: shape,    type: ptr, ref: hkpShape }   # @0
+  - { name: shapeKey, type: uint32 }               # @8
+  - { skip: 4 }                                     # @12 pad
+  - { empty: ptr }                                  # @16 m_motion (IGNORED)
+  - { empty: ptr }                                  # @24 m_parent (IGNORED)

@@ -1,0 +1,14 @@
+name:      hkbBehaviorGraphData
+parent:    hkReferencedObject
+signature: 0x095aca5d
+size:      128
+# Variable/event metadata + defaults.
+fields:
+  - { name: attributeDefaults,      type: scalararray, scalar: float }
+  - { name: variableInfos,          type: structarray, ref: hkbVariableInfo }
+  - { name: characterPropertyInfos, type: structarray, ref: hkbVariableInfo }
+  - { name: eventInfos,             type: structarray, ref: hkbEventInfo }
+  - { name: wordMinVariableValues,  type: structarray, ref: hkbVariableValue }
+  - { name: wordMaxVariableValues,  type: structarray, ref: hkbVariableValue }
+  - { name: variableInitialValues,  type: ptr, ref: hkbVariableValueSet }
+  - { name: stringData,             type: ptr, ref: hkbBehaviorGraphStringData }

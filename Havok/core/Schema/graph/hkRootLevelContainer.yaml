@@ -1,0 +1,7 @@
+name:      hkRootLevelContainer
+parent:    null
+signature: 0x2772c11e
+size:      16
+# The packfile's top-level root.
+fields:
+  - { name: namedVariants, type: structarray, ref: hkRootLevelContainerNamedVariant }

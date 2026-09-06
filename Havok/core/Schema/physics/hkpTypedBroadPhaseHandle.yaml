@@ -1,0 +1,11 @@
+name:      hkpTypedBroadPhaseHandle
+parent:    null
+signature: 0xf4b0f799
+size:      12
+fields:
+  - { skip: 4 }                                # hkpBroadPhaseHandle base: m_id (IGNORED)
+  - { name: type,                type: int8 }  # @4
+  - { skip: 1 }                                # @5 m_ownerOffset (IGNORED)
+  - { name: objectQualityType,   type: int8 }  # @6
+  - { skip: 1 }                                # @7 pad
+  - { name: collisionFilterInfo, type: uint32 } # @8

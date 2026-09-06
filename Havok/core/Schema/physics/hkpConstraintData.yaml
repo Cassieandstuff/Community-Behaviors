@@ -1,0 +1,6 @@
+name:      hkpConstraintData
+parent:    hkReferencedObject
+signature: 0x80559a4e
+size:      24
+fields:
+  - { name: userData, type: uint64 }   # @16 (ConstraintType enum has zero serialized width)

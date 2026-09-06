@@ -1,0 +1,10 @@
+name:      hkbWorldFromModelModeData
+parent:    null
+signature: 0xa3af8783
+size:      8
+fields:
+  - { name: poseMatchingBone0, type: int16 }
+  - { name: poseMatchingBone1, type: int16 }
+  - { name: poseMatchingBone2, type: int16 }
+  - { name: mode, type: int8 }
+  - { skip: 1 }

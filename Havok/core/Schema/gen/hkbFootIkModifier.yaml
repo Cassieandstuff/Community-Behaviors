@@ -1,0 +1,23 @@
+name:      hkbFootIkModifier
+parent:    hkbModifier
+signature: 0xed8966c0
+size:      256
+fields:
+  - { name: gains, type: struct, ref: hkbFootIkGains }
+  - { name: legs,  type: structarray, ref: hkbFootIkModifierLeg }
+  - { name: raycastDistanceUp,      type: float }
+  - { name: raycastDistanceDown,    type: float }
+  - { name: originalGroundHeightMS, type: float }
+  - { name: errorOut,               type: float }
+  - { name: errorOutTranslation,     type: vector4 }
+  - { name: alignWithGroundRotation, type: quaternion }
+  - { name: verticalOffset,       type: float }
+  - { name: collisionFilterInfo,  type: uint32 }
+  - { name: forwardAlignFraction, type: float }
+  - { name: sidewaysAlignFraction, type: float }
+  - { name: sidewaysSampleWidth,  type: float }
+  - { name: useTrackData,         type: bool }
+  - { name: lockFeetWhenPlanted,  type: bool }
+  - { name: useCharacterUpVector, type: bool }
+  - { name: alignMode,            type: int8 }
+  - { skip: 40 }                             # internalLegData + runtime state (ignored)

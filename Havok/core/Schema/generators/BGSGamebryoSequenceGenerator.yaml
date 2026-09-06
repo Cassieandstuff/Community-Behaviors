@@ -1,0 +1,15 @@
+name:      BGSGamebryoSequenceGenerator
+parent:    hkbGenerator
+signature: 0xc8df2d77
+size:      112
+# Plays a Gamebryo .kf sequence.
+fields:
+  - { name: pSequence,          type: string }
+  - { name: eBlendModeFunction, type: int8, enum: BlendModeFunction }
+  - { skip: 3 }
+  - { name: fPercent,           type: float }
+  - { empty: array }                            # m_events (SERIALIZE_IGNORED, always empty)
+  - { name: fTime,              type: float, ignored: true }
+  - { name: bDelayedActivate,   type: bool,  ignored: true }
+  - { name: bLooping,           type: bool,  ignored: true }
+  - { skip: 2 }

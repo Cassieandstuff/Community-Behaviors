@@ -1,0 +1,14 @@
+name:      BSTweenerModifier
+parent:    hkbModifier
+signature: 0x0d2d9a04
+size:      208
+fields:
+  - { name: tweenPosition,    type: bool }
+  - { name: tweenRotation,    type: bool }
+  - { name: useTweenDuration, type: bool }
+  - { skip: 1 }
+  - { name: tweenDuration, type: float }
+  - { skip: 8 }
+  - { name: targetPosition, type: vector4 }
+  - { name: targetRotation, type: quaternion }
+  - { skip: 80 }                             # duration+startTransform+time (ignored)

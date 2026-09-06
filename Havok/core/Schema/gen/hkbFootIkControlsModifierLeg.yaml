@@ -1,0 +1,11 @@
+name:      hkbFootIkControlsModifierLeg
+parent:    null
+signature: 0x9e17091a
+size:      48
+fields:
+  - { name: groundPosition,  type: vector4 }
+  - { name: ungroundedEvent, type: struct, ref: hkbEventProperty }
+  - { name: verticalError,   type: float }
+  - { name: hitSomething,    type: bool }
+  - { name: isPlantedMS,     type: bool }
+  - { skip: 10 }

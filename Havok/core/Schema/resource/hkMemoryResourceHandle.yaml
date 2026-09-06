@@ -1,0 +1,9 @@
+name:      hkMemoryResourceHandle
+parent:    hkReferencedObject
+signature: 0xbffac086
+size:      48
+# Parent hkResourceHandle chain adds no serialized members (extends hkReferencedObject byte-identically).
+fields:
+  - { name: variant,    type: ptr, ref: hkReferencedObject }
+  - { name: name,       type: string }
+  - { name: references, type: structarray, ref: hkMemoryResourceHandleExternalLink }

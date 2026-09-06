@@ -1,0 +1,18 @@
+# The schema version — the ONE identity of the Havok/ class-layout + merge-policy contract.
+#
+# This is the editor <-> compiler contract stamp. Every consumer (havok-io codegen, the merge
+# engine, the compiler, an external exporter) reads this one value; a produced .hky echoes it into
+# its manifest, and the compiler gates ingest on it. See docs/behavior-relay (schema-version-stamp)
+# for the full scheme.
+#
+# ONE tree = ONE contract = ONE version. Do NOT add per-class versions.
+#
+# Bump rules (SemVer over WIRE + MERGE compatibility):
+#   MAJOR  - makes old output wrong: field reorder, size: change, type change, signature: change,
+#            field removal, a merge: strategy rename/semantic change.  (old bytes mis-parse)
+#   MINOR  - additive & back-compatible: a new class, a new optional field key, a new gen/ entry.
+#   PATCH  - no wire effect: comments, file moves, a rendering-only hint, doc.
+#
+# We are candidate-frozen, not frozen: burn -rc.2, -rc.3 as the last classes settle, then cut
+# 1.0.0 final when the contract stabilizes. While on -rc.N the compiler gate is exact-match-or-refuse.
+schema_version: 1.0.0-rc.1

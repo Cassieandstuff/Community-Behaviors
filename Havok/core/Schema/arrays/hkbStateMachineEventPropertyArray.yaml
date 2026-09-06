@@ -1,0 +1,6 @@
+name:      hkbStateMachineEventPropertyArray
+parent:    hkReferencedObject
+signature: 0xb07b4388
+size:      32
+fields:
+  - { name: events, type: structarray, ref: hkbEventProperty }

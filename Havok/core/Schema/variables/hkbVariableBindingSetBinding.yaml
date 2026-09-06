@@ -1,0 +1,17 @@
+name:      hkbVariableBindingSetBinding
+parent:    null
+signature: 0x4d592f72
+size:      40
+fields:
+  - { name: memberPath,             type: string }              # ReadStringPointer
+  - { empty: ptr }                                              # ReadEmptyPointer
+  - { name: offsetInObjectPlusOne,  type: int32, ignored: true }
+  - { name: offsetInArrayPlusOne,   type: int32, ignored: true }
+  - { name: rootVariableIndex,      type: int32, ignored: true }
+  - { name: variableIndex,          type: int32 }
+  - { name: bitIndex,               type: int8 }
+  - { name: bindingType,            type: int8, enum: BindingType }
+  - { name: memberType,             type: byte, ignored: true }
+  - { name: variableType,           type: int8, ignored: true }
+  - { name: flags,                  type: int8, ignored: true }
+  - { skip: 3 }

@@ -1,0 +1,25 @@
+name:      hkbFootIkModifierLeg
+parent:    null
+size:      160
+# Inline classArray element of hkbFootIkModifier (not registered).
+fields:
+  - { skip: 48 }                             # originalAnkleTransformMS (hkQsTransform) — runtime state
+  - { name: prevAnkleRotLS, type: quaternion }
+  - { name: kneeAxisLS,     type: vector4 }
+  - { name: footEndLS,      type: vector4 }
+  - { name: ungroundedEvent, type: struct, ref: hkbEventProperty }
+  - { name: footPlantedAnkleHeightMS, type: float }
+  - { name: footRaisedAnkleHeightMS,  type: float }
+  - { name: maxAnkleHeightMS, type: float }
+  - { name: minAnkleHeightMS, type: float }
+  - { name: maxKneeAngleDegrees, type: float }
+  - { name: minKneeAngleDegrees, type: float }
+  - { name: verticalError,       type: float }
+  - { name: maxAnkleAngleDegrees, type: float }
+  - { name: hipIndex,   type: int16 }
+  - { name: kneeIndex,  type: int16 }
+  - { name: ankleIndex, type: int16 }
+  - { name: hitSomething, type: bool }
+  - { name: isPlantedMS,  type: bool }
+  - { name: isOriginalAnkleTransformMSSet, type: bool }
+  - { skip: 7 }

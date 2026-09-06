@@ -1,0 +1,23 @@
+name:      hkbBlenderGenerator
+parent:    hkbGenerator
+signature: 0x22df7147
+size:      160
+fields:
+  - { name: referencePoseWeightThreshold, type: float }
+  - { name: blendParameter,               type: float }
+  - { name: minCyclicBlendParameter,      type: float }
+  - { name: maxCyclicBlendParameter,      type: float }
+  - { name: indexOfSyncMasterChild,       type: int16 }
+  - { name: flags,                        type: int16 }
+  - { name: subtractLastChild,            type: bool }
+  - { skip: 3 }
+  - { name: children,                     type: ptrarray, ref: hkbBlenderGeneratorChild }
+  - { empty: array }
+  - { empty: array }
+  - { name: endIntervalWeight,  type: float, ignored: true }
+  - { name: numActiveChildren,  type: int32, ignored: true }
+  - { name: beginIntervalIndex, type: int16, ignored: true }
+  - { name: endIntervalIndex,   type: int16, ignored: true }
+  - { name: initSync,           type: bool,  ignored: true }
+  - { name: doSubtractiveBlend, type: bool,  ignored: true }
+  - { skip: 2 }

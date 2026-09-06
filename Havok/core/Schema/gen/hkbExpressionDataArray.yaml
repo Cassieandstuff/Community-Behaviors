@@ -1,0 +1,6 @@
+name:      hkbExpressionDataArray
+parent:    hkReferencedObject
+signature: 0x4b9ee1a2
+size:      32
+fields:
+  - { name: expressionsData, type: structarray, ref: hkbExpressionData }

@@ -1,0 +1,12 @@
+name:      hkpBallSocketConstraintAtom
+parent:    null
+signature: 0xe70e4dfa
+size:      16
+fields:
+  - { name: type,            type: uint16 }   # @0
+  - { name: solvingMethod,   type: byte }     # @2
+  - { name: bodiesToNotify,  type: byte }     # @3
+  - { name: velocityStabilizationFactor, type: byte }  # @4 hkUFloat8 raw
+  - { skip: 3 }                               # @5 pad
+  - { name: maxImpulse,      type: float }    # @8
+  - { name: inertiaStabilizationFactor, type: float }  # @12

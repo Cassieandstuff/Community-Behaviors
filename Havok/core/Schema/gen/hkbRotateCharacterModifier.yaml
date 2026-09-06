@@ -1,0 +1,11 @@
+name:      hkbRotateCharacterModifier
+parent:    hkbModifier
+signature: 0x877ebc0b
+size:      128
+fields:
+  - { name: degreesPerSecond, type: float }
+  - { name: speedMultiplier,  type: float }
+  - { skip: 8 }
+  - { name: axisOfRotation, type: vector4 }
+  - { name: angle,          type: float, ignored: true }   # runtime scratch — dropped in .hky
+  - { skip: 12 }

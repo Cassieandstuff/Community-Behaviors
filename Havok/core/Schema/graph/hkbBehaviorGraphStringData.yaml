@@ -1,0 +1,10 @@
+name:      hkbBehaviorGraphStringData
+parent:    hkReferencedObject
+signature: 0xc713064e
+size:      80
+# The graph's name tables.
+fields:
+  - { name: eventNames,             type: stringarray }
+  - { name: attributeNames,         type: stringarray }
+  - { name: variableNames,          type: stringarray }
+  - { name: characterPropertyNames, type: stringarray }

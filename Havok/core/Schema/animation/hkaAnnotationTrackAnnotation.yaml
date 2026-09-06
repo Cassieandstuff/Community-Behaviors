@@ -1,0 +1,9 @@
+name:      hkaAnnotationTrackAnnotation
+parent:    null
+signature: 0x623bf34f
+size:      16
+# One timestamped text entry (SCT face-morph payloads live here).
+fields:
+  - { name: time, type: float }
+  - { skip: 4 }
+  - { name: text, type: string }

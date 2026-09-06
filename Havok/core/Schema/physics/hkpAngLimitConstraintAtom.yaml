@@ -1,0 +1,11 @@
+name:      hkpAngLimitConstraintAtom
+parent:    null
+signature: 0x09be0d9d
+size:      16
+fields:
+  - { name: type,      type: uint16 }   # @0
+  - { name: isEnabled, type: byte }     # @2
+  - { name: limitAxis, type: byte }     # @3
+  - { name: minAngle,  type: float }    # @4
+  - { name: maxAngle,  type: float }    # @8
+  - { name: angularLimitsTauFactor, type: float }  # @12

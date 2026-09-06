@@ -1,0 +1,8 @@
+name:   AnimSetAttack
+kind:   metadata
+# One attack-event -> clip(s) mapping. clips holds 0..K clip names (vanilla has 1 and 2). `flag` is
+# 0/1, semantics unknown, preserved verbatim. clips is a count-prefixed list.
+fields:
+  - { name: event, type: string }        # e.g. "attackStart", "attackPowerStart_Sprint"
+  - { name: flag,  type: int }           # 0/1
+  - { name: clips, type: stringarray }   # K clip names, e.g. "1HM_AttackLeft"

@@ -1,0 +1,8 @@
+name:      hkbHandIkDriverInfo
+parent:    hkReferencedObject
+signature: 0xc299090a
+size:      40
+fields:
+  - { name: hands, type: structarray, ref: hkbHandIkDriverInfoHand }
+  - { name: fadeInOutCurve, type: int8 }
+  - { skip: 7 }

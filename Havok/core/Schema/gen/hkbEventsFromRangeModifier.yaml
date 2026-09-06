@@ -1,0 +1,9 @@
+name:      hkbEventsFromRangeModifier
+parent:    hkbModifier
+signature: 0xbc561b6e
+size:      112
+fields:
+  - { name: inputValue,  type: float }
+  - { name: lowerBound,  type: float }
+  - { name: eventRanges, type: ptr, ref: hkbEventRangeDataArray }
+  - { empty: array }

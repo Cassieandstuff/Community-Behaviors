@@ -1,0 +1,21 @@
+name:      hkbDampingModifier
+parent:    hkbModifier
+signature: 0x9a040f03
+size:      192
+fields:
+  - { name: kP, type: float }
+  - { name: kI, type: float }
+  - { name: kD, type: float }
+  - { name: enableScalarDamping, type: bool }
+  - { name: enableVectorDamping, type: bool }
+  - { skip: 2 }
+  - { name: rawValue,    type: float }
+  - { name: dampedValue, type: float }
+  - { skip: 8 }
+  - { name: rawVector,        type: vector4 }
+  - { name: dampedVector,     type: vector4 }
+  - { name: vecErrorSum,      type: vector4 }
+  - { name: vecPreviousError, type: vector4 }
+  - { name: errorSum,      type: float }
+  - { name: previousError, type: float }
+  - { skip: 8 }

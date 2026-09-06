@@ -1,0 +1,19 @@
+name:      hkbBlendingTransitionEffect
+parent:    hkbTransitionEffect
+signature: 0xfd8584fe
+size:      144
+fields:
+  - { name: duration,                     type: float }
+  - { name: toGeneratorStartTimeFraction, type: float }
+  - { name: flags,                        type: uint16, enum: FlagBits, flags: true }
+  - { name: endMode,                      type: int8, enum: EndMode }
+  - { name: blendCurve,                   type: int8, enum: BlendCurve }
+  - { skip: 4 }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: array }
+  - { name: timeRemaining,           type: float, ignored: true }
+  - { name: timeInTransition,        type: float, ignored: true }
+  - { name: applySelfTransition,     type: bool,  ignored: true, hky: true }
+  - { name: initializeCharacterPose, type: bool,  ignored: true, hky: true }
+  - { skip: 6 }

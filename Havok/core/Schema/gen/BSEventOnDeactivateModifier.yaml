@@ -1,0 +1,6 @@
+name:      BSEventOnDeactivateModifier
+parent:    hkbModifier
+signature: 0x1062d993
+size:      96
+fields:
+  - { name: event, type: struct, ref: hkbEventProperty }

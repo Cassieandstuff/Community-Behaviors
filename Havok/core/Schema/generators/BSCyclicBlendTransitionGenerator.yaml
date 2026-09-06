@@ -1,0 +1,18 @@
+name:      BSCyclicBlendTransitionGenerator
+parent:    hkbGenerator
+signature: 0x5119eb06
+size:      176
+fields:
+  - { skip: 8 }
+  - { name: pBlenderGenerator,     type: ptr, ref: hkbGenerator }
+  - { name: EventToFreezeBlendValue, type: struct, ref: hkbEventProperty }
+  - { name: EventToCrossBlend,     type: struct, ref: hkbEventProperty }
+  - { name: fBlendParameter,       type: float }
+  - { name: fTransitionDuration,   type: float }
+  - { name: eBlendCurve,           type: int8, enum: BlendCurve }
+  - { skip: 15 }
+  - { empty: ptr }
+  - { skip: 8 }
+  - { empty: ptr }
+  - { name: currentMode,           type: int8, ignored: true }
+  - { skip: 7 }

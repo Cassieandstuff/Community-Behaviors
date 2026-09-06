@@ -1,0 +1,9 @@
+name:      BSBoneSwitchGenerator
+parent:    hkbGenerator
+signature: 0xf33d3eea
+size:      112
+fields:
+  - { skip: 8 }
+  - { name: pDefaultGenerator, type: ptr, ref: hkbGenerator }
+  - { name: ChildrenA,         type: ptrarray, ref: BSBoneSwitchGeneratorBoneData }
+  - { skip: 8 }

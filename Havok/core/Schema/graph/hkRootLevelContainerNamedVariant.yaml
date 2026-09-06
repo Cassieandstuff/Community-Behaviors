@@ -1,0 +1,8 @@
+name:      hkRootLevelContainerNamedVariant
+parent:    null
+signature: 0xb103a2cd
+size:      24
+fields:
+  - { name: name,      type: string }
+  - { name: className, type: string }
+  - { name: variant,   type: ptr, ref: hkReferencedObject }

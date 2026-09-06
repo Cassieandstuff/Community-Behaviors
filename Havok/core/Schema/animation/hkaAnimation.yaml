@@ -1,0 +1,12 @@
+name:      hkaAnimation
+parent:    hkReferencedObject
+signature: 0xa6fa7e88
+size:      56
+# Abstract base — only ever a base subobject (packs at 56, no tail rounding pad).
+fields:
+  - { name: type,                    type: int32 }
+  - { name: duration,                type: float }
+  - { name: numberOfTransformTracks, type: int32 }
+  - { name: numberOfFloatTracks,     type: int32 }
+  - { name: extractedMotion,         type: ptr, ref: hkaDefaultAnimatedReferenceFrame }
+  - { name: annotationTracks,        type: structarray, ref: hkaAnnotationTrack }

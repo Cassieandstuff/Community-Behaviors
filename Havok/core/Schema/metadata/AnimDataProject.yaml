@@ -1,0 +1,12 @@
+name:   AnimDataProject
+kind:   metadata
+# One project's block = sectionA (always) + sectionB motion (iff hasAnimData). The per-section line
+# counts in the .txt (aLineCount/bLineCount) are DERIVED framing the reader recomputes on emit, not
+# model fields. fieldX is constant 1 in vanilla. animIndex links a clip to its motion (same value).
+fields:
+  - { name: name,        type: string }
+  - { name: fieldX,      type: int }                                           # constant 1
+  - { name: assetPaths,  type: stringarray }                                   # K asset paths (may contain spaces)
+  - { name: hasAnimData, type: bool }                                          # gates the clip/motion body
+  - { name: clips,       type: recordarray, ref: AnimDataClip,   when: hasAnimData }
+  - { name: motions,     type: recordarray, ref: AnimDataMotion, when: hasAnimData }

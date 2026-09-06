@@ -1,0 +1,6 @@
+name:      hkpCharacterControllerCinfo
+parent:    hkReferencedObject
+signature: 0xda8c7d7d
+size:      16
+# Abstract base; only the hkReferencedObject bytes are serialized in our data.
+fields: []

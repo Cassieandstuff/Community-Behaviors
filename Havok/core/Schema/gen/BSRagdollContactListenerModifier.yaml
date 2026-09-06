@@ -1,0 +1,11 @@
+name:      BSRagdollContactListenerModifier
+parent:    hkbModifier
+signature: 0x8003d8ce
+size:      136
+fields:
+  - { skip: 8 }
+  - { name: contactEvent, type: struct, ref: hkbEventProperty }
+  - { name: bones,        type: ptr, ref: hkbBoneIndexArray }
+  - { name: throwEvent,   type: bool , ignored: true }
+  - { skip: 7 }
+  - { empty: array }

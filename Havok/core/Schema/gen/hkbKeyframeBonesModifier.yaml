@@ -1,0 +1,7 @@
+name:      hkbKeyframeBonesModifier
+parent:    hkbModifier
+signature: 0x95f66629
+size:      104
+fields:
+  - { name: keyframeInfo,       type: structarray, ref: hkbKeyframeBonesModifierKeyframeInfo }
+  - { name: keyframedBonesList, type: ptr, ref: hkbBoneIndexArray }

@@ -1,0 +1,13 @@
+name:      hkpPhysicsSystem
+parent:    hkReferencedObject
+signature: 0xff724c17
+size:      104
+fields:
+  - { name: rigidBodies, type: ptrarray, ref: hkpRigidBody }        # @16
+  - { name: constraints, type: ptrarray, ref: hkReferencedObject }  # @32 hkpConstraintInstance*
+  - { name: actions,     type: ptrarray, ref: hkReferencedObject }  # @48 hkpAction*
+  - { name: phantoms,    type: ptrarray, ref: hkReferencedObject }  # @64 hkpPhantom*
+  - { name: name,        type: string }                             # @80
+  - { name: userData,    type: uint64 }                             # @88
+  - { name: active,      type: bool }                               # @96
+  - { skip: 7 }                                                     # pad -> 104

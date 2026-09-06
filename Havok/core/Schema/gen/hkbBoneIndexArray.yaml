@@ -1,0 +1,6 @@
+name:      hkbBoneIndexArray
+parent:    hkbBindable
+signature: 0x00aa8619
+size:      64
+fields:
+  - { name: boneIndices, type: scalararray, scalar: int16 }

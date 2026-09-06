@@ -1,0 +1,10 @@
+name:      hkMemoryResourceContainer
+parent:    hkReferencedObject
+signature: 0x4762f92a
+size:      64
+# Resource tree node. Base hkResourceContainer chain adds no serialized members.
+fields:
+  - { name: name,            type: string }
+  - { empty: ptr }                              # m_parent — SERIALIZE_IGNORED (rebuilt at load)
+  - { name: resourceHandles, type: ptrarray, ref: hkMemoryResourceHandle }
+  - { name: children,        type: ptrarray, ref: hkMemoryResourceContainer }

@@ -1,0 +1,31 @@
+name:      BSLookAtModifier
+parent:    hkbModifier
+signature: 0xd756fc25
+size:      224
+fields:
+  - { name: lookAtTarget, type: bool }
+  - { skip: 7 }
+  - { name: bones,    type: structarray, ref: BSLookAtModifierBoneData }
+  - { name: eyeBones, type: structarray, ref: BSLookAtModifierBoneData }
+  - { name: limitAngleDegrees,          type: float }
+  - { name: limitAngleThresholdDegrees, type: float }
+  - { name: continueLookOutsideOfLimit, type: bool }
+  - { skip: 3 }
+  - { name: onGain,  type: float }
+  - { name: offGain, type: float }
+  - { name: useBoneGains, type: bool }
+  - { skip: 3 }
+  - { name: targetLocation, type: vector4 }
+  - { name: targetOutsideLimits, type: bool }
+  - { skip: 7 }
+  - { name: targetOutOfLimitEvent, type: struct, ref: hkbEventProperty }
+  - { name: lookAtCamera, type: bool }
+  - { skip: 3 }
+  - { name: lookAtCameraX, type: float }
+  - { name: lookAtCameraY, type: float }
+  - { name: lookAtCameraZ, type: float }
+  - { name: timeStep,      type: float }
+  - { name: ballBonesValid, type: bool }
+  - { skip: 3 }
+  - { empty: ptr }
+  - { skip: 8 }

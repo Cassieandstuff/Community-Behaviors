@@ -1,0 +1,8 @@
+name:      hkbEventBase
+parent:    null
+signature: 0x76bddb31
+size:      16
+fields:
+  - { name: id,      type: int32 }                       # ReadInt32
+  - { skip: 4 }                                          # Skip(4)
+  - { name: payload, type: ptr, ref: hkbEventPayload }   # ReadClassPointer

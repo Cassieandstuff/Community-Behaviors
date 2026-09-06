@@ -1,0 +1,11 @@
+name:      BSInterpValueModifier
+parent:    hkbModifier
+signature: 0x29adc802
+size:      104
+fields:
+  - { name: source,   type: float }
+  - { name: target,   type: float }
+  - { name: result,   type: float }
+  - { name: gain,     type: float }
+  - { name: timeStep, type: float , ignored: true }
+  - { skip: 4 }

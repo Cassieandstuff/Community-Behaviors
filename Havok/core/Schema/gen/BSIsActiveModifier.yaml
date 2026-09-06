@@ -1,0 +1,16 @@
+name:      BSIsActiveModifier
+parent:    hkbModifier
+signature: 0xb0fde45a
+size:      96
+fields:
+  - { name: bIsActive0,     type: bool }
+  - { name: bInvertActive0, type: bool }
+  - { name: bIsActive1,     type: bool }
+  - { name: bInvertActive1, type: bool }
+  - { name: bIsActive2,     type: bool }
+  - { name: bInvertActive2, type: bool }
+  - { name: bIsActive3,     type: bool }
+  - { name: bInvertActive3, type: bool }
+  - { name: bIsActive4,     type: bool }
+  - { name: bInvertActive4, type: bool }
+  - { skip: 6 }

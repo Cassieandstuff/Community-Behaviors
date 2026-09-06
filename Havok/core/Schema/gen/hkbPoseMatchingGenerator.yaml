@@ -1,0 +1,25 @@
+name:      hkbPoseMatchingGenerator
+parent:    hkbBlenderGenerator
+signature: 0x29e271b4
+size:      240
+fields:
+  - { name: worldFromModelRotation, type: quaternion }
+  - { name: blendSpeed,             type: float }
+  - { name: minSpeedToSwitch,       type: float }
+  - { name: minSwitchTimeNoError,   type: float }
+  - { name: minSwitchTimeFullError, type: float }
+  - { name: startPlayingEventId,    type: int32 }
+  - { name: startMatchingEventId,   type: int32 }
+  - { name: rootBoneIndex,          type: int16 }
+  - { name: otherBoneIndex,         type: int16 }
+  - { name: anotherBoneIndex,       type: int16 }
+  - { name: pelvisIndex,            type: int16 }
+  - { name: mode,                   type: int8 }
+  - { skip: 3 }
+  - { name: currentMatch,           type: int32, ignored: true }
+  - { name: bestMatch,              type: int32, ignored: true }
+  - { name: timeSinceBetterMatch,   type: float, ignored: true }
+  - { name: error,                  type: float, ignored: true }
+  - { name: resetCurrentMatchLocalTime, type: bool, ignored: true }
+  - { skip: 3 }
+  - { empty: ptr }

@@ -1,0 +1,8 @@
+name:      BSIStateManagerModifier
+parent:    hkbModifier
+signature: 0x6cb24f2e
+size:      104
+fields:
+  - { name: iStateVar, type: int32 }
+  - { skip: 4 }
+  - { name: stateData, type: structarray, ref: BSIStateManagerModifierBSiStateData }

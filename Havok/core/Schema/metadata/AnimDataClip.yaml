@@ -1,0 +1,13 @@
+name:   AnimDataClip
+kind:   metadata
+# One hkbClipGenerator's cache entry, keyed at runtime by `name` (the clip-generator name in the
+# graph). `animIndex` = roster.indexOf(animationName) — a DERIVED value the compiler resolves against
+# the character's animationNames roster (NOT an identity; the engine reads it, then indexes the
+# roster). triggers are "Event:time" lines, carried verbatim.
+fields:
+  - { name: name,          type: string }
+  - { name: animIndex,     type: int }          # derived: roster index of the played animation
+  - { name: playbackSpeed, type: float }
+  - { name: cropStart,     type: float }
+  - { name: cropEnd,       type: float }
+  - { name: triggers,      type: stringarray }  # "Event:time"

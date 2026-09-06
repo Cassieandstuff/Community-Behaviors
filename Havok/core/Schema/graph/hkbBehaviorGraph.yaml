@@ -1,0 +1,38 @@
+name:      hkbBehaviorGraph
+parent:    hkbGenerator
+signature: 0xb1218f86
+size:      304
+# The graph root (rootGenerator + data).
+fields:
+  - { name: variableMode, type: int8, enum: VariableMode }
+  - { skip: 7 }
+  - { empty: array }
+  - { empty: ptr }
+  - { empty: array }
+  - { empty: ptr }
+  - { name: rootGenerator, type: ptr, ref: hkbGenerator }
+  - { name: data,          type: ptr, ref: hkbBehaviorGraphData }
+  - { empty: ptr }   # 14 SERIALIZE_IGNORED node/toc pointers
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { name: numIntermediateOutputs, type: int32, ignored: true }
+  - { skip: 4 }
+  - { empty: array }
+  - { empty: array }
+  - { name: numStaticNodes,           type: int16, ignored: true }
+  - { name: nextUniqueId,             type: int16, ignored: true }
+  - { name: isActive,                 type: bool,  ignored: true }
+  - { name: isLinked,                 type: bool,  ignored: true }
+  - { name: updateActiveNodes,        type: bool,  ignored: true }
+  - { name: stateOrTransitionChanged, type: bool,  ignored: true }

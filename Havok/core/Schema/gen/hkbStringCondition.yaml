@@ -1,0 +1,6 @@
+name:      hkbStringCondition
+parent:    hkbCondition
+signature: 0x5ab50487
+size:      24
+fields:
+  - { name: conditionString, type: string }

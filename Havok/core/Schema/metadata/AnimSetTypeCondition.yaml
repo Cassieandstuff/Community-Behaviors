@@ -1,0 +1,8 @@
+name:   AnimSetTypeCondition
+kind:   metadata
+# A weapon-type gate: "when <variable> == value (extra)". Both integers preserved verbatim — `value`
+# is the compared type id; `extra` is a category/count, always 4 in vanilla humanoid sets.
+fields:
+  - { name: variable, type: string }   # e.g. "iLeftHandType", "iRightHandType"
+  - { name: value,    type: int }
+  - { name: extra,    type: int }

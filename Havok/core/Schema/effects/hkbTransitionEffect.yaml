@@ -1,0 +1,9 @@
+name:      hkbTransitionEffect
+parent:    hkbGenerator
+signature: 0x945da157
+size:      80
+fields:
+  - { name: selfTransitionMode, type: int8, enum: SelfTransitionMode }
+  - { name: eventMode,          type: int8, enum: EventMode }
+  - { name: defaultEventMode,   type: int8, ignored: true }
+  - { skip: 5 }

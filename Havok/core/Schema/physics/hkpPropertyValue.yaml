@@ -1,0 +1,6 @@
+name:      hkpPropertyValue
+parent:    null
+size:      8
+# 8-byte union (hkUint64 / void* / hkReal), stored raw. No signature.
+fields:
+  - { name: data, type: uint64 }

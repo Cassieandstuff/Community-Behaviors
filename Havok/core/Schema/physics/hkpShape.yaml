@@ -1,0 +1,7 @@
+name:      hkpShape
+parent:    hkReferencedObject
+signature: 0x666490a1
+size:      32
+fields:
+  - { name: userData, type: uint64 }   # hkUlong @16
+  - { skip: 8 }                         # m_type (SERIALIZE_IGNORED) + tail pad to 32

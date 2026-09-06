@@ -1,0 +1,7 @@
+name:      hkpPhysicsData
+parent:    hkReferencedObject
+signature: 0xc2a461e4
+size:      40
+fields:
+  - { name: worldCinfo, type: ptr, ref: hkReferencedObject }        # @16 hkpWorldCinfo*
+  - { name: systems,    type: ptrarray, ref: hkpPhysicsSystem }     # @24

@@ -1,0 +1,5 @@
+name:      hkbEventPayload
+parent:    hkReferencedObject
+signature: 0xda8c7d7d
+size:      16
+fields:    []

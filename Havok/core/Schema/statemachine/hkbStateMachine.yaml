@@ -1,0 +1,35 @@
+name:      hkbStateMachine
+parent:    hkbGenerator
+signature: 0x816c1dcb
+size:      264
+fields:
+  - { name: eventToSendWhenStateOrTransitionChanges, type: struct, ref: hkbEvent }
+  - { name: startStateChooser,                   type: ptr, ref: hkbStateChooser }
+  - { name: startStateId,                        type: int32 }
+  - { name: returnToPreviousStateEventId,        type: int32 }
+  - { name: randomTransitionEventId,             type: int32 }
+  - { name: transitionToNextHigherStateEventId,  type: int32 }
+  - { name: transitionToNextLowerStateEventId,   type: int32 }
+  - { name: syncVariableIndex,                   type: int32 }
+  - { name: currentStateId,                      type: int32, ignored: true }
+  - { name: wrapAroundStateId,                   type: bool }
+  - { name: maxSimultaneousTransitions,          type: int8 }
+  - { name: startStateMode,                      type: int8, enum: StartStateMode }
+  - { name: selfTransitionMode,                  type: int8, enum: StateMachineSelfTransitionMode }
+  - { name: isActive,                            type: bool, ignored: true }
+  - { skip: 7 }
+  - { name: states,                              type: ptrarray, ref: hkbStateMachineStateInfo, merge: compose }
+  - { name: wildcardTransitions,                 type: ptr, ref: hkbStateMachineTransitionInfoArray }
+  - { empty: ptr }
+  - { empty: array }
+  - { empty: array }
+  - { empty: array }
+  - { empty: array }
+  - { name: timeInState,                 type: float, ignored: true }
+  - { name: lastLocalTime,               type: float, ignored: true }
+  - { name: previousStateId,             type: int32, ignored: true }
+  - { name: nextStartStateIndexOverride, type: int32, ignored: true }
+  - { name: stateOrTransitionChanged,    type: bool,  ignored: true }
+  - { name: echoNextUpdate,              type: bool,  ignored: true }
+  - { name: sCurrentStateIndexAndEntered, type: uint16, ignored: true }
+  - { skip: 4 }

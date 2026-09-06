@@ -1,0 +1,9 @@
+name:      hkaSkeletonMapperDataSimpleMapping
+parent:    null
+signature: 0x3405deca
+size:      64
+fields:
+  - { name: boneA, type: int16 }   # @0
+  - { name: boneB, type: int16 }   # @2
+  - { skip: 12 }                    # pad -> 16
+  - { name: aFromBTransform, type: qstransform }  # @16 (48B)

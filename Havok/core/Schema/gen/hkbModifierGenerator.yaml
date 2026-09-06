@@ -1,0 +1,7 @@
+name:      hkbModifierGenerator
+parent:    hkbGenerator
+signature: 0x1f81fae6
+size:      88
+fields:
+  - { name: modifier,  type: ptr, ref: hkbModifier }
+  - { name: generator, type: ptr, ref: hkbGenerator }

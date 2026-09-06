@@ -1,0 +1,5 @@
+name:      hkbGenerator
+parent:    hkbNode
+signature: 0x0d68aefc
+size:      72
+fields:    []   # adds no fields of its own

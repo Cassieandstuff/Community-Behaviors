@@ -1,0 +1,9 @@
+name:      BSModifyOnceModifier
+parent:    hkbModifier
+signature: 0x1e20a97a
+size:      112
+fields:
+  - { name: pOnActivateModifier,   type: ptr, ref: hkbModifier }
+  - { skip: 8 }
+  - { name: pOnDeactivateModifier, type: ptr, ref: hkbModifier }
+  - { skip: 8 }

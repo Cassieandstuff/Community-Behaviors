@@ -1,0 +1,6 @@
+name:      hkBaseObject
+parent:    null
+signature: 0xe0708a00
+size:      8
+fields:
+  - { vtable: true }   # ReadUSize — the runtime vtable slot (written 0, fixed up on load)

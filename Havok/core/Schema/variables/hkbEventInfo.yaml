@@ -1,0 +1,6 @@
+name:      hkbEventInfo
+parent:    null
+signature: 0x5874eed4
+size:      4
+fields:
+  - { name: flags, type: uint32 }

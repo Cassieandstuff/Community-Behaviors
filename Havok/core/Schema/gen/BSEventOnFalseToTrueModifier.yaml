@@ -1,0 +1,21 @@
+name:      BSEventOnFalseToTrueModifier
+parent:    hkbModifier
+signature: 0x81d0777a
+size:      160
+fields:
+  - { name: bEnableEvent1,    type: bool }
+  - { name: bVariableToTest1, type: bool }
+  - { skip: 6 }
+  - { name: EventToSend1, type: struct, ref: hkbEventProperty }
+  - { name: bEnableEvent2,    type: bool }
+  - { name: bVariableToTest2, type: bool }
+  - { skip: 6 }
+  - { name: EventToSend2, type: struct, ref: hkbEventProperty }
+  - { name: bEnableEvent3,    type: bool }
+  - { name: bVariableToTest3, type: bool }
+  - { skip: 6 }
+  - { name: EventToSend3, type: struct, ref: hkbEventProperty }
+  - { name: bSlot1ActivatedLastFrame, type: bool , ignored: true }
+  - { name: bSlot2ActivatedLastFrame, type: bool , ignored: true }
+  - { name: bSlot3ActivatedLastFrame, type: bool , ignored: true }
+  - { skip: 5 }

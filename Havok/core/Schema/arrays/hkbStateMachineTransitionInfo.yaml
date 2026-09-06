@@ -1,0 +1,16 @@
+name:      hkbStateMachineTransitionInfo
+parent:    null
+signature: 0xcdec8025
+size:      72
+fields:
+  - { name: triggerInterval,    type: struct, ref: hkbStateMachineTimeInterval }
+  - { name: initiateInterval,   type: struct, ref: hkbStateMachineTimeInterval }
+  - { name: transition,         type: ptr, ref: hkbTransitionEffect }
+  - { name: condition,          type: ptr, ref: hkbCondition }
+  - { name: eventId,            type: int32 }
+  - { name: toStateId,          type: int32 }
+  - { name: fromNestedStateId,  type: int32 }
+  - { name: toNestedStateId,    type: int32 }
+  - { name: priority,           type: int16 }
+  - { name: flags,              type: int16, enum: TransitionFlags }
+  - { skip: 4 }

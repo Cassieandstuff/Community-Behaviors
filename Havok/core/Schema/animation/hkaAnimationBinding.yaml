@@ -1,0 +1,12 @@
+name:      hkaAnimationBinding
+parent:    hkReferencedObject
+signature: 0x66eac971
+size:      72
+# Skyrim v1 layout (72 B, no partitionIndices). animationBindingIndex swaps target this.
+fields:
+  - { name: originalSkeletonName,        type: string }
+  - { name: animation,                   type: ptr, ref: hkaAnimation }
+  - { name: transformTrackToBoneIndices, type: scalararray, scalar: int16 }
+  - { name: floatTrackToFloatSlotIndices, type: scalararray, scalar: int16 }
+  - { name: blendHint, type: int8 }
+  - { skip: 7 }

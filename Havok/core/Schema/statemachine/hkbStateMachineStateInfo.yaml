@@ -1,0 +1,15 @@
+name:      hkbStateMachineStateInfo
+parent:    hkbBindable
+signature: 0x0ed7f9d0
+size:      120
+fields:
+  - { name: listeners,         type: ptrarray, ref: hkbStateListener }
+  - { name: enterNotifyEvents, type: ptr, ref: hkbStateMachineEventPropertyArray }
+  - { name: exitNotifyEvents,  type: ptr, ref: hkbStateMachineEventPropertyArray }
+  - { name: transitions,       type: ptr, ref: hkbStateMachineTransitionInfoArray }
+  - { name: generator,         type: ptr, ref: hkbGenerator }
+  - { name: name,              type: string }
+  - { name: stateId,           type: int32 }
+  - { name: probability,       type: float }
+  - { name: enable,            type: bool }
+  - { skip: 7 }

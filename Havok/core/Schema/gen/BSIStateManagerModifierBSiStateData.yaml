@@ -1,0 +1,9 @@
+name:      BSIStateManagerModifierBSiStateData
+parent:    null
+signature: 0x00000000
+size:      16
+# Inline classArray element of BSIStateManagerModifier (not registered).
+fields:
+  - { name: pStateMachine, type: ptr, ref: hkbStateMachine }
+  - { name: StateID,       type: int32 }
+  - { name: iStateToSetAs, type: int32 }

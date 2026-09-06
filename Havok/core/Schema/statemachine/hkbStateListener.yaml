@@ -1,0 +1,6 @@
+name:      hkbStateListener
+parent:    hkReferencedObject
+signature: 0xda8c7d7d
+size:      16
+# abstract base; never instantiated in our graphs. No own fields.
+fields: []

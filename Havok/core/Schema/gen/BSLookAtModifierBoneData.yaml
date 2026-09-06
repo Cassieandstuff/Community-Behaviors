@@ -1,0 +1,14 @@
+name:      BSLookAtModifierBoneData
+parent:    null
+signature: 0x29efee59
+size:      64
+fields:
+  - { name: index, type: int16 }
+  - { skip: 14 }
+  - { name: fwdAxisLS, type: vector4 }
+  - { name: limitAngleDegrees, type: float }
+  - { name: onGain,  type: float }
+  - { name: offGain, type: float }
+  - { name: enabled, type: bool }
+  - { skip: 3 }
+  - { name: currentFwdAxisLS, type: vector4 }

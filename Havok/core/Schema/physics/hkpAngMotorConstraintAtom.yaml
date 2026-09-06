@@ -1,0 +1,14 @@
+name:      hkpAngMotorConstraintAtom
+parent:    null
+signature: 0x81f087ff
+size:      24
+fields:
+  - { name: type,       type: uint16 }   # @0
+  - { name: isEnabled,  type: bool }     # @2
+  - { name: motorAxis,  type: byte }     # @3
+  - { name: initializedOffset,                      type: int16 }  # @4
+  - { name: previousTargetAngleOffset,              type: int16 }  # @6
+  - { name: correspondingAngLimitSolverResultOffset, type: int16 } # @8
+  - { skip: 2 }                          # @10 pad
+  - { name: targetAngle, type: float }   # @12
+  - { name: motor, type: ptr, ref: hkReferencedObject }  # @16 hkpConstraintMotor*

@@ -1,0 +1,7 @@
+name:      hkpLimitedHingeConstraintData
+parent:    hkpConstraintData
+signature: 0x7c15bb6b
+size:      272
+fields:
+  - { skip: 8 }                                                              # pad 24 -> 32 (ALIGN_16)
+  - { name: atoms, type: struct, ref: hkpLimitedHingeConstraintDataAtoms }   # @32 (240B)

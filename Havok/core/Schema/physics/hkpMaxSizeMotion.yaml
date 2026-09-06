@@ -1,0 +1,6 @@
+name:      hkpMaxSizeMotion
+parent:    hkpKeyframedRigidMotion
+signature: 0x64abf85c
+size:      320
+# The "max footprint" motion Havok embeds by-value in every rigid body. No own fields.
+fields: []

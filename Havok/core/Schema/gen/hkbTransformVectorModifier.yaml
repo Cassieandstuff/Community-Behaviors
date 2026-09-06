@@ -1,0 +1,14 @@
+name:      hkbTransformVectorModifier
+parent:    hkbModifier
+signature: 0xf93e0e24
+size:      160
+fields:
+  - { name: rotation,    type: quaternion }
+  - { name: translation, type: vector4 }
+  - { name: vectorIn,    type: vector4 }
+  - { name: vectorOut,   type: vector4 }
+  - { name: rotateOnly,        type: bool }
+  - { name: inverse,           type: bool }
+  - { name: computeOnActivate, type: bool }
+  - { name: computeOnModify,   type: bool }
+  - { skip: 12 }

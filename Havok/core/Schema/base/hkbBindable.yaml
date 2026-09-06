@@ -1,0 +1,9 @@
+name:      hkbBindable
+parent:    hkReferencedObject
+signature: 0x2c1432d7
+size:      48
+fields:
+  - { name: variableBindingSet, type: ptr, ref: hkbVariableBindingSet }   # ReadClassPointer
+  - { empty: array }                                          # cachedBindables — void-typed SERIALIZE_IGNORED (16-byte hkArray slot)
+  - { name: areBindablesCached, type: bool, ignored: true }   # ReadBoolean
+  - { skip: 7 }                                               # Skip(7)

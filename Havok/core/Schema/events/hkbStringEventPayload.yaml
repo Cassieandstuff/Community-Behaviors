@@ -1,0 +1,6 @@
+name:      hkbStringEventPayload
+parent:    hkbEventPayload
+signature: 0xed04256a
+size:      24
+fields:
+  - { name: data, type: string }   # ReadStringPointer

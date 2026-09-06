@@ -1,0 +1,9 @@
+name:      hkpPositionConstraintMotor
+parent:    hkpLimitedForceConstraintMotor
+signature: 0x748fb303
+size:      48
+fields:
+  - { name: tau,                          type: float }   # @32
+  - { name: damping,                      type: float }   # @36
+  - { name: proportionalRecoveryVelocity, type: float }   # @40
+  - { name: constantRecoveryVelocity,     type: float }   # @44

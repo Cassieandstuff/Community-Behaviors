@@ -1,0 +1,8 @@
+name:      hkp2dAngConstraintAtom
+parent:    null
+signature: 0xdcdb8b8b
+size:      4
+fields:
+  - { name: type,             type: uint16 }   # @0
+  - { name: freeRotationAxis, type: byte }     # @2
+  - { skip: 1 }                                # @3 pad -> 4

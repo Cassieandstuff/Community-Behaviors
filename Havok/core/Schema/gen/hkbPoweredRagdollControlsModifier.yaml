@@ -1,0 +1,10 @@
+name:      hkbPoweredRagdollControlsModifier
+parent:    hkbModifier
+signature: 0x7cb54065
+size:      144
+fields:
+  - { name: controlData,           type: struct, ref: hkbPoweredRagdollControlData }
+  - { name: bones,                 type: ptr, ref: hkbBoneIndexArray }
+  - { name: worldFromModelModeData, type: struct, ref: hkbWorldFromModelModeData }
+  - { name: boneWeights,           type: ptr, ref: hkbBoneWeightArray }
+  - { skip: 8 }

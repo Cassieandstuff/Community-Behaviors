@@ -1,0 +1,12 @@
+name:      hkaDefaultAnimatedReferenceFrame
+parent:    hkReferencedObject
+signature: 0x6d85e445
+size:      80
+# Stored extracted root motion. Natural end 72; contains inline Vector4 -> rounds to 80.
+fields:
+  - { name: up,       type: vector4 }
+  - { name: forward,  type: vector4 }
+  - { name: duration, type: float }
+  - { skip: 4 }
+  - { name: referenceFrameSamples, type: vec4array }
+  - { skip: 8 }   # size-rounding pad (72 -> 80, class has inline Vector4)

@@ -1,0 +1,10 @@
+name:      hkbTimerModifier
+parent:    hkbModifier
+signature: 0x338b4879
+size:      112
+fields:
+  - { name: alarmTimeSeconds, type: float }
+  - { skip: 4 }
+  - { name: alarmEvent, type: struct, ref: hkbEventProperty }
+  - { name: secondsElapsed, type: float, ignored: true }   # runtime scratch — dropped in .hky
+  - { skip: 4 }

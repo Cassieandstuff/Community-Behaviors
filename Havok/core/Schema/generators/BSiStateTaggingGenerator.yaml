@@ -1,0 +1,9 @@
+name:      BSiStateTaggingGenerator
+parent:    hkbGenerator
+signature: 0xf0826fc1
+size:      96
+fields:
+  - { skip: 8 }
+  - { name: pDefaultGenerator, type: ptr, ref: hkbGenerator }
+  - { name: iStateToSetAs,     type: int32 }
+  - { name: iPriority,         type: int32 }

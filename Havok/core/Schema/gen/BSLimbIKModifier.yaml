@@ -1,0 +1,15 @@
+name:      BSLimbIKModifier
+parent:    hkbModifier
+signature: 0x8ea971e5
+size:      120
+fields:
+  - { name: limitAngleDegrees, type: float }
+  - { skip: 4 }                              # currentAngle (ignored)
+  - { name: startBoneIndex, type: int16 }
+  - { name: endBoneIndex,   type: int16 }
+  - { name: gain,       type: float }
+  - { name: boneRadius, type: float }
+  - { name: castOffset, type: float }
+  - { skip: 4 }                              # timeStep (ignored)
+  - { skip: 4 }                              # pad to align pSkeletonMemory
+  - { empty: ptr }                           # pSkeletonMemory (ignored, null)

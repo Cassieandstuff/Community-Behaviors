@@ -1,0 +1,30 @@
+name:      hkpEntity
+parent:    hkpWorldObject
+signature: 0xa03c774b
+size:      720
+fields:
+  - { name: material,          type: struct, ref: hkpMaterial }   # @208 (16B)
+  - { empty: ptr }                                                # @224 m_limitContactImpulseUtilAndFlag
+  - { name: damageMultiplier,  type: float }                      # @232
+  - { skip: 4 }                                                   # pad -> 240
+  - { empty: ptr }                                                # @240 m_breakableBody
+  - { skip: 4 }                                                   # @248 m_solverData (IGNORED)
+  - { name: storageIndex,               type: uint16 }            # @252
+  - { name: contactPointCallbackDelay,  type: uint16 }            # @254
+  - { skip: 16 }                                                  # @256 m_constraintsMaster (IGNORED)
+  - { empty: array }                                              # @272 m_constraintsSlave
+  - { empty: array }                                              # @288 m_constraintRuntime
+  - { empty: ptr }                                                # @304 m_simulationIsland
+  - { name: autoRemoveLevel,                     type: int8 }     # @312
+  - { name: numShapeKeysInContactPointProperties, type: byte }    # @313
+  - { name: responseModifierFlags,               type: byte }     # @314
+  - { skip: 1 }                                                   # pad -> 316
+  - { name: uid,               type: uint32 }                     # @316
+  - { name: spuCollisionCallback, type: struct, ref: hkpEntitySpuCollisionCallback } # @320 (16B)
+  - { name: motion,            type: struct, ref: hkpMaxSizeMotion } # @336 (320B)
+  - { skip: 16 }                                                  # @656 m_contactListeners (IGNORED)
+  - { skip: 16 }                                                  # @672 m_actions (IGNORED)
+  - { name: localFrame,        type: ptr, ref: hkReferencedObject } # @688 hkLocalFrame*
+  - { empty: ptr }                                                # @696 m_extendedListeners
+  - { name: npData,            type: uint32 }                     # @704
+  - { skip: 12 }                                                  # tail pad -> 720

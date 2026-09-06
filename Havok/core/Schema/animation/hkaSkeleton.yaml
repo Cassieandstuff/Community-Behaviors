@@ -1,0 +1,14 @@
+name:      hkaSkeleton
+parent:    hkReferencedObject
+signature: 0x366e8220
+size:      120
+# Vanilla layout (the emitted form). A 128-byte variant with an 8-byte gap after
+# m_name exists in Pandora template skeletons and is read-only (probe-detected).
+fields:
+  - { name: name,            type: string }
+  - { name: parentIndices,   type: scalararray, scalar: int16 }
+  - { name: bones,           type: structarray, ref: hkaBone }
+  - { name: referencePose,   type: qstransformarray }
+  - { name: referenceFloats, type: scalararray, scalar: float }
+  - { name: floatSlots,      type: stringarray }
+  - { name: localFrames,     type: structarray, ref: hkaSkeletonLocalFrameOnBone }

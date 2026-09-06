@@ -1,0 +1,13 @@
+name:   AnimationDataSingleFile
+kind:   metadata                       # Bethesda text cache, not a Havok class (no signature/size)
+file:   Meshes/AnimationDataSingleFile.txt
+# The clip-generator + root-motion cache. Positional, count-prefixed, CRLF (every line incl. the
+# last, no BOM). The engine loads it into AnimationClipDataSingleton keyed by project STEM, and each
+# project's clips into a per-project map keyed by clip-generator NAME (order is inert at both levels
+# — proven in Ghidra: FUN_140536ec0 / FUN_140538b80). Numeric fields are carried VERBATIM by the
+# reader/writer (floats appear as "0.014", "5.96046e-008"); only counts are recomputed on emit.
+#
+# `header: name` = the split layout: the projects' `name` fields are hoisted into a leading name
+# list (N names), then the N bodies follow IN NAME ORDER.
+fields:
+  - { name: projects, type: recordarray, ref: AnimDataProject, header: name }

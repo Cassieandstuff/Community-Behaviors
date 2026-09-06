@@ -1,0 +1,18 @@
+name:      hkbFootIkDriverInfo
+parent:    hkReferencedObject
+signature: 0xc6a09dbf
+size:      72
+fields:
+  - { name: legs, type: structarray, ref: hkbFootIkDriverInfoLeg }
+  - { name: raycastDistanceUp,      type: float }
+  - { name: raycastDistanceDown,    type: float }
+  - { name: originalGroundHeightMS, type: float }
+  - { name: verticalOffset,         type: float }
+  - { name: collisionFilterInfo,    type: uint32 }
+  - { name: forwardAlignFraction,   type: float }
+  - { name: sidewaysAlignFraction,  type: float }
+  - { name: sidewaysSampleWidth,    type: float }
+  - { name: lockFeetWhenPlanted,    type: bool }
+  - { name: useCharacterUpVector,   type: bool }
+  - { name: isQuadrupedNarrow,      type: bool }
+  - { skip: 5 }

@@ -1,0 +1,14 @@
+name:      BSEventEveryNEventsModifier
+parent:    hkbModifier
+signature: 0x6030970c
+size:      128
+fields:
+  - { name: eventToCheckFor, type: struct, ref: hkbEventProperty }
+  - { name: eventToSend,     type: struct, ref: hkbEventProperty }
+  - { name: numberOfEventsBeforeSend,        type: int8 }
+  - { name: minimumNumberOfEventsBeforeSend, type: int8 }
+  - { name: randomizeNumberOfEvents,         type: bool }
+  - { skip: 1 }
+  - { name: numberOfEventsSeen, type: int32, ignored: true }
+  - { name: calculatedNumberOfEventsBeforeSend, type: int8, ignored: true }
+  - { skip: 7 }

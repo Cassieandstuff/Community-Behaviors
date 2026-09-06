@@ -1,0 +1,7 @@
+name:      hkpConvexShape
+parent:    hkpSphereRepShape
+signature: 0xf8f74f85
+size:      40
+fields:
+  - { name: radius, type: float }   # @32
+  - { skip: 4 }                      # pad to 40

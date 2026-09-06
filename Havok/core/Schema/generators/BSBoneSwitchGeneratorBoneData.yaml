@@ -1,0 +1,7 @@
+name:      BSBoneSwitchGeneratorBoneData
+parent:    hkbBindable
+signature: 0xc1215be6
+size:      64
+fields:
+  - { name: pGenerator,  type: ptr, ref: hkbGenerator }
+  - { name: spBoneWeight, type: ptr, ref: hkbBoneWeightArray }

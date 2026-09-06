@@ -1,0 +1,10 @@
+name:   AnimSetCrcTriple
+kind:   metadata
+# One animation registration = TripleForAnimation(fullAnimPath): (folderCrc, fileCrc, extCrc).
+# folder + ext are constant within a set (ext = 7891816 for ".hkx"); file varies. char-setup consumes
+# these and they MUST be covered by the character's animationNames roster or it rep-stosqs (the
+# coverage guard drops uncovered CRCs — see the setdata roster-leg memory). Values carried verbatim.
+fields:
+  - { name: folder, type: uint32 }
+  - { name: file,   type: uint32 }
+  - { name: ext,    type: uint32 }

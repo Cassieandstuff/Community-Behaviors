@@ -1,0 +1,9 @@
+name:      hkbStateMachineTimeInterval
+parent:    null
+signature: 0x60a881e5
+size:      16
+fields:
+  - { name: enterEventId, type: int32 }
+  - { name: exitEventId,  type: int32 }
+  - { name: enterTime,    type: float }
+  - { name: exitTime,     type: float }

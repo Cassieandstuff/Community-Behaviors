@@ -1,0 +1,9 @@
+name:      hkbProjectData
+parent:    hkReferencedObject
+signature: 0x13a39ba7
+size:      48
+fields:
+  - { name: worldUpWS,        type: vector4 }                       # @16
+  - { name: stringData,       type: ptr, ref: hkbProjectStringData } # @32
+  - { name: defaultEventMode, type: int8 }                         # @40 enum EventMode
+  - { skip: 7 }                                                    # pad -> 48

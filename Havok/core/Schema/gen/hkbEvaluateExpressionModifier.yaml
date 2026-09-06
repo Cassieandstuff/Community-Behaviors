@@ -1,0 +1,8 @@
+name:      hkbEvaluateExpressionModifier
+parent:    hkbModifier
+signature: 0xf900f6be
+size:      112
+fields:
+  - { name: expressions, type: ptr, ref: hkbExpressionDataArray }
+  - { empty: ptr }
+  - { empty: array }

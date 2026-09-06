@@ -1,0 +1,10 @@
+name:      hkbBlenderGeneratorChild
+parent:    hkbBindable
+signature: 0xe2b384b0
+size:      80
+fields:
+  - { name: generator,           type: ptr, ref: hkbGenerator }
+  - { name: boneWeights,         type: ptr, ref: hkbBoneWeightArray }
+  - { name: weight,              type: float }
+  - { name: worldFromModelWeight, type: float }
+  - { skip: 8 }

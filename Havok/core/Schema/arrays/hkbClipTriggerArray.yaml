@@ -1,0 +1,6 @@
+name:      hkbClipTriggerArray
+parent:    hkReferencedObject
+signature: 0x59c23a0f
+size:      32
+fields:
+  - { name: triggers, type: structarray, ref: hkbClipTrigger }

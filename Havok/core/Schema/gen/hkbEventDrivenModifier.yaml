@@ -1,0 +1,10 @@
+name:      hkbEventDrivenModifier
+parent:    hkbModifierWrapper
+signature: 0x7ed3f44e
+size:      104
+fields:
+  - { name: activateEventId,   type: int32, eventref: activateEvent }
+  - { name: deactivateEventId, type: int32, eventref: deactivateEvent }
+  - { name: activeByDefault,   type: bool }
+  - { name: isActive,          type: bool, ignored: true }   # runtime — dropped in .hky
+  - { skip: 6 }

@@ -1,0 +1,10 @@
+name:      BSTimerModifier
+parent:    hkbModifier
+signature: 0x531f3292
+size:      112
+fields:
+  - { name: alarmTimeSeconds, type: float }
+  - { skip: 4 }
+  - { name: alarmEvent, type: struct, ref: hkbEventProperty }
+  - { name: resetAlarm, type: bool }
+  - { skip: 7 }                              # pad + secondsElapsed (ignored)

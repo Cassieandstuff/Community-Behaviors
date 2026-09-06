@@ -1,0 +1,11 @@
+name:      BSPassByTargetTriggerModifier
+parent:    hkbModifier
+signature: 0x703d7b66
+size:      160
+fields:
+  - { name: targetPosition, type: vector4 }
+  - { name: radius,         type: float }
+  - { skip: 12 }
+  - { name: movementDirection, type: vector4 }
+  - { name: triggerEvent,      type: struct, ref: hkbEventProperty }
+  - { skip: 16 }                             # targetPassed(bool)+pad

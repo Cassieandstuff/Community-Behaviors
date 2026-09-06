@@ -1,0 +1,10 @@
+name:      hkpEntitySpuCollisionCallback
+parent:    null
+signature: 0x81147f05
+size:      16
+fields:
+  - { empty: ptr }                       # @0 m_util (SERIALIZE_IGNORED)
+  - { skip: 2 }                          # @8 m_capacity (SERIALIZE_IGNORED)
+  - { name: eventFilter, type: byte }    # @10
+  - { name: userFilter,  type: byte }    # @11
+  - { skip: 4 }                          # tail pad -> 16

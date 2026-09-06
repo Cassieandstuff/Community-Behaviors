@@ -1,0 +1,14 @@
+name:      hkpRagdollMotorConstraintAtom
+parent:    null
+signature: 0x71013826
+size:      96
+fields:
+  - { name: type,        type: uint16 }   # @0
+  - { name: isEnabled,   type: bool }     # @2
+  - { skip: 1 }                           # @3 pad
+  - { name: initializedOffset,          type: int16 }   # @4
+  - { name: previousTargetAnglesOffset, type: int16 }   # @6
+  - { skip: 8 }                           # @8 pad -> 16
+  - { name: targetBRca, type: vector4, count: 3 }        # @16 hkMatrix3 (48B)
+  - { name: motors,     type: ptr, count: 3, ref: hkReferencedObject }  # @64 hkpConstraintMotor*[3]
+  - { skip: 8 }                           # tail pad -> 96

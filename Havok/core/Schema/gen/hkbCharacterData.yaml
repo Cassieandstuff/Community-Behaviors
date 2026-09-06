@@ -1,0 +1,20 @@
+name:      hkbCharacterData
+parent:    hkReferencedObject
+signature: 0x300d6808
+size:      176
+fields:
+  - { name: characterControllerInfo, type: struct, ref: hkbCharacterDataCharacterControllerInfo }
+  - { skip: 8 }
+  - { name: modelUpMS,      type: vector4 }
+  - { name: modelForwardMS, type: vector4 }
+  - { name: modelRightMS,   type: vector4 }
+  - { name: characterPropertyInfos, type: structarray, ref: hkbVariableInfo }
+  - { name: numBonesPerLod,          type: scalararray, scalar: int32 }
+  - { name: characterPropertyValues, type: ptr, ref: hkbVariableValueSet }
+  - { name: footIkDriverInfo,        type: ptr, ref: hkbFootIkDriverInfo }
+  - { name: handIkDriverInfo,        type: ptr, ref: hkbHandIkDriverInfo }
+  - { name: stringData,              type: ptr, ref: hkbCharacterStringData }
+  - { name: mirroredSkeletonInfo,    type: ptr, ref: hkbMirroredSkeletonInfo }
+  - { name: scale,         type: float }
+  - { name: numHands,      type: int16 }
+  - { name: numFloatSlots, type: int16 }

@@ -1,0 +1,6 @@
+name:      hkaSkeletonMapper
+parent:    hkReferencedObject
+signature: 0x12df42a5
+size:      144
+fields:
+  - { name: mapping, type: struct, ref: hkaSkeletonMapperData }   # @16 (128B)

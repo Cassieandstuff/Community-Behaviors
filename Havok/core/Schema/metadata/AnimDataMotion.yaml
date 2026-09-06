@@ -1,0 +1,10 @@
+name:   AnimDataMotion
+kind:   metadata
+# One clip's root-motion record, keyed to its clip by `animIndex` (same value as the AnimDataClip).
+# The un-derivable half of the cache (clips derive from the graph; motion comes from the animation's
+# hkaDefaultAnimatedReferenceFrame). Key lines are carried verbatim.
+fields:
+  - { name: animIndex,    type: int }          # links to the AnimDataClip at this index
+  - { name: duration,     type: float }
+  - { name: translations, type: stringarray }  # "t x y z"
+  - { name: rotations,    type: stringarray }  # "t x y z w"

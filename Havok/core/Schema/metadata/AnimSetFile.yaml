@@ -1,0 +1,12 @@
+name:   AnimSetFile
+kind:   metadata
+# One set file's content (a "V3" record), keyed by `name` ("1HMDual.txt"). Only "V3" is supported;
+# the version gates the crc block (read only when version > 2 — always true in vanilla). conditions
+# gate the set on weapon type; attacks map events to clips; crcs register the animation paths.
+fields:
+  - { name: name,        type: string }
+  - { name: version,     type: string }                                # "V3"
+  - { name: equipEvents, type: stringarray }                           # equip/trigger events
+  - { name: conditions,  type: recordarray, ref: AnimSetTypeCondition }
+  - { name: attacks,     type: recordarray, ref: AnimSetAttack }
+  - { name: crcs,        type: recordarray, ref: AnimSetCrcTriple }    # V3+

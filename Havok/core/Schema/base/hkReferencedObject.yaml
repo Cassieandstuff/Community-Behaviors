@@ -1,0 +1,8 @@
+name:      hkReferencedObject
+parent:    hkBaseObject
+signature: 0x3b1c1113
+size:      16
+fields:
+  - { name: memSizeAndFlags, type: uint16, ignored: true }   # typed SERIALIZE_IGNORED — round-trips as a value
+  - { name: referenceCount,  type: int16,  ignored: true }
+  - { pad: 8 }                                                # if PointerSize==8: Pad(8) (SSE always 64-bit); aligns 12 -> 16

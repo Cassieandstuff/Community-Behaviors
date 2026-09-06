@@ -1,0 +1,11 @@
+name:      hkbPoweredRagdollControlData
+parent:    null
+signature: 0x0f5ba21b
+size:      32
+fields:
+  - { name: maxForce, type: float }
+  - { name: tau,      type: float }
+  - { name: damping,  type: float }
+  - { name: proportionalRecoveryVelocity, type: float }
+  - { name: constantRecoveryVelocity,     type: float }
+  - { skip: 12 }

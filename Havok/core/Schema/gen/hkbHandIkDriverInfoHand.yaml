@@ -1,0 +1,20 @@
+name:      hkbHandIkDriverInfoHand
+parent:    null
+signature: 0x14dfe1dd
+size:      96
+fields:
+  - { name: elbowAxisLS,      type: vector4 }
+  - { name: backHandNormalLS, type: vector4 }
+  - { name: handOffsetLS,     type: vector4 }
+  - { name: handOrienationOffsetLS, type: quaternion }
+  - { name: maxElbowAngleDegrees, type: float }
+  - { name: minElbowAngleDegrees, type: float }
+  - { name: shoulderIndex,        type: int16 }
+  - { name: shoulderSiblingIndex, type: int16 }
+  - { name: elbowIndex,           type: int16 }
+  - { name: elbowSiblingIndex,    type: int16 }
+  - { name: wristIndex,           type: int16 }
+  - { name: enforceEndPosition,   type: bool }
+  - { name: enforceEndRotation,   type: bool }
+  - { skip: 4 }
+  - { name: localFrameName, type: string }

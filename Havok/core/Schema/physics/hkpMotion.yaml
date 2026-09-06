@@ -1,0 +1,19 @@
+name:      hkpMotion
+parent:    hkReferencedObject
+signature: 0x98aadb4f
+size:      320
+fields:
+  - { name: type,                         type: byte }             # @16 MotionType
+  - { name: deactivationIntegrateCounter, type: byte }             # @17
+  - { name: deactivationNumInactiveFrames, type: uint16, count: 2 } # @18
+  - { skip: 10 }                                                   # pad -> 32
+  - { name: motionState,          type: struct, ref: hkMotionState } # @32 (176B)
+  - { name: inertiaAndMassInv,    type: vector4 }                  # @208
+  - { name: linearVelocity,       type: vector4 }                  # @224
+  - { name: angularVelocity,      type: vector4 }                  # @240
+  - { name: deactivationRefPosition,    type: vector4, count: 2 }  # @256
+  - { name: deactivationRefOrientation, type: uint32,  count: 2 }  # @288
+  - { empty: ptr }                                                 # @296 m_savedMotion
+  - { name: savedQualityTypeIndex, type: uint16 }                  # @304
+  - { name: gravityFactor,         type: half }                    # @306
+  - { skip: 12 }                                                   # tail pad -> 320

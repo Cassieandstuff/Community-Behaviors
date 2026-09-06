@@ -1,0 +1,8 @@
+name:      hkbBehaviorReferenceGenerator
+parent:    hkbGenerator
+signature: 0x0fcb5423
+size:      88
+# References another .hkx (BFR).
+fields:
+  - { name: behaviorName, type: string }
+  - { empty: ptr }

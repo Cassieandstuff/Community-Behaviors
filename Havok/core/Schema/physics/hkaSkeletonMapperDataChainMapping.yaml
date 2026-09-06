@@ -1,0 +1,12 @@
+name:      hkaSkeletonMapperDataChainMapping
+parent:    null
+signature: 0xa528f7cf
+size:      112
+fields:
+  - { name: startBoneA, type: int16 }   # @0
+  - { name: endBoneA,   type: int16 }   # @2
+  - { name: startBoneB, type: int16 }   # @4
+  - { name: endBoneB,   type: int16 }   # @6
+  - { skip: 8 }                          # pad -> 16
+  - { name: startAFromBTransform, type: qstransform }  # @16 (48B)
+  - { name: endAFromBTransform,   type: qstransform }  # @64 (48B)

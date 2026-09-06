@@ -1,0 +1,15 @@
+name:      hkaSkeletonMapperData
+parent:    null
+signature: 0x95687ea0
+size:      128
+fields:
+  - { name: skeletonA,      type: ptr, ref: hkaSkeleton }   # @0
+  - { name: skeletonB,      type: ptr, ref: hkaSkeleton }   # @8
+  - { name: simpleMappings, type: structarray, ref: hkaSkeletonMapperDataSimpleMapping }  # @16
+  - { name: chainMappings,  type: structarray, ref: hkaSkeletonMapperDataChainMapping }   # @32
+  - { name: unmappedBones,  type: scalararray, scalar: int16 }   # @48
+  - { name: extractedMotionMapping, type: qstransform }          # @64 (48B)
+  - { name: keepUnmappedLocal, type: bool }                      # @112
+  - { skip: 3 }                                                  # pad -> 116
+  - { name: mappingType,    type: uint32 }                       # @116
+  - { skip: 8 }                                                  # tail pad -> 128

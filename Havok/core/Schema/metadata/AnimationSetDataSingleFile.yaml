@@ -1,0 +1,12 @@
+name:   AnimationSetDataSingleFile
+kind:   metadata
+file:   Meshes/AnimationSetDataSingleFile.txt
+# The moveset table: per weapon-equip state, which attack events map to which clips, plus the path
+# CRCs the engine matches loaded animations against. Positional, count-prefixed, CRLF. The engine
+# loads it into a name-keyed map by project header (FUN_14053b000 / FUN_14053c6a0); association is
+# carried on the loaded character object, not by file stem. Numeric fields carried verbatim.
+#
+# `header: header` = split layout: the projects' `header` fields are hoisted into a leading list,
+# then the N project bodies follow in order.
+fields:
+  - { name: projects, type: recordarray, ref: AnimSetProject, header: header }

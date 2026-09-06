@@ -1,0 +1,9 @@
+name:      hkbVariableBindingSet
+parent:    hkReferencedObject
+signature: 0x338ad4ff
+size:      40
+fields:
+  - { name: bindings,               type: structarray, ref: hkbVariableBindingSetBinding }   # ReadClassArray
+  - { name: indexOfBindingToEnable, type: int32 }
+  - { name: hasOutputBinding,       type: bool, ignored: true }
+  - { skip: 3 }

@@ -1,0 +1,11 @@
+name:      hkaAnimationContainer
+parent:    hkReferencedObject
+signature: 0x8dc20333
+size:      96
+# Canonical root wrapper (emit direction). attachments/skins always empty (base ptrs).
+fields:
+  - { name: skeletons,   type: ptrarray, ref: hkaSkeleton }
+  - { name: animations,  type: ptrarray, ref: hkaAnimation }
+  - { name: bindings,    type: ptrarray, ref: hkaAnimationBinding }
+  - { name: attachments, type: ptrarray, ref: hkReferencedObject }
+  - { name: skins,       type: ptrarray, ref: hkReferencedObject }

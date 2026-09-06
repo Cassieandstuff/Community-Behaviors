@@ -1,0 +1,8 @@
+name:   AnimSetProject
+kind:   metadata
+# One project's set-file collection. `header` is the project path ("ChickenProjectData\ChickenProject
+# .txt"). Each project owns M set files; `header: name` hoists their names into a leading list (M set
+# names), then the M set contents follow in order (split layout, same as the top level).
+fields:
+  - { name: header, type: string }
+  - { name: sets,   type: recordarray, ref: AnimSetFile, header: name }

@@ -1,0 +1,7 @@
+name:      BSGetTimeStepModifier
+parent:    hkbModifier
+signature: 0xbda33bfe
+size:      88
+fields:
+  - { name: timeStep, type: float }
+  - { skip: 4 }

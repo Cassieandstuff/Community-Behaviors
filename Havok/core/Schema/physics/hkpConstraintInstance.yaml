@@ -1,0 +1,19 @@
+name:      hkpConstraintInstance
+parent:    hkReferencedObject
+signature: 0x034eba5f
+size:      112
+fields:
+  - { empty: ptr }                                             # @16 m_owner (IGNORED)
+  - { name: data,                type: ptr, ref: hkReferencedObject }  # @24 hkpConstraintData*
+  - { name: constraintModifiers, type: ptr, ref: hkReferencedObject }  # @32 hkpModifierConstraintAtom*
+  - { name: entities, type: ptr, count: 2, ref: hkpEntity }    # @40 hkpEntity*[2]
+  - { name: priority,             type: byte }                 # @56
+  - { name: wantRuntime,          type: bool }                 # @57
+  - { name: destructionRemapInfo, type: byte }                 # @58
+  - { skip: 5 }                                                # pad -> 64
+  - { skip: 16 }                                               # @64 m_listeners smallArray override (IGNORED)
+  - { name: name,     type: string }                           # @80
+  - { name: userData, type: uint64 }                           # @88
+  - { empty: ptr }                                             # @96 m_internal (IGNORED)
+  - { skip: 4 }                                                # @104 m_uid (IGNORED value)
+  - { skip: 4 }                                                # tail pad -> 112

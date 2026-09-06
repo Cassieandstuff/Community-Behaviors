@@ -1,0 +1,8 @@
+name:      hkpProperty
+parent:    null
+signature: 0x9ce308e9
+size:      16
+fields:
+  - { name: key,              type: uint32 }
+  - { name: alignmentPadding, type: uint32 }
+  - { name: value,            type: struct, ref: hkpPropertyValue }

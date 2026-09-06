@@ -1,0 +1,6 @@
+name:      hkpKeyframedRigidMotion
+parent:    hkpMotion
+signature: 0xbafa2bb7
+size:      320
+# No own fields; pure delegation to hkpMotion.
+fields: []

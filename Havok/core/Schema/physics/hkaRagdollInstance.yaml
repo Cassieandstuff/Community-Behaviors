@@ -1,0 +1,9 @@
+name:      hkaRagdollInstance
+parent:    hkReferencedObject
+signature: 0x154948e8
+size:      72
+fields:
+  - { name: rigidBodies,        type: ptrarray, ref: hkpRigidBody }       # @16
+  - { name: constraints,        type: ptrarray, ref: hkReferencedObject } # @32 hkpConstraintInstance*
+  - { name: boneToRigidBodyMap, type: scalararray, scalar: int32 }        # @48
+  - { name: skeleton,           type: ptr, ref: hkaSkeleton }             # @64

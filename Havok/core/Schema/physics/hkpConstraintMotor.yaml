@@ -1,0 +1,7 @@
+name:      hkpConstraintMotor
+parent:    hkReferencedObject
+signature: 0x6a44c317
+size:      24
+fields:
+  - { name: type, type: int8 }   # @16 hkEnum<MotorType, hkInt8>
+  - { skip: 7 }                   # pad -> 24

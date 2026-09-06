@@ -1,0 +1,12 @@
+name:      hkpCollidable
+parent:    hkpCdBody
+signature: 0x9a0e42a5
+size:      112
+fields:
+  - { skip: 1 }                                    # @32 m_ownerOffset (IGNORED)
+  - { name: forceCollideOntoPpu, type: byte }      # @33
+  - { skip: 2 }                                     # @34 m_shapeSizeOnSpu (IGNORED)
+  - { name: broadPhaseHandle, type: struct, ref: hkpTypedBroadPhaseHandle }  # @36 (12B)
+  - { skip: 56 }                                    # @48 m_boundingVolumeData (whole member IGNORED)
+  - { name: allowedPenetrationDepth, type: float } # @104
+  - { skip: 4 }                                     # tail pad -> 112

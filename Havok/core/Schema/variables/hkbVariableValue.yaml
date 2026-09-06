@@ -1,0 +1,6 @@
+name:      hkbVariableValue
+parent:    null
+signature: 0x0b99bd6a
+size:      4
+fields:
+  - { name: value, type: int32 }

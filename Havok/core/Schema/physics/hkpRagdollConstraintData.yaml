@@ -1,0 +1,7 @@
+name:      hkpRagdollConstraintData
+parent:    hkpConstraintData
+signature: 0x8fb5dd29
+size:      384
+fields:
+  - { skip: 8 }                                                        # pad 24 -> 32 (ALIGN_16)
+  - { name: atoms, type: struct, ref: hkpRagdollConstraintDataAtoms }  # @32 (352B)

@@ -1,0 +1,14 @@
+name:      hkbProjectStringData
+parent:    hkReferencedObject
+signature: 0x076ad60a
+size:      120
+fields:
+  - { name: animationFilenames, type: stringarray }
+  - { name: behaviorFilenames,  type: stringarray }
+  - { name: characterFilenames, type: stringarray }
+  - { name: eventNames,         type: stringarray }
+  - { name: animationPath,      type: string }
+  - { name: behaviorPath,       type: string }
+  - { name: characterPath,      type: string }
+  - { name: fullPathToSource,   type: string }
+  - { empty: ptr }                                # rootPath — SERIALIZE_IGNORED, always null

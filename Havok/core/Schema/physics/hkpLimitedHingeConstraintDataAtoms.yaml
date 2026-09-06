@@ -1,0 +1,13 @@
+name:      hkpLimitedHingeConstraintDataAtoms
+parent:    null
+signature: 0x54c7715b
+size:      240
+fields:
+  - { name: transforms,          type: struct, ref: hkpSetLocalTransformsConstraintAtom }  # @0   (144B)
+  - { name: setupStabilization,  type: struct, ref: hkpSetupStabilizationAtom }            # @144 (16B)
+  - { name: angMotor,            type: struct, ref: hkpAngMotorConstraintAtom }            # @160 (24B)
+  - { name: angFriction,         type: struct, ref: hkpAngFrictionConstraintAtom }         # @184 (12B)
+  - { name: angLimit,            type: struct, ref: hkpAngLimitConstraintAtom }            # @196 (16B)
+  - { name: 2dAng,               type: struct, ref: hkp2dAngConstraintAtom }               # @212 (4B)
+  - { name: ballSocket,          type: struct, ref: hkpBallSocketConstraintAtom }          # @216 (16B)
+  - { skip: 8 }                                                                            # tail pad -> 240

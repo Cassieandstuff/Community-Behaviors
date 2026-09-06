@@ -1,0 +1,34 @@
+name:      BSDirectAtModifier
+parent:    hkbModifier
+signature: 0x19a005c0
+size:      224
+fields:
+  - { name: directAtTarget, type: bool }
+  - { skip: 1 }
+  - { name: sourceBoneIndex, type: int16 }
+  - { name: startBoneIndex,  type: int16 }
+  - { name: endBoneIndex,    type: int16 }
+  - { name: limitHeadingDegrees,  type: float }
+  - { name: limitPitchDegrees,    type: float }
+  - { name: offsetHeadingDegrees, type: float }
+  - { name: offsetPitchDegrees,   type: float }
+  - { name: onGain,  type: float }
+  - { name: offGain, type: float }
+  - { name: targetLocation, type: vector4 }
+  - { name: userInfo,       type: uint32 }
+  - { name: directAtCamera, type: bool }
+  - { skip: 3 }
+  - { name: directAtCameraX, type: float }
+  - { name: directAtCameraY, type: float }
+  - { name: directAtCameraZ, type: float }
+  - { name: active, type: bool }
+  - { skip: 3 }
+  - { name: currentHeadingOffset, type: float, ignored: true, hky: true }
+  - { name: currentPitchOffset,   type: float, ignored: true, hky: true }
+  - { name: timeStep,             type: float, ignored: true }
+  - { skip: 4 }
+  - { empty: ptr }
+  - { name: hasTarget, type: bool, ignored: true }
+  - { skip: 15 }
+  - { name: directAtTargetLocation, type: vector4, ignored: true }
+  - { empty: array }

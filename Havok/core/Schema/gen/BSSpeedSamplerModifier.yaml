@@ -1,0 +1,9 @@
+name:      BSSpeedSamplerModifier
+parent:    hkbModifier
+signature: 0xd297fda9
+size:      96
+fields:
+  - { name: state,     type: int32 }
+  - { name: direction, type: float }
+  - { name: goalSpeed, type: float }
+  - { name: speedOut,  type: float }

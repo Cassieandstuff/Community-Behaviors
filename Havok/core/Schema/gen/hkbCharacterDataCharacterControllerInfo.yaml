@@ -1,0 +1,10 @@
+name:      hkbCharacterDataCharacterControllerInfo
+parent:    null
+signature: 0xa0f415bf
+size:      24
+fields:
+  - { name: capsuleHeight,       type: float }
+  - { name: capsuleRadius,       type: float }
+  - { name: collisionFilterInfo, type: uint32 }
+  - { skip: 4 }
+  - { name: characterControllerCinfo, type: ptr, ref: hkpCharacterControllerCinfo }

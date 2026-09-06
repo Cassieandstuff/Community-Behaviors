@@ -1,0 +1,17 @@
+name:      hkaKeyFrameHierarchyUtilityControlData
+parent:    null
+signature: 0xa3d0ac71
+size:      48
+fields:
+  - { name: hierarchyGain,             type: float }
+  - { name: velocityDamping,           type: float }
+  - { name: accelerationGain,          type: float }
+  - { name: velocityGain,              type: float }
+  - { name: positionGain,              type: float }
+  - { name: positionMaxLinearVelocity, type: float }
+  - { name: positionMaxAngularVelocity, type: float }
+  - { name: snapGain,                  type: float }
+  - { name: snapMaxLinearVelocity,     type: float }
+  - { name: snapMaxAngularVelocity,    type: float }
+  - { name: snapMaxLinearDistance,     type: float }
+  - { name: snapMaxAngularDistance,    type: float }

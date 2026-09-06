@@ -1,0 +1,20 @@
+name:      BSOffsetAnimationGenerator
+parent:    hkbGenerator
+signature: 0xb8571122
+size:      176
+fields:
+  - { skip: 8 }
+  - { name: pDefaultGenerator,    type: ptr, ref: hkbGenerator }
+  - { skip: 8 }
+  - { name: pOffsetClipGenerator, type: ptr, ref: hkbGenerator }
+  - { name: fOffsetVariable,      type: float }
+  - { name: fOffsetRangeStart,    type: float }
+  - { name: fOffsetRangeEnd,      type: float }
+  - { skip: 4 }
+  - { empty: array }
+  - { empty: array }
+  - { name: fCurrentPercentage, type: float,  ignored: true }
+  - { name: iCurrentFrame,      type: uint32, ignored: true }
+  - { name: bZeroOffset,        type: bool,   ignored: true }
+  - { name: bOffsetValid,       type: bool,   ignored: true }
+  - { skip: 14 }

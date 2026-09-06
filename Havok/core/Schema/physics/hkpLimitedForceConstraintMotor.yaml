@@ -1,0 +1,7 @@
+name:      hkpLimitedForceConstraintMotor
+parent:    hkpConstraintMotor
+signature: 0x3377b0b0
+size:      32
+fields:
+  - { name: minForce, type: float }   # @24
+  - { name: maxForce, type: float }   # @28

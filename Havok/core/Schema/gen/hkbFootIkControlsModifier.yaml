@@ -1,0 +1,9 @@
+name:      hkbFootIkControlsModifier
+parent:    hkbModifier
+signature: 0xe5b6f544
+size:      176
+fields:
+  - { name: controlData, type: struct, ref: hkbFootIkControlData }
+  - { name: legs,        type: structarray, ref: hkbFootIkControlsModifierLeg }
+  - { name: errorOutTranslation,     type: vector4 }
+  - { name: alignWithGroundRotation, type: quaternion }

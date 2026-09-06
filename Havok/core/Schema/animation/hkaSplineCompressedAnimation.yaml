@@ -1,0 +1,20 @@
+name:      hkaSplineCompressedAnimation
+parent:    hkaAnimation
+signature: 0x792ee0bb
+size:      176
+fields:
+  - { name: numFrames,               type: int32 }
+  - { name: numBlocks,               type: int32 }
+  - { name: maxFramesPerBlock,       type: int32 }
+  - { name: maskAndQuantizationSize, type: int32 }
+  - { name: blockDuration,           type: float }
+  - { name: blockInverseDuration,    type: float }
+  - { name: frameDuration,           type: float }
+  - { skip: 4 }
+  - { name: blockOffsets,      type: scalararray, scalar: uint32 }
+  - { name: floatBlockOffsets, type: scalararray, scalar: uint32 }
+  - { name: transformOffsets,  type: scalararray, scalar: uint32 }
+  - { name: floatOffsets,      type: scalararray, scalar: uint32 }
+  - { name: data,              type: scalararray, scalar: byte }
+  - { name: endian,            type: int32 }
+  - { skip: 4 }

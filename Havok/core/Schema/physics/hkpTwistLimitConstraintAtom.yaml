@@ -1,0 +1,13 @@
+name:      hkpTwistLimitConstraintAtom
+parent:    null
+signature: 0x7c9b1052
+size:      20
+fields:
+  - { name: type,      type: uint16 }   # @0
+  - { name: isEnabled, type: byte }     # @2
+  - { name: twistAxis, type: byte }     # @3
+  - { name: refAxis,   type: byte }     # @4
+  - { skip: 3 }                         # @5 pad -> 8
+  - { name: minAngle,  type: float }    # @8
+  - { name: maxAngle,  type: float }    # @12
+  - { name: angularLimitsTauFactor, type: float }  # @16

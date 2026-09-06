@@ -1,0 +1,8 @@
+name:      hkbVariableValueSet
+parent:    hkReferencedObject
+signature: 0x27812d8d
+size:      64
+fields:
+  - { name: wordVariableValues,    type: structarray, ref: hkbVariableValue }    # ReadClassArray
+  - { name: quadVariableValues,    type: vec4array }                             # ReadVector4Array
+  - { name: variantVariableValues, type: ptrarray, ref: hkReferencedObject }     # ReadClassPointerArray

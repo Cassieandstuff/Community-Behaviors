@@ -1,0 +1,10 @@
+name:      hkbKeyframeBonesModifierKeyframeInfo
+parent:    null
+signature: 0x72deb7a6
+size:      48
+fields:
+  - { name: keyframedPosition, type: vector4 }
+  - { name: keyframedRotation, type: quaternion }
+  - { name: boneIndex, type: int16 }
+  - { name: isValid,   type: bool }
+  - { skip: 13 }

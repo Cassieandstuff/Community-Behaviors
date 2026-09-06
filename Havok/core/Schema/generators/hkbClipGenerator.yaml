@@ -1,0 +1,35 @@
+name:      hkbClipGenerator
+parent:    hkbGenerator
+signature: 0x333b85b9
+size:      272
+# Plays a single animation clip. animationBindingIndex is the Animation Relay bind target.
+fields:
+  - { name: animationName,               type: string }
+  - { name: triggers,                    type: ptr, ref: hkbClipTriggerArray }
+  - { name: cropStartAmountLocalTime,    type: float }
+  - { name: cropEndAmountLocalTime,      type: float }
+  - { name: startTime,                   type: float }
+  - { name: playbackSpeed,               type: float }
+  - { name: enforcedDuration,            type: float }
+  - { name: userControlledTimeFraction,  type: float }
+  - { name: animationBindingIndex,       type: int16 }
+  - { name: mode,                        type: int8, enum: PlaybackMode }
+  - { name: flags,                       type: int8, enum: ClipGeneratorFlags, flags: true }
+  - { skip: 4 }
+  - { empty: array }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { empty: ptr }
+  - { name: extractedMotion,             type: qstransform, ignored: true }
+  - { empty: array }
+  - { name: localTime,                            type: float, ignored: true }
+  - { name: time,                                 type: float, ignored: true }
+  - { name: previousUserControlledTimeFraction,   type: float, ignored: true }
+  - { name: bufferSize,                           type: int32, ignored: true }
+  - { name: echoBufferSize,                       type: int32, ignored: true }
+  - { name: atEnd,                                type: bool,  ignored: true }
+  - { name: ignoreStartTime,                      type: bool,  ignored: true }
+  - { name: pingPongBackward,                     type: bool,  ignored: true }
+  - { skip: 9 }

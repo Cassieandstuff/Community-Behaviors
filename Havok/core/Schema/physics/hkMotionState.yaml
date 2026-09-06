@@ -1,0 +1,17 @@
+name:      hkMotionState
+parent:    null
+signature: 0x5797386e
+size:      176
+# Inline value struct (HK_CLASS_ID but not registered): transform + swept transform + scalar tail.
+fields:
+  - { name: transform,          type: vector4, count: 4 }   # hkTransform      @0  (64B)
+  - { name: sweptTransform,     type: vector4, count: 5 }   # hkSweptTransform @64 (80B)
+  - { name: deltaAngle,         type: vector4 }             # @144
+  - { name: objectRadius,       type: float }               # @160
+  - { name: linearDamping,      type: half }                # @164
+  - { name: angularDamping,     type: half }                # @166
+  - { name: timeFactor,         type: half }                # @168
+  - { name: maxLinearVelocity,  type: byte }                # @170
+  - { name: maxAngularVelocity, type: byte }                # @171
+  - { name: deactivationClass,  type: byte }                # @172
+  - { skip: 3 }                                             # tail pad -> 176

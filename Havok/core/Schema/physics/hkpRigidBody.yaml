@@ -1,0 +1,6 @@
+name:      hkpRigidBody
+parent:    hkpEntity
+signature: 0x75f8d805
+size:      720
+# Concrete leaf; no own fields (all hkpEntity).
+fields: []
