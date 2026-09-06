@@ -41,6 +41,7 @@ else()
     FetchContent_MakeAvailable(CommonLibSSE)
 endif()
 
+include(CommonLibSSE)   # add_commonlibsse_plugin() — SHARED lib + generated version-data TU
 include(Deploy)         # cb_deploy() — MO2 deploy
 
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -56,16 +57,36 @@ add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/havok-pipeline)
+add_subdirectory(src/sct-config)        # shared config scanner (JSON/YAML/INI) the resolver reads
 set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
 add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
 
 # ── The plugin ─────────────────────────────────────────────────────────────────
-# A plain SHARED lib linking CommonLibSSE::CommonLibSSE. The SKSE plugin version data + entry point
-# are defined directly in src/main.cpp (raw exports) rather than via the helper's generated version
-# TU — the generated file's include ordering doesn't cooperate with a force-included PCH under MSVC.
-add_library(CommunityBehaviors SHARED src/main.cpp)
-target_link_libraries(CommunityBehaviors PUBLIC CommonLibSSE::CommonLibSSE)
+# The runtime behavior-graph compiler. Sources are FLAT: each Foo.cpp sits beside its Foo.h directly
+# under src/ (no cpp/hpp split — src/ IS the private include root, so same-name quoted includes and
+# the flat headers like "ERGate.h" resolve). The plugin's OWN sources are the flat .cpp at the src/
+# ROOT (non-recursive glob, so the sibling engine modules under src/havok-*/ + src/sct-config/ — their
+# own targets — are NOT swept in) PLUS the compile-time graph features under features/.
+find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
+find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link below)
+
+file(GLOB CB_ROOT_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
+sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
+
+# add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) and links
+# CommonLibSSE — Plugin.cpp defines only SKSEPluginLoad. (Works now that SKYRIM_SUPPORT_AE is ON;
+# the earlier raw-export hack in main.cpp is gone.)
+add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_FEATURE_SOURCES})
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
+
+# src/ is the flat private include root: the plugin's own headers, Hooks/ (header-only), PluginLogger.h,
+# and PCH.h ("PCH.h" quoted include in Plugin.cpp) all resolve from here.
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src")
+
+# havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
+# (PUBLIC-exposes "FeatureRegistry.h" for features/<Owner>/ + Resolver.cpp); sct-config = the config
+# scanner; ryml = YAML front-end; minhook = function-ENTRY hooks (the BSResource stream ctor).
+target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/PCH.h")
