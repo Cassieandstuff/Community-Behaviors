@@ -8,12 +8,12 @@ that Community Behaviors still depends on but is actively working to delete.
 - **`havok-core/`** — the original typed-object Havok world: hand-written `hkb*` / `hka*` / `hkp*`
   classes plus the `BehaviorBuilder` / `CharacterBuilder` / `BehaviorDecompiler` / `PatchConverter`
   machinery. It is the *offline / legacy backbone* — the home of the hard-to-port converter
-  decompilers and the byte-for-byte parity oracle that the data-driven stack (`../libs/havok-*`) is
+  decompilers and the byte-for-byte parity oracle that the data-driven stack (`../src/havok-*`) is
   gated against.
 
 ## Why it's quarantined
 
-Every new component belongs in the **data-driven stack** (`libs/havok-framing`, `havok-schema`,
+Every new component belongs in the **data-driven stack** (`src/havok-framing`, `havok-schema`,
 `havok-io`, `havok-model`, `havok-pipeline`) — a class described **once as data** (the `Havok/`
 schema tree) and consumed by generic byte-exact serialization + a SchemaObject model. `havok-core`
 is being **dissolved** into that stack, not extended. Anchoring shared infrastructure here is how
@@ -28,4 +28,4 @@ is being **dissolved** into that stack, not extended. Anchoring shared infrastru
   deleted.
 
 If you find yourself reaching in here to build something new — stop, and give it a proper home
-in `libs/`.
+in `src/`.

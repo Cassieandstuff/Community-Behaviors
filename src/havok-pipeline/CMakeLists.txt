@@ -1,21 +1,14 @@
 # ---------------------------------------------------------------------------
-if(NOT DEFINED SCT_ROOT_DIR)
-    get_filename_component(SCT_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
-endif()
-# havok-pipeline — the compile-pipeline feature framework (havok-core v2, Stage 5).
+# havok-pipeline — the compile-pipeline feature framework.
 #
 # The self-registered graph-feature SDK (IGraphFeature / FeatureRegistry / the
-# BR_REGISTER_FEATURE macro), relocated OUT of Community Behaviors so the offline
-# compiler and the editor can present the same feature hook as the BR runtime.
-# A feature's Apply() depends ONLY on havok-model's BehaviorData + the framework's
-# FeatureContext interfaces (the pure-Apply rule) — never on SKSE/CommonLib/BR.
+# BR_REGISTER_FEATURE macro), so the offline compiler and the editor present the
+# same feature hook as the CB runtime. A feature's Apply() depends ONLY on
+# havok-model's BehaviorData + the framework's FeatureContext interfaces (the
+# pure-Apply rule) — never on SKSE/CommonLib/CB.
 #
-# Consumers include the SDK headers bare ("FeatureRegistry.h" / "IGraphFeature.h"),
-# mirroring the old features/core/hpp on-the-path convention — the include dir is
-# PUBLIC so that resolves for anyone linking havok-pipeline.
-#
-# DUAL-TRIPLET; added from the root CMakeLists after havok-model (it links it for
-# BehaviorData). Guarded by NOT TARGET so it's added once across the split.
+# Consumers include the SDK headers bare ("FeatureRegistry.h" / "IGraphFeature.h");
+# the include dir is PUBLIC so that resolves for anyone linking havok-pipeline.
 # ---------------------------------------------------------------------------
 
 sct_collect_sources(HAVOK_PIPELINE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}"

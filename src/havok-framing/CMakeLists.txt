@@ -1,24 +1,20 @@
 # ---------------------------------------------------------------------------
-if(NOT DEFINED SCT_ROOT_DIR)
-    get_filename_component(SCT_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
-endif()
-# havok-framing — the packfile framing leaf (havok-core v2 rewrite).
+# havok-framing — the packfile framing leaf of the data-driven Havok stack.
 #
-# The salvaged packfile primitives, extracted OUT of havok-core so the new lib
-# set (havok-io / havok-schema / havok-model) is standalone and havok-core drops
-# to an oracle-only "corpse" depended on by nothing in the new set. Holds:
+# The salvaged packfile primitives, so the module set (havok-io / havok-schema /
+# havok-model) is standalone and the legacy havok-core corpse is depended on by
+# nothing in it. Holds:
 #   - IHavokObject           (the base object interface)
 #   - HkTypes / BinaryReaderEx / BinaryWriterEx   (byte primitives)
 #   - PackFileTypes / PackFileDeserializer / PackFileSerializer   (framing)
 #   - HavokRegistry          (className->factory INFRASTRUCTURE only; havok-core
 #                             registers the typed-class CONTENT at static-init)
 #
-# Zero dependencies (std only) — a true leaf. DUAL-TRIPLET: added from the root
-# CMakeLists before havok-core, guarded by NOT TARGET so it's added once.
+# Zero dependencies (std only) — a true leaf.
 # ---------------------------------------------------------------------------
 
 sct_collect_sources(HAVOK_FRAMING_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
 )
 

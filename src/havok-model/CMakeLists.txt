@@ -1,8 +1,5 @@
 # ── havok-model ──────────────────────────────────────────────────────────────
-if(NOT DEFINED SCT_ROOT_DIR)
-    get_filename_component(SCT_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
-endif()
-# The name-keyed .hky model + schema-driven emit/parse (havok-core v2 rewrite, Stage 3). Sits on top of
+# The name-keyed .hky model + schema-driven emit/parse. Sits on top of
 # havok-io's generic SchemaObject graph:
 #
 #   .hkx ↔ SchemaObject graph            (havok-io)
@@ -14,18 +11,14 @@ endif()
 # Canonical ids (yaml filenames) are owned HERE (the identity/index step), NOT the Havok/ schema and NOT
 # the emit formatting. The emit is a pure projection that consumes the ids the identity pass produced.
 #
-# DUAL-TRIPLET: added from the ROOT CMakeLists after havok-io (guarded by NOT TARGET). Single public
-# header: <havok-model/HavokModel.h>.
+# CB source module. Public header on the path as <havok-model/HavokModel.h>.
 
 sct_collect_sources(HAVOK_MODEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp")
 
 add_library(havok-model STATIC ${HAVOK_MODEL_SOURCES})
 
 target_include_directories(havok-model
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include/internal        # <havok-model/HavokModel.h>
-    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")      # havok/model/*, havok/anim/*, havok/sct/AnimDataFromBehavior.h
-                                                       # (Stage 3r.1: the name-keyed doc + merge + animdata
-                                                       #  derivation, moved here out of havok-core)
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")   # <havok-model/HavokModel.h> + havok/model/*, havok/anim/*, havok/sct/*, havok/cross/*
 
 # havok-io provides the SchemaObject graph + framing; havok-schema the ClassSchema descriptors
 # (and ryml, PUBLIC-propagated — the moved YAML loaders need it). havok-framing comes transitively.
