@@ -57,6 +57,7 @@ add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/havok-pipeline)
+add_subdirectory(src/cb-resolve)        # minimal havok-core-free load-order resolution + .hky document (shared with tools)
 add_subdirectory(src/sct-config)        # shared config scanner (JSON/YAML/INI) the resolver reads
 set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
 add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
