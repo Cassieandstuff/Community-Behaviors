@@ -98,7 +98,11 @@ toolchain versions **even when the content is identical**, so a byte-diff of pac
 ## Knowledge tiers
 
 - **CLAUDE.md** — always-on architectural SOP (this file). Keep it LEAN; it's injected every turn.
-- **Auto-memory** — preferences, decisions + context, project state. NOT procedures/specs.
+- **Auto-memory** — preferences, decisions + context, project state (soft, per-user). NOT bug status.
+- **`docs/bugs/`** — the checked-in bug log: one file per OPEN bug + a thin index, and a fixed bug
+  **leaves** (deleted with its index line in the same commit as the fix; git history is the archive —
+  nothing accumulates). Bugs are shared/authoritative, so they live here, not in memory. Find a bug →
+  add its file; fix it → remove it; sync in the same change as the code. See `docs/bugs/README.md`.
 - **Code is the source of truth**, above docs and comments. Verify code-shaped claims against the code.
 
 When about to record something SOP-shaped into a checked-in file, flag it for the user's approval —
