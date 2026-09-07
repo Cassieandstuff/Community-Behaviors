@@ -77,8 +77,10 @@ using namespace std::literals;
 #endif
 
 // ── Editor world (Dear ImGui + glm) ──────────────────────────────────────────
-// Auto-selected when Dear ImGui is on the include path.
-#if __has_include(<imgui.h>)
+// Auto-selected when Dear ImGui AND glm are on the include path (the converter/editor). NOT the
+// plugin: it now links a Dear ImGui + D3D11 lib for the compile progress bar (ProgressHud), so
+// <imgui.h> alone is on its path — but it has no glm, and this glm-heavy block must stay off there.
+#if __has_include(<imgui.h>) && __has_include(<glm/glm.hpp>)
 #  if defined(_WIN32)
 #    ifndef WIN32_LEAN_AND_MEAN
 #      define WIN32_LEAN_AND_MEAN
