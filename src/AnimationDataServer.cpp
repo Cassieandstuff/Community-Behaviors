@@ -87,6 +87,43 @@ namespace CB::adserve {
             return order;
         }
 
+        // actor root of a lowercased path ("meshes/actors/character/behaviors/x.hkx", or a base
+        // header's "actors/canine/characters dog/dog.hkx") -> "actors/<actor>" — the key the scan
+        // and the base headers agree on. Empty if the path isn't an actor behavior/character path.
+        std::string ActorRootLower(const std::string& pathLower)
+        {
+            const auto ap = pathLower.find("actors/");
+            if (ap == std::string::npos) return {};
+            const std::string rest = pathLower.substr(ap);
+            for (const char* seg : { "/behaviors", "/characters" })
+                if (const auto b = rest.find(seg); b != std::string::npos) return rest.substr(0, b);
+            return {};
+        }
+
+        // Roster-from-scan: enumerate a MOD bundle's behavior + character units as adsf `assets:`
+        // entries, grouped by actor root, in the bundle's ORIGINAL case (disk dev bundles preserve
+        // it; a packed bundle yields lowercase — tolerated because `assets:` are func3 path loads,
+        // resolved case-insensitively, and the union onto the base never overwrites its
+        // canonically-cased entries). Each unit "meshes/actors/<actor>/<sub>/<name>.hkx" becomes the
+        // project-relative "<Sub>\<name>.hkx" (backslashed). Deduped case-insensitively per root.
+        void CollectScanAssets(const BundleReader& rd,
+                               std::map<std::string, std::vector<std::string>>& byRoot)
+        {
+            const auto addUnit = [&](const std::string& unitPrefix) {
+                const std::string low  = ToLower(unitPrefix);
+                const std::string root = ActorRootLower(low);          // "actors/character"
+                if (root.empty()) return;
+                const auto ap = low.find("actors/");
+                std::string rel = unitPrefix.substr(ap + root.size() + 1);  // orig-case "Behaviors/0_Master.hkx"
+                for (char& c : rel) if (c == '/') c = '\\';                 // -> "Behaviors\0_Master.hkx"
+                auto& v = byRoot[root];
+                for (const auto& e : v) if (ToLower(e) == ToLower(rel)) return;
+                v.push_back(std::move(rel));
+            };
+            for (const auto& u : rd.behaviorUnits())  addUnit(u);
+            for (const auto& u : rd.characterUnits()) addUnit(u);
+        }
+
         // Collect a bundle's animationdata patches: one ProjectPatch per <Project>~<n> dir
         // under <bundle>/animationdata/. Returns false if the bundle carries none. Reads through
         // BundleReader so the bundle may be an unpacked dir OR a packed .hky (a packed bundle
@@ -462,7 +499,7 @@ namespace CB::adserve {
     }  // namespace
 
     ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni,
-                              const GraphClipSink* sink)
+                              const GraphClipSink* sink, bool rosterFromScan)
     {
         ServeResult r;
 
@@ -504,6 +541,11 @@ namespace CB::adserve {
         // whole new project. Merged into the master's base headers before compose (ascending priority).
         std::vector<std::pair<int, std::vector<animdata::ProjectHeader>>> indexDeltas;
 
+        // Roster-from-scan (opt-in): owned assets (behaviors + characters) grouped by actor root,
+        // ORIGINAL case, collected from each MOD bundle below; unioned onto the base headers by
+        // actor root inside the compose. Empty (and inert) unless rosterFromScan is set.
+        std::map<std::string, std::vector<std::string>> scanAssetsByRoot;
+
         // Editable motion overrides — (priority, project, records) collected from every mod
         // bundle's animation/<Project>/motion/*.yaml. These OVERRIDE existing motion records by
         // animIndex (root-motion edits authored in YAML); they never add a new index, so the
@@ -542,6 +584,11 @@ namespace CB::adserve {
 
                 const auto oit  = order.find(stem);  // loadorder lists bare stems ("bfco")
                 const int  prio = (oit != order.end()) ? oit->second : 0;
+
+                // Roster-from-scan: gather this mod bundle's served behaviors/characters as adsf
+                // `assets:` entries (opt-in). Runs for EVERY mod bundle regardless of which delta
+                // form it ships below (native/legacy/derive), so it MUST precede the native `continue`.
+                if (rosterFromScan) CollectScanAssets(*rd, scanAssetsByRoot);
 
                 // HEADER delta (index.yaml) — collected for EVERY bundle (native + legacy), merged into
                 // the base headers before compose. This is how a mod adds assets to a project (the
@@ -684,6 +731,36 @@ namespace CB::adserve {
                         }
                     if (assetsAdded || projAdded)
                         LOG_INFO("AnimData: merged index.yaml deltas — +{} asset(s), +{} project(s).", assetsAdded, projAdded);
+                }
+
+                // ── Roster-from-scan (opt-in) ────────────────────────────────────────────────
+                // UNION the owned havok assets (behaviors + characters CB actually serves, gathered
+                // from the mod bundles above) onto each base project by ACTOR ROOT, so the emitted
+                // adsf `assets:` — the roster func3 enumerates — reflects the hky contents without a
+                // hand-authored index.yaml. Additive + case-insensitive dedup: the base's canonical
+                // per-project list is never rewritten (protects the ESM-cased char->adsf bind); only
+                // genuinely-new asset paths ride in. A scanned actor root with NO matching base
+                // header is a NEW project — deferred (its canonical name must come from unit content),
+                // logged not synthesized, so this first cut only augments existing projects.
+                if (rosterFromScan && !scanAssetsByRoot.empty()) {
+                    std::size_t                     scanAdded = 0, unmatched = 0;
+                    std::unordered_set<std::string> matchedRoots;
+                    for (auto& h : headers) {
+                        if (h.character.empty()) continue;
+                        const std::string root = ActorRootLower(ToLower(h.character));
+                        const auto        it   = scanAssetsByRoot.find(root);
+                        if (it == scanAssetsByRoot.end()) continue;
+                        matchedRoots.insert(root);
+                        std::unordered_set<std::string> have;
+                        for (const auto& a : h.assets) have.insert(ToLower(a));
+                        for (const auto& a : it->second)
+                            if (have.insert(ToLower(a)).second) { h.assets.push_back(a); ++scanAdded; }
+                    }
+                    for (const auto& [root, assets] : scanAssetsByRoot)
+                        if (!matchedRoots.count(root)) ++unmatched;
+                    LOG_INFO("AnimData: roster-from-scan unioned {} asset(s) onto matching project(s); "
+                             "{} scanned actor root(s) had no base project (new-project synth is a follow-up).",
+                             scanAdded, unmatched);
                 }
                 std::map<std::string, std::vector<animdata::ClipGenerator>> clipsByStem;
                 std::map<std::string, std::vector<animdata::MotionRecord>>  motionByStem;
