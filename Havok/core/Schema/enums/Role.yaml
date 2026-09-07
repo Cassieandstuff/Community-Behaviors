@@ -1,0 +1,13 @@
+# Ported from HavokEnums.h (Role). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  Role
+flags: false
+items:
+  - { name: ROLE_DEFAULT         , value: 0 }
+  - { name: ROLE_FILE_NAME       , value: 1 }
+  - { name: ROLE_BONE_INDEX      , value: 2 }
+  - { name: ROLE_BONE_INDEX_MAP  , value: 3 }
+  - { name: ROLE_EVENT_ID        , value: 4 }
+  - { name: ROLE_VARIABLE_INDEX  , value: 5 }
+  - { name: ROLE_ATTRIBUTE_INDEX , value: 6 }
+  - { name: ROLE_TIME            , value: 7 }

@@ -1,0 +1,7 @@
+# Ported from HavokEnums.h (RotationAxisCoordinates). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  RotationAxisCoordinates
+flags: false
+items:
+  - { name: ROTATION_AXIS_IN_MODEL_COORDINATES , value: 0 }
+  - { name: ROTATION_AXIS_IN_LOCAL_COORDINATES , value: 1 }

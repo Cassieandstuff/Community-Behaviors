@@ -1,0 +1,20 @@
+# Ported from HavokEnums.h (TransitionFlags). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  TransitionFlags
+flags: true
+items:
+  - { name: FLAG_USE_TRIGGER_INTERVAL                               , value: 1 }
+  - { name: FLAG_USE_INITIATE_INTERVAL                              , value: 2 }
+  - { name: FLAG_UNINTERRUPTIBLE_WHILE_PLAYING                      , value: 4 }
+  - { name: FLAG_UNINTERRUPTIBLE_WHILE_DELAYED                      , value: 8 }
+  - { name: FLAG_DELAY_STATE_CHANGE                                 , value: 16 }
+  - { name: FLAG_DISABLED                                           , value: 32 }
+  - { name: FLAG_DISALLOW_RETURN_TO_PREVIOUS_STATE                  , value: 64 }
+  - { name: FLAG_DISALLOW_RANDOM_TRANSITION                         , value: 128 }
+  - { name: FLAG_DISABLE_CONDITION                                  , value: 256 }
+  - { name: FLAG_ALLOW_SELF_TRANSITION_BY_TRANSITION_FROM_ANY_STATE , value: 512 }
+  - { name: FLAG_IS_GLOBAL_WILDCARD                                 , value: 1024 }
+  - { name: FLAG_IS_LOCAL_WILDCARD                                  , value: 2048 }
+  - { name: FLAG_FROM_NESTED_STATE_ID_IS_VALID                      , value: 4096 }
+  - { name: FLAG_TO_NESTED_STATE_ID_IS_VALID                        , value: 8192 }
+  - { name: FLAG_ABUT_AT_END_OF_FROM_GENERATOR                      , value: 16384 }

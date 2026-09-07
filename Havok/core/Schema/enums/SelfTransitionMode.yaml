@@ -1,0 +1,9 @@
+# Ported from HavokEnums.h (SelfTransitionMode). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  SelfTransitionMode
+flags: false
+items:
+  - { name: SELF_TRANSITION_MODE_CONTINUE_IF_CYCLIC_BLEND_IF_ACYCLIC , value: 0 }
+  - { name: SELF_TRANSITION_MODE_CONTINUE                            , value: 1 }
+  - { name: SELF_TRANSITION_MODE_RESET                               , value: 2 }
+  - { name: SELF_TRANSITION_MODE_BLEND                               , value: 3 }

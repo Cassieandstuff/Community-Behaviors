@@ -1,0 +1,7 @@
+# Ported from HavokEnums.h (BindingType). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  BindingType
+flags: false
+items:
+  - { name: BINDING_TYPE_VARIABLE           , value: 0 }
+  - { name: BINDING_TYPE_CHARACTER_PROPERTY , value: 1 }

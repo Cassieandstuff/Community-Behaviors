@@ -1,0 +1,11 @@
+# Ported from HavokEnums.h (ClipGeneratorFlags). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  ClipGeneratorFlags
+flags: true
+items:
+  - { name: FLAG_CONTINUE_MOTION_AT_END               , value: 1 }
+  - { name: FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE    , value: 2 }
+  - { name: FLAG_MIRROR                               , value: 4 }
+  - { name: FLAG_FORCE_DENSE_POSE                     , value: 8 }
+  - { name: FLAG_DONT_CONVERT_ANNOTATIONS_TO_TRIGGERS , value: 16 }
+  - { name: FLAG_IGNORE_MOTION                        , value: 32 }

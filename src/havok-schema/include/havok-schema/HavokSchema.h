@@ -69,6 +69,21 @@ struct ClassSchema {
     RuntimeSource      runtime   = RuntimeSource::Game;
 };
 
+// ── Enum definitions (Havok/core/Schema/enums/*.yaml) ─────────────────────────────────────────────
+// A reflected Havok enum: its type name + ordered (name,value) items. The item NAMES and VALUES are
+// CASE-SENSITIVE Havok data — they render a .hky field's value by name (MODE_SINGLE_PLAY, not 47) AND
+// feed the class-signature CRC. A field references an enum by name via Field::enumName; the enum lives
+// here, in the data tree, next to the classes that use it (single source — formerly HavokEnums.h).
+struct EnumItem {
+    std::string name;
+    long        value = 0;   // may be negative (e.g. VARIABLE_TYPE_INVALID = -1)
+};
+struct EnumDef {
+    std::string           name;
+    bool                  isFlags = false;   // OR-able bitfield → .hky renders via FormatFlags
+    std::vector<EnumItem> items;             // in declared order (order matters for the signature)
+};
+
 // Serialized byte width of a scalar (SSE 64-bit).
 int ScalarWidth(Scalar s);
 
@@ -112,6 +127,11 @@ public:
     const ClassSchema* Find(const std::string& name) const;
     const std::map<std::string, ClassSchema>& All() const { return m_byName; }
 
+    // Enum definitions loaded from the enums/ subtree. Find one by its type name (e.g. "PlaybackMode"),
+    // or enumerate them all. Empty until LoadDir has run over a tree that carries an enums/ folder.
+    const EnumDef* FindEnum(const std::string& name) const;
+    const std::map<std::string, EnumDef>& AllEnums() const { return m_enums; }
+
     // The raw `schema_version:` string LoadDir read from Havok/SCHEMA.yaml (empty when the tree
     // carried no stamp — a legacy/unversioned tree). This is what THIS load of the tree speaks:
     // the compiler's "current" version for the ingest gate. Parse it with SchemaVersion::Parse.
@@ -140,11 +160,15 @@ public:
 
 private:
     std::map<std::string, ClassSchema> m_byName;
+    std::map<std::string, EnumDef>     m_enums;               // enums/*.yaml, keyed by enum type name
     std::string                        m_schemaVersion;      // Havok/SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen
 };
 
 // Parse ONE descriptor's YAML text into a ClassSchema (LoadDir uses it; exposed for tests).
 bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err);
+
+// Parse ONE enums/ descriptor's YAML text into an EnumDef (LoadDir uses it; exposed for tests).
+bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err);
 
 } // namespace havok::schema

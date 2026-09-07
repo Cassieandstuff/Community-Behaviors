@@ -1,0 +1,9 @@
+# Ported from HavokEnums.h (FlagBits). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  FlagBits
+flags: true
+items:
+  - { name: FLAG_NONE                         , value: 0 }
+  - { name: FLAG_IGNORE_FROM_WORLD_FROM_MODEL , value: 1 }
+  - { name: FLAG_SYNC                         , value: 2 }
+  - { name: FLAG_IGNORE_TO_WORLD_FROM_MODEL   , value: 4 }

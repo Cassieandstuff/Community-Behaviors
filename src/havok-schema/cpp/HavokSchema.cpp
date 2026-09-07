@@ -222,6 +222,38 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
     }
 }
 
+bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err) {
+    try {
+        std::string   storage = yamlText;   // parse_in_place mutates the buffer
+        c4::yml::Tree tree    = c4::yml::parse_in_place(c4::to_substr(storage));
+        auto          root    = tree.rootref();
+        if (!root.readable() || !root.is_map()) { err = "root is not a map"; return false; }
+
+        out      = EnumDef{};
+        out.name = childStr(root, "name");
+        if (out.name.empty()) { err = "missing 'name'"; return false; }
+        out.isFlags = (childStr(root, "flags") == "true");
+
+        if (hasKey(root, "items")) {
+            for (auto it : root[c4::to_csubstr("items")]) {
+                EnumItem e;
+                e.name = childStr(it, "name");
+                if (e.name.empty()) { err = out.name + ": an item is missing 'name'"; return false; }
+                const std::string v = childStr(it, "value");
+                if (v.empty()) { err = out.name + "." + e.name + ": missing 'value'"; return false; }
+                // Base 10 (signed): values are plain decimals incl. negatives (e.g. -1). NOT base 0,
+                // whose octal-on-leading-zero would silently reinterpret a value (Havok never means octal).
+                e.value = std::stol(v, nullptr, 10);
+                out.items.push_back(std::move(e));
+            }
+        }
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("parse: ") + e.what();
+        return false;
+    }
+}
+
 bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     std::error_code ec;
     for (auto it = fs::recursive_directory_iterator(root, ec);
@@ -256,6 +288,17 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                 continue;
             }
         }
+        // The enums/ subtree carries Havok enum DEFINITIONS (name + (name,value) items), not classes.
+        // Route them to ParseEnumDef into m_enums; never ParseSchema them (no fields:, would fail the
+        // whole load). They are the single source for both .hky name rendering and the signature CRC.
+        if (p.parent_path().filename() == "enums") {
+            std::ifstream ef(p, std::ios::binary);
+            std::stringstream ess; ess << ef.rdbuf();
+            EnumDef ed; std::string eerr;
+            if (!ParseEnumDef(ess.str(), ed, eerr)) { err = p.string() + ": " + eerr; return false; }
+            m_enums[ed.name] = std::move(ed);
+            continue;
+        }
         // Skip the metadata/ tree: those are text-format cache descriptors (kind: metadata —
         // animationdata/setdata), NOT Havok classes. The class-schema loader only consumes Havok
         // class descriptors; a metadata schema's vocabulary (recordarray/when/header) is not a class type.
@@ -272,6 +315,11 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
 const ClassSchema* SchemaRegistry::Find(const std::string& name) const {
     auto it = m_byName.find(name);
     return it == m_byName.end() ? nullptr : &it->second;
+}
+
+const EnumDef* SchemaRegistry::FindEnum(const std::string& name) const {
+    auto it = m_enums.find(name);
+    return it == m_enums.end() ? nullptr : &it->second;
 }
 
 std::string SchemaRegistry::MergeTag(const std::string& className, const std::string& field) const {

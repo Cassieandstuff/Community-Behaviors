@@ -1,0 +1,10 @@
+# Ported from HavokEnums.h (PlaybackMode). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  PlaybackMode
+flags: false
+items:
+  - { name: MODE_SINGLE_PLAY     , value: 0 }
+  - { name: MODE_LOOPING         , value: 1 }
+  - { name: MODE_USER_CONTROLLED , value: 2 }
+  - { name: MODE_PING_PONG       , value: 3 }
+  - { name: MODE_COUNT           , value: 4 }

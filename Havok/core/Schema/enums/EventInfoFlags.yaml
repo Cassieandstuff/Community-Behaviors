@@ -1,0 +1,8 @@
+# Ported from HavokEnums.h (EventInfoFlags). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  EventInfoFlags
+flags: true
+items:
+  - { name: FLAG_NONE       , value: 0 }
+  - { name: FLAG_SILENT     , value: 1 }
+  - { name: FLAG_SYNC_POINT , value: 2 }
