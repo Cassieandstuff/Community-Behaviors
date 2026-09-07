@@ -9,6 +9,7 @@
 #include "havok/model/HavokEnums.h"
 
 #include <havok/anim/AnimationDecompiler.h>   // havok::anim::DecompileAnimation (schema-native, bytes in)
+#include "havok/sct/BoneNames.h"              // BoneNameTable::names (thread the skeleton to the membrane)
 
 #include <cstdio>
 #include <exception>
@@ -25,8 +26,11 @@ namespace fs = std::filesystem;
 // The animation import leg moved to havok-anim (schema-native). It deserializes the raw packfile
 // itself through the schema stack, so this typed character/behavior decompiler just hands it the
 // bytes and adapts the result — no typed hkaAnimationContainer construction here any more.
-static DecompileResult decompileAnimationBytes(const std::vector<std::uint8_t>& hkx, const fs::path& dir) {
-    const auto ar = havok::anim::DecompileAnimation(hkx, dir);
+static DecompileResult decompileAnimationBytes(const std::vector<std::uint8_t>& hkx, const fs::path& dir,
+                                               const BoneNameTable* bones) {
+    // Thread the (optional) skeleton bone roster so the inverse membrane decompiles each track's
+    // hkaAnimationBinding bone index to its NAME; null => track<N> placeholders (identity binding).
+    const auto ar = havok::anim::DecompileAnimation(hkx, dir, bones ? &bones->names : nullptr);
     return { ar.ok, ar.error, "animation" };
 }
 
@@ -220,7 +224,7 @@ DecompileResult DecompileToDir(const std::vector<std::uint8_t>& hkx, const fs::p
             if (hasSpline) {
                 // havok-anim deserializes the packfile itself (schema path handles the
                 // hkMemoryResourceContainer second variant that the typed graph walk can't).
-                return decompileAnimationBytes(hkx, outDir);
+                return decompileAnimationBytes(hkx, outDir, bones);
             }
         }
 
@@ -241,7 +245,7 @@ DecompileResult DecompileToDir(const std::vector<std::uint8_t>& hkx, const fs::p
             // and the deltas end up in different id spaces (the horse-behavior crash).
             return DecompileBehaviorTree(bg, outDir, /*stableIds*/ nullptr, /*outIds*/ nullptr, bones);
         if (std::dynamic_pointer_cast<hkaAnimationContainer>(var))
-            return decompileAnimationBytes(hkx, outDir);
+            return decompileAnimationBytes(hkx, outDir, bones);
         return { false, "unrecognized root variant (not character / behavior / animation)", "unknown" };
     } catch (const std::exception& e) {
         return { false, std::string("deserialize failed: ") + e.what(), "" };

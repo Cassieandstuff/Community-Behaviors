@@ -81,6 +81,32 @@ inline std::string boneNameByIndex(int index, const std::vector<std::string>& bo
     return boneNames[static_cast<std::size_t>(index)];
 }
 
+// ── animation track -> bone index (the INVERSE membrane) ─────────────────────
+// Resolve an animation track's authored bone reference to a skeleton bone index.
+// This is the animation-side twin of the graph's hkbBoneIndexArray resolution: an
+// hkaAnimationBinding maps each transform track to a bone index, and CB authors
+// that map by NAME so a clip follows the served skeleton (bones added by the
+// membrane shift indices; the clip re-resolves) instead of freezing raw indices.
+//
+// `ref` is either a bone NAME (resolved via boneIndexByName against the served
+// skeleton) or the "track<N>" placeholder the no-skeleton decompile emits, which
+// means "identity" — track N animates bone N. Returns `ordinal` (identity) when
+// there is no skeleton, when ref is the matching track<ordinal> placeholder, or
+// when a name does not resolve (caller keeps identity rather than dropping the
+// track). So a null/empty skeleton round-trips to the identity binding vanilla ships.
+inline int trackBoneRef(std::string_view ref, int ordinal,
+                        const std::vector<std::string>& boneNames) {
+    // "track<N>" placeholder -> identity index N (the decompile-without-skeleton form).
+    if (ref.size() > 5 && ref.substr(0, 5) == "track") {
+        int n = 0; bool allDigits = true;
+        for (char c : ref.substr(5)) { if (c < '0' || c > '9') { allDigits = false; break; } n = n * 10 + (c - '0'); }
+        if (allDigits) return n;
+    }
+    if (boneNames.empty()) return ordinal;             // no skeleton -> identity
+    const int idx = boneIndexByName(ref, boneNames);
+    return idx >= 0 ? idx : ordinal;                    // unresolved name -> keep identity
+}
+
 // ── graph roster name ↔ index (events / variables / character properties) ─────
 // The rosters are the graph's ordered name lists (hkbBehaviorGraphStringData's
 // eventNames / variableNames / characterPropertyNames). Same shape for all three,

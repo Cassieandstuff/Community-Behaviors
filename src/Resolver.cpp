@@ -998,7 +998,14 @@ namespace CB {
             const fs::path out = dataRoot / fs::path(outKey);
             try {
                 const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
-                const auto r   = havok::anim::CompileAnimation(def);
+                // INVERSE MEMBRANE: resolve this clip's per-track bone references through the SERVED
+                // skeleton (the same actor-path -> m_skeletons lookup the graph compile uses), so its
+                // hkaAnimationBinding.transformTrackToBoneIndices follows the actor's bones by name.
+                const std::vector<std::string>* boneNames = nullptr;
+                if (const std::string actor = ActorPathOf(outKey); !actor.empty())
+                    if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
+                        boneNames = &it->second.names;
+                const auto r   = havok::anim::CompileAnimation(def, 30, havok::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
                     ++failed;
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);

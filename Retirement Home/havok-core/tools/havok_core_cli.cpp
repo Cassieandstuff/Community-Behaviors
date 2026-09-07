@@ -175,8 +175,12 @@ int doCompile(const std::string& in, const std::string& outArg, const std::strin
             case Kind::Animation: {
                 // Schema-native compile (havok-anim). Needs the shared registry: set a schema dir via
                 // $SCT_HAVOK_SCHEMA_DIR (SharedRegistry's fallback) or use animation-schema-check.
+                // With a [skel], the inverse membrane resolves per-track bone names -> binding indices.
                 const auto anim = havok::anim::AnimationYamlLoader::Load(yaml);
-                const auto r = havok::anim::CompileAnimationToFile(anim, out);
+                std::vector<std::string> boneNames;
+                if (!skel.empty()) boneNames = LoadSkeletonNames(skel);
+                const auto r = havok::anim::CompileAnimationToFile(anim, out, 30, havok::HKXHeader::SkyrimSE(),
+                                                                   boneNames.empty() ? nullptr : &boneNames);
                 if (!r.ok) { std::printf("FAIL: %s\n", r.error.c_str()); return 1; }
                 std::printf("OK: animation '%s' -> %s (%zu bytes).\n", in.c_str(), out.c_str(), r.bytes.size());
                 return 0;

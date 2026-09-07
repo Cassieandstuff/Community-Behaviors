@@ -151,8 +151,10 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         }
     }
     auto trackName = [&](int t) -> std::string {
-        if (boneNames && t < static_cast<int>(trackToBone.size())) {
-            const int bi = trackToBone[t];
+        if (boneNames) {
+            // An EMPTY transformTrackToBoneIndices is the identity binding (track t -> bone t), so with
+            // a skeleton present, fall back to the ordinal as the bone index. A NON-empty map is honored.
+            const int bi = (t < static_cast<int>(trackToBone.size())) ? trackToBone[t] : t;
             if (bi >= 0 && bi < static_cast<int>(boneNames->size())) return (*boneNames)[bi];
         }
         return "track" + std::to_string(t);

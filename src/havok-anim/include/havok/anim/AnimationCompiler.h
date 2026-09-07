@@ -26,12 +26,19 @@ struct AnimCompileResult {
 
 // Compile a loaded animation model straight to packfile bytes. Never throws — assembly/serializer
 // exceptions are captured into AnimCompileResult::error. Requires havok::schema::SharedRegistry().
+//
+// `boneNames` (optional, index-parallel to the served skeleton): each track's authored bone reference
+// is resolved to a bone index through the cross membrane (havok::cross::trackBoneRef), populating
+// hkaAnimationBinding.transformTrackToBoneIndices — so a clip follows the served skeleton by name.
+// null / empty => identity binding (the vanilla convention, byte-identical to an unbound clip).
 AnimCompileResult CompileAnimation(const AnimationDef& anim, int fps = 30,
-                                   const HKXHeader& header = HKXHeader::SkyrimSE());
+                                   const HKXHeader& header = HKXHeader::SkyrimSE(),
+                                   const std::vector<std::string>* boneNames = nullptr);
 
 AnimCompileResult CompileAnimationToFile(const AnimationDef&          anim,
                                          const std::filesystem::path& outPath,
                                          int                          fps = 30,
-                                         const HKXHeader&             header = HKXHeader::SkyrimSE());
+                                         const HKXHeader&             header = HKXHeader::SkyrimSE(),
+                                         const std::vector<std::string>* boneNames = nullptr);
 
 } // namespace havok::anim
