@@ -55,6 +55,13 @@ struct Reader {
     }
 };
 
+// The de Boor evaluators work for any B-spline degree; the only fixed-size resource is the working
+// array d[deg+1]. Cap the degree so that array can live on the stack (no per-frame heap alloc in the
+// hot path) while still covering every real Havok spline — vanilla goes up to degree 6 (some clutter/
+// trap "sequence" clips encode a float channel that way). A degree above this cap is malformed/garbage
+// and is rejected cleanly (the reader sets ok=false) rather than overrunning the stack.
+constexpr int kMaxSplineDegree = 15;
+
 // ── rotation quantization ─────────────────────────────────────────────────────
 enum RotQuant { RQ_POLAR32 = 0, RQ_THREECOMP40 = 1, RQ_THREECOMP48 = 2, RQ_THREECOMP24 = 3, RQ_STRAIGHT16 = 4, RQ_UNCOMPRESSED = 5 };
 
@@ -139,10 +146,7 @@ struct VecCurve {
         if (mask_ & 0xF0) {
             vc.n   = (int)r.U16();
             vc.deg = (int)r.U8();
-            // The de Boor evaluators size their working array for a cubic (d[4]); a degree > 3
-            // (unsupported, or a misread of malformed/garbage spline data) would overrun that stack
-            // array. Bail cleanly instead — the caller turns !ok into a decode failure, not a crash.
-            if (vc.deg > 3) { r.ok = false; return vc; }
+            if (vc.deg > kMaxSplineDegree) { r.ok = false; return vc; }   // stack d[deg+1] cap; garbage otherwise
             vc.K   = r.p; r.skip(vc.n + vc.deg + 2);
             r.align4(base);
         }
@@ -184,7 +188,7 @@ struct VecCurve {
                 std::uint16_t v; std::memcpy(&v, p, 2);
                 return mn[i] + (v / 65535.f) * range;
             };
-            float d[4];
+            float d[kMaxSplineDegree + 1];
             for (int j = 0; j <= deg; j++) d[j] = unpack(span - deg + j);
             for (int rr = 1; rr <= deg; rr++) {
                 for (int j = deg; j >= rr; j--) {
@@ -222,7 +226,7 @@ struct FloatChan {
             c.dynamic = true;
             c.n   = static_cast<int>(r.U16());
             c.deg = static_cast<int>(r.U8());
-            if (c.deg > 3) { r.ok = false; return c; }   // d[4] de Boor array — reject degree > cubic
+            if (c.deg > kMaxSplineDegree) { r.ok = false; return c; }   // stack d[deg+1] cap; garbage otherwise
             c.K   = r.p; r.skip(c.n + c.deg + 2);
             r.align4(base);
             c.mn = r.F32(); c.mx = r.F32();
@@ -250,7 +254,7 @@ struct FloatChan {
             std::uint16_t v; std::memcpy(&v, C + ci * 2, 2);
             return mn + (v / 65535.f) * range;
         };
-        float d[4];
+        float d[kMaxSplineDegree + 1];
         for (int j = 0; j <= deg; j++) d[j] = unpack(span - deg + j);
         for (int rr = 1; rr <= deg; rr++)
             for (int j = deg; j >= rr; j--) {
@@ -281,7 +285,7 @@ struct TC40 {
         if (c.bpq == 0) { r.ok = false; return c; }
         c.n   = (int)r.U16();
         c.deg = (int)r.U8();
-        if (c.deg > 3) { r.ok = false; return c; }   // Q4 d[4] de Boor array — reject degree > cubic
+        if (c.deg > kMaxSplineDegree) { r.ok = false; return c; }   // stack Q4 d[deg+1] cap; garbage otherwise
         c.k   = r.p; r.skip(c.n + c.deg + 2);
         c.q   = r.p; r.skip((c.n + 1) * c.bpq);
         return c;
@@ -299,7 +303,7 @@ struct TC40 {
             while (lo < hi) { int mid = (lo + hi + 1) / 2; if ((int)(std::uint8_t)k[mid] <= fi) lo = mid; else hi = mid - 1; }
             span = lo;
         }
-        Q4 d[4];
+        Q4 d[kMaxSplineDegree + 1];
         for (int j = 0; j <= deg; j++) { int idx = std::clamp(span - deg + j, 0, n); d[j] = Pt(idx); }
         for (int rr = 1; rr <= deg; rr++) {
             for (int j = deg; j >= rr; j--) {
