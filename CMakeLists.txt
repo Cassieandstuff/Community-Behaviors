@@ -56,13 +56,14 @@ add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/cb-resolve)
+add_subdirectory(src/cb-api)       # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # ── Install / export rules for the cb-resolve surface ────────────────────────────
 # So a consumer can `find_package(cb-resolve)` (vcpkg, or a manual cmake --install). Inert unless someone
 # actually installs — FetchContent (add_subdirectory) ignores these; vcpkg's vcpkg_cmake_install() runs them.
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-resolve havok-framing havok-schema havok-io havok-model
+install(TARGETS cb-api cb-resolve havok-framing havok-schema havok-io havok-model havok-anim
         EXPORT  cb-resolve-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
@@ -73,7 +74,10 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/" DESTINATION i
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"  DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"      DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"   DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-anim/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
+# The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
 install(EXPORT cb-resolve-targets
         NAMESPACE cb::
         FILE      cb-resolve-targets.cmake
