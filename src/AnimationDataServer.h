@@ -46,9 +46,16 @@ namespace CB::adserve {
     // summary of what the unified derive produced so it can be compared against the proven collated
     // output in-engine; it does NOT yet drive the emitted file (that is the follow-up once the sink is
     // confirmed correct). Passing null (the default) is the unchanged, proven path.
+    // `rosterFromScan` (opt-in): when true, the emitted adsf's per-project `assets:` roster (the
+    // list func3 enumerates) is UNIONED with the havok assets CB actually serves — every mod
+    // bundle's behavior + character units, grouped by actor root — so a mod's added behaviors reach
+    // the roster WITHOUT a hand-authored index.yaml. Additive + case-insensitive dedup onto the
+    // canonically-cased base, so the ESM-cased char->adsf bind is never rewritten. Off by default
+    // (the proven authored-index.yaml path is unchanged when false).
     ServeResult ServeAnimData(const std::filesystem::path& dataDir,
                               const std::filesystem::path& loadOrderIni,
-                              const GraphClipSink*         sink = nullptr);
+                              const GraphClipSink*         sink = nullptr,
+                              bool                         rosterFromScan = false);
 
     // Install the DETERMINISTIC redirect: a write_call<5> detour on the animationdata loader's
     // file-open call site (FUN_140536ec0 does `MOV RCX,[0x14315c918]; CALL 0x140d0a100` at

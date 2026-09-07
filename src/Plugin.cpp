@@ -71,6 +71,20 @@ namespace CB {
         return false;
     }
 
+    // adsf roster-from-scan toggle (settings.ini, [Compiler] bAdsfRosterFromScan). DEFAULT OFF:
+    // sourcing the adsf per-project asset roster (the paths func3 enumerates) from the hky scan
+    // instead of a hand-authored index.yaml is a NEW transform. It is additive/union only and
+    // never rewrites the canonically-cased base, but it changes the emitted `assets:`, so it is
+    // opt-in until proven in-engine (diff the emitted per-project `assets:` against an authored run).
+    static bool ReadAdsfRosterFromScan()
+    {
+        CSimpleIniA ini;
+        ini.SetUnicode();
+        if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
+            return ini.GetBoolValue("Compiler", "bAdsfRosterFromScan", false);
+        return false;
+    }
+
     // Data-driven compiler toggle (settings.ini, [Compiler] bUseSchema / sSchemaDir). DEFAULT ON now
     // (havok-core retirement flip): the schema-driven AssembleGraph is byte-identical to the typed
     // builder offline across the whole vanilla corpus, and CompileBehavior falls back to the typed path
@@ -277,7 +291,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
             // so the sink is empty then and ClipSink() reports nothing — expected).
             const CB::GraphClipSink* clipSink =
                 CB::g_resolver.AdsfFromFeature() ? &CB::g_resolver.ClipSink() : nullptr;
-            const auto ad = CB::adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt", clipSink);
+            const auto ad = CB::adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt", clipSink,
+                                                       CB::ReadAdsfRosterFromScan());
             if (ad.attempted && !ad.ok)
                 LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
             CB::adserve::ArmAnimDataRedirect(ad);
