@@ -24,6 +24,7 @@ public:
 
 private:
     void DrawConverterTab();           // the conversion UI (the "Converter" tab body)
+    void DrawDebugTab();               // the "Debug" tab: plugin debug flags auto-enumerated from DebugFlags.h
     void StartConvert();
     void AppendLog(std::string line);
     void SetZipMsg(std::string msg);   // guarded — the worker also writes it
