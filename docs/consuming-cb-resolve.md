@@ -33,11 +33,16 @@ std::string err;
 auto arc = cb::resolve::Archive::LoadFromFile("SomeMod.hky", err);   // read a packed .hky
 cb::resolve::ResolvedGraph g = cb::resolve::LoadOrder::LoadMerged({ /* dirs or unit sources, load order */ });
 cb::resolve::SchemaRegistry reg;   // load the Havok/ class schema; feed to the merge for field `merge:` policy
+
+// Write side: pack an authored YAML tree back into a single-file .hky (round-trips with LoadFromFile),
+// so a tool exports a bundle identically to CB's build-time packer.
+cb::resolve::Archive::PackDirectory("MyBundle.hky/", "MyBundle.hky", err);
 ```
 
-The public contract (`cb::resolve::`): `Archive` (read `.hky`), `LoadOrder::LoadMerged → ResolvedGraph`
-(the load-order merge), `SchemaRegistry` (the merge classifier), `UnitSource`. These are stable aliases
-over internal types — link `cb-resolve` and include only this header.
+The public contract (`cb::resolve::`): `Archive` (read `.hky` via `LoadFromFile`, write via
+`PackDirectory`), `LoadOrder::LoadMerged → ResolvedGraph` (the load-order merge), `SchemaRegistry`
+(the merge classifier), `UnitSource`. These are stable aliases over internal types — link `cb-resolve`
+and include only this header.
 
 ## Consumer requirements
 

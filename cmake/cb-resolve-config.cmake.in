@@ -7,6 +7,25 @@ find_dependency(ryml)
 
 include("${CMAKE_CURRENT_LIST_DIR}/cb-resolve-targets.cmake")
 
+# The Havok/ class-schema tree shipped beside this config (see the install(DIRECTORY Havok/) rule).
+# Feed CB_RESOLVE_SCHEMA_DIR to havok::schema::SchemaRegistry::LoadDir(...) so the merge classifier is
+# byte-for-byte the one the compiler used for THIS package version — don't hardcode the path. The
+# tree's SCHEMA.yaml `schema_version:` is surfaced here too (best-effort) so a tool can display /
+# gate on it without opening the file.
+set_and_check(CB_RESOLVE_SCHEMA_DIR "@PACKAGE_CB_RESOLVE_SCHEMA_INSTALL_DIR@")
+set(CB_RESOLVE_SCHEMA_VERSION "")
+if(EXISTS "${CB_RESOLVE_SCHEMA_DIR}/core/Schema/SCHEMA.yaml")
+    file(STRINGS "${CB_RESOLVE_SCHEMA_DIR}/core/Schema/SCHEMA.yaml" _cb_sv_lines
+         REGEX "^[ \t]*schema_version[ \t]*:")
+    if(_cb_sv_lines)
+        list(GET _cb_sv_lines 0 _cb_sv)
+        string(REGEX REPLACE "^[ \t]*schema_version[ \t]*:[ \t]*[\"']?([^\"'#]*[^\"' \t#]).*$" "\\1"
+               CB_RESOLVE_SCHEMA_VERSION "${_cb_sv}")
+    endif()
+    unset(_cb_sv_lines)
+    unset(_cb_sv)
+endif()
+
 # Config mapping: this package may ship a single build config (e.g. a manual cmake --install of
 # RelWithDebInfo), but a multi-config consumer (VS: Debug/Release/RelWithDebInfo/MinSizeRel) needs an
 # imported location for EVERY config it enumerates at generate time. Map any config lacking its own

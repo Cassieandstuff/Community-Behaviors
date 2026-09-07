@@ -6,16 +6,18 @@
 // drift.
 //
 // This is a curated surface, not a re-export of the whole engine: it exposes only
-// reading .hky bundles + resolving/merging a load order + the resolved model +
-// the schema needed to interpret it. It is deliberately **havok-core-free** — no
-// HKX decode, no typed hkb*/hka* classes, no compile/emit. HKX asset decode is a
+// reading + writing .hky bundles + resolving/merging a load order + the resolved
+// model + the schema needed to interpret it. It is deliberately **havok-core-free**
+// — no HKX decode, no typed hkb*/hka* classes, no compile/emit. Packing a .hky is
+// just zipping an already-authored YAML tree (vendored miniz), NOT compiling — so
+// the write side stays inside the havok-core-free contract. HKX asset decode is a
 // separate (legacy) concern the editor is moving onto CB's schema pipeline.
 //
 // Consumers include ONLY this header and use the cb::resolve:: names; the
 // underlying havok::model / havok::schema types are internal and may move.
 // ─────────────────────────────────────────────────────────────────────────────
 
-#include "havok/model/yaml/HkyArchive.h"        // read a packed .hky bundle
+#include "havok/model/yaml/HkyArchive.h"        // read + pack a .hky bundle
 #include "havok/model/yaml/UnitSource.h"        // IUnitSource — a unit's file view
 #include "havok/model/yaml/YamlBehaviorLoader.h" // LoadMerged — the load-order merge
 #include "havok/model/BehaviorData.h"           // the resolved graph model
@@ -23,8 +25,13 @@
 
 namespace cb::resolve {
 
-    // Read side: a packed .hky bundle (base master or a mod delta). LoadFromFile
-    // decompresses; source()/units() expose its units as IUnitSource views.
+    // Read/write side: a packed .hky bundle (base master or a mod delta).
+    //   • Read:  `Archive::LoadFromFile(path, err)` decompresses; source()/units()
+    //            expose its units as IUnitSource views.
+    //   • Write: `Archive::PackDirectory(dir, outHkyPath, err)` zips an authored
+    //            YAML tree into a single-file .hky — the exact layout LoadFromFile
+    //            reads back, so pack→load round-trips. This is how a tool exports a
+    //            bundle identically to CB's build-time packer. Static, no instance.
     using Archive    = havok::model::HkyArchive;
     using UnitKind   = havok::model::HkyArchive::UnitKind;
     using UnitSource = havok::model::IUnitSource;
