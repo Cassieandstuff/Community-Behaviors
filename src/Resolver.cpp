@@ -60,8 +60,28 @@ namespace CB {
         {
             const auto key = projectYaml.find("characterFilenames:");
             if (key == std::string::npos) return {};
+            // Bound the "- " search to characterFilenames:' OWN block — the contiguous run of following
+            // lines that are blank or list items. Stop at the first line whose first non-space char is
+            // neither '-' nor a line break: that's the next key. An empty or flow-style ("[...]") list
+            // has no "- " in its block, and an unbounded find would walk into a later key's list and
+            // return an unrelated string — an invisible character->setdata/animdata mis-bind.
+            std::size_t boundary = std::string::npos;   // start of the next sibling key, or npos
+            std::size_t lineStart = projectYaml.find('\n', key);
+            while (lineStart != std::string::npos) {
+                lineStart += 1;                          // first char of the next line
+                std::size_t p = lineStart;
+                while (p < projectYaml.size() && (projectYaml[p] == ' ' || projectYaml[p] == '\t')) ++p;
+                if (p >= projectYaml.size()) break;
+                const char ch = projectYaml[p];
+                if (ch == '\n' || ch == '\r' || ch == '-') {   // blank line or list item: still the block
+                    lineStart = projectYaml.find('\n', p);
+                    continue;
+                }
+                boundary = lineStart;                    // a non-list line = the next key
+                break;
+            }
             const auto dash = projectYaml.find("- ", key);
-            if (dash == std::string::npos) return {};
+            if (dash == std::string::npos || (boundary != std::string::npos && dash >= boundary)) return {};
             auto end = projectYaml.find('\n', dash);
             std::string v = projectYaml.substr(dash + 2, (end == std::string::npos ? projectYaml.size() : end) - (dash + 2));
             while (!v.empty() && (v.back() == '\r' || v.back() == ' ' || v.back() == '\t')) v.pop_back();
@@ -648,13 +668,16 @@ namespace CB {
                     if (n.rfind("skeleton/", 0) != 0) continue;
                     // A layer's bonelist.yaml (skeleton/<actorpath>/bonelist.yaml) records the SOURCE bone
                     // order — load-bearing so HKX-target animations bind added bones to the right indices.
-                    if (const auto bl = n.rfind("/bonelist.yaml"); bl != std::string::npos && bl + 14 == n.size()) {
+                    // bl/bp > 8 rejects a rootless drop ("skeleton/bonelist.yaml", "skeleton/bones/x.yaml"):
+                    // there the delimiter sits at index 8, so `bl - 9`/`bp - 9` would underflow (size_t wraps
+                    // to SIZE_MAX and substr clamps to a bogus non-empty tail, defeating the empty guards).
+                    if (const auto bl = n.rfind("/bonelist.yaml"); bl != std::string::npos && bl > 8 && bl + 14 == n.size()) {
                         const std::string actorpath = n.substr(9, bl - 9);   // after "skeleton/", before "/bonelist.yaml"
                         if (!actorpath.empty()) if (auto t = br.read(n)) layerBonelist[actorpath] = std::move(*t);
                         continue;
                     }
                     const auto bp = n.find("/bones/");
-                    if (bp == std::string::npos) continue;
+                    if (bp == std::string::npos || bp <= 8) continue;
                     const std::string actorpath = n.substr(9, bp - 9);   // after "skeleton/", before "/bones/"
                     if (actorpath.empty()) continue;
                     if (auto t = br.read(n)) layerTexts[actorpath].emplace_back(fs::path(orig[i]).stem().string(), *t);

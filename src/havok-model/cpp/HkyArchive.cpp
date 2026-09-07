@@ -100,10 +100,9 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
         if (root == lastRoot) continue;
         lastRoot = root;
         UnitKind kind = UnitKind::Behavior;
-        if      (arc->m_files.count(root + "/bonelist.yaml"))  kind = UnitKind::Skeleton;   // skeleton tree, NOT a graph
+        if      (arc->m_files.count(root + "/bonelist.yaml"))  kind = UnitKind::Skeleton;   // skeleton tree/unit, NOT a graph
         else if (arc->m_files.count(root + "/character.yaml")) kind = UnitKind::Character;
         else if (arc->m_files.count(root + "/project.yaml"))   kind = UnitKind::Project;
-        else if (arc->m_files.count(root + "/bonelist.yaml"))  kind = UnitKind::Skeleton;   // skeleton*.hkx unit
         arc->m_units.push_back({ std::move(root), kind });
     }
     if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
@@ -170,7 +169,23 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
     }
     for (const auto& [name, path] : entries) {
         std::ifstream f(path, std::ios::binary);
-        std::string   bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        // A locked / permission-denied source, or a mid-read I/O error, must FAIL — never silently
+        // pack an empty or truncated entry (a "successful" but broken .hky → the unit loads as
+        // nothing → A-pose/base-only compile, with no error anywhere). Open failure and read error
+        // (bad, not the normal EOF failbit) are both fatal here.
+        if (!f) {
+            mz_zip_writer_end(&z);
+            fs::remove(tmpPath, ec);
+            err = "cannot open source file for packing: " + path.string();
+            return false;
+        }
+        std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        if (f.bad()) {
+            mz_zip_writer_end(&z);
+            fs::remove(tmpPath, ec);
+            err = "read error while packing: " + path.string();
+            return false;
+        }
         if (!mz_zip_writer_add_mem(&z, name.c_str(), bytes.data(), bytes.size(), MZ_BEST_COMPRESSION)) {
             mz_zip_writer_end(&z);
             fs::remove(tmpPath, ec);

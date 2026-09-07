@@ -3690,11 +3690,17 @@ int doTreeDiff(const std::string& dirA, const std::string& dirB, bool verbose, c
     }
     std::sort(aFiles.begin(), aFiles.end());
 
-    int compared = 0, differ = 0, onlyA = 0, errs = 0;
+    // Track which B files a walk of A paired with, so the leftover (present only in B) can be
+    // reported as [ONLY-B] below — a one-directional diff would silently hide a whole .hkx that
+    // the B tree ships and A does not (e.g. a referenced cross-hkx behavior CB failed to emit).
+    std::set<std::string> matchedB;
+
+    int compared = 0, differ = 0, onlyA = 0, onlyB = 0, errs = 0;
     for (const auto& pa : aFiles) {
         const std::string key = normKey(fs::relative(pa, dirA));
         auto bit = bIndex.find(key);
         if (bit == bIndex.end()) { std::printf("[ONLY-A] %s\n", key.c_str()); ++onlyA; continue; }
+        matchedB.insert(key);
         std::map<std::string, std::multiset<std::string>> A, B;
         try { A = loadOne(pa.string()); B = loadOne(bit->second.string()); }
         catch (const std::exception& ex) { std::printf("[ERROR ] %s — %s\n", key.c_str(), ex.what()); ++errs; continue; }
@@ -3723,8 +3729,13 @@ int doTreeDiff(const std::string& dirA, const std::string& dirB, bool verbose, c
         std::printf("[DIFF  ] %s\n", key.c_str());
         for (const auto& l : lines) std::printf("%s\n", l.c_str());
     }
-    std::printf("=== treediff: %d compared, %d differ, %d only-in-A, %d error(s) ===\n",
-                compared, differ, onlyA, errs);
+    // Files present ONLY in B (never paired during the A walk). bIndex is sorted (std::map), so
+    // this reports in deterministic key order.
+    for (const auto& [key, path] : bIndex)
+        if (!matchedB.count(key)) { std::printf("[ONLY-B] %s\n", key.c_str()); ++onlyB; (void)path; }
+
+    std::printf("=== treediff: %d compared, %d differ, %d only-in-A, %d only-in-B, %d error(s) ===\n",
+                compared, differ, onlyA, onlyB, errs);
     return 0;
 }
 
