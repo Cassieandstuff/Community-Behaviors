@@ -1,6 +1,6 @@
 #include "PCH.h"
 #include <Hooks/hookslib.h>     // hooks::geometry (CreateTriShape) + hooks::skin (CreateSkinData/Partition)
-#include "SkinnedMesh.h"
+#include "core/serve/SkinnedMesh.h"
 
 #include <cstring>
 #include <vector>

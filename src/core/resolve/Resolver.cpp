@@ -1,9 +1,9 @@
 #include "PCH.h"
 
-#include "Resolver.h"
-#include "ERGate.h"
-#include "ServeKey.h"
-#include "Watermark.h"
+#include "core/resolve/Resolver.h"
+#include "features/ERGate.h"
+#include "core/discover/ServeKey.h"
+#include "core/resolve/Watermark.h"
 #include "FeatureRegistry.h"   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
 #include <havok/model/HavokEnums.h>   // TransitionFlags / ResolveEnum (wildcard-gate flag clear)
@@ -23,7 +23,7 @@
 #include <havok/anim/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
-#include "BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
+#include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
 #include <map>
 #include <optional>

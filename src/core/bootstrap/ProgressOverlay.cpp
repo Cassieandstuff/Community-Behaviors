@@ -1,6 +1,6 @@
 #include "PCH.h"
 
-#include "ProgressOverlay.h"
+#include "core/bootstrap/ProgressOverlay.h"
 
 #include <atomic>
 

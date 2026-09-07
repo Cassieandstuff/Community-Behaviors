@@ -1,7 +1,7 @@
 #include "PCH.h"
 
-#include "DebugOverlay.h"
-#include "Watermark.h"
+#include "core/debug/DebugOverlay.h"
+#include "core/resolve/Watermark.h"
 
 #include <array>
 #include <atomic>

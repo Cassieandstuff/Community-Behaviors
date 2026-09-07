@@ -1,6 +1,6 @@
 #include "PCH.h"
 
-#include "BundleManifest.h"
+#include "core/discover/BundleManifest.h"
 
 #include <sct-config/SctConfig.h>   // sct::config::LoadJson / ReadText
 

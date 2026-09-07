@@ -1,9 +1,9 @@
 #include "PCH.h"
 #include <Hooks/hookslib.h>   // repo RE hook toolkit — InstallCallDetour
 
-#include "AnimationSetDataServer.h"
-#include "BundleReader.h"
-#include "CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
+#include "core/serve/AnimationSetDataServer.h"
+#include "core/discover/BundleReader.h"
+#include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <havok/anim/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (moved to havok-core)
 

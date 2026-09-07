@@ -1,7 +1,7 @@
 #include "PCH.h"
 
-#include "ProgressHud.h"
-#include "ProgressOverlay.h"
+#include "core/bootstrap/ProgressHud.h"
+#include "core/bootstrap/ProgressOverlay.h"
 
 #include <atomic>
 #include <cstdio>

@@ -1,6 +1,6 @@
 #include "PCH.h"
 
-#include "SyncClipProbe.h"
+#include "core/debug/SyncClipProbe.h"
 
 #include <mutex>
 #include <unordered_set>

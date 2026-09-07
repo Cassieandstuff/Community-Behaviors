@@ -1,5 +1,5 @@
 #include "PCH.h"
-#include "SymbolInjector.h"
+#include "core/resolve/SymbolInjector.h"
 
 #include <sct-config/SctConfig.h>
 

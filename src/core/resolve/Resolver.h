@@ -1,8 +1,8 @@
 #pragma once
 
-#include "BundleManifest.h"
-#include "GraphClipSink.h"   // GraphClipSink — the adsf-derive feature's clip accumulator
-#include "SymbolInjector.h"
+#include "core/discover/BundleManifest.h"
+#include "core/resolve/GraphClipSink.h"   // GraphClipSink — the adsf-derive feature's clip accumulator
+#include "core/resolve/SymbolInjector.h"
 
 #include <havok/sct/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
 

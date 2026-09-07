@@ -1,10 +1,10 @@
 #include "PCH.h"
 #include <Hooks/hookslib.h>   // repo RE hook toolkit — InstallCallDetour
 
-#include "AnimationDataServer.h"
-#include "BundleReader.h"
-#include "CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
-#include "GraphClipSink.h"   // sink->Contributions() (adsf-derive feature, opt-in validation)
+#include "core/serve/AnimationDataServer.h"
+#include "core/discover/BundleReader.h"
+#include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
+#include "core/resolve/GraphClipSink.h"   // sink->Contributions() (adsf-derive feature, opt-in validation)
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
 #include <havok/anim/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)

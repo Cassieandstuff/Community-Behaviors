@@ -29,12 +29,24 @@ libs.
 ## Layout
 
 ```
-src/                         CB's source, FLAT (each Foo.cpp beside its Foo.h; src/ is the include root)
-  *.cpp / *.h                the runtime plugin (Plugin.cpp = entry, Resolver, ByteServe, servers, …)
-  features/<Owner>/          self-registered compile-time graph features (BR_REGISTER_FEATURE)
+src/                         CB's source. src/ is the include root; the runtime plugin is organized by
+                             PIPELINE STAGE under core/, the engine libraries by CONCERN (each a module).
+  Plugin.cpp                 the SKSE entry point (defines SKSEPluginLoad) — stays at src/ root
+  include/                   force-include-tier shared headers: PCH.h (force-included) + PluginLogger.h
+                             (LOG_* macros). On the include path, so bare "PCH.h"/"PluginLogger.h" resolve.
+  core/                      THE COMPILER PIPELINE, foldered by stage (include stage-prefixed, e.g.
+                             "core/resolve/Resolver.h"):
+    core/discover/           find + read the .hky bundles (BundleReader, BundleManifest, ServeKey)
+    core/resolve/            load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
+                             GraphClipSink, Watermark). Compile itself is delegated to the havok-* libs.
+    core/serve/              deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer,
+                             CBMemoryStream, SkinnedMesh)
+    core/bootstrap/          startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud)
+    core/debug/              opt-in diagnostics/probes (AnimDataProbe, SyncClipProbe, DebugOverlay, DebugFlags)
+  features/<Owner>/          self-registered compile-time graph features (BR_REGISTER_FEATURE); ERGate.h
+                             (the ER wildcard-gate hook, non-compiler) lives here too
   Hooks/                     header-only BSResource-ctor hook lib (<Hooks/hookslib.h>)
-  PCH.h / PluginLogger.h     unified PCH (force-included) + LOG_* macros
-  havok-framing|schema|io|model|pipeline/   the data-driven Havok stack (each an add_library module,
+  havok-framing|schema|io|model|anim|pipeline/   the data-driven Havok stack (each an add_library module,
                              include/<lib>/ for its public header, no include/internal wrapper)
   sct-config/                config scanner (JSON/YAML/INI); sct-utilities/ folder-picker+zip (converter)
 Havok/core/Schema/           the vanilla class-schema tree (schema-as-core; room for Havok/features/ later)

@@ -1,9 +1,9 @@
 #include "PCH.h"
 
-#include "ByteServe.h"
-#include "CompileGate.h"   // CB::EnsureCompiledAndArmed — backstop trigger for the lazy compile
-#include "Resolver.h"
-#include "ServeKey.h"
+#include "core/serve/ByteServe.h"
+#include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — backstop trigger for the lazy compile
+#include "core/resolve/Resolver.h"
+#include "core/discover/ServeKey.h"
 
 #include <MinHook.h>
 

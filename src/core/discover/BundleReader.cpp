@@ -1,6 +1,6 @@
 #include "PCH.h"
 
-#include "BundleReader.h"
+#include "core/discover/BundleReader.h"
 
 #include <havok/model/yaml/HkyArchive.h>
 #include <havok/model/yaml/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)

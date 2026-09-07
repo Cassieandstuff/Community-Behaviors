@@ -137,17 +137,24 @@ add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
 find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
 find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link)
 
+# The plugin's entry point (Plugin.cpp) sits at src/ root; the compiler pipeline is organized by STAGE
+# under src/core/ (discover -> resolve -> serve, plus bootstrap + debug), and the graph features live
+# under src/features/. Collect the entry point, every pipeline stage, and the features — while the
+# non-recursive root glob still keeps the sibling engine modules (src/havok-*/, sct-config, ...) out.
 file(GLOB CB_ROOT_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
+sct_collect_sources(CB_CORE_SOURCES    "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/*.cpp")
 sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
 
 # add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) + links CommonLibSSE
 # — Plugin.cpp defines only SKSEPluginLoad.
-add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_FEATURE_SOURCES})
+add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 
-# src/ is the flat private include root: the plugin's own headers, Hooks/ (header-only), PluginLogger.h,
-# and PCH.h ("PCH.h" quoted include in Plugin.cpp) all resolve from here.
-target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src")
+# src/ is the private include root: pipeline headers resolve stage-prefixed (e.g.
+# "core/resolve/Resolver.h", "features/ERGate.h"), Hooks/ (header-only) from here too. src/include/
+# holds the force-include-tier shared headers (PCH.h, PluginLogger.h) so their bare quoted includes
+# ("PCH.h" / "PluginLogger.h") still resolve everywhere.
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/include")
 
 # havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
 # (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
@@ -155,7 +162,7 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
-target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/PCH.h")
+target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/include/PCH.h")
 
 # ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
 # Drives the cold-compile progress bar: PresentPump renders its own ImGui frames onto the game's

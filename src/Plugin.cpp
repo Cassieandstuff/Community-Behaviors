@@ -1,15 +1,15 @@
 #include "PCH.h"
 
-#include "AnimDataProbe.h"
-#include "AnimationDataServer.h"
-#include "AnimationSetDataServer.h"
-#include "ByteServe.h"
-#include "CompileGate.h"
-#include "DebugOverlay.h"
-#include "ProgressHud.h"
-#include "ProgressOverlay.h"
-#include "Resolver.h"
-#include "SyncClipProbe.h"
+#include "core/debug/AnimDataProbe.h"
+#include "core/serve/AnimationDataServer.h"
+#include "core/serve/AnimationSetDataServer.h"
+#include "core/serve/ByteServe.h"
+#include "core/bootstrap/CompileGate.h"
+#include "core/debug/DebugOverlay.h"
+#include "core/bootstrap/ProgressHud.h"
+#include "core/bootstrap/ProgressOverlay.h"
+#include "core/resolve/Resolver.h"
+#include "core/debug/SyncClipProbe.h"
 
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
 #include "havok/sct/BehaviorCompiler.h"   // SetSchemaCompiler — data-driven compiler toggle

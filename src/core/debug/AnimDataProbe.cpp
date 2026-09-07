@@ -1,6 +1,6 @@
 #include "PCH.h"
 
-#include "AnimDataProbe.h"
+#include "core/debug/AnimDataProbe.h"
 
 #include <cstdint>
 #include <filesystem>
