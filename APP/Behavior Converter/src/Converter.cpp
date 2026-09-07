@@ -1509,11 +1509,10 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     const fs::path meshes(vanillaMeshesDir);
     if (!fs::is_directory(meshes, ec)) { r.error = "vanilla meshes folder not found: " + vanillaMeshesDir; return r; }
 
-    // Arm the shared schema registry (Havok/ ships next to templates/) so the schema-native animation
-    // round-trip pass can assemble + decompile. Harmless when templates/Havok is absent — the anim
-    // pass then just reports the registry error per file and counts them as failures.
-    if (!templatesDir.empty())
-        havok::schema::SetSharedSchemaDir((fs::path(templatesDir).parent_path() / "Havok").string());
+    // The shared schema registry (havok::schema::SharedRegistry) must already be armed by the caller
+    // (main.cpp points it at <exe>/Havok before --build-base / --regen-master) so the schema-native
+    // animation round-trip pass can assemble + decompile. If it is not, the anim pass reports the
+    // registry error per file and counts them as failures — it does not abort the corpus walk.
 
     // Stage under a SHORT root so the deep decompiled unit tree stays under MAX_PATH; only the packed
     // archive survives — UNLESS keepStagingDir is set, in which case the unpacked Skyrim.hky/ tree is

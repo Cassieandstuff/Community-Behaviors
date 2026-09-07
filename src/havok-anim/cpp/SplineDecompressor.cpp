@@ -139,6 +139,10 @@ struct VecCurve {
         if (mask_ & 0xF0) {
             vc.n   = (int)r.U16();
             vc.deg = (int)r.U8();
+            // The de Boor evaluators size their working array for a cubic (d[4]); a degree > 3
+            // (unsupported, or a misread of malformed/garbage spline data) would overrun that stack
+            // array. Bail cleanly instead — the caller turns !ok into a decode failure, not a crash.
+            if (vc.deg > 3) { r.ok = false; return vc; }
             vc.K   = r.p; r.skip(vc.n + vc.deg + 2);
             r.align4(base);
         }
@@ -218,6 +222,7 @@ struct FloatChan {
             c.dynamic = true;
             c.n   = static_cast<int>(r.U16());
             c.deg = static_cast<int>(r.U8());
+            if (c.deg > 3) { r.ok = false; return c; }   // d[4] de Boor array — reject degree > cubic
             c.K   = r.p; r.skip(c.n + c.deg + 2);
             r.align4(base);
             c.mn = r.F32(); c.mx = r.F32();
@@ -276,6 +281,7 @@ struct TC40 {
         if (c.bpq == 0) { r.ok = false; return c; }
         c.n   = (int)r.U16();
         c.deg = (int)r.U8();
+        if (c.deg > 3) { r.ok = false; return c; }   // Q4 d[4] de Boor array — reject degree > cubic
         c.k   = r.p; r.skip(c.n + c.deg + 2);
         c.q   = r.p; r.skip((c.n + 1) * c.bpq);
         return c;

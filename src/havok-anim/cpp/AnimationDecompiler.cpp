@@ -41,12 +41,26 @@ using havok::io::SchemaObject;
 
 std::string fstr(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
 
-// Single-quoted YAML scalar ('' escapes an embedded quote) — annotation text and track names carry
-// '|', '[', ']', '.' and must survive verbatim.
-std::string q(const std::string& s) {
-    std::string out = "'";
-    for (char c : s) { if (c == '\'') out += "''"; else out += c; }
-    out += "'";
+// Double-quoted YAML scalar with escapes. Annotation text / track names are raw Havok strings that can
+// carry embedded control bytes — some vanilla clips store annotations like "FootBack\r\n". A single-
+// quoted scalar cannot represent a newline on one line (it splits the line -> "bad indentation", or a
+// worse ryml fault), so use the double-quoted form, which escapes \, ", and every control byte and
+// stays on ONE line — preserving the exact bytes so the annotation round-trips faithfully.
+std::string dq(const std::string& s) {
+    std::string out = "\"";
+    for (unsigned char c : s) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"':  out += "\\\""; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\x%02X", c); out += b; }
+                else out += static_cast<char>(c);
+        }
+    }
+    out += "\"";
     return out;
 }
 
@@ -220,7 +234,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         y += "  annotationTracks:\n";
         for (auto& atObj : annTracks) {
             auto at = asSO(atObj); if (!at) continue;
-            y += "    - trackName: " + q(at->FieldRef("trackName").str) + "\n";
+            y += "    - trackName: " + dq(at->FieldRef("trackName").str) + "\n";
             auto& anns = at->FieldRef("annotations").objs;
             if (anns.empty()) {
                 y += "      annotations: []\n";
@@ -229,7 +243,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                 for (auto& aObj : anns) {
                     auto a = asSO(aObj); if (!a) continue;
                     y += "        - { time: " + fstr(rdF32(*a, "time")) + ", text: "
-                       + q(a->FieldRef("text").str) + " }\n";
+                       + dq(a->FieldRef("text").str) + " }\n";
                 }
             }
         }

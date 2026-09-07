@@ -14,6 +14,40 @@
 namespace havok::anim {
 namespace {
 
+// ryml's DEFAULT error handler ABORTS (fail-fast), so a malformed YAML kills the process instead of
+// throwing — uncatchable, and fatal to a corpus-wide pass over generated files. Install a callback that
+// THROWS, once, so parse_in_place errors become std::runtime_error the loader's try/catch can handle
+// (and callers can isolate per-file). Global (ryml callbacks are process-wide) and strictly safer for
+// every other schema-stack YAML parse too.
+[[noreturn]] void rymlThrowBasic(c4::csubstr msg, c4::yml::ErrorDataBasic const&, void*) {
+    throw std::runtime_error(std::string(msg.str, msg.len));
+}
+[[noreturn]] void rymlThrowParse(c4::csubstr msg, c4::yml::ErrorDataParse const&, void*) {
+    throw std::runtime_error(std::string(msg.str, msg.len));
+}
+[[noreturn]] void rymlThrowVisit(c4::csubstr msg, c4::yml::ErrorDataVisit const&, void*) {
+    throw std::runtime_error(std::string(msg.str, msg.len));
+}
+// c4core's OWN error path (lower-level asserts/checks inside the parser) defaults to abort/terminate,
+// which the ryml-level callbacks above do NOT cover. Route it through the callback and clear the ABORT
+// flag so those become catchable exceptions too.
+[[noreturn]] void c4ThrowOnError(const char* msg, std::size_t sz) {
+    throw std::runtime_error(std::string(msg, sz));
+}
+void ensureRymlThrows() {
+    static const bool once = [] {
+        c4::yml::Callbacks cb = c4::yml::get_callbacks();
+        cb.m_error_basic = &rymlThrowBasic;
+        cb.m_error_parse = &rymlThrowParse;
+        cb.m_error_visit = &rymlThrowVisit;
+        c4::yml::set_callbacks(cb);
+        c4::set_error_flags(c4::ON_ERROR_CALLBACK);   // no abort/terminate — invoke our callback instead
+        c4::set_error_callback(&c4ThrowOnError);
+        return true;
+    }();
+    (void)once;
+}
+
 std::string readFile(const std::filesystem::path& p) {
     std::ifstream f(p, std::ios::binary);
     if (!f) return {};
@@ -67,6 +101,7 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
     if (text.empty())
         throw std::runtime_error("AnimationYamlLoader: empty animation source '" + sourceName + "'");
 
+    ensureRymlThrows();   // make a malformed-YAML parse THROW (catchable) instead of abort the process
     c4::yml::Tree tree;
     try { tree = c4::yml::parse_in_place(c4::to_substr(text)); }
     catch (const std::exception& e) {
