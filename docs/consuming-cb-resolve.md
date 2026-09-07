@@ -39,10 +39,25 @@ cb::resolve::SchemaRegistry reg;   // load the Havok/ class schema; feed to the 
 cb::resolve::Archive::PackDirectory("MyBundle.hky/", "MyBundle.hky", err);
 ```
 
-The public contract (`cb::resolve::`): `Archive` (read `.hky` via `LoadFromFile`, write via
-`PackDirectory`), `LoadOrder::LoadMerged → ResolvedGraph` (the load-order merge), `SchemaRegistry`
-(the merge classifier), `UnitSource`. These are stable aliases over internal types — link `cb-resolve`
-and include only this header.
+The stable public contract (`cb::resolve::`): `Archive` (read `.hky` via `LoadFromFile`, write via
+`PackDirectory`), `LoadOrder::LoadMerged → ResolvedGraph` (the load-order merge) + `NodeContributions`
+(provenance), `SchemaRegistry` (the merge classifier), `ProjectSpec` / `CharacterData` +
+`CharacterLoader` (the project/character units), `SchemaVersion` / `CheckSchemaCompat` (the editor↔
+compiler stamp), `DeriveClipInputsFromBehavior` (animationdata from the graph), `UnitSource`. The
+fuller model is reachable through the namespace aliases `cb::resolve::model` / `animdata` / `merge` /
+`schema` (broader, less frozen). Link `cb-resolve` and include only this header. See
+[cb-resolve-surface.md](cb-resolve-surface.md) for the full tiered map.
+
+Feed the shipped schema tree to the merge classifier so it resolves identically to the compiler:
+```cmake
+find_package(cb-resolve CONFIG REQUIRED)
+target_compile_definitions(your-tool PRIVATE CB_SCHEMA_DIR="${CB_RESOLVE_SCHEMA_DIR}")
+```
+```cpp
+cb::resolve::SchemaRegistry reg; std::string err;
+reg.LoadDir(CB_SCHEMA_DIR, err);                 // the Havok/ tree shipped with this package version
+cb::resolve::LoadOrder::SetSchemaRegistry(&reg); // now per-field merge: policy drives the compose
+```
 
 ## Consumer requirements
 

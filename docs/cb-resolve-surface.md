@@ -58,11 +58,12 @@ header): a produced `.hky` echoes it, the compiler gates ingest on it.
 
 ---
 
-## Tier 1 — havok-core-free, already installed, not yet curated
+## Tier 1 — havok-core-free (now curated)
 
-All of this is already compiled into the `havok-model` / `havok-schema` libs the package ships and its
-headers are already installed — it only needs **blessing** in `CbResolve.h` (aliases + a couple of
-includes), turning "internal, may move" into a stated contract. No build or license change.
+All of this is compiled into the `havok-model` / `havok-schema` libs the package ships, its headers are
+installed, and it is now **blessed** in `CbResolve.h`. The top-level `cb::resolve::` names are the
+recommended, stable contract; the broader engine namespaces (`cb::resolve::model` / `animdata` / `merge`
+/ `schema`) hoist the fuller model wholesale (e.g. the ~30 typed `*Def` node types) and track the engine.
 
 | Capability | Header / type | Why a tool wants it |
 | --- | --- | --- |
@@ -72,10 +73,11 @@ includes), turning "internal, may move" into a stated contract. No build or lice
 | Animation data | `havok/anim/AnimationData.h`, `AnimDataDeriver.h`, `havok/sct/AnimDataFromBehavior.h` | Derive animationdata **from** behavior — havok-core-free (distinct from the retired `havok::anim::AnimationDef`) |
 | Provenance | `LoadMerged`'s `NodeContribution` scan | "Which load-order layer set this node/value" — gold for an editor's diff/inspector |
 | Version gating | `SchemaVersion`, `CheckSchemaCompat` (schema header) | Refuse/accept an authored `.hky` against the current tree, exactly as the compiler does |
-| Merge primitive | `havok/model/BashMerge.h` | The lower-level compose used by the merge |
+| Merge primitive | `cb::resolve::merge` (`BashMerge.h`) | The lower-level compose used by the merge |
 
-**Curation policy:** promote a Tier-1 symbol only when a consumer needs it; each promotion is a
-contract we agree to keep stable. Prefer exposing the *neutral Def model* over engine-internal types.
+**Curation policy:** the top-level `cb::resolve::` names are frozen contracts — add one when a consumer
+needs it and keep it stable. The namespace aliases are the escape hatch for everything else: reachable,
+but "may move," so prefer a curated name where one exists.
 
 ---
 

@@ -19,9 +19,16 @@
 
 #include "havok/model/yaml/HkyArchive.h"        // read + pack a .hky bundle
 #include "havok/model/yaml/UnitSource.h"        // IUnitSource — a unit's file view
-#include "havok/model/yaml/YamlBehaviorLoader.h" // LoadMerged — the load-order merge
-#include "havok/model/BehaviorData.h"           // the resolved graph model
-#include "havok-schema/HavokSchema.h"           // SchemaRegistry — merge classifier
+#include "havok/model/yaml/YamlBehaviorLoader.h" // LoadMerged + NodeContributions
+#include "havok/model/BehaviorData.h"           // the resolved graph model + typed *Def types
+#include "havok/model/ProjectData.h"            // ProjectSpec — the project unit
+#include "havok/model/defs/CharacterDefs.h"     // CharacterData
+#include "havok/model/yaml/CharacterYamlLoader.h" // load/merge a character unit
+#include "havok/model/BashMerge.h"              // the shared field/array merge primitive
+#include "havok/anim/AnimationData.h"           // animationdata model + emit (havok-core-free)
+#include "havok/anim/AnimDataDeriver.h"         // derive an animdata clip list from the graph
+#include "havok/sct/AnimDataFromBehavior.h"     // DeriveClipInputs straight from a BehaviorData
+#include "havok-schema/HavokSchema.h"           // SchemaRegistry + SchemaVersion / CheckSchemaCompat
 
 namespace cb::resolve {
 
@@ -44,6 +51,42 @@ namespace cb::resolve {
     using ResolvedGraph = havok::model::BehaviorData;
 
     // The Havok class schema (loaded from the Havok/ tree) that the merge consults.
+    // Find the shipped tree via the CB_RESOLVE_SCHEMA_DIR CMake var: reg.LoadDir(dir).
     using SchemaRegistry = havok::schema::SchemaRegistry;
+
+    // ── Curated model + import surface (stable names) ────────────────────────────
+    // A resolved project isn't only the behavior graph — a tool imports/edits the
+    // project and character units too. These are havok-core-free and load the same
+    // way the compiler does.
+    using ProjectSpec      = havok::model::ProjectSpec;          // project-level spec
+    using CharacterData    = havok::model::CharacterData;        // a resolved character unit
+    using CharacterLoader  = havok::model::CharacterYamlLoader;  // Load / LoadMerged, mirrors LoadOrder
+
+    // Provenance: which load-order layers touch the same node — the editor's
+    // conflict/inspector feed. `LoadOrder::NodeContributions(sources)` → these,
+    // built with the EXACT grouping the merge overlays by (never an approximation).
+    using NodeContribution = havok::model::YamlBehaviorLoader::NodeContribution;
+
+    // Schema-version gating: the editor↔compiler contract stamp. Parse the tree's
+    // stamp (SchemaRegistry::SchemaVersionString) and gate an authored .hky against
+    // the current tree exactly as the compiler does.
+    using SchemaVersion = havok::schema::SchemaVersion;
+    using SchemaCompat  = havok::schema::SchemaCompat;
+    using havok::schema::CheckSchemaCompat;
+
+    // Animation data: derive an animationdatasinglefile clip list from a resolved
+    // graph (havok-core-free — distinct from the retired havok::anim path).
+    using havok::sct::DeriveClipInputsFromBehavior;
+
+    // ── Broader engine namespaces (fuller model, less frozen) ────────────────────
+    // The top-level names above are the recommended, stable contract. These aliases
+    // hoist the fuller model wholesale — the ~30 typed node `*Def` types
+    // (ResolvedGraph's members), the animdata model, and the merge primitives — so a
+    // tool can spell any of them. They track the engine and may move; prefer the
+    // curated names where one exists.
+    namespace model    = havok::model;     // BehaviorData's typed *Def node model + loaders
+    namespace animdata = havok::animdata;  // ClipGenerator / Project / SingleFile / DeriveClipList
+    namespace merge    = havok::merge;     // BashMerge: ParamMerge, PatchLayer, MergeReport, …
+    namespace schema   = havok::schema;    // ClassSchema, Field, FieldKind, ScalarWidth, …
 
 }  // namespace cb::resolve
