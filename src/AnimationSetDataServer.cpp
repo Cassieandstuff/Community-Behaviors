@@ -3,6 +3,7 @@
 
 #include "AnimationSetDataServer.h"
 #include "BundleReader.h"
+#include "CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <havok/anim/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (moved to havok-core)
 
@@ -513,6 +514,11 @@ namespace CB::asdserve {
         std::int32_t Hook_OpenSetData(std::uintptr_t a_path, std::uintptr_t a_out,
                                       std::uint64_t a_r8, std::uint64_t a_r9)
         {
+            // First open of the set-data file drives the compile gate: block here (engine parked in
+            // our hook) until BR has compiled + armed, so the redirect below is live for THIS open
+            // and the graph load ordered after us sees the merged serve. No-op after the first call.
+            CB::EnsureCompiledAndArmed();
+
             if (s_setDataRedirectActive.load(std::memory_order_acquire)) {
                 // A BSFixedString is one pointer; pass ours in place of the engine's path.
                 const std::uintptr_t ours = *reinterpret_cast<std::uintptr_t*>(&s_setDataCachePath);

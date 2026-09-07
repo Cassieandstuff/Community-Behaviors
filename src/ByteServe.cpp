@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "ByteServe.h"
+#include "CompileGate.h"   // CB::EnsureCompiledAndArmed — backstop trigger for the lazy compile
 #include "Resolver.h"
 #include "ServeKey.h"
 
@@ -122,6 +123,18 @@ namespace CB::byteserve {
                         // (1) Owned character / behavior graph — swap to the cache the warm-up wrote.
                         //     Gate on RedirectReady so we never point at a not-yet-materialized file.
                         if (s_resolver->Owns(serveKey)) {
+                            // Backstop for the compile gate: an owned graph must never be served
+                            // half-compiled. Drive the gate (a no-op once armed), then WAIT for the
+                            // compile — this is what makes the SPLIT path correct: the adsf/setdata
+                            // detours armed the light merges and launched the graph compile in the
+                            // background so the menu could present the progress bar; here, the first
+                            // time a real BR graph is actually needed, we block until that background
+                            // compile has finished and RedirectReady is true. On the synchronous path
+                            // EnsureCompiledAndArmed already compiled+armed and WaitForCompile no-ops.
+                            if (!s_resolver->RedirectReady()) {
+                                CB::EnsureCompiledAndArmed();
+                                CB::WaitForCompile();
+                            }
                             // Owns() is membership only — a graph that FAILED to compile is still owned
                             // but has no cache file. Redirecting to a missing file abandons the vanilla
                             // open with no fallback (→ A-pose/CTD), so require the file to exist before

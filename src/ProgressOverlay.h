@@ -2,20 +2,19 @@
 
 #include <cstddef>
 
-// Community Behaviors's startup progress overlay, drawn through SKSE Menu Framework (SMF).
+// Community Behaviors's cold-compile progress STATE — three atomics written by the background
+// compile (WarmUpThread) and read by the ProgressHud present hook that draws the bar.
 //
-// SMF bundles ImGui and owns the D3D present hook, exporting the raw `ig*` C functions;
-// we resolve them ourselves at kDataLoaded (NOT via SMF's header static, which caches a
-// null module handle because BR loads before SMF alphabetically) and register a HUD draw
-// callback. If SMF isn't installed, this is a silent no-op (progress still logs). No
-// present hook, no ImGui in our build — the framework owns all of that.
+// This used to draw through SKSE Menu Framework. It now hands off to ProgressHud, which rides the
+// game's own IDXGISwapChain::Present (the way CommunityShaders/OAR do) and draws the bar while the
+// SPLIT-path background compile runs and the menu presents. This header is just the thread-safe
+// hand-off of progress from the compile thread to that renderer.
 namespace CB::ProgressOverlay {
 
-    // Resolve SMF's exports and register the draw callback. Call once at kDataLoaded
-    // (SMF is loaded by then). No-op if SMF is absent or missing exports.
-    void Install();
-
-    // Update the bar (called from the background precompile thread). running=false hides it.
+    // Publish progress (compile thread). running=false marks the compile finished.
     void SetProgress(std::size_t done, std::size_t total, bool running);
+
+    // Read the latest progress (render/pump thread). Returns whether the compile is still running.
+    bool ReadProgress(std::size_t& done, std::size_t& total);
 
 }  // namespace CB::ProgressOverlay

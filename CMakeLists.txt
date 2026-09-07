@@ -157,6 +157,29 @@ target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-c
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/PCH.h")
 
+# ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
+# Drives the cold-compile progress bar: PresentPump renders its own ImGui frames onto the game's
+# swapchain during the compile (see PresentPump.cpp). Fetched unconditionally (small; the converter's
+# separate glfw/opengl3 `imgui` lib, below, reuses the same populated source). d3d11/dxgi for the
+# swapchain + device the game hands us.
+include(FetchContent)
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        docking
+    GIT_SHALLOW    TRUE)
+FetchContent_MakeAvailable(imgui)
+add_library(imgui_dx11 STATIC
+    "${imgui_SOURCE_DIR}/imgui.cpp"
+    "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+    "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+    "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp")
+target_include_directories(imgui_dx11 PUBLIC "${imgui_SOURCE_DIR}")
+target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
+set_target_properties(imgui_dx11 PROPERTIES CXX_STANDARD 17)
+target_link_libraries(CommunityBehaviors PRIVATE imgui_dx11 d3d11 dxgi)
+
 # ── Pack the .hky bundle YAML trees at build time ─────────────────────────────
 # Each hky/<Bundle>.hky/ is the uncompressed, git-tracked YAML tree; the build packs every such folder
 # to a single-file .hky under CB_HKY_STAGE, already shaped as the runtime serve path

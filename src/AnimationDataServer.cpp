@@ -3,6 +3,7 @@
 
 #include "AnimationDataServer.h"
 #include "BundleReader.h"
+#include "CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 #include "GraphClipSink.h"   // sink->Contributions() (adsf-derive feature, opt-in validation)
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
@@ -946,6 +947,11 @@ namespace CB::adserve {
         std::int32_t Hook_OpenAnimData(std::uintptr_t a_path, std::uintptr_t a_out,
                                        std::uint64_t a_r8, std::uint64_t a_r9)
         {
+            // First open of the collated animdata file drives the compile gate: block here (engine
+            // parked in our hook) until BR has compiled + armed, so the redirect below is live for
+            // THIS open and the graph load ordered after us is consistent. No-op after the first call.
+            CB::EnsureCompiledAndArmed();
+
             if (s_redirectActive.load(std::memory_order_acquire)) {
                 const std::uintptr_t ours = *reinterpret_cast<std::uintptr_t*>(&s_cachePath);
                 if (ours) {
@@ -1007,6 +1013,11 @@ namespace CB::adserve {
 
         void* Hook_ClipDataCtor(void* a_this)
         {
+            // Per-project mode still needs the behavior compile + set-data arm — drive the shared
+            // compile gate first (blocks until done), THEN materialize the per-project animdata files
+            // below. Ordered ahead of the ctor's read either way.
+            CB::EnsureCompiledAndArmed();
+
             bool expected = false;
             if (s_gateMaterialized.compare_exchange_strong(expected, true)) {
                 const auto r = ServeAnimData("Data", "Data/community_behaviors/loadorder.txt");
