@@ -46,8 +46,12 @@ src/                         CB's source. src/ is the include root; the runtime 
   features/<Owner>/          self-registered compile-time graph features (BR_REGISTER_FEATURE); ERGate.h
                              (the ER wildcard-gate hook, non-compiler) lives here too
   Hooks/                     header-only BSResource-ctor hook lib (<Hooks/hookslib.h>)
-  havok-framing|schema|io|model|anim|pipeline/   the data-driven Havok stack (each an add_library module,
-                             include/<lib>/ for its public header, no include/internal wrapper)
+  havok-framing|schema|io|model|anim|pipeline/   the data-driven Havok stack (each an add_library module).
+                             Headers + sources are CO-LOCATED (no include/ vs cpp/ split): a component's
+                             Foo.h sits beside Foo.cpp under the module's namespaced path (e.g.
+                             havok-model/havok/model/BehaviorData.{h,cpp}); the module root IS the include
+                             root, so cross-module includes keep their <havok/model/…> paths. Exported
+                             modules install only *.h. A real include/ is reserved for the public CB-API.
   sct-config/                config scanner (JSON/YAML/INI); sct-utilities/ folder-picker+zip (converter)
 Havok/core/Schema/           the vanilla class-schema tree (schema-as-core; room for Havok/features/ later)
 Retirement Home/havok-core/  QUARANTINED legacy typed backbone — see its README; do NOT build new things

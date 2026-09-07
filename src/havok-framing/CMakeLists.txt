@@ -14,8 +14,8 @@
 # ---------------------------------------------------------------------------
 
 sct_collect_sources(HAVOK_FRAMING_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
 )
 
 # Enum tables baked from the schema's enum data tree (Havok/core/Schema/enums/*.yaml — the single
@@ -44,7 +44,7 @@ set_target_properties(havok-framing PROPERTIES
 )
 
 target_include_directories(havok-framing PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>
 )
 

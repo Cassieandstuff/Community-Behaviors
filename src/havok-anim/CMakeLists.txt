@@ -14,12 +14,12 @@
 #
 # CB source module. Public headers on the path as <havok/anim/*.h>.
 
-sct_collect_sources(HAVOK_ANIM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp")
+sct_collect_sources(HAVOK_ANIM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 add_library(havok-anim STATIC ${HAVOK_ANIM_SOURCES})
 
 target_include_directories(havok-anim
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>   # <havok/anim/*.h>
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok/anim/*.h>
            $<INSTALL_INTERFACE:include>)
 
 # havok-model brings AnimationData.h (MotionRecord), the AnimDataYaml loader, and the

@@ -67,11 +67,13 @@ install(TARGETS cb-resolve havok-framing havok-schema havok-io havok-model
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
 # Headers: each module's full include/ tree (havok-model's public headers pull havok-framing's, etc.).
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/include/" DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/include/"  DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/include/"      DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/include/"   DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/include/"    DESTINATION include)
+# Headers + sources are co-located per module now (no include/ vs cpp/ split), so the export ships
+# only the headers (FILES_MATCHING *.h) from each module root — the co-located .cpp are not installed.
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/" DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"  DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"      DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"   DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(EXPORT cb-resolve-targets
         NAMESPACE cb::
         FILE      cb-resolve-targets.cmake

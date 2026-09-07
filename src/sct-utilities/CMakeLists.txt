@@ -3,7 +3,7 @@
 # Windows known-folder lookups, and a directory->zip writer. One umbrella header
 # <sct-utilities/SctUtilities.h>; Zip.cpp is backed by vendored miniz (private).
 
-sct_collect_sources(SCT_UTIL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp")
+sct_collect_sources(SCT_UTIL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 set(_MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 add_library(sct-utilities STATIC ${SCT_UTIL_SOURCES} "${_MINIZ_DIR}/miniz.c")
@@ -13,7 +13,7 @@ endif()
 
 # include/ → <sct-utilities/SctUtilities.h>; miniz.h is a private impl detail of Zip.cpp.
 target_include_directories(sct-utilities
-    PUBLIC  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    PUBLIC  "${CMAKE_CURRENT_SOURCE_DIR}"
     PRIVATE "${_MINIZ_DIR}")
 
 # ole32 (IFileDialog/COM) + shell32 (SHGetKnownFolderPath) PUBLIC so a consumer links them transitively.

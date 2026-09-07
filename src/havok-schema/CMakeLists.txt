@@ -6,13 +6,13 @@
 #
 # CB source module. Public header on the path as <havok-schema/HavokSchema.h>.
 
-sct_collect_sources(HAVOK_SCHEMA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp")
+sct_collect_sources(HAVOK_SCHEMA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 add_library(havok-schema STATIC ${HAVOK_SCHEMA_SOURCES})
 
 target_include_directories(havok-schema
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>            # <havok-schema/HavokSchema.h>
-           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/external>  # RymlInclude.h (build-only shim)
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>            # <havok-schema/HavokSchema.h>
+           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external>  # RymlInclude.h (build-only shim)
            $<INSTALL_INTERFACE:include>)
 
 find_package(ryml CONFIG REQUIRED)                 # descriptor YAML parsing

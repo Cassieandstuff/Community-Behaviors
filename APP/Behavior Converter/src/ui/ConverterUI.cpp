@@ -5,7 +5,7 @@
 
 #include "ui/ConverterUI.h"
 
-#include "DebugFlags.h"   // CB::debug::kFlags — the canonical plugin debug-flag registry (shared, dependency-free)
+#include "core/debug/DebugFlags.h"   // CB::debug::kFlags — the canonical plugin debug-flag registry (shared, dependency-free)
 
 #include <sct-utilities/SctUtilities.h>
 

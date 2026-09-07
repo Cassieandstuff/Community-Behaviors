@@ -13,12 +13,12 @@
 #
 # CB source module. Public header on the path as <havok-model/HavokModel.h>.
 
-sct_collect_sources(HAVOK_MODEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp")
+sct_collect_sources(HAVOK_MODEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 add_library(havok-model STATIC ${HAVOK_MODEL_SOURCES})
 
 target_include_directories(havok-model
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>   # <havok-model/HavokModel.h> + havok/model/*, havok/anim/*, havok/sct/*, havok/cross/*
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok-model/HavokModel.h> + havok/model/*, havok/anim/*, havok/sct/*, havok/cross/*
            $<INSTALL_INTERFACE:include>)
 
 # havok-io provides the SchemaObject graph + framing; havok-schema the ClassSchema descriptors
