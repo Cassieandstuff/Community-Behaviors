@@ -29,10 +29,14 @@ libs.
 ## Layout
 
 ```
-src/                         CB's source. src/ is the include root; the runtime plugin is organized by
+include/                     PUBLIC API ONLY (repo root): CB-API.h — the single facade an external tool
+                             #includes (<CB-API.h>). Nothing private goes here. Backed by the API/ target.
+API/                         the cb::CB-API facade target (INTERFACE lib) + its dogfood drift-gate
+                             (cb-api-check). CB is a first-party consumer of <CB-API.h>. Peer of APP/.
+src/                         CB's source. src/ is the private include root; the runtime plugin is organized by
                              PIPELINE STAGE under core/, the engine libraries by CONCERN (each a module).
   Plugin.cpp                 the SKSE entry point (defines SKSEPluginLoad) — stays at src/ root
-  include/                   force-include-tier shared headers: PCH.h (force-included) + PluginLogger.h
+  pch/                       force-include-tier shared headers: PCH.h (force-included) + PluginLogger.h
                              (LOG_* macros). On the include path, so bare "PCH.h"/"PluginLogger.h" resolve.
   core/                      THE COMPILER PIPELINE, foldered by stage (include stage-prefixed, e.g.
                              "core/resolve/Resolver.h"):
@@ -51,7 +55,7 @@ src/                         CB's source. src/ is the include root; the runtime 
                              Foo.h sits beside Foo.cpp under the module's namespaced path (e.g.
                              havok-model/havok/model/BehaviorData.{h,cpp}); the module root IS the include
                              root, so cross-module includes keep their <havok/model/…> paths. Exported
-                             modules install only *.h. A real include/ is reserved for the public CB-API.
+                             modules install only *.h. The public CB-API facade lives at the root include/.
   sct-config/                config scanner (JSON/YAML/INI); sct-utilities/ folder-picker+zip (converter)
 Havok/core/Schema/           the vanilla class-schema tree (schema-as-core; room for Havok/features/ later)
 Retirement Home/havok-core/  QUARANTINED legacy typed backbone — see its README; do NOT build new things

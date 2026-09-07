@@ -56,7 +56,7 @@ add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/cb-resolve)
-add_subdirectory(src/cb-api)       # the single public API facade (<CB-API.h>): resolve + anim + schema
+add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # ── Install / export rules for the cb-resolve surface ────────────────────────────
 # So a consumer can `find_package(cb-resolve)` (vcpkg, or a manual cmake --install). Inert unless someone
@@ -157,10 +157,10 @@ add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_CORE_
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 
 # src/ is the private include root: pipeline headers resolve stage-prefixed (e.g.
-# "core/resolve/Resolver.h", "features/ERGate.h"), Hooks/ (header-only) from here too. src/include/
+# "core/resolve/Resolver.h", "features/ERGate.h"), Hooks/ (header-only) from here too. src/pch/
 # holds the force-include-tier shared headers (PCH.h, PluginLogger.h) so their bare quoted includes
 # ("PCH.h" / "PluginLogger.h") still resolve everywhere.
-target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/include")
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/pch")
 
 # havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
 # (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
@@ -168,7 +168,7 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" 
 target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
-target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/include/PCH.h")
+target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/pch/PCH.h")
 
 # ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
 # Drives the cold-compile progress bar: PresentPump renders its own ImGui frames onto the game's
