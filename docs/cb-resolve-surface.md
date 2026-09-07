@@ -56,6 +56,23 @@ cb::resolve::LoadOrder::SetSchemaRegistry(&reg);
 The version stamp is the editor↔compiler contract (`SchemaVersion` / `CheckSchemaCompat` in the schema
 header): a produced `.hky` echoes it, the compiler gates ingest on it.
 
+## The base master (vanilla Skyrim.hky) — a runtime input, deliberately NOT shipped
+
+Resolution is *deltas over a base*: `LoadMerged` is base-first and layer 0 is the vanilla master
+`Skyrim.hky`. It is neither package source nor package artifact — it's a **runtime input**:
+
+- **Not shipped.** It's a decompiled representation of the user's own vanilla game data (Bethesda IP,
+  ~27 MB), produced only by the full CB build from `$SKYRIM_DATASOURCE`. A public registry must not
+  redistribute it — a stronger bar than CB's own All-Rights-Reserved code.
+- **cb-resolve can't produce it** anyway (regen needs the converter → havok-core); the resolve surface
+  can only *read* a master, which is all a consumer needs.
+- **The consumer opens it from the user's install at runtime** — same as the Scene Editor: resolve the
+  game `Data/` root (MO2 VFS / registry), then load `cb::resolve::kBaseMasterDataPath`
+  (`community_behaviors/plugins/Skyrim.hky`) under it as layer 0.
+
+So the env-var/vanilla-tree regeneration is a CB-*build* concern that never reaches a consumer — Lenny
+consumes an already-produced master, he never regenerates one.
+
 ---
 
 ## Tier 1 — havok-core-free (now curated)

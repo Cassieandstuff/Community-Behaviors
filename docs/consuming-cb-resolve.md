@@ -48,6 +48,24 @@ fuller model is reachable through the namespace aliases `cb::resolve::model` / `
 `schema` (broader, less frozen). Link `cb-resolve` and include only this header. See
 [cb-resolve-surface.md](cb-resolve-surface.md) for the full tiered map.
 
+### The base master (vanilla `Skyrim.hky`) — a runtime input, not shipped
+
+Resolution is **deltas over a base**: `LoadMerged` takes layers *base-first*, and layer 0 is the vanilla
+master `Skyrim.hky`. That master is **not** in this package — it's a decompiled representation of the
+user's own vanilla game data (produced only by the full CB build from `$SKYRIM_DATASOURCE`), so
+redistributing it would ship Bethesda's assets. A consumer instead **opens it from the user's install at
+runtime**, the same way the Scene Editor does: resolve the game `Data/` root (MO2's VFS / registry)
+yourself, then load the CB-mod-relative path under it:
+
+```cpp
+// gameDataRoot = the Data/ dir you resolved from MO2 / the registry.
+std::string base = gameDataRoot + "/" + cb::resolve::kBaseMasterDataPath;  // .../Skyrim.hky
+auto g = cb::resolve::LoadOrder::LoadMerged({ base, modDeltaA, modDeltaB /* ascending priority */ });
+```
+
+Only the base layer must carry `behavior.yaml`; every later layer is a mod delta. For dev/testing you
+supply your own authorized copy of the master out-of-band — never through this registry.
+
 Feed the shipped schema tree to the merge classifier so it resolves identically to the compiler:
 ```cmake
 find_package(cb-resolve CONFIG REQUIRED)

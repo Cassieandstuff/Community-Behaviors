@@ -54,6 +54,17 @@ namespace cb::resolve {
     // Find the shipped tree via the CB_RESOLVE_SCHEMA_DIR CMake var: reg.LoadDir(dir).
     using SchemaRegistry = havok::schema::SchemaRegistry;
 
+    // The base master (vanilla Skyrim.hky) is the layer-0 input LoadMerged merges mod
+    // deltas onto — resolution is "deltas over the base." It is NOT shipped with this
+    // package: it's a decompiled representation of the user's own vanilla game data
+    // (produced only by the full CB build, from $SKYRIM_DATASOURCE), so a tool OPENS
+    // it from the user's install at runtime — via MO2's VFS, exactly as the Scene
+    // Editor does — and passes it as the first layer. Resolve the game Data/ root
+    // yourself (MO2 / registry); this is the CB-mod-relative path under it. See
+    // docs/consuming-cb-resolve.md.
+    inline constexpr const char* kBaseMasterDataPath =
+        "community_behaviors/plugins/Skyrim.hky";
+
     // ── Curated model + import surface (stable names) ────────────────────────────
     // A resolved project isn't only the behavior graph — a tool imports/edits the
     // project and character units too. These are havok-core-free and load the same
