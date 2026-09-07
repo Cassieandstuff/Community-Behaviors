@@ -1,29 +1,24 @@
-#include "havok/sct/AnimationCompiler.h"
+#include "havok/anim/AnimationCompiler.h"
 
-#include "havok/anim/AnimationEmitter.h"
 #include "havok/anim/SplineCompressor.h"      // anim::CompressAnimation (the shared spline codec)
-#include "havok/core/PackFileSerializer.h"
-#include "havok/sct/HavokFile.h"
+#include "havok/core/PackFileSerializer.h"    // havok-framing — the ONE serializer (io::SchemaObject)
 
-#include "SchemaCompilerState.h"              // shared data-driven-compiler toggle + schema registry
-
-#include <havok-io/HavokIo.h>                 // io::SchemaObject
-#include <havok-schema/HavokSchema.h>         // schema::SchemaRegistry
+#include <havok-io/HavokIo.h>                  // io::SchemaObject
+#include <havok-schema/HavokSchema.h>          // schema::SchemaRegistry + SharedRegistry()
 
 #include <cstring>
 #include <exception>
+#include <fstream>
 #include <memory>
 
-namespace havok::sct {
+namespace havok::anim {
 
 namespace {
 
-// Data-driven (schema) animation emit — the equivalent of anim::EmitAnimationHkx, building an
-// io::SchemaObject graph (hkaSplineCompressedAnimation + annotation tracks + hkaAnimationBinding +
-// hkaAnimationContainer, wrapped in hkRootLevelContainer) via the Havok/ descriptors instead of the
-// typed hka* classes. The spline codec (anim::CompressAnimation) is shared and runs here exactly as in
-// the typed path — only the object assembly differs. Byte-gated == typed. Lives in havok-core beside
-// the codec it must call; the whole anim/ subsystem can migrate to havok-model as a unit later.
+// Data-driven (schema) animation emit — builds an io::SchemaObject graph (hkaSplineCompressedAnimation
+// + annotation tracks + hkaAnimationBinding + hkaAnimationContainer, wrapped in hkRootLevelContainer)
+// via the Havok/ descriptors. The spline codec (anim::CompressAnimation) is shared and runs here; only
+// the object assembly is schema-driven. Byte-gated == the retired typed emitter (animation-schema-check).
 std::shared_ptr<io::SchemaObject> mkA(const schema::SchemaRegistry& reg, const char* cls) {
     const schema::ClassSchema* cs = reg.Find(cls);
     if (!cs) return nullptr;
@@ -32,9 +27,9 @@ std::shared_ptr<io::SchemaObject> mkA(const schema::SchemaRegistry& reg, const c
     return o;
 }
 
-std::shared_ptr<io::SchemaObject> AssembleAnimation(const anim::AnimationDef& anim, int fps,
+std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, int fps,
                                                     const schema::SchemaRegistry& reg) {
-    anim::CompressedResult r = anim::CompressAnimation(anim, fps);
+    CompressedResult r = CompressAnimation(anim, fps);
     auto i32b = [](std::int32_t v) { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
     auto f32b = [](float v)        { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
     auto u32arr = [](const std::vector<std::uint32_t>& a) { std::vector<std::uint8_t> o; o.reserve(a.size() * 4);
@@ -76,6 +71,7 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const anim::AnimationDef& an
     binding->FieldRef("animation").obj            = spline;
     binding->FieldRef("blendHint").raw            = { 0 };
     // transformTrackToBoneIndices / floatTrackToFloatSlotIndices empty == identity.
+    // (Phase 2: the inverse membrane resolves transformTrackToBoneIndices from per-track bone names.)
 
     auto container = mkA(reg, "hkaAnimationContainer"); if (!container) return nullptr;
     container->FieldRef("animations").objs.push_back(spline);
@@ -92,26 +88,20 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const anim::AnimationDef& an
 
 }  // namespace
 
-CompileResult CompileAnimation(const anim::AnimationDef& anim, int fps, const HKXHeader& header) {
-    CompileResult r;
+AnimCompileResult CompileAnimation(const AnimationDef& anim, int fps, const HKXHeader& header) {
+    AnimCompileResult r;
     try {
-        // Data-driven path (opt-in): assemble via the Havok/ descriptors, proven byte-identical to the
-        // typed EmitAnimationHkx below. Any failure falls through to typed.
-        if (SchemaCompileEnabled()) {
-            if (schema::SchemaRegistry* reg = SchemaCompileRegistry()) {
-                try {
-                    if (auto sroot = AssembleAnimation(anim, fps, *reg)) {
-                        PackFileSerializer ser;
-                        BinaryWriterEx bw;
-                        ser.Serialize(sroot, bw, header);
-                        r.bytes = bw.Data();
-                        r.ok    = true;
-                        return r;
-                    }
-                } catch (const std::exception&) { /* fall through to the typed emitter */ }
-            }
+        schema::SchemaRegistry* reg = schema::SharedRegistry();
+        if (!reg) {
+            r.error = "schema registry unavailable (" + schema::SharedRegistryError() + ")";
+            return r;
         }
-        r.bytes = anim::EmitAnimationHkx(anim, fps, header);
+        auto sroot = AssembleAnimation(anim, fps, *reg);
+        if (!sroot) { r.error = "animation assembly failed (missing schema class descriptor)"; return r; }
+        PackFileSerializer ser;
+        BinaryWriterEx bw;
+        ser.Serialize(sroot, bw, header);
+        r.bytes = bw.Data();
         r.ok    = true;
     } catch (const std::exception& e) {
         r.ok = false;
@@ -121,14 +111,17 @@ CompileResult CompileAnimation(const anim::AnimationDef& anim, int fps, const HK
     return r;
 }
 
-CompileResult CompileAnimationToFile(const anim::AnimationDef& anim,
-                                     const std::filesystem::path& outPath,
-                                     int fps, const HKXHeader& header) {
-    CompileResult r = CompileAnimation(anim, fps, header);
+AnimCompileResult CompileAnimationToFile(const AnimationDef& anim,
+                                         const std::filesystem::path& outPath,
+                                         int fps, const HKXHeader& header) {
+    AnimCompileResult r = CompileAnimation(anim, fps, header);
     if (!r.ok) return r;
-    std::string err;
-    if (!WriteHavokFile(outPath, r.bytes, &err)) { r.ok = false; r.error = err; }
+    std::ofstream f(outPath, std::ios::binary | std::ios::trunc);
+    if (!f) { r.ok = false; r.error = "cannot open for writing: " + outPath.string(); return r; }
+    if (!r.bytes.empty())
+        f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
+    if (!f.good()) { r.ok = false; r.error = "write failed: " + outPath.string(); }
     return r;
 }
 
-} // namespace havok::sct
+} // namespace havok::anim

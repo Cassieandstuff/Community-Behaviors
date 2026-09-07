@@ -171,4 +171,24 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
 // Parse ONE enums/ descriptor's YAML text into an EnumDef (LoadDir uses it; exposed for tests).
 bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err);
 
+// ── Shared process-wide registry ───────────────────────────────────────────────
+// The ONE lazily-loaded Havok/ registry every schema-driven compiler shares (behavior / character /
+// project / skeleton via havok-core's SchemaCompilerState, animation via havok-anim directly), so
+// they load the tree ONCE and enforce the editor<->compiler version-stamp contract in a single place.
+// Ownership lives HERE, in havok-schema, because the whole gate is expressed in schema:: types —
+// havok-core's SchemaCompilerState now delegates to these, keeping havok-anim off any havok-core edge.
+
+// Configure the directory the shared registry loads from (the deployed Havok/ tree). Overrides the
+// $SCT_HAVOK_SCHEMA_DIR fallback. Call before the first SharedRegistry() — it does not force a reload.
+void SetSharedSchemaDir(const std::string& dir);
+
+// The shared registry, lazily loaded ONCE on first call (from SetSharedSchemaDir's dir, else
+// $SCT_HAVOK_SCHEMA_DIR). Returns nullptr when unconfigured or when the load/version-stamp gate
+// failed — the reason is in SharedRegistryError(). Load is attempted at most once.
+SchemaRegistry* SharedRegistry();
+
+// Why SharedRegistry() returned nullptr (no dir configured, load failure, or a version-stamp
+// integrity refusal). Empty while healthy. Populated as a side effect of the first SharedRegistry().
+const std::string& SharedRegistryError();
+
 } // namespace havok::schema

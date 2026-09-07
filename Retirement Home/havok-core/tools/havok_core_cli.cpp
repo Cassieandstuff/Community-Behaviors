@@ -18,7 +18,9 @@
 #include "havok/model/yaml/YamlBehaviorLoader.h"
 #include "havok/model/BehaviorBuilder.h"   // model::ResolveBehaviorBindings (pre-build stage)
 #include "havok/model/yaml/HkyArchive.h"
-#include "havok/sct/AnimationCompiler.h"
+#include "havok/anim/AnimationCompiler.h"    // havok::anim::CompileAnimation (schema-native)
+#include "havok/anim/AnimationDecompiler.h"  // havok::anim::DecompileAnimation (schema-native)
+#include "havok/anim/AnimationEmitter.h"     // havok::anim::EmitAnimationHkx (typed baseline for the gate)
 #include "havok/sct/BehaviorCompiler.h"
 #include "havok/sct/CharacterCompiler.h"
 #include "havok/sct/CharacterDecompiler.h"
@@ -171,8 +173,10 @@ int doCompile(const std::string& in, const std::string& outArg, const std::strin
                 return 0;
             }
             case Kind::Animation: {
+                // Schema-native compile (havok-anim). Needs the shared registry: set a schema dir via
+                // $SCT_HAVOK_SCHEMA_DIR (SharedRegistry's fallback) or use animation-schema-check.
                 const auto anim = havok::anim::AnimationYamlLoader::Load(yaml);
-                const auto r = havok::sct::CompileAnimationToFile(anim, out);
+                const auto r = havok::anim::CompileAnimationToFile(anim, out);
                 if (!r.ok) { std::printf("FAIL: %s\n", r.error.c_str()); return 1; }
                 std::printf("OK: animation '%s' -> %s (%zu bytes).\n", in.c_str(), out.c_str(), r.bytes.size());
                 return 0;
@@ -4563,30 +4567,36 @@ int doSkeletonFullSchemaCheck(const std::string& in, const std::string& schemaDi
 }
 
 // animation-schema-check <anim.yaml> <Havok-dir>: compile a native animation via BOTH the typed
-// EmitAnimationHkx and the schema AssembleAnimation (toggled) and assert byte-identical. Both run the
-// SAME spline codec on the same AnimationDef, so this isolates the object-serialization difference.
+// EmitAnimationHkx (retained in havok-core purely as the gate baseline) and the schema-native
+// havok::anim::CompileAnimation, and assert byte-identical. Both run the SAME spline codec on the
+// same AnimationDef, so this isolates the object-serialization difference — and proves the move of
+// the animation pipeline into havok-anim did not change a single emitted byte.
 int doAnimationSchemaCheck(const std::string& in, const std::string& schemaDir) {
     if (in.empty() || schemaDir.empty()) { std::printf("usage: animation-schema-check <anim.yaml> <Havok-dir>\n"); return 1; }
     havok::anim::AnimationDef anim;
     try { anim = havok::anim::AnimationYamlLoader::Load(in); }
     catch (const std::exception& e) { std::printf("LOAD FAIL: %s\n", e.what()); return 1; }
 
-    havok::sct::SetSchemaCompiler(false, "");                      // typed path
-    const auto typed = havok::sct::CompileAnimation(anim, 30);
-    if (!typed.ok) { std::printf("typed CompileAnimation FAIL: %s\n", typed.error.c_str()); return 1; }
+    std::vector<std::uint8_t> typed;
+    try { typed = havok::anim::EmitAnimationHkx(anim, 30); }        // typed baseline (havok-core)
+    catch (const std::exception& e) { std::printf("typed EmitAnimationHkx FAIL: %s\n", e.what()); return 1; }
 
-    havok::sct::SetSchemaCompiler(true, schemaDir);                // schema path
-    if (!havok::sct::SchemaCompilerReady()) { std::printf("schema registry failed to load from %s\n", schemaDir.c_str()); return 1; }
-    const auto schema = havok::sct::CompileAnimation(anim, 30);
+    havok::schema::SetSharedSchemaDir(schemaDir);                   // arm the shared registry
+    if (!havok::schema::SharedRegistry()) {
+        std::printf("schema registry failed to load from %s: %s\n", schemaDir.c_str(),
+                    havok::schema::SharedRegistryError().c_str());
+        return 1;
+    }
+    const auto schema = havok::anim::CompileAnimation(anim, 30);    // schema-native (havok-anim)
     if (!schema.ok) { std::printf("schema CompileAnimation FAIL: %s\n", schema.error.c_str()); return 1; }
 
-    if (schema.bytes == typed.bytes) {
+    if (schema.bytes == typed) {
         std::printf("animation-schema-check: schema == typed BYTE-IDENTICAL (%zu bytes)\n", schema.bytes.size());
         return 0;
     }
-    std::size_t d = 0; while (d < schema.bytes.size() && d < typed.bytes.size() && schema.bytes[d] == typed.bytes[d]) ++d;
+    std::size_t d = 0; while (d < schema.bytes.size() && d < typed.size() && schema.bytes[d] == typed[d]) ++d;
     std::printf("animation-schema-check: REAL DIFF schema vs typed — sizes %zu/%zu, first diff @0x%zx\n",
-                schema.bytes.size(), typed.bytes.size(), d);
+                schema.bytes.size(), typed.size(), d);
     return 1;
 }
 

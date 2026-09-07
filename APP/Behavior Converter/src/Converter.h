@@ -55,6 +55,10 @@ struct BaseBuildResult {
     bool        ok = false;
     std::string error;
     int behaviors = 0, projects = 0, characters = 0, skeletons = 0, failed = 0;
+    // Animation stress pass (decompile hkx -> animation.yaml -> recompile): a corpus-wide
+    // round-trip of every vanilla loose animation. animOk = recompiled clean; animFail =
+    // decompile OR recompile failed; animSkip = not a decompilable spline animation.
+    int animOk = 0, animFail = 0, animSkip = 0;
 };
 
 // Build the shippable Skyrim.hky MASTER: decompile EVERY vanilla behavior-system file

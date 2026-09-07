@@ -16,6 +16,9 @@
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
 #include <havok/core/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
 #include <havok/core/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
+#include <havok/anim/AnimationCompiler.h>    // havok::anim::CompileAnimation — recompile leg (schema-native)
+#include <havok/anim/AnimationDecompiler.h>  // havok::anim::DecompileAnimation — schema-native import leg
+#include <havok/anim/AnimationYamlLoader.h>  // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <havok/classes/Generators.h>        // hkbClipGenerator / hkbBehaviorReferenceGenerator (pass 2d RBG walk)
 #include <havok/sct/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
 #include <havok-model/HavokModel.h>          // ConvertModDelta — the DEFAULT data-driven per-mod delta
@@ -1476,7 +1479,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 // are "corpus" was fragile: it silently dropped anything at an unexpected path (the first-person
 // skeleton `characterassets/skeletonfirst.hkx`, and — the bet — others). The class-name markers are
 // mutually exclusive at the root, so one cheap substring scan of the head classifies the file.
-enum class HkxKind { Other, Skeleton, Behavior, Character, Project };
+enum class HkxKind { Other, Skeleton, Behavior, Character, Project, Animation };
 HkxKind PeekHkxKind(const std::filesystem::path& file) {
     std::ifstream f(file, std::ios::binary);
     if (!f) return HkxKind::Other;
@@ -1487,7 +1490,12 @@ HkxKind PeekHkxKind(const std::filesystem::path& file) {
     if (head.find("hkbCharacterData") != std::string::npos) return HkxKind::Character;
     if (head.find("hkbBehaviorGraph") != std::string::npos) return HkxKind::Behavior;
     if (head.find("hkaSkeleton")      != std::string::npos) return HkxKind::Skeleton;
-    return HkxKind::Other;                        // animation (hkaAnimationContainer) / non-graph asset
+    // A loose animation carries hkaSplineCompressedAnimation (or interleaved) + hkaAnimationContainer
+    // but NO hkaSkeleton (that lives in the skeleton file), so this can't collide with the skeleton
+    // check above. Only spline animations are decompilable today — the round-trip pass skips the rest.
+    if (head.find("hkaSplineCompressedAnimation")      != std::string::npos ||
+        head.find("hkaInterleavedUncompressedAnimation") != std::string::npos) return HkxKind::Animation;
+    return HkxKind::Other;                        // non-graph / non-animation asset
 }
 
 BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
@@ -1500,6 +1508,12 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
     const fs::path meshes(vanillaMeshesDir);
     if (!fs::is_directory(meshes, ec)) { r.error = "vanilla meshes folder not found: " + vanillaMeshesDir; return r; }
+
+    // Arm the shared schema registry (Havok/ ships next to templates/) so the schema-native animation
+    // round-trip pass can assemble + decompile. Harmless when templates/Havok is absent — the anim
+    // pass then just reports the registry error per file and counts them as failures.
+    if (!templatesDir.empty())
+        havok::schema::SetSharedSchemaDir((fs::path(templatesDir).parent_path() / "Havok").string());
 
     // Stage under a SHORT root so the deep decompiled unit tree stays under MAX_PATH; only the packed
     // archive survives — UNLESS keepStagingDir is set, in which case the unpacked Skyrim.hky/ tree is
@@ -1555,6 +1569,38 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 if (havok::sct::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++r.skeletons;
                 else { ++r.failed; say("  skeleton emit FAILED: " + rel + " — " + eerr); }
             } else { ++r.failed; say("  skeleton read/parse FAILED: " + rel + " — " + (srerr.empty() ? skerr : srerr)); }
+            continue;
+        }
+
+        // ANIMATION — the corpus-wide compiler stress pass: decompile every loose spline animation to
+        // animation.yaml and immediately RECOMPILE it, counting round-trip pass/fail. This is "run the
+        // compiler against every single animation the game shipped with" — pure exercise of the anim
+        // import+emit path over the whole vanilla tree. The yaml is written to a scratch dir OUTSIDE
+        // stageHky/meshes (reused per file) so the SHIPPED master's content is unchanged — this is a
+        // validation sweep, not a decision to serve loose animations. Non-spline / undecodable clips
+        // are counted as skips, not failures.
+        if (kind == HkxKind::Animation) {
+            std::vector<std::uint8_t> abytes; std::string arerr;
+            if (!havok::sct::ReadHavokFile(it->path().string(), abytes, &arerr)) {
+                ++r.animFail; say("  anim read FAILED: " + rel + " — " + arerr); continue;
+            }
+            const fs::path animRt = stage / "anim_rt";   // scratch, NOT under stageHky/meshes -> not packed
+            fs::remove_all(animRt, ec);
+            fs::create_directories(animRt, ec);
+            const auto dc = havok::anim::DecompileAnimation(abytes, animRt);   // schema-native (bytes in)
+            if (!dc.ok) {
+                // "not spline-compressed" is an expected skip (interleaved/other codecs aren't decompiled);
+                // anything else (no animations, decode failure, no tracks) is a real fault worth surfacing.
+                if (dc.error.find("not spline-compressed") != std::string::npos) ++r.animSkip;
+                else { ++r.animFail; say("  anim decompile FAILED: " + rel + " — " + dc.error); }
+                continue;
+            }
+            try {
+                const auto anim = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
+                const auto rc   = havok::anim::CompileAnimation(anim, 30);
+                if (rc.ok) ++r.animOk;
+                else { ++r.animFail; say("  anim RECOMPILE FAILED: " + rel + " — " + rc.error); }
+            } catch (const std::exception& e) { ++r.animFail; say("  anim reload FAILED: " + rel + " — " + e.what()); }
             continue;
         }
 
@@ -1623,6 +1669,9 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         std::to_string(r.projects) + " projects, " + std::to_string(r.characters) +
         " characters, " + std::to_string(r.skeletons) + " skeletons (" +
         std::to_string(r.failed) + " failed).");
+    say("  animation round-trip: " + std::to_string(r.animOk) + " ok, " +
+        std::to_string(r.animFail) + " failed, " + std::to_string(r.animSkip) +
+        " skipped (non-spline / undecodable).");
 
     // NOTE: NEITHER singlefile .txt is copied into the master any more — both decompose into their
     // "<name>.txt/" FOLDER below (the winning architecture), and the anim-data / set-data servers

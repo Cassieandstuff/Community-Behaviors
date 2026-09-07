@@ -44,7 +44,10 @@ target_include_directories(havok-core PUBLIC
 # The name-keyed doc + merge + animdata derivation (BehaviorData/defs, BashMerge, the YAML
 # loaders, AnimDataDeriver/AnimationData) moved to havok-model (Stage 3r.1); havok-core's
 # builders, sct/ and anim/ consume them from there at the same havok/model|anim|sct/* paths.
-target_link_libraries(havok-core PUBLIC havok-framing havok-model)
+# The animation compile/decompile pipeline (AnimationDef, spline codec, Assemble/Compile/
+# DecompileAnimation, AnimationYamlLoader) moved to havok-anim (schema-native); havok-core's
+# CharacterDecompiler + the CLI anim verbs consume it from there at havok/anim/* paths.
+target_link_libraries(havok-core PUBLIC havok-framing havok-model havok-anim)
 
 if(MSVC)
     target_compile_options(havok-core PRIVATE /W4 /wd4100 /MP)

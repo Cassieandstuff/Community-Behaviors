@@ -4,48 +4,45 @@
 // so per-frame samples ARE the control points); the compressor reclassifies and
 // re-quantizes them on recompile.
 //
+// SCHEMA-NATIVE: the packfile is deserialized through havok-io's generic SchemaObject path
+// (MakeSchemaFactory over the shared registry) — NOT the typed hka* classes — so a real game
+// animation's unported second variant (hkMemoryResourceContainer) deserializes cleanly (it has a
+// schema descriptor) instead of throwing the way the typed graph walk did. Every field is read off
+// the SchemaObject's tagged FieldValue store; the spline blob feeds the shared DecodeSpline codec.
+//
 // ROUND-TRIP FIDELITY (an animation produced by this toolchain, recompiled):
-//   * packfile structure, block layout, and TRANSLATION (BITS16) are recovered
-//     byte-for-byte — dequant→requant is exactly idempotent for the vector codec.
-//   * ROTATION (THREECOMP40) round-trips to within ≤1 quantization step per
-//     component: dequantizing, re-normalizing the quaternion, and re-quantizing
-//     is not float-exact at the LSB, so a fraction of rotation bytes drift by 1.
-//     The pose error is ~1/4095 of a unit component (imperceptible). Making it
-//     bit-exact would require changing SplineCompressor, which is deliberately
-//     pinned byte-exact to the reference encoder — so it is left as-is.
-//
-//   * SCALE (BITS16, same codec as translation) and FLOAT TRACKS (static f32 —
-//     the only float form in a large real corpus) round-trip byte-for-byte.
-//   * ANNOTATION tracks (AMR root-motion / MorphFace payloads) are re-emitted
+//   * packfile structure, block layout, and TRANSLATION (BITS16) are recovered byte-for-byte.
+//   * ROTATION (THREECOMP40) round-trips to within <=1 quantization step per component (imperceptible).
+//   * SCALE (BITS16) and static FLOAT tracks round-trip byte-for-byte; ANNOTATION tracks are re-emitted
 //     verbatim and round-trip byte-for-byte.
-//
-// The one non-exact channel is rotation (the ≤1-LSB case above). Dynamic float
-// channels (none seen in the wild) decode via the encoder's 1-component spline —
-// self-consistent through this toolchain but unvalidated against Havok.
 
-#include "havok/sct/CharacterDecompiler.h"   // DecompileResult
+#include "havok/anim/AnimationDecompiler.h"
 
 #include "havok/anim/SplineDecompressor.h"
-#include "havok/classes/Animation.h"
+#include "havok/core/BinaryReaderEx.h"
+#include "havok/core/PackFileDeserializer.h"
+
+#include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
+#include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
 #include <cstdio>
+#include <cstring>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
-namespace havok::sct {
+namespace havok::anim {
 namespace fs = std::filesystem;
 
 namespace {
 
-std::string fstr(float v) {
-    char buf[32];
-    std::snprintf(buf, sizeof buf, "%.9g", v);
-    return buf;
-}
+using havok::io::SchemaObject;
 
-// Single-quoted YAML scalar ('' escapes an embedded quote) — annotation text and
-// track names carry '|', '[', ']', '.' and must survive verbatim.
+std::string fstr(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
+
+// Single-quoted YAML scalar ('' escapes an embedded quote) — annotation text and track names carry
+// '|', '[', ']', '.' and must survive verbatim.
 std::string q(const std::string& s) {
     std::string out = "'";
     for (char c : s) { if (c == '\'') out += "''"; else out += c; }
@@ -58,56 +55,122 @@ void writeText(const fs::path& p, const std::string& s) {
     f.write(s.data(), static_cast<std::streamsize>(s.size()));
 }
 
+std::int32_t rdI32(SchemaObject& o, const char* n) {
+    const auto& r = o.FieldRef(n).raw; std::int32_t v = 0;
+    if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
+}
+float rdF32(SchemaObject& o, const char* n) {
+    const auto& r = o.FieldRef(n).raw; float v = 0.f;
+    if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
+}
+
+std::shared_ptr<SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
+    return std::dynamic_pointer_cast<SchemaObject>(o);
+}
+
 } // namespace
 
-DecompileResult DecompileAnimation(const std::shared_ptr<hkaAnimationContainer>& c,
-                                   const fs::path& dir) {
-    if (!c || c->m_animations.empty())
-        return { false, "animation container has no animations", "animation" };
+AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, const fs::path& dir,
+                                       const std::vector<std::string>* boneNames) {
+    schema::SchemaRegistry* reg = schema::SharedRegistry();
+    if (!reg) return { false, "schema registry unavailable (" + schema::SharedRegistryError() + ")" };
 
-    auto spline = std::dynamic_pointer_cast<hkaSplineCompressedAnimation>(c->m_animations[0]);
-    if (!spline)
-        return { false, "first animation is not spline-compressed (only hkaSplineCompressedAnimation is decompiled)", "animation" };
+    std::shared_ptr<SchemaObject> spline, binding;
+    try {
+        havok::BinaryReaderEx br(hkx);
+        havok::PackFileDeserializer des;
+        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
+        auto root = asSO(des.Deserialize(br));
+        if (!root) return { false, "not a valid packfile root" };
 
-    const int numTracks = spline->m_numberOfTransformTracks;
-    const int numFloat   = spline->m_numberOfFloatTracks;
-    const int numFrames  = spline->m_numFrames;
+        // Walk hkRootLevelContainer.namedVariants for the hkaAnimationContainer, then pull its first
+        // animation (the spline) + first binding (skeleton name / track->bone map).
+        std::shared_ptr<SchemaObject> container;
+        for (auto& nvObj : root->FieldRef("namedVariants").objs) {
+            auto nv = asSO(nvObj); if (!nv) continue;
+            if (nv->FieldRef("className").str == "hkaAnimationContainer") {
+                container = asSO(nv->FieldRef("variant").obj);
+                break;
+            }
+        }
+        if (!container) return { false, "no hkaAnimationContainer variant" };
+
+        auto& anims = container->FieldRef("animations").objs;
+        if (anims.empty()) return { false, "animation container has no animations" };
+        spline = asSO(anims[0]);
+        if (!spline) return { false, "first animation object is not a SchemaObject" };
+
+        auto& binds = container->FieldRef("bindings").objs;
+        if (!binds.empty()) binding = asSO(binds[0]);
+    } catch (const std::exception& e) {
+        return { false, std::string("deserialize failed: ") + e.what() };
+    }
+
+    // Only hkaSplineCompressedAnimation is decompiled. A container whose first animation is another
+    // codec (interleaved/uncompressed) is reported as a skip by the caller via this exact wording.
+    if (std::string(spline->ClassName()) != "hkaSplineCompressedAnimation")
+        return { false, "first animation is not spline-compressed" };
+
+    const int numTracks = rdI32(*spline, "numberOfTransformTracks");
+    const int numFloat  = rdI32(*spline, "numberOfFloatTracks");
+    const int numFrames = rdI32(*spline, "numFrames");
     if (numTracks <= 0 || numFrames <= 0)
-        return { false, "animation has no transform tracks / frames", "animation" };
+        return { false, "animation has no transform tracks / frames" };
 
-    std::vector<anim::DecodedPose> poses;
-    std::vector<float> floatVals;
-    std::string warn;
-    const bool ok = anim::DecodeSpline(
-        spline->m_data.data(), spline->m_data.size(),
-        numFrames, spline->m_numBlocks, spline->m_maxFramesPerBlock,
-        spline->m_maskAndQuantizationSize,
-        spline->m_blockOffsets.data(), static_cast<int>(spline->m_blockOffsets.size()),
-        numTracks, numFloat, poses, &warn, numFloat > 0 ? &floatVals : nullptr);
-    if (!ok)
-        return { false, "spline decode failed (bounds/format mismatch)", "animation" };
+    const int   numBlocks         = rdI32(*spline, "numBlocks");
+    const int   maxFramesPerBlock = rdI32(*spline, "maxFramesPerBlock");
+    const int   maskAndQuant      = rdI32(*spline, "maskAndQuantizationSize");
+    const float duration          = rdF32(*spline, "duration");
+    const float fd                = rdF32(*spline, "frameDuration");
+
+    const auto& dataRaw = spline->FieldRef("data").raw;
+    const auto& boRaw   = spline->FieldRef("blockOffsets").raw;
+    std::vector<std::uint32_t> blockOffsets(boRaw.size() / 4);
+    if (!blockOffsets.empty()) std::memcpy(blockOffsets.data(), boRaw.data(), blockOffsets.size() * 4);
+
+    std::vector<DecodedPose> poses;
+    std::vector<float>       floatVals;
+    std::string              warn;
+    const bool ok = DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
+                                 maskAndQuant, blockOffsets.data(), static_cast<int>(blockOffsets.size()),
+                                 numTracks, numFloat, poses, &warn, numFloat > 0 ? &floatVals : nullptr);
+    if (!ok) return { false, "spline decode failed (bounds/format mismatch)" };
 
     std::string skeleton;
-    if (!c->m_bindings.empty() && c->m_bindings[0])
-        skeleton = c->m_bindings[0]->m_originalSkeletonName;
+    if (binding) skeleton = binding->FieldRef("originalSkeletonName").str;
+
+    // Phase 2 (inverse membrane): read hkaAnimationBinding.transformTrackToBoneIndices and, when a
+    // skeleton bone roster is supplied, resolve each track to its bone NAME via the cross membrane.
+    // Until then, tracks decompile to track<N> placeholders (identity binding).
+    std::vector<int> trackToBone;
+    if (binding) {
+        const auto& ttbRaw = binding->FieldRef("transformTrackToBoneIndices").raw;   // int16[]
+        trackToBone.resize(ttbRaw.size() / 2);
+        for (std::size_t i = 0; i < trackToBone.size(); ++i) {
+            std::int16_t v = 0; std::memcpy(&v, ttbRaw.data() + i * 2, 2); trackToBone[i] = v;
+        }
+    }
+    auto trackName = [&](int t) -> std::string {
+        if (boneNames && t < static_cast<int>(trackToBone.size())) {
+            const int bi = trackToBone[t];
+            if (bi >= 0 && bi < static_cast<int>(boneNames->size())) return (*boneNames)[bi];
+        }
+        return "track" + std::to_string(t);
+    };
 
     std::error_code ec;
     fs::create_directories(dir, ec);
 
     std::string y;
     y += "animation:\n";
-    // The .hkx does not store the authored animation name (the named-variant is a
-    // fixed container label), so it is not recoverable; use the output dir name.
     y += "  name: " + dir.filename().string() + "\n";
-    y += "  duration: " + fstr(spline->m_duration) + "\n";
+    y += "  duration: " + fstr(duration) + "\n";
     y += "  skeleton: " + skeleton + "\n";
-    if (!warn.empty())
-        y += "  # NOTE: " + warn + ".\n";
+    if (!warn.empty()) y += "  # NOTE: " + warn + ".\n";
     y += "  tracks:\n";
 
-    const float fd = spline->m_frameDuration;
     for (int t = 0; t < numTracks; ++t) {
-        y += "    - bone: track" + std::to_string(t) + "\n";
+        y += "    - bone: " + trackName(t) + "\n";
         y += "      translation:\n";
         for (int f = 0; f < numFrames; ++f) {
             const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
@@ -120,9 +183,6 @@ DecompileResult DecompileAnimation(const std::shared_ptr<hkaAnimationContainer>&
             y += "        - { time: " + fstr(f * fd) + ", value: ["
                + fstr(p.q[0]) + ", " + fstr(p.q[1]) + ", " + fstr(p.q[2]) + ", " + fstr(p.q[3]) + "] }\n";
         }
-        // Scale is emitted only when a track is non-identity: an all-(1,1,1) track
-        // decodes to the pose default and the compressor reclassifies it Identity,
-        // so omitting it round-trips identically while keeping the file clean.
         bool anyScale = false;
         for (int f = 0; f < numFrames && !anyScale; ++f) {
             const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
@@ -138,10 +198,6 @@ DecompileResult DecompileAnimation(const std::shared_ptr<hkaAnimationContainer>&
         }
     }
 
-    // Float tracks — one lane per float slot. Names are not stored in the .hkx
-    // (they live on the skeleton/behavior), so placeholder names are used; they
-    // don't affect the compiled bytes. A constant track collapses to one keyframe
-    // (the compressor reclassifies it Static either way); a varying one is dense.
     for (int ft = 0; ft < numFloat; ++ft) {
         if (ft == 0) y += "  floatTracks:\n";
         y += "    - name: float" + std::to_string(ft) + "\n";
@@ -156,24 +212,29 @@ DecompileResult DecompileAnimation(const std::shared_ptr<hkaAnimationContainer>&
                + fstr(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
     }
 
-    // Annotation tracks (AMR root motion / MorphFace payloads) — one lane per
-    // entry in m_annotationTracks, emitted verbatim so they round-trip.
-    if (!spline->m_annotationTracks.empty()) {
+    // Annotation tracks (AMR root motion / MorphFace payloads) — one lane per entry, verbatim.
+    auto& annTracks = spline->FieldRef("annotationTracks").objs;
+    if (!annTracks.empty()) {
         y += "  annotationTracks:\n";
-        for (const auto& at : spline->m_annotationTracks) {
-            y += "    - trackName: " + q(at.m_trackName) + "\n";
-            if (at.m_annotations.empty()) {
+        for (auto& atObj : annTracks) {
+            auto at = asSO(atObj); if (!at) continue;
+            y += "    - trackName: " + q(at->FieldRef("trackName").str) + "\n";
+            auto& anns = at->FieldRef("annotations").objs;
+            if (anns.empty()) {
                 y += "      annotations: []\n";
             } else {
                 y += "      annotations:\n";
-                for (const auto& a : at.m_annotations)
-                    y += "        - { time: " + fstr(a.m_time) + ", text: " + q(a.m_text) + " }\n";
+                for (auto& aObj : anns) {
+                    auto a = asSO(aObj); if (!a) continue;
+                    y += "        - { time: " + fstr(rdF32(*a, "time")) + ", text: "
+                       + q(a->FieldRef("text").str) + " }\n";
+                }
             }
         }
     }
 
     writeText(dir / "animation.yaml", y);
-    return { true, "", "animation" };
+    return { true, "" };
 }
 
-} // namespace havok::sct
+} // namespace havok::anim

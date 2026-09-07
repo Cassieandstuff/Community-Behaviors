@@ -19,7 +19,7 @@
 #include <havok/sct/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
 #include <havok/sct/SkeletonCompiler.h> // CompileSkeletonOverBase (Stage D serve)
 #include <havok/anim/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
-#include <havok/sct/AnimationCompiler.h>     // CompileAnimation (native anim -> loose .hkx)
+#include <havok/anim/AnimationCompiler.h>    // havok::anim::CompileAnimation (native anim -> loose .hkx)
 #include <havok/anim/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
@@ -998,7 +998,7 @@ namespace CB {
             const fs::path out = dataRoot / fs::path(outKey);
             try {
                 const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
-                const auto r   = havok::sct::CompileAnimation(def);
+                const auto r   = havok::anim::CompileAnimation(def);
                 if (!r.ok) {
                     ++failed;
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);

@@ -54,6 +54,7 @@ add_subdirectory(src/havok-framing)
 add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
+add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/cb-resolve)
 
 # ── Install / export rules for the cb-resolve surface ────────────────────────────
