@@ -1,0 +1,7 @@
+# Ported from HavokEnums.h (SetAngleMethod). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  SetAngleMethod
+flags: false
+items:
+  - { name: LINEAR , value: 0 }
+  - { name: RAMPED , value: 1 }

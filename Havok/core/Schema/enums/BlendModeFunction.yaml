@@ -1,0 +1,8 @@
+# Ported from HavokEnums.h (BlendModeFunction). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  BlendModeFunction
+flags: false
+items:
+  - { name: BMF_NONE              , value: 0 }
+  - { name: BMF_PERCENT           , value: 1 }
+  - { name: BMF_ONE_MINUS_PERCENT , value: 2 }

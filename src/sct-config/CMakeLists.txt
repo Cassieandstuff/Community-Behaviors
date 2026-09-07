@@ -6,7 +6,7 @@
 # parsers (nlohmann/json, ryml, SimpleIni) because each adapter's Doc holds the
 # parser type by value.
 
-sct_collect_sources(SCT_CONFIG_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp")
+sct_collect_sources(SCT_CONFIG_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 add_library(sct-config STATIC ${SCT_CONFIG_SOURCES})
 
@@ -14,8 +14,8 @@ add_library(sct-config STATIC ${SCT_CONFIG_SOURCES})
 # header-only SimpleIni.h, part of the public surface of the adapter headers (and
 # used directly by the plugin's Plugin.cpp).
 target_include_directories(sct-config
-    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-           ${CMAKE_CURRENT_SOURCE_DIR}/include/external)
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+           ${CMAKE_CURRENT_SOURCE_DIR}/external)
 
 # nlohmann_json + ryml are PUBLIC — they appear in the umbrella's adapter structs.
 find_package(nlohmann_json CONFIG REQUIRED)

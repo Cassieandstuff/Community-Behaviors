@@ -1,0 +1,9 @@
+# Ported from HavokEnums.h (EventMode). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  EventMode
+flags: false
+items:
+  - { name: EVENT_MODE_DEFAULT               , value: 0 }
+  - { name: EVENT_MODE_PROCESS_ALL           , value: 1 }
+  - { name: EVENT_MODE_IGNORE_FROM_GENERATOR , value: 2 }
+  - { name: EVENT_MODE_IGNORE_TO_GENERATOR   , value: 3 }

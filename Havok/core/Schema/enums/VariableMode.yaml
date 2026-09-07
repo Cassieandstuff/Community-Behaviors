@@ -1,0 +1,7 @@
+# Ported from HavokEnums.h (VariableMode). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  VariableMode
+flags: false
+items:
+  - { name: VARIABLE_MODE_DISCARD_WHEN_INACTIVE         , value: 0 }
+  - { name: VARIABLE_MODE_MAINTAIN_VALUES_WHEN_INACTIVE , value: 1 }

@@ -28,7 +28,10 @@ set_target_properties(behavior-converter PROPERTIES
 
 target_include_directories(behavior-converter PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"           # "app/App.h", "ui/ConverterUI.h", "Converter.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/convert")  # "NemesisSetDataConvert.h", "Fnis*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/convert"   # "NemesisSetDataConvert.h", "Fnis*.h"
+    "${CMAKE_SOURCE_DIR}/src")                  # "core/debug/DebugFlags.h" — the shared plugin debug-flag registry
+                                                # (last, so the converter's own headers still win on any name clash;
+                                                #  a dir on the include PATH compiles nothing unless #included)
 
 # imgui transitively supplies glfw + glad + opengl32 (PUBLIC). havok-core = the converter core
 # (PatchConverter / decompilers / oracle); havok-model + havok-schema = the DEFAULT data-driven

@@ -1,0 +1,12 @@
+# Ported from HavokEnums.h (RoleFlags). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  RoleFlags
+flags: true
+items:
+  - { name: FLAG_NONE                   , value: 0 }
+  - { name: FLAG_RAGDOLL                , value: 1 }
+  - { name: FLAG_NORMALIZED             , value: 2 }
+  - { name: FLAG_NOT_VARIABLE           , value: 4 }
+  - { name: FLAG_HIDDEN                 , value: 8 }
+  - { name: FLAG_OUTPUT                 , value: 16 }
+  - { name: FLAG_NOT_CHARACTER_PROPERTY , value: 32 }

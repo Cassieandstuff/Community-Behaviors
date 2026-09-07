@@ -1,0 +1,8 @@
+# Ported from HavokEnums.h (EndMode). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  EndMode
+flags: false
+items:
+  - { name: END_MODE_NONE                                   , value: 0 }
+  - { name: END_MODE_TRANSITION_UNTIL_END_OF_FROM_GENERATOR , value: 1 }
+  - { name: END_MODE_CAP_DURATION_AT_END_OF_FROM_GENERATOR  , value: 2 }

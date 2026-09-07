@@ -6,12 +6,12 @@
 #
 # CB source module. Public header on the path as <havok-io/HavokIo.h>.
 
-sct_collect_sources(HAVOK_IO_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp")
+sct_collect_sources(HAVOK_IO_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 add_library(havok-io STATIC ${HAVOK_IO_SOURCES})
 
 target_include_directories(havok-io
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>   # <havok-io/HavokIo.h>
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok-io/HavokIo.h>
            $<INSTALL_INTERFACE:include>)
 
 # havok-framing provides the packfile framing + BinaryReader/Writer;

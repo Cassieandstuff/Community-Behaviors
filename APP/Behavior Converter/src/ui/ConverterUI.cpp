@@ -5,6 +5,8 @@
 
 #include "ui/ConverterUI.h"
 
+#include "core/debug/DebugFlags.h"   // CB::debug::kFlags — the canonical plugin debug-flag registry (shared, dependency-free)
+
 #include <sct-utilities/SctUtilities.h>
 
 #include <imgui.h>
@@ -44,6 +46,69 @@ std::string Trim(std::string s) {
     s.erase(s.begin(), std::find_if(s.begin(), s.end(), notws));
     s.erase(std::find_if(s.rbegin(), s.rend(), notws).base(), s.end());
     return s;
+}
+
+bool IEquals(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
+    return true;
+}
+
+// ── Minimal INI bool get/upsert for the plugin's settings.ini ────────────────────────────────
+// The Debug tab reads/writes the SAME file the plugin's CSimpleIniA readers use ([section] key=bool).
+// A targeted hand-roll (not a full INI lib) so the converter adds no new dependency; it preserves
+// every other line and only touches the one key.
+bool IniGetBool(const fs::path& ini, const std::string& section, const std::string& key, bool def) {
+    std::ifstream f(ini);
+    if (!f) return def;
+    std::string line, cur;
+    while (std::getline(f, line)) {
+        std::string t = Trim(line);
+        if (t.empty() || t[0] == '#' || t[0] == ';') continue;
+        if (t.size() >= 2 && t.front() == '[' && t.back() == ']') { cur = t.substr(1, t.size() - 2); continue; }
+        const auto eq = t.find('=');
+        if (eq == std::string::npos) continue;
+        if (IEquals(cur, section) && IEquals(Trim(t.substr(0, eq)), key)) {
+            std::string v = Trim(t.substr(eq + 1));
+            for (auto& c : v) c = (char)std::tolower((unsigned char)c);
+            return v == "1" || v == "true" || v == "yes" || v == "on";
+        }
+    }
+    return def;
+}
+
+void IniSetBool(const fs::path& ini, const std::string& section, const std::string& key, bool val) {
+    std::vector<std::string> lines;
+    { std::ifstream f(ini); std::string l; while (std::getline(f, l)) lines.push_back(l); }
+    const std::string valStr = val ? "true" : "false";
+
+    int secStart = -1, secEnd = (int)lines.size();
+    for (int i = 0; i < (int)lines.size(); ++i) {
+        std::string t = Trim(lines[i]);
+        if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
+            if (secStart >= 0) { secEnd = i; break; }                    // first header AFTER our section
+            if (IEquals(t.substr(1, t.size() - 2), section)) secStart = i;
+        }
+    }
+    if (secStart < 0) {                                                   // section absent — append it
+        if (!lines.empty() && !Trim(lines.back()).empty()) lines.push_back("");
+        lines.push_back("[" + section + "]");
+        lines.push_back(key + "=" + valStr);
+    } else {
+        int keyLine = -1;
+        for (int i = secStart + 1; i < secEnd; ++i) {
+            std::string t = Trim(lines[i]);
+            const auto eq = t.find('=');
+            if (eq != std::string::npos && IEquals(Trim(t.substr(0, eq)), key)) { keyLine = i; break; }
+        }
+        if (keyLine >= 0) lines[keyLine] = key + "=" + valStr;
+        else              lines.insert(lines.begin() + secEnd, key + "=" + valStr);
+    }
+    std::error_code ec;
+    fs::create_directories(ini.parent_path(), ec);
+    std::ofstream o(ini, std::ios::trunc);
+    for (const auto& l : lines) o << l << "\n";
 }
 
 }  // namespace
@@ -208,6 +273,10 @@ void ConverterUI::Draw() {
             m_loadOrder.Draw(BrPluginsDir(), BrLoadOrderPath());
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Debug")) {
+            DrawDebugTab();
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
 
@@ -307,4 +376,53 @@ void ConverterUI::DrawConverterTab() {
     if (m_autoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f)
         ImGui::SetScrollHereY(1.0f);
     ImGui::EndChild();
+}
+
+void ConverterUI::DrawDebugTab() {
+    ImGui::TextUnformatted("Runtime debug + diagnostic toggles the Community Behaviors plugin reads at launch.");
+    ImGui::TextDisabled("Backed by <Data>/SKSE/Plugins/Community Behaviors/settings.ini and marker files under "
+                        "<Data>/community_behaviors/. Changes apply on the NEXT game launch.");
+    ImGui::Separator();
+
+    if (m_dataDir.empty()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "Set the Data folder on the Converter tab first.");
+        return;
+    }
+
+    const fs::path dataDir   = m_dataDir;
+    const fs::path iniPath   = dataDir / "SKSE" / "Plugins" / "Community Behaviors" / "settings.ini";
+    const fs::path markerDir = dataDir / "community_behaviors";
+
+    ImGui::TextDisabled("ini: %s", iniPath.string().c_str());
+    ImGui::Spacing();
+
+    // Auto-enumerated from the canonical registry (DebugFlags.h) — add a row there and it shows up here.
+    for (const auto& fl : CB::debug::kFlags) {
+        const std::string section(fl.section), key(fl.key), id(fl.id);
+        const bool        marker = fl.kind == CB::debug::FlagKind::MarkerFile;
+
+        const bool on  = marker ? fs::exists(markerDir / key) : IniGetBool(iniPath, section, key, fl.defOn);
+        bool       cur = on;
+        const std::string cbLabel = std::string(fl.label) + "##" + id;
+        if (ImGui::Checkbox(cbLabel.c_str(), &cur) && cur != on) {
+            if (marker) {
+                std::error_code ec;
+                if (cur) { fs::create_directories(markerDir, ec); std::ofstream(markerDir / key); }
+                else       fs::remove(markerDir / key, ec);
+            } else {
+                IniSetBool(iniPath, section, key, cur);
+            }
+        }
+        if (!fl.help.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", std::string(fl.help).c_str());
+        ImGui::SameLine();
+        if (marker) ImGui::TextDisabled("[marker: %s]", key.c_str());
+        else        ImGui::TextDisabled("[%s / %s%s]", section.c_str(), key.c_str(), fl.defOn ? ", default on" : "");
+    }
+
+    ImGui::Separator();
+    if (ImGui::Button("Open settings.ini folder")) OpenInExplorer(iniPath.parent_path().string());
+    ImGui::SameLine();
+    if (ImGui::Button("Open marker folder"))       OpenInExplorer(markerDir.string());
+    ImGui::SameLine();
+    ImGui::TextDisabled("Writes take effect on relaunch — the running game is unaffected.");
 }

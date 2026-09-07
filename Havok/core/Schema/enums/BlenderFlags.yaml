@@ -1,0 +1,13 @@
+# Ported from HavokEnums.h (BlenderFlags). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  BlenderFlags
+flags: true
+items:
+  - { name: FLAG_SYNC                                       , value: 1 }
+  - { name: FLAG_SMOOTH_GENERATOR_WEIGHTS                   , value: 2 }
+  - { name: FLAG_DONT_DEACTIVATE_CHILDREN_WITH_ZERO_WEIGHTS , value: 4 }
+  - { name: FLAG_PARAMETRIC_BLEND                           , value: 8 }
+  - { name: FLAG_IS_PARAMETRIC                              , value: 16 }
+  - { name: FLAG_FORCE_DENSE_POSE                           , value: 32 }
+  - { name: FLAG_BLEND_MOTION_OF_ADDITIVE_ANIMATIONS        , value: 64 }
+  - { name: FLAG_USE_VELOCITY_SYNCHRONIZATION               , value: 128 }

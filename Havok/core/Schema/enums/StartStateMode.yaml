@@ -1,0 +1,9 @@
+# Ported from HavokEnums.h (StartStateMode). Havok reflection enum -- item names/values are
+# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+name:  StartStateMode
+flags: false
+items:
+  - { name: START_STATE_MODE_DEFAULT , value: 0 }
+  - { name: START_STATE_MODE_SYNC    , value: 1 }
+  - { name: START_STATE_MODE_RANDOM  , value: 2 }
+  - { name: START_STATE_MODE_CHOOSER , value: 3 }

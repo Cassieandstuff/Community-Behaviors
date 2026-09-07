@@ -1,6 +1,7 @@
 #include "app/App.h"
 #include "Converter.h"
 
+#include <havok-schema/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
 #include <sct-utilities/SctUtilities.h>
 
 #include <atomic>
@@ -26,6 +27,20 @@ static std::string ExeTemplatesDir() {
         return (std::filesystem::path(buf).parent_path() / "templates").string();
 #endif
     return "templates";  // fallback: cwd-relative
+}
+
+// The Havok/ schema tree ships next to the exe too (staged/deployed by CMake beside templates/). The
+// schema-native animation pipeline (havok-anim) resolves its registry from here via SharedRegistry —
+// set it from the EXE dir, not the passed templatesDir, since --regen-master is handed the repo
+// templates path whose sibling Havok/ does not exist.
+static std::string ExeHavokDir() {
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH]{};
+    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (n > 0 && n < MAX_PATH)
+        return (std::filesystem::path(buf).parent_path() / "Havok").string();
+#endif
+    return "Havok";  // fallback: cwd-relative
 }
 
 // SCT Behavior Converter — a standalone, MO2-launchable GUI that converts a Nemesis/
@@ -89,6 +104,7 @@ int main(int argc, char** argv) {
         std::atomic<bool> cancel{ false };
         std::string templatesDir = (argc >= 5) ? argv[4] : "";
         if (templatesDir.empty()) templatesDir = ExeTemplatesDir();  // bundled templates next to the exe
+        havok::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
         const auto res = bconv::BuildBaseBundle(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel,
             templatesDir);
@@ -119,6 +135,7 @@ int main(int argc, char** argv) {
             return EXIT_FAILURE;
         }
         const std::string templatesDir = (pos.size() >= 3) ? pos[2] : ExeTemplatesDir();
+        havok::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
         const auto res = bconv::RegenerateMaster(pos[0], templatesDir, pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }

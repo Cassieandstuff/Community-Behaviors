@@ -12,8 +12,8 @@
 # ---------------------------------------------------------------------------
 
 sct_collect_sources(HAVOK_PIPELINE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
 )
 
 add_library(havok-pipeline STATIC ${HAVOK_PIPELINE_SOURCES})
@@ -25,7 +25,7 @@ set_target_properties(havok-pipeline PROPERTIES
 )
 
 # Bare includes ("FeatureRegistry.h") resolve from here for every consumer.
-target_include_directories(havok-pipeline PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(havok-pipeline PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # The framework operates on the name-keyed document (havok-model::BehaviorData).
 target_link_libraries(havok-pipeline PUBLIC havok-model)

@@ -13,7 +13,7 @@
 // header-only CommunityBehaviors constant, no runtime deps).
 
 #include "FeatureRegistry.h"
-#include "ERGate.h"   // CB::ergate::kGateVar (main hpp/, on the include path)
+#include "features/ERGate.h"   // CB::ergate::kGateVar (main hpp/, on the include path)
 
 #include <havok/model/BehaviorData.h>
 #include <havok/model/HavokEnums.h>   // ResolveEnum / TransitionFlags

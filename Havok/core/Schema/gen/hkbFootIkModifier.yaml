@@ -20,4 +20,9 @@ fields:
   - { name: lockFeetWhenPlanted,  type: bool }
   - { name: useCharacterUpVector, type: bool }
   - { name: alignMode,            type: int8 }
-  - { skip: 40 }                             # internalLegData + runtime state (ignored)
+  - { empty: array }                         # internalLegData (hkArray<hkbFootIkModifierInternalLegData>,
+                                             # SERIALIZE_IGNORED; empty at save — but the packfile still
+                                             # carries a flagged empty hkArray header (cap=0x80000000), which
+                                             # a `skip` would zero out. Modeled as an empty array so the
+                                             # serializer emits the real header a strict parser expects.
+  - { skip: 24 }                             # prevIsFootIkEnabled + remaining runtime state (ignored)

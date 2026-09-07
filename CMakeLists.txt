@@ -54,23 +54,30 @@ add_subdirectory(src/havok-framing)
 add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
+add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/cb-resolve)
+add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # ── Install / export rules for the cb-resolve surface ────────────────────────────
 # So a consumer can `find_package(cb-resolve)` (vcpkg, or a manual cmake --install). Inert unless someone
 # actually installs — FetchContent (add_subdirectory) ignores these; vcpkg's vcpkg_cmake_install() runs them.
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-resolve havok-framing havok-schema havok-io havok-model
+install(TARGETS cb-api cb-resolve havok-framing havok-schema havok-io havok-model havok-anim
         EXPORT  cb-resolve-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
 # Headers: each module's full include/ tree (havok-model's public headers pull havok-framing's, etc.).
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/include/" DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/include/"  DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/include/"      DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/include/"   DESTINATION include)
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/include/"    DESTINATION include)
+# Headers + sources are co-located per module now (no include/ vs cpp/ split), so the export ships
+# only the headers (FILES_MATCHING *.h) from each module root — the co-located .cpp are not installed.
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/" DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"  DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"      DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"   DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-anim/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
+# The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
 # The Havok/ class-schema tree is DATA cb-resolve loads at runtime (SchemaRegistry::LoadDir) — the
 # ground truth for class layout + per-field `merge:` policy + the schema_version stamp. Without it a
 # consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the
@@ -145,17 +152,24 @@ add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
 find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
 find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link)
 
+# The plugin's entry point (Plugin.cpp) sits at src/ root; the compiler pipeline is organized by STAGE
+# under src/core/ (discover -> resolve -> serve, plus bootstrap + debug), and the graph features live
+# under src/features/. Collect the entry point, every pipeline stage, and the features — while the
+# non-recursive root glob still keeps the sibling engine modules (src/havok-*/, sct-config, ...) out.
 file(GLOB CB_ROOT_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
+sct_collect_sources(CB_CORE_SOURCES    "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/*.cpp")
 sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
 
 # add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) + links CommonLibSSE
 # — Plugin.cpp defines only SKSEPluginLoad.
-add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_FEATURE_SOURCES})
+add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 
-# src/ is the flat private include root: the plugin's own headers, Hooks/ (header-only), PluginLogger.h,
-# and PCH.h ("PCH.h" quoted include in Plugin.cpp) all resolve from here.
-target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src")
+# src/ is the private include root: pipeline headers resolve stage-prefixed (e.g.
+# "core/resolve/Resolver.h", "features/ERGate.h"), Hooks/ (header-only) from here too. src/pch/
+# holds the force-include-tier shared headers (PCH.h, PluginLogger.h) so their bare quoted includes
+# ("PCH.h" / "PluginLogger.h") still resolve everywhere.
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/pch")
 
 # havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
 # (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
@@ -163,7 +177,30 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
-target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/PCH.h")
+target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/pch/PCH.h")
+
+# ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
+# Drives the cold-compile progress bar: PresentPump renders its own ImGui frames onto the game's
+# swapchain during the compile (see PresentPump.cpp). Fetched unconditionally (small; the converter's
+# separate glfw/opengl3 `imgui` lib, below, reuses the same populated source). d3d11/dxgi for the
+# swapchain + device the game hands us.
+include(FetchContent)
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        docking
+    GIT_SHALLOW    TRUE)
+FetchContent_MakeAvailable(imgui)
+add_library(imgui_dx11 STATIC
+    "${imgui_SOURCE_DIR}/imgui.cpp"
+    "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+    "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+    "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp")
+target_include_directories(imgui_dx11 PUBLIC "${imgui_SOURCE_DIR}")
+target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
+set_target_properties(imgui_dx11 PROPERTIES CXX_STANDARD 17)
+target_link_libraries(CommunityBehaviors PRIVATE imgui_dx11 d3d11 dxgi)
 
 # ── Pack the .hky bundle YAML trees at build time ─────────────────────────────
 # Each hky/<Bundle>.hky/ is the uncompressed, git-tracked YAML tree; the build packs every such folder

@@ -29,13 +29,33 @@ libs.
 ## Layout
 
 ```
-src/                         CB's source, FLAT (each Foo.cpp beside its Foo.h; src/ is the include root)
-  *.cpp / *.h                the runtime plugin (Plugin.cpp = entry, Resolver, ByteServe, servers, …)
-  features/<Owner>/          self-registered compile-time graph features (BR_REGISTER_FEATURE)
+include/                     PUBLIC API ONLY (repo root): CB-API.h — the single facade an external tool
+                             #includes (<CB-API.h>). Nothing private goes here. Backed by the API/ target.
+API/                         the cb::CB-API facade target (INTERFACE lib) + its dogfood drift-gate
+                             (cb-api-check). CB is a first-party consumer of <CB-API.h>. Peer of APP/.
+src/                         CB's source. src/ is the private include root; the runtime plugin is organized by
+                             PIPELINE STAGE under core/, the engine libraries by CONCERN (each a module).
+  Plugin.cpp                 the SKSE entry point (defines SKSEPluginLoad) — stays at src/ root
+  pch/                       force-include-tier shared headers: PCH.h (force-included) + PluginLogger.h
+                             (LOG_* macros). On the include path, so bare "PCH.h"/"PluginLogger.h" resolve.
+  core/                      THE COMPILER PIPELINE, foldered by stage (include stage-prefixed, e.g.
+                             "core/resolve/Resolver.h"):
+    core/discover/           find + read the .hky bundles (BundleReader, BundleManifest, ServeKey)
+    core/resolve/            load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
+                             GraphClipSink, Watermark). Compile itself is delegated to the havok-* libs.
+    core/serve/              deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer,
+                             CBMemoryStream, SkinnedMesh)
+    core/bootstrap/          startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud)
+    core/debug/              opt-in diagnostics/probes (AnimDataProbe, SyncClipProbe, DebugOverlay, DebugFlags)
+  features/<Owner>/          self-registered compile-time graph features (BR_REGISTER_FEATURE); ERGate.h
+                             (the ER wildcard-gate hook, non-compiler) lives here too
   Hooks/                     header-only BSResource-ctor hook lib (<Hooks/hookslib.h>)
-  PCH.h / PluginLogger.h     unified PCH (force-included) + LOG_* macros
-  havok-framing|schema|io|model|pipeline/   the data-driven Havok stack (each an add_library module,
-                             include/<lib>/ for its public header, no include/internal wrapper)
+  havok-framing|schema|io|model|anim|pipeline/   the data-driven Havok stack (each an add_library module).
+                             Headers + sources are CO-LOCATED (no include/ vs cpp/ split): a component's
+                             Foo.h sits beside Foo.cpp under the module's namespaced path (e.g.
+                             havok-model/havok/model/BehaviorData.{h,cpp}); the module root IS the include
+                             root, so cross-module includes keep their <havok/model/…> paths. Exported
+                             modules install only *.h. The public CB-API facade lives at the root include/.
   sct-config/                config scanner (JSON/YAML/INI); sct-utilities/ folder-picker+zip (converter)
 Havok/core/Schema/           the vanilla class-schema tree (schema-as-core; room for Havok/features/ later)
 Retirement Home/havok-core/  QUARANTINED legacy typed backbone — see its README; do NOT build new things

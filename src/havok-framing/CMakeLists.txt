@@ -14,11 +14,28 @@
 # ---------------------------------------------------------------------------
 
 sct_collect_sources(HAVOK_FRAMING_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cpp/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
 )
 
-add_library(havok-framing STATIC ${HAVOK_FRAMING_SOURCES})
+# Enum tables baked from the schema's enum data tree (Havok/core/Schema/enums/*.yaml — the single
+# source). A build-time codegen step generates GeneratedEnums.cpp (backs enums::EnumTable, which
+# HavokEnums.h's per-enum accessors call). Keeps havok-framing a std-only leaf: the generator is a
+# tool-free `cmake -P` script, no dependency cycle. Regenerated whenever an enum yaml changes.
+set(_gen_enums "${CMAKE_CURRENT_BINARY_DIR}/GeneratedEnums.cpp")
+file(GLOB _enum_yamls CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/Havok/core/Schema/enums/*.yaml")
+add_custom_command(
+    OUTPUT  "${_gen_enums}"
+    COMMAND "${CMAKE_COMMAND}"
+            "-DENUM_DIR=${CMAKE_SOURCE_DIR}/Havok/core/Schema/enums"
+            "-DOUT_CPP=${_gen_enums}"
+            -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEnums.cmake"
+    DEPENDS ${_enum_yamls} "${CMAKE_SOURCE_DIR}/cmake/EmbedEnums.cmake"
+    COMMENT "Generating enum tables from Havok/core/Schema/enums/*.yaml"
+    VERBATIM
+)
+
+add_library(havok-framing STATIC ${HAVOK_FRAMING_SOURCES} "${_gen_enums}")
 
 set_target_properties(havok-framing PROPERTIES
     CXX_STANDARD          23
@@ -27,7 +44,7 @@ set_target_properties(havok-framing PROPERTIES
 )
 
 target_include_directories(havok-framing PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>
 )
 
