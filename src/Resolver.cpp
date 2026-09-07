@@ -1576,6 +1576,12 @@ namespace CB {
                     cdata.character.behavior = q;
                 }
 
+                // Capture the finished cdata (author-drop + qualify applied) + actor, so
+                // CompleteCharacterRosters() can re-serve this character with the rosterref-completed
+                // animationNames after CompileAll (the clip pool isn't full until every graph resolved).
+                m_characterData[key]     = std::make_shared<havok::model::CharacterData>(cdata);
+                m_characterActor[ToLower(fs::path(key).stem().string())] = ActorPathOf(key);
+
                 const auto   r  = havok::sct::CompileCharacter(cdata);
                 const double ms = std::chrono::duration<double, std::milli>(
                                       std::chrono::steady_clock::now() - t0).count();
@@ -1601,6 +1607,19 @@ namespace CB {
                 if (const std::string actor = ActorPathOf(key); !actor.empty())
                     if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
                         data.boneNames = it->second.names;
+            }
+
+            // ROSTER MEMBRANE (rosterref) — collect this graph's clip animationNames into the actor's
+            // pool. The schema tags hkbClipGenerator.animationName `rosterref: animationNames`; every such
+            // value across an actor's served graphs must land in that actor's character animationNames or
+            // the clip A-poses (and OAR's synchronized offset = roster.size() must count them all).
+            // CompleteCharacterRosters() folds this pool into each character after CompileAll. Always-on —
+            // this is graph-clip collection, independent of the opt-in adsf-derive serve.
+            if (const std::string actor = ActorPathOf(key); !actor.empty()) {
+                auto& pool = m_actorClipAnims[actor];
+                for (const auto& [nm, clip] : data.clips)
+                    if (!clip.animationName.empty() && pool.seen.insert(ToLower(clip.animationName)).second)
+                        pool.names.push_back(clip.animationName);
             }
 
             // Union mod-declared symbols into this graph's data before compiling —
@@ -1693,6 +1712,53 @@ namespace CB {
 
         m_cache.emplace(key, result);
         return result;
+    }
+
+    // ── roster membrane finalize (rosterref) ──────────────────────────────────────────
+    // The inverse of the skeleton membrane. During CompileAll every graph's hkbClipGenerator
+    // animationNames (schema: `rosterref: animationNames`) were collected per actor into
+    // m_actorClipAnims. Here — after the whole load order resolved, so the pool is complete — fold that
+    // pool into each character's animationNames and re-serve the character. A clip whose animationName is
+    // absent from the roster A-poses (char-setup can't bind it); OAR's synchronized offset =
+    // roster.size() also needs every bound clip counted. Append-only (existing indices preserved, so the
+    // collated animationdata stays valid whether or not DeriveAnimData reorders). Base (Skyrim.hky) and
+    // mod characters flow through identically — both compiled here, both folded from the same pool.
+    // Must run AFTER CompileAll and BEFORE MaterializeCacheToDisk (which writes m_cache to disk).
+    std::size_t Resolver::CompleteCharacterRosters()
+    {
+        std::size_t completed = 0, appendedTotal = 0;
+        for (auto& [key, cdataPtr] : m_characterData) {
+            if (!cdataPtr) continue;
+            const std::string actor = ActorPathOf(key);
+            const auto pi = m_actorClipAnims.find(actor);
+            if (pi == m_actorClipAnims.end() || pi->second.names.empty()) continue;
+
+            auto& cdata = *cdataPtr;
+            std::unordered_set<std::string> have;
+            have.reserve(cdata.animations.size() * 2 + 16);
+            for (const auto& a : cdata.animations) have.insert(ToLower(a));
+
+            std::size_t appended = 0;
+            for (const auto& nm : pi->second.names)
+                if (have.insert(ToLower(nm)).second) { cdata.animations.push_back(nm); ++appended; }
+            if (appended == 0) continue;
+
+            const auto r = havok::sct::CompileCharacter(cdata);
+            if (!r.ok) {
+                LOG_ERROR("Resolver: roster-complete recompile FAILED for character '{}': {}", key, r.error);
+                continue;
+            }
+            m_cache[key] = std::make_shared<const std::vector<std::uint8_t>>(std::move(r.bytes));
+            const std::string cstem = ToLower(fs::path(key).stem().string());
+            m_characterRosters[cstem] = cdata.animations;
+            ++completed; appendedTotal += appended;
+            LOG_INFO("Resolver: roster membrane — completed character '{}' (+{} clip anim(s), roster now {}).",
+                     key, appended, cdata.animations.size());
+        }
+        if (completed)
+            LOG_INFO("Resolver: roster membrane — completed {} character(s); {} animationName(s) folded from clips.",
+                     completed, appendedTotal);
+        return completed;
     }
 
     // ── the animationdata finalize (opt-in) ──────────────────────────────────────────

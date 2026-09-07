@@ -58,6 +58,11 @@ struct Field {
                                          // hkbBlendingTransitionEffect.initializeCharacterPose).
     std::string eventRef;                // scalar is an event index → .hky also emits `<eventRef>: '<name>'`
     std::string varRef;                  // scalar is a variable index → .hky also emits `<varRef>: '<name>'`
+    std::string rosterRef;               // string field is a member of a character ROSTER; the value names
+                                         // the target roster field (e.g. "animationNames"). The cross
+                                         // membrane COLLECTS every such value across an actor's served
+                                         // graphs into that roster on the character — the inverse of the
+                                         // name→index resolution eventRef/varRef do. (Resolve-time only.)
 };
 
 struct ClassSchema {

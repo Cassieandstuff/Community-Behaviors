@@ -4,7 +4,7 @@ signature: 0x333b85b9
 size:      272
 # Plays a single animation clip. animationBindingIndex is the Animation Relay bind target.
 fields:
-  - { name: animationName,               type: string }
+  - { name: animationName,               type: string, rosterref: animationNames }
   - { name: triggers,                    type: ptr, ref: hkbClipTriggerArray }
   - { name: cropStartAmountLocalTime,    type: float }
   - { name: cropEndAmountLocalTime,      type: float }

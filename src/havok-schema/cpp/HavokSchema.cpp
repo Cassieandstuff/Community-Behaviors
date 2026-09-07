@@ -202,8 +202,12 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.enumName = childStr(fn, "enum");   // Scalar enum type for .hky name rendering
                     f.isFlags  = (childStr(fn, "flags") == "true");   // bitfield → FormatFlags in .hky
                     f.hkyEmit  = (childStr(fn, "hky")   == "true");   // force-emit an ignored field in .hky
-                    f.eventRef = childStr(fn, "eventref");            // event-index companion key
-                    f.varRef   = childStr(fn, "varref");              // variable-index companion key
+                    f.eventRef  = childStr(fn, "eventref");           // event-index companion key
+                    f.varRef    = childStr(fn, "varref");             // variable-index companion key
+                    f.rosterRef = childStr(fn, "rosterref");          // string is a member of a character roster
+                                                                     // (names the target roster field, e.g.
+                                                                     // "animationNames"); the cross membrane
+                                                                     // COLLECTS these into that roster at resolve.
                     // fixed inline repeat count (std::array<T,N>) for scalar/ptr/vector4 — boolarray set its own above
                     if (f.kind != FieldKind::BoolArray) {
                         const std::string c = childStr(fn, "count");

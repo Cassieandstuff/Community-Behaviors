@@ -16,11 +16,13 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace havok::model {
     struct IUnitSource;   // abstract per-unit backing store (disk dir OR in-memory .hky)
     class  HkyArchive;    // a packed single-file .hky decompressed in memory
+    struct CharacterData; // compiled-character model (defs/CharacterDefs.h) — held by shared_ptr below
 }
 
 namespace CB {
@@ -181,6 +183,13 @@ namespace CB {
         // the un-derivable half (root motion + project headers). Call AFTER CompileAll. Returns true iff
         // it wrote the file; a no-op returning false when the feature is off or the master is unreadable.
         bool DeriveAnimData(const std::filesystem::path& dataDir);
+
+        // Roster membrane finalize: fold every served graph's collected clip animationNames (rosterref)
+        // into each character's animationNames, so every clip binds and OAR's synchronized offset
+        // (= roster.size()) is complete. Recompiles + re-caches only characters whose roster grew, so it
+        // must run AFTER CompileAll and BEFORE MaterializeCacheToDisk. Returns the number of characters
+        // whose roster was completed. Covers base (Skyrim.hky) + mod characters uniformly.
+        std::size_t CompleteCharacterRosters();
 
         // Registered animations for an actor (key like "actors/character"; any case or
         // separators). Each value is a path relative to the actor dir, in animationNames
@@ -354,6 +363,21 @@ namespace CB {
         // clips out of the sink, instead of trusting the base header's `character` string shape.
         std::unordered_map<std::string, std::vector<std::string>> m_characterRosters;
         std::unordered_map<std::string, std::string>              m_characterActor;
+
+        // ── roster membrane (rosterref) ──────────────────────────────────────────────────────────────
+        // The INVERSE of the skeleton membrane: every served graph's hkbClipGenerator.animationName (the
+        // schema tags it `rosterref: animationNames`) is COLLECTED here per actor as the graph resolves,
+        // then folded into that actor's character animationNames by CompleteCharacterRosters() after
+        // CompileAll. This is what makes a clip's animation actually bind (a name missing from the roster
+        // A-poses; OAR's synchronized offset = roster.size() also needs the count complete). Always-on —
+        // independent of the opt-in adsf-derive serve. Keyed by actor path (ActorPathOf).
+        struct ActorClipNames { std::vector<std::string> names; std::unordered_set<std::string> seen; };
+        std::unordered_map<std::string, ActorClipNames> m_actorClipAnims;
+
+        // The fully-processed CharacterData captured at first compile (author-drop folds + child-ref
+        // qualification already applied), so CompleteCharacterRosters() can re-serve a character with the
+        // completed roster without re-deriving that setup. shared_ptr keeps CharacterData a fwd-decl here.
+        std::unordered_map<std::string, std::shared_ptr<havok::model::CharacterData>> m_characterData;
         // Mod-declared events/variables (BDI-format), unioned into each graph's data
         // at compile time. Loaded once in Init().
         SymbolInjector m_symbols;
