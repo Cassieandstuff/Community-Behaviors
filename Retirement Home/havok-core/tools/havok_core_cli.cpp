@@ -5524,7 +5524,7 @@ int doSchemaParity(const std::string& havokDir) {
 
         std::string serr;
         const int computed = reg.ComputeSize(name, &serr);
-        if (computed != cs.size) {
+        if (cs.size > 0 && computed != cs.size) {   // size: is optional (0 = derived-only) — LoadDir already asserts it
             const std::string extra = serr.empty() ? std::string{} : ("  (" + serr + ")");
             std::printf("SIZE  %-40s computed %d != declared %d%s\n", name.c_str(), computed, cs.size, extra.c_str());
             ++sizeMismatch; classOk = false;

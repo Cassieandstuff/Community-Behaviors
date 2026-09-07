@@ -313,6 +313,22 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         if (!ParseSchema(ss.str(), cs, perr)) { err = p.string() + ": " + perr; return false; }
         m_byName[cs.name] = std::move(cs);
     }
+
+    // DERIVE-AND-ASSERT object size. ComputeSize (from the field layout) is the authority the
+    // serializer already uses everywhere; the authored `size:` is only a cross-check. Enforce it once
+    // the whole registry is loaded (ComputeSize recurses parent/struct refs) so a field-width or layout
+    // error — or a foreign/corrupt schema — is refused HERE, not silently served. `size:` is OPTIONAL:
+    // a class may omit it (size == 0) and rely wholly on the derived size.
+    for (const auto& [name, cs] : m_byName) {
+        if (cs.size <= 0) continue;               // omitted → derived-only, nothing to assert against
+        std::string serr;
+        const int computed = ComputeSize(name, &serr);
+        if (computed != cs.size) {
+            err = "class '" + name + "': declared size " + std::to_string(cs.size) + " != derived "
+                  + std::to_string(computed) + (serr.empty() ? std::string{} : " (" + serr + ")");
+            return false;
+        }
+    }
     return true;
 }
 

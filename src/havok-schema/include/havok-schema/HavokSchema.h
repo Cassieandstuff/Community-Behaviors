@@ -69,7 +69,10 @@ struct ClassSchema {
     std::string        name;
     std::string        parent;               // empty for a root class
     std::uint32_t      signature = 0;        // the class CRC (HK_CLASS_ID sig)
-    int                size      = 0;        // DECLARED serialized size (bytes, SSE 64-bit) — the ground-truth cross-check
+    int                size      = 0;        // OPTIONAL declared serialized size (bytes, SSE 64-bit). The
+                                             // authority is ComputeSize (derived from the field layout,
+                                             // used by the serializer); this is a cross-check — LoadDir
+                                             // asserts ComputeSize == size when present (0 = omit/derive).
     std::vector<Field> fields;               // this class's OWN fields, in serialized order (parent's come first, from its schema)
     RuntimeSource      runtime   = RuntimeSource::Game;
 };
