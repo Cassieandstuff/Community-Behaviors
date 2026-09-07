@@ -22,7 +22,7 @@
 # (find_package(ryml CONFIG) — the engine modules' YAML front-end). Link `cb-resolve`.
 # ============================================================================
 cmake_minimum_required(VERSION 3.25)
-project(CommunityBehaviors VERSION 0.3.1 LANGUAGES CXX C
+project(CommunityBehaviors VERSION 0.3.3 LANGUAGES CXX C
         DESCRIPTION "Community Behaviors — runtime Havok behavior-graph compiler")
 
 set(CMAKE_CXX_STANDARD 23)
@@ -78,14 +78,23 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-anim/"    DESTINATION i
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
+# The Havok/ class-schema tree is DATA cb-resolve loads at runtime (SchemaRegistry::LoadDir) — the
+# ground truth for class layout + per-field `merge:` policy + the schema_version stamp. Without it a
+# consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the
+# package config and expose its location as CB_RESOLVE_SCHEMA_DIR (see cb-resolve-config.cmake.in).
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/" DESTINATION share/cb-resolve/Havok)
 install(EXPORT cb-resolve-targets
         NAMESPACE cb::
         FILE      cb-resolve-targets.cmake
         DESTINATION share/cb-resolve)
+# Relocatable path to the shipped Havok/ schema tree, resolved by set_and_check(@PACKAGE_...@) in the
+# config template regardless of where the package is installed/moved.
+set(CB_RESOLVE_SCHEMA_INSTALL_DIR share/cb-resolve/Havok)
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cb-resolve-config.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config.cmake"
-    INSTALL_DESTINATION share/cb-resolve)
+    INSTALL_DESTINATION share/cb-resolve
+    PATH_VARS CB_RESOLVE_SCHEMA_INSTALL_DIR)
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config-version.cmake"
     VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
