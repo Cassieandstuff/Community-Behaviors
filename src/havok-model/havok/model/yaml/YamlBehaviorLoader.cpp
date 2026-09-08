@@ -704,44 +704,47 @@ static void loadDirInto(BehaviorData& data,
         }
     }
 
-    // Merge seam: gather each node file across ALL layers keyed by keyOf (id-else-name),
-    // in first-seen (load) order, then hand the section body ONE root per key. Today
-    // (step 0b) a key that recurs in a later layer is last-writer — identical to the old
-    // per-layer parse+assign. Step 1 replaces the pick-last (`layers.back()`) with the
-    // shared bash-merge (havok::merge::decideParam) over all the layers' raw trees.
-    auto eachYaml = [&](const char* sub, bool recursive, auto&& fn) {
-        std::vector<std::string> order;                                    // group keys, first-seen order
-        std::unordered_map<std::string, std::vector<std::string>> byKey;   // group key -> per-layer texts
-        std::unordered_map<std::string, std::string> keyName;              // group key -> keyOf (merge diag)
-        // Group by (class,key), NOT key alone. Within one section dir two files can legitimately
-        // share a name when their `class:` differs — a state 'X' and the nested state machine 'X' it
-        // wraps (Engine Relay's Shd_BlockIdle_1stP) go to different maps (data.states vs
-        // data.stateMachines) and must NOT merge. A real cross-layer delta repeats the base's class
-        // (the converter emits every node via the per-class decompiler), so same-object layers still
-        // group and bash-merge. Scan via the shared scanUnitNodes (Stage 1) — the single collector.
-        for (const auto& src : sources) {
-            if (!src) continue;
-            scanSourceSection(*src, sub, recursive,
-                [&](std::string cls, std::string k, std::string text) {
-                    std::string gk = std::move(cls);
-                    gk += '\x1f';
-                    gk += k;
-                    auto it = byKey.find(gk);
-                    if (it == byKey.end()) { order.push_back(gk); keyName.emplace(gk, k); }
-                    byKey[gk].push_back(std::move(text));
-                });
-        }
-        for (const std::string& gk : order) {
-            std::vector<std::string>& texts = byKey[gk];
+    // ── Node discovery (Stage 2): recursive + location-agnostic ────────────────────────────────
+    // Collect EVERY node file in the unit ONCE (whole tree, recursive) — folders are aesthetic; a node
+    // is what its `class:` says, not where it sits. Group across layers by (class,key) in first-seen
+    // (load) order [class disambiguates a state 'X' from the SM 'X' it wraps — different maps, must not
+    // merge]. Then eachClass(pred, fn) merges each matching group and hands it to a class handler. A
+    // misplaced node now routes by class; a class no handler claims is a hard, loud error, not silently
+    // coerced by its folder (which is the RC-fragility this refactor kills).
+    std::vector<std::string>                                  gorder;   // group keys, first-seen
+    std::unordered_map<std::string, std::vector<std::string>> gtexts;   // group key -> per-layer texts
+    std::unordered_map<std::string, std::string>              gclass;   // group key -> class
+    std::unordered_map<std::string, std::string>              gname;    // group key -> keyOf (merge diag)
+    for (const auto& src : sources) {
+        if (!src) continue;
+        scanSourceSection(*src, /*sub*/ "", /*recursive*/ true,
+            [&](std::string cls, std::string k, std::string text) {
+                std::string gk = cls;
+                gk += '\x1f';
+                gk += k;
+                auto it = gtexts.find(gk);
+                if (it == gtexts.end()) { gorder.push_back(gk); gclass.emplace(gk, std::move(cls)); gname.emplace(gk, k); }
+                gtexts[gk].push_back(std::move(text));
+            });
+    }
+    std::vector<char> gconsumed(gorder.size(), 0);
+
+    // Dispatch the groups whose class matches `pred` to `fn`, merging layers (last `bash: replace` is the
+    // effective base; the bash:merge layers after it overlay). Marks each consumed so nothing double-fires.
+    auto eachClass = [&](auto&& pred, auto&& fn) {
+        for (std::size_t gi = 0; gi < gorder.size(); ++gi) {
+            if (gconsumed[gi]) continue;
+            const std::string& gk = gorder[gi];
+            if (!pred(gclass[gk])) continue;
+            gconsumed[gi] = 1;
+            std::vector<std::string>& texts = gtexts[gk];
             if (texts.size() == 1) {                           // single layer: no merge
                 std::string buf = texts[0];
                 c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(buf));
                 fn(tree.rootref());
                 continue;
             }
-            // Multi-layer: bash-merge. Effective base = the last `bash: replace` layer
-            // (else layer 0); deltas = the (bash:merge) layers after it. Keep every
-            // buffer alive: parse_in_place references it and merged nodes may too.
+            // Multi-layer: bash-merge. Keep every buffer alive: parse_in_place references it.
             std::vector<std::string> bufs;
             bufs.reserve(texts.size());
             for (const std::string& t : texts) bufs.push_back(t);
@@ -753,13 +756,40 @@ static void loadDirInto(BehaviorData& data,
                 if (str(trees[i].rootref(), "bash", "merge") == "replace") baseIdx = i;
             std::vector<c4::yml::Tree*> deltas;
             for (std::size_t i = baseIdx + 1; i < trees.size(); ++i) deltas.push_back(&trees[i]);
-            mergeLayers(trees[baseIdx], deltas, keyName[gk]);
+            mergeLayers(trees[baseIdx], deltas, gname[gk]);
             fn(trees[baseIdx].rootref());
         }
     };
 
+    // Class predicates. Closed sets are explicit; the ONE open set (modifiers) falls back to a
+    // hkbModifier ancestor check via the schema (so a novel mod modifier still routes to the generic
+    // handler instead of failing). hkbManualSelectorGenerator is canonically a SELECTOR here — it was
+    // historically parsed in BOTH the selector and generator bodies; this picks one and the byte gate
+    // flags any divergence. hkbModifierGenerator is a generator by hierarchy but the modifier body owns it.
+    static const std::unordered_set<std::string> kGenClasses = {
+        "hkbBlenderGenerator", "BSSynchronizedClipGenerator", "BSCyclicBlendTransitionGenerator",
+        "BSBoneSwitchGenerator", "hkbPoseMatchingGenerator", "hkbReferencePoseGenerator",
+        "BSOffsetAnimationGenerator" };
+    static const std::unordered_set<std::string> kModSpecial = {
+        "hkbModifierGenerator", "BSIsActiveModifier", "hkbModifierList", "hkbEvaluateExpressionModifier",
+        "hkbEventDrivenModifier", "hkbFootIkControlsModifier", "BSEventEveryNEventsModifier",
+        "BSInterpValueModifier", "hkbEventsFromRangeModifier", "hkbFootIkModifier", "BSIStateManagerModifier" };
+    auto derivesFromModifier = [&](const std::string& cls) {
+        if (!g_mergeSchema) return false;                              // schema-driven world only (typed retiring)
+        std::string c = cls;
+        for (int depth = 0; depth < 64 && !c.empty(); ++depth) {
+            if (c == "hkbModifier") return true;
+            const auto* cs = g_mergeSchema->Find(c);
+            if (!cs) return false;
+            c = cs->parent;
+        }
+        return false;
+    };
+    auto isModifier = [&](const std::string& c) { return kModSpecial.count(c) != 0 || derivesFromModifier(c); };
+
     // ── clips/ ──
-    eachYaml("clips", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbClipGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         ClipGeneratorDef c;
         c.name          = str(r, "name");
         c.animationName = str(r, "animationName");
@@ -779,7 +809,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── selectors/ ──
-    eachYaml("selectors", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbManualSelectorGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         ManualSelectorDef s;
         s.name = str(r, "name");
         s.selectedGeneratorIndex = intField(r, "selectedGeneratorIndex", 0);
@@ -795,7 +826,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── transitions/ ──
-    eachYaml("transitions", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbBlendingTransitionEffect"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         TransitionEffectDef t;
         t.name = str(r, "name");
         t.userData = intField(r, "userData", 0);
@@ -813,7 +845,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── generators/ (class-disambiguated) ──
-    eachYaml("generators", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([&](const std::string& c) { return kGenClasses.count(c) != 0; },
+              [&](const c4::yml::ConstNodeRef& r) {
         std::string cls = peekClass(r);
 
         if (cls == "BSCyclicBlendTransitionGenerator") {
@@ -968,7 +1001,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── modifiers/ (class-disambiguated; generic path for the rest) ──
-    eachYaml("modifiers", false, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass(isModifier,
+              [&](const c4::yml::ConstNodeRef& r) {
         std::string cls = peekClass(r);
 
         if (cls == "hkbModifierGenerator") {
@@ -1184,7 +1218,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── references/ ──
-    eachYaml("references", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbBehaviorReferenceGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         BehaviorReferenceGeneratorDef b;
         b.name = str(r, "name");
         b.userData = intField(r, "userData", 0);
@@ -1194,7 +1229,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── tagging/ ──
-    eachYaml("tagging", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "BSiStateTaggingGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         BSiStateTaggingGeneratorDef g;
         g.name = str(r, "name");
         g.userData = intField(r, "userData", 0);
@@ -1206,7 +1242,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── states/ (StateMachine + StateInfo, disambiguated by class) ──
-    eachYaml("states", false, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbStateMachine" || c == "hkbStateMachineStateInfo"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         std::string cls = peekClass(r);
         if (cls == "hkbStateMachine") {
             StateMachineDef sm;
@@ -1264,7 +1301,8 @@ static void loadDirInto(BehaviorData& data,
     // ── data/ auxiliary arrays (hkbExpressionDataArray + hkbBoneIndexArray;
     //    graphdata.yaml has no `class:` so peekClass skips it). Bone-index arrays
     //    store bone NAMES here; the builder resolves them against data.boneNames. ──
-    eachYaml("data", false, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbExpressionDataArray" || c == "hkbBoneIndexArray" || c == "hkbEventRangeDataArray"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         const std::string cls = peekClass(r);
         if (cls == "hkbExpressionDataArray") {
             ExpressionDataArrayDef e;
@@ -1313,6 +1351,16 @@ static void loadDirInto(BehaviorData& data,
             if (auto _k = keyOf(r); !_k.empty()) data.boneIndexArrays[_k] = std::move(b);
         }
     });
+
+    // Any group no handler claimed = an unrecognized/foreign node class. Surface it loudly — never
+    // silently coerce (the old folder catch-all) or drop it. Empty in a well-formed unit; a hit means a
+    // misfiled node of an unknown class, or a class the schema doesn't define. (Graph-structure files —
+    // behavior.yaml, data/graphdata.yaml — carry no id/name key, so scanSourceSection skips them and they
+    // never reach here; they load via their own paths below.)
+    for (std::size_t gi = 0; gi < gorder.size(); ++gi)
+        if (!gconsumed[gi] && g_mergeDiag)
+            g_mergeDiag("YamlBehaviorLoader: no handler for node class '" + gclass[gorder[gi]] +
+                        "' (key '" + gname[gorder[gi]] + "') — unrecognized class, not loaded");
 
     // ── data/graphdata.yaml (per layer; last-writer for step 0b — step 3 unions) ──
     if (data.behavior.behavior.data && *data.behavior.behavior.data != "null")

@@ -2500,6 +2500,10 @@ int doSchemaCompileCheck(const std::string& dir, const std::string& schemaDir, c
     if (schemaDir.empty()) { std::printf("usage: schema-compile-check <hky-graph-dir> <Havok-dir> [--skeleton <skel.hkx>]\n"); return 1; }
     havok::schema::SchemaRegistry reg; std::string err;
     if (!reg.LoadDir(schemaDir, err)) { std::printf("ERROR loading schema: %s\n", err.c_str()); return 1; }
+    // Wire the schema into the loader BEFORE Load — the runtime/regen do this (SetSchemaCompiler ->
+    // SetSchemaRegistry), and the class-driven node discovery needs it to route the open modifier set via
+    // the hkbModifier ancestor. Without it, generic modifiers drop (matching production would be a lie).
+    havok::model::YamlBehaviorLoader::SetSchemaRegistry(&reg);
     havok::model::BehaviorData data;
     try { data = havok::model::YamlBehaviorLoader::Load(dir); }
     catch (const std::exception& e) { std::printf("LOAD FAIL: %s\n", e.what()); return 1; }
