@@ -68,8 +68,8 @@ supply your own authorized copy of the master out-of-band — never through this
 
 Feed the shipped schema tree to the merge classifier so it resolves identically to the compiler:
 ```cmake
-find_package(cb-resolve CONFIG REQUIRED)
-target_compile_definitions(your-tool PRIVATE CB_SCHEMA_DIR="${CB_RESOLVE_SCHEMA_DIR}")
+find_package(cb-api CONFIG REQUIRED)
+target_compile_definitions(your-tool PRIVATE CB_SCHEMA_DIR="${CB_API_SCHEMA_DIR}")
 ```
 ```cpp
 cb::resolve::SchemaRegistry reg; std::string err;

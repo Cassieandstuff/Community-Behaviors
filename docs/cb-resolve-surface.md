@@ -41,10 +41,10 @@ empty classifier — a merge that is silently NOT identical to the compiler.**
 The package now installs the tree beside its config and exposes its location. In consumer CMake:
 
 ```cmake
-find_package(cb-resolve CONFIG REQUIRED)
-# CB_RESOLVE_SCHEMA_DIR      -> the shipped Havok/ tree (relocatable; don't hardcode)
-# CB_RESOLVE_SCHEMA_VERSION  -> e.g. "1.0.0-rc.1", read from the tree's SCHEMA.yaml
-target_compile_definitions(your-tool PRIVATE CB_SCHEMA_DIR="${CB_RESOLVE_SCHEMA_DIR}")
+find_package(cb-api CONFIG REQUIRED)
+# CB_API_SCHEMA_DIR      -> the shipped Havok/ tree (relocatable; don't hardcode)
+# CB_API_SCHEMA_VERSION  -> e.g. "1.0.0-rc.1", read from the tree's SCHEMA.yaml
+target_compile_definitions(your-tool PRIVATE CB_SCHEMA_DIR="${CB_API_SCHEMA_DIR}")
 ```
 ```cpp
 havok::schema::SchemaRegistry reg;
@@ -131,7 +131,7 @@ Upstream authoring first; no port/curation change resolves these.
 1. Confirm the symbol's tier (is it havok-core-free? already installed?).
 2. Tier 1: add the alias/include to `CbResolve.h` + a line in `docs/consuming-cb-resolve.md`. Done.
 3. Tier 0 data (like the schema tree): add an `install(DIRECTORY …)` rule + expose its path in
-   `cb-resolve-config.cmake.in` via `PATH_VARS` / `set_and_check`.
+   `cb-api-config.cmake.in` via `PATH_VARS` / `set_and_check`.
 4. Tier 2: add a vcpkg feature; never link havok-core in the default build.
 5. Cut a CB tag, then bump the `cb-resolve` port (`REF` + `SHA512` + `vcpkg.json` version) in CB-loader
    and re-run `vcpkg x-add-version`.
