@@ -18,6 +18,7 @@
 #include "havok/model/yaml/YamlBehaviorLoader.h"
 #include "havok/model/BehaviorBuilder.h"   // model::ResolveBehaviorBindings (pre-build stage)
 #include "havok/model/yaml/HkyArchive.h"
+#include "havok/model/CompileTrace.h"      // compile-trace sink + TraceGraph (name-annotated merge trace)
 #include "havok/anim/AnimationCompiler.h"    // havok::anim::CompileAnimation (schema-native)
 #include "havok/anim/AnimationDecompiler.h"  // havok::anim::DecompileAnimation (schema-native)
 #include "havok/anim/AnimationEmitter.h"     // havok::anim::EmitAnimationHkx (typed baseline for the gate)
@@ -326,11 +327,25 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
 // base, so this proves e.g. Community Behaviors's 0_master delta lands correctly on vanilla
 // 0_master from Skyrim.hky. Usage: hky-merge-compile <servePath> <base.hky> [delta.hky ...] -o out.hkx
 int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& archives, const std::string& out,
-                      const std::string& schemaDir = "", bool strictSchema = false) {
+                      const std::string& schemaDir = "", bool strictSchema = false,
+                      const std::string& traceFile = "", const std::string& traceFilter = "") {
     if (archives.empty() || out.empty()) {
         std::printf("usage: hky-merge-compile <servePath> <base.hky> [delta.hky ...] -o out.hkx\n"
-                    "                         [--schema <HavokDir>] [--strict-schema]\n");
+                    "                         [--schema <HavokDir>] [--strict-schema]\n"
+                    "                         [--trace <file>] [--trace-filter <substr>]\n");
         return 2;
+    }
+
+    // Compile-trace (name-annotated, greppable) of the MERGED model: variable table + every binding,
+    // with symbolic names intact (this taps the merged model before compile clears them). Off by
+    // default (zero cost); --trace <file> routes it to a file, --trace-filter narrows unit/class/name.
+    std::shared_ptr<std::ofstream> traceOut;
+    if (!traceFile.empty()) {
+        traceOut = std::make_shared<std::ofstream>(traceFile, std::ios::binary);
+        if (!*traceOut) { std::printf("FAIL: cannot open trace file '%s'\n", traceFile.c_str()); return 1; }
+        havok::model::trace::SetSink([traceOut](std::string_view l) { traceOut->write(l.data(), (std::streamsize)l.size()); traceOut->put('\n'); });
+        if (!traceFilter.empty()) havok::model::trace::SetFilter(traceFilter);
+        std::printf("  trace: %s%s\n", traceFile.c_str(), traceFilter.empty() ? "" : (" (filter: " + traceFilter + ")").c_str());
     }
     std::string want = unit;   // normalize to the archive's key form (lower, forward-slash)
     for (char& c : want) { if (c == '\\') c = '/'; else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
@@ -377,6 +392,7 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
         return 0;
     }
     const auto data = havok::model::YamlBehaviorLoader::LoadMerged(sources);
+    havok::model::TraceGraph(data, unit);   // merged model: variable table (if this unit has graphData) + bindings
     const auto r = havok::sct::CompileBehavior(data);
     if (!r.ok) { std::printf("FAIL: %s\n", r.error.c_str()); return 1; }
     const auto vr = havok::sct::ValidatePackfile(r.bytes);
@@ -385,6 +401,7 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
     if (!havok::sct::WriteHavokFile(out, r.bytes, &werr)) { std::printf("FAIL: %s\n", werr.c_str()); return 1; }
     std::printf("OK: hky-merge-compile %s (%zu layer(s)) -> %s (%zu bytes), validated.\n",
                 unit.c_str(), sources.size(), out.c_str(), r.bytes.size());
+    havok::model::trace::SetSink({}); havok::model::trace::SetFilter({});
     return 0;
 }
 
@@ -5747,6 +5764,8 @@ int main(int argc, char** argv) {
     std::string skel;                 // --skeleton <skeleton.hkx|bones.txt> for bone-name resolution
     std::string schema;               // --schema <HavokDir>: wire the merge classifier to the schema
     bool strictSchema = false;        // --strict-schema: disable the name-set fallback (gate mode)
+    std::string traceFile;            // --trace <file>: name-annotated compile trace of the merged model
+    std::string traceFilter;          // --trace-filter <substr>: only records whose unit/class/name match
     std::vector<std::string> extra;   // positional args after `in` (merge delta dirs)
     for (int i = 3; i < argc; i++) {
         const std::string a = argv[i];
@@ -5754,6 +5773,8 @@ int main(int argc, char** argv) {
         else if (a == "--skeleton" && i + 1 < argc) skel = argv[++i];
         else if (a == "--schema" && i + 1 < argc) schema = argv[++i];
         else if (a == "--strict-schema") strictSchema = true;
+        else if (a == "--trace" && i + 1 < argc) traceFile = argv[++i];
+        else if (a == "--trace-filter" && i + 1 < argc) traceFilter = argv[++i];
         else extra.push_back(a);
     }
     if (verb == "merge")     return doMerge(in, extra, out);
@@ -5762,7 +5783,7 @@ int main(int argc, char** argv) {
     if (verb == "hky-compile") return doHkyCompile(in, extra, out);
     if (verb == "hky-pack")    return doHkyPack(in, out);
     if (verb == "hky-unpack")  return doHkyUnpack(in, out);
-    if (verb == "hky-merge-compile") return doHkyMergeCompile(in, extra, out, schema, strictSchema);
+    if (verb == "hky-merge-compile") return doHkyMergeCompile(in, extra, out, schema, strictSchema, traceFile, traceFilter);
     if (verb == "schema-merge-tag")  return doSchemaMergeTag(in, extra.empty() ? std::string{} : extra[0],
                                                              extra.size() > 1 ? extra[1] : std::string{});
     if (verb == "objhist")   return doObjHist(in);
