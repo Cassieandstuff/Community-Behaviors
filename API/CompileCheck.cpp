@@ -33,5 +33,20 @@ namespace {
                                                                    std::filesystem::path{});
         (void)dr;
         auto* toFile = &cb::anim::CompileAnimationToFile; (void)toFile;   // odr-use the file variant too
+
+        // cb::animdata — the motion / root-motion model + sidecar
+        cb::animdata::MotionRecord mr; (void)mr;
+        std::string sc = cb::animdata::EmitMotionSidecar(mr); (void)sc;
+        auto* parseSidecar = &cb::animdata::ParseMotionSidecar; (void)parseSidecar;
+
+        // cb::skeleton — decode / compile / export skeletons
+        cb::skeleton::Data sk; (void)sk;
+        std::vector<cb::skeleton::Data> sks;
+        bool rok = cb::skeleton::LoadSkeletonsFromHkx(nullptr, 0, sks, &err); (void)rok;
+        cb::skeleton::CompileResult scr = cb::skeleton::CompileSkeletonFull(sk); (void)scr;
+        std::string sy = cb::skeleton::EmitSkeletonYaml(sk); (void)sy;
+        std::vector<cb::skeleton::BoneAdd> adds;
+        bool mok = cb::skeleton::MergeBoneAdditions(sk, adds, &err); (void)mok;
+        auto* overBase = &cb::skeleton::CompileSkeletonOverBase; (void)overBase;
     }
 }

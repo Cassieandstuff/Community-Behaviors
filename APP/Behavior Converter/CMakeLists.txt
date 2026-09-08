@@ -36,7 +36,7 @@ target_include_directories(behavior-converter PRIVATE
 # imgui transitively supplies glfw + glad + opengl32 (PUBLIC). havok-core = the converter core
 # (PatchConverter / decompilers / oracle); havok-model + havok-schema = the DEFAULT data-driven
 # per-mod delta (ConvertModDelta / SchemaRegistry). sct-utilities = folder picker + zip (+ ole32/shell32).
-target_link_libraries(behavior-converter PRIVATE havok-core havok-model havok-schema imgui sct-utilities)
+target_link_libraries(behavior-converter PRIVATE havok-core havok-model havok-schema havok-skeleton imgui sct-utilities)
 
 if(MSVC)
     target_compile_options(behavior-converter PRIVATE /W4 /wd4100 /wd4505 /MP)

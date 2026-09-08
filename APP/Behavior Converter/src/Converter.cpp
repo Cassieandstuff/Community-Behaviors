@@ -5,8 +5,8 @@
 #include <havok/sct/DeltaDeriver.h>          // DeriveLooseBehaviorDelta (loose full graphs)
 #include <havok/sct/BehaviorCompiler.h>      // CompileBehavior (base unit -> vanilla binary)
 #include <havok/sct/HavokFile.h>             // ReadHavokFile / WriteHavokFile
-#include <havok/sct/SkeletonImport.h>        // LoadSkeletonsFromHkx — skeleton.hkx -> SkeletonData
-#include <havok/sct/SkeletonYaml.h>          // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
+#include <havok/skeleton/SkeletonImport.h>   // LoadSkeletonsFromHkx / ReadSkeletonPhysics (havok-skeleton)
+#include <havok/skeleton/SkeletonYaml.h>     // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
 #include <havok/model/yaml/YamlBehaviorLoader.h>  // LoadMerged (base unit -> BehaviorData)
 #include <havok/sct/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList
@@ -1012,8 +1012,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
                 }
                 if (bl.empty() && boneFiles.empty()) return names;
-                havok::sct::SkeletonData sk; std::string serr;
-                if (!havok::sct::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &serr)) return names;
+                havok::skeleton::SkeletonData sk; std::string serr;
+                if (!havok::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &serr)) return names;
                 for (const auto& bn : sk.bones) names.push_back(bn.name);
                 return names;
             };
@@ -1553,19 +1553,19 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         // every name-keyed hkbBoneIndexArray in that actor's graphs fails to compile.
         if (kind == HkxKind::Skeleton) {
             std::vector<std::uint8_t> sbytes; std::string srerr;
-            std::vector<havok::sct::SkeletonData> sk; std::string skerr;
+            std::vector<havok::skeleton::SkeletonData> sk; std::string skerr;
             if (havok::sct::ReadHavokFile(it->path().string(), sbytes, &srerr) &&
-                havok::sct::LoadSkeletonsFromHkx(sbytes.data(), sbytes.size(), sk, &skerr) && !sk.empty()) {
+                havok::skeleton::LoadSkeletonsFromHkx(sbytes.data(), sbytes.size(), sk, &skerr) && !sk.empty()) {
                 // Attach per-bone ragdoll physics (mass/radius/capsule/joint) BEFORE emit. Without this the
                 // YAML tree is anim-only, CompileSkeletonFull derives 0 ragdoll bones, and BR's SERVED
                 // skeleton has no ragdoll skeleton (skels[1]) → hkbRagdollDriver can't bind → every humanoid
                 // bind-poses instead of ragdolling on death. Mirrors doSkeletonDecompileTree (the CLI verb);
                 // this master-regen path is a SECOND skeleton HKX->YAML emitter and must round-trip the same.
                 std::string perr;
-                if (!havok::sct::ReadSkeletonPhysics(sbytes.data(), sbytes.size(), sk[0], &perr))
+                if (!havok::skeleton::ReadSkeletonPhysics(sbytes.data(), sbytes.size(), sk[0], &perr))
                     say("  note: skeleton physics read failed for " + rel + " (" + perr + ") — anim-only (no ragdoll derive).");
                 std::string eerr;
-                if (havok::sct::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++r.skeletons;
+                if (havok::skeleton::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++r.skeletons;
                 else { ++r.failed; say("  skeleton emit FAILED: " + rel + " — " + eerr); }
             } else { ++r.failed; say("  skeleton read/parse FAILED: " + rel + " — " + (srerr.empty() ? skerr : srerr)); }
             continue;
@@ -1872,8 +1872,8 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         const fs::path skel = fs::path(vanillaMeshesDir) / "actors" / "character" / "character assets" / "skeleton.hkx";
         std::vector<std::uint8_t> sb; std::string serr;
         if (havok::sct::ReadHavokFile(skel.string(), sb, &serr)) {
-            std::vector<havok::sct::SkeletonData> sk;
-            if (havok::sct::LoadSkeletonsFromHkx(sb.data(), sb.size(), sk, &serr) && !sk.empty())
+            std::vector<havok::skeleton::SkeletonData> sk;
+            if (havok::skeleton::LoadSkeletonsFromHkx(sb.data(), sb.size(), sk, &serr) && !sk.empty())
                 for (const auto& b : sk[0].bones) charBoneNames.push_back(b.name);
         }
         say(charBoneNames.empty()

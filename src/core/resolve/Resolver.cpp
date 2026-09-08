@@ -15,9 +15,9 @@
 #include <havok/sct/BehaviorCompiler.h>
 #include <havok/sct/CharacterCompiler.h>
 #include <havok/sct/ProjectCompiler.h>
-#include <havok/sct/SkeletonImport.h>   // LoadSkeletonsFromHkx — bone names from the game skeleton
-#include <havok/sct/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
-#include <havok/sct/SkeletonCompiler.h> // CompileSkeletonOverBase (Stage D serve)
+#include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
+#include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
+#include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
 #include <havok/anim/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <havok/anim/AnimationCompiler.h>    // havok::anim::CompileAnimation (native anim -> loose .hkx)
 #include <havok/anim/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
@@ -638,7 +638,7 @@ namespace CB {
             // SkeletonData. filesUnder (normalized, for read()) + filesUnderOrig (original case, for the
             // bone NAME) walk the same range — index i aligns — so bone names keep their exact case (the
             // clip/skin/roster name identity; a lowercased bone would orphan its skin binding, BR-16).
-            auto readBaseUnit = [&](const std::string& unit, havok::sct::SkeletonData& out) -> bool {
+            auto readBaseUnit = [&](const std::string& unit, havok::skeleton::SkeletonData& out) -> bool {
                 if (!master) return false;
                 const std::string bl = master->read(unit + "/bonelist.yaml").value_or("");
                 const auto norm = master->filesUnder(unit + "/bones/", ".yaml");
@@ -649,7 +649,7 @@ namespace CB {
                         boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
                 if (bl.empty() && boneFiles.empty()) return false;
                 std::string err;
-                if (!havok::sct::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
+                if (!havok::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
                     LOG_WARN("Resolver: base skeleton '{}' YAML load failed: {}", unit, err);
                     return false;
                 }
@@ -702,20 +702,20 @@ namespace CB {
                          "through to loose files. Diagnostic only.");
             for (auto& [actorpath, texts] : layerTexts) {
                 if (skipSkelServe) break;
-                std::vector<havok::sct::SkeletonBoneAdd> adds;
-                havok::sct::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(actorpath), nullptr);
+                std::vector<havok::skeleton::SkeletonBoneAdd> adds;
+                havok::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(actorpath), nullptr);
                 if (adds.empty() || !master) continue;
                 std::set<std::string> units;   // "meshes/actors/<actorpath>/<variant>/skeleton*.hkx"
                 for (const std::string& f : master->filesUnder("meshes/actors/" + actorpath + "/", ".yaml"))
                     if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size())
                         units.insert(f.substr(0, b));
                 for (const std::string& unit : units) {
-                    havok::sct::SkeletonData sk;
+                    havok::skeleton::SkeletonData sk;
                     if (!readBaseUnit(unit, sk)) continue;
                     std::string merr;
-                    if (!havok::sct::MergeBoneAdditions(sk, adds, &merr))
+                    if (!havok::skeleton::MergeBoneAdditions(sk, adds, &merr))
                         LOG_WARN("Resolver: skeleton '{}' bone-add merge: {} — base unchanged.", unit, merr);
-                    auto cr = havok::sct::CompileSkeletonFull(sk);
+                    auto cr = havok::skeleton::CompileSkeletonFull(sk);
                     if (cr.ok) {
                         m_skeletonServe[NormalizeKey(unit)] = std::move(cr.bytes);
                         LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), sk.bones.size());
@@ -745,15 +745,15 @@ namespace CB {
                     }
                 if (unit.empty()) continue;
 
-                havok::sct::SkeletonData sk;
+                havok::skeleton::SkeletonData sk;
                 if (!readBaseUnit(unit, sk)) continue;
 
                 std::size_t nAdds = 0;
                 if (auto it = layerTexts.find(actor); it != layerTexts.end()) {
-                    std::vector<havok::sct::SkeletonBoneAdd> adds;
-                    havok::sct::LoadSkeletonLayerFromTexts(it->second, adds, bonelistFor(actor), nullptr);
+                    std::vector<havok::skeleton::SkeletonBoneAdd> adds;
+                    havok::skeleton::LoadSkeletonLayerFromTexts(it->second, adds, bonelistFor(actor), nullptr);
                     nAdds = adds.size();
-                    std::string merr; havok::sct::MergeBoneAdditions(sk, adds, &merr);
+                    std::string merr; havok::skeleton::MergeBoneAdditions(sk, adds, &merr);
                 }
                 havok::sct::BoneNameTable& tbl = m_skeletons[actor];
                 for (const auto& b : sk.bones) tbl.names.push_back(b.name);

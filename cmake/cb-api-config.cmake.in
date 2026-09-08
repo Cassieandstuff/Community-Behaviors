@@ -1,26 +1,26 @@
 @PACKAGE_INIT@
 
-# cb-resolve links ryml transitively (havok-schema/model), so a consumer's find_package(cb-resolve)
+# cb-resolve links ryml transitively (havok-schema/model), so a consumer's find_package(cb-api)
 # must be able to find ryml too. It's impl-only in the public headers but a real link dependency.
 include(CMakeFindDependencyMacro)
 find_dependency(ryml)
 
-include("${CMAKE_CURRENT_LIST_DIR}/cb-resolve-targets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/cb-api-targets.cmake")
 
 # The Havok/ class-schema tree shipped beside this config (see the install(DIRECTORY Havok/) rule).
-# Feed CB_RESOLVE_SCHEMA_DIR to havok::schema::SchemaRegistry::LoadDir(...) so the merge classifier is
+# Feed CB_API_SCHEMA_DIR to havok::schema::SchemaRegistry::LoadDir(...) so the merge classifier is
 # byte-for-byte the one the compiler used for THIS package version — don't hardcode the path. The
 # tree's SCHEMA.yaml `schema_version:` is surfaced here too (best-effort) so a tool can display /
 # gate on it without opening the file.
-set_and_check(CB_RESOLVE_SCHEMA_DIR "@PACKAGE_CB_RESOLVE_SCHEMA_INSTALL_DIR@")
-set(CB_RESOLVE_SCHEMA_VERSION "")
-if(EXISTS "${CB_RESOLVE_SCHEMA_DIR}/core/Schema/SCHEMA.yaml")
-    file(STRINGS "${CB_RESOLVE_SCHEMA_DIR}/core/Schema/SCHEMA.yaml" _cb_sv_lines
+set_and_check(CB_API_SCHEMA_DIR "@PACKAGE_CB_API_SCHEMA_INSTALL_DIR@")
+set(CB_API_SCHEMA_VERSION "")
+if(EXISTS "${CB_API_SCHEMA_DIR}/core/Schema/SCHEMA.yaml")
+    file(STRINGS "${CB_API_SCHEMA_DIR}/core/Schema/SCHEMA.yaml" _cb_sv_lines
          REGEX "^[ \t]*schema_version[ \t]*:")
     if(_cb_sv_lines)
         list(GET _cb_sv_lines 0 _cb_sv)
         string(REGEX REPLACE "^[ \t]*schema_version[ \t]*:[ \t]*[\"']?([^\"'#]*[^\"' \t#]).*$" "\\1"
-               CB_RESOLVE_SCHEMA_VERSION "${_cb_sv}")
+               CB_API_SCHEMA_VERSION "${_cb_sv}")
     endif()
     unset(_cb_sv_lines)
     unset(_cb_sv)
@@ -39,11 +39,11 @@ elseif(_cb_cfgs)
     list(GET _cb_cfgs 0 _cb_fallback)
 endif()
 if(_cb_fallback)
-    foreach(_cb_t cb::cb-resolve cb::havok-framing cb::havok-schema cb::havok-io cb::havok-model)
+    foreach(_cb_t cb::cb-resolve cb::havok-framing cb::havok-schema cb::havok-io cb::havok-model cb::havok-anim cb::havok-skeleton)
         foreach(_cb_c DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
             set_property(TARGET ${_cb_t} PROPERTY MAP_IMPORTED_CONFIG_${_cb_c} "${_cb_fallback}")
         endforeach()
     endforeach()
 endif()
 
-check_required_components(cb-resolve)
+check_required_components(cb-api)

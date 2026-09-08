@@ -34,10 +34,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Consumption mode. Full standalone build ONLY when CB is the top-level project AND not asked for the
-# resolve-only surface. Two ways to get resolve-only: add_subdirectory'd into another build (FetchContent
-# — not top-level), or CB_RESOLVE_ONLY=ON (vcpkg builds CB as top-level, so the portfile passes this).
-option(CB_RESOLVE_ONLY "Build only the cb-resolve surface (for vcpkg / library consumers)" OFF)
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CB_RESOLVE_ONLY)
+# API-only surface. Two ways to get API-only: add_subdirectory'd into another build (FetchContent
+# — not top-level), or CB_API_ONLY=ON (vcpkg builds CB as top-level, so the portfile passes this).
+# (CB_RESOLVE_ONLY accepted as the legacy spelling.)
+option(CB_API_ONLY "Build only the cb-api surface (for vcpkg / library consumers)" OFF)
+if(CB_RESOLVE_ONLY)
+    set(CB_API_ONLY ON)
+endif()
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CB_API_ONLY)
     set(CB_STANDALONE ON)
 else()
     set(CB_STANDALONE OFF)
@@ -59,55 +63,57 @@ add_subdirectory(src/havok-skeleton)  # schema-driven skeleton codec (depends on
 add_subdirectory(src/cb-resolve)
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
-# ── Install / export rules for the cb-resolve surface ────────────────────────────
-# So a consumer can `find_package(cb-resolve)` (vcpkg, or a manual cmake --install). Inert unless someone
+# ── Install / export rules for the cb-api surface ────────────────────────────────
+# So a consumer can `find_package(cb-api)` (vcpkg, or a manual cmake --install). Inert unless someone
 # actually installs — FetchContent (add_subdirectory) ignores these; vcpkg's vcpkg_cmake_install() runs them.
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
+# cb-api is the canonical facade (<CB-API.h> → cb::CB-API); cb-resolve stays as a legacy component target.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api cb-resolve havok-framing havok-schema havok-io havok-model havok-anim
-        EXPORT  cb-resolve-targets
+install(TARGETS cb-api cb-resolve havok-framing havok-schema havok-io havok-model havok-anim havok-skeleton
+        EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
 # Headers: each module's full include/ tree (havok-model's public headers pull havok-framing's, etc.).
 # Headers + sources are co-located per module now (no include/ vs cpp/ split), so the export ships
 # only the headers (FILES_MATCHING *.h) from each module root — the co-located .cpp are not installed.
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/" DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"  DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"      DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"   DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-anim/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/"  DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"   DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"       DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-anim/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-skeleton/" DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
-# The Havok/ class-schema tree is DATA cb-resolve loads at runtime (SchemaRegistry::LoadDir) — the
+# The Havok/ class-schema tree is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
 # ground truth for class layout + per-field `merge:` policy + the schema_version stamp. Without it a
 # consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the
-# package config and expose its location as CB_RESOLVE_SCHEMA_DIR (see cb-resolve-config.cmake.in).
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/" DESTINATION share/cb-resolve/Havok)
-install(EXPORT cb-resolve-targets
+# package config and expose its location as CB_API_SCHEMA_DIR (see cb-api-config.cmake.in).
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/" DESTINATION share/cb-api/Havok)
+install(EXPORT cb-api-targets
         NAMESPACE cb::
-        FILE      cb-resolve-targets.cmake
-        DESTINATION share/cb-resolve)
+        FILE      cb-api-targets.cmake
+        DESTINATION share/cb-api)
 # Relocatable path to the shipped Havok/ schema tree, resolved by set_and_check(@PACKAGE_...@) in the
 # config template regardless of where the package is installed/moved.
-set(CB_RESOLVE_SCHEMA_INSTALL_DIR share/cb-resolve/Havok)
+set(CB_API_SCHEMA_INSTALL_DIR share/cb-api/Havok)
 configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cb-resolve-config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config.cmake"
-    INSTALL_DESTINATION share/cb-resolve
-    PATH_VARS CB_RESOLVE_SCHEMA_INSTALL_DIR)
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cb-api-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config.cmake"
+    INSTALL_DESTINATION share/cb-api
+    PATH_VARS CB_API_SCHEMA_INSTALL_DIR)
 write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config-version.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config-version.cmake"
     VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
 install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/cb-resolve-config-version.cmake"
-    DESTINATION share/cb-resolve)
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config-version.cmake"
+    DESTINATION share/cb-api)
 
 # When consumed as a subproject, the resolution surface is all we expose — stop here so a consumer
 # never configures the plugin / converter / CommonLibSSE / havok-core.
 if(NOT CB_STANDALONE)
-    message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-resolve + engine modules "
+    message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-api + engine modules "
                    "only (plugin, converter, havok-core, CommonLibSSE skipped). Consumer must provide ryml.")
     return()
 endif()
@@ -175,7 +181,7 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" 
 # havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
 # (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
 # minhook = function-ENTRY hooks (the BSResource stream ctor).
-target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline sct-config ryml::ryml minhook::minhook)
+target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline havok-skeleton sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/pch/PCH.h")
