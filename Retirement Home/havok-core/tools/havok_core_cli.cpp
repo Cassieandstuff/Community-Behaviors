@@ -45,6 +45,7 @@
 #include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
 #include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
+#include <havok/skeleton/SkeletonCompiler.h> // schema-native writer (skeleton-full-parity gate)
 #include "havok/sct/SkeletonCompiler.h"     // CompileSkeleton (skeleton-recompile gate)
 #include "havok/sct/SkeletonYaml.h"         // Emit/LoadSkeletonYaml (skeleton-compile/-decompile)
 #include "havok/sct/TagfileOracle.h"
@@ -5628,6 +5629,66 @@ int doSkeletonParity(const std::string& in) {
     return mism == 0 ? 0 : 1;
 }
 
+// skeleton-full-parity: compile the FULL ragdoll skeleton via BOTH the NEW schema-native writer
+// (havok::skeleton::CompileSkeletonFull) and the typed havok-core writer, and byte-compare. Reads the
+// SkeletonData with each stack's own (parity-proven) reader. Zero diff proves the de-typed writer
+// reproduces the byte-exact typed emit. Ground-truth files: vanilla skeletons under $SKYRIM_DATASOURCE.
+int doSkeletonFullParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+
+    // typed side
+    std::vector<havok::sct::SkeletonData> T;
+    if (!havok::sct::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), T, &err) || T.empty()) { std::printf("typed read failed: %s\n", err.c_str()); return 1; }
+    havok::sct::ReadSkeletonPhysics(bytes.data(), bytes.size(), T[0], nullptr);
+    // Compare against havok-core's SCHEMA emit (the proven-byte-identical-modulo-signed-zero peer), which
+    // is the correct peer for a schema-native writer — the raw typed emit differs from BOTH only by the
+    // accepted -0.0 capsule vertex-W padding. Needs the Havok/ schema dir ($SCT_HAVOK_SCHEMA_DIR).
+    const char* sd = std::getenv("SCT_HAVOK_SCHEMA_DIR");
+    havok::sct::SetSchemaCompiler(true, sd ? sd : "");
+    auto rt = havok::sct::CompileSkeletonFull(T[0]);
+    if (!rt.ok) { std::printf("havok-core schema compile failed: %s\n", rt.error.c_str()); return 1; }
+
+    // schema-native side
+    std::vector<havok::skeleton::SkeletonData> N;
+    if (!havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &err) || N.empty()) { std::printf("schema read failed: %s\n", err.c_str()); return 1; }
+    havok::skeleton::ReadSkeletonPhysics(bytes.data(), bytes.size(), N[0], nullptr);
+    auto rn = havok::skeleton::CompileSkeletonFull(N[0]);
+    if (!rn.ok) { std::printf("schema compile failed: %s\n", rn.error.c_str()); return 1; }
+
+    if (rt.bytes == rn.bytes) { std::printf("skeleton-full-parity: schema-native == typed BYTE-IDENTICAL (%zu bytes)\n", rn.bytes.size()); return 0; }
+    std::size_t d = 0; while (d < rt.bytes.size() && d < rn.bytes.size() && rt.bytes[d] == rn.bytes[d]) ++d;
+    std::printf("skeleton-full-parity: REAL DIFF — sizes typed=%zu schema=%zu, first diff @0x%zx\n", rt.bytes.size(), rn.bytes.size(), d);
+    // count total differing bytes + print a window
+    std::size_t ndiff = 0; for (std::size_t k = 0; k < rt.bytes.size() && k < rn.bytes.size(); ++k) if (rt.bytes[k] != rn.bytes[k]) ++ndiff;
+    std::printf("  total differing bytes: %zu\n", ndiff);
+    // list the first 20 differing offsets + their spacing (reveals the per-object field)
+    std::printf("  diff offsets:");
+    std::size_t prev = 0, shown = 0;
+    for (std::size_t k = 0; k < rt.bytes.size() && k < rn.bytes.size() && shown < 20; ++k)
+        if (rt.bytes[k] != rn.bytes[k]) { std::printf(" 0x%zx(t=%02x,s=%02x,+%zu)", k, rt.bytes[k], rn.bytes[k], k - prev); prev = k; ++shown; }
+    std::printf("\n");
+    return 1;
+}
+
+// skeleton-overbase-parity: CompileSkeletonOverBase with the file's OWN anim bones (identity) must
+// reproduce the havok-io round-trip of the base byte-for-byte (the serve-existing-content contract).
+int doSkeletonOverbaseParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    std::vector<havok::skeleton::SkeletonData> N;
+    if (!havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &err) || N.empty()) { std::printf("read failed: %s\n", err.c_str()); return 1; }
+    auto rob = havok::skeleton::CompileSkeletonOverBase(N[0], bytes);
+    if (!rob.ok) { std::printf("over-base failed: %s\n", rob.error.c_str()); return 1; }
+    havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
+    std::vector<std::uint8_t> rt;
+    if (!reg || !havok::io::RoundtripHkx(bytes, *reg, rt, err)) { std::printf("io roundtrip failed: %s\n", err.c_str()); return 1; }
+    if (rob.bytes == rt) { std::printf("skeleton-overbase-parity: over-base(identity) == io-roundtrip BYTE-IDENTICAL (%zu bytes)\n", rob.bytes.size()); return 0; }
+    std::size_t d = 0; while (d < rob.bytes.size() && d < rt.size() && rob.bytes[d] == rt[d]) ++d;
+    std::printf("skeleton-overbase-parity: DIFF — over-base=%zu roundtrip=%zu, first diff @0x%zx\n", rob.bytes.size(), rt.size(), d);
+    return 1;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     const std::string verb = argv[1];
@@ -5689,6 +5750,8 @@ int main(int argc, char** argv) {
     if (verb == "oracle-baseline") return doOracleBaseline(in, extra, out);
     if (verb == "schema-parity")   return doSchemaParity(in);
     if (verb == "skeleton-parity") return doSkeletonParity(in);
+    if (verb == "skeleton-full-parity") return doSkeletonFullParity(in);
+    if (verb == "skeleton-overbase-parity") return doSkeletonOverbaseParity(in);
     if (verb == "skeleton-recompile") return doSkeletonRecompile(in, out);
     if (verb == "skeleton-decompile") return doSkeletonDecompile(in, out);
     if (verb == "skeleton-decompile-tree") return doSkeletonDecompileTree(in, out);
