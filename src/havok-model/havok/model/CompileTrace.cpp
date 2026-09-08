@@ -3,6 +3,7 @@
 #include "havok/model/BehaviorData.h"
 
 #include <string>
+#include <unordered_map>
 
 namespace havok::model::trace {
 
@@ -48,15 +49,29 @@ namespace havok::model {
 namespace {
 // Emit one "bind" record per binding of every node in a (name -> Def) map. Any Def carrying `.bindings`
 // (all generator/modifier/state Defs do) works uniformly.
+// A node's human name (the Def.name field) when present, else the map key (id/symbol). The map key is
+// the node ID (e.g. "2816", "bfco$960"); Def.name is the readable name (e.g. "AttackForwardSprint_MG").
+template <class Def>
+std::string nodeLabel(const std::string& key, const Def& d) {
+    return d.name.empty() ? key : d.name;
+}
+
+// id/symbol -> human name, for resolving edge TARGETS (which are stored as ids) to readable names.
+using IdName = std::unordered_map<std::string, std::string>;
+template <class M>
+void collectNames(const M& m, IdName& out) {
+    for (const auto& [key, d] : m) if (!d.name.empty()) out.emplace(key, d.name);
+}
+
 template <class M>
 void dumpBindings(const M& m, const char* cls, std::string_view unit) {
-    for (const auto& [name, def] : m) {
+    for (const auto& [key, def] : m) {
         if (!def.bindings) continue;
         for (const auto& b : *def.bindings) {
             std::string d = "var='";
             d += (b.variable ? *b.variable : std::string("-"));
-            d += "' idx=" + std::to_string(b.variableIndex);
-            trace::Rec("bind", unit, cls, name, b.memberPath, "binding", d);
+            d += "' idx=" + std::to_string(b.variableIndex) + " id=" + key;
+            trace::Rec("bind", unit, cls, nodeLabel(key, def), b.memberPath, "binding", d);
         }
     }
 }
@@ -98,6 +113,78 @@ void TraceGraph(const BehaviorData& bd, std::string_view unit) {
     dumpBindings(bd.poseMatchingGenerators,      "hkbPoseMatchingGenerator",     unit);
     dumpBindings(bd.referencePoseGenerators,     "hkbReferencePoseGenerator",    unit);
     dumpBindings(bd.behaviorReferences,          "hkbBehaviorReferenceGenerator",unit);
+
+    // (3) generator edges / node references — the graph TOPOLOGY. grep an attack state to see whether it
+    //     routes to a *ForwardSprint_MG commitment generator or a bare generator; grep a state machine to
+    //     see its states + wildcard transitions (event -> toState). Records: "edge" phase.
+    // id/symbol -> human name, so edge targets (stored as ids) render readable.
+    IdName idName;
+    collectNames(bd.clips, idName);                 collectNames(bd.blenders, idName);
+    collectNames(bd.selectors, idName);             collectNames(bd.stateMachines, idName);
+    collectNames(bd.states, idName);                collectNames(bd.transitionEffects, idName);
+    collectNames(bd.modifierGenerators, idName);    collectNames(bd.isActiveModifiers, idName);
+    collectNames(bd.modifierLists, idName);         collectNames(bd.eventDrivenModifiers, idName);
+    collectNames(bd.genericModifiers, idName);      collectNames(bd.evaluateExpressionModifiers, idName);
+    collectNames(bd.footIkModifiers, idName);       collectNames(bd.iStateManagerModifiers, idName);
+    collectNames(bd.stateTaggingGenerators, idName);collectNames(bd.cyclicBlendGenerators, idName);
+    collectNames(bd.synchronizedClips, idName);     collectNames(bd.boneSwitchGenerators, idName);
+    collectNames(bd.offsetAnimGenerators, idName);  collectNames(bd.poseMatchingGenerators, idName);
+    collectNames(bd.referencePoseGenerators, idName);collectNames(bd.behaviorReferences, idName);
+    const auto tgtLabel = [&](const std::string& id) {
+        auto it = idName.find(id);
+        return it != idName.end() ? (it->second + " [" + id + "]") : id;
+    };
+    const auto edge = [&](const char* cls, const std::string& name, const std::string& role, const std::string& target) {
+        if (!target.empty() && target != "null") trace::Rec("edge", unit, cls, name, role, "->", tgtLabel(target));
+    };
+    const auto transTo = [](const TransitionInfoDef& t) {
+        return t.toState ? *t.toState : ("state#" + std::to_string(t.toStateId));
+    };
+    const auto transEv = [](const TransitionInfoDef& t) {
+        return t.event ? *t.event : ("event#" + std::to_string(t.eventId));
+    };
+    // The fields that distinguish otherwise-similar combo-stage transitions (same event+toState): the
+    // nested-state stage, priority, effect, and any gating condition / trigger-interval window. Without
+    // these two combo transitions look like duplicates when they are not.
+    const auto transTail = [](const TransitionInfoDef& t) {
+        std::string s = " nested=" + std::to_string(t.toNestedStateId) + " prio=" + std::to_string(t.priority);
+        if (!t.transition.empty()) s += " via " + t.transition;
+        if (t.condition)           s += " cond=" + *t.condition;
+        if (t.triggerInterval.enterEvent) s += " trig=" + *t.triggerInterval.enterEvent;
+        return s;
+    };
+    for (const auto& [n, d] : bd.states) {
+        const std::string src = nodeLabel(n, d);
+        edge("hkbStateMachineStateInfo", src, "generator", d.generator);
+        if (d.parsedTransitions)
+            for (const auto& t : *d.parsedTransitions)
+                trace::Rec("edge", unit, "hkbStateMachineStateInfo", src, "trans[" + transEv(t) + "]", "->",
+                           transTo(t) + transTail(t));
+    }
+    for (const auto& [n, d] : bd.stateMachines) {
+        const std::string src = nodeLabel(n, d);
+        for (std::size_t i = 0; i < d.states.size(); ++i)
+            edge("hkbStateMachine", src, "states[" + std::to_string(i) + "]", d.states[i]);
+        if (d.parsedWildcardTransitions)
+            for (const auto& t : *d.parsedWildcardTransitions)
+                trace::Rec("edge", unit, "hkbStateMachine", src, "wildcard[" + transEv(t) + "]", "->", transTo(t) + transTail(t));
+    }
+    for (const auto& [n, d] : bd.modifierGenerators) {
+        const std::string src = nodeLabel(n, d);
+        edge("hkbModifierGenerator", src, "generator", d.generator);
+        edge("hkbModifierGenerator", src, "modifier",  d.modifier);
+    }
+    for (const auto& [n, d] : bd.modifierLists)
+        for (std::size_t i = 0; i < d.modifiers.size(); ++i)
+            edge("hkbModifierList", nodeLabel(n, d), "modifiers[" + std::to_string(i) + "]", d.modifiers[i]);
+    for (const auto& [n, d] : bd.selectors)
+        for (std::size_t i = 0; i < d.generators.size(); ++i)
+            edge("hkbManualSelectorGenerator", nodeLabel(n, d), "generators[" + std::to_string(i) + "]", d.generators[i]);
+    for (const auto& [n, d] : bd.blenders)
+        for (std::size_t i = 0; i < d.children.size(); ++i)
+            edge("hkbBlenderGenerator", nodeLabel(n, d), "children[" + std::to_string(i) + "]", d.children[i].generator);
+    for (const auto& [n, d] : bd.eventDrivenModifiers)
+        edge("hkbEventDrivenModifier", nodeLabel(n, d), "modifier", d.modifier);
 }
 
 } // namespace havok::model
