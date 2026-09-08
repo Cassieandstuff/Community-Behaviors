@@ -10,6 +10,7 @@
 
 #include <havok/model/yaml/YamlBehaviorLoader.h>
 #include <havok/model/yaml/CharacterYamlLoader.h>
+#include <havok/model/CompileTrace.h>   // schema-driven compile-trace (opt-in via compile_trace.enable)
 #include <havok/model/yaml/UnitSource.h>
 #include <havok/model/yaml/HkyArchive.h>
 #include <havok/sct/BehaviorCompiler.h>
@@ -957,11 +958,35 @@ namespace CB {
         keys.reserve(m_sources.size());
         for (const auto& [k, _] : m_sources) keys.push_back(k);
 
+        // Compile-trace (opt-in marker Data\community_behaviors\compile_trace.enable): route the
+        // schema-driven probe trace of every behavior compile to a greppable log file. Zero cost when
+        // off (the marker absent -> no sink -> trace::Enabled() is a null pointer test at the tap).
+        // Probes ride on the deployed schema tree (Havok/core/Schema/debug/*.yaml) — edit them to steer.
+        std::shared_ptr<std::ofstream> traceLog;
+        const bool traceOn = std::filesystem::exists("Data/community_behaviors/compile_trace.enable");
+        if (traceOn) {
+            traceLog = std::make_shared<std::ofstream>("Data/community_behaviors/compile_trace.log", std::ios::binary);
+            havok::model::trace::SetSink([traceLog](std::string_view l) {
+                traceLog->write(l.data(), static_cast<std::streamsize>(l.size())); traceLog->put('\n');
+            });
+            std::string pw;
+            const std::size_t np = havok::model::trace::LoadProbes("Data/Community Behaviors/Havok/core/Schema/debug", &pw);
+            if (!pw.empty()) LOG_WARN("Community Behaviors: compile-trace probe load: {}", pw);
+            LOG_INFO("Community Behaviors: COMPILE-TRACE ON ({} probe file(s)) -> Data\\community_behaviors\\compile_trace.log", np);
+        }
+
         const std::size_t total = keys.size();
         std::size_t       done  = 0;
         for (const auto& k : keys) {
             Resolve(k);
             if (progress) progress(++done, total);
+        }
+
+        if (traceOn) {
+            traceLog->flush();
+            havok::model::trace::SetSink({});
+            havok::model::trace::ClearProbes();
+            LOG_INFO("Community Behaviors: compile-trace written.");
         }
     }
 
@@ -1597,6 +1622,10 @@ namespace CB {
             }
 
             auto data = havok::model::YamlBehaviorLoader::LoadMerged(gs.layers);
+
+            // Compile-trace tap: name-annotated variable-table / binding / topology records for this
+            // merged graph (guarded — trace::Enabled() is a null pointer test, so off = free).
+            if (havok::model::trace::Enabled()) havok::model::TraceGraph(data, key);
 
             // Skeleton for bone-name resolution: if the unit didn't carry one, use this actor's
             // merged bone list (base + skeleton-extender appends, folded in Init). Actor key =
