@@ -304,6 +304,27 @@ std::string peekClass(const c4::yml::ConstNodeRef& root) {
     return str(root, "class");
 }
 
+// ── scanSourceSection: the ONE node-collection scan (Stage 1 consolidation) ─────────────────────
+// Every yaml node file under `sub` in ONE layer source. For each: parse, skip keyless nodes, and hand
+// the callback (class, key, moved-text). This is the single place that reads + identifies a unit's
+// node files — both the graph loader (eachYaml, which then groups+merges+builds) and NodeContributions
+// (which accumulates per-layer overlaps) go through it, so the two can no longer drift (they were
+// hand-synced with a "MUST mirror" comment). Per-SOURCE (not the whole unit) so each caller keeps its
+// own layer/section loop order — behavior stays identical to the two inlined scans this replaces.
+template <class Cb>
+void scanSourceSection(const IUnitSource& src, const char* sub, bool recursive, Cb&& cb) {
+    for (const std::string& rel : src.listYaml(sub, recursive)) {
+        auto text = src.read(rel);
+        if (!text) continue;
+        std::string   probe = *text;                       // parseNamed mutates in place; probe for identity
+        c4::yml::Tree tree  = parseNamed(probe, fs::path(rel));
+        std::string   k     = keyOf(tree.rootref());
+        if (k.empty()) continue;                            // keyless: both consumers skip it
+        std::string   cls   = peekClass(tree.rootref());
+        cb(std::move(cls), std::move(k), std::move(*text));
+    }
+}
+
 // ── skeleton.yaml: read `character assets/skeleton.yaml` from the source ───────
 // (DiskUnitSource resolves the vanilla upward-search convention internally; an
 // in-memory source packages it unit-relative.)
@@ -692,28 +713,24 @@ static void loadDirInto(BehaviorData& data,
         std::vector<std::string> order;                                    // group keys, first-seen order
         std::unordered_map<std::string, std::vector<std::string>> byKey;   // group key -> per-layer texts
         std::unordered_map<std::string, std::string> keyName;              // group key -> keyOf (merge diag)
-        auto scanFile = [&](std::string text, const std::string& rel) {
-            std::string probe = text;                          // parse_in_place mutates; probe for keyOf
-            c4::yml::Tree tree = parseNamed(probe, fs::path(rel));
-            std::string k = keyOf(tree.rootref());
-            if (k.empty()) return;                             // keyless: the body's keyOf-guarded assign
-                                                               // is a no-op today, so skipping is equivalent
-            // Group by (class,key), NOT key alone. Within one section dir two files can
-            // legitimately share a name when their `class:` differs — a state 'X' and the
-            // nested state machine 'X' it wraps (Engine Relay's Shd_BlockIdle_1stP) go to
-            // different maps (data.states vs data.stateMachines) and must NOT merge. A real
-            // cross-layer delta repeats the base's class (the converter emits every node via
-            // the per-class decompiler), so same-object layers still group and bash-merge.
-            std::string gk = peekClass(tree.rootref());
-            gk += '\x1f';
-            gk += k;
-            auto it = byKey.find(gk);
-            if (it == byKey.end()) { order.push_back(gk); keyName.emplace(gk, k); }
-            byKey[gk].push_back(std::move(text));
-        };
-        for (const auto& src : sources)
-            for (const std::string& rel : src->listYaml(sub, recursive))
-                if (auto t = src->read(rel)) scanFile(std::move(*t), rel);
+        // Group by (class,key), NOT key alone. Within one section dir two files can legitimately
+        // share a name when their `class:` differs — a state 'X' and the nested state machine 'X' it
+        // wraps (Engine Relay's Shd_BlockIdle_1stP) go to different maps (data.states vs
+        // data.stateMachines) and must NOT merge. A real cross-layer delta repeats the base's class
+        // (the converter emits every node via the per-class decompiler), so same-object layers still
+        // group and bash-merge. Scan via the shared scanUnitNodes (Stage 1) — the single collector.
+        for (const auto& src : sources) {
+            if (!src) continue;
+            scanSourceSection(*src, sub, recursive,
+                [&](std::string cls, std::string k, std::string text) {
+                    std::string gk = std::move(cls);
+                    gk += '\x1f';
+                    gk += k;
+                    auto it = byKey.find(gk);
+                    if (it == byKey.end()) { order.push_back(gk); keyName.emplace(gk, k); }
+                    byKey[gk].push_back(std::move(text));
+                });
+        }
         for (const std::string& gk : order) {
             std::vector<std::string>& texts = byKey[gk];
             if (texts.size() == 1) {                           // single layer: no merge
@@ -1584,9 +1601,10 @@ BehaviorData YamlBehaviorLoader::LoadMerged(const std::vector<std::shared_ptr<co
 
 std::vector<YamlBehaviorLoader::NodeContribution>
 YamlBehaviorLoader::NodeContributions(const std::vector<std::shared_ptr<const IUnitSource>>& sources) {
-    // Sections + recursion flags — MUST mirror loadDirInto's eachYaml(...) calls above so
-    // the grouping is byte-for-byte what the merge overlays by (keep in sync when a section
-    // is added). Same keyOf/peekClass/'\x1f' identity as the merge seam (line ~580).
+    // Sections + recursion flags — the section LIST must still mirror loadDirInto's eachYaml(...)
+    // calls above (keep in sync when a section is added). The SCAN itself no longer can drift: both
+    // paths go through the shared scanSourceSection (same keyOf/peekClass/'\x1f' identity). Stage 2 of
+    // the discovery refactor removes even this list-mirror by dispatching on the node's own class.
     static constexpr struct { const char* sub; bool recursive; } kSections[] = {
         { "clips", true }, { "selectors", true }, { "transitions", true }, { "generators", true },
         { "modifiers", false }, { "references", true }, { "tagging", true }, { "states", false },
@@ -1601,27 +1619,23 @@ YamlBehaviorLoader::NodeContributions(const std::vector<std::shared_ptr<const IU
         const auto& src = sources[li];
         if (!src) continue;
         for (const auto& sec : kSections) {
-            for (const std::string& rel : src->listYaml(sec.sub, sec.recursive)) {
-                auto text = src->read(rel);
-                if (!text) continue;
-                std::string  probe = *text;                       // parseNamed mutates in place
-                c4::yml::Tree tree  = parseNamed(probe, fs::path(rel));
-                std::string   k     = keyOf(tree.rootref());
-                if (k.empty()) continue;                          // keyless: the merge skips it too
-                std::string cls    = peekClass(tree.rootref());
-                std::string mapKey = std::string(sec.sub) + '\x1f' + cls + '\x1f' + k;
-                auto it = index.find(mapKey);
-                std::size_t ai;
-                if (it == index.end()) {
-                    ai = accs.size();
-                    index.emplace(std::move(mapKey), ai);
-                    accs.push_back({ sec.sub, std::move(cls), std::move(k), {} });
-                } else {
-                    ai = it->second;
-                }
-                auto& L = accs[ai].layers;
-                if (L.empty() || L.back() != li) L.push_back(li);  // ascending; dedup same-layer dupes
-            }
+            // Same shared scan the loader uses (scanSourceSection) — no more parallel parse/keyOf/
+            // peekClass to keep in sync. Layer/section loop order preserved (li outer, sec inner).
+            scanSourceSection(*src, sec.sub, sec.recursive,
+                [&](std::string cls, std::string k, std::string /*text*/) {
+                    std::string mapKey = std::string(sec.sub) + '\x1f' + cls + '\x1f' + k;
+                    auto it = index.find(mapKey);
+                    std::size_t ai;
+                    if (it == index.end()) {
+                        ai = accs.size();
+                        index.emplace(std::move(mapKey), ai);
+                        accs.push_back({ sec.sub, std::move(cls), std::move(k), {} });
+                    } else {
+                        ai = it->second;
+                    }
+                    auto& L = accs[ai].layers;
+                    if (L.empty() || L.back() != li) L.push_back(li);  // ascending; dedup same-layer dupes
+                });
         }
     }
 
