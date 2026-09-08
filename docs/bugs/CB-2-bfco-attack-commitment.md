@@ -55,6 +55,32 @@ Offline byte-gated vs Pandora: AttackState 30/30, BlockState 26/26.
 - **adsf clip↔motion binding** — is name-resolved (`ResolveMotionIndices`, first-occurrence-wins);
   sharp edge is duplicate clip names collapsing motions onto the first index — a *secondary* suspect.
 
+## Session findings (2026-09-07)
+- **Reusable offline harness:** `havok-core-cli hky-merge-compile <unit> <master.hky> <delta.hky…> -o out
+  --schema <Havok>` reproduces the runtime `LoadMerged` for one serve-path unit. Bundles live in
+  `<SKYRIM_MODS_FOLDER>/Output_BR/community_behaviors/plugins/` + the master in `Community Behaviors/`.
+- **BR-39's exact mechanism is NOT the live cause.** Merging master + BFCO + DMCO + SBF emitted **zero**
+  union-collision diagnostics on the attack transitions — compose is handling them (silently). So the
+  surviving-stale-transition-edge path isn't what fires in this stack.
+- **Commitment mechanism located:** BFCO wraps each attack generator in an `hkbModifierGenerator`
+  (`AttackForwardSprint_MG` / `AttackPowerForwardSprint_MG`) whose modifier is a `hkbModifierList`
+  (`bfco$921/922/923` = `BFCO_AttackModifierList_norP/sp/spN`, stacking `bfco$931/934/936/941/943/944/962`).
+  This is the "state machine wrapped in a modifier."
+- **Block gate located:** `BFCO_IsBlockingModf` (`bfco$960`, `BSIsActiveModifier`) writes variable **109
+  `BFCO_IsBlocking`** and checks node-active-state — the shield-drop hinge.
+- **Binding membrane EXISTS:** CB name-resolves each binding's `variableIndex` from its `variable` name at
+  compile (`SchemaBuilder.cpp:107` Stage-4; symbol table `HavokModel.cpp:1454`). So the lead is not "no
+  membrane" but whether the **merged variable table order/content** and the **node-id refs inside
+  `BSIsActiveModifier`/the commitment modifiers** resolve correctly for these BFCO nodes.
+
+## New leading hypothesis
+The merged graph's internal reference integrity for the BFCO commitment/block modifiers — either a
+variable-name that doesn't resolve against the merged variable table (falls back / wrong index), or a
+`BSIsActiveModifier` node-id ref that isn't remapped to the merged node — so `BFCO_IsBlocking` (and the
+commitment gate) read wrong. One cause fits both symptoms. Decisive test: diff CB's merged `1hm_behavior`
+(commitment `hkbModifierGenerator` subtree + the block `BSIsActiveModifier` + the variable table) against
+**Pandora's** output for the same unit (source-of-truth).
+
 ## Disposition
 Diagnostic (source-of-truth, per CLAUDE.md — external tools / Pandora XML, NOT CB's own decompiler as
 the lens): identify the **state machine wrapped in a modifier** that gates 2nd-attack commitment (and
