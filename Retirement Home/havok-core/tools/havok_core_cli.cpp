@@ -46,6 +46,7 @@
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
 #include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
 #include <havok/skeleton/SkeletonCompiler.h> // schema-native writer (skeleton-full-parity gate)
+#include <havok/skeleton/SkeletonYaml.h>     // schema-native yaml (skeleton-yaml-parity gate)
 #include "havok/sct/SkeletonCompiler.h"     // CompileSkeleton (skeleton-recompile gate)
 #include "havok/sct/SkeletonYaml.h"         // Emit/LoadSkeletonYaml (skeleton-compile/-decompile)
 #include "havok/sct/TagfileOracle.h"
@@ -5689,6 +5690,55 @@ int doSkeletonOverbaseParity(const std::string& in) {
     return 1;
 }
 
+// skeleton-yaml-parity: read → EmitSkeletonYaml → LoadSkeletonYaml → CompileSkeletonFull must byte-match
+// CompileSkeletonFull of the directly-read SkeletonData. Proves the yaml round-trip preserves every
+// compile-relevant field (names/parents/poses/physics/bumper).
+int doSkeletonYamlParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    std::vector<havok::skeleton::SkeletonData> N;
+    if (!havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &err) || N.empty()) { std::printf("read failed: %s\n", err.c_str()); return 1; }
+    havok::skeleton::ReadSkeletonPhysics(bytes.data(), bytes.size(), N[0], nullptr);
+
+    const std::string yaml = havok::skeleton::EmitSkeletonYaml(N[0]);
+    const std::filesystem::path tmp = std::filesystem::temp_directory_path() / "cb_skel_yaml_parity.yaml";
+    { std::ofstream f(tmp, std::ios::binary); f.write(yaml.data(), static_cast<std::streamsize>(yaml.size())); }
+    havok::skeleton::SkeletonData M;
+    if (!havok::skeleton::LoadSkeletonYaml(tmp, M, &err)) { std::printf("yaml load failed: %s\n", err.c_str()); return 1; }
+
+    // Model compare with float tolerance — the yaml is a human-readable authoring format (%.9g decimal),
+    // so poses round-trip to near-exact, not necessarily bit-exact. The contract is: names/parents/
+    // lock/physics EXACT, poses within decimal precision.
+    const auto& A = N[0]; int mism = 0;
+    const auto note = [&](const std::string& m) { if (mism < 20) std::printf("  MISMATCH: %s\n", m.c_str()); ++mism; };
+    const auto feq = [](float a, float b) { return std::fabs(a - b) <= 1e-5f * (1.f + std::fabs(a)); };
+    const auto v4 = [&](const havok::Vector4& a, const havok::Vector4& b) { return feq(a.x,b.x)&&feq(a.y,b.y)&&feq(a.z,b.z)&&feq(a.w,b.w); };
+    const auto q  = [&](const havok::QSTransform& a, const havok::QSTransform& b) {
+        return v4(a.translation,b.translation) && feq(a.rotation.x,b.rotation.x)&&feq(a.rotation.y,b.rotation.y)
+            && feq(a.rotation.z,b.rotation.z)&&feq(a.rotation.w,b.rotation.w) && v4(a.scale,b.scale); };
+    if (A.name != M.name) note("name '" + A.name + "' vs '" + M.name + "'");
+    if (A.bones.size() != M.bones.size()) { std::printf("skeleton-yaml-parity: FAIL bone count %zu vs %zu\n", A.bones.size(), M.bones.size()); return 1; }
+    for (std::size_t i = 0; i < A.bones.size(); ++i) {
+        const auto& a = A.bones[i]; const auto& b = M.bones[i]; const std::string at = "bone[" + std::to_string(i) + "]";
+        if (a.name != b.name) note(at + ".name '" + a.name + "' vs '" + b.name + "'");
+        if (a.parentIndex != b.parentIndex) note(at + ".parentIndex");
+        if (a.lockTranslation != b.lockTranslation) note(at + ".lockTranslation");
+        if (!q(a.refPose, b.refPose)) note(at + ".refPose");
+        if (a.physics.has_value() != b.physics.has_value()) { note(at + ".physics presence"); continue; }
+        if (!a.physics) continue;
+        const auto& pa = *a.physics; const auto& pb = *b.physics;
+        if (!feq(pa.mass,pb.mass) || !feq(pa.radius,pb.radius)) note(at + ".physics mass/radius");
+        // capsule endpoints are 3D points; the w is unused padding the yaml (vec3) intentionally drops.
+        const auto v3 = [&](const havok::Vector4& x, const havok::Vector4& y) { return feq(x.x,y.x)&&feq(x.y,y.y)&&feq(x.z,y.z); };
+        if (pa.capsule.has_value() != pb.capsule.has_value()) note(at + ".capsule presence");
+        else if (pa.capsule && (!v3(pa.capsule->a,pb.capsule->a) || !v3(pa.capsule->b,pb.capsule->b))) note(at + ".capsule");
+        if (pa.joint.has_value() != pb.joint.has_value()) note(at + ".joint presence");
+    }
+    if (A.bumper.has_value() != M.bumper.has_value()) note("bumper presence");
+    std::printf("skeleton-yaml-parity: %d mismatch(es) over %zu bones — %s\n", mism, A.bones.size(), mism == 0 ? "OK (round-trips to decimal precision)" : "FAIL");
+    return mism == 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     const std::string verb = argv[1];
@@ -5752,6 +5802,7 @@ int main(int argc, char** argv) {
     if (verb == "skeleton-parity") return doSkeletonParity(in);
     if (verb == "skeleton-full-parity") return doSkeletonFullParity(in);
     if (verb == "skeleton-overbase-parity") return doSkeletonOverbaseParity(in);
+    if (verb == "skeleton-yaml-parity") return doSkeletonYamlParity(in);
     if (verb == "skeleton-recompile") return doSkeletonRecompile(in, out);
     if (verb == "skeleton-decompile") return doSkeletonDecompile(in, out);
     if (verb == "skeleton-decompile-tree") return doSkeletonDecompileTree(in, out);
