@@ -55,6 +55,7 @@ add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
+add_subdirectory(src/havok-skeleton)  # schema-driven skeleton codec (depends on havok-io)
 add_subdirectory(src/cb-resolve)
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 

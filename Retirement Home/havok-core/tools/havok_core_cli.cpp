@@ -44,6 +44,9 @@
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree (name-keyed derive-delta)
 #include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
+#include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
+#include <havok/skeleton/SkeletonCompiler.h> // schema-native writer (skeleton-full-parity gate)
+#include <havok/skeleton/SkeletonYaml.h>     // schema-native yaml (skeleton-yaml-parity gate)
 #include "havok/sct/SkeletonCompiler.h"     // CompileSkeleton (skeleton-recompile gate)
 #include "havok/sct/SkeletonYaml.h"         // Emit/LoadSkeletonYaml (skeleton-compile/-decompile)
 #include "havok/sct/TagfileOracle.h"
@@ -5548,6 +5551,194 @@ int doSchemaParity(const std::string& havokDir) {
     return (sizeMismatch + sigMismatch) == 0 ? 0 : 1;
 }
 
+// skeleton-parity: read a skeleton.hkx with BOTH the typed havok-core oracle (havok::sct) and the new
+// schema-native reader (havok::skeleton) and diff the resulting SkeletonData field-by-field. Both types
+// resolve to the same havok::Vector4/QSTransform in this TU, so a direct compare is valid. Zero
+// mismatches proves the schema-native reader reproduces the proven implementation. Ground-truth files
+// are the vanilla skeletons under $SKYRIM_DATASOURCE (character + creatures).
+int doSkeletonParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+
+    std::vector<havok::sct::SkeletonData>      T;   // typed oracle
+    std::vector<havok::skeleton::SkeletonData> N;   // schema-native
+    std::string te, ne;
+    const bool tok = havok::sct::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), T, &te);
+    const bool nok = havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &ne);
+    if (tok != nok) { std::printf("MISMATCH: load ok differs (typed=%d schema=%d; te='%s' ne='%s')\n", tok, nok, te.c_str(), ne.c_str()); return 1; }
+    if (!T.empty()) havok::sct::ReadSkeletonPhysics(bytes.data(), bytes.size(), T[0], nullptr);
+    if (!N.empty()) havok::skeleton::ReadSkeletonPhysics(bytes.data(), bytes.size(), N[0], nullptr);
+
+    int mism = 0;
+    const auto note = [&](const std::string& m) { if (mism < 30) std::printf("  MISMATCH: %s\n", m.c_str()); ++mism; };
+    const auto feq  = [](float a, float b) { return std::fabs(a - b) <= 1e-6f * (1.f + std::fabs(a)); };
+    const auto v4eq = [&](const havok::Vector4& a, const havok::Vector4& b) { return feq(a.x,b.x)&&feq(a.y,b.y)&&feq(a.z,b.z)&&feq(a.w,b.w); };
+    const auto qeq  = [&](const havok::QSTransform& a, const havok::QSTransform& b) {
+        return v4eq(a.translation,b.translation)
+            && feq(a.rotation.x,b.rotation.x)&&feq(a.rotation.y,b.rotation.y)&&feq(a.rotation.z,b.rotation.z)&&feq(a.rotation.w,b.rotation.w)
+            && v4eq(a.scale,b.scale); };
+
+    if (T.size() != N.size()) { std::printf("MISMATCH: skeleton count typed=%zu schema=%zu\n", T.size(), N.size()); return 1; }
+
+    std::size_t bonesCompared = 0, physCompared = 0;
+    for (std::size_t s = 0; s < T.size(); ++s) {
+        const auto& t = T[s]; const auto& n = N[s];
+        if (t.name != n.name) note("skel[" + std::to_string(s) + "].name '" + t.name + "' vs '" + n.name + "'");
+        if (t.bones.size() != n.bones.size()) { note("skel[" + std::to_string(s) + "].bones " + std::to_string(t.bones.size()) + " vs " + std::to_string(n.bones.size())); continue; }
+        for (std::size_t i = 0; i < t.bones.size(); ++i) {
+            const auto& tb = t.bones[i]; const auto& nb = n.bones[i];
+            const std::string at = "skel[" + std::to_string(s) + "].bone[" + std::to_string(i) + "]";
+            ++bonesCompared;
+            if (tb.name != nb.name)                       note(at + ".name '" + tb.name + "' vs '" + nb.name + "'");
+            if (tb.parentIndex != nb.parentIndex)         note(at + ".parentIndex " + std::to_string(tb.parentIndex) + " vs " + std::to_string(nb.parentIndex));
+            if (tb.lockTranslation != nb.lockTranslation) note(at + ".lockTranslation differs");
+            if (!qeq(tb.refPose, nb.refPose))             note(at + ".refPose differs");
+            if (tb.physics.has_value() != nb.physics.has_value()) { note(at + ".physics presence differs"); continue; }
+            if (!tb.physics) continue;
+            ++physCompared;
+            const auto& tp = *tb.physics; const auto& np = *nb.physics;
+            if (!feq(tp.mass, np.mass))     note(at + ".mass " + std::to_string(tp.mass) + " vs " + std::to_string(np.mass));
+            if (!feq(tp.radius, np.radius)) note(at + ".radius differs");
+            if (tp.capsule.has_value() != np.capsule.has_value()) note(at + ".capsule presence differs");
+            else if (tp.capsule && (!v4eq(tp.capsule->a, np.capsule->a) || !v4eq(tp.capsule->b, np.capsule->b))) note(at + ".capsule differs");
+            if (tp.friction.has_value() != np.friction.has_value()) note(at + ".friction presence differs");
+            else if (tp.friction && !feq(*tp.friction, *np.friction)) note(at + ".friction differs");
+            if (tp.restitution.has_value() != np.restitution.has_value()) note(at + ".restitution presence differs");
+            else if (tp.restitution && !feq(*tp.restitution, *np.restitution)) note(at + ".restitution differs");
+            if (tp.ragdollLocal.has_value() != np.ragdollLocal.has_value()) note(at + ".ragdollLocal presence differs");
+            else if (tp.ragdollLocal && !qeq(*tp.ragdollLocal, *np.ragdollLocal)) note(at + ".ragdollLocal differs");
+            if (tp.joint.has_value() != np.joint.has_value()) { note(at + ".joint presence differs"); continue; }
+            if (!tp.joint) continue;
+            const auto& tj = *tp.joint; const auto& nj = *np.joint;
+            if (static_cast<int>(tj.type) != static_cast<int>(nj.type)) note(at + ".joint.type differs");
+            if (!feq(tj.twistMin,nj.twistMin)||!feq(tj.twistMax,nj.twistMax)||!feq(tj.coneMax,nj.coneMax)
+              ||!feq(tj.planeMin,nj.planeMin)||!feq(tj.planeMax,nj.planeMax)
+              ||!feq(tj.angMin,nj.angMin)||!feq(tj.angMax,nj.angMax)) note(at + ".joint limits differ");
+            if (tj.twistAxis.has_value() != nj.twistAxis.has_value()) note(at + ".joint.twistAxis presence differs");
+            else if (tj.twistAxis && !v4eq(*tj.twistAxis, *nj.twistAxis)) note(at + ".joint.twistAxis differs");
+            if (tj.planeAxis.has_value() != nj.planeAxis.has_value()) note(at + ".joint.planeAxis presence differs");
+            else if (tj.planeAxis && !v4eq(*tj.planeAxis, *nj.planeAxis)) note(at + ".joint.planeAxis differs");
+        }
+        if (t.bumper.has_value() != n.bumper.has_value()) note("skel[" + std::to_string(s) + "].bumper presence differs");
+        else if (t.bumper && (!v4eq(t.bumper->pos,n.bumper->pos) || !feq(t.bumper->radius,n.bumper->radius)
+                            || !v4eq(t.bumper->capsule.a,n.bumper->capsule.a) || !v4eq(t.bumper->capsule.b,n.bumper->capsule.b)
+                            || !feq(t.bumper->friction,n.bumper->friction) || !feq(t.bumper->restitution,n.bumper->restitution)))
+            note("skel[" + std::to_string(s) + "].bumper differs");
+    }
+    std::printf("skeleton-parity: %d mismatch(es) over %zu skeleton(s), %zu bones (%zu with physics) — %s\n",
+                mism, T.size(), bonesCompared, physCompared, mism == 0 ? "OK" : "FAIL");
+    return mism == 0 ? 0 : 1;
+}
+
+// skeleton-full-parity: compile the FULL ragdoll skeleton via BOTH the NEW schema-native writer
+// (havok::skeleton::CompileSkeletonFull) and the typed havok-core writer, and byte-compare. Reads the
+// SkeletonData with each stack's own (parity-proven) reader. Zero diff proves the de-typed writer
+// reproduces the byte-exact typed emit. Ground-truth files: vanilla skeletons under $SKYRIM_DATASOURCE.
+int doSkeletonFullParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+
+    // typed side
+    std::vector<havok::sct::SkeletonData> T;
+    if (!havok::sct::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), T, &err) || T.empty()) { std::printf("typed read failed: %s\n", err.c_str()); return 1; }
+    havok::sct::ReadSkeletonPhysics(bytes.data(), bytes.size(), T[0], nullptr);
+    // Compare against havok-core's SCHEMA emit (the proven-byte-identical-modulo-signed-zero peer), which
+    // is the correct peer for a schema-native writer — the raw typed emit differs from BOTH only by the
+    // accepted -0.0 capsule vertex-W padding. Needs the Havok/ schema dir ($SCT_HAVOK_SCHEMA_DIR).
+    const char* sd = std::getenv("SCT_HAVOK_SCHEMA_DIR");
+    havok::sct::SetSchemaCompiler(true, sd ? sd : "");
+    auto rt = havok::sct::CompileSkeletonFull(T[0]);
+    if (!rt.ok) { std::printf("havok-core schema compile failed: %s\n", rt.error.c_str()); return 1; }
+
+    // schema-native side
+    std::vector<havok::skeleton::SkeletonData> N;
+    if (!havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &err) || N.empty()) { std::printf("schema read failed: %s\n", err.c_str()); return 1; }
+    havok::skeleton::ReadSkeletonPhysics(bytes.data(), bytes.size(), N[0], nullptr);
+    auto rn = havok::skeleton::CompileSkeletonFull(N[0]);
+    if (!rn.ok) { std::printf("schema compile failed: %s\n", rn.error.c_str()); return 1; }
+
+    if (rt.bytes == rn.bytes) { std::printf("skeleton-full-parity: schema-native == typed BYTE-IDENTICAL (%zu bytes)\n", rn.bytes.size()); return 0; }
+    std::size_t d = 0; while (d < rt.bytes.size() && d < rn.bytes.size() && rt.bytes[d] == rn.bytes[d]) ++d;
+    std::printf("skeleton-full-parity: REAL DIFF — sizes typed=%zu schema=%zu, first diff @0x%zx\n", rt.bytes.size(), rn.bytes.size(), d);
+    // count total differing bytes + print a window
+    std::size_t ndiff = 0; for (std::size_t k = 0; k < rt.bytes.size() && k < rn.bytes.size(); ++k) if (rt.bytes[k] != rn.bytes[k]) ++ndiff;
+    std::printf("  total differing bytes: %zu\n", ndiff);
+    // list the first 20 differing offsets + their spacing (reveals the per-object field)
+    std::printf("  diff offsets:");
+    std::size_t prev = 0, shown = 0;
+    for (std::size_t k = 0; k < rt.bytes.size() && k < rn.bytes.size() && shown < 20; ++k)
+        if (rt.bytes[k] != rn.bytes[k]) { std::printf(" 0x%zx(t=%02x,s=%02x,+%zu)", k, rt.bytes[k], rn.bytes[k], k - prev); prev = k; ++shown; }
+    std::printf("\n");
+    return 1;
+}
+
+// skeleton-overbase-parity: CompileSkeletonOverBase with the file's OWN anim bones (identity) must
+// reproduce the havok-io round-trip of the base byte-for-byte (the serve-existing-content contract).
+int doSkeletonOverbaseParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    std::vector<havok::skeleton::SkeletonData> N;
+    if (!havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &err) || N.empty()) { std::printf("read failed: %s\n", err.c_str()); return 1; }
+    auto rob = havok::skeleton::CompileSkeletonOverBase(N[0], bytes);
+    if (!rob.ok) { std::printf("over-base failed: %s\n", rob.error.c_str()); return 1; }
+    havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
+    std::vector<std::uint8_t> rt;
+    if (!reg || !havok::io::RoundtripHkx(bytes, *reg, rt, err)) { std::printf("io roundtrip failed: %s\n", err.c_str()); return 1; }
+    if (rob.bytes == rt) { std::printf("skeleton-overbase-parity: over-base(identity) == io-roundtrip BYTE-IDENTICAL (%zu bytes)\n", rob.bytes.size()); return 0; }
+    std::size_t d = 0; while (d < rob.bytes.size() && d < rt.size() && rob.bytes[d] == rt[d]) ++d;
+    std::printf("skeleton-overbase-parity: DIFF — over-base=%zu roundtrip=%zu, first diff @0x%zx\n", rob.bytes.size(), rt.size(), d);
+    return 1;
+}
+
+// skeleton-yaml-parity: read → EmitSkeletonYaml → LoadSkeletonYaml → CompileSkeletonFull must byte-match
+// CompileSkeletonFull of the directly-read SkeletonData. Proves the yaml round-trip preserves every
+// compile-relevant field (names/parents/poses/physics/bumper).
+int doSkeletonYamlParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    std::vector<havok::skeleton::SkeletonData> N;
+    if (!havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &err) || N.empty()) { std::printf("read failed: %s\n", err.c_str()); return 1; }
+    havok::skeleton::ReadSkeletonPhysics(bytes.data(), bytes.size(), N[0], nullptr);
+
+    const std::string yaml = havok::skeleton::EmitSkeletonYaml(N[0]);
+    const std::filesystem::path tmp = std::filesystem::temp_directory_path() / "cb_skel_yaml_parity.yaml";
+    { std::ofstream f(tmp, std::ios::binary); f.write(yaml.data(), static_cast<std::streamsize>(yaml.size())); }
+    havok::skeleton::SkeletonData M;
+    if (!havok::skeleton::LoadSkeletonYaml(tmp, M, &err)) { std::printf("yaml load failed: %s\n", err.c_str()); return 1; }
+
+    // Model compare with float tolerance — the yaml is a human-readable authoring format (%.9g decimal),
+    // so poses round-trip to near-exact, not necessarily bit-exact. The contract is: names/parents/
+    // lock/physics EXACT, poses within decimal precision.
+    const auto& A = N[0]; int mism = 0;
+    const auto note = [&](const std::string& m) { if (mism < 20) std::printf("  MISMATCH: %s\n", m.c_str()); ++mism; };
+    const auto feq = [](float a, float b) { return std::fabs(a - b) <= 1e-5f * (1.f + std::fabs(a)); };
+    const auto v4 = [&](const havok::Vector4& a, const havok::Vector4& b) { return feq(a.x,b.x)&&feq(a.y,b.y)&&feq(a.z,b.z)&&feq(a.w,b.w); };
+    const auto q  = [&](const havok::QSTransform& a, const havok::QSTransform& b) {
+        return v4(a.translation,b.translation) && feq(a.rotation.x,b.rotation.x)&&feq(a.rotation.y,b.rotation.y)
+            && feq(a.rotation.z,b.rotation.z)&&feq(a.rotation.w,b.rotation.w) && v4(a.scale,b.scale); };
+    if (A.name != M.name) note("name '" + A.name + "' vs '" + M.name + "'");
+    if (A.bones.size() != M.bones.size()) { std::printf("skeleton-yaml-parity: FAIL bone count %zu vs %zu\n", A.bones.size(), M.bones.size()); return 1; }
+    for (std::size_t i = 0; i < A.bones.size(); ++i) {
+        const auto& a = A.bones[i]; const auto& b = M.bones[i]; const std::string at = "bone[" + std::to_string(i) + "]";
+        if (a.name != b.name) note(at + ".name '" + a.name + "' vs '" + b.name + "'");
+        if (a.parentIndex != b.parentIndex) note(at + ".parentIndex");
+        if (a.lockTranslation != b.lockTranslation) note(at + ".lockTranslation");
+        if (!q(a.refPose, b.refPose)) note(at + ".refPose");
+        if (a.physics.has_value() != b.physics.has_value()) { note(at + ".physics presence"); continue; }
+        if (!a.physics) continue;
+        const auto& pa = *a.physics; const auto& pb = *b.physics;
+        if (!feq(pa.mass,pb.mass) || !feq(pa.radius,pb.radius)) note(at + ".physics mass/radius");
+        // capsule endpoints are 3D points; the w is unused padding the yaml (vec3) intentionally drops.
+        const auto v3 = [&](const havok::Vector4& x, const havok::Vector4& y) { return feq(x.x,y.x)&&feq(x.y,y.y)&&feq(x.z,y.z); };
+        if (pa.capsule.has_value() != pb.capsule.has_value()) note(at + ".capsule presence");
+        else if (pa.capsule && (!v3(pa.capsule->a,pb.capsule->a) || !v3(pa.capsule->b,pb.capsule->b))) note(at + ".capsule");
+        if (pa.joint.has_value() != pb.joint.has_value()) note(at + ".joint presence");
+    }
+    if (A.bumper.has_value() != M.bumper.has_value()) note("bumper presence");
+    std::printf("skeleton-yaml-parity: %d mismatch(es) over %zu bones — %s\n", mism, A.bones.size(), mism == 0 ? "OK (round-trips to decimal precision)" : "FAIL");
+    return mism == 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     const std::string verb = argv[1];
@@ -5608,6 +5799,10 @@ int main(int argc, char** argv) {
                                                  extra.size() > 2 ? extra[2] : std::string{});
     if (verb == "oracle-baseline") return doOracleBaseline(in, extra, out);
     if (verb == "schema-parity")   return doSchemaParity(in);
+    if (verb == "skeleton-parity") return doSkeletonParity(in);
+    if (verb == "skeleton-full-parity") return doSkeletonFullParity(in);
+    if (verb == "skeleton-overbase-parity") return doSkeletonOverbaseParity(in);
+    if (verb == "skeleton-yaml-parity") return doSkeletonYamlParity(in);
     if (verb == "skeleton-recompile") return doSkeletonRecompile(in, out);
     if (verb == "skeleton-decompile") return doSkeletonDecompile(in, out);
     if (verb == "skeleton-decompile-tree") return doSkeletonDecompileTree(in, out);

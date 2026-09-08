@@ -132,7 +132,7 @@ if(HAVOK_CORE_BUILD_TOOLS)
             CXX_EXTENSIONS        OFF
             OUTPUT_NAME           "havok-core-cli"
         )
-        target_link_libraries(havok-core-cli PRIVATE havok-core havok-schema havok-io havok-model)
+        target_link_libraries(havok-core-cli PRIVATE havok-core havok-schema havok-io havok-model havok-skeleton)
         if(MSVC)
             target_compile_options(havok-core-cli PRIVATE /W4 /wd4100 /MP)
         endif()
