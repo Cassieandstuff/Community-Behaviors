@@ -44,6 +44,7 @@
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree (name-keyed derive-delta)
 #include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
+#include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
 #include "havok/sct/SkeletonCompiler.h"     // CompileSkeleton (skeleton-recompile gate)
 #include "havok/sct/SkeletonYaml.h"         // Emit/LoadSkeletonYaml (skeleton-compile/-decompile)
 #include "havok/sct/TagfileOracle.h"
@@ -5548,6 +5549,85 @@ int doSchemaParity(const std::string& havokDir) {
     return (sizeMismatch + sigMismatch) == 0 ? 0 : 1;
 }
 
+// skeleton-parity: read a skeleton.hkx with BOTH the typed havok-core oracle (havok::sct) and the new
+// schema-native reader (havok::skeleton) and diff the resulting SkeletonData field-by-field. Both types
+// resolve to the same havok::Vector4/QSTransform in this TU, so a direct compare is valid. Zero
+// mismatches proves the schema-native reader reproduces the proven implementation. Ground-truth files
+// are the vanilla skeletons under $SKYRIM_DATASOURCE (character + creatures).
+int doSkeletonParity(const std::string& in) {
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+
+    std::vector<havok::sct::SkeletonData>      T;   // typed oracle
+    std::vector<havok::skeleton::SkeletonData> N;   // schema-native
+    std::string te, ne;
+    const bool tok = havok::sct::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), T, &te);
+    const bool nok = havok::skeleton::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), N, &ne);
+    if (tok != nok) { std::printf("MISMATCH: load ok differs (typed=%d schema=%d; te='%s' ne='%s')\n", tok, nok, te.c_str(), ne.c_str()); return 1; }
+    if (!T.empty()) havok::sct::ReadSkeletonPhysics(bytes.data(), bytes.size(), T[0], nullptr);
+    if (!N.empty()) havok::skeleton::ReadSkeletonPhysics(bytes.data(), bytes.size(), N[0], nullptr);
+
+    int mism = 0;
+    const auto note = [&](const std::string& m) { if (mism < 30) std::printf("  MISMATCH: %s\n", m.c_str()); ++mism; };
+    const auto feq  = [](float a, float b) { return std::fabs(a - b) <= 1e-6f * (1.f + std::fabs(a)); };
+    const auto v4eq = [&](const havok::Vector4& a, const havok::Vector4& b) { return feq(a.x,b.x)&&feq(a.y,b.y)&&feq(a.z,b.z)&&feq(a.w,b.w); };
+    const auto qeq  = [&](const havok::QSTransform& a, const havok::QSTransform& b) {
+        return v4eq(a.translation,b.translation)
+            && feq(a.rotation.x,b.rotation.x)&&feq(a.rotation.y,b.rotation.y)&&feq(a.rotation.z,b.rotation.z)&&feq(a.rotation.w,b.rotation.w)
+            && v4eq(a.scale,b.scale); };
+
+    if (T.size() != N.size()) { std::printf("MISMATCH: skeleton count typed=%zu schema=%zu\n", T.size(), N.size()); return 1; }
+
+    std::size_t bonesCompared = 0, physCompared = 0;
+    for (std::size_t s = 0; s < T.size(); ++s) {
+        const auto& t = T[s]; const auto& n = N[s];
+        if (t.name != n.name) note("skel[" + std::to_string(s) + "].name '" + t.name + "' vs '" + n.name + "'");
+        if (t.bones.size() != n.bones.size()) { note("skel[" + std::to_string(s) + "].bones " + std::to_string(t.bones.size()) + " vs " + std::to_string(n.bones.size())); continue; }
+        for (std::size_t i = 0; i < t.bones.size(); ++i) {
+            const auto& tb = t.bones[i]; const auto& nb = n.bones[i];
+            const std::string at = "skel[" + std::to_string(s) + "].bone[" + std::to_string(i) + "]";
+            ++bonesCompared;
+            if (tb.name != nb.name)                       note(at + ".name '" + tb.name + "' vs '" + nb.name + "'");
+            if (tb.parentIndex != nb.parentIndex)         note(at + ".parentIndex " + std::to_string(tb.parentIndex) + " vs " + std::to_string(nb.parentIndex));
+            if (tb.lockTranslation != nb.lockTranslation) note(at + ".lockTranslation differs");
+            if (!qeq(tb.refPose, nb.refPose))             note(at + ".refPose differs");
+            if (tb.physics.has_value() != nb.physics.has_value()) { note(at + ".physics presence differs"); continue; }
+            if (!tb.physics) continue;
+            ++physCompared;
+            const auto& tp = *tb.physics; const auto& np = *nb.physics;
+            if (!feq(tp.mass, np.mass))     note(at + ".mass " + std::to_string(tp.mass) + " vs " + std::to_string(np.mass));
+            if (!feq(tp.radius, np.radius)) note(at + ".radius differs");
+            if (tp.capsule.has_value() != np.capsule.has_value()) note(at + ".capsule presence differs");
+            else if (tp.capsule && (!v4eq(tp.capsule->a, np.capsule->a) || !v4eq(tp.capsule->b, np.capsule->b))) note(at + ".capsule differs");
+            if (tp.friction.has_value() != np.friction.has_value()) note(at + ".friction presence differs");
+            else if (tp.friction && !feq(*tp.friction, *np.friction)) note(at + ".friction differs");
+            if (tp.restitution.has_value() != np.restitution.has_value()) note(at + ".restitution presence differs");
+            else if (tp.restitution && !feq(*tp.restitution, *np.restitution)) note(at + ".restitution differs");
+            if (tp.ragdollLocal.has_value() != np.ragdollLocal.has_value()) note(at + ".ragdollLocal presence differs");
+            else if (tp.ragdollLocal && !qeq(*tp.ragdollLocal, *np.ragdollLocal)) note(at + ".ragdollLocal differs");
+            if (tp.joint.has_value() != np.joint.has_value()) { note(at + ".joint presence differs"); continue; }
+            if (!tp.joint) continue;
+            const auto& tj = *tp.joint; const auto& nj = *np.joint;
+            if (static_cast<int>(tj.type) != static_cast<int>(nj.type)) note(at + ".joint.type differs");
+            if (!feq(tj.twistMin,nj.twistMin)||!feq(tj.twistMax,nj.twistMax)||!feq(tj.coneMax,nj.coneMax)
+              ||!feq(tj.planeMin,nj.planeMin)||!feq(tj.planeMax,nj.planeMax)
+              ||!feq(tj.angMin,nj.angMin)||!feq(tj.angMax,nj.angMax)) note(at + ".joint limits differ");
+            if (tj.twistAxis.has_value() != nj.twistAxis.has_value()) note(at + ".joint.twistAxis presence differs");
+            else if (tj.twistAxis && !v4eq(*tj.twistAxis, *nj.twistAxis)) note(at + ".joint.twistAxis differs");
+            if (tj.planeAxis.has_value() != nj.planeAxis.has_value()) note(at + ".joint.planeAxis presence differs");
+            else if (tj.planeAxis && !v4eq(*tj.planeAxis, *nj.planeAxis)) note(at + ".joint.planeAxis differs");
+        }
+        if (t.bumper.has_value() != n.bumper.has_value()) note("skel[" + std::to_string(s) + "].bumper presence differs");
+        else if (t.bumper && (!v4eq(t.bumper->pos,n.bumper->pos) || !feq(t.bumper->radius,n.bumper->radius)
+                            || !v4eq(t.bumper->capsule.a,n.bumper->capsule.a) || !v4eq(t.bumper->capsule.b,n.bumper->capsule.b)
+                            || !feq(t.bumper->friction,n.bumper->friction) || !feq(t.bumper->restitution,n.bumper->restitution)))
+            note("skel[" + std::to_string(s) + "].bumper differs");
+    }
+    std::printf("skeleton-parity: %d mismatch(es) over %zu skeleton(s), %zu bones (%zu with physics) — %s\n",
+                mism, T.size(), bonesCompared, physCompared, mism == 0 ? "OK" : "FAIL");
+    return mism == 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) return usage();
     const std::string verb = argv[1];
@@ -5608,6 +5688,7 @@ int main(int argc, char** argv) {
                                                  extra.size() > 2 ? extra[2] : std::string{});
     if (verb == "oracle-baseline") return doOracleBaseline(in, extra, out);
     if (verb == "schema-parity")   return doSchemaParity(in);
+    if (verb == "skeleton-parity") return doSkeletonParity(in);
     if (verb == "skeleton-recompile") return doSkeletonRecompile(in, out);
     if (verb == "skeleton-decompile") return doSkeletonDecompile(in, out);
     if (verb == "skeleton-decompile-tree") return doSkeletonDecompileTree(in, out);
