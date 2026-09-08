@@ -84,6 +84,14 @@ Precision + TDM + Payload). Result — **both reference-integrity hypotheses are
   transitions across the stack — compose handles them.
 ⇒ The bug is **structural / behavioral**, not a broken variable or transition reference.
 
+Added a topology tap (generator/modifier/state edges + transitions). It first *looked* like the combo
+states had transitions duplicated ~31× (`Bfco_AttackPower123_State` etc.) — but that was a **trace
+artifact**: those edges share event+toState+effect and differ only in `toNestedStateId` (combo stages
+1..N via `BFCO_NextIsAttackN`), `priority`, `condition`, and `triggerInterval`. Verified against BFCO's
+raw Nemesis source (the shared array `#bfco$105`, 80 transitions): CB preserves all **80**, distinct,
+with every distinguishing field intact. **Transition-array fidelity is confirmed — RULED OUT.** (The
+trace now renders those fields so combo edges no longer look like dupes.)
+
 ## New leading hypothesis
 The merged graph's internal reference integrity for the BFCO commitment/block modifiers — either a
 variable-name that doesn't resolve against the merged variable table (falls back / wrong index), or a
