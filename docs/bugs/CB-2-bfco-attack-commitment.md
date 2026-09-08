@@ -73,6 +73,17 @@ Offline byte-gated vs Pandora: AttackState 30/30, BlockState 26/26.
   membrane" but whether the **merged variable table order/content** and the **node-id refs inside
   `BSIsActiveModifier`/the commitment modifiers** resolve correctly for these BFCO nodes.
 
+## Session findings (2026-09-07, cont.) — compile-trace built, reference theories ruled out
+Built the name-annotated compile-trace (`havok/model/CompileTrace.*`; `hky-merge-compile --trace`).
+Traced the merged `1hm_behavior` across the **full 7-layer** stack (master + SBF + BFCO + DMCO +
+Precision + TDM + Payload). Result — **both reference-integrity hypotheses are RULED OUT:**
+- **Variable-binding desync: ruled out.** Every BFCO variable's table index equals its binding index
+  even across all 6 mods (`BFCO_IsBlocking` table 109 == binding 109; `BFCO_AttackSpeed` 107/107;
+  `attackPowerStartTime` 26/26). The merge keeps bindings pointing at the right variables.
+- **BR-39 transition union: ruled out (live).** Zero union-collision diagnostics on the attack
+  transitions across the stack — compose handles them.
+⇒ The bug is **structural / behavioral**, not a broken variable or transition reference.
+
 ## New leading hypothesis
 The merged graph's internal reference integrity for the BFCO commitment/block modifiers — either a
 variable-name that doesn't resolve against the merged variable table (falls back / wrong index), or a
@@ -82,10 +93,11 @@ commitment gate) read wrong. One cause fits both symptoms. Decisive test: diff C
 **Pandora's** output for the same unit (source-of-truth).
 
 ## Disposition
-Diagnostic (source-of-truth, per CLAUDE.md — external tools / Pandora XML, NOT CB's own decompiler as
-the lens): identify the **state machine wrapped in a modifier** that gates 2nd-attack commitment (and
-the block state), then diff **CB's merged `1hm_behavior` vs Pandora's output** on THAT node —
-its transitions, its variable bindings, and the wrapping modifier — not just AttackState/BlockState.
-Confirm whether compose fires for that array in the multi-mod load order (`changers.size() > 1`).
-Prime lead: the modifier-wrapped SM's transitions/variables diverge from Pandora, or fall through the
-single-changer merge path. Secondary: duplicate-clip-name motion collision.
+Reference-integrity is now cleared (variables + transitions merge correctly), so the diagnostic narrows
+to **structure/topology**: compare CB's merged `1hm_behavior` against **Pandora's** output (source-of-
+truth) on the attack state machine's topology — which generator each combo state routes to (does the
+2nd-combo-attack state route to a `*ForwardSprint_MG` modifier-generator like the 1st, or to a bare
+generator that omits the commitment modifier?), the `hkbModifierGenerator` wrapping, and the block
+sub-graph the shield gate reads. The compile-trace can be extended to also emit node-id references /
+generator edges per node (next tap) so this topology diff is greppable too. Needs: the real MO2 load
+order of the six 1hm mods + Pandora's converted `1hm_behavior` export.
