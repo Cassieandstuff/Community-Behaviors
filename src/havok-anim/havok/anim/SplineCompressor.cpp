@@ -142,14 +142,21 @@ ChannelType ClassifyTranslation(const TransformFrame* frames, int start, int cou
     return ChannelType::Dynamic;
 }
 
-ChannelType ClassifyRotation(const TransformFrame* frames, int start, int count, float tol) {
+ChannelType ClassifyRotation(const TransformFrame* frames, int start, int count, float /*tol*/) {
+    // Static test is ANGLE-based, not dot-based. The quaternion dot is cos(θ/2), so a linear tolerance
+    // in dot-space (the old `|dot| < 1 - tol` with tol=0.001) meant θ ≤ 2·acos(1-0.001) ≈ 5.13° — it
+    // froze any track sweeping under ~5° to a single keyframe, flattening subtle sustained locomotion
+    // rotations into a drift (up to the 5.13° ceiling). Compare the actual angle to a tight threshold.
+    constexpr float kRotStaticAngleRad = 0.001745f;   // ~0.1°
     const TransformFrame& f0 = frames[start];
     bool allIdentity = true, allSame = true;
     for (int i = 0; i < count; ++i) {
         const TransformFrame& f = frames[start + i];
         if (!IsIdentityRotation(f)) allIdentity = false;
         float dot = f.Rx * f0.Rx + f.Ry * f0.Ry + f.Rz * f0.Rz + f.Rw * f0.Rw;
-        if (std::fabs(dot) < 1.f - tol) allSame = false;
+        dot = std::fabs(dot); if (dot > 1.f) dot = 1.f;
+        const float angle = 2.f * std::acos(dot);      // θ between f and f0, radians
+        if (angle > kRotStaticAngleRad) allSame = false;
     }
     if (allIdentity) return ChannelType::Identity;
     if (allSame) return ChannelType::Static;
@@ -418,10 +425,19 @@ CompressedResult CompressAnimation(const AnimationDef& anim, int fps) {
     int numFloat     = int(anim.floatTracks.size());
     int maxFpb       = anim.compression.maxFramesPerBlock;
 
-    // numFrames = round(Duration*fps)+1. std::nearbyint honours the default
-    // round-to-nearest-even mode, matching C#'s Math.Round.
-    int numFrames = int(std::nearbyint(double(anim.duration) * fps)) + 1;
-    float frameDuration = 1.0f / fps;
+    // Native frame timing wins when the source carried it (decompiled vanilla): reproduce the exact
+    // frame count + spacing, so a 60fps clip stays 60fps and a sparse 2-keyframe pose stays 2 frames.
+    // Otherwise (authored anims, numFrames==0) derive from fps as before: round(Duration*fps)+1.
+    // std::nearbyint honours round-to-nearest-even, matching C#'s Math.Round.
+    int   numFrames;
+    float frameDuration;
+    if (anim.numFrames > 0) {
+        numFrames     = anim.numFrames;
+        frameDuration = anim.frameDuration > 0.f ? anim.frameDuration : 1.0f / fps;
+    } else {
+        numFrames     = int(std::nearbyint(double(anim.duration) * fps)) + 1;
+        frameDuration = 1.0f / fps;
+    }
 
     int numBlocks = (numFrames + maxFpb - 2) / (maxFpb - 1);
     if (numBlocks < 1) numBlocks = 1;

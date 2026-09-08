@@ -345,11 +345,11 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
         if (!*traceOut) { std::printf("FAIL: cannot open trace file '%s'\n", traceFile.c_str()); return 1; }
         havok::model::trace::SetSink([traceOut](std::string_view l) { traceOut->write(l.data(), (std::streamsize)l.size()); traceOut->put('\n'); });
         if (!traceFilter.empty()) havok::model::trace::SetFilter(traceFilter);
-        // Schema-driven probes: load Havok/core/Schema/debug/*.yaml (rides on the schema tree). When any
-        // load, they gate the trace (the --trace-filter is then ignored). --schema points at the Havok root.
+        // Schema-driven probes: load Havok/core/Schema/metadata/debug/*.yaml (rides on the schema tree).
+        // When any load, they gate the trace (the --trace-filter is then ignored). --schema = Havok root.
         if (!schemaDir.empty()) {
             std::string pw;
-            const std::size_t np = havok::model::trace::LoadProbes(schemaDir + "/core/Schema/debug", &pw);
+            const std::size_t np = havok::model::trace::LoadProbes(schemaDir + "/core/Schema/metadata/debug", &pw);
             if (!pw.empty()) std::printf("  probes: %s", pw.c_str());
             std::printf("  trace: %s (%zu probe file(s)%s)\n", traceFile.c_str(), np,
                         np ? "" : "; none -> full trace / --trace-filter");
@@ -4634,6 +4634,121 @@ int doAnimationSchemaCheck(const std::string& in, const std::string& schemaDir) 
     return 1;
 }
 
+// anim-roundtrip <in.hkx>: POSE-FIDELITY gate for the "bake vanilla anims into the master" plan.
+// vanilla .hkx --decompile--> yaml --load--> def_ref --CompileAnimation--> rt.hkx --decompile--> def_rt,
+// then compare def_ref vs def_rt per track/frame. def_ref is vanilla decoded to keyframes (the master's
+// stored form); def_rt is what the engine would decode after we recompile it — so max(|def_ref - def_rt|)
+// IS the served-vs-vanilla pose error. Needs $SCT_HAVOK_SCHEMA_DIR. Prints one machine-parseable line:
+//   RT <ok|LOAD_FAIL|COMPILE_FAIL|DECOMP_FAIL|SHAPE> <maxTransErr> <maxRotDeg> <tracks> <frames> <path>
+int doAnimRoundtrip(const std::string& in) {
+    namespace fs = std::filesystem;
+    auto emit = [&](const char* st, double t, double r, std::size_t tr, std::size_t fr) {
+        std::printf("RT %s %.6g %.6g %zu %zu %s\n", st, t, r, tr, fr, in.c_str());
+    };
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { emit("READ_FAIL", 0, 0, 0, 0); return 1; }
+    if (!havok::schema::SharedRegistry()) { emit("NOSCHEMA", 0, 0, 0, 0); return 1; }
+
+    const fs::path base = fs::temp_directory_path() / "sct_anim_rt";
+    std::error_code ec; fs::create_directories(base, ec);
+    const fs::path dRef = base / "ref", dRt = base / "rt";
+    fs::remove_all(dRef, ec); fs::remove_all(dRt, ec);
+
+    // (1) vanilla -> def_ref
+    if (!havok::anim::DecompileAnimation(bytes, dRef).ok) { emit("DECOMP_FAIL", 0, 0, 0, 0); return 1; }
+    havok::anim::AnimationDef ref;
+    try { ref = havok::anim::AnimationYamlLoader::Load((dRef / "animation.yaml").string()); }
+    catch (const std::exception&) { emit("LOAD_FAIL", 0, 0, 0, 0); return 1; }
+
+    // (2) def_ref -> rt.hkx. fps=30 is only a fallback; ref carries native numFrames/frameDuration
+    //     (decompiled from the source), so CompressAnimation reproduces the exact source frame count.
+    const auto comp = havok::anim::CompileAnimation(ref, 30);
+    if (!comp.ok) { emit("COMPILE_FAIL", 0, 0, ref.tracks.size(), 0); return 1; }
+
+    // (3) rt.hkx -> def_rt
+    if (!havok::anim::DecompileAnimation(comp.bytes, dRt).ok) { emit("REDECOMP_FAIL", 0, 0, ref.tracks.size(), 0); return 1; }
+    havok::anim::AnimationDef rt;
+    try { rt = havok::anim::AnimationYamlLoader::Load((dRt / "animation.yaml").string()); }
+    catch (const std::exception&) { emit("RELOAD_FAIL", 0, 0, ref.tracks.size(), 0); return 1; }
+
+    if (ref.tracks.size() != rt.tracks.size()) { emit("SHAPE", 0, 0, ref.tracks.size(), 0); return 1; }
+
+    // (4) compare — max translation delta (game units) + max rotation angle (degrees) across all
+    //     tracks/frames. Rotation angle between quats q0,q1 = 2*acos(|dot|).
+    double maxT = 0.0, maxR = 0.0; std::size_t frames = 0;
+    std::size_t worstTrack = 0; std::string worstBone; std::size_t over1 = 0;
+    for (std::size_t i = 0; i < ref.tracks.size(); ++i) {
+        const auto& a = ref.tracks[i]; const auto& b = rt.tracks[i];
+        const std::size_t nt = std::min(a.translation.size(), b.translation.size());
+        for (std::size_t k = 0; k < nt; ++k) {
+            for (int c = 0; c < 3; ++c) maxT = std::max(maxT, (double)std::fabs(a.translation[k].value[c] - b.translation[k].value[c]));
+        }
+        const std::size_t nr = std::min(a.rotation.size(), b.rotation.size());
+        frames = std::max(frames, nr);
+        for (std::size_t k = 0; k < nr; ++k) {
+            double dot = 0.0; for (int c = 0; c < 4; ++c) dot += (double)a.rotation[k].value[c] * b.rotation[k].value[c];
+            dot = std::fabs(dot); if (dot > 1.0) dot = 1.0;
+            const double deg = 2.0 * std::acos(dot) * 57.2957795131;
+            if (deg > 1.0) ++over1;
+            if (deg > maxR) { maxR = deg; worstTrack = i; worstBone = a.bone; }
+        }
+        if (a.translation.size() != b.translation.size() || a.rotation.size() != b.rotation.size())
+            { emit("SHAPE", maxT, maxR, ref.tracks.size(), frames); return 1; }
+    }
+    // extended line: append worstTrackIdx, worstBone, and #rotation-samples-over-1deg
+    std::printf("RT ok %.6g %.6g %zu %zu %s\tWORST track=%zu bone=%s over1deg=%zu\n",
+                maxT, maxR, ref.tracks.size(), frames, in.c_str(), worstTrack,
+                worstBone.empty() ? "-" : worstBone.c_str(), over1);
+    return 0;
+}
+
+// anim-rt-dump <in.hkx> [trackIdx]: same round-trip as anim-roundtrip, but PRINT the full rotation
+// sequence (ref vs rt) for the worst track (or the given track) so a one-frame time-shift, a sign flip,
+// or spread noise is visible directly. Diagnostic for the ~5deg locomotion artifact.
+int doAnimRtDump(const std::string& in, int forceTrack = -1) {
+    namespace fs = std::filesystem;
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("READ_FAIL\n"); return 1; }
+    if (!havok::schema::SharedRegistry()) { std::printf("NOSCHEMA\n"); return 1; }
+    const fs::path base = fs::temp_directory_path() / "sct_anim_rtd";
+    std::error_code ec; const fs::path dRef = base / "ref", dRt = base / "rt";
+    fs::remove_all(dRef, ec); fs::remove_all(dRt, ec);
+    if (!havok::anim::DecompileAnimation(bytes, dRef).ok) { std::printf("DECOMP_FAIL\n"); return 1; }
+    havok::anim::AnimationDef ref;
+    try { ref = havok::anim::AnimationYamlLoader::Load((dRef / "animation.yaml").string()); } catch (...) { std::printf("LOAD_FAIL\n"); return 1; }
+    const auto comp = havok::anim::CompileAnimation(ref, 30);
+    if (!comp.ok) { std::printf("COMPILE_FAIL: %s\n", comp.error.c_str()); return 1; }
+    if (!havok::anim::DecompileAnimation(comp.bytes, dRt).ok) { std::printf("REDECOMP_FAIL\n"); return 1; }
+    havok::anim::AnimationDef rt;
+    try { rt = havok::anim::AnimationYamlLoader::Load((dRt / "animation.yaml").string()); } catch (...) { std::printf("RELOAD_FAIL\n"); return 1; }
+
+    const auto angle = [](const havok::anim::QuatKeyframe& a, const havok::anim::QuatKeyframe& b) {
+        double dot = 0; for (int c = 0; c < 4; ++c) dot += (double)a.value[c] * b.value[c];
+        dot = std::fabs(dot); if (dot > 1) dot = 1; return 2.0 * std::acos(dot) * 57.2957795131;
+    };
+    int wt = forceTrack; double wmax = -1;
+    if (wt < 0) {
+        for (std::size_t i = 0; i < std::min(ref.tracks.size(), rt.tracks.size()); ++i) {
+            const auto& a = ref.tracks[i]; const auto& b = rt.tracks[i];
+            const std::size_t n = std::min(a.rotation.size(), b.rotation.size());
+            for (std::size_t k = 0; k < n; ++k) { double d = angle(a.rotation[k], b.rotation[k]); if (d > wmax) { wmax = d; wt = (int)i; } }
+        }
+    }
+    if (wt < 0 || wt >= (int)ref.tracks.size() || wt >= (int)rt.tracks.size()) { std::printf("no track\n"); return 1; }
+    const auto& a = ref.tracks[wt].rotation; const auto& b = rt.tracks[wt].rotation;
+    std::printf("worst track=%d ref-frames=%zu rt-frames=%zu\n", wt, a.size(), b.size());
+    std::printf("  k  time      ref(x,y,z,w)                              rt(x,y,z,w)                               deg   deg-vs-ref[k+1]\n");
+    const std::size_t m = std::min(a.size(), b.size());
+    for (std::size_t k = 0; k < m; ++k) {
+        double dSame = angle(a[k], b[k]);
+        double dShift = (k + 1 < a.size()) ? angle(a[k + 1], b[k]) : -1;   // is rt[k] closer to ref[k+1]? (time-shift tell)
+        std::printf("  %2zu %8.4f  (% .5f,% .5f,% .5f,% .5f)  (% .5f,% .5f,% .5f,% .5f)  %6.3f  %6.3f\n",
+                    k, a[k].time, a[k].value[0], a[k].value[1], a[k].value[2], a[k].value[3],
+                    b[k].value[0], b[k].value[1], b[k].value[2], b[k].value[3], dSame, dShift);
+    }
+    return 0;
+}
+
 // character-schema-check <char-yaml-dir> <Havok-dir> [--skeleton <skel.hkx>]: compile a character via
 // BOTH the typed CharacterBuilder and the schema AssembleCharacter (toggled) and assert byte-identical.
 int doCharacterSchemaCheck(const std::string& dir, const std::string& schemaDir, const std::string& skel = {}) {
@@ -5790,6 +5905,8 @@ int main(int argc, char** argv) {
     if (verb == "merge")     return doMerge(in, extra, out);
     if (verb == "compile")   return doCompile(in, out, skel);
     if (verb == "decompile") return doDecompile(in, out, skel);
+    if (verb == "anim-roundtrip") return doAnimRoundtrip(in);
+    if (verb == "anim-rt-dump") return doAnimRtDump(in, extra.empty() ? -1 : std::atoi(extra[0].c_str()));
     if (verb == "hky-compile") return doHkyCompile(in, extra, out);
     if (verb == "hky-pack")    return doHkyPack(in, out);
     if (verb == "hky-unpack")  return doHkyUnpack(in, out);

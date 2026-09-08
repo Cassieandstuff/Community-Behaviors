@@ -30,3 +30,14 @@ match:
   - Attack123
   - AttackPower123
   - NextIsAttack
+
+# RUNTIME — behavior-graph variables to sample per-frame in-game (needs [Debug] bRuntimeTrace + SMF).
+# Each change is logged to Data\community_behaviors\runtime_trace.log as `[RT] <ms> <var> <kind> a -> b`.
+# The CB-2 hypothesis: bAnimationDriven flips 1 -> 0 partway through the 2nd combo attack (commitment
+# lost -> stick-driven slide); BFCO_IsBlocking drops while moving with block held (the shield-lower).
+watch:
+  - { var: bAnimationDriven, kind: int }
+  - { var: BFCO_IsBlocking,  kind: int }
+  - { var: BFCO_NextIsAttack, kind: int }
+  - { var: SpeedSampled,     kind: float }
+  - { var: Speed,            kind: float }

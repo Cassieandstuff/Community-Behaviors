@@ -1,0 +1,31 @@
+# Merge semantics — the single, auditable source of truth for how each class/field merges across the
+# load order. Relocated OFF the ~200 class files (where a stray per-field `merge:` tag was a needle in a
+# haystack) into one place. The loader (SchemaRegistry::ApplyMergeSemantics) resolves these into the same
+# per-field Field::merge the merge engine already reads, so runtime behavior is unchanged — byte-gated.
+#
+# Each top-level key is a merge STRATEGY (the string the engine dispatches on). Its list holds entries:
+#   <Class>          whole-class default: every field of the class gets this strategy
+#   <Class>.<field>  one field, overriding the class default (listing order doesn't matter)
+#
+# Strategies (the engine implements these primitives; parameters can ride on them later):
+#   compose  element-wise, order-sensitive load-order composition (BR-39: transitions/states arrays)
+#   guarded  guarded/conditional element compose
+#   replace  whole-unit / last-writer override — the DEFAULT for any field not listed here
+#
+# NOTE: this file is being introduced alongside the metadata/ consolidation; per-field `merge:` tags
+# still live in the class files during migration. Central assignments win (applied after the class walk).
+# The end state is: all merge policy lives here, the class files carry none.
+
+replace:
+  # Animations are single-file, replace-merge units — they never compose (they don't even enter the
+  # layer/compose path; this is explicit hygiene + the seed proving the loader). One thing that never
+  # needs element-wise merge.
+  - hkaSplineCompressedAnimation
+  - hkaAnimationBinding
+  - hkaAnimationContainer
+  - hkaDefaultAnimatedReferenceFrame
+
+compose:
+  # The BR-39 element-wise arrays — the two that were the entire reason per-field merge tags existed.
+  - hkbStateMachineTransitionInfoArray.transitions
+  - hkbStateMachine.states

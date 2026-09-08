@@ -55,9 +55,10 @@ struct BaseBuildResult {
     bool        ok = false;
     std::string error;
     int behaviors = 0, projects = 0, characters = 0, skeletons = 0, failed = 0;
-    // Animation stress pass (decompile hkx -> animation.yaml -> recompile): a corpus-wide
-    // round-trip of every vanilla loose animation. animOk = recompiled clean; animFail =
-    // decompile OR recompile failed; animSkip = not a decompilable spline animation.
+    // Animation BAKE (decompile hkx -> animation.yaml into the master, self-gated on pose fidelity):
+    // animOk = baked (round-trip faithful within tolerance, unit kept in the master); animSkip = not
+    // baked (non-spline, decode/recompile failure, or fidelity/shape miss) — falls through to the loose
+    // vanilla .hkx at runtime; animFail = the source .hkx couldn't even be read.
     int animOk = 0, animFail = 0, animSkip = 0;
 };
 

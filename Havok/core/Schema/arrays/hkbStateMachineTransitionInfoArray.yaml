@@ -3,4 +3,4 @@ parent:    hkReferencedObject
 signature: 0xe397b11e
 size:      32
 fields:
-  - { name: transitions, type: structarray, ref: hkbStateMachineTransitionInfo, merge: compose }
+  - { name: transitions, type: structarray, ref: hkbStateMachineTransitionInfo }   # merge policy in metadata/semantics/merge.yaml

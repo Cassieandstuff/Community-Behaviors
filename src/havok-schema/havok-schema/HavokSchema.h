@@ -158,6 +158,14 @@ public:
     // class's OWN fields are consulted (the tagged arrays are direct members of their class).
     std::string MergeTag(const std::string& className, const std::string& field) const;
 
+    // Apply one metadata/semantics/*.yaml document onto the already-loaded classes: each top-level key
+    // is a merge strategy (the string Field::merge carries — "compose"/"guarded"/"replace"), and its
+    // list holds "<Class>" (whole-class default for every field) or "<Class>.<field>" (one field,
+    // overriding the class default). This is the single auditable source for merge policy; LoadDir
+    // calls it after the class walk. A wrong class/field name is a hard error (fails loud, by design —
+    // the whole point is that a mis-assignment can't hide the way a scattered per-field tag could).
+    bool ApplyMergeSemantics(const std::string& yamlText, std::string& err);
+
     // Field-walk serialized size for `className`: parent fields (recursively) then this class's,
     // honoring scalar widths + pad(align)/skip and inline Struct refs. Returns the computed byte
     // size, or -1 if a parent (or a Struct field's `ref`) is unresolved (`err` explains).

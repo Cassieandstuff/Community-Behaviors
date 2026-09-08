@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -1571,35 +1572,62 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             continue;
         }
 
-        // ANIMATION — the corpus-wide compiler stress pass: decompile every loose spline animation to
-        // animation.yaml and immediately RECOMPILE it, counting round-trip pass/fail. This is "run the
-        // compiler against every single animation the game shipped with" — pure exercise of the anim
-        // import+emit path over the whole vanilla tree. The yaml is written to a scratch dir OUTSIDE
-        // stageHky/meshes (reused per file) so the SHIPPED master's content is unchanged — this is a
-        // validation sweep, not a decision to serve loose animations. Non-spline / undecodable clips
-        // are counted as skips, not failures.
+        // ANIMATION — BAKE the decompiled animation.yaml INTO the master, SELF-GATED on pose fidelity.
+        // Decompile the loose spline animation to animation.yaml in its staged unit dir, then prove the
+        // round-trip: recompile it, re-decompile that, and compare bone rotations frame-by-frame. Only if
+        // the round-trip is faithful (exact frame count + every sample within kBakeMaxRotDeg) does the yaml
+        // stay in the master; otherwise it's removed and the engine falls through to the loose vanilla .hkx.
+        // So only animations CB can reproduce faithfully are served natively — the fidelity gate IS the
+        // bake decision, per-animation, content-based (no path rules). Non-spline / undecodable clips skip.
         if (kind == HkxKind::Animation) {
             std::vector<std::uint8_t> abytes; std::string arerr;
             if (!havok::sct::ReadHavokFile(it->path().string(), abytes, &arerr)) {
                 ++r.animFail; say("  anim read FAILED: " + rel + " — " + arerr); continue;
             }
-            const fs::path animRt = stage / "anim_rt";   // scratch, NOT under stageHky/meshes -> not packed
-            fs::remove_all(animRt, ec);
-            fs::create_directories(animRt, ec);
-            const auto dc = havok::anim::DecompileAnimation(abytes, animRt);   // schema-native (bytes in)
+            constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
+            // A native animation is a SINGLE-FILE unit: the ".hkx" path IS a renamed animation.yaml (NOT a
+            // "<name>.hkx/animation.yaml" tree — that's the graph/skeleton unit shape). Decompile to a
+            // scratch dir, pose-gate the round-trip, then (only if faithful) write the yaml AS the ".hkx"
+            // file so collectNativeAnim picks it up as a single-file compile target. Merge is replace, not
+            // compose — nothing to fold, so the file is the whole unit. Non-faithful/undecodable => skip
+            // (no file written), and the engine keeps the loose vanilla .hkx.
+            const fs::path bakeTmp = stage / "anim_bake";
+            fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
+            const auto dc = havok::anim::DecompileAnimation(abytes, bakeTmp);
             if (!dc.ok) {
-                // "not spline-compressed" is an expected skip (interleaved/other codecs aren't decompiled);
-                // anything else (no animations, decode failure, no tracks) is a real fault worth surfacing.
                 if (dc.error.find("not spline-compressed") != std::string::npos) ++r.animSkip;
-                else { ++r.animFail; say("  anim decompile FAILED: " + rel + " — " + dc.error); }
+                else { ++r.animSkip; say("  anim skip (decompile): " + rel + " — " + dc.error); }
                 continue;
             }
             try {
-                const auto anim = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
-                const auto rc   = havok::anim::CompileAnimation(anim, 30);
-                if (rc.ok) ++r.animOk;
-                else { ++r.animFail; say("  anim RECOMPILE FAILED: " + rel + " — " + rc.error); }
-            } catch (const std::exception& e) { ++r.animFail; say("  anim reload FAILED: " + rel + " — " + e.what()); }
+                const auto ref = havok::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
+                const auto rc  = havok::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
+                if (!rc.ok) { ++r.animSkip; say("  anim skip (recompile): " + rel + " — " + rc.error); continue; }
+
+                // pose gate: re-decompile the recompiled bytes and compare rotations to `ref`.
+                const fs::path animRt = stage / "anim_rt"; fs::remove_all(animRt, ec); fs::create_directories(animRt, ec);
+                if (!havok::anim::DecompileAnimation(rc.bytes, animRt).ok) { ++r.animSkip; say("  anim skip (re-decompile): " + rel); continue; }
+                const auto rt = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
+                bool faithful = ref.tracks.size() == rt.tracks.size();
+                double maxDeg = 0.0;
+                for (std::size_t i = 0; faithful && i < ref.tracks.size(); ++i) {
+                    const auto& a = ref.tracks[i].rotation; const auto& b = rt.tracks[i].rotation;
+                    if (a.size() != b.size()) { faithful = false; break; }
+                    for (std::size_t k = 0; k < a.size(); ++k) {
+                        double dot = 0; for (int c = 0; c < 4; ++c) dot += (double)a[k].value[c] * b[k].value[c];
+                        dot = std::fabs(dot); if (dot > 1) dot = 1;
+                        maxDeg = std::max(maxDeg, 2.0 * std::acos(dot) * 57.2957795131);
+                    }
+                }
+                if (faithful && maxDeg <= kBakeMaxRotDeg) {
+                    // WRITE THE SINGLE-FILE UNIT: yaml content at the ".hkx" path (a file, not a dir).
+                    fs::create_directories(unit.parent_path(), ec);
+                    std::ifstream src(bakeTmp / "animation.yaml", std::ios::binary);
+                    std::ofstream dst(unit, std::ios::binary | std::ios::trunc);
+                    dst << src.rdbuf();
+                    ++r.animOk;
+                } else { ++r.animSkip; say("  anim skip (fidelity " + std::to_string(maxDeg) + "deg): " + rel); }
+            } catch (const std::exception& e) { ++r.animSkip; say("  anim skip (reload): " + rel + " — " + e.what()); }
             continue;
         }
 
@@ -1811,6 +1839,60 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     std::to_string(clips) + " clip file(s) + " + std::to_string(motion) +
                     " motion file(s) (" + std::to_string(parsed.projects.size()) + " projects, " +
                     std::to_string(resolved) + " char-resolved)");
+
+                // ── MOTION REUNION ────────────────────────────────────────────────────────────
+                // Bethesda stripped root motion from each animation and duplicated it onto every clip
+                // that referenced it in the adsf. Put it back: for each project clip that resolves to an
+                // animation (via the roster), take that clip's motion record and append it onto the baked
+                // animation.yaml unit as a top-level `motion:` block — so the animation carries its own
+                // motion again. Keyed by the resolved animation UNIT PATH (CanonicalAnimPath: actor root +
+                // roster entry), so it can't collide across actors; duplicates across male/female are
+                // byte-identical, so first-writer wins. The runtime re-duplicates per clip at name-index
+                // resolution (collect-by-clip) — this step just makes each animation self-describing.
+                // Unnamed/hybrid motion (no unique roster slot) is left index-keyed in the adsf as before.
+                {
+                    auto lc = [](std::string s){ for (char& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+                    std::size_t reunited = 0, unbaked = 0;
+                    for (const auto& proj : parsed.projects) {
+                        if (!proj.hasAnimData || proj.motions.empty()) continue;
+                        const std::string stem = havok::animdata::StemForProjectName(proj.name);
+                        const auto pit = pcs.find(stem);
+                        if (pit == pcs.end()) continue;                     // unresolved -> clips kept raw index
+                        const auto& roster = pit->second.roster;
+                        const std::string refl = lc(pit->second.ref);
+                        const auto cp = refl.find("/characters/");
+                        if (cp == std::string::npos) continue;              // can't locate actor root
+                        const std::string actorRoot = refl.substr(0, cp);   // "actors/<...>"
+                        for (const auto& m : proj.motions) {
+                            char* end = nullptr; const long i = std::strtol(m.animIndex.c_str(), &end, 10);
+                            if (!(end && *end == '\0' && i >= 0 && (std::size_t)i < roster.size())) continue;
+                            if (roster[(std::size_t)i].empty()) continue;
+                            const std::string canon = havok::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
+                            // native animation is a SINGLE-FILE unit: the ".hkx" path IS the yaml (not a
+                            // "<name>.hkx/animation.yaml" tree). Append the motion block onto that file.
+                            const fs::path animYaml = stageHky / "meshes" / canon;
+                            std::error_code fe;
+                            if (!fs::exists(animYaml, fe)) { ++unbaked; continue; }   // not baked -> vanilla loose keeps its adsf motion
+                            // don't double-append (first-writer wins across the male/female duplicate).
+                            std::ifstream chk(animYaml, std::ios::binary);
+                            std::string cur((std::istreambuf_iterator<char>(chk)), std::istreambuf_iterator<char>());
+                            chk.close();
+                            if (cur.find("\n  motion:") != std::string::npos) continue;
+                            // append `motion:` as a child of `animation:` — EmitMotionSidecar body indented +4.
+                            std::string body = havok::animdata::EmitMotionSidecar(m), blk = "  motion:\n";
+                            for (std::size_t p = 0; p < body.size();) {
+                                std::size_t nl = body.find('\n', p);
+                                std::string line = body.substr(p, nl == std::string::npos ? std::string::npos : nl - p);
+                                if (!line.empty()) blk += "    " + line + "\n";
+                                p = (nl == std::string::npos) ? body.size() : nl + 1;
+                            }
+                            std::ofstream(animYaml, std::ios::binary | std::ios::app) << blk;
+                            ++reunited;
+                        }
+                    }
+                    say("  motion reunion: " + std::to_string(reunited) + " animation(s) reunited with their motion record (" +
+                        std::to_string(unbaked) + " referenced-but-unbaked, left to vanilla loose).");
+                }
             } catch (const std::exception& e) {
                 say(std::string("  WARN: animationdata decompose failed: ") + e.what());
             }

@@ -6,6 +6,7 @@
 #include "core/serve/ByteServe.h"
 #include "core/bootstrap/CompileGate.h"
 #include "core/debug/DebugOverlay.h"
+#include "core/debug/RuntimeTrace.h"
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/resolve/Resolver.h"
@@ -293,6 +294,7 @@ namespace CB {
             // for it here. These two still need kDataLoaded timing:
             //   • DebugOverlay — SMF isn't up at plugin load.
             //   • animprobe — the animationdata clip singleton isn't built yet at plugin load.
+            CB::RuntimeTrace::Install();   // arm [Debug] bRuntimeTrace before the present hook is live
             CB::DebugOverlay::Install();
             CB::animprobe::ProbeAnimClipData();
         }

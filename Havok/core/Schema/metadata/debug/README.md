@@ -49,6 +49,30 @@ empty **or** some `match` substring occurs in the record's unit/class/name/detai
 files present (or none enabled), the trace falls back to emitting everything the sink is given
 (subject to any `SetFilter`).
 
+## Runtime half — the `watch:` list
+
+The keys above steer the OFFLINE compile trace ([Debug] `bCompileTrace`). A probe may ALSO carry a
+`watch:` list — behavior-graph variables to sample **in-game, per frame** ([Debug] `bRuntimeTrace`):
+
+```yaml
+watch:
+  - { var: bAnimationDriven, kind: int }    # kind: int | float | bool (default int)
+  - { var: BFCO_IsBlocking,  kind: int }
+  - { var: SpeedSampled,     kind: float }
+  - Speed                                    # bare scalar => an int var
+```
+
+Each frame CB reads those variables off the player's live graph and logs every **change** to
+`Data\community_behaviors\runtime_trace.log`, greppable as:
+
+```
+[RT] <ms-since-arm> <var> <kind> <old> -> <new>
+```
+
+So `grep bAnimationDriven runtime_trace.log` shows exactly when commitment flips during an attack.
+Runtime sampling piggybacks the SKSE Menu Framework present hook (the locomotion HUD), so it needs SMF
+installed; it is inert unless `bRuntimeTrace` is on. Variable names are **case-sensitive** (Havok).
+
 ## HOW (roadmap)
 v1 selects *which* records appear. A later `log:` key will let a probe name specific fields to expand
 (the "how" dimension) — e.g. dump a modifier's activate/deactivate event ids, or a state's full

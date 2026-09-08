@@ -260,6 +260,16 @@ bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err) {
 
 bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     std::error_code ec;
+    // metadata/ holds everything that RIDES ON the schema but isn't a Havok class — enum defs, debug
+    // probes, merge semantics, and the adsf/asdsf cache descriptors. The class scan excludes it as ONE
+    // rule (underMetadata) and each kind is consumed by its own loader. Semantics are collected here and
+    // applied to the loaded classes after the walk (m_byName must be complete first).
+    std::vector<std::string> semanticsTexts;
+    auto underMetadata = [](fs::path pp) {
+        for (; pp.has_parent_path() && pp != pp.parent_path(); pp = pp.parent_path())
+            if (pp.filename() == "metadata") return true;
+        return false;
+    };
     for (auto it = fs::recursive_directory_iterator(root, ec);
          it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (ec) { ec.clear(); continue; }
@@ -292,31 +302,41 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                 continue;
             }
         }
-        // The enums/ subtree carries Havok enum DEFINITIONS (name + (name,value) items), not classes.
-        // Route them to ParseEnumDef into m_enums; never ParseSchema them (no fields:, would fail the
-        // whole load). They are the single source for both .hky name rendering and the signature CRC.
-        if (p.parent_path().filename() == "enums") {
-            std::ifstream ef(p, std::ios::binary);
-            std::stringstream ess; ess << ef.rdbuf();
-            EnumDef ed; std::string eerr;
-            if (!ParseEnumDef(ess.str(), ed, eerr)) { err = p.string() + ": " + eerr; return false; }
-            m_enums[ed.name] = std::move(ed);
+        // metadata/ — the one non-class subtree. Route each kind to its own consumer; never ParseSchema
+        // any of them (no `fields:`, would fail the whole load):
+        //   metadata/enums/*      -> ParseEnumDef into m_enums (source for .hky name rendering + sig CRC)
+        //   metadata/semantics/*  -> collected here, applied to m_byName after the walk (merge policy)
+        //   metadata/debug/*      -> compile-trace probes (havok::model::trace loads them separately)
+        //   metadata/* (direct)   -> adsf/asdsf cache descriptors (the animdata compiler's own vocab)
+        if (underMetadata(p)) {
+            const std::string sub = p.parent_path().filename().string();
+            if (sub == "enums") {
+                std::ifstream ef(p, std::ios::binary);
+                std::stringstream ess; ess << ef.rdbuf();
+                EnumDef ed; std::string eerr;
+                if (!ParseEnumDef(ess.str(), ed, eerr)) { err = p.string() + ": " + eerr; return false; }
+                m_enums[ed.name] = std::move(ed);
+            } else if (sub == "semantics") {
+                std::ifstream sf(p, std::ios::binary);
+                std::stringstream sss; sss << sf.rdbuf();
+                semanticsTexts.push_back(sss.str());
+            }
+            // debug/ and the direct adsf/asdsf descriptors: skipped by the class scan.
             continue;
         }
-        // Skip the metadata/ tree: those are text-format cache descriptors (kind: metadata —
-        // animationdata/setdata), NOT Havok classes. The class-schema loader only consumes Havok
-        // class descriptors; a metadata schema's vocabulary (recordarray/when/header) is not a class type.
-        if (p.parent_path().filename() == "metadata") continue;
-        // Skip the debug/ tree: those are compile-trace PROBE definitions (havok::model::trace loads
-        // them separately — see CompileTrace), not Havok classes. They ride on top of the schema (they
-        // reference class/field names) but carry no `fields:`, so ParseSchema would fail the whole load.
-        if (p.parent_path().filename() == "debug") continue;
         std::ifstream f(p, std::ios::binary);
         std::stringstream ss; ss << f.rdbuf();
         ClassSchema cs; std::string perr;
         if (!ParseSchema(ss.str(), cs, perr)) { err = p.string() + ": " + perr; return false; }
         m_byName[cs.name] = std::move(cs);
     }
+
+    // Apply centralized merge semantics (metadata/semantics/*.yaml) onto the loaded classes — the
+    // single auditable source for merge policy, resolved here into the per-field Field::merge the merge
+    // engine already reads (so the runtime path is unchanged; this only relocates the SOURCE off the 200+
+    // class files). Runs after the class walk so every class is present to assign to.
+    for (const auto& stext : semanticsTexts)
+        if (!ApplyMergeSemantics(stext, err)) return false;
 
     // DERIVE-AND-ASSERT object size. ComputeSize (from the field layout) is the authority the
     // serializer already uses everywhere; the authored `size:` is only a cross-check. Enforce it once
@@ -352,6 +372,44 @@ std::string SchemaRegistry::MergeTag(const std::string& className, const std::st
     for (const Field& f : cs->fields)
         if (f.name == field) return f.merge;
     return {};
+}
+
+bool SchemaRegistry::ApplyMergeSemantics(const std::string& yamlText, std::string& err) {
+    std::string text = yamlText;   // parse_in_place mutates its buffer
+    c4::yml::Tree tree;
+    try { tree = c4::yml::parse_in_place(c4::to_substr(text)); }
+    catch (const std::exception& e) { err = std::string("semantics parse: ") + e.what(); return false; }
+    auto root = tree.rootref();
+    if (!root.is_map()) return true;   // empty / commented-out file → nothing to apply
+
+    // Collect, then apply class-level first and field-level second, so "<Class>.<field>" overrides the
+    // whole-class "<Class>" default no matter the listing order.
+    struct Assign { std::string cls, field, strategy; };
+    std::vector<Assign> classLevel, fieldLevel;
+    for (auto cat : root) {
+        if (!cat.has_key() || !cat.is_seq()) continue;
+        std::string strategy; c4::from_chars(cat.key(), &strategy);   // "compose" / "guarded" / "replace"
+        for (auto e : cat) {
+            if (!e.has_val()) continue;
+            std::string entry; c4::from_chars(e.val(), &entry);
+            const auto dot = entry.find('.');
+            if (dot == std::string::npos) classLevel.push_back({ entry, {}, strategy });
+            else                          fieldLevel.push_back({ entry.substr(0, dot), entry.substr(dot + 1), strategy });
+        }
+    }
+    for (const auto& a : classLevel) {
+        auto it = m_byName.find(a.cls);
+        if (it == m_byName.end()) { err = "semantics: unknown class '" + a.cls + "'"; return false; }
+        for (Field& f : it->second.fields) f.merge = a.strategy;
+    }
+    for (const auto& a : fieldLevel) {
+        auto it = m_byName.find(a.cls);
+        if (it == m_byName.end()) { err = "semantics: unknown class '" + a.cls + "'"; return false; }
+        bool found = false;
+        for (Field& f : it->second.fields) if (f.name == a.field) { f.merge = a.strategy; found = true; break; }
+        if (!found) { err = "semantics: class '" + a.cls + "' has no field '" + a.field + "'"; return false; }
+    }
+    return true;
 }
 
 int SchemaRegistry::ComputeSize(const std::string& className, std::string* err, int depth) const {

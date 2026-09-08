@@ -36,7 +36,7 @@ namespace CB::debug {
     };
 
     // The registry. Array order == display order in the Debug tab.
-    inline constexpr std::array<Flag, 11> kFlags{ {
+    inline constexpr std::array<Flag, 12> kFlags{ {
         { "force_regenerate", FlagKind::IniBool, "Cache", "bForceRegenerate", false,
           "Force cache regenerate",
           "Recompile the whole behavior cache at launch instead of reusing the on-disk one. "
@@ -75,10 +75,14 @@ namespace CB::debug {
           "Disable skeleton serve",
           "Skip serving CB's compiled skeleton.hkx (skeleton opens fall through to vanilla) — a "
           "diagnostic opt-out." },
-        { "compile_trace", FlagKind::MarkerFile, "", "compile_trace.enable", false,
+        { "compile_trace", FlagKind::IniBool, "Debug", "bCompileTrace", false,
           "Compile trace (schema-driven probes)",
           "Emit a name-annotated, greppable trace of the behavior compile to the log, gated by the "
           "probe definitions in the deployed Havok/core/Schema/debug/*.yaml (edit those to steer it)." },
+        { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false,
+          "Runtime graph-variable trace",
+          "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
+          "watch: list) per-frame ON CHANGE to a greppable file — the in-game counterpart of compile trace." },
     } };
 
 }  // namespace CB::debug

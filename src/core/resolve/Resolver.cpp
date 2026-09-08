@@ -10,7 +10,8 @@
 
 #include <havok/model/yaml/YamlBehaviorLoader.h>
 #include <havok/model/yaml/CharacterYamlLoader.h>
-#include <havok/model/CompileTrace.h>   // schema-driven compile-trace (opt-in via compile_trace.enable)
+#include <havok/model/CompileTrace.h>   // schema-driven compile-trace (opt-in via [Debug] bCompileTrace)
+#include "SimpleIni.h"                  // [Debug] bCompileTrace toggle (mirrors CB::debug::kFlags row)
 #include <havok/model/yaml/UnitSource.h>
 #include <havok/model/yaml/HkyArchive.h>
 #include <havok/sct/BehaviorCompiler.h>
@@ -958,19 +959,25 @@ namespace CB {
         keys.reserve(m_sources.size());
         for (const auto& [k, _] : m_sources) keys.push_back(k);
 
-        // Compile-trace (opt-in marker Data\community_behaviors\compile_trace.enable): route the
-        // schema-driven probe trace of every behavior compile to a greppable log file. Zero cost when
-        // off (the marker absent -> no sink -> trace::Enabled() is a null pointer test at the tap).
-        // Probes ride on the deployed schema tree (Havok/core/Schema/debug/*.yaml) — edit them to steer.
+        // Compile-trace (opt-in [Debug] bCompileTrace in settings.ini — renders in the converter's
+        // Debug tab, see CB::debug::kFlags): route the schema-driven probe trace of every behavior
+        // compile to a greppable log file. Zero cost when off (no sink -> trace::Enabled() is a null
+        // pointer test at the tap). Probes ride on the deployed schema tree (Havok/core/Schema/debug/
+        // *.yaml) — edit them to steer.
         std::shared_ptr<std::ofstream> traceLog;
-        const bool traceOn = std::filesystem::exists("Data/community_behaviors/compile_trace.enable");
+        bool traceOn = false;
+        {
+            CSimpleIniA ini;
+            if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
+                traceOn = ini.GetBoolValue("Debug", "bCompileTrace", false);
+        }
         if (traceOn) {
             traceLog = std::make_shared<std::ofstream>("Data/community_behaviors/compile_trace.log", std::ios::binary);
             havok::model::trace::SetSink([traceLog](std::string_view l) {
                 traceLog->write(l.data(), static_cast<std::streamsize>(l.size())); traceLog->put('\n');
             });
             std::string pw;
-            const std::size_t np = havok::model::trace::LoadProbes("Data/Community Behaviors/Havok/core/Schema/debug", &pw);
+            const std::size_t np = havok::model::trace::LoadProbes("Data/Community Behaviors/Havok/core/Schema/metadata/debug", &pw);
             if (!pw.empty()) LOG_WARN("Community Behaviors: compile-trace probe load: {}", pw);
             LOG_INFO("Community Behaviors: COMPILE-TRACE ON ({} probe file(s)) -> Data\\community_behaviors\\compile_trace.log", np);
         }
@@ -1016,11 +1023,16 @@ namespace CB {
         std::size_t written = 0, failed = 0;
         std::error_code ec;
         for (const auto& [outKey, yamlText] : m_nativeAnims) {
-            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). Written LOOSE
-            // (not community_behaviors_cache): actor animations resolve by crc32(path) against the engine's startup
-            // loose scan, which never sees the on-demand community_behaviors_cache serve. The clean char-relative
-            // name is already in the roster (folded at Init), so char-setup binds a clip to it.
-            const fs::path out = dataRoot / fs::path(outKey);
+            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). STOP-GAP OUTPUT:
+            // write under meshes/CBanims/ instead of the real actor path, so the recompiled natives do NOT
+            // clobber the vanilla loose/BSA animations while we validate — the engine won't auto-load them
+            // from here (wrong path), so a relocate is a deliberate manual step, and it also lets us watch
+            // for an OAR fight without risk. (This mirrors how behaviors were served pre-byteserve; the real
+            // serve — behavior_cache / in-memory crc — is a later feature.) Insert "CBanims" after "meshes/".
+            std::string stagedRel = outKey;
+            if (stagedRel.rfind("meshes/", 0) == 0) stagedRel = "meshes/CBanims/" + stagedRel.substr(7);
+            else                                    stagedRel = "meshes/CBanims/" + stagedRel;
+            const fs::path out = dataRoot / fs::path(stagedRel);
             try {
                 const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
                 // INVERSE MEMBRANE: resolve this clip's per-track bone references through the SERVED
@@ -1048,8 +1060,8 @@ namespace CB {
             }
         }
         if (written || failed)
-            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (loose under Data\\meshes).",
-                     written, failed);
+            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (STAGED under "
+                     "Data\\meshes\\CBanims\\ — relocate manually to serve).", written, failed);
         return written;
     }
 
@@ -1787,6 +1799,20 @@ namespace CB {
         if (completed)
             LOG_INFO("Resolver: roster membrane — completed {} character(s); {} animationName(s) folded from clips.",
                      completed, appendedTotal);
+
+        // Trace the FINAL merged roster of every character (the other side of the clip->animation
+        // membrane): one record per slot, so a clip's `anim` bindIdx=N can be cross-referenced to the
+        // animation that actually sits at roster slot N. A clip whose bindIdx points at a foreign idle
+        // (walk-backward, a companion's root-motion idle) shows up as bindIdx=N vs slot N = that idle.
+        if (havok::model::trace::Enabled()) {
+            for (const auto& [key, cdataPtr] : m_characterData) {
+                if (!cdataPtr) continue;
+                int i = 0;
+                for (const auto& a : cdataPtr->animations)
+                    havok::model::trace::Rec("roster", key, "animationNames", a, "-", "slot",
+                                             "idx=" + std::to_string(i++));
+            }
+        }
         return completed;
     }
 
