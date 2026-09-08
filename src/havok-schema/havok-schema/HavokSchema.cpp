@@ -307,6 +307,10 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         // animationdata/setdata), NOT Havok classes. The class-schema loader only consumes Havok
         // class descriptors; a metadata schema's vocabulary (recordarray/when/header) is not a class type.
         if (p.parent_path().filename() == "metadata") continue;
+        // Skip the debug/ tree: those are compile-trace PROBE definitions (havok::model::trace loads
+        // them separately — see CompileTrace), not Havok classes. They ride on top of the schema (they
+        // reference class/field names) but carry no `fields:`, so ParseSchema would fail the whole load.
+        if (p.parent_path().filename() == "debug") continue;
         std::ifstream f(p, std::ios::binary);
         std::stringstream ss; ss << f.rdbuf();
         ClassSchema cs; std::string perr;

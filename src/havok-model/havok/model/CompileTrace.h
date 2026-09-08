@@ -45,8 +45,18 @@ void Rec(std::string_view phase, std::string_view unit, std::string_view cls,
 
 // Optional source-side filter: when set (non-empty), a record is emitted only if its unit, class, or
 // name CONTAINS `substr` (case-sensitive). Keeps the full multi-thousand-node compile greppable. Clear
-// with {}. Applies to Rec(); Line() is always emitted (caller-formatted).
+// with {}. Applies to Rec(); Line() is always emitted (caller-formatted). Ignored once probes are loaded.
 void SetFilter(std::string substr);
+
+// ── Schema-driven probes (Havok/core/Schema/debug/*.yaml) ────────────────────────
+// Load probe DEFINITIONS from a debug dir — data that declares WHERE/WHEN/HOW to log (see that dir's
+// README). Once any probe is loaded, Rec() emits ONLY records an enabled probe matches (phase ∈ its
+// phases, class ∈ its classes, and a `match` substring in unit/class/name/field/detail — each criterion
+// empty = "any"). With no probes loaded, Rec() falls back to SetFilter behavior. Returns the number of
+// probe files parsed. Never throws (a malformed file is skipped with the reason in `warn`, if given).
+std::size_t LoadProbes(const std::string& debugDir, std::string* warn = nullptr);
+void        ClearProbes();
+std::size_t ProbeCount() noexcept;
 
 } // namespace havok::model::trace
 

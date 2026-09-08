@@ -1,0 +1,32 @@
+name: commitment
+description: >
+  CB-2 (BFCO attack-commitment ice-skate). bAnimationDriven is the commitment signal — true = the
+  character is root-motion-driven (committed, no slide), false = controller/stick locomotion leaks in
+  (the slide). BFCO toggles it via hkbEventDrivenModifier (BFCO_bAnimationDriven_EDM) inside the attack
+  hkbModifierList, gated by BSIsActiveModifier / IsActive checks. This probe surfaces that machinery and
+  the combo state topology (main vs Temp SM) so the log shows how commitment is wired + resolved.
+enabled: true
+
+# WHEN
+phases: [bind, edge, vars]
+
+# WHERE — the commitment/combo/block node classes
+classes:
+  - hkbEventDrivenModifier
+  - BSIsActiveModifier
+  - hkbModifierGenerator
+  - hkbModifierList
+  - hkbStateMachine
+  - hkbStateMachineStateInfo
+
+# WHERE (refine) — the commitment/combo/block vocabulary
+match:
+  - AnimationDriven
+  - bAnimationDriven
+  - AttackModifierList
+  - ForwardSprint
+  - IsSprinting
+  - IsBlocking
+  - Attack123
+  - AttackPower123
+  - NextIsAttack

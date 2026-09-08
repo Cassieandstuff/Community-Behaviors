@@ -345,7 +345,17 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
         if (!*traceOut) { std::printf("FAIL: cannot open trace file '%s'\n", traceFile.c_str()); return 1; }
         havok::model::trace::SetSink([traceOut](std::string_view l) { traceOut->write(l.data(), (std::streamsize)l.size()); traceOut->put('\n'); });
         if (!traceFilter.empty()) havok::model::trace::SetFilter(traceFilter);
-        std::printf("  trace: %s%s\n", traceFile.c_str(), traceFilter.empty() ? "" : (" (filter: " + traceFilter + ")").c_str());
+        // Schema-driven probes: load Havok/core/Schema/debug/*.yaml (rides on the schema tree). When any
+        // load, they gate the trace (the --trace-filter is then ignored). --schema points at the Havok root.
+        if (!schemaDir.empty()) {
+            std::string pw;
+            const std::size_t np = havok::model::trace::LoadProbes(schemaDir + "/core/Schema/debug", &pw);
+            if (!pw.empty()) std::printf("  probes: %s", pw.c_str());
+            std::printf("  trace: %s (%zu probe file(s)%s)\n", traceFile.c_str(), np,
+                        np ? "" : "; none -> full trace / --trace-filter");
+        } else {
+            std::printf("  trace: %s%s\n", traceFile.c_str(), traceFilter.empty() ? "" : (" (filter: " + traceFilter + ")").c_str());
+        }
     }
     std::string want = unit;   // normalize to the archive's key form (lower, forward-slash)
     for (char& c : want) { if (c == '\\') c = '/'; else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
@@ -401,7 +411,7 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
     if (!havok::sct::WriteHavokFile(out, r.bytes, &werr)) { std::printf("FAIL: %s\n", werr.c_str()); return 1; }
     std::printf("OK: hky-merge-compile %s (%zu layer(s)) -> %s (%zu bytes), validated.\n",
                 unit.c_str(), sources.size(), out.c_str(), r.bytes.size());
-    havok::model::trace::SetSink({}); havok::model::trace::SetFilter({});
+    havok::model::trace::SetSink({}); havok::model::trace::SetFilter({}); havok::model::trace::ClearProbes();
     return 0;
 }
 
