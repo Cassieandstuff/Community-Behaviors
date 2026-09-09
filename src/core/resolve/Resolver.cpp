@@ -329,8 +329,13 @@ namespace CB {
         //     can't hide among thousands of WARNs across a full load order.
         //   • everything else — benign non-fatal notices (same-slot positional-array collisions where
         //     load-order last-writer drops a mod's differing edit): WARN.
+        // Dedup identical messages: the same base-node collision / notice recurs across every graph
+        // that loads those base nodes (a full load order can repeat one message tens of thousands of
+        // times), and synchronous logging of that flood can crawl the compile to an apparent freeze.
+        // Log each unique message once; the first occurrence carries all the information.
         havok::model::YamlBehaviorLoader::SetDiagnosticSink(
-            [](const std::string& m) {
+            [seen = std::make_shared<std::unordered_set<std::string>>()](const std::string& m) {
+                if (!seen->insert(m).second) return;                       // already logged this exact line
                 if (m.find("no handler for node class") != std::string::npos) LOG_ERROR("{}", m);
                 else                                                          LOG_WARN("{}", m);
             });

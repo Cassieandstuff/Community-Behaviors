@@ -19,6 +19,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace havok::model {
@@ -734,9 +735,18 @@ std::shared_ptr<io::SchemaObject> AssembleGraph(const BehaviorData& data, const 
     addFam(data.eventsFromRangeModifiers, Fam::EventsFromRange);
     addFam(data.genericModifiers, Fam::GenericMod);
 
-    byName = [&, memo](const std::string& name) -> std::shared_ptr<io::SchemaObject> {
+    auto inProgress = std::make_shared<std::unordered_set<std::string>>();
+    byName = [&, memo, inProgress](const std::string& name) -> std::shared_ptr<io::SchemaObject> {
         if (name.empty() || name == "null") return nullptr;
         if (auto m = memo->find(name); m != memo->end()) return m->second;
+        // CYCLE GUARD. byName memoizes a node only AFTER it finishes building, so a ref that re-enters a
+        // node still on the build stack would recurse forever and HANG the compile. A well-formed
+        // (acyclic) behavior graph never does this — but a cross-family key collision (see the loader's
+        // "node key claimed by TWO classes" diagnostic) mis-resolves a bare-id ref onto an ancestor and
+        // forms exactly such a cycle. That is what froze horsebehavior's compile once mod deltas whose
+        // node ids collide with the base's were merged in. Break the edge (nullptr) so the graph stays
+        // finite; the collision that caused it is already reported at the load step.
+        if (!inProgress->insert(name).second) return nullptr;
         std::shared_ptr<io::SchemaObject> r;
         auto fi = fam.find(name);
         if (fi != fam.end()) switch (fi->second) {
@@ -789,6 +799,7 @@ std::shared_ptr<io::SchemaObject> AssembleGraph(const BehaviorData& data, const 
                 break;
             }
         }
+        inProgress->erase(name);
         if (r) (*memo)[name]=r;
         return r;
     };
