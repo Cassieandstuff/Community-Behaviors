@@ -761,28 +761,15 @@ static void loadDirInto(BehaviorData& data,
         }
     };
 
-    // Class predicates. Closed sets are explicit; the ONE open set (modifiers) falls back to a
-    // hkbModifier ancestor check via the schema (so a novel mod modifier still routes to the generic
-    // handler instead of failing). hkbManualSelectorGenerator is canonically a SELECTOR here — it was
-    // historically parsed in BOTH the selector and generator bodies; this picks one and the byte gate
-    // flags any divergence. hkbModifierGenerator is a generator by hierarchy but the modifier body owns it.
-    static const std::unordered_set<std::string> kGenClasses = {
-        "hkbBlenderGenerator", "BSSynchronizedClipGenerator", "BSCyclicBlendTransitionGenerator",
-        "BSBoneSwitchGenerator", "hkbPoseMatchingGenerator", "hkbReferencePoseGenerator",
-        "BSOffsetAnimationGenerator", "BGSGamebryoSequenceGenerator" };
-        // BGSGamebryoSequenceGenerator MUST be listed: the generators/ dispatch below has a dedicated
-        // handler for it (it plays a Gamebryo .kf sequence — e.g. the 5 gamebryo generators in
-        // GenericBehaviors' AutoplayBehavior that drive the main-menu logo playback), but eachClass only
-        // routes classes named in THIS set. Omitting it made the handler unreachable, so the class was
-        // silently dropped from collection — the compiled graph lost its generators and char-setup
-        // null-deref'd binding AutoplayBehavior (the main-menu CTD). The base-fidelity byte gate (17
-        // vanilla behavior graphs) does not cover GenericBehaviors, so the Stage-2 refactor's omission
-        // slipped the gate. (hkbManualSelectorGenerator is intentionally NOT here — it is canonically a
-        // selector, collected by its own eachClass above; its branch in this block is dead.)
-    static const std::unordered_set<std::string> kModSpecial = {
-        "hkbModifierGenerator", "BSIsActiveModifier", "hkbModifierList", "hkbEvaluateExpressionModifier",
-        "hkbEventDrivenModifier", "hkbFootIkControlsModifier", "BSEventEveryNEventsModifier",
-        "BSInterpValueModifier", "hkbEventsFromRangeModifier", "hkbFootIkModifier", "BSIStateManagerModifier" };
+    // Node dispatch is a flat class -> handler registry (built below, per node family). The gate for a
+    // family is its own map's keys — eachClass(map.count, map[cls]) — so the set of classes routed and
+    // the set of classes with a handler are the SAME object and cannot drift. That drift is exactly what
+    // dropped BGSGamebryoSequenceGenerator: it had a handler body but was missing from a hand-maintained
+    // gate set, so its node was silently un-collected (the AutoplayBehavior main-menu CTD). With this
+    // shape a class that has a handler is always reachable, and a class with none hits the loud
+    // no-handler path — never a silent drop. The ONE open set is modifiers: a novel mod modifier with no
+    // exact entry falls to the generic handler via a hkbModifier ancestor walk.
+    using NodeHandler = std::function<void(const c4::yml::ConstNodeRef&)>;
     auto derivesFromModifier = [&](const std::string& cls) {
         if (!g_mergeSchema) return false;                              // schema-driven world only (typed retiring)
         std::string c = cls;
@@ -794,7 +781,6 @@ static void loadDirInto(BehaviorData& data,
         }
         return false;
     };
-    auto isModifier = [&](const std::string& c) { return kModSpecial.count(c) != 0 || derivesFromModifier(c); };
 
     // ── clips/ ──
     eachClass([](const std::string& c) { return c == "hkbClipGenerator"; },
@@ -853,12 +839,9 @@ static void loadDirInto(BehaviorData& data,
         if (auto _k = keyOf(r); !_k.empty()) data.transitionEffects[_k] = std::move(t);
     });
 
-    // ── generators/ (class-disambiguated) ──
-    eachClass([&](const std::string& c) { return kGenClasses.count(c) != 0; },
-              [&](const c4::yml::ConstNodeRef& r) {
-        std::string cls = peekClass(r);
-
-        if (cls == "BSCyclicBlendTransitionGenerator") {
+    // ── generators/ (flat class -> handler; gate == map keys) ──
+    const std::unordered_map<std::string, NodeHandler> genHandlers = {
+        { "BSCyclicBlendTransitionGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSCyclicBlendTransitionGeneratorDef cb;
             cb.name = str(r, "name");
             cb.userData = intField(r, "userData", 0);
@@ -870,7 +853,8 @@ static void loadDirInto(BehaviorData& data,
             cb.eBlendCurve         = str(r, "eBlendCurve", "BLEND_CURVE_SMOOTH");
             cb.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.cyclicBlendGenerators[_k] = std::move(cb);
-        } else if (cls == "BSBoneSwitchGenerator") {
+        } },
+        { "BSBoneSwitchGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSBoneSwitchGeneratorDef bsg;
             bsg.name = str(r, "name");
             bsg.userData = intField(r, "userData", 0);
@@ -888,20 +872,10 @@ static void loadDirInto(BehaviorData& data,
                 bsg.children = std::move(kids);
             }
             if (auto _k = keyOf(r); !_k.empty()) data.boneSwitchGenerators[_k] = std::move(bsg);
-        } else if (cls == "hkbManualSelectorGenerator") {
-            ManualSelectorDef s;
-            s.name = str(r, "name");
-            s.selectedGeneratorIndex = intField(r, "selectedGeneratorIndex", 0);
-            s.currentGeneratorIndex  = intField(r, "currentGeneratorIndex", 0);
-            s.userData = intField(r, "userData", 0);
-            s.bindings = parseBindings(r);
-            if (hasChild(r, "generators") && r["generators"].is_seq())
-                for (auto g : r["generators"]) {
-                    if (!g.has_val()) continue;
-                    std::string v; c4::from_chars(g.val(), &v); s.generators.push_back(trim(v));
-                }
-            if (auto _k = keyOf(r); !_k.empty()) data.selectors[_k] = std::move(s);
-        } else if (cls == "BSOffsetAnimationGenerator") {
+        } },
+        // (hkbManualSelectorGenerator is canonically a SELECTOR — handled by the selectors registration
+        // above. Its old branch here was dead code under the kGenClasses gate and is dropped.)
+        { "BSOffsetAnimationGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSOffsetAnimationGeneratorDef o;
             o.name                 = str(r, "name");
             o.userData             = intField(r, "userData", 0);
@@ -912,7 +886,8 @@ static void loadDirInto(BehaviorData& data,
             o.fOffsetRangeEnd      = str(r, "fOffsetRangeEnd", "1.000000");
             o.bindings             = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.offsetAnimGenerators[_k] = std::move(o);
-        } else if (cls == "BSSynchronizedClipGenerator") {
+        } },
+        { "BSSynchronizedClipGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSSynchronizedClipGeneratorDef s;
             s.name                        = str(r, "name");
             s.userData                    = intField(r, "userData", 0);
@@ -927,7 +902,8 @@ static void loadDirInto(BehaviorData& data,
             s.sAnimationBindingIndex      = intField(r, "sAnimationBindingIndex", -1);
             s.bindings                    = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.synchronizedClips[_k] = std::move(s);
-        } else if (cls == "hkbPoseMatchingGenerator") {
+        } },
+        { "hkbPoseMatchingGenerator", [&](const c4::yml::ConstNodeRef& r) {
             PoseMatchingGeneratorDef p;
             p.name = str(r, "name");
             p.userData = intField(r, "userData", 0);
@@ -967,13 +943,15 @@ static void loadDirInto(BehaviorData& data,
             p.mode             = str(r, "mode", "MODE_MATCH");
             p.bindings         = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.poseMatchingGenerators[_k] = std::move(p);
-        } else if (cls == "hkbReferencePoseGenerator") {
+        } },
+        { "hkbReferencePoseGenerator", [&](const c4::yml::ConstNodeRef& r) {
             ReferencePoseGeneratorDef p;
             p.name = str(r, "name");
             p.userData = intField(r, "userData", 0);
             p.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.referencePoseGenerators[_k] = std::move(p);
-        } else if (cls == "BGSGamebryoSequenceGenerator") {
+        } },
+        { "BGSGamebryoSequenceGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BGSGamebryoSequenceGeneratorDef g;
             g.name              = str(r, "name");
             g.userData          = intField(r, "userData", 0);
@@ -982,8 +960,8 @@ static void loadDirInto(BehaviorData& data,
             g.percent           = str(r, "percent", "1.000000");
             g.bindings          = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.gamebryoSequences[_k] = std::move(g);
-        } else {
-            // default: hkbBlenderGenerator
+        } },
+        { "hkbBlenderGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BlenderGeneratorDef b;
             b.name = str(r, "name");
             b.flags = static_cast<int>(enums::ResolveEnum(str(r, "flags", "0"), enums::BlenderFlags()));
@@ -1006,15 +984,15 @@ static void loadDirInto(BehaviorData& data,
                     b.children.push_back(std::move(child));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.blenders[_k] = std::move(b);
-        }
-    });
+        } },
+    };
+    eachClass([&](const std::string& c) { return genHandlers.count(c) != 0; },
+              [&](const c4::yml::ConstNodeRef& r) { genHandlers.at(peekClass(r))(r); });
 
-    // ── modifiers/ (class-disambiguated; generic path for the rest) ──
-    eachClass(isModifier,
-              [&](const c4::yml::ConstNodeRef& r) {
-        std::string cls = peekClass(r);
-
-        if (cls == "hkbModifierGenerator") {
+    // ── modifiers/ (flat class -> handler; gate == map keys, PLUS an open set: any class deriving from
+    //    hkbModifier with no exact entry -> the generic handler) ──
+    const std::unordered_map<std::string, NodeHandler> modHandlers = {
+        { "hkbModifierGenerator", [&](const c4::yml::ConstNodeRef& r) {
             ModifierGeneratorDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1022,7 +1000,8 @@ static void loadDirInto(BehaviorData& data,
             m.generator = str(r, "generator");
             m.bindings  = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.modifierGenerators[_k] = std::move(m);
-        } else if (cls == "BSIsActiveModifier") {
+        } },
+        { "BSIsActiveModifier", [&](const c4::yml::ConstNodeRef& r) {
             BSIsActiveModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1034,7 +1013,8 @@ static void loadDirInto(BehaviorData& data,
             m.bIsActive4 = boolField(r, "bIsActive4"); m.bInvertActive4 = boolField(r, "bInvertActive4");
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.isActiveModifiers[_k] = std::move(m);
-        } else if (cls == "hkbModifierList") {
+        } },
+        { "hkbModifierList", [&](const c4::yml::ConstNodeRef& r) {
             ModifierListDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1046,7 +1026,8 @@ static void loadDirInto(BehaviorData& data,
                 }
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.modifierLists[_k] = std::move(m);
-        } else if (cls == "hkbEvaluateExpressionModifier") {
+        } },
+        { "hkbEvaluateExpressionModifier", [&](const c4::yml::ConstNodeRef& r) {
             EvaluateExpressionModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1054,7 +1035,8 @@ static void loadDirInto(BehaviorData& data,
             m.expressions = str(r, "expressions");
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.evaluateExpressionModifiers[_k] = std::move(m);
-        } else if (cls == "hkbEventDrivenModifier") {
+        } },
+        { "hkbEventDrivenModifier", [&](const c4::yml::ConstNodeRef& r) {
             EventDrivenModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1067,7 +1049,8 @@ static void loadDirInto(BehaviorData& data,
             m.activeByDefault   = boolField(r, "activeByDefault", false);
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.eventDrivenModifiers[_k] = std::move(m);
-        } else if (cls == "hkbFootIkControlsModifier") {
+        } },
+        { "hkbFootIkControlsModifier", [&](const c4::yml::ConstNodeRef& r) {
             FootIkControlsModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1102,7 +1085,8 @@ static void loadDirInto(BehaviorData& data,
                 m.legs = std::move(legs);
             }
             if (auto _k = keyOf(r); !_k.empty()) data.footIkControlsModifiers[_k] = std::move(m);
-        } else if (cls == "BSEventEveryNEventsModifier") {
+        } },
+        { "BSEventEveryNEventsModifier", [&](const c4::yml::ConstNodeRef& r) {
             // Wired on the builder side (buildEventEveryN + eventEveryNModifiers +
             // buildNode) but the loader case was missing, so every instance fell to
             // the generic path below and was emitted as a featureless hkbModifier —
@@ -1118,7 +1102,8 @@ static void loadDirInto(BehaviorData& data,
             m.randomizeNumberOfEvents         = boolField(r, "randomizeNumberOfEvents", false);
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.eventEveryNModifiers[_k] = std::move(m);
-        } else if (cls == "BSInterpValueModifier") {
+        } },
+        { "BSInterpValueModifier", [&](const c4::yml::ConstNodeRef& r) {
             BSInterpValueModifierDef m;
             m.name     = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1129,7 +1114,8 @@ static void loadDirInto(BehaviorData& data,
             m.gain     = str(r, "gain", "0.000000");
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.interpValueModifiers[_k] = std::move(m);
-        } else if (cls == "hkbEventsFromRangeModifier") {
+        } },
+        { "hkbEventsFromRangeModifier", [&](const c4::yml::ConstNodeRef& r) {
             EventsFromRangeModifierDef m;
             m.name       = str(r, "name");
             m.userData   = intField(r, "userData", 0);
@@ -1139,7 +1125,8 @@ static void loadDirInto(BehaviorData& data,
             m.eventRanges = optStr(r, "eventRanges");
             m.bindings   = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.eventsFromRangeModifiers[_k] = std::move(m);
-        } else if (cls == "hkbFootIkModifier") {
+        } },
+        { "hkbFootIkModifier", [&](const c4::yml::ConstNodeRef& r) {
             FootIkModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1196,7 +1183,8 @@ static void loadDirInto(BehaviorData& data,
                     m.legs.push_back(std::move(leg));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.footIkModifiers[_k] = std::move(m);
-        } else if (cls == "BSIStateManagerModifier") {
+        } },
+        { "BSIStateManagerModifier", [&](const c4::yml::ConstNodeRef& r) {
             BSIStateManagerModifierDef m;
             m.name      = str(r, "name");
             m.userData  = intField(r, "userData", 0);
@@ -1213,17 +1201,25 @@ static void loadDirInto(BehaviorData& data,
                 }
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.iStateManagerModifiers[_k] = std::move(m);
-        } else {
-            // generic modifier (e.g. hkbTwistModifier) — base fields + extra params.
-            GenericModifierDef m;
-            m.className = cls;
-            m.name = str(r, "name");
-            m.userData = intField(r, "userData", 0);
-            m.enable = boolField(r, "enable", true);
-            m.bindings = parseBindings(r);
-            m.extraParams = parseGenericExtraParams(r);
-            if (auto _k = keyOf(r); !_k.empty()) data.genericModifiers[_k] = std::move(m);
-        }
+        } },
+    };
+    // The open set: any class deriving from hkbModifier with no exact handler above (e.g. a novel mod
+    // modifier, hkbTwistModifier) — base fields + extra params.
+    auto genericModifier = [&](const c4::yml::ConstNodeRef& r) {
+        GenericModifierDef m;
+        m.className = peekClass(r);
+        m.name = str(r, "name");
+        m.userData = intField(r, "userData", 0);
+        m.enable = boolField(r, "enable", true);
+        m.bindings = parseBindings(r);
+        m.extraParams = parseGenericExtraParams(r);
+        if (auto _k = keyOf(r); !_k.empty()) data.genericModifiers[_k] = std::move(m);
+    };
+    eachClass([&](const std::string& c) { return modHandlers.count(c) != 0 || derivesFromModifier(c); },
+              [&](const c4::yml::ConstNodeRef& r) {
+        const std::string cls = peekClass(r);
+        if (auto it = modHandlers.find(cls); it != modHandlers.end()) it->second(r);
+        else genericModifier(r);
     });
 
     // ── references/ ──
@@ -1250,11 +1246,9 @@ static void loadDirInto(BehaviorData& data,
         if (auto _k = keyOf(r); !_k.empty()) data.stateTaggingGenerators[_k] = std::move(g);
     });
 
-    // ── states/ (StateMachine + StateInfo, disambiguated by class) ──
-    eachClass([](const std::string& c) { return c == "hkbStateMachine" || c == "hkbStateMachineStateInfo"; },
-              [&](const c4::yml::ConstNodeRef& r) {
-        std::string cls = peekClass(r);
-        if (cls == "hkbStateMachine") {
+    // ── states/ (flat class -> handler; gate == map keys) ──
+    const std::unordered_map<std::string, NodeHandler> stateHandlers = {
+        { "hkbStateMachine", [&](const c4::yml::ConstNodeRef& r) {
             StateMachineDef sm;
             sm.name = str(r, "name");
             sm.userData = intField(r, "userData", 0);
@@ -1284,7 +1278,8 @@ static void loadDirInto(BehaviorData& data,
             if (hasChild(r, "transitions"))
                 sm.parsedWildcardTransitions = parseTransitionsSeq(r["transitions"]);
             if (auto _k = keyOf(r); !_k.empty()) data.stateMachines[_k] = std::move(sm);
-        } else {
+        } },
+        { "hkbStateMachineStateInfo", [&](const c4::yml::ConstNodeRef& r) {
             StateDef st;
             st.name = str(r, "name");
             st.stateId = intField(r, "stateId", 0);
@@ -1304,16 +1299,16 @@ static void loadDirInto(BehaviorData& data,
                     std::string v; c4::from_chars(p.val(), &v); st.parents.push_back(trim(v));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.states[_k] = std::move(st);
-        }
-    });
+        } },
+    };
+    eachClass([&](const std::string& c) { return stateHandlers.count(c) != 0; },
+              [&](const c4::yml::ConstNodeRef& r) { stateHandlers.at(peekClass(r))(r); });
 
-    // ── data/ auxiliary arrays (hkbExpressionDataArray + hkbBoneIndexArray;
-    //    graphdata.yaml has no `class:` so peekClass skips it). Bone-index arrays
-    //    store bone NAMES here; the builder resolves them against data.boneNames. ──
-    eachClass([](const std::string& c) { return c == "hkbExpressionDataArray" || c == "hkbBoneIndexArray" || c == "hkbEventRangeDataArray"; },
-              [&](const c4::yml::ConstNodeRef& r) {
-        const std::string cls = peekClass(r);
-        if (cls == "hkbExpressionDataArray") {
+    // ── data/ auxiliary arrays (flat class -> handler; gate == map keys). graphdata.yaml has no
+    //    `class:` so peekClass skips it. Bone-index arrays store bone NAMES here; the builder resolves
+    //    them against data.boneNames. ──
+    const std::unordered_map<std::string, NodeHandler> dataArrayHandlers = {
+        { "hkbExpressionDataArray", [&](const c4::yml::ConstNodeRef& r) {
             ExpressionDataArrayDef e;
             e.name = str(r, "name");
             if (hasChild(r, "expressionsData") && r["expressionsData"].is_seq())
@@ -1328,7 +1323,8 @@ static void loadDirInto(BehaviorData& data,
                     e.expressionsData.push_back(std::move(ed));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.expressionDataArrays[_k] = std::move(e);
-        } else if (cls == "hkbEventRangeDataArray") {
+        } },
+        { "hkbEventRangeDataArray", [&](const c4::yml::ConstNodeRef& r) {
             EventRangeDataArrayDef e;
             e.name = str(r, "name");
             if (hasChild(r, "eventData") && r["eventData"].is_seq())
@@ -1342,7 +1338,8 @@ static void loadDirInto(BehaviorData& data,
                     e.eventData.push_back(std::move(ed));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.eventRangeDataArrays[_k] = std::move(e);
-        } else if (cls == "hkbBoneIndexArray") {
+        } },
+        { "hkbBoneIndexArray", [&](const c4::yml::ConstNodeRef& r) {
             BoneIndexArrayDef b;
             b.name = str(r, "name");
             // Entries are bone NAMES (vanilla source) or raw INDICES (our decompile).
@@ -1358,8 +1355,10 @@ static void loadDirInto(BehaviorData& data,
                         b.boneNames.push_back(v);
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.boneIndexArrays[_k] = std::move(b);
-        }
-    });
+        } },
+    };
+    eachClass([&](const std::string& c) { return dataArrayHandlers.count(c) != 0; },
+              [&](const c4::yml::ConstNodeRef& r) { dataArrayHandlers.at(peekClass(r))(r); });
 
     // Any group no handler claimed = an unrecognized/foreign node class. Surface it loudly — never
     // silently coerce (the old folder catch-all) or drop it. Empty in a well-formed unit; a hit means a
