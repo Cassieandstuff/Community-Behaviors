@@ -319,12 +319,21 @@ namespace CB {
 
     void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni)
     {
-        // Route havok-core's non-fatal merge notices (same-slot positional-array
-        // collisions, where load-order last-writer drops a mod's differing edit) into
-        // the BR log. havok-core has no logger of its own; this is opt-in and once is
-        // enough (persists for every later Resolve/LoadMerged).
+        // Route havok-core's merge diagnostics into the BR log (havok-core has no logger of its own;
+        // opt-in, and once is enough — persists for every later Resolve/LoadMerged). Two severities
+        // share this one string sink:
+        //   • "no handler for node class X" — a node was DROPPED because no dispatch handler claimed
+        //     its class. That is a correctness break: the graph is missing a node and will very likely
+        //     char-setup-crash or A-pose (it is exactly what nodeless'd AutoplayBehavior when
+        //     BGSGamebryoSequenceGenerator had no reachable handler). Route to ERROR so a single orphan
+        //     can't hide among thousands of WARNs across a full load order.
+        //   • everything else — benign non-fatal notices (same-slot positional-array collisions where
+        //     load-order last-writer drops a mod's differing edit): WARN.
         havok::model::YamlBehaviorLoader::SetDiagnosticSink(
-            [](const std::string& m) { LOG_WARN("{}", m); });
+            [](const std::string& m) {
+                if (m.find("no handler for node class") != std::string::npos) LOG_ERROR("{}", m);
+                else                                                          LOG_WARN("{}", m);
+            });
 
         // 1) Load order (optional): .hky plugin name -> priority (higher wins).
         std::unordered_map<std::string, int> order;
