@@ -823,7 +823,6 @@ namespace CB {
                 for (auto& nc : havok::model::YamlBehaviorLoader::NodeContributions(srcs)) {
                     NodeConflict c;
                     c.servePath = key;
-                    c.section   = std::move(nc.section);
                     c.cls       = std::move(nc.cls);
                     c.key       = std::move(nc.key);
                     c.bundles.reserve(nc.layers.size());

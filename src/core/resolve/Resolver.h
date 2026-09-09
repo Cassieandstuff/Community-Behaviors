@@ -236,8 +236,7 @@ namespace CB {
         // manager reads this to surface conflicts at behavior-node resolution.
         struct NodeConflict {
             std::string              servePath;      // the graph (normalized serve key)
-            std::string              section;        // merge section: "states", "generators", ...
-            std::string              cls;            // node class
+            std::string              cls;            // node class (folder-agnostic identity, with `key`)
             std::string              key;            // node id-else-name
             std::vector<std::string> bundles;        // contributing bundle stems, base-first
             bool                     clash = false;  // true = namespace clash (bug); false = expected override

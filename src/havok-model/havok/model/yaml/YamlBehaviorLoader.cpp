@@ -1657,48 +1657,40 @@ BehaviorData YamlBehaviorLoader::LoadMerged(const std::vector<std::shared_ptr<co
 
 std::vector<YamlBehaviorLoader::NodeContribution>
 YamlBehaviorLoader::NodeContributions(const std::vector<std::shared_ptr<const IUnitSource>>& sources) {
-    // Sections + recursion flags — the section LIST must still mirror loadDirInto's eachYaml(...)
-    // calls above (keep in sync when a section is added). The SCAN itself no longer can drift: both
-    // paths go through the shared scanSourceSection (same keyOf/peekClass/'\x1f' identity). Stage 2 of
-    // the discovery refactor removes even this list-mirror by dispatching on the node's own class.
-    static constexpr struct { const char* sub; bool recursive; } kSections[] = {
-        { "clips", true }, { "selectors", true }, { "transitions", true }, { "generators", true },
-        { "modifiers", false }, { "references", true }, { "tagging", true }, { "states", false },
-        { "data", false },
-    };
-
-    struct Acc { std::string section, cls, key; std::vector<std::size_t> layers; };
+    // Class-driven, location-agnostic — the SAME whole-unit scan + (class,key) grouping loadDirInto
+    // uses (scanSourceSection(src, "", recursive) keyed by cls + '\x1f' + key). A reported overlap is
+    // therefore EXACTLY a node the merge combines: same identity, same layer detection. There is no
+    // section list to keep in sync with the loader — the Stage-2 refactor removed folder-as-identity
+    // (a node is what its `class:` says, not where it sits), so this scan can no longer drift from the
+    // dispatch the way a mirrored `kSections` list could.
+    struct Acc { std::string cls, key; std::vector<std::size_t> layers; };
     std::vector<Acc>                             accs;
-    std::unordered_map<std::string, std::size_t> index;   // section\x1f class\x1f key -> accs idx
+    std::unordered_map<std::string, std::size_t> index;   // class\x1f key -> accs idx
 
     for (std::size_t li = 0; li < sources.size(); ++li) {
         const auto& src = sources[li];
         if (!src) continue;
-        for (const auto& sec : kSections) {
-            // Same shared scan the loader uses (scanSourceSection) — no more parallel parse/keyOf/
-            // peekClass to keep in sync. Layer/section loop order preserved (li outer, sec inner).
-            scanSourceSection(*src, sec.sub, sec.recursive,
-                [&](std::string cls, std::string k, std::string /*text*/) {
-                    std::string mapKey = std::string(sec.sub) + '\x1f' + cls + '\x1f' + k;
-                    auto it = index.find(mapKey);
-                    std::size_t ai;
-                    if (it == index.end()) {
-                        ai = accs.size();
-                        index.emplace(std::move(mapKey), ai);
-                        accs.push_back({ sec.sub, std::move(cls), std::move(k), {} });
-                    } else {
-                        ai = it->second;
-                    }
-                    auto& L = accs[ai].layers;
-                    if (L.empty() || L.back() != li) L.push_back(li);  // ascending; dedup same-layer dupes
-                });
-        }
+        scanSourceSection(*src, /*sub*/ "", /*recursive*/ true,
+            [&](std::string cls, std::string k, std::string /*text*/) {
+                std::string mapKey = cls + '\x1f' + k;
+                auto it = index.find(mapKey);
+                std::size_t ai;
+                if (it == index.end()) {
+                    ai = accs.size();
+                    index.emplace(std::move(mapKey), ai);
+                    accs.push_back({ std::move(cls), std::move(k), {} });
+                } else {
+                    ai = it->second;
+                }
+                auto& L = accs[ai].layers;
+                if (L.empty() || L.back() != li) L.push_back(li);  // ascending; dedup same-layer dupes
+            });
     }
 
     std::vector<NodeContribution> out;
     for (auto& a : accs)
         if (a.layers.size() >= 2)                                 // only cross-layer overlaps are conflicts
-            out.push_back({ std::move(a.section), std::move(a.cls), std::move(a.key), std::move(a.layers) });
+            out.push_back({ std::move(a.cls), std::move(a.key), std::move(a.layers) });
     return out;
 }
 
