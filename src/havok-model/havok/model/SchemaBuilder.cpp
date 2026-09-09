@@ -703,52 +703,91 @@ std::shared_ptr<io::SchemaObject> AssembleGraph(const BehaviorData& data, const 
     GenResolver byName;
     auto boneArr = [&](const std::string& id) -> std::shared_ptr<io::SchemaObject> {
         auto it = data.boneIndexArrays.find(id); return it==data.boneIndexArrays.end() ? nullptr : BuildBoneIndexArray(it->second, reg, data.boneNames); };
+
+    // ONE authoritative key -> node-family index, replacing the linear first-match-across-~27-maps scan
+    // this resolver used to run for every ref. A bare id/name resolves to exactly one family in O(1),
+    // and the family is EXPLICIT rather than "whichever map .find() happened to hit first." The index is
+    // built in the SAME family order the old else-if chain checked, and emplace keeps the first insert,
+    // so on the (well-formed: impossible) event of a key shared by two families the resolution is still
+    // byte-identical to the old scan. (A cross-family key collision — the real wrong-node hazard the old
+    // magic-number scan masked — is now detected and reported by the LOADER, which owns the diagnostic
+    // sink; see loadDirInto.)
+    enum class Fam { Clip, Blender, Selector, StateMachine, State, TransitionEffect, StateTagging,
+                     BehaviorRef, Gamebryo, CyclicBlend, BoneSwitch, ModifierGen, OffsetAnim, ModifierList,
+                     IsActive, SyncClip, PoseMatch, RefPose, EventDriven, EventEveryN, InterpValue,
+                     FootIkControls, FootIk, IStateManager, EvalExpr, EventsFromRange, GenericMod };
+    std::unordered_map<std::string, Fam> fam;
+    auto addFam = [&](const auto& m, Fam f) { for (const auto& kv : m) fam.emplace(kv.first, f); };
+    addFam(data.clips, Fam::Clip);                          addFam(data.blenders, Fam::Blender);
+    addFam(data.selectors, Fam::Selector);                 addFam(data.stateMachines, Fam::StateMachine);
+    addFam(data.states, Fam::State);                       addFam(data.transitionEffects, Fam::TransitionEffect);
+    addFam(data.stateTaggingGenerators, Fam::StateTagging);addFam(data.behaviorReferences, Fam::BehaviorRef);
+    addFam(data.gamebryoSequences, Fam::Gamebryo);         addFam(data.cyclicBlendGenerators, Fam::CyclicBlend);
+    addFam(data.boneSwitchGenerators, Fam::BoneSwitch);    addFam(data.modifierGenerators, Fam::ModifierGen);
+    addFam(data.offsetAnimGenerators, Fam::OffsetAnim);    addFam(data.modifierLists, Fam::ModifierList);
+    addFam(data.isActiveModifiers, Fam::IsActive);         addFam(data.synchronizedClips, Fam::SyncClip);
+    addFam(data.poseMatchingGenerators, Fam::PoseMatch);   addFam(data.referencePoseGenerators, Fam::RefPose);
+    addFam(data.eventDrivenModifiers, Fam::EventDriven);   addFam(data.eventEveryNModifiers, Fam::EventEveryN);
+    addFam(data.interpValueModifiers, Fam::InterpValue);   addFam(data.footIkControlsModifiers, Fam::FootIkControls);
+    addFam(data.footIkModifiers, Fam::FootIk);             addFam(data.iStateManagerModifiers, Fam::IStateManager);
+    addFam(data.evaluateExpressionModifiers, Fam::EvalExpr);
+    addFam(data.eventsFromRangeModifiers, Fam::EventsFromRange);
+    addFam(data.genericModifiers, Fam::GenericMod);
+
     byName = [&, memo](const std::string& name) -> std::shared_ptr<io::SchemaObject> {
         if (name.empty() || name == "null") return nullptr;
         if (auto m = memo->find(name); m != memo->end()) return m->second;
         std::shared_ptr<io::SchemaObject> r;
-        if      (auto it=data.clips.find(name);                    it!=data.clips.end())                    r=BuildClip(it->second,reg);
-        else if (auto it=data.blenders.find(name);                 it!=data.blenders.end())                 r=BuildBlender(it->second,reg,byName,data.boneNames);
-        else if (auto it=data.selectors.find(name);                it!=data.selectors.end())                r=BuildSelector(it->second,reg,byName);
-        else if (auto it=data.stateMachines.find(name);            it!=data.stateMachines.end())            r=BuildStateMachine(it->second,reg,byName);
-        else if (auto it=data.states.find(name);                   it!=data.states.end())                   r=BuildState(it->second,reg,byName);
-        else if (auto it=data.transitionEffects.find(name);        it!=data.transitionEffects.end())        r=BuildTransitionEffect(it->second,reg);
-        else if (auto it=data.stateTaggingGenerators.find(name);   it!=data.stateTaggingGenerators.end())   r=BuildStateTagging(it->second,reg,byName);
-        else if (auto it=data.behaviorReferences.find(name);       it!=data.behaviorReferences.end())       r=BuildBehaviorReference(it->second,reg);
-        else if (auto it=data.gamebryoSequences.find(name);        it!=data.gamebryoSequences.end())        r=BuildGamebryoSequence(it->second,reg);
-        else if (auto it=data.cyclicBlendGenerators.find(name);    it!=data.cyclicBlendGenerators.end())    r=BuildCyclicBlend(it->second,reg,byName);
-        else if (auto it=data.boneSwitchGenerators.find(name);     it!=data.boneSwitchGenerators.end())     r=BuildBoneSwitch(it->second,reg,byName,data.boneNames);
-        else if (auto it=data.modifierGenerators.find(name);       it!=data.modifierGenerators.end())       r=BuildModifierGenerator(it->second,reg,byName);
-        else if (auto it=data.offsetAnimGenerators.find(name);     it!=data.offsetAnimGenerators.end())     r=BuildOffsetAnim(it->second,reg,byName);
-        else if (auto it=data.modifierLists.find(name);            it!=data.modifierLists.end())            r=BuildModifierList(it->second,reg,byName);
-        else if (auto it=data.isActiveModifiers.find(name);        it!=data.isActiveModifiers.end())        r=BuildIsActiveModifier(it->second,reg);
-        else if (auto it=data.synchronizedClips.find(name);        it!=data.synchronizedClips.end())        r=BuildSynchronizedClip(it->second,reg,byName);
-        else if (auto it=data.poseMatchingGenerators.find(name);   it!=data.poseMatchingGenerators.end())   r=BuildPoseMatching(it->second,reg,byName,data.boneNames);
-        else if (auto it=data.referencePoseGenerators.find(name);  it!=data.referencePoseGenerators.end())  r=BuildReferencePose(it->second,reg);
-        else if (auto it=data.eventDrivenModifiers.find(name);     it!=data.eventDrivenModifiers.end())     r=BuildEventDrivenModifier(it->second,reg,byName);
-        else if (auto it=data.eventEveryNModifiers.find(name);     it!=data.eventEveryNModifiers.end())     r=BuildEventEveryN(it->second,reg);
-        else if (auto it=data.interpValueModifiers.find(name);     it!=data.interpValueModifiers.end())     r=BuildInterpValue(it->second,reg);
-        else if (auto it=data.footIkControlsModifiers.find(name);  it!=data.footIkControlsModifiers.end())  r=BuildFootIkControls(it->second,reg);
-        else if (auto it=data.footIkModifiers.find(name);          it!=data.footIkModifiers.end())          r=BuildFootIkModifier(it->second,reg);
-        else if (auto it=data.iStateManagerModifiers.find(name);   it!=data.iStateManagerModifiers.end())   r=BuildIStateManager(it->second,reg,byName);
-        else if (auto it=data.evaluateExpressionModifiers.find(name); it!=data.evaluateExpressionModifiers.end()) {
-            const auto& d=it->second; const std::string an=(!d.expressions.empty()&&d.expressions!="null")?d.expressions:name+"_expressions";
-            std::shared_ptr<io::SchemaObject> arr; if (auto a=data.expressionDataArrays.find(an); a!=data.expressionDataArrays.end()) arr=BuildExpressionDataArray(a->second,reg);
-            r=BuildEvaluateExpression(d,reg,arr);
-        }
-        else if (auto it=data.eventsFromRangeModifiers.find(name); it!=data.eventsFromRangeModifiers.end()) {
-            const auto& d=it->second; const std::string an=(d.eventRanges&&*d.eventRanges!="null"&&!d.eventRanges->empty())?*d.eventRanges:name+"_eventRanges";
-            std::shared_ptr<io::SchemaObject> arr; if (auto a=data.eventRangeDataArrays.find(an); a!=data.eventRangeDataArrays.end()) arr=BuildEventRangeDataArray(a->second,reg);
-            r=BuildEventsFromRange(d,reg,arr);
-        }
-        else if (auto it=data.genericModifiers.find(name); it!=data.genericModifiers.end()) {
-            const auto& d=it->second;
-            if      (d.className=="hkbPoweredRagdollControlsModifier")   r=BuildPoweredRagdoll(d, boneArr(name+"_bones"), nullptr, reg);
-            else if (d.className=="hkbRigidBodyRagdollControlsModifier") r=BuildRigidBodyRagdoll(d, boneArr(name+"_bones"), reg);
-            else if (d.className=="BSRagdollContactListenerModifier")    r=BuildRagdollContactListener(d, boneArr(name+"_bones"), reg);
-            else if (d.className=="hkbKeyframeBonesModifier")            r=BuildKeyframeBones(d, boneArr(name+"_keyframedBonesList"), reg);
-            else if (d.className=="BSLookAtModifier")                    r=BuildLookAt(d, reg);
-            else                                                        r=BuildGenericModifier(d, reg, byName, data.boneNames);
+        auto fi = fam.find(name);
+        if (fi != fam.end()) switch (fi->second) {
+            case Fam::Clip:             r=BuildClip(data.clips.at(name),reg); break;
+            case Fam::Blender:          r=BuildBlender(data.blenders.at(name),reg,byName,data.boneNames); break;
+            case Fam::Selector:         r=BuildSelector(data.selectors.at(name),reg,byName); break;
+            case Fam::StateMachine:     r=BuildStateMachine(data.stateMachines.at(name),reg,byName); break;
+            case Fam::State:            r=BuildState(data.states.at(name),reg,byName); break;
+            case Fam::TransitionEffect: r=BuildTransitionEffect(data.transitionEffects.at(name),reg); break;
+            case Fam::StateTagging:     r=BuildStateTagging(data.stateTaggingGenerators.at(name),reg,byName); break;
+            case Fam::BehaviorRef:      r=BuildBehaviorReference(data.behaviorReferences.at(name),reg); break;
+            case Fam::Gamebryo:         r=BuildGamebryoSequence(data.gamebryoSequences.at(name),reg); break;
+            case Fam::CyclicBlend:      r=BuildCyclicBlend(data.cyclicBlendGenerators.at(name),reg,byName); break;
+            case Fam::BoneSwitch:       r=BuildBoneSwitch(data.boneSwitchGenerators.at(name),reg,byName,data.boneNames); break;
+            case Fam::ModifierGen:      r=BuildModifierGenerator(data.modifierGenerators.at(name),reg,byName); break;
+            case Fam::OffsetAnim:       r=BuildOffsetAnim(data.offsetAnimGenerators.at(name),reg,byName); break;
+            case Fam::ModifierList:     r=BuildModifierList(data.modifierLists.at(name),reg,byName); break;
+            case Fam::IsActive:         r=BuildIsActiveModifier(data.isActiveModifiers.at(name),reg); break;
+            case Fam::SyncClip:         r=BuildSynchronizedClip(data.synchronizedClips.at(name),reg,byName); break;
+            case Fam::PoseMatch:        r=BuildPoseMatching(data.poseMatchingGenerators.at(name),reg,byName,data.boneNames); break;
+            case Fam::RefPose:          r=BuildReferencePose(data.referencePoseGenerators.at(name),reg); break;
+            case Fam::EventDriven:      r=BuildEventDrivenModifier(data.eventDrivenModifiers.at(name),reg,byName); break;
+            case Fam::EventEveryN:      r=BuildEventEveryN(data.eventEveryNModifiers.at(name),reg); break;
+            case Fam::InterpValue:      r=BuildInterpValue(data.interpValueModifiers.at(name),reg); break;
+            case Fam::FootIkControls:   r=BuildFootIkControls(data.footIkControlsModifiers.at(name),reg); break;
+            case Fam::FootIk:           r=BuildFootIkModifier(data.footIkModifiers.at(name),reg); break;
+            case Fam::IStateManager:    r=BuildIStateManager(data.iStateManagerModifiers.at(name),reg,byName); break;
+            case Fam::EvalExpr: {
+                const auto& d=data.evaluateExpressionModifiers.at(name);
+                const std::string an=(!d.expressions.empty()&&d.expressions!="null")?d.expressions:name+"_expressions";
+                std::shared_ptr<io::SchemaObject> arr; if (auto a=data.expressionDataArrays.find(an); a!=data.expressionDataArrays.end()) arr=BuildExpressionDataArray(a->second,reg);
+                r=BuildEvaluateExpression(d,reg,arr);
+                break;
+            }
+            case Fam::EventsFromRange: {
+                const auto& d=data.eventsFromRangeModifiers.at(name);
+                const std::string an=(d.eventRanges&&*d.eventRanges!="null"&&!d.eventRanges->empty())?*d.eventRanges:name+"_eventRanges";
+                std::shared_ptr<io::SchemaObject> arr; if (auto a=data.eventRangeDataArrays.find(an); a!=data.eventRangeDataArrays.end()) arr=BuildEventRangeDataArray(a->second,reg);
+                r=BuildEventsFromRange(d,reg,arr);
+                break;
+            }
+            case Fam::GenericMod: {
+                const auto& d=data.genericModifiers.at(name);
+                if      (d.className=="hkbPoweredRagdollControlsModifier")   r=BuildPoweredRagdoll(d, boneArr(name+"_bones"), nullptr, reg);
+                else if (d.className=="hkbRigidBodyRagdollControlsModifier") r=BuildRigidBodyRagdoll(d, boneArr(name+"_bones"), reg);
+                else if (d.className=="BSRagdollContactListenerModifier")    r=BuildRagdollContactListener(d, boneArr(name+"_bones"), reg);
+                else if (d.className=="hkbKeyframeBonesModifier")            r=BuildKeyframeBones(d, boneArr(name+"_keyframedBonesList"), reg);
+                else if (d.className=="BSLookAtModifier")                    r=BuildLookAt(d, reg);
+                else                                                        r=BuildGenericModifier(d, reg, byName, data.boneNames);
+                break;
+            }
         }
         if (r) (*memo)[name]=r;
         return r;

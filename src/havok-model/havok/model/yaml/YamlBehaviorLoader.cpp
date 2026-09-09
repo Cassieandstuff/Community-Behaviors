@@ -1370,6 +1370,27 @@ static void loadDirInto(BehaviorData& data,
             g_mergeDiag("YamlBehaviorLoader: no handler for node class '" + gclass[gorder[gi]] +
                         "' (key '" + gname[gorder[gi]] + "') — unrecognized class, not loaded");
 
+    // CROSS-FAMILY KEY COLLISION — the same id-else-name key claimed by two DIFFERENT node classes.
+    // A ref is a bare key (rootGenerator: 6, generator: 7); the builder resolves it through one
+    // key->family index, so if two families share a key a ref to it silently binds whichever family the
+    // index saw first — a wrong-node bug (an attack clip could resolve to a foreign node) that leaves no
+    // trace. Node ids are graph-global, so a well-formed graph never collides; a hit means merged mod
+    // deltas (or a converter) minted a duplicate identity. Report it here, where the diagnostic sink
+    // lives — the groups already carry (class, key), so this needs no parallel family list.
+    if (g_mergeDiag) {
+        std::unordered_map<std::string, std::string> firstClassOfKey;   // key -> first class seen
+        for (const auto& gk : gorder) {
+            const std::string& k = gname[gk];
+            const std::string& c = gclass[gk];
+            if (k.empty()) continue;
+            auto [it, ins] = firstClassOfKey.emplace(k, c);
+            if (!ins && it->second != c)
+                g_mergeDiag("YamlBehaviorLoader: node key '" + k + "' claimed by TWO classes ('" +
+                            it->second + "' and '" + c + "') — a ref to it resolves to the first only; "
+                            "the other node is unreachable. Rename to disambiguate (duplicate node identity).");
+        }
+    }
+
     // ── data/graphdata.yaml (per layer; last-writer for step 0b — step 3 unions) ──
     if (data.behavior.behavior.data && *data.behavior.behavior.data != "null")
         for (const auto& src : sources) {
