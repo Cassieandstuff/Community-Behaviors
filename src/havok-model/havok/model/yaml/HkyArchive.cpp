@@ -44,7 +44,14 @@ public:
     }
 
     std::vector<std::string> listYaml(const std::string& subdir, bool recursive) const override {
-        const std::string base = m_root + norm(subdir) + "/";
+        // m_root already ends in '/'. An EMPTY subdir (the Stage-2 whole-unit scan: listYaml("", true))
+        // must NOT append another '/', or base becomes "<prefix>//" — a double slash that filesUnder's
+        // prefix range can never match, so the scan returns ZERO node files and every packed graph
+        // compiles nodeless (no rootGenerator/states/generators → char-setup null-deref on the first
+        // graph the engine binds, i.e. the main-menu autoplay). The Stage-2 refactor moved from
+        // per-section scans (non-empty subdir, no double slash) to this whole-unit scan; DiskUnitSource
+        // handles "" correctly, so the disk-only acceptance gate never caught it.
+        const std::string base = subdir.empty() ? m_root : (m_root + norm(subdir) + "/");
         std::vector<std::string> out;
         for (const auto& full : m_arc->filesUnder(base)) {
             if (!endsWith(full, ".yaml")) continue;
@@ -56,7 +63,7 @@ public:
     }
 
     bool hasDir(const std::string& subdir) const override {
-        return !m_arc->filesUnder(m_root + norm(subdir) + "/").empty();
+        return !m_arc->filesUnder(subdir.empty() ? m_root : (m_root + norm(subdir) + "/")).empty();
     }
 
 private:

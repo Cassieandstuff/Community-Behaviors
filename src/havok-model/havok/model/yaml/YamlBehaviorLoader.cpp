@@ -769,7 +769,16 @@ static void loadDirInto(BehaviorData& data,
     static const std::unordered_set<std::string> kGenClasses = {
         "hkbBlenderGenerator", "BSSynchronizedClipGenerator", "BSCyclicBlendTransitionGenerator",
         "BSBoneSwitchGenerator", "hkbPoseMatchingGenerator", "hkbReferencePoseGenerator",
-        "BSOffsetAnimationGenerator" };
+        "BSOffsetAnimationGenerator", "BGSGamebryoSequenceGenerator" };
+        // BGSGamebryoSequenceGenerator MUST be listed: the generators/ dispatch below has a dedicated
+        // handler for it (it plays a Gamebryo .kf sequence — e.g. the 5 gamebryo generators in
+        // GenericBehaviors' AutoplayBehavior that drive the main-menu logo playback), but eachClass only
+        // routes classes named in THIS set. Omitting it made the handler unreachable, so the class was
+        // silently dropped from collection — the compiled graph lost its generators and char-setup
+        // null-deref'd binding AutoplayBehavior (the main-menu CTD). The base-fidelity byte gate (17
+        // vanilla behavior graphs) does not cover GenericBehaviors, so the Stage-2 refactor's omission
+        // slipped the gate. (hkbManualSelectorGenerator is intentionally NOT here — it is canonically a
+        // selector, collected by its own eachClass above; its branch in this block is dead.)
     static const std::unordered_set<std::string> kModSpecial = {
         "hkbModifierGenerator", "BSIsActiveModifier", "hkbModifierList", "hkbEvaluateExpressionModifier",
         "hkbEventDrivenModifier", "hkbFootIkControlsModifier", "BSEventEveryNEventsModifier",

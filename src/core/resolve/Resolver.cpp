@@ -386,16 +386,20 @@ namespace CB {
             if (an == std::string::npos) return;
 
             const std::string outKey = relOrig;            // the ".hkx" path IS the output name
-            const std::string actor = lower.substr(as, lower.find('/', as) - as);
-            std::string charRel = outKey.substr(an + 1);   // orig-case "animations/.../<name>.hkx"
-            std::replace(charRel.begin(), charRel.end(), '/', '\\');
-            if (actor == "character") {
-                m_characterAnimNames["defaultmale"].push_back(charRel);
-                m_characterAnimNames["defaultfemale"].push_back(charRel);
-            } else {
-                LOG_WARN("Resolver: native animation '{}' (actor '{}') — auto-roster covers only "
-                         "'character'; add a roster line to animationnames\\<char>.txt.", outKey, actor);
-            }
+
+            // COLLECT FOR RECOMPILE ONLY — do NOT auto-roster. A .hkx file's presence under an
+            // actor's animations\ dir is NOT membership in that actor's animationName roster. The
+            // authoritative roster is the vanilla animations.txt (unioned by CharacterYamlLoader) plus
+            // any explicit animationnames\<char>.txt drop and the rosterref clip membrane. Force-adding
+            // every file here was over-inclusive: a full master carries ~5900 anims under
+            // meshes\actors\character\animations\, but only ~1656 belong to defaultmale — the rest are
+            // other character variants, DLC/creature-under-character projects, first-person, or
+            // DAR/behavior-only clips. Folding all of them into defaultmale/defaultfemale inflated the
+            // roster ~3.5x; char-setup binds against roster.size() (== the OAR synchronized offset), so
+            // the surplus entries overran the binding/offset math → the AutoplayBehavior char-setup CTD.
+            // (These recompiled natives are also STAGED to the dead-end meshes\CBanims\ — not served —
+            // so rostering them bound nothing anyway.) When the real in-memory serve lands, binding will
+            // be driven from the authoritative roster, not from raw file discovery.
             m_nativeAnims.emplace_back(outKey, std::move(yamlText));
         };
 

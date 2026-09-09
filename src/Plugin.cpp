@@ -204,6 +204,52 @@ namespace CB {
         }
     }
 
+    // REUSE (warm start): serve the CACHED adsf/asdsf verbatim instead of re-deriving them.
+    //
+    // The adsf/asdsf are COMPILE OUTPUTS, not independent merges: their clip -> high-band-animIndex
+    // assignment (and the roster-dependent set-data CRC guard) is coherent ONLY with the character/
+    // behavior cache produced in the SAME pass — char-setup binds animations through that index space.
+    // Re-running ServeAnimData/ServeSetData on a warm start re-derives that mapping INDEPENDENTLY of the
+    // reused graphs (ArmCacheFromDisk skips CompileAll, so m_characterRosters/the clip sink are empty and
+    // the high-band allocation floor can shift), which desyncs it from the cached characters — on the
+    // second run an attack clip then binds a foreign animation (an idle, even a furniture clip). Both
+    // files live in community_behaviors_cache alongside the graphs and are explicitly PRESERVED by
+    // MaterializeCacheToDisk's cache wipe, so whenever the graph cache is reusable these are present and
+    // coherent. Arm the redirects straight at them; the hooks intern a fixed cache path and only gate on
+    // ServeResult::ok, so a synthetic ok result serves the on-disk file with no re-derive.
+    //
+    // Returns true once every needed leg is armed from cache. Returns false ONLY when the collated
+    // animationdata (which always has content — the vanilla base) is missing, i.e. the cache is partial;
+    // the caller then falls back to the derive path. A missing set-data file is NOT a failure: a load
+    // order with no set-data bundles legitimately produced none (run-1 left the redirect inactive and the
+    // engine read vanilla), so "absent" here reproduces that exactly.
+    static bool ArmAdsfSetDataFromCache(bool perProject)
+    {
+        namespace fs = std::filesystem;
+        const fs::path cacheDir = fs::current_path() / "Data" / "community_behaviors_cache";
+        std::error_code ec;
+
+        const fs::path asdsf = cacheDir / "animationsetdatasinglefile.txt";
+        if (fs::exists(asdsf, ec)) {
+            asdserve::ServeResult sd; sd.attempted = true; sd.ok = true; sd.cachePath = asdsf.string();
+            asdserve::ArmSetDataRedirect(sd);
+            LOG_INFO("Community Behaviors: warm reuse — serving cached set-data (no re-derive).");
+        }
+
+        if (!perProject) {
+            const fs::path adsf = cacheDir / "animationdatasinglefile.txt";
+            if (!fs::exists(adsf, ec)) {
+                LOG_WARN("Community Behaviors: warm cache missing '{}' — re-deriving adsf/set-data this launch.",
+                         adsf.string());
+                return false;
+            }
+            adserve::ServeResult ad; ad.attempted = true; ad.ok = true; ad.cachePath = adsf.string();
+            adserve::ArmAnimDataRedirect(ad);
+            LOG_INFO("Community Behaviors: warm reuse — serving cached animationdata (no re-derive).");
+        }
+        return true;
+    }
+
     // The compile gate — see CompileGate.h. One-shot, thread-safe.
     void EnsureCompiledAndArmed()
     {
@@ -231,7 +277,10 @@ namespace CB {
 
         if (warm) {
             g_resolver.ArmCacheFromDisk(dataAbs);   // instant; no compile, no bar
-            ArmAdsfSetDataServe(perProject);
+            // Serve the cached adsf/asdsf verbatim (coherent with the reused graphs); only re-derive if
+            // the collated cache is partial. See ArmAdsfSetDataFromCache.
+            if (!ArmAdsfSetDataFromCache(perProject))
+                ArmAdsfSetDataServe(perProject);
         } else if (split) {
             // Arm adsf/setdata NOW (fast, independent of the graph compile) so the engine's early reads
             // are served, then run the heavy compile in the BACKGROUND and RETURN. The game reaches its
@@ -366,10 +415,17 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     // hand byteserve the resolver pointer. The behavior compile sources everything from the loose
     // .hky bundles (no BSA dependency), so the gate is safe to fire this early in load.
     {
+        // Schema dir FIRST, before Init(): Init() compiles the served skeletons (CompileSkeletonFull),
+        // which is the first consumer of havok::schema::SharedRegistry(). That registry loads at most
+        // ONCE and caches the outcome, so if Init() runs before the dir is configured, every schema
+        // consumer (skeletons, the schema-native behavior/anim compile) is poisoned with a "no schema
+        // directory configured" failure for the rest of the process — a silent fall-through to the
+        // typed path plus dead skeleton serves. ApplySchemaCompilerSetting has no dependency on Init
+        // (it only reads settings.ini + sets the shared dir), so it must precede it.
+        CB::ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST be before any compile
         CB::g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt");
         CB::g_resolver.SetERGateEnabled(CB::ReadERGateEnabled());
         CB::g_resolver.SetAdsfFromFeature(CB::ReadAdsfFromFeature());  // opt-in, before any compile
-        CB::ApplySchemaCompilerSetting();   // data-driven compiler opt-in (before any compile)
 
         // Per-project animdata (opt-in): install its loader gate NOW so the ClipDataCtor hook is live
         // before the clip singleton is built. On install failure, revert the flipped flag (else the
