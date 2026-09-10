@@ -617,16 +617,18 @@ std::string renderBoneIndexSidecar(const io::SchemaObject* arr, const std::strin
 
 // Write every data/ sidecar a file-node modifier owns (id keys the file: data/<id>_<suffix>.yaml). Called
 // right after the modifier's own YAML so the sidecar always ships with it (full emit AND per-mod delta).
-void emitModifierSidecars(const io::SchemaObject& so, const std::string& id, const std::filesystem::path& outDir,
-                          const NameResolver& nr) {
+void emitModifierSidecars(const io::SchemaObject& so, const std::string& id, const std::string& fnameBase,
+                          const std::filesystem::path& outDir, const NameResolver& nr) {
     namespace fs = std::filesystem;
     std::error_code ec;
     // Each sidecar is a .hky node: `id: <id>_<suffix>` then the body. (Matches DecompileNativeDelta.)
+    // The id: field carries the (class,name) editorId + suffix (the loader's `<ownerKey>_<suffix>` lookup);
+    // the FILENAME is a numeric base (an editorId contains ':' — illegal in a filename).
     auto put = [&](const std::string& suffix, const std::string& body) {
         if (body.empty()) return;
         const fs::path dir = outDir / "data";
         fs::create_directories(dir, ec);
-        std::ofstream(dir / (id + suffix + ".yaml"), std::ios::binary) << "id: " << id << suffix << "\n" << body;
+        std::ofstream(dir / (fnameBase + suffix + ".yaml"), std::ios::binary) << "id: " << id << suffix << "\n" << body;
     };
     const std::string cls   = so.ClassName();
     const std::string mname = fStr(so, "name");   // expressions/eventRanges `name:` = the MODIFIER's name;
@@ -1121,12 +1123,53 @@ void tfBody(std::string& x, const std::string& ind, const io::SchemaObject& so, 
 }
 } // namespace
 
+// Remap a merged graph's tagfile-#NNNN identity to CLASS-QUALIFIED (class,name) editorIds — the same
+// scheme the base master emits (breezy-gliding-nebula) — so per-mod deltas merge onto the base by stable
+// name identity instead of colliding numbers. A named node -> "<class>:<name>"; a state ->
+// "hkbStateMachineStateInfo:<owningSM>_<name>" (state names are unique only within their SM). Nameless /
+// inline objects (arrays, binding sets, conditions) keep their #NNNN — they are folded into an owner and
+// are never a ref target, so they never appear as an id in the emitted refs. deltaIds remap in lockstep.
+void RemapToEditorIds(Identity& identity, std::set<std::string>& deltaIds) {
+    std::unordered_map<const IHavokObject*, std::string> smOfState;   // state obj -> owning SM name
+    for (const auto& [obj, cat] : identity.category) {
+        const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
+        if (!so || std::string(so->ClassName()) != "hkbStateMachine") continue;
+        const std::string smName = fStr(*so, "name");
+        if (const io::FieldValue* st = fieldByName(*so, "states"))
+            for (const auto& s : st->objs) if (s) smOfState[s.get()] = smName;
+    }
+    std::unordered_map<std::string, std::string>         old2new;
+    std::unordered_map<const IHavokObject*, std::string> newIds;
+    for (const auto& [obj, oldId] : identity.ids) {
+        const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
+        if (!so) continue;
+        const std::string cls = so->ClassName();
+        std::string eid;
+        if (cls == "hkbStateMachineStateInfo") {
+            auto it = smOfState.find(obj);
+            eid = "hkbStateMachineStateInfo:" + (it != smOfState.end() ? it->second + "_" : std::string()) + fStr(*so, "name");
+        } else {
+            const std::string nm = fStr(*so, "name");
+            if (nm.empty()) continue;   // nameless / inline: keep #NNNN (folded to owner, never a ref target)
+            eid = cls + ":" + nm;
+        }
+        old2new[oldId] = eid;
+        newIds[obj]    = eid;
+    }
+    for (const auto& [obj, eid] : newIds) identity.ids[obj] = eid;
+    std::set<std::string> nd;
+    for (const auto& d : deltaIds) { auto it = old2new.find(d); nd.insert(it != old2new.end() ? it->second : d); }
+    deltaIds.swap(nd);
+}
+
 bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
              const std::string& outDir, std::string& err, const std::set<std::string>* deltaIds,
              std::vector<std::string>* warnings) {
     namespace fs = std::filesystem;
     std::error_code ec;
     const NameResolver nr = buildResolver(identity);
+    int nodeSeq = 0;   // numeric per-emit filename counter — identity is the id: field, not the filename
+                       // (a (class,name) editorId contains ':' and spaces, illegal/awkward in a filename)
 
     // Delta mode: emit ONLY the file nodes a patch touched. A patch edits inline sub-objects (the
     // category-"" nodes: transition/event arrays, conditions, clip-trigger arrays, binding sets) BY THEIR
@@ -1252,11 +1295,12 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
             else                                          y = renderModifier(*so, identity, nr);
             const fs::path dir = fs::path(outDir) / cat;
             fs::create_directories(dir, ec);
-            std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
+            const std::string fn = std::to_string(nodeSeq++);
+            std::ofstream of(dir / (fn + ".yaml"), std::ios::binary);
             of << "id: " << id << "\n" << y;
             // A modifier that says `<field>: null` for an owned data array MUST ship the array as a
-            // data/<id>_<suffix>.yaml sidecar, or the runtime re-link leaves it null and Havok crashes.
-            emitModifierSidecars(*so, id, fs::path(outDir), nr);
+            // data/<base>_<suffix>.yaml sidecar, or the runtime re-link leaves it null and Havok crashes.
+            emitModifierSidecars(*so, id, fn, fs::path(outDir), nr);
             continue;
         }
 
@@ -1317,7 +1361,7 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
 
         const fs::path dir = fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
-        std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
+        std::ofstream of(dir / (std::to_string(nodeSeq++) + ".yaml"), std::ios::binary);
         of << "id: " << id << "\n" << y;
     }
     return true;
@@ -1868,7 +1912,10 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
     if (!MergeTagfiles(baseTagfileXml, patches, reg, merged, deltaIds, err)) { r.error = "merge: " + err; return r; }
     r.deltaIds = static_cast<int>(deltaIds.size());
 
-    const std::set<std::string> ds(deltaIds.begin(), deltaIds.end());
+    std::set<std::string> ds(deltaIds.begin(), deltaIds.end());
+    // Speak the base master's (class,name) editorID identity so the delta merges by stable name, not by
+    // a colliding tagfile number. Remaps merged.identity.ids AND the delta-id set in lockstep.
+    RemapToEditorIds(merged.identity, ds);
     if (!EmitHky(merged.identity, reg, outDeltaDir, err, &ds, &r.warnings)) { r.error = "emit: " + err; return r; }
 
     // Added-vocabulary sidecar — diff the base graph vocab against the merged graph's.
