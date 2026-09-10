@@ -224,10 +224,15 @@ struct BehaviorEmitter {
     // override to its changed params, keep only this mod's nodes) before writing the
     // native per-mod delta. Null for a normal decompile (writes files exactly as before).
     std::unordered_map<std::string, std::pair<std::string, std::string>>* sink = nullptr;
+    std::unordered_map<std::string, int> fileSeq;   // per-sub filename counter — cosmetic; identity is the id: field
     void write(const char* sub, const std::string& id, const std::string& y) {
+        if (dryRun) return;                       // pass 1 only assigns editorIds; emits nothing
         const std::string full = "id: " + id + "\n" + y;
         if (sink) { (*sink)[id] = { sub, full }; return; }
-        writeText(dir / sub / (id + ".yaml"), full);
+        // Filename is a numeric counter, NOT the id: a (class,name) editorId contains ':' and spaces,
+        // which are illegal/awkward in filenames. The loader keys off the id: field's content, never
+        // the filename, so this is purely cosmetic and collision-free.
+        writeText(dir / sub / (std::to_string(fileSeq[sub]++) + ".yaml"), full);
     }
 
     // Object identity: a stable numeric id per object, assigned on first encounter
@@ -242,6 +247,19 @@ struct BehaviorEmitter {
     // order numeric id, so refs + filenames use the identity the runtime merges by. Null
     // for a normal decompile (byte-identical to before).
     const std::unordered_map<const void*, std::string>* stableIds = nullptr;
+
+    // ── (class, name) editorID identity (breezy-gliding-nebula plan) ──
+    // A node's stable identity is its NAME, not a number. A state's is its owning state machine's name
+    // + '_' + the state's name (state names are unique only within their SM). This dissolves the numeric
+    // id-space mismatch between the base master and per-mod deltas that made merges collide. Built by a
+    // DRY pre-pass over the same DFS (pass 1 assigns editorIds, writes nothing), then used by uq() as the
+    // identity for every filename/id/ref in the real emit (pass 2). editorIds supersedes any injected
+    // numeric stableIds; anything unnamed falls back to the encounter-order number (never a ref target).
+    bool                                          dryRun = false;
+    bool                                          useEditorIds = false;   // base path on; delta path off (still tagfile) until converted
+    std::unordered_map<const void*, std::string>  editorIds;
+    std::string                                   curSMName;   // owning SM name while emitting its states
+    void setEditorId(const void* obj, const std::string& eid) { if (obj) editorIds.try_emplace(obj, eid); }
 
     // Delta emit: sub-object -> the top-level node whose YAML INLINES it. Several
     // binary objects have no YAML node of their own — a state/SM's
@@ -273,6 +291,7 @@ struct BehaviorEmitter {
     }
     std::string uq(const void* obj, const std::string& = {}) {
         if (!obj) return "null";
+        if (useEditorIds) { if (auto it = editorIds.find(obj); it != editorIds.end()) return it->second; }  // (class,name) identity
         if (stableIds) { if (auto it = stableIds->find(obj); it != stableIds->end()) return it->second; }
         return std::to_string(idNum(obj));
     }
@@ -309,6 +328,7 @@ void BehaviorEmitter::effect(const std::shared_ptr<hkbTransitionEffect>& e) {
     // save/restore curOwner so the owner's later inline blocks attribute correctly.
     const void* savedOwner = curOwner;
     curOwner = e.get();
+    setEditorId(e.get(), std::string(e->ClassName()) + ":" + e->m_name);   // (class, name) identity
     const auto be = std::dynamic_pointer_cast<hkbBlendingTransitionEffect>(e);
     if (!be) throw std::runtime_error("behavior decompile: unsupported transition effect '" + std::string(e->ClassName()) + "'");
     std::string y;
@@ -335,6 +355,8 @@ void BehaviorEmitter::stateInfo(const std::shared_ptr<hkbStateMachineStateInfo>&
     if (!s) return;
     if (!visited.insert(s.get()).second) return;
     curOwner = s.get();
+    // Identity = owning-SM name + '_' + state name (state names are unique only within their SM).
+    setEditorId(s.get(), "hkbStateMachineStateInfo:" + (curSMName.empty() ? s->m_name : (curSMName + "_" + s->m_name)));
     std::string y;
     y += "class: hkbStateMachineStateInfo\n";
     y += "name: " + q(s->m_name) + "\n";
@@ -367,6 +389,10 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
     if (!n) return;
     if (!visited.insert(n.get()).second) return;
     curOwner = n.get();
+    // Identity = (class, name): CLASS-qualified so a clip and a state machine that share a name (vanilla
+    // has both an "IdleChiselKneeling" clip AND SM) stay distinct — a generator ref then resolves to the
+    // right one. Name-only would collapse them and drop the shadowed subtree.
+    setEditorId(n.get(), std::string(n->ClassName()) + ":" + n->m_name);
 
     const std::string cls = n->ClassName();
 
@@ -401,10 +427,16 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
         // key (states use the same key for their own transitions).
         y += transitionsBlock(sm.m_wildcardTransitions, "");
         ownTransitions(sm.m_wildcardTransitions, n.get());
+        // States are identified within THIS SM's namespace (curSMName), so uq(state) and each
+        // stateInfo() below produce "<SMname>_<stateName>". Save/restore for nested SMs.
+        const std::string prevSM = curSMName;
+        curSMName = sm.m_name;
+        for (const auto& s : sm.m_states) if (s) setEditorId(s.get(), "hkbStateMachineStateInfo:" + curSMName + "_" + s->m_name);
         y += "states:\n";
         for (const auto& s : sm.m_states) if (s) y += "  - " + uq(s) + "\n";
         write("states", uq(n), y);
         for (const auto& s : sm.m_states) stateInfo(s);
+        curSMName = prevSM;
         return;
     }
 
@@ -1124,11 +1156,24 @@ DecompileResult DecompileBehaviorTree(const std::shared_ptr<hkbBehaviorGraph>& b
         em.dir = dir;
         em.gd = bg->m_data.get();
         em.bones = bones;               // null = numeric bone indices; set = bone NAMES
-        em.stableIds = stableIds;       // null = encounter-order ids; set = stable (tagfile) ids
-        em.node(bg->m_rootGenerator);   // assigns ids (root generator = id 0) + writes node files
+        em.stableIds = stableIds;       // last-resort fallback; editorIds (below) supersede it
+        em.useEditorIds = true;         // base path is now (class,name)-keyed
+        // Pass 1 (dry): walk the graph assigning (class,name) editorIds — every node its name, every
+        // state its owning SM's name + '_' + state name. Writes nothing.
+        em.dryRun = true;
+        em.node(bg->m_rootGenerator);
+        // Pass 2: emit for real. uq() now returns the editorId for every ref target (forward or back).
+        em.dryRun = false;
+        em.visited.clear();
+        em.objIds.clear(); em.nextId = 0;
+        em.node(bg->m_rootGenerator);   // writes node files keyed by (class,name)
 
-        // Report the id each object actually received (uq = stableId if set, else the number).
-        if (outIds) for (const auto& [obj, n] : em.objIds) (*outIds)[obj] = em.uq(obj);
+        // Report the id each object actually received: editorId for every named node/state, plus any
+        // unnamed fallback objects. Callers map object -> id from this.
+        if (outIds) {
+            for (const auto& [obj, eid] : em.editorIds) (*outIds)[obj] = eid;
+            for (const auto& [obj, n]   : em.objIds)    outIds->try_emplace(obj, em.uq(obj));
+        }
 
         {
             std::string y;
