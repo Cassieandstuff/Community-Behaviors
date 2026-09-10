@@ -1206,14 +1206,26 @@ DecompileResult DecompileNativeDelta(
     try {
         std::error_code ec; fs::create_directories(outDir, ec);
 
-        // Full DFS emit into an in-memory sink, with stable (tagfile / mod$N) ids, so
-        // refs + filenames match the base bundle the runtime merges this delta onto.
+        // TWO-PASS emit into an in-memory sink, keyed by (class,name) editorId (matching the base master
+        // and the ConvertModDelta path) so refs + identity align with the base the runtime merges onto.
+        // Pass 1 (dry) assigns editorIds over the whole graph; pass 2 emits.
         std::unordered_map<std::string, std::pair<std::string, std::string>> sink;
         BehaviorEmitter em;
         em.gd = bg->m_data.get();
-        em.stableIds = &stableIds;
+        em.stableIds = &stableIds;      // fallback only; editorIds supersede
         em.sink = &sink;
+        em.useEditorIds = true;
+        em.dryRun = true;
         em.node(bg->m_rootGenerator);
+        em.dryRun = false;
+        em.visited.clear(); em.objIds.clear(); em.nextId = 0;
+        em.node(bg->m_rootGenerator);   // sink keyed by editorId; each node's yaml carries `id: <editorId>`
+
+        // Caller's stableIds/deltaIds are tagfile #NNNN; map NAMED nodes to their editorId (nameless /
+        // inline objects have no editorId and keep #NNNN — they fold into their owner below).
+        std::unordered_map<std::string, std::string> old2new;
+        for (const auto& [obj, sid] : stableIds)
+            if (auto e = em.editorIds.find(obj); e != em.editorIds.end()) old2new[sid] = e->second;
 
         // Fold changed ids with NO node of their own (owner-inlined sub-objects: a
         // state/SM's hkbStateMachineTransitionInfoArray / EventPropertyArray, a
@@ -1223,16 +1235,18 @@ DecompileResult DecompileNativeDelta(
         // #NNNN while the owner's fields stay unchanged, so only the sub-object id
         // lands in deltaIds; without this fold the mod's edit silently vanished (BFCO's
         // vanilla-state attack transitions -> from-neutral light attacks played vanilla).
-        std::set<std::string> writeIds(deltaIds);
+        std::set<std::string> writeIds;
         {
             std::unordered_map<std::string, const void*> idToObj;
             idToObj.reserve(stableIds.size());
             for (const auto& [obj, sid] : stableIds) idToObj.emplace(sid, obj);
             for (const auto& id : deltaIds) {
-                if (sink.count(id)) continue;                       // has its own node
+                // Named node touched directly -> its editorId (the sink key).
+                if (auto n = old2new.find(id); n != old2new.end() && sink.count(n->second)) { writeIds.insert(n->second); continue; }
                 const auto oit = idToObj.find(id);
                 const void* obj = (oit != idToObj.end()) ? oit->second : nullptr;
-                // owner chain (registered flat to the top-level node; walk defensively)
+                // owner chain (registered flat to the top-level node; walk defensively) — the owning
+                // node is identified by its editorId (the sink key), not its #NNNN.
                 int hops = 0;
                 const void* owner = obj;
                 std::string ownerId;
@@ -1240,8 +1254,8 @@ DecompileResult DecompileNativeDelta(
                     const auto sub = em.subOwner.find(owner);
                     if (sub == em.subOwner.end()) { owner = nullptr; break; }
                     owner = sub->second;
-                    if (const auto sit = stableIds.find(owner);
-                        sit != stableIds.end() && sink.count(sit->second)) { ownerId = sit->second; break; }
+                    if (const auto e = em.editorIds.find(owner);
+                        e != em.editorIds.end() && sink.count(e->second)) { ownerId = e->second; break; }
                 }
                 if (!ownerId.empty()) {
                     writeIds.insert(ownerId);
@@ -1272,13 +1286,14 @@ DecompileResult DecompileNativeDelta(
         static constexpr const char* kSidecarSuffixes[] = {
             "_expressions", "_eventRanges", "_bones", "_keyframedBonesList"
         };
+        int fseq = 0;   // numeric filenames (an editorId contains ':'; identity is the id: field)
         for (const auto& id : writeIds) {
             if (auto it = sink.find(id); it != sink.end())
-                writeText(outDir / it->second.first / (id + ".yaml"), it->second.second);
+                writeText(outDir / it->second.first / (std::to_string(fseq++) + ".yaml"), it->second.second);
             for (const char* suffix : kSidecarSuffixes) {
                 const std::string skey = id + suffix;
                 if (auto sc = sink.find(skey); sc != sink.end())
-                    writeText(outDir / sc->second.first / (skey + ".yaml"), sc->second.second);
+                    writeText(outDir / sc->second.first / (std::to_string(fseq++) + ".yaml"), sc->second.second);
             }
         }
 
