@@ -668,6 +668,28 @@ void mergeLayers(c4::yml::Tree& mt, const std::vector<c4::yml::Tree*>& deltas,
                 break;
         }
     }
+
+    // Removal semantics for `bindings` (variableBindingSet). A bundle override node is FULL — the
+    // decompiler restates every field the mod KEEPS — so if the effective base carries a `bindings`
+    // block but NO override layer does, every override dropped it: the mod removed the binding (e.g.
+    // BFCO nulls attackComboTransition's duration->blendAttackCombo). The `cand` loop above visits only
+    // delta-PRESENT keys, so an omitted field would otherwise leave the stale base binding in place —
+    // CB-2: the removed binding "persisted" at runtime, re-driving the combo blend duration from a
+    // variable. Honor the removal. Guarded on `deltas` non-empty (a base-only node — no overrides,
+    // incl. the byte-gate's single-source case — is never touched); a delta that CHANGES the binding
+    // carries `bindings` and was already handled above, so it's excluded here.
+    if (!deltas.empty()) {
+        const c4::yml::id_type bb = mt.find_child(mroot, c4::to_csubstr("bindings"));
+        if (bb != c4::yml::NONE) {
+            bool anyDeltaKeepsBindings = false;
+            for (const c4::yml::Tree* dt : deltas)
+                if (dt->find_child(dt->root_id(), c4::to_csubstr("bindings")) != c4::yml::NONE) {
+                    anyDeltaKeepsBindings = true;
+                    break;
+                }
+            if (!anyDeltaKeepsBindings) mt.remove(bb);
+        }
+    }
 }
 
 } // namespace
@@ -1441,13 +1463,15 @@ static void loadDirInto(BehaviorData& data,
         }
     }
 
-    // ── data/additive.yaml — native graph-vocab UNION (step 3) ──────────────────
-    // A mod delta adds events / variables / characterProperties by shipping ONLY the
-    // additions in data/additive.yaml (never a full graphdata.yaml, which would clobber
-    // the base tables and shift every $eventID). Union = append + dedup by name, so every
-    // pre-existing index is preserved and $eventID / $variableID stay valid. Runs per
-    // layer in load order over the base tables set above. (animationNames is character-
-    // scoped — hkbCharacterStringData — and unions separately via the roster injector.)
+    // ── native graph-vocab UNION (step 3): data/variables.yaml + data/events.yaml + data/additive.yaml ──
+    // A mod delta adds events / variables / characterProperties by shipping ONLY the additions in these
+    // per-kind files (never a full graphdata.yaml, which would clobber the base tables and shift every
+    // $eventID). Split per kind for author legibility + consistency with data/animations.yaml: variables →
+    // variables.yaml, events → events.yaml, characterProperties → additive.yaml (which is ALSO still read
+    // for events/variables, so pre-split bundles keep working). Union = append + dedup by name, so every
+    // pre-existing index is preserved and $eventID / $variableID stay valid. Runs per layer in load order
+    // over the base tables set above. (animationNames is character-scoped — hkbCharacterStringData — and
+    // unions separately.)
     {
         auto& gdOpt = data.graphData;
         std::unordered_set<std::string> haveEv, haveVar, haveCp;
@@ -1456,10 +1480,8 @@ static void loadDirInto(BehaviorData& data,
             for (const auto& v : gdOpt->variables)              haveVar.insert(v.name);
             for (const auto& c : gdOpt->characterPropertyNames) haveCp.insert(c.name);
         }
-        for (const auto& src : sources) {
-            std::optional<std::string> atext = src->read("data/additive.yaml");
-            if (!atext) continue;
-            std::string text = std::move(*atext);
+        // Union one vocab file's events / variables / characterProperties into the graph data.
+        auto applyVocab = [&](std::string text) {
             c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(text));
             auto r = tree.rootref();
             if (!gdOpt) gdOpt.emplace();                 // additive with no base graphdata
@@ -1504,6 +1526,11 @@ static void loadDirInto(BehaviorData& data,
                     c.flags = str(cp, "flags", "0");
                     gdOpt->characterPropertyNames.push_back(std::move(c));
                 }
+        };
+        for (const auto& src : sources) {
+            if (auto t = src->read("data/variables.yaml")) applyVocab(std::move(*t));
+            if (auto t = src->read("data/events.yaml"))    applyVocab(std::move(*t));
+            if (auto t = src->read("data/additive.yaml"))  applyVocab(std::move(*t));
         }
     }
 

@@ -17,9 +17,6 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
 
 - [CB-1](CB-1-converter-tagfile-unsupported.md) — INVESTIGATING (deferred): converter can't read Havok
   **tagfile** format; a few CreationClub assets ship as tagfiles and are skipped by the master build.
-- [CB-2](CB-2-bfco-attack-commitment.md) — INVESTIGATING: BFCO 2nd-combo attack ice-skates (locomotion
-  leaks in) + shield lowers while moving; a movement-suppression state overridden. BR-39 compose fix is
-  present but the in-game bug persists — suspect a modifier-wrapped state machine outside the byte-gate.
 
 ## Per-bug file template
 

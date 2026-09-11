@@ -24,23 +24,8 @@ std::string trim(const std::string& s) {
     return s.substr(b, e - b + 1);
 }
 
-// animations.txt was extracted through C#'s XML pipeline, so entity references
-// (&amp; &lt; &gt; &quot; &apos;) stand in for their literal characters; C#
-// decodes them on compile. Match that so names like "Human&amp;Boar" round-trip.
-std::string xmlUnescape(const std::string& s) {
-    std::string o; o.reserve(s.size());
-    for (std::size_t i = 0; i < s.size();) {
-        if (s[i] == '&') {
-            if (s.compare(i, 5, "&amp;")  == 0) { o += '&';  i += 5; continue; }
-            if (s.compare(i, 4, "&lt;")   == 0) { o += '<';  i += 4; continue; }
-            if (s.compare(i, 4, "&gt;")   == 0) { o += '>';  i += 4; continue; }
-            if (s.compare(i, 6, "&quot;") == 0) { o += '"';  i += 6; continue; }
-            if (s.compare(i, 6, "&apos;") == 0) { o += '\''; i += 6; continue; }
-        }
-        o += s[i++];
-    }
-    return o;
-}
+// (Roster names are now literal in data/animations.yaml — single-quoted YAML, no XML entity
+// references — so the old xmlUnescape helper is retired.)
 
 std::vector<std::string> splitLines(const std::string& text, bool skipHashComments) {
     std::vector<std::string> out;
@@ -71,6 +56,22 @@ c4::yml::Tree parseYaml(const std::string& text, const char* what, std::string& 
     catch (const std::exception& e) {
         throw std::runtime_error(std::string("CharacterYamlLoader: parse error in ") + what + ": " + e.what());
     }
+}
+
+// Parse a data/animations.yaml roster — a YAML block sequence of (single-quoted) animation-name
+// scalars — into a flat list. ryml filters the quoting; from_chars yields the literal path.
+std::vector<std::string> parseAnimYaml(const std::string& text, const char* what) {
+    std::vector<std::string> out;
+    std::string storage;
+    c4::yml::Tree tree = parseYaml(text, what, storage);
+    auto r = tree.crootref();
+    if (r.readable() && r.is_seq())
+        for (auto n : r) {
+            if (!n.has_val()) continue;
+            std::string a; c4::from_chars(n.val(), &a);
+            if (!a.empty()) out.push_back(std::move(a));
+        }
+    return out;
 }
 
 bool hasChild(const c4::yml::ConstNodeRef& n, const char* k) {
@@ -271,20 +272,15 @@ std::vector<std::string> findAndLoadSkeleton(const IUnitSource& u) {
     return bones;
 }
 
-// Union a delta layer's animations.txt additions onto `data` (dedup case-insensitive,
-// base order preserved). `have` holds the lowercased names already present.
+// Union a delta layer's data/animations.yaml additions onto `data` — the `union` merge strategy
+// (Havok/core/Schema/metadata/semantics/merge.yaml): append + dedup EXACT-CASE (Havok binds
+// case-sensitively — a case-insensitive drop is what mis-bound clips to foreign idles), base order
+// preserved. `have` holds the names already present.
 void unionAnimations(CharacterData& data, const IUnitSource& u, std::unordered_set<std::string>& have) {
-    auto text = u.read("animations.txt");
-    if (!text) return;   // a layer need not touch this character
-    const auto lower = [](std::string s) {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    };
-    for (auto& a : splitLines(*text, /*skipHashComments*/ false)) {
-        a = xmlUnescape(a);
-        if (have.insert(lower(a)).second) data.animations.push_back(std::move(a));
-    }
+    auto text = u.read("data/animations.yaml");
+    if (!text || text->empty()) return;   // a layer need not touch this character
+    for (auto& a : parseAnimYaml(*text, "data/animations.yaml"))
+        if (have.insert(a).second) data.animations.push_back(std::move(a));
 }
 
 } // namespace
@@ -292,10 +288,8 @@ void unionAnimations(CharacterData& data, const IUnitSource& u, std::unordered_s
 CharacterData CharacterYamlLoader::Load(const IUnitSource& unit) {
     CharacterData data;
     data.character  = loadCharacter(unit);
-    if (auto anims = unit.read("animations.txt")) {
-        data.animations = splitLines(*anims, /*skipHashComments*/ false);
-        for (auto& a : data.animations) a = xmlUnescape(a);
-    }
+    if (auto anims = unit.read("data/animations.yaml"); anims && !anims->empty())
+        data.animations = parseAnimYaml(*anims, "data/animations.yaml");
     data.properties = loadProperties(unit);
     data.footIk     = loadFootIk(unit);
     data.mirror     = loadMirror(unit);
@@ -308,17 +302,12 @@ CharacterData CharacterYamlLoader::LoadMerged(const std::vector<std::shared_ptr<
         throw std::runtime_error("CharacterYamlLoader::LoadMerged: no sources");
 
     // Base (first, lowest priority) is the full character; later layers union their
-    // animationNames additions onto it (dedup case-insensitively, base order preserved).
+    // animationNames additions onto it (dedup EXACT-CASE, base order preserved).
     CharacterData data = Load(*sources.front());
 
-    const auto lower = [](std::string s) {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    };
-    std::unordered_set<std::string> have;
+    std::unordered_set<std::string> have;   // EXACT-case dedup (Havok is case-sensitive)
     have.reserve(data.animations.size() * 2 + 16);
-    for (const auto& a : data.animations) have.insert(lower(a));
+    for (const auto& a : data.animations) have.insert(a);
 
     for (std::size_t i = 1; i < sources.size(); ++i)
         if (sources[i]) unionAnimations(data, *sources[i], have);

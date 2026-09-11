@@ -1297,53 +1297,58 @@ DecompileResult DecompileNativeDelta(
             }
         }
 
-        // data/additive.yaml — the mod's ADDED vocabulary (runtime unions it in).
+        // Added vocabulary — split per kind for consistency with data/animations.yaml: variables →
+        // data/variables.yaml, events → data/events.yaml, character properties → data/additive.yaml
+        // (rare, count-only-base guard). Each is union-merged at load; additive.yaml is still READ for
+        // events/variables too, so pre-split bundles keep working.
         const auto* gd = bg->m_data.get();
         const auto sd = gd ? gd->m_stringData : nullptr;
         if (sd && (!addedVariableNames.empty() || !addedEventNames.empty() || !addedCharPropNames.empty())) {
-            std::string y;
+            std::string yVar, yEv, yCp;
             if (!addedVariableNames.empty()) {
-                y += "variables:\n";
+                yVar += "variables:\n";
                 for (std::size_t i = 0; i < sd->m_variableNames.size(); ++i) {
                     if (!addedVariableNames.count(sd->m_variableNames[i])) continue;
-                    y += "  - name: " + q(sd->m_variableNames[i]) + "\n";
+                    yVar += "  - name: " + q(sd->m_variableNames[i]) + "\n";
                     std::int8_t type = (i < gd->m_variableInfos.size()) ? gd->m_variableInfos[i].m_type : 0;
                     const std::string typeStr = revNum(en::VariableType(), type);
-                    y += "    type: " + typeStr + "\n";
+                    yVar += "    type: " + typeStr + "\n";
                     long val = 0;
                     if (gd->m_variableInitialValues && i < gd->m_variableInitialValues->m_wordVariableValues.size())
                         val = gd->m_variableInitialValues->m_wordVariableValues[i].m_value;
-                    y += "    value: " + std::to_string(val) + "\n";
+                    yVar += "    value: " + std::to_string(val) + "\n";
                     if (typeStr == "VARIABLE_TYPE_VECTOR4" || typeStr == "VARIABLE_TYPE_QUATERNION" ||
                         typeStr == "VARIABLE_TYPE_VECTOR3") {
                         const auto& vvs = gd->m_variableInitialValues;
                         if (vvs && val >= 0 && static_cast<std::size_t>(val) < vvs->m_quadVariableValues.size())
-                            y += "    quadValue: " + pvec(vvs->m_quadVariableValues[val]) + "\n";
+                            yVar += "    quadValue: " + pvec(vvs->m_quadVariableValues[val]) + "\n";
                     }
                 }
             }
             if (!addedEventNames.empty()) {
-                y += "events:\n";
+                yEv += "events:\n";
                 for (std::size_t i = 0; i < sd->m_eventNames.size(); ++i) {
                     if (!addedEventNames.count(sd->m_eventNames[i])) continue;
-                    y += "  - name: " + q(sd->m_eventNames[i]) + "\n";
+                    yEv += "  - name: " + q(sd->m_eventNames[i]) + "\n";
                     std::uint32_t flags = (i < gd->m_eventInfos.size()) ? gd->m_eventInfos[i].m_flags : 0;
-                    y += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::EventInfoFlags()) + "\n";
+                    yEv += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::EventInfoFlags()) + "\n";
                 }
             }
             if (!addedCharPropNames.empty()) {
-                y += "characterPropertyNames:\n";
+                yCp += "characterPropertyNames:\n";
                 for (std::size_t i = 0; i < sd->m_characterPropertyNames.size(); ++i) {
                     if (!addedCharPropNames.count(sd->m_characterPropertyNames[i])) continue;
-                    y += "  - name: " + q(sd->m_characterPropertyNames[i]) + "\n";
+                    yCp += "  - name: " + q(sd->m_characterPropertyNames[i]) + "\n";
                     std::int8_t type = (i < gd->m_characterPropertyInfos.size()) ? gd->m_characterPropertyInfos[i].m_type : 0;
-                    y += "    type: " + revNum(en::VariableType(), type) + "\n";
+                    yCp += "    type: " + revNum(en::VariableType(), type) + "\n";
                     std::int16_t flags = (i < gd->m_characterPropertyInfos.size())
                                          ? gd->m_characterPropertyInfos[i].m_role.m_flags : 0;
-                    y += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::RoleFlags()) + "\n";
+                    yCp += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::RoleFlags()) + "\n";
                 }
             }
-            writeText(outDir / "data" / "additive.yaml", y);
+            if (!yVar.empty()) writeText(outDir / "data" / "variables.yaml", yVar);
+            if (!yEv.empty())  writeText(outDir / "data" / "events.yaml",    yEv);
+            if (!yCp.empty())  writeText(outDir / "data" / "additive.yaml",  yCp);
         }
         return { true, "", "behavior" };
     } catch (const std::exception& e) {

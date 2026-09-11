@@ -790,10 +790,23 @@ namespace CB::adserve {
                 // Rosters come from each project's `character:` header ref (index.yaml) — load once.
                 for (const auto& h : headers) {
                     if (h.character.empty()) continue;
-                    if (const auto rz = masterReader->read("meshes/" + h.character + "/animations.txt")) {
+                    if (const auto rz = masterReader->read("meshes/" + h.character + "/data/animations.yaml")) {
                         std::vector<std::string> roster;
                         std::istringstream in(*rz); std::string line;
-                        while (std::getline(in, line)) { const std::string t = TrimLine(line); if (!t.empty()) roster.push_back(t); }
+                        while (std::getline(in, line)) {   // block seq of single-quoted scalars: `- 'path'`
+                            std::string t = TrimLine(line);
+                            if (t.empty() || t[0] == '#') continue;
+                            if (t.rfind("- ", 0) == 0) t = TrimLine(t.substr(2));
+                            else if (t[0] == '-') t = TrimLine(t.substr(1));
+                            if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
+                                const std::string inner = t.substr(1, t.size() - 2); std::string un;
+                                for (std::size_t i = 0; i < inner.size(); ++i)
+                                    if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
+                                    else un += inner[i];
+                                t = std::move(un);
+                            }
+                            if (!t.empty()) roster.push_back(std::move(t));
+                        }
                         if (!roster.empty()) rostersByStem[animdata::StemForProjectName(h.name)] = std::move(roster);
                     }
                 }

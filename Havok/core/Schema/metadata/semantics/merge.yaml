@@ -29,3 +29,15 @@ compose:
   # The BR-39 element-wise arrays — the two that were the entire reason per-field merge tags existed.
   - hkbStateMachineTransitionInfoArray.transitions
   - hkbStateMachine.states
+
+union:
+  # Name-list rosters / graph vocab — append + dedup EXACT-case (Havok binds case-sensitively), base
+  # order preserved, load-order append. Every pre-existing index is kept so $eventID/$variableID and
+  # the animation-binding index stay valid. The loaders implement this: the character animationNames
+  # roster unions in CharacterYamlLoader (data/animations.yaml layers); the graph vocab unions in
+  # YamlBehaviorLoader (data/additive.yaml over the base data/graphdata.yaml tables). Declared here so
+  # the roster/vocab merge policy is auditable in the schema alongside compose/replace.
+  - hkbCharacterStringData.animationNames
+  - hkbBehaviorGraphStringData.eventNames
+  - hkbBehaviorGraphStringData.variableNames
+  - hkbBehaviorGraphStringData.characterPropertyNames

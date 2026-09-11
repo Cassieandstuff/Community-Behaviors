@@ -343,9 +343,15 @@ std::vector<LooseModContribution> DiscoverContributions(const Mo2Layout& mo2, co
                 if (!it->is_regular_file(fe)) continue;
                 const fs::path& p = it->path();
                 if (ToLower(p.extension().string()) != ".hkx") continue;
-                // must sit under a `behaviors/` segment (animations live under animations/)
+                // must sit under a `behaviors/` segment (animations live under animations/) — OR a
+                // `behaviors <x>` space-folder (canine ships `behaviors wolf`, `behaviors dog`, …);
+                // an exact "behaviors" match misses those, leaving the loose graph UN-attributed so it
+                // falls to the anonymous BehaviorFiles.hky instead of its owning mod's bundle.
                 bool underBehaviors = false;
-                for (const auto& seg : p) if (ToLower(seg.string()) == "behaviors") { underBehaviors = true; break; }
+                for (const auto& seg : p) {
+                    const std::string s = ToLower(seg.string());
+                    if (s == "behaviors" || s.rfind("behaviors ", 0) == 0) { underBehaviors = true; break; }
+                }
                 if (!underBehaviors) continue;
                 if (!PeekIsBehaviorHkx(p)) continue;   // skip anims / non-graph assets
                 c.precompiledGraphs.push_back(p);
@@ -906,17 +912,32 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 fs::remove_all(scratch, we);
                 continue;
             }
-            // additions = winner roster lines not in the vanilla unit's roster
-            // Un-escape both rosters to literal form so escaped killmove paths from the
-            // decompiled winner match the literal vanilla template and don't leak into the
-            // delta as phantom additions (see UnescapeXml).
-            auto readRoster = [](const fs::path& p) {
+            // additions = winner roster lines not in the vanilla unit's roster.
+            // Both rosters are the decompiled unit's data/animations.yaml — a block sequence of
+            // single-quoted LITERAL paths (the decompiler no longer XML-escapes), so no UnescapeXml.
+            auto readRoster = [](const fs::path& unitDir) {
                 std::vector<std::string> lines;
-                std::ifstream f(p);
+                std::ifstream f(unitDir / "data" / "animations.yaml");
                 std::string line;
                 while (std::getline(f, line)) {
-                    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-                    if (!line.empty()) lines.push_back(UnescapeXml(line));
+                    std::string t = line;
+                    while (!t.empty() && (t.back() == '\r' || t.back() == '\n' || t.back() == ' ' || t.back() == '\t')) t.pop_back();
+                    const std::size_t s = t.find_first_not_of(" \t");
+                    if (s == std::string::npos) continue;
+                    t = t.substr(s);
+                    if (t.empty() || t[0] == '#') continue;
+                    if (t.rfind("- ", 0) == 0) t = t.substr(2);
+                    else if (t[0] == '-') t = t.substr(1);
+                    const std::size_t s2 = t.find_first_not_of(" \t");
+                    if (s2 != std::string::npos) t = t.substr(s2);
+                    if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
+                        const std::string inner = t.substr(1, t.size() - 2); std::string un;
+                        for (std::size_t i = 0; i < inner.size(); ++i)
+                            if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
+                            else un += inner[i];
+                        t = std::move(un);
+                    }
+                    if (!t.empty()) lines.push_back(std::move(t));
                 }
                 return lines;
             };
@@ -929,10 +950,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 std::string               vrerr;
                 if (havok::sct::ReadHavokFile(tmpl.string(), vbytes, &vrerr) &&
                     havok::sct::DecompileToDir(vbytes, vscratch.string()).ok)
-                    vanilla = readRoster(vscratch / "animations.txt");
+                    vanilla = readRoster(vscratch);
                 fs::remove_all(vscratch, we);
             }
-            const auto modded = readRoster(scratch / "animations.txt");
+            const auto modded = readRoster(scratch);
             std::unordered_set<std::string> have;
             have.reserve(vanilla.size() * 2);
             for (const auto& a : vanilla) have.insert(ToLower(a));
@@ -1236,6 +1257,30 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         walk(charRoot / rel);
                     }
                 }
+            }
+
+            // DIRECT-GRAPH ROSTER — the RBG walk above only reaches sub-behaviors, but a mod's clips
+            // also live DIRECTLY in the graphs it patches (BFCO_* in 1hm_behavior/bashbehavior). The
+            // runtime graph-walk membrane used to collect these; do it here so the authored roster is
+            // COMPLETE at convert time (the precondition for retiring that membrane). animationNames come
+            // from the just-written delta unit clips/ (literal single-quoted strings).
+            {
+                auto collectGraphClips = [&](const std::string& unitPath) {
+                    const fs::path  clipsDir = fs::path(unitPath) / "clips";
+                    std::error_code ce;
+                    if (!fs::is_directory(clipsDir, ce)) return;
+                    for (const auto& e : fs::directory_iterator(clipsDir, ce)) {
+                        if (ToLower(e.path().extension().string()) != ".yaml") continue;
+                        std::ifstream f(e.path());
+                        std::string   line;
+                        while (std::getline(f, line)) {
+                            const std::string an = YamlQuoted(line, "animationName:");
+                            if (!an.empty() && nameSeen.insert(ToLower(an)).second) collected.push_back(an);
+                        }
+                    }
+                };
+                for (const auto& g : graphs)   collectGraphClips(unitOut(bname, g));
+                for (const auto& g : fpGraphs) if (g != "firstperson") collectGraphClips(fpUnitOut(bname, g));
             }
 
             if (!collected.empty()) {

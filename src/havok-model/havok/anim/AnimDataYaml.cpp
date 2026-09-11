@@ -272,11 +272,24 @@ std::map<std::string, ProjectCharacter> LoadProjectCharacters(const std::string&
         const std::string parent = lc(unit.parent_path().filename().string());
         const std::string stem   = lc(unit.stem().string());
         if (parent.rfind("characters", 0) == 0) {                // .../characters[ x]/<char>.hkx
-            const fs::path ap = unit / "animations.txt";
+            const fs::path ap = unit / "data" / "animations.yaml";
             if (!fs::exists(ap, ec)) continue;
             std::vector<std::string> roster;
             std::ifstream rf(ap); std::string line;
-            while (std::getline(rf, line)) { line = strip(line); if (!line.empty()) roster.push_back(line); }
+            while (std::getline(rf, line)) {   // block seq of single-quoted scalars: `- 'path'`
+                std::string t = strip(line);
+                if (t.empty() || t[0] == '#') continue;
+                if (t.rfind("- ", 0) == 0) t = strip(t.substr(2));
+                else if (!t.empty() && t[0] == '-') t = strip(t.substr(1));
+                if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
+                    const std::string inner = t.substr(1, t.size() - 2); std::string un;
+                    for (std::size_t i = 0; i < inner.size(); ++i)
+                        if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
+                        else un += inner[i];
+                    t = std::move(un);
+                }
+                if (!t.empty()) roster.push_back(std::move(t));
+            }
             if (roster.empty()) continue;
             charByStem.emplace(stem, ProjectCharacter{ rel(unit), roster });
             charsByRoot[rel(unit.parent_path().parent_path())].push_back(stem);

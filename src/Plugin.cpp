@@ -151,11 +151,9 @@ namespace CB {
         g_resolver.CompileAll([](std::size_t done, std::size_t tot) {
             ProgressOverlay::SetProgress(done, tot, true);
         });
-        // ROSTER MEMBRANE: now that every graph has resolved (the clip pool is complete), fold each
-        // actor's collected clip animationNames (schema rosterref) into its character's animationNames,
-        // so every clip binds and OAR's synchronized offset is complete. MUST precede the disk write.
-        if (const std::size_t nc = g_resolver.CompleteCharacterRosters())
-            LOG_INFO("Community Behaviors: roster membrane completed {} character roster(s) from graph clips.", nc);
+        // (The character animationNames roster is built offline now — the converter scans clip
+        // generators into each unit's data/animations.yaml and LoadMerged unions every layer at
+        // compile time — so there is no runtime roster-completion pass between compile and disk write.)
         // Write every compiled graph + a synthesized project per character to disk, in the
         // above-OAR split layout (<Data>\Meshes\<folderRoot>\community_behaviors_cache\... plus
         // <folderRoot>\<char>.br.hkx), and publish the redirect map. The project-load hook

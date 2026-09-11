@@ -93,11 +93,15 @@ DecompileResult decompileCharacter(const hkbCharacterData& cd, const fs::path& d
         writeText(dir / "character.yaml", y);
     }
 
-    // ── animations.txt ──
+    // ── data/animations.yaml — the character's animationNames roster. A YAML block sequence of
+    //    single-quoted paths (backslashes literal); union-merged across the load order per the
+    //    `union` strategy in Havok/core/Schema/metadata/semantics/merge.yaml. ──
     {
-        std::string t;
-        for (const auto& a : sd->m_animationNames) t += a + "\n";
-        writeText(dir / "animations.txt", t);
+        std::error_code de;
+        fs::create_directories(dir / "data", de);
+        std::string y;
+        for (const auto& a : sd->m_animationNames) y += "- " + q(a) + "\n";
+        writeText(dir / "data" / "animations.yaml", y);
     }
 
     // ── properties/*.yaml + _order.txt ──
