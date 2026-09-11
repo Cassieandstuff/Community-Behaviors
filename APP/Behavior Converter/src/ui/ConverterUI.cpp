@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 namespace fs = std::filesystem;
 
@@ -170,6 +171,7 @@ void ConverterUI::SaveSettings() const {
 ConverterUI::~ConverterUI() {
     m_cancel = true;
     if (m_worker.joinable()) m_worker.join();
+    if (m_diffWorker.joinable()) m_diffWorker.join();   // the Diff tab's own worker
     SaveSettings();   // persist Data + zip dirs even if the user set them and closed without converting
 }
 
@@ -273,6 +275,10 @@ void ConverterUI::Draw() {
             m_loadOrder.Draw(BrPluginsDir(), BrLoadOrderPath());
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Diff")) {
+            DrawDiffTab();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Debug")) {
             DrawDebugTab();
             ImGui::EndTabItem();
@@ -374,6 +380,135 @@ void ConverterUI::DrawConverterTab() {
         for (const auto& line : m_log) ImGui::TextUnformatted(line.c_str());
     }
     if (m_autoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f)
+        ImGui::SetScrollHereY(1.0f);
+    ImGui::EndChild();
+}
+
+// The domain choices for the Diff tab combo. Index 0 ("auto") lets RunTreeDiff detect from A.
+static const char* kDiffDomains[] = { "auto", "behavior", "setdata", "animdata", "skeleton", "character" };
+
+void ConverterUI::StartDiff() {
+    if (m_diffRunning) return;
+    if (m_diffWorker.joinable()) m_diffWorker.join();
+    { std::lock_guard<std::mutex> lk(m_diffLogMx); m_diffLog.clear(); }
+    m_diffRunning = true; m_diffFinished = false;
+
+    // Snapshot the UI fields into locals so the worker never races them.
+    havok::diff::TreeDiffOptions opts;
+    opts.a        = Trim(m_diffA);
+    opts.b        = Trim(m_diffB);
+    opts.deltaDir = Trim(m_diffOutDir);
+    opts.domain   = kDiffDomains[(m_diffDomainIdx >= 0 && m_diffDomainIdx < (int)std::size(kDiffDomains))
+                                 ? m_diffDomainIdx : 0];
+    opts.skeleton = Trim(m_diffSkeleton);
+
+    m_diffWorker = std::thread([this, opts]() {
+        auto logLambda = [this](const std::string& line) {
+            std::lock_guard<std::mutex> lk(m_diffLogMx);
+            m_diffLog.push_back(line);
+        };
+        m_diffOutcome = havok::diff::RunTreeDiff(opts, logLambda);
+        m_diffRunning  = false;
+        m_diffFinished = true;
+    });
+}
+
+void ConverterUI::DrawDiffTab() {
+    ImGui::TextUnformatted(
+        "Record-keyed semantic diff of two Havok artifacts (immune to node reordering / id reassignment).");
+    ImGui::TextDisabled("Both sides are decompiled from binary and matched by their Class:name editorID, "
+                        "then diffed to the field. A delta-only folder + summary.yaml is written.");
+    ImGui::Separator();
+
+    const bool busy = m_diffRunning.load();
+
+    ImGui::BeginDisabled(busy);
+    ImGui::PushItemWidth(-260.0f);
+
+    InputPath("##diffA", m_diffA);
+    ImGui::SameLine();
+    if (ImGui::Button("Browse##diffA")) {
+        std::string p;
+        if (sct::ui::PickFile("Select input A (.hkx or singlefile .txt)", m_diffA.c_str(),
+                              "Havok/Text", "*.hkx;*.txt", p)) m_diffA = p;
+    }
+    ImGui::SameLine(); ImGui::TextUnformatted("Input A");
+
+    InputPath("##diffB", m_diffB);
+    ImGui::SameLine();
+    if (ImGui::Button("Browse##diffB")) {
+        std::string p;
+        if (sct::ui::PickFile("Select input B (.hkx or singlefile .txt)", m_diffB.c_str(),
+                              "Havok/Text", "*.hkx;*.txt", p)) m_diffB = p;
+    }
+    ImGui::SameLine(); ImGui::TextUnformatted("Input B");
+
+    InputPath("##diffOut", m_diffOutDir);
+    ImGui::SameLine();
+    if (ImGui::Button("Browse##diffOut")) {
+        std::string p;
+        if (sct::ui::PickFolder("Select the delta-folder destination", m_diffOutDir.c_str(), p))
+            m_diffOutDir = p;
+    }
+    ImGui::SameLine(); ImGui::TextUnformatted("Output delta folder");
+
+    InputPath("##diffSkel", m_diffSkeleton);
+    ImGui::SameLine();
+    if (ImGui::Button("Browse##diffSkel")) {
+        std::string p;
+        if (sct::ui::PickFile("Select an optional skeleton (.hkx or bones .txt)", m_diffSkeleton.c_str(),
+                              "Skeleton/Bones", "*.hkx;*.txt", p)) m_diffSkeleton = p;
+    }
+    ImGui::SameLine(); ImGui::TextUnformatted("Skeleton (optional)");
+
+    ImGui::Combo("Domain", &m_diffDomainIdx, kDiffDomains, (int)std::size(kDiffDomains));
+    ImGui::PopItemWidth();
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    if (!busy) {
+        ImGui::BeginDisabled(Trim(m_diffA).empty() || Trim(m_diffB).empty() || Trim(m_diffOutDir).empty());
+        if (ImGui::Button("Run", ImVec2(150, 34))) StartDiff();
+        ImGui::EndDisabled();
+    } else {
+        // No cooperative cancel in RunTreeDiff; the button is a disabled placeholder while busy.
+        ImGui::BeginDisabled(true);
+        ImGui::Button("Running...", ImVec2(150, 34));
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Diffing...");
+    }
+
+    if (m_diffFinished.load()) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        if (!m_diffOutcome.ok)
+            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "ERROR: %s", m_diffOutcome.error.c_str());
+        else if (m_diffOutcome.anyDifference)
+            ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f),
+                               "DIFFERENCES — compared %d, only-A %d, only-B %d, differing %d",
+                               m_diffOutcome.comparedRecords, m_diffOutcome.onlyA,
+                               m_diffOutcome.onlyB, m_diffOutcome.differing);
+        else
+            ImGui::TextColored(ImVec4(0.55f, 0.90f, 0.55f, 1.0f),
+                               "identical — compared %d records, no semantic difference",
+                               m_diffOutcome.comparedRecords);
+    }
+    if (m_diffFinished.load() && m_diffOutcome.ok && !m_diffOutcome.summaryPath.empty()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Open delta folder")) OpenInExplorer(m_diffOutDir);
+    }
+
+    ImGui::Separator();
+    ImGui::Checkbox("Auto-scroll##diff", &m_diffAutoscroll);
+
+    ImGui::BeginChild("difflog", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
+    {
+        std::lock_guard<std::mutex> lk(m_diffLogMx);
+        for (const auto& line : m_diffLog) ImGui::TextUnformatted(line.c_str());
+    }
+    if (m_diffAutoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f)
         ImGui::SetScrollHereY(1.0f);
     ImGui::EndChild();
 }

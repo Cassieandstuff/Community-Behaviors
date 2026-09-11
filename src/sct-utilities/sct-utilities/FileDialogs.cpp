@@ -115,9 +115,73 @@ bool PickFolder(const char* title, const char* initialDir, std::string& outPath)
     return picked;
 }
 
+bool PickFile(const char* title, const char* initialDir, const char* filterDesc,
+              const char* filterExt, std::string& outPath)
+{
+    ScopedCom com;
+    if (!com.Usable()) return false;
+
+    IFileOpenDialog* dialog = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                  IID_PPV_ARGS(&dialog));
+    if (FAILED(hr) || dialog == nullptr) return false;
+
+    bool picked = false;
+
+    // A real file pick: FORCEFILESYSTEM + FILEMUSTEXIST, and NO FOS_PICKFOLDERS (the one bit that
+    // separates this from PickFolder).
+    DWORD options = 0;
+    if (SUCCEEDED(dialog->GetOptions(&options)))
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST |
+                           FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+
+    // The caller's type filter, plus an always-present "All files" catch-all. The wide strings must
+    // outlive SetFileTypes (it copies on Show, but keep them in scope until the call returns).
+    const std::wstring wDesc = Widen((filterDesc && *filterDesc) ? filterDesc : "Files");
+    const std::wstring wExt  = Widen((filterExt && *filterExt) ? filterExt : "*.*");
+    const COMDLG_FILTERSPEC specs[] = {
+        { wDesc.c_str(), wExt.c_str() },
+        { L"All files",  L"*.*" },
+    };
+    dialog->SetFileTypes(2, specs);
+
+    if (title && *title) {
+        const std::wstring wTitle = Widen(title);
+        dialog->SetTitle(wTitle.c_str());
+    }
+
+    // Seed the starting location (SetFolder, as in PickFolder — return to the last chosen path).
+    if (initialDir && *initialDir) {
+        const std::wstring wDir = Widen(initialDir);
+        IShellItem* item = nullptr;
+        if (SUCCEEDED(SHCreateItemFromParsingName(wDir.c_str(), nullptr,
+                                                  IID_PPV_ARGS(&item))) && item) {
+            dialog->SetFolder(item);
+            item->Release();
+        }
+    }
+
+    if (SUCCEEDED(dialog->Show(GetActiveWindow()))) {
+        IShellItem* result = nullptr;
+        if (SUCCEEDED(dialog->GetResult(&result)) && result) {
+            PWSTR wpath = nullptr;
+            if (SUCCEEDED(result->GetDisplayName(SIGDN_FILESYSPATH, &wpath)) && wpath) {
+                outPath = Narrow(wpath);
+                picked  = !outPath.empty();
+                CoTaskMemFree(wpath);
+            }
+            result->Release();
+        }
+    }
+
+    dialog->Release();
+    return picked;
+}
+
 #else  // !_WIN32
 
 bool PickFolder(const char*, const char*, std::string&) { return false; }
+bool PickFile(const char*, const char*, const char*, const char*, std::string&) { return false; }
 
 #endif
 

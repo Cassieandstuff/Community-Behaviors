@@ -8,6 +8,8 @@
 #include "Converter.h"
 #include "ui/LoadOrderUI.h"
 
+#include "TreeDiffAdapters.h"   // havok::diff::RunTreeDiff / TreeDiffOutcome (cb-tree-diff)
+
 // The whole tool UI: two persistent folder fields (Data + Zip destination), a Convert
 // button that runs the conversion on a worker thread, and a live scrolling log. Convert
 // always produces Community Behaviors.zip at the destination — the DynDOLOD-style model:
@@ -24,8 +26,10 @@ public:
 
 private:
     void DrawConverterTab();           // the conversion UI (the "Converter" tab body)
+    void DrawDiffTab();                // the "Diff" tab: the record-keyed tree-diff tool (cb-tree-diff)
     void DrawDebugTab();               // the "Debug" tab: plugin debug flags auto-enumerated from DebugFlags.h
     void StartConvert();
+    void StartDiff();                  // run RunTreeDiff on m_diffWorker
     void AppendLog(std::string line);
     void SetZipMsg(std::string msg);   // guarded — the worker also writes it
     void LoadSettings();               // <exe>/sct_converter.ini  (data + zip dirs)
@@ -65,4 +69,20 @@ private:
     std::string              m_zipMsg;   // result of the last package step
 
     LoadOrderUI              m_loadOrder;   // the "Load Order" tab (manages loadorder.txt)
+
+    // ── Diff tab state (separate worker + flags from the converter's) ─────────────────────────
+    std::string m_diffA;        // input A (.hkx / singlefile .txt)
+    std::string m_diffB;        // input B
+    std::string m_diffOutDir;   // delta-folder destination
+    std::string m_diffSkeleton; // optional skeleton .hkx / bones.txt (bone-name resolution)
+    int         m_diffDomainIdx = 0;   // index into the domains[] combo (0 = auto)
+
+    std::thread                  m_diffWorker;
+    std::atomic<bool>            m_diffRunning{ false };
+    std::atomic<bool>            m_diffFinished{ false };
+    havok::diff::TreeDiffOutcome m_diffOutcome;   // written by the worker, read after m_diffFinished
+
+    std::mutex               m_diffLogMx;
+    std::vector<std::string> m_diffLog;   // shared with the diff worker (guarded by m_diffLogMx)
+    bool                     m_diffAutoscroll = true;
 };
