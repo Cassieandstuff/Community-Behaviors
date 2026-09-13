@@ -944,6 +944,19 @@ namespace CB {
             LOG_INFO("Resolver: {} character-roster addition list(s) ingested ({} name(s) total) via animationnames\\.",
                      m_characterAnimNames.size(), total);
         }
+
+        // FULLY built — publish the ready signal LAST (release), so any serve hook that acquires it sees
+        // every field above completely written. Init runs on a background thread; hooks pass through to
+        // vanilla until this fires, and the compile gate blocks on WaitReady().
+        { std::lock_guard<std::mutex> lk(m_initMutex); m_ready.store(true, std::memory_order_release); }
+        m_initCv.notify_all();
+    }
+
+    void Resolver::WaitReady() const
+    {
+        if (m_ready.load(std::memory_order_acquire)) return;
+        std::unique_lock<std::mutex> lk(m_initMutex);
+        m_initCv.wait(lk, [this] { return m_ready.load(std::memory_order_acquire); });
     }
 
     const std::vector<std::string>& Resolver::AnimationsForActor(std::string_view actorRoot) const

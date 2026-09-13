@@ -21,11 +21,17 @@ namespace CB::seq {
 
 // ── ThreadPool ──────────────────────────────────────────────────────────────
 unsigned __stdcall ThreadPool::Thunk(void* self) {
-    static_cast<ThreadPool*>(self)->worker();
+    auto* pool = static_cast<ThreadPool*>(self);
+    // Drop to the requested priority BEFORE running any work, so the whole compile stays below the
+    // game's render/main threads and can't starve them (the load-minimize). 0 == leave the default.
+    if (pool->priority_ != 0)
+        SetThreadPriority(GetCurrentThread(), pool->priority_);
+    pool->worker();
     return 0;
 }
 
-ThreadPool::ThreadPool(unsigned threads, std::size_t stackBytes) {
+ThreadPool::ThreadPool(unsigned threads, std::size_t stackBytes, int threadPriority)
+    : priority_(threadPriority) {
     unsigned n = threads ? threads : std::thread::hardware_concurrency();
     if (n == 0) n = 1;
     // STACK_SIZE_PARAM_IS_A_RESERVATION only takes effect when a size is given; with size 0 the flag is

@@ -28,6 +28,11 @@ namespace CB {
     // the interceptor holds a pointer to it.
     static Resolver g_resolver;
 
+    // The thread SKSEPluginLoad runs on (the game's main thread). Captured at plugin load so the
+    // compile gate can log whether it fires on the main thread — diagnostic for the load-minimize
+    // (a heavy compile BLOCKING the main thread stops the window message pump).
+    static unsigned long g_mainThreadId = 0;
+
     // Set on any thread currently executing the compile gate's work — the loader thread that claimed
     // it AND the 64MB compile worker it spawns. A re-entrant gate call from either (e.g. a detour
     // fired from inside the compile) returns immediately instead of blocking, so the join can never
@@ -164,7 +169,9 @@ namespace CB {
         AnimParallel()
         {
             if (!ParallelAnimCompileEnabled()) return;
-            pool.emplace(0u, 64u * 1024u * 1024u);   // 0 => hardware_concurrency; 64MB reserved stack/worker
+            // 0 => hardware_concurrency; 64MB reserved stack/worker; BELOW_NORMAL so the anim compile
+            // never out-competes the game's render/main threads while the window is coming up (minimize).
+            pool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
             exec = [this](std::vector<std::function<void()>> tasks) { pool->parallel_for(std::move(tasks)); };
             LOG_INFO("Community Behaviors: native animations compile in PARALLEL on {} pool thread(s) "
                      "(drop Data\\community_behaviors\\sequencer.disable to force serial).", pool->size());
@@ -177,6 +184,10 @@ namespace CB {
     static unsigned __stdcall WarmUpThread(void* param)
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
+        // Run the whole background compile (graphs on this thread + native animations on the pool)
+        // BELOW the game's threads, so it can't starve the render/main threads while the window is
+        // coming up — the load-minimize. The compile takes marginally longer; the window stays live.
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
         // grandTotal = graphs + native animations (computed by the gate and passed in), so the bar
         // reflects ALL compiled assets, not just graphs. Phase 1 (CompileAll) fills 0..graphCount of
         // grandTotal; phase 2 (native animations) fills graphCount..grandTotal.
@@ -301,6 +312,14 @@ namespace CB {
         if (s_done.load(std::memory_order_relaxed)) return;
         t_compileGateInProgress = true;
 
+        LOG_INFO("Community Behaviors: compile gate fired on thread {} (main thread = {}){}.",
+                 ::GetCurrentThreadId(), g_mainThreadId,
+                 (::GetCurrentThreadId() == g_mainThreadId) ? " — ON MAIN THREAD" : "");
+
+        // Init now runs on a background thread; never compile against a half-built resolver. This is a
+        // no-op once Init is done (the common case — Init finishes during the intro, before this fires).
+        g_resolver.WaitReady();
+
         const std::filesystem::path dataAbs    = std::filesystem::current_path() / "Data";
         const bool                  warm       = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
 
@@ -381,6 +400,24 @@ namespace CB {
         if (h) WaitForSingleObject(h, INFINITE);
     }
 
+    // Resolver bring-up, run OFF the main thread. Init fully UNPACKS the .hky bundles (decompresses each
+    // whole archive into memory), scans the load order, reads every actor skeleton, and compiles the
+    // served skeletons — ~50s of work that used to run synchronously in SKSEPluginLoad ON THE MAIN
+    // THREAD, blocking the window's message pump during bring-up (the load-minimize + trapped cursor).
+    // All resolver config lives here so it's published together via Init's ready-store (Resolver::Ready);
+    // the serve hooks pass through to vanilla until then, and the compile gate blocks on WaitReady().
+    // 64MB stack — the skeleton compile. Finishes during the intro, before the first owned open.
+    static unsigned __stdcall InitThread(void*)
+    {
+        ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
+        const bool warmReuse = !ReadForceRegenerate() &&
+                               g_resolver.CachePresent(std::filesystem::current_path() / "Data");
+        g_resolver.SetERGateEnabled(ReadERGateEnabled());
+        g_resolver.SetAdsfDerive(ReadAdsfDerive());   // opt-in, before any compile
+        g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse);   // ready-store at end
+        return 0;
+    }
+
     static void OnMessage(SKSE::MessagingInterface::Message* a_msg)
     {
         if (!a_msg) return;
@@ -414,6 +451,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
     SKSE::Init(a_skse);
     PluginLogger::Init("CommunityBehaviors", "Community Behaviors");
+    CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
     LOG_INFO("Community Behaviors v0.3.1.0 loading — runtime behavior compiler.");
 
     // Behavior + character + project DELIVERY is BYTE-SUBSTITUTION (ByteServe): MinHook the
@@ -455,27 +493,24 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     // The behavior compile sources everything from the loose
     // .hky bundles (no BSA dependency), so the gate is safe to fire this early in load.
     {
-        // Schema dir FIRST, before Init(): Init() compiles the served skeletons (CompileSkeletonFull),
-        // which is the first consumer of havok::schema::SharedRegistry(). That registry loads at most
-        // ONCE and caches the outcome, so if Init() runs before the dir is configured, every schema
-        // consumer (skeletons, the schema-native behavior/anim compile) is poisoned with a "no schema
-        // directory configured" failure for the rest of the process — a silent fall-through to the
-        // typed path plus dead skeleton serves. ApplySchemaCompilerSetting has no dependency on Init
-        // (it only reads settings.ini + sets the shared dir), so it must precede it.
-        CB::ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST be before any compile
-        // Warm signal, computed here EXACTLY as the compile gate does (same !force && CachePresent), so
-        // Init can skip the expensive per-actor skeleton recompile when a prior run's compiled skeletons
-        // are already in the on-disk cache. This is the every-launch main-menu stall: the skeleton
-        // CompileSkeletonFull loop ran unconditionally on the main thread at plugin load. Cold / forced
-        // regen (warmReuse == false) still compiles fresh. Reading the sentinel + ini here is cheap and
-        // does not depend on Init having run.
-        const bool warmReuse = !CB::ReadForceRegenerate() &&
-                               CB::g_resolver.CachePresent(std::filesystem::current_path() / "Data");
-        CB::g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse);
-        CB::g_resolver.SetERGateEnabled(CB::ReadERGateEnabled());
-        CB::g_resolver.SetAdsfDerive(CB::ReadAdsfDerive());  // opt-in, before any compile
-
+        // Hand byteserve the resolver pointer NOW (it gates every use on g_resolver.Ready(), so a hook
+        // that fires before Init finishes passes through to vanilla instead of reading half-built state).
         CB::byteserve::SetResolver(&CB::g_resolver);
+
+        // Run the whole resolver bring-up (unpack + scan + skeleton compile — ~50s) on a BACKGROUND
+        // thread, so SKSEPluginLoad returns immediately and the main thread is free to bring the window
+        // up. It used to run synchronously here on the main thread, blocking the message pump the entire
+        // time → the game launched minimized with the cursor trapped. Init finishes during the intro,
+        // before the first owned asset opens; the compile gate blocks on WaitReady() if it somehow fires
+        // first. 64MB stack for the skeleton compile; handle closed immediately (fire-and-forget — the
+        // ready-store is the sync point, not a join).
+        if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
+                    &CB::InitThread, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)) {
+            CloseHandle(reinterpret_cast<HANDLE>(h));
+        } else {
+            LOG_ERROR("Community Behaviors: failed to spawn Init thread — running Init synchronously (load may stall).");
+            CB::InitThread(nullptr);   // fallback: correctness over responsiveness
+        }
     }
 
     auto* messaging = SKSE::GetMessagingInterface();

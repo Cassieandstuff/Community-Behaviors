@@ -108,7 +108,11 @@ namespace CB::byteserve {
         }
 
         std::int64_t Hook_Resolve(const char* a_path, void* a_entry, std::uint64_t a_flag, void* a_ctx) {
-            if (s_resolver && a_path) {
+            // Ready() gate: Init runs on a background thread, so until it completes the resolver's state
+            // (m_sources/m_skeletonServe/…) is still being written — read nothing, pass the open through
+            // to vanilla. Safe: nothing BR owns loads this early in startup, and Init finishes before it
+            // would. Lock-free acquire; once ready, the resolver is immutable for the process lifetime.
+            if (s_resolver && s_resolver->Ready() && a_path) {
                 // Sized well above any real Meshes-relative typed-hkx path (deep authored/VFS trees can
                 // exceed the old 300): a truncated copy would clip the ".hkx" suffix, fail EndsHkx, and
                 // silently pass a legitimately-owned graph through to vanilla with no swap.

@@ -73,6 +73,18 @@ namespace CB {
         void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
                   bool warmReuse = false);
 
+        // True once Init() has FULLY built the resolver (m_sources/m_skeletons/m_skeletonServe/... all
+        // populated + the ready-store released). Init now runs on a BACKGROUND thread at plugin load so
+        // its heavy unpack + scan + skeleton compile doesn't block the main thread during window bring-up
+        // (the load-minimize). So a serve hook can fire BEFORE Init finishes: until Ready(), the resolver
+        // state is still being written and MUST NOT be read — the hook passes the open through to vanilla
+        // instead (safe: nothing BR owns loads that early in startup). Lock-free acquire.
+        bool Ready() const { return m_ready.load(std::memory_order_acquire); }
+
+        // Block the caller until Ready(). The compile gate calls this before it uses the resolver, so it
+        // never compiles against a half-built Init. Returns immediately once Init has completed.
+        void WaitReady() const;
+
         // Compile (lazy + cached) and return bytes for a served path — the game's
         // open path (e.g. "meshes\\actors\\character\\behaviors\\0_master.hkx"); any
         // case/separator, a leading "data/" tolerated. nullptr = not ours or failed,
@@ -356,6 +368,11 @@ namespace CB {
         // char->setdata/animdata bind stays intact for vanilla-only actors (the A-pose fix).
         std::unordered_map<std::string, std::string> m_projectOrigCharRef;
         std::atomic<bool>                                                  m_redirectReady{ false };
+        // Init-complete signal (see Ready/WaitReady). Set with release at the very end of Init(); serve
+        // hooks acquire it before touching any Init-built state. Init runs off the main thread.
+        std::atomic<bool>                                                  m_ready{ false };
+        mutable std::mutex                                                 m_initMutex;
+        mutable std::condition_variable                                    m_initCv;
         // Lets an owned actor that loads BEFORE warm-up finishes WAIT for the cache instead of
         // falling back to vanilla (the redirect has no on-demand path; a master-graph compile
         // can't run on the load thread's small stack). Signaled once when the cache is armed.

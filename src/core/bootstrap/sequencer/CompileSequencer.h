@@ -66,7 +66,10 @@ public:
     // each worker is created with that many bytes of RESERVED stack (Win32 _beginthreadex +
     // STACK_SIZE_PARAM_IS_A_RESERVATION) — the same guard WarmUpThread uses, so a compile task that
     // recurses deeply (Havok graph/animation assembly) can never overflow a default ~1MB worker stack.
-    explicit ThreadPool(unsigned threads = 0, std::size_t stackBytes = 0);
+    // threadPriority: a Win32 THREAD_PRIORITY_* value applied to each worker (e.g.
+    // THREAD_PRIORITY_BELOW_NORMAL). 0 (THREAD_PRIORITY_NORMAL) => leave the default. Used to keep a
+    // heavy background compile from starving the game's render/main threads (the load-minimize).
+    explicit ThreadPool(unsigned threads = 0, std::size_t stackBytes = 0, int threadPriority = 0);
     ~ThreadPool();
     ThreadPool(const ThreadPool&)            = delete;
     ThreadPool& operator=(const ThreadPool&) = delete;
@@ -84,6 +87,7 @@ private:
     std::mutex                        m_;
     std::condition_variable           cv_;
     bool                              stop_ = false;
+    int                               priority_ = 0;   // Win32 THREAD_PRIORITY_* applied per worker (0 = default)
 };
 
 class Sequencer {
