@@ -210,8 +210,11 @@ struct Differ {
         bool collision = false;
         for (auto& [k, n] : ca) if (n > 1) collision = true;
         for (auto& [k, n] : cb) if (n > 1) collision = true;
-        if (collision) {   // ambiguous alignment — fall back to positional, note it
-            if (reportReorder) out.push_back({path, "", "", "reordered"});   // sentinel: alignment ambiguous
+        if (collision) {
+            // Duplicate secondary keys within a side — can't align by key. Fall back to a positional
+            // compare, which reports only REAL element differences (identical-and-same-order arrays,
+            // the common case for collision-heavy wildcard blocks, then produce no diff). No blanket
+            // "reordered" sentinel: it fired even when the arrays matched positionally (false positive).
             positionalDiff(path, a, b);
             return;
         }
