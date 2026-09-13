@@ -1,0 +1,6 @@
+parent: "NPC L Hand [LHnd]"
+lockTranslation: true
+pose:
+  translation: [2.20815492, -1.34372306, 5.36711502, 0]
+  rotation: [-0.209120005, -0.085334003, 0.279352993, -0.933246017]
+  scale: [1, 1, 1, 0]

@@ -1,0 +1,6 @@
+parent: "NPC L Clavicle [LClv]"
+lockTranslation: true
+pose:
+  translation: [-1.58087206, 1.76665902, 11.7451906, 0]
+  rotation: [-0.0899849981, 0.675984979, -0.326016009, 0.654721975]
+  scale: [1, 1, 1, 0]

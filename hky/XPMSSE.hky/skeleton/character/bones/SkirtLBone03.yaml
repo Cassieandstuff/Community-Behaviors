@@ -1,0 +1,6 @@
+parent: "SkirtLBone02"
+lockTranslation: true
+pose:
+  translation: [6.00000021e-06, 7.99999998e-06, 12.9166718, 0]
+  rotation: [-0.0434579998, -3.00000011e-06, -0, -0.999055028]
+  scale: [1, 1, 1, 0]

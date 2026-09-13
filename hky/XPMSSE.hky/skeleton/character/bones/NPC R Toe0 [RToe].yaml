@@ -1,0 +1,6 @@
+parent: "NPC R Foot [Rft ]"
+lockTranslation: true
+pose:
+  translation: [3.79999983e-05, -0.0163230002, 10.6611414, 0]
+  rotation: [-0.294946998, 0.00166800001, 0.000515000022, 0.955511987]
+  scale: [1, 1, 1, 0]

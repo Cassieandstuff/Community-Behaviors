@@ -1,0 +1,6 @@
+parent: "NPC R UpperArm [RUar]"
+lockTranslation: true
+pose:
+  translation: [1.10000001e-05, 3.99999999e-06, 22.8340149, 0]
+  rotation: [-0.217896, -1.99999999e-06, 7.30000029e-05, 0.975971997]
+  scale: [1, 1, 1, 0]

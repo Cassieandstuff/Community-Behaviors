@@ -1,0 +1,6 @@
+parent: "NPC R UpperarmTwist1 [RUt1]"
+lockTranslation: true
+pose:
+  translation: [7.04034424, -1.99999999e-06, -3.99999999e-06, 0]
+  rotation: [3.60000013e-05, 0, 0, 1]
+  scale: [1, 1, 1, 0]

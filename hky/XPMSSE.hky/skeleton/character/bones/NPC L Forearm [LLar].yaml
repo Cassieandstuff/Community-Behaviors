@@ -1,0 +1,6 @@
+parent: "NPC L UpperArm [LUar]"
+lockTranslation: true
+pose:
+  translation: [7.99999998e-06, -6.00000021e-06, 22.8340073, 0]
+  rotation: [-0.217742994, -0, -0, 0.976005971]
+  scale: [1, 1, 1, 0]

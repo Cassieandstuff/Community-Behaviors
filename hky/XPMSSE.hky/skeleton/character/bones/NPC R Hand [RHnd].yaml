@@ -1,0 +1,6 @@
+parent: "NPC R Forearm [RLar]"
+lockTranslation: true
+pose:
+  translation: [0, -1.99999999e-06, 16.0466843, 0]
+  rotation: [0.0435569994, 0.053576, 0.652741015, 0.754428029]
+  scale: [1, 1, 1, 0]

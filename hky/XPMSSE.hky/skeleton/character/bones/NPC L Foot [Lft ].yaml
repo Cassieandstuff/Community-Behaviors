@@ -1,0 +1,6 @@
+parent: "NPC L Calf [LClf]"
+lockTranslation: true
+pose:
+  translation: [3.99999999e-06, 6.00000021e-06, 27.9497604, 0]
+  rotation: [-0.528100014, 0.00466000009, -0.133373007, 0.838630021]
+  scale: [1, 1, 1, 0]

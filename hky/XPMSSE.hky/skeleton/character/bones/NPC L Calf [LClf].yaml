@@ -1,0 +1,6 @@
+parent: "NPC L Thigh [LThg]"
+lockTranslation: true
+pose:
+  translation: [2.99999992e-05, 7.99999998e-06, 35.5952339, 0]
+  rotation: [0.0649790019, 0.000190000006, 0.00763199991, 0.997856975]
+  scale: [1, 1, 1, 0]

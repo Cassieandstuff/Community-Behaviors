@@ -1,0 +1,6 @@
+parent: "NPC R Finger21 [RF21]"
+lockTranslation: true
+pose:
+  translation: [0.0529799983, -0.00248700008, 1.43923199, 0]
+  rotation: [0.140465006, 0.00485899998, -0.00357900001, 0.990067005]
+  scale: [1, 1, 1, 0]

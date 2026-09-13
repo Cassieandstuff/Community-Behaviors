@@ -1,0 +1,6 @@
+parent: "NPC L Finger41 [LF41]"
+lockTranslation: true
+pose:
+  translation: [0.0100980001, -0.0431349985, 1.292786, 0]
+  rotation: [0.207669005, 0.0066829999, -0.00565099996, 0.978160024]
+  scale: [1, 1, 1, 0]
