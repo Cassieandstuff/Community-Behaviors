@@ -328,7 +328,8 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
 // 0_master from Skyrim.hky. Usage: hky-merge-compile <servePath> <base.hky> [delta.hky ...] -o out.hkx
 int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& archives, const std::string& out,
                       const std::string& schemaDir = "", bool strictSchema = false,
-                      const std::string& traceFile = "", const std::string& traceFilter = "") {
+                      const std::string& traceFile = "", const std::string& traceFilter = "",
+                      const std::string& skel = "") {
     if (archives.empty() || out.empty()) {
         std::printf("usage: hky-merge-compile <servePath> <base.hky> [delta.hky ...] -o out.hkx\n"
                     "                         [--schema <HavokDir>] [--strict-schema]\n"
@@ -401,7 +402,11 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
                     unit.c_str(), sources.size(), out.c_str());
         return 0;
     }
-    const auto data = havok::model::YamlBehaviorLoader::LoadMerged(sources);
+    auto data = havok::model::YamlBehaviorLoader::LoadMerged(sources);
+    // --skeleton: inject the actor's bone NAMES so ragdoll/IK bone-index arrays resolve by name (the
+    // runtime injects the per-actor skeleton; without it a unit like 0_master refuses to emit a
+    // -1-filled bone array). Optional — units with no bone-name arrays don't need it.
+    if (!skel.empty()) data.boneNames = LoadSkeletonNames(skel);
     havok::model::TraceGraph(data, unit);   // merged model: variable table (if this unit has graphData) + bindings
     const auto r = havok::sct::CompileBehavior(data);
     if (!r.ok) { std::printf("FAIL: %s\n", r.error.c_str()); return 1; }
@@ -1293,15 +1298,39 @@ int doSkeletonDiffLayer(const std::string& baseHkx, const std::string& extHkx, c
     if (!load(baseHkx, base) || !load(extHkx, ext)) return 1;
     if (outDir.empty()) { std::printf("ERROR: -o <layer-dir> required\n"); return 1; }
 
-    std::unordered_set<std::string> baseNames;
-    for (const auto& b : base.bones) baseNames.insert(b.name);
+    // Index the base by name so we can tell ADDED bones (absent from base) apart from CHANGED bones
+    // (present but re-posed). A skeleton mod like XPMSSE is NOT append-only — it also re-poses core
+    // bones (Shield/Hand/Fingers/…). Both must be carried into the layer: with replace-on-collision
+    // in MergeBoneAdditions, an emitted existing-name bone overrides the base master's pose, and an
+    // emitted new-name bone appends. Bones identical to base are skipped (nothing to carry).
+    std::unordered_map<std::string, const havok::sct::SkeletonBoneData*> baseByName;
+    for (const auto& b : base.bones) baseByName[b.name] = &b;
+    auto poseSame = [](const havok::QSTransform& a, const havok::QSTransform& b) {
+        auto eq = [](float x, float y) { return std::fabs(x - y) <= 1e-6f; };
+        return eq(a.translation.x, b.translation.x) && eq(a.translation.y, b.translation.y) &&
+               eq(a.translation.z, b.translation.z) && eq(a.translation.w, b.translation.w) &&
+               eq(a.rotation.x, b.rotation.x) && eq(a.rotation.y, b.rotation.y) &&
+               eq(a.rotation.z, b.rotation.z) && eq(a.rotation.w, b.rotation.w) &&
+               eq(a.scale.x, b.scale.x) && eq(a.scale.y, b.scale.y) && eq(a.scale.z, b.scale.z);
+    };
 
     std::error_code ec;
     std::filesystem::create_directories(std::filesystem::path(outDir) / "bones", ec);
     auto ff = [](float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return std::string(b); };
-    int emitted = 0;
+    int emitted = 0, added = 0, changed = 0;
     for (const auto& b : ext.bones) {
-        if (baseNames.count(b.name)) continue;   // already in base — not an addition
+        if (auto it = baseByName.find(b.name); it != baseByName.end()) {
+            // Existing bone: carry ONLY if XPMSSE actually re-posed it (a real override); skip if identical.
+            const std::string ep = (b.parentIndex >= 0 && b.parentIndex < static_cast<int>(ext.bones.size()))
+                                       ? ext.bones[static_cast<std::size_t>(b.parentIndex)].name : std::string{};
+            const std::string bp = (it->second->parentIndex >= 0 && it->second->parentIndex < static_cast<int>(base.bones.size()))
+                                       ? base.bones[static_cast<std::size_t>(it->second->parentIndex)].name : std::string{};
+            if (poseSame(b.refPose, it->second->refPose) && b.lockTranslation == it->second->lockTranslation && ep == bp)
+                continue;   // unchanged — the base master already has it; don't carry
+            ++changed;
+        } else {
+            ++added;
+        }
         const std::string parent = (b.parentIndex >= 0 && b.parentIndex < static_cast<int>(ext.bones.size()))
                                         ? ext.bones[static_cast<std::size_t>(b.parentIndex)].name : std::string{};
         std::ostringstream o;
@@ -1320,8 +1349,29 @@ int doSkeletonDiffLayer(const std::string& baseHkx, const std::string& extHkx, c
         of.write(s.data(), static_cast<std::streamsize>(s.size()));
         ++emitted;
     }
-    std::printf("base %zu bones, extended %zu bones -> %d added bone(s) emitted to %s/bones/\n",
-                base.bones.size(), ext.bones.size(), emitted, outDir.c_str());
+    // Emit bonelist.yaml — the ADDED-bone order, in the extended skeleton's native bone order. The
+    // runtime orders appended (new) bones by this so vanilla HKX-target animations (which resolve bone
+    // tracks by INDEX) land the extra bones at the indices the source skeleton uses. Re-posed existing
+    // bones keep the base master's order (replace-in-place), so they don't belong here.
+    {
+        std::ostringstream bl;
+        bl << "# Added-bone order for this skeleton layer, in the SOURCE skeleton's native bone order.\n"
+           << "# Vanilla HKX-target animations resolve bone tracks by INDEX, so the appended bones must\n"
+           << "# land at the same indices the source skeleton uses or every track maps to the wrong bone.\n"
+           << "# Re-posed existing bones are NOT listed here — they replace the base master's bone in place\n"
+           << "# and keep its index. (BR-native animations resolve by name and don't need this list.)\n"
+           << "index:\n";
+        int listed = 0;
+        for (const auto& b : ext.bones)
+            if (!baseByName.count(b.name)) { bl << "  - \"" << b.name << "\"\n"; ++listed; }
+        if (listed > 0) {
+            const std::string s = bl.str();
+            std::ofstream of(std::filesystem::path(outDir) / "bonelist.yaml", std::ios::binary);
+            of.write(s.data(), static_cast<std::streamsize>(s.size()));
+        }
+    }
+    std::printf("base %zu bones, extended %zu bones -> %d bone(s) emitted (%d added + %d re-posed) to %s/bones/\n",
+                base.bones.size(), ext.bones.size(), emitted, added, changed, outDir.c_str());
     return 0;
 }
 
@@ -4296,13 +4346,29 @@ DerivedProject deriveOneProject(const std::string& cacheFile, const std::string&
         if (havok::sct::ReadHavokFile(charHkx.string(), bytes, &err)) {
             const fs::path cd = tmp / "_char";
             havok::sct::DecompileToDir(bytes, cd.string());
-            fs::path rosterPath = cd / "animations.txt";
-            if (!fs::exists(rosterPath)) {
-                for (fs::recursive_directory_iterator ri(cd, ec), rend; !ec && ri != rend; ri.increment(ec))
-                    if (ri->is_regular_file(ec) && low(ri->path().filename().string()) == "animations.txt") { rosterPath = ri->path(); break; }
+            // The schema-native character decompiler emits the roster as data/animations.yaml (a YAML
+            // list of "- 'Animations\\X.hkx'"), NOT the legacy flat animations.txt. Prefer the yaml;
+            // fall back to a flat animations.txt anywhere in the tree for older decompiles.
+            fs::path yamlRoster = cd / "data" / "animations.yaml";
+            if (fs::exists(yamlRoster)) {
+                std::ifstream rf(yamlRoster); std::string line;
+                while (std::getline(rf, line)) {
+                    line = StripLine(line);
+                    if (line.empty() || line[0] != '-') continue;      // only "- '...'" list items
+                    std::size_t a = line.find_first_of("'\"");
+                    std::size_t b = (a == std::string::npos) ? std::string::npos : line.find_last_of("'\"");
+                    std::string v = (a != std::string::npos && b > a) ? line.substr(a + 1, b - a - 1) : StripLine(line.substr(1));
+                    if (!v.empty()) roster.push_back(v);
+                }
+            } else {
+                fs::path rosterPath = cd / "animations.txt";
+                if (!fs::exists(rosterPath)) {
+                    for (fs::recursive_directory_iterator ri(cd, ec), rend; !ec && ri != rend; ri.increment(ec))
+                        if (ri->is_regular_file(ec) && low(ri->path().filename().string()) == "animations.txt") { rosterPath = ri->path(); break; }
+                }
+                std::ifstream rf(rosterPath); std::string line;
+                while (std::getline(rf, line)) { line = StripLine(line); if (!line.empty()) roster.push_back(line); }
             }
-            std::ifstream rf(rosterPath); std::string line;
-            while (std::getline(rf, line)) { line = StripLine(line); if (!line.empty()) roster.push_back(line); }
         }
     }
     R.rosterSize = roster.size();
@@ -5914,7 +5980,7 @@ int main(int argc, char** argv) {
     if (verb == "hky-compile") return doHkyCompile(in, extra, out);
     if (verb == "hky-pack")    return doHkyPack(in, out);
     if (verb == "hky-unpack")  return doHkyUnpack(in, out);
-    if (verb == "hky-merge-compile") return doHkyMergeCompile(in, extra, out, schema, strictSchema, traceFile, traceFilter);
+    if (verb == "hky-merge-compile") return doHkyMergeCompile(in, extra, out, schema, strictSchema, traceFile, traceFilter, skel);
     if (verb == "schema-merge-tag")  return doSchemaMergeTag(in, extra.empty() ? std::string{} : extra[0],
                                                              extra.size() > 1 ? extra[1] : std::string{});
     if (verb == "objhist")   return doObjHist(in);
