@@ -3,6 +3,7 @@
 #include "havok/sct/TagfileOracle.h"      // AlignTagfile — the structural #NNNN oracle (reused verbatim)
 #include "havok/model/HavokEnums.h"       // enum tables (value<->name), revNum, FormatFlags, ResolveEnum — reused
 #include "havok/xml/Xml.h"                // first-party tagfile XML parser (xml::Node / xml::Parse)
+#include "havok/compat/PandoraCompatShim.h" // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include "havok/model/BashMerge.h"        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
 #include "havok/cross/Cross.h"            // cross-kind membrane (vec4 codec, enum reverse, bone name<->index)
 
@@ -1782,6 +1783,11 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             // narrows to real edits. StripPatchOriginals is idempotent (no-op on a clean node).
             changedHold.push_back(std::make_unique<std::unordered_set<std::string>>(havok::merge::changedFields(*text)));
             changedPtr = changedHold.back().get();
+            // Pandora-compat (CONVERTER-ONLY): reproduce Pandora/Nemesis's occurrence-counted
+            // placement for numeric text-array params (boneWeights &c) BEFORE the positional
+            // strip, so converted bundles match the ecosystem's output. Element params are left
+            // for StripPatchOriginals below. See docs/bugs/CB-3.
+            havok::compat::ApplyNemesisTextArrayEdits(parseText);
             havok::xml::StripPatchOriginals(parseText);
         }
         roots.push_back(havok::xml::Parse("<r>" + parseText + "</r>"));
