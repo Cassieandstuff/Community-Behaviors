@@ -1,6 +1,5 @@
 #include "PCH.h"
 
-#include "core/debug/AnimDataProbe.h"
 #include "core/serve/AnimationDataServer.h"
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/serve/ByteServe.h"
@@ -11,7 +10,6 @@
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // seq::ThreadPool — parallel native-anim compile
 #include "core/resolve/Resolver.h"
-#include "core/debug/SyncClipProbe.h"
 
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
 #include "havok/sct/BehaviorCompiler.h"   // SetSchemaCompiler — data-driven compiler toggle
@@ -29,10 +27,6 @@ namespace CB {
     // The load-order -> compiled-behavior engine. Lives for the process lifetime;
     // the interceptor holds a pointer to it.
     static Resolver g_resolver;
-
-    // Per-project animdata mode (opt-in file marker), decided at plugin load. The compile gate
-    // reads it to skip the collated animdata serve when the per-project loader gate owns that leg.
-    static std::atomic<bool> g_perProject{ false };
 
     // Set on any thread currently executing the compile gate's work — the loader thread that claimed
     // it AND the 64MB compile worker it spawns. A re-entrant gate call from either (e.g. a detour
@@ -229,9 +223,8 @@ namespace CB {
     static HANDLE g_compileThread = nullptr;
 
     // adsf + setdata serve/arm. Independent of the graph compile when the adsf-derive feature is OFF
-    // (the default): the merge reads the vanilla base + bundle deltas, no clip sink. Set-data always;
-    // the collated animdata leg only when the per-project loader gate isn't serving that leg itself.
-    static void ArmAdsfSetDataServe(bool perProject)
+    // (the default): the merge reads the vanilla base + bundle deltas, no clip sink.
+    static void ArmAdsfSetDataServe()
     {
         const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
 
@@ -240,18 +233,16 @@ namespace CB {
             LOG_WARN("Community Behaviors: animationsetdata merge did not complete: {}", sd.error);
         asdserve::ArmSetDataRedirect(sd);
 
-        if (!perProject) {
-            const GraphClipSink* clipSink =
-                g_resolver.AdsfFromFeature() ? &g_resolver.ClipSink() : nullptr;
-            const auto ad = adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
-                                                   clipSink, ReadAdsfRosterFromScan());
-            if (ad.attempted && !ad.ok)
-                LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
-            adserve::ArmAnimDataRedirect(ad);
+        const GraphClipSink* clipSink =
+            g_resolver.AdsfFromFeature() ? &g_resolver.ClipSink() : nullptr;
+        const auto ad = adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
+                                               clipSink, ReadAdsfRosterFromScan());
+        if (ad.attempted && !ad.ok)
+            LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
+        adserve::ArmAnimDataRedirect(ad);
 
-            if (g_resolver.AdsfFromFeature() && g_resolver.ClipSink().ClipCount() > 0)
-                g_resolver.DeriveAnimData(dataAbs);
-        }
+        if (g_resolver.AdsfFromFeature() && g_resolver.ClipSink().ClipCount() > 0)
+            g_resolver.DeriveAnimData(dataAbs);
     }
 
     // REUSE (warm start): serve the CACHED adsf/asdsf verbatim instead of re-deriving them.
@@ -273,7 +264,7 @@ namespace CB {
     // the caller then falls back to the derive path. A missing set-data file is NOT a failure: a load
     // order with no set-data bundles legitimately produced none (run-1 left the redirect inactive and the
     // engine read vanilla), so "absent" here reproduces that exactly.
-    static bool ArmAdsfSetDataFromCache(bool perProject)
+    static bool ArmAdsfSetDataFromCache()
     {
         namespace fs = std::filesystem;
         const fs::path cacheDir = fs::current_path() / "Data" / "community_behaviors_cache";
@@ -286,17 +277,15 @@ namespace CB {
             LOG_INFO("Community Behaviors: warm reuse — serving cached set-data (no re-derive).");
         }
 
-        if (!perProject) {
-            const fs::path adsf = cacheDir / "animationdatasinglefile.txt";
-            if (!fs::exists(adsf, ec)) {
-                LOG_WARN("Community Behaviors: warm cache missing '{}' — re-deriving adsf/set-data this launch.",
-                         adsf.string());
-                return false;
-            }
-            adserve::ServeResult ad; ad.attempted = true; ad.ok = true; ad.cachePath = adsf.string();
-            adserve::ArmAnimDataRedirect(ad);
-            LOG_INFO("Community Behaviors: warm reuse — serving cached animationdata (no re-derive).");
+        const fs::path adsf = cacheDir / "animationdatasinglefile.txt";
+        if (!fs::exists(adsf, ec)) {
+            LOG_WARN("Community Behaviors: warm cache missing '{}' — re-deriving adsf/set-data this launch.",
+                     adsf.string());
+            return false;
         }
+        adserve::ServeResult ad; ad.attempted = true; ad.ok = true; ad.cachePath = adsf.string();
+        adserve::ArmAnimDataRedirect(ad);
+        LOG_INFO("Community Behaviors: warm reuse — serving cached animationdata (no re-derive).");
         return true;
     }
 
@@ -312,7 +301,6 @@ namespace CB {
         if (s_done.load(std::memory_order_relaxed)) return;
         t_compileGateInProgress = true;
 
-        const bool                  perProject = g_perProject.load(std::memory_order_acquire);
         const std::filesystem::path dataAbs    = std::filesystem::current_path() / "Data";
         const bool                  warm       = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
 
@@ -333,22 +321,23 @@ namespace CB {
             g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());   // instant graphs; anims (re)compiled here
             // Serve the cached adsf/asdsf verbatim (coherent with the reused graphs); only re-derive if
             // the collated cache is partial. See ArmAdsfSetDataFromCache.
-            if (!ArmAdsfSetDataFromCache(perProject))
-                ArmAdsfSetDataServe(perProject);
+            if (!ArmAdsfSetDataFromCache())
+                ArmAdsfSetDataServe();
         } else if (split) {
             // Arm adsf/setdata NOW (fast, independent of the graph compile) so the engine's early reads
             // are served, then run the heavy compile in the BACKGROUND and RETURN. The game reaches its
             // menu and presents while the compile runs; ProgressHud's passive present hook draws the bar.
             // byteserve calls WaitForCompile() before serving an owned graph, so nothing is served
             // half-compiled — correctness holds regardless of the bar.
-            ArmAdsfSetDataServe(perProject);
+            ArmAdsfSetDataServe();
             // Grand total = graphs + native animations, so the bar counts ALL compiled assets. Passed
             // to WarmUpThread as the denominator for both phases.
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
             const std::size_t total      = graphCount + animCount;
             ProgressOverlay::SetProgress(0, total, true);
-            ProgressHud::Install();   // passive Present hook; safe (rides the game present, never forces one)
+            ProgressHud::Install();   // FALLBACK: normally already installed early at kDataLoaded (idempotent);
+                                      // installs here only if the swapchain wasn't ready then.
             LOG_INFO("Community Behaviors: SPLIT compile — arming adsf/setdata now, compiling {} graph(s) "
                      "+ {} animation(s) in the background (progress bar enabled).", graphCount, animCount);
             if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
@@ -375,7 +364,7 @@ namespace CB {
             } else {
                 LOG_ERROR("Community Behaviors: failed to launch precompile thread — behavior serve NOT armed.");
             }
-            ArmAdsfSetDataServe(perProject);
+            ArmAdsfSetDataServe();
         }
 
         t_compileGateInProgress = false;
@@ -397,19 +386,25 @@ namespace CB {
         if (!a_msg) return;
 
         if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
-            // The compile progress bar is now drawn by ProgressHud (own ImGui+D3D11 via a passive
-            // present hook installed from the compile gate) — no SMF registration, nothing to install
-            // for it here. These two still need kDataLoaded timing:
-            //   • DebugOverlay — SMF isn't up at plugin load.
-            //   • animprobe — the animationdata clip singleton isn't built yet at plugin load.
+            // Pre-install the compile progress bar EARLY here (before the menu), NOT at the later compile
+            // gate: ProgressHud::Install now eagerly builds imgui + its font/device objects, so doing it at
+            // kDataLoaded keeps that heavy work off the live-present path (the Community Shaders pattern).
+            // The old lazy build inside the first hooked present hitched the render thread mid-menu and
+            // ghosted/minimized the window. Only install when a cold split-path compile will actually run
+            // (a bar to show) — same predicate the gate uses; the gate keeps a fallback Install() for the
+            // rare case the swapchain isn't ready yet at kDataLoaded.
+            {
+                const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
+                const bool warm        = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
+                const bool willShowBar = !warm && !g_resolver.AdsfFromFeature() &&
+                                         !std::filesystem::exists("Data/community_behaviors/progressbar.disable");
+                if (willShowBar && !ProgressHud::Install())
+                    LOG_INFO("Community Behaviors: progress bar early-install deferred (swapchain not ready "
+                             "at kDataLoaded) — will retry at the compile gate.");
+            }
+            // DebugOverlay needs kDataLoaded timing (SMF isn't up at plugin load).
             CB::RuntimeTrace::Install();   // arm [Debug] bRuntimeTrace before the present hook is live
             CB::DebugOverlay::Install();
-            CB::animprobe::ProbeAnimClipData();
-        }
-        else if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame ||
-                 a_msg->type == SKSE::MessagingInterface::kNewGame) {
-            // By now the animationdata singleton is definitely built and animations are active.
-            CB::animprobe::ProbeAnimClipData();
         }
     }
 
@@ -440,24 +435,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
 
-    // Debug probe (opt-in): log every paired/synchronized clip as it activates, to pin the
-    // paired-animation breakage (dialogue idle T-pose, mount jitter). Off unless the marker exists.
-    if (std::filesystem::exists("Data/community_behaviors/syncprobe.enable"))
-        CB::syncprobe::Install();
-
-    // Animdata cache form. COLLATED is the default and the only supported path: it serves
-    // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion
-    // from it. The per-project loader (the engine's Meshes\AnimationData\ form) is RETAINED but
-    // OFF by default — it was a workaround for dialogue T-posing whose real cause was the missing
-    // set-data ".br" alias (fixed separately), and in a real load order it silently BREAKS root
-    // motion AND paired/synchronized animations (horse mount, killmoves) — the engine's per-project
-    // read doesn't deliver motion the way the collated read does. Opt-in is a FILE marker
-    // (Data\community_behaviors\perproject.enable), deliberately NOT an .ini key, so it can't be flipped
-    // on by accident through config. The loader GATE (below) still defers merge+materialize so
-    // plugin load stays trivial when it IS enabled.
-    bool perProject = false;
-    if (std::filesystem::exists("Data/community_behaviors/perproject.enable"))
-        perProject = CB::adserve::EnablePerProjectAnimData();
+    // Animdata cache form: COLLATED is the only supported path — it serves
+    // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion from
+    // it. (The old per-project loader form was a dead workaround that broke root motion + paired anims
+    // in a real load order; retired.)
 
     // ── Behavior serve wiring (cheap, must-be-early only). The HEAVY work — compile + materialize
     // + adsf/setdata serve/arm — is DEFERRED to the compile gate (CompileGate.h / EnsureCompiledAndArmed):
@@ -470,8 +451,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     //
     // The serve HOOKS themselves are installed above (InstallSetDataHook/InstallAnimDataHook/
     // byteserve::Install), so the detours are already live to catch that first open. Here we only do
-    // what must be ready before it: configure the resolver, install the per-project loader gate, and
-    // hand byteserve the resolver pointer. The behavior compile sources everything from the loose
+    // what must be ready before it: configure the resolver and hand byteserve the resolver pointer.
+    // The behavior compile sources everything from the loose
     // .hky bundles (no BSA dependency), so the gate is safe to fire this early in load.
     {
         // Schema dir FIRST, before Init(): Init() compiles the served skeletons (CompileSkeletonFull),
@@ -493,15 +474,6 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         CB::g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse);
         CB::g_resolver.SetERGateEnabled(CB::ReadERGateEnabled());
         CB::g_resolver.SetAdsfFromFeature(CB::ReadAdsfFromFeature());  // opt-in, before any compile
-
-        // Per-project animdata (opt-in): install its loader gate NOW so the ClipDataCtor hook is live
-        // before the clip singleton is built. On install failure, revert the flipped flag (else the
-        // engine takes the per-project branch with nothing materialized) and fall back to collated.
-        if (perProject && !CB::adserve::InstallPerProjectGate()) {
-            CB::adserve::DisablePerProjectAnimData();
-            perProject = false;
-        }
-        CB::g_perProject.store(perProject, std::memory_order_release);  // read by the compile gate
 
         CB::byteserve::SetResolver(&CB::g_resolver);
     }

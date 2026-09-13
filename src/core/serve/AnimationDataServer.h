@@ -64,24 +64,6 @@ namespace CB::adserve {
     // Returns false (installs nothing) if the site isn't the expected 5-byte CALL. AE-only.
     bool InstallAnimDataHook();
 
-    // Opt-in: patch ShouldLoadCollatedAnimTextData so the engine loads the per-project (dev) form
-    // (Meshes\AnimationData\DirList.txt + <Project>.txt + BoundAnims\Anims_<Project>.txt) that BR
-    // emits, instead of the collated blob. Call at plugin load, before the engine's animdata load.
-    // Retail-untested engine path — gate behind an explicit opt-in. AE-only; returns false otherwise.
-    bool EnablePerProjectAnimData();
-
-    // Install the per-project loader gate: hooks the engine's animdata singleton ctor so that its
-    // read BLOCKS on BR's merge + per-project materialize (run synchronously in the hook, once),
-    // then proceeds. Removes the plugin-load timing race — correctness is by ordering. Call at
-    // plugin load in per-project mode INSTEAD of running ServeAnimData there. Returns false on hook
-    // failure (fall back to the collated path).
-    bool InstallPerProjectGate();
-
-    // Revert EnablePerProjectAnimData: flag byte -> 0x01 (collated) + clears per-project mode.
-    // Call if the gate can't be installed, so a flipped flag never leaves the engine on the
-    // per-project branch with nothing materialized. Safe to call unconditionally.
-    void DisablePerProjectAnimData();
-
     // Arm the redirect with BR's merged cache (call after ServeAnimData). Activates the detour
     // if installed; else falls back to RedirectAnimDataGlobal. No-op when result.ok is false.
     void ArmAnimDataRedirect(const ServeResult& result);

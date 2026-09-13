@@ -8,8 +8,7 @@
 // first resolve of a BR-owned behavior — calls EnsureCompiledAndArmed() from INSIDE that detour.
 // The engine's loader thread is then physically parked in our hook until the compile returns, so
 // nothing downstream (graph arming, the later setdata/adsf reads, byteserve) can run against a
-// still-vanilla graph: correctness by ordering, not by timing. The exact same pattern the
-// per-project loader gate already proved (AnimationDataServer InstallPerProjectGate).
+// still-vanilla graph: correctness by ordering, not by timing.
 //
 // Because that first open happens during game-data load — AFTER kDataLoaded — SMF's present hook
 // and the render thread are live, so the compile thread's SetProgress drives a real on-screen

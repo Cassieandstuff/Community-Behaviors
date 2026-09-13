@@ -11,9 +11,9 @@
 // inherently DOES something at runtime — that per-flag logic lives with the code it gates and
 // can't be generated). The converter's Debug tab picks up the toggle with no further edits.
 //
-// The plugin's own readers (Plugin.cpp ReadAdsfFromFeature/…, AnimDataProbe's MarkerPresent,
-// Resolver's noskeletonserve check) are the behavior side; keep their section/key strings in sync
-// with the rows here (or migrate them to reference these rows — see the registry note).
+// The plugin's own readers (Plugin.cpp ReadAdsfFromFeature/…, Resolver's noskeletonserve check) are
+// the behavior side; keep their section/key strings in sync with the rows here (or migrate them to
+// reference these rows — see the registry note).
 
 #include <array>
 #include <string_view>
@@ -36,7 +36,7 @@ namespace CB::debug {
     };
 
     // The registry. Array order == display order in the Debug tab.
-    inline constexpr std::array<Flag, 12> kFlags{ {
+    inline constexpr std::array<Flag, 8> kFlags{ {
         { "force_regenerate", FlagKind::IniBool, "Cache", "bForceRegenerate", false,
           "Force cache regenerate",
           "Recompile the whole behavior cache at launch instead of reusing the on-disk one. "
@@ -56,21 +56,6 @@ namespace CB::debug {
           "Engine Relay wildcard gate",
           "Inject BR_ERWildcardLock and gate every global wildcard on it (for Engine Relay to flip "
           "per-actor). Unproven — a broken gate blocks every wildcard and T-poses every actor." },
-        { "perproject_animdata", FlagKind::MarkerFile, "", "perproject.enable", false,
-          "Per-project animdata loader",
-          "Route the engine to the per-project animdata form (Meshes\\AnimationData\\...) instead of "
-          "the collated blob. Retail-untested — breaks root motion + paired anims in a real load order." },
-        { "syncprobe", FlagKind::MarkerFile, "", "syncprobe.enable", false,
-          "Sync-clip probe",
-          "Log every paired/synchronized clip as it activates (dialogue-idle T-pose / mount-jitter diag)." },
-        { "probe_animdata", FlagKind::MarkerFile, "", "probe_animdata.txt", false,
-          "AnimationClipData probe (read)",
-          "Read locomotion clip motionSpeed/duration/triggers from the live AnimationClipDataSingleton "
-          "under both the .br and stock keys (the BR-1 ice-skate bisector)." },
-        { "inject_animdata", FlagKind::MarkerFile, "", "inject_animdata.txt", false,
-          "AnimationClipData probe (write)",
-          "As well as the read probe, write a distinctive motionSpeed into the singleton and read it "
-          "back — proof the in-engine clip table is writable." },
         { "noskeletonserve", FlagKind::MarkerFile, "", "noskeletonserve.enable", false,
           "Disable skeleton serve",
           "Skip serving CB's compiled skeleton.hkx (skeleton opens fall through to vanilla) — a "
