@@ -578,6 +578,11 @@ NemesisInfo ReadNemesisInfo(const fs::path& codeDir) {
 
 }  // namespace
 
+// Per-mod animation packaging (piece 1). Defined below BuildBaseBundle (needs PeekHkxKind/HkxKind/
+// BakeAnimationUnit); forward-declared here so ConvertLoadOrder can call it.
+static void PackageModAnimations(const Mo2Layout& mo2, const std::filesystem::path& plugins,
+                                 const std::filesystem::path& stageRoot, const LogFn& log);
+
 Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<bool>& cancel) {
     Result r;
     auto say = [&](const std::string& s) { if (log) log(s); };
@@ -603,6 +608,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     std::unordered_map<std::string, std::string> prefixToMod;  // lower(prefix) -> modName (winner)
     std::unordered_map<std::string, int>         bundlePriority; // modName -> modlist rank (0 = top/winner)
     std::unordered_set<std::string>              excludedCodes;  // lower(code) — engine (Pandora/Nemesis) codes to skip
+    Mo2Layout mo2;   // hoisted to function scope so the per-mod animation pass (after `plugins` below) can walk enabled mods
     {
         const fs::path inst = DeriveInstanceRoot(dataDir, opt.mo2Instance, log);
         if (inst.empty()) {
@@ -610,7 +616,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                     ? "MO2 instance: none auto-derived — using un-attributed bundles (flat <code>.hky)."
                     : "MO2 instance: override did not resolve — using un-attributed bundles.");
         } else {
-            const Mo2Layout mo2 = ResolveMo2Layout(inst);
+            mo2 = ResolveMo2Layout(inst);
             if (!mo2.ok) {
                 say("MO2 instance '" + inst.string() + "': no enabled modlist — un-attributed bundles.");
             } else {
@@ -653,6 +659,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                    : "Schema: Havok/ not loaded (" + schemaErr + ") — using the typed delta path.");
 
     const fs::path plugins = outDir / "community_behaviors" / "plugins";
+
+    // ── PIECE 1: package each enabled mod's loose animations into its own <modName>.hky as attributed
+    // native units, the per-mod sibling of BuildBaseBundle's animation leg. Only in the MO2-attributed
+    // path (we need the per-mod meshes dirs). FAIL-SAFE: a skip/fail writes no unit and the engine keeps
+    // the loose .hkx — so this can never break the behavior/skeleton bundles built below. Index-bound for
+    // now; bone-name binding (the membrane) is piece 2.
+    if (mo2.ok) PackageModAnimations(mo2, plugins, outDir, log);
     fs::create_directories(plugins, ec);
 
     auto binOf   = [&](const std::string& g) { return (templatesDir / (g + ".hkx")).string(); };
@@ -1544,6 +1557,58 @@ HkxKind PeekHkxKind(const std::filesystem::path& file) {
     return HkxKind::Other;                        // non-graph / non-animation asset
 }
 
+// ── Shared animation bake: decompile a spline animation to an ATTRIBUTED single-file unit at
+// `unitPath`, self-gated on pose fidelity (round-trip rotation compare). Extracted verbatim from
+// BuildBaseBundle so the master build AND per-mod conversion (ConvertLoadOrder) package animations
+// through the ONE identical path — the precondition for serving mod animations natively. The emitted
+// animation.yaml carries the full attributed unit (per-track bone, annotationTracks, motion) — see
+// AnimationDef. `reason` receives a human note on Skip/Fail. Ok writes the yaml AS `unitPath` (the
+// single-file unit collectNativeAnim consumes). `not spline-compressed` is a quiet Skip (Ok/Skip/Fail
+// counting + logging stays the caller's, unchanged from the inline version).
+enum class AnimBakeOutcome { Ok, Skip, Fail };
+static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes,
+                                         const std::filesystem::path&     unitPath,
+                                         const std::filesystem::path&     stageDir,
+                                         std::string&                     reason) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
+    const fs::path bakeTmp = stageDir / "anim_bake";
+    fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
+    const auto dc = havok::anim::DecompileAnimation(abytes, bakeTmp);
+    if (!dc.ok) { reason = dc.error; return AnimBakeOutcome::Skip; }   // incl. "not spline-compressed"
+    try {
+        const auto ref = havok::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
+        const auto rc  = havok::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
+        if (!rc.ok) { reason = "recompile: " + rc.error; return AnimBakeOutcome::Skip; }
+
+        // pose gate: re-decompile the recompiled bytes and compare rotations to `ref`.
+        const fs::path animRt = stageDir / "anim_rt"; fs::remove_all(animRt, ec); fs::create_directories(animRt, ec);
+        if (!havok::anim::DecompileAnimation(rc.bytes, animRt).ok) { reason = "re-decompile"; return AnimBakeOutcome::Skip; }
+        const auto rt = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
+        bool   faithful = ref.tracks.size() == rt.tracks.size();
+        double maxDeg   = 0.0;
+        for (std::size_t i = 0; faithful && i < ref.tracks.size(); ++i) {
+            const auto& a = ref.tracks[i].rotation; const auto& b = rt.tracks[i].rotation;
+            if (a.size() != b.size()) { faithful = false; break; }
+            for (std::size_t k = 0; k < a.size(); ++k) {
+                double dot = 0; for (int c = 0; c < 4; ++c) dot += (double)a[k].value[c] * b[k].value[c];
+                dot = std::fabs(dot); if (dot > 1) dot = 1;
+                maxDeg = std::max(maxDeg, 2.0 * std::acos(dot) * 57.2957795131);
+            }
+        }
+        if (faithful && maxDeg <= kBakeMaxRotDeg) {
+            fs::create_directories(unitPath.parent_path(), ec);
+            std::ifstream src(bakeTmp / "animation.yaml", std::ios::binary);
+            std::ofstream dst(unitPath, std::ios::binary | std::ios::trunc);
+            dst << src.rdbuf();
+            return AnimBakeOutcome::Ok;
+        }
+        reason = "fidelity " + std::to_string(maxDeg) + "deg";
+        return AnimBakeOutcome::Skip;
+    } catch (const std::exception& e) { reason = std::string("reload: ") + e.what(); return AnimBakeOutcome::Skip; }
+}
+
 BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& templatesDir, const std::string& keepStagingDir) {
@@ -1625,54 +1690,24 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         // So only animations CB can reproduce faithfully are served natively — the fidelity gate IS the
         // bake decision, per-animation, content-based (no path rules). Non-spline / undecodable clips skip.
         if (kind == HkxKind::Animation) {
+            // A native animation is a SINGLE-FILE unit: the ".hkx" path IS a renamed animation.yaml (NOT a
+            // "<name>.hkx/animation.yaml" tree). The decompile→pose-gate→write logic lives in the shared
+            // BakeAnimationUnit so the master build and per-mod conversion package animations identically;
+            // non-faithful/undecodable => no file written and the engine keeps the loose vanilla .hkx.
             std::vector<std::uint8_t> abytes; std::string arerr;
             if (!havok::sct::ReadHavokFile(it->path().string(), abytes, &arerr)) {
                 ++r.animFail; say("  anim read FAILED: " + rel + " — " + arerr); continue;
             }
-            constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
-            // A native animation is a SINGLE-FILE unit: the ".hkx" path IS a renamed animation.yaml (NOT a
-            // "<name>.hkx/animation.yaml" tree — that's the graph/skeleton unit shape). Decompile to a
-            // scratch dir, pose-gate the round-trip, then (only if faithful) write the yaml AS the ".hkx"
-            // file so collectNativeAnim picks it up as a single-file compile target. Merge is replace, not
-            // compose — nothing to fold, so the file is the whole unit. Non-faithful/undecodable => skip
-            // (no file written), and the engine keeps the loose vanilla .hkx.
-            const fs::path bakeTmp = stage / "anim_bake";
-            fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
-            const auto dc = havok::anim::DecompileAnimation(abytes, bakeTmp);
-            if (!dc.ok) {
-                if (dc.error.find("not spline-compressed") != std::string::npos) ++r.animSkip;
-                else { ++r.animSkip; say("  anim skip (decompile): " + rel + " — " + dc.error); }
-                continue;
+            std::string reason;
+            switch (BakeAnimationUnit(abytes, unit, stage, reason)) {
+                case AnimBakeOutcome::Ok:   ++r.animOk; break;
+                case AnimBakeOutcome::Skip:
+                    ++r.animSkip;
+                    if (reason.find("not spline-compressed") == std::string::npos)   // quiet skip for those
+                        say("  anim skip: " + rel + " — " + reason);
+                    break;
+                case AnimBakeOutcome::Fail: ++r.animFail; say("  anim FAILED: " + rel + " — " + reason); break;
             }
-            try {
-                const auto ref = havok::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
-                const auto rc  = havok::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
-                if (!rc.ok) { ++r.animSkip; say("  anim skip (recompile): " + rel + " — " + rc.error); continue; }
-
-                // pose gate: re-decompile the recompiled bytes and compare rotations to `ref`.
-                const fs::path animRt = stage / "anim_rt"; fs::remove_all(animRt, ec); fs::create_directories(animRt, ec);
-                if (!havok::anim::DecompileAnimation(rc.bytes, animRt).ok) { ++r.animSkip; say("  anim skip (re-decompile): " + rel); continue; }
-                const auto rt = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
-                bool faithful = ref.tracks.size() == rt.tracks.size();
-                double maxDeg = 0.0;
-                for (std::size_t i = 0; faithful && i < ref.tracks.size(); ++i) {
-                    const auto& a = ref.tracks[i].rotation; const auto& b = rt.tracks[i].rotation;
-                    if (a.size() != b.size()) { faithful = false; break; }
-                    for (std::size_t k = 0; k < a.size(); ++k) {
-                        double dot = 0; for (int c = 0; c < 4; ++c) dot += (double)a[k].value[c] * b[k].value[c];
-                        dot = std::fabs(dot); if (dot > 1) dot = 1;
-                        maxDeg = std::max(maxDeg, 2.0 * std::acos(dot) * 57.2957795131);
-                    }
-                }
-                if (faithful && maxDeg <= kBakeMaxRotDeg) {
-                    // WRITE THE SINGLE-FILE UNIT: yaml content at the ".hkx" path (a file, not a dir).
-                    fs::create_directories(unit.parent_path(), ec);
-                    std::ifstream src(bakeTmp / "animation.yaml", std::ios::binary);
-                    std::ofstream dst(unit, std::ios::binary | std::ios::trunc);
-                    dst << src.rdbuf();
-                    ++r.animOk;
-                } else { ++r.animSkip; say("  anim skip (fidelity " + std::to_string(maxDeg) + "deg): " + rel); }
-            } catch (const std::exception& e) { ++r.animSkip; say("  anim skip (reload): " + rel + " — " + e.what()); }
             continue;
         }
 
@@ -1952,6 +1987,58 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     say("  master built: " + outHky);
     r.ok = true;
     return r;
+}
+
+// Per-mod animation packaging (piece 1) — see the forward declaration above ConvertLoadOrder. Walks each
+// enabled mod's loose meshes\ for animation .hkx and bakes them into that mod's <modName>.hky bundle as
+// attributed single-file units (the per-mod sibling of BuildBaseBundle's animation leg). Index-bound for
+// now; bone-name binding (the membrane) is piece 2. FAIL-SAFE: a skip/fail writes no unit and the engine
+// keeps the loose .hkx, so this can never break the behavior/skeleton bundles.
+static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
+                                 const fs::path& stageRoot, const LogFn& log) {
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    std::error_code ec;
+    const fs::path stage = stageRoot / "modanim_stage";
+    fs::create_directories(stage, ec);
+
+    int totalOk = 0, totalSkip = 0, totalFail = 0, modsWithAnims = 0;
+    for (const std::string& modName : mo2.enabledTopFirst) {
+        const fs::path modRoot = mo2.modsDir / modName;
+        const fs::path meshes  = modRoot / "meshes";
+        if (!fs::is_directory(meshes, ec)) continue;
+        const fs::path bundle = plugins / (modName + ".hky");   // the mod's own bundle (== its behavior bundle)
+        int modOk = 0, modSkip = 0, modFail = 0;
+        for (fs::recursive_directory_iterator it(meshes, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            const fs::path& p = it->path();
+            const std::string lower = ToLower(p.filename().string());
+            if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".hkx") != 0) continue;
+            if (PeekHkxKind(p) != HkxKind::Animation) continue;
+
+            std::vector<std::uint8_t> abytes; std::string rerr;
+            if (!havok::sct::ReadHavokFile(p.string(), abytes, &rerr)) { ++modFail; continue; }
+            const fs::path rel = fs::relative(p, modRoot, ec);    // "meshes/actors/.../<name>.hkx"
+            if (ec || rel.empty()) { ++modFail; continue; }
+            const fs::path unit = bundle / rel;                   // single-file attributed unit inside the bundle
+            std::string reason;
+            switch (BakeAnimationUnit(abytes, unit, stage, reason)) {
+                case AnimBakeOutcome::Ok:   ++modOk;   break;
+                case AnimBakeOutcome::Skip: ++modSkip; break;   // non-spline/fidelity — engine keeps the loose .hkx
+                case AnimBakeOutcome::Fail: ++modFail; break;
+            }
+        }
+        if (modOk > 0) {
+            ++modsWithAnims;
+            say("  mod animations: " + modName + " -> " + std::to_string(modOk) + " native unit(s)" +
+                (modSkip ? (" (" + std::to_string(modSkip) + " non-spline/fidelity skipped)") : std::string()) + ".");
+        }
+        totalOk += modOk; totalSkip += modSkip; totalFail += modFail;
+    }
+    fs::remove_all(stage, ec);
+    if (totalOk || totalSkip || totalFail)
+        say("Mod animations: " + std::to_string(totalOk) + " baked native across " +
+            std::to_string(modsWithAnims) + " mod(s) (" + std::to_string(totalSkip) + " skipped, " +
+            std::to_string(totalFail) + " failed).");
 }
 
 RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& templatesDir,
