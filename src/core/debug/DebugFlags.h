@@ -11,7 +11,7 @@
 // inherently DOES something at runtime — that per-flag logic lives with the code it gates and
 // can't be generated). The converter's Debug tab picks up the toggle with no further edits.
 //
-// The plugin's own readers (Plugin.cpp ReadAdsfFromFeature/…, Resolver's noskeletonserve check) are
+// The plugin's own readers (Plugin.cpp ReadAdsfDerive/…, Resolver's noskeletonserve check) are
 // the behavior side; keep their section/key strings in sync with the rows here (or migrate them to
 // reference these rows — see the registry note).
 
@@ -44,10 +44,10 @@ namespace CB::debug {
         { "use_schema", FlagKind::IniBool, "Compiler", "bUseSchema", true,
           "Data-driven schema compiler",
           "Use the schema-driven compiler (default on). Off falls back to the typed backbone." },
-        { "adsf_from_feature", FlagKind::IniBool, "Compiler", "bAdsfFromFeature", false,
-          "adsf-derive feature",
-          "Derive animationdata straight off the compiled graph via the contributor feature — a "
-          "path parallel to the proven collated merge (validation-only unless it drives the emit)." },
+        { "adsf_derive", FlagKind::IniBool, "Compiler", "bAdsfDerive", false,
+          "adsf-derive (first-class stage)",
+          "Derive animationdata straight off the compiled graph via the first-class adsf-derive compile "
+          "stage — a path parallel to the proven collated merge (validation-only until it drives the emit)." },
         { "adsf_roster_from_scan", FlagKind::IniBool, "Compiler", "bAdsfRosterFromScan", false,
           "adsf roster from scan",
           "Source the adsf per-project asset roster (the paths func3 enumerates) from the hky scan "

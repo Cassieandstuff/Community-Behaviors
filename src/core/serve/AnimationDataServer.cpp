@@ -4,7 +4,7 @@
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
-#include "core/resolve/GraphClipSink.h"   // sink->Contributions() (adsf-derive feature, opt-in validation)
+#include "core/resolve/GraphClipSink.h"   // sink->Contributions() (adsf-derive stage, opt-in validation)
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
 #include <havok/anim/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
@@ -480,7 +480,7 @@ namespace CB::adserve {
     {
         ServeResult r;
 
-        // ── adsf-derive feature (opt-in) — VALIDATION cut ────────────────────────────
+        // ── adsf-derive stage (opt-in) — VALIDATION cut ────────────────────────────
         // When the caller opted in, `sink` holds every graph's feature-derived clip inputs (pushed
         // during CompileAll). This first cut only REPORTS what the unified derive produced — grouped
         // by actor root (the tree up to "/behaviors/"), so each row is what a project's clip cache

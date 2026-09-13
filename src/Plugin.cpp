@@ -70,16 +70,16 @@ namespace CB {
         return false;
     }
 
-    // adsf-derive feature toggle (settings.ini, [Compiler] bAdsfFromFeature). DEFAULT OFF: the
-    // unified derive (animationdata straight off the compiled graph via the contributor feature) is a
+    // adsf-derive toggle (settings.ini, [Compiler] bAdsfDerive). DEFAULT OFF: the derive
+    // (animationdata straight off the compiled graph via the first-class adsf-derive compile stage) is a
     // NEW path parallel to the proven collated merge. When on, CompileAll fills the resolver's clip
     // sink and ServeAnimData reports what it produced for comparison — it does not yet drive the emit.
-    static bool ReadAdsfFromFeature()
+    static bool ReadAdsfDerive()
     {
         CSimpleIniA ini;
         ini.SetUnicode();
         if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-            return ini.GetBoolValue("Compiler", "bAdsfFromFeature", false);
+            return ini.GetBoolValue("Compiler", "bAdsfDerive", false);
         return false;
     }
 
@@ -222,7 +222,7 @@ namespace CB {
     // joins it. Process-lifetime, one compile — the handle is intentionally never closed.
     static HANDLE g_compileThread = nullptr;
 
-    // adsf + setdata serve/arm. Independent of the graph compile when the adsf-derive feature is OFF
+    // adsf + setdata serve/arm. Independent of the graph compile when the adsf-derive stage is OFF
     // (the default): the merge reads the vanilla base + bundle deltas, no clip sink.
     static void ArmAdsfSetDataServe()
     {
@@ -234,14 +234,14 @@ namespace CB {
         asdserve::ArmSetDataRedirect(sd);
 
         const GraphClipSink* clipSink =
-            g_resolver.AdsfFromFeature() ? &g_resolver.ClipSink() : nullptr;
+            g_resolver.AdsfDerive() ? &g_resolver.ClipSink() : nullptr;
         const auto ad = adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
                                                clipSink, ReadAdsfRosterFromScan());
         if (ad.attempted && !ad.ok)
             LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
         adserve::ArmAnimDataRedirect(ad);
 
-        if (g_resolver.AdsfFromFeature() && g_resolver.ClipSink().ClipCount() > 0)
+        if (g_resolver.AdsfDerive() && g_resolver.ClipSink().ClipCount() > 0)
             g_resolver.DeriveAnimData(dataAbs);
     }
 
@@ -306,11 +306,11 @@ namespace CB {
 
         // Split path (progress bar) is the DEFAULT for a cold compile: the bar rides the game's own
         // present via ProgressHud, the same coexisting pattern CS/OAR use, so it's safe to ship on.
-        // Two guards remain: the adsf-derive feature (adsf then needs the compile's clip sink, so the
+        // Two guards remain: the adsf-derive stage (adsf then needs the compile's clip sink, so the
         // merge can't run ahead of the compile — must stay synchronous), and an explicit opt-out marker
         // (Data\community_behaviors\progressbar.disable) that forces the old fully-synchronous compile.
         const bool split = !warm &&
-                            !g_resolver.AdsfFromFeature() &&
+                            !g_resolver.AdsfDerive() &&
                             !std::filesystem::exists("Data/community_behaviors/progressbar.disable");
 
         if (warm) {
@@ -396,7 +396,7 @@ namespace CB {
             {
                 const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
                 const bool warm        = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
-                const bool willShowBar = !warm && !g_resolver.AdsfFromFeature() &&
+                const bool willShowBar = !warm && !g_resolver.AdsfDerive() &&
                                          !std::filesystem::exists("Data/community_behaviors/progressbar.disable");
                 if (willShowBar && !ProgressHud::Install())
                     LOG_INFO("Community Behaviors: progress bar early-install deferred (swapchain not ready "
@@ -473,7 +473,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
                                CB::g_resolver.CachePresent(std::filesystem::current_path() / "Data");
         CB::g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse);
         CB::g_resolver.SetERGateEnabled(CB::ReadERGateEnabled());
-        CB::g_resolver.SetAdsfFromFeature(CB::ReadAdsfFromFeature());  // opt-in, before any compile
+        CB::g_resolver.SetAdsfDerive(CB::ReadAdsfDerive());  // opt-in, before any compile
 
         CB::byteserve::SetResolver(&CB::g_resolver);
     }

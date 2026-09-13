@@ -20,7 +20,7 @@ namespace CB {
     //   • Default (proven) path: warm → arm from disk; cold → run the 64MB compile + materialize and
     //     JOIN it here, then serve+arm adsf/setdata. Fully synchronous; no progress bar possible.
     //   • Split path (DEFAULT for a cold compile; opt out with Data\community_behaviors\progressbar.disable,
-    //     and it's forced off when the adsf-derive feature needs the compile's clip sink): serve+arm
+    //     and it's forced off when the adsf-derive stage needs the compile's clip sink): serve+arm
     //     adsf/setdata synchronously (fast, independent of the graph compile), then LAUNCH the cold
     //     compile on a background thread and RETURN — so the game reaches its menu and presents while the
     //     compile runs, and the passive present-hook bar (ProgressHud) is visible. byteserve's backstop

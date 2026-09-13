@@ -17,7 +17,7 @@
 // (community_behaviors_cache\, the consolidated compiled store at the Data root) so the canonical loose
 // file stays a clean upstream base and the write lands in overwrite, never clobbering the
 // providing mod.
-namespace CB { class GraphClipSink; }   // fwd — the adsf-derive feature's clip accumulator
+namespace CB { class GraphClipSink; }   // fwd — the adsf-derive stage's clip accumulator
 
 namespace CB::adserve {
 
@@ -41,7 +41,7 @@ namespace CB::adserve {
     // Data\meshes\animationdatasinglefile.txt, and write the merged single file to
     // Data\community_behaviors_cache\animationdatasinglefile.txt. Safe + idempotent per launch;
     // never throws — failures land in ServeResult::error.
-    // `sink` (optional): when non-null the caller opted into the adsf-derive feature, so this holds
+    // `sink` (optional): when non-null the caller opted into the adsf-derive stage, so this holds
     // every graph's feature-derived clip inputs. THIS FIRST CUT ONLY VALIDATES the sink — it logs a
     // summary of what the unified derive produced so it can be compared against the proven collated
     // output in-engine; it does NOT yet drive the emitted file (that is the follow-up once the sink is

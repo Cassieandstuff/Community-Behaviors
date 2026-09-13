@@ -17,6 +17,7 @@
 #include <havok/sct/BehaviorCompiler.h>
 #include <havok/sct/CharacterCompiler.h>
 #include <havok/sct/ProjectCompiler.h>
+#include <havok/sct/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
 #include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
 #include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
 #include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
@@ -1671,7 +1672,7 @@ namespace CB {
                 // this character's serve key) is how DeriveAnimData gathers the project's clips from the
                 // sink. Keyed by character stem ("defaultmale"). Runs under m_mutex (held for Resolve's
                 // body); read after CompileAll with no writers.
-                if (m_adsfFromFeature) {
+                if (m_adsfDerive) {
                     const std::string cstem = ToLower(fs::path(key).stem().string());
                     m_characterRosters[cstem] = cdata.animations;
                     m_characterActor[cstem]   = ActorPathOf(key);
@@ -1763,10 +1764,11 @@ namespace CB {
                 // DATA. See CLAUDE.md "Compiler features — CB::features (SOP)".
                 {
                     ResolverFeatureLog          fLog;
-                    // animData is supplied only when the adsf-derive path is opted in, so the
-                    // contributor feature's AppliesTo (ctx.animData != nullptr) is a no-op otherwise.
+                    // animData (the contribution hook) is supplied only when adsf-derive is collecting, so
+                    // a feature can push extra clips into the same sink the first-class derive stage fills
+                    // below; null otherwise (no sink to contribute to).
                     CB::features::FeatureContext    fctx{ .graphKey = key, .log = fLog,
-                                                      .animData = (m_adsfFromFeature ? &m_clipSink : nullptr) };
+                                                      .animData = (m_adsfDerive ? &m_clipSink : nullptr) };
 
                     // ENABLED set (from settings) — WHICH features run. The ORDER is no longer written
                     // here: ResolveRunOrder topo-sorts by each feature's declared RunsAfter/RunsBefore,
@@ -1776,14 +1778,32 @@ namespace CB {
                     // wildcard gate stays OPT-IN ([ERGate] bEnable, default OFF until proven in-engine)
                     // — a fault there rewrites every wildcard and would T-pose every actor.
                     std::vector<std::string> enabledIds;
-                    if (m_erGateEnabled)   enabledIds.emplace_back("engine-relay.wildcard-gate");
-                    if (m_adsfFromFeature) enabledIds.emplace_back("animation-relay.adsf-derive");
+                    if (m_erGateEnabled) enabledIds.emplace_back("engine-relay.wildcard-gate");
 
                     auto& reg    = CB::features::FeatureRegistry::Instance();
                     auto  runIds = reg.ResolveRunOrder(enabledIds, fLog);
                     for (const auto& [id, r] : reg.Run(runIds, data, fctx))
                         if (r.applied && r.mutations)
                             LOG_INFO("Resolver: feature {} → {} mutation(s) in '{}'.", id, r.mutations, key);
+
+                    // adsf-derive — FIRST-CLASS compile stage (not a feature). The adsf is derivable
+                    // straight from the compiled graph: each hkbClipGenerator carries
+                    // name+animationName+speed+crop+own-triggers = a DeriveClipInput. The compiler reads
+                    // them into the animdata collector HERE (compiler output, NOT a graph mutation — which
+                    // is why it never belonged in the IGraphFeature run above). Runs AFTER the features, so
+                    // a feature that ADDS clips to the graph gets derived too; a feature that contributes
+                    // adsf entries WITHOUT a graph clip pushes them directly via fctx.animData (the same
+                    // m_clipSink) during the run above. Both feed one collector. Gated (validation-only —
+                    // does not yet drive the emitted file) until the derive is byte-exact vs the collated
+                    // merge and takes over. Roster resolution stays out of here (a finalizer concern): a
+                    // resolved animIndex baked into the clip's binding would byte-diverge from vanilla.
+                    if (m_adsfDerive) {
+                        const auto inputs = havok::sct::DeriveClipInputsFromBehavior(data);
+                        for (const auto& in : inputs)
+                            m_clipSink.EmitClip(key, in);
+                        if (!inputs.empty())
+                            LOG_INFO("Resolver: adsf-derive — {} clip input(s) from '{}'.", inputs.size(), key);
+                    }
                 }
             }
 
@@ -1835,7 +1855,7 @@ namespace CB {
     // real roster index instead of the collated path's synthetic high-band index.
     bool Resolver::DeriveAnimData(const std::filesystem::path& dataDir)
     {
-        if (!m_adsfFromFeature) return false;
+        if (!m_adsfDerive) return false;
         namespace ad = havok::animdata;
 
         // ── start from the proven collated file (ServeAnimData ran first) ──

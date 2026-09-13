@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/discover/BundleManifest.h"
-#include "core/resolve/GraphClipSink.h"   // GraphClipSink — the adsf-derive feature's clip accumulator
+#include "core/resolve/GraphClipSink.h"   // GraphClipSink — the adsf-derive stage's clip accumulator
 #include "core/resolve/SymbolInjector.h"
 
 #include <havok/sct/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
@@ -191,13 +191,14 @@ namespace CB {
         // while unproven. Set from Plugin.cpp before the warm-up compile runs.
         void SetERGateEnabled(bool enabled) { m_erGateEnabled = enabled; }
 
-        // adsf-derive feature toggle (default OFF; [Compiler] bAdsfFromFeature). When on, the
-        // animation-relay.adsf-derive contributor feature runs during CompileAll and fills m_clipSink
-        // with each graph's clip inputs; the animdata finalizer reads ClipSink() afterwards. It is a
-        // NEW, unvalidated derive path parallel to the proven collated merge, so it is OPT-IN and does
-        // NOT drive the emitted adsf until proven in-engine. Set from Plugin.cpp before the warm-up.
-        void                 SetAdsfFromFeature(bool enabled) { m_adsfFromFeature = enabled; }
-        bool                 AdsfFromFeature() const { return m_adsfFromFeature; }
+        // adsf-derive toggle (default OFF; [Compiler] bAdsfDerive). When on, the FIRST-CLASS adsf-derive
+        // stage runs during CompileAll (a compiler stage, no longer an IGraphFeature) and fills m_clipSink
+        // with each graph's clip inputs; features may also contribute clips into that same sink. The
+        // animdata finalizer reads ClipSink() afterwards. It is a NEW, unvalidated derive path parallel to
+        // the proven collated merge, so it is OPT-IN and does NOT drive the emitted adsf until proven
+        // byte-exact in-engine. Set from Plugin.cpp before the warm-up.
+        void                 SetAdsfDerive(bool enabled) { m_adsfDerive = enabled; }
+        bool                 AdsfDerive() const { return m_adsfDerive; }
         const GraphClipSink& ClipSink() const { return m_clipSink; }
 
         // Finalize the animationdata cache from the COMPILED results (opt-in; requires the adsf-derive
@@ -369,12 +370,13 @@ namespace CB {
         // ER wildcard gate on/off (default OFF; see SetERGateEnabled). Read from settings.ini
         // ([ERGate] bEnable) in Plugin.cpp and set before the warm-up compile.
         bool m_erGateEnabled = false;
-        // adsf-derive feature on/off (default OFF; see SetAdsfFromFeature). When on, CompileAll
-        // populates m_clipSink via the contributor feature and the finalizer consumes it.
-        bool          m_adsfFromFeature = false;
+        // adsf-derive on/off (default OFF; see SetAdsfDerive). When on, CompileAll's first-class
+        // adsf-derive stage populates m_clipSink (graph-derived clips + any feature contributions) and
+        // the finalizer consumes it.
+        bool          m_adsfDerive = false;
         GraphClipSink m_clipSink;
         // Per-character MERGED roster (animationNames) + actor path, captured in the isCharacter compile
-        // when m_adsfFromFeature is on. Both keyed by character stem ("defaultmale"). DeriveAnimData
+        // when m_adsfDerive is on. Both keyed by character stem ("defaultmale"). DeriveAnimData
         // resolves each sink clip's animIndex against the roster (the space the clip binds into) and uses
         // the actor path (from the character's own serve key — always well-formed) to gather that project's
         // clips out of the sink, instead of trusting the base header's `character` string shape.
