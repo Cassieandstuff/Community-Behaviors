@@ -9,6 +9,7 @@
 #include "core/debug/RuntimeTrace.h"
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
+#include "core/bootstrap/sequencer/CompileSequencer.h"   // seq::ThreadPool — parallel native-anim compile
 #include "core/resolve/Resolver.h"
 #include "core/debug/SyncClipProbe.h"
 
@@ -20,6 +21,7 @@
 #include <cstdlib>       // std::getenv — schema-dir env fallback
 #include <filesystem>
 #include <mutex>         // EnsureCompiledAndArmed one-shot latch
+#include <optional>      // AnimParallel — pool held only when sequencer.enable
 #include <process.h>   // _beginthreadex — large-stack warm-up thread
 
 namespace CB {
@@ -143,6 +145,41 @@ namespace CB {
     // Data\community_behaviors\plugins\ (a stale offline pre-merged bundle overlaying the
     // per-mod deltas), which fed CompileBehavior a corrupt merged 0_master. That is a
     // load-order/data fix (drop the stale bundle), not a code fix.
+    // Multithreaded native-animation compile toggle. DEFAULT ON in every build — the per-unit native-anim
+    // compile fans across a worker pool (proven massively faster in-game, and each unit is a pure function
+    // of its own def + the immutable served skeleton, so the parallel output is byte-identical to serial).
+    // The escape hatch is an opt-OUT FILE marker (Data\community_behaviors\sequencer.disable), not an .ini
+    // key — so it can be dropped in to force the old serial path without editing config (and can't be
+    // toggled by accident through .ini merges), for a machine that ever shows trouble. (Increment A of the
+    // compile sequencer: only the embarrassingly-parallel animation phase is parallelized; behaviors stay
+    // serial for now.)
+    static bool ParallelAnimCompileEnabled()
+    {
+        return !std::filesystem::exists("Data/community_behaviors/sequencer.disable");
+    }
+
+    // Holds the worker pool ALIVE for the duration of a parallel native-anim compile and hands the Resolver
+    // an executor bound to it. Empty (serial) only when the opt-out marker forces it off. Workers get a
+    // 64MB reserved stack — the same guard WarmUpThread uses — so a native-anim compile can never overflow a
+    // default worker stack. Non-copyable (the optional<ThreadPool> makes it so); use it as a local only.
+    struct AnimParallel
+    {
+        std::optional<seq::ThreadPool> pool;
+        Resolver::AnimExecutor         exec;
+
+        AnimParallel()
+        {
+            if (!ParallelAnimCompileEnabled()) return;
+            pool.emplace(0u, 64u * 1024u * 1024u);   // 0 => hardware_concurrency; 64MB reserved stack/worker
+            exec = [this](std::vector<std::function<void()>> tasks) { pool->parallel_for(std::move(tasks)); };
+            LOG_INFO("Community Behaviors: native animations compile in PARALLEL on {} pool thread(s) "
+                     "(drop Data\\community_behaviors\\sequencer.disable to force serial).", pool->size());
+        }
+
+        // nullptr when disabled (empty std::function) => Resolver takes the serial path.
+        const Resolver::AnimExecutor* ptr() const { return exec ? &exec : nullptr; }
+    };
+
     static unsigned __stdcall WarmUpThread(void* param)
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
@@ -160,8 +197,9 @@ namespace CB {
         // (fragile: fires on the actor-load path) then only reads that map + rewrites a
         // descriptor string — never compiles. This 64MB-stack thread is the ONLY place a
         // compile is allowed. Clears stale cross-session BR output first.
+        AnimParallel animPar;   // parallel native-anim compile when sequencer.enable; serial otherwise
         const std::size_t wrote = g_resolver.MaterializeCacheToDisk(
-            std::filesystem::current_path() / "Data", nullptr);
+            std::filesystem::current_path() / "Data", nullptr, animPar.ptr());
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
         ProgressOverlay::SetProgress(total, total, false);
@@ -274,7 +312,11 @@ namespace CB {
                             !std::filesystem::exists("Data/community_behaviors/progressbar.disable");
 
         if (warm) {
-            g_resolver.ArmCacheFromDisk(dataAbs);   // instant; no compile, no bar
+            // The warm path still RECOMPILES native animations (ArmCacheFromDisk -> WriteNativeAnimations):
+            // they're loose, not in the reused graph cache. That serial recompile is the warm-launch
+            // "Continue" stall — so give it the same optional parallel executor.
+            AnimParallel animPar;
+            g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());   // instant graphs; anims (re)compiled here
             // Serve the cached adsf/asdsf verbatim (coherent with the reused graphs); only re-derive if
             // the collated cache is partial. See ArmAdsfSetDataFromCache.
             if (!ArmAdsfSetDataFromCache(perProject))
@@ -421,7 +463,15 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         // typed path plus dead skeleton serves. ApplySchemaCompilerSetting has no dependency on Init
         // (it only reads settings.ini + sets the shared dir), so it must precede it.
         CB::ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST be before any compile
-        CB::g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt");
+        // Warm signal, computed here EXACTLY as the compile gate does (same !force && CachePresent), so
+        // Init can skip the expensive per-actor skeleton recompile when a prior run's compiled skeletons
+        // are already in the on-disk cache. This is the every-launch main-menu stall: the skeleton
+        // CompileSkeletonFull loop ran unconditionally on the main thread at plugin load. Cold / forced
+        // regen (warmReuse == false) still compiles fresh. Reading the sentinel + ini here is cheap and
+        // does not depend on Init having run.
+        const bool warmReuse = !CB::ReadForceRegenerate() &&
+                               CB::g_resolver.CachePresent(std::filesystem::current_path() / "Data");
+        CB::g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse);
         CB::g_resolver.SetERGateEnabled(CB::ReadERGateEnabled());
         CB::g_resolver.SetAdsfFromFeature(CB::ReadAdsfFromFeature());  // opt-in, before any compile
 

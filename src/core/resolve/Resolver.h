@@ -50,13 +50,28 @@ namespace CB {
     // merge lives in Resolve()'s gather+merge step.
     class Resolver {
     public:
+        // Optional parallel executor for the per-unit native-animation compile: given a batch of
+        // independent tasks, run them ALL and BLOCK until every one has finished (exactly the
+        // CB::seq::ThreadPool::parallel_for contract). nullptr => serial (the proven default). Kept as
+        // a plain std::function so the Resolver carries NO dependency on the sequencer's ThreadPool
+        // type; Plugin.cpp wires a real pool in behind the sequencer.enable marker. Each native-anim
+        // compile is a pure function of its own def + the immutable served skeleton and writes its own
+        // distinct output file, so parallel output is byte-identical to serial by construction.
+        using AnimExecutor = std::function<void(std::vector<std::function<void()>>)>;
+
         // Scan dataDir/community_behaviors/plugins for .hky graph sets (their path under
         // plugins/ IS the serve path), ordered by loadOrderIni (optional). Safe with an
         // empty result (installing BR with no .hky is a no-op). A <Mod>.hky entry may be
         // EITHER an unpacked directory (author dev tree) OR a single packed .hky file (the
         // shipped form — e.g. the full-corpus Skyrim.hky master); both back their units
         // through the same IUnitSource, so the rest of the pipeline is identical.
-        void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni);
+        // warmReuse == the gate's warm signal (!bForceRegenerate && CachePresent), computed at plugin
+        // load and passed in. When true, the served skeletons are already compiled in the on-disk cache
+        // from a prior run, so Init registers their serve keys instead of recompiling them — removing
+        // the redundant every-launch main-thread skeleton compile (the plugin-load / main-menu stall).
+        // When false (cold / forced regen), skeletons compile fresh as before.
+        void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
+                  bool warmReuse = false);
 
         // Compile (lazy + cached) and return bytes for a served path — the game's
         // open path (e.g. "meshes\\actors\\character\\behaviors\\0_master.hkx"); any
@@ -77,7 +92,8 @@ namespace CB {
         // graph on an engine resource/Havok-worker thread overflows its stack. Returns the
         // number of files written.
         std::size_t MaterializeCacheToDisk(const std::filesystem::path& cacheRoot,
-                                           const std::function<void(std::size_t done, std::size_t total)>& progress);
+                                           const std::function<void(std::size_t done, std::size_t total)>& progress,
+                                           const AnimExecutor* animExec = nullptr);
 
         // Write the opt-in compiled skeletons (m_skeletonServe) into the consolidated cache. Called
         // from BOTH MaterializeCacheToDisk (regen — after the clear) and ArmCacheFromDisk (reuse), so
@@ -91,7 +107,8 @@ namespace CB {
         // NOT via the on-demand Func3 community_behaviors_cache serve — hence loose, not community_behaviors_cache). The
         // clean name is rostered (folded into m_characterAnimNames at Init), so a clip binds it. Called
         // from the warm-up; returns the count written. dataRoot is the Data folder (parent of meshes\).
-        std::size_t WriteNativeAnimations(const std::filesystem::path& dataRoot) const;
+        std::size_t WriteNativeAnimations(const std::filesystem::path& dataRoot,
+                                          const AnimExecutor* exec = nullptr) const;
 
         // ── Cache reuse (skip the recompile when a prior run's cache is still wanted) ──────
         // The warm-up recompile is a pure optimization; its OUTPUT (compiled graph files under
@@ -107,7 +124,7 @@ namespace CB {
         // be reused (that's why debug builds default bForceRegenerate on). A content fingerprint
         // that also detects a changed bundle set is the planned next step (real invalidation).
         bool CachePresent(const std::filesystem::path& cacheRoot) const;
-        void ArmCacheFromDisk(const std::filesystem::path& cacheRoot);
+        void ArmCacheFromDisk(const std::filesystem::path& cacheRoot, const AnimExecutor* animExec = nullptr);
 
         // Cheap, lock-free ownership test: true iff a compiled unit is mapped for this
         // serve path (same key normalization as Resolve). m_sources is built entirely in

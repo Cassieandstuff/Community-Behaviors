@@ -25,8 +25,10 @@
 #include <havok/anim/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
+#include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
+#include <atomic>
 #include <map>
 #include <optional>
 #include <set>
@@ -317,7 +319,7 @@ namespace CB {
 
     }  // namespace
 
-    void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni)
+    void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni, bool warmReuse)
     {
         // Route havok-core's merge diagnostics into the BR log (havok-core has no logger of its own;
         // opt-in, and once is enough — persists for every later Resolve/LoadMerged). Two severities
@@ -730,6 +732,24 @@ namespace CB {
                     if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size())
                         units.insert(f.substr(0, b));
                 for (const std::string& unit : units) {
+                    const std::string key = NormalizeKey(unit);
+                    // WARM REUSE: this skeleton was compiled on a prior run and its bytes are already in
+                    // the consolidated cache on disk. ByteServe serves that file via a path swap and
+                    // Owns() needs only the key present — so register the key and SKIP the expensive
+                    // CompileSkeletonFull recompile. This removes the redundant every-launch skeleton
+                    // compile that ran on the main thread at plugin load (the main-menu stall). Guarded on
+                    // warmReuse (== gate's !force && CachePresent) AND the cache file actually existing, so
+                    // a forced regen or a missing file falls through and compiles fresh — we never serve a
+                    // skeleton the cold path is about to wipe. WriteSkeletonServe skips empty-byte entries,
+                    // so the key-only registration doesn't rewrite the already-present file.
+                    if (warmReuse) {
+                        const std::string rel = servekey::CacheDiskRel(key);
+                        if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
+                            m_skeletonServe.emplace(key, std::vector<std::uint8_t>{});
+                            LOG_INFO("Resolver: skeleton '{}' — warm cache hit, serve key registered (recompile skipped).", unit);
+                            continue;
+                        }
+                    }
                     havok::skeleton::SkeletonData sk;
                     if (!readBaseUnit(unit, sk)) continue;
                     std::string merr;
@@ -737,7 +757,7 @@ namespace CB {
                         LOG_WARN("Resolver: skeleton '{}' bone-add merge: {} — base unchanged.", unit, merr);
                     auto cr = havok::skeleton::CompileSkeletonFull(sk);
                     if (cr.ok) {
-                        m_skeletonServe[NormalizeKey(unit)] = std::move(cr.bytes);
+                        m_skeletonServe[key] = std::move(cr.bytes);
                         LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), sk.bones.size());
                     } else
                         LOG_WARN("Resolver: skeleton '{}' compile failed: {} — not served.", unit, cr.error);
@@ -1034,12 +1054,25 @@ namespace CB {
         return written;
     }
 
-    std::size_t Resolver::WriteNativeAnimations(const std::filesystem::path& dataRoot) const
+    std::size_t Resolver::WriteNativeAnimations(const std::filesystem::path& dataRoot,
+                                                const AnimExecutor* exec) const
     {
         namespace fs = std::filesystem;
-        std::size_t written = 0, failed = 0;
-        std::error_code ec;
-        for (const auto& [outKey, yamlText] : m_nativeAnims) {
+        std::atomic<std::size_t> written{ 0 }, failed{ 0 };
+
+        // Pre-warm the shared schema registry ON THIS (single) THREAD before any fan-out. SharedRegistry()'s
+        // one-time load is guarded by a plain `state` int, NOT synchronized — two worker threads racing the
+        // first call could both attempt the load. After this call state is settled and every worker only
+        // READS it (a pure pointer return). On the serial path this is a harmless no-op — the cold path's
+        // CompileAll already warmed it; the WARM path (ArmCacheFromDisk) does NOT run CompileAll, so this is
+        // the call that warms it there. Do it regardless of exec so both paths are covered.
+        (void)havok::schema::SharedRegistry();
+
+        // Compile+write ONE native animation. A pure function of its own (outKey, yamlText) entry and the
+        // immutable-after-Init m_skeletons; writes its own distinct file. No shared mutable state, so this
+        // is safe to run concurrently and the parallel result is byte-identical to the serial one.
+        auto compileOne = [&](const std::string& outKey, const std::string& yamlText) {
+            std::error_code ec;
             // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). STOP-GAP OUTPUT:
             // write under meshes/CBanims/ instead of the real actor path, so the recompiled natives do NOT
             // clobber the vanilla loose/BSA animations while we validate — the engine won't auto-load them
@@ -1061,30 +1094,49 @@ namespace CB {
                         boneNames = &it->second.names;
                 const auto r   = havok::anim::CompileAnimation(def, 30, havok::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
-                    ++failed;
+                    failed.fetch_add(1, std::memory_order_relaxed);
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
-                    continue;
+                    return;
                 }
                 fs::create_directories(out.parent_path(), ec);
                 std::ofstream f(out, std::ios::binary | std::ios::trunc);
                 f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
                 f.flush();
-                if (f.good()) { ++written; LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string()); }
-                else          { ++failed;  LOG_ERROR("Community Behaviors: failed writing native animation '{}'.", out.string()); }
+                if (f.good()) { written.fetch_add(1, std::memory_order_relaxed); LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string()); }
+                else          { failed.fetch_add(1, std::memory_order_relaxed);  LOG_ERROR("Community Behaviors: failed writing native animation '{}'.", out.string()); }
             } catch (const std::exception& e) {
-                ++failed;
+                failed.fetch_add(1, std::memory_order_relaxed);
                 LOG_ERROR("Community Behaviors: native animation '{}' — {}", outKey, e.what());
             }
+        };
+
+        if (exec && *exec && m_nativeAnims.size() > 1) {
+            // Parallel: one task per entry, fanned across the pool; (*exec) blocks until all complete.
+            // Capture each element by POINTER (m_nativeAnims is immutable after Init, so the address is
+            // stable) — never by the range-for reference, which is rebound each iteration.
+            std::vector<std::function<void()>> tasks;
+            tasks.reserve(m_nativeAnims.size());
+            for (const auto& e : m_nativeAnims) {
+                const auto* ep = &e;
+                tasks.push_back([&compileOne, ep] { compileOne(ep->first, ep->second); });
+            }
+            (*exec)(std::move(tasks));
+        } else {
+            for (const auto& [outKey, yamlText] : m_nativeAnims) compileOne(outKey, yamlText);
         }
-        if (written || failed)
+
+        const std::size_t w = written.load(std::memory_order_relaxed);
+        const std::size_t fl = failed.load(std::memory_order_relaxed);
+        if (w || fl)
             LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (STAGED under "
-                     "Data\\meshes\\CBanims\\ — relocate manually to serve).", written, failed);
-        return written;
+                     "Data\\meshes\\CBanims\\ — relocate manually to serve).", w, fl);
+        return w;
     }
 
     std::size_t Resolver::MaterializeCacheToDisk(
         const std::filesystem::path&                                        dataRoot,
-        const std::function<void(std::size_t, std::size_t)>&                progress)
+        const std::function<void(std::size_t, std::size_t)>&                progress,
+        const AnimExecutor*                                                 animExec)
     {
         namespace fs = std::filesystem;
         std::error_code ec;
@@ -1198,7 +1250,7 @@ namespace CB {
         // 2c) Compile the bundle-authored native animations into LOOSE .hkx under Data\meshes\ (not
         //     community_behaviors_cache — actor animations resolve by the engine's startup loose scan). Persist
         //     across cache regens; the clean names are already rostered (folded at Init).
-        WriteNativeAnimations(dataRoot);
+        WriteNativeAnimations(dataRoot, animExec);
 
         // 3) Build the above-OAR redirect map (folderRoot -> owned characters) + mark ready.
         //    Shared with the reuse path (ArmCacheFromDisk) — it depends only on m_sources, not
@@ -1370,7 +1422,7 @@ namespace CB {
         return stamp == std::to_string(watermark::kWatermarkValue);
     }
 
-    void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot)
+    void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot, const AnimExecutor* animExec)
     {
         // Reuse path: the compiled graphs + synthesized projects from a prior run are already on
         // disk (guarded by the completion sentinel CachePresent() checked). Arm ONLY the redirect
@@ -1381,7 +1433,7 @@ namespace CB {
         // Native animations are LOOSE (not in the wiped community_behaviors_cache), so a prior run's files usually
         // still exist — but rewrite them here too (cheap, few) so a reused cache from a build without
         // them, or a user who cleared meshes\, still gets them on disk before the scan.
-        WriteNativeAnimations(dataRoot);
+        WriteNativeAnimations(dataRoot, animExec);
         BuildRedirectMap(dataRoot);
         LOG_INFO("Community Behaviors: reusing existing on-disk behavior cache under '{}\\Meshes' "
                  "(recompile skipped — set [Cache] bForceRegenerate=true or delete the cache to rebuild).",
