@@ -23,11 +23,14 @@ every compiled artifact CB serves**:
   delivered. Ruled out.
 
 **Conclusion:** everything CB *compiles* reproduces Pandora/vanilla, yet CB drops the shield and Pandora
-(loose files) does not. The differentiator is **how CB delivers the tree** — byteserve (Func3 byte-swap) +
-the synthesized `.br.hkx` project redirect, above OAR — not any file's content. Next session starts here:
-instrument the serve path, compare CB's above-OAR whole-tree delivery vs Pandora's loose-file load for the
-locomotion+shield blend at runtime (does an OAR/DAR movement replacement that supplies the shield-arm pose
-fail to reach CB's served tree?). All diff outputs saved under `D:\cb-diffs\` (see `SHIELD-HUNT-FINDINGS.md`).
+(loose files) does not. The differentiator is **how CB delivers the tree** — byteserve's Func3 byte-swap of
+every owned open (project, character, behaviors) to its `community_behaviors_cache\` twin under the vanilla
+identity, so the WHOLE tree loads through the engine ABOVE OAR's Unk3 wrap. Pandora ships loose files that
+OAR wraps normally. (NB: there is no `.br.hkx` rename — the project is byte-swapped under its vanilla path
+like everything else; `ProjectRedirect` → `CacheSwapPath`.) Next session starts here: instrument the serve
+path and compare CB's above-OAR whole-tree delivery vs Pandora's loose-file load for the locomotion+shield
+blend at runtime — does an OAR/DAR movement replacement that supplies the shield-arm-up pose fail to reach
+CB's served tree because CB sits above it? All diff outputs under `D:\cb-diffs\` (see `SHIELD-HUNT-FINDINGS.md`).
 
 Everything below is the 2026-09-11 investigation, retained for history — its *root cause is disproven* as
 the shield cause, though the boneWeights-placement difference it documents is real (and the shim that

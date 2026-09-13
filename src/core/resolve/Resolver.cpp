@@ -572,10 +572,10 @@ namespace CB {
                         if (mf.present) { logManifest(mf); m_manifests[plugName] = std::move(mf); }
                     }
                     for (const auto& u : arc->units()) {
-                        // Projects are NOT served — BR synthesizes its own .br.hkx project in
-                        // ProjectRedirect (its char ref points at the cache); a vanilla project
-                        // graph would only compete with that. Behaviors + characters serve. But FIRST
-                        // capture the project's ORIGINAL-CASE characterFilenames ref from project.yaml —
+                        // The project graph itself is not served from the bundle — ProjectRedirect
+                        // synthesizes the served project on demand (into the cache, vanilla identity);
+                        // a bundle project graph would only compete with that. Behaviors + characters
+                        // serve. But FIRST capture the project's ORIGINAL-CASE characterFilenames ref from project.yaml —
                         // ProjectRedirect re-emits the vanilla identity from it (the case-sensitive bind
                         // the engine does on that string; a lowercased ref A-poses vanilla-only actors).
                         if (u.kind == havok::model::HkyArchive::UnitKind::Project) {
@@ -1141,15 +1141,13 @@ namespace CB {
         namespace fs = std::filesystem;
         std::error_code ec;
 
-        // The above-OAR serving layout writes two kinds of BR output, both UNDER each
-        // actor's own vanilla behavior root <dataRoot>/<folderRoot> (keys are meshes-
-        // prefixed, so folderRoot already begins "meshes/..."):
-        //   • compiled graphs   -> <folderRoot>/community_behaviors_cache/<subdir>/<file>.hkx
-        //   • synthesized project-> <folderRoot>/<charStem>.br.hkx     (a NEW loose file)
-        // Both are NEW paths, so no vanilla file is ever overwritten. The redirect hook
-        // points the engine's project load at the .br.hkx; its base dir stays the vanilla
-        // root, so the cache-qualified child refs resolve into community_behaviors_cache\ and
-        // the untouched refs resolve to vanilla.
+        // The above-OAR serving layout writes BR output into the consolidated cache under
+        // Data\Meshes\community_behaviors_cache\<serve path> — compiled graphs here, and the
+        // synthesized project on demand in ProjectRedirect (same cache root, vanilla path/case).
+        // All are NEW paths under community_behaviors_cache\, so no vanilla file is overwritten; the
+        // ByteServe hook swaps each owned OPEN to its cache twin under the VANILLA identity (no
+        // rename, no ".br" alias). The project's cache-qualified child refs resolve into
+        // community_behaviors_cache\ and the untouched refs resolve to vanilla.
 
         // 0) Drop the completion sentinel FIRST: it is re-written only at the very end, on
         //    success, so a regenerate that crashes mid-way leaves NO sentinel and the next run

@@ -191,12 +191,12 @@ namespace CB {
         // (The character animationNames roster is built offline now — the converter scans clip
         // generators into each unit's data/animations.yaml and LoadMerged unions every layer at
         // compile time — so there is no runtime roster-completion pass between compile and disk write.)
-        // Write every compiled graph + a synthesized project per character to disk, in the
-        // above-OAR split layout (<Data>\Meshes\<folderRoot>\community_behaviors_cache\... plus
-        // <folderRoot>\<char>.br.hkx), and publish the redirect map. The project-load hook
-        // (fragile: fires on the actor-load path) then only reads that map + rewrites a
-        // descriptor string — never compiles. This 64MB-stack thread is the ONLY place a
-        // compile is allowed. Clears stale cross-session BR output first.
+        // Write every compiled graph to the consolidated cache (<Data>\Meshes\community_behaviors_cache\...)
+        // and publish the redirect map; the synthesized project per character is written on demand by
+        // ProjectRedirect into the same cache (vanilla path/identity, no ".br"). The project serve hook
+        // (fragile: fires on the actor-load path) then only reads that map + byte-swaps the open — never
+        // compiles. This 64MB-stack thread is the ONLY place a compile is allowed. Clears stale
+        // cross-session BR output first.
         AnimParallel animPar;   // parallel native-anim compile when sequencer.enable; serial otherwise
         const std::size_t wrote = g_resolver.MaterializeCacheToDisk(
             std::filesystem::current_path() / "Data", nullptr, animPar.ptr());

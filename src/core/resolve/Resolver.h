@@ -144,29 +144,27 @@ namespace CB {
         // on-disk cache is immutable while serving.
         bool HasCacheFile(std::string_view servePath) const;
 
-        // ── Above-OAR project redirect ────────────────────────────────────────────
+        // ── Above-OAR project serve (byte-substitution) ───────────────────────────
         // Given the vanilla behavior-PROJECT path the engine wrote into a load descriptor
         // (PopulateGraphProjectsToLoad, desc+0x108 — meshes-relative, backslashed, original
-        // case, e.g. "Actors\Character\DefaultMale.hkx"), return the path of BR's synthesized
-        // project to redirect it to — the SAME path with ".hkx" -> ".br.hkx" (same directory,
-        // so the loader's base dir = dirname(desc+0x108) is UNCHANGED and every child resolves
-        // as before; same PROJECT STEM so the animationdata association — keyed by the loaded
-        // project's basename-minus-extension — still matches, via the ".br"-aliased blocks the
-        // AnimData server emits). Returns "" when BR doesn't own that actor's tree (→ pass
-        // through untouched).
+        // case, e.g. "Actors\Character\DefaultMale.hkx"), return the SWAP path the ByteServe hook
+        // hands the engine in place of that open: BR's synthesized project under
+        // community_behaviors_cache\<vanilla project path> (original case). It is interned under
+        // the VANILLA identity — the caller's descriptor is untouched and the project keeps its
+        // stock stem — so the speed-sampler DB key and the animdata association both resolve to
+        // the vanilla stem, with NO rename and no ".br" alias. Returns "" when BR doesn't own that
+        // actor's tree (→ pass through untouched).
         //
-        // The redirected project's characterFilenames[0] points at BR's compiled character
-        // under <folderRoot>\community_behaviors_cache\, whose own behaviorFilename (and every
-        // recursive behavior reference) is cache-qualified for the children BR owns and left
-        // vanilla for those it does not — so the WHOLE coherent tree loads through the engine's
-        // own machinery, ABOVE Open Animation Replacer's Unk3 wrap. Replaces the deep
-        // LoadBehaviorGraph / character-loader hooks (which sat below OAR → collision).
+        // The synthesized project's characterFilenames[0] keeps the vanilla character ref (recovered
+        // original-case), whose open the ByteServe hook redirects into the cache — and every behavior
+        // open below it — so the WHOLE coherent tree loads through the engine's own machinery, ABOVE
+        // Open Animation Replacer's Unk3 wrap. Replaces the deep LoadBehaviorGraph / character-loader
+        // hooks (which sat below OAR → collision).
         //
-        // The <projStem>.br.hkx file is synthesized on first request (the project STEM is only
-        // known here, at runtime, from the descriptor) and written under the actor's vanilla
-        // root; guarded + memoized, so each project file is built once. Yields "" until the
-        // warm-up cache + redirect map are ready (m_redirectReady), so the redirect is inert —
-        // safe vanilla fallback — until the compiled character/behaviors are on disk.
+        // The project packfile is synthesized on first request (its path is only known here, at
+        // runtime, from the descriptor) into the cache; guarded + memoized, so each is built once.
+        // Yields "" until the warm-up cache + redirect map are ready (m_redirectReady), so the serve
+        // is inert — safe vanilla fallback — until the compiled character/behaviors are on disk.
         std::string ProjectRedirect(std::string_view vanillaProjectPath);
 
         // True once MaterializeCacheToDisk has written the cache + synthesized projects and
@@ -353,7 +351,7 @@ namespace CB {
         std::mutex                                                        m_readyMutex;
         std::condition_variable                                           m_readyCv;
         // Data root ("<game>/Data") captured at materialize time, so the on-demand project
-        // synth writes <dataRoot>/Meshes/<vanilla project dir>/<stem>.br.hkx.
+        // synth writes <dataRoot>/Meshes/community_behaviors_cache/<vanilla project path> (original case).
         std::filesystem::path                                              m_dataRoot;
         // On-demand project-synth memo + guard (ProjectRedirect runs on actor-load threads).
         std::unordered_map<std::string, bool>                             m_synthesizedProjects;
