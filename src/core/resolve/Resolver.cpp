@@ -1055,7 +1055,8 @@ namespace CB {
     }
 
     std::size_t Resolver::WriteNativeAnimations(const std::filesystem::path& dataRoot,
-                                                const AnimExecutor* exec) const
+                                                const AnimExecutor* exec,
+                                                const std::function<void()>* onUnit) const
     {
         namespace fs = std::filesystem;
         std::atomic<std::size_t> written{ 0 }, failed{ 0 };
@@ -1110,19 +1111,25 @@ namespace CB {
             }
         };
 
+        // Progress tick — fire once per unit as it FINISHES, whatever the outcome (ok/skip/fail), so
+        // the bar advances by unit processed, not unit succeeded. Ticked in the dispatch (not inside
+        // compileOne, which has early returns) so both paths cover every outcome exactly once.
+        auto tick = [&] { if (onUnit && *onUnit) (*onUnit)(); };
+
         if (exec && *exec && m_nativeAnims.size() > 1) {
             // Parallel: one task per entry, fanned across the pool; (*exec) blocks until all complete.
             // Capture each element by POINTER (m_nativeAnims is immutable after Init, so the address is
-            // stable) — never by the range-for reference, which is rebound each iteration.
+            // stable) — never by the range-for reference, which is rebound each iteration. The tick runs
+            // on the worker thread, so onUnit must be thread-safe (it is — atomic increment + store).
             std::vector<std::function<void()>> tasks;
             tasks.reserve(m_nativeAnims.size());
             for (const auto& e : m_nativeAnims) {
                 const auto* ep = &e;
-                tasks.push_back([&compileOne, ep] { compileOne(ep->first, ep->second); });
+                tasks.push_back([&compileOne, &tick, ep] { compileOne(ep->first, ep->second); tick(); });
             }
             (*exec)(std::move(tasks));
         } else {
-            for (const auto& [outKey, yamlText] : m_nativeAnims) compileOne(outKey, yamlText);
+            for (const auto& [outKey, yamlText] : m_nativeAnims) { compileOne(outKey, yamlText); tick(); }
         }
 
         const std::size_t w = written.load(std::memory_order_relaxed);
@@ -1136,7 +1143,8 @@ namespace CB {
     std::size_t Resolver::MaterializeCacheToDisk(
         const std::filesystem::path&                                        dataRoot,
         const std::function<void(std::size_t, std::size_t)>&                progress,
-        const AnimExecutor*                                                 animExec)
+        const AnimExecutor*                                                 animExec,
+        const std::function<void()>*                                        animOnUnit)
     {
         namespace fs = std::filesystem;
         std::error_code ec;
@@ -1248,7 +1256,7 @@ namespace CB {
         // 2c) Compile the bundle-authored native animations into LOOSE .hkx under Data\meshes\ (not
         //     community_behaviors_cache — actor animations resolve by the engine's startup loose scan). Persist
         //     across cache regens; the clean names are already rostered (folded at Init).
-        WriteNativeAnimations(dataRoot, animExec);
+        WriteNativeAnimations(dataRoot, animExec, animOnUnit);
 
         // 3) Build the above-OAR redirect map (folderRoot -> owned characters) + mark ready.
         //    Shared with the reuse path (ArmCacheFromDisk) — it depends only on m_sources, not

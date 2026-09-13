@@ -183,10 +183,14 @@ namespace CB {
     static unsigned __stdcall WarmUpThread(void* param)
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
-        const std::size_t total = reinterpret_cast<std::size_t>(param);
-        const auto        t0    = std::chrono::steady_clock::now();
-        g_resolver.CompileAll([](std::size_t done, std::size_t tot) {
-            ProgressOverlay::SetProgress(done, tot, true);
+        // grandTotal = graphs + native animations (computed by the gate and passed in), so the bar
+        // reflects ALL compiled assets, not just graphs. Phase 1 (CompileAll) fills 0..graphCount of
+        // grandTotal; phase 2 (native animations) fills graphCount..grandTotal.
+        const std::size_t grandTotal = reinterpret_cast<std::size_t>(param);
+        const std::size_t graphCount = g_resolver.SourceCount();
+        const auto        t0         = std::chrono::steady_clock::now();
+        g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
+            ProgressOverlay::SetProgress(done, grandTotal, true);   // denominator = grand total
         });
         // (The character animationNames roster is built offline now — the converter scans clip
         // generators into each unit's data/animations.yaml and LoadMerged unions every layer at
@@ -197,14 +201,24 @@ namespace CB {
         // (fragile: fires on the actor-load path) then only reads that map + byte-swaps the open — never
         // compiles. This 64MB-stack thread is the ONLY place a compile is allowed. Clears stale
         // cross-session BR output first.
+        // Phase 2 — native animations. Each finished unit advances the bar from graphCount toward
+        // grandTotal. Shared atomic (the compile may run parallel across the pool), stored into the
+        // atomic ProgressOverlay; the tick runs on worker threads, hence the atomic. See the
+        // synchronicity note on WriteNativeAnimations — the bar is a passive reader, never a gate.
+        std::atomic<std::size_t> animDone{ 0 };
+        const std::function<void()> onAnimUnit = [grandTotal, graphCount, &animDone] {
+            ProgressOverlay::SetProgress(graphCount + animDone.fetch_add(1, std::memory_order_relaxed) + 1,
+                                         grandTotal, true);
+        };
         AnimParallel animPar;   // parallel native-anim compile when sequencer.enable; serial otherwise
         const std::size_t wrote = g_resolver.MaterializeCacheToDisk(
-            std::filesystem::current_path() / "Data", nullptr, animPar.ptr());
+            std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
-        ProgressOverlay::SetProgress(total, total, false);
-        LOG_INFO("Community Behaviors: precompiled {} graph(s), materialized {} to disk in {:.1f}s "
-                 "(runtime loads served from disk cache).", total, wrote, secs);
+        ProgressOverlay::SetProgress(grandTotal, grandTotal, false);
+        LOG_INFO("Community Behaviors: precompiled {} graph(s) + {} animation(s), materialized {} to disk "
+                 "in {:.1f}s (runtime loads served from disk cache).",
+                 graphCount, g_resolver.NativeAnimCount(), wrote, secs);
         { std::size_t s = 0, t = 0; havok::sct::SchemaCompilerStats(s, t);
           if (s || t) LOG_INFO("Community Behaviors: compiler paths this warm-up — schema-driven {}, typed {}.", s, t); }
         return 0;
@@ -328,11 +342,15 @@ namespace CB {
             // byteserve calls WaitForCompile() before serving an owned graph, so nothing is served
             // half-compiled — correctness holds regardless of the bar.
             ArmAdsfSetDataServe(perProject);
-            const std::size_t total = g_resolver.SourceCount();
+            // Grand total = graphs + native animations, so the bar counts ALL compiled assets. Passed
+            // to WarmUpThread as the denominator for both phases.
+            const std::size_t graphCount = g_resolver.SourceCount();
+            const std::size_t animCount  = g_resolver.NativeAnimCount();
+            const std::size_t total      = graphCount + animCount;
             ProgressOverlay::SetProgress(0, total, true);
             ProgressHud::Install();   // passive Present hook; safe (rides the game present, never forces one)
             LOG_INFO("Community Behaviors: SPLIT compile — arming adsf/setdata now, compiling {} graph(s) "
-                     "in the background (progress bar enabled).", total);
+                     "+ {} animation(s) in the background (progress bar enabled).", graphCount, animCount);
             if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
                         &WarmUpThread, reinterpret_cast<void*>(total),
                         STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)) {
@@ -343,11 +361,12 @@ namespace CB {
             }
         } else {
             // Default proven path: compile + materialize on the 64MB-stack thread and JOIN it (parked in
-            // the detour, arm ordered ahead of graph load), THEN arm adsf/setdata. No progress bar.
-            const std::size_t total = g_resolver.SourceCount();
-            LOG_INFO("Community Behaviors: precompiling {} graph(s) at first engine open on thread {} "
-                     "(loader thread parked in our hook — arm ordered ahead of graph load).",
-                     total, ::GetCurrentThreadId());
+            // the detour, arm ordered ahead of graph load), THEN arm adsf/setdata. No progress bar, but
+            // pass the same grand total (graphs + animations) so WarmUpThread's phase math + log agree.
+            const std::size_t total = g_resolver.SourceCount() + g_resolver.NativeAnimCount();
+            LOG_INFO("Community Behaviors: precompiling {} graph(s) + {} animation(s) at first engine open "
+                     "on thread {} (loader thread parked in our hook — arm ordered ahead of graph load).",
+                     g_resolver.SourceCount(), g_resolver.NativeAnimCount(), ::GetCurrentThreadId());
             if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
                         &WarmUpThread, reinterpret_cast<void*>(total),
                         STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)) {

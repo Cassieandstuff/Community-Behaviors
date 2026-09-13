@@ -93,7 +93,8 @@ namespace CB {
         // number of files written.
         std::size_t MaterializeCacheToDisk(const std::filesystem::path& cacheRoot,
                                            const std::function<void(std::size_t done, std::size_t total)>& progress,
-                                           const AnimExecutor* animExec = nullptr);
+                                           const AnimExecutor* animExec = nullptr,
+                                           const std::function<void()>* animOnUnit = nullptr);
 
         // Write the opt-in compiled skeletons (m_skeletonServe) into the consolidated cache. Called
         // from BOTH MaterializeCacheToDisk (regen — after the clear) and ArmCacheFromDisk (reuse), so
@@ -107,8 +108,12 @@ namespace CB {
         // NOT via the on-demand Func3 community_behaviors_cache serve — hence loose, not community_behaviors_cache). The
         // clean name is rostered (folded into m_characterAnimNames at Init), so a clip binds it. Called
         // from the warm-up; returns the count written. dataRoot is the Data folder (parent of meshes\).
+        // onUnit (optional): called once per animation as it FINISHES (ok/skip/fail alike), for the
+        // progress bar. Invoked from pool workers when exec is set, so it must be thread-safe — the
+        // WarmUpThread wiring does an atomic increment + a store into the (atomic) ProgressOverlay.
         std::size_t WriteNativeAnimations(const std::filesystem::path& dataRoot,
-                                          const AnimExecutor* exec = nullptr) const;
+                                          const AnimExecutor* exec = nullptr,
+                                          const std::function<void()>* onUnit = nullptr) const;
 
         // ── Cache reuse (skip the recompile when a prior run's cache is still wanted) ──────
         // The warm-up recompile is a pure optimization; its OUTPUT (compiled graph files under
@@ -172,6 +177,11 @@ namespace CB {
         bool RedirectReady() const { return m_redirectReady.load(std::memory_order_acquire); }
 
         std::size_t SourceCount() const { return m_sources.size(); }
+
+        // Count of bundle-authored native animations queued for compile (WriteNativeAnimations). The
+        // progress bar adds this to SourceCount() so the total reflects graphs + animations, not just
+        // graphs. Immutable after Init().
+        std::size_t NativeAnimCount() const { return m_nativeAnims.size(); }
 
         // ER wildcard gate toggle (default OFF). When on, BR injects BR_ERWildcardLock into every
         // compiled graph and gates every GLOBAL wildcard on it (for Engine Relay to flip per-actor).
