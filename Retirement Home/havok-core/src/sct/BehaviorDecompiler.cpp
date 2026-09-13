@@ -99,6 +99,29 @@ struct BehaviorEmitter {
         return std::to_string(idx);
     }
 
+    // hkbBoneWeightArray — a per-bone weight indexed by the SKELETON's bone order. This is a
+    // cross-asset (behavior <-> skeleton) membrane just like variable/event/anim indices: a raw
+    // positional array is only meaningful against the exact skeleton order it was built in. With a
+    // skeleton set, emit each weight keyed by its bone NAME — skeleton-agnostic AND legible (the diff
+    // reads "'NPC L UpperarmTwist1': 1", not "position 54"). Without one, keep the raw positional
+    // `values:` string (byte-identical to a no-skeleton decompile; the loader's existing path).
+    std::string boneWeightsBlock(const std::vector<float>& w) const {
+        std::string y = "    boneWeights:\n      count: " + std::to_string(w.size()) + "\n";
+        if (bones) {
+            y += "      byBone:\n";
+            for (std::size_t i = 0; i < w.size(); ++i) {
+                const std::string* nm = bones->NameOf(static_cast<int>(i));
+                const std::string key = (nm && !nm->empty()) ? q(*nm) : ("'#" + std::to_string(i) + "'");
+                y += "        " + key + ": " + fstr(w[i]) + "\n";
+            }
+        } else {
+            std::string vals;
+            for (std::size_t i = 0; i < w.size(); ++i) { if (i) vals += ' '; vals += fstr(w[i]); }
+            y += "      values: " + q(vals) + "\n";
+        }
+        return y;
+    }
+
     // Roster index -> name, via the shared membrane primitive (havok::cross::rosterName) — one
     // bounds-checked lookup rule with the schema path's NameResolver.
     std::string eventName(int id) const {
@@ -497,13 +520,7 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
             y += "  - generator: " + uq(ch->m_generator) + "\n";
             y += "    weight: " + fstr(ch->m_weight) + "\n";
             y += "    worldFromModelWeight: " + fstr(ch->m_worldFromModelWeight) + "\n";
-            if (ch->m_boneWeights) {
-                y += "    boneWeights:\n";
-                y += "      count: " + std::to_string(ch->m_boneWeights->m_boneWeights.size()) + "\n";
-                std::string vals;
-                for (std::size_t i = 0; i < ch->m_boneWeights->m_boneWeights.size(); ++i) { if (i) vals += ' '; vals += fstr(ch->m_boneWeights->m_boneWeights[i]); }
-                y += "      values: " + q(vals) + "\n";
-            }
+            if (ch->m_boneWeights) y += boneWeightsBlock(ch->m_boneWeights->m_boneWeights);
             // hkbBlenderGeneratorChild is bindable — Pandora binds per-child weight/
             // boneWeights to variables (e.g. BFCO). Emit at the child's 4-space indent.
             y += bindingsBlock(ch->m_variableBindingSet, "    ");
@@ -557,11 +574,7 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
             own(c.get(), n.get());
             own(c->m_spBoneWeight.get(), n.get());
             y += "  - pGenerator: " + uq(c->m_pGenerator) + "\n";
-            if (c->m_spBoneWeight) {
-                y += "    boneWeights:\n      count: " + std::to_string(c->m_spBoneWeight->m_boneWeights.size()) + "\n";
-                std::string v; for (std::size_t i = 0; i < c->m_spBoneWeight->m_boneWeights.size(); ++i) { if (i) v += ' '; v += fstr(c->m_spBoneWeight->m_boneWeights[i]); }
-                y += "      values: " + q(v) + "\n";
-            }
+            if (c->m_spBoneWeight) y += boneWeightsBlock(c->m_spBoneWeight->m_boneWeights);
             y += bindingsBlock(c->m_variableBindingSet, "    ");
         }
         write("generators", uq(n), y);
@@ -616,13 +629,7 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
             own(ch->m_boneWeights.get(), n.get());
             y += "  - generator: " + uq(ch->m_generator) + "\n";
             y += "    weight: " + fstr(ch->m_weight) + "\n    worldFromModelWeight: " + fstr(ch->m_worldFromModelWeight) + "\n";
-            if (ch->m_boneWeights) {
-                y += "    boneWeights:\n";
-                y += "      count: " + std::to_string(ch->m_boneWeights->m_boneWeights.size()) + "\n";
-                std::string vals;
-                for (std::size_t i = 0; i < ch->m_boneWeights->m_boneWeights.size(); ++i) { if (i) vals += ' '; vals += fstr(ch->m_boneWeights->m_boneWeights[i]); }
-                y += "      values: " + q(vals) + "\n";
-            }
+            if (ch->m_boneWeights) y += boneWeightsBlock(ch->m_boneWeights->m_boneWeights);
             y += bindingsBlock(ch->m_variableBindingSet, "    ");
         }
         y += "worldFromModelRotation: " + pquat(g.m_worldFromModelRotation) + "\n";
