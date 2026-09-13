@@ -15,37 +15,44 @@
 
 #include <MinHook.h>
 
+// Startup progress bar, modelled on Community Shaders' Menu (src/Menu.cpp Init + src/Hooks.cpp draw):
+//   • ImGui context + backends + font/device objects are built ONCE, EAGERLY, at Install() time —
+//     off the live present path — exactly like CS's Menu::Init at renderer init. The OLD design built
+//     all of that lazily inside the FIRST hooked Present (a heavy render-thread hitch — font-atlas GPU
+//     upload — landing mid-frame on a live menu, which stalled presentation and ghosted/minimized the
+//     borderless window). Building it up front makes the first real bar frame cheap.
+//   • Each frame draws to a FRESH render-target view off the CURRENT backbuffer (created + released per
+//     present), so a swapchain resize/transition can never leave us pointing at a stale target — the CS
+//     "always use the live framebuffer" principle, adapted (CS uses the game's kFRAMEBUFFER RTV; we
+//     recreate one from the swapchain, which needs no game-render-target plumbing and is only paid while
+//     the compile is running).
+//   • Install() is called EARLY (kDataLoaded, before the menu), not at the late compile gate, so the bar
+//     is live from the first frame and the eager init is nowhere near the live-present critical path.
 namespace CB::ProgressHud {
 
     namespace {
         using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
 
-        PresentFn               s_origPresent = nullptr;
-        ID3D11Device*           s_device      = nullptr;
-        ID3D11DeviceContext*    s_ctx         = nullptr;
-        ID3D11RenderTargetView* s_rtv         = nullptr;
-        std::atomic<bool>       s_imguiReady{ false };
-        std::atomic<bool>       s_installed{ false };
-        unsigned                s_frames = 0;
+        PresentFn            s_origPresent = nullptr;
+        ID3D11Device*        s_device      = nullptr;
+        ID3D11DeviceContext* s_ctx         = nullptr;
+        std::atomic<bool>    s_imguiReady{ false };
+        std::atomic<bool>    s_installed{ false };
+        unsigned             s_frames = 0;
 
-        // Lazy ImGui init on the first hooked present — device/context/window come from the swapchain
-        // the game just presented, so everything is guaranteed live. (OAR/CS do exactly this.)
-        void EnsureImGui(IDXGISwapChain* swap)
+        // EAGER ImGui init — context + platform/renderer backends + device objects (font atlas), built
+        // ON THE CALLING THREAD at Install time, before the Present hook is enabled. Everything the first
+        // live present used to build lazily is done here instead. Returns false if the swapchain/device
+        // isn't ready yet (caller retries later). Runs once; single-threaded (no draw can race it because
+        // the hook isn't enabled until this returns).
+        bool InitImGui(IDXGISwapChain* swap)
         {
-            if (s_imguiReady.load(std::memory_order_acquire)) return;
-
             DXGI_SWAP_CHAIN_DESC desc{};
-            if (FAILED(swap->GetDesc(&desc))) return;
+            if (FAILED(swap->GetDesc(&desc))) return false;
             if (FAILED(swap->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&s_device))) || !s_device)
-                return;
+                return false;
             s_device->GetImmediateContext(&s_ctx);
-
-            ID3D11Texture2D* back = nullptr;
-            if (SUCCEEDED(swap->GetBuffer(0, IID_PPV_ARGS(&back))) && back) {
-                s_device->CreateRenderTargetView(back, nullptr, &s_rtv);
-                back->Release();
-            }
-            if (!s_ctx || !s_rtv) return;
+            if (!s_ctx) return false;
 
             IMGUI_CHECKVERSION();
             ImGui::CreateContext();
@@ -57,16 +64,39 @@ namespace CB::ProgressHud {
             ImGui_ImplWin32_Init(desc.OutputWindow);
             ImGui_ImplDX11_Init(s_device, s_ctx);
 
+            // Force the DX11 backend to build its device objects (shaders, buffers, and the FONT ATLAS
+            // texture) NOW — ImGui_ImplDX11_NewFrame creates them when missing. Run one complete, balanced
+            // no-op frame (NewFrame → EndFrame, no Render/target bind) so the heavy GPU upload happens here,
+            // off the live-present path, instead of inside the first hooked present. DisplaySize is set
+            // explicitly in case the window client rect isn't queryable this early (avoids a NewFrame assert).
+            ImGui_ImplDX11_NewFrame();
+            ImGui_ImplWin32_NewFrame();
+            io.DisplaySize = ImVec2(static_cast<float>(desc.BufferDesc.Width),
+                                    static_cast<float>(desc.BufferDesc.Height));
+            ImGui::NewFrame();
+            ImGui::EndFrame();
+
             s_imguiReady.store(true, std::memory_order_release);
-            LOG_INFO("ProgressHud: imgui initialised on the game swapchain ({}x{}).",
-                     desc.BufferDesc.Width, desc.BufferDesc.Height);
+            LOG_INFO("ProgressHud: imgui pre-initialised early ({}x{}) — font/device objects built off the "
+                     "present path (Community Shaders pattern).", desc.BufferDesc.Width, desc.BufferDesc.Height);
+            return true;
         }
 
-        // Draw the bar ON TOP of the frame the game just rendered (no clear — the game's frame stays).
-        void DrawBar()
+        // Draw the bar ON TOP of the frame the game just rendered (no clear — the game's frame stays), to a
+        // FRESH RTV off the current backbuffer. Only while the compile is running.
+        void DrawBar(IDXGISwapChain* swap)
         {
             std::size_t done = 0, total = 0;
             if (!ProgressOverlay::ReadProgress(done, total)) return;   // compile not running → nothing to draw
+
+            // Live framebuffer, this frame — recreate the RTV each present so a resize/mode transition can
+            // never hand us a stale backbuffer (the class of bug that knocks a swapchain around at load).
+            ID3D11Texture2D* back = nullptr;
+            if (FAILED(swap->GetBuffer(0, IID_PPV_ARGS(&back))) || !back) return;
+            ID3D11RenderTargetView* rtv = nullptr;
+            s_device->CreateRenderTargetView(back, nullptr, &rtv);
+            back->Release();
+            if (!rtv) return;
 
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
@@ -109,8 +139,9 @@ namespace CB::ProgressHud {
             ImGui::PopStyleColor(5);
 
             ImGui::Render();
-            s_ctx->OMSetRenderTargets(1, &s_rtv, nullptr);
+            s_ctx->OMSetRenderTargets(1, &rtv, nullptr);
             ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            rtv->Release();
 
             if (s_frames++ == 0)
                 LOG_INFO("ProgressHud: first bar frame drawn inside the game present.");
@@ -118,9 +149,8 @@ namespace CB::ProgressHud {
 
         HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* swap, UINT syncInterval, UINT flags)
         {
-            EnsureImGui(swap);
             if (s_imguiReady.load(std::memory_order_acquire))
-                DrawBar();
+                DrawBar(swap);   // imgui already fully initialised at Install — no lazy build here
             return s_origPresent(swap, syncInterval, flags);
         }
     }  // namespace
@@ -132,7 +162,14 @@ namespace CB::ProgressHud {
         auto* win  = RE::BSGraphics::Renderer::GetCurrentRenderWindow();
         auto* swap = win ? reinterpret_cast<IDXGISwapChain*>(win->swapChain) : nullptr;
         if (!swap) {
-            LOG_INFO("ProgressHud: swapchain not up yet — present hook not installed (will retry).");
+            LOG_INFO("ProgressHud: swapchain not up yet — install deferred (will retry at the compile gate).");
+            return false;
+        }
+
+        // Build imgui + its device objects up front, BEFORE enabling the hook, so the first live present
+        // that draws the bar does zero heavy work (the CS Menu::Init pattern).
+        if (!InitImGui(swap)) {
+            LOG_ERROR("ProgressHud: eager imgui init failed — no compile progress bar.");
             return false;
         }
 
