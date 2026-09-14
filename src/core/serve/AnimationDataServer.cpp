@@ -933,10 +933,14 @@ namespace CB::adserve {
         std::int32_t Hook_OpenAnimData(std::uintptr_t a_path, std::uintptr_t a_out,
                                        std::uint64_t a_r8, std::uint64_t a_r9)
         {
-            // First open of the collated animdata file drives the compile gate: block here (engine
-            // parked in our hook) until BR has compiled + armed, so the redirect below is live for
-            // THIS open and the graph load ordered after us is consistent. No-op after the first call.
+            // First open of the collated animdata file drives the compile gate. The gate now KICKS a
+            // background arm and returns at once (it no longer parks this thread on the whole Init +
+            // compile — that stalled the main thread ~50s and minimized the window). We then block ONLY
+            // on the adsf/setdata arm, which the ArmThread does FIRST from cache on warm — milliseconds —
+            // so the redirect below is live for THIS open and the graph load ordered after us is
+            // consistent. No-op after the first call.
             CB::EnsureCompiledAndArmed();
+            CB::WaitAdsfArmed();
 
             if (s_redirectActive.load(std::memory_order_acquire)) {
                 const std::uintptr_t ours = *reinterpret_cast<std::uintptr_t*>(&s_cachePath);
