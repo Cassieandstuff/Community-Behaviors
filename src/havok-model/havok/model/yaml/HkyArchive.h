@@ -26,7 +26,11 @@ public:
         UnitKind    kind;
     };
 
-    // Load & fully decompress a .hky file. Returns nullptr with `err` set on failure.
+    // Load & fully decompress a .hky file. Returns nullptr with `err` set on failure. The per-entry
+    // decompress is fanned across worker threads internally (the master alone is ~68k entries — the
+    // ~50s startup cost when serial); each shard opens its OWN mz_zip reader on the read-only file
+    // (miniz isn't thread-safe on one handle), collects shard-local, then merges into m_files serially
+    // so the result is byte-for-byte independent of thread count. Still a FULL upfront unpack.
     static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err);
 
     // Pack a directory tree into a single-file .hky (a deflate zip): every regular file under
