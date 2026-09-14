@@ -70,8 +70,14 @@ namespace CB {
         // from a prior run, so Init registers their serve keys instead of recompiling them — removing
         // the redundant every-launch main-thread skeleton compile (the plugin-load / main-menu stall).
         // When false (cold / forced regen), skeletons compile fresh as before.
+        // skelExec (optional): the same task-fanning executor contract as AnimExecutor. When set, the
+        // skeleton SERVE compile (CompileSkeletonFull per variant) and the per-actor bone-name table
+        // build are fanned across the pool instead of run serially. Each task compiles one actor's
+        // skeletons / one actor's bone table — a pure function of the read-only master YAML + immutable
+        // layer texts, writing its own distinct m_skeletonServe / m_skeletons key under a mutex — so the
+        // parallel result is byte-identical to serial (stage 2). nullptr => serial (proven default).
         void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
-                  bool warmReuse = false);
+                  bool warmReuse = false, const AnimExecutor* skelExec = nullptr);
 
         // True once Init() has FULLY built the resolver (m_sources/m_skeletons/m_skeletonServe/... all
         // populated + the ready-store released). Init now runs on a BACKGROUND thread at plugin load so

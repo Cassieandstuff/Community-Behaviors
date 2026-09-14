@@ -316,12 +316,24 @@ namespace CB {
                  ::GetCurrentThreadId(), g_mainThreadId,
                  (::GetCurrentThreadId() == g_mainThreadId) ? " — ON MAIN THREAD" : "");
 
-        // Init now runs on a background thread; never compile against a half-built resolver. This is a
-        // no-op once Init is done (the common case — Init finishes during the intro, before this fires).
-        g_resolver.WaitReady();
-
         const std::filesystem::path dataAbs    = std::filesystem::current_path() / "Data";
         const bool                  warm       = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
+
+        // Progress bar is DEFAULT on EVERY launch — armed NOW, before the WaitReady/work blocks below, so
+        // it's visible for the WHOLE wait (the ~50s Init unpack+scan happens every launch; warm then
+        // recompiles native anims, cold compiles everything). The render thread keeps presenting the
+        // loading screen, so the bar draws over it the whole time. Indeterminate until a path sets the
+        // real total (see DrawBar's total==0 path). NOT gated on warm/cold — only an explicit opt-out
+        // marker suppresses it. Armed before WaitReady is safe (it touches only the atomic overlay).
+        const bool barEnabled = !std::filesystem::exists("Data/community_behaviors/progressbar.disable");
+        if (barEnabled) {
+            ProgressOverlay::SetProgress(0, 0, true);   // 0 total => indeterminate "compiling…" bar
+            ProgressHud::Install();                      // installs the present hook + imgui now (idempotent)
+        }
+
+        // Init now runs on a background thread; never compile against a half-built resolver. The bar above
+        // is already up during this wait (Init is the bulk of it on both warm and cold).
+        g_resolver.WaitReady();
 
         // Split path (progress bar) is the DEFAULT for a cold compile: the bar rides the game's own
         // present via ProgressHud, the same coexisting pattern CS/OAR use, so it's safe to ship on.
@@ -342,6 +354,7 @@ namespace CB {
             // the collated cache is partial. See ArmAdsfSetDataFromCache.
             if (!ArmAdsfSetDataFromCache())
                 ArmAdsfSetDataServe();
+            if (barEnabled) ProgressOverlay::SetProgress(0, 0, false);   // work done — retire the bar
         } else if (split) {
             // Arm adsf/setdata NOW (fast, independent of the graph compile) so the engine's early reads
             // are served, then run the heavy compile in the BACKGROUND and RETURN. The game reaches its
@@ -414,7 +427,19 @@ namespace CB {
                                g_resolver.CachePresent(std::filesystem::current_path() / "Data");
         g_resolver.SetERGateEnabled(ReadERGateEnabled());
         g_resolver.SetAdsfDerive(ReadAdsfDerive());   // opt-in, before any compile
-        g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse);   // ready-store at end
+
+        // Parallel skeleton compile (stage 2) — same opt-out marker as the anim compile. A pool of
+        // 64MB-reserved-stack workers (skeleton compile recurses through Havok graph assembly, like the
+        // anim path) at BELOW_NORMAL so it never starves the window's render/main threads during bring-up.
+        // Fans the per-actor skeleton SERVE compile + bone-name table build inside Init; nullptr => serial.
+        std::optional<seq::ThreadPool> skelPool;
+        Resolver::AnimExecutor         skelExec;
+        if (ParallelAnimCompileEnabled()) {
+            skelPool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
+            skelExec = [&skelPool](std::vector<std::function<void()>> tasks) { skelPool->parallel_for(std::move(tasks)); };
+        }
+        g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse,
+                        skelExec ? &skelExec : nullptr);   // ready-store at end
         return 0;
     }
 

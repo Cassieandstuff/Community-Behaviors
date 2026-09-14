@@ -39,8 +39,10 @@
 #include <chrono>
 #include <exception>
 #include <fstream>
+#include <functional>   // std::function — skeleton-compile tasks fanned across the pool (stage 2)
 #include <iterator>
 #include <memory>
+#include <mutex>        // guard the shard merges into m_skeletonServe / m_skeletons (stage 2)
 #include <sstream>
 #include <system_error>
 #include <unordered_set>
@@ -320,7 +322,8 @@ namespace CB {
 
     }  // namespace
 
-    void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni, bool warmReuse)
+    void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni, bool warmReuse,
+                        const AnimExecutor* skelExec)
     {
         // Route havok-core's merge diagnostics into the BR log (havok-core has no logger of its own;
         // opt-in, and once is enough — persists for every later Resolve/LoadMerged). Two severities
@@ -723,13 +726,26 @@ namespace CB {
             if (skipSkelServe)
                 LOG_WARN("Resolver: SKELETON SERVE DISABLED (noskeletonserve.enable) — skeleton opens fall "
                          "through to loose files. Diagnostic only.");
-            for (auto& [actorpath, texts] : layerTexts) {
-                if (skipSkelServe) break;
+
+            // Pre-warm the shared schema registry ON THIS (single) thread before any fan-out: its one-time
+            // load is guarded by a plain, UNsynchronized `state` int, so two workers racing the first
+            // CompileSkeletonFull could both attempt it. After this call every worker only READS it. (The
+            // same pre-warm WriteNativeAnimations does — cheap no-op if already warm.)
+            (void)havok::schema::SharedRegistry();
+
+            // Compile one actor's served skeleton variants. Pure function of the read-only master YAML +
+            // this actor's immutable layer texts; writes only its own distinct m_skeletonServe keys (under
+            // serveMu), so fanning across actors is byte-identical to serial. `ap`/`texts` are pointers into
+            // the stable std::map layerTexts (element addresses don't move), captured to dodge the pre-C++20
+            // structured-binding-capture limitation.
+            std::mutex serveMu;
+            auto serveActor = [&](const std::string& ap,
+                                  const std::vector<std::pair<std::string, std::string>>& texts) {
                 std::vector<havok::skeleton::SkeletonBoneAdd> adds;
-                havok::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(actorpath), nullptr);
-                if (adds.empty() || !master) continue;
+                havok::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(ap), nullptr);
+                if (adds.empty() || !master) return;
                 std::set<std::string> units;   // "meshes/actors/<actorpath>/<variant>/skeleton*.hkx"
-                for (const std::string& f : master->filesUnder("meshes/actors/" + actorpath + "/", ".yaml"))
+                for (const std::string& f : master->filesUnder("meshes/actors/" + ap + "/", ".yaml"))
                     if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size())
                         units.insert(f.substr(0, b));
                 for (const std::string& unit : units) {
@@ -746,7 +762,7 @@ namespace CB {
                     if (warmReuse) {
                         const std::string rel = servekey::CacheDiskRel(key);
                         if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
-                            m_skeletonServe.emplace(key, std::vector<std::uint8_t>{});
+                            { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe.emplace(key, std::vector<std::uint8_t>{}); }
                             LOG_INFO("Resolver: skeleton '{}' — warm cache hit, serve key registered (recompile skipped).", unit);
                             continue;
                         }
@@ -758,11 +774,23 @@ namespace CB {
                         LOG_WARN("Resolver: skeleton '{}' bone-add merge: {} — base unchanged.", unit, merr);
                     auto cr = havok::skeleton::CompileSkeletonFull(sk);
                     if (cr.ok) {
-                        m_skeletonServe[key] = std::move(cr.bytes);
-                        LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), sk.bones.size());
+                        const std::size_t nBones = sk.bones.size();
+                        { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
+                        LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), nBones);
                     } else
                         LOG_WARN("Resolver: skeleton '{}' compile failed: {} — not served.", unit, cr.error);
                 }
+            };
+            if (!skipSkelServe) {
+                std::vector<std::function<void()>> serveTasks;
+                serveTasks.reserve(layerTexts.size());
+                for (auto it = layerTexts.begin(); it != layerTexts.end(); ++it) {
+                    const std::string* ap = &it->first;
+                    const auto*        tx = &it->second;
+                    serveTasks.push_back([&serveActor, ap, tx] { serveActor(*ap, *tx); });
+                }
+                if (skelExec && *skelExec && serveTasks.size() > 1) (*skelExec)(std::move(serveTasks));
+                else for (auto& t : serveTasks) t();
             }
 
             // 3) BONE-NAME TABLE (behavior bone-index resolution): for each behavior actor, read its
@@ -776,18 +804,24 @@ namespace CB {
                 if (std::string ap = ActorPathOf(key); !ap.empty())
                     behActors.insert(std::move(ap));
 
-            for (const std::string& actor : behActors) {
+            // Build one actor's bone-name table. Pure function of the read-only master YAML + this actor's
+            // immutable layer texts; builds a LOCAL table then moves it into its own distinct m_skeletons
+            // key under tblMu — so fanning across actors is byte-identical to serial. This loop runs on
+            // EVERY launch (warm included, unlike the SERVE compile above), so it's the piece the pool
+            // actually shortens on a warm cache. `actor` is copied by value (a std::set element).
+            std::mutex tblMu;
+            auto buildBoneTable = [&](const std::string& actor) {
+                if (!master) return;
                 // First skeleton unit under this actor's subtree (deterministic: filesUnder is sorted).
-                if (!master) break;
                 std::string unit;
                 for (const std::string& f : master->filesUnder("meshes/actors/" + actor + "/", ".yaml"))
                     if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size()) {
                         unit = f.substr(0, b); break;
                     }
-                if (unit.empty()) continue;
+                if (unit.empty()) return;
 
                 havok::skeleton::SkeletonData sk;
-                if (!readBaseUnit(unit, sk)) continue;
+                if (!readBaseUnit(unit, sk)) return;
 
                 std::size_t nAdds = 0;
                 if (auto it = layerTexts.find(actor); it != layerTexts.end()) {
@@ -796,11 +830,21 @@ namespace CB {
                     nAdds = adds.size();
                     std::string merr; havok::skeleton::MergeBoneAdditions(sk, adds, &merr);
                 }
-                havok::sct::BoneNameTable& tbl = m_skeletons[actor];
+                havok::sct::BoneNameTable tbl;
                 for (const auto& b : sk.bones) tbl.names.push_back(b.name);
                 tbl.Reindex();
-                LOG_INFO("Resolver: skeleton '{}' = {} bone(s){}.", actor, tbl.names.size(),
+                const std::size_t nBones = tbl.names.size();
+                { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[actor] = std::move(tbl); }
+                LOG_INFO("Resolver: skeleton '{}' = {} bone(s){}.", actor, nBones,
                          nAdds ? (" incl. " + std::to_string(nAdds) + " added") : std::string{});
+            };
+            {
+                std::vector<std::function<void()>> boneTasks;
+                boneTasks.reserve(behActors.size());
+                for (const std::string& actor : behActors)
+                    boneTasks.push_back([&buildBoneTable, actor] { buildBoneTable(actor); });
+                if (skelExec && *skelExec && boneTasks.size() > 1) (*skelExec)(std::move(boneTasks));
+                else for (auto& t : boneTasks) t();
             }
         }
 
