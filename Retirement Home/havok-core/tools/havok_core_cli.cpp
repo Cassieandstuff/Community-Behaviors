@@ -1129,11 +1129,31 @@ static std::string XformInline(const havok::QSTransform& t) {
          + "], scale: [" + Fnum(s.x) + ", " + Fnum(s.y) + ", " + Fnum(s.z) + "] }";
 }
 
+// Where a node's pose comes from — the routing tag for the downstream fill (scene editor / NIFFER):
+//   skeleton   = already filled here from this file's skeleton referencePose (definitive).
+//   nif        = a skinned cloth bone (Robe/Skirt/Cloak/body) whose pose lives in skeleton.nif.
+//   aux        = the tail — a SEPARATE attached skeleton, tween-driven to the spine (its own .nif).
+//   convention = a pure Max helper (export dummy / IK helper / pivot / FootBox / camera ctrl / bumper /
+//                group wrapper) with no pose in ANY file — derive by convention or author in the editor.
+// For unposed nodes this is a NAME HEURISTIC — a starting route the NIF pass confirms (nif membership is
+// definitive there) or overrides. Posed nodes are always `skeleton`.
+static const char* ControlPoseSource(const std::string& name, bool posed) {
+    if (posed) return "skeleton";
+    std::string n; n.reserve(name.size());
+    for (char c : name) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const auto has = [&](const char* s) { return n.find(s) != std::string::npos; };
+    if (has("tail") && has("bone"))                                            return "aux";   // separate tail skeleton
+    if (!has("export") && has("bone") && (has("robe") || has("skirt") || has("cloak"))) return "nif";  // skinned cloth
+    if (has("belly") || has("underwear") || has("dwarvenskirt"))               return "nif";   // body/cloth node
+    return "convention";   // export/pivot/ikhelper/footbox/camera/bumper/wrapper — no pose anywhere
+}
+
 // Emit one control node (+ subtree). Each node's TRANSFORM is resolved by NAME from the skeleton pose
-// map (anim + ragdoll referencePose): a match emits the local pose; a miss emits `transform: derive`
-// (a pure hand-authored helper / cloth bone whose pose lives only in the .nif or the Max source — the
-// scene editor derives-by-convention or authors it). `posed` counts the matches.
+// map (anim + ragdoll referencePose): a match emits the local pose; a miss emits `transform: derive`.
+// Every node also gets a `poseSource` routing tag (see ControlPoseSource). `posed` counts skeleton
+// matches; `srcCounts` tallies nodes per poseSource.
 static void EmitControlNode(std::string& out, std::size_t& count, std::size_t& posed,
+                            std::map<std::string, std::size_t>& srcCounts,
                             const std::unordered_map<std::string, const havok::QSTransform*>& poses,
                             const std::shared_ptr<havok::hkMemoryResourceContainer>& c, int markerCol) {
     if (!c) return;
@@ -1142,8 +1162,12 @@ static void EmitControlNode(std::string& out, std::size_t& count, std::size_t& p
     const std::string k(static_cast<std::size_t>(markerCol) + 2, ' ');   // this node's key column
     out += m + "- name: " + YamlQuote(c->m_name) + "\n";
     const auto pit = poses.find(c->m_name);
-    if (pit != poses.end() && pit->second) { out += k + "transform: " + XformInline(*pit->second) + "\n"; ++posed; }
-    else                                     out += k + "transform: derive\n";
+    const bool isPosed = (pit != poses.end() && pit->second);
+    if (isPosed) { out += k + "transform: " + XformInline(*pit->second) + "\n"; ++posed; }
+    else           out += k + "transform: derive\n";
+    const char* src = ControlPoseSource(c->m_name, isPosed);
+    out += k + "poseSource: " + src + "\n";
+    ++srcCounts[src];
     if (!c->m_resourceHandles.empty()) {
         out += k + "handles:\n";
         for (const auto& h : c->m_resourceHandles) {
@@ -1155,7 +1179,7 @@ static void EmitControlNode(std::string& out, std::size_t& count, std::size_t& p
     }
     if (!c->m_children.empty()) {
         out += k + "children:\n";
-        for (const auto& ch : c->m_children) EmitControlNode(out, count, posed, poses, ch, markerCol + 4);
+        for (const auto& ch : c->m_children) EmitControlNode(out, count, posed, srcCounts, poses, ch, markerCol + 4);
     }
 }
 
@@ -1188,18 +1212,25 @@ static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const 
 
     std::string nodes;
     std::size_t count = 0;
-    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, posedOut, poses, ch, 2);
+    std::map<std::string, std::size_t> srcCounts;
+    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, posedOut, srcCounts, poses, ch, 2);
 
     std::string body;
     body += "# Control rig recovered from the skeleton's hkMemoryResourceContainer (\"Resource Data\").\n";
     body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). Each node's\n";
     body += "# `transform` is its LOCAL reference pose resolved by NAME from the skeleton(s) in this file\n";
-    body += "# (anim + ragdoll referencePose); `transform: derive` marks a node with no pose here (a pure\n";
-    body += "# hand-authored helper or a cloth bone that lives only in the .nif) — derive/author its pose.\n";
+    body += "# (anim + ragdoll referencePose); `transform: derive` marks a node with no pose here.\n";
+    body += "# `poseSource` routes the fill: skeleton (posed here) / nif (cloth bone -> skeleton.nif) /\n";
+    body += "# aux (tail -> separate attached skeleton) / convention (pure helper -> derive/author).\n";
+    body += "# For unposed nodes poseSource is a NAME HEURISTIC — the NIF pass confirms/overrides it.\n";
     body += "# IGNORED by the compiler + skeleton reader; here for the scene editor.\n";
     body += "source: resource-container\n";
     body += "nodeCount: " + std::to_string(count) + "\n";
     body += "posedFromSkeleton: " + std::to_string(posedOut) + "\n";
+    body += "poseSourceCounts: {";
+    { bool first = true;
+      for (const auto& [s, n] : srcCounts) { body += (first ? " " : ", ") + s + ": " + std::to_string(n); first = false; }
+      body += " }\n"; }
     body += "nodes:\n";
     body += nodes;
 
