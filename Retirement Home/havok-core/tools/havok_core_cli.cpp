@@ -1097,6 +1097,8 @@ int doResDump(const std::string& in) {
     std::vector<std::uint8_t> bytes; std::string err;
     if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
     havok::PackFileDeserializer des;
+    des.SetTolerateUnregistered(true);   // exotic creature ragdoll collision shapes are irrelevant to the
+                                         // resource tree; skip them so the container still dumps.
     havok::BinaryReaderEx br(false, true, bytes);
     auto root = std::dynamic_pointer_cast<havok::hkRootLevelContainer>(des.Deserialize(br));
     if (!root) { std::printf("ERROR: root is not hkRootLevelContainer\n"); return 1; }
@@ -1266,6 +1268,8 @@ static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const 
                                   const std::string& outDir, std::string& err, std::size_t& posedOut) {
     posedOut = 0;
     havok::PackFileDeserializer des;
+    des.SetTolerateUnregistered(true);   // creature ragdoll bodies use exotic collision shapes irrelevant to
+                                         // the control rig (names/hierarchy/transforms); skip them, don't fail.
     havok::BinaryReaderEx br(false, true, bytes);
     std::shared_ptr<havok::hkRootLevelContainer> root;
     try { root = std::dynamic_pointer_cast<havok::hkRootLevelContainer>(des.Deserialize(br)); }
