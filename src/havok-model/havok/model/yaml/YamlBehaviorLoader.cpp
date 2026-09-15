@@ -85,6 +85,30 @@ std::string keyOf(const c4::yml::ConstNodeRef& n) {
     return !id.empty() ? id : str(n, "name", "");
 }
 
+// ── Node namespace declaration (Stage A of the node-identity plan) ───────────────────────────────
+// A node MAY declare its namespace membership explicitly, so the resolver validates intent instead
+// of inferring it from id collisions (the inference whose mis-fire was the ~40 horsebehavior clash):
+//   ns: self        -> this bundle MINTED the node (a NEW node). Its `id` is unique within THIS
+//                      bundle's namespace: a bare "#NNNN" for the base (Skyrim mints all its nodes),
+//                      "<code>$N" for a mod's new node. Identity = (this bundle, hkx, id).
+//   ns: master[i]   -> an EDIT/OVERRIDE of node `id` in this bundle's i-th declared master.
+//                      Identity = (master[i], hkx, id).
+// Absent -> today's inference (byte-neutral). NOTE: the id form alone does NOT distinguish self from
+// master — base-self is a bare "#NNNN", exactly like an override — which is precisely WHY `ns` exists.
+// So Stage A only checks the value is WELL-FORMED; the real self/master check (does master[i] contain
+// `id`; is a `self` id unique to this bundle) needs the master-DAG (per-layer bundle context) and is
+// deferred. Option 1: `ns` is a DECLARATION over the namespace-encoding id; keyOf/merge are unchanged.
+void emitMergeDiag(const std::string& m);   // fwd (defined below, next to the diag sink)
+
+std::string nsOf(const c4::yml::ConstNodeRef& n) { return str(n, "ns", ""); }
+
+// Warn only if a node's `ns` value is malformed (a typo like "mater[0]"). self-vs-master consistency
+// is NOT context-free (see above) — that validation is deferred to the master-DAG step. Empty = OK.
+std::string nsDeclWarning(const std::string& ns) {
+    if (ns.empty() || ns == "self" || ns.rfind("master", 0) == 0) return {};
+    return "has unknown 'ns: " + ns + "' (expected 'self' or 'master[i]')";
+}
+
 bool has(const c4::yml::ConstNodeRef& n, const char* key) { return hasChild(n, key); }
 
 int toInt(const std::string& s, int fb = 0) {
@@ -320,6 +344,11 @@ void scanSourceSection(const IUnitSource& src, const char* sub, bool recursive, 
         c4::yml::Tree tree  = parseNamed(probe, fs::path(rel));
         std::string   k     = keyOf(tree.rootref());
         if (k.empty()) continue;                            // keyless: both consumers skip it
+        // Stage A: validate an explicit `ns` declaration against the id form (byte-neutral — the
+        // grouping key below is unchanged; this only surfaces a mislabeled node as a loud diagnostic
+        // instead of a silent mis-merge). No-op when `ns` is absent (every node today).
+        if (std::string w = nsDeclWarning(nsOf(tree.rootref())); !w.empty())
+            emitMergeDiag("YamlBehaviorLoader: " + rel + ": node '" + k + "' " + w);
         std::string   cls   = peekClass(tree.rootref());
         cb(std::move(cls), std::move(k), std::move(*text));
     }
