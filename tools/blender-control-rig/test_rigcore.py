@@ -94,6 +94,29 @@ def main():
         rt_ok += 1
     print(f"import->export round-trip: {rt_ok}/{len(rigs)} rigs, worst world delta = {worst:.2e}")
 
+    # Rigify control-rig refine (synthetic, self-contained): drop ORG/DEF/VIS, reparent survivors
+    # in world space (no orphans), bind controls to their DEF target, tag IK roles.
+    def W(x):
+        return {"translation": [x, 0.0, 0.0], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1]}
+    syn = [
+        {"name": "root", "parent": None, "world": W(0)},
+        {"name": "ORG-Pelvis", "parent": "root", "world": W(1)},          # dropped
+        {"name": "DEF-LegFoot.L", "parent": "ORG-Pelvis", "world": W(2)}, # dropped (binding target)
+        {"name": "LegFoot_ik.L", "parent": "ORG-Pelvis", "world": W(3)},  # kept: ik + binds DEF-LegFoot.L
+        {"name": "MCH-LegFoot_fk.L", "parent": "DEF-LegFoot.L", "world": W(4)},  # kept, reparents past DEF
+        {"name": "VIS_LegFoot_pole.L", "parent": "root", "world": W(5)},  # dropped
+        {"name": "tweak_Foot.L", "parent": "LegFoot_ik.L", "world": W(6)},
+    ]
+    ref = rigcore.rigify_control_rig(syn)
+    kept = {e["name"]: e for e in ref}
+    assert set(kept) == {"root", "LegFoot_ik.L", "MCH-LegFoot_fk.L", "tweak_Foot.L"}, sorted(kept)
+    names = set(kept)
+    assert all(e["parent"] is None or e["parent"] in names for e in ref), "orphan after reparent"
+    assert kept["MCH-LegFoot_fk.L"]["parent"] == "root", "did not reparent past dropped DEF"
+    assert kept["LegFoot_ik.L"]["extra"].get("deformTarget") == "DEF-LegFoot.L", "missing binding"
+    assert kept["LegFoot_ik.L"]["extra"].get("role") == "ik", "missing role"
+    print(f"rigify refine: {len(syn)} -> {len(ref)} bones, bindings + reparent + roles OK")
+
     print("\nALL CHECKS PASSED")
 
 

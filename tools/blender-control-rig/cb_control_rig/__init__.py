@@ -151,6 +151,16 @@ class CB_OT_export(bpy.types.Operator, ExportHelper):
 
     filename_ext = ".yaml"
     filter_glob: StringProperty(default="*.yaml", options={"HIDDEN"})  # type: ignore
+    export_mode: EnumProperty(  # type: ignore
+        name="Mode",
+        description="What to export from the armature",
+        items=[
+            ("rigify_control", "Rigify control rig",
+             "Drop ORG-/DEF-/VIS_; keep controls + MCH- + tweak; record deformTarget bindings + IK roles"),
+            ("all", "Full armature", "Every bone, verbatim (no filtering/tagging)"),
+        ],
+        default="rigify_control",
+    )
 
     def invoke(self, context, event):
         arm = context.active_object
@@ -182,11 +192,19 @@ class CB_OT_export(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, "Armature has no bones")
             return {"CANCELLED"}
 
-        rig = rigcore.worlds_to_rig(entries, source="authored-blender:" + arm.name)
+        if self.export_mode == "rigify_control":
+            refined = rigcore.rigify_control_rig(entries)
+            rig = rigcore.worlds_to_rig(refined, source="rigify-control:" + arm.name)
+            bound = sum(1 for e in refined if e["extra"].get("deformTarget"))
+            msg = f"Rigify control rig: {len(refined)} bones ({len(entries) - len(refined)} dropped, {bound} bound)"
+        else:
+            rig = rigcore.worlds_to_rig(entries, source="authored-blender:" + arm.name)
+            msg = f"Full armature: {len(entries)} bones"
+
         text = rigcore.emit_rig_yaml(rig)
         with open(self.filepath, "w", encoding="utf-8") as fh:
             fh.write(text)
-        self.report({"INFO"}, f"Exported {len(entries)} bone(s) -> {self.filepath}")
+        self.report({"INFO"}, f"{msg} -> {self.filepath}")
         return {"FINISHED"}
 
 

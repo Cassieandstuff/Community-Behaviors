@@ -21,6 +21,7 @@ parent (visible + tagged) rather than vanishing.
 from __future__ import annotations
 import math
 import os
+import re
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Dependency-free YAML reader (the exact subset the emitter produces)
@@ -363,15 +364,16 @@ def actor_label_from_path(path):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def worlds_to_rig(entries, source="authored-blender", pose_source="authored"):
-    """entries: ordered list of {name, parent, world:{translation,rotation,scale}} (parents first).
-    Returns a rig dict {source, nodeCount, nodes:[nested]} with LOCAL transforms."""
+    """entries: ordered list of {name, parent, world:{translation,rotation,scale}, extra?:{...}}
+    (parents first). Returns a rig dict {source, nodeCount, nodes:[nested]} with LOCAL transforms.
+    Any `extra` dict is merged verbatim onto the node (e.g. deformTarget, role)."""
     worlds = {e["name"]: e["world"] for e in entries}
     nodes = {}
     roots = []
     for e in entries:
         pw = worlds[e["parent"]] if e.get("parent") and e["parent"] in worlds else IDENTITY
         local = _world_to_local(pw, e["world"])
-        nodes[e["name"]] = {
+        node = {
             "name": e["name"],
             "transform": {
                 "translation": local["translation"],
@@ -381,6 +383,8 @@ def worlds_to_rig(entries, source="authored-blender", pose_source="authored"):
             "poseSource": pose_source,
             "children": [],
         }
+        node.update(e.get("extra") or {})
+        nodes[e["name"]] = node
     for e in entries:
         p = e.get("parent")
         if p and p in nodes:
@@ -388,6 +392,104 @@ def worlds_to_rig(entries, source="authored-blender", pose_source="authored"):
         else:
             roots.append(nodes[e["name"]])
     return {"source": source, "nodeCount": len(entries), "nodes": roots}
+
+
+# ── Rigify convention layer: turn a full Rigify armature into a lean CB control rig ──────────
+# "Rigify as gold standard": drop the metarig echo (ORG-) and viewport gizmos (VIS_), drop the
+# deform skeleton (DEF-, ≈ the .hky bones/ folder) but record it as a per-control binding, keep
+# the animator control + mechanism (MCH-) + tweak layers, and tag IK roles from the naming so a
+# FABRIK-capable editor can wire the rig to its own solver. Reparenting is done in WORLD space,
+# so dropping a bone never moves its surviving descendants.
+
+_RIGIFY_DROP_PREFIX = ("ORG-", "DEF-", "VIS_")
+_RIGIFY_STRIP_PREFIX = ("DEF-", "ORG-", "MCH-")
+_RIGIFY_STRIP_SUFFIX = (
+    "_ik_target", "_ik", "_fk", "_drv", "_spin", "_master", "_roll", "_rock",
+    "_swing", "_target", "_tweak", "_parent", "_widget", "_pole",
+)
+
+
+def _rigify_base(name):
+    """Reduce a Rigify bone name to the deform base it corresponds to (side tag kept).
+    e.g. MCH-LegFoot_fk.L -> LegFoot.L ; LegFoot_ik.L -> LegFoot.L ; Tail1 -> Tail1."""
+    n = name
+    for p in _RIGIFY_STRIP_PREFIX:
+        if n.startswith(p):
+            n = n[len(p):]
+            break
+    side = ""
+    m = re.search(r"(\.[LR])(\.\d+)?$", n)
+    if m:
+        side = m.group(1)
+        n = n[:m.start()]
+    else:
+        m2 = re.search(r"(\.\d+)$", n)
+        if m2:
+            n = n[:m2.start()]
+    changed = True
+    while changed:
+        changed = False
+        for s in _RIGIFY_STRIP_SUFFIX:
+            if n.endswith(s):
+                n = n[:-len(s)]
+                changed = True
+                break
+    return n + side
+
+
+def _rigify_role(name):
+    low = name.lower()
+    if "pole" in low:
+        return "pole"
+    if "_ik_target" in name:
+        return "ik_target"
+    if "_roll" in name or "_rock" in name:
+        return "roll_pivot"
+    if name.endswith("_ik") or "_ik." in name or "_ik_" in name:
+        return "ik"
+    if name.endswith("_fk") or "_fk." in name:
+        return "fk"
+    if "tweak" in low:
+        return "tweak"
+    if "_master" in name:
+        return "master"
+    return None
+
+
+def rigify_control_rig(entries):
+    """Full Rigify entries (name, parent, world) -> lean control-rig entries with extra
+    {deformTarget, role}, ORG/DEF/VIS dropped and survivors reparented in world space."""
+    by_name = {e["name"]: e for e in entries}
+    def_by_base = {}
+    for e in entries:
+        if e["name"].startswith("DEF-"):
+            def_by_base[_rigify_base(e["name"])] = e["name"]
+
+    keep = [e for e in entries if not e["name"].startswith(_RIGIFY_DROP_PREFIX)]
+    keepset = {e["name"] for e in keep}
+
+    def surviving_ancestor(name):
+        p = by_name[name].get("parent")
+        while p is not None and p not in keepset:
+            p = by_name.get(p, {}).get("parent")
+        return p
+
+    out = []
+    for e in keep:
+        extra = {}
+        deform = def_by_base.get(_rigify_base(e["name"]))
+        if deform:
+            extra["deformTarget"] = deform
+        role = _rigify_role(e["name"])
+        if role:
+            extra["role"] = role
+        out.append({
+            "name": e["name"],
+            "parent": surviving_ancestor(e["name"]),
+            "world": e["world"],
+            "extra": extra,
+        })
+    return out
 
 
 def _fmt(x):
@@ -422,6 +524,10 @@ def emit_rig_yaml(rig):
             f"rotation: {_fmt_vec(t['rotation'])}, scale: {_fmt_vec(t['scale'])} }}"
         )
         out.append(f"{pad}  poseSource: {n.get('poseSource', 'authored')}")
+        if n.get("role"):
+            out.append(f"{pad}  role: {n['role']}")
+        if n.get("deformTarget"):
+            out.append(f'{pad}  deformTarget: "{n["deformTarget"]}"')
         kids = n.get("children") or []
         if kids:
             out.append(f"{pad}  children:")
