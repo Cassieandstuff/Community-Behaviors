@@ -1119,6 +1119,10 @@ namespace CB {
         namespace fs = std::filesystem;
         std::atomic<std::size_t> written{ 0 }, failed{ 0 };
 
+        // Fresh motion accumulation for this compile pass (compiler = single motion producer; drained by
+        // the adsf finalizer). Cleared up front so a re-run never carries stale records.
+        m_motionSink.Clear();
+
         // Pre-warm the shared schema registry ON THIS (single) THREAD before any fan-out. SharedRegistry()'s
         // one-time load is guarded by a plain `state` int, NOT synchronized — two worker threads racing the
         // first call could both attempt the load. After this call state is settled and every worker only
@@ -1144,6 +1148,18 @@ namespace CB {
             const fs::path out = dataRoot / fs::path(stagedRel);
             try {
                 const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
+                // carries an inline `motion:` block, emit it for the adsf finalizer to DRAIN (instead of
+                // the adsf re-reading the YAML — which looked for a `.hkx.yaml` class these `.hkx` units
+                // don't use, so it read nothing). Keyed to match the drain exactly: actorRoot = the serve
+                // path up to "/animations/"; innerKey = the remainder, lowercased '/'-sep (== the form
+                // motionsForRoot produced and DeriveProjectPatch's normAnim(animationName) looks up). Motion
+                // is authored data (not compile-dependent), so emit on a successful PARSE, before compile.
+                if (def.motion) {
+                    const std::string low = ToLower(outKey);   // outKey is '/'-sep already
+                    if (const auto ap = low.find("/animations/"); ap != std::string::npos)
+                        m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *def.motion);
+                }
                 // INVERSE MEMBRANE: resolve this clip's per-track bone references through the SERVED
                 // skeleton (the same actor-path -> m_skeletons lookup the graph compile uses), so its
                 // hkaAnimationBinding.transformTrackToBoneIndices follows the actor's bones by name.
@@ -1195,6 +1211,10 @@ namespace CB {
         if (w || fl)
             LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (STAGED under "
                      "Data\\meshes\\CBanims\\ — relocate manually to serve).", w, fl);
+        // Phase 0 coverage: what the compiler produced for the adsf to drain. Nothing consumes the sink
+        // yet (byte-neutral); this confirms the emit fires + the keying before the drain is switched over.
+        LOG_INFO("Community Behaviors: motion sink — {} record(s) across {} actor root(s) (compiler-produced).",
+                 m_motionSink.RecordCount(), m_motionSink.RootCount());
         return w;
     }
 

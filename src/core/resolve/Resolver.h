@@ -2,6 +2,7 @@
 
 #include "core/discover/BundleManifest.h"
 #include "core/resolve/GraphClipSink.h"   // GraphClipSink — the adsf-derive stage's clip accumulator
+#include "core/resolve/MotionRecordSink.h" // MotionRecordSink — the compile-side root-motion accumulator
 #include "core/resolve/SymbolInjector.h"
 
 #include <havok/sct/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
@@ -219,6 +220,12 @@ namespace CB {
         bool                 AdsfDerive() const { return m_adsfDerive; }
         const GraphClipSink& ClipSink() const { return m_clipSink; }
 
+        // Root-motion the animation compile produced (WriteNativeAnimations emits each native `.hkx`
+        // unit's inline motion here). The adsf finalizer drains this instead of re-reading the YAML, so
+        // the compiler is the single motion producer. Populated during the native-anim compile (which may
+        // run in parallel — the sink is mutex-guarded); read after it completes.
+        const MotionRecordSink& MotionSink() const { return m_motionSink; }
+
         // Finalize the animationdata cache from the COMPILED results (opt-in; requires the adsf-derive
         // feature). Marries the per-graph clips the feature pushed into m_clipSink with the per-character
         // MERGED rosters captured during CompileAll, and writes the collated animationdatasinglefile.txt
@@ -398,6 +405,10 @@ namespace CB {
         // the finalizer consumes it.
         bool          m_adsfDerive = false;
         GraphClipSink m_clipSink;
+        // Root-motion the native-anim compile produced (see MotionSink). `mutable`: WriteNativeAnimations
+        // is const (it writes only files + this compile-scratch accumulator, not logical resolver state),
+        // and it may fan the emit across worker threads — the sink guards itself.
+        mutable MotionRecordSink m_motionSink;
         // Per-character MERGED roster (animationNames) + actor path, captured in the isCharacter compile
         // when m_adsfDerive is on. Both keyed by character stem ("defaultmale"). DeriveAnimData
         // resolves each sink clip's animIndex against the roster (the space the clip binds into) and uses
