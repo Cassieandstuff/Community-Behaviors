@@ -45,6 +45,7 @@
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree (name-keyed derive-delta)
 #include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
+#include <niffer/Niffer.h>                   // NIF reader — control-decompile nif/aux pose fill
 #include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
 #include <havok/skeleton/SkeletonCompiler.h> // schema-native writer (skeleton-full-parity gate)
 #include <havok/skeleton/SkeletonYaml.h>     // schema-native yaml (skeleton-yaml-parity gate)
@@ -1122,23 +1123,57 @@ static std::string YamlQuote(const std::string& s) {
     return r;
 }
 static std::string Fnum(float v) { char b[32]; std::snprintf(b, sizeof b, "%.6g", static_cast<double>(v)); return b; }
+
+// A control node's pose, pre-formatted as the inline YAML value + where it came from.
+struct ControlPose { std::string xform; const char* source; };
+
+static std::string XformInlineRaw(float tx, float ty, float tz,
+                                  float qx, float qy, float qz, float qw,
+                                  float sx, float sy, float sz) {
+    return "{ translation: [" + Fnum(tx) + ", " + Fnum(ty) + ", " + Fnum(tz)
+         + "], rotation: [" + Fnum(qx) + ", " + Fnum(qy) + ", " + Fnum(qz) + ", " + Fnum(qw)
+         + "], scale: [" + Fnum(sx) + ", " + Fnum(sy) + ", " + Fnum(sz) + "] }";
+}
 static std::string XformInline(const havok::QSTransform& t) {
-    const auto& tr = t.translation; const auto& r = t.rotation; const auto& s = t.scale;
-    return "{ translation: [" + Fnum(tr.x) + ", " + Fnum(tr.y) + ", " + Fnum(tr.z)
-         + "], rotation: [" + Fnum(r.x) + ", " + Fnum(r.y) + ", " + Fnum(r.z) + ", " + Fnum(r.w)
-         + "], scale: [" + Fnum(s.x) + ", " + Fnum(s.y) + ", " + Fnum(s.z) + "] }";
+    return XformInlineRaw(t.translation.x, t.translation.y, t.translation.z,
+                          t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w,
+                          t.scale.x, t.scale.y, t.scale.z);
+}
+// NIF Matrix33 (row-major, m[3*r + c] = R[r][c]) -> quaternion (x,y,z,w). Shepperd's method.
+static void Mat33ToQuat(const niffer::Mat33& M, float& qx, float& qy, float& qz, float& qw) {
+    const float* m = M.m;
+    const float r00 = m[0], r01 = m[1], r02 = m[2];
+    const float r10 = m[3], r11 = m[4], r12 = m[5];
+    const float r20 = m[6], r21 = m[7], r22 = m[8];
+    const float tr = r00 + r11 + r22;
+    if (tr > 0.f) {
+        float s = std::sqrt(tr + 1.f) * 2.f;                 // s = 4*qw
+        qw = 0.25f * s; qx = (r21 - r12) / s; qy = (r02 - r20) / s; qz = (r10 - r01) / s;
+    } else if (r00 > r11 && r00 > r22) {
+        float s = std::sqrt(1.f + r00 - r11 - r22) * 2.f;    // s = 4*qx
+        qw = (r21 - r12) / s; qx = 0.25f * s; qy = (r01 + r10) / s; qz = (r02 + r20) / s;
+    } else if (r11 > r22) {
+        float s = std::sqrt(1.f + r11 - r00 - r22) * 2.f;    // s = 4*qy
+        qw = (r02 - r20) / s; qx = (r01 + r10) / s; qy = 0.25f * s; qz = (r12 + r21) / s;
+    } else {
+        float s = std::sqrt(1.f + r22 - r00 - r11) * 2.f;    // s = 4*qz
+        qw = (r10 - r01) / s; qx = (r02 + r20) / s; qy = (r12 + r21) / s; qz = 0.25f * s;
+    }
+}
+static std::string XformInlineNif(const niffer::NiTransform& t) {
+    float qx, qy, qz, qw; Mat33ToQuat(t.rotation, qx, qy, qz, qw);
+    return XformInlineRaw(t.translation.x, t.translation.y, t.translation.z,
+                          qx, qy, qz, qw, t.scale, t.scale, t.scale);
 }
 
-// Where a node's pose comes from — the routing tag for the downstream fill (scene editor / NIFFER):
-//   skeleton   = already filled here from this file's skeleton referencePose (definitive).
-//   nif        = a skinned cloth bone (Robe/Skirt/Cloak/body) whose pose lives in skeleton.nif.
+// Heuristic HINT for where an UNPOSED node's pose should come from (posed nodes carry a real `poseSource`
+// — skeleton or nif — instead). A starting route the NIF fill / scene editor confirms:
+//   nif        = a skinned cloth bone (Robe/Skirt/Cloak/body) — look in a skeleton.nif (a different one,
+//                or under a normalized name, since the sibling-nif fill didn't match it by exact name).
 //   aux        = the tail — a SEPARATE attached skeleton, tween-driven to the spine (its own .nif).
 //   convention = a pure Max helper (export dummy / IK helper / pivot / FootBox / camera ctrl / bumper /
 //                group wrapper) with no pose in ANY file — derive by convention or author in the editor.
-// For unposed nodes this is a NAME HEURISTIC — a starting route the NIF pass confirms (nif membership is
-// definitive there) or overrides. Posed nodes are always `skeleton`.
-static const char* ControlPoseSource(const std::string& name, bool posed) {
-    if (posed) return "skeleton";
+static const char* ControlPoseHint(const std::string& name) {
     std::string n; n.reserve(name.size());
     for (char c : name) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     const auto has = [&](const char* s) { return n.find(s) != std::string::npos; };
@@ -1148,13 +1183,14 @@ static const char* ControlPoseSource(const std::string& name, bool posed) {
     return "convention";   // export/pivot/ikhelper/footbox/camera/bumper/wrapper — no pose anywhere
 }
 
-// Emit one control node (+ subtree). Each node's TRANSFORM is resolved by NAME from the skeleton pose
-// map (anim + ragdoll referencePose): a match emits the local pose; a miss emits `transform: derive`.
-// Every node also gets a `poseSource` routing tag (see ControlPoseSource). `posed` counts skeleton
-// matches; `srcCounts` tallies nodes per poseSource.
-static void EmitControlNode(std::string& out, std::size_t& count, std::size_t& posed,
+// Emit one control node (+ subtree). Resolved by NAME from the pose map (skeleton referencePose + NIF
+// NiNode transforms, pre-formatted): a hit emits the pose + a real `poseSource` (skeleton|nif); a miss
+// emits `transform: derive` + a `poseHint` (nif|aux|convention — where to look). `srcCounts` tallies the
+// filled sources; `hintCounts` tallies the derive hints.
+static void EmitControlNode(std::string& out, std::size_t& count,
                             std::map<std::string, std::size_t>& srcCounts,
-                            const std::unordered_map<std::string, const havok::QSTransform*>& poses,
+                            std::map<std::string, std::size_t>& hintCounts,
+                            const std::unordered_map<std::string, ControlPose>& poses,
                             const std::shared_ptr<havok::hkMemoryResourceContainer>& c, int markerCol) {
     if (!c) return;
     ++count;
@@ -1162,12 +1198,16 @@ static void EmitControlNode(std::string& out, std::size_t& count, std::size_t& p
     const std::string k(static_cast<std::size_t>(markerCol) + 2, ' ');   // this node's key column
     out += m + "- name: " + YamlQuote(c->m_name) + "\n";
     const auto pit = poses.find(c->m_name);
-    const bool isPosed = (pit != poses.end() && pit->second);
-    if (isPosed) { out += k + "transform: " + XformInline(*pit->second) + "\n"; ++posed; }
-    else           out += k + "transform: derive\n";
-    const char* src = ControlPoseSource(c->m_name, isPosed);
-    out += k + "poseSource: " + src + "\n";
-    ++srcCounts[src];
+    if (pit != poses.end()) {   // filled — real pose + real source
+        out += k + "transform: " + pit->second.xform + "\n";
+        out += k + "poseSource: " + pit->second.source + "\n";
+        ++srcCounts[pit->second.source];
+    } else {                    // unfilled — mark for derive + where to look
+        const char* hint = ControlPoseHint(c->m_name);
+        out += k + "transform: derive\n";
+        out += k + "poseHint: " + hint + "\n";
+        ++hintCounts[hint];
+    }
     if (!c->m_resourceHandles.empty()) {
         out += k + "handles:\n";
         for (const auto& h : c->m_resourceHandles) {
@@ -1179,16 +1219,17 @@ static void EmitControlNode(std::string& out, std::size_t& count, std::size_t& p
     }
     if (!c->m_children.empty()) {
         out += k + "children:\n";
-        for (const auto& ch : c->m_children) EmitControlNode(out, count, posed, srcCounts, poses, ch, markerCol + 4);
+        for (const auto& ch : c->m_children) EmitControlNode(out, count, srcCounts, hintCounts, poses, ch, markerCol + 4);
     }
 }
 
-// Read the resource tree + skeleton(s) from a .hkx and write <outDir>/control/rig.yaml: the control-rig
-// node hierarchy with each node's pose resolved by NAME from the skeleton referencePose (anim + ragdoll).
-// Returns the node count via the return value and the posed-from-skeleton count via `posedOut`. Returns 0
+// Read the resource tree + skeleton(s) from a .hkx (+ the sibling skeleton.nif) and write
+// <outDir>/control/rig.yaml: the control-rig node hierarchy with each node's pose resolved by NAME from
+// the skeleton referencePose (definitive: source=skeleton) and, for the rest, the NIF NiNode transforms
+// (source=nif). Returns the node count; `posedOut` = nodes with a real pose (skeleton + nif). Returns 0
 // (nothing written) when there is no resource container — non-fatal (e.g. a first-person anim-only rig).
-static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const std::string& outDir,
-                                  std::string& err, std::size_t& posedOut) {
+static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const std::string& hkxPath,
+                                  const std::string& outDir, std::string& err, std::size_t& posedOut) {
     posedOut = 0;
     havok::PackFileDeserializer des;
     havok::BinaryReaderEx br(false, true, bytes);
@@ -1201,36 +1242,81 @@ static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const 
         if (auto c = std::dynamic_pointer_cast<havok::hkMemoryResourceContainer>(nv.m_variant)) { res = c; break; }
     if (!res) return 0;
 
-    // Pose map: every bone across every skeleton (anim first, then ragdoll), keyed by exact name — the
-    // authoritative local reference pose. skels stays alive through the emit (the map holds pointers in).
+    // 1) Skeleton poses (authoritative, LOCAL reference pose) — anim first, then ragdoll. Also keep a raw
+    //    quat lookup for the NIF cross-check below.
     std::vector<havok::sct::SkeletonData> skels;
     std::string serr;
     havok::sct::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), skels, &serr);   // best-effort
-    std::unordered_map<std::string, const havok::QSTransform*> poses;
+    std::unordered_map<std::string, ControlPose>              poses;
+    std::unordered_map<std::string, const havok::QSTransform*> skelQuat;
     for (const auto& sk : skels)
-        for (const auto& b : sk.bones) poses.emplace(b.name, &b.refPose);
+        for (const auto& b : sk.bones) {
+            poses.try_emplace(b.name, ControlPose{ XformInline(b.refPose), "skeleton" });
+            skelQuat.try_emplace(b.name, &b.refPose);
+        }
+
+    // 2) NIF fill: the sibling <hkx>.nif's NiNode transforms fill every node the skeleton didn't (cloth
+    //    bones, etc. -> source=nif). One-shot cross-check on a shared bone validates the Mat33->quat
+    //    convention (|dot| of the two quats ~= 1 means the rotations agree).
+    std::size_t nifFilled = 0;
+    std::string nifNote = "no sibling .nif";
+    {
+        std::error_code nec;
+        const fs::path nifPath = fs::path(hkxPath).replace_extension(".nif");
+        if (fs::exists(nifPath, nec)) {
+            auto loaded = niffer::NifFile::LoadFile(nifPath.string());
+            if (!loaded) { nifNote = "nif load failed"; }
+            else {
+                const niffer::NifFile& nif = *loaded;
+                bool checked = false; float checkDot = 0.f; std::string checkBone;
+                for (const auto& blk : nif.blocks) {
+                    auto* node = dynamic_cast<niffer::NiNode*>(blk.get());
+                    if (!node) continue;
+                    std::string nm(nif.String(node->name));
+                    if (nm.empty()) continue;
+                    if (const auto sq = skelQuat.find(nm); sq != skelQuat.end() && sq->second) {
+                        if (!checked) {   // validate the conversion against the skeleton's own quat
+                            float qx, qy, qz, qw; Mat33ToQuat(node->transform.rotation, qx, qy, qz, qw);
+                            const auto& r = sq->second->rotation;
+                            checkDot = std::fabs(qx*r.x + qy*r.y + qz*r.z + qw*r.w);
+                            checkBone = nm; checked = true;
+                        }
+                        continue;   // skeleton pose wins for shared bones
+                    }
+                    if (poses.try_emplace(nm, ControlPose{ XformInlineNif(node->transform), "nif" }).second) ++nifFilled;
+                }
+                nifNote = std::to_string(nifFilled) + " pose(s) available from " + nifPath.filename().string();
+                if (checked) nifNote += " | quat-check on '" + checkBone + "' |dot|=" + Fnum(checkDot) + " (1.0=OK)";
+            }
+        }
+    }
 
     std::string nodes;
     std::size_t count = 0;
-    std::map<std::string, std::size_t> srcCounts;
-    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, posedOut, srcCounts, poses, ch, 2);
+    std::map<std::string, std::size_t> srcCounts, hintCounts;
+    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, srcCounts, hintCounts, poses, ch, 2);
+    posedOut = srcCounts["skeleton"] + srcCounts["nif"];
+    std::printf("control: %s | resource-tree nif fills=%zu\n", nifNote.c_str(), srcCounts["nif"]);
 
+    const auto fmtCounts = [](const std::map<std::string, std::size_t>& m) {
+        std::string s = "{"; bool first = true;
+        for (const auto& [k, n] : m) { s += (first ? " " : ", ") + k + ": " + std::to_string(n); first = false; }
+        return s + " }";
+    };
     std::string body;
     body += "# Control rig recovered from the skeleton's hkMemoryResourceContainer (\"Resource Data\").\n";
-    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). Each node's\n";
-    body += "# `transform` is its LOCAL reference pose resolved by NAME from the skeleton(s) in this file\n";
-    body += "# (anim + ragdoll referencePose); `transform: derive` marks a node with no pose here.\n";
-    body += "# `poseSource` routes the fill: skeleton (posed here) / nif (cloth bone -> skeleton.nif) /\n";
-    body += "# aux (tail -> separate attached skeleton) / convention (pure helper -> derive/author).\n";
-    body += "# For unposed nodes poseSource is a NAME HEURISTIC — the NIF pass confirms/overrides it.\n";
+    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). A FILLED node has\n";
+    body += "# a `transform` (its LOCAL pose) + `poseSource`: skeleton (this .hkx's referencePose,\n";
+    body += "# definitive) or nif (the sibling skeleton.nif's NiNode transform). An UNFILLED node has\n";
+    body += "# `transform: derive` + a `poseHint` (where to look): nif (cloth bone, name not matched here) /\n";
+    body += "# aux (tail = separate attached skeleton) / convention (pure helper — derive/author).\n";
     body += "# IGNORED by the compiler + skeleton reader; here for the scene editor.\n";
     body += "source: resource-container\n";
     body += "nodeCount: " + std::to_string(count) + "\n";
-    body += "posedFromSkeleton: " + std::to_string(posedOut) + "\n";
-    body += "poseSourceCounts: {";
-    { bool first = true;
-      for (const auto& [s, n] : srcCounts) { body += (first ? " " : ", ") + s + ": " + std::to_string(n); first = false; }
-      body += " }\n"; }
+    body += "posedFromSkeleton: " + std::to_string(srcCounts["skeleton"]) + "\n";
+    body += "posedFromNif: " + std::to_string(srcCounts["nif"]) + "\n";
+    body += "poseSourceCounts: " + fmtCounts(srcCounts) + "\n";     // filled nodes, by real source
+    body += "deriveHintCounts: " + fmtCounts(hintCounts) + "\n";    // unfilled nodes, by hint
     body += "nodes:\n";
     body += nodes;
 
@@ -1248,10 +1334,10 @@ int doControlDecompile(const std::string& in, const std::string& outArg) {
     std::vector<std::uint8_t> bytes; std::string err;
     if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
     std::size_t posed = 0;
-    const std::size_t n = EmitControlRig(bytes, outArg, err, posed);
+    const std::size_t n = EmitControlRig(bytes, in, outArg, err, posed);
     if (n == 0 && !err.empty()) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     if (n == 0) { std::printf("%s: no resource-container control rig present — nothing written.\n", in.c_str()); return 0; }
-    std::printf("%s: %zu control node(s), %zu posed from skeleton, %zu to derive -> %s/control/rig.yaml\n",
+    std::printf("%s: %zu control node(s), %zu posed (skeleton+nif), %zu to derive -> %s/control/rig.yaml\n",
                 in.c_str(), n, posed, n - posed, outArg.c_str());
     return 0;
 }
@@ -1406,7 +1492,7 @@ int doSkeletonDecompileTree(const std::string& in, const std::string& outArg) {
     // Also recover the control/export rig from the resource tree into control/rig.yaml (topology only;
     // the compiler + reader ignore it). Non-fatal: a skeleton with no resource tree just skips it.
     std::string cerr; std::size_t cposed = 0;
-    const std::size_t nctrl = EmitControlRig(bytes, outArg, cerr, cposed);
+    const std::size_t nctrl = EmitControlRig(bytes, in, outArg, cerr, cposed);
     std::string ctrlNote;
     if (nctrl)            ctrlNote = " + control/rig.yaml (" + std::to_string(nctrl) + " nodes, "
                                    + std::to_string(cposed) + " posed)";
