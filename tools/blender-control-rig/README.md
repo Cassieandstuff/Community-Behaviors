@@ -27,10 +27,21 @@ recovered pose, so it's placed on its parent (identity local) and tagged, rather
 
 ## Install
 
-1. Zip the `cb_control_rig/` folder (so the zip contains `cb_control_rig/__init__.py` +
-   `rigcore.py`), or copy `cb_control_rig/` into your Blender addons directory.
-2. Blender → Edit → Preferences → Add-ons → Install… → pick the zip → enable
-   **"Community Behaviors — Control Rig Importer"**.
+**Fastest (this machine):** set `BLENDER_PLUGINS_DIRECTORY` to your Blender addons folder once,
+then deploy — the convention is one subfolder per plugin under that path:
+
+```
+set BLENDER_PLUGINS_DIRECTORY=%APPDATA%\Blender Foundation\Blender\4.2\scripts\addons
+python deploy.py                 # copies cb_control_rig/ -> $BLENDER_PLUGINS_DIRECTORY/cb_control_rig/
+python deploy.py <addons-dir>    # or pass the folder explicitly (overrides the env var)
+```
+
+`deploy.py` replaces any prior install and never copies `__pycache__`. Then in Blender:
+Preferences → Add-ons → enable **"Community Behaviors — Control Rig Importer"** (or Edit →
+reload scripts if it was already enabled).
+
+**Manual alternative:** zip the `cb_control_rig/` folder (so the zip contains
+`cb_control_rig/__init__.py` + `rigcore.py`) and Install… it via Preferences → Add-ons.
 
 ## Use
 
