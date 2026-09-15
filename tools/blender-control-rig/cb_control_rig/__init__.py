@@ -25,6 +25,7 @@ import os
 import bpy  # type: ignore
 import mathutils  # type: ignore
 from bpy.props import EnumProperty, StringProperty, FloatProperty, BoolProperty  # type: ignore
+from bpy_extras.io_utils import ExportHelper  # type: ignore
 
 from . import rigcore
 
@@ -143,6 +144,52 @@ class CB_OT_import(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class CB_OT_export(bpy.types.Operator, ExportHelper):
+    bl_idname = "cb.export_rig"
+    bl_label = "Export Control Rig"
+    bl_description = "Write the active armature to a CB control/rig.yaml (authored control rig)"
+
+    filename_ext = ".yaml"
+    filter_glob: StringProperty(default="*.yaml", options={"HIDDEN"})  # type: ignore
+
+    def invoke(self, context, event):
+        arm = context.active_object
+        if arm and arm.type == "ARMATURE":
+            self.filepath = "rig.yaml"
+        return ExportHelper.invoke(self, context, event)
+
+    def execute(self, context):
+        arm = context.active_object
+        if not arm or arm.type != "ARMATURE":
+            self.report({"ERROR"}, "Active object is not an armature")
+            return {"CANCELLED"}
+
+        uscale = context.scene.cb_import_scale or 1.0
+        entries = []
+        for bone in arm.data.bones:
+            # bone.matrix_local is the bone's REST matrix in ARMATURE space (world, for our purposes).
+            loc, quat, _scale = bone.matrix_local.decompose()  # quat is (w, x, y, z)
+            entries.append({
+                "name": bone.name,
+                "parent": bone.parent.name if bone.parent else None,
+                "world": {
+                    "translation": [loc.x / uscale, loc.y / uscale, loc.z / uscale],
+                    "rotation": [quat.x, quat.y, quat.z, quat.w],  # -> CB [x, y, z, w]
+                    "scale": [1.0, 1.0, 1.0],  # bone rest carries no scale
+                },
+            })
+        if not entries:
+            self.report({"ERROR"}, "Armature has no bones")
+            return {"CANCELLED"}
+
+        rig = rigcore.worlds_to_rig(entries, source="authored-blender:" + arm.name)
+        text = rigcore.emit_rig_yaml(rig)
+        with open(self.filepath, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        self.report({"INFO"}, f"Exported {len(entries)} bone(s) -> {self.filepath}")
+        return {"FINISHED"}
+
+
 class CB_PT_panel(bpy.types.Panel):
     bl_label = "Control Rig Importer"
     bl_idname = "CB_PT_control_rig"
@@ -165,8 +212,13 @@ class CB_PT_panel(bpy.types.Panel):
         if _RIG_CACHE:
             layout.label(text=f"{len(_RIG_CACHE)} rig(s) found", icon="INFO")
 
+        layout.separator()
+        col = layout.column()
+        col.label(text="Export (active armature):")
+        col.operator("cb.export_rig", icon="EXPORT")
 
-_CLASSES = (CB_OT_scan, CB_OT_import, CB_PT_panel)
+
+_CLASSES = (CB_OT_scan, CB_OT_import, CB_OT_export, CB_PT_panel)
 
 
 def register():

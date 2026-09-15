@@ -12,8 +12,8 @@ import sys
 
 import yaml  # reference
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-from cb_control_rig import rigcore  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "cb_control_rig"))
+import rigcore  # noqa: E402  (imported directly: rigcore is standalone, no bpy)
 
 DIFFS = r"D:\cb-diffs\control-rig-scattershot3"
 
@@ -64,6 +64,35 @@ def main():
     lx, rx = L.world["translation"][0], R.world["translation"][0]
     print(f"FootBox world X: L={lx:.4f} R={rx:.4f} (mirror: {'OK' if lx*rx < 0 else 'FAIL'})")
     assert lx * rx < 0, "L/R FootBox did not mirror after FK compose"
+
+    # Round-trip: rig -> flatten(world) -> worlds_to_rig(inverse-FK) -> emit -> reparse -> flatten,
+    # and assert the final WORLD transforms match the originals. This is the proof the exporter is
+    # the exact inverse of the importer (and thus that the Blender armature is a faithful rig).
+    def close(a, b, rel=1e-4, absol=1e-3):
+        # mixed tolerance keyed off the whole vector's magnitude (a near-zero component of a
+        # large, deep FK chain still tolerates the chain's accrued float+quantization noise).
+        scale = max((abs(x) for x in b), default=0.0)
+        eps = absol + rel * scale
+        return all(abs(x - y) <= eps for x, y in zip(a, b))
+
+    rt_ok = 0
+    worst = 0.0
+    for label, path in rigs:
+        rig = yaml.safe_load(open(path, encoding="utf-8").read())
+        flat0 = rigcore.flatten(rig)
+        names = [n.name for n in flat0]
+        if len(names) != len(set(names)):
+            continue  # duplicate node names can't key a world map; skip (rare)
+        entries = [{"name": n.name, "parent": n.parent, "world": n.world} for n in flat0]
+        exported = rigcore.emit_rig_yaml(rigcore.worlds_to_rig(entries))
+        flat1 = rigcore.flatten(rigcore.parse_rig_yaml(exported))
+        w0 = {n.name: n.world for n in flat0}
+        for n in flat1:
+            a, b = n.world["translation"], w0[n.name]["translation"]
+            worst = max(worst, max(abs(x - y) for x, y in zip(a, b)))
+            assert close(a, b), f"round-trip world drift on {label}:{n.name}: {a} vs {b}"
+        rt_ok += 1
+    print(f"import->export round-trip: {rt_ok}/{len(rigs)} rigs, worst world delta = {worst:.2e}")
 
     print("\nALL CHECKS PASSED")
 

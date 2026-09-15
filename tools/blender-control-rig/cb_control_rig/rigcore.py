@@ -213,6 +213,10 @@ def qmul(a, b):
     ]
 
 
+def qconj(q):
+    return [-q[0], -q[1], -q[2], q[3]]
+
+
 def qrot(q, v):
     x, y, z, w = q
     vx, vy, vz = v
@@ -238,6 +242,19 @@ def _compose(parent, local):
         "translation": [pt[0] + rotated[0], pt[1] + rotated[1], pt[2] + rotated[2]],
         "rotation": qmul(pr, lr),
         "scale": [ps[0] * ls[0], ps[1] * ls[1], ps[2] * ls[2]],
+    }
+
+
+def _world_to_local(parent, world):
+    """Inverse of _compose: local = parent^-1 ∘ world. Exact inverse for round-trip."""
+    ps, pr, pt = parent["scale"], parent["rotation"], parent["translation"]
+    inv_pr = qconj(pr)
+    dp = [world["translation"][0] - pt[0], world["translation"][1] - pt[1], world["translation"][2] - pt[2]]
+    un = qrot(inv_pr, dp)
+    return {
+        "translation": [un[0] / ps[0], un[1] / ps[1], un[2] / ps[2]],
+        "rotation": qmul(inv_pr, world["rotation"]),
+        "scale": [world["scale"][0] / ps[0], world["scale"][1] / ps[1], world["scale"][2] / ps[2]],
     }
 
 
@@ -336,6 +353,84 @@ def actor_label_from_path(path):
                 base = base.replace(junk, " ")
             return " ".join(base.split()).strip() or seg
     return os.path.basename(os.path.dirname(os.path.dirname(path)))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Export: WORLD-pose entries (from a Blender armature) → control/rig.yaml
+# The bpy layer supplies each bone's armature-space (WORLD) rest transform + parent name;
+# this inverse-FK's to LOCAL and serializes CB's rig.yaml. The exact inverse of the import
+# path, so import→export round-trips (see test_rigcore).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def worlds_to_rig(entries, source="authored-blender", pose_source="authored"):
+    """entries: ordered list of {name, parent, world:{translation,rotation,scale}} (parents first).
+    Returns a rig dict {source, nodeCount, nodes:[nested]} with LOCAL transforms."""
+    worlds = {e["name"]: e["world"] for e in entries}
+    nodes = {}
+    roots = []
+    for e in entries:
+        pw = worlds[e["parent"]] if e.get("parent") and e["parent"] in worlds else IDENTITY
+        local = _world_to_local(pw, e["world"])
+        nodes[e["name"]] = {
+            "name": e["name"],
+            "transform": {
+                "translation": local["translation"],
+                "rotation": local["rotation"],
+                "scale": local["scale"],
+            },
+            "poseSource": pose_source,
+            "children": [],
+        }
+    for e in entries:
+        p = e.get("parent")
+        if p and p in nodes:
+            nodes[p]["children"].append(nodes[e["name"]])
+        else:
+            roots.append(nodes[e["name"]])
+    return {"source": source, "nodeCount": len(entries), "nodes": roots}
+
+
+def _fmt(x):
+    x = float(x)
+    if x == 0.0:
+        return "0"
+    s = repr(round(x, 6))
+    return s[:-2] if s.endswith(".0") else s
+
+
+def _fmt_vec(v):
+    return "[" + ", ".join(_fmt(x) for x in v) + "]"
+
+
+def emit_rig_yaml(rig):
+    """Serialize a rig dict (from worlds_to_rig) to CB rig.yaml text."""
+    out = [
+        "# Control rig authored in Blender, exported by cb_control_rig.",
+        "# Node hierarchy + names + LOCAL transforms (translation, rotation quat [x,y,z,w], scale).",
+        "# poseSource: authored. Consumed by the CB scene editor / control-rig pipeline.",
+        f"source: {rig.get('source', 'authored-blender')}",
+        f"nodeCount: {rig.get('nodeCount', 0)}",
+        "nodes:",
+    ]
+
+    def emit_node(n, indent):
+        pad = " " * indent
+        out.append(f'{pad}- name: "{n["name"]}"')
+        t = n["transform"]
+        out.append(
+            f"{pad}  transform: {{ translation: {_fmt_vec(t['translation'])}, "
+            f"rotation: {_fmt_vec(t['rotation'])}, scale: {_fmt_vec(t['scale'])} }}"
+        )
+        out.append(f"{pad}  poseSource: {n.get('poseSource', 'authored')}")
+        kids = n.get("children") or []
+        if kids:
+            out.append(f"{pad}  children:")
+            for c in kids:
+                emit_node(c, indent + 4)
+
+    for root in rig.get("nodes", []):
+        emit_node(root, 2)
+    return "\n".join(out) + "\n"
 
 
 def scan_load_order(root):
