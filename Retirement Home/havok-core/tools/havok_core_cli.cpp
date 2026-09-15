@@ -1121,13 +1121,29 @@ static std::string YamlQuote(const std::string& s) {
     r += '"';
     return r;
 }
-static void EmitControlNode(std::string& out, std::size_t& count,
+static std::string Fnum(float v) { char b[32]; std::snprintf(b, sizeof b, "%.6g", static_cast<double>(v)); return b; }
+static std::string XformInline(const havok::QSTransform& t) {
+    const auto& tr = t.translation; const auto& r = t.rotation; const auto& s = t.scale;
+    return "{ translation: [" + Fnum(tr.x) + ", " + Fnum(tr.y) + ", " + Fnum(tr.z)
+         + "], rotation: [" + Fnum(r.x) + ", " + Fnum(r.y) + ", " + Fnum(r.z) + ", " + Fnum(r.w)
+         + "], scale: [" + Fnum(s.x) + ", " + Fnum(s.y) + ", " + Fnum(s.z) + "] }";
+}
+
+// Emit one control node (+ subtree). Each node's TRANSFORM is resolved by NAME from the skeleton pose
+// map (anim + ragdoll referencePose): a match emits the local pose; a miss emits `transform: derive`
+// (a pure hand-authored helper / cloth bone whose pose lives only in the .nif or the Max source — the
+// scene editor derives-by-convention or authors it). `posed` counts the matches.
+static void EmitControlNode(std::string& out, std::size_t& count, std::size_t& posed,
+                            const std::unordered_map<std::string, const havok::QSTransform*>& poses,
                             const std::shared_ptr<havok::hkMemoryResourceContainer>& c, int markerCol) {
     if (!c) return;
     ++count;
     const std::string m(static_cast<std::size_t>(markerCol), ' ');       // "- " marker column
     const std::string k(static_cast<std::size_t>(markerCol) + 2, ' ');   // this node's key column
     out += m + "- name: " + YamlQuote(c->m_name) + "\n";
+    const auto pit = poses.find(c->m_name);
+    if (pit != poses.end() && pit->second) { out += k + "transform: " + XformInline(*pit->second) + "\n"; ++posed; }
+    else                                     out += k + "transform: derive\n";
     if (!c->m_resourceHandles.empty()) {
         out += k + "handles:\n";
         for (const auto& h : c->m_resourceHandles) {
@@ -1139,15 +1155,17 @@ static void EmitControlNode(std::string& out, std::size_t& count,
     }
     if (!c->m_children.empty()) {
         out += k + "children:\n";
-        for (const auto& ch : c->m_children) EmitControlNode(out, count, ch, markerCol + 4);
+        for (const auto& ch : c->m_children) EmitControlNode(out, count, posed, poses, ch, markerCol + 4);
     }
 }
 
-// Read the resource tree from a skeleton .hkx and write <outDir>/control/rig.yaml. Returns the node
-// count (0 = no resource container, nothing written). Non-fatal: a skeleton without a resource tree
-// (e.g. a first-person anim-only rig) simply yields no control/ folder.
+// Read the resource tree + skeleton(s) from a .hkx and write <outDir>/control/rig.yaml: the control-rig
+// node hierarchy with each node's pose resolved by NAME from the skeleton referencePose (anim + ragdoll).
+// Returns the node count via the return value and the posed-from-skeleton count via `posedOut`. Returns 0
+// (nothing written) when there is no resource container — non-fatal (e.g. a first-person anim-only rig).
 static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const std::string& outDir,
-                                  std::string& err) {
+                                  std::string& err, std::size_t& posedOut) {
+    posedOut = 0;
     havok::PackFileDeserializer des;
     havok::BinaryReaderEx br(false, true, bytes);
     std::shared_ptr<havok::hkRootLevelContainer> root;
@@ -1159,15 +1177,31 @@ static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const 
         if (auto c = std::dynamic_pointer_cast<havok::hkMemoryResourceContainer>(nv.m_variant)) { res = c; break; }
     if (!res) return 0;
 
+    // Pose map: every bone across every skeleton (anim first, then ragdoll), keyed by exact name — the
+    // authoritative local reference pose. skels stays alive through the emit (the map holds pointers in).
+    std::vector<havok::sct::SkeletonData> skels;
+    std::string serr;
+    havok::sct::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), skels, &serr);   // best-effort
+    std::unordered_map<std::string, const havok::QSTransform*> poses;
+    for (const auto& sk : skels)
+        for (const auto& b : sk.bones) poses.emplace(b.name, &b.refPose);
+
+    std::string nodes;
+    std::size_t count = 0;
+    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, posedOut, poses, ch, 2);
+
     std::string body;
     body += "# Control rig recovered from the skeleton's hkMemoryResourceContainer (\"Resource Data\").\n";
-    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). Transforms are\n";
-    body += "# NOT in this source — layer poses separately (derive from the bones, or import a rig).\n";
+    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). Each node's\n";
+    body += "# `transform` is its LOCAL reference pose resolved by NAME from the skeleton(s) in this file\n";
+    body += "# (anim + ragdoll referencePose); `transform: derive` marks a node with no pose here (a pure\n";
+    body += "# hand-authored helper or a cloth bone that lives only in the .nif) — derive/author its pose.\n";
     body += "# IGNORED by the compiler + skeleton reader; here for the scene editor.\n";
     body += "source: resource-container\n";
+    body += "nodeCount: " + std::to_string(count) + "\n";
+    body += "posedFromSkeleton: " + std::to_string(posedOut) + "\n";
     body += "nodes:\n";
-    std::size_t count = 0;
-    for (const auto& ch : res->m_children) EmitControlNode(body, count, ch, 2);
+    body += nodes;
 
     std::error_code ec;
     const fs::path dir = fs::path(outDir) / "control";
@@ -1182,10 +1216,12 @@ int doControlDecompile(const std::string& in, const std::string& outArg) {
     if (outArg.empty()) { std::printf("ERROR: -o <dir> required\n"); return 1; }
     std::vector<std::uint8_t> bytes; std::string err;
     if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
-    const std::size_t n = EmitControlRig(bytes, outArg, err);
+    std::size_t posed = 0;
+    const std::size_t n = EmitControlRig(bytes, outArg, err, posed);
     if (n == 0 && !err.empty()) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     if (n == 0) { std::printf("%s: no resource-container control rig present — nothing written.\n", in.c_str()); return 0; }
-    std::printf("%s: %zu control node(s) -> %s/control/rig.yaml\n", in.c_str(), n, outArg.c_str());
+    std::printf("%s: %zu control node(s), %zu posed from skeleton, %zu to derive -> %s/control/rig.yaml\n",
+                in.c_str(), n, posed, n - posed, outArg.c_str());
     return 0;
 }
 
@@ -1338,10 +1374,11 @@ int doSkeletonDecompileTree(const std::string& in, const std::string& outArg) {
     std::size_t nphys = 0; for (const auto& b : skels[0].bones) if (b.physics) ++nphys;
     // Also recover the control/export rig from the resource tree into control/rig.yaml (topology only;
     // the compiler + reader ignore it). Non-fatal: a skeleton with no resource tree just skips it.
-    std::string cerr;
-    const std::size_t nctrl = EmitControlRig(bytes, outArg, cerr);
+    std::string cerr; std::size_t cposed = 0;
+    const std::size_t nctrl = EmitControlRig(bytes, outArg, cerr, cposed);
     std::string ctrlNote;
-    if (nctrl)            ctrlNote = " + control/rig.yaml (" + std::to_string(nctrl) + " node(s))";
+    if (nctrl)            ctrlNote = " + control/rig.yaml (" + std::to_string(nctrl) + " nodes, "
+                                   + std::to_string(cposed) + " posed)";
     else if (!cerr.empty()) ctrlNote = " [control skipped: " + cerr + "]";
     std::printf("%s: %zu bones (%zu with physics) -> %s/{bonelist.yaml, bones/}%s\n",
                 skels[0].name.c_str(), skels[0].bones.size(), nphys, outArg.c_str(), ctrlNote.c_str());
