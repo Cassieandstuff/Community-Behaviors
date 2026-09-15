@@ -18,3 +18,4 @@ fields:
   - { name: userProperties,      type: string }
   - { name: selected,            type: bool }
   - { name: bone,                type: bool }
+  - { skip: 6 }                                                        # tail pad 122 -> 128 (8-byte align)

@@ -1,0 +1,12 @@
+name:      hkpMoppCode
+parent:    hkReferencedObject
+signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+size:      64
+# hkReferencedObject ends @16. m_info (CodeInfo{hkVector4 m_offset}, 16-aligned) @16;
+# m_data (hkArray<hkUint8>) @32; m_buildType (enum hkInt8) @48. The MOPP byte payload is
+# inlined after the struct (real object ~160).
+fields:
+  - { name: info,      type: vector4 }                 # CodeInfo.m_offset @16
+  - { name: data,      type: scalararray, scalar: byte } # @32 (16)
+  - { name: buildType, type: int8 }                    # @48
+  - { skip: 15 }                                       # pad -> 64

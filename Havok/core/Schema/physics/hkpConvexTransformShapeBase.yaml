@@ -1,0 +1,9 @@
+name:      hkpConvexTransformShapeBase
+parent:    hkpConvexShape
+signature: 0x00000000   # abstract base (never a live object); sig unused on read, placeholder
+size:      56
+# hkpConvexShape ends @40. m_childShape is an embedded hkpSingleShapeContainer
+# (vtable ptr + hkpShape* m_childShape = 16). @40 vtable, @48 childShape -> 56.
+fields:
+  - { skip: 8 }                                    # hkpSingleShapeContainer vtable @40
+  - { name: childShape, type: ptr, ref: hkpShape } # m_childShape.m_childShape @48 -> 56

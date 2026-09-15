@@ -18,7 +18,7 @@ namespace {
     // (see Havok/SCHEMA.yaml + the schema-version-stamp scheme). The compiler refuses a Havok/ tree
     // it can't safely read (outdated OR ahead of this build) instead of compiling against a
     // mismatched contract — a refused tree is handled exactly like any schema-load failure.
-    constexpr const char* kExpectedSchemaVersion = "1.0.0-rc.1";
+    constexpr const char* kExpectedSchemaVersion = "1.0.0-rc.2";
 }
 
 void SetSharedSchemaDir(const std::string& dir) { g_sharedDir = dir; }

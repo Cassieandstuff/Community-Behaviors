@@ -1,0 +1,17 @@
+name:      hkpListShape
+parent:    hkpShapeCollection
+signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+size:      144
+# hkpShapeCollection ends @40. m_childInfo (hkArray<ChildInfo>) is 16-aligned -> pad 40->48.
+# Then m_flags/m_numDisabledChildren (uint16 x2) @64, AABB (two Vector4) @80/@96, and
+# m_enabledChildren (uint32[8]) @112. OFFSETS VERIFIED against real dragon/werewolf bytes
+# (childInfo cap flag @60, AABB @80, enabledChildren 0xff.. @112). Contents inline after (208..400).
+fields:
+  - { skip: 8 }                                             # pad collection(40) -> 48 (16-align childInfo hkArray)
+  - { name: childInfo,           type: structarray, ref: hkpListShapeChildInfo } # @48 (16)
+  - { name: flags,               type: uint16 }             # @64
+  - { name: numDisabledChildren, type: uint16 }             # @66
+  - { skip: 12 }                                            # pad @68 -> 80 (16-align AABB)
+  - { name: aabbHalfExtents,     type: vector4 }            # @80
+  - { name: aabbCenter,          type: vector4 }            # @96
+  - { name: enabledChildren,     type: uint32, count: 8 }   # @112 -> 144

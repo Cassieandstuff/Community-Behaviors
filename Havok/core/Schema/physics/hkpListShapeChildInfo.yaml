@@ -1,0 +1,11 @@
+name:      hkpListShapeChildInfo
+parent:    null
+size:      16
+# Value type (no signature): hkpListShape::ChildInfo element. m_shape (hkpShape*, HK_ALIGN16),
+# m_collisionFilterInfo (uint32), m_shapeInfo (uint16); m_shapeSize/m_numChildShapes are +nosave.
+# The child shape is a top-level object read independently, so the pointer here is skipped.
+fields:
+  - { skip: 8 }                                # m_shape ptr @0 (dropped; child read independently)
+  - { name: collisionFilterInfo, type: uint32 } # @8
+  - { name: shapeInfo,           type: uint16 } # @12
+  - { skip: 2 }                                # +nosave tail -> 16
