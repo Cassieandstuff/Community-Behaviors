@@ -1109,6 +1109,86 @@ int doResDump(const std::string& in) {
     return 0;
 }
 
+// control-decompile: emit the skeleton's hkMemoryResourceContainer ("Resource Data") tree as a
+// data-driven control-rig YAML (control/rig.yaml) — the node hierarchy + names + handle bindings the
+// 3ds-Max control rig collapsed into. Transforms are NOT in this source (the runtime file strips them),
+// so the rig carries topology only; poses are layered later (derived from the bones or imported). This
+// folder is IGNORED by the compiler + the skeleton reader (readBaseUnit walks only bonelist.yaml +
+// bones/), so it rides free inside a skeleton unit for the scene editor to consume.
+static std::string YamlQuote(const std::string& s) {
+    std::string r = "\"";
+    for (char ch : s) { if (ch == '\\' || ch == '"') r += '\\'; r += ch; }
+    r += '"';
+    return r;
+}
+static void EmitControlNode(std::string& out, std::size_t& count,
+                            const std::shared_ptr<havok::hkMemoryResourceContainer>& c, int markerCol) {
+    if (!c) return;
+    ++count;
+    const std::string m(static_cast<std::size_t>(markerCol), ' ');       // "- " marker column
+    const std::string k(static_cast<std::size_t>(markerCol) + 2, ' ');   // this node's key column
+    out += m + "- name: " + YamlQuote(c->m_name) + "\n";
+    if (!c->m_resourceHandles.empty()) {
+        out += k + "handles:\n";
+        for (const auto& h : c->m_resourceHandles) {
+            if (!h) continue;
+            out += std::string(static_cast<std::size_t>(markerCol) + 4, ' ')
+                 + "- { name: " + YamlQuote(h->m_name)
+                 + ", variant: " + YamlQuote(h->m_variant ? h->m_variant->ClassName() : "null") + " }\n";
+        }
+    }
+    if (!c->m_children.empty()) {
+        out += k + "children:\n";
+        for (const auto& ch : c->m_children) EmitControlNode(out, count, ch, markerCol + 4);
+    }
+}
+
+// Read the resource tree from a skeleton .hkx and write <outDir>/control/rig.yaml. Returns the node
+// count (0 = no resource container, nothing written). Non-fatal: a skeleton without a resource tree
+// (e.g. a first-person anim-only rig) simply yields no control/ folder.
+static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const std::string& outDir,
+                                  std::string& err) {
+    havok::PackFileDeserializer des;
+    havok::BinaryReaderEx br(false, true, bytes);
+    std::shared_ptr<havok::hkRootLevelContainer> root;
+    try { root = std::dynamic_pointer_cast<havok::hkRootLevelContainer>(des.Deserialize(br)); }
+    catch (const std::exception& e) { err = e.what(); return 0; }
+    if (!root) return 0;
+    std::shared_ptr<havok::hkMemoryResourceContainer> res;
+    for (const auto& nv : root->m_namedVariants)
+        if (auto c = std::dynamic_pointer_cast<havok::hkMemoryResourceContainer>(nv.m_variant)) { res = c; break; }
+    if (!res) return 0;
+
+    std::string body;
+    body += "# Control rig recovered from the skeleton's hkMemoryResourceContainer (\"Resource Data\").\n";
+    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). Transforms are\n";
+    body += "# NOT in this source — layer poses separately (derive from the bones, or import a rig).\n";
+    body += "# IGNORED by the compiler + skeleton reader; here for the scene editor.\n";
+    body += "source: resource-container\n";
+    body += "nodes:\n";
+    std::size_t count = 0;
+    for (const auto& ch : res->m_children) EmitControlNode(body, count, ch, 2);
+
+    std::error_code ec;
+    const fs::path dir = fs::path(outDir) / "control";
+    fs::create_directories(dir, ec);
+    std::ofstream f(dir / "rig.yaml", std::ios::binary | std::ios::trunc);
+    if (!f) { err = "cannot write " + (dir / "rig.yaml").string(); return 0; }
+    f.write(body.data(), static_cast<std::streamsize>(body.size()));
+    return count;
+}
+
+int doControlDecompile(const std::string& in, const std::string& outArg) {
+    if (outArg.empty()) { std::printf("ERROR: -o <dir> required\n"); return 1; }
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    const std::size_t n = EmitControlRig(bytes, outArg, err);
+    if (n == 0 && !err.empty()) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    if (n == 0) { std::printf("%s: no resource-container control rig present — nothing written.\n", in.c_str()); return 0; }
+    std::printf("%s: %zu control node(s) -> %s/control/rig.yaml\n", in.c_str(), n, outArg.c_str());
+    return 0;
+}
+
 // skeleton-recompile: the first-cut skeleton-compiler gate. Read a skeleton .hkx ->
 // neutral SkeletonData (its animation skeleton) -> CompileSkeleton -> write, then
 // re-read and compare bone name/parent/pose. Proves the scatter+assemble+serialize
@@ -1256,8 +1336,15 @@ int doSkeletonDecompileTree(const std::string& in, const std::string& outArg) {
         std::printf("WARN: physics read failed (%s) — emitting anim-only.\n", perr.c_str());
     if (!havok::sct::EmitSkeletonYamlTree(skels[0], outArg, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     std::size_t nphys = 0; for (const auto& b : skels[0].bones) if (b.physics) ++nphys;
-    std::printf("%s: %zu bones (%zu with physics) -> %s/{bonelist.yaml, bones/}\n",
-                skels[0].name.c_str(), skels[0].bones.size(), nphys, outArg.c_str());
+    // Also recover the control/export rig from the resource tree into control/rig.yaml (topology only;
+    // the compiler + reader ignore it). Non-fatal: a skeleton with no resource tree just skips it.
+    std::string cerr;
+    const std::size_t nctrl = EmitControlRig(bytes, outArg, cerr);
+    std::string ctrlNote;
+    if (nctrl)            ctrlNote = " + control/rig.yaml (" + std::to_string(nctrl) + " node(s))";
+    else if (!cerr.empty()) ctrlNote = " [control skipped: " + cerr + "]";
+    std::printf("%s: %zu bones (%zu with physics) -> %s/{bonelist.yaml, bones/}%s\n",
+                skels[0].name.c_str(), skels[0].bones.size(), nphys, outArg.c_str(), ctrlNote.c_str());
     return 0;
 }
 
@@ -5986,6 +6073,7 @@ int main(int argc, char** argv) {
     if (verb == "objhist")   return doObjHist(in);
     if (verb == "objlist")   return doObjList(in);
     if (verb == "resdump")   return doResDump(in);
+    if (verb == "control-decompile") return doControlDecompile(in, out);
     if (verb == "mapperdump") return doMapperDump(in);
     if (verb == "physdump")   return doPhysDump(in);
     if (verb == "fkcheck")    return doFkCheck(in);
