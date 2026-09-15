@@ -60,6 +60,10 @@ add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/havok-skeleton)  # schema-driven skeleton codec (depends on havok-io)
+add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
+                                   # repo root — graduates to its own repo (both CB + Skyrim Content Tools
+                                   # need it now). Dependency-free leaf: consumers link `niffer` and
+                                   # #include <niffer/Niffer.h>. Its own PUBLIC include/ makes the lift-out clean.
 add_subdirectory(src/cb-resolve)
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
