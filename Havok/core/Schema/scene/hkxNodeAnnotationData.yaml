@@ -1,0 +1,10 @@
+name:      hkxNodeAnnotationData
+parent:    null
+size:      16
+# Value struct (hkxNode::AnnotationData) — a note-track annotation on a scene node: a timestamp + a
+# text description. Inline element of hkxNode::m_annotations (hkArray<AnnotationData>). No signature
+# (value type). m_time @0 (4B) then 4B pad so the string pointer lands 8-aligned @8.
+fields:
+  - { name: time,        type: float }
+  - { pad: 8 }
+  - { name: description, type: string }

@@ -1,0 +1,8 @@
+name:      hkMatrix4
+parent:    null
+size:      64
+# 64-byte value type (no HK_CLASS_ID / signature): 4 consecutive Vector4 columns (a full 4x4 matrix).
+# Mirrors hkTransform's layout; kept as its own name so hkxNode::m_keyFrames (hkArray<hkMatrix4>) reads
+# a semantically-correct element. Size derivable (ComputeSize), stated for a cross-check.
+fields:
+  - { name: data, type: vector4, count: 4 }

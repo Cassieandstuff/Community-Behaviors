@@ -1,0 +1,9 @@
+name:      hkxAttributeHolder
+parent:    hkReferencedObject
+signature: 0x00000000   # TODO: fill from a real Max-exported scene .hkx classnames (parse matches by NAME;
+                        # this CRC is only needed for byte-exact EMIT). +vtable(true), +version(2).
+size:      32
+# The reflection base of hkxNode — carries the node's attribute groups. hkReferencedObject(16) +
+# m_attributeGroups (hkArray, 16) = 32.
+fields:
+  - { name: attributeGroups, type: structarray, ref: hkxAttributeGroup }

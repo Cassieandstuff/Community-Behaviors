@@ -1,0 +1,9 @@
+name:      hkxAttribute
+parent:    null
+size:      16
+# Value struct — one named attribute on a scene node: a name + a variant pointer to the object holding
+# its data (hkRefVariant, serialized as an 8-byte pointer). Inline element of hkxAttributeGroup::
+# m_attributes. No signature (value type). The enum Hint in the SDK is a type only, not a member.
+fields:
+  - { name: name,  type: string }
+  - { name: value, type: ptr, ref: hkReferencedObject }   # hkRefVariant -> the attribute's data object
