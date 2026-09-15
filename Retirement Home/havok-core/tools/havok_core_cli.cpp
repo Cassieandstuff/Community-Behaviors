@@ -46,6 +46,7 @@
 #include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
 #include <niffer/Niffer.h>                   // NIF reader — control-decompile nif/aux pose fill
+#include <optional>                          // control-decompile convention derive
 #include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
 #include <havok/skeleton/SkeletonCompiler.h> // schema-native writer (skeleton-full-parity gate)
 #include <havok/skeleton/SkeletonYaml.h>     // schema-native yaml (skeleton-yaml-parity gate)
@@ -1183,14 +1184,43 @@ static const char* ControlPoseHint(const std::string& name) {
     return "convention";   // export/pivot/ikhelper/footbox/camera/bumper/wrapper — no pose anywhere
 }
 
+// Foot-on-ground anchors (world XY, projected to Z=0) for the foot-roll derive.
+struct DeriveCtx { bool haveL = false, haveR = false; float lx = 0, ly = 0, rx = 0, ry = 0; };
+
+// Derive-by-convention: a sensible DEFAULT local pose for a Max control helper that has no pose in any
+// file — a functional starting point the scene editor refines (there is no single "proven formula";
+// these are per-type conventions). Returns the inline transform, or nullopt to leave the node `derive`
+// (its pose genuinely isn't derivable here — e.g. an export/cloth chain that would mirror an unfilled
+// skinned bone).
+//   • organizational dummies (*ExportRoot, *LocalReference, the NPC wrapper) + camera controls
+//     (Camera3rd Ctrl/FOV, offset off the posed Camera3rd bone): identity-relative-to-parent.
+//   • foot-roll: FootBox anchored at the real foot projected to ground (Z=0, via FK); HeelPivot/ToePivot
+//     identity (coincident with FootBox — no toe bone in the skeleton to derive the heel-back/toe-forward
+//     spread, so the editor sets that). Anchoring at the true foot still beats leaving it at the origin.
+static std::optional<std::string> TryDeriveConvention(const std::string& name, const DeriveCtx& d) {
+    std::string n; n.reserve(name.size());
+    for (char c : name) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const auto has = [&](const char* s) { return n.find(s) != std::string::npos; };
+    const std::string ident = XformInlineRaw(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
+    if (has("exportroot") || has("localreference") || name == "NPC" || has("camera3rd")) return ident;
+    if (has("footbox")) {
+        if (has("npc l") && d.haveL) return XformInlineRaw(d.lx, d.ly, 0, 0, 0, 0, 1, 1, 1, 1);
+        if (has("npc r") && d.haveR) return XformInlineRaw(d.rx, d.ry, 0, 0, 0, 0, 1, 1, 1, 1);
+        return std::nullopt;   // no foot data
+    }
+    if (has("heelpivot") || has("toepivot")) return ident;
+    return std::nullopt;
+}
+
 // Emit one control node (+ subtree). Resolved by NAME from the pose map (skeleton referencePose + NIF
-// NiNode transforms, pre-formatted): a hit emits the pose + a real `poseSource` (skeleton|nif); a miss
-// emits `transform: derive` + a `poseHint` (nif|aux|convention — where to look). `srcCounts` tallies the
-// filled sources; `hintCounts` tallies the derive hints.
+// NiNode transforms): a hit emits the pose + a real `poseSource` (skeleton|nif). Otherwise a convention
+// DERIVE is attempted (poseSource: derived); failing that the node is left `transform: derive` + a
+// `poseHint` (nif|aux|convention — where to look). `srcCounts` tallies filled/derived; `hintCounts` hints.
 static void EmitControlNode(std::string& out, std::size_t& count,
                             std::map<std::string, std::size_t>& srcCounts,
                             std::map<std::string, std::size_t>& hintCounts,
                             const std::unordered_map<std::string, ControlPose>& poses,
+                            const DeriveCtx& dctx,
                             const std::shared_ptr<havok::hkMemoryResourceContainer>& c, int markerCol) {
     if (!c) return;
     ++count;
@@ -1202,7 +1232,11 @@ static void EmitControlNode(std::string& out, std::size_t& count,
         out += k + "transform: " + pit->second.xform + "\n";
         out += k + "poseSource: " + pit->second.source + "\n";
         ++srcCounts[pit->second.source];
-    } else {                    // unfilled — mark for derive + where to look
+    } else if (auto d = TryDeriveConvention(c->m_name, dctx)) {   // convention default
+        out += k + "transform: " + *d + "\n";
+        out += k + "poseSource: derived\n";
+        ++srcCounts["derived"];
+    } else {                    // still unfilled — mark for derive + where to look
         const char* hint = ControlPoseHint(c->m_name);
         out += k + "transform: derive\n";
         out += k + "poseHint: " + hint + "\n";
@@ -1219,7 +1253,7 @@ static void EmitControlNode(std::string& out, std::size_t& count,
     }
     if (!c->m_children.empty()) {
         out += k + "children:\n";
-        for (const auto& ch : c->m_children) EmitControlNode(out, count, srcCounts, hintCounts, poses, ch, markerCol + 4);
+        for (const auto& ch : c->m_children) EmitControlNode(out, count, srcCounts, hintCounts, poses, dctx, ch, markerCol + 4);
     }
 }
 
@@ -1291,11 +1325,23 @@ static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const 
         }
     }
 
+    // 3) Convention-derive context: FK the anim skeleton and take the foot bones' world XY (projected to
+    //    ground Z=0) so the foot-roll FootBox anchors at the real foot rather than the origin.
+    DeriveCtx dctx;
+    if (!skels.empty()) {
+        const auto world = havok::sct::skmath::worldPoses(skels[0]);
+        for (std::size_t i = 0; i < skels[0].bones.size() && i < world.size(); ++i) {
+            const std::string& nm = skels[0].bones[i].name;
+            if      (nm.rfind("NPC L Foot", 0) == 0) { dctx.lx = world[i].translation.x; dctx.ly = world[i].translation.y; dctx.haveL = true; }
+            else if (nm.rfind("NPC R Foot", 0) == 0) { dctx.rx = world[i].translation.x; dctx.ry = world[i].translation.y; dctx.haveR = true; }
+        }
+    }
+
     std::string nodes;
     std::size_t count = 0;
     std::map<std::string, std::size_t> srcCounts, hintCounts;
-    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, srcCounts, hintCounts, poses, ch, 2);
-    posedOut = srcCounts["skeleton"] + srcCounts["nif"];
+    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, srcCounts, hintCounts, poses, dctx, ch, 2);
+    posedOut = srcCounts["skeleton"] + srcCounts["nif"] + srcCounts["derived"];
     std::printf("control: %s | resource-tree nif fills=%zu\n", nifNote.c_str(), srcCounts["nif"]);
 
     const auto fmtCounts = [](const std::map<std::string, std::size_t>& m) {
@@ -1305,18 +1351,21 @@ static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const 
     };
     std::string body;
     body += "# Control rig recovered from the skeleton's hkMemoryResourceContainer (\"Resource Data\").\n";
-    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). A FILLED node has\n";
-    body += "# a `transform` (its LOCAL pose) + `poseSource`: skeleton (this .hkx's referencePose,\n";
-    body += "# definitive) or nif (the sibling skeleton.nif's NiNode transform). An UNFILLED node has\n";
-    body += "# `transform: derive` + a `poseHint` (where to look): nif (cloth bone, name not matched here) /\n";
-    body += "# aux (tail = separate attached skeleton) / convention (pure helper — derive/author).\n";
+    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). Each node has a\n";
+    body += "# `transform` (LOCAL pose) + `poseSource`: skeleton (this .hkx's referencePose, definitive) /\n";
+    body += "# nif (sibling skeleton.nif NiNode) / derived (convention default — organizational dummies at\n";
+    body += "# identity, foot-roll FootBox FK-anchored at the foot on the ground; a functional starting\n";
+    body += "# point to refine in the editor). A node with none of those is `transform: derive` + a\n";
+    body += "# `poseHint` (where to look): nif (cloth bone, name unmatched) / aux (tail = separate attached\n";
+    body += "# skeleton) / convention (export/cloth chain mirroring an unfilled bone — author it).\n";
     body += "# IGNORED by the compiler + skeleton reader; here for the scene editor.\n";
     body += "source: resource-container\n";
     body += "nodeCount: " + std::to_string(count) + "\n";
     body += "posedFromSkeleton: " + std::to_string(srcCounts["skeleton"]) + "\n";
     body += "posedFromNif: " + std::to_string(srcCounts["nif"]) + "\n";
-    body += "poseSourceCounts: " + fmtCounts(srcCounts) + "\n";     // filled nodes, by real source
-    body += "deriveHintCounts: " + fmtCounts(hintCounts) + "\n";    // unfilled nodes, by hint
+    body += "derivedByConvention: " + std::to_string(srcCounts["derived"]) + "\n";
+    body += "poseSourceCounts: " + fmtCounts(srcCounts) + "\n";     // nodes with a transform, by source
+    body += "deriveHintCounts: " + fmtCounts(hintCounts) + "\n";    // still-unfilled nodes, by hint
     body += "nodes:\n";
     body += nodes;
 
@@ -1337,7 +1386,7 @@ int doControlDecompile(const std::string& in, const std::string& outArg) {
     const std::size_t n = EmitControlRig(bytes, in, outArg, err, posed);
     if (n == 0 && !err.empty()) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     if (n == 0) { std::printf("%s: no resource-container control rig present — nothing written.\n", in.c_str()); return 0; }
-    std::printf("%s: %zu control node(s), %zu posed (skeleton+nif), %zu to derive -> %s/control/rig.yaml\n",
+    std::printf("%s: %zu control node(s), %zu posed (skeleton+nif+derived), %zu unresolved -> %s/control/rig.yaml\n",
                 in.c_str(), n, posed, n - posed, outArg.c_str());
     return 0;
 }
