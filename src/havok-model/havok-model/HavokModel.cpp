@@ -1541,6 +1541,25 @@ bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir
     return true;
 }
 
+bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
+                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err) {
+    try {
+        PackFileDeserializer des;
+        des.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx br(false, true, bytes);
+        des.Deserialize(br);
+        // xmlText = the matching vanilla tagfile → oracle #NNNN (aligns with the per-mod deltas that
+        // reference those ids); empty → encounter-order (self-consistent round-trip).
+        const Identity ident = AssignIdentity(des, reg, xmlText);
+        if (!EmitHky(ident, reg, outDir, err)) return false;                 // node files
+        if (!EmitFullBaseScaffolding(ident, outDir, err)) return false;      // behavior.yaml + graphdata
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("DecompileBehaviorSchema: ") + e.what();
+        return false;
+    }
+}
+
 std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& /*reg*/, std::string& /*err*/) {
     // objects in canonical id order (== tagfile #NNNN document order): numeric base ids ascending by
     // VALUE (byte-identical to the old int order), then any new-node ($) ids after, sorted lexically.

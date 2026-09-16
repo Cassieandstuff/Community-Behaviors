@@ -85,6 +85,14 @@ bool EmitAdditiveVocab(const Identity& baseId, const Identity& mergedId,
 // decompiler's base-master output. Not used for per-mod deltas.
 bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir, std::string& err);
 
+// Schema decompile of a whole BEHAVIOR binary to a full `.hky` unit tree — the schema peer of the typed
+// DecompileBehaviorTree / ConvertPatch base path. Deserialize (MakeSchemaFactory) → AssignIdentity (oracle
+// #NNNN when `xmlText` is the matching tagfile, else encounter-order) → EmitHky (nodes) +
+// EmitFullBaseScaffolding (behavior.yaml + graphdata). Byte-identical to the typed base (emit-check gate),
+// so base + per-mod deltas are produced by ONE emitter. Behaviors only (character/project/anim stay typed).
+bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
+                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err);
+
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
 // form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field

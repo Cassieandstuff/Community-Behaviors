@@ -1777,6 +1777,19 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                      p = xtext.find("<hkobject name=\"#", p + 1)) ++xmlObjs;
 
                 if (binObjs != 0 && binObjs == xmlObjs) {
+                    // SCHEMA base decompile (the unified emitter): deserialize → SchemaObject → AssignIdentity
+                    // (oracle #NNNN from this tagfile) → EmitHky + EmitFullBaseScaffolding. Byte-identical to
+                    // the typed ConvertPatch/DecompileBehaviorTree (emit-check gate), but now the base master
+                    // and the per-mod schema deltas are produced by ONE emitter — no base↔delta drift. Typed
+                    // ConvertPatch stays as the fallback if the shared schema registry is unavailable or it errors.
+                    if (auto* sreg = havok::schema::SharedRegistry()) {
+                        std::string derr;
+                        if (havok::model::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr)) {
+                            ++r.behaviors; continue;
+                        }
+                        say("  WARN: schema base decompile failed for " + fs::path(rel).stem().string() +
+                            " (" + derr + "); trying typed oracle.");
+                    }
                     const auto pc = havok::sct::ConvertPatch(it->path().string(), xml.string(),
                                                              {}, "", "", unit.string());
                     if (pc.ok) { ++r.behaviors; continue; }
