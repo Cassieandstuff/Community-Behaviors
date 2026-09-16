@@ -78,6 +78,13 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& reg,
 bool EmitAdditiveVocab(const Identity& baseId, const Identity& mergedId,
                        const std::string& outDir, std::string& err);
 
+// Emit the whole-graph scaffolding a FULL decompile needs but EmitHky (node-only) omits:
+// `<outDir>/behavior.yaml` (packfile + behavior header: name/variableMode/rootGenerator/data) and
+// `<outDir>/data/graphdata.yaml` (the full variable/event/characterProperty roster). Together with a
+// full EmitHky node emit (no deltaIds), this reproduces the typed DecompileBehaviorTree tree — the schema
+// decompiler's base-master output. Not used for per-mod deltas.
+bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir, std::string& err);
+
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
 // form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field

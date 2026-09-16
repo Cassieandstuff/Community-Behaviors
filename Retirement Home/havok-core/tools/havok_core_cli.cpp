@@ -3180,11 +3180,32 @@ int doEmitCheck(const std::string& in, const std::string& schemaDir, const std::
     const fs::path outDir = fs::temp_directory_path() / "sct_emitcheck";
     std::error_code ec; fs::remove_all(outDir, ec);
     if (!havok::model::EmitHky(ident, reg, outDir.string(), err)) { std::printf("EMIT FAIL: %s\n", err.c_str()); return 1; }
+    // Full-base scaffolding (behavior.yaml + data/graphdata.yaml) — the whole-graph pieces EmitHky omits.
+    if (!havok::model::EmitFullBaseScaffolding(ident, outDir.string(), err)) { std::printf("SCAFFOLD FAIL: %s\n", err.c_str()); return 1; }
 
     // per-category diff vs the reference tree
     auto readFile = [](const fs::path& p) { std::ifstream f(p, std::ios::binary); std::stringstream ss; ss << f.rdbuf(); return ss.str(); };
     std::map<std::string, std::pair<int,int>> tally;   // category -> {match, total}
     int shown = 0;
+
+    // Whole-graph scaffolding files (single files, not numeric-stemmed node dirs): byte-compare directly.
+    for (const char* rel : {"behavior.yaml", "data/graphdata.yaml"}) {
+        const fs::path rf = fs::path(refDir) / rel;
+        if (!fs::is_regular_file(rf, ec)) continue;
+        auto& t = tally["(scaffold)"]; ++t.second;
+        const std::string ref = readFile(rf), mine = readFile(outDir / rel);
+        if (ref == mine) { ++t.first; }
+        else if (shown++ < 6) {
+            std::printf("  DIFF %s:\n", rel);
+            std::size_t rp = 0, mp = 0; int ln = 1;
+            while (rp < ref.size() && mp < mine.size()) {
+                std::size_t re = ref.find('\n', rp), me = mine.find('\n', mp);
+                std::string rl = ref.substr(rp, re-rp), ml = mine.substr(mp, me-mp);
+                if (rl != ml) { std::printf("    L%d ref: %s\n    L%d io:  %s\n", ln, rl.c_str(), ln, ml.c_str()); break; }
+                rp = re+1; mp = me+1; ++ln;
+            }
+        }
+    }
     for (const char* cat : {"clips","states","transitions","generators","selectors","references","tagging","modifiers"}) {
         const fs::path rc = fs::path(refDir) / cat;
         if (!fs::is_directory(rc, ec)) continue;

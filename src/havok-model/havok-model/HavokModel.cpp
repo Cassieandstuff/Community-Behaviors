@@ -1435,6 +1435,112 @@ bool EmitAdditiveVocab(const Identity& baseId, const Identity& mergedId,
     return writeVocab("variables.yaml", yVar) && writeVocab("events.yaml", yEv) && writeVocab("additive.yaml", yCp);
 }
 
+namespace {
+// The graph's hkbBehaviorGraph node (name / variableMode / rootGenerator) for the behavior.yaml header.
+const io::SchemaObject* findBehaviorGraph(const Identity& id) {
+    for (const auto& [obj, cat] : id.category)
+        if (std::string(obj->ClassName()) == "hkbBehaviorGraph")
+            return dynamic_cast<const io::SchemaObject*>(obj);
+    return nullptr;
+}
+
+// The FULL graph roster (every variable/event/characterProperty), NOT the base-vs-merged diff that
+// EmitAdditiveVocab emits. Byte-matches the typed emitGraphData (BehaviorDecompiler.cpp) so the schema
+// decompiler reproduces data/graphdata.yaml exactly. Reads the same fields EmitAdditiveVocab does, minus
+// the "skip if already in base" filter.
+std::string emitGraphDataFull(const io::SchemaObject* gd, const io::SchemaObject* sd) {
+    namespace en = havok::model::enums;
+    using schema::Scalar;
+    auto namesOf = [](const io::SchemaObject* s, const char* f) -> std::vector<std::string> {
+        if (!s) return {}; const io::FieldValue* v = fieldByName(*s, f); return v ? v->strs : std::vector<std::string>{};
+    };
+    const auto vars   = namesOf(sd, "variableNames");
+    const auto events = namesOf(sd, "eventNames");
+    const auto cps    = namesOf(sd, "characterPropertyNames");
+    const io::FieldValue* varInfos = gd ? fieldByName(*gd, "variableInfos") : nullptr;
+    const io::FieldValue* evInfos  = gd ? fieldByName(*gd, "eventInfos") : nullptr;
+    const io::FieldValue* cpInfos  = gd ? fieldByName(*gd, "characterPropertyInfos") : nullptr;
+    const io::FieldValue* vivF     = gd ? fieldByName(*gd, "variableInitialValues") : nullptr;
+    const auto* viv = (vivF && vivF->obj) ? dynamic_cast<const io::SchemaObject*>(vivF->obj.get()) : nullptr;
+    const io::FieldValue* wordVals = viv ? fieldByName(*viv, "wordVariableValues") : nullptr;
+    const io::FieldValue* quadVals = viv ? fieldByName(*viv, "quadVariableValues") : nullptr;
+
+    std::string y;
+    if (vars.empty()) {
+        y += "variables: []\n\n";
+    } else {
+        y += "variables:\n";
+        for (std::size_t i = 0; i < vars.size(); ++i) {
+            y += "  - name: " + q(vars[i]) + "\n";
+            long type = 0; if (const auto* vi = elemAt(varInfos, i)) type = decodeInt(fieldByName(*vi, "type")->raw, Scalar::Int8);
+            const std::string typeStr = revNum(en::VariableType(), type);
+            y += "    type: " + typeStr + "\n";
+            long val = 0; if (const auto* wv = elemAt(wordVals, i)) val = decodeInt(fieldByName(*wv, "value")->raw, Scalar::Int32);
+            y += "    value: " + std::to_string(val) + "\n";
+            if ((typeStr == "VARIABLE_TYPE_VECTOR4" || typeStr == "VARIABLE_TYPE_QUATERNION" || typeStr == "VARIABLE_TYPE_VECTOR3")
+                && quadVals && val >= 0 && static_cast<std::size_t>(val) * 16 + 16 <= quadVals->raw.size())
+                y += "    quadValue: " + pvecRaw(std::vector<std::uint8_t>(quadVals->raw.begin() + val * 16, quadVals->raw.begin() + val * 16 + 16)) + "\n";
+        }
+        y += "\n";
+    }
+    if (events.empty()) {
+        y += "events: []\n";
+    } else {
+        y += "events:\n";
+        for (std::size_t i = 0; i < events.size(); ++i) {
+            y += "  - name: " + q(events[i]) + "\n";
+            long flags = 0; if (const auto* ei = elemAt(evInfos, i)) flags = decodeInt(fieldByName(*ei, "flags")->raw, Scalar::UInt32);
+            y += "    flags: " + en::FormatFlags(flags, en::EventInfoFlags()) + "\n";
+        }
+    }
+    if (!cps.empty()) {
+        y += "\ncharacterPropertyNames:\n";
+        for (std::size_t i = 0; i < cps.size(); ++i) {
+            y += "  - name: " + q(cps[i]) + "\n";
+            const auto* ci = elemAt(cpInfos, i);
+            long type = ci ? decodeInt(fieldByName(*ci, "type")->raw, Scalar::Int8) : 0;
+            y += "    type: " + revNum(en::VariableType(), type) + "\n";
+            long flags = 0;
+            if (ci) if (const io::FieldValue* roleF = fieldByName(*ci, "role"); roleF && roleF->obj)
+                if (const auto* role = dynamic_cast<const io::SchemaObject*>(roleF->obj.get()))
+                    flags = decodeInt(fieldByName(*role, "flags")->raw, Scalar::Int16);
+            y += "    flags: " + en::FormatFlags(flags, en::RoleFlags()) + "\n";
+        }
+    }
+    return y;
+}
+} // namespace
+
+// Whole-graph scaffolding EmitHky (node-only) omits: behavior.yaml (packfile + behavior header) and
+// data/graphdata.yaml (full roster). Together with EmitHky's node files this reproduces the typed
+// DecompileBehaviorTree tree byte-for-byte — the schema decompiler's full-base output. Written only for a
+// FULL decompile (not a per-mod delta, which carries only touched nodes + added vocab via EmitAdditiveVocab).
+bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir, std::string& err) {
+    namespace fs = std::filesystem;
+    namespace en = havok::model::enums;
+    std::error_code ec;
+    const auto* bg = findBehaviorGraph(identity);
+    const auto [gd, sd] = findGraphData(identity);
+
+    std::string h;
+    h += "packfile:\n  classversion: 8\n  contentsversion: \"hk_2010.2.0-r1\"\n\n";
+    h += "behavior:\n";
+    h += "  name: " + q(bg ? fStr(*bg, "name") : std::string()) + "\n";
+    h += "  variableMode: " + revNum(en::VariableMode(), bg ? fInt(*bg, "variableMode") : 0) + "\n";
+    if (bg) if (const io::FieldValue* rg = fieldByName(*bg, "rootGenerator"); rg && rg->obj)
+        if (auto it = identity.ids.find(rg->obj.get()); it != identity.ids.end())
+            h += "  rootGenerator: " + it->second + "\n";
+    h += "  data: graphdata\n";
+    { std::ofstream of(fs::path(outDir) / "behavior.yaml", std::ios::binary); of << h;
+      if (!of) { err = "EmitFullBaseScaffolding: cannot write behavior.yaml"; return false; } }
+
+    const fs::path dataDir = fs::path(outDir) / "data";
+    fs::create_directories(dataDir, ec);
+    { std::ofstream of(dataDir / "graphdata.yaml", std::ios::binary); of << emitGraphDataFull(gd, sd);
+      if (!of) { err = "EmitFullBaseScaffolding: cannot write graphdata.yaml"; return false; } }
+    return true;
+}
+
 std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& /*reg*/, std::string& /*err*/) {
     // objects in canonical id order (== tagfile #NNNN document order): numeric base ids ascending by
     // VALUE (byte-identical to the old int order), then any new-node ($) ids after, sorted lexically.
