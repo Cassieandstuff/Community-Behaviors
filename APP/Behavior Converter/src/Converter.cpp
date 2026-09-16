@@ -1067,30 +1067,54 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const std::string bname      = attributed ? pm->second : std::string("BehaviorFiles");
                 const fs::path    outBundle  = plugins / (bname + ".hky");
 
-                // Materialize the base graph as a vanilla binary (round-trips to the base's own
-                // numbering, so the derived delta's matched ids line up with the shipped base).
-                const fs::path vanBin = tmpDir / ("loosebase_" + fs::path(u.prefix).stem().string() + ".hkx");
-                try {
-                    auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(u.prefix) });
-                    if (data.boneNames.empty())                         // inject the skeleton bone list
-                        if (const std::string actor = actorPathOf(u.prefix); !actor.empty())
-                            data.boneNames = boneNamesForActor(actor);
-                    const auto cr = havok::sct::CompileBehavior(data);
-                    std::string werr;
-                    if (!cr.ok || !havok::sct::WriteHavokFile(vanBin.string(), cr.bytes, &werr)) {
-                        ++r.skipped;
-                        say("  " + bname + ": " + u.prefix + " — base compile FAILED: " +
-                            (cr.ok ? werr : cr.error));
+                // Base numbering ORACLE for the derive: the delta's matched ids must equal the SHIPPED
+                // base master's #NNNN. For these no-template graphs the base master IS a straight
+                // decompile of the vanilla binary, so deriving against the vanilla .hkx gives matched
+                // ids that line up exactly. A compile/decompile ROUND-TRIP of the base master does NOT
+                // preserve #NNNN (only names survive it) — that desynced every override and crashed
+                // horsebehavior. Prefer the vanilla binary from SKYRIM_DATASOURCE (the unpacked vanilla
+                // root); fall back to the round-trip only when it is absent (degraded — new nodes are
+                // still namespaced so they can't collide, but matched overrides may misalign).
+                fs::path vanBin;
+                bool vanBinTemp = false;
+                if (const char* ds = std::getenv("SKYRIM_DATASOURCE")) {
+                    const fs::path cand = fs::path(ds) / u.prefix;   // prefix is meshes-relative
+                    if (fs::is_regular_file(cand, we)) vanBin = cand;
+                }
+                if (vanBin.empty()) {
+                    vanBin = tmpDir / ("loosebase_" + fs::path(u.prefix).stem().string() + ".hkx");
+                    vanBinTemp = true;
+                    try {
+                        auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(u.prefix) });
+                        if (data.boneNames.empty())                         // inject the skeleton bone list
+                            if (const std::string actor = actorPathOf(u.prefix); !actor.empty())
+                                data.boneNames = boneNamesForActor(actor);
+                        const auto cr = havok::sct::CompileBehavior(data);
+                        std::string werr;
+                        if (!cr.ok || !havok::sct::WriteHavokFile(vanBin.string(), cr.bytes, &werr)) {
+                            ++r.skipped;
+                            say("  " + bname + ": " + u.prefix + " — base compile FAILED: " +
+                                (cr.ok ? werr : cr.error));
+                            continue;
+                        }
+                    } catch (const std::exception& e) {
+                        ++r.skipped; say("  " + bname + ": " + u.prefix + " — base load threw: " + e.what());
                         continue;
                     }
-                } catch (const std::exception& e) {
-                    ++r.skipped; say("  " + bname + ": " + u.prefix + " — base load threw: " + e.what());
-                    continue;
                 }
 
                 const fs::path unit = outBundle / fs::path(u.prefix);
-                const auto res = havok::sct::DeriveLooseBehaviorDelta(vanBin.string(), winner.string(), unit.string());
-                fs::remove(vanBin, we);
+                // Mod namespace code for this bundle's NEW derived nodes ("<code>$N"). Short + unique:
+                // an alnum-lowercased slug of the bundle name (<=8 chars) + a 4-hex hash of the full
+                // name, so two mods never share a code and the id stays filename-safe/MAX_PATH-friendly.
+                std::string slug;
+                for (char c : ToLower(bname)) { if (std::isalnum(static_cast<unsigned char>(c))) slug += c; if (slug.size() >= 8) break; }
+                unsigned h16 = static_cast<unsigned>(std::hash<std::string>{}(bname) & 0xFFFFu);
+                std::string hx(4, '0');
+                for (int i = 3; i >= 0; --i) { hx[i] = "0123456789abcdef"[h16 & 0xF]; h16 >>= 4; }
+                const std::string modCode = slug + hx;
+                const auto res = havok::sct::DeriveLooseBehaviorDelta(vanBin.string(), winner.string(), unit.string(), modCode);
+                if (vanBinTemp) fs::remove(vanBin, we);   // only the round-trip temp; never the datasource vanilla
                 if (!res.ok) { ++r.skipped; say("  " + bname + ": " + u.prefix + " — DERIVE FAILED: " + res.error); continue; }
                 if (res.changedNodes == 0 && res.newNodes == 0) { fs::remove_all(unit, we); continue; }  // vanilla — nothing to carry
                 ++r.deltas;

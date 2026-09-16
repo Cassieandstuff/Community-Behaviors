@@ -6361,8 +6361,9 @@ int main(int argc, char** argv) {
     if (verb == "patchdelta")   return doPatchDelta(in, extra, out);
     if (verb == "derive-delta") return doDeriveDelta(in, extra, out);
     if (verb == "derive-lib") {   // debug: exercise the library DeriveLooseBehaviorDelta
-        if (extra.empty() || out.empty()) { std::printf("usage: derive-lib <van.hkx> <mod.hkx> -o <outDelta>\n"); return 2; }
-        const auto res = havok::sct::DeriveLooseBehaviorDelta(in, extra[0], out);
+        if (extra.empty() || out.empty()) { std::printf("usage: derive-lib <van.hkx> <mod.hkx> [modCode] -o <outDelta>\n"); return 2; }
+        const std::string code = extra.size() > 1 ? extra[1] : std::string("d");
+        const auto res = havok::sct::DeriveLooseBehaviorDelta(in, extra[0], out, code);
         std::printf("derive-lib: ok=%d err='%s' matched=%d added=%d changed=%d new=%d removed=%d baseMax=%ld\n",
                     res.ok, res.error.c_str(), res.matched, res.added, res.changedNodes, res.newNodes,
                     res.removedFromBase, res.baseMaxId);
