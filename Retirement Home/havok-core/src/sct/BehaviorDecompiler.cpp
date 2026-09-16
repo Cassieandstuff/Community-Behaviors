@@ -247,16 +247,15 @@ struct BehaviorEmitter {
     // override to its changed params, keep only this mod's nodes) before writing the
     // native per-mod delta. Null for a normal decompile (writes files exactly as before).
     std::unordered_map<std::string, std::pair<std::string, std::string>>* sink = nullptr;
-    std::unordered_map<std::string, int> fileSeq;   // per-sub filename counter — cosmetic; identity is the id: field
     void write(const char* sub, const std::string& id, const std::string& y) {
-        if (dryRun) return;                       // pass 1 only assigns editorIds; emits nothing
-        const std::string nsLine = nsDecl.empty() ? std::string() : ("ns: " + nsDecl + "\n");
+        // `ns` is a NODE-level declaration (Stage A). Owner-inlined data sidecars (the "data" sub:
+        // <id>_expressions / _eventRanges / _bones / _keyframedBonesList) are owned sub-arrays, not
+        // minted nodes, so they carry no ns line — matching the schema emitter (emitModifierSidecars).
+        const std::string nsLine = (nsDecl.empty() || std::string(sub) == "data")
+                                       ? std::string() : ("ns: " + nsDecl + "\n");
         const std::string full = "id: " + id + "\n" + nsLine + y;
         if (sink) { (*sink)[id] = { sub, full }; return; }
-        // Filename is a numeric counter, NOT the id: a (class,name) editorId contains ':' and spaces,
-        // which are illegal/awkward in filenames. The loader keys off the id: field's content, never
-        // the filename, so this is purely cosmetic and collision-free.
-        writeText(dir / sub / (std::to_string(fileSeq[sub]++) + ".yaml"), full);
+        writeText(dir / sub / (id + ".yaml"), full);
     }
 
     // Object identity: a stable numeric id per object, assigned on first encounter
@@ -272,23 +271,14 @@ struct BehaviorEmitter {
     // for a normal decompile (byte-identical to before).
     const std::unordered_map<const void*, std::string>* stableIds = nullptr;
 
-    // ── (class, name) editorID identity (breezy-gliding-nebula plan) ──
-    // A node's stable identity is its NAME, not a number. A state's is its owning state machine's name
-    // + '_' + the state's name (state names are unique only within their SM). This dissolves the numeric
-    // id-space mismatch between the base master and per-mod deltas that made merges collide. Built by a
-    // DRY pre-pass over the same DFS (pass 1 assigns editorIds, writes nothing), then used by uq() as the
-    // identity for every filename/id/ref in the real emit (pass 2). editorIds supersedes any injected
-    // numeric stableIds; anything unnamed falls back to the encounter-order number (never a ref target).
-    bool                                          dryRun = false;
-    bool                                          useEditorIds = false;   // base path on; delta path off (still tagfile) until converted
-    // Stage B (node identity): when non-empty, every emitted node declares `ns: <nsDecl>`. The base
-    // master sets "self" — Skyrim mints all its nodes. Empty (the delta path) emits no ns line; the
-    // converter fills per-node self/master[i] in Stage C. Byte-neutral for compiled graphdata (ns is
-    // loader metadata, never compiled) — it only adds a line to the emitted node YAML.
+    // Node identity: a node declares its namespace membership with `ns` (Stage A of the node-identity
+    // plan). When non-empty, every emitted node declares `ns: <nsDecl>`. The base master sets "self" —
+    // Skyrim mints all its nodes. Empty (the delta path) emits no ns line: an override's #NNNN already
+    // resolves to the base node it targets, and a new node's mod$N is self-evidently minted, so the
+    // converter path needs no declaration (its identity is oracle-aligned; ns is the AUTHORING contract,
+    // filled first-class by the scene editor). Byte-neutral for compiled graphdata (ns is loader
+    // metadata, never compiled) — it only adds a line to the emitted node YAML.
     std::string                                   nsDecl;
-    std::unordered_map<const void*, std::string>  editorIds;
-    std::string                                   curSMName;   // owning SM name while emitting its states
-    void setEditorId(const void* obj, const std::string& eid) { if (obj) editorIds.try_emplace(obj, eid); }
 
     // Delta emit: sub-object -> the top-level node whose YAML INLINES it. Several
     // binary objects have no YAML node of their own — a state/SM's
@@ -320,7 +310,6 @@ struct BehaviorEmitter {
     }
     std::string uq(const void* obj, const std::string& = {}) {
         if (!obj) return "null";
-        if (useEditorIds) { if (auto it = editorIds.find(obj); it != editorIds.end()) return it->second; }  // (class,name) identity
         if (stableIds) { if (auto it = stableIds->find(obj); it != stableIds->end()) return it->second; }
         return std::to_string(idNum(obj));
     }
@@ -357,7 +346,6 @@ void BehaviorEmitter::effect(const std::shared_ptr<hkbTransitionEffect>& e) {
     // save/restore curOwner so the owner's later inline blocks attribute correctly.
     const void* savedOwner = curOwner;
     curOwner = e.get();
-    setEditorId(e.get(), std::string(e->ClassName()) + ":" + e->m_name);   // (class, name) identity
     const auto be = std::dynamic_pointer_cast<hkbBlendingTransitionEffect>(e);
     if (!be) throw std::runtime_error("behavior decompile: unsupported transition effect '" + std::string(e->ClassName()) + "'");
     std::string y;
@@ -384,8 +372,6 @@ void BehaviorEmitter::stateInfo(const std::shared_ptr<hkbStateMachineStateInfo>&
     if (!s) return;
     if (!visited.insert(s.get()).second) return;
     curOwner = s.get();
-    // Identity = owning-SM name + '_' + state name (state names are unique only within their SM).
-    setEditorId(s.get(), "hkbStateMachineStateInfo:" + (curSMName.empty() ? s->m_name : (curSMName + "_" + s->m_name)));
     std::string y;
     y += "class: hkbStateMachineStateInfo\n";
     y += "name: " + q(s->m_name) + "\n";
@@ -418,10 +404,6 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
     if (!n) return;
     if (!visited.insert(n.get()).second) return;
     curOwner = n.get();
-    // Identity = (class, name): CLASS-qualified so a clip and a state machine that share a name (vanilla
-    // has both an "IdleChiselKneeling" clip AND SM) stay distinct — a generator ref then resolves to the
-    // right one. Name-only would collapse them and drop the shadowed subtree.
-    setEditorId(n.get(), std::string(n->ClassName()) + ":" + n->m_name);
 
     const std::string cls = n->ClassName();
 
@@ -456,16 +438,10 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
         // key (states use the same key for their own transitions).
         y += transitionsBlock(sm.m_wildcardTransitions, "");
         ownTransitions(sm.m_wildcardTransitions, n.get());
-        // States are identified within THIS SM's namespace (curSMName), so uq(state) and each
-        // stateInfo() below produce "<SMname>_<stateName>". Save/restore for nested SMs.
-        const std::string prevSM = curSMName;
-        curSMName = sm.m_name;
-        for (const auto& s : sm.m_states) if (s) setEditorId(s.get(), "hkbStateMachineStateInfo:" + curSMName + "_" + s->m_name);
         y += "states:\n";
         for (const auto& s : sm.m_states) if (s) y += "  - " + uq(s) + "\n";
         write("states", uq(n), y);
         for (const auto& s : sm.m_states) stateInfo(s);
-        curSMName = prevSM;
         return;
     }
 
@@ -1169,25 +1145,12 @@ DecompileResult DecompileBehaviorTree(const std::shared_ptr<hkbBehaviorGraph>& b
         em.dir = dir;
         em.gd = bg->m_data.get();
         em.bones = bones;               // null = numeric bone indices; set = bone NAMES
-        em.stableIds = stableIds;       // last-resort fallback; editorIds (below) supersede it
-        em.useEditorIds = true;         // base path is now (class,name)-keyed
+        em.stableIds = stableIds;       // null = encounter-order ids; set = stable (oracle #NNNN) ids
         em.nsDecl = "self";             // Stage B: the base master mints all its nodes -> ns: self
-        // Pass 1 (dry): walk the graph assigning (class,name) editorIds — every node its name, every
-        // state its owning SM's name + '_' + state name. Writes nothing.
-        em.dryRun = true;
-        em.node(bg->m_rootGenerator);
-        // Pass 2: emit for real. uq() now returns the editorId for every ref target (forward or back).
-        em.dryRun = false;
-        em.visited.clear();
-        em.objIds.clear(); em.nextId = 0;
-        em.node(bg->m_rootGenerator);   // writes node files keyed by (class,name)
+        em.node(bg->m_rootGenerator);   // assigns ids (root generator = id 0) + writes node files
 
-        // Report the id each object actually received: editorId for every named node/state, plus any
-        // unnamed fallback objects. Callers map object -> id from this.
-        if (outIds) {
-            for (const auto& [obj, eid] : em.editorIds) (*outIds)[obj] = eid;
-            for (const auto& [obj, n]   : em.objIds)    outIds->try_emplace(obj, em.uq(obj));
-        }
+        // Report the id each object actually received (uq = stableId if set, else the number).
+        if (outIds) for (const auto& [obj, n] : em.objIds) (*outIds)[obj] = em.uq(obj);
 
         {
             std::string y;
@@ -1220,26 +1183,14 @@ DecompileResult DecompileNativeDelta(
     try {
         std::error_code ec; fs::create_directories(outDir, ec);
 
-        // TWO-PASS emit into an in-memory sink, keyed by (class,name) editorId (matching the base master
-        // and the ConvertModDelta path) so refs + identity align with the base the runtime merges onto.
-        // Pass 1 (dry) assigns editorIds over the whole graph; pass 2 emits.
+        // Full DFS emit into an in-memory sink, with stable (oracle #NNNN / mod$N) ids, so
+        // refs + filenames match the base bundle the runtime merges this delta onto.
         std::unordered_map<std::string, std::pair<std::string, std::string>> sink;
         BehaviorEmitter em;
         em.gd = bg->m_data.get();
-        em.stableIds = &stableIds;      // fallback only; editorIds supersede
+        em.stableIds = &stableIds;      // vanilla -> tagfile #NNNN, new nodes -> mod$N
         em.sink = &sink;
-        em.useEditorIds = true;
-        em.dryRun = true;
-        em.node(bg->m_rootGenerator);
-        em.dryRun = false;
-        em.visited.clear(); em.objIds.clear(); em.nextId = 0;
-        em.node(bg->m_rootGenerator);   // sink keyed by editorId; each node's yaml carries `id: <editorId>`
-
-        // Caller's stableIds/deltaIds are tagfile #NNNN; map NAMED nodes to their editorId (nameless /
-        // inline objects have no editorId and keep #NNNN — they fold into their owner below).
-        std::unordered_map<std::string, std::string> old2new;
-        for (const auto& [obj, sid] : stableIds)
-            if (auto e = em.editorIds.find(obj); e != em.editorIds.end()) old2new[sid] = e->second;
+        em.node(bg->m_rootGenerator);   // sink keyed by stable id; each node's yaml carries `id: <#NNNN|mod$N>`
 
         // Fold changed ids with NO node of their own (owner-inlined sub-objects: a
         // state/SM's hkbStateMachineTransitionInfoArray / EventPropertyArray, a
@@ -1249,18 +1200,16 @@ DecompileResult DecompileNativeDelta(
         // #NNNN while the owner's fields stay unchanged, so only the sub-object id
         // lands in deltaIds; without this fold the mod's edit silently vanished (BFCO's
         // vanilla-state attack transitions -> from-neutral light attacks played vanilla).
-        std::set<std::string> writeIds;
+        std::set<std::string> writeIds(deltaIds);
         {
             std::unordered_map<std::string, const void*> idToObj;
             idToObj.reserve(stableIds.size());
             for (const auto& [obj, sid] : stableIds) idToObj.emplace(sid, obj);
             for (const auto& id : deltaIds) {
-                // Named node touched directly -> its editorId (the sink key).
-                if (auto n = old2new.find(id); n != old2new.end() && sink.count(n->second)) { writeIds.insert(n->second); continue; }
+                if (sink.count(id)) continue;                       // has its own node
                 const auto oit = idToObj.find(id);
                 const void* obj = (oit != idToObj.end()) ? oit->second : nullptr;
-                // owner chain (registered flat to the top-level node; walk defensively) — the owning
-                // node is identified by its editorId (the sink key), not its #NNNN.
+                // owner chain (registered flat to the top-level node; walk defensively)
                 int hops = 0;
                 const void* owner = obj;
                 std::string ownerId;
@@ -1268,8 +1217,8 @@ DecompileResult DecompileNativeDelta(
                     const auto sub = em.subOwner.find(owner);
                     if (sub == em.subOwner.end()) { owner = nullptr; break; }
                     owner = sub->second;
-                    if (const auto e = em.editorIds.find(owner);
-                        e != em.editorIds.end() && sink.count(e->second)) { ownerId = e->second; break; }
+                    if (const auto sit = stableIds.find(owner);
+                        sit != stableIds.end() && sink.count(sit->second)) { ownerId = sit->second; break; }
                 }
                 if (!ownerId.empty()) {
                     writeIds.insert(ownerId);
@@ -1300,14 +1249,13 @@ DecompileResult DecompileNativeDelta(
         static constexpr const char* kSidecarSuffixes[] = {
             "_expressions", "_eventRanges", "_bones", "_keyframedBonesList"
         };
-        int fseq = 0;   // numeric filenames (an editorId contains ':'; identity is the id: field)
         for (const auto& id : writeIds) {
             if (auto it = sink.find(id); it != sink.end())
-                writeText(outDir / it->second.first / (std::to_string(fseq++) + ".yaml"), it->second.second);
+                writeText(outDir / it->second.first / (id + ".yaml"), it->second.second);
             for (const char* suffix : kSidecarSuffixes) {
                 const std::string skey = id + suffix;
                 if (auto sc = sink.find(skey); sc != sink.end())
-                    writeText(outDir / sc->second.first / (std::to_string(fseq++) + ".yaml"), sc->second.second);
+                    writeText(outDir / sc->second.first / (skey + ".yaml"), sc->second.second);
             }
         }
 
