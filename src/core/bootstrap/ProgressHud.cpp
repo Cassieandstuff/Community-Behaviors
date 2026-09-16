@@ -13,39 +13,50 @@
 #include <backends/imgui_impl_dx11.h>
 #include <backends/imgui_impl_win32.h>
 
-#include <MinHook.h>
+#include "Hooks/factory/Install.h"   // hooks::InstallCallDetour — trampoline write_call<5>
 
+// Startup progress bar, modelled on Community Shaders' Menu (src/Menu.cpp Init + src/Hooks.cpp draw):
+//   • ImGui context + backends + font/device objects are built ONCE, EAGERLY, at Install() time —
+//     off the live present path — exactly like CS's Menu::Init at renderer init. The OLD design built
+//     all of that lazily inside the FIRST hooked Present (a heavy render-thread hitch — font-atlas GPU
+//     upload — landing mid-frame on a live menu, which stalled presentation and ghosted/minimized the
+//     borderless window). Building it up front makes the first real bar frame cheap.
+//   • Each frame draws to a FRESH render-target view off the CURRENT backbuffer (created + released per
+//     present), so a swapchain resize/transition can never leave us pointing at a stale target — the CS
+//     "always use the live framebuffer" principle, adapted (CS uses the game's kFRAMEBUFFER RTV; we
+//     recreate one from the swapchain, which needs no game-render-target plumbing and is only paid while
+//     the compile is running).
+//   • Install() is called EARLY (kDataLoaded, before the menu), not at the late compile gate, so the bar
+//     is live from the first frame and the eager init is nowhere near the live-present critical path.
 namespace CB::ProgressHud {
 
     namespace {
-        using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+        // We hook the GAME'S internal present CALL (OAR's hook point), not the raw IDXGISwapChain::Present
+        // vtable. The vtable hook drew a valid frame (correct size, real geometry, valid draw data — proven
+        // by the DIAG log) that never appeared: Community Shaders owns the render pipeline and composites
+        // over a raw-vtable draw. Hooking the game's present call — original first, then our draw — lands
+        // the bar ON TOP of everything the engine + CS rendered, the way OAR's overlay coexists with CS.
+        using PresentCallFn = void (*)(std::uint32_t);
 
-        PresentFn               s_origPresent = nullptr;
-        ID3D11Device*           s_device      = nullptr;
-        ID3D11DeviceContext*    s_ctx         = nullptr;
-        ID3D11RenderTargetView* s_rtv         = nullptr;
-        std::atomic<bool>       s_imguiReady{ false };
-        std::atomic<bool>       s_installed{ false };
-        unsigned                s_frames = 0;
+        PresentCallFn        s_origPresent = nullptr;   // original present call (from the trampoline)
+        ID3D11Device*        s_device      = nullptr;
+        ID3D11DeviceContext* s_ctx         = nullptr;
+        std::atomic<bool>    s_imguiReady{ false };
+        std::atomic<bool>    s_installed{ false };
 
-        // Lazy ImGui init on the first hooked present — device/context/window come from the swapchain
-        // the game just presented, so everything is guaranteed live. (OAR/CS do exactly this.)
-        void EnsureImGui(IDXGISwapChain* swap)
+        // EAGER ImGui init — context + platform/renderer backends + device objects (font atlas), built
+        // ON THE CALLING THREAD at Install time, before the Present hook is enabled. Everything the first
+        // live present used to build lazily is done here instead. Returns false if the swapchain/device
+        // isn't ready yet (caller retries later). Runs once; single-threaded (no draw can race it because
+        // the hook isn't enabled until this returns).
+        bool InitImGui(IDXGISwapChain* swap)
         {
-            if (s_imguiReady.load(std::memory_order_acquire)) return;
-
             DXGI_SWAP_CHAIN_DESC desc{};
-            if (FAILED(swap->GetDesc(&desc))) return;
+            if (FAILED(swap->GetDesc(&desc))) return false;
             if (FAILED(swap->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&s_device))) || !s_device)
-                return;
+                return false;
             s_device->GetImmediateContext(&s_ctx);
-
-            ID3D11Texture2D* back = nullptr;
-            if (SUCCEEDED(swap->GetBuffer(0, IID_PPV_ARGS(&back))) && back) {
-                s_device->CreateRenderTargetView(back, nullptr, &s_rtv);
-                back->Release();
-            }
-            if (!s_ctx || !s_rtv) return;
+            if (!s_ctx) return false;
 
             IMGUI_CHECKVERSION();
             ImGui::CreateContext();
@@ -57,16 +68,30 @@ namespace CB::ProgressHud {
             ImGui_ImplWin32_Init(desc.OutputWindow);
             ImGui_ImplDX11_Init(s_device, s_ctx);
 
+            // Force the DX11 backend to build its device objects (shaders, buffers, and the FONT ATLAS
+            // texture) NOW — ImGui_ImplDX11_NewFrame creates them when missing. Run one complete, balanced
+            // no-op frame (NewFrame → EndFrame, no Render/target bind) so the heavy GPU upload happens here,
+            // off the live-present path, instead of inside the first hooked present. DisplaySize is set
+            // explicitly in case the window client rect isn't queryable this early (avoids a NewFrame assert).
+            ImGui_ImplDX11_NewFrame();
+            ImGui_ImplWin32_NewFrame();
+            io.DisplaySize = ImVec2(static_cast<float>(desc.BufferDesc.Width),
+                                    static_cast<float>(desc.BufferDesc.Height));
+            ImGui::NewFrame();
+            ImGui::EndFrame();
+
             s_imguiReady.store(true, std::memory_order_release);
-            LOG_INFO("ProgressHud: imgui initialised on the game swapchain ({}x{}).",
-                     desc.BufferDesc.Width, desc.BufferDesc.Height);
+            LOG_INFO("ProgressHud: imgui pre-initialised early ({}x{}) — font/device objects built off the "
+                     "present path (Community Shaders pattern).", desc.BufferDesc.Width, desc.BufferDesc.Height);
+            return true;
         }
 
-        // Draw the bar ON TOP of the frame the game just rendered (no clear — the game's frame stays).
+        // Draw the bar ON TOP of the frame the game just rendered (no clear — the game's frame stays), to a
+        // FRESH RTV off the current backbuffer. Only while the compile is running.
         void DrawBar()
         {
             std::size_t done = 0, total = 0;
-            if (!ProgressOverlay::ReadProgress(done, total)) return;   // compile not running → nothing to draw
+            if (!ProgressOverlay::ReadProgress(done, total)) return;   // no compile running → nothing to draw
 
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
@@ -99,29 +124,39 @@ namespace CB::ProgressHud {
                          ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing);
             ImGui::TextUnformatted("Community Behaviors  -  compiling behaviors");
             ImGui::Spacing();
-            const float frac = total ? static_cast<float>(done) / static_cast<float>(total) : 0.0f;
-            char label[64];
-            std::snprintf(label, sizeof label, "%zu / %zu", done, total);
-            ImGui::ProgressBar(frac, ImVec2(460.0f, 24.0f), label);
+            if (total == 0) {
+                // Indeterminate: the gate armed the bar before Init finished, so the real total isn't
+                // known yet. A negative fraction makes ImGui animate a sweeping bar ("working…").
+                ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()),
+                                   ImVec2(460.0f, 24.0f), "compiling\xE2\x80\xA6");   // "compiling…"
+            } else {
+                const float frac = static_cast<float>(done) / static_cast<float>(total);
+                char label[64];
+                std::snprintf(label, sizeof label, "%zu / %zu", done, total);
+                ImGui::ProgressBar(frac, ImVec2(460.0f, 24.0f), label);
+            }
             ImGui::End();
 
             ImGui::PopStyleVar(5);
             ImGui::PopStyleColor(5);
 
             ImGui::Render();
-            s_ctx->OMSetRenderTargets(1, &s_rtv, nullptr);
-            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-            if (s_frames++ == 0)
-                LOG_INFO("ProgressHud: first bar frame drawn inside the game present.");
+            // Draw to the currently-bound target — do NOT bind our own. At this hook point (right after the
+            // game's present call) the engine's framebuffer RTV is already bound, so RenderDrawData lands the
+            // bar on the exact surface being scanned out. Binding our own renderView/buffer-0 RTV instead put
+            // valid geometry onto a surface Community Shaders wasn't presenting — the draw ran but never
+            // showed. This is OAR's method, which is why it coexists with CS.
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         }
 
-        HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* swap, UINT syncInterval, UINT flags)
+        // Our detour on the game's present call. Original FIRST (the engine + CS render the finished
+        // frame), THEN our bar on top — OAR's ordering, which is why its overlay survives CS.
+        void PresentThunk(std::uint32_t a_arg)
         {
-            EnsureImGui(swap);
+            s_origPresent(a_arg);
             if (s_imguiReady.load(std::memory_order_acquire))
                 DrawBar();
-            return s_origPresent(swap, syncInterval, flags);
         }
     }  // namespace
 
@@ -132,20 +167,37 @@ namespace CB::ProgressHud {
         auto* win  = RE::BSGraphics::Renderer::GetCurrentRenderWindow();
         auto* swap = win ? reinterpret_cast<IDXGISwapChain*>(win->swapChain) : nullptr;
         if (!swap) {
-            LOG_INFO("ProgressHud: swapchain not up yet — present hook not installed (will retry).");
+            LOG_INFO("ProgressHud: swapchain not up yet — install deferred (will retry at the compile gate).");
             return false;
         }
 
-        void** vtbl    = *reinterpret_cast<void***>(swap);
-        void*  present = vtbl[8];   // IDXGISwapChain::Present — index 8 (IUnknown 0-2, IDXGIObject 3-6, IDXGIDeviceSubObject 7, Present 8)
-        if (MH_CreateHook(present, reinterpret_cast<void*>(&HookPresent),
-                          reinterpret_cast<void**>(&s_origPresent)) != MH_OK ||
-            MH_EnableHook(present) != MH_OK) {
-            LOG_ERROR("ProgressHud: failed to hook swapchain Present — no compile progress bar.");
+        // Build imgui + its device objects up front, BEFORE enabling the hook, so the first live present
+        // that draws the bar does zero heavy work (the CS Menu::Init pattern).
+        if (!InitImGui(swap)) {
+            LOG_ERROR("ProgressHud: eager imgui init failed — no compile progress bar.");
             return false;
         }
+
+        // Hook the game's present CALL (OAR's hook point), via the trampoline write_call<5>. This is a
+        // CALL to the present function inside the render loop; our detour runs the original then draws the
+        // bar on top of the finished frame — coexisting with Community Shaders (the raw DXGI-vtable hook did
+        // not: CS composited over it). Requires SKSE::AllocTrampoline (done at plugin load).
+        // OAR's present-call site, per runtime: SE id 75461 / AE id 77246 / VR offset 0xDBBDD0, with the
+        // CALL sitting at +0x9 (SE/AE) or +0x15 (VR) into that function. version()[1]: 5=SE, 6=AE, 4=VR.
+        const auto           ver  = REL::Module::get().version();
+        const bool           vr   = ver[1] < 5;
+        const std::uintptr_t base = vr ? REL::Relocation<std::uintptr_t>{ REL::Offset(0xDBBDD0) }.address()
+                                       : REL::Relocation<std::uintptr_t>{ REL::ID(ver[1] >= 6 ? 77246u : 75461u) }.address();
+        const std::uintptr_t site = base + (vr ? 0x15u : 0x9u);
+        const std::uintptr_t                  orig = hooks::InstallCallDetour<5>(site, &PresentThunk,
+                                                                                 "ProgressHud present");
+        if (!orig) {
+            LOG_ERROR("ProgressHud: present-call detour not installed — no compile progress bar.");
+            return false;
+        }
+        s_origPresent = reinterpret_cast<PresentCallFn>(orig);
         s_installed.store(true, std::memory_order_release);
-        LOG_INFO("ProgressHud: present hook installed (swapchain vtable[8]) — bar rides the game present.");
+        LOG_INFO("ProgressHud: present-call hook installed (OAR hook point) — bar draws over the finished frame.");
         return true;
     }
 

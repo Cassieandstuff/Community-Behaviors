@@ -1,0 +1,6 @@
+parent: "NPC Pelvis [Pelv]"
+lockTranslation: true
+pose:
+  translation: [12.3692865, -3.3952601, 3.16813707, 0]
+  rotation: [0.596885979, 0.436464012, -0.552681983, -0.384407997]
+  scale: [1, 1, 1, 0]

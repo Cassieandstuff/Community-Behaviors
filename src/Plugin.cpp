@@ -1,24 +1,26 @@
 #include "PCH.h"
 
-#include "core/debug/AnimDataProbe.h"
 #include "core/serve/AnimationDataServer.h"
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/serve/ByteServe.h"
 #include "core/bootstrap/CompileGate.h"
 #include "core/debug/DebugOverlay.h"
+#include "core/debug/RuntimeTrace.h"
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
+#include "core/bootstrap/sequencer/CompileSequencer.h"   // seq::ThreadPool — parallel native-anim compile
 #include "core/resolve/Resolver.h"
-#include "core/debug/SyncClipProbe.h"
 
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
 #include "havok/sct/BehaviorCompiler.h"   // SetSchemaCompiler — data-driven compiler toggle
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>   // g_armCv — adsf-armed phase signal
 #include <cstdlib>       // std::getenv — schema-dir env fallback
 #include <filesystem>
 #include <mutex>         // EnsureCompiledAndArmed one-shot latch
+#include <optional>      // AnimParallel — pool held only when sequencer.enable
 #include <process.h>   // _beginthreadex — large-stack warm-up thread
 
 namespace CB {
@@ -27,9 +29,10 @@ namespace CB {
     // the interceptor holds a pointer to it.
     static Resolver g_resolver;
 
-    // Per-project animdata mode (opt-in file marker), decided at plugin load. The compile gate
-    // reads it to skip the collated animdata serve when the per-project loader gate owns that leg.
-    static std::atomic<bool> g_perProject{ false };
+    // The thread SKSEPluginLoad runs on (the game's main thread). Captured at plugin load so the
+    // compile gate can log whether it fires on the main thread — diagnostic for the load-minimize
+    // (a heavy compile BLOCKING the main thread stops the window message pump).
+    static unsigned long g_mainThreadId = 0;
 
     // Set on any thread currently executing the compile gate's work — the loader thread that claimed
     // it AND the 64MB compile worker it spawns. A re-entrant gate call from either (e.g. a detour
@@ -73,16 +76,16 @@ namespace CB {
         return false;
     }
 
-    // adsf-derive feature toggle (settings.ini, [Compiler] bAdsfFromFeature). DEFAULT OFF: the
-    // unified derive (animationdata straight off the compiled graph via the contributor feature) is a
+    // adsf-derive toggle (settings.ini, [Compiler] bAdsfDerive). DEFAULT OFF: the derive
+    // (animationdata straight off the compiled graph via the first-class adsf-derive compile stage) is a
     // NEW path parallel to the proven collated merge. When on, CompileAll fills the resolver's clip
     // sink and ServeAnimData reports what it produced for comparison — it does not yet drive the emit.
-    static bool ReadAdsfFromFeature()
+    static bool ReadAdsfDerive()
     {
         CSimpleIniA ini;
         ini.SetUnicode();
         if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-            return ini.GetBoolValue("Compiler", "bAdsfFromFeature", false);
+            return ini.GetBoolValue("Compiler", "bAdsfDerive", false);
         return false;
     }
 
@@ -142,45 +145,128 @@ namespace CB {
     // Data\community_behaviors\plugins\ (a stale offline pre-merged bundle overlaying the
     // per-mod deltas), which fed CompileBehavior a corrupt merged 0_master. That is a
     // load-order/data fix (drop the stale bundle), not a code fix.
+    // Multithreaded native-animation compile toggle. DEFAULT ON in every build — the per-unit native-anim
+    // compile fans across a worker pool (proven massively faster in-game, and each unit is a pure function
+    // of its own def + the immutable served skeleton, so the parallel output is byte-identical to serial).
+    // The escape hatch is an opt-OUT FILE marker (Data\community_behaviors\sequencer.disable), not an .ini
+    // key — so it can be dropped in to force the old serial path without editing config (and can't be
+    // toggled by accident through .ini merges), for a machine that ever shows trouble. (Increment A of the
+    // compile sequencer: only the embarrassingly-parallel animation phase is parallelized; behaviors stay
+    // serial for now.)
+    static bool ParallelAnimCompileEnabled()
+    {
+        return !std::filesystem::exists("Data/community_behaviors/sequencer.disable");
+    }
+
+    // Holds the worker pool ALIVE for the duration of a parallel native-anim compile and hands the Resolver
+    // an executor bound to it. Empty (serial) only when the opt-out marker forces it off. Workers get a
+    // 64MB reserved stack — the same guard WarmUpThread uses — so a native-anim compile can never overflow a
+    // default worker stack. Non-copyable (the optional<ThreadPool> makes it so); use it as a local only.
+    struct AnimParallel
+    {
+        std::optional<seq::ThreadPool> pool;
+        Resolver::AnimExecutor         exec;
+
+        AnimParallel()
+        {
+            if (!ParallelAnimCompileEnabled()) return;
+            // 0 => hardware_concurrency; 64MB reserved stack/worker; BELOW_NORMAL so the anim compile
+            // never out-competes the game's render/main threads while the window is coming up (minimize).
+            pool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
+            exec = [this](std::vector<std::function<void()>> tasks) { pool->parallel_for(std::move(tasks)); };
+            LOG_INFO("Community Behaviors: native animations compile in PARALLEL on {} pool thread(s) "
+                     "(drop Data\\community_behaviors\\sequencer.disable to force serial).", pool->size());
+        }
+
+        // nullptr when disabled (empty std::function) => Resolver takes the serial path.
+        const Resolver::AnimExecutor* ptr() const { return exec ? &exec : nullptr; }
+    };
+
     static unsigned __stdcall WarmUpThread(void* param)
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
-        const std::size_t total = reinterpret_cast<std::size_t>(param);
-        const auto        t0    = std::chrono::steady_clock::now();
-        g_resolver.CompileAll([](std::size_t done, std::size_t tot) {
-            ProgressOverlay::SetProgress(done, tot, true);
+        // Run the whole background compile (graphs on this thread + native animations on the pool)
+        // BELOW the game's threads, so it can't starve the render/main threads while the window is
+        // coming up — the load-minimize. The compile takes marginally longer; the window stays live.
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+        // grandTotal = graphs + native animations (computed by the gate and passed in), so the bar
+        // reflects ALL compiled assets, not just graphs. Phase 1 (CompileAll) fills 0..graphCount of
+        // grandTotal; phase 2 (native animations) fills graphCount..grandTotal.
+        const std::size_t grandTotal = reinterpret_cast<std::size_t>(param);
+        const std::size_t graphCount = g_resolver.SourceCount();
+        const auto        t0         = std::chrono::steady_clock::now();
+        g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
+            ProgressOverlay::SetProgress(done, grandTotal, true);   // denominator = grand total
         });
-        // ROSTER MEMBRANE: now that every graph has resolved (the clip pool is complete), fold each
-        // actor's collected clip animationNames (schema rosterref) into its character's animationNames,
-        // so every clip binds and OAR's synchronized offset is complete. MUST precede the disk write.
-        if (const std::size_t nc = g_resolver.CompleteCharacterRosters())
-            LOG_INFO("Community Behaviors: roster membrane completed {} character roster(s) from graph clips.", nc);
-        // Write every compiled graph + a synthesized project per character to disk, in the
-        // above-OAR split layout (<Data>\Meshes\<folderRoot>\community_behaviors_cache\... plus
-        // <folderRoot>\<char>.br.hkx), and publish the redirect map. The project-load hook
-        // (fragile: fires on the actor-load path) then only reads that map + rewrites a
-        // descriptor string — never compiles. This 64MB-stack thread is the ONLY place a
-        // compile is allowed. Clears stale cross-session BR output first.
+        // (The character animationNames roster is built offline now — the converter scans clip
+        // generators into each unit's data/animations.yaml and LoadMerged unions every layer at
+        // compile time — so there is no runtime roster-completion pass between compile and disk write.)
+        // Write every compiled graph to the consolidated cache (<Data>\Meshes\community_behaviors_cache\...)
+        // and publish the redirect map; the synthesized project per character is written on demand by
+        // ProjectRedirect into the same cache (vanilla path/identity, no ".br"). The project serve hook
+        // (fragile: fires on the actor-load path) then only reads that map + byte-swaps the open — never
+        // compiles. This 64MB-stack thread is the ONLY place a compile is allowed. Clears stale
+        // cross-session BR output first.
+        // Phase 2 — native animations. Each finished unit advances the bar from graphCount toward
+        // grandTotal. Shared atomic (the compile may run parallel across the pool), stored into the
+        // atomic ProgressOverlay; the tick runs on worker threads, hence the atomic. See the
+        // synchronicity note on WriteNativeAnimations — the bar is a passive reader, never a gate.
+        std::atomic<std::size_t> animDone{ 0 };
+        const std::function<void()> onAnimUnit = [grandTotal, graphCount, &animDone] {
+            ProgressOverlay::SetProgress(graphCount + animDone.fetch_add(1, std::memory_order_relaxed) + 1,
+                                         grandTotal, true);
+        };
+        AnimParallel animPar;   // parallel native-anim compile when sequencer.enable; serial otherwise
         const std::size_t wrote = g_resolver.MaterializeCacheToDisk(
-            std::filesystem::current_path() / "Data", nullptr);
+            std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
-        ProgressOverlay::SetProgress(total, total, false);
-        LOG_INFO("Community Behaviors: precompiled {} graph(s), materialized {} to disk in {:.1f}s "
-                 "(runtime loads served from disk cache).", total, wrote, secs);
+        ProgressOverlay::SetProgress(grandTotal, grandTotal, false);
+        LOG_INFO("Community Behaviors: precompiled {} graph(s) + {} animation(s), materialized {} to disk "
+                 "in {:.1f}s (runtime loads served from disk cache).",
+                 graphCount, g_resolver.NativeAnimCount(), wrote, secs);
         { std::size_t s = 0, t = 0; havok::sct::SchemaCompilerStats(s, t);
           if (s || t) LOG_INFO("Community Behaviors: compiler paths this warm-up — schema-driven {}, typed {}.", s, t); }
         return 0;
     }
 
-    // Background compile thread handle (split path only). Set once under the gate mutex; WaitForCompile
-    // joins it. Process-lifetime, one compile — the handle is intentionally never closed.
+    // Background arm/compile thread handle. Set once under the gate mutex when the gate kicks the
+    // ArmThread; WaitForCompile joins it (so byteserve's owned-graph opens block until materialize).
+    // Process-lifetime, one arm — the handle is intentionally never closed.
     static HANDLE g_compileThread = nullptr;
 
-    // adsf + setdata serve/arm. Independent of the graph compile when the adsf-derive feature is OFF
-    // (the default): the merge reads the vanilla base + bundle deltas, no clip sink. Set-data always;
-    // the collated animdata leg only when the per-project loader gate isn't serving that leg itself.
-    static void ArmAdsfSetDataServe(bool perProject)
+    // adsf-armed phase signal (gate-level, not a Resolver concept — arming lives here). The gate no
+    // longer blocks the MAIN thread on WaitReady(): the whole arm runs on the ArmThread, which arms the
+    // adsf/setdata redirects FIRST (instant + Init-independent on a warm cache) and signals this. The
+    // engine's animationdata / animationsetdata open then waits ONLY on this — milliseconds on warm —
+    // instead of parking the main thread ~50s on the full Init (the freeze + trapped cursor + no bar).
+    // Mirrors the m_redirectReady/m_readyMutex/m_readyCv trio in the Resolver.
+    static std::atomic<bool>       g_adsfArmed{ false };
+    static std::mutex              g_armMutex;
+    static std::condition_variable g_armCv;
+
+    static void SignalAdsfArmed()
+    {
+        { std::lock_guard<std::mutex> lk(g_armMutex); g_adsfArmed.store(true, std::memory_order_release); }
+        g_armCv.notify_all();
+    }
+
+    // Block until the adsf/setdata redirects are armed (or a generous timeout — never hang the engine's
+    // load forever if arming somehow fails; on timeout the open falls through to vanilla, same as a
+    // pre-Ready passthrough). Called by the animationdata/animationsetdata detours after they kick the
+    // gate. Fast-path acquire, then a bounded wait, same shape as ProjectRedirect's redirect wait.
+    void WaitAdsfArmed()
+    {
+        if (g_adsfArmed.load(std::memory_order_acquire)) return;
+        std::unique_lock<std::mutex> lk(g_armMutex);
+        if (!g_armCv.wait_for(lk, std::chrono::seconds(120),
+                              [] { return g_adsfArmed.load(std::memory_order_acquire); }))
+            LOG_WARN("Community Behaviors: adsf/setdata arm timed out (120s) — serving vanilla for this open.");
+    }
+
+    // adsf + setdata serve/arm. Independent of the graph compile when the adsf-derive stage is OFF
+    // (the default): the merge reads the vanilla base + bundle deltas, no clip sink.
+    static void ArmAdsfSetDataServe()
     {
         const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
 
@@ -189,98 +275,199 @@ namespace CB {
             LOG_WARN("Community Behaviors: animationsetdata merge did not complete: {}", sd.error);
         asdserve::ArmSetDataRedirect(sd);
 
-        if (!perProject) {
-            const GraphClipSink* clipSink =
-                g_resolver.AdsfFromFeature() ? &g_resolver.ClipSink() : nullptr;
-            const auto ad = adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
-                                                   clipSink, ReadAdsfRosterFromScan());
-            if (ad.attempted && !ad.ok)
-                LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
-            adserve::ArmAnimDataRedirect(ad);
+        const GraphClipSink* clipSink =
+            g_resolver.AdsfDerive() ? &g_resolver.ClipSink() : nullptr;
+        const auto ad = adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
+                                               clipSink, ReadAdsfRosterFromScan());
+        if (ad.attempted && !ad.ok)
+            LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
+        adserve::ArmAnimDataRedirect(ad);
 
-            if (g_resolver.AdsfFromFeature() && g_resolver.ClipSink().ClipCount() > 0)
-                g_resolver.DeriveAnimData(dataAbs);
-        }
+        if (g_resolver.AdsfDerive() && g_resolver.ClipSink().ClipCount() > 0)
+            g_resolver.DeriveAnimData(dataAbs);
     }
 
-    // The compile gate — see CompileGate.h. One-shot, thread-safe.
-    void EnsureCompiledAndArmed()
+    // REUSE (warm start): serve the CACHED adsf/asdsf verbatim instead of re-deriving them.
+    //
+    // The adsf/asdsf are COMPILE OUTPUTS, not independent merges: their clip -> high-band-animIndex
+    // assignment (and the roster-dependent set-data CRC guard) is coherent ONLY with the character/
+    // behavior cache produced in the SAME pass — char-setup binds animations through that index space.
+    // Re-running ServeAnimData/ServeSetData on a warm start re-derives that mapping INDEPENDENTLY of the
+    // reused graphs (ArmCacheFromDisk skips CompileAll, so m_characterRosters/the clip sink are empty and
+    // the high-band allocation floor can shift), which desyncs it from the cached characters — on the
+    // second run an attack clip then binds a foreign animation (an idle, even a furniture clip). Both
+    // files live in community_behaviors_cache alongside the graphs and are explicitly PRESERVED by
+    // MaterializeCacheToDisk's cache wipe, so whenever the graph cache is reusable these are present and
+    // coherent. Arm the redirects straight at them; the hooks intern a fixed cache path and only gate on
+    // ServeResult::ok, so a synthetic ok result serves the on-disk file with no re-derive.
+    //
+    // Returns true once every needed leg is armed from cache. Returns false ONLY when the collated
+    // animationdata (which always has content — the vanilla base) is missing, i.e. the cache is partial;
+    // the caller then falls back to the derive path. A missing set-data file is NOT a failure: a load
+    // order with no set-data bundles legitimately produced none (run-1 left the redirect inactive and the
+    // engine read vanilla), so "absent" here reproduces that exactly.
+    static bool ArmAdsfSetDataFromCache()
     {
-        static std::atomic<bool> s_done{ false };
-        static std::mutex        s_mtx;
+        namespace fs = std::filesystem;
+        const fs::path cacheDir = fs::current_path() / "Data" / "community_behaviors_cache";
+        std::error_code ec;
 
-        if (s_done.load(std::memory_order_acquire)) return;
-        if (t_compileGateInProgress) return;   // re-entrant call on a doing thread — work is underway
-        std::lock_guard<std::mutex> lk(s_mtx);
-        if (s_done.load(std::memory_order_relaxed)) return;
-        t_compileGateInProgress = true;
+        const fs::path asdsf = cacheDir / "animationsetdatasinglefile.txt";
+        if (fs::exists(asdsf, ec)) {
+            asdserve::ServeResult sd; sd.attempted = true; sd.ok = true; sd.cachePath = asdsf.string();
+            asdserve::ArmSetDataRedirect(sd);
+            LOG_INFO("Community Behaviors: warm reuse — serving cached set-data (no re-derive).");
+        }
 
-        const bool                  perProject = g_perProject.load(std::memory_order_acquire);
-        const std::filesystem::path dataAbs    = std::filesystem::current_path() / "Data";
-        const bool                  warm       = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
+        const fs::path adsf = cacheDir / "animationdatasinglefile.txt";
+        if (!fs::exists(adsf, ec)) {
+            LOG_WARN("Community Behaviors: warm cache missing '{}' — re-deriving adsf/set-data this launch.",
+                     adsf.string());
+            return false;
+        }
+        adserve::ServeResult ad; ad.attempted = true; ad.ok = true; ad.cachePath = adsf.string();
+        adserve::ArmAnimDataRedirect(ad);
+        LOG_INFO("Community Behaviors: warm reuse — serving cached animationdata (no re-derive).");
+        return true;
+    }
 
-        // Split path (progress bar) is the DEFAULT for a cold compile: the bar rides the game's own
-        // present via ProgressHud, the same coexisting pattern CS/OAR use, so it's safe to ship on.
-        // Two guards remain: the adsf-derive feature (adsf then needs the compile's clip sink, so the
-        // merge can't run ahead of the compile — must stay synchronous), and an explicit opt-out marker
-        // (Data\community_behaviors\progressbar.disable) that forces the old fully-synchronous compile.
-        const bool split = !warm &&
-                            !g_resolver.AdsfFromFeature() &&
-                            !std::filesystem::exists("Data/community_behaviors/progressbar.disable");
+    // The background arm/compile worker — ALL the heavy gate work runs here, off the main thread, so the
+    // gate itself never stalls the window. On a WARM cache it arms the adsf/setdata redirects FIRST (an
+    // instant, Init-independent file-existence check → redirect), signals adsf-armed so the early
+    // animationdata open unblocks in milliseconds, THEN waits Init and arms the graphs from cache. On a
+    // COLD cache adsf must be derived from the scan (needs Init), so it waits Init, arms adsf, signals,
+    // then compiles the graphs in the background with the bar riding the live menu. adsf-derive ON keeps
+    // the legacy order (compile first — adsf needs the clip sink — then arm), which intrinsically makes
+    // the adsf open wait the compile; it's opt-in and documented.
+    static unsigned __stdcall ArmThread(void*)
+    {
+        t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);   // never starve the game's threads
+
+        const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
+        const bool                  warm    = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
 
         if (warm) {
-            g_resolver.ArmCacheFromDisk(dataAbs);   // instant; no compile, no bar
-            ArmAdsfSetDataServe(perProject);
-        } else if (split) {
-            // Arm adsf/setdata NOW (fast, independent of the graph compile) so the engine's early reads
-            // are served, then run the heavy compile in the BACKGROUND and RETURN. The game reaches its
-            // menu and presents while the compile runs; ProgressHud's passive present hook draws the bar.
-            // byteserve calls WaitForCompile() before serving an owned graph, so nothing is served
-            // half-compiled — correctness holds regardless of the bar.
-            ArmAdsfSetDataServe(perProject);
-            const std::size_t total = g_resolver.SourceCount();
-            ProgressOverlay::SetProgress(0, total, true);
-            ProgressHud::Install();   // passive Present hook; safe (rides the game present, never forces one)
-            LOG_INFO("Community Behaviors: SPLIT compile — arming adsf/setdata now, compiling {} graph(s) "
-                     "in the background (progress bar enabled).", total);
-            if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
-                        &WarmUpThread, reinterpret_cast<void*>(total),
-                        STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)) {
-                g_compileThread = reinterpret_cast<HANDLE>(h);   // byteserve joins via WaitForCompile()
-            } else {
-                LOG_ERROR("Community Behaviors: failed to launch background precompile thread — falling back.");
-                ProgressOverlay::SetProgress(0, 0, false);
-            }
+            // adsf/setdata FIRST: serve the cached adsf/asdsf verbatim (coherent with the reused graphs).
+            // This only touches on-disk files + the redirect atomics — no resolver state — so it runs
+            // BEFORE WaitReady() and lets the adsf open through in ms. Only a partial cache falls back to
+            // the derive path (which needs the scan → after WaitReady, below).
+            const bool adsfFromCache = ArmAdsfSetDataFromCache();
+            if (adsfFromCache) SignalAdsfArmed();
+
+            g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
+
+            // Native anims are loose (not in the reused graph cache) so ArmCacheFromDisk recompiles them;
+            // give it the same optional parallel executor. Sets m_redirectReady when done (materialize).
+            AnimParallel animPar;
+            g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());
+            if (!adsfFromCache) { ArmAdsfSetDataServe(); SignalAdsfArmed(); }
+            ProgressOverlay::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
-            // Default proven path: compile + materialize on the 64MB-stack thread and JOIN it (parked in
-            // the detour, arm ordered ahead of graph load), THEN arm adsf/setdata. No progress bar.
-            const std::size_t total = g_resolver.SourceCount();
-            LOG_INFO("Community Behaviors: precompiling {} graph(s) at first engine open on thread {} "
-                     "(loader thread parked in our hook — arm ordered ahead of graph load).",
-                     total, ::GetCurrentThreadId());
-            if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
-                        &WarmUpThread, reinterpret_cast<void*>(total),
-                        STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)) {
-                WaitForSingleObject(reinterpret_cast<HANDLE>(h), INFINITE);
-                CloseHandle(reinterpret_cast<HANDLE>(h));
+            g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
+
+            const std::size_t graphCount = g_resolver.SourceCount();
+            const std::size_t animCount  = g_resolver.NativeAnimCount();
+            const std::size_t total      = graphCount + animCount;
+            ProgressOverlay::SetProgress(0, total, true); ProgressHud::Install();
+
+            if (g_resolver.AdsfDerive()) {
+                // adsf-derive ON: adsf needs the compile's clip sink → compile FIRST, then arm + signal.
+                LOG_INFO("Community Behaviors: COLD compile (adsf-derive) — compiling {} graph(s) + {} "
+                         "animation(s), then arming adsf/setdata.", graphCount, animCount);
+                WarmUpThread(reinterpret_cast<void*>(total));   // compile + materialize (sets m_redirectReady)
+                ArmAdsfSetDataServe();
+                SignalAdsfArmed();
             } else {
-                LOG_ERROR("Community Behaviors: failed to launch precompile thread — behavior serve NOT armed.");
+                // Default cold: adsf is independent of the graph compile → arm + signal NOW so the adsf
+                // open unblocks, then compile the graphs in the background (bar rides the live menu).
+                ArmAdsfSetDataServe();
+                SignalAdsfArmed();
+                LOG_INFO("Community Behaviors: COLD compile — adsf/setdata armed, compiling {} graph(s) + "
+                         "{} animation(s) in the background (bar riding the compile).", graphCount, animCount);
+                WarmUpThread(reinterpret_cast<void*>(total));   // compile + materialize (sets m_redirectReady)
             }
-            ArmAdsfSetDataServe(perProject);
         }
 
         t_compileGateInProgress = false;
-        s_done.store(true, std::memory_order_release);
+        return 0;
+    }
+
+    // The compile gate — see CompileGate.h. One-shot, thread-safe, NON-blocking kick.
+    void EnsureCompiledAndArmed()
+    {
+        static std::atomic<bool> s_kicked{ false };
+        static std::mutex        s_mtx;
+
+        if (s_kicked.load(std::memory_order_acquire)) return;
+        if (t_compileGateInProgress) return;   // re-entrant call on the doing (Arm) thread — work underway
+        std::lock_guard<std::mutex> lk(s_mtx);
+        if (s_kicked.load(std::memory_order_relaxed)) return;
+
+        LOG_INFO("Community Behaviors: compile gate fired on thread {} (main thread = {}){} — kicking "
+                 "background arm.", ::GetCurrentThreadId(), g_mainThreadId,
+                 (::GetCurrentThreadId() == g_mainThreadId) ? " — ON MAIN THREAD" : "");
+
+        // Progress bar is DEFAULT — armed NOW, before the ArmThread does any work, so it's visible for the
+        // whole arm. Indeterminate until a path sets the real total (DrawBar's total==0 path). No marker
+        // gate; it only draws while a compile is running.
+        ProgressOverlay::SetProgress(0, 0, true);   // 0 total => indeterminate "compiling…" bar
+        ProgressHud::Install();                      // installs the present hook + imgui now (idempotent)
+
+        // Kick the background arm and RETURN — the main thread stays free to pump the window + present, so
+        // the bar paints and the cursor isn't trapped. Per-open waits (WaitAdsfArmed / WaitForCompile)
+        // provide correctness. On spawn failure, run the arm inline (correctness over responsiveness).
+        if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
+                    &ArmThread, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)) {
+            g_compileThread = reinterpret_cast<HANDLE>(h);   // byteserve joins via WaitForCompile()
+        } else {
+            LOG_ERROR("Community Behaviors: failed to launch background arm thread — arming inline (load may stall).");
+            ArmThread(nullptr);
+        }
+
+        s_kicked.store(true, std::memory_order_release);
     }
 
     void WaitForCompile()
     {
-        // Join the split-path background compile if one is running. No-op on the synchronous path
-        // (g_compileThread stays null) or once the thread has already finished. Publish under the same
-        // mutex-established happens-before via the handle read; the thread's own release (materialize +
-        // RedirectReady) is visible after the wait returns. Multiple threads may wait concurrently.
+        // Join the background arm/compile thread if one is running. No-op if it never spawned
+        // (g_compileThread stays null — inline-fallback arm) or once it has finished. The thread's own
+        // release (materialize + RedirectReady) is visible after the wait returns. Multiple threads may
+        // wait concurrently. Self-guard: never join our OWN handle — if the ArmThread itself ever reaches
+        // this (an owned open during its compile), that would deadlock; it just proceeds (RedirectReady
+        // will be set by the time it needs the file).
         HANDLE h = g_compileThread;
-        if (h) WaitForSingleObject(h, INFINITE);
+        if (h && ::GetThreadId(h) != ::GetCurrentThreadId()) WaitForSingleObject(h, INFINITE);
+    }
+
+    // Resolver bring-up, run OFF the main thread. Init fully UNPACKS the .hky bundles (decompresses each
+    // whole archive into memory), scans the load order, reads every actor skeleton, and compiles the
+    // served skeletons — ~50s of work that used to run synchronously in SKSEPluginLoad ON THE MAIN
+    // THREAD, blocking the window's message pump during bring-up (the load-minimize + trapped cursor).
+    // All resolver config lives here so it's published together via Init's ready-store (Resolver::Ready);
+    // the serve hooks pass through to vanilla until then, and the compile gate blocks on WaitReady().
+    // 64MB stack — the skeleton compile. Finishes during the intro, before the first owned open.
+    static unsigned __stdcall InitThread(void*)
+    {
+        ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
+        const bool warmReuse = !ReadForceRegenerate() &&
+                               g_resolver.CachePresent(std::filesystem::current_path() / "Data");
+        g_resolver.SetERGateEnabled(ReadERGateEnabled());
+        g_resolver.SetAdsfDerive(ReadAdsfDerive());   // opt-in, before any compile
+
+        // Parallel skeleton compile (stage 2) — same opt-out marker as the anim compile. A pool of
+        // 64MB-reserved-stack workers (skeleton compile recurses through Havok graph assembly, like the
+        // anim path) at BELOW_NORMAL so it never starves the window's render/main threads during bring-up.
+        // Fans the per-actor skeleton SERVE compile + bone-name table build inside Init; nullptr => serial.
+        std::optional<seq::ThreadPool> skelPool;
+        Resolver::AnimExecutor         skelExec;
+        if (ParallelAnimCompileEnabled()) {
+            skelPool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
+            skelExec = [&skelPool](std::vector<std::function<void()>> tasks) { skelPool->parallel_for(std::move(tasks)); };
+        }
+        g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt", warmReuse,
+                        skelExec ? &skelExec : nullptr);   // ready-store at end
+        return 0;
     }
 
     static void OnMessage(SKSE::MessagingInterface::Message* a_msg)
@@ -288,18 +475,18 @@ namespace CB {
         if (!a_msg) return;
 
         if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
-            // The compile progress bar is now drawn by ProgressHud (own ImGui+D3D11 via a passive
-            // present hook installed from the compile gate) — no SMF registration, nothing to install
-            // for it here. These two still need kDataLoaded timing:
-            //   • DebugOverlay — SMF isn't up at plugin load.
-            //   • animprobe — the animationdata clip singleton isn't built yet at plugin load.
+            // Pre-install the compile progress bar EARLY here (before the menu), NOT at the later compile
+            // gate: ProgressHud::Install eagerly builds imgui + its font/device objects, so doing it at
+            // kDataLoaded keeps that heavy work off the live-present path (the Community Shaders pattern).
+            // The bar is DEFAULT behavior — no marker gate. It only ever draws while a compile is running
+            // (DrawBar's ReadProgress check), so installing it always is harmless; the gate keeps a
+            // fallback Install() for the rare case the swapchain isn't ready yet at kDataLoaded.
+            if (!ProgressHud::Install())
+                LOG_INFO("Community Behaviors: progress bar early-install deferred (swapchain not ready "
+                         "at kDataLoaded) — will retry at the compile gate.");
+            // DebugOverlay needs kDataLoaded timing (SMF isn't up at plugin load).
+            CB::RuntimeTrace::Install();   // arm [Debug] bRuntimeTrace before the present hook is live
             CB::DebugOverlay::Install();
-            CB::animprobe::ProbeAnimClipData();
-        }
-        else if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame ||
-                 a_msg->type == SKSE::MessagingInterface::kNewGame) {
-            // By now the animationdata singleton is definitely built and animations are active.
-            CB::animprobe::ProbeAnimClipData();
         }
     }
 
@@ -309,6 +496,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
     SKSE::Init(a_skse);
     PluginLogger::Init("CommunityBehaviors", "Community Behaviors");
+    CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
     LOG_INFO("Community Behaviors v0.3.1.0 loading — runtime behavior compiler.");
 
     // Behavior + character + project DELIVERY is BYTE-SUBSTITUTION (ByteServe): MinHook the
@@ -330,24 +518,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
 
-    // Debug probe (opt-in): log every paired/synchronized clip as it activates, to pin the
-    // paired-animation breakage (dialogue idle T-pose, mount jitter). Off unless the marker exists.
-    if (std::filesystem::exists("Data/community_behaviors/syncprobe.enable"))
-        CB::syncprobe::Install();
-
-    // Animdata cache form. COLLATED is the default and the only supported path: it serves
-    // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion
-    // from it. The per-project loader (the engine's Meshes\AnimationData\ form) is RETAINED but
-    // OFF by default — it was a workaround for dialogue T-posing whose real cause was the missing
-    // set-data ".br" alias (fixed separately), and in a real load order it silently BREAKS root
-    // motion AND paired/synchronized animations (horse mount, killmoves) — the engine's per-project
-    // read doesn't deliver motion the way the collated read does. Opt-in is a FILE marker
-    // (Data\community_behaviors\perproject.enable), deliberately NOT an .ini key, so it can't be flipped
-    // on by accident through config. The loader GATE (below) still defers merge+materialize so
-    // plugin load stays trivial when it IS enabled.
-    bool perProject = false;
-    if (std::filesystem::exists("Data/community_behaviors/perproject.enable"))
-        perProject = CB::adserve::EnablePerProjectAnimData();
+    // Animdata cache form: COLLATED is the only supported path — it serves
+    // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion from
+    // it. (The old per-project loader form was a dead workaround that broke root motion + paired anims
+    // in a real load order; retired.)
 
     // ── Behavior serve wiring (cheap, must-be-early only). The HEAVY work — compile + materialize
     // + adsf/setdata serve/arm — is DEFERRED to the compile gate (CompileGate.h / EnsureCompiledAndArmed):
@@ -360,25 +534,28 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     //
     // The serve HOOKS themselves are installed above (InstallSetDataHook/InstallAnimDataHook/
     // byteserve::Install), so the detours are already live to catch that first open. Here we only do
-    // what must be ready before it: configure the resolver, install the per-project loader gate, and
-    // hand byteserve the resolver pointer. The behavior compile sources everything from the loose
+    // what must be ready before it: configure the resolver and hand byteserve the resolver pointer.
+    // The behavior compile sources everything from the loose
     // .hky bundles (no BSA dependency), so the gate is safe to fire this early in load.
     {
-        CB::g_resolver.Init("Data", "Data/community_behaviors/loadorder.txt");
-        CB::g_resolver.SetERGateEnabled(CB::ReadERGateEnabled());
-        CB::g_resolver.SetAdsfFromFeature(CB::ReadAdsfFromFeature());  // opt-in, before any compile
-        CB::ApplySchemaCompilerSetting();   // data-driven compiler opt-in (before any compile)
-
-        // Per-project animdata (opt-in): install its loader gate NOW so the ClipDataCtor hook is live
-        // before the clip singleton is built. On install failure, revert the flipped flag (else the
-        // engine takes the per-project branch with nothing materialized) and fall back to collated.
-        if (perProject && !CB::adserve::InstallPerProjectGate()) {
-            CB::adserve::DisablePerProjectAnimData();
-            perProject = false;
-        }
-        CB::g_perProject.store(perProject, std::memory_order_release);  // read by the compile gate
-
+        // Hand byteserve the resolver pointer NOW (it gates every use on g_resolver.Ready(), so a hook
+        // that fires before Init finishes passes through to vanilla instead of reading half-built state).
         CB::byteserve::SetResolver(&CB::g_resolver);
+
+        // Run the whole resolver bring-up (unpack + scan + skeleton compile — ~50s) on a BACKGROUND
+        // thread, so SKSEPluginLoad returns immediately and the main thread is free to bring the window
+        // up. It used to run synchronously here on the main thread, blocking the message pump the entire
+        // time → the game launched minimized with the cursor trapped. Init finishes during the intro,
+        // before the first owned asset opens; the compile gate blocks on WaitReady() if it somehow fires
+        // first. 64MB stack for the skeleton compile; handle closed immediately (fire-and-forget — the
+        // ready-store is the sync point, not a join).
+        if (const std::uintptr_t h = _beginthreadex(nullptr, 64u * 1024u * 1024u,
+                    &CB::InitThread, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)) {
+            CloseHandle(reinterpret_cast<HANDLE>(h));
+        } else {
+            LOG_ERROR("Community Behaviors: failed to spawn Init thread — running Init synchronously (load may stall).");
+            CB::InitThread(nullptr);   // fallback: correctness over responsiveness
+        }
     }
 
     auto* messaging = SKSE::GetMessagingInterface();

@@ -60,6 +60,10 @@ add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/havok-skeleton)  # schema-driven skeleton codec (depends on havok-io)
+add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
+                                   # repo root — graduates to its own repo (both CB + Skyrim Content Tools
+                                   # need it now). Dependency-free leaf: consumers link `niffer` and
+                                   # #include <niffer/Niffer.h>. Its own PUBLIC include/ makes the lift-out clean.
 add_subdirectory(src/cb-resolve)
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
@@ -152,6 +156,15 @@ add_subdirectory(src/sct-config)
 set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
 add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
 
+# tree-diff — the record-keyed semantic diff tool (cb-tree-diff lib + standalone exe). Top-level so
+# it builds in lean configs too: it needs only havok-core + havok-model (added above), NOT the
+# converter's glfw/imgui, so it lives OUTSIDE the CB_BUILD_CONVERTER block. The Behavior Converter's
+# "Diff" tab links the same cb-tree-diff library when the converter is built.
+option(CB_BUILD_TREEDIFF "Build the tree-diff tool" ON)
+if(CB_BUILD_TREEDIFF)
+    add_subdirectory("APP/tree-diff")
+endif()
+
 # ── The plugin ─────────────────────────────────────────────────────────────────
 # Sources are FLAT: each Foo.cpp beside its Foo.h directly under src/ (src/ IS the private include root).
 # The plugin's OWN sources are the flat .cpp at the src/ ROOT (non-recursive glob, so the sibling engine
@@ -242,6 +255,16 @@ endif()
 cb_deploy(CommunityBehaviors "Community Behaviors"
     SCHEMA_DIR "${CMAKE_SOURCE_DIR}/Havok"
     HKY_STAGE  "${CB_HKY_STAGE}")
+
+# ── DEV-ONLY: x64dbg auto-attach SKSE plugin (NEVER shipped) ─────────────────────
+# A standalone SKSE plugin that spawns x64dbg attached to the game at startup, so early
+# breakpoints (e.g. the LoadClips call site) can be caught without racing the launch.
+# Opt-in + EXCLUDE_FROM_ALL + never referenced by cb_deploy, so it cannot reach end users.
+# Enable with -DCB_BUILD_AUTOATTACH=ON, then build the CBDebugAutoAttach target explicitly.
+option(CB_BUILD_AUTOATTACH "Build the DEV-ONLY x64dbg auto-attach SKSE plugin (never shipped)" OFF)
+if(CB_BUILD_AUTOATTACH)
+    add_subdirectory(tools/x64dbg-autoattach)
+endif()
 
 # ── The Behavior Converter (end-user + author GUI tool) ──────────────────────────
 # Shares CB's whole engine; a GLFW + Dear ImGui desktop app — heavier deps (glfw + imgui via

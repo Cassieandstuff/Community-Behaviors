@@ -1,0 +1,11 @@
+name:      hkpMoppBvTreeShape
+parent:    hkpBvTreeShape
+signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+size:      64
+# hkpBvTreeShape ends @40. Serialized members only (m_moppData/m_moppDataSize/m_codeInfoCopy/
+# m_childSize are all +nosave): m_code (hkpMoppCode*) @40; m_child (embedded hkpSingleShapeContainer
+# = vtable + hkpShape*) @48. Real object 112 (tail bytes are +nosave/unused on read).
+fields:
+  - { name: code,       type: ptr, ref: hkpMoppCode }  # @40
+  - { skip: 8 }                                        # m_child vtable @48
+  - { name: childShape, type: ptr, ref: hkpShape }     # m_child.m_childShape @56 -> 64

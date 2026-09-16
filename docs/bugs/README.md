@@ -17,6 +17,12 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
 
 - [CB-1](CB-1-converter-tagfile-unsupported.md) — INVESTIGATING (deferred): converter can't read Havok
   **tagfile** format; a few CreationClub assets ship as tagfiles and are skipped by the master build.
+- [CB-3](CB-3-shield-drop-boneweights.md) — INVESTIGATING: shield lowers while moving with block held.
+  **2026-09-13: all compiled content exonerated** — serving Pandora's byte-identical behaviors + character
+  via CB still drops it; skeleton/animdata/setdata match; native anims not served. Cause is the **serve/
+  delivery layer**: byteserve byte-swaps every owned open (project, character, behaviors) to its
+  community_behaviors_cache twin under the vanilla identity (no `.br` rename), loading the whole tree above
+  OAR. Not graph content. (Earlier boneWeights-placement root cause is superseded — see the doc's top section.)
 
 ## Per-bug file template
 

@@ -13,6 +13,7 @@
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileNativeDelta / DecompileBehaviorTree
 #include "havok/sct/TagfileOracle.h"
 #include "havok/xml/Xml.h"
+#include "havok/compat/PandoraCompatShim.h"  // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 
 #include <algorithm>
 #include <cstdint>
@@ -763,6 +764,10 @@ PatchConvertResult ConvertPatch(const std::string& vanillaBin, const std::string
             auto raw = readFile(it->path().string());
             const std::string rawSrc(raw.begin(), raw.end());
             std::string src = rawSrc;
+            // Pandora-compat (CONVERTER-ONLY): occurrence-counted placement for numeric text-array
+            // params (boneWeights &c) to match Pandora/Nemesis, then the positional strip for the
+            // rest. changedFields() below still reads rawSrc, so change-detection is unaffected.
+            havok::compat::ApplyNemesisTextArrayEdits(src);
             xml::StripPatchOriginals(src);           // apply Nemesis MOD_CODE edits (OPEN values)
             xml::Node nd = xml::Parse(src);
             if (nd.tag != "hkobject") { r.warnings.push_back("skipped non-hkobject patch file: " + fname); continue; }

@@ -1,0 +1,7 @@
+name:      hkFourTransposedPoints
+parent:    null
+size:      64
+# Value type (no signature): 4 packed Vector4 (transposed vertex block). Used as the
+# element of hkpConvexVerticesShape.m_rotatedVertices.
+fields:
+  - { name: vertices, type: vector4, count: 4 }

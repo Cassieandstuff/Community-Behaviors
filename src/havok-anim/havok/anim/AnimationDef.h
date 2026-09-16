@@ -69,6 +69,12 @@ struct AnimCompressionParams {
 struct AnimationDef {
     std::string                    name;
     float                          duration = 0.f;
+    // Native frame timing carried from the source so a recompile reproduces the EXACT frame count
+    // (a 60fps source stays 60fps; a sparse 2-keyframe/6.7s pose stays 2 frames) instead of the
+    // compiler resampling to round(duration×fps)+1. 0 == "not specified" → the compiler falls back to
+    // the fps parameter (the authored-anim path, unchanged). See CompressAnimation.
+    int                            numFrames     = 0;
+    float                          frameDuration = 0.f;
     std::string                    skeleton;
     AnimCompressionParams          compression;
     std::vector<AnimTrackDef>      tracks;

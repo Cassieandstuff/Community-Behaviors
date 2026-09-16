@@ -181,6 +181,10 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     y += "animation:\n";
     y += "  name: " + dir.filename().string() + "\n";
     y += "  duration: " + fstr(duration) + "\n";
+    // Native frame timing, so a recompile reproduces the source's exact frame count/spacing instead of
+    // resampling to a fixed fps (a 60fps clip stays 60fps; a sparse 2-keyframe pose stays 2 frames).
+    y += "  numFrames: " + std::to_string(numFrames) + "\n";
+    y += "  frameDuration: " + fstr(fd) + "\n";
     y += "  skeleton: " + skeleton + "\n";
     if (!warn.empty()) y += "  # NOTE: " + warn + ".\n";
     y += "  tracks:\n";

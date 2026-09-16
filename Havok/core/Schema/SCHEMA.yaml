@@ -15,4 +15,4 @@
 #
 # We are candidate-frozen, not frozen: burn -rc.2, -rc.3 as the last classes settle, then cut
 # 1.0.0 final when the contract stabilizes. While on -rc.N the compiler gate is exact-match-or-refuse.
-schema_version: 1.0.0-rc.1
+schema_version: 1.0.0-rc.2

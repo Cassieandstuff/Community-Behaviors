@@ -1,0 +1,26 @@
+name:      hkxScene
+parent:    hkReferencedObject
+signature: 0x00000000   # TODO: fill from a real Max-exported scene .hkx classnames (parse matches by NAME;
+                        # this CRC is only needed for byte-exact EMIT). +vtable(true), +version(2).
+size:      240
+# The modeller-agnostic scene exported by the Havok Max/Maya/XSI tools — the ROOT of a control rig:
+# m_rootNode is the hkxNode tree (names + transforms + hierarchy). The media arrays (cameras, lights,
+# meshes, materials, textures, skins, splines, selection sets) are typed as generic hkReferencedObject
+# ptrarrays for now — byte-identical (each is a 16-byte hkArray of pointers), enough to read a node-only
+# control-rig scene; full per-media-class schemas are follow-up work for whole-scene exports.
+fields:
+  - { name: modeller,         type: string }
+  - { name: asset,            type: string }
+  - { name: sceneLength,      type: float }
+  - { name: numFrames,        type: uint32 }
+  - { name: rootNode,         type: ptr, ref: hkxNode }              # the control-rig node tree
+  - { name: selectionSets,    type: ptrarray, ref: hkReferencedObject }
+  - { name: cameras,          type: ptrarray, ref: hkReferencedObject }
+  - { name: lights,           type: ptrarray, ref: hkReferencedObject }
+  - { name: meshes,           type: ptrarray, ref: hkReferencedObject }
+  - { name: materials,        type: ptrarray, ref: hkReferencedObject }
+  - { name: inplaceTextures,  type: ptrarray, ref: hkReferencedObject }
+  - { name: externalTextures, type: ptrarray, ref: hkReferencedObject }
+  - { name: skinBindings,     type: ptrarray, ref: hkReferencedObject }
+  - { name: splines,          type: ptrarray, ref: hkReferencedObject }
+  - { name: appliedTransform, type: vector4, count: 3 }              # hkMatrix3 (48B)

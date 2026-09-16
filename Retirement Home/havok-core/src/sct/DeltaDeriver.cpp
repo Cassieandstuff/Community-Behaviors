@@ -154,7 +154,8 @@ std::string readAll(const fs::path& p) {
 
 DeriveDeltaResult DeriveLooseBehaviorDelta(const std::string& vanillaBin,
                                            const std::string& fullModBin,
-                                           const std::string& outDeltaDir) {
+                                           const std::string& outDeltaDir,
+                                           const std::string& modCode) {
     DeriveDeltaResult r;
     std::string err;
 
@@ -196,13 +197,20 @@ DeriveDeltaResult DeriveLooseBehaviorDelta(const std::string& vanillaBin,
         if (auto it = vIdent.find(obj); it != vIdent.end()) identToNum[it->second] = num;
         try { r.baseMaxId = std::max(r.baseMaxId, std::stol(num)); } catch (...) {}
     }
-    long nextNew = r.baseMaxId + 1;
 
-    // Mod graph: matched node -> the base's number (by structural identity); new -> fresh.
+    // Mod graph: matched node -> the base's #NNNN (by class:name identity — names survive the
+    // base graph's compile/decompile round-trip, so overrides stay aligned). A NEW node is minted
+    // as "<code>$N", a NAMESPACED symbol: the base uses bare #NNNN, so a "$"-bearing id can never
+    // collide with one — no matter how the round-tripped base happens to number (the encounter-order
+    // "nextNew above base max" was fragile: baseMaxId here is this decompile's max, which can fall
+    // BELOW the shipped base master's, dropping a new node onto a live base node — the ~40-node
+    // horsebehavior collision). Symbol ids for new nodes match the Nemesis delta path (mod$N).
+    const std::string code = modCode.empty() ? std::string("d") : modCode;
     std::unordered_map<const void*, std::string> mNum;
+    int newSeq = 0;
     for (const void* o : mg.order) {
         if (auto it = identToNum.find(mIdent[o]); it != identToNum.end()) { mNum[o] = it->second; ++r.matched; }
-        else { mNum[o] = std::to_string(nextNew++); ++r.added; }
+        else { mNum[o] = code + "$" + std::to_string(++newSeq); ++r.added; }
     }
     const auto mr = havok::sct::DecompileBehaviorTree(mg.bg, modTmp, &mNum);
     if (!mr.ok) { r.error = "mod decompile: " + mr.error; fs::remove_all(work, ec); return r; }

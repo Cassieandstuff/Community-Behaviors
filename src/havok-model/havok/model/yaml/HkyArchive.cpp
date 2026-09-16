@@ -3,11 +3,14 @@
 #include "miniz.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
+#include <thread>
 #include <utility>
 
 namespace havok::model {
@@ -44,7 +47,14 @@ public:
     }
 
     std::vector<std::string> listYaml(const std::string& subdir, bool recursive) const override {
-        const std::string base = m_root + norm(subdir) + "/";
+        // m_root already ends in '/'. An EMPTY subdir (the Stage-2 whole-unit scan: listYaml("", true))
+        // must NOT append another '/', or base becomes "<prefix>//" — a double slash that filesUnder's
+        // prefix range can never match, so the scan returns ZERO node files and every packed graph
+        // compiles nodeless (no rootGenerator/states/generators → char-setup null-deref on the first
+        // graph the engine binds, i.e. the main-menu autoplay). The Stage-2 refactor moved from
+        // per-section scans (non-empty subdir, no double slash) to this whole-unit scan; DiskUnitSource
+        // handles "" correctly, so the disk-only acceptance gate never caught it.
+        const std::string base = subdir.empty() ? m_root : (m_root + norm(subdir) + "/");
         std::vector<std::string> out;
         for (const auto& full : m_arc->filesUnder(base)) {
             if (!endsWith(full, ".yaml")) continue;
@@ -56,7 +66,7 @@ public:
     }
 
     bool hasDir(const std::string& subdir) const override {
-        return !m_arc->filesUnder(m_root + norm(subdir) + "/").empty();
+        return !m_arc->filesUnder(subdir.empty() ? m_root : (m_root + norm(subdir) + "/")).empty();
     }
 
 private:
@@ -67,24 +77,85 @@ private:
 }  // namespace
 
 std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath, std::string& err) {
+    // Pass 1 (serial, cheap): enumerate every non-dir entry's index + name. Statting does NOT
+    // decompress, so this is fast; the heavy inflate is pass 2.
     mz_zip_archive z;
     std::memset(&z, 0, sizeof z);
     if (!mz_zip_reader_init_file(&z, hkyPath.c_str(), 0)) { err = "cannot open .hky: " + hkyPath; return nullptr; }
-
-    auto arc = std::shared_ptr<HkyArchive>(new HkyArchive());
     const mz_uint n = mz_zip_reader_get_num_files(&z);
+    struct EntRef { mz_uint idx; std::string key; std::string orig; };
+    std::vector<EntRef> ents;
+    ents.reserve(n);
     for (mz_uint i = 0; i < n; ++i) {
         if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
         mz_zip_archive_file_stat st;
         if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat)"; return nullptr; }
-        std::size_t sz = 0;
-        void* p = mz_zip_reader_extract_to_heap(&z, i, &sz, 0);
-        if (!p) { mz_zip_reader_end(&z); err = std::string("extract failed: ") + st.m_filename; return nullptr; }
-        arc->m_files.emplace(norm(st.m_filename),
-                             Entry{ slashOnly(st.m_filename), std::string(static_cast<const char*>(p), sz) });
-        mz_free(p);
+        ents.push_back({ i, norm(st.m_filename), slashOnly(st.m_filename) });
     }
     mz_zip_reader_end(&z);
+    if (ents.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
+
+    auto arc = std::shared_ptr<HkyArchive>(new HkyArchive());
+
+    // Pass 2: inflate each entry. A shard opens its OWN reader on the read-only file (miniz is NOT
+    // thread-safe on one handle), inflates its index range into a shard-local vector, then shards are
+    // merged into m_files SERIALLY — so the ordered map is only ever written single-threaded and the
+    // result is byte-for-byte independent of thread count. Every reader is ended + every heap block
+    // freed on all paths.
+    using Slot = std::pair<std::string, Entry>;
+    std::atomic<bool> ok{ true };
+    std::mutex        errMx;
+    std::string       firstErr;
+
+    auto inflateShard = [&](std::size_t lo, std::size_t hi, std::vector<Slot>& out) {
+        mz_zip_archive zz;
+        std::memset(&zz, 0, sizeof zz);
+        if (!mz_zip_reader_init_file(&zz, hkyPath.c_str(), 0)) {
+            ok.store(false, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lk(errMx);
+            if (firstErr.empty()) firstErr = "cannot re-open .hky for shard: " + hkyPath;
+            return;
+        }
+        out.reserve(hi - lo);
+        for (std::size_t j = lo; j < hi && ok.load(std::memory_order_relaxed); ++j) {
+            std::size_t sz = 0;
+            void* p = mz_zip_reader_extract_to_heap(&zz, ents[j].idx, &sz, 0);
+            if (!p) {
+                ok.store(false, std::memory_order_relaxed);
+                std::lock_guard<std::mutex> lk(errMx);
+                if (firstErr.empty()) firstErr = "extract failed: " + ents[j].orig;
+                break;
+            }
+            out.emplace_back(ents[j].key, Entry{ ents[j].orig, std::string(static_cast<const char*>(p), sz) });
+            mz_free(p);
+        }
+        mz_zip_reader_end(&zz);
+    };
+
+    // Fan the inflate across worker threads (own reader per shard); merge serially afterward. Below a
+    // small floor it's not worth spawning — go single-shard.
+    constexpr std::size_t kParallelFloor = 256;
+    unsigned K = std::thread::hardware_concurrency();
+    if (K == 0) K = 4;
+    if (ents.size() < kParallelFloor)  K = 1;
+    if (K > ents.size())               K = static_cast<unsigned>(ents.size());
+
+    std::vector<std::vector<Slot>> shards(K);
+    if (K <= 1) {
+        inflateShard(0, ents.size(), shards[0]);
+    } else {
+        std::vector<std::thread> workers;
+        workers.reserve(K);
+        for (unsigned k = 0; k < K; ++k) {
+            const std::size_t lo = ents.size() * k / K;
+            const std::size_t hi = ents.size() * (k + 1) / K;
+            workers.emplace_back([&inflateShard, &shards, lo, hi, k] { inflateShard(lo, hi, shards[k]); });
+        }
+        for (auto& t : workers) t.join();
+    }
+    if (!ok.load()) { err = firstErr; return nullptr; }
+    for (auto& sh : shards)
+        for (auto& kv : sh) arc->m_files.emplace(std::move(kv.first), std::move(kv.second));
 
     // Index units: EVERY "<prefix>.hkx/..." subtree is a unit. The KIND comes from a base-marker
     // yaml when present (character/project.yaml; behavior is the default). A mod DELTA carries no

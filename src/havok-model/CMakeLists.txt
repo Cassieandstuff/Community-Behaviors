@@ -13,6 +13,8 @@
 #
 # CB source module. Public header on the path as <havok-model/HavokModel.h>.
 
+# GLOB_RECURSE (CONFIGURE_DEPENDS) picks up every *.cpp under this module, so new components are
+# compiled with no edit here.
 sct_collect_sources(HAVOK_MODEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 add_library(havok-model STATIC ${HAVOK_MODEL_SOURCES})

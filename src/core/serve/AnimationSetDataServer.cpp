@@ -514,10 +514,13 @@ namespace CB::asdserve {
         std::int32_t Hook_OpenSetData(std::uintptr_t a_path, std::uintptr_t a_out,
                                       std::uint64_t a_r8, std::uint64_t a_r9)
         {
-            // First open of the set-data file drives the compile gate: block here (engine parked in
-            // our hook) until BR has compiled + armed, so the redirect below is live for THIS open
-            // and the graph load ordered after us sees the merged serve. No-op after the first call.
+            // First open of the set-data file drives the compile gate. The gate now KICKS a background
+            // arm and returns at once (no longer parks this thread on the whole Init + compile). We block
+            // ONLY on the adsf/setdata arm — which the ArmThread does FIRST from cache on warm — so the
+            // redirect below is live for THIS open and the graph load ordered after us sees the merged
+            // serve. No-op after the first call.
             CB::EnsureCompiledAndArmed();
+            CB::WaitAdsfArmed();
 
             if (s_setDataRedirectActive.load(std::memory_order_acquire)) {
                 // A BSFixedString is one pointer; pass ours in place of the engine's path.

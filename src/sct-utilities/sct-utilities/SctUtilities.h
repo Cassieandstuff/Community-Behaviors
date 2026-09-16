@@ -25,6 +25,14 @@ namespace sct::ui {
 // dialog could not be shown, leaving outPath untouched. Paths come back UTF-8.
 bool PickFolder(const char* title, const char* initialDir, std::string& outPath);
 
+// Shows a native file-open dialog (the same Vista+ IFileDialog as PickFolder, WITHOUT
+// FOS_PICKFOLDERS) restricted to a single file-type filter. `filterDesc` is the human label
+// (e.g. "Havok/Text") and `filterExt` its pattern list (e.g. "*.hkx;*.txt"); an "All files"
+// (*.*) entry is always appended. `initialDir` may be null or empty. Returns false if the user
+// cancelled or the dialog could not be shown, leaving outPath untouched. Paths come back UTF-8.
+bool PickFile(const char* title, const char* initialDir, const char* filterDesc,
+              const char* filterExt, std::string& outPath);
+
 }  // namespace sct::ui
 
 namespace sct::util {

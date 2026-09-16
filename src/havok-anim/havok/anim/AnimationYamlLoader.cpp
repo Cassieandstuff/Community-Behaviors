@@ -112,9 +112,11 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
     auto a = hasChild(root, "animation") ? root["animation"] : root;
 
     AnimationDef def;
-    def.name     = strf(a, "name");
-    def.duration = ff(a, "duration");
-    def.skeleton = strf(a, "skeleton");
+    def.name          = strf(a, "name");
+    def.duration      = ff(a, "duration");
+    def.numFrames     = fi(a, "numFrames", 0);       // native frame count (0 = derive from fps)
+    def.frameDuration = ff(a, "frameDuration", 0.f); // native frame spacing (0 = 1/fps)
+    def.skeleton      = strf(a, "skeleton");
 
     if (hasChild(a, "compression")) {
         auto c = a["compression"];

@@ -1,0 +1,18 @@
+name: all
+description: >
+  THE FIREHOSE. Logs every single object that comes through the compiler — one line per node (visit),
+  every variable-table slot (vars), every binding (bind), every generator/modifier/state/transition
+  edge (edge). No phase filter, no class filter, no match filter: empty criteria mean "match anything",
+  so this probe emits absolutely everything the trace is handed. Expect a large log (thousands of lines
+  per behavior; the full load order is big). DISABLE this (enabled: false) to fall back to the narrower
+  named probes (e.g. commitment.yaml). Needs [Debug] bCompileTrace.
+enabled: true
+
+# WHEN — omitted entirely == all phases (vars, bind, edge, merge, visit).
+phases: []
+
+# WHERE — omitted entirely == all node classes.
+classes: []
+
+# WHERE (refine) — omitted entirely == no name filter (keep everything).
+match: []

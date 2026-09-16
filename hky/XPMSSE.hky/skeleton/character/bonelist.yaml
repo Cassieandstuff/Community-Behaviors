@@ -1,9 +1,8 @@
-# Added-bone order for this skeleton layer, in the SOURCE skeleton's native bone order
-# (XP32 Maximum Skeleton Special Extended). Vanilla HKX-target animations resolve bone
-# tracks by INDEX, so the appended bones must land at the same indices XPMSSE uses or every
-# track maps to the wrong bone -> A-pose. Without this list the loader falls back to
-# alphabetical filename order, which scrambles indices 99+. (BR-native animations resolve by
-# name and don't need this; it's the compat layer for the existing HKX animation corpus.)
+# Added-bone order for this skeleton layer, in the SOURCE skeleton's native bone order.
+# Vanilla HKX-target animations resolve bone tracks by INDEX, so the appended bones must
+# land at the same indices the source skeleton uses or every track maps to the wrong bone.
+# Re-posed existing bones are NOT listed here — they replace the base master's bone in place
+# and keep its index. (BR-native animations resolve by name and don't need this list.)
 index:
   - "NPC L Item01"
   - "NPC L Item02"

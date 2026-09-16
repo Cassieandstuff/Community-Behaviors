@@ -99,6 +99,29 @@ struct BehaviorEmitter {
         return std::to_string(idx);
     }
 
+    // hkbBoneWeightArray — a per-bone weight indexed by the SKELETON's bone order. This is a
+    // cross-asset (behavior <-> skeleton) membrane just like variable/event/anim indices: a raw
+    // positional array is only meaningful against the exact skeleton order it was built in. With a
+    // skeleton set, emit each weight keyed by its bone NAME — skeleton-agnostic AND legible (the diff
+    // reads "'NPC L UpperarmTwist1': 1", not "position 54"). Without one, keep the raw positional
+    // `values:` string (byte-identical to a no-skeleton decompile; the loader's existing path).
+    std::string boneWeightsBlock(const std::vector<float>& w) const {
+        std::string y = "    boneWeights:\n      count: " + std::to_string(w.size()) + "\n";
+        if (bones) {
+            y += "      byBone:\n";
+            for (std::size_t i = 0; i < w.size(); ++i) {
+                const std::string* nm = bones->NameOf(static_cast<int>(i));
+                const std::string key = (nm && !nm->empty()) ? q(*nm) : ("'#" + std::to_string(i) + "'");
+                y += "        " + key + ": " + fstr(w[i]) + "\n";
+            }
+        } else {
+            std::string vals;
+            for (std::size_t i = 0; i < w.size(); ++i) { if (i) vals += ' '; vals += fstr(w[i]); }
+            y += "      values: " + q(vals) + "\n";
+        }
+        return y;
+    }
+
     // Roster index -> name, via the shared membrane primitive (havok::cross::rosterName) — one
     // bounds-checked lookup rule with the schema path's NameResolver.
     std::string eventName(int id) const {
@@ -225,7 +248,12 @@ struct BehaviorEmitter {
     // native per-mod delta. Null for a normal decompile (writes files exactly as before).
     std::unordered_map<std::string, std::pair<std::string, std::string>>* sink = nullptr;
     void write(const char* sub, const std::string& id, const std::string& y) {
-        const std::string full = "id: " + id + "\n" + y;
+        // `ns` is a NODE-level declaration (Stage A). Owner-inlined data sidecars (the "data" sub:
+        // <id>_expressions / _eventRanges / _bones / _keyframedBonesList) are owned sub-arrays, not
+        // minted nodes, so they carry no ns line — matching the schema emitter (emitModifierSidecars).
+        const std::string nsLine = (nsDecl.empty() || std::string(sub) == "data")
+                                       ? std::string() : ("ns: " + nsDecl + "\n");
+        const std::string full = "id: " + id + "\n" + nsLine + y;
         if (sink) { (*sink)[id] = { sub, full }; return; }
         writeText(dir / sub / (id + ".yaml"), full);
     }
@@ -242,6 +270,15 @@ struct BehaviorEmitter {
     // order numeric id, so refs + filenames use the identity the runtime merges by. Null
     // for a normal decompile (byte-identical to before).
     const std::unordered_map<const void*, std::string>* stableIds = nullptr;
+
+    // Node identity: a node declares its namespace membership with `ns` (Stage A of the node-identity
+    // plan). When non-empty, every emitted node declares `ns: <nsDecl>`. The base master sets "self" —
+    // Skyrim mints all its nodes. Empty (the delta path) emits no ns line: an override's #NNNN already
+    // resolves to the base node it targets, and a new node's mod$N is self-evidently minted, so the
+    // converter path needs no declaration (its identity is oracle-aligned; ns is the AUTHORING contract,
+    // filled first-class by the scene editor). Byte-neutral for compiled graphdata (ns is loader
+    // metadata, never compiled) — it only adds a line to the emitted node YAML.
+    std::string                                   nsDecl;
 
     // Delta emit: sub-object -> the top-level node whose YAML INLINES it. Several
     // binary objects have no YAML node of their own — a state/SM's
@@ -465,13 +502,7 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
             y += "  - generator: " + uq(ch->m_generator) + "\n";
             y += "    weight: " + fstr(ch->m_weight) + "\n";
             y += "    worldFromModelWeight: " + fstr(ch->m_worldFromModelWeight) + "\n";
-            if (ch->m_boneWeights) {
-                y += "    boneWeights:\n";
-                y += "      count: " + std::to_string(ch->m_boneWeights->m_boneWeights.size()) + "\n";
-                std::string vals;
-                for (std::size_t i = 0; i < ch->m_boneWeights->m_boneWeights.size(); ++i) { if (i) vals += ' '; vals += fstr(ch->m_boneWeights->m_boneWeights[i]); }
-                y += "      values: " + q(vals) + "\n";
-            }
+            if (ch->m_boneWeights) y += boneWeightsBlock(ch->m_boneWeights->m_boneWeights);
             // hkbBlenderGeneratorChild is bindable — Pandora binds per-child weight/
             // boneWeights to variables (e.g. BFCO). Emit at the child's 4-space indent.
             y += bindingsBlock(ch->m_variableBindingSet, "    ");
@@ -525,11 +556,7 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
             own(c.get(), n.get());
             own(c->m_spBoneWeight.get(), n.get());
             y += "  - pGenerator: " + uq(c->m_pGenerator) + "\n";
-            if (c->m_spBoneWeight) {
-                y += "    boneWeights:\n      count: " + std::to_string(c->m_spBoneWeight->m_boneWeights.size()) + "\n";
-                std::string v; for (std::size_t i = 0; i < c->m_spBoneWeight->m_boneWeights.size(); ++i) { if (i) v += ' '; v += fstr(c->m_spBoneWeight->m_boneWeights[i]); }
-                y += "      values: " + q(v) + "\n";
-            }
+            if (c->m_spBoneWeight) y += boneWeightsBlock(c->m_spBoneWeight->m_boneWeights);
             y += bindingsBlock(c->m_variableBindingSet, "    ");
         }
         write("generators", uq(n), y);
@@ -584,13 +611,7 @@ void BehaviorEmitter::node(const std::shared_ptr<hkbNode>& n) {
             own(ch->m_boneWeights.get(), n.get());
             y += "  - generator: " + uq(ch->m_generator) + "\n";
             y += "    weight: " + fstr(ch->m_weight) + "\n    worldFromModelWeight: " + fstr(ch->m_worldFromModelWeight) + "\n";
-            if (ch->m_boneWeights) {
-                y += "    boneWeights:\n";
-                y += "      count: " + std::to_string(ch->m_boneWeights->m_boneWeights.size()) + "\n";
-                std::string vals;
-                for (std::size_t i = 0; i < ch->m_boneWeights->m_boneWeights.size(); ++i) { if (i) vals += ' '; vals += fstr(ch->m_boneWeights->m_boneWeights[i]); }
-                y += "      values: " + q(vals) + "\n";
-            }
+            if (ch->m_boneWeights) y += boneWeightsBlock(ch->m_boneWeights->m_boneWeights);
             y += bindingsBlock(ch->m_variableBindingSet, "    ");
         }
         y += "worldFromModelRotation: " + pquat(g.m_worldFromModelRotation) + "\n";
@@ -1124,7 +1145,8 @@ DecompileResult DecompileBehaviorTree(const std::shared_ptr<hkbBehaviorGraph>& b
         em.dir = dir;
         em.gd = bg->m_data.get();
         em.bones = bones;               // null = numeric bone indices; set = bone NAMES
-        em.stableIds = stableIds;       // null = encounter-order ids; set = stable (tagfile) ids
+        em.stableIds = stableIds;       // null = encounter-order ids; set = stable (oracle #NNNN) ids
+        em.nsDecl = "self";             // Stage B: the base master mints all its nodes -> ns: self
         em.node(bg->m_rootGenerator);   // assigns ids (root generator = id 0) + writes node files
 
         // Report the id each object actually received (uq = stableId if set, else the number).
@@ -1161,14 +1183,14 @@ DecompileResult DecompileNativeDelta(
     try {
         std::error_code ec; fs::create_directories(outDir, ec);
 
-        // Full DFS emit into an in-memory sink, with stable (tagfile / mod$N) ids, so
+        // Full DFS emit into an in-memory sink, with stable (oracle #NNNN / mod$N) ids, so
         // refs + filenames match the base bundle the runtime merges this delta onto.
         std::unordered_map<std::string, std::pair<std::string, std::string>> sink;
         BehaviorEmitter em;
         em.gd = bg->m_data.get();
-        em.stableIds = &stableIds;
+        em.stableIds = &stableIds;      // vanilla -> tagfile #NNNN, new nodes -> mod$N
         em.sink = &sink;
-        em.node(bg->m_rootGenerator);
+        em.node(bg->m_rootGenerator);   // sink keyed by stable id; each node's yaml carries `id: <#NNNN|mod$N>`
 
         // Fold changed ids with NO node of their own (owner-inlined sub-objects: a
         // state/SM's hkbStateMachineTransitionInfoArray / EventPropertyArray, a
@@ -1237,53 +1259,58 @@ DecompileResult DecompileNativeDelta(
             }
         }
 
-        // data/additive.yaml — the mod's ADDED vocabulary (runtime unions it in).
+        // Added vocabulary — split per kind for consistency with data/animations.yaml: variables →
+        // data/variables.yaml, events → data/events.yaml, character properties → data/additive.yaml
+        // (rare, count-only-base guard). Each is union-merged at load; additive.yaml is still READ for
+        // events/variables too, so pre-split bundles keep working.
         const auto* gd = bg->m_data.get();
         const auto sd = gd ? gd->m_stringData : nullptr;
         if (sd && (!addedVariableNames.empty() || !addedEventNames.empty() || !addedCharPropNames.empty())) {
-            std::string y;
+            std::string yVar, yEv, yCp;
             if (!addedVariableNames.empty()) {
-                y += "variables:\n";
+                yVar += "variables:\n";
                 for (std::size_t i = 0; i < sd->m_variableNames.size(); ++i) {
                     if (!addedVariableNames.count(sd->m_variableNames[i])) continue;
-                    y += "  - name: " + q(sd->m_variableNames[i]) + "\n";
+                    yVar += "  - name: " + q(sd->m_variableNames[i]) + "\n";
                     std::int8_t type = (i < gd->m_variableInfos.size()) ? gd->m_variableInfos[i].m_type : 0;
                     const std::string typeStr = revNum(en::VariableType(), type);
-                    y += "    type: " + typeStr + "\n";
+                    yVar += "    type: " + typeStr + "\n";
                     long val = 0;
                     if (gd->m_variableInitialValues && i < gd->m_variableInitialValues->m_wordVariableValues.size())
                         val = gd->m_variableInitialValues->m_wordVariableValues[i].m_value;
-                    y += "    value: " + std::to_string(val) + "\n";
+                    yVar += "    value: " + std::to_string(val) + "\n";
                     if (typeStr == "VARIABLE_TYPE_VECTOR4" || typeStr == "VARIABLE_TYPE_QUATERNION" ||
                         typeStr == "VARIABLE_TYPE_VECTOR3") {
                         const auto& vvs = gd->m_variableInitialValues;
                         if (vvs && val >= 0 && static_cast<std::size_t>(val) < vvs->m_quadVariableValues.size())
-                            y += "    quadValue: " + pvec(vvs->m_quadVariableValues[val]) + "\n";
+                            yVar += "    quadValue: " + pvec(vvs->m_quadVariableValues[val]) + "\n";
                     }
                 }
             }
             if (!addedEventNames.empty()) {
-                y += "events:\n";
+                yEv += "events:\n";
                 for (std::size_t i = 0; i < sd->m_eventNames.size(); ++i) {
                     if (!addedEventNames.count(sd->m_eventNames[i])) continue;
-                    y += "  - name: " + q(sd->m_eventNames[i]) + "\n";
+                    yEv += "  - name: " + q(sd->m_eventNames[i]) + "\n";
                     std::uint32_t flags = (i < gd->m_eventInfos.size()) ? gd->m_eventInfos[i].m_flags : 0;
-                    y += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::EventInfoFlags()) + "\n";
+                    yEv += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::EventInfoFlags()) + "\n";
                 }
             }
             if (!addedCharPropNames.empty()) {
-                y += "characterPropertyNames:\n";
+                yCp += "characterPropertyNames:\n";
                 for (std::size_t i = 0; i < sd->m_characterPropertyNames.size(); ++i) {
                     if (!addedCharPropNames.count(sd->m_characterPropertyNames[i])) continue;
-                    y += "  - name: " + q(sd->m_characterPropertyNames[i]) + "\n";
+                    yCp += "  - name: " + q(sd->m_characterPropertyNames[i]) + "\n";
                     std::int8_t type = (i < gd->m_characterPropertyInfos.size()) ? gd->m_characterPropertyInfos[i].m_type : 0;
-                    y += "    type: " + revNum(en::VariableType(), type) + "\n";
+                    yCp += "    type: " + revNum(en::VariableType(), type) + "\n";
                     std::int16_t flags = (i < gd->m_characterPropertyInfos.size())
                                          ? gd->m_characterPropertyInfos[i].m_role.m_flags : 0;
-                    y += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::RoleFlags()) + "\n";
+                    yCp += "    flags: " + en::FormatFlags(static_cast<long>(flags), en::RoleFlags()) + "\n";
                 }
             }
-            writeText(outDir / "data" / "additive.yaml", y);
+            if (!yVar.empty()) writeText(outDir / "data" / "variables.yaml", yVar);
+            if (!yEv.empty())  writeText(outDir / "data" / "events.yaml",    yEv);
+            if (!yCp.empty())  writeText(outDir / "data" / "additive.yaml",  yCp);
         }
         return { true, "", "behavior" };
     } catch (const std::exception& e) {

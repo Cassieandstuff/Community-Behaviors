@@ -34,8 +34,15 @@ struct DeriveDeltaResult {
 //               encounter-order numbering BuildBaseBundle's DecompileBehaviorTree assigns)
 // fullModBin  : the mod's loose, precompiled full behavior binary
 // outDeltaDir : the changed + new node YAML is written here (the mod's .hky delta subtree)
+// modCode     : the mod's namespace code. A NEW node (no vanilla match) is minted as
+//               "<modCode>$N" — a namespaced symbol that can NEVER collide with a base #NNNN,
+//               regardless of how the round-tripped base graph happens to number. Matched nodes
+//               still map onto the base's own #NNNN (by class:name identity). Empty falls back to
+//               "d" so the ids stay namespaced. This is what keeps a precompiled mod graph (whose
+//               object order disagrees with the base's) from landing a new node on a base id.
 DeriveDeltaResult DeriveLooseBehaviorDelta(const std::string& vanillaBin,
                                            const std::string& fullModBin,
-                                           const std::string& outDeltaDir);
+                                           const std::string& outDeltaDir,
+                                           const std::string& modCode = "d");
 
 }  // namespace havok::sct

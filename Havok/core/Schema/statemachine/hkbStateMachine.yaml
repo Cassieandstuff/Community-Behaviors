@@ -18,7 +18,7 @@ fields:
   - { name: selfTransitionMode,                  type: int8, enum: StateMachineSelfTransitionMode }
   - { name: isActive,                            type: bool, ignored: true }
   - { skip: 7 }
-  - { name: states,                              type: ptrarray, ref: hkbStateMachineStateInfo, merge: compose }
+  - { name: states,                              type: ptrarray, ref: hkbStateMachineStateInfo }   # merge policy in metadata/semantics/merge.yaml
   - { name: wildcardTransitions,                 type: ptr, ref: hkbStateMachineTransitionInfoArray }
   - { empty: ptr }
   - { empty: array }

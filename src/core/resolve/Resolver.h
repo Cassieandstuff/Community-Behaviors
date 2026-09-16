@@ -1,7 +1,8 @@
 #pragma once
 
 #include "core/discover/BundleManifest.h"
-#include "core/resolve/GraphClipSink.h"   // GraphClipSink — the adsf-derive feature's clip accumulator
+#include "core/resolve/GraphClipSink.h"   // GraphClipSink — the adsf-derive stage's clip accumulator
+#include "core/resolve/MotionRecordSink.h" // MotionRecordSink — the compile-side root-motion accumulator
 #include "core/resolve/SymbolInjector.h"
 
 #include <havok/sct/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
@@ -50,13 +51,46 @@ namespace CB {
     // merge lives in Resolve()'s gather+merge step.
     class Resolver {
     public:
+        // Optional parallel executor for the per-unit native-animation compile: given a batch of
+        // independent tasks, run them ALL and BLOCK until every one has finished (exactly the
+        // CB::seq::ThreadPool::parallel_for contract). nullptr => serial (the proven default). Kept as
+        // a plain std::function so the Resolver carries NO dependency on the sequencer's ThreadPool
+        // type; Plugin.cpp wires a real pool in behind the sequencer.enable marker. Each native-anim
+        // compile is a pure function of its own def + the immutable served skeleton and writes its own
+        // distinct output file, so parallel output is byte-identical to serial by construction.
+        using AnimExecutor = std::function<void(std::vector<std::function<void()>>)>;
+
         // Scan dataDir/community_behaviors/plugins for .hky graph sets (their path under
         // plugins/ IS the serve path), ordered by loadOrderIni (optional). Safe with an
         // empty result (installing BR with no .hky is a no-op). A <Mod>.hky entry may be
         // EITHER an unpacked directory (author dev tree) OR a single packed .hky file (the
         // shipped form — e.g. the full-corpus Skyrim.hky master); both back their units
         // through the same IUnitSource, so the rest of the pipeline is identical.
-        void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni);
+        // warmReuse == the gate's warm signal (!bForceRegenerate && CachePresent), computed at plugin
+        // load and passed in. When true, the served skeletons are already compiled in the on-disk cache
+        // from a prior run, so Init registers their serve keys instead of recompiling them — removing
+        // the redundant every-launch main-thread skeleton compile (the plugin-load / main-menu stall).
+        // When false (cold / forced regen), skeletons compile fresh as before.
+        // skelExec (optional): the same task-fanning executor contract as AnimExecutor. When set, the
+        // skeleton SERVE compile (CompileSkeletonFull per variant) and the per-actor bone-name table
+        // build are fanned across the pool instead of run serially. Each task compiles one actor's
+        // skeletons / one actor's bone table — a pure function of the read-only master YAML + immutable
+        // layer texts, writing its own distinct m_skeletonServe / m_skeletons key under a mutex — so the
+        // parallel result is byte-identical to serial (stage 2). nullptr => serial (proven default).
+        void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
+                  bool warmReuse = false, const AnimExecutor* skelExec = nullptr);
+
+        // True once Init() has FULLY built the resolver (m_sources/m_skeletons/m_skeletonServe/... all
+        // populated + the ready-store released). Init now runs on a BACKGROUND thread at plugin load so
+        // its heavy unpack + scan + skeleton compile doesn't block the main thread during window bring-up
+        // (the load-minimize). So a serve hook can fire BEFORE Init finishes: until Ready(), the resolver
+        // state is still being written and MUST NOT be read — the hook passes the open through to vanilla
+        // instead (safe: nothing BR owns loads that early in startup). Lock-free acquire.
+        bool Ready() const { return m_ready.load(std::memory_order_acquire); }
+
+        // Block the caller until Ready(). The compile gate calls this before it uses the resolver, so it
+        // never compiles against a half-built Init. Returns immediately once Init has completed.
+        void WaitReady() const;
 
         // Compile (lazy + cached) and return bytes for a served path — the game's
         // open path (e.g. "meshes\\actors\\character\\behaviors\\0_master.hkx"); any
@@ -77,7 +111,9 @@ namespace CB {
         // graph on an engine resource/Havok-worker thread overflows its stack. Returns the
         // number of files written.
         std::size_t MaterializeCacheToDisk(const std::filesystem::path& cacheRoot,
-                                           const std::function<void(std::size_t done, std::size_t total)>& progress);
+                                           const std::function<void(std::size_t done, std::size_t total)>& progress,
+                                           const AnimExecutor* animExec = nullptr,
+                                           const std::function<void()>* animOnUnit = nullptr);
 
         // Write the opt-in compiled skeletons (m_skeletonServe) into the consolidated cache. Called
         // from BOTH MaterializeCacheToDisk (regen — after the clear) and ArmCacheFromDisk (reuse), so
@@ -91,7 +127,12 @@ namespace CB {
         // NOT via the on-demand Func3 community_behaviors_cache serve — hence loose, not community_behaviors_cache). The
         // clean name is rostered (folded into m_characterAnimNames at Init), so a clip binds it. Called
         // from the warm-up; returns the count written. dataRoot is the Data folder (parent of meshes\).
-        std::size_t WriteNativeAnimations(const std::filesystem::path& dataRoot) const;
+        // onUnit (optional): called once per animation as it FINISHES (ok/skip/fail alike), for the
+        // progress bar. Invoked from pool workers when exec is set, so it must be thread-safe — the
+        // WarmUpThread wiring does an atomic increment + a store into the (atomic) ProgressOverlay.
+        std::size_t WriteNativeAnimations(const std::filesystem::path& dataRoot,
+                                          const AnimExecutor* exec = nullptr,
+                                          const std::function<void()>* onUnit = nullptr) const;
 
         // ── Cache reuse (skip the recompile when a prior run's cache is still wanted) ──────
         // The warm-up recompile is a pure optimization; its OUTPUT (compiled graph files under
@@ -107,7 +148,7 @@ namespace CB {
         // be reused (that's why debug builds default bForceRegenerate on). A content fingerprint
         // that also detects a changed bundle set is the planned next step (real invalidation).
         bool CachePresent(const std::filesystem::path& cacheRoot) const;
-        void ArmCacheFromDisk(const std::filesystem::path& cacheRoot);
+        void ArmCacheFromDisk(const std::filesystem::path& cacheRoot, const AnimExecutor* animExec = nullptr);
 
         // Cheap, lock-free ownership test: true iff a compiled unit is mapped for this
         // serve path (same key normalization as Resolve). m_sources is built entirely in
@@ -127,29 +168,27 @@ namespace CB {
         // on-disk cache is immutable while serving.
         bool HasCacheFile(std::string_view servePath) const;
 
-        // ── Above-OAR project redirect ────────────────────────────────────────────
+        // ── Above-OAR project serve (byte-substitution) ───────────────────────────
         // Given the vanilla behavior-PROJECT path the engine wrote into a load descriptor
         // (PopulateGraphProjectsToLoad, desc+0x108 — meshes-relative, backslashed, original
-        // case, e.g. "Actors\Character\DefaultMale.hkx"), return the path of BR's synthesized
-        // project to redirect it to — the SAME path with ".hkx" -> ".br.hkx" (same directory,
-        // so the loader's base dir = dirname(desc+0x108) is UNCHANGED and every child resolves
-        // as before; same PROJECT STEM so the animationdata association — keyed by the loaded
-        // project's basename-minus-extension — still matches, via the ".br"-aliased blocks the
-        // AnimData server emits). Returns "" when BR doesn't own that actor's tree (→ pass
-        // through untouched).
+        // case, e.g. "Actors\Character\DefaultMale.hkx"), return the SWAP path the ByteServe hook
+        // hands the engine in place of that open: BR's synthesized project under
+        // community_behaviors_cache\<vanilla project path> (original case). It is interned under
+        // the VANILLA identity — the caller's descriptor is untouched and the project keeps its
+        // stock stem — so the speed-sampler DB key and the animdata association both resolve to
+        // the vanilla stem, with NO rename and no ".br" alias. Returns "" when BR doesn't own that
+        // actor's tree (→ pass through untouched).
         //
-        // The redirected project's characterFilenames[0] points at BR's compiled character
-        // under <folderRoot>\community_behaviors_cache\, whose own behaviorFilename (and every
-        // recursive behavior reference) is cache-qualified for the children BR owns and left
-        // vanilla for those it does not — so the WHOLE coherent tree loads through the engine's
-        // own machinery, ABOVE Open Animation Replacer's Unk3 wrap. Replaces the deep
-        // LoadBehaviorGraph / character-loader hooks (which sat below OAR → collision).
+        // The synthesized project's characterFilenames[0] keeps the vanilla character ref (recovered
+        // original-case), whose open the ByteServe hook redirects into the cache — and every behavior
+        // open below it — so the WHOLE coherent tree loads through the engine's own machinery, ABOVE
+        // Open Animation Replacer's Unk3 wrap. Replaces the deep LoadBehaviorGraph / character-loader
+        // hooks (which sat below OAR → collision).
         //
-        // The <projStem>.br.hkx file is synthesized on first request (the project STEM is only
-        // known here, at runtime, from the descriptor) and written under the actor's vanilla
-        // root; guarded + memoized, so each project file is built once. Yields "" until the
-        // warm-up cache + redirect map are ready (m_redirectReady), so the redirect is inert —
-        // safe vanilla fallback — until the compiled character/behaviors are on disk.
+        // The project packfile is synthesized on first request (its path is only known here, at
+        // runtime, from the descriptor) into the cache; guarded + memoized, so each is built once.
+        // Yields "" until the warm-up cache + redirect map are ready (m_redirectReady), so the serve
+        // is inert — safe vanilla fallback — until the compiled character/behaviors are on disk.
         std::string ProjectRedirect(std::string_view vanillaProjectPath);
 
         // True once MaterializeCacheToDisk has written the cache + synthesized projects and
@@ -157,6 +196,11 @@ namespace CB {
         bool RedirectReady() const { return m_redirectReady.load(std::memory_order_acquire); }
 
         std::size_t SourceCount() const { return m_sources.size(); }
+
+        // Count of bundle-authored native animations queued for compile (WriteNativeAnimations). The
+        // progress bar adds this to SourceCount() so the total reflects graphs + animations, not just
+        // graphs. Immutable after Init().
+        std::size_t NativeAnimCount() const { return m_nativeAnims.size(); }
 
         // ER wildcard gate toggle (default OFF). When on, BR injects BR_ERWildcardLock into every
         // compiled graph and gates every GLOBAL wildcard on it (for Engine Relay to flip per-actor).
@@ -166,14 +210,21 @@ namespace CB {
         // while unproven. Set from Plugin.cpp before the warm-up compile runs.
         void SetERGateEnabled(bool enabled) { m_erGateEnabled = enabled; }
 
-        // adsf-derive feature toggle (default OFF; [Compiler] bAdsfFromFeature). When on, the
-        // animation-relay.adsf-derive contributor feature runs during CompileAll and fills m_clipSink
-        // with each graph's clip inputs; the animdata finalizer reads ClipSink() afterwards. It is a
-        // NEW, unvalidated derive path parallel to the proven collated merge, so it is OPT-IN and does
-        // NOT drive the emitted adsf until proven in-engine. Set from Plugin.cpp before the warm-up.
-        void                 SetAdsfFromFeature(bool enabled) { m_adsfFromFeature = enabled; }
-        bool                 AdsfFromFeature() const { return m_adsfFromFeature; }
+        // adsf-derive toggle (default OFF; [Compiler] bAdsfDerive). When on, the FIRST-CLASS adsf-derive
+        // stage runs during CompileAll (a compiler stage, no longer an IGraphFeature) and fills m_clipSink
+        // with each graph's clip inputs; features may also contribute clips into that same sink. The
+        // animdata finalizer reads ClipSink() afterwards. It is a NEW, unvalidated derive path parallel to
+        // the proven collated merge, so it is OPT-IN and does NOT drive the emitted adsf until proven
+        // byte-exact in-engine. Set from Plugin.cpp before the warm-up.
+        void                 SetAdsfDerive(bool enabled) { m_adsfDerive = enabled; }
+        bool                 AdsfDerive() const { return m_adsfDerive; }
         const GraphClipSink& ClipSink() const { return m_clipSink; }
+
+        // Root-motion the animation compile produced (WriteNativeAnimations emits each native `.hkx`
+        // unit's inline motion here). The adsf finalizer drains this instead of re-reading the YAML, so
+        // the compiler is the single motion producer. Populated during the native-anim compile (which may
+        // run in parallel — the sink is mutex-guarded); read after it completes.
+        const MotionRecordSink& MotionSink() const { return m_motionSink; }
 
         // Finalize the animationdata cache from the COMPILED results (opt-in; requires the adsf-derive
         // feature). Marries the per-graph clips the feature pushed into m_clipSink with the per-character
@@ -183,13 +234,6 @@ namespace CB {
         // the un-derivable half (root motion + project headers). Call AFTER CompileAll. Returns true iff
         // it wrote the file; a no-op returning false when the feature is off or the master is unreadable.
         bool DeriveAnimData(const std::filesystem::path& dataDir);
-
-        // Roster membrane finalize: fold every served graph's collected clip animationNames (rosterref)
-        // into each character's animationNames, so every clip binds and OAR's synchronized offset
-        // (= roster.size()) is complete. Recompiles + re-caches only characters whose roster grew, so it
-        // must run AFTER CompileAll and BEFORE MaterializeCacheToDisk. Returns the number of characters
-        // whose roster was completed. Covers base (Skyrim.hky) + mod characters uniformly.
-        std::size_t CompleteCharacterRosters();
 
         // Registered animations for an actor (key like "actors/character"; any case or
         // separators). Each value is a path relative to the actor dir, in animationNames
@@ -236,8 +280,7 @@ namespace CB {
         // manager reads this to surface conflicts at behavior-node resolution.
         struct NodeConflict {
             std::string              servePath;      // the graph (normalized serve key)
-            std::string              section;        // merge section: "states", "generators", ...
-            std::string              cls;            // node class
+            std::string              cls;            // node class (folder-agnostic identity, with `key`)
             std::string              key;            // node id-else-name
             std::vector<std::string> bundles;        // contributing bundle stems, base-first
             bool                     clash = false;  // true = namespace clash (bug); false = expected override
@@ -338,13 +381,18 @@ namespace CB {
         // char->setdata/animdata bind stays intact for vanilla-only actors (the A-pose fix).
         std::unordered_map<std::string, std::string> m_projectOrigCharRef;
         std::atomic<bool>                                                  m_redirectReady{ false };
+        // Init-complete signal (see Ready/WaitReady). Set with release at the very end of Init(); serve
+        // hooks acquire it before touching any Init-built state. Init runs off the main thread.
+        std::atomic<bool>                                                  m_ready{ false };
+        mutable std::mutex                                                 m_initMutex;
+        mutable std::condition_variable                                    m_initCv;
         // Lets an owned actor that loads BEFORE warm-up finishes WAIT for the cache instead of
         // falling back to vanilla (the redirect has no on-demand path; a master-graph compile
         // can't run on the load thread's small stack). Signaled once when the cache is armed.
         std::mutex                                                        m_readyMutex;
         std::condition_variable                                           m_readyCv;
         // Data root ("<game>/Data") captured at materialize time, so the on-demand project
-        // synth writes <dataRoot>/Meshes/<vanilla project dir>/<stem>.br.hkx.
+        // synth writes <dataRoot>/Meshes/community_behaviors_cache/<vanilla project path> (original case).
         std::filesystem::path                                              m_dataRoot;
         // On-demand project-synth memo + guard (ProjectRedirect runs on actor-load threads).
         std::unordered_map<std::string, bool>                             m_synthesizedProjects;
@@ -352,32 +400,23 @@ namespace CB {
         // ER wildcard gate on/off (default OFF; see SetERGateEnabled). Read from settings.ini
         // ([ERGate] bEnable) in Plugin.cpp and set before the warm-up compile.
         bool m_erGateEnabled = false;
-        // adsf-derive feature on/off (default OFF; see SetAdsfFromFeature). When on, CompileAll
-        // populates m_clipSink via the contributor feature and the finalizer consumes it.
-        bool          m_adsfFromFeature = false;
+        // adsf-derive on/off (default OFF; see SetAdsfDerive). When on, CompileAll's first-class
+        // adsf-derive stage populates m_clipSink (graph-derived clips + any feature contributions) and
+        // the finalizer consumes it.
+        bool          m_adsfDerive = false;
         GraphClipSink m_clipSink;
+        // Root-motion the native-anim compile produced (see MotionSink). `mutable`: WriteNativeAnimations
+        // is const (it writes only files + this compile-scratch accumulator, not logical resolver state),
+        // and it may fan the emit across worker threads — the sink guards itself.
+        mutable MotionRecordSink m_motionSink;
         // Per-character MERGED roster (animationNames) + actor path, captured in the isCharacter compile
-        // when m_adsfFromFeature is on. Both keyed by character stem ("defaultmale"). DeriveAnimData
+        // when m_adsfDerive is on. Both keyed by character stem ("defaultmale"). DeriveAnimData
         // resolves each sink clip's animIndex against the roster (the space the clip binds into) and uses
         // the actor path (from the character's own serve key — always well-formed) to gather that project's
         // clips out of the sink, instead of trusting the base header's `character` string shape.
         std::unordered_map<std::string, std::vector<std::string>> m_characterRosters;
         std::unordered_map<std::string, std::string>              m_characterActor;
 
-        // ── roster membrane (rosterref) ──────────────────────────────────────────────────────────────
-        // The INVERSE of the skeleton membrane: every served graph's hkbClipGenerator.animationName (the
-        // schema tags it `rosterref: animationNames`) is COLLECTED here per actor as the graph resolves,
-        // then folded into that actor's character animationNames by CompleteCharacterRosters() after
-        // CompileAll. This is what makes a clip's animation actually bind (a name missing from the roster
-        // A-poses; OAR's synchronized offset = roster.size() also needs the count complete). Always-on —
-        // independent of the opt-in adsf-derive serve. Keyed by actor path (ActorPathOf).
-        struct ActorClipNames { std::vector<std::string> names; std::unordered_set<std::string> seen; };
-        std::unordered_map<std::string, ActorClipNames> m_actorClipAnims;
-
-        // The fully-processed CharacterData captured at first compile (author-drop folds + child-ref
-        // qualification already applied), so CompleteCharacterRosters() can re-serve a character with the
-        // completed roster without re-deriving that setup. shared_ptr keeps CharacterData a fwd-decl here.
-        std::unordered_map<std::string, std::shared_ptr<havok::model::CharacterData>> m_characterData;
         // Mod-declared events/variables (BDI-format), unioned into each graph's data
         // at compile time. Loaded once in Init().
         SymbolInjector m_symbols;

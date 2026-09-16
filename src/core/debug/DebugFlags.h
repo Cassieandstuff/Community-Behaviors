@@ -11,9 +11,9 @@
 // inherently DOES something at runtime — that per-flag logic lives with the code it gates and
 // can't be generated). The converter's Debug tab picks up the toggle with no further edits.
 //
-// The plugin's own readers (Plugin.cpp ReadAdsfFromFeature/…, AnimDataProbe's MarkerPresent,
-// Resolver's noskeletonserve check) are the behavior side; keep their section/key strings in sync
-// with the rows here (or migrate them to reference these rows — see the registry note).
+// The plugin's own readers (Plugin.cpp ReadAdsfDerive/…, Resolver's noskeletonserve check) are
+// the behavior side; keep their section/key strings in sync with the rows here (or migrate them to
+// reference these rows — see the registry note).
 
 #include <array>
 #include <string_view>
@@ -36,7 +36,7 @@ namespace CB::debug {
     };
 
     // The registry. Array order == display order in the Debug tab.
-    inline constexpr std::array<Flag, 10> kFlags{ {
+    inline constexpr std::array<Flag, 8> kFlags{ {
         { "force_regenerate", FlagKind::IniBool, "Cache", "bForceRegenerate", false,
           "Force cache regenerate",
           "Recompile the whole behavior cache at launch instead of reusing the on-disk one. "
@@ -44,10 +44,10 @@ namespace CB::debug {
         { "use_schema", FlagKind::IniBool, "Compiler", "bUseSchema", true,
           "Data-driven schema compiler",
           "Use the schema-driven compiler (default on). Off falls back to the typed backbone." },
-        { "adsf_from_feature", FlagKind::IniBool, "Compiler", "bAdsfFromFeature", false,
-          "adsf-derive feature",
-          "Derive animationdata straight off the compiled graph via the contributor feature — a "
-          "path parallel to the proven collated merge (validation-only unless it drives the emit)." },
+        { "adsf_derive", FlagKind::IniBool, "Compiler", "bAdsfDerive", false,
+          "adsf-derive (first-class stage)",
+          "Derive animationdata straight off the compiled graph via the first-class adsf-derive compile "
+          "stage — a path parallel to the proven collated merge (validation-only until it drives the emit)." },
         { "adsf_roster_from_scan", FlagKind::IniBool, "Compiler", "bAdsfRosterFromScan", false,
           "adsf roster from scan",
           "Source the adsf per-project asset roster (the paths func3 enumerates) from the hky scan "
@@ -56,25 +56,18 @@ namespace CB::debug {
           "Engine Relay wildcard gate",
           "Inject BR_ERWildcardLock and gate every global wildcard on it (for Engine Relay to flip "
           "per-actor). Unproven — a broken gate blocks every wildcard and T-poses every actor." },
-        { "perproject_animdata", FlagKind::MarkerFile, "", "perproject.enable", false,
-          "Per-project animdata loader",
-          "Route the engine to the per-project animdata form (Meshes\\AnimationData\\...) instead of "
-          "the collated blob. Retail-untested — breaks root motion + paired anims in a real load order." },
-        { "syncprobe", FlagKind::MarkerFile, "", "syncprobe.enable", false,
-          "Sync-clip probe",
-          "Log every paired/synchronized clip as it activates (dialogue-idle T-pose / mount-jitter diag)." },
-        { "probe_animdata", FlagKind::MarkerFile, "", "probe_animdata.txt", false,
-          "AnimationClipData probe (read)",
-          "Read locomotion clip motionSpeed/duration/triggers from the live AnimationClipDataSingleton "
-          "under both the .br and stock keys (the BR-1 ice-skate bisector)." },
-        { "inject_animdata", FlagKind::MarkerFile, "", "inject_animdata.txt", false,
-          "AnimationClipData probe (write)",
-          "As well as the read probe, write a distinctive motionSpeed into the singleton and read it "
-          "back — proof the in-engine clip table is writable." },
         { "noskeletonserve", FlagKind::MarkerFile, "", "noskeletonserve.enable", false,
           "Disable skeleton serve",
           "Skip serving CB's compiled skeleton.hkx (skeleton opens fall through to vanilla) — a "
           "diagnostic opt-out." },
+        { "compile_trace", FlagKind::IniBool, "Debug", "bCompileTrace", false,
+          "Compile trace (schema-driven probes)",
+          "Emit a name-annotated, greppable trace of the behavior compile to the log, gated by the "
+          "probe definitions in the deployed Havok/core/Schema/debug/*.yaml (edit those to steer it)." },
+        { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false,
+          "Runtime graph-variable trace",
+          "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
+          "watch: list) per-frame ON CHANGE to a greppable file — the in-game counterpart of compile trace." },
     } };
 
 }  // namespace CB::debug

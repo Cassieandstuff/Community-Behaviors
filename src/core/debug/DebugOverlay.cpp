@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "core/debug/DebugOverlay.h"
+#include "core/debug/RuntimeTrace.h"   // per-frame graph-variable trace (piggybacks this present hook)
 #include "core/resolve/Watermark.h"
 
 #include <array>
@@ -100,6 +101,10 @@ namespace CB::DebugOverlay {
         // Always-registered HUD element — inert until the menu checkbox enables it.
         void __stdcall DrawHud()
         {
+            // Runtime graph-variable trace samples every frame regardless of the HUD checkbox (it's a
+            // no-op unless [Debug] bRuntimeTrace is on). This present hook is the per-frame heartbeat.
+            CB::RuntimeTrace::Sample();
+
             if (!s_hudEnabled.load() || !igBegin) return;
             igSetPos(Vec2{ 60.0f, 200.0f }, kCondAlways, Vec2{ 0.0f, 0.0f });
             igSetBgAlpha(0.85f);

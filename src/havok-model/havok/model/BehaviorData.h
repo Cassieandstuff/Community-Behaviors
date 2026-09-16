@@ -56,38 +56,11 @@ struct BehaviorData {
     // Behavior-local bone weight presets (bone_presets.yaml).
     std::map<std::string, std::map<std::string, std::string>> bonePresets;
 
-    // Resolve a generator/modifier name to its hk class string (mirrors
-    // BehaviorData.GetNodeClass). Returns empty for "null"/unknown.
-    std::string GetNodeClass(const std::string& name) const {
-        if (name.empty() || name == "null") return {};
-        if (clips.count(name))                  return "hkbClipGenerator";
-        if (blenders.count(name))               return "hkbBlenderGenerator";
-        if (selectors.count(name))              return "hkbManualSelectorGenerator";
-        if (stateMachines.count(name))          return "hkbStateMachine";
-        if (modifierGenerators.count(name))     return "hkbModifierGenerator";
-        if (isActiveModifiers.count(name))      return "BSIsActiveModifier";
-        if (stateTaggingGenerators.count(name)) return "BSiStateTaggingGenerator";
-        if (behaviorReferences.count(name))     return "hkbBehaviorReferenceGenerator";
-        if (gamebryoSequences.count(name))      return "BGSGamebryoSequenceGenerator";
-        if (modifierLists.count(name))          return "hkbModifierList";
-        if (cyclicBlendGenerators.count(name))  return "BSCyclicBlendTransitionGenerator";
-        if (eventDrivenModifiers.count(name))   return "hkbEventDrivenModifier";
-        if (eventEveryNModifiers.count(name))   return "BSEventEveryNEventsModifier";
-        if (auto it = genericModifiers.find(name); it != genericModifiers.end())
-            return it->second.className;
-        if (footIkControlsModifiers.count(name))     return "hkbFootIkControlsModifier";
-        if (evaluateExpressionModifiers.count(name)) return "hkbEvaluateExpressionModifier";
-        if (interpValueModifiers.count(name))        return "BSInterpValueModifier";
-        if (eventsFromRangeModifiers.count(name))    return "hkbEventsFromRangeModifier";
-        if (boneSwitchGenerators.count(name))   return "BSBoneSwitchGenerator";
-        if (synchronizedClips.count(name))      return "BSSynchronizedClipGenerator";
-        if (offsetAnimGenerators.count(name))   return "BSOffsetAnimationGenerator";
-        if (poseMatchingGenerators.count(name)) return "hkbPoseMatchingGenerator";
-        if (referencePoseGenerators.count(name)) return "hkbReferencePoseGenerator";
-        if (iStateManagerModifiers.count(name)) return "BSIStateManagerModifier";
-        if (footIkModifiers.count(name)) return "hkbFootIkModifier";
-        return {};
-    }
+    // (A former GetNodeClass() — a bare-key linear scan across every node map, returning the hk class
+    // string — lived here. It was dead (no callers) and duplicated the resolver's family knowledge as a
+    // parallel list that could drift; removed with the refs-by-family resolver hardening. Node identity
+    // is resolved through the builder's single key->family index (SchemaBuilder::AssembleGraph); a
+    // cross-family key collision is reported by the loader, which owns the diagnostic sink.)
 };
 
 } // namespace havok::model

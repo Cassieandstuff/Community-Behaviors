@@ -1,0 +1,21 @@
+name:      hkxNode
+parent:    hkxAttributeHolder
+signature: 0x00000000   # TODO: fill from a real Max-exported scene .hkx classnames (parse matches by NAME;
+                        # this CRC is only needed for byte-exact EMIT). +vtable(true), +version(4).
+size:      128
+# A scene-graph node: THE data-driven control-rig element. Carries a name, an optional bound object
+# (mesh/skin/light/camera; null for a dummy/helper), its keyframed TRANSFORMS (hkArray<hkMatrix4> — the
+# poses stripped out of shipped skeleton.hkx resource trees), its children (the hierarchy), annotations,
+# per-key time hints, user properties, and select/bone flags. hkxAttributeHolder(32) + the fields below;
+# two trailing bools pad the object to a 16-byte boundary (122 -> 128).
+fields:
+  - { name: name,                type: string }
+  - { name: object,              type: ptr, ref: hkReferencedObject }   # hkRefVariant (mesh/skin/…, or null)
+  - { name: keyFrames,           type: structarray, ref: hkMatrix4 }    # the node's transform(s) — 1=static, N=animated
+  - { name: children,            type: ptrarray, ref: hkxNode }         # the scene-graph hierarchy
+  - { name: annotations,         type: structarray, ref: hkxNodeAnnotationData }
+  - { name: linearKeyFrameHints, type: scalararray, scalar: float }
+  - { name: userProperties,      type: string }
+  - { name: selected,            type: bool }
+  - { name: bone,                type: bool }
+  - { skip: 6 }                                                        # tail pad 122 -> 128 (8-byte align)

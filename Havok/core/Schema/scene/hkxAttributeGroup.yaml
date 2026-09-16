@@ -1,0 +1,8 @@
+name:      hkxAttributeGroup
+parent:    null
+size:      24
+# Value struct — a named group of hkxAttribute, associated with an hkxNode via hkxAttributeHolder.
+# Inline element of hkxAttributeHolder::m_attributeGroups. No signature (value type).
+fields:
+  - { name: name,       type: string }
+  - { name: attributes, type: structarray, ref: hkxAttribute }

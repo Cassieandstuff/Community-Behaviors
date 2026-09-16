@@ -1,0 +1,11 @@
+name:      hkpConvexTransformShape
+parent:    hkpConvexTransformShapeBase
+signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+size:      128
+# Base ends @56. m_transform (hkQsTransform, 48, 16-aligned) -> pad 56->64, @64 -> 112.
+# m_extraScale (hkVector4, 16) @112 -> 128.
+# Real object size in vanilla creature skeletons: 128 (fixed) — validated.
+fields:
+  - { skip: 8 }                              # pad 56 -> 64
+  - { name: transform,  type: qstransform }  # @64 (48) -> 112
+  - { name: extraScale, type: vector4 }      # @112 (16) -> 128

@@ -1,0 +1,12 @@
+schema_version = "1.0.0"
+
+id = "cb_control_rig"
+version = "0.1.0"
+name = "Community Behaviors — Control Rig Importer"
+tagline = "Import portable CB control rigs from rig.yaml"
+maintainer = "Community Behaviors"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Import-Export", "Rigging"]

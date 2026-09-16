@@ -66,22 +66,22 @@ public:
     // not coasting on the fallback. Production leaves it false (the safe fallback stays live).
     static void SetSchemaRegistry(const havok::schema::SchemaRegistry* reg, bool strict = false);
 
-    // One node identity that appears in >1 merge layer (a cross-layer overlap).
+    // One node identity that appears in >1 merge layer (a cross-layer overlap). Identity is
+    // (class, id-else-name) — folder-agnostic, matching the loader's Stage-2 dispatch.
     struct NodeContribution {
-        std::string              section;  // merge section dir ("states", "generators", ...)
         std::string              cls;      // node class (peekClass)
         std::string              key;      // id-else-name (keyOf)
         std::vector<std::size_t> layers;   // indices into `sources`, ascending (load order)
     };
 
     // Node-granular contributor scan over the SAME layer sources LoadMerged consumes:
-    // every node identity (section, class, id-else-name) that more than one layer carries,
-    // with the layer indices that carry it. Built with the EXACT keyOf/peekClass/section
-    // grouping the merge overlays by — so an overlap reported here is precisely a node the
-    // merge would combine, never an approximation that can drift from it. Read-only (no
-    // BehaviorData built, no bash-merge run): it just groups the raw node files. Feeds BR's
-    // node-granular load-order conflict report (which mods edit the same node) — the
-    // resolver maps each layer index back to its bundle to classify override vs clash.
+    // every node identity (class, id-else-name) that more than one layer carries, with the
+    // layer indices that carry it. Built with the EXACT whole-unit scan + (class,key) grouping
+    // the merge overlays by (scanSourceSection over the whole unit) — so an overlap reported
+    // here is precisely a node the merge would combine, never an approximation that can drift
+    // from it. Read-only (no BehaviorData built, no bash-merge run): it just groups the raw node
+    // files. Feeds BR's node-granular load-order conflict report (which mods edit the same node)
+    // — the resolver maps each layer index back to its bundle to classify override vs clash.
     static std::vector<NodeContribution>
         NodeContributions(const std::vector<std::shared_ptr<const IUnitSource>>& sources);
 };

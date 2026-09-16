@@ -1,0 +1,43 @@
+name: commitment
+description: >
+  CB-2 (BFCO attack-commitment ice-skate). bAnimationDriven is the commitment signal — true = the
+  character is root-motion-driven (committed, no slide), false = controller/stick locomotion leaks in
+  (the slide). BFCO toggles it via hkbEventDrivenModifier (BFCO_bAnimationDriven_EDM) inside the attack
+  hkbModifierList, gated by BSIsActiveModifier / IsActive checks. This probe surfaces that machinery and
+  the combo state topology (main vs Temp SM) so the log shows how commitment is wired + resolved.
+enabled: true
+
+# WHEN
+phases: [bind, edge, vars]
+
+# WHERE — the commitment/combo/block node classes
+classes:
+  - hkbEventDrivenModifier
+  - BSIsActiveModifier
+  - hkbModifierGenerator
+  - hkbModifierList
+  - hkbStateMachine
+  - hkbStateMachineStateInfo
+
+# WHERE (refine) — the commitment/combo/block vocabulary
+match:
+  - AnimationDriven
+  - bAnimationDriven
+  - AttackModifierList
+  - ForwardSprint
+  - IsSprinting
+  - IsBlocking
+  - Attack123
+  - AttackPower123
+  - NextIsAttack
+
+# RUNTIME — behavior-graph variables to sample per-frame in-game (needs [Debug] bRuntimeTrace + SMF).
+# Each change is logged to Data\community_behaviors\runtime_trace.log as `[RT] <ms> <var> <kind> a -> b`.
+# The CB-2 hypothesis: bAnimationDriven flips 1 -> 0 partway through the 2nd combo attack (commitment
+# lost -> stick-driven slide); BFCO_IsBlocking drops while moving with block held (the shield-lower).
+watch:
+  - { var: bAnimationDriven, kind: int }
+  - { var: BFCO_IsBlocking,  kind: int }
+  - { var: BFCO_NextIsAttack, kind: int }
+  - { var: SpeedSampled,     kind: float }
+  - { var: Speed,            kind: float }

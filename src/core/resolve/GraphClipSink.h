@@ -2,8 +2,9 @@
 
 // GraphClipSink — the host's concrete CB::features::IAnimDataSink for the warm-up compile.
 //
-// The animation-relay.adsf-derive contributor feature pushes one DeriveClipInput per hkbClipGenerator
-// as each graph compiles (Resolver::Resolve). This accumulates them keyed by graph serve-key. The
+// The first-class adsf-derive compile stage pushes one DeriveClipInput per hkbClipGenerator as each
+// graph compiles (Resolver::Resolve); features may contribute additional clips into this same sink via
+// FeatureContext::animData. This accumulates them keyed by graph serve-key. The
 // animdata finalizer (adserve::ServeAnimData) reads Contributions() AFTER CompileAll — a single-writer
 // / single-reader handoff across the warm-up phase boundary. Reads happen only once compile is done;
 // writes are also serialized by the Resolver mutex (Resolve holds it for its whole body), but the sink

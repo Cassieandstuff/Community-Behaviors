@@ -467,7 +467,21 @@ bool MergeBoneAdditions(SkeletonData& base, const std::vector<SkeletonBoneAdd>& 
     std::unordered_map<std::string, const SkeletonBoneAdd*> byName;
     std::vector<const SkeletonBoneAdd*> pending;
     for (const auto& a : adds) {
-        if (idx.count(a.name)) continue;                    // extensions ADD, never rewrite vanilla
+        auto hit = idx.find(a.name);
+        if (hit != idx.end()) {
+            // COLLISION: a skeleton plugin re-defines an existing bone (e.g. XPMSSE re-poses
+            // the core Shield/Hand/Finger bones). REPLACE the whole bone in place, last writer
+            // wins — the bone is the atomic unit; no field-level merge. The array INDEX is kept,
+            // so bone order and every name→index binding are untouched; only the bone's own data
+            // changes. Parent is resolved against the base (existing→existing, as core re-poses
+            // are); an empty or not-yet-known parent leaves the existing parentIndex intact rather
+            // than break the hierarchy.
+            SkeletonBoneData& b = base.bones[hit->second];
+            b.refPose         = a.pose;
+            b.lockTranslation = a.lockTranslation;
+            if (!a.parent.empty()) { auto pit = idx.find(a.parent); if (pit != idx.end()) b.parentIndex = pit->second; }
+            continue;
+        }
         if (!byName.emplace(a.name, &a).second) continue;   // same name twice ⇒ first wins, skip dup
         pending.push_back(&a);
     }

@@ -85,6 +85,30 @@ std::string keyOf(const c4::yml::ConstNodeRef& n) {
     return !id.empty() ? id : str(n, "name", "");
 }
 
+// ── Node namespace declaration (Stage A of the node-identity plan) ───────────────────────────────
+// A node MAY declare its namespace membership explicitly, so the resolver validates intent instead
+// of inferring it from id collisions (the inference whose mis-fire was the ~40 horsebehavior clash):
+//   ns: self        -> this bundle MINTED the node (a NEW node). Its `id` is unique within THIS
+//                      bundle's namespace: a bare "#NNNN" for the base (Skyrim mints all its nodes),
+//                      "<code>$N" for a mod's new node. Identity = (this bundle, hkx, id).
+//   ns: master[i]   -> an EDIT/OVERRIDE of node `id` in this bundle's i-th declared master.
+//                      Identity = (master[i], hkx, id).
+// Absent -> today's inference (byte-neutral). NOTE: the id form alone does NOT distinguish self from
+// master — base-self is a bare "#NNNN", exactly like an override — which is precisely WHY `ns` exists.
+// So Stage A only checks the value is WELL-FORMED; the real self/master check (does master[i] contain
+// `id`; is a `self` id unique to this bundle) needs the master-DAG (per-layer bundle context) and is
+// deferred. Option 1: `ns` is a DECLARATION over the namespace-encoding id; keyOf/merge are unchanged.
+void emitMergeDiag(const std::string& m);   // fwd (defined below, next to the diag sink)
+
+std::string nsOf(const c4::yml::ConstNodeRef& n) { return str(n, "ns", ""); }
+
+// Warn only if a node's `ns` value is malformed (a typo like "mater[0]"). self-vs-master consistency
+// is NOT context-free (see above) — that validation is deferred to the master-DAG step. Empty = OK.
+std::string nsDeclWarning(const std::string& ns) {
+    if (ns.empty() || ns == "self" || ns.rfind("master", 0) == 0) return {};
+    return "has unknown 'ns: " + ns + "' (expected 'self' or 'master[i]')";
+}
+
 bool has(const c4::yml::ConstNodeRef& n, const char* key) { return hasChild(n, key); }
 
 int toInt(const std::string& s, int fb = 0) {
@@ -302,6 +326,32 @@ std::vector<GenericParam> parseGenericExtraParams(const c4::yml::ConstNodeRef& r
 // peek the `class:` scalar of a YAML doc without full typed parse.
 std::string peekClass(const c4::yml::ConstNodeRef& root) {
     return str(root, "class");
+}
+
+// ── scanSourceSection: the ONE node-collection scan (Stage 1 consolidation) ─────────────────────
+// Every yaml node file under `sub` in ONE layer source. For each: parse, skip keyless nodes, and hand
+// the callback (class, key, moved-text). This is the single place that reads + identifies a unit's
+// node files — both the graph loader (eachYaml, which then groups+merges+builds) and NodeContributions
+// (which accumulates per-layer overlaps) go through it, so the two can no longer drift (they were
+// hand-synced with a "MUST mirror" comment). Per-SOURCE (not the whole unit) so each caller keeps its
+// own layer/section loop order — behavior stays identical to the two inlined scans this replaces.
+template <class Cb>
+void scanSourceSection(const IUnitSource& src, const char* sub, bool recursive, Cb&& cb) {
+    for (const std::string& rel : src.listYaml(sub, recursive)) {
+        auto text = src.read(rel);
+        if (!text) continue;
+        std::string   probe = *text;                       // parseNamed mutates in place; probe for identity
+        c4::yml::Tree tree  = parseNamed(probe, fs::path(rel));
+        std::string   k     = keyOf(tree.rootref());
+        if (k.empty()) continue;                            // keyless: both consumers skip it
+        // Stage A: validate an explicit `ns` declaration against the id form (byte-neutral — the
+        // grouping key below is unchanged; this only surfaces a mislabeled node as a loud diagnostic
+        // instead of a silent mis-merge). No-op when `ns` is absent (every node today).
+        if (std::string w = nsDeclWarning(nsOf(tree.rootref())); !w.empty())
+            emitMergeDiag("YamlBehaviorLoader: " + rel + ": node '" + k + "' " + w);
+        std::string   cls   = peekClass(tree.rootref());
+        cb(std::move(cls), std::move(k), std::move(*text));
+    }
 }
 
 // ── skeleton.yaml: read `character assets/skeleton.yaml` from the source ───────
@@ -647,6 +697,28 @@ void mergeLayers(c4::yml::Tree& mt, const std::vector<c4::yml::Tree*>& deltas,
                 break;
         }
     }
+
+    // Removal semantics for `bindings` (variableBindingSet). A bundle override node is FULL — the
+    // decompiler restates every field the mod KEEPS — so if the effective base carries a `bindings`
+    // block but NO override layer does, every override dropped it: the mod removed the binding (e.g.
+    // BFCO nulls attackComboTransition's duration->blendAttackCombo). The `cand` loop above visits only
+    // delta-PRESENT keys, so an omitted field would otherwise leave the stale base binding in place —
+    // CB-2: the removed binding "persisted" at runtime, re-driving the combo blend duration from a
+    // variable. Honor the removal. Guarded on `deltas` non-empty (a base-only node — no overrides,
+    // incl. the byte-gate's single-source case — is never touched); a delta that CHANGES the binding
+    // carries `bindings` and was already handled above, so it's excluded here.
+    if (!deltas.empty()) {
+        const c4::yml::id_type bb = mt.find_child(mroot, c4::to_csubstr("bindings"));
+        if (bb != c4::yml::NONE) {
+            bool anyDeltaKeepsBindings = false;
+            for (const c4::yml::Tree* dt : deltas)
+                if (dt->find_child(dt->root_id(), c4::to_csubstr("bindings")) != c4::yml::NONE) {
+                    anyDeltaKeepsBindings = true;
+                    break;
+                }
+            if (!anyDeltaKeepsBindings) mt.remove(bb);
+        }
+    }
 }
 
 } // namespace
@@ -683,48 +755,47 @@ static void loadDirInto(BehaviorData& data,
         }
     }
 
-    // Merge seam: gather each node file across ALL layers keyed by keyOf (id-else-name),
-    // in first-seen (load) order, then hand the section body ONE root per key. Today
-    // (step 0b) a key that recurs in a later layer is last-writer — identical to the old
-    // per-layer parse+assign. Step 1 replaces the pick-last (`layers.back()`) with the
-    // shared bash-merge (havok::merge::decideParam) over all the layers' raw trees.
-    auto eachYaml = [&](const char* sub, bool recursive, auto&& fn) {
-        std::vector<std::string> order;                                    // group keys, first-seen order
-        std::unordered_map<std::string, std::vector<std::string>> byKey;   // group key -> per-layer texts
-        std::unordered_map<std::string, std::string> keyName;              // group key -> keyOf (merge diag)
-        auto scanFile = [&](std::string text, const std::string& rel) {
-            std::string probe = text;                          // parse_in_place mutates; probe for keyOf
-            c4::yml::Tree tree = parseNamed(probe, fs::path(rel));
-            std::string k = keyOf(tree.rootref());
-            if (k.empty()) return;                             // keyless: the body's keyOf-guarded assign
-                                                               // is a no-op today, so skipping is equivalent
-            // Group by (class,key), NOT key alone. Within one section dir two files can
-            // legitimately share a name when their `class:` differs — a state 'X' and the
-            // nested state machine 'X' it wraps (Engine Relay's Shd_BlockIdle_1stP) go to
-            // different maps (data.states vs data.stateMachines) and must NOT merge. A real
-            // cross-layer delta repeats the base's class (the converter emits every node via
-            // the per-class decompiler), so same-object layers still group and bash-merge.
-            std::string gk = peekClass(tree.rootref());
-            gk += '\x1f';
-            gk += k;
-            auto it = byKey.find(gk);
-            if (it == byKey.end()) { order.push_back(gk); keyName.emplace(gk, k); }
-            byKey[gk].push_back(std::move(text));
-        };
-        for (const auto& src : sources)
-            for (const std::string& rel : src->listYaml(sub, recursive))
-                if (auto t = src->read(rel)) scanFile(std::move(*t), rel);
-        for (const std::string& gk : order) {
-            std::vector<std::string>& texts = byKey[gk];
+    // ── Node discovery (Stage 2): recursive + location-agnostic ────────────────────────────────
+    // Collect EVERY node file in the unit ONCE (whole tree, recursive) — folders are aesthetic; a node
+    // is what its `class:` says, not where it sits. Group across layers by (class,key) in first-seen
+    // (load) order [class disambiguates a state 'X' from the SM 'X' it wraps — different maps, must not
+    // merge]. Then eachClass(pred, fn) merges each matching group and hands it to a class handler. A
+    // misplaced node now routes by class; a class no handler claims is a hard, loud error, not silently
+    // coerced by its folder (which is the RC-fragility this refactor kills).
+    std::vector<std::string>                                  gorder;   // group keys, first-seen
+    std::unordered_map<std::string, std::vector<std::string>> gtexts;   // group key -> per-layer texts
+    std::unordered_map<std::string, std::string>              gclass;   // group key -> class
+    std::unordered_map<std::string, std::string>              gname;    // group key -> keyOf (merge diag)
+    for (const auto& src : sources) {
+        if (!src) continue;
+        scanSourceSection(*src, /*sub*/ "", /*recursive*/ true,
+            [&](std::string cls, std::string k, std::string text) {
+                std::string gk = cls;
+                gk += '\x1f';
+                gk += k;
+                auto it = gtexts.find(gk);
+                if (it == gtexts.end()) { gorder.push_back(gk); gclass.emplace(gk, std::move(cls)); gname.emplace(gk, k); }
+                gtexts[gk].push_back(std::move(text));
+            });
+    }
+    std::vector<char> gconsumed(gorder.size(), 0);
+
+    // Dispatch the groups whose class matches `pred` to `fn`, merging layers (last `bash: replace` is the
+    // effective base; the bash:merge layers after it overlay). Marks each consumed so nothing double-fires.
+    auto eachClass = [&](auto&& pred, auto&& fn) {
+        for (std::size_t gi = 0; gi < gorder.size(); ++gi) {
+            if (gconsumed[gi]) continue;
+            const std::string& gk = gorder[gi];
+            if (!pred(gclass[gk])) continue;
+            gconsumed[gi] = 1;
+            std::vector<std::string>& texts = gtexts[gk];
             if (texts.size() == 1) {                           // single layer: no merge
                 std::string buf = texts[0];
                 c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(buf));
                 fn(tree.rootref());
                 continue;
             }
-            // Multi-layer: bash-merge. Effective base = the last `bash: replace` layer
-            // (else layer 0); deltas = the (bash:merge) layers after it. Keep every
-            // buffer alive: parse_in_place references it and merged nodes may too.
+            // Multi-layer: bash-merge. Keep every buffer alive: parse_in_place references it.
             std::vector<std::string> bufs;
             bufs.reserve(texts.size());
             for (const std::string& t : texts) bufs.push_back(t);
@@ -736,13 +807,35 @@ static void loadDirInto(BehaviorData& data,
                 if (str(trees[i].rootref(), "bash", "merge") == "replace") baseIdx = i;
             std::vector<c4::yml::Tree*> deltas;
             for (std::size_t i = baseIdx + 1; i < trees.size(); ++i) deltas.push_back(&trees[i]);
-            mergeLayers(trees[baseIdx], deltas, keyName[gk]);
+            mergeLayers(trees[baseIdx], deltas, gname[gk]);
             fn(trees[baseIdx].rootref());
         }
     };
 
+    // Node dispatch is a flat class -> handler registry (built below, per node family). The gate for a
+    // family is its own map's keys — eachClass(map.count, map[cls]) — so the set of classes routed and
+    // the set of classes with a handler are the SAME object and cannot drift. That drift is exactly what
+    // dropped BGSGamebryoSequenceGenerator: it had a handler body but was missing from a hand-maintained
+    // gate set, so its node was silently un-collected (the AutoplayBehavior main-menu CTD). With this
+    // shape a class that has a handler is always reachable, and a class with none hits the loud
+    // no-handler path — never a silent drop. The ONE open set is modifiers: a novel mod modifier with no
+    // exact entry falls to the generic handler via a hkbModifier ancestor walk.
+    using NodeHandler = std::function<void(const c4::yml::ConstNodeRef&)>;
+    auto derivesFromModifier = [&](const std::string& cls) {
+        if (!g_mergeSchema) return false;                              // schema-driven world only (typed retiring)
+        std::string c = cls;
+        for (int depth = 0; depth < 64 && !c.empty(); ++depth) {
+            if (c == "hkbModifier") return true;
+            const auto* cs = g_mergeSchema->Find(c);
+            if (!cs) return false;
+            c = cs->parent;
+        }
+        return false;
+    };
+
     // ── clips/ ──
-    eachYaml("clips", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbClipGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         ClipGeneratorDef c;
         c.name          = str(r, "name");
         c.animationName = str(r, "animationName");
@@ -762,7 +855,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── selectors/ ──
-    eachYaml("selectors", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbManualSelectorGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         ManualSelectorDef s;
         s.name = str(r, "name");
         s.selectedGeneratorIndex = intField(r, "selectedGeneratorIndex", 0);
@@ -778,7 +872,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── transitions/ ──
-    eachYaml("transitions", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbBlendingTransitionEffect"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         TransitionEffectDef t;
         t.name = str(r, "name");
         t.userData = intField(r, "userData", 0);
@@ -795,11 +890,9 @@ static void loadDirInto(BehaviorData& data,
         if (auto _k = keyOf(r); !_k.empty()) data.transitionEffects[_k] = std::move(t);
     });
 
-    // ── generators/ (class-disambiguated) ──
-    eachYaml("generators", true, [&](const c4::yml::ConstNodeRef& r) {
-        std::string cls = peekClass(r);
-
-        if (cls == "BSCyclicBlendTransitionGenerator") {
+    // ── generators/ (flat class -> handler; gate == map keys) ──
+    const std::unordered_map<std::string, NodeHandler> genHandlers = {
+        { "BSCyclicBlendTransitionGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSCyclicBlendTransitionGeneratorDef cb;
             cb.name = str(r, "name");
             cb.userData = intField(r, "userData", 0);
@@ -811,7 +904,8 @@ static void loadDirInto(BehaviorData& data,
             cb.eBlendCurve         = str(r, "eBlendCurve", "BLEND_CURVE_SMOOTH");
             cb.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.cyclicBlendGenerators[_k] = std::move(cb);
-        } else if (cls == "BSBoneSwitchGenerator") {
+        } },
+        { "BSBoneSwitchGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSBoneSwitchGeneratorDef bsg;
             bsg.name = str(r, "name");
             bsg.userData = intField(r, "userData", 0);
@@ -829,20 +923,10 @@ static void loadDirInto(BehaviorData& data,
                 bsg.children = std::move(kids);
             }
             if (auto _k = keyOf(r); !_k.empty()) data.boneSwitchGenerators[_k] = std::move(bsg);
-        } else if (cls == "hkbManualSelectorGenerator") {
-            ManualSelectorDef s;
-            s.name = str(r, "name");
-            s.selectedGeneratorIndex = intField(r, "selectedGeneratorIndex", 0);
-            s.currentGeneratorIndex  = intField(r, "currentGeneratorIndex", 0);
-            s.userData = intField(r, "userData", 0);
-            s.bindings = parseBindings(r);
-            if (hasChild(r, "generators") && r["generators"].is_seq())
-                for (auto g : r["generators"]) {
-                    if (!g.has_val()) continue;
-                    std::string v; c4::from_chars(g.val(), &v); s.generators.push_back(trim(v));
-                }
-            if (auto _k = keyOf(r); !_k.empty()) data.selectors[_k] = std::move(s);
-        } else if (cls == "BSOffsetAnimationGenerator") {
+        } },
+        // (hkbManualSelectorGenerator is canonically a SELECTOR — handled by the selectors registration
+        // above. Its old branch here was dead code under the kGenClasses gate and is dropped.)
+        { "BSOffsetAnimationGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSOffsetAnimationGeneratorDef o;
             o.name                 = str(r, "name");
             o.userData             = intField(r, "userData", 0);
@@ -853,7 +937,8 @@ static void loadDirInto(BehaviorData& data,
             o.fOffsetRangeEnd      = str(r, "fOffsetRangeEnd", "1.000000");
             o.bindings             = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.offsetAnimGenerators[_k] = std::move(o);
-        } else if (cls == "BSSynchronizedClipGenerator") {
+        } },
+        { "BSSynchronizedClipGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BSSynchronizedClipGeneratorDef s;
             s.name                        = str(r, "name");
             s.userData                    = intField(r, "userData", 0);
@@ -868,7 +953,8 @@ static void loadDirInto(BehaviorData& data,
             s.sAnimationBindingIndex      = intField(r, "sAnimationBindingIndex", -1);
             s.bindings                    = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.synchronizedClips[_k] = std::move(s);
-        } else if (cls == "hkbPoseMatchingGenerator") {
+        } },
+        { "hkbPoseMatchingGenerator", [&](const c4::yml::ConstNodeRef& r) {
             PoseMatchingGeneratorDef p;
             p.name = str(r, "name");
             p.userData = intField(r, "userData", 0);
@@ -908,13 +994,15 @@ static void loadDirInto(BehaviorData& data,
             p.mode             = str(r, "mode", "MODE_MATCH");
             p.bindings         = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.poseMatchingGenerators[_k] = std::move(p);
-        } else if (cls == "hkbReferencePoseGenerator") {
+        } },
+        { "hkbReferencePoseGenerator", [&](const c4::yml::ConstNodeRef& r) {
             ReferencePoseGeneratorDef p;
             p.name = str(r, "name");
             p.userData = intField(r, "userData", 0);
             p.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.referencePoseGenerators[_k] = std::move(p);
-        } else if (cls == "BGSGamebryoSequenceGenerator") {
+        } },
+        { "BGSGamebryoSequenceGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BGSGamebryoSequenceGeneratorDef g;
             g.name              = str(r, "name");
             g.userData          = intField(r, "userData", 0);
@@ -923,8 +1011,8 @@ static void loadDirInto(BehaviorData& data,
             g.percent           = str(r, "percent", "1.000000");
             g.bindings          = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.gamebryoSequences[_k] = std::move(g);
-        } else {
-            // default: hkbBlenderGenerator
+        } },
+        { "hkbBlenderGenerator", [&](const c4::yml::ConstNodeRef& r) {
             BlenderGeneratorDef b;
             b.name = str(r, "name");
             b.flags = static_cast<int>(enums::ResolveEnum(str(r, "flags", "0"), enums::BlenderFlags()));
@@ -947,14 +1035,15 @@ static void loadDirInto(BehaviorData& data,
                     b.children.push_back(std::move(child));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.blenders[_k] = std::move(b);
-        }
-    });
+        } },
+    };
+    eachClass([&](const std::string& c) { return genHandlers.count(c) != 0; },
+              [&](const c4::yml::ConstNodeRef& r) { genHandlers.at(peekClass(r))(r); });
 
-    // ── modifiers/ (class-disambiguated; generic path for the rest) ──
-    eachYaml("modifiers", false, [&](const c4::yml::ConstNodeRef& r) {
-        std::string cls = peekClass(r);
-
-        if (cls == "hkbModifierGenerator") {
+    // ── modifiers/ (flat class -> handler; gate == map keys, PLUS an open set: any class deriving from
+    //    hkbModifier with no exact entry -> the generic handler) ──
+    const std::unordered_map<std::string, NodeHandler> modHandlers = {
+        { "hkbModifierGenerator", [&](const c4::yml::ConstNodeRef& r) {
             ModifierGeneratorDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -962,7 +1051,8 @@ static void loadDirInto(BehaviorData& data,
             m.generator = str(r, "generator");
             m.bindings  = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.modifierGenerators[_k] = std::move(m);
-        } else if (cls == "BSIsActiveModifier") {
+        } },
+        { "BSIsActiveModifier", [&](const c4::yml::ConstNodeRef& r) {
             BSIsActiveModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -974,7 +1064,8 @@ static void loadDirInto(BehaviorData& data,
             m.bIsActive4 = boolField(r, "bIsActive4"); m.bInvertActive4 = boolField(r, "bInvertActive4");
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.isActiveModifiers[_k] = std::move(m);
-        } else if (cls == "hkbModifierList") {
+        } },
+        { "hkbModifierList", [&](const c4::yml::ConstNodeRef& r) {
             ModifierListDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -986,7 +1077,8 @@ static void loadDirInto(BehaviorData& data,
                 }
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.modifierLists[_k] = std::move(m);
-        } else if (cls == "hkbEvaluateExpressionModifier") {
+        } },
+        { "hkbEvaluateExpressionModifier", [&](const c4::yml::ConstNodeRef& r) {
             EvaluateExpressionModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -994,7 +1086,8 @@ static void loadDirInto(BehaviorData& data,
             m.expressions = str(r, "expressions");
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.evaluateExpressionModifiers[_k] = std::move(m);
-        } else if (cls == "hkbEventDrivenModifier") {
+        } },
+        { "hkbEventDrivenModifier", [&](const c4::yml::ConstNodeRef& r) {
             EventDrivenModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1007,7 +1100,8 @@ static void loadDirInto(BehaviorData& data,
             m.activeByDefault   = boolField(r, "activeByDefault", false);
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.eventDrivenModifiers[_k] = std::move(m);
-        } else if (cls == "hkbFootIkControlsModifier") {
+        } },
+        { "hkbFootIkControlsModifier", [&](const c4::yml::ConstNodeRef& r) {
             FootIkControlsModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1042,7 +1136,8 @@ static void loadDirInto(BehaviorData& data,
                 m.legs = std::move(legs);
             }
             if (auto _k = keyOf(r); !_k.empty()) data.footIkControlsModifiers[_k] = std::move(m);
-        } else if (cls == "BSEventEveryNEventsModifier") {
+        } },
+        { "BSEventEveryNEventsModifier", [&](const c4::yml::ConstNodeRef& r) {
             // Wired on the builder side (buildEventEveryN + eventEveryNModifiers +
             // buildNode) but the loader case was missing, so every instance fell to
             // the generic path below and was emitted as a featureless hkbModifier —
@@ -1058,7 +1153,8 @@ static void loadDirInto(BehaviorData& data,
             m.randomizeNumberOfEvents         = boolField(r, "randomizeNumberOfEvents", false);
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.eventEveryNModifiers[_k] = std::move(m);
-        } else if (cls == "BSInterpValueModifier") {
+        } },
+        { "BSInterpValueModifier", [&](const c4::yml::ConstNodeRef& r) {
             BSInterpValueModifierDef m;
             m.name     = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1069,7 +1165,8 @@ static void loadDirInto(BehaviorData& data,
             m.gain     = str(r, "gain", "0.000000");
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.interpValueModifiers[_k] = std::move(m);
-        } else if (cls == "hkbEventsFromRangeModifier") {
+        } },
+        { "hkbEventsFromRangeModifier", [&](const c4::yml::ConstNodeRef& r) {
             EventsFromRangeModifierDef m;
             m.name       = str(r, "name");
             m.userData   = intField(r, "userData", 0);
@@ -1079,7 +1176,8 @@ static void loadDirInto(BehaviorData& data,
             m.eventRanges = optStr(r, "eventRanges");
             m.bindings   = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.eventsFromRangeModifiers[_k] = std::move(m);
-        } else if (cls == "hkbFootIkModifier") {
+        } },
+        { "hkbFootIkModifier", [&](const c4::yml::ConstNodeRef& r) {
             FootIkModifierDef m;
             m.name = str(r, "name");
             m.userData = intField(r, "userData", 0);
@@ -1136,7 +1234,8 @@ static void loadDirInto(BehaviorData& data,
                     m.legs.push_back(std::move(leg));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.footIkModifiers[_k] = std::move(m);
-        } else if (cls == "BSIStateManagerModifier") {
+        } },
+        { "BSIStateManagerModifier", [&](const c4::yml::ConstNodeRef& r) {
             BSIStateManagerModifierDef m;
             m.name      = str(r, "name");
             m.userData  = intField(r, "userData", 0);
@@ -1153,21 +1252,30 @@ static void loadDirInto(BehaviorData& data,
                 }
             m.bindings = parseBindings(r);
             if (auto _k = keyOf(r); !_k.empty()) data.iStateManagerModifiers[_k] = std::move(m);
-        } else {
-            // generic modifier (e.g. hkbTwistModifier) — base fields + extra params.
-            GenericModifierDef m;
-            m.className = cls;
-            m.name = str(r, "name");
-            m.userData = intField(r, "userData", 0);
-            m.enable = boolField(r, "enable", true);
-            m.bindings = parseBindings(r);
-            m.extraParams = parseGenericExtraParams(r);
-            if (auto _k = keyOf(r); !_k.empty()) data.genericModifiers[_k] = std::move(m);
-        }
+        } },
+    };
+    // The open set: any class deriving from hkbModifier with no exact handler above (e.g. a novel mod
+    // modifier, hkbTwistModifier) — base fields + extra params.
+    auto genericModifier = [&](const c4::yml::ConstNodeRef& r) {
+        GenericModifierDef m;
+        m.className = peekClass(r);
+        m.name = str(r, "name");
+        m.userData = intField(r, "userData", 0);
+        m.enable = boolField(r, "enable", true);
+        m.bindings = parseBindings(r);
+        m.extraParams = parseGenericExtraParams(r);
+        if (auto _k = keyOf(r); !_k.empty()) data.genericModifiers[_k] = std::move(m);
+    };
+    eachClass([&](const std::string& c) { return modHandlers.count(c) != 0 || derivesFromModifier(c); },
+              [&](const c4::yml::ConstNodeRef& r) {
+        const std::string cls = peekClass(r);
+        if (auto it = modHandlers.find(cls); it != modHandlers.end()) it->second(r);
+        else genericModifier(r);
     });
 
     // ── references/ ──
-    eachYaml("references", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "hkbBehaviorReferenceGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         BehaviorReferenceGeneratorDef b;
         b.name = str(r, "name");
         b.userData = intField(r, "userData", 0);
@@ -1177,7 +1285,8 @@ static void loadDirInto(BehaviorData& data,
     });
 
     // ── tagging/ ──
-    eachYaml("tagging", true, [&](const c4::yml::ConstNodeRef& r) {
+    eachClass([](const std::string& c) { return c == "BSiStateTaggingGenerator"; },
+              [&](const c4::yml::ConstNodeRef& r) {
         BSiStateTaggingGeneratorDef g;
         g.name = str(r, "name");
         g.userData = intField(r, "userData", 0);
@@ -1188,10 +1297,9 @@ static void loadDirInto(BehaviorData& data,
         if (auto _k = keyOf(r); !_k.empty()) data.stateTaggingGenerators[_k] = std::move(g);
     });
 
-    // ── states/ (StateMachine + StateInfo, disambiguated by class) ──
-    eachYaml("states", false, [&](const c4::yml::ConstNodeRef& r) {
-        std::string cls = peekClass(r);
-        if (cls == "hkbStateMachine") {
+    // ── states/ (flat class -> handler; gate == map keys) ──
+    const std::unordered_map<std::string, NodeHandler> stateHandlers = {
+        { "hkbStateMachine", [&](const c4::yml::ConstNodeRef& r) {
             StateMachineDef sm;
             sm.name = str(r, "name");
             sm.userData = intField(r, "userData", 0);
@@ -1221,7 +1329,8 @@ static void loadDirInto(BehaviorData& data,
             if (hasChild(r, "transitions"))
                 sm.parsedWildcardTransitions = parseTransitionsSeq(r["transitions"]);
             if (auto _k = keyOf(r); !_k.empty()) data.stateMachines[_k] = std::move(sm);
-        } else {
+        } },
+        { "hkbStateMachineStateInfo", [&](const c4::yml::ConstNodeRef& r) {
             StateDef st;
             st.name = str(r, "name");
             st.stateId = intField(r, "stateId", 0);
@@ -1241,15 +1350,16 @@ static void loadDirInto(BehaviorData& data,
                     std::string v; c4::from_chars(p.val(), &v); st.parents.push_back(trim(v));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.states[_k] = std::move(st);
-        }
-    });
+        } },
+    };
+    eachClass([&](const std::string& c) { return stateHandlers.count(c) != 0; },
+              [&](const c4::yml::ConstNodeRef& r) { stateHandlers.at(peekClass(r))(r); });
 
-    // ── data/ auxiliary arrays (hkbExpressionDataArray + hkbBoneIndexArray;
-    //    graphdata.yaml has no `class:` so peekClass skips it). Bone-index arrays
-    //    store bone NAMES here; the builder resolves them against data.boneNames. ──
-    eachYaml("data", false, [&](const c4::yml::ConstNodeRef& r) {
-        const std::string cls = peekClass(r);
-        if (cls == "hkbExpressionDataArray") {
+    // ── data/ auxiliary arrays (flat class -> handler; gate == map keys). graphdata.yaml has no
+    //    `class:` so peekClass skips it. Bone-index arrays store bone NAMES here; the builder resolves
+    //    them against data.boneNames. ──
+    const std::unordered_map<std::string, NodeHandler> dataArrayHandlers = {
+        { "hkbExpressionDataArray", [&](const c4::yml::ConstNodeRef& r) {
             ExpressionDataArrayDef e;
             e.name = str(r, "name");
             if (hasChild(r, "expressionsData") && r["expressionsData"].is_seq())
@@ -1264,7 +1374,8 @@ static void loadDirInto(BehaviorData& data,
                     e.expressionsData.push_back(std::move(ed));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.expressionDataArrays[_k] = std::move(e);
-        } else if (cls == "hkbEventRangeDataArray") {
+        } },
+        { "hkbEventRangeDataArray", [&](const c4::yml::ConstNodeRef& r) {
             EventRangeDataArrayDef e;
             e.name = str(r, "name");
             if (hasChild(r, "eventData") && r["eventData"].is_seq())
@@ -1278,7 +1389,8 @@ static void loadDirInto(BehaviorData& data,
                     e.eventData.push_back(std::move(ed));
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.eventRangeDataArrays[_k] = std::move(e);
-        } else if (cls == "hkbBoneIndexArray") {
+        } },
+        { "hkbBoneIndexArray", [&](const c4::yml::ConstNodeRef& r) {
             BoneIndexArrayDef b;
             b.name = str(r, "name");
             // Entries are bone NAMES (vanilla source) or raw INDICES (our decompile).
@@ -1294,8 +1406,41 @@ static void loadDirInto(BehaviorData& data,
                         b.boneNames.push_back(v);
                 }
             if (auto _k = keyOf(r); !_k.empty()) data.boneIndexArrays[_k] = std::move(b);
+        } },
+    };
+    eachClass([&](const std::string& c) { return dataArrayHandlers.count(c) != 0; },
+              [&](const c4::yml::ConstNodeRef& r) { dataArrayHandlers.at(peekClass(r))(r); });
+
+    // Any group no handler claimed = an unrecognized/foreign node class. Surface it loudly — never
+    // silently coerce (the old folder catch-all) or drop it. Empty in a well-formed unit; a hit means a
+    // misfiled node of an unknown class, or a class the schema doesn't define. (Graph-structure files —
+    // behavior.yaml, data/graphdata.yaml — carry no id/name key, so scanSourceSection skips them and they
+    // never reach here; they load via their own paths below.)
+    for (std::size_t gi = 0; gi < gorder.size(); ++gi)
+        if (!gconsumed[gi] && g_mergeDiag)
+            g_mergeDiag("YamlBehaviorLoader: no handler for node class '" + gclass[gorder[gi]] +
+                        "' (key '" + gname[gorder[gi]] + "') — unrecognized class, not loaded");
+
+    // CROSS-FAMILY KEY COLLISION — the same id-else-name key claimed by two DIFFERENT node classes.
+    // A ref is a bare key (rootGenerator: 6, generator: 7); the builder resolves it through one
+    // key->family index, so if two families share a key a ref to it silently binds whichever family the
+    // index saw first — a wrong-node bug (an attack clip could resolve to a foreign node) that leaves no
+    // trace. Node ids are graph-global, so a well-formed graph never collides; a hit means merged mod
+    // deltas (or a converter) minted a duplicate identity. Report it here, where the diagnostic sink
+    // lives — the groups already carry (class, key), so this needs no parallel family list.
+    if (g_mergeDiag) {
+        std::unordered_map<std::string, std::string> firstClassOfKey;   // key -> first class seen
+        for (const auto& gk : gorder) {
+            const std::string& k = gname[gk];
+            const std::string& c = gclass[gk];
+            if (k.empty()) continue;
+            auto [it, ins] = firstClassOfKey.emplace(k, c);
+            if (!ins && it->second != c)
+                g_mergeDiag("YamlBehaviorLoader: node key '" + k + "' claimed by TWO classes ('" +
+                            it->second + "' and '" + c + "') — a ref to it resolves to the first only; "
+                            "the other node is unreachable. Rename to disambiguate (duplicate node identity).");
         }
-    });
+    }
 
     // ── data/graphdata.yaml (per layer; last-writer for step 0b — step 3 unions) ──
     if (data.behavior.behavior.data && *data.behavior.behavior.data != "null")
@@ -1347,13 +1492,15 @@ static void loadDirInto(BehaviorData& data,
         }
     }
 
-    // ── data/additive.yaml — native graph-vocab UNION (step 3) ──────────────────
-    // A mod delta adds events / variables / characterProperties by shipping ONLY the
-    // additions in data/additive.yaml (never a full graphdata.yaml, which would clobber
-    // the base tables and shift every $eventID). Union = append + dedup by name, so every
-    // pre-existing index is preserved and $eventID / $variableID stay valid. Runs per
-    // layer in load order over the base tables set above. (animationNames is character-
-    // scoped — hkbCharacterStringData — and unions separately via the roster injector.)
+    // ── native graph-vocab UNION (step 3): data/variables.yaml + data/events.yaml + data/additive.yaml ──
+    // A mod delta adds events / variables / characterProperties by shipping ONLY the additions in these
+    // per-kind files (never a full graphdata.yaml, which would clobber the base tables and shift every
+    // $eventID). Split per kind for author legibility + consistency with data/animations.yaml: variables →
+    // variables.yaml, events → events.yaml, characterProperties → additive.yaml (which is ALSO still read
+    // for events/variables, so pre-split bundles keep working). Union = append + dedup by name, so every
+    // pre-existing index is preserved and $eventID / $variableID stay valid. Runs per layer in load order
+    // over the base tables set above. (animationNames is character-scoped — hkbCharacterStringData — and
+    // unions separately.)
     {
         auto& gdOpt = data.graphData;
         std::unordered_set<std::string> haveEv, haveVar, haveCp;
@@ -1362,10 +1509,8 @@ static void loadDirInto(BehaviorData& data,
             for (const auto& v : gdOpt->variables)              haveVar.insert(v.name);
             for (const auto& c : gdOpt->characterPropertyNames) haveCp.insert(c.name);
         }
-        for (const auto& src : sources) {
-            std::optional<std::string> atext = src->read("data/additive.yaml");
-            if (!atext) continue;
-            std::string text = std::move(*atext);
+        // Union one vocab file's events / variables / characterProperties into the graph data.
+        auto applyVocab = [&](std::string text) {
             c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(text));
             auto r = tree.rootref();
             if (!gdOpt) gdOpt.emplace();                 // additive with no base graphdata
@@ -1410,6 +1555,11 @@ static void loadDirInto(BehaviorData& data,
                     c.flags = str(cp, "flags", "0");
                     gdOpt->characterPropertyNames.push_back(std::move(c));
                 }
+        };
+        for (const auto& src : sources) {
+            if (auto t = src->read("data/variables.yaml")) applyVocab(std::move(*t));
+            if (auto t = src->read("data/events.yaml"))    applyVocab(std::move(*t));
+            if (auto t = src->read("data/additive.yaml"))  applyVocab(std::move(*t));
         }
     }
 
@@ -1584,51 +1734,40 @@ BehaviorData YamlBehaviorLoader::LoadMerged(const std::vector<std::shared_ptr<co
 
 std::vector<YamlBehaviorLoader::NodeContribution>
 YamlBehaviorLoader::NodeContributions(const std::vector<std::shared_ptr<const IUnitSource>>& sources) {
-    // Sections + recursion flags — MUST mirror loadDirInto's eachYaml(...) calls above so
-    // the grouping is byte-for-byte what the merge overlays by (keep in sync when a section
-    // is added). Same keyOf/peekClass/'\x1f' identity as the merge seam (line ~580).
-    static constexpr struct { const char* sub; bool recursive; } kSections[] = {
-        { "clips", true }, { "selectors", true }, { "transitions", true }, { "generators", true },
-        { "modifiers", false }, { "references", true }, { "tagging", true }, { "states", false },
-        { "data", false },
-    };
-
-    struct Acc { std::string section, cls, key; std::vector<std::size_t> layers; };
+    // Class-driven, location-agnostic — the SAME whole-unit scan + (class,key) grouping loadDirInto
+    // uses (scanSourceSection(src, "", recursive) keyed by cls + '\x1f' + key). A reported overlap is
+    // therefore EXACTLY a node the merge combines: same identity, same layer detection. There is no
+    // section list to keep in sync with the loader — the Stage-2 refactor removed folder-as-identity
+    // (a node is what its `class:` says, not where it sits), so this scan can no longer drift from the
+    // dispatch the way a mirrored `kSections` list could.
+    struct Acc { std::string cls, key; std::vector<std::size_t> layers; };
     std::vector<Acc>                             accs;
-    std::unordered_map<std::string, std::size_t> index;   // section\x1f class\x1f key -> accs idx
+    std::unordered_map<std::string, std::size_t> index;   // class\x1f key -> accs idx
 
     for (std::size_t li = 0; li < sources.size(); ++li) {
         const auto& src = sources[li];
         if (!src) continue;
-        for (const auto& sec : kSections) {
-            for (const std::string& rel : src->listYaml(sec.sub, sec.recursive)) {
-                auto text = src->read(rel);
-                if (!text) continue;
-                std::string  probe = *text;                       // parseNamed mutates in place
-                c4::yml::Tree tree  = parseNamed(probe, fs::path(rel));
-                std::string   k     = keyOf(tree.rootref());
-                if (k.empty()) continue;                          // keyless: the merge skips it too
-                std::string cls    = peekClass(tree.rootref());
-                std::string mapKey = std::string(sec.sub) + '\x1f' + cls + '\x1f' + k;
+        scanSourceSection(*src, /*sub*/ "", /*recursive*/ true,
+            [&](std::string cls, std::string k, std::string /*text*/) {
+                std::string mapKey = cls + '\x1f' + k;
                 auto it = index.find(mapKey);
                 std::size_t ai;
                 if (it == index.end()) {
                     ai = accs.size();
                     index.emplace(std::move(mapKey), ai);
-                    accs.push_back({ sec.sub, std::move(cls), std::move(k), {} });
+                    accs.push_back({ std::move(cls), std::move(k), {} });
                 } else {
                     ai = it->second;
                 }
                 auto& L = accs[ai].layers;
                 if (L.empty() || L.back() != li) L.push_back(li);  // ascending; dedup same-layer dupes
-            }
-        }
+            });
     }
 
     std::vector<NodeContribution> out;
     for (auto& a : accs)
         if (a.layers.size() >= 2)                                 // only cross-layer overlaps are conflicts
-            out.push_back({ std::move(a.section), std::move(a.cls), std::move(a.key), std::move(a.layers) });
+            out.push_back({ std::move(a.cls), std::move(a.key), std::move(a.layers) });
     return out;
 }
 

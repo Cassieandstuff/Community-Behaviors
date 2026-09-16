@@ -44,11 +44,14 @@ namespace CB::features {
         virtual ~IRosterService() = default;
     };
 
-    // A sink for animationdata a feature DERIVES from the graph rather than mutating it (the
-    // adsf-derive contributor feature: it reads each hkbClipGenerator and pushes one DeriveClipInput,
-    // leaving the graph untouched). Pushing is per-graph — the host keys contributions by graphKey and
-    // runs the project-level finalize (annotation-trigger merge, animIndex resolution against the
-    // roster, high-band alloc, collated emit) once every graph of a project has contributed.
+    // The CONTRIBUTION hook for animationdata: a feature that ADDS animations (a DeriveClipInput that
+    // doesn't correspond to a graph clip the compiler already sees) pushes it here, into the same sink
+    // the host's FIRST-CLASS adsf-derive stage fills from each graph's own hkbClipGenerators. Deriving
+    // the base adsf is compiler output, not a feature — it is NOT done through this interface; this is
+    // purely how a feature feeds EXTRA clips into that first-class collector. Pushing is per-graph — the
+    // host keys contributions by graphKey and runs the project-level finalize (annotation-trigger merge,
+    // animIndex resolution against the roster, high-band alloc, collated emit) once every graph of a
+    // project has contributed.
     struct IAnimDataSink {
         virtual void EmitClip(std::string_view graphKey, const havok::animdata::DeriveClipInput&) = 0;
         virtual ~IAnimDataSink() = default;

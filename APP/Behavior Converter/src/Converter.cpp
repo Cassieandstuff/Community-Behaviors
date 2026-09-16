@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -342,9 +343,15 @@ std::vector<LooseModContribution> DiscoverContributions(const Mo2Layout& mo2, co
                 if (!it->is_regular_file(fe)) continue;
                 const fs::path& p = it->path();
                 if (ToLower(p.extension().string()) != ".hkx") continue;
-                // must sit under a `behaviors/` segment (animations live under animations/)
+                // must sit under a `behaviors/` segment (animations live under animations/) — OR a
+                // `behaviors <x>` space-folder (canine ships `behaviors wolf`, `behaviors dog`, …);
+                // an exact "behaviors" match misses those, leaving the loose graph UN-attributed so it
+                // falls to the anonymous BehaviorFiles.hky instead of its owning mod's bundle.
                 bool underBehaviors = false;
-                for (const auto& seg : p) if (ToLower(seg.string()) == "behaviors") { underBehaviors = true; break; }
+                for (const auto& seg : p) {
+                    const std::string s = ToLower(seg.string());
+                    if (s == "behaviors" || s.rfind("behaviors ", 0) == 0) { underBehaviors = true; break; }
+                }
                 if (!underBehaviors) continue;
                 if (!PeekIsBehaviorHkx(p)) continue;   // skip anims / non-graph assets
                 c.precompiledGraphs.push_back(p);
@@ -571,6 +578,11 @@ NemesisInfo ReadNemesisInfo(const fs::path& codeDir) {
 
 }  // namespace
 
+// Per-mod animation packaging (piece 1). Defined below BuildBaseBundle (needs PeekHkxKind/HkxKind/
+// BakeAnimationUnit); forward-declared here so ConvertLoadOrder can call it.
+static void PackageModAnimations(const Mo2Layout& mo2, const std::filesystem::path& plugins,
+                                 const std::filesystem::path& stageRoot, const LogFn& log);
+
 Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<bool>& cancel) {
     Result r;
     auto say = [&](const std::string& s) { if (log) log(s); };
@@ -596,6 +608,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     std::unordered_map<std::string, std::string> prefixToMod;  // lower(prefix) -> modName (winner)
     std::unordered_map<std::string, int>         bundlePriority; // modName -> modlist rank (0 = top/winner)
     std::unordered_set<std::string>              excludedCodes;  // lower(code) — engine (Pandora/Nemesis) codes to skip
+    Mo2Layout mo2;   // hoisted to function scope so the per-mod animation pass (after `plugins` below) can walk enabled mods
     {
         const fs::path inst = DeriveInstanceRoot(dataDir, opt.mo2Instance, log);
         if (inst.empty()) {
@@ -603,7 +616,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                     ? "MO2 instance: none auto-derived — using un-attributed bundles (flat <code>.hky)."
                     : "MO2 instance: override did not resolve — using un-attributed bundles.");
         } else {
-            const Mo2Layout mo2 = ResolveMo2Layout(inst);
+            mo2 = ResolveMo2Layout(inst);
             if (!mo2.ok) {
                 say("MO2 instance '" + inst.string() + "': no enabled modlist — un-attributed bundles.");
             } else {
@@ -646,6 +659,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                    : "Schema: Havok/ not loaded (" + schemaErr + ") — using the typed delta path.");
 
     const fs::path plugins = outDir / "community_behaviors" / "plugins";
+
+    // ── PIECE 1: package each enabled mod's loose animations into its own <modName>.hky as attributed
+    // native units, the per-mod sibling of BuildBaseBundle's animation leg. Only in the MO2-attributed
+    // path (we need the per-mod meshes dirs). FAIL-SAFE: a skip/fail writes no unit and the engine keeps
+    // the loose .hkx — so this can never break the behavior/skeleton bundles built below. Index-bound for
+    // now; bone-name binding (the membrane) is piece 2.
+    if (mo2.ok) PackageModAnimations(mo2, plugins, outDir, log);
     fs::create_directories(plugins, ec);
 
     auto binOf   = [&](const std::string& g) { return (templatesDir / (g + ".hkx")).string(); };
@@ -905,17 +925,32 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 fs::remove_all(scratch, we);
                 continue;
             }
-            // additions = winner roster lines not in the vanilla unit's roster
-            // Un-escape both rosters to literal form so escaped killmove paths from the
-            // decompiled winner match the literal vanilla template and don't leak into the
-            // delta as phantom additions (see UnescapeXml).
-            auto readRoster = [](const fs::path& p) {
+            // additions = winner roster lines not in the vanilla unit's roster.
+            // Both rosters are the decompiled unit's data/animations.yaml — a block sequence of
+            // single-quoted LITERAL paths (the decompiler no longer XML-escapes), so no UnescapeXml.
+            auto readRoster = [](const fs::path& unitDir) {
                 std::vector<std::string> lines;
-                std::ifstream f(p);
+                std::ifstream f(unitDir / "data" / "animations.yaml");
                 std::string line;
                 while (std::getline(f, line)) {
-                    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-                    if (!line.empty()) lines.push_back(UnescapeXml(line));
+                    std::string t = line;
+                    while (!t.empty() && (t.back() == '\r' || t.back() == '\n' || t.back() == ' ' || t.back() == '\t')) t.pop_back();
+                    const std::size_t s = t.find_first_not_of(" \t");
+                    if (s == std::string::npos) continue;
+                    t = t.substr(s);
+                    if (t.empty() || t[0] == '#') continue;
+                    if (t.rfind("- ", 0) == 0) t = t.substr(2);
+                    else if (t[0] == '-') t = t.substr(1);
+                    const std::size_t s2 = t.find_first_not_of(" \t");
+                    if (s2 != std::string::npos) t = t.substr(s2);
+                    if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
+                        const std::string inner = t.substr(1, t.size() - 2); std::string un;
+                        for (std::size_t i = 0; i < inner.size(); ++i)
+                            if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
+                            else un += inner[i];
+                        t = std::move(un);
+                    }
+                    if (!t.empty()) lines.push_back(std::move(t));
                 }
                 return lines;
             };
@@ -928,10 +963,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 std::string               vrerr;
                 if (havok::sct::ReadHavokFile(tmpl.string(), vbytes, &vrerr) &&
                     havok::sct::DecompileToDir(vbytes, vscratch.string()).ok)
-                    vanilla = readRoster(vscratch / "animations.txt");
+                    vanilla = readRoster(vscratch);
                 fs::remove_all(vscratch, we);
             }
-            const auto modded = readRoster(scratch / "animations.txt");
+            const auto modded = readRoster(scratch);
             std::unordered_set<std::string> have;
             have.reserve(vanilla.size() * 2);
             for (const auto& a : vanilla) have.insert(ToLower(a));
@@ -1032,30 +1067,54 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const std::string bname      = attributed ? pm->second : std::string("BehaviorFiles");
                 const fs::path    outBundle  = plugins / (bname + ".hky");
 
-                // Materialize the base graph as a vanilla binary (round-trips to the base's own
-                // numbering, so the derived delta's matched ids line up with the shipped base).
-                const fs::path vanBin = tmpDir / ("loosebase_" + fs::path(u.prefix).stem().string() + ".hkx");
-                try {
-                    auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(u.prefix) });
-                    if (data.boneNames.empty())                         // inject the skeleton bone list
-                        if (const std::string actor = actorPathOf(u.prefix); !actor.empty())
-                            data.boneNames = boneNamesForActor(actor);
-                    const auto cr = havok::sct::CompileBehavior(data);
-                    std::string werr;
-                    if (!cr.ok || !havok::sct::WriteHavokFile(vanBin.string(), cr.bytes, &werr)) {
-                        ++r.skipped;
-                        say("  " + bname + ": " + u.prefix + " — base compile FAILED: " +
-                            (cr.ok ? werr : cr.error));
+                // Base numbering ORACLE for the derive: the delta's matched ids must equal the SHIPPED
+                // base master's #NNNN. For these no-template graphs the base master IS a straight
+                // decompile of the vanilla binary, so deriving against the vanilla .hkx gives matched
+                // ids that line up exactly. A compile/decompile ROUND-TRIP of the base master does NOT
+                // preserve #NNNN (only names survive it) — that desynced every override and crashed
+                // horsebehavior. Prefer the vanilla binary from SKYRIM_DATASOURCE (the unpacked vanilla
+                // root); fall back to the round-trip only when it is absent (degraded — new nodes are
+                // still namespaced so they can't collide, but matched overrides may misalign).
+                fs::path vanBin;
+                bool vanBinTemp = false;
+                if (const char* ds = std::getenv("SKYRIM_DATASOURCE")) {
+                    const fs::path cand = fs::path(ds) / u.prefix;   // prefix is meshes-relative
+                    if (fs::is_regular_file(cand, we)) vanBin = cand;
+                }
+                if (vanBin.empty()) {
+                    vanBin = tmpDir / ("loosebase_" + fs::path(u.prefix).stem().string() + ".hkx");
+                    vanBinTemp = true;
+                    try {
+                        auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(u.prefix) });
+                        if (data.boneNames.empty())                         // inject the skeleton bone list
+                            if (const std::string actor = actorPathOf(u.prefix); !actor.empty())
+                                data.boneNames = boneNamesForActor(actor);
+                        const auto cr = havok::sct::CompileBehavior(data);
+                        std::string werr;
+                        if (!cr.ok || !havok::sct::WriteHavokFile(vanBin.string(), cr.bytes, &werr)) {
+                            ++r.skipped;
+                            say("  " + bname + ": " + u.prefix + " — base compile FAILED: " +
+                                (cr.ok ? werr : cr.error));
+                            continue;
+                        }
+                    } catch (const std::exception& e) {
+                        ++r.skipped; say("  " + bname + ": " + u.prefix + " — base load threw: " + e.what());
                         continue;
                     }
-                } catch (const std::exception& e) {
-                    ++r.skipped; say("  " + bname + ": " + u.prefix + " — base load threw: " + e.what());
-                    continue;
                 }
 
                 const fs::path unit = outBundle / fs::path(u.prefix);
-                const auto res = havok::sct::DeriveLooseBehaviorDelta(vanBin.string(), winner.string(), unit.string());
-                fs::remove(vanBin, we);
+                // Mod namespace code for this bundle's NEW derived nodes ("<code>$N"). Short + unique:
+                // an alnum-lowercased slug of the bundle name (<=8 chars) + a 4-hex hash of the full
+                // name, so two mods never share a code and the id stays filename-safe/MAX_PATH-friendly.
+                std::string slug;
+                for (char c : ToLower(bname)) { if (std::isalnum(static_cast<unsigned char>(c))) slug += c; if (slug.size() >= 8) break; }
+                unsigned h16 = static_cast<unsigned>(std::hash<std::string>{}(bname) & 0xFFFFu);
+                std::string hx(4, '0');
+                for (int i = 3; i >= 0; --i) { hx[i] = "0123456789abcdef"[h16 & 0xF]; h16 >>= 4; }
+                const std::string modCode = slug + hx;
+                const auto res = havok::sct::DeriveLooseBehaviorDelta(vanBin.string(), winner.string(), unit.string(), modCode);
+                if (vanBinTemp) fs::remove(vanBin, we);   // only the round-trip temp; never the datasource vanilla
                 if (!res.ok) { ++r.skipped; say("  " + bname + ": " + u.prefix + " — DERIVE FAILED: " + res.error); continue; }
                 if (res.changedNodes == 0 && res.newNodes == 0) { fs::remove_all(unit, we); continue; }  // vanilla — nothing to carry
                 ++r.deltas;
@@ -1235,6 +1294,30 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         walk(charRoot / rel);
                     }
                 }
+            }
+
+            // DIRECT-GRAPH ROSTER — the RBG walk above only reaches sub-behaviors, but a mod's clips
+            // also live DIRECTLY in the graphs it patches (BFCO_* in 1hm_behavior/bashbehavior). The
+            // runtime graph-walk membrane used to collect these; do it here so the authored roster is
+            // COMPLETE at convert time (the precondition for retiring that membrane). animationNames come
+            // from the just-written delta unit clips/ (literal single-quoted strings).
+            {
+                auto collectGraphClips = [&](const std::string& unitPath) {
+                    const fs::path  clipsDir = fs::path(unitPath) / "clips";
+                    std::error_code ce;
+                    if (!fs::is_directory(clipsDir, ce)) return;
+                    for (const auto& e : fs::directory_iterator(clipsDir, ce)) {
+                        if (ToLower(e.path().extension().string()) != ".yaml") continue;
+                        std::ifstream f(e.path());
+                        std::string   line;
+                        while (std::getline(f, line)) {
+                            const std::string an = YamlQuoted(line, "animationName:");
+                            if (!an.empty() && nameSeen.insert(ToLower(an)).second) collected.push_back(an);
+                        }
+                    }
+                };
+                for (const auto& g : graphs)   collectGraphClips(unitOut(bname, g));
+                for (const auto& g : fpGraphs) if (g != "firstperson") collectGraphClips(fpUnitOut(bname, g));
             }
 
             if (!collected.empty()) {
@@ -1498,6 +1581,58 @@ HkxKind PeekHkxKind(const std::filesystem::path& file) {
     return HkxKind::Other;                        // non-graph / non-animation asset
 }
 
+// ── Shared animation bake: decompile a spline animation to an ATTRIBUTED single-file unit at
+// `unitPath`, self-gated on pose fidelity (round-trip rotation compare). Extracted verbatim from
+// BuildBaseBundle so the master build AND per-mod conversion (ConvertLoadOrder) package animations
+// through the ONE identical path — the precondition for serving mod animations natively. The emitted
+// animation.yaml carries the full attributed unit (per-track bone, annotationTracks, motion) — see
+// AnimationDef. `reason` receives a human note on Skip/Fail. Ok writes the yaml AS `unitPath` (the
+// single-file unit collectNativeAnim consumes). `not spline-compressed` is a quiet Skip (Ok/Skip/Fail
+// counting + logging stays the caller's, unchanged from the inline version).
+enum class AnimBakeOutcome { Ok, Skip, Fail };
+static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes,
+                                         const std::filesystem::path&     unitPath,
+                                         const std::filesystem::path&     stageDir,
+                                         std::string&                     reason) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
+    const fs::path bakeTmp = stageDir / "anim_bake";
+    fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
+    const auto dc = havok::anim::DecompileAnimation(abytes, bakeTmp);
+    if (!dc.ok) { reason = dc.error; return AnimBakeOutcome::Skip; }   // incl. "not spline-compressed"
+    try {
+        const auto ref = havok::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
+        const auto rc  = havok::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
+        if (!rc.ok) { reason = "recompile: " + rc.error; return AnimBakeOutcome::Skip; }
+
+        // pose gate: re-decompile the recompiled bytes and compare rotations to `ref`.
+        const fs::path animRt = stageDir / "anim_rt"; fs::remove_all(animRt, ec); fs::create_directories(animRt, ec);
+        if (!havok::anim::DecompileAnimation(rc.bytes, animRt).ok) { reason = "re-decompile"; return AnimBakeOutcome::Skip; }
+        const auto rt = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
+        bool   faithful = ref.tracks.size() == rt.tracks.size();
+        double maxDeg   = 0.0;
+        for (std::size_t i = 0; faithful && i < ref.tracks.size(); ++i) {
+            const auto& a = ref.tracks[i].rotation; const auto& b = rt.tracks[i].rotation;
+            if (a.size() != b.size()) { faithful = false; break; }
+            for (std::size_t k = 0; k < a.size(); ++k) {
+                double dot = 0; for (int c = 0; c < 4; ++c) dot += (double)a[k].value[c] * b[k].value[c];
+                dot = std::fabs(dot); if (dot > 1) dot = 1;
+                maxDeg = std::max(maxDeg, 2.0 * std::acos(dot) * 57.2957795131);
+            }
+        }
+        if (faithful && maxDeg <= kBakeMaxRotDeg) {
+            fs::create_directories(unitPath.parent_path(), ec);
+            std::ifstream src(bakeTmp / "animation.yaml", std::ios::binary);
+            std::ofstream dst(unitPath, std::ios::binary | std::ios::trunc);
+            dst << src.rdbuf();
+            return AnimBakeOutcome::Ok;
+        }
+        reason = "fidelity " + std::to_string(maxDeg) + "deg";
+        return AnimBakeOutcome::Skip;
+    } catch (const std::exception& e) { reason = std::string("reload: ") + e.what(); return AnimBakeOutcome::Skip; }
+}
+
 BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& templatesDir, const std::string& keepStagingDir) {
@@ -1571,35 +1706,32 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             continue;
         }
 
-        // ANIMATION — the corpus-wide compiler stress pass: decompile every loose spline animation to
-        // animation.yaml and immediately RECOMPILE it, counting round-trip pass/fail. This is "run the
-        // compiler against every single animation the game shipped with" — pure exercise of the anim
-        // import+emit path over the whole vanilla tree. The yaml is written to a scratch dir OUTSIDE
-        // stageHky/meshes (reused per file) so the SHIPPED master's content is unchanged — this is a
-        // validation sweep, not a decision to serve loose animations. Non-spline / undecodable clips
-        // are counted as skips, not failures.
+        // ANIMATION — BAKE the decompiled animation.yaml INTO the master, SELF-GATED on pose fidelity.
+        // Decompile the loose spline animation to animation.yaml in its staged unit dir, then prove the
+        // round-trip: recompile it, re-decompile that, and compare bone rotations frame-by-frame. Only if
+        // the round-trip is faithful (exact frame count + every sample within kBakeMaxRotDeg) does the yaml
+        // stay in the master; otherwise it's removed and the engine falls through to the loose vanilla .hkx.
+        // So only animations CB can reproduce faithfully are served natively — the fidelity gate IS the
+        // bake decision, per-animation, content-based (no path rules). Non-spline / undecodable clips skip.
         if (kind == HkxKind::Animation) {
+            // A native animation is a SINGLE-FILE unit: the ".hkx" path IS a renamed animation.yaml (NOT a
+            // "<name>.hkx/animation.yaml" tree). The decompile→pose-gate→write logic lives in the shared
+            // BakeAnimationUnit so the master build and per-mod conversion package animations identically;
+            // non-faithful/undecodable => no file written and the engine keeps the loose vanilla .hkx.
             std::vector<std::uint8_t> abytes; std::string arerr;
             if (!havok::sct::ReadHavokFile(it->path().string(), abytes, &arerr)) {
                 ++r.animFail; say("  anim read FAILED: " + rel + " — " + arerr); continue;
             }
-            const fs::path animRt = stage / "anim_rt";   // scratch, NOT under stageHky/meshes -> not packed
-            fs::remove_all(animRt, ec);
-            fs::create_directories(animRt, ec);
-            const auto dc = havok::anim::DecompileAnimation(abytes, animRt);   // schema-native (bytes in)
-            if (!dc.ok) {
-                // "not spline-compressed" is an expected skip (interleaved/other codecs aren't decompiled);
-                // anything else (no animations, decode failure, no tracks) is a real fault worth surfacing.
-                if (dc.error.find("not spline-compressed") != std::string::npos) ++r.animSkip;
-                else { ++r.animFail; say("  anim decompile FAILED: " + rel + " — " + dc.error); }
-                continue;
+            std::string reason;
+            switch (BakeAnimationUnit(abytes, unit, stage, reason)) {
+                case AnimBakeOutcome::Ok:   ++r.animOk; break;
+                case AnimBakeOutcome::Skip:
+                    ++r.animSkip;
+                    if (reason.find("not spline-compressed") == std::string::npos)   // quiet skip for those
+                        say("  anim skip: " + rel + " — " + reason);
+                    break;
+                case AnimBakeOutcome::Fail: ++r.animFail; say("  anim FAILED: " + rel + " — " + reason); break;
             }
-            try {
-                const auto anim = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
-                const auto rc   = havok::anim::CompileAnimation(anim, 30);
-                if (rc.ok) ++r.animOk;
-                else { ++r.animFail; say("  anim RECOMPILE FAILED: " + rel + " — " + rc.error); }
-            } catch (const std::exception& e) { ++r.animFail; say("  anim reload FAILED: " + rel + " — " + e.what()); }
             continue;
         }
 
@@ -1811,6 +1943,60 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     std::to_string(clips) + " clip file(s) + " + std::to_string(motion) +
                     " motion file(s) (" + std::to_string(parsed.projects.size()) + " projects, " +
                     std::to_string(resolved) + " char-resolved)");
+
+                // ── MOTION REUNION ────────────────────────────────────────────────────────────
+                // Bethesda stripped root motion from each animation and duplicated it onto every clip
+                // that referenced it in the adsf. Put it back: for each project clip that resolves to an
+                // animation (via the roster), take that clip's motion record and append it onto the baked
+                // animation.yaml unit as a top-level `motion:` block — so the animation carries its own
+                // motion again. Keyed by the resolved animation UNIT PATH (CanonicalAnimPath: actor root +
+                // roster entry), so it can't collide across actors; duplicates across male/female are
+                // byte-identical, so first-writer wins. The runtime re-duplicates per clip at name-index
+                // resolution (collect-by-clip) — this step just makes each animation self-describing.
+                // Unnamed/hybrid motion (no unique roster slot) is left index-keyed in the adsf as before.
+                {
+                    auto lc = [](std::string s){ for (char& c : s) c = (char)std::tolower((unsigned char)c); return s; };
+                    std::size_t reunited = 0, unbaked = 0;
+                    for (const auto& proj : parsed.projects) {
+                        if (!proj.hasAnimData || proj.motions.empty()) continue;
+                        const std::string stem = havok::animdata::StemForProjectName(proj.name);
+                        const auto pit = pcs.find(stem);
+                        if (pit == pcs.end()) continue;                     // unresolved -> clips kept raw index
+                        const auto& roster = pit->second.roster;
+                        const std::string refl = lc(pit->second.ref);
+                        const auto cp = refl.find("/characters/");
+                        if (cp == std::string::npos) continue;              // can't locate actor root
+                        const std::string actorRoot = refl.substr(0, cp);   // "actors/<...>"
+                        for (const auto& m : proj.motions) {
+                            char* end = nullptr; const long i = std::strtol(m.animIndex.c_str(), &end, 10);
+                            if (!(end && *end == '\0' && i >= 0 && (std::size_t)i < roster.size())) continue;
+                            if (roster[(std::size_t)i].empty()) continue;
+                            const std::string canon = havok::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
+                            // native animation is a SINGLE-FILE unit: the ".hkx" path IS the yaml (not a
+                            // "<name>.hkx/animation.yaml" tree). Append the motion block onto that file.
+                            const fs::path animYaml = stageHky / "meshes" / canon;
+                            std::error_code fe;
+                            if (!fs::exists(animYaml, fe)) { ++unbaked; continue; }   // not baked -> vanilla loose keeps its adsf motion
+                            // don't double-append (first-writer wins across the male/female duplicate).
+                            std::ifstream chk(animYaml, std::ios::binary);
+                            std::string cur((std::istreambuf_iterator<char>(chk)), std::istreambuf_iterator<char>());
+                            chk.close();
+                            if (cur.find("\n  motion:") != std::string::npos) continue;
+                            // append `motion:` as a child of `animation:` — EmitMotionSidecar body indented +4.
+                            std::string body = havok::animdata::EmitMotionSidecar(m), blk = "  motion:\n";
+                            for (std::size_t p = 0; p < body.size();) {
+                                std::size_t nl = body.find('\n', p);
+                                std::string line = body.substr(p, nl == std::string::npos ? std::string::npos : nl - p);
+                                if (!line.empty()) blk += "    " + line + "\n";
+                                p = (nl == std::string::npos) ? body.size() : nl + 1;
+                            }
+                            std::ofstream(animYaml, std::ios::binary | std::ios::app) << blk;
+                            ++reunited;
+                        }
+                    }
+                    say("  motion reunion: " + std::to_string(reunited) + " animation(s) reunited with their motion record (" +
+                        std::to_string(unbaked) + " referenced-but-unbaked, left to vanilla loose).");
+                }
             } catch (const std::exception& e) {
                 say(std::string("  WARN: animationdata decompose failed: ") + e.what());
             }
@@ -1825,6 +2011,58 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     say("  master built: " + outHky);
     r.ok = true;
     return r;
+}
+
+// Per-mod animation packaging (piece 1) — see the forward declaration above ConvertLoadOrder. Walks each
+// enabled mod's loose meshes\ for animation .hkx and bakes them into that mod's <modName>.hky bundle as
+// attributed single-file units (the per-mod sibling of BuildBaseBundle's animation leg). Index-bound for
+// now; bone-name binding (the membrane) is piece 2. FAIL-SAFE: a skip/fail writes no unit and the engine
+// keeps the loose .hkx, so this can never break the behavior/skeleton bundles.
+static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
+                                 const fs::path& stageRoot, const LogFn& log) {
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    std::error_code ec;
+    const fs::path stage = stageRoot / "modanim_stage";
+    fs::create_directories(stage, ec);
+
+    int totalOk = 0, totalSkip = 0, totalFail = 0, modsWithAnims = 0;
+    for (const std::string& modName : mo2.enabledTopFirst) {
+        const fs::path modRoot = mo2.modsDir / modName;
+        const fs::path meshes  = modRoot / "meshes";
+        if (!fs::is_directory(meshes, ec)) continue;
+        const fs::path bundle = plugins / (modName + ".hky");   // the mod's own bundle (== its behavior bundle)
+        int modOk = 0, modSkip = 0, modFail = 0;
+        for (fs::recursive_directory_iterator it(meshes, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            const fs::path& p = it->path();
+            const std::string lower = ToLower(p.filename().string());
+            if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".hkx") != 0) continue;
+            if (PeekHkxKind(p) != HkxKind::Animation) continue;
+
+            std::vector<std::uint8_t> abytes; std::string rerr;
+            if (!havok::sct::ReadHavokFile(p.string(), abytes, &rerr)) { ++modFail; continue; }
+            const fs::path rel = fs::relative(p, modRoot, ec);    // "meshes/actors/.../<name>.hkx"
+            if (ec || rel.empty()) { ++modFail; continue; }
+            const fs::path unit = bundle / rel;                   // single-file attributed unit inside the bundle
+            std::string reason;
+            switch (BakeAnimationUnit(abytes, unit, stage, reason)) {
+                case AnimBakeOutcome::Ok:   ++modOk;   break;
+                case AnimBakeOutcome::Skip: ++modSkip; break;   // non-spline/fidelity — engine keeps the loose .hkx
+                case AnimBakeOutcome::Fail: ++modFail; break;
+            }
+        }
+        if (modOk > 0) {
+            ++modsWithAnims;
+            say("  mod animations: " + modName + " -> " + std::to_string(modOk) + " native unit(s)" +
+                (modSkip ? (" (" + std::to_string(modSkip) + " non-spline/fidelity skipped)") : std::string()) + ".");
+        }
+        totalOk += modOk; totalSkip += modSkip; totalFail += modFail;
+    }
+    fs::remove_all(stage, ec);
+    if (totalOk || totalSkip || totalFail)
+        say("Mod animations: " + std::to_string(totalOk) + " baked native across " +
+            std::to_string(modsWithAnims) + " mod(s) (" + std::to_string(totalSkip) + " skipped, " +
+            std::to_string(totalFail) + " failed).");
 }
 
 RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& templatesDir,

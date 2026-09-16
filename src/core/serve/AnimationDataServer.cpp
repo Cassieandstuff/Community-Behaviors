@@ -4,15 +4,13 @@
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
-#include "core/resolve/GraphClipSink.h"   // sink->Contributions() (adsf-derive feature, opt-in validation)
+#include "core/resolve/GraphClipSink.h"   // sink->Contributions() (adsf-derive stage, opt-in validation)
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
 #include <havok/anim/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
 #include <havok/sct/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior / DeriveProjectPatch
 #include <havok/model/BehaviorData.h>
 #include <havok/model/yaml/YamlBehaviorLoader.h>
-
-#include <MinHook.h>                   // per-project loader gate (block engine's read on BR's materialize)
 
 #include <tuple>
 
@@ -475,28 +473,6 @@ namespace CB::adserve {
             VerifyMergeIntegrity(base, modBandFloor);
         }
 
-        // Per-project (dev) form is opt-in (retail-untested engine path). When enabled, ServeAnimData
-        // also writes BR's merged animdata as DirList.txt + <Project>.txt + BoundAnims\Anims_<Project>.txt.
-        std::atomic<bool> s_perProjectMode{ false };
-
-        void EmitPerProjectForm(const animdata::SingleFile& merged, const fs::path& dataDir)
-        {
-            std::error_code ec;
-            // Write as LOOSE files at the engine's real read path — loose wins over the BSA (which
-            // ships only a partial per-project set), so the engine reads BR's complete merged form
-            // directly, no open-redirect hook needed. This is the opt-in experiment's serving path.
-            const fs::path adDir = dataDir / "Meshes" / "AnimationData";
-            fs::create_directories(adDir / "BoundAnims", ec);
-            WriteFile(adDir / "DirList.txt", animdata::EmitDirList(merged));
-            for (const auto& p : merged.projects) {
-                WriteFile(adDir / p.name, animdata::EmitProjectClips(p));            // <Project>.txt
-                if (!p.motions.empty())
-                    WriteFile(adDir / "BoundAnims" / ("Anims_" + p.name),            // Anims_<Project>.txt
-                              animdata::EmitProjectMotion(p));
-            }
-            LOG_INFO("AnimData: emitted per-project form ({} project(s)) -> {}.", merged.projects.size(), adDir.string());
-        }
-
     }  // namespace
 
     ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni,
@@ -504,7 +480,7 @@ namespace CB::adserve {
     {
         ServeResult r;
 
-        // ── adsf-derive feature (opt-in) — VALIDATION cut ────────────────────────────
+        // ── adsf-derive stage (opt-in) — VALIDATION cut ────────────────────────────
         // When the caller opted in, `sink` holds every graph's feature-derived clip inputs (pushed
         // during CompileAll). This first cut only REPORTS what the unified derive produced — grouped
         // by actor root (the tree up to "/behaviors/"), so each row is what a project's clip cache
@@ -790,10 +766,23 @@ namespace CB::adserve {
                 // Rosters come from each project's `character:` header ref (index.yaml) — load once.
                 for (const auto& h : headers) {
                     if (h.character.empty()) continue;
-                    if (const auto rz = masterReader->read("meshes/" + h.character + "/animations.txt")) {
+                    if (const auto rz = masterReader->read("meshes/" + h.character + "/data/animations.yaml")) {
                         std::vector<std::string> roster;
                         std::istringstream in(*rz); std::string line;
-                        while (std::getline(in, line)) { const std::string t = TrimLine(line); if (!t.empty()) roster.push_back(t); }
+                        while (std::getline(in, line)) {   // block seq of single-quoted scalars: `- 'path'`
+                            std::string t = TrimLine(line);
+                            if (t.empty() || t[0] == '#') continue;
+                            if (t.rfind("- ", 0) == 0) t = TrimLine(t.substr(2));
+                            else if (t[0] == '-') t = TrimLine(t.substr(1));
+                            if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
+                                const std::string inner = t.substr(1, t.size() - 2); std::string un;
+                                for (std::size_t i = 0; i < inner.size(); ++i)
+                                    if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
+                                    else un += inner[i];
+                                t = std::move(un);
+                            }
+                            if (!t.empty()) roster.push_back(std::move(t));
+                        }
                         if (!roster.empty()) rostersByStem[animdata::StemForProjectName(h.name)] = std::move(roster);
                     }
                 }
@@ -919,9 +908,6 @@ namespace CB::adserve {
             return r;
         }
 
-        if (s_perProjectMode.load(std::memory_order_acquire))
-            EmitPerProjectForm(base, dataDir);
-
         r.ok        = true;
         r.cachePath = cachePath.string();
         LOG_INFO("AnimData: merged {} bundle(s) onto {} base project(s) "
@@ -947,10 +933,14 @@ namespace CB::adserve {
         std::int32_t Hook_OpenAnimData(std::uintptr_t a_path, std::uintptr_t a_out,
                                        std::uint64_t a_r8, std::uint64_t a_r9)
         {
-            // First open of the collated animdata file drives the compile gate: block here (engine
-            // parked in our hook) until BR has compiled + armed, so the redirect below is live for
-            // THIS open and the graph load ordered after us is consistent. No-op after the first call.
+            // First open of the collated animdata file drives the compile gate. The gate now KICKS a
+            // background arm and returns at once (it no longer parks this thread on the whole Init +
+            // compile — that stalled the main thread ~50s and minimized the window). We then block ONLY
+            // on the adsf/setdata arm, which the ArmThread does FIRST from cache on warm — milliseconds —
+            // so the redirect below is live for THIS open and the graph load ordered after us is
+            // consistent. No-op after the first call.
             CB::EnsureCompiledAndArmed();
+            CB::WaitAdsfArmed();
 
             if (s_redirectActive.load(std::memory_order_acquire)) {
                 const std::uintptr_t ours = *reinterpret_cast<std::uintptr_t*>(&s_cachePath);
@@ -966,91 +956,6 @@ namespace CB::adserve {
         }
 
     }  // namespace
-
-    bool EnablePerProjectAnimData()
-    {
-        const bool ae = REL::Module::get().version()[1] >= 6;  // 1.6.x = AE
-        if (!ae) { LOG_WARN("AnimData: per-project flag patch is AE-only."); return false; }
-
-        // RE (AE, decrypted dump): ShouldLoadCollatedAnimTextData (0x140541FA0) is
-        // `MOVZX EAX, byte ptr [0x1420107E0]; RET`. The shipped byte is 0x01 (load the collated
-        // AnimationDataSingleFile.txt). Patching it to 0x00 routes the loader down the per-project
-        // branch — Meshes\AnimationData\DirList.txt + <Project>.txt + BoundAnims\Anims_<Project>.txt.
-        // RETAIL-UNTESTED engine path; caller gates this behind an explicit opt-in.
-        constexpr std::uintptr_t kFlagRVA = 0x20107E0;
-        const std::uintptr_t     addr = REL::Module::get().base() + kFlagRVA;
-        const std::uint8_t       cur  = *reinterpret_cast<const std::uint8_t*>(addr);
-        if (cur > 1) {
-            LOG_WARN("AnimData: collated flag at rva 0x{:X} = 0x{:02X} (not 0/1) — refusing to patch.", kFlagRVA, cur);
-            return false;
-        }
-        REL::safe_write<std::uint8_t>(addr, std::uint8_t{ 0 });
-        s_perProjectMode.store(true, std::memory_order_release);
-        LOG_INFO("AnimData: per-project animationdata ENABLED (flag rva 0x{:X}: 0x{:02X}->0x00). "
-                 "The loader gate will materialize the per-project files before the engine reads.", kFlagRVA, cur);
-        return true;
-    }
-
-    void DisablePerProjectAnimData()
-    {
-        s_perProjectMode.store(false, std::memory_order_release);
-        if (REL::Module::get().version()[1] < 6) return;
-        constexpr std::uintptr_t kFlagRVA = 0x20107E0;
-        REL::safe_write<std::uint8_t>(REL::Module::get().base() + kFlagRVA, std::uint8_t{ 1 });  // back to collated
-        LOG_INFO("AnimData: per-project reverted to collated (flag rva 0x{:X} -> 0x01).", kFlagRVA);
-    }
-
-    // ── Per-project loader gate ───────────────────────────────────────────────────
-    // Rather than race to materialize before the engine reads animdata, GATE the read. Hook the
-    // AnimationClipDataSingleton ctor (FUN_140536ec0) and, the first time it fires, run BR's merge
-    // + per-project materialize SYNCHRONOUSLY on the engine's thread, then let the ctor proceed to
-    // read the now-ready files. Correctness by ordering, not by timing — the engine physically
-    // cannot read until BR is done. Keeps plugin load trivial (this just installs the hook).
-    namespace {
-        using ClipDataCtorFn = void* (*)(void*);
-        ClipDataCtorFn    s_origClipDataCtor = nullptr;
-        std::atomic<bool> s_gateMaterialized{ false };
-
-        void* Hook_ClipDataCtor(void* a_this)
-        {
-            // Per-project mode still needs the behavior compile + set-data arm — drive the shared
-            // compile gate first (blocks until done), THEN materialize the per-project animdata files
-            // below. Ordered ahead of the ctor's read either way.
-            CB::EnsureCompiledAndArmed();
-
-            bool expected = false;
-            if (s_gateMaterialized.compare_exchange_strong(expected, true)) {
-                const auto r = ServeAnimData("Data", "Data/community_behaviors/loadorder.txt");
-                if (r.attempted && !r.ok)
-                    LOG_WARN("AnimData: loader-gate materialize did not complete: {}", r.error);
-                else
-                    LOG_INFO("AnimData: loader gate — per-project files materialized; engine read proceeds.");
-            }
-            return s_origClipDataCtor(a_this);
-        }
-    }  // namespace
-
-    bool InstallPerProjectGate()
-    {
-        const MH_STATUS init = MH_Initialize();
-        if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) {
-            LOG_WARN("AnimData: MH_Initialize failed ({}) — per-project gate NOT installed.", static_cast<int>(init));
-            return false;
-        }
-        // AnimationClipDataSingleton ctor = FUN_140536ec0 (RVA 0x536EC0); entry is a clean 5-byte
-        // `MOV [rsp+8],rcx` — a valid detour target, called once to build the clip singleton.
-        constexpr std::uintptr_t kClipDataCtorRVA = 0x536EC0;
-        void* const target = reinterpret_cast<void*>(REL::Module::get().base() + kClipDataCtorRVA);
-        if (MH_CreateHook(target, reinterpret_cast<void*>(&Hook_ClipDataCtor),
-                          reinterpret_cast<void**>(&s_origClipDataCtor)) != MH_OK ||
-            MH_EnableHook(target) != MH_OK) {
-            LOG_WARN("AnimData: failed to install per-project loader gate @ rva 0x{:X}.", kClipDataCtorRVA);
-            return false;
-        }
-        LOG_INFO("AnimData: per-project loader gate installed @ rva 0x{:X} "
-                 "(engine's animdata read blocks on BR's merge+materialize).", kClipDataCtorRVA);
-        return true;
-    }
 
     bool InstallAnimDataHook()
     {

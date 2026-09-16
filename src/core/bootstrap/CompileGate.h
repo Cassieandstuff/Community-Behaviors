@@ -6,32 +6,32 @@
 // bought a race the engine's own single-threaded load order already wins for us). Instead the
 // engine's FIRST open of animationsetdatasinglefile.txt / animationdatasinglefile.txt — or the
 // first resolve of a BR-owned behavior — calls EnsureCompiledAndArmed() from INSIDE that detour.
-// The engine's loader thread is then physically parked in our hook until the compile returns, so
-// nothing downstream (graph arming, the later setdata/adsf reads, byteserve) can run against a
-// still-vanilla graph: correctness by ordering, not by timing. The exact same pattern the
-// per-project loader gate already proved (AnimationDataServer InstallPerProjectGate).
 //
-// Because that first open happens during game-data load — AFTER kDataLoaded — SMF's present hook
-// and the render thread are live, so the compile thread's SetProgress drives a real on-screen
-// progress overlay while the loader thread blocks here. That is the whole point: the progress bar
-// is back AND the race is won, at once.
+// The gate no longer BLOCKS the calling thread on the whole compile: it arms the progress bar, kicks a
+// single background ArmThread that does all the heavy work (WaitReady on Init + arm graphs/adsf), and
+// RETURNS immediately. That keeps the MAIN thread (which is where the early animationdata open lands)
+// free to pump the window and present — so the game isn't minimized with a trapped cursor and the bar
+// can actually paint. Two per-open waits provide correctness without a main-thread stall:
+//   • the animationdata/animationsetdata detours call WaitAdsfArmed() — on a warm cache the ArmThread
+//     arms those redirects FIRST (instant, Init-independent), so this is milliseconds, not ~50s;
+//   • byteserve's owned-graph backstop calls WaitForCompile() — those opens are on loader threads, so
+//     parking them until materialize is fine and a graph is never served half-compiled.
+//
+// The first open happens during game-data load — AFTER kDataLoaded — so SMF's present hook and the
+// render thread are live; the ArmThread's SetProgress drives the on-screen bar over the (now live) menu.
 namespace CB {
 
-    // One-shot, blocking, thread-safe. First caller arms the serve. Two shapes:
-    //   • Default (proven) path: warm → arm from disk; cold → run the 64MB compile + materialize and
-    //     JOIN it here, then serve+arm adsf/setdata. Fully synchronous; no progress bar possible.
-    //   • Split path (DEFAULT for a cold compile; opt out with Data\community_behaviors\progressbar.disable,
-    //     and it's forced off when the adsf-derive feature needs the compile's clip sink): serve+arm
-    //     adsf/setdata synchronously (fast, independent of the graph compile), then LAUNCH the cold
-    //     compile on a background thread and RETURN — so the game reaches its menu and presents while the
-    //     compile runs, and the passive present-hook bar (ProgressHud) is visible. byteserve's backstop
-    //     calls WaitForCompile() before serving an owned graph, so a graph is never served half-compiled.
-    // Every later call — and any reentrant call on a doing thread — returns immediately.
+    // One-shot, thread-safe, NON-blocking KICK. First caller arms the bar and spawns the background
+    // ArmThread (which arms adsf-from-cache first on warm, waits Init, then arms graphs); returns at
+    // once. Every later call — and any reentrant call on the doing thread — returns immediately.
     void EnsureCompiledAndArmed();
 
-    // Block until the background (split-path) compile has finished and the serve is armed. No-op on the
-    // default path (the compile already joined) or once the compile is done. Called by byteserve before
-    // it serves a BR-owned graph, so correctness never depends on the bar's timing.
+    // Block until the adsf/setdata redirects are armed (bounded timeout, then vanilla passthrough).
+    // Called by the animationdata/animationsetdata detours after they kick the gate. Fast on warm.
+    void WaitAdsfArmed();
+
+    // Block until the background arm/compile has finished and the graph serve is armed (materialize).
+    // Called by byteserve before it serves a BR-owned graph, so correctness never depends on the bar.
     void WaitForCompile();
 
 }  // namespace CB

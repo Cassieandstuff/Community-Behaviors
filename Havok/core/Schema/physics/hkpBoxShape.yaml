@@ -1,0 +1,9 @@
+name:      hkpBoxShape
+parent:    hkpConvexShape
+signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+size:      64
+# hkpConvexShape ends @40 (radius+pad). m_halfExtents is 16-aligned -> pad 40->48, vector4 @48 -> 64.
+# Real object size in vanilla creature skeletons: 64 (fixed, no trailing arrays) — validated.
+fields:
+  - { skip: 8 }                          # pad 40 -> 48
+  - { name: halfExtents, type: vector4 } # @48 -> 64

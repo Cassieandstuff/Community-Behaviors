@@ -18,6 +18,7 @@
 #include "havok/model/yaml/YamlBehaviorLoader.h"
 #include "havok/model/BehaviorBuilder.h"   // model::ResolveBehaviorBindings (pre-build stage)
 #include "havok/model/yaml/HkyArchive.h"
+#include "havok/model/CompileTrace.h"      // compile-trace sink + TraceGraph (name-annotated merge trace)
 #include "havok/anim/AnimationCompiler.h"    // havok::anim::CompileAnimation (schema-native)
 #include "havok/anim/AnimationDecompiler.h"  // havok::anim::DecompileAnimation (schema-native)
 #include "havok/anim/AnimationEmitter.h"     // havok::anim::EmitAnimationHkx (typed baseline for the gate)
@@ -44,6 +45,8 @@
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree (name-keyed derive-delta)
 #include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
+#include <niffer/Niffer.h>                   // NIF reader — control-decompile nif/aux pose fill
+#include <optional>                          // control-decompile convention derive
 #include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
 #include <havok/skeleton/SkeletonCompiler.h> // schema-native writer (skeleton-full-parity gate)
 #include <havok/skeleton/SkeletonYaml.h>     // schema-native yaml (skeleton-yaml-parity gate)
@@ -326,11 +329,36 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
 // base, so this proves e.g. Community Behaviors's 0_master delta lands correctly on vanilla
 // 0_master from Skyrim.hky. Usage: hky-merge-compile <servePath> <base.hky> [delta.hky ...] -o out.hkx
 int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& archives, const std::string& out,
-                      const std::string& schemaDir = "", bool strictSchema = false) {
+                      const std::string& schemaDir = "", bool strictSchema = false,
+                      const std::string& traceFile = "", const std::string& traceFilter = "",
+                      const std::string& skel = "") {
     if (archives.empty() || out.empty()) {
         std::printf("usage: hky-merge-compile <servePath> <base.hky> [delta.hky ...] -o out.hkx\n"
-                    "                         [--schema <HavokDir>] [--strict-schema]\n");
+                    "                         [--schema <HavokDir>] [--strict-schema]\n"
+                    "                         [--trace <file>] [--trace-filter <substr>]\n");
         return 2;
+    }
+
+    // Compile-trace (name-annotated, greppable) of the MERGED model: variable table + every binding,
+    // with symbolic names intact (this taps the merged model before compile clears them). Off by
+    // default (zero cost); --trace <file> routes it to a file, --trace-filter narrows unit/class/name.
+    std::shared_ptr<std::ofstream> traceOut;
+    if (!traceFile.empty()) {
+        traceOut = std::make_shared<std::ofstream>(traceFile, std::ios::binary);
+        if (!*traceOut) { std::printf("FAIL: cannot open trace file '%s'\n", traceFile.c_str()); return 1; }
+        havok::model::trace::SetSink([traceOut](std::string_view l) { traceOut->write(l.data(), (std::streamsize)l.size()); traceOut->put('\n'); });
+        if (!traceFilter.empty()) havok::model::trace::SetFilter(traceFilter);
+        // Schema-driven probes: load Havok/core/Schema/metadata/debug/*.yaml (rides on the schema tree).
+        // When any load, they gate the trace (the --trace-filter is then ignored). --schema = Havok root.
+        if (!schemaDir.empty()) {
+            std::string pw;
+            const std::size_t np = havok::model::trace::LoadProbes(schemaDir + "/core/Schema/metadata/debug", &pw);
+            if (!pw.empty()) std::printf("  probes: %s", pw.c_str());
+            std::printf("  trace: %s (%zu probe file(s)%s)\n", traceFile.c_str(), np,
+                        np ? "" : "; none -> full trace / --trace-filter");
+        } else {
+            std::printf("  trace: %s%s\n", traceFile.c_str(), traceFilter.empty() ? "" : (" (filter: " + traceFilter + ")").c_str());
+        }
     }
     std::string want = unit;   // normalize to the archive's key form (lower, forward-slash)
     for (char& c : want) { if (c == '\\') c = '/'; else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
@@ -376,7 +404,12 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
                     unit.c_str(), sources.size(), out.c_str());
         return 0;
     }
-    const auto data = havok::model::YamlBehaviorLoader::LoadMerged(sources);
+    auto data = havok::model::YamlBehaviorLoader::LoadMerged(sources);
+    // --skeleton: inject the actor's bone NAMES so ragdoll/IK bone-index arrays resolve by name (the
+    // runtime injects the per-actor skeleton; without it a unit like 0_master refuses to emit a
+    // -1-filled bone array). Optional — units with no bone-name arrays don't need it.
+    if (!skel.empty()) data.boneNames = LoadSkeletonNames(skel);
+    havok::model::TraceGraph(data, unit);   // merged model: variable table (if this unit has graphData) + bindings
     const auto r = havok::sct::CompileBehavior(data);
     if (!r.ok) { std::printf("FAIL: %s\n", r.error.c_str()); return 1; }
     const auto vr = havok::sct::ValidatePackfile(r.bytes);
@@ -385,6 +418,7 @@ int doHkyMergeCompile(const std::string& unit, const std::vector<std::string>& a
     if (!havok::sct::WriteHavokFile(out, r.bytes, &werr)) { std::printf("FAIL: %s\n", werr.c_str()); return 1; }
     std::printf("OK: hky-merge-compile %s (%zu layer(s)) -> %s (%zu bytes), validated.\n",
                 unit.c_str(), sources.size(), out.c_str(), r.bytes.size());
+    havok::model::trace::SetSink({}); havok::model::trace::SetFilter({}); havok::model::trace::ClearProbes();
     return 0;
 }
 
@@ -1063,6 +1097,8 @@ int doResDump(const std::string& in) {
     std::vector<std::uint8_t> bytes; std::string err;
     if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
     havok::PackFileDeserializer des;
+    des.SetTolerateUnregistered(true);   // exotic creature ragdoll collision shapes are irrelevant to the
+                                         // resource tree; skip them so the container still dumps.
     havok::BinaryReaderEx br(false, true, bytes);
     auto root = std::dynamic_pointer_cast<havok::hkRootLevelContainer>(des.Deserialize(br));
     if (!root) { std::printf("ERROR: root is not hkRootLevelContainer\n"); return 1; }
@@ -1074,6 +1110,288 @@ int doResDump(const std::string& in) {
         DumpResContainer(c, 0, nC, nH, nL);
     }
     std::printf("(resource tree: %zu containers, %zu handles, %zu external links)\n", nC, nH, nL);
+    return 0;
+}
+
+// control-decompile: emit the skeleton's hkMemoryResourceContainer ("Resource Data") tree as a
+// data-driven control-rig YAML (control/rig.yaml) — the node hierarchy + names + handle bindings the
+// 3ds-Max control rig collapsed into. Transforms are NOT in this source (the runtime file strips them),
+// so the rig carries topology only; poses are layered later (derived from the bones or imported). This
+// folder is IGNORED by the compiler + the skeleton reader (readBaseUnit walks only bonelist.yaml +
+// bones/), so it rides free inside a skeleton unit for the scene editor to consume.
+static std::string YamlQuote(const std::string& s) {
+    std::string r = "\"";
+    for (char ch : s) { if (ch == '\\' || ch == '"') r += '\\'; r += ch; }
+    r += '"';
+    return r;
+}
+static std::string Fnum(float v) { char b[32]; std::snprintf(b, sizeof b, "%.6g", static_cast<double>(v)); return b; }
+
+// A control node's pose, pre-formatted as the inline YAML value + where it came from.
+struct ControlPose { std::string xform; const char* source; };
+
+static std::string XformInlineRaw(float tx, float ty, float tz,
+                                  float qx, float qy, float qz, float qw,
+                                  float sx, float sy, float sz) {
+    return "{ translation: [" + Fnum(tx) + ", " + Fnum(ty) + ", " + Fnum(tz)
+         + "], rotation: [" + Fnum(qx) + ", " + Fnum(qy) + ", " + Fnum(qz) + ", " + Fnum(qw)
+         + "], scale: [" + Fnum(sx) + ", " + Fnum(sy) + ", " + Fnum(sz) + "] }";
+}
+static std::string XformInline(const havok::QSTransform& t) {
+    return XformInlineRaw(t.translation.x, t.translation.y, t.translation.z,
+                          t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w,
+                          t.scale.x, t.scale.y, t.scale.z);
+}
+// NIF Matrix33 (row-major, m[3*r + c] = R[r][c]) -> quaternion (x,y,z,w). Shepperd's method.
+static void Mat33ToQuat(const niffer::Mat33& M, float& qx, float& qy, float& qz, float& qw) {
+    const float* m = M.m;
+    const float r00 = m[0], r01 = m[1], r02 = m[2];
+    const float r10 = m[3], r11 = m[4], r12 = m[5];
+    const float r20 = m[6], r21 = m[7], r22 = m[8];
+    const float tr = r00 + r11 + r22;
+    if (tr > 0.f) {
+        float s = std::sqrt(tr + 1.f) * 2.f;                 // s = 4*qw
+        qw = 0.25f * s; qx = (r21 - r12) / s; qy = (r02 - r20) / s; qz = (r10 - r01) / s;
+    } else if (r00 > r11 && r00 > r22) {
+        float s = std::sqrt(1.f + r00 - r11 - r22) * 2.f;    // s = 4*qx
+        qw = (r21 - r12) / s; qx = 0.25f * s; qy = (r01 + r10) / s; qz = (r02 + r20) / s;
+    } else if (r11 > r22) {
+        float s = std::sqrt(1.f + r11 - r00 - r22) * 2.f;    // s = 4*qy
+        qw = (r02 - r20) / s; qx = (r01 + r10) / s; qy = 0.25f * s; qz = (r12 + r21) / s;
+    } else {
+        float s = std::sqrt(1.f + r22 - r00 - r11) * 2.f;    // s = 4*qz
+        qw = (r10 - r01) / s; qx = (r02 + r20) / s; qy = (r12 + r21) / s; qz = 0.25f * s;
+    }
+}
+static std::string XformInlineNif(const niffer::NiTransform& t) {
+    float qx, qy, qz, qw; Mat33ToQuat(t.rotation, qx, qy, qz, qw);
+    return XformInlineRaw(t.translation.x, t.translation.y, t.translation.z,
+                          qx, qy, qz, qw, t.scale, t.scale, t.scale);
+}
+
+// Heuristic HINT for where an UNPOSED node's pose should come from (posed nodes carry a real `poseSource`
+// — skeleton or nif — instead). A starting route the NIF fill / scene editor confirms:
+//   nif        = a skinned cloth bone (Robe/Skirt/Cloak/body) — look in a skeleton.nif (a different one,
+//                or under a normalized name, since the sibling-nif fill didn't match it by exact name).
+//   aux        = the tail — a SEPARATE attached skeleton, tween-driven to the spine (its own .nif).
+//   convention = a pure Max helper (export dummy / IK helper / pivot / FootBox / camera ctrl / bumper /
+//                group wrapper) with no pose in ANY file — derive by convention or author in the editor.
+static const char* ControlPoseHint(const std::string& name) {
+    std::string n; n.reserve(name.size());
+    for (char c : name) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const auto has = [&](const char* s) { return n.find(s) != std::string::npos; };
+    if (has("tail") && has("bone"))                                            return "aux";   // separate tail skeleton
+    if (!has("export") && has("bone") && (has("robe") || has("skirt") || has("cloak"))) return "nif";  // skinned cloth
+    if (has("belly") || has("underwear") || has("dwarvenskirt"))               return "nif";   // body/cloth node
+    return "convention";   // export/pivot/ikhelper/footbox/camera/bumper/wrapper — no pose anywhere
+}
+
+// Foot-on-ground anchors (world XY, projected to Z=0) for the foot-roll derive.
+struct DeriveCtx { bool haveL = false, haveR = false; float lx = 0, ly = 0, rx = 0, ry = 0; };
+
+// Derive-by-convention: a sensible DEFAULT local pose for a Max control helper that has no pose in any
+// file — a functional starting point the scene editor refines (there is no single "proven formula";
+// these are per-type conventions). Returns the inline transform, or nullopt to leave the node `derive`
+// (its pose genuinely isn't derivable here — e.g. an export/cloth chain that would mirror an unfilled
+// skinned bone).
+//   • organizational dummies (*ExportRoot, *LocalReference, the NPC wrapper) + camera controls
+//     (Camera3rd Ctrl/FOV, offset off the posed Camera3rd bone): identity-relative-to-parent.
+//   • foot-roll: FootBox anchored at the real foot projected to ground (Z=0, via FK); HeelPivot/ToePivot
+//     identity (coincident with FootBox — no toe bone in the skeleton to derive the heel-back/toe-forward
+//     spread, so the editor sets that). Anchoring at the true foot still beats leaving it at the origin.
+static std::optional<std::string> TryDeriveConvention(const std::string& name, const DeriveCtx& d) {
+    std::string n; n.reserve(name.size());
+    for (char c : name) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const auto has = [&](const char* s) { return n.find(s) != std::string::npos; };
+    const std::string ident = XformInlineRaw(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
+    if (has("exportroot") || has("localreference") || name == "NPC" || has("camera3rd")) return ident;
+    if (has("footbox")) {
+        if (has("npc l") && d.haveL) return XformInlineRaw(d.lx, d.ly, 0, 0, 0, 0, 1, 1, 1, 1);
+        if (has("npc r") && d.haveR) return XformInlineRaw(d.rx, d.ry, 0, 0, 0, 0, 1, 1, 1, 1);
+        return std::nullopt;   // no foot data
+    }
+    if (has("heelpivot") || has("toepivot")) return ident;
+    return std::nullopt;
+}
+
+// Emit one control node (+ subtree). Resolved by NAME from the pose map (skeleton referencePose + NIF
+// NiNode transforms): a hit emits the pose + a real `poseSource` (skeleton|nif). Otherwise a convention
+// DERIVE is attempted (poseSource: derived); failing that the node is left `transform: derive` + a
+// `poseHint` (nif|aux|convention — where to look). `srcCounts` tallies filled/derived; `hintCounts` hints.
+static void EmitControlNode(std::string& out, std::size_t& count,
+                            std::map<std::string, std::size_t>& srcCounts,
+                            std::map<std::string, std::size_t>& hintCounts,
+                            const std::unordered_map<std::string, ControlPose>& poses,
+                            const DeriveCtx& dctx,
+                            const std::shared_ptr<havok::hkMemoryResourceContainer>& c, int markerCol) {
+    if (!c) return;
+    ++count;
+    const std::string m(static_cast<std::size_t>(markerCol), ' ');       // "- " marker column
+    const std::string k(static_cast<std::size_t>(markerCol) + 2, ' ');   // this node's key column
+    out += m + "- name: " + YamlQuote(c->m_name) + "\n";
+    const auto pit = poses.find(c->m_name);
+    if (pit != poses.end()) {   // filled — real pose + real source
+        out += k + "transform: " + pit->second.xform + "\n";
+        out += k + "poseSource: " + pit->second.source + "\n";
+        ++srcCounts[pit->second.source];
+    } else if (auto d = TryDeriveConvention(c->m_name, dctx)) {   // convention default
+        out += k + "transform: " + *d + "\n";
+        out += k + "poseSource: derived\n";
+        ++srcCounts["derived"];
+    } else {                    // still unfilled — mark for derive + where to look
+        const char* hint = ControlPoseHint(c->m_name);
+        out += k + "transform: derive\n";
+        out += k + "poseHint: " + hint + "\n";
+        ++hintCounts[hint];
+    }
+    if (!c->m_resourceHandles.empty()) {
+        out += k + "handles:\n";
+        for (const auto& h : c->m_resourceHandles) {
+            if (!h) continue;
+            out += std::string(static_cast<std::size_t>(markerCol) + 4, ' ')
+                 + "- { name: " + YamlQuote(h->m_name)
+                 + ", variant: " + YamlQuote(h->m_variant ? h->m_variant->ClassName() : "null") + " }\n";
+        }
+    }
+    if (!c->m_children.empty()) {
+        out += k + "children:\n";
+        for (const auto& ch : c->m_children) EmitControlNode(out, count, srcCounts, hintCounts, poses, dctx, ch, markerCol + 4);
+    }
+}
+
+// Read the resource tree + skeleton(s) from a .hkx (+ the sibling skeleton.nif) and write
+// <outDir>/control/rig.yaml: the control-rig node hierarchy with each node's pose resolved by NAME from
+// the skeleton referencePose (definitive: source=skeleton) and, for the rest, the NIF NiNode transforms
+// (source=nif). Returns the node count; `posedOut` = nodes with a real pose (skeleton + nif). Returns 0
+// (nothing written) when there is no resource container — non-fatal (e.g. a first-person anim-only rig).
+static std::size_t EmitControlRig(const std::vector<std::uint8_t>& bytes, const std::string& hkxPath,
+                                  const std::string& outDir, std::string& err, std::size_t& posedOut) {
+    posedOut = 0;
+    havok::PackFileDeserializer des;
+    des.SetTolerateUnregistered(true);   // creature ragdoll bodies use exotic collision shapes irrelevant to
+                                         // the control rig (names/hierarchy/transforms); skip them, don't fail.
+    havok::BinaryReaderEx br(false, true, bytes);
+    std::shared_ptr<havok::hkRootLevelContainer> root;
+    try { root = std::dynamic_pointer_cast<havok::hkRootLevelContainer>(des.Deserialize(br)); }
+    catch (const std::exception& e) { err = e.what(); return 0; }
+    if (!root) return 0;
+    std::shared_ptr<havok::hkMemoryResourceContainer> res;
+    for (const auto& nv : root->m_namedVariants)
+        if (auto c = std::dynamic_pointer_cast<havok::hkMemoryResourceContainer>(nv.m_variant)) { res = c; break; }
+    if (!res) return 0;
+
+    // 1) Skeleton poses (authoritative, LOCAL reference pose) — anim first, then ragdoll. Also keep a raw
+    //    quat lookup for the NIF cross-check below.
+    std::vector<havok::sct::SkeletonData> skels;
+    std::string serr;
+    havok::sct::LoadSkeletonsFromHkx(bytes.data(), bytes.size(), skels, &serr);   // best-effort
+    std::unordered_map<std::string, ControlPose>              poses;
+    std::unordered_map<std::string, const havok::QSTransform*> skelQuat;
+    for (const auto& sk : skels)
+        for (const auto& b : sk.bones) {
+            poses.try_emplace(b.name, ControlPose{ XformInline(b.refPose), "skeleton" });
+            skelQuat.try_emplace(b.name, &b.refPose);
+        }
+
+    // 2) NIF fill: the sibling <hkx>.nif's NiNode transforms fill every node the skeleton didn't (cloth
+    //    bones, etc. -> source=nif). One-shot cross-check on a shared bone validates the Mat33->quat
+    //    convention (|dot| of the two quats ~= 1 means the rotations agree).
+    std::size_t nifFilled = 0;
+    std::string nifNote = "no sibling .nif";
+    {
+        std::error_code nec;
+        const fs::path nifPath = fs::path(hkxPath).replace_extension(".nif");
+        if (fs::exists(nifPath, nec)) {
+            auto loaded = niffer::NifFile::LoadFile(nifPath.string());
+            if (!loaded) { nifNote = "nif load failed"; }
+            else {
+                const niffer::NifFile& nif = *loaded;
+                bool checked = false; float checkDot = 0.f; std::string checkBone;
+                for (const auto& blk : nif.blocks) {
+                    auto* node = dynamic_cast<niffer::NiNode*>(blk.get());
+                    if (!node) continue;
+                    std::string nm(nif.String(node->name));
+                    if (nm.empty()) continue;
+                    if (const auto sq = skelQuat.find(nm); sq != skelQuat.end() && sq->second) {
+                        if (!checked) {   // validate the conversion against the skeleton's own quat
+                            float qx, qy, qz, qw; Mat33ToQuat(node->transform.rotation, qx, qy, qz, qw);
+                            const auto& r = sq->second->rotation;
+                            checkDot = std::fabs(qx*r.x + qy*r.y + qz*r.z + qw*r.w);
+                            checkBone = nm; checked = true;
+                        }
+                        continue;   // skeleton pose wins for shared bones
+                    }
+                    if (poses.try_emplace(nm, ControlPose{ XformInlineNif(node->transform), "nif" }).second) ++nifFilled;
+                }
+                nifNote = std::to_string(nifFilled) + " pose(s) available from " + nifPath.filename().string();
+                if (checked) nifNote += " | quat-check on '" + checkBone + "' |dot|=" + Fnum(checkDot) + " (1.0=OK)";
+            }
+        }
+    }
+
+    // 3) Convention-derive context: FK the anim skeleton and take the foot bones' world XY (projected to
+    //    ground Z=0) so the foot-roll FootBox anchors at the real foot rather than the origin.
+    DeriveCtx dctx;
+    if (!skels.empty()) {
+        const auto world = havok::sct::skmath::worldPoses(skels[0]);
+        for (std::size_t i = 0; i < skels[0].bones.size() && i < world.size(); ++i) {
+            const std::string& nm = skels[0].bones[i].name;
+            if      (nm.rfind("NPC L Foot", 0) == 0) { dctx.lx = world[i].translation.x; dctx.ly = world[i].translation.y; dctx.haveL = true; }
+            else if (nm.rfind("NPC R Foot", 0) == 0) { dctx.rx = world[i].translation.x; dctx.ry = world[i].translation.y; dctx.haveR = true; }
+        }
+    }
+
+    std::string nodes;
+    std::size_t count = 0;
+    std::map<std::string, std::size_t> srcCounts, hintCounts;
+    for (const auto& ch : res->m_children) EmitControlNode(nodes, count, srcCounts, hintCounts, poses, dctx, ch, 2);
+    posedOut = srcCounts["skeleton"] + srcCounts["nif"] + srcCounts["derived"];
+    std::printf("control: %s | resource-tree nif fills=%zu\n", nifNote.c_str(), srcCounts["nif"]);
+
+    const auto fmtCounts = [](const std::map<std::string, std::size_t>& m) {
+        std::string s = "{"; bool first = true;
+        for (const auto& [k, n] : m) { s += (first ? " " : ", ") + k + ": " + std::to_string(n); first = false; }
+        return s + " }";
+    };
+    std::string body;
+    body += "# Control rig recovered from the skeleton's hkMemoryResourceContainer (\"Resource Data\").\n";
+    body += "# Node hierarchy + names + handle bindings (the 3ds-Max control/export rig). Each node has a\n";
+    body += "# `transform` (LOCAL pose) + `poseSource`: skeleton (this .hkx's referencePose, definitive) /\n";
+    body += "# nif (sibling skeleton.nif NiNode) / derived (convention default — organizational dummies at\n";
+    body += "# identity, foot-roll FootBox FK-anchored at the foot on the ground; a functional starting\n";
+    body += "# point to refine in the editor). A node with none of those is `transform: derive` + a\n";
+    body += "# `poseHint` (where to look): nif (cloth bone, name unmatched) / aux (tail = separate attached\n";
+    body += "# skeleton) / convention (export/cloth chain mirroring an unfilled bone — author it).\n";
+    body += "# IGNORED by the compiler + skeleton reader; here for the scene editor.\n";
+    body += "source: resource-container\n";
+    body += "nodeCount: " + std::to_string(count) + "\n";
+    body += "posedFromSkeleton: " + std::to_string(srcCounts["skeleton"]) + "\n";
+    body += "posedFromNif: " + std::to_string(srcCounts["nif"]) + "\n";
+    body += "derivedByConvention: " + std::to_string(srcCounts["derived"]) + "\n";
+    body += "poseSourceCounts: " + fmtCounts(srcCounts) + "\n";     // nodes with a transform, by source
+    body += "deriveHintCounts: " + fmtCounts(hintCounts) + "\n";    // still-unfilled nodes, by hint
+    body += "nodes:\n";
+    body += nodes;
+
+    std::error_code ec;
+    const fs::path dir = fs::path(outDir) / "control";
+    fs::create_directories(dir, ec);
+    std::ofstream f(dir / "rig.yaml", std::ios::binary | std::ios::trunc);
+    if (!f) { err = "cannot write " + (dir / "rig.yaml").string(); return 0; }
+    f.write(body.data(), static_cast<std::streamsize>(body.size()));
+    return count;
+}
+
+int doControlDecompile(const std::string& in, const std::string& outArg) {
+    if (outArg.empty()) { std::printf("ERROR: -o <dir> required\n"); return 1; }
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    std::size_t posed = 0;
+    const std::size_t n = EmitControlRig(bytes, in, outArg, err, posed);
+    if (n == 0 && !err.empty()) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    if (n == 0) { std::printf("%s: no resource-container control rig present — nothing written.\n", in.c_str()); return 0; }
+    std::printf("%s: %zu control node(s), %zu posed (skeleton+nif+derived), %zu unresolved -> %s/control/rig.yaml\n",
+                in.c_str(), n, posed, n - posed, outArg.c_str());
     return 0;
 }
 
@@ -1224,8 +1542,16 @@ int doSkeletonDecompileTree(const std::string& in, const std::string& outArg) {
         std::printf("WARN: physics read failed (%s) — emitting anim-only.\n", perr.c_str());
     if (!havok::sct::EmitSkeletonYamlTree(skels[0], outArg, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     std::size_t nphys = 0; for (const auto& b : skels[0].bones) if (b.physics) ++nphys;
-    std::printf("%s: %zu bones (%zu with physics) -> %s/{bonelist.yaml, bones/}\n",
-                skels[0].name.c_str(), skels[0].bones.size(), nphys, outArg.c_str());
+    // Also recover the control/export rig from the resource tree into control/rig.yaml (topology only;
+    // the compiler + reader ignore it). Non-fatal: a skeleton with no resource tree just skips it.
+    std::string cerr; std::size_t cposed = 0;
+    const std::size_t nctrl = EmitControlRig(bytes, in, outArg, cerr, cposed);
+    std::string ctrlNote;
+    if (nctrl)            ctrlNote = " + control/rig.yaml (" + std::to_string(nctrl) + " nodes, "
+                                   + std::to_string(cposed) + " posed)";
+    else if (!cerr.empty()) ctrlNote = " [control skipped: " + cerr + "]";
+    std::printf("%s: %zu bones (%zu with physics) -> %s/{bonelist.yaml, bones/}%s\n",
+                skels[0].name.c_str(), skels[0].bones.size(), nphys, outArg.c_str(), ctrlNote.c_str());
     return 0;
 }
 
@@ -1266,15 +1592,39 @@ int doSkeletonDiffLayer(const std::string& baseHkx, const std::string& extHkx, c
     if (!load(baseHkx, base) || !load(extHkx, ext)) return 1;
     if (outDir.empty()) { std::printf("ERROR: -o <layer-dir> required\n"); return 1; }
 
-    std::unordered_set<std::string> baseNames;
-    for (const auto& b : base.bones) baseNames.insert(b.name);
+    // Index the base by name so we can tell ADDED bones (absent from base) apart from CHANGED bones
+    // (present but re-posed). A skeleton mod like XPMSSE is NOT append-only — it also re-poses core
+    // bones (Shield/Hand/Fingers/…). Both must be carried into the layer: with replace-on-collision
+    // in MergeBoneAdditions, an emitted existing-name bone overrides the base master's pose, and an
+    // emitted new-name bone appends. Bones identical to base are skipped (nothing to carry).
+    std::unordered_map<std::string, const havok::sct::SkeletonBoneData*> baseByName;
+    for (const auto& b : base.bones) baseByName[b.name] = &b;
+    auto poseSame = [](const havok::QSTransform& a, const havok::QSTransform& b) {
+        auto eq = [](float x, float y) { return std::fabs(x - y) <= 1e-6f; };
+        return eq(a.translation.x, b.translation.x) && eq(a.translation.y, b.translation.y) &&
+               eq(a.translation.z, b.translation.z) && eq(a.translation.w, b.translation.w) &&
+               eq(a.rotation.x, b.rotation.x) && eq(a.rotation.y, b.rotation.y) &&
+               eq(a.rotation.z, b.rotation.z) && eq(a.rotation.w, b.rotation.w) &&
+               eq(a.scale.x, b.scale.x) && eq(a.scale.y, b.scale.y) && eq(a.scale.z, b.scale.z);
+    };
 
     std::error_code ec;
     std::filesystem::create_directories(std::filesystem::path(outDir) / "bones", ec);
     auto ff = [](float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return std::string(b); };
-    int emitted = 0;
+    int emitted = 0, added = 0, changed = 0;
     for (const auto& b : ext.bones) {
-        if (baseNames.count(b.name)) continue;   // already in base — not an addition
+        if (auto it = baseByName.find(b.name); it != baseByName.end()) {
+            // Existing bone: carry ONLY if XPMSSE actually re-posed it (a real override); skip if identical.
+            const std::string ep = (b.parentIndex >= 0 && b.parentIndex < static_cast<int>(ext.bones.size()))
+                                       ? ext.bones[static_cast<std::size_t>(b.parentIndex)].name : std::string{};
+            const std::string bp = (it->second->parentIndex >= 0 && it->second->parentIndex < static_cast<int>(base.bones.size()))
+                                       ? base.bones[static_cast<std::size_t>(it->second->parentIndex)].name : std::string{};
+            if (poseSame(b.refPose, it->second->refPose) && b.lockTranslation == it->second->lockTranslation && ep == bp)
+                continue;   // unchanged — the base master already has it; don't carry
+            ++changed;
+        } else {
+            ++added;
+        }
         const std::string parent = (b.parentIndex >= 0 && b.parentIndex < static_cast<int>(ext.bones.size()))
                                         ? ext.bones[static_cast<std::size_t>(b.parentIndex)].name : std::string{};
         std::ostringstream o;
@@ -1293,8 +1643,29 @@ int doSkeletonDiffLayer(const std::string& baseHkx, const std::string& extHkx, c
         of.write(s.data(), static_cast<std::streamsize>(s.size()));
         ++emitted;
     }
-    std::printf("base %zu bones, extended %zu bones -> %d added bone(s) emitted to %s/bones/\n",
-                base.bones.size(), ext.bones.size(), emitted, outDir.c_str());
+    // Emit bonelist.yaml — the ADDED-bone order, in the extended skeleton's native bone order. The
+    // runtime orders appended (new) bones by this so vanilla HKX-target animations (which resolve bone
+    // tracks by INDEX) land the extra bones at the indices the source skeleton uses. Re-posed existing
+    // bones keep the base master's order (replace-in-place), so they don't belong here.
+    {
+        std::ostringstream bl;
+        bl << "# Added-bone order for this skeleton layer, in the SOURCE skeleton's native bone order.\n"
+           << "# Vanilla HKX-target animations resolve bone tracks by INDEX, so the appended bones must\n"
+           << "# land at the same indices the source skeleton uses or every track maps to the wrong bone.\n"
+           << "# Re-posed existing bones are NOT listed here — they replace the base master's bone in place\n"
+           << "# and keep its index. (BR-native animations resolve by name and don't need this list.)\n"
+           << "index:\n";
+        int listed = 0;
+        for (const auto& b : ext.bones)
+            if (!baseByName.count(b.name)) { bl << "  - \"" << b.name << "\"\n"; ++listed; }
+        if (listed > 0) {
+            const std::string s = bl.str();
+            std::ofstream of(std::filesystem::path(outDir) / "bonelist.yaml", std::ios::binary);
+            of.write(s.data(), static_cast<std::streamsize>(s.size()));
+        }
+    }
+    std::printf("base %zu bones, extended %zu bones -> %d bone(s) emitted (%d added + %d re-posed) to %s/bones/\n",
+                base.bones.size(), ext.bones.size(), emitted, added, changed, outDir.c_str());
     return 0;
 }
 
@@ -2473,6 +2844,10 @@ int doSchemaCompileCheck(const std::string& dir, const std::string& schemaDir, c
     if (schemaDir.empty()) { std::printf("usage: schema-compile-check <hky-graph-dir> <Havok-dir> [--skeleton <skel.hkx>]\n"); return 1; }
     havok::schema::SchemaRegistry reg; std::string err;
     if (!reg.LoadDir(schemaDir, err)) { std::printf("ERROR loading schema: %s\n", err.c_str()); return 1; }
+    // Wire the schema into the loader BEFORE Load — the runtime/regen do this (SetSchemaCompiler ->
+    // SetSchemaRegistry), and the class-driven node discovery needs it to route the open modifier set via
+    // the hkbModifier ancestor. Without it, generic modifiers drop (matching production would be a lie).
+    havok::model::YamlBehaviorLoader::SetSchemaRegistry(&reg);
     havok::model::BehaviorData data;
     try { data = havok::model::YamlBehaviorLoader::Load(dir); }
     catch (const std::exception& e) { std::printf("LOAD FAIL: %s\n", e.what()); return 1; }
@@ -4265,13 +4640,29 @@ DerivedProject deriveOneProject(const std::string& cacheFile, const std::string&
         if (havok::sct::ReadHavokFile(charHkx.string(), bytes, &err)) {
             const fs::path cd = tmp / "_char";
             havok::sct::DecompileToDir(bytes, cd.string());
-            fs::path rosterPath = cd / "animations.txt";
-            if (!fs::exists(rosterPath)) {
-                for (fs::recursive_directory_iterator ri(cd, ec), rend; !ec && ri != rend; ri.increment(ec))
-                    if (ri->is_regular_file(ec) && low(ri->path().filename().string()) == "animations.txt") { rosterPath = ri->path(); break; }
+            // The schema-native character decompiler emits the roster as data/animations.yaml (a YAML
+            // list of "- 'Animations\\X.hkx'"), NOT the legacy flat animations.txt. Prefer the yaml;
+            // fall back to a flat animations.txt anywhere in the tree for older decompiles.
+            fs::path yamlRoster = cd / "data" / "animations.yaml";
+            if (fs::exists(yamlRoster)) {
+                std::ifstream rf(yamlRoster); std::string line;
+                while (std::getline(rf, line)) {
+                    line = StripLine(line);
+                    if (line.empty() || line[0] != '-') continue;      // only "- '...'" list items
+                    std::size_t a = line.find_first_of("'\"");
+                    std::size_t b = (a == std::string::npos) ? std::string::npos : line.find_last_of("'\"");
+                    std::string v = (a != std::string::npos && b > a) ? line.substr(a + 1, b - a - 1) : StripLine(line.substr(1));
+                    if (!v.empty()) roster.push_back(v);
+                }
+            } else {
+                fs::path rosterPath = cd / "animations.txt";
+                if (!fs::exists(rosterPath)) {
+                    for (fs::recursive_directory_iterator ri(cd, ec), rend; !ec && ri != rend; ri.increment(ec))
+                        if (ri->is_regular_file(ec) && low(ri->path().filename().string()) == "animations.txt") { rosterPath = ri->path(); break; }
+                }
+                std::ifstream rf(rosterPath); std::string line;
+                while (std::getline(rf, line)) { line = StripLine(line); if (!line.empty()) roster.push_back(line); }
             }
-            std::ifstream rf(rosterPath); std::string line;
-            while (std::getline(rf, line)) { line = StripLine(line); if (!line.empty()) roster.push_back(line); }
         }
     }
     R.rosterSize = roster.size();
@@ -4605,6 +4996,121 @@ int doAnimationSchemaCheck(const std::string& in, const std::string& schemaDir) 
     std::printf("animation-schema-check: REAL DIFF schema vs typed — sizes %zu/%zu, first diff @0x%zx\n",
                 schema.bytes.size(), typed.size(), d);
     return 1;
+}
+
+// anim-roundtrip <in.hkx>: POSE-FIDELITY gate for the "bake vanilla anims into the master" plan.
+// vanilla .hkx --decompile--> yaml --load--> def_ref --CompileAnimation--> rt.hkx --decompile--> def_rt,
+// then compare def_ref vs def_rt per track/frame. def_ref is vanilla decoded to keyframes (the master's
+// stored form); def_rt is what the engine would decode after we recompile it — so max(|def_ref - def_rt|)
+// IS the served-vs-vanilla pose error. Needs $SCT_HAVOK_SCHEMA_DIR. Prints one machine-parseable line:
+//   RT <ok|LOAD_FAIL|COMPILE_FAIL|DECOMP_FAIL|SHAPE> <maxTransErr> <maxRotDeg> <tracks> <frames> <path>
+int doAnimRoundtrip(const std::string& in) {
+    namespace fs = std::filesystem;
+    auto emit = [&](const char* st, double t, double r, std::size_t tr, std::size_t fr) {
+        std::printf("RT %s %.6g %.6g %zu %zu %s\n", st, t, r, tr, fr, in.c_str());
+    };
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { emit("READ_FAIL", 0, 0, 0, 0); return 1; }
+    if (!havok::schema::SharedRegistry()) { emit("NOSCHEMA", 0, 0, 0, 0); return 1; }
+
+    const fs::path base = fs::temp_directory_path() / "sct_anim_rt";
+    std::error_code ec; fs::create_directories(base, ec);
+    const fs::path dRef = base / "ref", dRt = base / "rt";
+    fs::remove_all(dRef, ec); fs::remove_all(dRt, ec);
+
+    // (1) vanilla -> def_ref
+    if (!havok::anim::DecompileAnimation(bytes, dRef).ok) { emit("DECOMP_FAIL", 0, 0, 0, 0); return 1; }
+    havok::anim::AnimationDef ref;
+    try { ref = havok::anim::AnimationYamlLoader::Load((dRef / "animation.yaml").string()); }
+    catch (const std::exception&) { emit("LOAD_FAIL", 0, 0, 0, 0); return 1; }
+
+    // (2) def_ref -> rt.hkx. fps=30 is only a fallback; ref carries native numFrames/frameDuration
+    //     (decompiled from the source), so CompressAnimation reproduces the exact source frame count.
+    const auto comp = havok::anim::CompileAnimation(ref, 30);
+    if (!comp.ok) { emit("COMPILE_FAIL", 0, 0, ref.tracks.size(), 0); return 1; }
+
+    // (3) rt.hkx -> def_rt
+    if (!havok::anim::DecompileAnimation(comp.bytes, dRt).ok) { emit("REDECOMP_FAIL", 0, 0, ref.tracks.size(), 0); return 1; }
+    havok::anim::AnimationDef rt;
+    try { rt = havok::anim::AnimationYamlLoader::Load((dRt / "animation.yaml").string()); }
+    catch (const std::exception&) { emit("RELOAD_FAIL", 0, 0, ref.tracks.size(), 0); return 1; }
+
+    if (ref.tracks.size() != rt.tracks.size()) { emit("SHAPE", 0, 0, ref.tracks.size(), 0); return 1; }
+
+    // (4) compare — max translation delta (game units) + max rotation angle (degrees) across all
+    //     tracks/frames. Rotation angle between quats q0,q1 = 2*acos(|dot|).
+    double maxT = 0.0, maxR = 0.0; std::size_t frames = 0;
+    std::size_t worstTrack = 0; std::string worstBone; std::size_t over1 = 0;
+    for (std::size_t i = 0; i < ref.tracks.size(); ++i) {
+        const auto& a = ref.tracks[i]; const auto& b = rt.tracks[i];
+        const std::size_t nt = std::min(a.translation.size(), b.translation.size());
+        for (std::size_t k = 0; k < nt; ++k) {
+            for (int c = 0; c < 3; ++c) maxT = std::max(maxT, (double)std::fabs(a.translation[k].value[c] - b.translation[k].value[c]));
+        }
+        const std::size_t nr = std::min(a.rotation.size(), b.rotation.size());
+        frames = std::max(frames, nr);
+        for (std::size_t k = 0; k < nr; ++k) {
+            double dot = 0.0; for (int c = 0; c < 4; ++c) dot += (double)a.rotation[k].value[c] * b.rotation[k].value[c];
+            dot = std::fabs(dot); if (dot > 1.0) dot = 1.0;
+            const double deg = 2.0 * std::acos(dot) * 57.2957795131;
+            if (deg > 1.0) ++over1;
+            if (deg > maxR) { maxR = deg; worstTrack = i; worstBone = a.bone; }
+        }
+        if (a.translation.size() != b.translation.size() || a.rotation.size() != b.rotation.size())
+            { emit("SHAPE", maxT, maxR, ref.tracks.size(), frames); return 1; }
+    }
+    // extended line: append worstTrackIdx, worstBone, and #rotation-samples-over-1deg
+    std::printf("RT ok %.6g %.6g %zu %zu %s\tWORST track=%zu bone=%s over1deg=%zu\n",
+                maxT, maxR, ref.tracks.size(), frames, in.c_str(), worstTrack,
+                worstBone.empty() ? "-" : worstBone.c_str(), over1);
+    return 0;
+}
+
+// anim-rt-dump <in.hkx> [trackIdx]: same round-trip as anim-roundtrip, but PRINT the full rotation
+// sequence (ref vs rt) for the worst track (or the given track) so a one-frame time-shift, a sign flip,
+// or spread noise is visible directly. Diagnostic for the ~5deg locomotion artifact.
+int doAnimRtDump(const std::string& in, int forceTrack = -1) {
+    namespace fs = std::filesystem;
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("READ_FAIL\n"); return 1; }
+    if (!havok::schema::SharedRegistry()) { std::printf("NOSCHEMA\n"); return 1; }
+    const fs::path base = fs::temp_directory_path() / "sct_anim_rtd";
+    std::error_code ec; const fs::path dRef = base / "ref", dRt = base / "rt";
+    fs::remove_all(dRef, ec); fs::remove_all(dRt, ec);
+    if (!havok::anim::DecompileAnimation(bytes, dRef).ok) { std::printf("DECOMP_FAIL\n"); return 1; }
+    havok::anim::AnimationDef ref;
+    try { ref = havok::anim::AnimationYamlLoader::Load((dRef / "animation.yaml").string()); } catch (...) { std::printf("LOAD_FAIL\n"); return 1; }
+    const auto comp = havok::anim::CompileAnimation(ref, 30);
+    if (!comp.ok) { std::printf("COMPILE_FAIL: %s\n", comp.error.c_str()); return 1; }
+    if (!havok::anim::DecompileAnimation(comp.bytes, dRt).ok) { std::printf("REDECOMP_FAIL\n"); return 1; }
+    havok::anim::AnimationDef rt;
+    try { rt = havok::anim::AnimationYamlLoader::Load((dRt / "animation.yaml").string()); } catch (...) { std::printf("RELOAD_FAIL\n"); return 1; }
+
+    const auto angle = [](const havok::anim::QuatKeyframe& a, const havok::anim::QuatKeyframe& b) {
+        double dot = 0; for (int c = 0; c < 4; ++c) dot += (double)a.value[c] * b.value[c];
+        dot = std::fabs(dot); if (dot > 1) dot = 1; return 2.0 * std::acos(dot) * 57.2957795131;
+    };
+    int wt = forceTrack; double wmax = -1;
+    if (wt < 0) {
+        for (std::size_t i = 0; i < std::min(ref.tracks.size(), rt.tracks.size()); ++i) {
+            const auto& a = ref.tracks[i]; const auto& b = rt.tracks[i];
+            const std::size_t n = std::min(a.rotation.size(), b.rotation.size());
+            for (std::size_t k = 0; k < n; ++k) { double d = angle(a.rotation[k], b.rotation[k]); if (d > wmax) { wmax = d; wt = (int)i; } }
+        }
+    }
+    if (wt < 0 || wt >= (int)ref.tracks.size() || wt >= (int)rt.tracks.size()) { std::printf("no track\n"); return 1; }
+    const auto& a = ref.tracks[wt].rotation; const auto& b = rt.tracks[wt].rotation;
+    std::printf("worst track=%d ref-frames=%zu rt-frames=%zu\n", wt, a.size(), b.size());
+    std::printf("  k  time      ref(x,y,z,w)                              rt(x,y,z,w)                               deg   deg-vs-ref[k+1]\n");
+    const std::size_t m = std::min(a.size(), b.size());
+    for (std::size_t k = 0; k < m; ++k) {
+        double dSame = angle(a[k], b[k]);
+        double dShift = (k + 1 < a.size()) ? angle(a[k + 1], b[k]) : -1;   // is rt[k] closer to ref[k+1]? (time-shift tell)
+        std::printf("  %2zu %8.4f  (% .5f,% .5f,% .5f,% .5f)  (% .5f,% .5f,% .5f,% .5f)  %6.3f  %6.3f\n",
+                    k, a[k].time, a[k].value[0], a[k].value[1], a[k].value[2], a[k].value[3],
+                    b[k].value[0], b[k].value[1], b[k].value[2], b[k].value[3], dSame, dShift);
+    }
+    return 0;
 }
 
 // character-schema-check <char-yaml-dir> <Havok-dir> [--skeleton <skel.hkx>]: compile a character via
@@ -5747,6 +6253,8 @@ int main(int argc, char** argv) {
     std::string skel;                 // --skeleton <skeleton.hkx|bones.txt> for bone-name resolution
     std::string schema;               // --schema <HavokDir>: wire the merge classifier to the schema
     bool strictSchema = false;        // --strict-schema: disable the name-set fallback (gate mode)
+    std::string traceFile;            // --trace <file>: name-annotated compile trace of the merged model
+    std::string traceFilter;          // --trace-filter <substr>: only records whose unit/class/name match
     std::vector<std::string> extra;   // positional args after `in` (merge delta dirs)
     for (int i = 3; i < argc; i++) {
         const std::string a = argv[i];
@@ -5754,20 +6262,25 @@ int main(int argc, char** argv) {
         else if (a == "--skeleton" && i + 1 < argc) skel = argv[++i];
         else if (a == "--schema" && i + 1 < argc) schema = argv[++i];
         else if (a == "--strict-schema") strictSchema = true;
+        else if (a == "--trace" && i + 1 < argc) traceFile = argv[++i];
+        else if (a == "--trace-filter" && i + 1 < argc) traceFilter = argv[++i];
         else extra.push_back(a);
     }
     if (verb == "merge")     return doMerge(in, extra, out);
     if (verb == "compile")   return doCompile(in, out, skel);
     if (verb == "decompile") return doDecompile(in, out, skel);
+    if (verb == "anim-roundtrip") return doAnimRoundtrip(in);
+    if (verb == "anim-rt-dump") return doAnimRtDump(in, extra.empty() ? -1 : std::atoi(extra[0].c_str()));
     if (verb == "hky-compile") return doHkyCompile(in, extra, out);
     if (verb == "hky-pack")    return doHkyPack(in, out);
     if (verb == "hky-unpack")  return doHkyUnpack(in, out);
-    if (verb == "hky-merge-compile") return doHkyMergeCompile(in, extra, out, schema, strictSchema);
+    if (verb == "hky-merge-compile") return doHkyMergeCompile(in, extra, out, schema, strictSchema, traceFile, traceFilter, skel);
     if (verb == "schema-merge-tag")  return doSchemaMergeTag(in, extra.empty() ? std::string{} : extra[0],
                                                              extra.size() > 1 ? extra[1] : std::string{});
     if (verb == "objhist")   return doObjHist(in);
     if (verb == "objlist")   return doObjList(in);
     if (verb == "resdump")   return doResDump(in);
+    if (verb == "control-decompile") return doControlDecompile(in, out);
     if (verb == "mapperdump") return doMapperDump(in);
     if (verb == "physdump")   return doPhysDump(in);
     if (verb == "fkcheck")    return doFkCheck(in);
@@ -5848,8 +6361,9 @@ int main(int argc, char** argv) {
     if (verb == "patchdelta")   return doPatchDelta(in, extra, out);
     if (verb == "derive-delta") return doDeriveDelta(in, extra, out);
     if (verb == "derive-lib") {   // debug: exercise the library DeriveLooseBehaviorDelta
-        if (extra.empty() || out.empty()) { std::printf("usage: derive-lib <van.hkx> <mod.hkx> -o <outDelta>\n"); return 2; }
-        const auto res = havok::sct::DeriveLooseBehaviorDelta(in, extra[0], out);
+        if (extra.empty() || out.empty()) { std::printf("usage: derive-lib <van.hkx> <mod.hkx> [modCode] -o <outDelta>\n"); return 2; }
+        const std::string code = extra.size() > 1 ? extra[1] : std::string("d");
+        const auto res = havok::sct::DeriveLooseBehaviorDelta(in, extra[0], out, code);
         std::printf("derive-lib: ok=%d err='%s' matched=%d added=%d changed=%d new=%d removed=%d baseMax=%ld\n",
                     res.ok, res.error.c_str(), res.matched, res.added, res.changedNodes, res.newNodes,
                     res.removedFromBase, res.baseMaxId);

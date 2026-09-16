@@ -3,6 +3,7 @@
 #include "havok/sct/TagfileOracle.h"      // AlignTagfile — the structural #NNNN oracle (reused verbatim)
 #include "havok/model/HavokEnums.h"       // enum tables (value<->name), revNum, FormatFlags, ResolveEnum — reused
 #include "havok/xml/Xml.h"                // first-party tagfile XML parser (xml::Node / xml::Parse)
+#include "havok/compat/PandoraCompatShim.h" // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include "havok/model/BashMerge.h"        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
 #include "havok/cross/Cross.h"            // cross-kind membrane (vec4 codec, enum reverse, bone name<->index)
 
@@ -617,11 +618,12 @@ std::string renderBoneIndexSidecar(const io::SchemaObject* arr, const std::strin
 
 // Write every data/ sidecar a file-node modifier owns (id keys the file: data/<id>_<suffix>.yaml). Called
 // right after the modifier's own YAML so the sidecar always ships with it (full emit AND per-mod delta).
-void emitModifierSidecars(const io::SchemaObject& so, const std::string& id, const std::filesystem::path& outDir,
-                          const NameResolver& nr) {
+void emitModifierSidecars(const io::SchemaObject& so, const std::string& id,
+                          const std::filesystem::path& outDir, const NameResolver& nr) {
     namespace fs = std::filesystem;
     std::error_code ec;
     // Each sidecar is a .hky node: `id: <id>_<suffix>` then the body. (Matches DecompileNativeDelta.)
+    // The FILENAME is the id + suffix (a stable #NNNN / mod$N id is filename-legal).
     auto put = [&](const std::string& suffix, const std::string& body) {
         if (body.empty()) return;
         const fs::path dir = outDir / "data";
@@ -1127,6 +1129,10 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
     namespace fs = std::filesystem;
     std::error_code ec;
     const NameResolver nr = buildResolver(identity);
+    // Base emit (no deltaIds) declares `ns: self` on every node — the base master mints all its nodes,
+    // matching the typed decompiler (DecompileBehaviorTree). A per-mod delta emits no ns line: an
+    // override's #NNNN already resolves to the base node it targets (ns is the authoring contract).
+    const std::string nsLine = deltaIds ? std::string() : "ns: self\n";
 
     // Delta mode: emit ONLY the file nodes a patch touched. A patch edits inline sub-objects (the
     // category-"" nodes: transition/event arrays, conditions, clip-trigger arrays, binding sets) BY THEIR
@@ -1253,7 +1259,7 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
             const fs::path dir = fs::path(outDir) / cat;
             fs::create_directories(dir, ec);
             std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
-            of << "id: " << id << "\n" << y;
+            of << "id: " << id << "\n" << nsLine << y;
             // A modifier that says `<field>: null` for an owned data array MUST ship the array as a
             // data/<id>_<suffix>.yaml sidecar, or the runtime re-link leaves it null and Havok crashes.
             emitModifierSidecars(*so, id, fs::path(outDir), nr);
@@ -1318,7 +1324,7 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
         const fs::path dir = fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
         std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
-        of << "id: " << id << "\n" << y;
+        of << "id: " << id << "\n" << nsLine << y;
     }
     return true;
 }
@@ -1368,56 +1374,65 @@ bool EmitAdditiveVocab(const Identity& baseId, const Identity& mergedId,
     const io::FieldValue* wordVals = viv ? fieldByName(*viv, "wordVariableValues") : nullptr;
     const io::FieldValue* quadVals = viv ? fieldByName(*viv, "quadVariableValues") : nullptr;
 
-    std::string y;
+    // Split for consistency with data/animations.yaml: each vocab kind is its OWN union file —
+    // data/variables.yaml, data/events.yaml — legible to an author and union-merged at load. Character
+    // properties stay in data/additive.yaml (rare, and carry the count-only-base guard); additive.yaml is
+    // also still READ for events/variables, so pre-split bundles keep working.
+    std::string yVar, yEv, yCp;
     // Added variables (name, type, initial value; quadValue for vector/quaternion).
     { bool hdr = false;
       for (std::size_t i = 0; i < mVar.size(); ++i) {
         if (bVarS.count(mVar[i])) continue;
-        if (!hdr) { y += "variables:\n"; hdr = true; }
-        y += "  - name: " + q(mVar[i]) + "\n";
+        if (!hdr) { yVar += "variables:\n"; hdr = true; }
+        yVar += "  - name: " + q(mVar[i]) + "\n";
         long type = 0; if (const auto* vi = elemAt(varInfos, i)) type = decodeInt(fieldByName(*vi, "type")->raw, Scalar::Int8);
         const std::string typeStr = revNum(en::VariableType(), type);
-        y += "    type: " + typeStr + "\n";
+        yVar += "    type: " + typeStr + "\n";
         long val = 0; if (const auto* wv = elemAt(wordVals, i)) val = decodeInt(fieldByName(*wv, "value")->raw, Scalar::Int32);
-        y += "    value: " + std::to_string(val) + "\n";
+        yVar += "    value: " + std::to_string(val) + "\n";
         if ((typeStr == "VARIABLE_TYPE_VECTOR4" || typeStr == "VARIABLE_TYPE_QUATERNION" || typeStr == "VARIABLE_TYPE_VECTOR3")
             && quadVals && val >= 0 && static_cast<std::size_t>(val) * 16 + 16 <= quadVals->raw.size())
-            y += "    quadValue: " + pvecRaw(std::vector<std::uint8_t>(quadVals->raw.begin() + val * 16, quadVals->raw.begin() + val * 16 + 16)) + "\n";
+            yVar += "    quadValue: " + pvecRaw(std::vector<std::uint8_t>(quadVals->raw.begin() + val * 16, quadVals->raw.begin() + val * 16 + 16)) + "\n";
       }
     }
     // Added events (name, flags).
     { bool hdr = false;
       for (std::size_t i = 0; i < mEv.size(); ++i) {
         if (bEvS.count(mEv[i])) continue;
-        if (!hdr) { y += "events:\n"; hdr = true; }
-        y += "  - name: " + q(mEv[i]) + "\n";
+        if (!hdr) { yEv += "events:\n"; hdr = true; }
+        yEv += "  - name: " + q(mEv[i]) + "\n";
         long flags = 0; if (const auto* ei = elemAt(evInfos, i)) flags = decodeInt(fieldByName(*ei, "flags")->raw, Scalar::UInt32);
-        y += "    flags: " + en::FormatFlags(flags, en::EventInfoFlags()) + "\n";
+        yEv += "    flags: " + en::FormatFlags(flags, en::EventInfoFlags()) + "\n";
       }
     }
     // Added character properties (name, type, role flags).
     { bool hdr = false;
       for (std::size_t i = 0; i < mCp.size(); ++i) {
         if (bCpS.count(mCp[i])) continue;
-        if (!hdr) { y += "characterPropertyNames:\n"; hdr = true; }
-        y += "  - name: " + q(mCp[i]) + "\n";
+        if (!hdr) { yCp += "characterPropertyNames:\n"; hdr = true; }
+        yCp += "  - name: " + q(mCp[i]) + "\n";
         const auto* ci = elemAt(cpInfos, i);
         long type = ci ? decodeInt(fieldByName(*ci, "type")->raw, Scalar::Int8) : 0;
-        y += "    type: " + revNum(en::VariableType(), type) + "\n";
+        yCp += "    type: " + revNum(en::VariableType(), type) + "\n";
         long flags = 0;
         if (ci) if (const io::FieldValue* roleF = fieldByName(*ci, "role"); roleF && roleF->obj)
             if (const auto* role = dynamic_cast<const io::SchemaObject*>(roleF->obj.get()))
                 flags = decodeInt(fieldByName(*role, "flags")->raw, Scalar::Int16);
-        y += "    flags: " + en::FormatFlags(flags, en::RoleFlags()) + "\n";
+        yCp += "    flags: " + en::FormatFlags(flags, en::RoleFlags()) + "\n";
       }
     }
 
-    if (y.empty()) return true;   // no added vocabulary
-    std::error_code ec; fs::create_directories(fs::path(outDir) / "data", ec);
-    std::ofstream of(fs::path(outDir) / "data" / "additive.yaml", std::ios::binary);
-    of << y;
-    if (!of) { err = "EmitAdditiveVocab: cannot write additive.yaml"; return false; }
-    return true;
+    if (yVar.empty() && yEv.empty() && yCp.empty()) return true;   // no added vocabulary
+    const fs::path dataDir = fs::path(outDir) / "data";
+    std::error_code ec; fs::create_directories(dataDir, ec);
+    auto writeVocab = [&](const char* file, const std::string& body) -> bool {
+        if (body.empty()) return true;
+        std::ofstream of(dataDir / file, std::ios::binary);
+        of << body;
+        if (!of) { err = std::string("EmitAdditiveVocab: cannot write ") + file; return false; }
+        return true;
+    };
+    return writeVocab("variables.yaml", yVar) && writeVocab("events.yaml", yEv) && writeVocab("additive.yaml", yCp);
 }
 
 std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& /*reg*/, std::string& /*err*/) {
@@ -1513,6 +1528,11 @@ const std::unordered_map<std::string, long>* scalarEnumTable(const std::string& 
     if (cls == "hkbVariableInfo"  && f.name == "type") return &en::VariableType();
     if (cls == "hkbRoleAttribute" && f.name == "role") return &en::Role();
     if (cls == "hkbRoleAttribute" && f.name == "flags") { isFlags = true; return &en::RoleFlags(); }
+    // hkbExpressionData::eventMode is an ExpressionEventMode enum stored as a plain int8 in the schema
+    // (kept out of the schema `enum:` to not perturb the class signature CRC). The tagfile authors it as
+    // an enum NAME (e.g. EVENT_MODE_SEND_ON_TRUE); without this the name falls to parseL -> 0 (SEND_ONCE),
+    // silently dropping BFCO's authored per-expression modes (AttackWinStart etc.).
+    if (cls == "hkbExpressionData" && f.name == "eventMode") return &en::ExpressionEventMode();
     return nullptr;
 }
 
@@ -1724,6 +1744,11 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             // narrows to real edits. StripPatchOriginals is idempotent (no-op on a clean node).
             changedHold.push_back(std::make_unique<std::unordered_set<std::string>>(havok::merge::changedFields(*text)));
             changedPtr = changedHold.back().get();
+            // Pandora-compat (CONVERTER-ONLY): reproduce Pandora/Nemesis's occurrence-counted
+            // placement for numeric text-array params (boneWeights &c) BEFORE the positional
+            // strip, so converted bundles match the ecosystem's output. Element params are left
+            // for StripPatchOriginals below. See docs/bugs/CB-3.
+            havok::compat::ApplyNemesisTextArrayEdits(parseText);
             havok::xml::StripPatchOriginals(parseText);
         }
         roots.push_back(havok::xml::Parse("<r>" + parseText + "</r>"));
@@ -1869,6 +1894,9 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
     r.deltaIds = static_cast<int>(deltaIds.size());
 
     const std::set<std::string> ds(deltaIds.begin(), deltaIds.end());
+    // Nodes keep the merged tagfile #NNNN (override) / mod$N (new). The oracle aligned every override to
+    // the base node it targets, so the (class, #NNNN) merge lands on the right base node without a name
+    // remap. Deltas merge onto the base by that stable oracle id.
     if (!EmitHky(merged.identity, reg, outDeltaDir, err, &ds, &r.warnings)) { r.error = "emit: " + err; return r; }
 
     // Added-vocabulary sidecar — diff the base graph vocab against the merged graph's.

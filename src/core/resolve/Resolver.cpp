@@ -10,11 +10,14 @@
 
 #include <havok/model/yaml/YamlBehaviorLoader.h>
 #include <havok/model/yaml/CharacterYamlLoader.h>
+#include <havok/model/CompileTrace.h>   // schema-driven compile-trace (opt-in via [Debug] bCompileTrace)
+#include "SimpleIni.h"                  // [Debug] bCompileTrace toggle (mirrors CB::debug::kFlags row)
 #include <havok/model/yaml/UnitSource.h>
 #include <havok/model/yaml/HkyArchive.h>
 #include <havok/sct/BehaviorCompiler.h>
 #include <havok/sct/CharacterCompiler.h>
 #include <havok/sct/ProjectCompiler.h>
+#include <havok/sct/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
 #include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
 #include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
 #include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
@@ -23,8 +26,10 @@
 #include <havok/anim/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
+#include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
+#include <atomic>
 #include <map>
 #include <optional>
 #include <set>
@@ -34,8 +39,10 @@
 #include <chrono>
 #include <exception>
 #include <fstream>
+#include <functional>   // std::function — skeleton-compile tasks fanned across the pool (stage 2)
 #include <iterator>
 #include <memory>
+#include <mutex>        // guard the shard merges into m_skeletonServe / m_skeletons (stage 2)
 #include <sstream>
 #include <system_error>
 #include <unordered_set>
@@ -315,14 +322,29 @@ namespace CB {
 
     }  // namespace
 
-    void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni)
+    void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni, bool warmReuse,
+                        const AnimExecutor* skelExec)
     {
-        // Route havok-core's non-fatal merge notices (same-slot positional-array
-        // collisions, where load-order last-writer drops a mod's differing edit) into
-        // the BR log. havok-core has no logger of its own; this is opt-in and once is
-        // enough (persists for every later Resolve/LoadMerged).
+        // Route havok-core's merge diagnostics into the BR log (havok-core has no logger of its own;
+        // opt-in, and once is enough — persists for every later Resolve/LoadMerged). Two severities
+        // share this one string sink:
+        //   • "no handler for node class X" — a node was DROPPED because no dispatch handler claimed
+        //     its class. That is a correctness break: the graph is missing a node and will very likely
+        //     char-setup-crash or A-pose (it is exactly what nodeless'd AutoplayBehavior when
+        //     BGSGamebryoSequenceGenerator had no reachable handler). Route to ERROR so a single orphan
+        //     can't hide among thousands of WARNs across a full load order.
+        //   • everything else — benign non-fatal notices (same-slot positional-array collisions where
+        //     load-order last-writer drops a mod's differing edit): WARN.
+        // Dedup identical messages: the same base-node collision / notice recurs across every graph
+        // that loads those base nodes (a full load order can repeat one message tens of thousands of
+        // times), and synchronous logging of that flood can crawl the compile to an apparent freeze.
+        // Log each unique message once; the first occurrence carries all the information.
         havok::model::YamlBehaviorLoader::SetDiagnosticSink(
-            [](const std::string& m) { LOG_WARN("{}", m); });
+            [seen = std::make_shared<std::unordered_set<std::string>>()](const std::string& m) {
+                if (!seen->insert(m).second) return;                       // already logged this exact line
+                if (m.find("no handler for node class") != std::string::npos) LOG_ERROR("{}", m);
+                else                                                          LOG_WARN("{}", m);
+            });
 
         // 1) Load order (optional): .hky plugin name -> priority (higher wins).
         std::unordered_map<std::string, int> order;
@@ -384,16 +406,20 @@ namespace CB {
             if (an == std::string::npos) return;
 
             const std::string outKey = relOrig;            // the ".hkx" path IS the output name
-            const std::string actor = lower.substr(as, lower.find('/', as) - as);
-            std::string charRel = outKey.substr(an + 1);   // orig-case "animations/.../<name>.hkx"
-            std::replace(charRel.begin(), charRel.end(), '/', '\\');
-            if (actor == "character") {
-                m_characterAnimNames["defaultmale"].push_back(charRel);
-                m_characterAnimNames["defaultfemale"].push_back(charRel);
-            } else {
-                LOG_WARN("Resolver: native animation '{}' (actor '{}') — auto-roster covers only "
-                         "'character'; add a roster line to animationnames\\<char>.txt.", outKey, actor);
-            }
+
+            // COLLECT FOR RECOMPILE ONLY — do NOT auto-roster. A .hkx file's presence under an
+            // actor's animations\ dir is NOT membership in that actor's animationName roster. The
+            // authoritative roster is the vanilla animations.txt (unioned by CharacterYamlLoader) plus
+            // any explicit animationnames\<char>.txt drop and the rosterref clip membrane. Force-adding
+            // every file here was over-inclusive: a full master carries ~5900 anims under
+            // meshes\actors\character\animations\, but only ~1656 belong to defaultmale — the rest are
+            // other character variants, DLC/creature-under-character projects, first-person, or
+            // DAR/behavior-only clips. Folding all of them into defaultmale/defaultfemale inflated the
+            // roster ~3.5x; char-setup binds against roster.size() (== the OAR synchronized offset), so
+            // the surplus entries overran the binding/offset math → the AutoplayBehavior char-setup CTD.
+            // (These recompiled natives are also STAGED to the dead-end meshes\CBanims\ — not served —
+            // so rostering them bound nothing anyway.) When the real in-memory serve lands, binding will
+            // be driven from the authoritative roster, not from raw file discovery.
             m_nativeAnims.emplace_back(outKey, std::move(yamlText));
         };
 
@@ -476,11 +502,11 @@ namespace CB {
                     if (fs::exists(unit / "bonelist.yaml", uec)) continue;
                     // The vanilla base carries behavior.yaml (or character.yaml); a mod
                     // delta usually does not (just changed/new node subfolders — or, for
-                    // a character roster delta, a bare animations.txt). Accept any —
+                    // a character roster delta, a bare data/animations.yaml). Accept any —
                     // LoadMerged requires the yaml only on the base (lowest) layer.
                     bool valid = fs::exists(unit / "behavior.yaml", uec) ||
                                  fs::exists(unit / "character.yaml", uec) ||
-                                 fs::exists(unit / "animations.txt", uec);
+                                 fs::exists(unit / "data" / "animations.yaml", uec);
                     if (!valid)
                         for (fs::directory_iterator si(unit, uec), sEnd; !uec && si != sEnd; si.increment(uec))
                             if (si->is_directory(uec)) { valid = true; break; }
@@ -550,10 +576,10 @@ namespace CB {
                         if (mf.present) { logManifest(mf); m_manifests[plugName] = std::move(mf); }
                     }
                     for (const auto& u : arc->units()) {
-                        // Projects are NOT served — BR synthesizes its own .br.hkx project in
-                        // ProjectRedirect (its char ref points at the cache); a vanilla project
-                        // graph would only compete with that. Behaviors + characters serve. But FIRST
-                        // capture the project's ORIGINAL-CASE characterFilenames ref from project.yaml —
+                        // The project graph itself is not served from the bundle — ProjectRedirect
+                        // synthesizes the served project on demand (into the cache, vanilla identity);
+                        // a bundle project graph would only compete with that. Behaviors + characters
+                        // serve. But FIRST capture the project's ORIGINAL-CASE characterFilenames ref from project.yaml —
                         // ProjectRedirect re-emits the vanilla identity from it (the case-sensitive bind
                         // the engine does on that string; a lowercased ref A-poses vanilla-only actors).
                         if (u.kind == havok::model::HkyArchive::UnitKind::Project) {
@@ -700,16 +726,47 @@ namespace CB {
             if (skipSkelServe)
                 LOG_WARN("Resolver: SKELETON SERVE DISABLED (noskeletonserve.enable) — skeleton opens fall "
                          "through to loose files. Diagnostic only.");
-            for (auto& [actorpath, texts] : layerTexts) {
-                if (skipSkelServe) break;
+
+            // Pre-warm the shared schema registry ON THIS (single) thread before any fan-out: its one-time
+            // load is guarded by a plain, UNsynchronized `state` int, so two workers racing the first
+            // CompileSkeletonFull could both attempt it. After this call every worker only READS it. (The
+            // same pre-warm WriteNativeAnimations does — cheap no-op if already warm.)
+            (void)havok::schema::SharedRegistry();
+
+            // Compile one actor's served skeleton variants. Pure function of the read-only master YAML +
+            // this actor's immutable layer texts; writes only its own distinct m_skeletonServe keys (under
+            // serveMu), so fanning across actors is byte-identical to serial. `ap`/`texts` are pointers into
+            // the stable std::map layerTexts (element addresses don't move), captured to dodge the pre-C++20
+            // structured-binding-capture limitation.
+            std::mutex serveMu;
+            auto serveActor = [&](const std::string& ap,
+                                  const std::vector<std::pair<std::string, std::string>>& texts) {
                 std::vector<havok::skeleton::SkeletonBoneAdd> adds;
-                havok::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(actorpath), nullptr);
-                if (adds.empty() || !master) continue;
+                havok::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(ap), nullptr);
+                if (adds.empty() || !master) return;
                 std::set<std::string> units;   // "meshes/actors/<actorpath>/<variant>/skeleton*.hkx"
-                for (const std::string& f : master->filesUnder("meshes/actors/" + actorpath + "/", ".yaml"))
+                for (const std::string& f : master->filesUnder("meshes/actors/" + ap + "/", ".yaml"))
                     if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size())
                         units.insert(f.substr(0, b));
                 for (const std::string& unit : units) {
+                    const std::string key = NormalizeKey(unit);
+                    // WARM REUSE: this skeleton was compiled on a prior run and its bytes are already in
+                    // the consolidated cache on disk. ByteServe serves that file via a path swap and
+                    // Owns() needs only the key present — so register the key and SKIP the expensive
+                    // CompileSkeletonFull recompile. This removes the redundant every-launch skeleton
+                    // compile that ran on the main thread at plugin load (the main-menu stall). Guarded on
+                    // warmReuse (== gate's !force && CachePresent) AND the cache file actually existing, so
+                    // a forced regen or a missing file falls through and compiles fresh — we never serve a
+                    // skeleton the cold path is about to wipe. WriteSkeletonServe skips empty-byte entries,
+                    // so the key-only registration doesn't rewrite the already-present file.
+                    if (warmReuse) {
+                        const std::string rel = servekey::CacheDiskRel(key);
+                        if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
+                            { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe.emplace(key, std::vector<std::uint8_t>{}); }
+                            LOG_INFO("Resolver: skeleton '{}' — warm cache hit, serve key registered (recompile skipped).", unit);
+                            continue;
+                        }
+                    }
                     havok::skeleton::SkeletonData sk;
                     if (!readBaseUnit(unit, sk)) continue;
                     std::string merr;
@@ -717,11 +774,23 @@ namespace CB {
                         LOG_WARN("Resolver: skeleton '{}' bone-add merge: {} — base unchanged.", unit, merr);
                     auto cr = havok::skeleton::CompileSkeletonFull(sk);
                     if (cr.ok) {
-                        m_skeletonServe[NormalizeKey(unit)] = std::move(cr.bytes);
-                        LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), sk.bones.size());
+                        const std::size_t nBones = sk.bones.size();
+                        { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
+                        LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), nBones);
                     } else
                         LOG_WARN("Resolver: skeleton '{}' compile failed: {} — not served.", unit, cr.error);
                 }
+            };
+            if (!skipSkelServe) {
+                std::vector<std::function<void()>> serveTasks;
+                serveTasks.reserve(layerTexts.size());
+                for (auto it = layerTexts.begin(); it != layerTexts.end(); ++it) {
+                    const std::string* ap = &it->first;
+                    const auto*        tx = &it->second;
+                    serveTasks.push_back([&serveActor, ap, tx] { serveActor(*ap, *tx); });
+                }
+                if (skelExec && *skelExec && serveTasks.size() > 1) (*skelExec)(std::move(serveTasks));
+                else for (auto& t : serveTasks) t();
             }
 
             // 3) BONE-NAME TABLE (behavior bone-index resolution): for each behavior actor, read its
@@ -735,18 +804,24 @@ namespace CB {
                 if (std::string ap = ActorPathOf(key); !ap.empty())
                     behActors.insert(std::move(ap));
 
-            for (const std::string& actor : behActors) {
+            // Build one actor's bone-name table. Pure function of the read-only master YAML + this actor's
+            // immutable layer texts; builds a LOCAL table then moves it into its own distinct m_skeletons
+            // key under tblMu — so fanning across actors is byte-identical to serial. This loop runs on
+            // EVERY launch (warm included, unlike the SERVE compile above), so it's the piece the pool
+            // actually shortens on a warm cache. `actor` is copied by value (a std::set element).
+            std::mutex tblMu;
+            auto buildBoneTable = [&](const std::string& actor) {
+                if (!master) return;
                 // First skeleton unit under this actor's subtree (deterministic: filesUnder is sorted).
-                if (!master) break;
                 std::string unit;
                 for (const std::string& f : master->filesUnder("meshes/actors/" + actor + "/", ".yaml"))
                     if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size()) {
                         unit = f.substr(0, b); break;
                     }
-                if (unit.empty()) continue;
+                if (unit.empty()) return;
 
                 havok::skeleton::SkeletonData sk;
-                if (!readBaseUnit(unit, sk)) continue;
+                if (!readBaseUnit(unit, sk)) return;
 
                 std::size_t nAdds = 0;
                 if (auto it = layerTexts.find(actor); it != layerTexts.end()) {
@@ -755,11 +830,21 @@ namespace CB {
                     nAdds = adds.size();
                     std::string merr; havok::skeleton::MergeBoneAdditions(sk, adds, &merr);
                 }
-                havok::sct::BoneNameTable& tbl = m_skeletons[actor];
+                havok::sct::BoneNameTable tbl;
                 for (const auto& b : sk.bones) tbl.names.push_back(b.name);
                 tbl.Reindex();
-                LOG_INFO("Resolver: skeleton '{}' = {} bone(s){}.", actor, tbl.names.size(),
+                const std::size_t nBones = tbl.names.size();
+                { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[actor] = std::move(tbl); }
+                LOG_INFO("Resolver: skeleton '{}' = {} bone(s){}.", actor, nBones,
                          nAdds ? (" incl. " + std::to_string(nAdds) + " added") : std::string{});
+            };
+            {
+                std::vector<std::function<void()>> boneTasks;
+                boneTasks.reserve(behActors.size());
+                for (const std::string& actor : behActors)
+                    boneTasks.push_back([&buildBoneTable, actor] { buildBoneTable(actor); });
+                if (skelExec && *skelExec && boneTasks.size() > 1) (*skelExec)(std::move(boneTasks));
+                else for (auto& t : boneTasks) t();
             }
         }
 
@@ -817,7 +902,6 @@ namespace CB {
                 for (auto& nc : havok::model::YamlBehaviorLoader::NodeContributions(srcs)) {
                     NodeConflict c;
                     c.servePath = key;
-                    c.section   = std::move(nc.section);
                     c.cls       = std::move(nc.cls);
                     c.key       = std::move(nc.key);
                     c.bundles.reserve(nc.layers.size());
@@ -904,6 +988,19 @@ namespace CB {
             LOG_INFO("Resolver: {} character-roster addition list(s) ingested ({} name(s) total) via animationnames\\.",
                      m_characterAnimNames.size(), total);
         }
+
+        // FULLY built — publish the ready signal LAST (release), so any serve hook that acquires it sees
+        // every field above completely written. Init runs on a background thread; hooks pass through to
+        // vanilla until this fires, and the compile gate blocks on WaitReady().
+        { std::lock_guard<std::mutex> lk(m_initMutex); m_ready.store(true, std::memory_order_release); }
+        m_initCv.notify_all();
+    }
+
+    void Resolver::WaitReady() const
+    {
+        if (m_ready.load(std::memory_order_acquire)) return;
+        std::unique_lock<std::mutex> lk(m_initMutex);
+        m_initCv.wait(lk, [this] { return m_ready.load(std::memory_order_acquire); });
     }
 
     const std::vector<std::string>& Resolver::AnimationsForActor(std::string_view actorRoot) const
@@ -957,11 +1054,41 @@ namespace CB {
         keys.reserve(m_sources.size());
         for (const auto& [k, _] : m_sources) keys.push_back(k);
 
+        // Compile-trace (opt-in [Debug] bCompileTrace in settings.ini — renders in the converter's
+        // Debug tab, see CB::debug::kFlags): route the schema-driven probe trace of every behavior
+        // compile to a greppable log file. Zero cost when off (no sink -> trace::Enabled() is a null
+        // pointer test at the tap). Probes ride on the deployed schema tree (Havok/core/Schema/debug/
+        // *.yaml) — edit them to steer.
+        std::shared_ptr<std::ofstream> traceLog;
+        bool traceOn = false;
+        {
+            CSimpleIniA ini;
+            if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
+                traceOn = ini.GetBoolValue("Debug", "bCompileTrace", false);
+        }
+        if (traceOn) {
+            traceLog = std::make_shared<std::ofstream>("Data/community_behaviors/compile_trace.log", std::ios::binary);
+            havok::model::trace::SetSink([traceLog](std::string_view l) {
+                traceLog->write(l.data(), static_cast<std::streamsize>(l.size())); traceLog->put('\n');
+            });
+            std::string pw;
+            const std::size_t np = havok::model::trace::LoadProbes("Data/Community Behaviors/Havok/core/Schema/metadata/debug", &pw);
+            if (!pw.empty()) LOG_WARN("Community Behaviors: compile-trace probe load: {}", pw);
+            LOG_INFO("Community Behaviors: COMPILE-TRACE ON ({} probe file(s)) -> Data\\community_behaviors\\compile_trace.log", np);
+        }
+
         const std::size_t total = keys.size();
         std::size_t       done  = 0;
         for (const auto& k : keys) {
             Resolve(k);
             if (progress) progress(++done, total);
+        }
+
+        if (traceOn) {
+            traceLog->flush();
+            havok::model::trace::SetSink({});
+            havok::model::trace::ClearProbes();
+            LOG_INFO("Community Behaviors: compile-trace written.");
         }
     }
 
@@ -985,19 +1112,54 @@ namespace CB {
         return written;
     }
 
-    std::size_t Resolver::WriteNativeAnimations(const std::filesystem::path& dataRoot) const
+    std::size_t Resolver::WriteNativeAnimations(const std::filesystem::path& dataRoot,
+                                                const AnimExecutor* exec,
+                                                const std::function<void()>* onUnit) const
     {
         namespace fs = std::filesystem;
-        std::size_t written = 0, failed = 0;
-        std::error_code ec;
-        for (const auto& [outKey, yamlText] : m_nativeAnims) {
-            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). Written LOOSE
-            // (not community_behaviors_cache): actor animations resolve by crc32(path) against the engine's startup
-            // loose scan, which never sees the on-demand community_behaviors_cache serve. The clean char-relative
-            // name is already in the roster (folded at Init), so char-setup binds a clip to it.
-            const fs::path out = dataRoot / fs::path(outKey);
+        std::atomic<std::size_t> written{ 0 }, failed{ 0 };
+
+        // Fresh motion accumulation for this compile pass (compiler = single motion producer; drained by
+        // the adsf finalizer). Cleared up front so a re-run never carries stale records.
+        m_motionSink.Clear();
+
+        // Pre-warm the shared schema registry ON THIS (single) THREAD before any fan-out. SharedRegistry()'s
+        // one-time load is guarded by a plain `state` int, NOT synchronized — two worker threads racing the
+        // first call could both attempt the load. After this call state is settled and every worker only
+        // READS it (a pure pointer return). On the serial path this is a harmless no-op — the cold path's
+        // CompileAll already warmed it; the WARM path (ArmCacheFromDisk) does NOT run CompileAll, so this is
+        // the call that warms it there. Do it regardless of exec so both paths are covered.
+        (void)havok::schema::SharedRegistry();
+
+        // Compile+write ONE native animation. A pure function of its own (outKey, yamlText) entry and the
+        // immutable-after-Init m_skeletons; writes its own distinct file. No shared mutable state, so this
+        // is safe to run concurrently and the parallel result is byte-identical to the serial one.
+        auto compileOne = [&](const std::string& outKey, const std::string& yamlText) {
+            std::error_code ec;
+            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). STOP-GAP OUTPUT:
+            // write under meshes/CBanims/ instead of the real actor path, so the recompiled natives do NOT
+            // clobber the vanilla loose/BSA animations while we validate — the engine won't auto-load them
+            // from here (wrong path), so a relocate is a deliberate manual step, and it also lets us watch
+            // for an OAR fight without risk. (This mirrors how behaviors were served pre-byteserve; the real
+            // serve — behavior_cache / in-memory crc — is a later feature.) Insert "CBanims" after "meshes/".
+            std::string stagedRel = outKey;
+            if (stagedRel.rfind("meshes/", 0) == 0) stagedRel = "meshes/CBanims/" + stagedRel.substr(7);
+            else                                    stagedRel = "meshes/CBanims/" + stagedRel;
+            const fs::path out = dataRoot / fs::path(stagedRel);
             try {
                 const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
+                // carries an inline `motion:` block, emit it for the adsf finalizer to DRAIN (instead of
+                // the adsf re-reading the YAML — which looked for a `.hkx.yaml` class these `.hkx` units
+                // don't use, so it read nothing). Keyed to match the drain exactly: actorRoot = the serve
+                // path up to "/animations/"; innerKey = the remainder, lowercased '/'-sep (== the form
+                // motionsForRoot produced and DeriveProjectPatch's normAnim(animationName) looks up). Motion
+                // is authored data (not compile-dependent), so emit on a successful PARSE, before compile.
+                if (def.motion) {
+                    const std::string low = ToLower(outKey);   // outKey is '/'-sep already
+                    if (const auto ap = low.find("/animations/"); ap != std::string::npos)
+                        m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *def.motion);
+                }
                 // INVERSE MEMBRANE: resolve this clip's per-track bone references through the SERVED
                 // skeleton (the same actor-path -> m_skeletons lookup the graph compile uses), so its
                 // hkaAnimationBinding.transformTrackToBoneIndices follows the actor's bones by name.
@@ -1007,43 +1169,71 @@ namespace CB {
                         boneNames = &it->second.names;
                 const auto r   = havok::anim::CompileAnimation(def, 30, havok::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
-                    ++failed;
+                    failed.fetch_add(1, std::memory_order_relaxed);
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
-                    continue;
+                    return;
                 }
                 fs::create_directories(out.parent_path(), ec);
                 std::ofstream f(out, std::ios::binary | std::ios::trunc);
                 f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
                 f.flush();
-                if (f.good()) { ++written; LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string()); }
-                else          { ++failed;  LOG_ERROR("Community Behaviors: failed writing native animation '{}'.", out.string()); }
+                if (f.good()) { written.fetch_add(1, std::memory_order_relaxed); LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string()); }
+                else          { failed.fetch_add(1, std::memory_order_relaxed);  LOG_ERROR("Community Behaviors: failed writing native animation '{}'.", out.string()); }
             } catch (const std::exception& e) {
-                ++failed;
+                failed.fetch_add(1, std::memory_order_relaxed);
                 LOG_ERROR("Community Behaviors: native animation '{}' — {}", outKey, e.what());
             }
+        };
+
+        // Progress tick — fire once per unit as it FINISHES, whatever the outcome (ok/skip/fail), so
+        // the bar advances by unit processed, not unit succeeded. Ticked in the dispatch (not inside
+        // compileOne, which has early returns) so both paths cover every outcome exactly once.
+        auto tick = [&] { if (onUnit && *onUnit) (*onUnit)(); };
+
+        if (exec && *exec && m_nativeAnims.size() > 1) {
+            // Parallel: one task per entry, fanned across the pool; (*exec) blocks until all complete.
+            // Capture each element by POINTER (m_nativeAnims is immutable after Init, so the address is
+            // stable) — never by the range-for reference, which is rebound each iteration. The tick runs
+            // on the worker thread, so onUnit must be thread-safe (it is — atomic increment + store).
+            std::vector<std::function<void()>> tasks;
+            tasks.reserve(m_nativeAnims.size());
+            for (const auto& e : m_nativeAnims) {
+                const auto* ep = &e;
+                tasks.push_back([&compileOne, &tick, ep] { compileOne(ep->first, ep->second); tick(); });
+            }
+            (*exec)(std::move(tasks));
+        } else {
+            for (const auto& [outKey, yamlText] : m_nativeAnims) { compileOne(outKey, yamlText); tick(); }
         }
-        if (written || failed)
-            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (loose under Data\\meshes).",
-                     written, failed);
-        return written;
+
+        const std::size_t w = written.load(std::memory_order_relaxed);
+        const std::size_t fl = failed.load(std::memory_order_relaxed);
+        if (w || fl)
+            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (STAGED under "
+                     "Data\\meshes\\CBanims\\ — relocate manually to serve).", w, fl);
+        // Phase 0 coverage: what the compiler produced for the adsf to drain. Nothing consumes the sink
+        // yet (byte-neutral); this confirms the emit fires + the keying before the drain is switched over.
+        LOG_INFO("Community Behaviors: motion sink — {} record(s) across {} actor root(s) (compiler-produced).",
+                 m_motionSink.RecordCount(), m_motionSink.RootCount());
+        return w;
     }
 
     std::size_t Resolver::MaterializeCacheToDisk(
         const std::filesystem::path&                                        dataRoot,
-        const std::function<void(std::size_t, std::size_t)>&                progress)
+        const std::function<void(std::size_t, std::size_t)>&                progress,
+        const AnimExecutor*                                                 animExec,
+        const std::function<void()>*                                        animOnUnit)
     {
         namespace fs = std::filesystem;
         std::error_code ec;
 
-        // The above-OAR serving layout writes two kinds of BR output, both UNDER each
-        // actor's own vanilla behavior root <dataRoot>/<folderRoot> (keys are meshes-
-        // prefixed, so folderRoot already begins "meshes/..."):
-        //   • compiled graphs   -> <folderRoot>/community_behaviors_cache/<subdir>/<file>.hkx
-        //   • synthesized project-> <folderRoot>/<charStem>.br.hkx     (a NEW loose file)
-        // Both are NEW paths, so no vanilla file is ever overwritten. The redirect hook
-        // points the engine's project load at the .br.hkx; its base dir stays the vanilla
-        // root, so the cache-qualified child refs resolve into community_behaviors_cache\ and
-        // the untouched refs resolve to vanilla.
+        // The above-OAR serving layout writes BR output into the consolidated cache under
+        // Data\Meshes\community_behaviors_cache\<serve path> — compiled graphs here, and the
+        // synthesized project on demand in ProjectRedirect (same cache root, vanilla path/case).
+        // All are NEW paths under community_behaviors_cache\, so no vanilla file is overwritten; the
+        // ByteServe hook swaps each owned OPEN to its cache twin under the VANILLA identity (no
+        // rename, no ".br" alias). The project's cache-qualified child refs resolve into
+        // community_behaviors_cache\ and the untouched refs resolve to vanilla.
 
         // 0) Drop the completion sentinel FIRST: it is re-written only at the very end, on
         //    success, so a regenerate that crashes mid-way leaves NO sentinel and the next run
@@ -1144,7 +1334,7 @@ namespace CB {
         // 2c) Compile the bundle-authored native animations into LOOSE .hkx under Data\meshes\ (not
         //     community_behaviors_cache — actor animations resolve by the engine's startup loose scan). Persist
         //     across cache regens; the clean names are already rostered (folded at Init).
-        WriteNativeAnimations(dataRoot);
+        WriteNativeAnimations(dataRoot, animExec, animOnUnit);
 
         // 3) Build the above-OAR redirect map (folderRoot -> owned characters) + mark ready.
         //    Shared with the reuse path (ArmCacheFromDisk) — it depends only on m_sources, not
@@ -1316,7 +1506,7 @@ namespace CB {
         return stamp == std::to_string(watermark::kWatermarkValue);
     }
 
-    void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot)
+    void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot, const AnimExecutor* animExec)
     {
         // Reuse path: the compiled graphs + synthesized projects from a prior run are already on
         // disk (guarded by the completion sentinel CachePresent() checked). Arm ONLY the redirect
@@ -1327,7 +1517,7 @@ namespace CB {
         // Native animations are LOOSE (not in the wiped community_behaviors_cache), so a prior run's files usually
         // still exist — but rewrite them here too (cheap, few) so a reused cache from a build without
         // them, or a user who cleared meshes\, still gets them on disk before the scan.
-        WriteNativeAnimations(dataRoot);
+        WriteNativeAnimations(dataRoot, animExec);
         BuildRedirectMap(dataRoot);
         LOG_INFO("Community Behaviors: reusing existing on-disk behavior cache under '{}\\Meshes' "
                  "(recompile skipped — set [Cache] bForceRegenerate=true or delete the cache to rebuild).",
@@ -1540,15 +1730,16 @@ namespace CB {
                 // for this character (keyed by the serve-path file stem, e.g. "defaultmale"
                 // for .../characters/defaultmale.hkx). This is the flat, no-deep-path way for
                 // a bundle to extend a character's animationNames — the same union LoadMerged
-                // does for unit-path animations.txt, deduped case-insensitively.
+                // does for unit-path data/animations.yaml, deduped EXACT-case (Havok binds
+                // case-sensitively — a lowercased dedup would drop the exact name a clip binds).
                 if (const auto ci = m_characterAnimNames.find(ToLower(fs::path(key).stem().string()));
                     ci != m_characterAnimNames.end() && !ci->second.empty()) {
                     std::unordered_set<std::string> have;
                     have.reserve(cdata.animations.size() * 2 + 16);
-                    for (const auto& a : cdata.animations) have.insert(ToLower(a));
+                    for (const auto& a : cdata.animations) have.insert(a);
                     std::size_t folded = 0;
                     for (const auto& a : ci->second)
-                        if (have.insert(ToLower(a)).second) { cdata.animations.push_back(a); ++folded; }
+                        if (have.insert(a).second) { cdata.animations.push_back(a); ++folded; }
                     if (folded)
                         LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
                 }
@@ -1558,7 +1749,7 @@ namespace CB {
                 // this character's serve key) is how DeriveAnimData gathers the project's clips from the
                 // sink. Keyed by character stem ("defaultmale"). Runs under m_mutex (held for Resolve's
                 // body); read after CompileAll with no writers.
-                if (m_adsfFromFeature) {
+                if (m_adsfDerive) {
                     const std::string cstem = ToLower(fs::path(key).stem().string());
                     m_characterRosters[cstem] = cdata.animations;
                     m_characterActor[cstem]   = ActorPathOf(key);
@@ -1576,10 +1767,9 @@ namespace CB {
                     cdata.character.behavior = q;
                 }
 
-                // Capture the finished cdata (author-drop + qualify applied) + actor, so
-                // CompleteCharacterRosters() can re-serve this character with the rosterref-completed
-                // animationNames after CompileAll (the clip pool isn't full until every graph resolved).
-                m_characterData[key]     = std::make_shared<havok::model::CharacterData>(cdata);
+                // Capture this character's actor path (feeds DeriveAnimData's opt-in adsf serve).
+                // The roster is already complete here — LoadMerged unioned every layer's
+                // data/animations.yaml — so there is no deferred roster-completion pass to feed.
                 m_characterActor[ToLower(fs::path(key).stem().string())] = ActorPathOf(key);
 
                 const auto   r  = havok::sct::CompileCharacter(cdata);
@@ -1598,6 +1788,10 @@ namespace CB {
 
             auto data = havok::model::YamlBehaviorLoader::LoadMerged(gs.layers);
 
+            // Compile-trace tap: name-annotated variable-table / binding / topology records for this
+            // merged graph (guarded — trace::Enabled() is a null pointer test, so off = free).
+            if (havok::model::trace::Enabled()) havok::model::TraceGraph(data, key);
+
             // Skeleton for bone-name resolution: if the unit didn't carry one, use this actor's
             // merged bone list (base + skeleton-extender appends, folded in Init). Actor key =
             // ActorPathOf(serve path) — the SAME derivation Init used to build the table, so nested
@@ -1609,18 +1803,13 @@ namespace CB {
                         data.boneNames = it->second.names;
             }
 
-            // ROSTER MEMBRANE (rosterref) — collect this graph's clip animationNames into the actor's
-            // pool. The schema tags hkbClipGenerator.animationName `rosterref: animationNames`; every such
-            // value across an actor's served graphs must land in that actor's character animationNames or
-            // the clip A-poses (and OAR's synchronized offset = roster.size() must count them all).
-            // CompleteCharacterRosters() folds this pool into each character after CompileAll. Always-on —
-            // this is graph-clip collection, independent of the opt-in adsf-derive serve.
-            if (const std::string actor = ActorPathOf(key); !actor.empty()) {
-                auto& pool = m_actorClipAnims[actor];
-                for (const auto& [nm, clip] : data.clips)
-                    if (!clip.animationName.empty() && pool.seen.insert(ToLower(clip.animationName)).second)
-                        pool.names.push_back(clip.animationName);
-            }
+            // NOTE: the character's animationNames roster is now built OFFLINE — the converter
+            // scans clip generators into each unit's data/animations.yaml, and LoadMerged unions
+            // every layer's yaml at compile time. The old runtime clip-scan-and-recompile pass
+            // (m_actorClipAnims + CompleteCharacterRosters) was deferred, graph-resolution-order
+            // dependent, and case-lossy (ToLower dedup) — the very properties that desynced a
+            // clip's animationBindingIndex from the roster slot and shifted OAR's synchronized
+            // offset. Retired: the roster is complete and deterministic before the single compile.
 
             // Union mod-declared symbols into this graph's data before compiling —
             // the compile-time equivalent of BDI's runtime append (spec §6). New
@@ -1652,10 +1841,11 @@ namespace CB {
                 // DATA. See CLAUDE.md "Compiler features — CB::features (SOP)".
                 {
                     ResolverFeatureLog          fLog;
-                    // animData is supplied only when the adsf-derive path is opted in, so the
-                    // contributor feature's AppliesTo (ctx.animData != nullptr) is a no-op otherwise.
+                    // animData (the contribution hook) is supplied only when adsf-derive is collecting, so
+                    // a feature can push extra clips into the same sink the first-class derive stage fills
+                    // below; null otherwise (no sink to contribute to).
                     CB::features::FeatureContext    fctx{ .graphKey = key, .log = fLog,
-                                                      .animData = (m_adsfFromFeature ? &m_clipSink : nullptr) };
+                                                      .animData = (m_adsfDerive ? &m_clipSink : nullptr) };
 
                     // ENABLED set (from settings) — WHICH features run. The ORDER is no longer written
                     // here: ResolveRunOrder topo-sorts by each feature's declared RunsAfter/RunsBefore,
@@ -1665,14 +1855,32 @@ namespace CB {
                     // wildcard gate stays OPT-IN ([ERGate] bEnable, default OFF until proven in-engine)
                     // — a fault there rewrites every wildcard and would T-pose every actor.
                     std::vector<std::string> enabledIds;
-                    if (m_erGateEnabled)   enabledIds.emplace_back("engine-relay.wildcard-gate");
-                    if (m_adsfFromFeature) enabledIds.emplace_back("animation-relay.adsf-derive");
+                    if (m_erGateEnabled) enabledIds.emplace_back("engine-relay.wildcard-gate");
 
                     auto& reg    = CB::features::FeatureRegistry::Instance();
                     auto  runIds = reg.ResolveRunOrder(enabledIds, fLog);
                     for (const auto& [id, r] : reg.Run(runIds, data, fctx))
                         if (r.applied && r.mutations)
                             LOG_INFO("Resolver: feature {} → {} mutation(s) in '{}'.", id, r.mutations, key);
+
+                    // adsf-derive — FIRST-CLASS compile stage (not a feature). The adsf is derivable
+                    // straight from the compiled graph: each hkbClipGenerator carries
+                    // name+animationName+speed+crop+own-triggers = a DeriveClipInput. The compiler reads
+                    // them into the animdata collector HERE (compiler output, NOT a graph mutation — which
+                    // is why it never belonged in the IGraphFeature run above). Runs AFTER the features, so
+                    // a feature that ADDS clips to the graph gets derived too; a feature that contributes
+                    // adsf entries WITHOUT a graph clip pushes them directly via fctx.animData (the same
+                    // m_clipSink) during the run above. Both feed one collector. Gated (validation-only —
+                    // does not yet drive the emitted file) until the derive is byte-exact vs the collated
+                    // merge and takes over. Roster resolution stays out of here (a finalizer concern): a
+                    // resolved animIndex baked into the clip's binding would byte-diverge from vanilla.
+                    if (m_adsfDerive) {
+                        const auto inputs = havok::sct::DeriveClipInputsFromBehavior(data);
+                        for (const auto& in : inputs)
+                            m_clipSink.EmitClip(key, in);
+                        if (!inputs.empty())
+                            LOG_INFO("Resolver: adsf-derive — {} clip input(s) from '{}'.", inputs.size(), key);
+                    }
                 }
             }
 
@@ -1714,53 +1922,6 @@ namespace CB {
         return result;
     }
 
-    // ── roster membrane finalize (rosterref) ──────────────────────────────────────────
-    // The inverse of the skeleton membrane. During CompileAll every graph's hkbClipGenerator
-    // animationNames (schema: `rosterref: animationNames`) were collected per actor into
-    // m_actorClipAnims. Here — after the whole load order resolved, so the pool is complete — fold that
-    // pool into each character's animationNames and re-serve the character. A clip whose animationName is
-    // absent from the roster A-poses (char-setup can't bind it); OAR's synchronized offset =
-    // roster.size() also needs every bound clip counted. Append-only (existing indices preserved, so the
-    // collated animationdata stays valid whether or not DeriveAnimData reorders). Base (Skyrim.hky) and
-    // mod characters flow through identically — both compiled here, both folded from the same pool.
-    // Must run AFTER CompileAll and BEFORE MaterializeCacheToDisk (which writes m_cache to disk).
-    std::size_t Resolver::CompleteCharacterRosters()
-    {
-        std::size_t completed = 0, appendedTotal = 0;
-        for (auto& [key, cdataPtr] : m_characterData) {
-            if (!cdataPtr) continue;
-            const std::string actor = ActorPathOf(key);
-            const auto pi = m_actorClipAnims.find(actor);
-            if (pi == m_actorClipAnims.end() || pi->second.names.empty()) continue;
-
-            auto& cdata = *cdataPtr;
-            std::unordered_set<std::string> have;
-            have.reserve(cdata.animations.size() * 2 + 16);
-            for (const auto& a : cdata.animations) have.insert(ToLower(a));
-
-            std::size_t appended = 0;
-            for (const auto& nm : pi->second.names)
-                if (have.insert(ToLower(nm)).second) { cdata.animations.push_back(nm); ++appended; }
-            if (appended == 0) continue;
-
-            const auto r = havok::sct::CompileCharacter(cdata);
-            if (!r.ok) {
-                LOG_ERROR("Resolver: roster-complete recompile FAILED for character '{}': {}", key, r.error);
-                continue;
-            }
-            m_cache[key] = std::make_shared<const std::vector<std::uint8_t>>(std::move(r.bytes));
-            const std::string cstem = ToLower(fs::path(key).stem().string());
-            m_characterRosters[cstem] = cdata.animations;
-            ++completed; appendedTotal += appended;
-            LOG_INFO("Resolver: roster membrane — completed character '{}' (+{} clip anim(s), roster now {}).",
-                     key, appended, cdata.animations.size());
-        }
-        if (completed)
-            LOG_INFO("Resolver: roster membrane — completed {} character(s); {} animationName(s) folded from clips.",
-                     completed, appendedTotal);
-        return completed;
-    }
-
     // ── the animationdata finalize (opt-in) ──────────────────────────────────────────
     // Starts from the PROVEN collated file ServeAnimData just wrote (every project already correct —
     // vanilla base + bundle deltas + motion) and OVERRIDES only the clip list of projects the sink
@@ -1771,7 +1932,7 @@ namespace CB {
     // real roster index instead of the collated path's synthetic high-band index.
     bool Resolver::DeriveAnimData(const std::filesystem::path& dataDir)
     {
-        if (!m_adsfFromFeature) return false;
+        if (!m_adsfDerive) return false;
         namespace ad = havok::animdata;
 
         // ── start from the proven collated file (ServeAnimData ran first) ──

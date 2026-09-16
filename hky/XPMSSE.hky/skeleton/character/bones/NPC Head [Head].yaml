@@ -1,0 +1,6 @@
+parent: "NPC Neck [Neck]"
+lockTranslation: true
+pose:
+  translation: [-3.00000011e-06, 1.99999999e-06, 7.39275408, 0]
+  rotation: [0.0955239981, 0.000445999991, -6.29999995e-05, 0.995427012]
+  scale: [1, 1, 1, 0]

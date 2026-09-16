@@ -1,0 +1,18 @@
+name:      hkpConvexVerticesShape
+parent:    hkpConvexShape
+signature: 0x00000000   # read-only class (creature ragdoll shape); sig unused on read, placeholder
+size:      144
+# hkpConvexShape ends @40. Cached AABB (two Vector4, 16-aligned) -> pad 40->48.
+# m_rotatedVertices (hkArray<hkFourTransposedPoints>) @80 + m_numVertices @96; then a 20-byte
+# gap (m_useSpuBuffer +nosave + reserved/pad) to m_planeEquations (hkArray<hkVector4>) @120 and
+# m_connectivity (ptr) @136. OFFSETS VERIFIED against real wolf bytes (array cap flags @92/@132).
+# Array/vertex CONTENTS inline after the struct (real object ~368).
+fields:
+  - { skip: 8 }                                                            # pad 40 -> 48
+  - { name: aabbHalfExtents, type: vector4 }                               # @48
+  - { name: aabbCenter,      type: vector4 }                               # @64
+  - { name: rotatedVertices, type: structarray, ref: hkFourTransposedPoints } # @80 (16)
+  - { name: numVertices,     type: int32 }                                 # @96
+  - { skip: 20 }                                                           # @100 -> 120 (m_useSpuBuffer +nosave + reserved/pad)
+  - { name: planeEquations,  type: vec4array }                             # @120 (16)
+  - { name: connectivity,    type: ptr, ref: hkpConvexVerticesConnectivity } # @136 -> 144
