@@ -250,7 +250,8 @@ struct BehaviorEmitter {
     std::unordered_map<std::string, int> fileSeq;   // per-sub filename counter — cosmetic; identity is the id: field
     void write(const char* sub, const std::string& id, const std::string& y) {
         if (dryRun) return;                       // pass 1 only assigns editorIds; emits nothing
-        const std::string full = "id: " + id + "\n" + y;
+        const std::string nsLine = nsDecl.empty() ? std::string() : ("ns: " + nsDecl + "\n");
+        const std::string full = "id: " + id + "\n" + nsLine + y;
         if (sink) { (*sink)[id] = { sub, full }; return; }
         // Filename is a numeric counter, NOT the id: a (class,name) editorId contains ':' and spaces,
         // which are illegal/awkward in filenames. The loader keys off the id: field's content, never
@@ -280,6 +281,11 @@ struct BehaviorEmitter {
     // numeric stableIds; anything unnamed falls back to the encounter-order number (never a ref target).
     bool                                          dryRun = false;
     bool                                          useEditorIds = false;   // base path on; delta path off (still tagfile) until converted
+    // Stage B (node identity): when non-empty, every emitted node declares `ns: <nsDecl>`. The base
+    // master sets "self" — Skyrim mints all its nodes. Empty (the delta path) emits no ns line; the
+    // converter fills per-node self/master[i] in Stage C. Byte-neutral for compiled graphdata (ns is
+    // loader metadata, never compiled) — it only adds a line to the emitted node YAML.
+    std::string                                   nsDecl;
     std::unordered_map<const void*, std::string>  editorIds;
     std::string                                   curSMName;   // owning SM name while emitting its states
     void setEditorId(const void* obj, const std::string& eid) { if (obj) editorIds.try_emplace(obj, eid); }
@@ -1165,6 +1171,7 @@ DecompileResult DecompileBehaviorTree(const std::shared_ptr<hkbBehaviorGraph>& b
         em.bones = bones;               // null = numeric bone indices; set = bone NAMES
         em.stableIds = stableIds;       // last-resort fallback; editorIds (below) supersede it
         em.useEditorIds = true;         // base path is now (class,name)-keyed
+        em.nsDecl = "self";             // Stage B: the base master mints all its nodes -> ns: self
         // Pass 1 (dry): walk the graph assigning (class,name) editorIds — every node its name, every
         // state its owning SM's name + '_' + state name. Writes nothing.
         em.dryRun = true;
