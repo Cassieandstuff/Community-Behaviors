@@ -1075,32 +1075,21 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 // horsebehavior. Prefer the vanilla binary from SKYRIM_DATASOURCE (the unpacked vanilla
                 // root); fall back to the round-trip only when it is absent (degraded — new nodes are
                 // still namespaced so they can't collide, but matched overrides may misalign).
+                // The loose-derive needs the pristine VANILLA binary as the numbering ORACLE: its read-order
+                // is what the base master was decompiled by, so matched overrides land on the base's ids. A
+                // compile/decompile round-trip of the base master does NOT preserve that order (only names
+                // survive) — there is NO safe fallback. Without SKYRIM_DATASOURCE, skip the loose-derive
+                // rather than emit a delta whose overrides misalign the base (the horsebehavior crash class).
                 fs::path vanBin;
-                bool vanBinTemp = false;
                 if (const char* ds = std::getenv("SKYRIM_DATASOURCE")) {
                     const fs::path cand = fs::path(ds) / u.prefix;   // prefix is meshes-relative
                     if (fs::is_regular_file(cand, we)) vanBin = cand;
                 }
                 if (vanBin.empty()) {
-                    vanBin = tmpDir / ("loosebase_" + fs::path(u.prefix).stem().string() + ".hkx");
-                    vanBinTemp = true;
-                    try {
-                        auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(u.prefix) });
-                        if (data.boneNames.empty())                         // inject the skeleton bone list
-                            if (const std::string actor = actorPathOf(u.prefix); !actor.empty())
-                                data.boneNames = boneNamesForActor(actor);
-                        const auto cr = havok::sct::CompileBehavior(data);
-                        std::string werr;
-                        if (!cr.ok || !havok::sct::WriteHavokFile(vanBin.string(), cr.bytes, &werr)) {
-                            ++r.skipped;
-                            say("  " + bname + ": " + u.prefix + " — base compile FAILED: " +
-                                (cr.ok ? werr : cr.error));
-                            continue;
-                        }
-                    } catch (const std::exception& e) {
-                        ++r.skipped; say("  " + bname + ": " + u.prefix + " — base load threw: " + e.what());
-                        continue;
-                    }
+                    ++r.skipped;
+                    say("  " + bname + ": " + u.prefix + " — no SKYRIM_DATASOURCE vanilla; skipping loose-derive "
+                        "(a round-tripped base would misalign the delta).");
+                    continue;
                 }
 
                 const fs::path unit = outBundle / fs::path(u.prefix);
@@ -1113,8 +1102,22 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 std::string hx(4, '0');
                 for (int i = 3; i >= 0; --i) { hx[i] = "0123456789abcdef"[h16 & 0xF]; h16 >>= 4; }
                 const std::string modCode = slug + hx;
-                const auto res = havok::sct::DeriveLooseBehaviorDelta(vanBin.string(), winner.string(), unit.string(), modCode);
-                if (vanBinTemp) fs::remove(vanBin, we);   // only the round-trip temp; never the datasource vanilla
+                // SCHEMA loose-derive (read-order) when the shared registry is armed — matches the schema
+                // base decompile (BuildBaseBundle's no-template leg), so matched overrides land on the base's
+                // read-order ids. If the registry is absent the base was decompiled TYPED too (same gate),
+                // so derive typed to stay aligned — never mix schema base with a typed delta.
+                havok::model::LooseDeriveResult res;
+                if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
+                    std::vector<std::uint8_t> vb, mb; std::string re;
+                    if (havok::sct::ReadHavokFile(vanBin.string(), vb, &re) &&
+                        havok::sct::ReadHavokFile(winner.string(), mb, &re))
+                        res = havok::model::DeriveLooseBehaviorDeltaSchema(vb, mb, modCode, *sreg, unit.string());
+                    else res.error = "read: " + re;
+                } else {
+                    const auto tr = havok::sct::DeriveLooseBehaviorDelta(vanBin.string(), winner.string(), unit.string(), modCode);
+                    res.ok = tr.ok; res.error = tr.error; res.matched = tr.matched; res.added = tr.added;
+                    res.changedNodes = tr.changedNodes; res.newNodes = tr.newNodes; res.removedFromBase = tr.removedFromBase;
+                }
                 if (!res.ok) { ++r.skipped; say("  " + bname + ": " + u.prefix + " — DERIVE FAILED: " + res.error); continue; }
                 if (res.changedNodes == 0 && res.newNodes == 0) { fs::remove_all(unit, we); continue; }  // vanilla — nothing to carry
                 ++r.deltas;
@@ -1803,6 +1806,17 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             }
         }
 
+        // No-template BEHAVIOR → schema READ-ORDER decompile (the coordinated flip): matches the schema
+        // loose-derive so no-template mod deltas (horse, creatures) align with this base. Gated on the same
+        // shared registry as the loose-derive, so base + delta are always both-schema or both-typed. Only
+        // behaviors route here; character/project/animation stay on the typed DecompileToDir below.
+        if (kind == HkxKind::Behavior) {
+            if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
+                std::string derr;
+                if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr)) { ++r.behaviors; continue; }
+                say("  WARN: schema no-template decompile failed for " + rel + " (" + derr + "); typed fallback.");
+            }
+        }
         const auto d = havok::sct::DecompileToDir(bytes, unit.string());
         if (!d.ok) { ++r.failed; continue; }   // e.g. the 2 CC tagfile characters
         if      (d.kind == "behavior")  ++r.behaviors;

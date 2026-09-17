@@ -52,6 +52,13 @@ static std::string ExeHavokDir() {
 // conversion with no window (for automation / CI), streaming the log to stdout. <baseDir>
 // (optional) holds the pristine vanilla animation{set,}datasinglefile.txt copied into base/.
 int main(int argc, char** argv) {
+    // Arm the process-wide schema registry for EVERY mode (GUI + --cli + --build-base + --regen-master).
+    // The no-template schema decompile (base build) and the schema loose-derive both key off it; if it is
+    // only armed on the regen path, the --cli/GUI loose-derive silently falls back to the TYPED order and
+    // misaligns against the schema base master (the horsebehavior crash class). SetSharedSchemaDir only
+    // records the dir; SharedRegistry() lazily loads once on first use. The regen path re-arms harmlessly.
+    havok::schema::SetSharedSchemaDir(ExeHavokDir());
+
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
         bconv::Options opt;
         opt.dataDir      = argv[2];

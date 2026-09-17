@@ -483,6 +483,23 @@ int doDecompileSchema(const std::string& in, const std::string& schemaDir, const
     return 0;
 }
 
+// derive-schema <van.hkx> <mod.hkx> <Havok-dir> [modCode] -o <outDeltaDir>: probe the schema loose-derive
+// (DeriveLooseBehaviorDeltaSchema) directly, writing the delta tree to a dir for inspection.
+int doDeriveSchema(const std::string& van, const std::vector<std::string>& extra, const std::string& out) {
+    if (extra.size() < 2 || out.empty()) { std::printf("usage: derive-schema <van.hkx> <mod.hkx> <Havok-dir> [modCode] -o <dir>\n"); return 2; }
+    std::vector<std::uint8_t> vb, mb; std::string err;
+    if (!havok::sct::ReadHavokFile(van, vb, &err)) { std::printf("ERROR van: %s\n", err.c_str()); return 1; }
+    if (!havok::sct::ReadHavokFile(extra[0], mb, &err)) { std::printf("ERROR mod: %s\n", err.c_str()); return 1; }
+    havok::schema::SchemaRegistry reg;
+    if (!reg.LoadDir(extra[1], err)) { std::printf("ERROR schema: %s\n", err.c_str()); return 1; }
+    const std::string code = extra.size() > 2 ? extra[2] : std::string("d");
+    std::error_code ec; fs::create_directories(out, ec);
+    const auto r = havok::model::DeriveLooseBehaviorDeltaSchema(vb, mb, code, reg, out);
+    std::printf("derive-schema: ok=%d err='%s' matched=%d added=%d changed=%d new=%d removed=%d\n",
+                r.ok, r.error.c_str(), r.matched, r.added, r.changedNodes, r.newNodes, r.removedFromBase);
+    return r.ok ? 0 : 1;
+}
+
 // Debug: per-class object histogram from the virtual-fixup table (no construction).
 int doObjHist(const std::string& in) {
     std::vector<std::uint8_t> bytes;
@@ -6312,6 +6329,7 @@ int main(int argc, char** argv) {
     if (verb == "decompile") return doDecompile(in, out, skel);
     if (verb == "decompile-schema") return doDecompileSchema(in, extra.empty() ? std::string{} : extra[0],
                                                              extra.size() > 1 ? extra[1] : std::string{}, out);
+    if (verb == "derive-schema") return doDeriveSchema(in, extra, out);
     if (verb == "anim-roundtrip") return doAnimRoundtrip(in);
     if (verb == "anim-rt-dump") return doAnimRtDump(in, extra.empty() ? -1 : std::atoi(extra[0].c_str()));
     if (verb == "hky-compile") return doHkyCompile(in, extra, out);

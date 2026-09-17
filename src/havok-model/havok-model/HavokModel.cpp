@@ -15,6 +15,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <map>
 #include <set>
@@ -1557,6 +1558,190 @@ bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::
     } catch (const std::exception& e) {
         err = std::string("DecompileBehaviorSchema: ") + e.what();
         return false;
+    }
+}
+
+namespace {
+// Schema peer of DeltaDeriver's LoadedGraph — per-SchemaObject (class,name) + owner map for the loose-
+// derive name-identity match. Named referenceable nodes only; nameless inline objects (arrays, binding
+// sets, conditions) are folded by EmitHky and excluded here (they never match/emit as files).
+struct SGraph {
+    std::vector<const void*>                                              order;   // named objs, read order
+    std::unordered_map<const void*, std::pair<std::string, std::string>>  meta;    // obj -> (class,name)
+    std::unordered_map<const void*, const void*>                          owner;   // obj -> owning node
+    std::unordered_map<std::string, int>                                  nameCount;
+};
+
+void sLoadGraphMeta(PackFileDeserializer& des, SGraph& g) {
+    // Node->child refs for the owner map. MIRROR DeltaDeriver's typed loadGraphMeta EXACTLY — only the
+    // specific generator/state parent edges, NOT every object field. A blanket all-fields walk attributes
+    // nodes reached via inline structs (binding sets, transition/trigger arrays) wrong, shifting owner-
+    // qualification so a cross-class same-name pair (e.g. an SM state vs a pose-matching generator) can
+    // collapse to one name-identity — the 15-collision bug. Recorded edges (child -> referrer):
+    //   hkbStateMachine.states[i]                -> the SM
+    //   hkbStateMachineStateInfo.generator       -> the state
+    //   hkb{Blender,PoseMatching}Generator.children[i].generator -> the blender
+    //   hkbManualSelectorGenerator.generators[i] -> the selector
+    //   hkbModifierGenerator.{generator,modifier}-> the modGen
+    std::unordered_map<const void*, std::vector<const void*>> refs;
+    auto ptr = [](const io::FieldValue* v) -> const void* { return (v && v->obj) ? v->obj.get() : nullptr; };
+    for (const auto& [off, obj] : des.DeserializedObjects()) {
+        auto* so = dynamic_cast<io::SchemaObject*>(obj.get());
+        if (!so) continue;
+        const std::string cls = so->ClassName();
+        if (cls == "hkbStateMachine") {
+            if (const io::FieldValue* st = fieldByName(*so, "states"))
+                for (const auto& s : st->objs) if (s) refs[s.get()].push_back(so);
+        } else if (cls == "hkbStateMachineStateInfo") {
+            if (const void* g2 = ptr(fieldByName(*so, "generator"))) refs[g2].push_back(so);
+        } else if (cls == "hkbBlenderGenerator" || cls == "hkbPoseMatchingGenerator") {
+            if (const io::FieldValue* ch = fieldByName(*so, "children"))
+                for (const auto& c : ch->objs)
+                    if (auto* cc = dynamic_cast<const io::SchemaObject*>(c.get()))
+                        if (const void* g2 = ptr(fieldByName(*cc, "generator"))) refs[g2].push_back(so);
+        } else if (cls == "hkbManualSelectorGenerator") {
+            if (const io::FieldValue* gs = fieldByName(*so, "generators"))
+                for (const auto& gg : gs->objs) if (gg) refs[gg.get()].push_back(so);
+        } else if (cls == "hkbModifierGenerator") {
+            if (const void* g2 = ptr(fieldByName(*so, "generator"))) refs[g2].push_back(so);
+            if (const void* m2 = ptr(fieldByName(*so, "modifier")))  refs[m2].push_back(so);
+        }
+    }
+    for (const auto& [off, obj] : des.DeserializedObjects()) {
+        auto* so = dynamic_cast<io::SchemaObject*>(obj.get());
+        if (!so) continue;
+        const std::string cls = so->ClassName();
+        std::string nm = fStr(*so, "name");
+        if (nm.empty()) {
+            if (cls == "hkbBehaviorGraph" || cls == "hkbBehaviorGraphData" ||
+                cls == "hkbBehaviorGraphStringData" || cls == "hkbVariableValueSet")
+                nm = "$" + cls;   // referenceable singletons need a stable identity
+            else
+                continue;         // nameless inline object — folded by EmitHky, not a match target
+        }
+        g.order.push_back(so);
+        g.meta[so] = { cls, nm };
+        if (nm[0] != '$') g.nameCount[nm]++;
+    }
+    for (const auto& [child, rs] : refs) {
+        const void* best = nullptr;
+        for (const void* rf : rs) {
+            if (!g.meta.count(rf)) continue;
+            if (!best || g.meta.at(rf) < g.meta.at(best)) best = rf;
+        }
+        if (best) g.owner[child] = best;
+    }
+}
+
+// Identity = bare name when unambiguous in BOTH graphs, else owner-qualified ("<ownerId>~<name>"),
+// then made globally unique. Verbatim port of DeltaDeriver::assignNameIds over SGraph.
+void sAssignNameIds(const SGraph& g, const std::set<std::string>& ambiguous,
+                    std::unordered_map<const void*, std::string>& ids) {
+    std::unordered_map<const void*, std::string> ident;
+    std::function<std::string(const void*)> identOf = [&](const void* o) -> std::string {
+        auto mi = g.meta.find(o); if (mi == g.meta.end()) return {};
+        if (auto it = ident.find(o); it != ident.end()) return it->second;
+        const std::string& nm = mi->second.second;
+        std::string result = nm;
+        if (nm[0] != '$' && ambiguous.count(nm)) {
+            ident[o] = nm;   // cycle guard
+            auto oit = g.owner.find(o);
+            const std::string op = (oit != g.owner.end()) ? identOf(oit->second) : std::string();
+            if (!op.empty()) result = op + "~" + nm;
+        }
+        ident[o] = result; return result;
+    };
+    std::unordered_map<std::string, std::vector<const void*>> groups;
+    for (const void* o : g.order) groups[identOf(o)].push_back(o);
+    for (auto& [base, objs] : groups) {
+        if (objs.size() > 1)
+            std::stable_sort(objs.begin(), objs.end(), [&](const void* a, const void* b) {
+                const auto& ma = g.meta.at(a); const auto& mb = g.meta.at(b);
+                if (ma.first != mb.first) return ma.first < mb.first;
+                auto oa = g.owner.find(a), ob = g.owner.find(b);
+                std::string ka = (oa != g.owner.end()) ? identOf(oa->second) : std::string();
+                std::string kb = (ob != g.owner.end()) ? identOf(ob->second) : std::string();
+                return ka < kb;
+            });
+        for (std::size_t i = 0; i < objs.size(); ++i)
+            ids[objs[i]] = (i == 0) ? base : base + "~" + std::to_string(i);
+    }
+}
+} // namespace
+
+LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>& vanBytes,
+                                                 const std::vector<std::uint8_t>& modBytes,
+                                                 const std::string& modCode,
+                                                 const schema::SchemaRegistry& reg,
+                                                 const std::string& outDeltaDir) {
+    namespace fs = std::filesystem;
+    LooseDeriveResult r;
+    try {
+        PackFileDeserializer vdes, mdes;
+        vdes.ObjectFactory = io::MakeSchemaFactory(reg);
+        mdes.ObjectFactory = io::MakeSchemaFactory(reg);
+        { BinaryReaderEx br(false, true, vanBytes); vdes.Deserialize(br); }
+        { BinaryReaderEx br(false, true, modBytes); mdes.Deserialize(br); }
+
+        SGraph vg, mg; sLoadGraphMeta(vdes, vg); sLoadGraphMeta(mdes, mg);
+        std::set<std::string> ambiguous;
+        for (const auto& [k, n] : vg.nameCount) if (n > 1) ambiguous.insert(k);
+        for (const auto& [k, n] : mg.nameCount) if (n > 1) ambiguous.insert(k);
+        std::unordered_map<const void*, std::string> vIdent, mIdent;
+        sAssignNameIds(vg, ambiguous, vIdent);
+        sAssignNameIds(mg, ambiguous, mIdent);
+
+        // Vanilla schema READ-ORDER ids — identical to what BuildBaseBundle's DecompileBehaviorSchema
+        // assigns for the shipped base, so matched mod overrides land on the base's ids.
+        Identity vId = AssignIdentity(vdes, reg, "");
+        std::unordered_map<std::string, std::string> identToNum;
+        for (const auto& [obj, id] : vId.ids)
+            if (auto it = vIdent.find(obj); it != vIdent.end()) identToNum[it->second] = id;
+
+        // Mod ids: matched -> the vanilla read-order id; new -> "<code>$N" (namespaced, collision-proof).
+        const std::string code = modCode.empty() ? std::string("d") : modCode;
+        Identity mId = AssignIdentity(mdes, reg, "");   // category for all; ids overridden for named nodes
+        int newSeq = 0;
+        for (const void* o : mg.order) {
+            auto* obj = static_cast<IHavokObject*>(const_cast<void*>(o));
+            if (auto it = identToNum.find(mIdent[o]); it != identToNum.end()) { mId.ids[obj] = it->second; ++r.matched; }
+            else { mId.ids[obj] = code + "$" + std::to_string(++newSeq); ++r.added; }
+        }
+
+        // Emit both trees, diff by relative path (same id => same filename => same node), copy each NEW or
+        // CHANGED mod node into the delta (mirrors DeltaDeriver's fs diff; emitter-agnostic).
+        const fs::path work = fs::temp_directory_path() /
+            ("schderive_" + std::to_string(std::hash<std::string>{}(outDeltaDir) & 0xffffffffu));
+        const fs::path vt = work / "van", mt = work / "mod";
+        std::error_code ec; fs::remove_all(work, ec); fs::create_directories(vt, ec); fs::create_directories(mt, ec);
+        std::string e;
+        if (!EmitHky(vId, reg, vt.string(), e)) { r.error = "van emit: " + e; fs::remove_all(work, ec); return r; }
+        EmitFullBaseScaffolding(vId, vt.string(), e);
+        if (!EmitHky(mId, reg, mt.string(), e)) { r.error = "mod emit: " + e; fs::remove_all(work, ec); return r; }
+        EmitFullBaseScaffolding(mId, mt.string(), e);
+
+        auto readAll = [](const fs::path& p) { std::ifstream f(p, std::ios::binary); return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()); };
+        int copyFail = 0;
+        for (fs::recursive_directory_iterator it(mt, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file()) continue;
+            const fs::path rel = fs::relative(it->path(), mt);
+            if (rel.filename() == "behavior.yaml") continue;   // graph header comes from the base
+            const fs::path vp = vt / rel;
+            const bool isNew = !fs::exists(vp, ec);
+            if (!isNew && readAll(it->path()) == readAll(vp)) continue;   // unchanged -> base serves it
+            const fs::path dst = fs::path(outDeltaDir) / rel;
+            std::error_code ce; fs::create_directories(dst.parent_path(), ce);
+            fs::copy_file(it->path(), dst, fs::copy_options::overwrite_existing, ce);
+            if (ce) ++copyFail; else if (isNew) ++r.newNodes; else ++r.changedNodes;
+        }
+        if (copyFail) { r.error = "failed to write " + std::to_string(copyFail) + " delta node file(s)"; fs::remove_all(work, ec); return r; }
+        for (fs::recursive_directory_iterator it(vt, ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file() && !fs::exists(mt / fs::relative(it->path(), vt), ec)) ++r.removedFromBase;
+        fs::remove_all(work, ec);
+        r.ok = true; return r;
+    } catch (const std::exception& e) {
+        r.error = std::string("DeriveLooseBehaviorDeltaSchema: ") + e.what();
+        return r;
     }
 }
 

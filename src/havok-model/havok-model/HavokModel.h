@@ -93,6 +93,22 @@ bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir
 bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
                              const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err);
 
+// Schema-native loose-graph delta derive — the peer of havok-core's typed DeriveLooseBehaviorDelta, for a
+// mod shipping a precompiled FULL behavior graph (no Nemesis patch). Deserialize vanilla + mod to
+// SchemaObject graphs, match nodes by owner-qualified name identity, number the vanilla side by the SAME
+// schema READ-ORDER the base master now uses (so matched overrides land on the base's ids), mint new nodes
+// as "<modCode>$N", emit both trees, and copy each new/changed mod node into `outDeltaDir`. Pairs with
+// BuildBaseBundle's schema base decompile (both read-order) — the coordinated no-template flip.
+struct LooseDeriveResult {
+    bool ok = false; std::string error;
+    int matched = 0, added = 0, changedNodes = 0, newNodes = 0, removedFromBase = 0;
+};
+LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>& vanBytes,
+                                                 const std::vector<std::uint8_t>& modBytes,
+                                                 const std::string& modCode,
+                                                 const schema::SchemaRegistry& reg,
+                                                 const std::string& outDeltaDir);
+
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
 // form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field
