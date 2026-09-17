@@ -729,10 +729,17 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     if (mo2.ok && !kGatePerModAnimations) PackageModAnimations(mo2, plugins, outDir, log);
     fs::create_directories(plugins, ec);
 
+    // A graph's REAL meshes-relative serve path (base-map ground truth) — bound after baseMaps loads
+    // (below), called from the per-bundle loop (later still). Fixes the humanoid hardcode: a Nemesis
+    // patch against a non-humanoid templated graph (horsebehavior) files its delta under its own actor
+    // (actors/horse) instead of actors/character, so the runtime actually applies it. kBehSub[1st]
+    // fallback for a new/custom graph not present in the base.
+    std::function<std::string(const std::string& g, bool firstPerson)> graphServePathOf;
+
     auto binOf   = [&](const std::string& g) { return (templatesDir / (g + ".hkx")).string(); };
     auto xmlOf   = [&](const std::string& g) { return (templatesDir / (g + ".xml")).string(); };
     auto unitOut = [&](const std::string& bundle, const std::string& g) {
-        return (plugins / (bundle + ".hky") / kBehSub / (g + ".hkx")).string();
+        return (plugins / (bundle + ".hky") / fs::path(graphServePathOf(g, false))).string();
     };
     std::unordered_map<std::string, std::string> baseXmlCache;   // graph -> its template tagfile text (read once)
     auto baseXmlOf = [&](const std::string& g) -> const std::string& {
@@ -751,7 +758,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     const auto fpGraphs = ScanGraphs(templatesDir / "_1stperson");
     auto fpXmlOf   = [&](const std::string& g) { return (templatesDir / "_1stperson" / (g + ".xml")).string(); };
     auto fpUnitOut = [&](const std::string& bundle, const std::string& g) {
-        return (plugins / (bundle + ".hky") / kBehSub1st / (g + ".hkx")).string();
+        return (plugins / (bundle + ".hky") / fs::path(graphServePathOf(g, true))).string();
     };
     std::unordered_map<std::string, std::string> fpBaseXmlCache;
     auto fpBaseXmlOf = [&](const std::string& g) -> const std::string& {
@@ -893,6 +900,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         return out;
     };
 
+    // Bind the serve-path resolver forward-declared above unitOut/fpUnitOut (now that baseMaps exists).
+    graphServePathOf = [&](const std::string& g, bool firstPerson) -> std::string {
+        const auto& m = firstPerson ? baseMaps.fpGraphServePath : baseMaps.graphServePath;
+        if (const auto it = m.find(ToLower(g)); it != m.end()) return it->second;
+        return std::string(firstPerson ? kBehSub1st : kBehSub) + "/" + g + ".hkx";  // new/custom graph fallback
+    };
+
     const fs::path baseBinTmp = fs::temp_directory_path(ec) / "sct_conv_basebin";
     fs::remove_all(baseBinTmp, ec);
     fs::create_directories(baseBinTmp, ec);
@@ -935,7 +949,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     getVanillaBin = [&](const std::string& g) -> std::string {
         if (auto it = vanBinCache.find(g); it != vanBinCache.end()) return it->second;
         std::string chosen;
-        const std::string prefix = std::string(kBehSub) + "/" + g + ".hkx";
+        const std::string prefix = graphServePathOf(g, false);   // real serve path (horsebehavior -> actors/horse)
         if (baseArc && baseUnits.count(prefix)) {
             try {
                 auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(prefix) });
