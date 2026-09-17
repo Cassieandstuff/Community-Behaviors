@@ -175,6 +175,62 @@ std::vector<std::string> ScanCharacterTemplates(const fs::path& templatesDir) {
     return chars;
 }
 
+// Union `names` into a bundle's character-unit roster delta: <bundle>/<characterServePath>/data/
+// animations.yaml — a YAML block sequence of single-quoted, case-preserved animation paths. This is
+// the NATIVE roster contract the schema reads (CharacterYamlLoader::LoadMerged -> unionAnimations),
+// the replacement for the bundle-root animationnames/<stem>.txt shim: the runtime overlays each
+// delta layer's data/animations.yaml onto the base character, keyed by the unit's serve path. Merges
+// with what the delta file already holds (deduped case-insensitively). `characterServePath` is a
+// meshes-relative serve key ("meshes/actors/horse/characters/horse.hkx"). Returns count newly added.
+int AddRosterToCharacterUnit(const fs::path& bundleDir, const std::string& characterServePath,
+                             const std::vector<std::string>& names) {
+    if (names.empty() || characterServePath.empty()) return 0;
+    const fs::path yaml = bundleDir / fs::path(characterServePath) / "data" / "animations.yaml";
+    std::error_code we;
+    std::vector<std::string>        lines;   // existing (order-preserving)
+    std::unordered_set<std::string> have;    // lowercased dedup
+    // Parse any existing delta (single-quoted block seq; '' -> literal '), same shape readRoster uses.
+    if (std::ifstream in{ yaml }) {
+        std::string l;
+        while (std::getline(in, l)) {
+            while (!l.empty() && (l.back() == '\r' || l.back() == '\n' || l.back() == ' ' || l.back() == '\t')) l.pop_back();
+            std::size_t s = l.find_first_not_of(" \t");
+            if (s == std::string::npos) continue;
+            std::string t = l.substr(s);
+            if (t.empty() || t[0] == '#') continue;
+            if (t.rfind("- ", 0) == 0) t = t.substr(2);
+            else if (t[0] == '-')      t = t.substr(1);
+            s = t.find_first_not_of(" \t");
+            if (s != std::string::npos) t = t.substr(s);
+            if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
+                const std::string inner = t.substr(1, t.size() - 2); std::string un;
+                for (std::size_t i = 0; i < inner.size(); ++i)
+                    if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
+                    else un += inner[i];
+                t = std::move(un);
+            }
+            if (!t.empty() && have.insert(ToLower(t)).second) lines.push_back(std::move(t));
+        }
+    }
+    int added = 0;
+    for (const auto& a : names)
+        if (!a.empty() && have.insert(ToLower(a)).second) { lines.push_back(a); ++added; }
+    if (added == 0) return 0;
+    fs::create_directories(yaml.parent_path(), we);
+    std::string text;
+    for (const auto& l : lines) {
+        std::string q; q.reserve(l.size() + 2);
+        q += '\'';
+        for (char c : l) { q += c; if (c == '\'') q += '\''; }   // YAML single-quote escaping
+        q += '\'';
+        text += "- " + q + "\n";
+    }
+    std::ofstream out(yaml, std::ios::binary);
+    out << text;
+    if (!out) return 0;   // write failed (e.g. MAX_PATH) — report nothing added, don't claim success
+    return added;
+}
+
 // Nemesis codes = the child dirs of <dataDir>/Nemesis_Engine/mod/. Under MO2's VFS this
 // is the union of every active behavior mod's code dir (bfco, colis, tdmv, ...).
 std::vector<std::string> ScanCodes(const fs::path& dataDir) {
@@ -809,6 +865,34 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         for (const auto& u : baseArc->units())
             if (u.kind == havok::model::HkyArchive::UnitKind::Behavior) baseUnits.insert(u.prefix);
 
+    // Base-derived resolution maps (ground truth = Skyrim.hky). Defined here (before the loose legs +
+    // the per-bundle loop + the animationnames post-pass) so every roster leg routes by real actor/
+    // character. See PatchPlan.h — the same maps back the PatchPlan prelude.
+    bconv::BaseMaps baseMaps;
+    if (baseArc) baseMaps = bconv::BuildBaseMaps(*baseArc);
+
+    // character-file stem (lower) -> its meshes-relative serve path ("horse" -> ".../characters/horse.hkx").
+    std::unordered_map<std::string, std::string> charStemToServe;
+    for (const auto& [actor, chars] : baseMaps.actorCharacters)
+        for (const auto& cp : chars) charStemToServe[ToLower(fs::path(cp).stem().string())] = cp;
+
+    // The character unit serve path(s) a graph's clip roster belongs to: the graph's actor's characters,
+    // filtered to the graph's namespace (third-person graphs -> defaultmale/defaultfemale; first-person
+    // graphs -> firstperson). Empty when the graph/actor isn't in the base (a new/custom graph).
+    auto charServesFor = [&](const std::string& graphStemLower, bool firstPerson) -> std::vector<std::string> {
+        const auto& actorMap = firstPerson ? baseMaps.fpGraphActorPath : baseMaps.graphActorPath;
+        const auto ai = actorMap.find(graphStemLower);
+        if (ai == actorMap.end() || ai->second.empty()) return {};
+        const auto ci = baseMaps.actorCharacters.find(ai->second);
+        if (ci == baseMaps.actorCharacters.end()) return {};
+        std::vector<std::string> out;
+        for (const auto& cp : ci->second) {
+            const bool cFp = cp.find("_1stperson") != std::string::npos;
+            if (cFp == firstPerson) out.push_back(cp);
+        }
+        return out;
+    };
+
     const fs::path baseBinTmp = fs::temp_directory_path(ec) / "sct_conv_basebin";
     fs::remove_all(baseBinTmp, ec);
     fs::create_directories(baseBinTmp, ec);
@@ -980,14 +1064,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             fs::remove_all(scratch, we);
             if (adds.empty()) continue;   // replaced file, but same roster — nothing to carry
 
-            std::string text;
-            for (const auto& a : adds) text += a + "\n";
-            const fs::path injDelta = cfBundle / "animationnames" /
-                                      (fs::path(rel).stem().string() + ".txt");
-            fs::create_directories(injDelta.parent_path(), we);
-            std::ofstream(injDelta, std::ios::binary) << text;
+            // Native roster delta at the character unit's real serve path (rel mirrors the meshes tree,
+            // e.g. "actors/horse/characters/horse.hkx") — data/animations.yaml the runtime unions on top
+            // of the base character, replacing the bundle-root animationnames/<stem>.txt shim.
+            const std::string charServe = "meshes/" + fs::path(rel).generic_string();
+            const int rAdded = AddRosterToCharacterUnit(cfBundle, charServe, adds);
+            if (rAdded <= 0) continue;
             ++r.charDeltas; charFilesAny = true;
-            say("  CharacterFiles: " + rel + " — " + std::to_string(adds.size()) +
+            say("  CharacterFiles: " + rel + " — " + std::to_string(rAdded) +
                 " roster addition(s) (loose replacement).");
         }
         std::error_code te;
@@ -1133,6 +1217,27 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 if (res.removedFromBase)
                     say("    note: " + std::to_string(res.removedFromBase) +
                         " vanilla node(s) absent in the mod graph (removal isn't expressible; left as base).");
+
+                // ROSTER (Phase 1): a precompiled loose graph (the horse's real ship path) carries its
+                // new clips ONLY in the binary — the derive above emits the node delta but no roster, so
+                // without this the new animations never enter the character's animationNames and bind to
+                // nothing. Read the loose graph's clip animationNames and union them into the graph's own
+                // character unit(s) (actors/horse -> characters/horse.hkx) as a data/animations.yaml delta.
+                {
+                    const std::string gstem = ToLower(fs::path(u.prefix).stem().string());
+                    const std::vector<std::string> serves = charServesFor(gstem, /*firstPerson*/ false);
+                    if (!serves.empty()) {
+                        LooseBehaviorRefs refs;
+                        if (ReadLooseBehaviorRefs(winner.string(), refs) && !refs.animationNames.empty()) {
+                            int rAdded = 0;
+                            for (const auto& s : serves) rAdded += AddRosterToCharacterUnit(outBundle, s, refs.animationNames);
+                            if (rAdded > 0)
+                                say("    roster: " + std::to_string(refs.animationNames.size()) +
+                                    " clip animation(s) -> " + std::to_string(serves.size()) +
+                                    " character(s), " + std::to_string(rAdded) + " new roster line(s).");
+                        }
+                    }
+                }
             }
     }
 
@@ -1169,7 +1274,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // dumps it to D:\cb-diffs\patchplan.txt so we can validate resolution (esp. horse -> actors/horse
     // + characters/horse.hkx) before Phase 1 flips the roster/filing legs onto it. See the plan file.
     if (baseArc) {
-        const bconv::BaseMaps baseMaps = bconv::BuildBaseMaps(*baseArc);
         std::unordered_map<std::string, std::vector<std::string>> precompiledByBundle;  // bundle -> loose-graph prefixes (lower)
         for (const auto& [prefix, mod] : prefixToMod) precompiledByBundle[mod].push_back(prefix);
 
@@ -1287,22 +1391,33 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         {
             const fs::path                  charRoot = dataDir / "meshes" / "actors" / "character";
             std::unordered_set<std::string> visited;    // lowercased loose-file paths (cycle guard)
-            std::unordered_set<std::string> nameSeen;   // lowercased animationNames (dedup)
-            std::vector<std::string>        collected;  // order-preserving
             // Vanilla graph stems stay a normal base+delta merge — never an owned standalone unit.
             std::unordered_set<std::string> vanillaStems;
             vanillaStems.reserve(graphs.size());
             for (const auto& g : graphs) vanillaStems.insert(ToLower(g));
             int ownedUnits = 0;
 
+            // Per character-unit roster accumulation (serve path -> clip animationNames), routed by the
+            // base maps' actor/character resolution. Replaces the old {defaultmale,defaultfemale} hardcode:
+            // a horse graph's clips land in the horse character unit's data/animations.yaml, a first-person
+            // graph's in firstperson, a humanoid graph's in defaultmale+defaultfemale — the roster the
+            // schema reads natively (no bundle-root animationnames/ shim).
+            std::map<std::string, std::vector<std::string>>        byServe;
+            std::map<std::string, std::unordered_set<std::string>> seenByServe;
+            auto addToServes = [&](const std::vector<std::string>& serves, const std::string& a) {
+                if (a.empty()) return;
+                for (const auto& s : serves)
+                    if (!s.empty() && seenByServe[s].insert(ToLower(a)).second) byServe[s].push_back(a);
+            };
+
+            std::vector<std::string> curServes;   // the current seed graph's character serve path(s)
             std::function<void(const fs::path&)> walk = [&](const fs::path& hkx) {
                 std::error_code we;
                 if (!fs::is_regular_file(hkx, we)) return;
                 if (!visited.insert(ToLower(hkx.lexically_normal().string())).second) return;
                 LooseBehaviorRefs refs;
                 if (!ReadLooseBehaviorRefs(hkx.string(), refs)) return;
-                for (const auto& a : refs.animationNames)                                // (A) roster
-                    if (nameSeen.insert(ToLower(a)).second) collected.push_back(a);
+                for (const auto& a : refs.animationNames) addToServes(curServes, a);      // (A) roster
                 if (!vanillaStems.count(ToLower(hkx.stem().string()))) {                  // (B) own+serve
                     const fs::path  unitDir = bundle / hkx.lexically_normal().lexically_relative(dataDir.lexically_normal());
                     std::error_code ue;
@@ -1323,11 +1438,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 }
             };
 
-            // Seed: every RBG behaviorName in this mod's just-written character graph deltas.
+            // Seed: every RBG behaviorName in this mod's just-written character graph deltas. The chain's
+            // clips are routed to the SEED graph's character(s) (curServes), so a creature RBG chain lands
+            // in its own actor's roster, not the humanoid one.
             for (const auto& g : graphs) {
                 const fs::path  refsDir = fs::path(unitOut(bname, g)) / "references";
                 std::error_code de;
                 if (!fs::is_directory(refsDir, de)) continue;
+                curServes = charServesFor(ToLower(g), /*firstPerson*/ false);
                 for (const auto& e : fs::directory_iterator(refsDir, de)) {
                     std::ifstream f(e.path());
                     std::string   line;
@@ -1345,9 +1463,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             // also live DIRECTLY in the graphs it patches (BFCO_* in 1hm_behavior/bashbehavior). The
             // runtime graph-walk membrane used to collect these; do it here so the authored roster is
             // COMPLETE at convert time (the precondition for retiring that membrane). animationNames come
-            // from the just-written delta unit clips/ (literal single-quoted strings).
+            // from the just-written delta unit clips/ (literal single-quoted strings), routed to the
+            // patched graph's own character(s).
             {
-                auto collectGraphClips = [&](const std::string& unitPath) {
+                auto collectGraphClips = [&](const std::string& unitPath, const std::vector<std::string>& serves) {
+                    if (serves.empty()) return;
                     const fs::path  clipsDir = fs::path(unitPath) / "clips";
                     std::error_code ce;
                     if (!fs::is_directory(clipsDir, ce)) return;
@@ -1357,48 +1477,29 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         std::string   line;
                         while (std::getline(f, line)) {
                             const std::string an = YamlQuoted(line, "animationName:");
-                            if (!an.empty() && nameSeen.insert(ToLower(an)).second) collected.push_back(an);
+                            if (!an.empty()) addToServes(serves, an);
                         }
                     }
                 };
-                for (const auto& g : graphs)   collectGraphClips(unitOut(bname, g));
-                for (const auto& g : fpGraphs) if (g != "firstperson") collectGraphClips(fpUnitOut(bname, g));
+                for (const auto& g : graphs)   collectGraphClips(unitOut(bname, g),   charServesFor(ToLower(g), false));
+                for (const auto& g : fpGraphs) if (g != "firstperson") collectGraphClips(fpUnitOut(bname, g), charServesFor(ToLower(g), true));
             }
 
-            if (!collected.empty()) {
-                // Fold into BOTH humanoid character projects (the character graphs are shared by
-                // defaultmale + defaultfemale). Merge with any animationnames\<stem>.txt this bundle
-                // already carries (2b set-data rosters), deduped case-insensitively. Runtime folds
-                // the same file into the compiled character roster and dedups against vanilla, so a
-                // collected name that IS vanilla is a harmless no-op there.
-                int foldedTotal = 0;
-                for (const char* stem : { "defaultmale", "defaultfemale" }) {
-                    const fs::path                  anf = bundle / "animationnames" / (std::string(stem) + ".txt");
-                    std::error_code                 we;
-                    std::vector<std::string>        lines;
-                    std::unordered_set<std::string> have;
-                    if (std::ifstream in{ anf }) {
-                        std::string l;
-                        while (std::getline(in, l)) {
-                            while (!l.empty() && (l.back() == '\r' || l.back() == '\n')) l.pop_back();
-                            if (!l.empty()) { have.insert(ToLower(l)); lines.push_back(l); }
-                        }
-                    }
-                    int folded = 0;
-                    for (const auto& a : collected)
-                        if (have.insert(ToLower(a)).second) { lines.push_back(a); ++folded; }
-                    if (folded == 0) continue;
-                    fs::create_directories(anf.parent_path(), we);
-                    std::string text;
-                    for (const auto& l : lines) text += l + "\n";
-                    std::ofstream(anf, std::ios::binary) << text;
-                    foldedTotal += folded;
+            if (!byServe.empty()) {
+                // Write each character unit's roster delta as data/animations.yaml — the runtime unions
+                // every layer's yaml onto the base character (CharacterYamlLoader::LoadMerged), so a
+                // collected name that IS vanilla is a harmless dedup there.
+                int         totalAdded = 0;
+                std::size_t totalNames = 0;
+                for (const auto& [serve, names] : byServe) {
+                    totalNames += names.size();
+                    totalAdded += AddRosterToCharacterUnit(bundle, serve, names);
                 }
-                if (foldedTotal > 0) {
+                if (totalAdded > 0) {
                     any = true;
-                    say("  " + bname + ": RBG-chain roster — " + std::to_string(collected.size()) +
-                        " clip animation(s) followed, " + std::to_string(foldedTotal) +
-                        " new roster line(s) folded.");
+                    say("  " + bname + ": clip roster — " + std::to_string(totalNames) +
+                        " clip animation(s) across " + std::to_string(byServe.size()) +
+                        " character(s), " + std::to_string(totalAdded) + " new roster line(s).");
                 }
             }
             if (ownedUnits > 0) {
@@ -1473,6 +1574,56 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             }
             for (const auto& w : fnisResult.warnings) say("    FNIS: " + w);
         }
+    }
+
+    // 3b) animationnames/ -> character-unit data/animations.yaml (Phase 1 retirement) — the set-data
+    //     (2b) and FNIS legs still emit the legacy bundle-root animationnames/<stem>.txt roster drops.
+    //     Re-file every remaining one into its character unit's data/animations.yaml (the native roster
+    //     the schema reads via CharacterYamlLoader::LoadMerged), keyed by file stem -> base character
+    //     serve path, then remove the shim folder so no bundle ships it. Roster lines are UnescapeXml'd
+    //     to literal (data/animations.yaml holds literal paths; the shim drops may be XML-escaped, as the
+    //     runtime read path unescaped them). A stem with no base character is left in place + warned.
+    {
+        std::error_code pe;
+        int movedFiles = 0, movedNames = 0;
+        for (fs::directory_iterator bi(plugins, pe), bEnd; !pe && bi != bEnd; bi.increment(pe)) {
+            if (!bi->is_directory(pe)) continue;
+            const fs::path anDir = bi->path() / "animationnames";
+            if (!fs::is_directory(anDir, pe)) continue;
+            bool anyUnroutable = false;
+            for (fs::directory_iterator ai(anDir, pe), aEnd; !pe && ai != aEnd; ai.increment(pe)) {
+                std::error_code fe;
+                if (!ai->is_regular_file(fe)) continue;
+                if (ToLower(ai->path().extension().string()) != ".txt") continue;
+                const std::string stem = ToLower(ai->path().stem().string());
+                const auto sit = charStemToServe.find(stem);
+                if (sit == charStemToServe.end()) {
+                    anyUnroutable = true;
+                    say("  WARN: animationnames/" + ai->path().filename().string() + " in " +
+                        bi->path().filename().string() + " has no base character '" + stem +
+                        "' — left in place (unroutable).");
+                    continue;
+                }
+                std::vector<std::string> names;
+                if (std::ifstream in{ ai->path() }) {
+                    std::string l;
+                    while (std::getline(in, l)) {
+                        while (!l.empty() && (l.back() == '\r' || l.back() == '\n')) l.pop_back();
+                        const std::size_t s = l.find_first_not_of(" \t");
+                        if (s == std::string::npos) continue;
+                        const std::string t = l.substr(s);
+                        if (t.empty() || t[0] == '#' || t[0] == ';') continue;
+                        names.push_back(UnescapeXml(t));
+                    }
+                }
+                const int added = AddRosterToCharacterUnit(bi->path(), sit->second, names);
+                if (added > 0) { ++movedFiles; movedNames += added; }
+            }
+            if (!anyUnroutable) fs::remove_all(anDir, pe);   // retire the shim folder from the bundle
+        }
+        if (movedFiles > 0)
+            say("  roster: re-filed " + std::to_string(movedFiles) + " animationnames drop(s) into "
+                "character units (" + std::to_string(movedNames) + " roster line(s)).");
     }
 
     // 4) loadorder.txt — PRESERVE an existing file's order (the user hand-tunes it and a
