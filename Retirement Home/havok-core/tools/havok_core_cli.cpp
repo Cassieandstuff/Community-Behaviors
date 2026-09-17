@@ -463,6 +463,26 @@ int doDecompile(const std::string& in, const std::string& outArg, const std::str
     return 0;
 }
 
+// decompile-schema <in.hkx> <Havok-dir> [tagfile.xml] -o <dir>: the SCHEMA behavior decompiler
+// (DecompileBehaviorSchema) — deserialize -> SchemaObject -> AssignIdentity (oracle #NNNN if the tagfile
+// is given, else encounter-order) -> EmitHky + full-base scaffolding. Peer of the typed `decompile` for
+// behaviors; used to measure schema-vs-typed id/byte parity (incl. no-template encounter-order).
+int doDecompileSchema(const std::string& in, const std::string& schemaDir, const std::string& xmlArg,
+                      const std::string& outArg) {
+    if (schemaDir.empty()) { std::printf("usage: decompile-schema <in.hkx> <Havok-dir> [tagfile.xml] -o <dir>\n"); return 2; }
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    havok::schema::SchemaRegistry reg;
+    if (!reg.LoadDir(schemaDir, err)) { std::printf("ERROR loading schema: %s\n", err.c_str()); return 1; }
+    std::string xtext;
+    if (!xmlArg.empty()) { std::ifstream xf(xmlArg, std::ios::binary); std::stringstream ss; ss << xf.rdbuf(); xtext = ss.str(); }
+    const std::string out = outArg.empty() ? (in + ".schema-decompiled") : outArg;
+    std::error_code ec; fs::create_directories(out, ec);
+    if (!havok::model::DecompileBehaviorSchema(bytes, xtext, reg, out, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    std::printf("OK: schema-decompiled %s -> %s%s\n", in.c_str(), out.c_str(), xtext.empty() ? " (encounter-order)" : " (oracle #NNNN)");
+    return 0;
+}
+
 // Debug: per-class object histogram from the virtual-fixup table (no construction).
 int doObjHist(const std::string& in) {
     std::vector<std::uint8_t> bytes;
@@ -6290,6 +6310,8 @@ int main(int argc, char** argv) {
     if (verb == "merge")     return doMerge(in, extra, out);
     if (verb == "compile")   return doCompile(in, out, skel);
     if (verb == "decompile") return doDecompile(in, out, skel);
+    if (verb == "decompile-schema") return doDecompileSchema(in, extra.empty() ? std::string{} : extra[0],
+                                                             extra.size() > 1 ? extra[1] : std::string{}, out);
     if (verb == "anim-roundtrip") return doAnimRoundtrip(in);
     if (verb == "anim-rt-dump") return doAnimRtDump(in, extra.empty() ? -1 : std::atoi(extra[0].c_str()));
     if (verb == "hky-compile") return doHkyCompile(in, extra, out);
