@@ -25,6 +25,7 @@
 #include <havok-schema/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
+#include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
 #include <sct-utilities/SctUtilities.h>       // ZipDir — pack the staged master into one Skyrim.hky
 
 #include <algorithm>
@@ -1161,6 +1162,43 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     }
 
     auto codeDirOf = [&](const std::string& c) { return dataDir / "Nemesis_Engine" / "mod" / c; };
+
+    // ── PatchPlan prelude (Phase 0 — behavior-neutral) ──────────────────────────────────────────
+    // Normalize the raw Pandora/Nemesis load order into one authoritative plan (what changed, for
+    // which actor/graph/character, resolved against the base archive). Nothing consumes it yet — this
+    // dumps it to D:\cb-diffs\patchplan.txt so we can validate resolution (esp. horse -> actors/horse
+    // + characters/horse.hkx) before Phase 1 flips the roster/filing legs onto it. See the plan file.
+    if (baseArc) {
+        const bconv::BaseMaps baseMaps = bconv::BuildBaseMaps(*baseArc);
+        std::unordered_map<std::string, std::vector<std::string>> precompiledByBundle;  // bundle -> loose-graph prefixes (lower)
+        for (const auto& [prefix, mod] : prefixToMod) precompiledByBundle[mod].push_back(prefix);
+
+        bconv::PlanInputs pin;
+        pin.base                = &baseMaps;
+        pin.graphs              = &graphs;
+        pin.fpGraphs            = &fpGraphs;
+        pin.bundleOrder         = &bundleOrder;
+        pin.bundleCodes         = &bundleCodes;
+        pin.precompiledByBundle = &precompiledByBundle;
+        pin.patchDir = [&](const std::string& code, const std::string& g) -> std::string {
+            std::error_code pe;
+            const fs::path p = codeDirOf(code) / g;
+            return fs::is_directory(p, pe) ? p.string() : std::string{};
+        };
+        pin.fpPatchDir = [&](const std::string& code, const std::string& g) -> std::string {
+            std::error_code pe;
+            const fs::path p = codeDirOf(code) / "_1stperson" / g;
+            return fs::is_directory(p, pe) ? p.string() : std::string{};
+        };
+        const bconv::PatchPlan plan = bconv::BuildPlan(pin);
+        bconv::DumpPlan(plan, "D:\\cb-diffs\\patchplan.txt");
+        std::size_t graphCount = 0, rosterCount = 0;
+        for (const auto& b : plan.bundles) { graphCount += b.graphs.size(); rosterCount += b.rosters.size(); }
+        say("PatchPlan (Phase 0): " + std::to_string(plan.bundles.size()) + " bundle(s), " +
+            std::to_string(graphCount) + " graph change(s), " + std::to_string(rosterCount) +
+            " roster target(s), " + std::to_string(plan.warnings.size()) +
+            " warning(s) — dumped to D:\\cb-diffs\\patchplan.txt (not yet consumed).");
+    }
 
     for (const auto& bname : bundleOrder) {
         if (cancel) { r.error = "cancelled"; return r; }
