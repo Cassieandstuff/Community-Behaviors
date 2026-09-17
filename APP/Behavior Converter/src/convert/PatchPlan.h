@@ -41,6 +41,11 @@ struct BaseMaps {
 
 BaseMaps BuildBaseMaps(const havok::model::HkyArchive& baseArc);
 
+// "meshes/actors/horse/behaviors/horsebehavior.hkx" -> "actors/horse" (lowercased input expected).
+// Handles the space-folder variants and _1stperson. Used to route a loose/precompiled graph's roster
+// by its REAL actor prefix (not the collision-prone stem map).
+std::string ActorOfServePath(const std::string& servePathLower);
+
 enum class GraphOrigin { NemesisPatch, PrecompiledGraph, FirstPerson };
 
 struct GraphChange {

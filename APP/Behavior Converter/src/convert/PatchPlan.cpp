@@ -49,19 +49,28 @@ const char* originName(GraphOrigin o) {
 
 }  // namespace
 
+std::string ActorOfServePath(const std::string& servePathLower) { return actorOf(servePathLower); }
+
 BaseMaps BuildBaseMaps(const havok::model::HkyArchive& baseArc) {
     using UK = havok::model::HkyArchive::UnitKind;
     BaseMaps m;
     for (const auto& u : baseArc.units()) {
         const std::string prefix = toLower(u.prefix);  // already normalized, but be defensive
         if (u.kind == UK::Behavior) {
-            const std::string stem = stemOf(prefix);
-            if (prefix.find("/_1stperson/behaviors/") != std::string::npos) {
-                m.fpGraphServePath[stem] = prefix;
-                m.fpGraphActorPath[stem] = actorOf(prefix);
-            } else {
-                m.graphServePath[stem] = prefix;
-                m.graphActorPath[stem] = actorOf(prefix);
+            const std::string stem  = stemOf(prefix);
+            const std::string actor = actorOf(prefix);
+            const bool isFp = prefix.find("/_1stperson/behaviors/") != std::string::npos;
+            auto& sp = isFp ? m.fpGraphServePath : m.graphServePath;
+            auto& ap = isFp ? m.fpGraphActorPath : m.graphActorPath;
+            // Templated/Nemesis graphs are the character-family graphs (templates/ mirrors
+            // actors/character). A stem can collide across actors — horsebehavior exists at BOTH
+            // actors/character (the rider's mounted behavior, 118 vars incl. MC_*) and actors/horse
+            // (the horse creature, 76 vars). Prefer actors/character so a Nemesis <g> patch resolves to
+            // the rider graph it actually targets; the creature/precompiled path resolves by its real
+            // prefix (leg 1d), NOT this stem map.
+            if (sp.find(stem) == sp.end() || actor == "actors/character") {
+                sp[stem] = prefix;
+                ap[stem] = actor;
             }
             m.vanillaGraphStems.insert(stem);
         } else if (u.kind == UK::Character) {

@@ -886,11 +886,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // The character unit serve path(s) a graph's clip roster belongs to: the graph's actor's characters,
     // filtered to the graph's namespace (third-person graphs -> defaultmale/defaultfemale; first-person
     // graphs -> firstperson). Empty when the graph/actor isn't in the base (a new/custom graph).
-    auto charServesFor = [&](const std::string& graphStemLower, bool firstPerson) -> std::vector<std::string> {
-        const auto& actorMap = firstPerson ? baseMaps.fpGraphActorPath : baseMaps.graphActorPath;
-        const auto ai = actorMap.find(graphStemLower);
-        if (ai == actorMap.end() || ai->second.empty()) return {};
-        const auto ci = baseMaps.actorCharacters.find(ai->second);
+    // Character serve path(s) for an EXPLICIT actor path (e.g. "actors/horse"), namespace-filtered.
+    // The loose/precompiled path uses this with the graph's REAL actor prefix (leg 1d), sidestepping the
+    // stem-collision in the graph map (horsebehavior lives at both actors/character and actors/horse).
+    auto charServesForActorPath = [&](const std::string& actorPath, bool firstPerson) -> std::vector<std::string> {
+        const auto ci = baseMaps.actorCharacters.find(actorPath);
         if (ci == baseMaps.actorCharacters.end()) return {};
         std::vector<std::string> out;
         for (const auto& cp : ci->second) {
@@ -898,6 +898,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             if (cFp == firstPerson) out.push_back(cp);
         }
         return out;
+    };
+    // Character serve path(s) for a TEMPLATED graph stem (resolves via the base map, which prefers
+    // actors/character on a collision — so a Nemesis horsebehavior patch routes to the rider, not the horse).
+    auto charServesFor = [&](const std::string& graphStemLower, bool firstPerson) -> std::vector<std::string> {
+        const auto& actorMap = firstPerson ? baseMaps.fpGraphActorPath : baseMaps.graphActorPath;
+        const auto ai = actorMap.find(graphStemLower);
+        if (ai == actorMap.end() || ai->second.empty()) return {};
+        return charServesForActorPath(ai->second, firstPerson);
     };
 
     // Bind the serve-path resolver forward-declared above unitOut/fpUnitOut (now that baseMaps exists).
@@ -1238,8 +1246,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 // nothing. Read the loose graph's clip animationNames and union them into the graph's own
                 // character unit(s) (actors/horse -> characters/horse.hkx) as a data/animations.yaml delta.
                 {
-                    const std::string gstem = ToLower(fs::path(u.prefix).stem().string());
-                    const std::vector<std::string> serves = charServesFor(gstem, /*firstPerson*/ false);
+                    // Route by the precompiled graph's REAL actor prefix (actors/horse), not the stem
+                    // map — the horse creature's roster belongs to the horse character, and the stem
+                    // "horsebehavior" collides with the rider graph in the base map.
+                    const std::string actorPath = bconv::ActorOfServePath(ToLower(u.prefix));
+                    const std::vector<std::string> serves = charServesForActorPath(actorPath, /*firstPerson*/ false);
                     if (!serves.empty()) {
                         LooseBehaviorRefs refs;
                         if (ReadLooseBehaviorRefs(winner.string(), refs) && !refs.animationNames.empty()) {
