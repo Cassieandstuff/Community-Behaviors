@@ -822,7 +822,8 @@ PandoraAnalysis AnalyzePandoraOrder(const std::string& dataDirS, const std::stri
 // Per-mod animation packaging (piece 1). Defined below BuildBaseBundle (needs PeekHkxKind/HkxKind/
 // BakeAnimationUnit); forward-declared here so ConvertLoadOrder can call it.
 static void PackageModAnimations(const Mo2Layout& mo2, const std::filesystem::path& plugins,
-                                 const std::filesystem::path& stageRoot, const LogFn& log);
+                                 const std::filesystem::path& stageRoot, const LogFn& log,
+                                 const std::string& targetBundle);
 
 Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<bool>& cancel) {
     Result r;
@@ -909,11 +910,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // path (we need the per-mod meshes dirs). FAIL-SAFE: a skip/fail writes no unit and the engine keeps
     // the loose .hkx — so this can never break the behavior/skeleton bundles built below. Index-bound for
     // now; bone-name binding (the membrane) is piece 2.
-    // RELEASE GATE: CB native animation serving is held back this release (OAR-replacement is a future
-    // goal), so per-mod loose-animation packaging is OFF. Behaviors/skeletons/adsf still convert; a mod's
-    // animations stay loose and the game/OAR serves them. Flip to false to re-enable per-mod native anims.
-    constexpr bool kGatePerModAnimations = true;
-    if (mo2.ok && !kGatePerModAnimations) PackageModAnimations(mo2, plugins, outDir, log);
+    // ROOT-MOTION PACKAGING (point 5): package each mod's AMR-motion animations into the bundle so their
+    // root motion feeds the adsf (the runtime motionsForRoot read). MOTION-ONLY — the pose is not
+    // compiled/served unless the bundle's manifest opts into compile (compile_animations, default false),
+    // so this is the "decompiled animations feed the adsf root motion" path, ungated by the compile flag.
+    // Single-bundle mode routes every mod's motion units into Pandora.hky; per-mod mode into each
+    // <modName>.hky. Retires the old hardcoded kGatePerModAnimations release gate.
+    if (mo2.ok) PackageModAnimations(mo2, plugins, outDir, log, opt.singleBundle ? kPandora : std::string());
     fs::create_directories(plugins, ec);
 
     // A graph's REAL meshes-relative serve path (base-map ground truth) — bound after baseMaps loads
@@ -2091,7 +2094,8 @@ enum class AnimBakeOutcome { Ok, Skip, Fail };
 static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes,
                                          const std::filesystem::path&     unitPath,
                                          const std::filesystem::path&     stageDir,
-                                         std::string&                     reason) {
+                                         std::string&                     reason,
+                                         bool                             motionOnly = false) {
     namespace fs = std::filesystem;
     std::error_code ec;
     constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
@@ -2099,6 +2103,23 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
     fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
     const auto dc = havok::anim::DecompileAnimation(abytes, bakeTmp);
     if (!dc.ok) { reason = dc.error; return AnimBakeOutcome::Skip; }   // incl. "not spline-compressed"
+
+    // MOTION-ONLY package (point 5, compile-off bundles): keep the unit ONLY when it carries a `motion:`
+    // block (AMR root motion translated at decompile — point 4), and SKIP the pose recompile+fidelity
+    // gate. The pose is not served unless the bundle opts into compile (manifest compile_animations), so
+    // pose fidelity is irrelevant here; we package the animation purely so its root motion feeds the adsf
+    // (the runtime motionsForRoot read). A non-motion animation isn't packaged at all — no bloat from OAR
+    // animation packs, only the motion-bearing clips.
+    if (motionOnly) {
+        std::ifstream in(bakeTmp / "animation.yaml", std::ios::binary);
+        std::string   y((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        in.close();
+        if (y.find("\n  motion:") == std::string::npos) { reason = "no root motion"; return AnimBakeOutcome::Skip; }
+        fs::create_directories(unitPath.parent_path(), ec);
+        std::ofstream dst(unitPath, std::ios::binary | std::ios::trunc);
+        dst << y;
+        return AnimBakeOutcome::Ok;
+    }
     try {
         const auto ref = havok::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
         const auto rc  = havok::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
@@ -2557,18 +2578,25 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 // now; bone-name binding (the membrane) is piece 2. FAIL-SAFE: a skip/fail writes no unit and the engine
 // keeps the loose .hkx, so this can never break the behavior/skeleton bundles.
 static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
-                                 const fs::path& stageRoot, const LogFn& log) {
+                                 const fs::path& stageRoot, const LogFn& log,
+                                 const std::string& targetBundle) {
     const auto say = [&](const std::string& s) { if (log) log(s); };
     std::error_code ec;
     const fs::path stage = stageRoot / "modanim_stage";
     fs::create_directories(stage, ec);
 
+    // In single-bundle (Pandora) mode ALL mods' animations land in the one `targetBundle` (Pandora.hky);
+    // otherwise each mod's animations go in its own <modName>.hky. Root-motion packaging (point 5):
+    // BakeAnimationUnit runs MOTION-ONLY — it keeps only the clips that carry AMR root motion (translated
+    // to the `motion:` field at decompile), so the runtime adsf-derive (motionsForRoot) picks up their
+    // root motion. Non-motion animations (plain OAR replacers) are not packaged. Compile/serve of the
+    // pose stays gated by the bundle's manifest compile_animations flag (default false).
     int totalOk = 0, totalSkip = 0, totalFail = 0, modsWithAnims = 0;
     for (const std::string& modName : mo2.enabledTopFirst) {
         const fs::path modRoot = mo2.modsDir / modName;
         const fs::path meshes  = modRoot / "meshes";
         if (!fs::is_directory(meshes, ec)) continue;
-        const fs::path bundle = plugins / (modName + ".hky");   // the mod's own bundle (== its behavior bundle)
+        const fs::path bundle = plugins / ((targetBundle.empty() ? modName : targetBundle) + ".hky");
         int modOk = 0, modSkip = 0, modFail = 0;
         for (fs::recursive_directory_iterator it(meshes, ec), end; !ec && it != end; it.increment(ec)) {
             if (!it->is_regular_file(ec)) continue;
@@ -2583,23 +2611,22 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
             if (ec || rel.empty()) { ++modFail; continue; }
             const fs::path unit = bundle / rel;                   // single-file attributed unit inside the bundle
             std::string reason;
-            switch (BakeAnimationUnit(abytes, unit, stage, reason)) {
+            switch (BakeAnimationUnit(abytes, unit, stage, reason, /*motionOnly=*/true)) {
                 case AnimBakeOutcome::Ok:   ++modOk;   break;
-                case AnimBakeOutcome::Skip: ++modSkip; break;   // non-spline/fidelity — engine keeps the loose .hkx
+                case AnimBakeOutcome::Skip: ++modSkip; break;   // no root motion — not packaged (harmless)
                 case AnimBakeOutcome::Fail: ++modFail; break;
             }
         }
         if (modOk > 0) {
             ++modsWithAnims;
-            say("  mod animations: " + modName + " -> " + std::to_string(modOk) + " native unit(s)" +
-                (modSkip ? (" (" + std::to_string(modSkip) + " non-spline/fidelity skipped)") : std::string()) + ".");
+            say("  mod root-motion animations: " + modName + " -> " + std::to_string(modOk) + " motion unit(s).");
         }
         totalOk += modOk; totalSkip += modSkip; totalFail += modFail;
     }
     fs::remove_all(stage, ec);
     if (totalOk || totalSkip || totalFail)
-        say("Mod animations: " + std::to_string(totalOk) + " baked native across " +
-            std::to_string(modsWithAnims) + " mod(s) (" + std::to_string(totalSkip) + " skipped, " +
+        say("Mod animations: " + std::to_string(totalOk) + " root-motion unit(s) across " +
+            std::to_string(modsWithAnims) + " mod(s) (" + std::to_string(totalSkip) + " no-motion/skipped, " +
             std::to_string(totalFail) + " failed).");
 }
 
