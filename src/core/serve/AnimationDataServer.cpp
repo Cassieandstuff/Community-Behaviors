@@ -192,9 +192,15 @@ namespace CB::adserve {
                 -> const std::unordered_map<std::string, animdata::MotionRecord>& {
                 auto [it, fresh] = motionsByRoot.try_emplace(actorRoot);
                 if (!fresh) return it->second;
-                const std::string animDir = actorRoot + "/animations";
-                for (const std::string& path : rd.filesUnderOrig(animDir, ".yaml")) {
-                    if (!EndsWith(ToLower(path), ".hkx.yaml")) continue;   // full-animation unit only
+                // ROOT MOTION FROM THE ANIMATIONS (point 3): a native animation unit is a single-file
+                // "<name>.hkx" (the .hky compile-target model — the .hkx IS the animation.yaml, top-level
+                // `animation:`), NOT "<name>.hkx.yaml". The old ".hkx.yaml" filter matched nothing, so inline
+                // motion was inert (the parked inline-motion-inert finding). Read each "<name>.hkx" under the
+                // actor's animations/ dir, parse it, and pull its inline `motion:` — the root motion the adsf
+                // finalizer drains. UNGATED by the compile flag: the animation is DECOMPILED (parsed) for its
+                // motion even when its binary is NOT compiled (point 5 — the flag gates only the binary).
+                const std::string animDir = ToLower(actorRoot) + "/animations";
+                for (const std::string& path : rd.filesUnder(animDir, ".hkx")) {   // lowercased, '/'-sep
                     const auto text = rd.read(path);
                     if (!text) continue;
                     havok::anim::AnimationDef def;
@@ -204,10 +210,9 @@ namespace CB::adserve {
                         continue;
                     }
                     if (!def.motion) continue;
-                    std::string rel = (ToLower(path).rfind(ToLower(actorRoot) + "/", 0) == 0)
-                                          ? path.substr(actorRoot.size() + 1) : path;
-                    if (EndsWith(ToLower(rel), ".yaml")) rel.erase(rel.size() - 5);   // -> "animations/…/x.hkx"
-                    for (char& c : rel) c = (c == '\\') ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    std::string rel = path;                                  // "meshes/actors/…/animations/…/x.hkx"
+                    const std::string pfx = ToLower(actorRoot) + "/";
+                    if (rel.rfind(pfx, 0) == 0) rel = rel.substr(pfx.size());  // -> "animations/…/x.hkx"
                     it->second.emplace(std::move(rel), std::move(*def.motion));
                 }
                 return it->second;
