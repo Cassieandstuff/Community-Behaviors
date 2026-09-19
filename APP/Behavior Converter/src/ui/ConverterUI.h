@@ -50,6 +50,8 @@ private:
     std::string m_mo2Instance; // OPTIONAL MO2 instance root (mods/ + profiles/) — when set, bundles
                                // are attributed to owning mods (<modName>.hky, both loose legs grouped)
                                // and the delta load order follows modlist priority; empty = auto/off
+    bool m_singleBundle = false; // MO2-PROFILE mode: merge the whole load order into ONE Pandora.hky
+                                 // (unified delta, MO2 priority order, winner last). Options.singleBundle.
 
     // Fixed, next to the exe (never shown):
     std::string m_exeDir;

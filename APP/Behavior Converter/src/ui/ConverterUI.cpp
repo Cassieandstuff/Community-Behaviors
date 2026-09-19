@@ -155,6 +155,7 @@ void ConverterUI::LoadSettings() {
         else if (key == "zip" && !val.empty()) m_zipDir = val;
         else if (key == "name" && !val.empty()) m_zipName = val;
         else if (key == "mo2") m_mo2Instance = val;   // may be empty (optional)
+        else if (key == "pandora") m_singleBundle = (val == "1" || val == "true" || val == "yes" || val == "on");
     }
 }
 
@@ -166,6 +167,7 @@ void ConverterUI::SaveSettings() const {
     f << "zip="  << m_zipDir   << "\n";
     f << "name=" << m_zipName  << "\n";
     f << "mo2="  << m_mo2Instance << "\n";
+    f << "pandora=" << (m_singleBundle ? "true" : "false") << "\n";
 }
 
 ConverterUI::~ConverterUI() {
@@ -191,7 +193,8 @@ void ConverterUI::StartConvert() {
     { std::lock_guard<std::mutex> lk(m_logMx); m_log.clear(); m_zipMsg.clear(); }
     SaveSettings();
     m_cancel = false; m_running = true; m_finished = false;
-    const bconv::Options opt{ m_dataDir, m_templatesDir, m_baseDir, m_stagingDir, Trim(m_mo2Instance) };
+    const bconv::Options opt{ m_dataDir, m_templatesDir, m_baseDir, m_stagingDir, Trim(m_mo2Instance),
+                              m_singleBundle };
     // Snapshot everything the worker touches so it never races the UI fields.
     const std::string staging = m_stagingDir;
     const std::string zipDir  = m_zipDir;
@@ -334,6 +337,19 @@ void ConverterUI::DrawConverterTab() {
         ImGui::TextDisabled("    and pull in loose precompiled behaviors (e.g. HorsePower's horse graph). Blank = off.");
     }
     ImGui::PopItemWidth();
+
+    ImGui::Spacing();
+    // Mode: single-mod (per-mod bundles, author path) vs MO2-profile (one Pandora.hky, user path).
+    // The Pandora merge needs a real MO2 instance for correct override ORDER (winner last); without
+    // one the codes fall back to alphabetical and overwrites resolve wrong.
+    ImGui::Checkbox("MO2-profile mode: merge the whole load order into one Pandora.hky", &m_singleBundle);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("On:  merge every mod's patches into a single Pandora.hky (MO2 priority order,\n"
+                          "     later mod wins) — the user ships one bundle, no CB load order to manage.\n"
+                          "Off: per-mod bundles (<Mod>.hky each) — the mod-author / CB-native path.");
+    if (m_singleBundle && Trim(m_mo2Instance).empty())
+        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f),
+                           "    Set the MO2 instance above — without it, override order falls back to alphabetical (wrong).");
     ImGui::EndDisabled();
 
     ImGui::Spacing();
