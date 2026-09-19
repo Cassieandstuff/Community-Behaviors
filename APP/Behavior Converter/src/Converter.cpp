@@ -246,6 +246,57 @@ std::vector<std::string> ScanCodes(const fs::path& dataDir) {
     return codes;
 }
 
+// Pandora's OWN behavior load order, from <dataDir>/Pandora_Engine/ActiveMods.json (written by
+// Pandora Behaviour Engine on its last run; under MO2's VFS the active Pandora output shadows it in).
+// It is the authoritative order for the merged Pandora.hky — the same priority the user sets in
+// Pandora's UI. Format: a flat JSON array of { "code": "bfco", "active": true, "priority": 1 } where
+// priority 1 = HIGHEST (the winner). Hand-parsed (the converter stays dependency-lean — no nlohmann).
+struct PandoraModEntry { std::string code; bool active = true; int priority = 0; };
+std::vector<PandoraModEntry> LoadPandoraOrder(const fs::path& dataDir) {
+    std::vector<PandoraModEntry> out;
+    std::ifstream f(dataDir / "Pandora_Engine" / "ActiveMods.json", std::ios::binary);
+    if (!f) return out;
+    const std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    const auto npos = std::string::npos;
+    // Split into per-object chunks on '{' … '}' (the entries are flat, no nesting), then pull the
+    // three known keys out of each chunk by name so key ORDER inside an object doesn't matter.
+    std::size_t pos = 0;
+    while (true) {
+        const std::size_t ob = s.find('{', pos);
+        if (ob == npos) break;
+        const std::size_t cb = s.find('}', ob);
+        if (cb == npos) break;
+        const std::string chunk = s.substr(ob, cb - ob);
+        pos = cb + 1;
+        auto strVal = [&](const char* key) -> std::string {
+            const std::size_t k = chunk.find(std::string("\"") + key + "\"");
+            if (k == npos) return {};
+            const std::size_t c = chunk.find(':', k);              if (c == npos) return {};
+            const std::size_t q1 = chunk.find('"', c);            if (q1 == npos) return {};
+            const std::size_t q2 = chunk.find('"', q1 + 1);       if (q2 == npos) return {};
+            return chunk.substr(q1 + 1, q2 - q1 - 1);
+        };
+        auto rawVal = [&](const char* key) -> std::string {
+            const std::size_t k = chunk.find(std::string("\"") + key + "\"");
+            if (k == npos) return {};
+            std::size_t e = chunk.find(':', k);                   if (e == npos) return {};
+            ++e;
+            while (e < chunk.size() && std::isspace((unsigned char)chunk[e])) ++e;
+            const std::size_t st = e;
+            while (e < chunk.size() && chunk[e] != ',' && chunk[e] != '\n' && chunk[e] != '\r') ++e;
+            return chunk.substr(st, e - st);
+        };
+        PandoraModEntry pe;
+        pe.code = strVal("code");
+        if (pe.code.empty()) continue;
+        pe.active   = rawVal("active").find("true") != npos;
+        const std::string pr = rawVal("priority");
+        pe.priority = pr.empty() ? 0 : std::atoi(pr.c_str());
+        out.push_back(std::move(pe));
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------------------------
 // MO2-attributed discovery — find, per INSTALLED mod, both loose-behavior legs:
 //   (A) its Nemesis code dir(s):     <mod>/Nemesis_Engine/mod/<code>/
@@ -1294,27 +1345,51 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         else it->second.push_back(code);
     }
 
-    // MO2-PROFILE mode: collapse EVERY code into one "Pandora" bundle, ordered by MO2 priority with the
-    // WINNER LAST — ConvertModDelta applies patches in list order and later overrides earlier, and MO2's
-    // top entry (priority rank 0) is the winner, so it must merge last. Un-attributed codes (no owning
-    // mod) sort first (lowest precedence). This turns the per-bundle loop below into a single unified
-    // delta per graph; the loose-derive / char-file / FNIS legs also route into Pandora.hky (below).
+    // MO2-PROFILE mode: collapse EVERY code into one "Pandora" bundle, ordered by PANDORA'S OWN behavior
+    // load order (Pandora_Engine/ActiveMods.json — the priority the user set in Pandora's UI), NOT MO2.
+    // We are replicating Pandora for the pandora.hky. ConvertModDelta applies patches in LIST order,
+    // later overriding earlier, so the WINNER (Pandora priority 1) must merge LAST → sort by priority
+    // DESCENDING. Codes absent from ActiveMods sort FIRST (lowest precedence, scan order among them).
+    // Fallback when no ActiveMods.json: ScanCodes order (already sorted) — no MO2 dependency. Inactive
+    // codes (active:false) are excluded, mirroring Pandora. This turns the per-bundle loop below into a
+    // single unified delta per graph; loose-derive / char-file / FNIS legs also route into Pandora.hky.
     if (opt.singleBundle) {
-        constexpr int kNoPri = 1 << 30;
-        auto priOf = [&](const std::string& c) -> int {
-            const auto m = codeToMod.find(ToLower(c));
-            if (m == codeToMod.end()) return kNoPri;
-            const auto p = bundlePriority.find(m->second);
-            return p == bundlePriority.end() ? kNoPri : p->second;
-        };
+        const std::vector<PandoraModEntry> pandora = LoadPandoraOrder(dataDir);
+        std::unordered_map<std::string, int> pandoraPri;   // code(lower) -> priority (1 = winner)
+        std::unordered_set<std::string>      pandoraInactive;
+        for (const auto& pe : pandora) {
+            if (pe.active) pandoraPri[ToLower(pe.code)] = pe.priority;
+            else           pandoraInactive.insert(ToLower(pe.code));
+        }
         std::vector<std::string> all;
-        for (const auto& code : codes) if (!excludedCodes.count(ToLower(code))) all.push_back(code);
-        std::stable_sort(all.begin(), all.end(), [&](const std::string& a, const std::string& b) { return priOf(a) > priOf(b); });
+        int skippedInactive = 0;
+        for (const auto& code : codes) {
+            if (excludedCodes.count(ToLower(code))) continue;                 // engine scaffolding
+            if (pandoraInactive.count(ToLower(code))) { ++skippedInactive; continue; }  // Pandora-disabled
+            all.push_back(code);
+        }
+        if (!pandoraPri.empty()) {
+            constexpr int kAbsent = 1 << 30;   // not in ActiveMods -> lowest precedence (merges first)
+            auto priOf = [&](const std::string& c) -> int {
+                const auto it = pandoraPri.find(ToLower(c));
+                return it == pandoraPri.end() ? kAbsent : it->second;
+            };
+            std::stable_sort(all.begin(), all.end(),
+                             [&](const std::string& a, const std::string& b) { return priOf(a) > priOf(b); });
+            say("Pandora mode: order from Pandora_Engine/ActiveMods.json (" +
+                std::to_string(pandoraPri.size()) + " ranked code(s)" +
+                (skippedInactive ? ", " + std::to_string(skippedInactive) + " inactive skipped" : "") +
+                ", winner last).");
+        } else {
+            say("Pandora mode: no ActiveMods.json — using scan order (winner last). Tune it in the UI.");
+        }
         bundleOrder = { kPandora };
         bundleCodes.clear();
         bundleCodes[kPandora] = std::move(all);
         say("Pandora mode: merging " + std::to_string(bundleCodes[kPandora].size()) +
-            " code(s) into one Pandora.hky (MO2 order, winner last).");
+            " code(s) into one Pandora.hky.");
+        { std::string seq; for (const auto& c : bundleCodes[kPandora]) { if (!seq.empty()) seq += " "; seq += c; }
+          say("Pandora mode: merge order (first loses, LAST wins): " + seq); }
     }
 
     auto codeDirOf = [&](const std::string& c) { return dataDir / "Nemesis_Engine" / "mod" / c; };
