@@ -9,7 +9,10 @@
 #include "havok/sct/SkeletonYaml.h"       // EmitSkeletonYamlTree
 #include "havok/anim/AnimSetDataYaml.h"   // havok::animsetdata:: (setdata singlefile decompose)
 #include "havok/anim/AnimDataYaml.h"      // havok::animdata::   (animdata singlefile decompose)
+#include <havok-model/HavokModel.h>       // ParseTagfile / EmitHky / EmitFullBaseScaffolding (tagfile-XML diff)
+#include <havok-schema/HavokSchema.h>     // SchemaRegistry (tagfile-XML parse needs the class descriptors)
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstdint>
@@ -206,6 +209,29 @@ bool DecompileRecordSet(const std::string& hkxPath, const std::string& skel, con
     return true;
 }
 
+// tagfile-XML adapter: a Havok tagfile .xml -> RecordSet, keyed IDENTICALLY to the .hkx path
+// (id: Class:name). Both sides go XML -> ParseTagfile -> SchemaObject graph -> EmitHky, so the
+// same-emitter invariant still holds (a formatting-only diff is impossible). Behaviors are the tested
+// surface; a character/project tagfile yields whatever EmitHky projects (may be partial — noted).
+bool XmlTagfileRecordSet(const std::string& xmlPath, const havok::schema::SchemaRegistry& reg,
+                         RecordSet& rs, std::string& err) {
+    std::ifstream f(xmlPath, std::ios::binary);
+    if (!f) { err = "cannot open " + xmlPath; return false; }
+    std::string xml((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    havok::model::ParsedTagfile parsed;
+    if (!havok::model::ParseTagfile(xml, reg, parsed, err)) return false;
+    static std::atomic<unsigned> seq{0};
+    const fs::path tmp = fs::temp_directory_path() / ("cb_treediff_xml_" + std::to_string(seq++));
+    std::error_code ec; fs::remove_all(tmp, ec);
+    if (!havok::model::EmitHky(parsed.identity, reg, tmp.string(), err)) { fs::remove_all(tmp, ec); return false; }
+    std::string sErr;
+    havok::model::EmitFullBaseScaffolding(parsed.identity, tmp.string(), sErr);   // graphdata -> index->name resolution
+    const VocabRosters rosters = ParseRosters(tmp);
+    ReadTreeAsRecordSet(tmp, rs, rosters.empty() ? nullptr : &rosters);
+    fs::remove_all(tmp, ec);
+    return true;
+}
+
 // The behavior DiffPolicy: the order-significant key-aligned arrays + volatile-field skips.
 DiffPolicy BehaviorPolicy() {
     DiffPolicy p;
@@ -334,6 +360,144 @@ bool RecordSetFor(const std::string& domain, const std::string& input, const std
 
 }  // namespace
 
+// Prepare the delta output dir WITHOUT a blind remove_all — a `-o` typo pointing at a real folder must
+// never wipe it. A dir is safe to clear only if it's empty or a prior tree-diff output (marked by the
+// `.tree-diff-out` sentinel); anything else is refused. On success the dir exists, holds only the
+// sentinel, and is ours to write. Returns false + err on refusal.
+bool PrepareOutDir(const fs::path& outDir, std::string& err) {
+    std::error_code ec;
+    const fs::path sentinel = outDir / ".tree-diff-out";
+    if (fs::exists(outDir, ec)) {
+        if (!fs::is_directory(outDir, ec)) { err = "output path exists and is not a directory: " + outDir.string(); return false; }
+        const bool isEmpty = fs::is_empty(outDir, ec);
+        if (!isEmpty && !fs::exists(sentinel, ec)) {
+            err = "refusing to write into non-empty '" + outDir.string() +
+                  "' — it is not a previous tree-diff output (no .tree-diff-out marker). "
+                  "Point -o at an empty or dedicated folder.";
+            return false;
+        }
+        // Verified ours (sentinel present) or empty — clear only this dir's children, never a foreign tree.
+        for (fs::directory_iterator it(outDir, ec), end; !ec && it != end; it.increment(ec))
+            fs::remove_all(it->path(), ec);
+    } else {
+        fs::create_directories(outDir, ec);
+    }
+    std::ofstream(sentinel, std::ios::binary) << "tree-diff output directory — safe to overwrite\n";
+    return true;
+}
+
+// Recursive tree mode: A and B are DIRECTORIES of .hkx. Pair every .hkx by its relative path,
+// run the existing per-file record-keyed diff on each pair (same-emitter: both decompiled from
+// binary here), aggregate into ONE delta folder + summary, and surface files present on only one
+// side (frequently the actual regression). Domain is "behavior" — DecompileToDir auto-routes
+// behavior vs character; project/skeleton .hkx that don't decompile that way are reported as errored,
+// not fatal. The delta folder is wiped at the start so each run overwrites (no D:\ pollution).
+static TreeDiffOutcome RunRecursive(const TreeDiffOptions& opts, const std::string& outDir, const LogFn& log) {
+    TreeDiffOutcome out;
+    auto say = [&](const std::string& s) { if (log) log(s); };
+
+    auto collect = [](const fs::path& root) {
+        std::map<std::string, fs::path> m;   // lower relpath -> abs path
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+            std::error_code fe;
+            if (!it->is_regular_file(fe)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (ext != ".hkx" && ext != ".xml") continue;   // compiled binary OR tagfile-XML
+            std::string rel = fs::relative(it->path(), root, ec).generic_string();
+            std::string low = rel;
+            for (char& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            m[low] = it->path();
+        }
+        return m;
+    };
+    const auto A = collect(opts.a);
+    const auto B = collect(opts.b);
+    say("tree-diff [recursive]: A " + std::to_string(A.size()) + " unit(s), B " + std::to_string(B.size()) + " unit(s)");
+
+    // Schema registry — needed to parse tagfile-XML inputs (ParseTagfile). Loaded once from --schema.
+    havok::schema::SchemaRegistry reg;
+    bool haveReg = false;
+    if (!opts.schema.empty()) {
+        std::string rerr;
+        haveReg = reg.LoadDir(opts.schema, rerr);
+        if (!haveReg) say("tree-diff: schema load FAILED (" + opts.schema + "): " + rerr + " — .xml inputs will be skipped");
+        else          say("tree-diff: schema loaded from " + opts.schema);
+    }
+    auto buildRS = [&](const fs::path& p, RecordSet& rs, std::string& e) -> bool {
+        std::string ext = p.extension().string();
+        for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (ext == ".xml") {
+            if (!haveReg) { e = "tagfile .xml needs --schema <Havok dir>"; return false; }
+            return XmlTagfileRecordSet(p.string(), reg, rs, e);
+        }
+        return DecompileRecordSet(p.string(), opts.skeleton, "beh", rs, e, [](const std::string&){});
+    };
+
+    std::error_code ec;
+    if (std::string perr; !PrepareOutDir(outDir, perr)) { out.error = perr; say("ERROR: " + perr); return out; }
+
+    std::vector<SummaryEntry> entries;
+    std::vector<std::string>  fileOnlyA, fileOnlyB, errored;
+    bool anyDiff = false;
+    int  paired = 0;
+
+    // union of relative paths
+    std::set<std::string> keys;
+    for (const auto& [k, v] : A) keys.insert(k);
+    for (const auto& [k, v] : B) keys.insert(k);
+
+    for (const std::string& k : keys) {
+        const auto ia = A.find(k), ib = B.find(k);
+        if (ia == A.end()) { fileOnlyB.push_back(ib->second.filename().generic_string() + "  (" + k + ")"); anyDiff = true; continue; }
+        if (ib == B.end()) { fileOnlyA.push_back(ia->second.filename().generic_string() + "  (" + k + ")"); anyDiff = true; continue; }
+        RecordSet rsA, rsB;
+        std::string err;
+        if (!buildRS(ia->second, rsA, err)) { errored.push_back(k + " (A: " + err + ")"); continue; }
+        if (!buildRS(ib->second, rsB, err)) { errored.push_back(k + " (B: " + err + ")"); continue; }
+        const DiffResult result = DiffRecordSets(rsA, rsB, BehaviorPolicy());
+        SummaryEntry entry;
+        entry.artifact = k;
+        entry.domain   = "behavior";
+        for (const auto& [rk, rv] : rsA) if (rsB.count(rk)) ++entry.compared;
+        WriteArtifactDelta(outDir, "behavior", k, result, entry);
+        entries.push_back(entry);
+        ++paired;
+        if (result.AnyDifference()) anyDiff = true;
+    }
+
+    WriteSummary(outDir, entries, anyDiff);
+
+    // File-level presence report (the A-only / B-only .hkx + any that failed to decompile).
+    {
+        std::string txt = "# file-level presence (recursive tree diff)\n";
+        txt += "paired: " + std::to_string(paired) + "\n\nonly_in_A (" + std::to_string(fileOnlyA.size()) + "):\n";
+        for (const auto& f : fileOnlyA) txt += "  - " + f + "\n";
+        txt += "\nonly_in_B (" + std::to_string(fileOnlyB.size()) + "):\n";
+        for (const auto& f : fileOnlyB) txt += "  - " + f + "\n";
+        txt += "\nerrored (" + std::to_string(errored.size()) + "):\n";
+        for (const auto& f : errored) txt += "  - " + f + "\n";
+        std::ofstream(fs::path(outDir) / "_files.yaml", std::ios::binary) << txt;
+    }
+
+    int totalDiffering = 0;
+    for (const auto& e : entries) totalDiffering += e.differing;
+    out.ok              = true;
+    out.anyDifference   = anyDiff;
+    out.artifacts       = paired;
+    out.differing       = totalDiffering;
+    out.onlyA           = static_cast<int>(fileOnlyA.size());
+    out.onlyB           = static_cast<int>(fileOnlyB.size());
+    out.summaryPath     = (fs::path(outDir) / "summary.yaml").string();
+    say("tree-diff [recursive]: paired " + std::to_string(paired) + ", file only-A " +
+        std::to_string(fileOnlyA.size()) + ", file only-B " + std::to_string(fileOnlyB.size()) +
+        ", errored " + std::to_string(errored.size()) + ", artifacts-with-diffs " +
+        std::to_string(std::count_if(entries.begin(), entries.end(), [](const SummaryEntry& e){ return e.differing || e.onlyA || e.onlyB; })) +
+        " -> " + outDir + (anyDiff ? " (DIFFERENCES)" : " (identical)"));
+    return out;
+}
+
 TreeDiffOutcome RunTreeDiff(const TreeDiffOptions& opts, const LogFn& log) {
     TreeDiffOutcome out;
     auto say = [&](const std::string& s) { if (log) log(s); };
@@ -341,6 +505,13 @@ TreeDiffOutcome RunTreeDiff(const TreeDiffOptions& opts, const LogFn& log) {
     if (opts.a.empty() || opts.b.empty()) {
         out.error = "tree-diff needs two inputs A and B";
         return out;
+    }
+
+    // Recursive tree mode when BOTH inputs are directories (walk + pair .hkx by relative path).
+    {
+        std::error_code da, db;
+        if (fs::is_directory(opts.a, da) && fs::is_directory(opts.b, db))
+            return RunRecursive(opts, opts.deltaDir.empty() ? "tree_diff_delta" : opts.deltaDir, log);
     }
     const std::string outDir = opts.deltaDir.empty() ? "tree_diff_delta" : opts.deltaDir;
     const std::string domain =
@@ -367,7 +538,7 @@ TreeDiffOutcome RunTreeDiff(const TreeDiffOptions& opts, const LogFn& log) {
 
     // Single-artifact inputs: the artifact-rel is "." (one RecordSet pair).
     std::error_code ec;
-    fs::remove_all(outDir, ec);
+    if (std::string perr; !PrepareOutDir(outDir, perr)) { out.error = perr; say("ERROR: " + perr); return out; }
     SummaryEntry entry;
     entry.compared = 0;
     for (const auto& [k, v] : rsA) if (rsB.count(k)) ++entry.compared;

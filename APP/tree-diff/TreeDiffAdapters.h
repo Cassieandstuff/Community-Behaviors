@@ -23,6 +23,7 @@ struct TreeDiffOptions {
     std::string deltaDir;
     std::string domain = "auto";
     std::string skeleton;
+    std::string schema;   // Havok/ schema dir — required to diff tagfile-XML inputs (ParseTagfile+EmitHky)
 };
 
 // Result of one diff run. `ok` is false on any setup/adapter error (with `error` set); when ok,

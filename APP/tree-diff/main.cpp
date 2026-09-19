@@ -20,8 +20,10 @@ namespace {
 int usage() {
     std::printf(
         "usage: tree-diff <A> <B> -o <deltaDir> "
-        "[--domain auto|behavior|setdata|animdata|skeleton|character] [--skeleton <skel.hkx>]\n"
-        "record-keyed semantic diff (delta-only folder); exit 0 = identical, 1 = differences.\n");
+        "[--domain auto|behavior|setdata|animdata|skeleton|character] [--skeleton <skel.hkx>] [--schema <Havok dir>]\n"
+        "record-keyed semantic diff (delta-only folder); exit 0 = identical, 1 = differences.\n"
+        "A/B may be single .hkx/.xml files or DIRECTORIES (recursive: pairs .hkx/.xml by relative path).\n"
+        "--schema is required when inputs are tagfile .xml (parsed via ParseTagfile+EmitHky).\n");
     return 2;
 }
 
@@ -38,6 +40,7 @@ int main(int argc, char** argv) {
         if ((a == "-o" || a == "--out") && i + 1 < argc) opts.deltaDir = argv[++i];
         else if (a == "--domain" && i + 1 < argc)        opts.domain   = argv[++i];
         else if (a == "--skeleton" && i + 1 < argc)      opts.skeleton = argv[++i];
+        else if (a == "--schema" && i + 1 < argc)        opts.schema   = argv[++i];
         else return usage();
     }
 
