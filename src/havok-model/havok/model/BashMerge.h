@@ -189,6 +189,29 @@ inline std::size_t objCount(const xml::Node& p) {
     std::size_t n = 0; for (const auto& c : p.children) if (c.tag == "hkobject") ++n; return n;
 }
 
+// Compose a whitespace-TOKEN ref/scalar array (e.g. hkbStateMachine.states — a ptrarray whose items
+// are "#712 #713 …" tokens, NOT <hkobject> children) onto `dst` (a copy of base): element-wise over
+// the base prefix — the LAST changer whose token[i] differs from base wins — then append each changer's
+// TAIL tokens (past base length) in load order. The token mirror of composeArrayInto: without it a
+// compose-tagged ptrarray touched by 2+ mods hits composeArrayInto, which sees zero <hkobject> items
+// and appends nothing → every mod's added ref (e.g. DMCO's dodge state on 1HM_Behavior) is silently
+// dropped → a transition to the missing state derefs null in-game. Matches the runtime ryml compose
+// (YamlBehaviorLoader), which already walks scalar seqs generically — the two adapters stay lockstep.
+inline void composeTokenArrayInto(xml::Node& dst, const std::vector<const xml::Node*>& changers) {
+    std::vector<std::string> base = tokens(dst.text);
+    const std::size_t baseN = base.size();
+    std::vector<std::vector<std::string>> ch; ch.reserve(changers.size());
+    for (const xml::Node* c : changers) ch.push_back(tokens(c->text));
+    for (std::size_t i = 0; i < baseN; ++i)                 // loop 1 — base prefix element-wise (last differ wins)
+        for (const auto& t : ch)
+            if (i < t.size() && t[i] != base[i]) base[i] = t[i];
+    for (const auto& t : ch)                                // loop 2 — append each changer's tail, load order
+        for (std::size_t i = baseN; i < t.size(); ++i) base.push_back(t[i]);
+    std::string joined;
+    for (std::size_t i = 0; i < base.size(); ++i) { if (i) joined += ' '; joined += base[i]; }
+    dst.text = joined;
+}
+
 // Compose an <hkobject>-array param onto `dst` (already a copy of `base`): element-wise over the base
 // prefix — a slot ANY changer edited is REPLACED (last changer in load order wins), base slots no mod
 // touched stay — then each changer's TAIL items (past base length) append in load order. The xml::Node
@@ -258,10 +281,20 @@ inline xml::Node bashMerge(const xml::Node& base, const std::vector<const PatchL
         // changers, and every changer to COVER the base prefix (shorter = a removal that raw position-
         // alignment can't express); otherwise fall through to the count-based paths below.
         if (compose && !cls.empty() && isArr && changers.size() > 1 && bp && mp && compose(cls, P)) {
-            const std::size_t baseN = objCount(*bp);
+            // Item kind: <hkobject> struct array (transitions) vs whitespace-token ref array (states,
+            // a ptrarray). objCount==0 on a token array is not "empty" — its items live in the text —
+            // so pick the counter by kind, and compose with the matching adapter.
+            const bool objArr = objCount(*bp) > 0 ||
+                [&] { for (const xml::Node* ch : changers) if (objCount(*ch) > 0) return true; return false; }();
+            const auto len = [&](const xml::Node& n) { return objArr ? objCount(n) : tokens(n.text).size(); };
+            const std::size_t baseN = len(*bp);
             bool editAppend = true;
-            for (const xml::Node* ch : changers) if (objCount(*ch) < baseN) { editAppend = false; break; }
-            if (editAppend) { composeArrayInto(*mp, changers); continue; }
+            for (const xml::Node* ch : changers) if (len(*ch) < baseN) { editAppend = false; break; }
+            if (editAppend) {
+                if (objArr) composeArrayInto(*mp, changers);
+                else        composeTokenArrayInto(*mp, changers);
+                continue;
+            }
         }
 
         const bool g = guarded && guarded(P);
