@@ -310,6 +310,7 @@ bool XmlTagfileRecordSet(const std::string& xmlPath, const havok::schema::Schema
     std::string xml((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     havok::model::ParsedTagfile parsed;
     if (!havok::model::ParseTagfile(xml, reg, parsed, err)) return false;
+    parsed.identity.refsAsNames = true;   // DIFF-ONLY: emit node refs as Class:name (renumber-immune)
     static std::atomic<unsigned> seq{0};
     const fs::path tmp = fs::temp_directory_path() / ("cb_treediff_xml_" + std::to_string(seq++));
     std::error_code ec; fs::remove_all(tmp, ec);
@@ -450,30 +451,61 @@ bool RecordSetFor(const std::string& domain, const std::string& input, const std
 
 }  // namespace
 
-// Prepare the delta output dir WITHOUT a blind remove_all — a `-o` typo pointing at a real folder must
-// never wipe it. A dir is safe to clear only if it's empty or a prior tree-diff output (marked by the
-// `.tree-diff-out` sentinel); anything else is refused. On success the dir exists, holds only the
-// sentinel, and is ours to write. Returns false + err on refusal.
+// Prepare the delta output dir. There is NO remove_all here BY DESIGN — a recursive delete on a `-o`
+// typo pointing at a live folder is an unacceptable landmine even behind a sentinel. Instead: refuse a
+// non-empty folder that isn't a prior tree-diff output, and clear the previous run by removing ONLY the
+// exact files it wrote (recorded in .tree-diff-manifest) — individual fs::remove on single files, then
+// fs::remove on now-empty dirs (which no-ops on any non-empty dir). Worst case of a mistargeted -o is a
+// few files ADDED to a folder, never a tree deleted. Returns false + err on refusal.
 bool PrepareOutDir(const fs::path& outDir, std::string& err) {
     std::error_code ec;
     const fs::path sentinel = outDir / ".tree-diff-out";
+    const fs::path manifest = outDir / ".tree-diff-manifest";
     if (fs::exists(outDir, ec)) {
         if (!fs::is_directory(outDir, ec)) { err = "output path exists and is not a directory: " + outDir.string(); return false; }
-        const bool isEmpty = fs::is_empty(outDir, ec);
-        if (!isEmpty && !fs::exists(sentinel, ec)) {
+        if (!fs::is_empty(outDir, ec) && !fs::exists(sentinel, ec)) {
             err = "refusing to write into non-empty '" + outDir.string() +
                   "' — it is not a previous tree-diff output (no .tree-diff-out marker). "
                   "Point -o at an empty or dedicated folder.";
             return false;
         }
-        // Verified ours (sentinel present) or empty — clear only this dir's children, never a foreign tree.
-        for (fs::directory_iterator it(outDir, ec), end; !ec && it != end; it.increment(ec))
-            fs::remove_all(it->path(), ec);
+        // Clear the PREVIOUS run's files only (from the manifest) — never a recursive delete.
+        std::vector<std::string> prev;
+        if (std::ifstream in{ manifest }) {
+            std::string l;
+            while (std::getline(in, l)) {
+                while (!l.empty() && (l.back() == '\r' || l.back() == '\n')) l.pop_back();
+                if (!l.empty()) prev.push_back(l);
+            }
+        }
+        std::set<std::string> dirs;   // parent dirs to try to prune afterwards (deepest first)
+        for (const auto& rel : prev) {
+            const fs::path p = outDir / rel;
+            fs::remove(p, ec);   // single file only
+            for (fs::path d = p.parent_path(); !d.empty() && d != outDir; d = d.parent_path())
+                dirs.insert(d.generic_string());
+        }
+        std::vector<std::string> dv(dirs.begin(), dirs.end());
+        std::sort(dv.begin(), dv.end(), [](const std::string& a, const std::string& b) { return a.size() > b.size(); });
+        for (const auto& d : dv) fs::remove(fs::path(d), ec);   // removes ONLY if now empty; no-op otherwise
     } else {
         fs::create_directories(outDir, ec);
     }
-    std::ofstream(sentinel, std::ios::binary) << "tree-diff output directory — safe to overwrite\n";
+    std::ofstream(sentinel, std::ios::binary) << "tree-diff output directory\n";
     return true;
+}
+
+// Record the exact files this run wrote, so the next run can clear precisely (see PrepareOutDir).
+void FinalizeOutDir(const fs::path& outDir) {
+    std::error_code ec;
+    std::string list;
+    for (fs::recursive_directory_iterator it(outDir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const std::string rel = fs::relative(it->path(), outDir, ec).generic_string();
+        if (rel == ".tree-diff-manifest" || rel == ".tree-diff-out") continue;
+        list += rel + "\n";
+    }
+    std::ofstream(outDir / ".tree-diff-manifest", std::ios::binary) << list;
 }
 
 // Recursive tree mode: A and B are DIRECTORIES of .hkx. Pair every .hkx by its relative path,
@@ -570,6 +602,7 @@ static TreeDiffOutcome RunRecursive(const TreeDiffOptions& opts, const std::stri
         for (const auto& f : errored) txt += "  - " + f + "\n";
         std::ofstream(fs::path(outDir) / "_files.yaml", std::ios::binary) << txt;
     }
+    FinalizeOutDir(outDir);
 
     int totalDiffering = 0;
     for (const auto& e : entries) totalDiffering += e.differing;
@@ -636,6 +669,7 @@ TreeDiffOutcome RunTreeDiff(const TreeDiffOptions& opts, const LogFn& log) {
     std::vector<SummaryEntry> entries{entry};
     const bool anyDiff = result.AnyDifference();
     WriteSummary(outDir, entries, anyDiff);
+    FinalizeOutDir(outDir);
 
     out.ok              = true;
     out.anyDifference   = anyDiff;

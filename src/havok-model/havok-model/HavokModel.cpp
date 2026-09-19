@@ -315,9 +315,17 @@ float fFloat(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so
 bool  fBool (const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v&&!v->raw.empty()&&v->raw[0]!=0; }
 std::string fStr(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v?v->str:std::string(); }
 std::shared_ptr<IHavokObject> fPtr(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v?v->obj:nullptr; }
-// id of a referenced node (or "" if null / not identified).
+// id of a referenced node (or "" if null / not identified). In refsAsNames mode (diff only) a named
+// target renders as `Class:name` — the stable cross-compile identity — with the numeric id as the
+// fallback for an unnamed target. Production emits (refsAsNames=false) render the canonical #NNNN.
 std::string refIdOf(const std::shared_ptr<IHavokObject>& p, const Identity& id) {
     if (!p) return {};
+    if (id.refsAsNames) {
+        if (const auto* so = dynamic_cast<const io::SchemaObject*>(p.get())) {
+            const io::FieldValue* nf = fieldByName(*so, "name");
+            if (nf && !nf->str.empty()) return std::string(so->ClassName()) + ":" + nf->str;
+        }
+    }
     auto it = id.ids.find(p.get());
     return it == id.ids.end() ? std::string() : it->second;
 }

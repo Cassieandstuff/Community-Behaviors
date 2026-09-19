@@ -38,6 +38,10 @@ struct Identity {
     // letting patch-added nodes (and refs to them) live in the same graph.
     std::unordered_map<const IHavokObject*, std::string> ids;
     std::unordered_map<const IHavokObject*, std::string> category;  // obj -> folder
+    // DIFF-ONLY: when set, refIdOf emits a node ref as the target's `Class:name` instead of its numeric
+    // #NNNN, so a cross-compile tree-diff aligns refs by stable identity (two compiles renumber the same
+    // node differently). Never set on a production emit — it changes ref rendering and is not a valid .hky.
+    bool refsAsNames = false;
 };
 
 // The .hky folder a class's node lives in ("clips", "states", …), or "" if the class is inlined into
