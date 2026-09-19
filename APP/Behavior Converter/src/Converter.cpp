@@ -2149,15 +2149,12 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     const bool     keepStage = !keepStagingDir.empty();
     const fs::path stage    = keepStage ? fs::path(keepStagingDir) : (fs::temp_directory_path(ec) / "sct_base_build");
     const fs::path stageHky = stage / "Skyrim.hky";
-    // Baked native ANIMATIONS stage into their OWN bundle so the release can ship behaviors/characters/
-    // projects/skeletons (+ adsf/asdsf clip rosters, which stay in the base) WITHOUT the animations — CB's
-    // native animation serving is gated for this release (OAR-replacement is a future goal). Both bundles
-    // are still generated + deployed for dev; the release simply omits "Skyrim - Animations.hky" from the zip.
-    // A held-back baked anim already falls through to the game's loose vanilla .hkx, so this is serve-safe.
-    const fs::path stageAnim = stage / "Skyrim - Animations.hky";
+    // Baked native ANIMATIONS now ride in Skyrim.hky itself (point 1 of the root-motion/animation-compiler
+    // plan — reunited with their behaviors/characters/projects). They are present in the master so their
+    // ROOT MOTION can feed the adsf; whether they COMPILE/serve is gated per bundle by the manifest compile
+    // flag (point 2), which Skyrim.hky omits. No separate "Skyrim - Animations.hky" bundle any more.
     fs::remove_all(stage, ec);
     fs::create_directories(stageHky / "meshes", ec);
-    fs::create_directories(stageAnim / "meshes", ec);
 
     // NOTE: the singlefile decomposes are now FLAT per-project (keyed by the cache project-name stem),
     // landing in the two "<name>.txt/" folders — so the old project/character -> actor-root maps that
@@ -2182,8 +2179,10 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         const HkxKind kind = PeekHkxKind(it->path());
         if (kind == HkxKind::Other) continue;
 
-        // Animations bake into the separate animations bundle (release-gated); all other kinds into the base.
-        const fs::path unit = (kind == HkxKind::Animation ? stageAnim : stageHky) / "meshes" / fs::path(rel);
+        // Everything — behaviors, characters, projects, skeletons AND animations — bakes into the one base
+        // bundle (Skyrim.hky). Animations reunited with the rest (point 1); the compile flag (point 2) decides
+        // whether they serve.
+        const fs::path unit = stageHky / "meshes" / fs::path(rel);
 
         // SKELETON: hkaSkeleton -> bonelist.yaml + bones/ unit (SkeletonImport -> EmitSkeletonYamlTree).
         // The runtime back-fills BehaviorData.boneNames from these (Resolver m_skeletons); without one,
@@ -2500,7 +2499,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             const std::string canon = havok::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
                             // native animation is a SINGLE-FILE unit: the ".hkx" path IS the yaml (not a
                             // "<name>.hkx/animation.yaml" tree). Append the motion block onto that file.
-                            const fs::path animYaml = stageAnim / "meshes" / canon;   // baked anims live in the animations bundle
+                            const fs::path animYaml = stageHky / "meshes" / canon;   // baked anims now live in Skyrim.hky
                             std::error_code fe;
                             if (!fs::exists(animYaml, fe)) { ++unbaked; continue; }   // not baked -> vanilla loose keeps its adsf motion
                             // don't double-append (first-writer wins across the male/female duplicate).
@@ -2533,21 +2532,15 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     std::string zerr;
     if (!sct::util::ZipDir(stageHky.string(), outHky, zerr)) { r.error = "pack failed: " + zerr; return r; }
 
-    // Pack the baked animations into a SIBLING "Skyrim - Animations.hky" (same plugins dir). Generated +
-    // deployed for dev; the release zip omits it (CB native animation serving is gated for this release).
-    // Skip if nothing baked (empty tree) so we don't ship an empty archive.
-    bool animAny = false;
-    for (fs::recursive_directory_iterator ai(stageAnim, ec), end; !ec && ai != end; ai.increment(ec))
-        if (ai->is_regular_file()) { animAny = true; break; }
-    if (animAny) {
-        const fs::path animOut = fs::path(outHky).parent_path() / "Skyrim - Animations.hky";
-        say("  packing animations -> " + animOut.string() + " ...");
-        std::string aerr;
-        if (!sct::util::ZipDir(stageAnim.string(), animOut.string(), aerr)) { r.error = "anim pack failed: " + aerr; return r; }
-        say("  animations bundle built: " + animOut.string() + " (release: exclude from the zip)");
+    // Animations are now IN Skyrim.hky (no separate bundle). Remove any stale sibling "Skyrim -
+    // Animations.hky" left by an older build so the runtime doesn't load its animations twice.
+    {
+        std::error_code de;
+        const fs::path staleAnim = fs::path(outHky).parent_path() / "Skyrim - Animations.hky";
+        if (fs::remove(staleAnim, de)) say("  removed stale " + staleAnim.string() + " (animations now in Skyrim.hky).");
     }
 
-    if (keepStage) say("  kept unpacked tree: " + stageHky.string() + " (+ " + stageAnim.string() + ")");
+    if (keepStage) say("  kept unpacked tree: " + stageHky.string());
     else           fs::remove_all(stage, ec);   // keep only the archives
     say("  master built: " + outHky);
     r.ok = true;
@@ -2707,17 +2700,12 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     fs::create_directories(fs::path(outHky).parent_path(), ec);
     fs::copy_file(tempHky, outHky, fs::copy_options::overwrite_existing, ec);
     if (ec) { r.error = "failed to write master to " + outHky + ": " + ec.message(); fs::remove_all(work, ec); return r; }
-    // Promote the sibling animations bundle BuildBaseBundle wrote next to tempHky (release-gated: generated
-    // + written beside the master; the release zip omits it). Absent when nothing baked — not an error.
+    // Animations are now baked into Skyrim.hky (point 1). Remove any stale sibling "Skyrim -
+    // Animations.hky" at the output dir so the runtime never loads its animations twice.
     {
-        const fs::path animSrc = tempHky.parent_path() / "Skyrim - Animations.hky";
         std::error_code ae;
-        if (fs::is_regular_file(animSrc, ae)) {
-            const fs::path animDst = fs::path(outHky).parent_path() / "Skyrim - Animations.hky";
-            fs::copy_file(animSrc, animDst, fs::copy_options::overwrite_existing, ae);
-            if (ae) say("  WARN: failed to write animations bundle to " + animDst.string() + ": " + ae.message());
-            else    say("  animations -> " + animDst.string() + " (release: exclude from the zip)");
-        }
+        const fs::path staleAnim = fs::path(outHky).parent_path() / "Skyrim - Animations.hky";
+        if (fs::remove(staleAnim, ae)) say("  removed stale " + staleAnim.string() + " (animations now in Skyrim.hky).");
     }
     fs::remove_all(work, ec);
     say("  master -> " + outHky + (r.drift.empty() ? "" : "  (written with " + std::to_string(r.drift.size()) +
