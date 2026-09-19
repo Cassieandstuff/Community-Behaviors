@@ -121,35 +121,66 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         return { false, std::string("deserialize failed: ") + e.what() };
     }
 
-    // Only hkaSplineCompressedAnimation is decompiled. A container whose first animation is another
-    // codec (interleaved/uncompressed) is reported as a skip by the caller via this exact wording.
-    if (std::string(spline->ClassName()) != "hkaSplineCompressedAnimation")
-        return { false, "first animation is not spline-compressed" };
+    // Decode the pose stream. TWO source formats are supported — the game loads both, so we must
+    // decompile both: hkaSplineCompressedAnimation (the common authored form) and
+    // hkaInterleavedUncompressedAnimation (raw per-frame transforms; some clips ship uncompressed, e.g.
+    // a few SkyParkour climbs). Each fills `poses` (frame-major, index = frame*numTracks + track) +
+    // `floatVals`; the YAML emit below is shared. Other classes (delta/quantized/reference-pose) remain
+    // out of scope — the caller falls back to the loose vanilla .hkx.
+    const std::string animClass = spline->ClassName();
+    const int   numTracks = rdI32(*spline, "numberOfTransformTracks");
+    const int   numFloat  = rdI32(*spline, "numberOfFloatTracks");
+    const float duration  = rdF32(*spline, "duration");
+    if (numTracks <= 0) return { false, "animation has no transform tracks" };
 
-    const int numTracks = rdI32(*spline, "numberOfTransformTracks");
-    const int numFloat  = rdI32(*spline, "numberOfFloatTracks");
-    const int numFrames = rdI32(*spline, "numFrames");
-    if (numTracks <= 0 || numFrames <= 0)
-        return { false, "animation has no transform tracks / frames" };
-
-    const int   numBlocks         = rdI32(*spline, "numBlocks");
-    const int   maxFramesPerBlock = rdI32(*spline, "maxFramesPerBlock");
-    const int   maskAndQuant      = rdI32(*spline, "maskAndQuantizationSize");
-    const float duration          = rdF32(*spline, "duration");
-    const float fd                = rdF32(*spline, "frameDuration");
-
-    const auto& dataRaw = spline->FieldRef("data").raw;
-    const auto& boRaw   = spline->FieldRef("blockOffsets").raw;
-    std::vector<std::uint32_t> blockOffsets(boRaw.size() / 4);
-    if (!blockOffsets.empty()) std::memcpy(blockOffsets.data(), boRaw.data(), blockOffsets.size() * 4);
-
+    int   numFrames = 0;
+    float fd        = 0.0f;
     std::vector<DecodedPose> poses;
     std::vector<float>       floatVals;
     std::string              warn;
-    const bool ok = DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
-                                 maskAndQuant, blockOffsets.data(), static_cast<int>(blockOffsets.size()),
-                                 numTracks, numFloat, poses, &warn, numFloat > 0 ? &floatVals : nullptr);
-    if (!ok) return { false, "spline decode failed (bounds/format mismatch)" };
+
+    if (animClass == "hkaSplineCompressedAnimation") {
+        numFrames = rdI32(*spline, "numFrames");
+        fd        = rdF32(*spline, "frameDuration");
+        if (numFrames <= 0) return { false, "animation has no frames" };
+        const int   numBlocks         = rdI32(*spline, "numBlocks");
+        const int   maxFramesPerBlock = rdI32(*spline, "maxFramesPerBlock");
+        const int   maskAndQuant      = rdI32(*spline, "maskAndQuantizationSize");
+        const auto& dataRaw = spline->FieldRef("data").raw;
+        const auto& boRaw   = spline->FieldRef("blockOffsets").raw;
+        std::vector<std::uint32_t> blockOffsets(boRaw.size() / 4);
+        if (!blockOffsets.empty()) std::memcpy(blockOffsets.data(), boRaw.data(), blockOffsets.size() * 4);
+        const bool ok = DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
+                                     maskAndQuant, blockOffsets.data(), static_cast<int>(blockOffsets.size()),
+                                     numTracks, numFloat, poses, &warn, numFloat > 0 ? &floatVals : nullptr);
+        if (!ok) return { false, "spline decode failed (bounds/format mismatch)" };
+    } else if (animClass == "hkaInterleavedUncompressedAnimation") {
+        // transforms: hkArray<hkQsTransform>, 48 B each (translation vec4 | rotation quat xyzw | scale
+        // vec4), frame-major. floats: hkArray<float>, frame-major. numFrames = transforms / numTracks;
+        // frames span [0, duration] so frameDuration = duration/(numFrames-1).
+        const auto&       tr     = spline->FieldRef("transforms").raw;
+        const std::size_t nTrans = tr.size() / 48;
+        if (nTrans == 0 || (nTrans % static_cast<std::size_t>(numTracks)) != 0)
+            return { false, "interleaved: transform count not a multiple of the track count" };
+        numFrames = static_cast<int>(nTrans / static_cast<std::size_t>(numTracks));
+        fd        = (numFrames > 1) ? duration / static_cast<float>(numFrames - 1) : 0.0f;
+        poses.resize(nTrans);
+        for (std::size_t i = 0; i < nTrans; ++i) {
+            float f12[12];
+            std::memcpy(f12, tr.data() + i * 48, 48);
+            DecodedPose& dp = poses[i];
+            dp.t[0] = f12[0]; dp.t[1] = f12[1]; dp.t[2] = f12[2];                     // translation (drop w)
+            dp.q[0] = f12[4]; dp.q[1] = f12[5]; dp.q[2] = f12[6]; dp.q[3] = f12[7];   // rotation x,y,z,w
+            dp.s[0] = f12[8]; dp.s[1] = f12[9]; dp.s[2] = f12[10];                    // scale (drop w)
+        }
+        if (numFloat > 0) {
+            const auto& fl = spline->FieldRef("floats").raw;
+            floatVals.resize(fl.size() / 4);
+            if (!floatVals.empty()) std::memcpy(floatVals.data(), fl.data(), floatVals.size() * 4);
+        }
+    } else {
+        return { false, "unsupported animation class '" + animClass + "' (need spline or interleaved)" };
+    }
 
     std::string skeleton;
     if (binding) skeleton = binding->FieldRef("originalSkeletonName").str;
