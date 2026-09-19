@@ -262,6 +262,34 @@ namespace CB::asdserve {
                 std::string stem = rel.substr(s1 + 1);         // "horse.hkx"
                 if (const auto dot = stem.rfind('.'); dot != std::string::npos) stem.erase(dot);  // "horse"
                 charActorRoot.emplace(stem, root);             // first (base) wins; deltas match anyway
+
+                // Roster additions ALSO live in the character unit's data/animations.yaml — the
+                // location the tagfile+roster refactor moved them to, replacing animationnames/<char>.txt.
+                // The coverage guard MUST read them here too, or every relocated mod animation's set-data
+                // is dropped as "unrostered" (its path-CRC matches no roster entry) and that attack/dodge/
+                // parkour plays the WRONG animation (SkyParkour/HorsePower/BFCO regressions). Union across
+                // bundles, exactly like the animationnames/<char>.txt path above. The list is a simple
+                // single-quoted YAML sequence ("- 'Animations\\X.hkx'"); the file CONTENT keeps its
+                // original case (case matters for the CRC) even though the read path is lowercased.
+                if (const auto ry = rd.read(rel + "/data/animations.yaml")) {
+                    std::istringstream in(*ry);
+                    std::string        line;
+                    auto&              dst = rosterPaths[stem];
+                    while (std::getline(in, line)) {
+                        std::string t = TrimLine(line);
+                        if (t.rfind("- ", 0) == 0)      t = t.substr(2);
+                        else if (!t.empty() && t[0] == '-') t = t.substr(1);
+                        else continue;                                  // not a list item (comment/blank)
+                        t = TrimLine(t);
+                        if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') t = t.substr(1, t.size() - 2);
+                        std::string u;                                  // YAML single-quote unescape ('' -> ')
+                        for (std::size_t i = 0; i < t.size(); ++i) {
+                            if (t[i] == '\'' && i + 1 < t.size() && t[i + 1] == '\'') { u += '\''; ++i; }
+                            else u += t[i];
+                        }
+                        if (!u.empty()) dst.push_back(std::move(u));
+                    }
+                }
             }
         };
 
