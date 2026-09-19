@@ -18,6 +18,7 @@
 
 #include "havok/anim/AnimationDecompiler.h"
 
+#include "havok/anim/AnimDataYaml.h"      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
 #include "havok/anim/SplineDecompressor.h"
 #include "havok/core/BinaryReaderEx.h"
 #include "havok/core/PackFileDeserializer.h"
@@ -249,6 +250,31 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                     y += "        - { time: " + fstr(rdF32(*a, "time")) + ", text: "
                        + dq(a->FieldRef("text").str) + " }\n";
                 }
+            }
+        }
+
+        // AMR annotations -> CB motion field (point 4 / build-time AMR replacement). Collect every
+        // annotation's (time,text) and translate any animmotion/animrotation tags into a `motion:` block,
+        // so the compiler bakes the motion into the adsf and the game's native motion read serves it (no
+        // AMR runtime hook). Vanilla clips carry no AMR tags -> no motion emitted (the base adsf reunion
+        // supplies theirs); a mod's AMR clips get their motion here. Emitted with the same indent as the
+        // base-build reunion (`  motion:` + body +4) so AnimationYamlLoader parses it identically.
+        std::vector<std::pair<float, std::string>> allAnns;
+        for (auto& atObj : annTracks) {
+            auto at = asSO(atObj); if (!at) continue;
+            for (auto& aObj : at->FieldRef("annotations").objs) {
+                auto a = asSO(aObj); if (!a) continue;
+                allAnns.emplace_back(rdF32(*a, "time"), a->FieldRef("text").str);
+            }
+        }
+        if (auto mr = havok::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration))) {
+            const std::string body = havok::animdata::EmitMotionSidecar(*mr);
+            y += "  motion:\n";
+            for (std::size_t p = 0; p < body.size();) {
+                const std::size_t nl = body.find('\n', p);
+                const std::string line = body.substr(p, nl == std::string::npos ? std::string::npos : nl - p);
+                if (!line.empty()) y += "    " + line + "\n";
+                p = (nl == std::string::npos) ? body.size() : nl + 1;
             }
         }
     }

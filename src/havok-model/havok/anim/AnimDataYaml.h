@@ -11,8 +11,10 @@
 #include "havok/anim/AnimationData.h"
 
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace havok::animdata {
@@ -44,6 +46,16 @@ namespace havok::animdata {
     // One motion record -> sidecar YAML. Carries duration + translation/rotation VERBATIM; drops
     // animIndex (the sidecar's PATH is the animation key, the index is a per-project bind).
     std::string EmitMotionSidecar(const MotionRecord& m);
+
+    // AMR (Animation Motion Revolution) annotations -> a CB MotionRecord (point 4 / the build-time AMR
+    // replacement). AMR encodes root motion as animation annotations: "animmotion <x> <y> <z>" (cumulative
+    // root position, game units) and "animrotation <yawDeg>" (cumulative yaw, degrees). Translate them to
+    // the motion field (translations "t x y z"; rotations "t x y z w" via AMR's yaw->quat: roll=pitch=0,
+    // w=cos(yaw/2), z=sin(yaw/2)) so the compiler bakes the motion into the adsf and the game's NATIVE
+    // (unhooked) motion read serves it — no AMR runtime hook. Scans all (time,text) annotation entries;
+    // returns nullopt when none are AMR motion tags (e.g. vanilla clips / MorphFace payloads).
+    std::optional<MotionRecord> MotionFromAmrAnnotations(
+        const std::vector<std::pair<float, std::string>>& annotations, const std::string& duration);
 
     // sidecar YAML -> one motion record (animIndex left empty; the caller binds it from the roster
     // position). Never throws — malformed input leaves `err` set and returns what parsed.
