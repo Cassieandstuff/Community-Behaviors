@@ -716,6 +716,9 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                    : "Schema: Havok/ not loaded (" + schemaErr + ") — using the typed delta path.");
 
     const fs::path plugins = outDir / "community_behaviors" / "plugins";
+    // MO2-PROFILE (single-bundle) mode ships one merged bundle; every leg routes into it. (Definition
+    // hoisted here so the loose-derive / char-file legs above the bundle grouping can use it too.)
+    const std::string kPandora = "Pandora";
 
     // ── PIECE 1: package each enabled mod's loose animations into its own <modName>.hky as attributed
     // native units, the per-mod sibling of BuildBaseBundle's animation leg. Only in the MO2-attributed
@@ -1013,7 +1016,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     //     this, serving a compiled character would DROP the replacing mod's roster.
     bool charFilesAny = false;
     if (!charTemplates.empty()) {
-        const fs::path cfBundle = plugins / "CharacterFiles.hky";
+        const fs::path cfBundle = plugins / ((opt.singleBundle ? kPandora : std::string("CharacterFiles")) + ".hky");
         for (const auto& rel : charTemplates) {
             std::error_code we;
             const fs::path winner = dataDir / "meshes" / fs::path(rel);
@@ -1175,7 +1178,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 // Owning mod for this precompiled prefix (top-priority shipper), else anonymous.
                 const auto pm = prefixToMod.find(ToLower(fs::path(u.prefix).generic_string()));
                 const bool        attributed = pm != prefixToMod.end();
-                const std::string bname      = attributed ? pm->second : std::string("BehaviorFiles");
+                const std::string bname      = opt.singleBundle ? kPandora : (attributed ? pm->second : std::string("BehaviorFiles"));
                 const fs::path    outBundle  = plugins / (bname + ".hky");
 
                 // Base numbering ORACLE for the derive: the delta's matched ids must equal the SHIPPED
@@ -1289,6 +1292,29 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         auto it = bundleCodes.find(bn);
         if (it == bundleCodes.end()) { bundleOrder.push_back(bn); bundleCodes.emplace(bn, std::vector<std::string>{ code }); }
         else it->second.push_back(code);
+    }
+
+    // MO2-PROFILE mode: collapse EVERY code into one "Pandora" bundle, ordered by MO2 priority with the
+    // WINNER LAST — ConvertModDelta applies patches in list order and later overrides earlier, and MO2's
+    // top entry (priority rank 0) is the winner, so it must merge last. Un-attributed codes (no owning
+    // mod) sort first (lowest precedence). This turns the per-bundle loop below into a single unified
+    // delta per graph; the loose-derive / char-file / FNIS legs also route into Pandora.hky (below).
+    if (opt.singleBundle) {
+        constexpr int kNoPri = 1 << 30;
+        auto priOf = [&](const std::string& c) -> int {
+            const auto m = codeToMod.find(ToLower(c));
+            if (m == codeToMod.end()) return kNoPri;
+            const auto p = bundlePriority.find(m->second);
+            return p == bundlePriority.end() ? kNoPri : p->second;
+        };
+        std::vector<std::string> all;
+        for (const auto& code : codes) if (!excludedCodes.count(ToLower(code))) all.push_back(code);
+        std::stable_sort(all.begin(), all.end(), [&](const std::string& a, const std::string& b) { return priOf(a) > priOf(b); });
+        bundleOrder = { kPandora };
+        bundleCodes.clear();
+        bundleCodes[kPandora] = std::move(all);
+        say("Pandora mode: merging " + std::to_string(bundleCodes[kPandora].size()) +
+            " code(s) into one Pandora.hky (MO2 order, winner last).");
     }
 
     auto codeDirOf = [&](const std::string& c) { return dataDir / "Nemesis_Engine" / "mod" / c; };
@@ -1582,14 +1608,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (fs::is_directory(animDir, ec)) {
             say("");
             say("== FNIS ==");
-            const fs::path fnisBundle = plugins / "FNIS.hky";
+            const fs::path fnisBundle = plugins / ((opt.singleBundle ? kPandora : std::string("FNIS")) + ".hky");
             auto fnisResult = CommunityBehaviors::fnis::ConvertFnis(
                 { animDir }, "character", { "defaultmale", "defaultfemale" }, fnisBundle,
                 [&](const std::string& s) { say("  " + s); });
             if (fnisResult.ok && fnisResult.animCount > 0) {
                 r.fnisAnims  = static_cast<int>(fnisResult.animCount);
                 r.fnisEvents = static_cast<int>(fnisResult.eventCount);
-                emitted.push_back("FNIS");
+                if (!opt.singleBundle) emitted.push_back("FNIS");
                 say("  FNIS.hky: " + std::to_string(fnisResult.animCount) + " anim(s), " +
                     std::to_string(fnisResult.eventCount) + " event(s), " +
                     std::to_string(fnisResult.varCount) + " var(s).");
@@ -1599,6 +1625,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             }
             for (const auto& w : fnisResult.warnings) say("    FNIS: " + w);
         }
+    }
+
+    // MO2-PROFILE: every leg routed into Pandora.hky, so the load order / manifests are just that one
+    // bundle. Override the per-mod `emitted` list (which may have collected CharacterFiles/BehaviorFiles/
+    // precompiled names) with the single Pandora bundle iff it actually got content.
+    if (opt.singleBundle) {
+        emitted.clear();
+        if (fs::is_directory(plugins / (kPandora + ".hky"), ec)) emitted.push_back(kPandora);
     }
 
     // 3b) animationnames/ -> character-unit data/animations.yaml (Phase 1 retirement) — the set-data
@@ -1712,11 +1746,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     say("");
     say("== Manifests ==");
     int manifests = 0;
-    if (charFilesAny) {
+    if (charFilesAny && !opt.singleBundle) {
         WriteManifest(plugins / "CharacterFiles.hky", "CharacterFiles", "", "", { "Skyrim" });
         ++manifests;
     }
-    if (behFilesAny) {
+    if (behFilesAny && !opt.singleBundle) {
         WriteManifest(plugins / "BehaviorFiles.hky", "BehaviorFiles", "", "", { "Skyrim" });
         ++manifests;
     }

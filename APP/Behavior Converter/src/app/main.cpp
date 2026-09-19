@@ -70,6 +70,7 @@ int main(int argc, char** argv) {
         for (int i = 5; i < argc; ++i) {
             const std::string a = argv[i];
             if (a == "--mo2" && i + 1 < argc)      opt.mo2Instance = argv[++i];
+            else if (a == "--pandora")             opt.singleBundle = true;   // merge the load order into one Pandora.hky
             else if (opt.baseDir.empty() && !a.empty() && a.rfind("--", 0) != 0) opt.baseDir = a;
         }
         std::atomic<bool> cancel{ false };

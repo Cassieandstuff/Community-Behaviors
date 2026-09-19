@@ -27,6 +27,13 @@ struct Options {
     // converter falls back to the un-attributed VFS path (flat <code>.hky + anonymous
     // BehaviorFiles.hky), byte-identical to the pre-discovery behavior.
     std::string mo2Instance;
+
+    // MO2-PROFILE mode: merge the WHOLE load order into ONE Pandora.hky (unified delta per graph, in
+    // MO2 order — later/higher-priority mod wins, matching ConvertModDelta's later-overrides-earlier).
+    // The user ships one bundle and never manages a CB load order; the runtime merge collapses to
+    // base + Pandora.hky (+ CB-native on top). Default false = per-mod bundles (single-mod / author path).
+    // Kept LAST so the positional aggregate-init in ConverterUI (…, mo2Instance) stays valid.
+    bool singleBundle = false;
 };
 
 struct Result {
