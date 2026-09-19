@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace havok::diff {
@@ -157,11 +158,96 @@ std::string ResolveIndices(const std::string& yaml, const VocabRosters& r) {
     return out;
 }
 
-// Read a decompiled tree back into a RecordSet: each *.yaml keyed by its `id:` FIRST LINE
-// (form `id: Class:name`) when present, else by its relative path. Never keyed by filename. When
-// `rosters` is set (behavior domain), raw event/variable indices are resolved to names first.
+// The record's own TOP-LEVEL `class:`/`name:` (column-0 lines only — indented ones belong to nested
+// sub-objects) and the numeric `id:` first line. The stable diff key is `Class:name` when a name exists
+// (survives the #NNNN renumber between two independent compiles), else the numeric id, else the path.
+void deriveKeyAndId(const std::string& content, std::string& key, std::string& ownId) {
+    std::string cls, nm;
+    std::size_t ls = 0;
+    while (ls < content.size()) {
+        std::size_t eol = content.find('\n', ls);
+        const std::string line = content.substr(ls, eol == std::string::npos ? std::string::npos : eol - ls);
+        ls = (eol == std::string::npos) ? content.size() : eol + 1;
+        if (line.rfind("id:", 0) == 0 && ownId.empty()) {
+            std::string v = line.substr(3);
+            const std::size_t b = v.find_first_not_of(" \t\r"), e = v.find_last_not_of(" \t\r");
+            if (b != std::string::npos) ownId = v.substr(b, e - b + 1);
+            continue;
+        }
+        if (line.empty() || line[0] == ' ' || line[0] == '\t' || line[0] == '-') continue;  // top-level only
+        if (cls.empty() && line.rfind("class:", 0) == 0) {
+            std::string v = line.substr(6);
+            const std::size_t b = v.find_first_not_of(" \t\r"), e = v.find_last_not_of(" \t\r");
+            if (b != std::string::npos) cls = v.substr(b, e - b + 1);
+        } else if (nm.empty() && line.rfind("name:", 0) == 0) {
+            nm = nameToken(line);
+        }
+    }
+    if (!cls.empty() && !nm.empty()) key = cls + ":" + nm;
+    else if (!ownId.empty())        key = ownId;
+}
+
+// A field name that holds a NODE REF (a graph edge). Bare ints are ambiguous — `pGenerator: 1325` is a
+// ref but `limitHeadingDegrees: 90` / `startBoneIndex: 35` are scalars that can coincidentally equal a
+// node id — so resolution is gated to ref-named fields only: anything containing "enerator"
+// (generator/pGenerator/pDefaultGenerator/generators) or "odifier" (modifier/pModifier/modifiers). That
+// covers the graph-edge churn that renumbers between compiles without touching scalars/indices/counts.
+bool isRefFieldName(const std::string& name) {
+    return name.find("enerator") != std::string::npos || name.find("odifier") != std::string::npos;
+}
+
+// Rewrite bare-int node refs -> the target's stable Class:name (renumber-immune cross-compile diff).
+// Only ref-named `field: <int>` and bare-int list items `- <int>` under a ref-named container are touched.
+std::string resolveNodeRefs(const std::string& yaml, const std::unordered_map<std::string, std::string>& idToName) {
+    if (idToName.empty()) return yaml;
+    std::string out;
+    out.reserve(yaml.size() + 128);
+    std::string listKey;   // most recent `key:`-with-no-value container (for `- <int>` items)
+    std::size_t i = 0;
+    while (i < yaml.size()) {
+        std::size_t eol = yaml.find('\n', i);
+        std::string line = yaml.substr(i, eol == std::string::npos ? std::string::npos : eol - i);
+        i = (eol == std::string::npos) ? yaml.size() : eol + 1;
+
+        const std::size_t k0 = line.find_first_not_of(" \t");
+        bool resolve = false;
+        std::size_t vpos = std::string::npos;
+        if (k0 != std::string::npos && line[k0] == '-') {
+            // list item: `- <int>` resolves only under a ref-named container.
+            vpos = line.find_first_not_of(" \t", k0 + 1);
+            resolve = isRefFieldName(listKey);
+        } else if (const std::size_t c = line.find(':'); c != std::string::npos && k0 != std::string::npos && k0 < c) {
+            const std::string field = line.substr(k0, c - k0);
+            const std::size_t after = line.find_first_not_of(" \t", c + 1);
+            if (after == std::string::npos) { listKey = field; }   // `key:` container line
+            else { vpos = after; resolve = isRefFieldName(field); }
+        }
+        if (resolve && vpos != std::string::npos) {
+            std::string val = line.substr(vpos);
+            if (const std::size_t e = val.find_last_not_of(" \t\r"); e != std::string::npos) val.resize(e + 1);
+            bool isInt = !val.empty();
+            for (char c : val) if (!std::isdigit(static_cast<unsigned char>(c))) { isInt = false; break; }
+            if (isInt) {
+                const auto it = idToName.find(val);
+                if (it != idToName.end() && it->second != val)
+                    line = line.substr(0, vpos) + it->second;
+            }
+        }
+        out += line;
+        out += '\n';
+    }
+    return out;
+}
+
+// Read a decompiled tree back into a RecordSet. Two passes: (1) key every *.yaml by its stable
+// Class:name (numeric id / path fallback) and build the id->name map; (2) resolve node refs + roster
+// indices to names and drop the volatile top-level id line, so the compared body is renumber-immune.
 void ReadTreeAsRecordSet(const fs::path& root, RecordSet& rs, const VocabRosters* rosters = nullptr) {
     std::error_code ec;
+    struct Rec { std::string key, content; };
+    std::vector<Rec> recs;
+    std::unordered_map<std::string, std::string> idToName;   // ownId (#NNNN) -> Class:name key
+
     for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
         if (!it->is_regular_file(ec)) continue;
         const fs::path& p = it->path();
@@ -171,18 +257,22 @@ void ReadTreeAsRecordSet(const fs::path& root, RecordSet& rs, const VocabRosters
         std::ifstream f(p, std::ios::binary);
         if (!f) continue;
         std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        std::string key;
-        // First line `id: <...>` -> the stable editorID; else fall back to the relative path.
-        if (content.rfind("id:", 0) == 0) {
-            std::size_t eol = content.find('\n');
-            std::string first = content.substr(0, eol == std::string::npos ? content.size() : eol);
-            std::string v = first.substr(3);
-            std::size_t b = v.find_first_not_of(" \t\r");
-            std::size_t e = v.find_last_not_of(" \t\r");
-            if (b != std::string::npos) key = v.substr(b, e - b + 1);
-        }
+        std::string key, ownId;
+        deriveKeyAndId(content, key, ownId);
         if (key.empty()) key = fs::relative(p, root, ec).generic_string();
-        rs[key] = rosters ? ResolveIndices(content, *rosters) : std::move(content);
+        if (!ownId.empty()) idToName[ownId] = key;
+        recs.push_back({ std::move(key), std::move(content) });
+    }
+
+    for (auto& r : recs) {
+        std::string body = r.content;
+        if (body.rfind("id:", 0) == 0) {   // drop the volatile top-level #NNNN id line
+            const std::size_t nl = body.find('\n');
+            body = (nl == std::string::npos) ? std::string{} : body.substr(nl + 1);
+        }
+        if (rosters) body = ResolveIndices(body, *rosters);
+        body = resolveNodeRefs(body, idToName);
+        rs[r.key] = std::move(body);
     }
 }
 
