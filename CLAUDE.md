@@ -106,6 +106,15 @@ toolchain versions **even when the content is identical**, so a byte-diff of pac
   two-point cross-build diff (`diff -rq previous current`) is always ready with no manual bookkeeping.
   The regen's kept-unpacked tree honors the same env var.
 
+## Scratch outputs go under `D:\CB-tmp` (directive)
+
+Any offline scratch output that must live on a **SHORT** path to dodge Windows MAX_PATH — hky unpacks,
+diff trees, merge/canary outputs, temp conversion targets, analysis dumps — goes in a **new named
+subfolder** under `D:\CB-tmp\` (e.g. `D:\CB-tmp\1hm-scan\`), never straight onto the `D:\` root. Keep
+each run's output in its own subfolder so it's self-identifying and easy to sweep. Do NOT scatter
+`D:\rc`, `D:\co`, `D:\u`-style roots at the drive top level. (Session-private junk with no MAX_PATH need
+still belongs in the session scratchpad dir.)
+
 ## Correctness gates
 
 - **Schema vs typed** — `havok-core-cli` byte-diffs the schema-driven emit against the typed oracle.
