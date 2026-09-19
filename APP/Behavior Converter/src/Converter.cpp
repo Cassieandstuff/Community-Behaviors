@@ -700,7 +700,7 @@ std::string JsonEscape(const std::string& s) {
 // than a faked number. Overwrites any existing file.
 void WriteManifest(const fs::path& bundleDir, const std::string& name,
                    const std::string& version, const std::string& author,
-                   const std::vector<std::string>& masters) {
+                   const std::vector<std::string>& masters, bool compileAnimations = false) {
     std::error_code ec;
     fs::create_directories(bundleDir, ec);
     std::ofstream f(bundleDir / "manifest.json", std::ios::binary | std::ios::trunc);
@@ -709,6 +709,10 @@ void WriteManifest(const fs::path& bundleDir, const std::string& name,
     f << "  \"name\": \""    << JsonEscape(name)    << "\",\n";
     f << "  \"version\": \"" << JsonEscape(version) << "\",\n";
     f << "  \"author\": \""  << JsonEscape(author)  << "\",\n";
+    // OPT-IN animation compile (default false): CB conversions never compile animations — the
+    // animations ride along only to donate root motion to the adsf. An author who ships animations
+    // that MUST compile (True Cinematics) sets this true in their bundle's manifest.
+    f << "  \"compile_animations\": " << (compileAnimations ? "true" : "false") << ",\n";
     f << "  \"masters\": [";
     for (std::size_t i = 0; i < masters.size(); ++i) {
         if (i) f << ", ";

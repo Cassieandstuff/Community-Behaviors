@@ -71,6 +71,7 @@ namespace CB {
         if (auto it = j.find("author");      it != j.end()) m.author      = AsString(*it);
         if (auto it = j.find("description"); it != j.end()) m.description = AsString(*it);
         if (auto it = j.find("light"); it != j.end() && it->is_boolean()) m.light = it->get<bool>();
+        if (auto it = j.find("compile_animations"); it != j.end() && it->is_boolean()) m.compileAnimations = it->get<bool>();
         if (auto it = j.find("masters"); it != j.end() && it->is_array())
             for (const auto& e : *it)
                 if (std::string s = AsString(e); !s.empty()) m.masters.push_back(std::move(s));

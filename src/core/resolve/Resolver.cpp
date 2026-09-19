@@ -462,11 +462,21 @@ namespace CB {
                              mf.author.empty()  ? std::string("?") : mf.author,
                              masters.empty() ? std::string() : (" — masters: " + masters));
                 };
+                // OPT-IN animation compile: only bundles whose manifest sets compile_animations=true get
+                // their native animations collected for compile (default false — Skyrim.hky + conversions
+                // skip it; those animations exist only to feed adsf root motion, reunited at build time).
+                // The recompiled natives currently stage to a dead-end CBanims/ dir (unserved), so for a
+                // non-compile bundle this simply skips ~thousands of startup compiles. Retires the old
+                // hardcoded gate.
+                bool bundleCompileAnims = false;
                 {
                     std::vector<std::string> mfWarn;
                     BundleManifest mf = BundleManifest::Load(bundle, bundle.stem().string(), mfWarn);
                     for (const auto& w : mfWarn) LOG_WARN("Resolver: manifest — {}", w);
                     logManifest(mf);
+                    bundleCompileAnims = mf.compileAnimations;
+                    if (bundleCompileAnims)
+                        LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", plugName);
                     m_manifests.emplace(plugName, std::move(mf));
                 }
 
@@ -481,7 +491,7 @@ namespace CB {
                     // "<name>.hkx" DIR is a unit (handled below); is_regular_file distinguishes them.
                     // The "/animations/" pre-check skips binary .hkx elsewhere in the tree (e.g. the
                     // skeleton physics source) so we don't read them; collectNativeAnim re-guards it.
-                    if (std::error_code rfe; ui->is_regular_file(rfe)) {
+                    if (std::error_code rfe; bundleCompileAnims && ui->is_regular_file(rfe)) {
                         const std::string relOrig = ui->path().lexically_relative(bundle).generic_string();
                         const std::string relLow  = ToLower(relOrig);
                         if (relLow.size() >= 4 && relLow.compare(relLow.size() - 4, 4, ".hkx") == 0 &&
@@ -624,7 +634,7 @@ namespace CB {
                     // a single-file compile target). filesUnder (normalized) + filesUnderOrig (original
                     // case) walk the SAME ordered range, so index i aligns — read by the normalized key,
                     // name by the original; collectNativeAnim guards the meshes/actors/.../animations/ path.
-                    {
+                    if (bundleCompileAnims) {
                         const auto norm = arc->filesUnder("meshes/");
                         const auto orig = arc->filesUnderOrig("meshes/");
                         for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i) {

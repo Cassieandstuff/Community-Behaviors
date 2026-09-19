@@ -32,6 +32,14 @@ namespace CB {
         bool                     light   = false; // ESL-analog; reserved for future FormID compaction
         bool                     present = false; // a manifest.json actually existed AND parsed
 
+        // OPT-IN animation compile ("compile_animations", default false). When true, this bundle's
+        // native animations are compiled (and, once the in-memory serve lands, served) — for authored
+        // animations that MUST compile to work (True Cinematics). When false (the default — Skyrim.hky
+        // and every conversion), the bundle's animations are NOT compiled/served; they exist only to
+        // donate root motion to the adsf (reunited at build time). The gate is per-bundle DATA, not a
+        // build-time constant (retires Converter's kGatePerModAnimations).
+        bool                     compileAnimations = false;
+
         // The editor <-> compiler contract stamp (see Havok/SCHEMA.yaml + the schema-version-stamp
         // scheme). Whoever produced this bundle (BR's own compiler, or a third-party editor) copies
         // these in; the compiler gates ingest on schemaVersion.
