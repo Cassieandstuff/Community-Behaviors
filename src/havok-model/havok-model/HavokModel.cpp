@@ -324,6 +324,10 @@ std::string refIdOf(const std::shared_ptr<IHavokObject>& p, const Identity& id) 
         if (const auto* so = dynamic_cast<const io::SchemaObject*>(p.get())) {
             const io::FieldValue* nf = fieldByName(*so, "name");
             if (nf && !nf->str.empty()) return std::string(so->ClassName()) + ":" + nf->str;
+            // Unnamed target: use a secondary identity that is stable across compiles. A clip has no
+            // name but its animationName is unique+stable, so a ref to an unnamed clip still aligns.
+            if (const io::FieldValue* an = fieldByName(*so, "animationName"); an && !an->str.empty())
+                return std::string(so->ClassName()) + ":@" + an->str;
         }
     }
     auto it = id.ids.find(p.get());

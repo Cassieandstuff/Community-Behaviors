@@ -335,11 +335,15 @@ DiffPolicy BehaviorPolicy() {
     // Bindings: match by memberPath and field-diff, but binding ORDER is not significant (no reorder report).
     p.unorderedKeyedArrays["bindings"]          = {"memberPath"};
     // graphdata vocab: CB and Pandora order the rosters differently; match by name, not position.
-    p.unorderedKeyedArrays["variables"]         = {"name"};
-    p.unorderedKeyedArrays["events"]            = {"name"};
+    p.unorderedKeyedArrays["variables"]              = {"name"};
+    p.unorderedKeyedArrays["events"]                 = {"name"};
+    p.unorderedKeyedArrays["characterPropertyNames"] = {"name"};   // same roster churn — match by name (flags/type per name)
     // Notify-event arrays: match by the fired event; firing order is not significant.
     p.unorderedKeyedArrays["enterNotifyEvents"] = {"event"};
     p.unorderedKeyedArrays["exitNotifyEvents"]  = {"event"};
+    // A state machine's states list is addressed by stateId, not list position — order carries no
+    // meaning. Elements are stateInfo refs (rendered as Class:name), so compare as a name multiset.
+    p.multisetArrays.insert("states");
     // Volatile index fields: skipped when the companion name line agrees on both sides. `id` covers a
     // notify event's raw event index (it carries a companion `event:` name).
     p.volatileIndexFields = { {"eventId", "event"}, {"variableIndex", "variable"}, {"id", "event"} };
