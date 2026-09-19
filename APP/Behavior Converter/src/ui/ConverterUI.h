@@ -26,8 +26,12 @@ public:
 
 private:
     void DrawConverterTab();           // the conversion UI (the "Converter" tab body)
+    void DrawPandoraTab();             // the "Pandora Order" tab: mod->codes tree in Pandora order + conflicts
     void DrawDiffTab();                // the "Diff" tab: the record-keyed tree-diff tool (cb-tree-diff)
     void DrawDebugTab();               // the "Debug" tab: plugin debug flags auto-enumerated from DebugFlags.h
+    void RefreshPandora();             // (re)run AnalyzePandoraOrder + rebuild the rows (apply saved order)
+    void LoadPandoraOrderFile();       // <exe>/pandora_order.txt -> m_pandoraModOrder
+    void SavePandoraOrderFile();       // m_pandoraModOrder -> <exe>/pandora_order.txt
     void StartConvert();
     void StartDiff();                  // run RunTreeDiff on m_diffWorker
     void AppendLog(std::string line);
@@ -87,4 +91,21 @@ private:
     std::mutex               m_diffLogMx;
     std::vector<std::string> m_diffLog;   // shared with the diff worker (guarded by m_diffLogMx)
     bool                     m_diffAutoscroll = true;
+
+    // ── Pandora Order tab state ───────────────────────────────────────────────────────────────
+    // One row per owning mod (its codes grouped), in display order (index 0 = TOP = winner = Pandora
+    // priority 1). The persisted m_pandoraModOrder (mod names, top first) overrides Pandora's order on
+    // convert; empty = pure Pandora/scan order. Conflict flags come from AnalyzePandoraOrder.
+    struct PandoraModRow {
+        std::string              mod;        // owning mod name (or a code when unattributed)
+        std::vector<std::string> codes;      // its codes, Pandora order
+        bool                     conflict = false;
+        std::string              tip;        // hover: graphs it collides on + winners
+    };
+    std::vector<PandoraModRow> m_pandoraRows;        // current display order (editable)
+    std::vector<std::string>   m_pandoraModOrder;    // persisted override (pandora_order.txt)
+    bool                       m_pandoraFromPandora = false;  // order seeded from ActiveMods.json?
+    bool                       m_pandoraLoaded = false;       // analysis run at least once?
+    std::string                m_pandoraMsg;                  // status line (source / save result)
+    int                        m_pandoraConflictGraphs = 0;
 };

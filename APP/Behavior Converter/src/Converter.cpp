@@ -297,6 +297,68 @@ std::vector<PandoraModEntry> LoadPandoraOrder(const fs::path& dataDir) {
     return out;
 }
 
+// Conflict pre-scan (shared by the conversion + the Pandora Order UI so they never drift). Given the
+// resolved merge order (WINNER LAST), walk each code's behavior-graph patch dirs and report where order
+// matters: per graph, the codes touching it and the base nodes (#NNNN, not #code$N new nodes) that 2+
+// codes override — the order-sensitive collisions. `winner` = the collider latest in the merge order.
+std::vector<PandoraGraphConflict> ScanGraphConflicts(const fs::path& dataDir,
+                                                     const std::vector<std::string>& mergeOrder) {
+    std::unordered_map<std::string, int> rank;
+    for (int i = 0; i < (int)mergeOrder.size(); ++i) rank[mergeOrder[i]] = i;
+
+    std::map<std::string, std::map<std::string, std::vector<std::string>>> nodeHits;  // graph->node->codes
+    std::map<std::string, std::vector<std::string>>                        codesByGraph;
+
+    auto scanGraphDir = [&](const std::string& code, const fs::path& gdir, const std::string& gname) {
+        std::error_code se;
+        bool touched = false;
+        for (fs::directory_iterator it(gdir, se), end; !se && it != end; it.increment(se)) {
+            if (!it->is_regular_file()) continue;
+            const std::string fn = it->path().filename().string();
+            if (fn.size() < 6 || fn[0] != '#' || it->path().extension() != ".txt") continue;
+            touched = true;
+            const std::string id = fn.substr(1, fn.size() - 5);   // strip '#' and ".txt"
+            if (!id.empty() && id.find('$') == std::string::npos &&
+                std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isdigit(c); }))
+                nodeHits[gname][id].push_back(code);
+        }
+        if (touched) codesByGraph[gname].push_back(code);
+    };
+
+    for (const auto& code : mergeOrder) {
+        const fs::path cd = dataDir / "Nemesis_Engine" / "mod" / code;
+        std::error_code se;
+        for (fs::directory_iterator it(cd, se), end; !se && it != end; it.increment(se)) {
+            if (!it->is_directory()) continue;
+            const std::string sub  = it->path().filename().string();
+            const std::string subl = ToLower(sub);
+            if (subl == "animationsetdatasinglefile" || subl == "animationdatasinglefile") continue;
+            if (subl == "_1stperson") {
+                for (fs::directory_iterator jt(it->path(), se), jend; !se && jt != jend; jt.increment(se))
+                    if (jt->is_directory())
+                        scanGraphDir(code, jt->path(), "_1stperson/" + jt->path().filename().string());
+            } else {
+                scanGraphDir(code, it->path(), sub);
+            }
+        }
+    }
+
+    std::vector<PandoraGraphConflict> out;
+    for (const auto& [g, codesV] : codesByGraph) {
+        if (codesV.size() < 2) continue;
+        PandoraGraphConflict gc; gc.graph = g; gc.codes = codesV;
+        int best = -1;
+        for (const auto& [node, hits] : nodeHits[g]) {
+            if (hits.size() < 2) continue;
+            ++gc.nodeCollisions;
+            for (const auto& c : hits) { const int r = rank.count(c) ? rank[c] : -1; if (r > best) { best = r; gc.winner = c; } }
+        }
+        if (gc.winner.empty()) gc.winner = codesV.back();
+        out.push_back(std::move(gc));
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------------------------
 // MO2-attributed discovery — find, per INSTALLED mod, both loose-behavior legs:
 //   (A) its Nemesis code dir(s):     <mod>/Nemesis_Engine/mod/<code>/
@@ -685,6 +747,73 @@ NemesisInfo ReadNemesisInfo(const fs::path& codeDir) {
 }
 
 }  // namespace
+
+// Read-only analysis of the active Pandora load order (for the Pandora Order tab). Uses the SAME
+// helpers as the conversion (ScanCodes / LoadPandoraOrder / ScanGraphConflicts) so the tab's order +
+// conflicts match what a convert will actually do. Owning-mod grouping + engine exclusion come from the
+// MO2 instance when given (cosmetic — never affects order); without it, codes are ungrouped.
+PandoraAnalysis AnalyzePandoraOrder(const std::string& dataDirS, const std::string& mo2InstanceS) {
+    PandoraAnalysis out;
+    const fs::path dataDir = dataDirS;
+    const std::vector<std::string> codes = ScanCodes(dataDir);
+
+    const std::vector<PandoraModEntry> pandora = LoadPandoraOrder(dataDir);
+    out.fromPandora = !pandora.empty();
+    std::unordered_map<std::string, int> pri;          // code(lower) -> priority (1 = winner)
+    std::unordered_set<std::string>      inactive;
+    for (const auto& pe : pandora) {
+        if (pe.active) pri[ToLower(pe.code)] = pe.priority;
+        else           inactive.insert(ToLower(pe.code));
+    }
+
+    // code -> owning mod + engine codes, from the MO2 instance's mods/ (optional, cosmetic).
+    std::unordered_map<std::string, std::string> codeMod;
+    std::unordered_set<std::string>              engineCodes;
+    if (!mo2InstanceS.empty()) {
+        std::error_code se;
+        const fs::path mods = fs::path(mo2InstanceS) / "mods";
+        if (fs::is_directory(mods, se))
+            for (fs::directory_iterator it(mods, se), end; !se && it != end; it.increment(se)) {
+                if (!it->is_directory()) continue;
+                const fs::path nem = it->path() / "Nemesis_Engine" / "mod";
+                std::error_code e2;
+                if (!fs::is_directory(nem, e2)) continue;
+                const bool eng = IsEngineMod(it->path());
+                for (fs::directory_iterator ct(nem, e2), cend; !e2 && ct != cend; ct.increment(e2))
+                    if (ct->is_directory()) {
+                        const std::string c = ToLower(ct->path().filename().string());
+                        codeMod.emplace(c, it->path().filename().string());
+                        if (eng) engineCodes.insert(c);
+                    }
+            }
+    }
+
+    // Display order = winner (priority 1) FIRST; unranked codes last (scan order). Skip inactive + engine.
+    std::vector<std::string> disp;
+    for (const auto& c : codes) {
+        const std::string cl = ToLower(c);
+        if (inactive.count(cl) || engineCodes.count(cl)) continue;
+        disp.push_back(c);
+    }
+    constexpr int kAbsent = 1 << 30;
+    auto priOf = [&](const std::string& c) { const auto it = pri.find(ToLower(c)); return it == pri.end() ? kAbsent : it->second; };
+    std::stable_sort(disp.begin(), disp.end(), [&](const std::string& a, const std::string& b) { return priOf(a) < priOf(b); });
+    for (const auto& c : disp) {
+        PandoraCodeInfo pc;
+        pc.code = c;
+        const auto m = codeMod.find(ToLower(c));
+        pc.owningMod = (m != codeMod.end()) ? m->second : "";
+        const int p = priOf(c);
+        pc.priority = (p == kAbsent) ? 0 : p;
+        pc.active = true;
+        out.codes.push_back(std::move(pc));
+    }
+
+    // Conflicts against the merge order (winner LAST = reverse of display).
+    std::vector<std::string> mergeOrder(disp.rbegin(), disp.rend());
+    out.conflicts = ScanGraphConflicts(dataDir, mergeOrder);
+    return out;
+}
 
 // Per-mod animation packaging (piece 1). Defined below BuildBaseBundle (needs PeekHkxKind/HkxKind/
 // BakeAnimationUnit); forward-declared here so ConvertLoadOrder can call it.
@@ -1383,6 +1512,29 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         } else {
             say("Pandora mode: no ActiveMods.json — using scan order (winner last). Tune it in the UI.");
         }
+
+        // User override (Pandora Order tab): reorder by the tuned MOD order (top = winner). Group each
+        // code under its owning mod and sort the groups so the winning mod merges LAST; codes keep their
+        // Pandora order WITHIN a mod (stable). Codes whose mod isn't in the list (or is unattributed)
+        // sort first (lowest precedence). Needs MO2 attribution (codeToMod); no-op without it.
+        if (!opt.pandoraModOrder.empty() && !codeToMod.empty()) {
+            std::unordered_map<std::string, int> modRank;   // mod(lower) -> user rank (0 = top = winner)
+            for (int i = 0; i < (int)opt.pandoraModOrder.size(); ++i)
+                modRank[ToLower(opt.pandoraModOrder[i])] = i;
+            constexpr int kUnranked = 1 << 30;              // mod not in the user list -> merges first
+            auto modRankOf = [&](const std::string& c) -> int {
+                const auto m = codeToMod.find(ToLower(c));
+                if (m == codeToMod.end()) return kUnranked;
+                const auto r = modRank.find(ToLower(m->second));
+                return r == modRank.end() ? kUnranked : r->second;
+            };
+            // winner (rank 0) merges LAST -> sort by rank DESCENDING; stable keeps within-mod Pandora order.
+            std::stable_sort(all.begin(), all.end(),
+                             [&](const std::string& a, const std::string& b) { return modRankOf(a) > modRankOf(b); });
+            say("Pandora mode: applied user mod order (" + std::to_string(opt.pandoraModOrder.size()) +
+                " mod(s) from the Pandora Order tab, winner last).");
+        }
+
         bundleOrder = { kPandora };
         bundleCodes.clear();
         bundleCodes[kPandora] = std::move(all);
@@ -1391,74 +1543,17 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         { std::string seq; for (const auto& c : bundleCodes[kPandora]) { if (!seq.empty()) seq += " "; seq += c; }
           say("Pandora mode: merge order (first loses, LAST wins): " + seq); }
 
-        // ── Conflict pre-scan (Increment 2) ──────────────────────────────────────────────────
-        // Where does merge ORDER actually matter? Only where two codes touch the SAME graph — and it
-        // BITES where they override the SAME base node (a numeric #NNNN, not a mod's own #code$N new
-        // node): the later code in merge order wins that node (ConvertModDelta later-overrides-earlier).
-        // Enumerate, per graph, which codes patch it and which base nodes 2+ codes override; the WINNER
-        // is the collider latest in the merge order. Logged now; the tree UI (Increment 3) surfaces
-        // these as flags. `graph` is the code-relative behavior dir ("1hm_behavior",
-        // "_1stperson/1hm_behavior"); set-data/anim-data (their own union rules) are excluded.
-        const std::vector<std::string>& mergeOrder = bundleCodes[kPandora];
-        std::unordered_map<std::string, int> rank;                 // code -> merge position (higher = wins)
-        for (int i = 0; i < (int)mergeOrder.size(); ++i) rank[mergeOrder[i]] = i;
-
-        std::map<std::string, std::map<std::string, std::vector<std::string>>> nodeHits;  // graph -> node -> codes
-        std::map<std::string, std::vector<std::string>>                        codesByGraph;
-
-        auto scanGraphDir = [&](const std::string& code, const fs::path& gdir, const std::string& gname) {
-            std::error_code se;
-            bool touched = false;
-            for (fs::directory_iterator it(gdir, se), end; !se && it != end; it.increment(se)) {
-                if (!it->is_regular_file()) continue;
-                const std::string fn = it->path().filename().string();
-                if (fn.size() < 6 || fn[0] != '#' || it->path().extension() != ".txt") continue;
-                touched = true;
-                const std::string id = fn.substr(1, fn.size() - 5);           // strip '#' and ".txt"
-                if (!id.empty() && id.find('$') == std::string::npos &&
-                    std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isdigit(c); }))
-                    nodeHits[gname][id].push_back(code);                        // override of a base node
-            }
-            if (touched) codesByGraph[gname].push_back(code);
-        };
-
-        for (const auto& code : mergeOrder) {
-            const fs::path cd = dataDir / "Nemesis_Engine" / "mod" / code;
-            std::error_code se;
-            for (fs::directory_iterator it(cd, se), end; !se && it != end; it.increment(se)) {
-                if (!it->is_directory()) continue;
-                const std::string sub  = it->path().filename().string();
-                const std::string subl = ToLower(sub);
-                if (subl == "animationsetdatasinglefile" || subl == "animationdatasinglefile") continue;
-                if (subl == "_1stperson") {
-                    for (fs::directory_iterator jt(it->path(), se), jend; !se && jt != jend; jt.increment(se))
-                        if (jt->is_directory())
-                            scanGraphDir(code, jt->path(), "_1stperson/" + jt->path().filename().string());
-                } else {
-                    scanGraphDir(code, it->path(), sub);
-                }
-            }
-        }
-
-        int conflictGraphs = 0, nodeCollisions = 0;
-        std::vector<std::string> lines;
-        for (const auto& [g, codesV] : codesByGraph) {
-            if (codesV.size() < 2) continue;
-            ++conflictGraphs;
-            int gNodeColl = 0; std::string winner; int best = -1;
-            for (const auto& [node, hits] : nodeHits[g]) {
-                if (hits.size() < 2) continue;
-                ++gNodeColl; ++nodeCollisions;
-                for (const auto& c : hits) { const int r = rank.count(c) ? rank[c] : -1; if (r > best) { best = r; winner = c; } }
-            }
-            std::string cs; for (const auto& c : codesV) { if (!cs.empty()) cs += ", "; cs += c; }
-            lines.push_back("  " + g + ": " + std::to_string(codesV.size()) + " codes [" + cs + "]" +
-                            (gNodeColl ? " — " + std::to_string(gNodeColl) + " overridden node(s), winner '" +
-                             (winner.empty() ? codesV.back() : winner) + "'" : " — no node-override overlap"));
-        }
-        say("Conflict scan: " + std::to_string(conflictGraphs) + " graph(s) touched by 2+ codes, " +
+        // Conflict pre-scan (Increment 2) — where merge order matters. Shared helper (also the UI's).
+        const auto conflicts = ScanGraphConflicts(dataDir, bundleCodes[kPandora]);
+        int nodeCollisions = 0; for (const auto& c : conflicts) nodeCollisions += c.nodeCollisions;
+        say("Conflict scan: " + std::to_string(conflicts.size()) + " graph(s) touched by 2+ codes, " +
             std::to_string(nodeCollisions) + " base-node override collision(s) (order-sensitive).");
-        for (const auto& l : lines) say(l);
+        for (const auto& c : conflicts) {
+            std::string cs; for (const auto& x : c.codes) { if (!cs.empty()) cs += ", "; cs += x; }
+            say("  " + c.graph + ": " + std::to_string(c.codes.size()) + " codes [" + cs + "]" +
+                (c.nodeCollisions ? " — " + std::to_string(c.nodeCollisions) + " overridden node(s), winner '" +
+                 c.winner + "'" : " — no node-override overlap"));
+        }
     }
 
     auto codeDirOf = [&](const std::string& c) { return dataDir / "Nemesis_Engine" / "mod" / c; };

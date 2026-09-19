@@ -17,6 +17,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <set>
 
 namespace fs = std::filesystem;
 
@@ -130,6 +132,7 @@ ConverterUI::ConverterUI() {
     m_baseDir       = (exe / "base").string();
     m_stagingDir    = (exe / "staging").string();
     LoadSettings();   // override m_dataDir / m_zipDir from sct_converter.ini if present
+    LoadPandoraOrderFile();   // <exe>/pandora_order.txt -> m_pandoraModOrder (Pandora Order tab override)
 }
 
 std::string ConverterUI::BrLoadOrderPath() const {
@@ -193,8 +196,9 @@ void ConverterUI::StartConvert() {
     { std::lock_guard<std::mutex> lk(m_logMx); m_log.clear(); m_zipMsg.clear(); }
     SaveSettings();
     m_cancel = false; m_running = true; m_finished = false;
-    const bconv::Options opt{ m_dataDir, m_templatesDir, m_baseDir, m_stagingDir, Trim(m_mo2Instance),
-                              m_singleBundle };
+    bconv::Options opt{ m_dataDir, m_templatesDir, m_baseDir, m_stagingDir, Trim(m_mo2Instance),
+                        m_singleBundle };
+    if (m_singleBundle) opt.pandoraModOrder = m_pandoraModOrder;   // tuned order from the Pandora Order tab
     // Snapshot everything the worker touches so it never races the UI fields.
     const std::string staging = m_stagingDir;
     const std::string zipDir  = m_zipDir;
@@ -268,6 +272,10 @@ void ConverterUI::Draw() {
     if (ImGui::BeginTabBar("main", ImGuiTabBarFlags_None)) {
         if (ImGui::BeginTabItem("Converter")) {
             DrawConverterTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Pandora Order")) {
+            DrawPandoraTab();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Load Order")) {
@@ -397,6 +405,142 @@ void ConverterUI::DrawConverterTab() {
     }
     if (m_autoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f)
         ImGui::SetScrollHereY(1.0f);
+    ImGui::EndChild();
+}
+
+// ── Pandora Order tab ─────────────────────────────────────────────────────────────────────────
+
+void ConverterUI::LoadPandoraOrderFile() {
+    m_pandoraModOrder.clear();
+    std::ifstream f(fs::path(m_exeDir) / "pandora_order.txt");
+    if (!f) return;
+    std::string line;
+    while (std::getline(f, line)) {
+        const std::string t = Trim(line);
+        if (!t.empty() && t[0] != '#') m_pandoraModOrder.push_back(t);
+    }
+}
+
+void ConverterUI::SavePandoraOrderFile() {
+    std::ofstream f(fs::path(m_exeDir) / "pandora_order.txt", std::ios::trunc);
+    if (!f) { m_pandoraMsg = "Save failed: cannot write pandora_order.txt"; return; }
+    f << "# Pandora Order — TOP = winner (Pandora priority 1). Edited in the Behavior Converter;\n";
+    f << "# overrides Pandora's ActiveMods.json on the next MO2-profile convert. Delete to reset.\n";
+    for (const auto& m : m_pandoraModOrder) f << m << "\n";
+    m_pandoraMsg = "Saved " + std::to_string(m_pandoraModOrder.size()) + " mod(s) to pandora_order.txt";
+}
+
+void ConverterUI::RefreshPandora() {
+    const bconv::PandoraAnalysis a = bconv::AnalyzePandoraOrder(m_dataDir, Trim(m_mo2Instance));
+    m_pandoraFromPandora    = a.fromPandora;
+    m_pandoraConflictGraphs = (int)a.conflicts.size();
+    m_pandoraLoaded         = true;
+
+    std::map<std::string, std::vector<std::string>> codeConf;   // code -> ["graph (win X)", …]
+    std::set<std::string>                           conflictCodes;
+    for (const auto& c : a.conflicts)
+        for (const auto& cd : c.codes) {
+            conflictCodes.insert(cd);
+            codeConf[cd].push_back(c.graph + " (win " + c.winner + ")");
+        }
+
+    // Group codes by owning mod, in display order (first occurrence fixes the mod's position).
+    std::vector<PandoraModRow> rows;
+    std::map<std::string, int> rowIndex;
+    for (const auto& ci : a.codes) {
+        const std::string mod = ci.owningMod.empty() ? ci.code : ci.owningMod;
+        auto it = rowIndex.find(mod);
+        if (it == rowIndex.end()) { rowIndex[mod] = (int)rows.size(); rows.push_back(PandoraModRow{ mod, {}, false, {} }); }
+        PandoraModRow& row = rows[rowIndex[mod]];
+        row.codes.push_back(ci.code);
+        if (conflictCodes.count(ci.code)) row.conflict = true;
+    }
+    for (auto& r : rows) {
+        std::set<std::string> g;
+        for (const auto& c : r.codes) for (const auto& gc : codeConf[c]) g.insert(gc);
+        std::string tip;
+        for (const auto& s : g) { if (!tip.empty()) tip += "\n"; tip += s; }
+        r.tip = tip;
+    }
+
+    // Apply the persisted override: mods in saved order first (stable), unknown mods keep display order.
+    if (!m_pandoraModOrder.empty()) {
+        std::map<std::string, int> want;
+        for (int i = 0; i < (int)m_pandoraModOrder.size(); ++i) want[m_pandoraModOrder[i]] = i;
+        std::stable_sort(rows.begin(), rows.end(), [&](const PandoraModRow& x, const PandoraModRow& y) {
+            const int rx = want.count(x.mod) ? want[x.mod] : 1000000;
+            const int ry = want.count(y.mod) ? want[y.mod] : 1000000;
+            return rx < ry;
+        });
+    }
+    m_pandoraRows = std::move(rows);
+    m_pandoraMsg  = (m_pandoraFromPandora ? "Order seeded from Pandora ActiveMods.json"
+                                          : "No ActiveMods.json — scan order") +
+                    std::string("; ") + std::to_string(m_pandoraRows.size()) + " mod(s), " +
+                    std::to_string(m_pandoraConflictGraphs) + " conflicting graph(s).";
+}
+
+void ConverterUI::DrawPandoraTab() {
+    ImGui::TextUnformatted("Behavior load order for the merged Pandora.hky (MO2-profile mode).");
+    ImGui::TextDisabled("Seeded from Pandora's own order (Pandora_Engine/ActiveMods.json). Reorder mods "
+                        "(TOP = winner); Save persists it and overrides Pandora on the next convert.");
+    ImGui::Separator();
+
+    if (!m_pandoraLoaded) RefreshPandora();
+
+    if (ImGui::Button("Refresh")) RefreshPandora();
+    ImGui::SameLine();
+    if (ImGui::Button("Save order")) {
+        m_pandoraModOrder.clear();
+        for (const auto& r : m_pandoraRows) m_pandoraModOrder.push_back(r.mod);
+        SavePandoraOrderFile();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset to Pandora")) {
+        m_pandoraModOrder.clear();
+        SavePandoraOrderFile();
+        RefreshPandora();
+        m_pandoraMsg = "Reset to Pandora's order.";
+    }
+    if (!m_pandoraMsg.empty()) ImGui::TextDisabled("%s", m_pandoraMsg.c_str());
+    if (!m_singleBundle)
+        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f),
+                           "Applies only in MO2-profile mode (enable it on the Converter tab).");
+
+    ImGui::Separator();
+    ImGui::TextDisabled("TOP = highest priority (wins conflicts). (!) = touches a graph another mod also edits.");
+
+    ImGui::BeginChild("pandora_list", ImVec2(0, 0), true);
+    int swapA = -1, swapB = -1;   // apply after the loop so we don't mutate mid-iteration
+    for (int i = 0; i < (int)m_pandoraRows.size(); ++i) {
+        PandoraModRow& r = m_pandoraRows[i];
+        ImGui::PushID(i);
+        ImGui::BeginDisabled(i == 0);
+        if (ImGui::ArrowButton("up", ImGuiDir_Up)) { swapA = i; swapB = i - 1; }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(i == (int)m_pandoraRows.size() - 1);
+        if (ImGui::ArrowButton("down", ImGuiDir_Down)) { swapA = i; swapB = i + 1; }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+
+        const std::string label = std::to_string(i + 1) + ". " + r.mod + "  (" +
+                                  std::to_string(r.codes.size()) + (r.codes.size() == 1 ? " code" : " codes") +
+                                  ")###" + r.mod;
+        const bool open = ImGui::TreeNode(label.c_str());
+        if (r.conflict) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f), "(!)");
+            if (ImGui::IsItemHovered() && !r.tip.empty()) ImGui::SetTooltip("%s", r.tip.c_str());
+        }
+        if (open) {
+            for (const auto& c : r.codes) ImGui::BulletText("%s", c.c_str());
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+    if (swapA >= 0 && swapB >= 0 && swapB < (int)m_pandoraRows.size())
+        std::swap(m_pandoraRows[swapA], m_pandoraRows[swapB]);
     ImGui::EndChild();
 }
 

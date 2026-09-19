@@ -32,9 +32,47 @@ struct Options {
     // MO2 order — later/higher-priority mod wins, matching ConvertModDelta's later-overrides-earlier).
     // The user ships one bundle and never manages a CB load order; the runtime merge collapses to
     // base + Pandora.hky (+ CB-native on top). Default false = per-mod bundles (single-mod / author path).
-    // Kept LAST so the positional aggregate-init in ConverterUI (…, mo2Instance) stays valid.
+    // Kept before pandoraModOrder so the positional aggregate-init in ConverterUI (…, mo2Instance,
+    // singleBundle) stays valid.
     bool singleBundle = false;
+
+    // MO2-PROFILE mode: an OPTIONAL user-tuned MOD order (owning-mod names, TOP = winner = Pandora
+    // priority 1). Empty = use Pandora's ActiveMods.json order (or scan order). When set, the single-
+    // bundle merge groups each code under its owning mod and orders the mods per this list (winner last
+    // in the merge). Populated by the Pandora Order tab from its persisted pandora_order.txt; the --cli
+    // path leaves it empty (pure Pandora order). Kept LAST.
+    std::vector<std::string> pandoraModOrder;
 };
+
+// One code's place in the Pandora load order, for the Pandora Order UI + analysis. `owningMod` is the
+// installed mod that ships the code (empty if no MO2 instance / unresolved — display falls back to code).
+struct PandoraCodeInfo {
+    std::string code;
+    std::string owningMod;
+    int         priority = 0;     // Pandora ActiveMods priority (1 = winner); 0 if unranked/scan-order
+    bool        active   = true;  // Pandora active flag (inactive = excluded from the merge)
+};
+
+// One graph touched by 2+ codes — where merge ORDER matters. `winner` is the code latest in the merge
+// order (later-overrides-earlier). `nodeCollisions` = base nodes (#NNNN) that 2+ codes override.
+struct PandoraGraphConflict {
+    std::string              graph;           // "1hm_behavior", "_1stperson/1hm_behavior"
+    std::vector<std::string> codes;           // codes touching this graph, in merge order
+    int                      nodeCollisions = 0;
+    std::string              winner;
+};
+
+// Read-only analysis of the active Pandora load order for the UI (display + conflict flags), computed
+// the SAME way the conversion orders (shared helpers), so the tab and the convert never drift.
+struct PandoraAnalysis {
+    bool                             fromPandora = false;  // true = order came from ActiveMods.json
+    std::vector<PandoraCodeInfo>     codes;                // DISPLAY order: winner (priority 1) FIRST
+    std::vector<PandoraGraphConflict> conflicts;           // graphs with 2+ codes, order-sensitive
+};
+
+// Analyze the active load order in `dataDir` (Nemesis_Engine/mod/* codes) against Pandora's
+// ActiveMods.json + (optionally) the MO2 instance for owning-mod grouping. Read-only; no conversion.
+PandoraAnalysis AnalyzePandoraOrder(const std::string& dataDir, const std::string& mo2Instance);
 
 struct Result {
     bool        ok = false;
