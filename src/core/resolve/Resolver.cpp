@@ -417,9 +417,9 @@ namespace CB {
             // DAR/behavior-only clips. Folding all of them into defaultmale/defaultfemale inflated the
             // roster ~3.5x; char-setup binds against roster.size() (== the OAR synchronized offset), so
             // the surplus entries overran the binding/offset math → the AutoplayBehavior char-setup CTD.
-            // (These recompiled natives are also STAGED to the dead-end meshes\CBanims\ — not served —
-            // so rostering them bound nothing anyway.) When the real in-memory serve lands, binding will
-            // be driven from the authoritative roster, not from raw file discovery.
+            // (Reached only for a compile-opted-in bundle now; still don't auto-roster from raw file
+            // discovery.) When the real in-memory serve lands, binding will be driven from the
+            // authoritative roster, not from raw file discovery.
             m_nativeAnims.emplace_back(outKey, std::move(yamlText));
         };
 
@@ -465,9 +465,9 @@ namespace CB {
                 // OPT-IN animation compile: only bundles whose manifest sets compile_animations=true get
                 // their native animations collected for compile (default false — Skyrim.hky + conversions
                 // skip it; those animations exist only to feed adsf root motion, reunited at build time).
-                // The recompiled natives currently stage to a dead-end CBanims/ dir (unserved), so for a
-                // non-compile bundle this simply skips ~thousands of startup compiles. Retires the old
-                // hardcoded gate.
+                // An opted-in bundle compiles its animations straight to the real meshes path (they serve);
+                // a non-compile bundle skips the compile entirely (nothing to clobber). Retires the old
+                // hardcoded gate + the CBanims/ staging harness.
                 bool bundleCompileAnims = false;
                 {
                     std::vector<std::string> mfWarn;
@@ -1146,16 +1146,13 @@ namespace CB {
         // is safe to run concurrently and the parallel result is byte-identical to the serial one.
         auto compileOne = [&](const std::string& outKey, const std::string& yamlText) {
             std::error_code ec;
-            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). STOP-GAP OUTPUT:
-            // write under meshes/CBanims/ instead of the real actor path, so the recompiled natives do NOT
-            // clobber the vanilla loose/BSA animations while we validate — the engine won't auto-load them
-            // from here (wrong path), so a relocate is a deliberate manual step, and it also lets us watch
-            // for an OAR fight without risk. (This mirrors how behaviors were served pre-byteserve; the real
-            // serve — behavior_cache / in-memory crc — is a later feature.) Insert "CBanims" after "meshes/".
-            std::string stagedRel = outKey;
-            if (stagedRel.rfind("meshes/", 0) == 0) stagedRel = "meshes/CBanims/" + stagedRel.substr(7);
-            else                                    stagedRel = "meshes/CBanims/" + stagedRel;
-            const fs::path out = dataRoot / fs::path(stagedRel);
+            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). We only reach here
+            // for a bundle that OPTED INTO animation compile (manifest compile_animations=true), so writing
+            // to the REAL meshes path is the point — the compiled animation serves. The old meshes/CBanims/
+            // redirect was a harness so the (then-always-on) recompile couldn't clobber vanilla loose/BSA
+            // animations during validation; the per-bundle compile gate makes it unnecessary — a bundle that
+            // doesn't opt in isn't compiled at all, so there is nothing to clobber.
+            const fs::path out = dataRoot / fs::path(outKey);
             try {
                 const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
                 // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
@@ -1219,8 +1216,8 @@ namespace CB {
         const std::size_t w = written.load(std::memory_order_relaxed);
         const std::size_t fl = failed.load(std::memory_order_relaxed);
         if (w || fl)
-            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (STAGED under "
-                     "Data\\meshes\\CBanims\\ — relocate manually to serve).", w, fl);
+            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (compiled to the real "
+                     "meshes path — opt-in bundles only, manifest compile_animations=true).", w, fl);
         // Phase 0 coverage: what the compiler produced for the adsf to drain. Nothing consumes the sink
         // yet (byte-neutral); this confirms the emit fires + the keying before the drain is switched over.
         LOG_INFO("Community Behaviors: motion sink — {} record(s) across {} actor root(s) (compiler-produced).",
