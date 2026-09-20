@@ -171,11 +171,31 @@ namespace CB::adserve {
             const BundleReader& rd, const std::string& stem, const fs::path& dataDir,
             const BundleReader* master)
         {
-            std::vector<std::string> chars;   // character stems this bundle extends ("defaultmale")
-            for (const std::string& fn : rd.files("animationnames", ".txt")) {
+            // Character stems this bundle extends ("defaultmale"). Sourced from each character unit's
+            // data/animations.yaml — the location the tagfile+roster refactor moved the roster to
+            // (animationnames/<char>.txt was emptied by it; a delta character unit ships ONLY
+            // data/animations.yaml, no character.yaml, so characterUnits() won't list it — scan the files
+            // directly). Without this the derive found no chars -> returned {} -> no adsf cache -> mod root
+            // motion never served (the same stale-roster-source bug as the SetData guard). Legacy
+            // animationnames/*.txt bundles still work via the fallback.
+            std::vector<std::string>        chars;
+            std::unordered_set<std::string> haveChar;
+            {
+                static const std::string kSuffix = "/data/animations.yaml";
+                for (const std::string& path : rd.filesUnder("meshes/actors", ".yaml")) {
+                    if (path.size() <= kSuffix.size() ||
+                        path.compare(path.size() - kSuffix.size(), kSuffix.size(), kSuffix) != 0) continue;
+                    std::string unit = path.substr(0, path.size() - kSuffix.size());   // ".../defaultmale.hkx"
+                    const auto s1 = unit.find_last_of('/');
+                    std::string cn = (s1 == std::string::npos) ? unit : unit.substr(s1 + 1);
+                    if (const auto dot = cn.rfind('.'); dot != std::string::npos) cn.erase(dot);   // "defaultmale"
+                    if (!cn.empty() && haveChar.insert(cn).second) chars.push_back(cn);
+                }
+            }
+            for (const std::string& fn : rd.files("animationnames", ".txt")) {   // legacy fallback
                 std::string s = ToLower(fn);
                 if (EndsWith(s, ".txt")) s.erase(s.size() - 4);
-                if (!s.empty()) chars.push_back(std::move(s));
+                if (!s.empty() && haveChar.insert(s).second) chars.push_back(std::move(s));
             }
             const auto units = rd.behaviorUnits();
             if (chars.empty() || units.empty()) return {};
