@@ -599,6 +599,18 @@ int DeriveModAnimDeltas(const fs::path& codeDir, const fs::path& bundle,
     const fs::path nemRoot = codeDir / "animationdatasinglefile";
     if (!fs::is_directory(nemRoot, ec)) return 0;   // this mod ships no animationdata
 
+    // FULL-DERIVE (root-motion plan, item 4): do NOT ship the adsf clips+motion delta. With no native
+    // animationdata delta in the bundle, the runtime's DeriveBundleAnimData takes over — it derives each
+    // clip from the behavior graph (DeriveClipInputsFromBehavior) and its ROOT MOTION from the packaged
+    // animation's `motion:` field (motionsForRoot). So motion + clips are 100% derived from the animations,
+    // never the mod's shipped adsf (which, for AMR mods, disagrees with the animation motion). asdsf
+    // (attack-event tables) is still shipped by the set-data path. This is the deliberate strip: if the
+    // runtime derive can't reproduce a clip/motion, it breaks HERE and we know exactly why.
+    say("  anim-data: full-derive — adsf clips+motion NOT shipped; runtime derives from behavior + animation motion.");
+    (void)bundle;
+    return 0;
+#if 0  // stripped: the mod's shipped adsf clips+motion (superseded by the runtime derive above)
+
     // ── behaviour clip-name -> animationName (join key) ──
     // Every behaviour unit in the bundle ("*.hkx" dir with a clips/ subdir). First occurrence wins;
     // a clip name maps to one animation (a Nemesis addition names an animation exactly once).
@@ -673,6 +685,7 @@ int DeriveModAnimDeltas(const fs::path& codeDir, const fs::path& bundle,
     }
     if (unmatched) say("  " + std::to_string(unmatched) + " Nemesis clip(s) had no behaviour animationName (emitted without — metadata only).");
     return written;
+#endif  // stripped adsf clips+motion emission (full-derive)
 }
 
 // Minimal JSON string escaper for the flat manifest schema — escape the JSON-significant
