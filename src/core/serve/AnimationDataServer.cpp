@@ -180,6 +180,7 @@ namespace CB::adserve {
             // animationnames/*.txt bundles still work via the fallback.
             std::vector<std::string>        chars;
             std::unordered_set<std::string> haveChar;
+            std::unordered_map<std::string, std::string> charActorRoot;  // char stem -> its actor root (lowercased)
             {
                 static const std::string kSuffix = "/data/animations.yaml";
                 for (const std::string& path : rd.filesUnder("meshes/actors", ".yaml")) {
@@ -189,10 +190,17 @@ namespace CB::adserve {
                     const auto s1 = unit.find_last_of('/');
                     std::string cn = (s1 == std::string::npos) ? unit : unit.substr(s1 + 1);
                     if (const auto dot = cn.rfind('.'); dot != std::string::npos) cn.erase(dot);   // "defaultmale"
-                    if (!cn.empty() && haveChar.insert(cn).second) chars.push_back(cn);
+                    // actor root = strip the last two segments (characters[ x]/<stem>.hkx) — a canine char
+                    // unit's clips must derive only into canine projects, not every character in the bundle.
+                    std::string aroot;
+                    if (s1 != std::string::npos) {
+                        const auto s2 = (s1 == 0) ? std::string::npos : unit.find_last_of('/', s1 - 1);
+                        if (s2 != std::string::npos) aroot = ToLower(unit.substr(0, s2));
+                    }
+                    if (!cn.empty() && haveChar.insert(cn).second) { chars.push_back(cn); charActorRoot[cn] = aroot; }
                 }
             }
-            for (const std::string& fn : rd.files("animationnames", ".txt")) {   // legacy fallback
+            for (const std::string& fn : rd.files("animationnames", ".txt")) {   // legacy fallback (no actor root)
                 std::string s = ToLower(fn);
                 if (EndsWith(s, ".txt")) s.erase(s.size() - 4);
                 if (!s.empty() && haveChar.insert(s).second) chars.push_back(std::move(s));
@@ -301,7 +309,13 @@ namespace CB::adserve {
                 };
 
                 const auto& animMotions = motionsForRoot(actorRoot);
+                const std::string actorRootLc = ToLower(actorRoot);
                 for (const std::string& ch : chars) {
+                    // Scope: only derive this unit's clips into characters of the SAME actor root (a canine
+                    // behavior's clips belong to canine projects, not defaultmale/horse). Unknown actor root
+                    // (legacy animationnames fallback) is not filtered — preserves the single-actor path.
+                    const auto ar = charActorRoot.find(ch);
+                    if (ar != charActorRoot.end() && !ar->second.empty() && ar->second != actorRootLc) continue;
                     auto clipsCopy = clips;   // DeriveProjectPatch appends annotation triggers in place
                     auto pp = havok::sct::DeriveProjectPatch(ch, clipsCopy, stem, readAnim,
                                                              animMotions.empty() ? nullptr : &animMotions);
