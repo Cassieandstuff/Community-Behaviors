@@ -19,7 +19,7 @@
 #include "havok/anim/AnimationDecompiler.h"
 
 #include "havok/anim/AnimDataYaml.h"      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
-#include "havok/anim/SplineDecompressor.h"
+#include "codec/spline/SplineDecompressor.h"
 #include "havok/core/BinaryReaderEx.h"
 #include "havok/core/PackFileDeserializer.h"
 
@@ -135,7 +135,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
 
     int   numFrames = 0;
     float fd        = 0.0f;
-    std::vector<DecodedPose> poses;
+    std::vector<CB::core::spline::DecodedPose> poses;
     std::vector<float>       floatVals;
     std::string              warn;
 
@@ -150,7 +150,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         const auto& boRaw   = spline->FieldRef("blockOffsets").raw;
         std::vector<std::uint32_t> blockOffsets(boRaw.size() / 4);
         if (!blockOffsets.empty()) std::memcpy(blockOffsets.data(), boRaw.data(), blockOffsets.size() * 4);
-        const bool ok = DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
+        const bool ok = CB::core::spline::DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
                                      maskAndQuant, blockOffsets.data(), static_cast<int>(blockOffsets.size()),
                                      numTracks, numFloat, poses, &warn, numFloat > 0 ? &floatVals : nullptr);
         if (!ok) return { false, "spline decode failed (bounds/format mismatch)" };
@@ -168,7 +168,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         for (std::size_t i = 0; i < nTrans; ++i) {
             float f12[12];
             std::memcpy(f12, tr.data() + i * 48, 48);
-            DecodedPose& dp = poses[i];
+            CB::core::spline::DecodedPose& dp = poses[i];
             dp.t[0] = f12[0]; dp.t[1] = f12[1]; dp.t[2] = f12[2];                     // translation (drop w)
             dp.q[0] = f12[4]; dp.q[1] = f12[5]; dp.q[2] = f12[6]; dp.q[3] = f12[7];   // rotation x,y,z,w
             dp.s[0] = f12[8]; dp.s[1] = f12[9]; dp.s[2] = f12[10];                    // scale (drop w)

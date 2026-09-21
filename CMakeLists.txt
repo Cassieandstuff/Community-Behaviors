@@ -58,6 +58,7 @@ add_subdirectory(src/havok-framing)
 add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
+add_subdirectory(Havok/core/cpp/codec)   # CB::core codecs (spline; org-pass firesale step 1)
 add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/havok-skeleton)  # schema-driven skeleton codec (depends on havok-io)
 add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
@@ -73,7 +74,7 @@ add_subdirectory(API)              # the single public API facade (<CB-API.h>): 
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 # cb-api is the canonical facade (<CB-API.h> → cb::CB-API); cb-resolve stays as a legacy component target.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api cb-resolve havok-framing havok-schema havok-io havok-model havok-anim havok-skeleton
+install(TARGETS cb-api cb-resolve havok-framing havok-schema havok-io havok-model codec havok-anim havok-skeleton
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
@@ -84,6 +85,7 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/"  DESTINATION 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"   DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"       DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/core/cpp/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-anim/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-skeleton/" DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"     DESTINATION include FILES_MATCHING PATTERN "*.h")

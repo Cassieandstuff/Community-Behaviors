@@ -24,7 +24,7 @@ target_include_directories(havok-anim
 
 # havok-model brings AnimationData.h (MotionRecord), the AnimDataYaml loader, and the
 # havok/cross/Cross.h membrane; io/schema/framing (+ryml) come transitively.
-target_link_libraries(havok-anim PUBLIC havok-model)
+target_link_libraries(havok-anim PUBLIC havok-model codec)   # codec = the spline codec (CB::core::spline), lifted out
 
 set_target_properties(havok-anim PROPERTIES
     CXX_STANDARD 23

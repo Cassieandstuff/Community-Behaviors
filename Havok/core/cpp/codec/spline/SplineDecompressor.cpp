@@ -3,14 +3,14 @@
 // glm::slerp/normalize/dot were inlined to match glm exactly (so the port is
 // bit-faithful — verified by a differential sweep vs the original on real files).
 
-#include "havok/anim/SplineDecompressor.h"
+#include "codec/spline/SplineDecompressor.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
 
-namespace havok::anim {
+namespace CB::core::spline {
 namespace {
 
 struct V3 { float x = 0.f, y = 0.f, z = 0.f; };
@@ -451,4 +451,4 @@ bool DecodeSpline(const std::uint8_t* data, std::size_t dataLen,
     return true;
 }
 
-} // namespace havok::anim
+} // namespace CB::core::spline

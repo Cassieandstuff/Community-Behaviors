@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::anim {
+namespace CB::core::spline {
 
 struct DecodedPose {
     float t[3] = {0.f, 0.f, 0.f};        // local translation
@@ -36,4 +36,4 @@ bool DecodeSpline(const std::uint8_t* data, std::size_t dataLen,
                   std::vector<DecodedPose>& out, std::string* warn = nullptr,
                   std::vector<float>* floatOut = nullptr);
 
-} // namespace havok::anim
+} // namespace CB::core::spline

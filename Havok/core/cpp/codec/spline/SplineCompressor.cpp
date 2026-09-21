@@ -3,13 +3,14 @@
 // HavokLib hka_spline_decompressor.cpp; verified by round-tripping through the
 // first-party decoder (sct-pipeline HavokAnimation).
 
-#include "havok/anim/SplineCompressor.h"
+#include "codec/spline/SplineCompressor.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 
-namespace havok::anim {
+namespace CB::core::spline {
+using namespace havok::anim;   // transitional: AnimationDef + keyframes still in havok::anim (→ interface later)
 namespace {
 
 // ── Little-endian byte sink (mirrors C# BinaryWriter over a MemoryStream) ─────
@@ -477,4 +478,4 @@ CompressedResult CompressAnimation(const AnimationDef& anim, int fps) {
     return r;
 }
 
-} // namespace havok::anim
+} // namespace CB::core::spline
