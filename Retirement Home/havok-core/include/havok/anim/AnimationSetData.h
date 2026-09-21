@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "codec/crc/Crc.h"   // CB::core::crc — the CRC lives in the codec now; aliased below (firesale)
+
 // AnimationSetData — a first-party model + parser/emitter for Skyrim's
 // animationsetdatasinglefile.txt (and its split "<project>data\<set>.txt" form).
 //
@@ -60,13 +62,9 @@ namespace havok::animsetdata {
         std::vector<std::string> clips;     // K clip names, e.g. "1HM_AttackLeft"
     };
 
-    // One animation registration: (folderCrc, fileCrc, extCrc). folder+ext are constant
-    // within a set (folder = the animation dir, ext = 7891816 for ".hkx"); file varies.
-    struct CrcTriple {
-        std::uint32_t folder = 0;
-        std::uint32_t file = 0;
-        std::uint32_t ext = 0;
-    };
+    // One animation registration: (folderCrc, fileCrc, extCrc). Now owned by CB::core::crc (the CRC
+    // codec); aliased here so existing asd::CrcTriple call sites are unchanged during the firesale.
+    using CB::core::crc::CrcTriple;
 
     // One set file's content (a "V3" record). In the single-file form it carries its
     // own `name` ("1HMDual.txt"); in the split form the name comes from the filename and
@@ -128,20 +126,10 @@ namespace havok::animsetdata {
     std::string EmitProjectIndex(const std::vector<std::string>& setNames);
 
     // ── CRC / animation registration ─────────────────────────────────────────────
-    // The animationsetdata path hash: CRC-32 with the standard reflected polynomial
-    // 0xEDB88320 but init=0 and NO final xor (i.e. NOT zlib's variant), over the
-    // lowercased byte string. Reverse-engineered and verified against vanilla: all 20
-    // chicken file stems + the chicken and DefaultMale folder paths reproduce exactly.
-    std::uint32_t Crc32(std::string_view s);
-
-    // Build the (folderCrc, fileCrc, extCrc) registration for an animation from its
-    // data-relative path (e.g. "meshes\actors\character\animations\community_behaviors\x.hkx"):
-    //   folderCrc = Crc32(lower(dir))    — backslashes, NO trailing separator
-    //   fileCrc   = Crc32(lower(stem))   — filename without extension
-    //   extCrc    = little-endian packing of the lowercased extension bytes
-    //               ("hkx" -> 'h' | 'k'<<8 | 'x'<<16 = 7891816); the ext is stored raw,
-    //               not hashed (it is always <=4 chars). Input separators may be / or \.
-    CrcTriple TripleForAnimation(std::string_view dataRelativePath);
+    // The path CRC now lives in CB::core::crc (the searchable codec — encode + solve). Aliased here so
+    // asd::Crc32 / asd::TripleForAnimation call sites are unchanged during the firesale.
+    using CB::core::crc::Crc32;
+    using CB::core::crc::TripleForAnimation;
 
     // ── Merge (load-order overlay) ───────────────────────────────────────────────
     struct MergeStats {

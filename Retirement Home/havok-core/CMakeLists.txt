@@ -47,7 +47,7 @@ target_include_directories(havok-core PUBLIC
 # The animation compile/decompile pipeline (AnimationDef, spline codec, Assemble/Compile/
 # DecompileAnimation, AnimationYamlLoader) moved to havok-anim (schema-native); havok-core's
 # CharacterDecompiler + the CLI anim verbs consume it from there at havok/anim/* paths.
-target_link_libraries(havok-core PUBLIC havok-framing havok-model havok-anim)
+target_link_libraries(havok-core PUBLIC havok-framing havok-model havok-anim codec)   # codec = CB::core::crc (aliased into asd::), firesale
 
 if(MSVC)
     target_compile_options(havok-core PRIVATE /W4 /wd4100 /MP)

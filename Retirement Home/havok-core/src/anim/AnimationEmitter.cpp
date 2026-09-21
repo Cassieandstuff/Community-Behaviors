@@ -1,6 +1,6 @@
 #include "havok/anim/AnimationEmitter.h"
 
-#include "havok/anim/SplineCompressor.h"
+#include "codec/spline/SplineCompressor.h"
 #include "havok/classes/Animation.h"
 #include "havok/classes/Graph.h"          // hkRootLevelContainer(+NamedVariant)
 #include "havok/core/PackFileSerializer.h"
@@ -11,7 +11,7 @@ namespace havok::anim {
 
 std::vector<std::uint8_t> EmitAnimationHkx(const AnimationDef& anim, int fps,
                                            const HKXHeader& header) {
-    CompressedResult r = CompressAnimation(anim, fps);
+    CB::core::spline::CompressedResult r = CB::core::spline::CompressAnimation(anim, fps);
 
     auto spline = std::make_shared<hkaSplineCompressedAnimation>();
     spline->m_type                    = 5;   // HK_SPLINE_COMPRESSED_ANIMATION
