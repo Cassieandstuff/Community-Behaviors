@@ -329,6 +329,166 @@ namespace CB::adserve {
             return out;
         }
 
+        // ── Derive the WHOLE base animationdata from the master's graph + animations ───
+        // The "hky never stores the adsf cache" path (release item 4). When the Skyrim.hky master
+        // ships NO clips/ folder (the converter stripped it), the runtime rebuilds the entire base
+        // cache the same way it derives a mod's delta — clips from the base behaviours, annotation
+        // triggers + durations + root motion from each CB-native animation unit (AnimationDef carries
+        // annotationTracks + duration + motion straight from the bundle; NO loose/BSA read). Unlike
+        // DeriveBundleAnimData this produces the base at NATURAL roster indices (via the shared
+        // animdata::DeriveClipList), so char-setup's animIndex band stays vanilla-shaped. Verified
+        // offline (havok-core-cli animdata-derive-check DefaultMale): the clip SET + roster reproduce
+        // exactly; the residue is annotation-trigger curation (accepted). Every actor root is built
+        // once (male/female/etc. share one actor's behaviours + animations).
+        animdata::SingleFile DeriveBaseAnimData(
+            const BundleReader&                                          master,
+            const std::vector<animdata::ProjectHeader>&                  headers,
+            const std::map<std::string, std::vector<std::string>>&       rostersByStem)
+        {
+            auto trimAnn = [](std::string s) {
+                while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' ' || s.back() == '\t')) s.pop_back();
+                std::size_t b = 0; while (b < s.size() && (s[b] == ' ' || s[b] == '\t')) ++b;
+                return s.substr(b);
+            };
+
+            // Resolve an animationName (roster/clip form, may escape upward with "..") onto the actor
+            // root, collapsing ".." to the RESOLVED bundle path — lowercased, '/'-sep. A paired killmove
+            // ("..\SharedKillMoves\...") escapes actors\character -> actors\sharedkillmoves\..., a
+            // separate root the actor's own animations/ folder does NOT contain. Returns the resolved
+            // unit path the master ships the animation at.
+            auto resolveAnimPath = [](const std::string& actorRootLc, const std::string& animName) {
+                std::string joined = actorRootLc + "/" + ToLower(animName);
+                for (char& c : joined) if (c == '\\') c = '/';
+                std::vector<std::string> seg, out;
+                { std::string s; for (char c : joined) { if (c == '/') { if (!s.empty()) seg.push_back(s); s.clear(); } else s += c; } if (!s.empty()) seg.push_back(s); }
+                for (auto& s : seg) { if (s == "..") { if (!out.empty()) out.pop_back(); } else out.push_back(s); }
+                std::string res; for (std::size_t i = 0; i < out.size(); ++i) { if (i) res += '/'; res += out[i]; }
+                return res;
+            };
+
+            // Global animation cache keyed by RESOLVED bundle path — read once, shared across projects
+            // (a shared killmove is referenced by many actors). Absent/unparseable -> nullopt (cached).
+            std::unordered_map<std::string, std::optional<havok::anim::AnimationDef>> animCache;
+            auto getAnim = [&](const std::string& resolvedPath) -> const havok::anim::AnimationDef* {
+                auto it = animCache.find(resolvedPath);
+                if (it == animCache.end()) {
+                    std::optional<havok::anim::AnimationDef> def;
+                    if (const auto text = master.read(resolvedPath)) {
+                        try { def = havok::anim::AnimationYamlLoader::LoadFromString(*text, resolvedPath); }
+                        catch (...) {}
+                    }
+                    it = animCache.emplace(resolvedPath, std::move(def)).first;
+                }
+                return it->second ? &*it->second : nullptr;
+            };
+
+            // Per actor-root cache: the graph clip inputs (parsed once; male/female/etc. share an actor).
+            // behaviorUnits() lookup: lowercased '/'-sep unit path -> original prefix (unitSource key).
+            // A project's behaviors are named by its assetPaths ("Behaviors\X.hkx", "Behaviors Wolf\..."),
+            // resolved against the actor root — NOT "every unit under the actor root": Dog + Wolf share
+            // actors\canine but use DIFFERENT behavior subfolders (behaviors\ vs behaviors wolf\) with
+            // DISTINCT clip sets, so a per-root union cross-contaminates them. assetPaths lists ALL of a
+            // project's behaviors (male 17, dog 4), so per-project asset scoping is exact + complete.
+            std::unordered_map<std::string, std::string> unitByLc;
+            for (const std::string& unitPrefix : master.behaviorUnits())
+                unitByLc.emplace(ToLower(unitPrefix), unitPrefix);
+
+            // Per-UNIT clip cache (decompile each behaviour once; male/female share their 17 units).
+            std::unordered_map<std::string, std::vector<havok::animdata::DeriveClipInput>> unitClips;
+            auto clipsForUnit = [&](const std::string& unitLc) -> const std::vector<havok::animdata::DeriveClipInput>& {
+                auto it = unitClips.find(unitLc);
+                if (it != unitClips.end()) return it->second;
+                std::vector<havok::animdata::DeriveClipInput> clips;
+                const auto uit = unitByLc.find(unitLc);
+                if (uit != unitByLc.end()) {
+                    auto src = master.unitSource(uit->second);
+                    if (src && src->read("behavior.yaml").has_value()) {   // base units are full graphs
+                        try {
+                            auto data = havok::model::YamlBehaviorLoader::LoadMerged(
+                                std::vector<std::shared_ptr<const havok::model::IUnitSource>>{ src });
+                            clips = havok::sct::DeriveClipInputsFromBehavior(data);
+                        } catch (const std::exception& e) {
+                            LOG_WARN("AnimData: base derive load failed for unit '{}': {}", uit->second, e.what());
+                        }
+                    }
+                }
+                return unitClips.emplace(unitLc, std::move(clips)).first->second;
+            };
+
+            animdata::SingleFile out;
+            out.projects.reserve(headers.size());
+            std::size_t nProj = 0, nClips = 0;
+            for (const auto& h : headers) {
+                animdata::Project p;
+                p.name        = h.name;
+                p.fieldX      = "1";
+                p.assetPaths  = h.assets;
+                p.hasAnimData = h.hasAnimData;
+                if (h.hasAnimData && !h.character.empty()) {
+                    const std::string stem = animdata::StemForProjectName(h.name);
+                    const auto        rit  = rostersByStem.find(stem);
+                    static const std::vector<std::string> kEmptyRoster;
+                    const auto&       roster = (rit != rostersByStem.end()) ? rit->second : kEmptyRoster;
+
+                    // Actor root = the character unit's path minus its last TWO segments
+                    // ("<root>/characters[ x]/<stem>.hkx" — the sub-folder may be "characters female",
+                    // "characters dog", etc., so a plain "/characters/" search misses them and left
+                    // DefaultFemale/Dog/Wolf with an empty derive).
+                    std::string cref = ToLower(h.character);   // "actors/character/characters female/defaultfemale.hkx"
+                    for (char& c : cref) if (c == '\\') c = '/';
+                    std::string rootLc = "meshes/" + cref;
+                    { const auto s1 = rootLc.find_last_of('/');
+                      const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rootLc.find_last_of('/', s1 - 1);
+                      if (s2 != std::string::npos) rootLc = rootLc.substr(0, s2); }   // "meshes/actors/character"
+
+                    // Clip inputs = union over THIS project's behaviour assets (per-project scoping).
+                    std::vector<havok::animdata::DeriveClipInput> clips;
+                    for (const std::string& asset : h.assets) {
+                        std::string a = ToLower(asset);
+                        for (char& c : a) if (c == '\\') c = '/';
+                        if (a.rfind("behaviors", 0) != 0 || a.size() < 4 || a.compare(a.size() - 4, 4, ".hkx") != 0)
+                            continue;   // only "Behaviors...\<x>.hkx" assets (skip Characters/skeleton)
+                        const auto& uc = clipsForUnit(rootLc + "/" + a);
+                        clips.insert(clips.end(), uc.begin(), uc.end());
+                    }
+
+                    // Clips: extend each graph clip with its animation's annotation triggers + seed the
+                    // trigger-clamp durations (resolved via the roster index), then DeriveClipList.
+                    std::unordered_map<std::string, int> rosterIdx;
+                    for (int i = 0; i < static_cast<int>(roster.size()); ++i)
+                        rosterIdx.emplace(resolveAnimPath(rootLc, roster[i]), i);
+                    std::unordered_map<int, double> motionDur;
+                    for (auto& dc : clips) {
+                        if (dc.animationName.empty()) continue;
+                        const std::string rp = resolveAnimPath(rootLc, dc.animationName);
+                        const havok::anim::AnimationDef* def = getAnim(rp);   // reads shared killmoves too
+                        if (!def) continue;
+                        if (!def->annotationTracks.empty())
+                            for (const auto& a : def->annotationTracks[0].annotations)
+                                dc.triggers.push_back({ trimAnn(a.text), static_cast<double>(a.time), false, true });
+                        if (const auto ri = rosterIdx.find(rp); ri != rosterIdx.end())
+                            motionDur[ri->second] = static_cast<double>(def->duration);
+                    }
+                    p.clips = havok::animdata::DeriveClipList(clips, roster, motionDur);
+
+                    // Motion: each animation's inline motion record, keyed to its roster index (resolved
+                    // path so a paired killmove's motion is read from actors\sharedkillmoves\...).
+                    for (int i = 0; i < static_cast<int>(roster.size()); ++i) {
+                        const havok::anim::AnimationDef* def = getAnim(resolveAnimPath(rootLc, roster[static_cast<std::size_t>(i)]));
+                        if (!def || !def->motion) continue;
+                        havok::animdata::MotionRecord m = *def->motion;
+                        m.animIndex = std::to_string(i);
+                        p.motions.push_back(std::move(m));
+                    }
+                    if (!p.clips.empty()) { ++nProj; nClips += p.clips.size(); }
+                }
+                out.projects.push_back(std::move(p));
+            }
+            LOG_INFO("AnimData: base DERIVED from graph — {} anim project(s), {} clip(s) (no clips/ in master).",
+                     nProj, nClips);
+            return out;
+        }
+
         // ── BR-native animationdata deltas (the converter's stage-2 output) ───────────
         // A converted mod ships per-clip yaml under meshes/animationdatasinglefile.txt/clips/<projStem>/
         // (each keyed by `animation:`, the decomposed form the master uses) with sibling motion under
@@ -825,13 +985,16 @@ namespace CB::adserve {
                         if (!roster.empty()) rostersByStem[animdata::StemForProjectName(h.name)] = std::move(roster);
                     }
                 }
-                for (const std::string& path : masterReader->filesUnderOrig(dir + "/clips", ".yaml"))
+                bool masterHasClips = false;
+                for (const std::string& path : masterReader->filesUnderOrig(dir + "/clips", ".yaml")) {
                     if (const auto y = masterReader->read(path)) {
+                        masterHasClips = true;
                         std::string e; animdata::ClipGenerator c = animdata::ParseClipYaml(*y, e);
                         if (c.name.empty()) c.name = nameOf(path);   // filename is the name unless disambiguated (in-body) — ORIGINAL case
                         clipsByStem[stemOf(path)].push_back(std::move(c));
                         if (!e.empty()) LOG_WARN("AnimData: base clip '{}': {}", path, e);
                     }
+                }
                 for (const std::string& path : masterReader->filesUnderOrig(dir + "/motion", ".yaml"))
                     if (const auto y = masterReader->read(path)) {
                         std::string e; animdata::MotionRecord m = animdata::ParseMotionSidecar(*y, e);
@@ -841,8 +1004,15 @@ namespace CB::adserve {
                         motionByStem[stemOf(path)].push_back(std::move(m));
                         if (!e.empty()) LOG_WARN("AnimData: base motion '{}': {}", path, e);
                     }
-                base     = animdata::AssembleAnimdata(headers, clipsByStem, motionByStem, rostersByStem);
-                baseFrom = "Skyrim.hky/" + dir + "/ (composed)";
+                if (masterHasClips) {
+                    base     = animdata::AssembleAnimdata(headers, clipsByStem, motionByStem, rostersByStem);
+                    baseFrom = "Skyrim.hky/" + dir + "/ (composed)";
+                } else {
+                    // Stripped master (release item 4): no clips/ shipped — DERIVE the whole base
+                    // from the graph + the CB-native animation units (annotations + duration + motion).
+                    base     = DeriveBaseAnimData(*masterReader, headers, rostersByStem);
+                    baseFrom = "Skyrim.hky/" + dir + "/ (DERIVED from graph)";
+                }
                 composed = true;
             }
         }

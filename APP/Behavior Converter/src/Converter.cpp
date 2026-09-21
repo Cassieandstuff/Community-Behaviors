@@ -2389,14 +2389,17 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 const auto     parsed  = havok::animsetdata::ParseSingleFile(setText);
                 const fs::path setRoot  = stageHky / "meshes" / "animationsetdatasinglefile.txt";
                 fs::create_directories(setRoot / "movesets", ec);
-                fs::create_directories(setRoot / "crcs", ec);
 
                 // index.yaml — the project ORDER + exact header strings (load-bearing manifest).
                 const std::string idx = havok::animsetdata::EmitSetdataIndexYaml(parsed);
                 std::ofstream(setRoot / "index.yaml", std::ios::binary)
                     .write(idx.data(), static_cast<std::streamsize>(idx.size()));
 
-                int movesets = 0, crcs = 0;
+                // FULL DERIVE (release item 4): crcs/ is NO LONGER SHIPPED. A set's CRC registration
+                // is a pure function of the project roster (TripleForAnimation over "<actorRoot>\<rel>"),
+                // so the runtime re-derives it from movesets + rosters. Only index.yaml + the AUTHORED
+                // movesets/ (gate/equip/attacks — the irreducible residue) ride in the hky.
+                int movesets = 0;
                 for (const auto& proj : parsed.projects) {
                     const std::string stem = havok::animsetdata::StemForHeader(proj.header);
                     if (stem.empty()) continue;
@@ -2405,15 +2408,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                         std::ofstream(setRoot / "movesets" / (stem + ".yaml"), std::ios::binary)
                             .write(mv.data(), static_cast<std::streamsize>(mv.size()));
                         ++movesets;
-                        const std::string cr = havok::animsetdata::EmitSetdataCrcsYaml(proj);
-                        std::ofstream(setRoot / "crcs" / (stem + ".yaml"), std::ios::binary)
-                            .write(cr.data(), static_cast<std::streamsize>(cr.size()));
-                        ++crcs;
                     }
                 }
                 say("  decomposed animationsetdatasinglefile.txt/ -> index.yaml + " +
-                    std::to_string(movesets) + " movesets/ + " + std::to_string(crcs) +
-                    " crcs/ (" + std::to_string(parsed.projects.size()) + " projects indexed)");
+                    std::to_string(movesets) + " movesets/ (crcs DERIVED at runtime; " +
+                    std::to_string(parsed.projects.size()) + " projects indexed)");
             } catch (const std::exception& e) {
                 say(std::string("  WARN: animationsetdata decompose failed: ") + e.what());
             }
@@ -2434,14 +2433,13 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             try {
                 const auto     parsed  = havok::animdata::ParseSingleFile(animText);
                 const fs::path animRoot = stageHky / "meshes" / "animationdatasinglefile.txt";
-                fs::create_directories(animRoot / "clips", ec);
-                fs::create_directories(animRoot / "motion", ec);
+                fs::create_directories(animRoot, ec);
 
                 // Resolve each project's character (roster source) by actor-folder co-location over the
                 // just-decomposed stageHky tree, so clips are keyed by animation name (index resolved
-                // from the roster at compile) instead of a hardwired magic number.
+                // from the roster at compile) instead of a hardwired magic number. Still needed for the
+                // index.yaml `character:` refs and the motion reunion below.
                 const auto pcs = havok::animdata::LoadProjectCharacters((stageHky / "meshes").string());
-                static const std::vector<std::string> kEmptyRoster;
                 std::map<std::string, std::string> charRefByStem;
                 for (const auto& [stem, pc] : pcs) charRefByStem.emplace(stem, pc.ref);
 
@@ -2450,62 +2448,14 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 std::ofstream(animRoot / "index.yaml", std::ios::binary)
                     .write(idx.data(), static_cast<std::streamsize>(idx.size()));
 
-                // Per-CLIP + per-MOTION files: clips/<stem>/<clipname>.yaml, motion/<stem>/<key>.yaml.
-                // Clip name = filename (unique in project, FS-legal); motion keyed by its clip-label
-                // (the clip at that animIndex) or "unnamed_<N>" for the hybrid blocks with no clip.
-                int clips = 0, motion = 0, resolved = 0;
-                for (const auto& proj : parsed.projects) {
-                    if (!proj.hasAnimData) continue;
-                    const std::string stem = havok::animdata::StemForProjectName(proj.name);
-                    if (stem.empty()) continue;
-                    const auto pit = pcs.find(stem);
-                    const bool have = pit != pcs.end();
-                    if (have) ++resolved;
-                    const auto& roster = have ? pit->second.roster : kEmptyRoster;
-
-                    const fs::path cdir = animRoot / "clips" / stem;
-                    fs::create_directories(cdir, ec);
-                    std::set<std::string> usedClip;
-                    for (const auto& c : proj.clips) {
-                        const std::string fn = havok::animdata::UniqueFileName(c.name, usedClip);
-                        const std::string y  = havok::animdata::EmitClipYaml(c, roster, fn != c.name);
-                        std::ofstream(cdir / (fn + ".yaml"), std::ios::binary)
-                            .write(y.data(), static_cast<std::streamsize>(y.size()));
-                        ++clips;
-                    }
-                    if (!proj.motions.empty()) {
-                        // idx -> clip-name label (the motion file key; "unnamed_<N>" when no clip).
-                        long maxIdx = -1;
-                        for (const auto& g : proj.clips)   maxIdx = std::max(maxIdx, std::atol(g.animIndex.c_str()));
-                        for (const auto& m : proj.motions) maxIdx = std::max(maxIdx, std::atol(m.animIndex.c_str()));
-                        std::vector<std::string> labels(static_cast<std::size_t>(maxIdx + 1));
-                        for (const auto& g : proj.clips) {
-                            const long i = std::atol(g.animIndex.c_str());
-                            if (i >= 0 && labels[static_cast<std::size_t>(i)].empty()) labels[static_cast<std::size_t>(i)] = g.name;
-                        }
-                        auto normKey = [](std::string s){ for (char& c : s) c = (char)std::tolower((unsigned char)c);
-                                                          while (!s.empty() && (s.back()=='.'||s.back()==' ')) s.pop_back(); return s; };
-                        const fs::path mdir = animRoot / "motion" / stem;
-                        fs::create_directories(mdir, ec);
-                        std::set<std::string> usedMot;
-                        for (const auto& m : proj.motions) {
-                            const long i = std::atol(m.animIndex.c_str());
-                            std::string key = (i >= 0 && static_cast<std::size_t>(i) < labels.size() && !labels[static_cast<std::size_t>(i)].empty())
-                                              ? labels[static_cast<std::size_t>(i)] : ("unnamed_" + m.animIndex);
-                            // A label that collides case-insensitively falls back to the always-unique
-                            // "unnamed_<animIndex>" (which the compose resolves by raw index, no label).
-                            if (!usedMot.insert(normKey(key)).second) { key = "unnamed_" + m.animIndex; usedMot.insert(normKey(key)); }
-                            const std::string y = havok::animdata::EmitMotionSidecar(m);
-                            std::ofstream(mdir / (key + ".yaml"), std::ios::binary)
-                                .write(y.data(), static_cast<std::streamsize>(y.size()));
-                            ++motion;
-                        }
-                    }
-                }
-                say("  decomposed animationdatasinglefile.txt/ -> index.yaml + " +
-                    std::to_string(clips) + " clip file(s) + " + std::to_string(motion) +
-                    " motion file(s) (" + std::to_string(parsed.projects.size()) + " projects, " +
-                    std::to_string(resolved) + " char-resolved)");
+                // FULL DERIVE (release item 4): the clips/ + motion/ folders are NO LONGER SHIPPED.
+                // The runtime rebuilds the entire base cache from the graph + the CB-native animation
+                // units (DeriveBaseAnimData): clip generators from the base behaviours, annotation
+                // triggers + duration + root motion from each animation.hkx (AnimationDef). Only
+                // index.yaml (the project manifest + roster refs) rides in the hky; the adsf CACHE is
+                // pure derived output. Motion is carried onto the animations by the reunion below.
+                say("  decomposed animationdatasinglefile.txt/ -> index.yaml ONLY (clips+motion DERIVED at runtime, " +
+                    std::to_string(parsed.projects.size()) + " projects)");
 
                 // ── MOTION REUNION ────────────────────────────────────────────────────────────
                 // Bethesda stripped root motion from each animation and duplicated it onto every clip

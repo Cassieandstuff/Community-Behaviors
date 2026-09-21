@@ -37,6 +37,32 @@ namespace CB::asdserve {
             return s;
         }
 
+        // Resolve ".." segments in a '\'- or '/'-separated path (a roster entry like
+        // "..\SharedKillMoves\..." joined onto the actor root escapes upward). The engine hashes the
+        // RESOLVED folder ("meshes\actors\sharedkillmoves\..."), not the literal "..\" string, so the
+        // CRC derive MUST collapse first (verified vs vanilla: the collapsed form matches, the literal
+        // one gets zero hits). Emits '\'-separated (the CRC form); a leading ".." with nothing to pop
+        // is dropped (can't escape the data root).
+        std::string CollapseDotDot(const std::string& path)
+        {
+            std::vector<std::string> out;
+            std::string seg;
+            auto flush = [&] {
+                if (seg.empty()) return;
+                if (seg == "..") { if (!out.empty()) out.pop_back(); }
+                else out.push_back(seg);
+                seg.clear();
+            };
+            for (const char c : path) {
+                if (c == '\\' || c == '/') flush();
+                else seg += c;
+            }
+            flush();
+            std::string res;
+            for (std::size_t i = 0; i < out.size(); ++i) { if (i) res += '\\'; res += out[i]; }
+            return res;
+        }
+
         std::string TrimLine(const std::string& line)
         {
             const auto b = line.find_first_not_of(" \t\r\n");
@@ -324,8 +350,9 @@ namespace CB::asdserve {
             if (ri != rosterPaths.end() && ai != charActorRoot.end()) {
                 std::set<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>> seen;
                 for (const auto& rel : ri->second) {
-                    std::string full = ai->second + "\\";
-                    for (const char c : rel) full += (c == '/') ? '\\' : c;
+                    // Collapse ".." so a paired-killmove roster path ("..\SharedKillMoves\...")
+                    // CRCs to its RESOLVED folder (meshes\actors\sharedkillmoves\...), matching vanilla.
+                    const std::string full = CollapseDotDot(ai->second + "\\" + rel);
                     const asd::CrcTriple t = asd::TripleForAnimation(full);
                     if (seen.emplace(t.folder, t.file, t.ext).second) crcs.push_back(t);
                 }
@@ -373,15 +400,42 @@ namespace CB::asdserve {
                         movesetsByStem[stem] = asd::ParseMovesetsYaml(*y, stem, yerr);
                         if (!yerr.empty()) LOG_WARN("SetData: base movesets '{}': {}", stem, yerr);
                     }
+                bool masterHasCrcs = false;
                 for (const std::string& path : masterReader->filesUnder(dir + "/crcs", ".yaml"))
                     if (const auto y = masterReader->read(path)) {
+                        masterHasCrcs = true;
                         const std::string stem = stemOf(path);
                         std::string       yerr;
                         crcsByStem[stem] = asd::ParseSetdataCrcsYaml(*y, yerr);
                         if (!yerr.empty()) LOG_WARN("SetData: base crcs '{}': {}", stem, yerr);
                     }
+                // Stripped master (release item 4): no crcs/ shipped — DERIVE each base set's CRC
+                // registration from the project's roster (TripleForAnimation over "<actorRoot>\<rel>",
+                // the exact form the mod path uses). Injected into the authored moveset sets (which ship
+                // empty crcs); AssembleSetdata then keeps them (crcsByStem is empty → no override).
+                if (!masterHasCrcs)
+                    for (auto& [stem, sf] : movesetsByStem) {
+                        const std::string charStem = ProjectToCharStem(stem);
+                        std::vector<asd::CrcTriple> crcs;
+                        const auto ri = rosterPaths.find(charStem);
+                        const auto ai = charActorRoot.find(charStem);
+                        if (ri != rosterPaths.end() && ai != charActorRoot.end()) {
+                            std::set<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>> seen;
+                            for (const auto& rel : ri->second) {
+                                // Collapse ".." (paired killmoves escape to actors\sharedkillmoves\...).
+                                const std::string full = CollapseDotDot(ai->second + "\\" + rel);
+                                const asd::CrcTriple t = asd::TripleForAnimation(full);
+                                if (seen.emplace(t.folder, t.file, t.ext).second) crcs.push_back(t);
+                            }
+                        }
+                        if (!crcs.empty())
+                            for (auto& pr : sf.projects)
+                                for (auto& s : pr.sets)
+                                    if (s.crcs.empty()) s.crcs = crcs;
+                    }
                 base     = asd::AssembleSetdata(headers, movesetsByStem, crcsByStem);
-                baseFrom = "Skyrim.hky/" + dir + "/ (composed)";
+                baseFrom = masterHasCrcs ? "Skyrim.hky/" + dir + "/ (composed)"
+                                         : "Skyrim.hky/" + dir + "/ (CRCs DERIVED from roster)";
                 composed = true;
             }
         }
@@ -470,8 +524,9 @@ namespace CB::asdserve {
             const auto ar = charActorRoot.find(charName);
             const std::string root = (ar != charActorRoot.end()) ? ar->second : "meshes\\actors\\character";
             for (const auto& p : paths) {
-                std::string full = root + "\\";
-                for (const char c : p) full += (c == '/') ? '\\' : c;
+                // Collapse ".." so paired-killmove paths cover their RESOLVED CRC (matches the derive
+                // above); otherwise the guard would drop the correctly-derived paired registration.
+                const std::string full = CollapseDotDot(root + "\\" + p);
                 const asd::CrcTriple t = asd::TripleForAnimation(full);
                 rosterCovered.insert(crcKey(t.folder, t.file));
             }
