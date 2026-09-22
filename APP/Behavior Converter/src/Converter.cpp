@@ -10,7 +10,7 @@
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
 #include <havok/model/yaml/YamlBehaviorLoader.h>  // LoadMerged (base unit -> BehaviorData)
 #include <havok/sct/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList
-#include <havok/anim/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
+#include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
 #include <havok/anim/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
 #include <havok/anim/AnimationData.h>        // parse vanilla animationdatasinglefile
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)

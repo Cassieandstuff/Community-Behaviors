@@ -21,7 +21,7 @@
 // round-trip is the drift gate (havok-core-cli setdata-tree-roundtrip). Shared by the converter
 // (decompose) and the runtime (ServeSetData composes the base from this folder) — ryml-gated.
 
-#include "havok/anim/AnimationSetData.h"
+#include "codec/format/AnimationSetData.h"
 
 #include <map>
 #include <string>

@@ -1,4 +1,4 @@
-#include "havok/anim/AnimationSetData.h"
+#include "codec/format/AnimationSetData.h"
 
 #include <algorithm>
 #include <array>

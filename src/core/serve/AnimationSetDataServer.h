@@ -1,6 +1,6 @@
 #pragma once
 
-#include <havok/anim/AnimationSetData.h>   // the setdata model now lives in havok-core
+#include <codec/format/AnimationSetData.h>   // the setdata model now lives in havok-core
 
 #include <filesystem>
 #include <string>
