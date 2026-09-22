@@ -9,6 +9,7 @@
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
 #include <havok/anim/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior / DeriveProjectPatch
+#include <interface/linker/Membrane.h>     // roster IndexMembrane (motion inherits the clip's bind)
 #include <havok/model/BehaviorData.h>
 #include <havok/model/yaml/YamlBehaviorLoader.h>
 
@@ -35,6 +36,8 @@
 namespace fs = std::filesystem;
 
 namespace CB::adserve {
+
+namespace linker = CB::core::linker;
 
     namespace {
 
@@ -471,13 +474,19 @@ namespace CB::adserve {
                     }
                     p.clips = havok::animdata::DeriveClipList(clips, roster, motionDur);
 
-                    // Motion: each animation's inline motion record, keyed to its roster index (resolved
-                    // path so a paired killmove's motion is read from actors\sharedkillmoves\...).
+                    // Motion: each animation's inline motion record, bound through the SAME case-folded
+                    // roster IndexMembrane the clips resolve through (DeriveClipList). Motion INHERITS the
+                    // clip's bind — a clip and its motion resolve the animation to the SAME index, so they
+                    // can't drift apart (linker/membrane spec; review finding #1). For a unique animation
+                    // encode(roster[i]) == i (byte-neutral); a duplicate binds to its FIRST slot, matching
+                    // the clip, instead of a slot no clip uses.
+                    const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster, /*caseFold*/true);
+                    const linker::IndexMembrane rosterMembrane{&rosterBind};
                     for (int i = 0; i < static_cast<int>(roster.size()); ++i) {
                         const havok::anim::AnimationDef* def = getAnim(resolveAnimPath(rootLc, roster[static_cast<std::size_t>(i)]));
                         if (!def || !def->motion) continue;
                         havok::animdata::MotionRecord m = *def->motion;
-                        m.animIndex = std::to_string(i);
+                        m.animIndex = std::to_string(rosterMembrane.encode(roster[static_cast<std::size_t>(i)]).value_or(i));
                         p.motions.push_back(std::move(m));
                     }
                     if (!p.clips.empty()) { ++nProj; nClips += p.clips.size(); }
