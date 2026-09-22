@@ -4,12 +4,15 @@
 #include "havok/model/BehaviorData.h"
 #include "havok/model/defs/GeneratorDefs.h"
 
-#include "havok/classes/Animation.h"          // hkaAnimation (duration + annotation tracks)
 #include "havok/core/PackFileDeserializer.h"
+
+#include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory (schema-native anim read)
+#include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <unordered_map>
 
@@ -23,6 +26,15 @@ namespace {
         std::size_t b = 0;
         while (b < s.size() && (s[b] == ' ' || s[b] == '\t')) ++b;
         return s.substr(b);
+    }
+
+    // Schema-object field readers (mirror AnimationDecompiler.cpp — no typed hka* classes).
+    std::shared_ptr<havok::io::SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
+        return std::dynamic_pointer_cast<havok::io::SchemaObject>(o);
+    }
+    float rdF32(havok::io::SchemaObject& o, const char* n) {
+        const auto& r = o.FieldRef(n).raw; float v = 0.f;
+        if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
     }
 }  // namespace
 
@@ -61,28 +73,58 @@ std::vector<havok::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
 
 AnimClipInfo ExtractAnimClipInfo(const std::vector<std::uint8_t>& bytes)
 {
+    using havok::io::SchemaObject;
     AnimClipInfo out;
     if (bytes.empty()) return out;
+
+    // SCHEMA-NATIVE (no typed hka* classes): deserialize through havok-io's generic SchemaObject
+    // graph (MakeSchemaFactory over the shared registry), the SAME path AnimationDecompiler uses.
+    // Walk hkRootLevelContainer.namedVariants -> hkaAnimationContainer -> animations[0] (the spline),
+    // and read duration + annotationTracks[0] off its tagged FieldValue store. Robust to the unported
+    // hkMemoryResourceContainer second variant (it deserializes cleanly instead of throwing the way the
+    // old typed ConstructVirtualClass walk did).
     try {
+        schema::SchemaRegistry* reg = schema::SharedRegistry();
+        if (!reg) return out;
+
         PackFileDeserializer des;
-        BinaryReaderEx       br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
-        des.DeserializePartially(br);
-        BinaryReaderEx dr(des._header.Endian == 0, des._header.PointerSize == 8, des.DataSectionBytes());
-        for (const auto& [off, cls] : des.ListObjects()) {
-            if (cls != "hkaSplineCompressedAnimation" &&
-                cls != "hkaInterleavedUncompressedAnimation" && cls != "hkaAnimation")
-                continue;
-            std::shared_ptr<IHavokObject> obj;
-            try { obj = des.ConstructVirtualClass(dr, off); } catch (...) { break; }
-            if (auto anim = std::dynamic_pointer_cast<hkaAnimation>(obj)) {
-                out.has      = true;
-                out.duration = static_cast<double>(anim->m_duration);
-                if (!anim->m_annotationTracks.empty())
-                    for (const auto& a : anim->m_annotationTracks[0].m_annotations)
-                        out.annotations.emplace_back(TrimAnn(a.m_text), static_cast<double>(a.m_time));
+        BinaryReaderEx       br(bytes);
+        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
+        auto root = asSO(des.Deserialize(br));
+        if (!root) return out;
+
+        std::shared_ptr<SchemaObject> container;
+        for (auto& nvObj : root->FieldRef("namedVariants").objs) {
+            auto nv = asSO(nvObj);
+            if (nv && nv->FieldRef("className").str == "hkaAnimationContainer") {
+                container = asSO(nv->FieldRef("variant").obj);
+                break;
             }
-            break;  // one animation per file
         }
+        if (!container) return out;
+
+        auto& anims = container->FieldRef("animations").objs;
+        if (anims.empty()) return out;
+        auto spline = asSO(anims[0]);
+        if (!spline) return out;
+
+        // Accept the same animation classes the typed path did (all derive hkaAnimation's
+        // duration + annotationTracks fields).
+        const std::string cls = spline->ClassName();
+        if (cls != "hkaSplineCompressedAnimation" &&
+            cls != "hkaInterleavedUncompressedAnimation" && cls != "hkaAnimation")
+            return out;
+
+        out.has      = true;
+        out.duration = static_cast<double>(rdF32(*spline, "duration"));
+
+        auto& annTracks = spline->FieldRef("annotationTracks").objs;
+        if (!annTracks.empty())
+            if (auto at0 = asSO(annTracks[0]))
+                for (auto& aObj : at0->FieldRef("annotations").objs)
+                    if (auto a = asSO(aObj))
+                        out.annotations.emplace_back(TrimAnn(a->FieldRef("text").str),
+                                                     static_cast<double>(rdF32(*a, "time")));
     } catch (...) {}
     return out;
 }
