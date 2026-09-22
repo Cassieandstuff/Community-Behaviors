@@ -526,17 +526,16 @@ ClipGenerator ParseClipYaml(const std::string& text, std::string& err)
 
 std::size_t ResolveClipIndices(std::vector<ClipGenerator>& clips, const std::vector<std::string>& roster)
 {
-    // animation path -> first roster index. Built once per project.
-    std::unordered_map<std::string, std::string> firstIndexOf;
-    firstIndexOf.reserve(roster.size() * 2);
-    for (std::size_t i = 0; i < roster.size(); ++i)
-        firstIndexOf.emplace(roster[i], std::to_string(i));   // emplace keeps the FIRST occurrence
+    // IndexMembrane over the roster (animation path -> first roster index). The roster space is keyed
+    // CASE-FOLDED — the ONE normalization shared with DeriveClipList's runtime join, so the offline and
+    // runtime clip binds can no longer diverge (review finding #2). Byte-neutral where case is consistent.
+    const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster, /*caseFold*/true);
+    const linker::IndexMembrane clip{&rosterBind};
     std::size_t unresolved = 0;
     for (auto& c : clips) {
-        if (c.animation.empty()) continue;          // raw-index fallback: its animIndex is the key
-        const auto it = firstIndexOf.find(c.animation);
-        if (it != firstIndexOf.end()) c.animIndex = it->second;
-        else ++unresolved;                           // authored clip for an animation not in the roster
+        if (c.animation.empty()) continue;                    // raw-index fallback: its animIndex is the key
+        if (const auto v = clip.encode(c.animation)) c.animIndex = std::to_string(*v);
+        else ++unresolved;                                    // authored clip for an animation not in the roster
     }
     return unresolved;
 }

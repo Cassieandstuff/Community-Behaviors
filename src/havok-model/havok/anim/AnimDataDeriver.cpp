@@ -1,5 +1,7 @@
 #include "havok/anim/AnimDataDeriver.h"
 
+#include <interface/linker/Membrane.h>   // the roster IndexMembrane (one clip<->roster join)
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -9,14 +11,7 @@
 
 namespace havok::animdata {
 
-namespace {
-
-std::string ToLower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-}  // namespace
+namespace linker = CB::core::linker;
 
 std::string FormatG(double v) {
     // Bethesda's cache uses printf %g (6 significant digits) with the LEGACY Windows
@@ -47,11 +42,10 @@ std::vector<ClipGenerator> DeriveClipList(
     const std::unordered_map<int, double>& motionDurByIndex,
     std::vector<std::string>*              unresolved)
 {
-    // roster: animationName (lowercased) -> first index. animIndex is that position.
-    std::unordered_map<std::string, int> rosterIndex;
-    rosterIndex.reserve(roster.size() * 2);
-    for (int i = 0; i < static_cast<int>(roster.size()); ++i)
-        rosterIndex.emplace(ToLower(roster[static_cast<std::size_t>(i)]), i);
+    // The SAME roster IndexMembrane ResolveClipIndices uses (case-folded key). animIndex is the roster
+    // position. One join, one normalization — the offline and runtime clip binds can't diverge.
+    const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster, /*caseFold*/true);
+    const linker::IndexMembrane rosterMembrane{&rosterBind};
 
     std::vector<ClipGenerator> out;
     out.reserve(clips.size());
@@ -72,8 +66,8 @@ std::vector<ClipGenerator> DeriveClipList(
         g.cropEnd       = FormatG(c.cropEnd);
 
         int animIndex = -1;
-        if (auto it = rosterIndex.find(ToLower(c.animationName)); it != rosterIndex.end())
-            animIndex = it->second;
+        if (const auto v = rosterMembrane.encode(c.animationName))
+            animIndex = static_cast<int>(*v);
         else if (unresolved)
             unresolved->push_back(c.name + "  (" + c.animationName + ")");
         g.animIndex = std::to_string(animIndex);

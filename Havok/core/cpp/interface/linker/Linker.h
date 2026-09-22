@@ -29,11 +29,16 @@ public:
     // An INDEX space: value = position in the ordered list. First occurrence wins for encode (a name
     // that repeats binds to its FIRST slot); decode(i) returns names[i] verbatim. This is the roster /
     // event table / variable table / skeleton form.
-    static Linker OfOrderedNames(const std::vector<std::string>& names);
+    //
+    // caseFold is the SPACE's normalization, decided ONCE here (the roster is keyed case-insensitively;
+    // events/enums are exact). It folds only the internal ENCODE key on both sides — decode still returns
+    // the ORIGINAL-case name, and the resolved value is a number, so nothing miscased reaches the engine
+    // (safe per the CLAUDE.md case-sensitivity rule: a purely internal key folded identically both ways).
+    static Linker OfOrderedNames(const std::vector<std::string>& names, bool caseFold = false);
 
     // An explicit name<->value set: enums (MODE_SINGLE_PLAY -> 47), or a chain table built from another
     // field's resolved binds (clip name -> its animIndex). First pair wins on a duplicate name/value.
-    static Linker OfPairs(std::vector<std::pair<std::string, Value>> pairs);
+    static Linker OfPairs(std::vector<std::pair<std::string, Value>> pairs, bool caseFold = false);
 
     // name -> value. nullopt when the name is not in this space (a dangling reference — the caller/
     // membrane turns that into a diagnostic rather than a silent fallback).
@@ -46,8 +51,11 @@ public:
     std::size_t size()  const noexcept { return fwd_.size(); }
 
 private:
-    std::unordered_map<std::string, Value> fwd_;   // name  -> value  (first name wins)
-    std::map<Value, std::string>           rev_;   // value -> name   (first value wins; ordered)
+    static std::string fold(std::string_view s);   // ASCII lowercase (the case-fold key), or identity
+
+    bool                                   caseFold_ = false;
+    std::unordered_map<std::string, Value> fwd_;   // fold(name) -> value  (first name wins)
+    std::map<Value, std::string>           rev_;   // value -> ORIGINAL name (first value wins; ordered)
 };
 
 }  // namespace CB::core::linker
