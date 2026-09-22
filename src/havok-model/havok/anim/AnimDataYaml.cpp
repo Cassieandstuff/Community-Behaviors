@@ -1,5 +1,6 @@
 #include "havok/anim/AnimDataYaml.h"
 
+#include <interface/linker/Membrane.h>   // the ChainMembrane (motion inherits its clip's bind)
 #include <RymlInclude.h>
 
 #include <algorithm>
@@ -20,6 +21,8 @@
 #include <vector>
 
 namespace havok::animdata {
+
+namespace linker = CB::core::linker;
 
 namespace {
 
@@ -147,17 +150,32 @@ std::vector<MotionRecord> ParseMotionYaml(const std::string& text, std::string& 
 
 std::size_t ResolveMotionIndices(std::vector<MotionRecord>& motions, const std::vector<ClipGenerator>& clips)
 {
-    // clip NAME -> animIndex (first occurrence wins — a name maps to one animation slot).
-    std::unordered_map<std::string, std::string> byName;
-    byName.reserve(clips.size() * 2);
-    for (const auto& c : clips)
-        if (!c.name.empty()) byName.emplace(c.name, c.animIndex);
+    // ChainMembrane: a motion INHERITS its clip's bind (matched by clip name) — motion has no index
+    // authority of its own, so clip and motion cannot drift apart (linker/membrane spec). The clip's
+    // animIndex is normally numeric here (ResolveClipIndices ran first); a non-numeric (raw/unbound)
+    // clip index is carried verbatim in a sidecar so a symbolic patch index passes through byte-for-byte
+    // exactly as before.
+    std::vector<std::pair<std::string, linker::Value>> pairs;
+    std::unordered_map<std::string, std::string>       rawByName;   // clip name -> non-numeric animIndex, verbatim
+    pairs.reserve(clips.size());
+    for (const auto& c : clips) {
+        if (c.name.empty()) continue;
+        char* end = nullptr;
+        const long v = std::strtol(c.animIndex.c_str(), &end, 10);
+        if (!c.animIndex.empty() && end && *end == '\0') pairs.emplace_back(c.name, static_cast<linker::Value>(v));
+        else                                             rawByName.emplace(c.name, c.animIndex);
+    }
+    const linker::Linker        clipBind = linker::Linker::OfPairs(std::move(pairs));
+    const linker::ChainMembrane motion{&clipBind};
+
     std::size_t unresolved = 0;
     for (auto& m : motions) {
-        if (m.animation.empty()) continue;        // unnamed hybrid block: its animIndex is the key
-        const auto it = byName.find(m.animation);
-        if (it != byName.end()) m.animIndex = it->second;
-        else ++unresolved;                         // authored motion for a clip that doesn't exist
+        if (m.animation.empty()) continue;                 // unnamed hybrid block: its animIndex is the key
+        if (const auto v = motion.encode(m.animation))     // numeric clip bind — inherit it
+            m.animIndex = std::to_string(*v);
+        else if (const auto r = rawByName.find(m.animation); r != rawByName.end())
+            m.animIndex = r->second;                        // raw/symbolic clip index — verbatim
+        else ++unresolved;                                  // authored motion for a clip that doesn't exist
     }
     return unresolved;
 }
