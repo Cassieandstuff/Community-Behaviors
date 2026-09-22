@@ -14,11 +14,10 @@
 #include "SimpleIni.h"                  // [Debug] bCompileTrace toggle (mirrors CB::debug::kFlags row)
 #include <havok/model/yaml/UnitSource.h>
 #include <havok/model/yaml/HkyArchive.h>
-#include <havok/sct/BehaviorCompiler.h>
-#include <havok/sct/CharacterCompiler.h>
-#include <havok/sct/ProjectCompiler.h>       // BuildProject / ProjectSpec (typed BuildProject still in havok-core)
+#include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior/CompileCharacter/BuildProject (schema-only)
 #include <compile/ProjectRead.h>             // ReadProject — schema-native (firesale)
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
+#include <havok/model/ProjectData.h>         // model::ProjectSpec (the neutral Def)
 #include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
 #include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
 #include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
@@ -1622,7 +1621,7 @@ namespace CB {
                     // PROJECT UNIT's project.yaml (captured at Init, m_projectOrigCharRef) — original case,
                     // and it works for BSA-only setups because the base ships the project. SECONDARY: read
                     // the loose vanilla project if present. Lowercased fallback only if neither is available.
-                    havok::sct::ProjectSpec spec;                       // constants universal (field study)
+                    havok::model::ProjectSpec spec;                     // constants universal (field study)
                     bool gotVanillaIdentity = false;
                     if (auto oc = m_projectOrigCharRef.find(projKey); oc != m_projectOrigCharRef.end() && !oc->second.empty()) {
                         spec.characterFilenames = { oc->second };       // base project unit, ORIGINAL case
@@ -1646,7 +1645,7 @@ namespace CB {
                                  "using lowercased char ref (setdata/animdata bind may fail on a case-sensitive engine path).",
                                  vanillaProjectPath);
                     }
-                    const auto pr = havok::sct::BuildProject(spec);
+                    const auto pr = CB::core::compile::BuildProject(spec);
                     if (pr.ok) {
                         // Write to the ORIGINAL-CASE path the swap resolves to — NOT CacheDiskRel(projKey),
                         // which lowercases. MO2's USVFS matches case-sensitively, so the engine's Func3-cased
@@ -1780,7 +1779,7 @@ namespace CB {
                 // data/animations.yaml — so there is no deferred roster-completion pass to feed.
                 m_characterActor[ToLower(fs::path(key).stem().string())] = ActorPathOf(key);
 
-                const auto   r  = havok::sct::CompileCharacter(cdata);
+                const auto   r  = CB::core::compile::CompileCharacter(cdata);
                 const double ms = std::chrono::duration<double, std::milli>(
                                       std::chrono::steady_clock::now() - t0).count();
                 if (r.ok) {
@@ -1788,7 +1787,11 @@ namespace CB {
                     LOG_INFO("Resolver: compiled character '{}' — {} layer(s), {} anim(s), {} bytes in {:.1f} ms.",
                              key, gs.layers.size(), cdata.animations.size(), result->size(), ms);
                 } else {
-                    LOG_ERROR("Resolver: character compile FAILED for '{}': {}", key, r.error);
+                    // Schema compile failed — leave result null so the ByteServe hook passes this open
+                    // through to the VANILLA character (safe degradation). LOUD: the actor keeps stock
+                    // behavior and this character's mod edits are dropped until the schema issue is fixed.
+                    LOG_ERROR("Community Behaviors: schema compile FAILED for character '{}' — SERVING VANILLA "
+                              "(this character's mod edits are dropped): {}", key, r.error);
                 }
                 m_cache.emplace(key, result);
                 return result;
@@ -1911,7 +1914,7 @@ namespace CB {
                     LOG_INFO("Resolver: cache-qualified {} behavior reference(s) in '{}'.", qualified, key);
             }
 
-            const auto r    = havok::sct::CompileBehavior(data);
+            const auto r    = CB::core::compile::CompileBehavior(data);
             const auto t1   = std::chrono::steady_clock::now();
             const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
@@ -1920,7 +1923,11 @@ namespace CB {
                 LOG_INFO("Resolver: compiled '{}' — {} layer(s) merged, {} bytes in {:.1f} ms.",
                          key, gs.layers.size(), result->size(), ms);
             } else {
-                LOG_ERROR("Resolver: compile FAILED for '{}': {}", key, r.error);
+                // Schema compile failed — leave result null so the ByteServe hook passes this open
+                // through to the VANILLA behavior graph (safe degradation). LOUD: the graph keeps stock
+                // behavior and its mod edits are dropped until the schema issue is fixed.
+                LOG_ERROR("Community Behaviors: schema compile FAILED for graph '{}' — SERVING VANILLA "
+                          "(this graph's mod edits are dropped): {}", key, r.error);
             }
         } catch (const std::exception& e) {
             LOG_ERROR("Resolver: exception resolving '{}': {}", key, e.what());

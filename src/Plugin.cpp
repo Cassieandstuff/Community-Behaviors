@@ -12,7 +12,9 @@
 #include "core/resolve/Resolver.h"
 
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
-#include "havok/sct/BehaviorCompiler.h"   // SetSchemaCompiler — data-driven compiler toggle
+#include <compile/GraphCompile.h>                 // CB::core::compile::CompiledCount (warm-up telemetry)
+#include <havok-schema/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
+#include "havok/model/yaml/YamlBehaviorLoader.h"  // YamlBehaviorLoader::SetSchemaRegistry (wire the merge classifier)
 
 #include <atomic>
 #include <chrono>
@@ -121,16 +123,24 @@ namespace CB {
         }
         if (dir.empty() && std::getenv("SCT_HAVOK_SCHEMA_DIR") == nullptr)
             dir = "Data/Community Behaviors/Havok";   // BR-shipped schema tree (MO2 VFS-merged path)
-        havok::sct::SetSchemaCompiler(enabled, dir);
+
+        // Schema-only compiler (firesale — the typed BehaviorBuilder fallback is retired). Arm the shared
+        // registry dir + wire the load-order merge classifier to the same schema. bUseSchema=false leaves
+        // the registry UNARMED, so every compile fails and every graph serves VANILLA (CB effectively off) —
+        // a clean kill switch, not a typed path. A schema that fails to LOAD (missing/foreign/version-
+        // mismatched Havok/ tree) is the same: all graphs serve vanilla, loudly.
+        havok::schema::SetSharedSchemaDir(enabled ? dir : "");
+        havok::schema::SchemaRegistry* reg = enabled ? havok::schema::SharedRegistry() : nullptr;
+        havok::model::YamlBehaviorLoader::SetSchemaRegistry(reg);
+        const bool ready = (reg != nullptr);
         LOG_INFO("Community Behaviors: data-driven compiler {} (schema registry {}).",
                  enabled ? "ENABLED" : "off",
-                 havok::sct::SchemaCompilerReady() ? "loaded" : (enabled ? "FAILED TO LOAD → typed fallback" : "not loaded"));
+                 ready ? "loaded" : (enabled ? "FAILED TO LOAD → all graphs serve VANILLA" : "not loaded"));
         // Surface WHY the schema path is off when it was asked for — a schema-version mismatch
-        // (outdated/ahead Havok/ tree vs the version this build speaks) reads as a loud WARN, not a
-        // silent typed fallback.
-        if (enabled && !havok::sct::SchemaCompilerReady()) {
-            const std::string& why = havok::sct::SchemaCompilerError();
-            if (!why.empty()) LOG_ERROR("Community Behaviors: schema compiler off — {}.", why);
+        // (outdated/ahead Havok/ tree vs the version this build speaks) reads as a loud WARN.
+        if (enabled && !ready) {
+            const std::string& why = havok::schema::SharedRegistryError();
+            if (!why.empty()) LOG_ERROR("Community Behaviors: schema compiler off, ALL GRAPHS SERVE VANILLA — {}.", why);
         }
     }
 
@@ -225,8 +235,8 @@ namespace CB {
         LOG_INFO("Community Behaviors: precompiled {} graph(s) + {} animation(s), materialized {} to disk "
                  "in {:.1f}s (runtime loads served from disk cache).",
                  graphCount, g_resolver.NativeAnimCount(), wrote, secs);
-        { std::size_t s = 0, t = 0; havok::sct::SchemaCompilerStats(s, t);
-          if (s || t) LOG_INFO("Community Behaviors: compiler paths this warm-up — schema-driven {}, typed {}.", s, t); }
+        { const std::size_t s = CB::core::compile::CompiledCount();
+          if (s) LOG_INFO("Community Behaviors: schema-compiled {} graph(s)/character(s) this warm-up (typed path retired).", s); }
         return 0;
     }
 

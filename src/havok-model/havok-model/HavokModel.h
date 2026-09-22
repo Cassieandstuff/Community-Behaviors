@@ -289,6 +289,12 @@ std::shared_ptr<io::SchemaObject> BuildRootContainer(const std::string& graphKey
 struct BehaviorData; // fwd (havok/model/BehaviorData.h)
 std::shared_ptr<io::SchemaObject> AssembleGraph(const BehaviorData& data, const schema::SchemaRegistry& reg);
 
+// The bindings-resolve PREP pass (event/variable/character-property NAME -> roster index), run on a
+// mutable BehaviorData BEFORE AssembleGraph (or the typed BehaviorBuilder). Behavior-preserving; the
+// name->index map is context-free so it lifts out as a discrete pass. Impl: havok/model/ResolveBindings.cpp
+// (extracted out of havok-core's BehaviorBuilder.cpp so the schema compile path reaches it havok-core-free).
+void ResolveBehaviorBindings(BehaviorData& data);
+
 struct ProjectSpec;  // fwd (havok/model/ProjectData.h)
 // Schema-driven project emit (hkbProjectData + hkbProjectStringData in a hkRootLevelContainer). The
 // data-driven equivalent of havok-core's typed BuildProject; byte-identical, and where BuildProject

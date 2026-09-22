@@ -157,13 +157,8 @@ private:
                        const std::string& payload);
 };
 
-// Stage 4 — bindings-resolve pass (name -> index), run on a MUTABLE BehaviorData
-// BEFORE BehaviorBuilder. Pre-resolves every NAMED variable/character-property
-// binding to its numeric index and clears the name, producing the index-resolved
-// intermediate the builder emits from. Behavior-preserving: any binding it does not
-// touch (numeric, or a category not yet covered) still falls through to the builder's
-// inline resolve*, so output is byte-identical regardless of coverage. The name->index
-// map is context-free, which is what lets the resolution lift out of Build().
-void ResolveBehaviorBindings(BehaviorData& data);
+// ResolveBehaviorBindings (the Stage-4 bindings-resolve prep pass) moved to havok-model
+// (declared in <havok-model/HavokModel.h>, impl havok/model/ResolveBindings.cpp) so the schema
+// compile path can reach it without a havok-core dependency. Runs before this builder.
 
 } // namespace havok::model
