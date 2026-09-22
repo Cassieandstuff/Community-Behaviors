@@ -23,7 +23,7 @@
 #include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
 #include <havok/anim/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <havok/anim/AnimationCompiler.h>    // havok::anim::CompileAnimation (native anim -> loose .hkx)
-#include <havok/anim/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
+#include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
 #include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile

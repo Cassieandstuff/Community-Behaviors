@@ -5,7 +5,7 @@
 // hkaSplineCompressedAnimation blob. Empty keyframe lists mean "no channel"
 // (== the C# nullable list), handled by the sampler's defaults.
 
-#include "havok/anim/AnimationData.h"   // animdata::MotionRecord
+#include "interface/AnimationData.h"   // animdata::MotionRecord
 
 #include <cstdint>
 #include <optional>

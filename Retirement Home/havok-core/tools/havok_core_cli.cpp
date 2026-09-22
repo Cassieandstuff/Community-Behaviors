@@ -12,7 +12,7 @@
 // ryml on the prefix path (see build_behavior.cpp for the standalone cl recipe).
 
 #include "havok/anim/AnimationYamlLoader.h"
-#include "havok/anim/AnimationData.h"
+#include "interface/AnimationData.h"
 #include "havok/anim/AnimDataDeriver.h"
 #include "havok/model/yaml/CharacterYamlLoader.h"
 #include "havok/model/yaml/YamlBehaviorLoader.h"

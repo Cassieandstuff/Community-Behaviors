@@ -8,7 +8,7 @@
 // quirks — so the output matches the C# encoder and round-trips through the
 // first-party spline decoder. glm-free (plain scalar math).
 
-#include "havok/anim/AnimationDef.h"
+#include "interface/AnimationDef.h"
 
 #include <cstdint>
 #include <vector>

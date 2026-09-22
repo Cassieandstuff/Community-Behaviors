@@ -54,6 +54,7 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 # contract (<cb-resolve/CbResolve.h>) a consumer links; it PUBLIC-pulls havok-model + havok-schema
 # (→ havok-io + havok-framing transitively), so linking cb-resolve is all a consumer needs.
 include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
+add_subdirectory(Havok/core/cpp/interface)   # CB::core model structs (std-only base; org-pass firesale)
 add_subdirectory(src/havok-framing)
 add_subdirectory(src/havok-schema)
 add_subdirectory(src/havok-io)
@@ -74,7 +75,7 @@ add_subdirectory(API)              # the single public API facade (<CB-API.h>): 
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 # cb-api is the canonical facade (<CB-API.h> → cb::CB-API); cb-resolve stays as a legacy component target.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api cb-resolve havok-framing havok-schema havok-io havok-model codec havok-anim havok-skeleton
+install(TARGETS cb-api cb-resolve interface havok-framing havok-schema havok-io havok-model codec havok-anim havok-skeleton
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)

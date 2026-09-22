@@ -1,6 +1,6 @@
 #pragma once
 
-#include <havok/anim/AnimationData.h>
+#include <interface/AnimationData.h>
 
 #include <filesystem>
 #include <string>

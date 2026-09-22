@@ -22,7 +22,7 @@
 // Writes come from the parallel native-anim compile (WriteNativeAnimations fans across the pool), so
 // EmitMotion is mutex-guarded; reads happen only after that phase completes (no concurrent writers).
 
-#include <havok/anim/AnimationData.h>   // havok::animdata::MotionRecord
+#include <interface/AnimationData.h>   // havok::animdata::MotionRecord
 
 #include <cstddef>
 #include <mutex>

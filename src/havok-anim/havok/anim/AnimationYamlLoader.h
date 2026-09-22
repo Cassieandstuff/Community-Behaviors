@@ -19,7 +19,7 @@
 //
 // ryml-gated (VS/vcpkg build only).
 
-#include "havok/anim/AnimationDef.h"
+#include "interface/AnimationDef.h"
 
 #include <filesystem>
 #include <string>

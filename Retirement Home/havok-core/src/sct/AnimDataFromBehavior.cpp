@@ -1,6 +1,6 @@
 #include "havok/sct/AnimDataFromBehavior.h"
 
-#include "havok/anim/AnimationData.h"          // animdata::ProjectPatch / PatchAddition / ...
+#include "interface/AnimationData.h"          // animdata::ProjectPatch / PatchAddition / ...
 #include "havok/model/BehaviorData.h"
 #include "havok/model/defs/GeneratorDefs.h"
 

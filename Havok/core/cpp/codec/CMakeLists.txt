@@ -12,12 +12,10 @@ target_include_directories(codec
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Havok/core/cpp>   # <codec/spline/*.h>
             $<INSTALL_INTERFACE:include>)
 
-# TRANSITIONAL: SplineCompressor.h pulls <havok/anim/AnimationDef.h> (havok-anim), which pulls
-# <havok/anim/AnimationData.h> (havok-model) for MotionRecord. Both are header-only model structs, so
-# this is an include-path dep, NOT a link (no cycle). Collapses when the model → interface.
-target_include_directories(codec PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/havok-anim
-    ${CMAKE_SOURCE_DIR}/src/havok-model)
+# The model structs (AnimationDef + AnimationData) now live in `interface` — SplineCompressor.h pulls
+# <interface/AnimationDef.h>. Clean link (interface is a std-only base); the transitional havok-anim/
+# havok-model include hacks are GONE.
+target_link_libraries(codec PUBLIC interface)
 
 set_target_properties(codec PROPERTIES
     CXX_STANDARD 23

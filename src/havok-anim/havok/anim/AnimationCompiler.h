@@ -6,7 +6,7 @@
 // The registry comes from havok::schema::SharedRegistry() (set once at startup); when it is
 // unavailable the compile fails with a clear error instead of falling back to a typed path.
 
-#include "havok/anim/AnimationDef.h"
+#include "interface/AnimationDef.h"
 #include "havok/core/PackFileTypes.h"   // HKXHeader (havok-framing)
 
 #include <cstdint>

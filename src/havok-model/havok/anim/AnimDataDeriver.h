@@ -22,7 +22,7 @@
 // Motion records themselves are NOT derived (proprietary toolchain extraction) — they are
 // carried from the Skyrim.hky master and only their DURATION feeds the trigger clamp here.
 
-#include "havok/anim/AnimationData.h"
+#include "interface/AnimationData.h"
 
 #include <cstdint>
 #include <string>

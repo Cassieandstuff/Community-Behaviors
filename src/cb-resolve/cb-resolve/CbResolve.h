@@ -25,7 +25,7 @@
 #include "havok/model/defs/CharacterDefs.h"     // CharacterData
 #include "havok/model/yaml/CharacterYamlLoader.h" // load/merge a character unit
 #include "havok/model/BashMerge.h"              // the shared field/array merge primitive
-#include "havok/anim/AnimationData.h"           // animationdata model + emit (havok-core-free)
+#include "interface/AnimationData.h"           // animationdata model + emit (havok-core-free)
 #include "havok/anim/AnimDataDeriver.h"         // derive an animdata clip list from the graph
 #include "havok/sct/AnimDataFromBehavior.h"     // DeriveClipInputs straight from a BehaviorData
 #include "havok-schema/HavokSchema.h"           // SchemaRegistry + SchemaVersion / CheckSchemaCompat

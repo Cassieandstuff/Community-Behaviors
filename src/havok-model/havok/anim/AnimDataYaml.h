@@ -8,7 +8,7 @@
 // byte-exact — no quaternion<->yaw float drift. The yaw-editable authoring form is a future
 // convenience layered on top; the vanilla decompose ships the exact form.
 
-#include "havok/anim/AnimationData.h"
+#include "interface/AnimationData.h"
 
 #include <map>
 #include <optional>

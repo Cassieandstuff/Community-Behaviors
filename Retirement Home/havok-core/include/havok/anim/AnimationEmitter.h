@@ -5,7 +5,7 @@
 // under an hkRootLevelContainer, and serializes to .hkx bytes. Port of HKBuild's
 // AnimationHkxEmitter.cs.
 
-#include "havok/anim/AnimationDef.h"
+#include "interface/AnimationDef.h"
 #include "havok/core/PackFileTypes.h"   // HKXHeader
 
 #include <cstdint>

@@ -10,7 +10,7 @@
 #include <havok/sct/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList
 #include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
 #include <havok/anim/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
-#include <havok/anim/AnimationData.h>        // parse vanilla animationdatasinglefile
+#include <interface/AnimationData.h>        // parse vanilla animationdatasinglefile
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
 #include <havok/core/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
 #include <havok/core/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
