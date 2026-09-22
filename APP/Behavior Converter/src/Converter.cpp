@@ -2,7 +2,6 @@
 
 #include <havok/sct/PatchConverter.h>
 #include <havok/sct/CharacterDecompiler.h>   // DecompileToDir (character units)
-#include <havok/sct/DeltaDeriver.h>          // DeriveLooseBehaviorDelta (loose full graphs)
 #include <havok/sct/BehaviorCompiler.h>      // CompileBehavior (base unit -> vanilla binary)
 #include <havok/sct/HavokFile.h>             // ReadHavokFile / WriteHavokFile
 #include <havok/skeleton/SkeletonImport.h>   // LoadSkeletonsFromHkx / ReadSkeletonPhysics (havok-skeleton)
@@ -1416,10 +1415,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 std::string hx(4, '0');
                 for (int i = 3; i >= 0; --i) { hx[i] = "0123456789abcdef"[h16 & 0xF]; h16 >>= 4; }
                 const std::string modCode = slug + hx;
-                // SCHEMA loose-derive (read-order) when the shared registry is armed — matches the schema
-                // base decompile (BuildBaseBundle's no-template leg), so matched overrides land on the base's
-                // read-order ids. If the registry is absent the base was decompiled TYPED too (same gate),
-                // so derive typed to stay aligned — never mix schema base with a typed delta.
+                // SCHEMA loose-derive (read-order) — matches the schema base decompile (BuildBaseBundle's
+                // no-template leg), so matched overrides land on the base's read-order ids. SharedRegistry is
+                // armed for every converter mode (Stage 3.5), so this is always taken; the typed
+                // DeriveLooseBehaviorDelta fallback is RETIRED (firesale). Registry absent -> error, never a
+                // schema-base/typed-delta mix.
                 havok::model::LooseDeriveResult res;
                 if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
                     std::vector<std::uint8_t> vb, mb; std::string re;
@@ -1428,9 +1428,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         res = havok::model::DeriveLooseBehaviorDeltaSchema(vb, mb, modCode, *sreg, unit.string());
                     else res.error = "read: " + re;
                 } else {
-                    const auto tr = havok::sct::DeriveLooseBehaviorDelta(vanBin.string(), winner.string(), unit.string(), modCode);
-                    res.ok = tr.ok; res.error = tr.error; res.matched = tr.matched; res.added = tr.added;
-                    res.changedNodes = tr.changedNodes; res.newNodes = tr.newNodes; res.removedFromBase = tr.removedFromBase;
+                    res.error = "loose-derive: schema registry not armed (typed fallback retired)";
                 }
                 if (!res.ok) { ++r.skipped; say("  " + bname + ": " + u.prefix + " — DERIVE FAILED: " + res.error); continue; }
                 if (res.changedNodes == 0 && res.newNodes == 0) { fs::remove_all(unit, we); continue; }  // vanilla — nothing to carry
