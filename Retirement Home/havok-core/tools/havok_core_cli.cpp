@@ -40,7 +40,6 @@
 #include "codec/format/AnimationSetData.h"       // setdata model (movesets-roundtrip)
 #include "havok/anim/AnimSetDataYaml.h"         // movesets.yaml emit/parse
 #include "havok/anim/AnimDataYaml.h"            // motion.yaml emit/parse (motion-roundtrip)
-#include "havok/sct/PatchConverter.h"
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree (name-keyed derive-delta)
 #include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
@@ -4455,75 +4454,6 @@ int doXmlParse(const std::string& xmlFile) {
     return 0;
 }
 
-int doPatchConvert(const std::string& vanBin, const std::vector<std::string>& extra,
-                   const std::string& out) {
-    if (extra.size() < 2 || out.empty()) {
-        std::printf("usage: patchconvert <vanillaBin> <vanillaXml> <patchDir1> [patchDir2 ...] -o <out.hkx>\n"
-                    "  patch dirs are applied in LOAD ORDER (later wins scalar conflicts).\n");
-        return 2;
-    }
-    const std::vector<std::string> patchDirs(extra.begin() + 1, extra.end());  // extra[0] = vanillaXml
-    const havok::sct::PatchConvertResult res =
-        havok::sct::ConvertPatch(vanBin, extra[0], patchDirs, out);
-    std::printf("patchconvert: %s\n", res.ok ? "OK" : "FAILED");
-    if (!res.ok) { std::printf("  error: %s\n", res.error.c_str()); return 1; }
-    std::printf("  overrides=%d added=%d mergedConflicts=%d symbolsResolved=%d refsUnresolved=%d skippedMismatch=%d\n",
-                res.overrides, res.added, res.mergedConflicts, res.symbolsResolved, res.refsUnresolved, res.skippedMismatch);
-    if (!res.unsupportedClasses.empty()) {
-        std::printf("  UNSUPPORTED classes (%zu):\n", res.unsupportedClasses.size());
-        for (const auto& c : res.unsupportedClasses) std::printf("    %s\n", c.c_str());
-    }
-    if (!res.warnings.empty()) {
-        std::printf("  warnings (%zu):\n", res.warnings.size());
-        std::size_t shown = 0;
-        for (const auto& w : res.warnings) {
-            if (shown++ >= 15) { std::printf("    ... +%zu more\n", res.warnings.size() - 15); break; }
-            std::printf("    %s\n", w.c_str());
-        }
-    }
-    std::printf("  -> %s\n", out.c_str());
-    return 0;
-}
-
-int doPatchDelta(const std::string& vanBin, const std::vector<std::string>& extra, const std::string& out) {
-    if (extra.size() < 2 || out.empty()) {
-        std::printf("usage: patchdelta <vanillaBin> <vanillaXml> <modPatchDir1> [modPatchDir2 ...] -o <outDeltaDir>\n"
-                    "  emits ONE mod's native .hky delta (overrides as full nodes + new mod$N nodes +\n"
-                    "  data/additive.yaml), keyed by the stable tagfile id, to merge onto a vanbase. A mod\n"
-                    "  that ships several Nemesis codes (e.g. TDM's tdmlen/tdmh/tdmv) passes them all here\n"
-                    "  so the one delta is its combined contribution.\n");
-        return 2;
-    }
-    const std::vector<std::string> patchDirs(extra.begin() + 1, extra.end());  // extra[0] = vanillaXml
-    const auto res = havok::sct::ConvertPatch(vanBin, extra[0], patchDirs, "", out, "");
-    std::printf("patchdelta: %s\n", res.ok ? "OK" : "FAILED");
-    if (!res.ok) { std::printf("  error: %s\n", res.error.c_str()); return 1; }
-    std::printf("  overrides=%d added=%d symbolsResolved=%d refsUnresolved=%d skippedMismatch=%d\n",
-                res.overrides, res.added, res.symbolsResolved, res.refsUnresolved, res.skippedMismatch);
-    if (!res.warnings.empty()) {
-        std::printf("  warnings (%zu):\n", res.warnings.size());
-        std::size_t shown = 0;
-        for (const auto& w : res.warnings) {
-            if (shown++ >= 40) { std::printf("    ... +%zu more\n", res.warnings.size() - 40); break; }
-            std::printf("    %s\n", w.c_str());
-        }
-    }
-    std::printf("  -> %s\n", out.c_str());
-    return 0;
-}
-
-int doVanBase(const std::string& vanBin, const std::vector<std::string>& extra, const std::string& out) {
-    if (extra.size() != 1 || out.empty()) {
-        std::printf("usage: vanbase <vanillaBin> <vanillaXml> -o <outBaseDir>\n"
-                    "  decompiles vanilla with tagfile ids — the base the per-mod deltas merge onto.\n");
-        return 2;
-    }
-    const auto res = havok::sct::ConvertPatch(vanBin, extra[0], {}, "", "", out);
-    std::printf("vanbase: %s\n", res.ok ? "OK" : "FAILED");
-    if (!res.ok) { std::printf("  error: %s\n", res.error.c_str()); return 1; }
-    std::printf("  -> %s\n", out.c_str());
-    return 0;
-}
 
 // ── animdata-derive-check: the part-B oracle ─────────────────────────────────
 // Derive a project's animationdatasinglefile clip list from the behavior graph
@@ -5806,106 +5736,6 @@ int doDeriveDelta(const std::string& vanHkx, const std::vector<std::string>& ext
 // for pass 2a; any object-count delta (the compiler id!=name inline-node drop) surfaces as a
 // vanbase diff => NOT SAFE, that graph stays template-sourced.
 //   basefidelity <Skyrim.hky> <templatesDir>
-int doBaseFidelity(const std::string& archivePath, const std::vector<std::string>& extra) {
-    if (extra.empty()) { std::printf("usage: basefidelity <Skyrim.hky> <templatesDir>\n"); return 2; }
-    const fs::path templatesDir = extra[0];
-    std::string err;
-    auto arc = havok::model::HkyArchive::LoadFromFile(archivePath, err);
-    if (!arc) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
-
-    std::unordered_set<std::string> behaviorUnits;   // prefixes present in the archive
-    for (const auto& u : arc->units())
-        if (u.kind == havok::model::HkyArchive::UnitKind::Behavior) behaviorUnits.insert(u.prefix);
-
-    auto compileUnit = [&](const std::string& prefix, std::vector<std::uint8_t>& out) -> std::string {
-        try {
-            auto data = havok::model::YamlBehaviorLoader::LoadMerged({ arc->source(prefix) });
-            const auto cr = havok::sct::CompileBehavior(data);
-            if (!cr.ok) return cr.error;
-            out = cr.bytes;
-            return {};
-        } catch (const std::exception& e) { return e.what(); }
-    };
-    auto snapshot = [](const fs::path& root) {   // relpath -> bytes, for a byte-diff of two vanbase trees
-        std::map<std::string, std::string> m;
-        std::error_code ec;
-        for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
-            std::error_code fe;
-            if (!it->is_regular_file(fe)) continue;
-            std::ifstream f(it->path(), std::ios::binary);
-            m[it->path().lexically_relative(root).generic_string()] =
-                std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        }
-        return m;
-    };
-
-    std::vector<std::string> graphs;
-    std::error_code ec;
-    for (auto& e : fs::directory_iterator(templatesDir, ec)) {
-        if (!e.is_regular_file() || e.path().extension() != ".xml") continue;
-        const std::string g = e.path().stem().string();
-        if (fs::exists(templatesDir / (g + ".hkx"), ec)) graphs.push_back(g);
-    }
-    std::sort(graphs.begin(), graphs.end());
-    if (graphs.empty()) { std::printf("ERROR: no <g>.xml + <g>.hkx template pairs in %s\n", templatesDir.string().c_str()); return 1; }
-
-    const fs::path tmp = fs::temp_directory_path(ec) / "sct_basefidelity";
-    fs::remove_all(tmp, ec);
-    fs::create_directories(tmp, ec);
-
-    int pass = 0, fail = 0;
-    for (const auto& g : graphs) {
-        const fs::path xml    = templatesDir / (g + ".xml");
-        const fs::path thkx   = templatesDir / (g + ".hkx");
-        const std::string prefix = "meshes/actors/character/behaviors/" + g + ".hkx";
-        if (!behaviorUnits.count(prefix)) {
-            std::printf("  FAIL %-36s : no base unit at %s\n", g.c_str(), prefix.c_str());
-            ++fail; continue;
-        }
-        std::vector<std::uint8_t> baseBytes;
-        if (const std::string cerr = compileUnit(prefix, baseBytes); !cerr.empty()) {
-            std::printf("  FAIL %-36s : base unit compile failed: %s\n", g.c_str(), cerr.c_str());
-            ++fail; continue;
-        }
-
-        const fs::path rbin = tmp / (g + ".recompiled.hkx");
-        std::string werr;
-        if (!havok::sct::WriteHavokFile(rbin.string(), baseBytes, &werr)) {
-            std::printf("  FAIL %-36s : write recompiled binary: %s\n", g.c_str(), werr.c_str()); ++fail; continue;
-        }
-        const fs::path A = tmp / (g + ".A"), B = tmp / (g + ".B");
-        const auto ra = havok::sct::ConvertPatch(rbin.string(), xml.string(), {}, "", "", A.string());
-        const auto rb = havok::sct::ConvertPatch(thkx.string(), xml.string(), {}, "", "", B.string());
-        if (!ra.ok || !rb.ok) {
-            std::printf("  FAIL %-36s : vanbase failed (base:%s tmpl:%s)\n", g.c_str(),
-                        ra.ok ? "ok" : ra.error.c_str(), rb.ok ? "ok" : rb.error.c_str());
-            ++fail; fs::remove_all(A, ec); fs::remove_all(B, ec); fs::remove(rbin, ec); continue;
-        }
-        const auto sa = snapshot(A), sb = snapshot(B);
-        if (sa == sb) {
-            std::printf("  PASS %-36s : %zu file(s) identical\n", g.c_str(), sa.size());
-            ++pass;
-        } else {
-            std::size_t ndiff = 0;
-            std::string first;
-            for (const auto& [k, v] : sa) {
-                auto it = sb.find(k);
-                if (it == sb.end() || it->second != v) {
-                    if (first.empty()) first = k + (it == sb.end() ? " (only in base)" : " (differs)");
-                    ++ndiff;
-                }
-            }
-            std::printf("  FAIL %-36s : vanbase differs (base=%zu tmpl=%zu file(s), %zu diff; first: %s)\n",
-                        g.c_str(), sa.size(), sb.size(), ndiff, first.c_str());
-            ++fail;
-        }
-        fs::remove_all(A, ec); fs::remove_all(B, ec); fs::remove(rbin, ec);
-    }
-    fs::remove_all(tmp, ec);
-    std::printf("=== basefidelity: %d/%zu graph(s) safe to base-source, %d not ===\n",
-                pass, graphs.size(), fail);
-    return fail == 0 ? 0 : 1;
-}
 
 // ── oracle-baseline (havok-core v2 rewrite, Stage 0) ──────────────────────────────────
 // The TWO-TIER differential oracle the ground-up rewrite gates against. Runs the existing
@@ -6417,12 +6247,8 @@ int main(int argc, char** argv) {
     if (verb == "idcheck")   return extra.empty() ? usage() : doIdCheck(in, extra[0]);
     if (verb == "idalign")   return extra.empty() ? usage() : doIdAlign(in, extra[0]);
     if (verb == "xmlparse")  return doXmlParse(in);
-    if (verb == "patchconvert") return doPatchConvert(in, extra, out);
-    if (verb == "patchdelta")   return doPatchDelta(in, extra, out);
     if (verb == "derive-delta") return doDeriveDelta(in, extra, out);
     // (derive-lib debug verb retired with the typed DeriveLooseBehaviorDelta — use derive-schema.)
-    if (verb == "vanbase")      return doVanBase(in, extra, out);
-    if (verb == "basefidelity") return doBaseFidelity(in, extra);
     if (verb == "animdata-derive-check") return doAnimDataDeriveCheck(in, extra);
     if (verb == "animdata-derive") return doAnimDataDerive(in, extra, out);
     if (verb == "animdata-derive-delta") return doAnimDataDeriveDelta(in, extra);
