@@ -5,7 +5,7 @@
 #include "core/resolve/MotionRecordSink.h" // MotionRecordSink — the compile-side root-motion accumulator
 #include "core/resolve/SymbolInjector.h"
 
-#include <havok/sct/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
+#include <interface/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
 
 #include <atomic>
 #include <condition_variable>

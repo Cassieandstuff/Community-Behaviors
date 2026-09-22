@@ -4,7 +4,7 @@
 
 #include "havok/sct/HavokFile.h"           // ReadHavokFile
 #include "havok/sct/CharacterDecompiler.h" // DecompileToDir / DecompileResult (auto-routes behavior/character)
-#include "havok/sct/BoneNames.h"          // BoneNameTable / ParseBoneList (--skeleton)
+#include <interface/BoneNames.h>          // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"     // LoadSkeletonsFromHkx / ReadSkeletonPhysics / SkeletonData
 #include "havok/sct/SkeletonYaml.h"       // EmitSkeletonYamlTree
 #include "havok/anim/AnimSetDataYaml.h"   // havok::animsetdata:: (setdata singlefile decompose)

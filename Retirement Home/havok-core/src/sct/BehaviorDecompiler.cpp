@@ -11,7 +11,7 @@
 #include "havok/classes/Classes.h"
 #include "havok/classes/gen/ClassesGen.h"
 #include "havok/model/HavokEnums.h"
-#include "havok/sct/BoneNames.h"   // BoneNameTable — bone index -> name (optional)
+#include <interface/BoneNames.h>   // BoneNameTable — bone index -> name (optional)
 #include "havok/cross/Cross.h"     // cross-kind membrane (enum reverse; shared with the schema path)
 
 #include <cstdio>

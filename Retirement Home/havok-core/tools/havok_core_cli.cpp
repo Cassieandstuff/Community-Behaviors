@@ -41,7 +41,7 @@
 #include "havok/anim/AnimSetDataYaml.h"         // movesets.yaml emit/parse
 #include "havok/anim/AnimDataYaml.h"            // motion.yaml emit/parse (motion-roundtrip)
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree (name-keyed derive-delta)
-#include "havok/sct/BoneNames.h"            // BoneNameTable / ParseBoneList (--skeleton)
+#include <interface/BoneNames.h>            // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
 #include <niffer/Niffer.h>                   // NIF reader — control-decompile nif/aux pose fill
 #include <optional>                          // control-decompile convention derive
