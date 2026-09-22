@@ -326,18 +326,40 @@ namespace havok::animdata {
     bool MergeProjectPatch(SingleFile& base, const ProjectPatch& patch, MergeStats& stats,
                            long long& a_nextIndex)
     {
-        // Match by project name, case-insensitive, tolerating a ".txt" on either side.
+        // Match by STEM, case-insensitive, tolerating a ".txt" on either side. Havok keys adsf projects
+        // by the CHARACTER stem ("Wolf.hkx" -> "wolf"), NOT the project name — a creature project names
+        // the two differently ("WolfProject" the project, "Wolf" the character; the humanoids happen to
+        // share one). A derived patch is labelled by the character stem it came from ("wolf"), while a
+        // Nemesis <Project>~n dir is labelled by the project name ("WolfProject"). So match the patch's
+        // stem against BOTH the project's own name-stem AND its character stem (the basename of its
+        // "Characters[ X]\<stem>.hkx" asset) — 'wolf' binds WolfProject, 'WolfProject' still binds too.
+        // Stems everywhere: this is why the canine/horse patches were silently skipped (over-read crash
+        // on save-load — the behaviour carried the mod clips at high-band indices the adsf lacked).
         auto strip = [](std::string s) {
             const std::string ext = ".txt";
             if (s.size() >= ext.size() && ToLower(s.substr(s.size() - ext.size())) == ext)
                 s.resize(s.size() - ext.size());
             return ToLower(std::move(s));
         };
+        // The character stem of a project = the file stem of its "Characters..." asset path. Matched
+        // case-insensitively; empty when the project ships no character asset (then only name-stem binds).
+        auto charStem = [](const Project& p) -> std::string {
+            for (const auto& ap : p.assetPaths) {
+                std::string s = ap;
+                for (char& c : s) if (c == '\\') c = '/';
+                const std::string firstSeg = ToLower(s.substr(0, s.find('/')));
+                if (firstSeg.rfind("characters", 0) != 0) continue;   // want "Characters[ X]", not "Character Assets"
+                std::string fn = s.substr(s.find_last_of('/') == std::string::npos ? 0 : s.find_last_of('/') + 1);
+                if (const auto dot = fn.rfind('.'); dot != std::string::npos) fn.erase(dot);
+                return ToLower(std::move(fn));
+            }
+            return {};
+        };
         const std::string want = strip(patch.projectName);
 
         Project* proj = nullptr;
         for (auto& p : base.projects)
-            if (strip(p.name) == want) { proj = &p; break; }
+            if (strip(p.name) == want || charStem(p) == want) { proj = &p; break; }
         if (!proj) return false;
 
         bool any = false;
