@@ -1,6 +1,5 @@
 #include "Converter.h"
 
-#include <havok/sct/PatchConverter.h>
 #include <havok/sct/CharacterDecompiler.h>   // DecompileToDir (character units)
 #include <havok/sct/BehaviorCompiler.h>      // CompileBehavior (base unit -> vanilla binary)
 #include <havok/sct/HavokFile.h>             // ReadHavokFile / WriteHavokFile
@@ -997,28 +996,9 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 say("  " + label + "/" + g + ": schema delta failed (" + md.error + ") — falling back to typed");
             }
         }
-        const std::string vanBin = getVanillaBin(g);
-        if (vanBin.empty()) {
-            ++r.skipped;
-            say("  " + label + "/" + g + ": no vanilla source (base unit absent + no template) — skipped");
-            return false;
-        }
-        const auto res = havok::sct::ConvertPatch(vanBin, xmlOf(g), patchDirs, "", outHkx, "");
-        if (res.ok) {
-            ++r.deltas;
-            if (res.skippedMismatch > 0 || !res.unsupportedClasses.empty()) {
-                std::string w = "  " + label + "/" + g + ": DROPPED";
-                if (res.skippedMismatch) w += " " + std::to_string(res.skippedMismatch) + " override(s) (class/source drift)";
-                if (!res.unsupportedClasses.empty()) {
-                    w += " | unsupported class(es):";
-                    for (const auto& u : res.unsupportedClasses) w += " " + u;
-                }
-                say(w);
-            }
-            for (const auto& warn : res.warnings) say("      " + label + "/" + g + ": " + warn);
-            return true;
-        }
-        ++r.skipped; say("  " + label + "/" + g + ": behavior FAILED — " + res.error);
+        // Typed ConvertPatch fallback RETIRED (firesale) — schema (ConvertModDelta) is the only path.
+        ++r.skipped;
+        say("  " + label + "/" + g + ": no schema conversion (base xml absent or schema failed; typed retired) — skipped");
         return false;
     };
 
@@ -2325,13 +2305,10 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             ++r.behaviors; continue;
                         }
                         say("  WARN: schema base decompile failed for " + fs::path(rel).stem().string() +
-                            " (" + derr + "); trying typed oracle.");
+                            " (" + derr + "); falling through to encounter-order ids.");
                     }
-                    const auto pc = havok::sct::ConvertPatch(it->path().string(), xml.string(),
-                                                             {}, "", "", unit.string());
-                    if (pc.ok) { ++r.behaviors; continue; }
-                    say("  WARN: oracle base decompile failed for " + fs::path(rel).stem().string() +
-                        " (" + pc.error + "); using encounter-order ids.");
+                    // Typed ConvertPatch oracle fallback RETIRED (firesale). Schema is the base emitter;
+                    // if it ever fails, DecompileToDir below catches it (encounter-order ids).
                 } else if (xmlObjs != 0) {
                     say("  note: template " + fs::path(rel).stem().string() + ".xml (" +
                         std::to_string(xmlObjs) + " objs) != " + rel + " (" + std::to_string(binObjs) +
