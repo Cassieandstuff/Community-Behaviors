@@ -8,7 +8,7 @@
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
 #include <havok/anim/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
-#include <havok/sct/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior / DeriveProjectPatch
+#include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior / DeriveProjectPatch
 #include <havok/model/BehaviorData.h>
 #include <havok/model/yaml/YamlBehaviorLoader.h>
 

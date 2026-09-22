@@ -36,7 +36,7 @@
 #include <havok-io/HavokIo.h>                // generic schema-driven packfile r/w (rewrite Stage 2)
 #include <havok-model/HavokModel.h>          // name-keyed .hky model: identity/index + emit (Stage 3)
 #include "havok/classes/Animation.h"   // hkaDefaultAnimatedReferenceFrame (refframe verb)
-#include "havok/sct/AnimDataFromBehavior.h"   // in-memory clip extraction (runtime deriver core)
+#include <compile/AnimDataFromBehavior.h>   // in-memory clip extraction (runtime deriver core)
 #include "codec/format/AnimationSetData.h"       // setdata model (movesets-roundtrip)
 #include "havok/anim/AnimSetDataYaml.h"         // movesets.yaml emit/parse
 #include "havok/anim/AnimDataYaml.h"            // motion.yaml emit/parse (motion-roundtrip)

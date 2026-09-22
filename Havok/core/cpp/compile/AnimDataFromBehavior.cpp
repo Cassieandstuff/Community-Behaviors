@@ -1,4 +1,4 @@
-#include "havok/sct/AnimDataFromBehavior.h"
+#include <compile/AnimDataFromBehavior.h>
 
 #include "interface/AnimationData.h"          // animdata::ProjectPatch / PatchAddition / ...
 #include "havok/model/BehaviorData.h"

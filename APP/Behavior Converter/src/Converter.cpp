@@ -7,7 +7,7 @@
 #include <havok/skeleton/SkeletonYaml.h>     // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
 #include <havok/model/yaml/YamlBehaviorLoader.h>  // LoadMerged (base unit -> BehaviorData)
-#include <havok/sct/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList
+#include <compile/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList
 #include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
 #include <havok/anim/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
 #include <interface/AnimationData.h>        // parse vanilla animationdatasinglefile

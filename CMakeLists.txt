@@ -62,6 +62,7 @@ add_subdirectory(src/havok-model)
 add_subdirectory(Havok/core/cpp/codec)   # CB::core codecs (spline; org-pass firesale step 1)
 add_subdirectory(src/havok-anim)   # schema-driven animation pipeline (depends on havok-model)
 add_subdirectory(src/havok-skeleton)  # schema-driven skeleton codec (depends on havok-io)
+add_subdirectory(Havok/core/cpp/compile)   # CB::core one-way derives (AnimDataFromBehavior; firesale, depends on havok-model)
 add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
                                    # repo root — graduates to its own repo (both CB + Skyrim Content Tools
                                    # need it now). Dependency-free leaf: consumers link `niffer` and
@@ -75,7 +76,7 @@ add_subdirectory(API)              # the single public API facade (<CB-API.h>): 
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 # cb-api is the canonical facade (<CB-API.h> → cb::CB-API); cb-resolve stays as a legacy component target.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api cb-resolve interface havok-framing havok-schema havok-io havok-model codec havok-anim havok-skeleton
+install(TARGETS cb-api cb-resolve interface havok-framing havok-schema havok-io havok-model codec compile havok-anim havok-skeleton
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
@@ -197,7 +198,7 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" 
 # havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
 # (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
 # minhook = function-ENTRY hooks (the BSResource stream ctor).
-target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline havok-skeleton sct-config ryml::ryml minhook::minhook)
+target_link_libraries(CommunityBehaviors PRIVATE havok-core havok-pipeline havok-skeleton compile sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/pch/PCH.h")

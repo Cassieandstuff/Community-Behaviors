@@ -11,7 +11,7 @@
 #include "havok/model/BashMerge.h"   // shared merge decision (havok::merge::decideParam)
 #include <havok-schema/HavokSchema.h> // SchemaRegistry — per-field `merge:` tag classifier
 #include "havok/model/HavokEnums.h"  // enums::ResolveEnum for symbolic flag fields
-#include "havok/sct/AnimDataFromBehavior.h"  // sct::ReadClipInputsFromClipsDir (implemented here — ryml is isolated to this TU)
+#include <compile/AnimDataFromBehavior.h>  // sct::ReadClipInputsFromClipsDir (implemented here — ryml is isolated to this TU)
 
 // rapidyaml MUST come in via this shim (include/external/RymlInclude.h): it
 // neutralizes a c4core v0.5.0 C++20 attribute bug that otherwise breaks the ryml
