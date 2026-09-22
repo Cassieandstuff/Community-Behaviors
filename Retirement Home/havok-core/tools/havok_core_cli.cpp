@@ -26,6 +26,7 @@
 #include "havok/sct/CharacterCompiler.h"
 #include "havok/sct/CharacterDecompiler.h"
 #include "havok/sct/ProjectCompiler.h"
+#include <compile/ProjectRead.h>   // ReadProject — schema-native (firesale)
 #include "havok/sct/HavokFile.h"
 #include "havok/sct/Validate.h"
 
@@ -5132,6 +5133,7 @@ int doProjectSchemaCheck(const std::string& in, const std::string& schemaDir) {
     if (in.empty() || schemaDir.empty()) { std::printf("usage: project-schema-check <project.hkx> <Havok-dir>\n"); return 1; }
     std::vector<std::uint8_t> bytes; std::string err;
     if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    havok::sct::SetSchemaCompiler(true, schemaDir);                // arm the shared registry — ReadProject is schema-native now
     const auto pr = havok::sct::ReadProject(bytes);
     if (!pr.ok) { std::printf("ReadProject FAIL: %s\n", pr.error.c_str()); return 1; }
 

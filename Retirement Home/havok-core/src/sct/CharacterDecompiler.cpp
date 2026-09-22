@@ -1,6 +1,7 @@
 #include "havok/sct/CharacterDecompiler.h"
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree
-#include "havok/sct/ProjectCompiler.h"      // ReadProject / EmitProjectYaml (project.yaml)
+#include "havok/sct/ProjectCompiler.h"      // EmitProjectYaml (project.yaml)
+#include <compile/ProjectRead.h>            // ReadProject — schema-native (firesale)
 
 #include "havok/classes/Animation.h"
 #include "havok/classes/Classes.h"

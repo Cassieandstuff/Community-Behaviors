@@ -31,16 +31,7 @@ using havok::model::ProjectSpec;
 using havok::model::EVENT_MODE_DEFAULT;
 using havok::model::EVENT_MODE_IGNORE_FROM_GENERATOR;
 
-struct ProjectReadResult {
-    bool        ok = false;
-    std::string error;      // populated when !ok
-    ProjectSpec spec;
-    HKXHeader   header;     // the packfile's own header (feed back to re-serialize byte-exact)
-};
-
-// Deserialize a project .hkx's bytes into an editable ProjectSpec (+ its header).
-// Never throws.
-ProjectReadResult ReadProject(const std::vector<std::uint8_t>& bytes);
+// ReadProject + ProjectReadResult moved to <compile/ProjectRead.h> (schema-native, firesale).
 
 // Build a complete valid project .hkx from a spec. This is BR's synthesize path —
 // no source bytes needed. The default header IS the SkyrimSE project preset

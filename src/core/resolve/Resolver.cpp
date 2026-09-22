@@ -16,7 +16,8 @@
 #include <havok/model/yaml/HkyArchive.h>
 #include <havok/sct/BehaviorCompiler.h>
 #include <havok/sct/CharacterCompiler.h>
-#include <havok/sct/ProjectCompiler.h>
+#include <havok/sct/ProjectCompiler.h>       // BuildProject / ProjectSpec (typed BuildProject still in havok-core)
+#include <compile/ProjectRead.h>             // ReadProject — schema-native (firesale)
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
 #include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
 #include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)

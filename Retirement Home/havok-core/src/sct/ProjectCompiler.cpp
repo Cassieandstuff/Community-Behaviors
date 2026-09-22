@@ -69,27 +69,9 @@ CompileResult SerializeRoot(const std::shared_ptr<hkRootLevelContainer>& root, c
 
 } // namespace
 
-ProjectReadResult ReadProject(const std::vector<std::uint8_t>& bytes) {
-    ProjectReadResult out;
-    std::shared_ptr<hkbProjectData>       data;
-    std::shared_ptr<hkbProjectStringData> strings;
-    auto root = LoadProjectGraph(bytes, out.header, data, strings, out.error);
-    if (!root) return out;
-
-    out.spec.worldUpWS = { data->m_worldUpWS.x, data->m_worldUpWS.y,
-                           data->m_worldUpWS.z, data->m_worldUpWS.w };
-    out.spec.defaultEventMode  = data->m_defaultEventMode;
-    out.spec.animationFilenames = strings->m_animationFilenames;
-    out.spec.behaviorFilenames  = strings->m_behaviorFilenames;
-    out.spec.characterFilenames = strings->m_characterFilenames;
-    out.spec.eventNames         = strings->m_eventNames;
-    out.spec.animationPath      = strings->m_animationPath;
-    out.spec.behaviorPath       = strings->m_behaviorPath;
-    out.spec.characterPath      = strings->m_characterPath;
-    out.spec.fullPathToSource   = strings->m_fullPathToSource;
-    out.ok = true;
-    return out;
-}
+// ReadProject moved to Havok/core/cpp/compile/ProjectRead.{h,cpp} (schema-native, firesale).
+// This file keeps the typed BuildProject/RoundTrip/Rewrite path + LoadProjectGraph (the offline
+// oracle / editor byte-exact rewrite), which still uses the typed hkb* classes.
 
 CompileResult BuildProject(const ProjectSpec& spec, const HKXHeader& header) {
     // Data-driven path (opt-in): assemble via the Havok/ schema descriptors (model::AssembleProject),
