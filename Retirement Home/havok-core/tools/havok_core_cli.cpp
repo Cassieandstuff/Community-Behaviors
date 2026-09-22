@@ -39,7 +39,7 @@
 #include "havok/classes/Animation.h"   // hkaDefaultAnimatedReferenceFrame (refframe verb)
 #include <compile/AnimDataFromBehavior.h>   // in-memory clip extraction (runtime deriver core)
 #include "codec/format/AnimationSetData.h"       // setdata model (movesets-roundtrip)
-#include "havok/anim/AnimSetDataYaml.h"         // movesets.yaml emit/parse
+#include <codec/format/AnimSetDataYaml.h>         // movesets.yaml emit/parse
 #include "havok/anim/AnimDataYaml.h"            // motion.yaml emit/parse (motion-roundtrip)
 #include "havok/sct/BehaviorDecompiler.h"   // DecompileBehaviorTree (name-keyed derive-delta)
 #include <interface/BoneNames.h>            // BoneNameTable / ParseBoneList (--skeleton)

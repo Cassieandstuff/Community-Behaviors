@@ -5,7 +5,7 @@
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
-#include <havok/anim/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (moved to havok-core)
+#include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (codec/format, firesale)
 
 #include <algorithm>
 #include <atomic>

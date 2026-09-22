@@ -7,7 +7,7 @@
 #include <interface/BoneNames.h>          // BoneNameTable / ParseBoneList (--skeleton)
 #include "havok/sct/SkeletonImport.h"     // LoadSkeletonsFromHkx / ReadSkeletonPhysics / SkeletonData
 #include "havok/sct/SkeletonYaml.h"       // EmitSkeletonYamlTree
-#include "havok/anim/AnimSetDataYaml.h"   // havok::animsetdata:: (setdata singlefile decompose)
+#include <codec/format/AnimSetDataYaml.h>   // havok::animsetdata:: (setdata singlefile decompose)
 #include "havok/anim/AnimDataYaml.h"      // havok::animdata::   (animdata singlefile decompose)
 #include <havok-model/HavokModel.h>       // ParseTagfile / EmitHky / EmitFullBaseScaffolding (tagfile-XML diff)
 #include <havok-schema/HavokSchema.h>     // SchemaRegistry (tagfile-XML parse needs the class descriptors)

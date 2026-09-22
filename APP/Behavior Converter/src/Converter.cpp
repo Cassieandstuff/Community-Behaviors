@@ -9,7 +9,7 @@
 #include <havok/model/yaml/YamlBehaviorLoader.h>  // LoadMerged (base unit -> BehaviorData)
 #include <compile/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList
 #include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
-#include <havok/anim/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
+#include <codec/format/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
 #include <interface/AnimationData.h>        // parse vanilla animationdatasinglefile
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
 #include <havok/core/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)

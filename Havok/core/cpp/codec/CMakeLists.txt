@@ -14,8 +14,10 @@ target_include_directories(codec
 
 # The model structs (AnimationDef + AnimationData) now live in `interface` — SplineCompressor.h pulls
 # <interface/AnimationDef.h>. Clean link (interface is a std-only base); the transitional havok-anim/
-# havok-model include hacks are GONE.
-target_link_libraries(codec PUBLIC interface)
+# havok-model include hacks are GONE. havok-schema is the codebase's ryml provider (PUBLIC ryml::ryml +
+# the RymlInclude.h shim dir) — the format YAML codec (AnimSetDataYaml movesets/crcs decompose) parses
+# with it. It carries no descriptor dependency; it's the ryml conduit.
+target_link_libraries(codec PUBLIC interface havok-schema)
 
 set_target_properties(codec PROPERTIES
     CXX_STANDARD 23
