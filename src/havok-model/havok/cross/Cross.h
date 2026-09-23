@@ -74,13 +74,6 @@ inline int boneIndexByName(std::string_view name, const std::vector<std::string>
     return -1;
 }
 
-// Inverse: a bone index -> its skeleton name, or "" when there is no skeleton
-// loaded or the index is out of range (the caller then keeps the raw number).
-inline std::string boneNameByIndex(int index, const std::vector<std::string>& boneNames) {
-    if (index < 0 || index >= static_cast<int>(boneNames.size())) return {};
-    return boneNames[static_cast<std::size_t>(index)];
-}
-
 // ── animation track -> bone index (the INVERSE membrane) ─────────────────────
 // Resolve an animation track's authored bone reference to a skeleton bone index.
 // This is the animation-side twin of the graph's hkbBoneIndexArray resolution: an
@@ -119,15 +112,6 @@ inline int trackBoneRef(std::string_view ref, int ordinal,
 inline std::string rosterName(int index, const std::vector<std::string>& roster) {
     if (index < 0 || index >= static_cast<int>(roster.size())) return {};
     return roster[static_cast<std::size_t>(index)];
-}
-
-// name -> index by linear scan, or -1 if absent. For hot paths that resolve many
-// names against one roster, build an unordered_map once instead (see Roster) —
-// this is the simple form for one-shot lookups + the shared scan rule.
-inline int rosterIndex(std::string_view name, const std::vector<std::string>& roster) {
-    for (std::size_t i = 0; i < roster.size(); ++i)
-        if (roster[i] == name) return static_cast<int>(i);
-    return -1;
 }
 
 }  // namespace havok::cross
