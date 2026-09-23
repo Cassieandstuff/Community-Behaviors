@@ -11,7 +11,7 @@
 // ryml-gated: pulls in the YAML loaders. Built inside havok-core's CMake with
 // ryml on the prefix path (see build_behavior.cpp for the standalone cl recipe).
 
-#include "havok/anim/AnimationYamlLoader.h"
+#include "codec/format/AnimationYamlLoader.h"
 #include "interface/AnimationData.h"
 #include "havok/anim/AnimDataDeriver.h"
 #include "havok/model/yaml/CharacterYamlLoader.h"
@@ -19,8 +19,8 @@
 #include "havok/model/BehaviorBuilder.h"   // model::ResolveBehaviorBindings (pre-build stage)
 #include "havok/model/yaml/HkyArchive.h"
 #include "havok/model/CompileTrace.h"      // compile-trace sink + TraceGraph (name-annotated merge trace)
-#include "havok/anim/AnimationCompiler.h"    // havok::anim::CompileAnimation (schema-native)
-#include "havok/anim/AnimationDecompiler.h"  // havok::anim::DecompileAnimation (schema-native)
+#include "compile/AnimationCompiler.h"       // havok::anim::CompileAnimation (schema-native)
+#include "decompile/AnimationDecompiler.h"   // havok::anim::DecompileAnimation (schema-native)
 #include "havok/anim/AnimationEmitter.h"     // havok::anim::EmitAnimationHkx (typed baseline for the gate)
 #include "havok/sct/BehaviorCompiler.h"
 #include "havok/sct/CharacterCompiler.h"

@@ -9,6 +9,7 @@
 // convenience layered on top; the vanilla decompose ships the exact form.
 
 #include "interface/AnimationData.h"
+#include "interface/MotionSample.h"   // Label/UnlabelSample (the sample-label codec) — re-exported for callers
 
 #include <map>
 #include <optional>
@@ -61,17 +62,7 @@ namespace havok::animdata {
     // position). Never throws — malformed input leaves `err` set and returns what parsed.
     MotionRecord ParseMotionSidecar(const std::string& text, std::string& err);
 
-    // Normalize ONE labeled motion sample ("t: 0, x: 1, …" or the legacy bare "t x y z") back to the
-    // canonical space-joined verbatim token the model + .txt carry. Idempotent on bare input. Exposed
-    // so an out-of-file parser (e.g. the animation.yaml `motion:` block in AnimationYamlLoader) stays
-    // byte-identical to ParseMotionSidecar without re-implementing the unlabel rule.
-    std::string UnlabelSample(const std::string& labeledOrBare);
-
-    // Inverse of UnlabelSample: present a canonical "t x y z" verbatim sample with axis labels
-    // ("t: <t>, x: <x>, …") for readable, byte-stable YAML. Exposed so an out-of-file EMITTER (the
-    // animation.yaml inline `motion:` block emitted by hky-utils) stays byte-identical to
-    // EmitMotionSidecar without re-implementing the label rule.
-    std::string LabelSample(const std::string& verbatim);
+    // (Label/UnlabelSample — the sample-label codec — moved to <interface/MotionSample.h>, included above.)
 
     // Resolve a roster animation entry (e.g. "Animations\male\foo.hkx" or the relative
     // "..\sharedkillmoves\x.hkx") against the actor root (the character's meshes-relative dir, e.g.

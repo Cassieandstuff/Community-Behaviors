@@ -21,8 +21,8 @@
 #include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
 #include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
 #include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
-#include <havok/anim/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
-#include <havok/anim/AnimationCompiler.h>    // havok::anim::CompileAnimation (native anim -> loose .hkx)
+#include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
+#include <compile/AnimationCompiler.h>         // havok::anim::CompileAnimation (native anim -> loose .hkx)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)

@@ -1,4 +1,4 @@
-#include "havok/anim/AnimationCompiler.h"
+#include "compile/AnimationCompiler.h"
 
 #include "codec/spline/SplineCompressor.h"     // CB::core::spline::CompressAnimation (the shared spline codec)
 #include "havok/core/PackFileSerializer.h"    // havok-framing — the ONE serializer (io::SchemaObject)

@@ -9,7 +9,7 @@
 #include "havok/core/PackFileDeserializer.h"
 #include "havok/model/HavokEnums.h"
 
-#include <havok/anim/AnimationDecompiler.h>   // havok::anim::DecompileAnimation (schema-native, bytes in)
+#include <decompile/AnimationDecompiler.h>   // havok::anim::DecompileAnimation (schema-native, bytes in)
 #include <interface/BoneNames.h>              // BoneNameTable::names (thread the skeleton to the membrane)
 
 #include <cstdio>

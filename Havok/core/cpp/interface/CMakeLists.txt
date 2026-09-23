@@ -3,8 +3,9 @@
 # (org-pass firesale): the animation model — AnimationDef (havok::anim, the authoring model) +
 # AnimationData (havok::animdata, the adsf .txt model + parse/emit). Moved here to break the
 # AnimationDef<->AnimationData coupling that cycle-locked the adsf codec work: interface is a
-# std-only BASE lib (depends on nothing), so codec / havok-anim / havok-model all depend on IT,
-# no cycle. Include root Havok/core/cpp/ -> <interface/*.h>.
+# std-only BASE lib (depends on nothing), so codec / compile / decompile / havok-model all depend on
+# IT, no cycle. Also holds MotionSample (the root-motion sample-label codec, beside its MotionRecord).
+# Include root Havok/core/cpp/ -> <interface/*.h>.
 sct_collect_sources(CB_INTERFACE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
 add_library(interface STATIC ${CB_INTERFACE_SOURCES})

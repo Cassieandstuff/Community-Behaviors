@@ -41,9 +41,9 @@
 
 // anim — decode/compile/export animations (schema-native; the CB pipeline itself)
 #include "havok/anim/AnimationDef.h"
-#include "havok/anim/AnimationYamlLoader.h"
-#include "havok/anim/AnimationCompiler.h"
-#include "havok/anim/AnimationDecompiler.h"
+#include "codec/format/AnimationYamlLoader.h"
+#include "compile/AnimationCompiler.h"
+#include "decompile/AnimationDecompiler.h"
 
 // animdata — the animationdata (motion / root-motion) model + its YAML sidecar
 #include "havok/anim/AnimationData.h"

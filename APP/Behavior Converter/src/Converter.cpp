@@ -14,9 +14,9 @@
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
 #include <havok/core/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
 #include <havok/core/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
-#include <havok/anim/AnimationCompiler.h>    // havok::anim::CompileAnimation — recompile leg (schema-native)
-#include <havok/anim/AnimationDecompiler.h>  // havok::anim::DecompileAnimation — schema-native import leg
-#include <havok/anim/AnimationYamlLoader.h>  // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
+#include <compile/AnimationCompiler.h>       // havok::anim::CompileAnimation — recompile leg (schema-native)
+#include <decompile/AnimationDecompiler.h>   // havok::anim::DecompileAnimation — schema-native import leg
+#include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <havok/classes/Generators.h>        // hkbClipGenerator / hkbBehaviorReferenceGenerator (pass 2d RBG walk)
 #include <havok/sct/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
 #include <havok-model/HavokModel.h>          // ConvertModDelta — the DEFAULT data-driven per-mod delta

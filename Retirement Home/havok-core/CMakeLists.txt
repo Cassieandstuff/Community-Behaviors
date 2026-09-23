@@ -47,7 +47,7 @@ target_include_directories(havok-core PUBLIC
 # The animation compile/decompile pipeline (AnimationDef, spline codec, Assemble/Compile/
 # DecompileAnimation, AnimationYamlLoader) moved to havok-anim (schema-native); havok-core's
 # CharacterDecompiler + the CLI anim verbs consume it from there at havok/anim/* paths.
-target_link_libraries(havok-core PUBLIC havok-framing havok-model havok-anim codec)   # codec = CB::core::crc (aliased into asd::), firesale
+target_link_libraries(havok-core PUBLIC havok-framing havok-model codec compile decompile)   # codec = CB::core::crc; compile/decompile = the anim compiler/decompiler (firesale)
 
 if(MSVC)
     target_compile_options(havok-core PRIVATE /W4 /wd4100 /MP)
@@ -107,9 +107,11 @@ if(HAVOK_CORE_BUILD_TOOLS)
         target_compile_options(skeleton-import-smoke PRIVATE /W4 /wd4100 /MP)
     endif()
 
-    # build_behavior: authored YAML tree -> .hkx bytes (the full compile pipeline).
-    # Needs the ryml-gated YAML loader, so only add it when ryml was found.
-    if(ryml_FOUND AND HAVOK_CORE_YAML_SOURCES)
+    # build_behavior + havok-core-cli: the YAML<->HKX tools. They need ryml, but the YAML loaders
+    # they call now live in havok-model / codec / Havok/core/cpp (drained out of havok-core, so
+    # HAVOK_CORE_YAML_SOURCES is legitimately empty) — gate on ryml_FOUND alone, not on havok-core
+    # still owning yaml TUs. (The root pack-hky command needs havok-core-cli unconditionally.)
+    if(ryml_FOUND)
         add_executable(build_behavior
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_behavior.cpp")
         set_target_properties(build_behavior PROPERTIES
@@ -132,7 +134,7 @@ if(HAVOK_CORE_BUILD_TOOLS)
             CXX_EXTENSIONS        OFF
             OUTPUT_NAME           "havok-core-cli"
         )
-        target_link_libraries(havok-core-cli PRIVATE havok-core havok-schema havok-io havok-model havok-skeleton compile niffer)
+        target_link_libraries(havok-core-cli PRIVATE havok-core havok-schema havok-io havok-model havok-skeleton compile decompile codec niffer)
         if(MSVC)
             target_compile_options(havok-core-cli PRIVATE /W4 /wd4100 /MP /bigobj)  # TU exceeds the default section limit
         endif()

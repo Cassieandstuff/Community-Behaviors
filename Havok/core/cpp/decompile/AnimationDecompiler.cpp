@@ -16,7 +16,7 @@
 //   * SCALE (BITS16) and static FLOAT tracks round-trip byte-for-byte; ANNOTATION tracks are re-emitted
 //     verbatim and round-trip byte-for-byte.
 
-#include "havok/anim/AnimationDecompiler.h"
+#include "decompile/AnimationDecompiler.h"
 
 #include "havok/anim/AnimDataYaml.h"      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
 #include "codec/spline/SplineDecompressor.h"

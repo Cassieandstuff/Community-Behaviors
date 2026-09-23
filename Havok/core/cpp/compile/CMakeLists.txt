@@ -18,7 +18,7 @@ target_include_directories(compile
 # havok-framing = PackFileDeserializer; havok-io = SchemaObject/MakeSchemaFactory; havok-schema =
 # SharedRegistry (the schema-native anim read). havok-model PUBLIC-propagates io/schema/interface, but
 # name them so the deps are explicit and survive a havok-model retarget.
-target_link_libraries(compile PUBLIC interface havok-io havok-schema havok-framing havok-model)
+target_link_libraries(compile PUBLIC interface havok-io havok-schema havok-framing havok-model codec)
 
 set_target_properties(compile PROPERTIES
     CXX_STANDARD 23

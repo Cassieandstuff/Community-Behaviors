@@ -7,7 +7,7 @@
 #include "core/resolve/GraphClipSink.h"   // sink->Contributions() (adsf-derive stage, opt-in validation)
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
-#include <havok/anim/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
+#include <codec/format/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior / DeriveProjectPatch
 #include <interface/linker/Membrane.h>     // roster IndexMembrane (motion inherits the clip's bind)
 #include <havok/model/BehaviorData.h>

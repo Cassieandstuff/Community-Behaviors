@@ -1,6 +1,7 @@
 #include "havok/anim/AnimDataYaml.h"
 
 #include <interface/linker/Membrane.h>   // the ChainMembrane (motion inherits its clip's bind)
+#include <interface/MotionSample.h>      // Label/UnlabelSample (the sample-label codec, now in interface)
 #include <RymlInclude.h>
 
 #include <algorithm>
@@ -35,54 +36,7 @@ std::string Q(const std::string& s) {
     return o;
 }
 
-// A root-motion sample is "t x y z" (translation) or "t x y z w" (rotation). Present it with axis
-// LABELS for readability — "t: <t>, x: <x>, …" — while keeping the float TOKENS verbatim (no
-// parse/reformat), so the .txt round-trip stays byte-exact. Labels are chosen by token count so we
-// never need to know which array we're in.
-}  // namespace  (anon holds Q; LabelSample + UnlabelSample are exported — declared in AnimDataYaml.h)
-
-// Exported (see header): labeled motion sample, so hky-utils' inline animation.yaml `motion:` emit
-// matches EmitMotionSidecar byte-for-byte.
-std::string LabelSample(const std::string& verbatim) {
-    static const char* const kAxes[] = { "t", "x", "y", "z", "w" };
-    std::vector<std::string> toks;
-    std::string              cur;
-    for (char c : verbatim) { if (c == ' ') { if (!cur.empty()) { toks.push_back(cur); cur.clear(); } } else cur += c; }
-    if (!cur.empty()) toks.push_back(cur);
-    std::string out;
-    for (std::size_t i = 0; i < toks.size(); ++i) {
-        if (i) out += ", ";
-        if (i < 5) { out += kAxes[i]; out += ": "; }   // >5 tokens (never for motion): leave bare
-        out += toks[i];
-    }
-    return out;
-}
-
-// Inverse of LabelSample, and tolerant of the legacy bare "t x y z" form (no labels): split on ','
-// when labeled else on ' ', drop each "axis:" prefix, and rejoin the raw tokens with a single space
-// — the canonical verbatim string the model + .txt carry. Idempotent on bare input.
-std::string UnlabelSample(const std::string& s) {
-    const char sep = (s.find(',') != std::string::npos) ? ',' : ' ';
-    std::string out;
-    bool        first = true;
-    std::string cur;
-    auto flush = [&] {
-        auto b = cur.find_first_not_of(" \t");
-        if (b != std::string::npos) {
-            auto        e   = cur.find_last_not_of(" \t");
-            std::string seg = cur.substr(b, e - b + 1);
-            if (const auto colon = seg.find(':'); colon != std::string::npos) {   // strip "axis:" prefix
-                auto vb = seg.find_first_not_of(" \t", colon + 1);
-                seg     = (vb == std::string::npos) ? std::string() : seg.substr(vb);
-            }
-            if (!seg.empty()) { if (!first) out += ' '; out += seg; first = false; }
-        }
-        cur.clear();
-    };
-    for (char c : s) { if (c == sep) flush(); else cur += c; }
-    flush();
-    return out;
-}
+}  // namespace  (anon holds Q; LabelSample/UnlabelSample now live in <interface/MotionSample.h>)
 
 std::string EmitMotionYaml(const Project& project, const std::vector<std::string>& roster)
 {
