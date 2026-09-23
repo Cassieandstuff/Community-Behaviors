@@ -2,7 +2,7 @@
 
 #include "codec/spline/SplineCompressor.h"     // CB::core::spline::CompressAnimation (the shared spline codec)
 #include "havok/core/PackFileSerializer.h"    // havok-framing — the ONE serializer (io::SchemaObject)
-#include "havok/cross/Cross.h"                // havok::cross::trackBoneRef (the inverse membrane)
+#include <interface/linker/Membrane.h>       // BoneMembrane::resolveTrackRef (the one name<->index codec)
 
 #include <havok-io/HavokIo.h>                  // io::SchemaObject
 #include <havok-schema/HavokSchema.h>          // schema::SchemaRegistry + SharedRegistry()
@@ -76,7 +76,7 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
     binding->FieldRef("blendHint").raw            = { 0 };
 
     // transformTrackToBoneIndices — the INVERSE membrane. Resolve every track's authored bone
-    // reference to a skeleton bone index (havok::cross::trackBoneRef: a "track<N>" placeholder ->
+    // reference to a skeleton bone index (BoneMembrane::resolveTrackRef: a "track<N>" placeholder ->
     // identity N, a bone NAME -> its served-skeleton index). Emit the int16 map only when it is NOT
     // pure identity; a pure-identity map stays an empty array, which is exactly what vanilla ships for
     // a clip whose tracks are its skeleton's bones in order (keeps that case byte-identical).
@@ -84,10 +84,15 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
     {
         static const std::vector<std::string> kNoBones;
         const auto& bones = boneNames ? *boneNames : kNoBones;
+        // Resolve each track's bone by NAME through the one name<->index codec. Bones are matched
+        // case-sensitively (Havok is case-sensitive), exactly as the former linear scan did.
+        namespace linker = CB::core::linker;
+        const linker::Linker       boneL = linker::Linker::OfOrderedNames(bones);
+        const linker::BoneMembrane boneM{ &boneL };
         bool identity = true;
         std::vector<std::uint8_t> ttb; ttb.reserve(anim.tracks.size() * 2);
         for (std::size_t t = 0; t < anim.tracks.size(); ++t) {
-            const int bi = havok::cross::trackBoneRef(anim.tracks[t].bone, static_cast<int>(t), bones);
+            const int bi = boneM.resolveTrackRef(anim.tracks[t].bone, static_cast<int>(t));
             if (bi != static_cast<int>(t)) identity = false;
             const std::int16_t v = static_cast<std::int16_t>(bi);
             std::uint8_t b[2]; std::memcpy(b, &v, 2); ttb.insert(ttb.end(), b, b + 2);

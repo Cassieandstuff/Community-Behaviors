@@ -78,6 +78,23 @@ struct IndexMembrane {
 struct BoneMembrane {
     const Linker* skeleton = nullptr;   // bone name -> binary bone slot
 
+    // An animation track's authored bone reference -> skeleton bone index, with the decompile
+    // conventions: a "track<N>" placeholder means identity (track N animates bone N); no skeleton
+    // bound or an unresolved name falls back to `ordinal` (identity). So a clip re-resolves against
+    // the served skeleton by NAME (added bones shift indices) instead of freezing a raw index, and a
+    // null/empty skeleton round-trips to the identity binding vanilla ships. Byte-identical to the
+    // former havok::cross::trackBoneRef.
+    int resolveTrackRef(std::string_view ref, int ordinal) const {
+        if (ref.size() > 5 && ref.substr(0, 5) == "track") {
+            int n = 0; bool allDigits = true;
+            for (char c : ref.substr(5)) { if (c < '0' || c > '9') { allDigits = false; break; } n = n * 10 + (c - '0'); }
+            if (allDigits) return n;
+        }
+        if (!skeleton || skeleton->empty()) return ordinal;
+        const auto idx = skeleton->encode(ref);
+        return idx ? static_cast<int>(*idx) : ordinal;
+    }
+
     // positional (bone weights)
     std::vector<std::pair<std::string, Value>> decodePositional(const std::vector<Value>& flat) const;
     std::vector<Value>                         encodePositional(

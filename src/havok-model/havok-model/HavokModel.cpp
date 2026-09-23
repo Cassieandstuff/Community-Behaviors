@@ -5,7 +5,7 @@
 #include "havok/xml/Xml.h"                // first-party tagfile XML parser (xml::Node / xml::Parse)
 #include "havok/compat/PandoraCompatShim.h" // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include "havok/model/BashMerge.h"        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
-#include "havok/cross/Cross.h"            // cross-kind membrane (bone/roster name<->index)
+#include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
 #include <common/Vec4Text.h>              // havok::vec4::parseVec4 (the ONE vec4 text parser)
 
 #include <algorithm>
@@ -226,22 +226,31 @@ std::string renderScalar(const Field& f, const io::FieldValue& v) {
 // ── name resolution (from the graph's hkbBehaviorGraphStringData) ─────────────
 struct NameResolver {
     std::vector<std::string> events, variables, attributes, charProps;
-    // index -> name via the shared membrane primitive (havok::cross::rosterName) — one bounds-checked
-    // lookup rule with the emit side's eventName/variableName/charPropName.
-    std::string event(long i) const    { return havok::cross::rosterName(static_cast<int>(i), events); }
-    std::string variable(long i) const { return havok::cross::rosterName(static_cast<int>(i), variables); }
-    std::string charProp(long i) const { return havok::cross::rosterName(static_cast<int>(i), charProps); }
-    // Merge-safe name: only if `i` is the FIRST index carrying that name (a duplicate name would
-    // remap on round-trip, so the decompiler falls back to the raw id). Matches safeEventName.
-    std::string safe(const std::vector<std::string>& tbl, long i) const {
-        if (i < 0 || i >= static_cast<long>(tbl.size())) return {};
-        const std::string& n = tbl[i];
-        if (n.empty()) return {};
-        for (long j = 0; j < i; ++j) if (tbl[j] == n) return {};   // earlier duplicate -> not safe
-        return n;
+    // The one name<->index codec, built once per roster (decode = index->name, encode = the dup-guard).
+    // Bones/events/vars match EXACTLY (Havok is case-sensitive) — the linker's default (no case-fold).
+    CB::core::linker::Linker eventsL, variablesL, charPropsL;
+    void index() {   // call after the roster vectors are filled
+        namespace linker = CB::core::linker;
+        eventsL    = linker::Linker::OfOrderedNames(events);
+        variablesL = linker::Linker::OfOrderedNames(variables);
+        charPropsL = linker::Linker::OfOrderedNames(charProps);
     }
-    std::string safeEvent(long i) const    { return safe(events, i); }
-    std::string safeVariable(long i) const { return safe(variables, i); }
+    // index -> name (decode). "" out of range (caller keeps the raw number) — byte-identical to the
+    // former bounds-checked vector read (decode(i) == roster[i]).
+    std::string event(long i) const    { return eventsL.decode(i).value_or(std::string{}); }
+    std::string variable(long i) const { return variablesL.decode(i).value_or(std::string{}); }
+    std::string charProp(long i) const { return charPropsL.decode(i).value_or(std::string{}); }
+    // Merge-safe name: only if `i` is the FIRST index carrying that name (a duplicate would remap on
+    // round-trip, so the decompiler falls back to the raw id). encode() returns the first index for a
+    // name, so "first occurrence" is exactly encode(name) == i — byte-identical to the old scan.
+    std::string safe(const CB::core::linker::Linker& L, long i) const {
+        const auto nm = L.decode(i);
+        if (!nm || nm->empty()) return {};
+        const auto first = L.encode(*nm);
+        return (first && *first == static_cast<CB::core::linker::Value>(i)) ? *nm : std::string{};
+    }
+    std::string safeEvent(long i) const    { return safe(eventsL, i); }
+    std::string safeVariable(long i) const { return safe(variablesL, i); }
 };
 NameResolver buildResolver(const Identity& identity) {
     NameResolver nr;
@@ -276,6 +285,7 @@ NameResolver buildResolver(const Identity& identity) {
         }
         break;   // one string-data table per graph
     }
+    nr.index();   // build the name<->index codecs from the parsed rosters
     return nr;
 }
 
@@ -1824,7 +1834,7 @@ float parseF(const std::string& t) { return std::strtof(t.c_str(), nullptr); }
 std::int64_t parseL(const std::string& t) { return std::strtoll(t.c_str(), nullptr, 0); }   // 0 base: dec/0xHEX; int64 (#6)
 
 // A vec4/quaternion field's text -> 16 raw bytes (4 floats), via the shared membrane parser
-// (havok::cross::parseVec4) — the ONE vec4 text codec, also used by havok-core BehaviorBuilder::pv4.
+// (havok::vec4::parseVec4) — the ONE vec4 text codec, also used by havok-core BehaviorBuilder::pv4.
 // It accepts both the decompiler's "(x y z w)" and the bare/multi-line float form, so BR-28 (a bare
 // axisOfRotation reading as 0 0 0 0) can't recur and the two paths can't diverge (B4 collapsed).
 std::vector<std::uint8_t> parseVec4Raw(const std::string& t) {
