@@ -11,7 +11,7 @@
 // Pure SkeletonData ↔ YAML/text — no packfile, no typed classes. Ported from havok-core's sct/
 // SkeletonYaml unchanged but for the namespace; it was already havok-core-free.
 
-#include "havok/skeleton/SkeletonData.h"   // SkeletonData
+#include "interface/SkeletonData.h"   // SkeletonData
 
 #include <filesystem>
 #include <string>

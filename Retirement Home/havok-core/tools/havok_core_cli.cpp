@@ -46,9 +46,9 @@
 #include "havok/sct/SkeletonImport.h"       // LoadSkeletonsFromHkx (--skeleton from a .hkx)
 #include <niffer/Niffer.h>                   // NIF reader — control-decompile nif/aux pose fill
 #include <optional>                          // control-decompile convention derive
-#include <havok/skeleton/SkeletonImport.h>  // schema-native reader (skeleton-parity gate)
-#include <havok/skeleton/SkeletonCompiler.h> // schema-native writer (skeleton-full-parity gate)
-#include <havok/skeleton/SkeletonYaml.h>     // schema-native yaml (skeleton-yaml-parity gate)
+#include <decompile/SkeletonImport.h>       // schema-native reader (skeleton-parity gate)
+#include <compile/SkeletonCompiler.h>       // schema-native writer (skeleton-full-parity gate)
+#include <codec/format/SkeletonYaml.h>      // schema-native yaml (skeleton-yaml-parity gate)
 #include "havok/sct/SkeletonCompiler.h"     // CompileSkeleton (skeleton-recompile gate)
 #include "havok/sct/SkeletonYaml.h"         // Emit/LoadSkeletonYaml (skeleton-compile/-decompile)
 #include "havok/sct/TagfileOracle.h"

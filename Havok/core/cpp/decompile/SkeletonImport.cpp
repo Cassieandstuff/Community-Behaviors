@@ -4,7 +4,7 @@
 // tagged FieldValue store (inline structs → .obj, pointers → .obj/.objs, scalars/vec4/qstransform →
 // raw bytes), driven by the Havok/ class descriptors that the hkx-roundtrip gate already proves faithful.
 
-#include "havok/skeleton/SkeletonImport.h"
+#include "decompile/SkeletonImport.h"
 
 #include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry

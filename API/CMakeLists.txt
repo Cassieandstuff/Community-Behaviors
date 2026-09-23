@@ -20,8 +20,8 @@ add_library(cb::CB-API ALIAS cb-api)
 
 # The engine modules that back the facade. All PUBLIC on their own targets, so their include
 # paths + link propagate to any cb-api consumer. None pulls in havok-core. (havok-model backs
-# cb::resolve + cb::animdata; havok-anim the anim codec; havok-skeleton the skeleton codec.)
-target_link_libraries(cb-api INTERFACE havok-model havok-schema havok-skeleton compile decompile codec)
+# cb::resolve + cb::animdata; compile/decompile/codec back the anim + skeleton compilers/importers.)
+target_link_libraries(cb-api INTERFACE havok-model havok-schema compile decompile codec)
 
 # Dogfood / drift gate: the facade is header-only (INTERFACE), so this tiny TU is what actually
 # compiles <CB-API.h> and odr-uses every re-exported name. CB being a first-party consumer means a

@@ -1,5 +1,5 @@
 #pragma once
-#include "havok/skeleton/SkeletonData.h"
+#include "interface/SkeletonData.h"
 
 #include <cstdint>
 #include <string>

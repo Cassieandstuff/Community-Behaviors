@@ -6,7 +6,7 @@
 // havok-core — the derivation math (SkeletonMath) and the field values are ported from havok-core's
 // byte-exact compiler, so the emit stays byte-identical (gated by havok-core-cli skeleton-full-parity).
 
-#include "havok/skeleton/SkeletonData.h"
+#include "interface/SkeletonData.h"
 #include "havok/core/PackFileTypes.h"   // HKXHeader (havok-framing)
 
 #include <cstdint>

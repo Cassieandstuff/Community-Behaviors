@@ -1,5 +1,5 @@
 #pragma once
-#include "havok/core/HkTypes.h"   // Vector4 / QSTransform (havok-framing — havok-core-FREE)
+#include "common/HkTypes.h"   // Vector4 / QSTransform (portable value types, base tier)
 
 #include <cstdint>
 #include <optional>

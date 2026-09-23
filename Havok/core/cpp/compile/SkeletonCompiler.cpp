@@ -5,8 +5,8 @@
 // value and constructor-default constant the typed path relied on is reproduced explicitly, so the
 // output stays byte-identical (gated by havok-core-cli skeleton-full-parity / skeleton-parity).
 
-#include "havok/skeleton/SkeletonCompiler.h"
-#include "havok/skeleton/SkeletonMath.h"
+#include "compile/SkeletonCompiler.h"
+#include "interface/SkeletonMath.h"
 
 #include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry / SchemaRegistry

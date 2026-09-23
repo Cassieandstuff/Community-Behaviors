@@ -5,13 +5,13 @@
 // is just its 4 Vector4 columns (std::array), built straight into the schema hkTransform.data field.
 // Header-only, TU-local to the skeleton compiler.
 
-#include "havok/core/HkTypes.h"   // Vector4 / Quaternion / QSTransform (havok-framing)
+#include "common/HkTypes.h"   // Vector4 / Quaternion / QSTransform (portable value types, base tier)
 
 #include <array>
 #include <cmath>
 #include <vector>
 
-#include "havok/skeleton/SkeletonData.h"   // SkeletonData (worldPoses input)
+#include "interface/SkeletonData.h"   // SkeletonData (worldPoses input)
 
 namespace havok::skeleton::skmath {
 

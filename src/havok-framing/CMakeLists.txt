@@ -48,6 +48,9 @@ target_include_directories(havok-framing PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
+# common = the base value types; havok/core/HkTypes.h is now a shim over <common/HkTypes.h>.
+target_link_libraries(havok-framing PUBLIC common)
+
 if(MSVC)
     target_compile_options(havok-framing PRIVATE /W4 /wd4100 /MP)
 endif()

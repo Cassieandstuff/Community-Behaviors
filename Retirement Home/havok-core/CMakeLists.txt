@@ -134,7 +134,7 @@ if(HAVOK_CORE_BUILD_TOOLS)
             CXX_EXTENSIONS        OFF
             OUTPUT_NAME           "havok-core-cli"
         )
-        target_link_libraries(havok-core-cli PRIVATE havok-core havok-schema havok-io havok-model havok-skeleton compile decompile codec niffer)
+        target_link_libraries(havok-core-cli PRIVATE havok-core havok-schema havok-io havok-model compile decompile codec niffer)
         if(MSVC)
             target_compile_options(havok-core-cli PRIVATE /W4 /wd4100 /MP /bigobj)  # TU exceeds the default section limit
         endif()

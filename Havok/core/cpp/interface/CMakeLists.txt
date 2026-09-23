@@ -14,6 +14,10 @@ target_include_directories(interface
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Havok/core/cpp>   # <interface/*.h>
             $<INSTALL_INTERFACE:include>)
 
+# common = the foundational value types (HkTypes) SkeletonData/SkeletonMath rest on. Header-only
+# INTERFACE lib with no deps of its own, so interface stays a base (nothing above it in the graph).
+target_link_libraries(interface PUBLIC common)
+
 set_target_properties(interface PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON

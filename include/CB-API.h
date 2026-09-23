@@ -50,10 +50,10 @@
 #include "havok/anim/AnimDataYaml.h"
 
 // skeleton — decode/compile/export skeletons (schema-native codec; anim + ragdoll)
-#include "havok/skeleton/SkeletonData.h"
-#include "havok/skeleton/SkeletonImport.h"
-#include "havok/skeleton/SkeletonCompiler.h"
-#include "havok/skeleton/SkeletonYaml.h"
+#include "interface/SkeletonData.h"
+#include "decompile/SkeletonImport.h"
+#include "compile/SkeletonCompiler.h"
+#include "codec/format/SkeletonYaml.h"
 
 namespace cb {
 

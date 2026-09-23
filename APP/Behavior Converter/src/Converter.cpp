@@ -3,8 +3,8 @@
 #include <havok/sct/CharacterDecompiler.h>   // DecompileToDir (character units)
 #include <havok/sct/BehaviorCompiler.h>      // CompileBehavior (base unit -> vanilla binary)
 #include <havok/sct/HavokFile.h>             // ReadHavokFile / WriteHavokFile
-#include <havok/skeleton/SkeletonImport.h>   // LoadSkeletonsFromHkx / ReadSkeletonPhysics (havok-skeleton)
-#include <havok/skeleton/SkeletonYaml.h>     // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
+#include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
+#include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
 #include <havok/model/yaml/YamlBehaviorLoader.h>  // LoadMerged (base unit -> BehaviorData)
 #include <compile/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList

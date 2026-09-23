@@ -22,8 +22,8 @@ target_include_directories(cb-tree-diff PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # havok-core = ReadHavokFile / DecompileToDir / skeleton import + yaml; havok-model = the animdata
 # singlefile decompose (havok::animdata) + the .hky model; havok-schema = ClassSchema AND the
 # ryml::ryml + RymlInclude.h include dir (both PUBLIC), which TreeDiff.cpp's <RymlInclude.h> needs.
-# havok-io + havok-skeleton complete the link set (mirrors havok-core-cli's).
-target_link_libraries(cb-tree-diff PUBLIC havok-core havok-schema havok-io havok-model havok-skeleton compile)
+# havok-io + compile/decompile/codec complete the link set (mirrors havok-core-cli's).
+target_link_libraries(cb-tree-diff PUBLIC havok-core havok-schema havok-io havok-model compile decompile codec)
 
 set_target_properties(cb-tree-diff PROPERTIES
     CXX_STANDARD          23

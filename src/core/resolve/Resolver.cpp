@@ -18,9 +18,9 @@
 #include <compile/ProjectRead.h>             // ReadProject — schema-native (firesale)
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
 #include <havok/model/ProjectData.h>         // model::ProjectSpec (the neutral Def)
-#include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
-#include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
-#include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
+#include <decompile/SkeletonImport.h>        // SkeletonData — schema-native skeleton import
+#include <codec/format/SkeletonYaml.h>       // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
+#include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (Stage D serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // havok::anim::CompileAnimation (native anim -> loose .hkx)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
