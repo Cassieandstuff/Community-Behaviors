@@ -47,19 +47,8 @@ inline std::array<float, 4> parseVec4(std::string_view t) {
     return q;
 }
 
-// ── enum value → name (deterministic reverse lookup) ─────────────────────────
-// The inverse of enums::ResolveEnum: given a numeric value + its name→value
-// table, return the name. DETERMINISTIC — when a value has multiple names
-// (aliases), the lexicographically smallest is chosen, so the emitted symbol is
-// stable across runs/compilers (the old per-file `revNum` iterated an
-// unordered_map and returned an arbitrary match — B5). Empty string if no name
-// maps to the value (caller then emits the raw number).
-inline std::string enumName(long value, const std::unordered_map<std::string, long>& table) {
-    const std::string* best = nullptr;
-    for (const auto& [name, val] : table)
-        if (val == value && (best == nullptr || name < *best)) best = &name;
-    return best ? *best : std::string();
-}
+// (enum value → name moved to <havok/model/HavokEnums.h> — the whole enum leaf, encode + both
+// decodes, is one authority there now. This header keeps only the contextual name↔index lookups.)
 
 // ── bone name ↔ skeleton index ──────────────────────────────────────────────
 // Resolve a bone NAME to its index in the skeleton bone list, or -1 if absent.

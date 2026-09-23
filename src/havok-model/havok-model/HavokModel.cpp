@@ -124,11 +124,11 @@ using schema::Scalar;
 
 std::string fstr(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
 std::string boolstr(bool v) { return v ? "true" : "false"; }
-// enum value -> name, else the raw number (round-trips: numbers parse back). Via the shared membrane
-// codec (havok::cross::enumName), so this and the decompiler's revNum are one rule — and deterministic
-// on aliases (B5), unlike the old arbitrary unordered_map scan.
+// enum value -> name, else the raw number (round-trips: numbers parse back). Via the one enum codec
+// (enums::enumName), so this and the decompiler's revNum are one rule — and deterministic on aliases
+// (B5), unlike the old arbitrary unordered_map scan.
 std::string revNum(const std::unordered_map<std::string, long>& t, long v) {
-    std::string nm = havok::cross::enumName(v, t);
+    std::string nm = en::enumName(v, t);
     return nm.empty() ? std::to_string(v) : nm;
 }
 

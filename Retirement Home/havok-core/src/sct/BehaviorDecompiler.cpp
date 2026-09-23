@@ -38,7 +38,7 @@ std::string revEnum(const std::unordered_map<std::string, long>& t, long v, cons
 // round-trips. Via the shared membrane codec (havok::cross::enumName) — one rule with the schema
 // path's revNum, and deterministic on aliases (B5).
 std::string revNum(const std::unordered_map<std::string, long>& t, long v) {
-    std::string nm = havok::cross::enumName(v, t);
+    std::string nm = en::enumName(v, t);
     return nm.empty() ? std::to_string(v) : nm;
 }
 std::string q(const std::string& s) {

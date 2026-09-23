@@ -139,4 +139,17 @@ inline std::string FormatFlags(long value, const std::unordered_map<std::string,
     return out;
 }
 
+// Enum value -> name: the deterministic single-value reverse of ResolveEnum (the counterpart to
+// FormatFlags, which handles the |-OR flag case). When a value has multiple names (aliases) the
+// lexicographically smallest is chosen, so the emitted symbol is stable across runs/compilers (the
+// old per-file scan returned an arbitrary match — B5). Empty string if no name maps to the value
+// (the caller then emits the raw number). Co-located here so the whole enum leaf — encode
+// (ResolveEnum) + both decodes (enumName / FormatFlags) — is one authority.
+inline std::string enumName(long value, const std::unordered_map<std::string, long>& table) {
+    const std::string* best = nullptr;
+    for (const auto& [name, val] : table)
+        if (val == value && (best == nullptr || name < *best)) best = &name;
+    return best ? *best : std::string();
+}
+
 } // namespace havok::model::enums
