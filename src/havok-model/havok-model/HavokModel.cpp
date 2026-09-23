@@ -5,7 +5,8 @@
 #include "havok/xml/Xml.h"                // first-party tagfile XML parser (xml::Node / xml::Parse)
 #include "havok/compat/PandoraCompatShim.h" // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include "havok/model/BashMerge.h"        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
-#include "havok/cross/Cross.h"            // cross-kind membrane (vec4 codec, enum reverse, bone name<->index)
+#include "havok/cross/Cross.h"            // cross-kind membrane (bone/roster name<->index)
+#include <common/Vec4Text.h>              // havok::vec4::parseVec4 (the ONE vec4 text parser)
 
 #include <algorithm>
 #include <cctype>
@@ -1827,7 +1828,7 @@ std::int64_t parseL(const std::string& t) { return std::strtoll(t.c_str(), nullp
 // It accepts both the decompiler's "(x y z w)" and the bare/multi-line float form, so BR-28 (a bare
 // axisOfRotation reading as 0 0 0 0) can't recur and the two paths can't diverge (B4 collapsed).
 std::vector<std::uint8_t> parseVec4Raw(const std::string& t) {
-    const auto q = havok::cross::parseVec4(t);
+    const auto q = havok::vec4::parseVec4(t);
     std::vector<std::uint8_t> r(16); std::memcpy(r.data(), q.data(), 16); return r;
 }
 

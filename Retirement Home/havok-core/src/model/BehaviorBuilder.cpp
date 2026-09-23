@@ -3,7 +3,8 @@
 
 #include "havok/model/BehaviorBuilder.h"
 #include "havok/model/HavokEnums.h"
-#include "havok/cross/Cross.h"          // the cross-kind membrane (bone name<->index; more folding in)
+#include "havok/cross/Cross.h"          // the cross-kind membrane (bone name<->index)
+#include <common/Vec4Text.h>            // havok::vec4::parseVec4 (the ONE vec4 text parser)
 
 #include <array>
 #include <cstdlib>
@@ -38,7 +39,7 @@ float pf(const std::string& s) {
 // hkVector4 text -> Vector4, via the shared membrane parser (havok::cross::parseVec4) — the ONE
 // vec4 text codec, also used by havok-model parseVec4Raw. (B4 collapsed: no more divergent twin.)
 Vector4 pv4(const std::string& raw) {
-    const auto q = havok::cross::parseVec4(raw);
+    const auto q = havok::vec4::parseVec4(raw);
     return Vector4{ q[0], q[1], q[2], q[3] };
 }
 

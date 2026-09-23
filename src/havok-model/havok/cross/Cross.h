@@ -32,20 +32,7 @@
 
 namespace havok::cross {
 
-// ── hkVector4 / Quaternion text ↔ 4 floats ───────────────────────────────────
-// The ONE vec4 text parser. Accepts BOTH the decompiler's "(x y z w)" and a
-// vanilla/Nemesis bare, possibly multi-line "x\n y\n z\n w" (no parens). This is
-// the single source that BehaviorBuilder::pv4 (raw->Vector4) and havok-model
-// parseVec4Raw (raw->16 bytes) both call, killing the divergent-twin hazard (B4,
-// where the paren-only parser silently zeroed a bare vec4 — BR-28).
-inline std::array<float, 4> parseVec4(std::string_view t) {
-    std::string s(t);
-    for (char& c : s) if (c == '(' || c == ')' || c == ',') c = ' ';
-    std::array<float, 4> q{ 0.f, 0.f, 0.f, 0.f };
-    std::istringstream ss(s);
-    ss >> q[0] >> q[1] >> q[2] >> q[3];   // >> skips whitespace incl. newlines
-    return q;
-}
+// (hkVector4/Quaternion text parser moved to <common/Vec4Text.h> — havok::vec4::parseVec4.)
 
 // (enum value → name moved to <havok/model/HavokEnums.h> — the whole enum leaf, encode + both
 // decodes, is one authority there now. This header keeps only the contextual name↔index lookups.)
