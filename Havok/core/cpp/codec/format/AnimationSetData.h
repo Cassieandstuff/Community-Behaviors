@@ -75,7 +75,13 @@ namespace havok::animsetdata {
         std::vector<std::string> equipEvents;
         std::vector<TypeCondition> conditions;
         std::vector<Attack>      attacks;
-        std::vector<CrcTriple>   crcs;
+        std::vector<CrcTriple>   crcs;             // COMPILED registrations (from `animations` when set)
+        // Authored SOURCE for the per-condition animation membership: ordered 1:1 with `crcs`, each
+        // entry either a data-relative animation path ("meshes\actors\...\x.hkx") or a residue token
+        // "@crc <folder> <file> <ext>" for the ~0.1% whose file isn't in the datasource (folder still
+        // known — kept verbatim for byte-exactness, self-heals to a path when the file appears).
+        // ResolveSetdataPaths fills this from `crcs`; CompileSetdataCrcs re-derives `crcs` from it.
+        std::vector<std::string> animations;
     };
 
     struct Project {

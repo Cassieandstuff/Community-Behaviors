@@ -3,8 +3,10 @@
 #include <RymlInclude.h>
 
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <string>
+#include <unordered_map>
 
 namespace havok::animsetdata {
 
@@ -25,6 +27,15 @@ std::string Scalar(const std::string& s) {
             c == '"' || c == '#' || c == ' ' || c == '\t')
             { needQuote = true; break; }
     if (!needQuote) return s;
+    std::string o = "'";
+    for (char c : s) { if (c == '\'') o += "''"; else o += c; }
+    o += "'";
+    return o;
+}
+
+// Always single-quote (animation paths carry backslashes; residue tokens carry spaces) — verbatim
+// round-trip, matching how data/animations.yaml stores roster paths.
+std::string QuoteSq(const std::string& s) {
     std::string o = "'";
     for (char c : s) { if (c == '\'') o += "''"; else o += c; }
     o += "'";
@@ -64,7 +75,13 @@ std::string EmitMovesetsYaml(const Project& project)
                 y += "] }\n";
             }
         }
-        // crcs: DERIVED from the clips' animation paths — never emitted.
+        // animations: the per-condition animation-file membership (the authored source the engine's
+        // set-data CRC list is compiled from). Ordered paths, or "@crc ..." residue tokens.
+        if (!set.animations.empty()) {
+            y += "    animations:\n";
+            for (const auto& a : set.animations)
+                y += "      - " + QuoteSq(a) + "\n";
+        }
     }
     return y;
 }
@@ -121,6 +138,12 @@ SingleFile ParseMovesetsYaml(const std::string& text, const std::string& project
                             std::string s; c4::from_chars(cl.val(), &s); atk.clips.push_back(std::move(s));
                         }
                     if (!atk.event.empty()) set.attacks.push_back(std::move(atk));
+                }
+
+            if (sn.has_child(c4::to_csubstr("animations")))
+                for (auto an : sn[c4::to_csubstr("animations")]) {
+                    if (!an.has_val()) continue;
+                    std::string s; c4::from_chars(an.val(), &s); set.animations.push_back(std::move(s));
                 }
 
             proj.sets.push_back(std::move(set));
@@ -238,8 +261,14 @@ SingleFile AssembleSetdata(
             mit != movesetsByStem.end() && !mit->second.projects.empty())
             p.sets = mit->second.projects.front().sets;  // authored sets; order authoritative
 
+        // Compile each set's CRC list from its authored `animations` (source of truth) — byte-exact.
+        for (auto& s : p.sets) CompileSetdataCrcs(s);
+
+        // Legacy: a set with no authored `animations` (old decompose form) takes its CRCs from the
+        // baked crcsByStem sibling, matched by name. Drops away once every source carries animations.
         if (const auto cit = crcsByStem.find(stem); cit != crcsByStem.end())
             for (auto& s : p.sets) {
+                if (!s.animations.empty()) continue;
                 std::string key = s.name;
                 if (EndsTxt(key)) key.erase(key.size() - 4);
                 key = Low(std::move(key));
@@ -249,6 +278,55 @@ SingleFile AssembleSetdata(
         out.projects.push_back(std::move(p));
     }
     return out;
+}
+
+// ── CRC <-> path resolution ──────────────────────────────────────────────────────
+std::unordered_map<std::uint64_t, std::string> BuildCrcIndex(const std::vector<std::string>& candidatePaths)
+{
+    std::unordered_map<std::uint64_t, std::string> m;
+    m.reserve(candidatePaths.size() * 2 + 8);
+    for (const auto& p : candidatePaths) {
+        const CrcTriple t = TripleForAnimation(p);
+        const std::uint64_t key = (static_cast<std::uint64_t>(t.folder) << 32) | t.file;
+        m.emplace(key, p);                               // first candidate wins on a (rare) collision
+    }
+    return m;
+}
+
+void ResolveSetdataPaths(Project& project, const std::unordered_map<std::uint64_t, std::string>& crcIndex)
+{
+    for (auto& s : project.sets) {
+        s.animations.clear();
+        s.animations.reserve(s.crcs.size());
+        for (const auto& c : s.crcs) {
+            const std::uint64_t key = (static_cast<std::uint64_t>(c.folder) << 32) | c.file;
+            if (const auto it = crcIndex.find(key); it != crcIndex.end())
+                s.animations.push_back(it->second);      // reversed to a real path
+            else
+                s.animations.push_back("@crc " + std::to_string(c.folder) + " " +   // residue (verbatim)
+                                       std::to_string(c.file) + " " + std::to_string(c.ext));
+        }
+    }
+}
+
+void CompileSetdataCrcs(SetFile& set)
+{
+    if (set.animations.empty()) return;                  // legacy: keep whatever crcs are already set
+    set.crcs.clear();
+    set.crcs.reserve(set.animations.size());
+    for (const auto& a : set.animations) {
+        if (a.compare(0, 4, "@crc") == 0) {              // residue token "@crc <folder> <file> <ext>"
+            CrcTriple t;
+            const char* p = a.c_str() + 4;
+            char*       e = nullptr;
+            t.folder = static_cast<std::uint32_t>(std::strtoul(p, &e, 10)); p = e;
+            t.file   = static_cast<std::uint32_t>(std::strtoul(p, &e, 10)); p = e;
+            t.ext    = static_cast<std::uint32_t>(std::strtoul(p, &e, 10));
+            set.crcs.push_back(t);
+        } else {
+            set.crcs.push_back(TripleForAnimation(a));    // re-hash the authored path
+        }
+    }
 }
 
 }  // namespace havok::animsetdata

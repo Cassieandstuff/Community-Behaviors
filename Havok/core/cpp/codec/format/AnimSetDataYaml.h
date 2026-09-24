@@ -23,8 +23,10 @@
 
 #include "codec/format/AnimationSetData.h"
 
+#include <cstdint>
 #include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace havok::animsetdata {
@@ -65,5 +67,22 @@ namespace havok::animsetdata {
         const std::vector<std::string>& headers,
         const std::map<std::string, SingleFile>& movesetsByStem,
         const std::map<std::string, std::map<std::string, std::vector<CrcTriple>>>& crcsByStem);
+
+    // ── CRC <-> path resolution (the searchable codec, authorable side) ──────────────
+    // Build a (folderCrc<<32 | fileCrc) -> data-relative-path index from candidate animation paths
+    // (each in the form the engine CRCs, e.g. "meshes\actors\character\animations\x.hkx"). The caller
+    // supplies candidates (walk the datasource meshes at regen, the roster at serve). O(candidates),
+    // built ONCE — then reversal is O(1) per triple (do NOT call the O(n) crc::solve per triple).
+    std::unordered_map<std::uint64_t, std::string> BuildCrcIndex(const std::vector<std::string>& candidatePaths);
+
+    // REVERSE (regen extract): fill each set's `animations` (authorable source) from its `crcs`, in
+    // order 1:1. A triple whose (folder,file) is in `crcIndex` becomes the animation PATH; one that
+    // isn't becomes a residue token "@crc <folder> <file> <ext>" (kept verbatim, folder still known).
+    void ResolveSetdataPaths(Project& project, const std::unordered_map<std::uint64_t, std::string>& crcIndex);
+
+    // COMPILE (serve/compose): re-derive `crcs` from `animations`, in order 1:1 — a path re-hashes via
+    // TripleForAnimation, a "@crc ..." residue token parses back to its verbatim triple. No-op (keeps
+    // existing `crcs`) when `animations` is empty (legacy path). Byte-exact against the vanilla CRCs.
+    void CompileSetdataCrcs(SetFile& set);
 
 }  // namespace havok::animsetdata

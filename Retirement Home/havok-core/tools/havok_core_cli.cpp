@@ -3443,8 +3443,11 @@ int doMovesetsRoundtrip(const std::string& setdataFile) {
 // vanilla into the three pieces (index.yaml + per-project movesets.yaml + baked crcs.yaml) IN MEMORY,
 // parse them back, AssembleSetdata, EmitSingleFile, and byte-compare to the vanilla file. Zero diff
 // proves the folder composes the exact base — the drift alarm for the "bake the un-reversible" design.
-int doSetdataTreeRoundtrip(const std::string& setdataFile) {
+int doSetdataTreeRoundtrip(const std::string& setdataFile, const std::vector<std::string>& extra) {
     namespace asd = havok::animsetdata;
+    namespace fs  = std::filesystem;
+    if (extra.empty()) { std::printf("usage: setdata-tree-roundtrip <singlefile> <meshesDir>\n"); return 1; }
+    const std::string meshesDir = extra[0];
     std::ifstream f(setdataFile, std::ios::binary);
     if (!f) { std::printf("ERROR: cannot open %s\n", setdataFile.c_str()); return 1; }
     std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -3452,23 +3455,46 @@ int doSetdataTreeRoundtrip(const std::string& setdataFile) {
     try { sf = asd::ParseSingleFile(text); }
     catch (const std::exception& e) { std::printf("ERROR: parse: %s\n", e.what()); return 1; }
 
-    // Decompose -> the folder pieces (as text), exactly as the converter would ship them.
+    // Build the CRC->path candidate index by walking the datasource meshes for *.hkx (each candidate
+    // is the "meshes\..."-prefixed data-relative path the engine CRCs over), then REVERSE every set's
+    // baked crcs to authorable animation paths (the regen extract step, exercised here).
+    std::vector<std::string> cands;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(meshesDir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        std::string extn = it->path().extension().string();
+        for (char& c : extn) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (extn != ".hkx") continue;
+        std::string rel = fs::relative(it->path(), meshesDir, ec).string();
+        for (char& c : rel) if (c == '/') c = '\\';
+        cands.push_back("meshes\\" + rel);
+    }
+    const auto crcIndex = asd::BuildCrcIndex(cands);
+    std::size_t resolved = 0, residue = 0;
+    for (auto& proj : sf.projects) {
+        asd::ResolveSetdataPaths(proj, crcIndex);
+        for (const auto& s : proj.sets)
+            for (const auto& a : s.animations) (a.compare(0, 4, "@crc") == 0 ? residue : resolved)++;
+    }
+    std::printf("  candidates: %zu .hkx; reversed %zu paths, %zu residue tokens\n",
+                cands.size(), resolved, residue);
+
+    // Decompose -> movesets/<stem>.yaml (now carrying `animations`); recompose re-hashes them.
     std::string idxYaml = asd::EmitSetdataIndexYaml(sf);
-    std::map<std::string, asd::SingleFile>                                        movesetsByStem;
-    std::map<std::string, std::map<std::string, std::vector<asd::CrcTriple>>>     crcsByStem;
+    std::map<std::string, asd::SingleFile> movesetsByStem;
     for (const auto& proj : sf.projects) {
         const std::string stem = asd::StemForHeader(proj.header);
         std::string err;
         movesetsByStem[stem] = asd::ParseMovesetsYaml(asd::EmitMovesetsYaml(proj), stem, err);
-        crcsByStem[stem]     = asd::ParseSetdataCrcsYaml(asd::EmitSetdataCrcsYaml(proj), err);
         if (!err.empty()) std::printf("  WARN %s: %s\n", stem.c_str(), err.c_str());
     }
 
-    // Recompose from index order + the parsed pieces.
+    // Recompose from index order; AssembleSetdata compiles each set's crcs from its animations.
     std::string ierr;
     const auto  headers  = asd::ParseSetdataIndexYaml(idxYaml, ierr);
     if (!ierr.empty()) { std::printf("ERROR: index parse: %s\n", ierr.c_str()); return 1; }
-    const auto  composed = asd::EmitSingleFile(asd::AssembleSetdata(headers, movesetsByStem, crcsByStem));
+    const std::map<std::string, std::map<std::string, std::vector<asd::CrcTriple>>> noCrcs;
+    const auto  composed = asd::EmitSingleFile(asd::AssembleSetdata(headers, movesetsByStem, noCrcs));
 
     const std::string canonical = asd::EmitSingleFile(sf);   // the pre-existing parse->emit form
     const bool canonEqVanilla = (canonical == text);
@@ -6222,7 +6248,7 @@ int main(int argc, char** argv) {
     if (verb == "animdatadump") return doAnimDataDump(in, extra);
     if (verb == "clipinputs-check") return doClipInputsCheck(in);
     if (verb == "movesets-roundtrip") return doMovesetsRoundtrip(in);
-    if (verb == "setdata-tree-roundtrip") return doSetdataTreeRoundtrip(in);
+    if (verb == "setdata-tree-roundtrip") return doSetdataTreeRoundtrip(in, extra);
     if (verb == "setdata-decompose") return doSetdataDecompose(in, out);
     if (verb == "setdata-compose") return doSetdataCompose(in, out);
     if (verb == "animdata-tree-roundtrip") return doAnimdataTreeRoundtrip(in, extra);
