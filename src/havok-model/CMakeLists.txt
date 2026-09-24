@@ -25,7 +25,11 @@ target_include_directories(havok-model
 
 # havok-io provides the SchemaObject graph + framing; havok-schema the ClassSchema descriptors
 # (and ryml, PUBLIC-propagated — the moved YAML loaders need it). havok-framing comes transitively.
-target_link_libraries(havok-model PUBLIC havok-io havok-schema interface)   # interface = AnimationData model (firesale)
+# havok-framing is now linked explicitly: it holds the remaining stragglers havok-model uses
+# (HavokEnums.h / Xml.h / TagfileOracle.h). Previously this include path arrived transitively via
+# havok-io -> havok-framing, but firesale phase 1 turned havok-io into an INTERFACE shim over
+# serialization, so name the framing dep directly (it migrates as those stragglers relocate).
+target_link_libraries(havok-model PUBLIC havok-io havok-schema interface havok-framing)   # interface = AnimationData model (firesale)
 
 # The .hky in-memory archive reader (HkyArchive) is backed by vendored miniz (amalgamated C, MIT),
 # relocated here with the loader out of havok-core.
