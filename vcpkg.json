@@ -11,6 +11,8 @@
     "xbyak",
     "ryml",
     "nlohmann-json",
-    "minhook"
+    "minhook",
+    "directxtk",
+    "rapidcsv"
   ]
 }

@@ -83,7 +83,7 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 ### Environment variables
 
 - `VCPKG_ROOT` — vcpkg clone (toolchain, via the preset). Required.
-- `COMMONLIB_SSE_FOLDER` — a local CommonLibSSE-NG clone; if unset/not a dir, the pinned powerof3 fork is FetchContent'd.
+- CommonLibSSE-NG is a **git submodule** at `lib/commonlibsse-ng` (alandtse fork, `ng` branch, full SE+AE+VR). No env var — `git submodule update --init --recursive` after clone.
 - `SKYRIM_MODS_FOLDER` — MO2 mods folder; `cb_deploy` ships the mod there (`<mod>/SKSE/Plugins`,
   `<mod>/Community Behaviors/Havok` schema, `<mod>/community_behaviors/plugins/*.hky` bundles).
 - `SKYRIM_TOOLS_FOLDER` — the converter deploys `BehaviorConverter.exe` (+ templates/ + Havok/) here.
