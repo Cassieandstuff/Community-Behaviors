@@ -3633,6 +3633,55 @@ int doSetdataCompose(const std::string& folderDir, const std::string& out) {
     return 0;
 }
 
+// setdata-compose-units <unpackedMeshesDir> [-o out.txt] — the CHARACTER-CO-LOCATED twin of
+// setdata-compose: reads animationsetdatasinglefile.txt/index.yaml (order), then gathers each
+// project's sets from its char unit's data/setdata.yaml (+ the top-level setdata/ fallback), re-hashes
+// the authored animations, and emits the monolithic .txt. The offline mirror of the runtime serve —
+// compose it from an unpacked master and diff vs vanilla to prove the co-located layout.
+int doSetdataComposeUnits(const std::string& meshesDir, const std::string& out) {
+    namespace asd = havok::animsetdata;
+    namespace fs  = std::filesystem;
+    const fs::path root(meshesDir);
+    std::error_code ec;
+    auto readFile = [](const fs::path& p) {
+        std::ifstream f(p, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    };
+    std::string ierr;
+    const auto headers = asd::ParseSetdataIndexYaml(
+        readFile(root / "animationsetdatasinglefile.txt" / "index.yaml"), ierr);
+    if (!ierr.empty()) { std::printf("ERROR: index.yaml: %s\n", ierr.c_str()); return 1; }
+    if (headers.empty()) { std::printf("ERROR: no projects in index.yaml\n"); return 1; }
+
+    std::map<std::string, asd::SingleFile> byStem;
+    int units = 0, fb = 0;
+    const auto ingest = [&](const fs::path& p) {
+        std::string   yerr;
+        asd::Project  proj = asd::ParseSetdataUnitYaml(readFile(p), yerr);
+        if (proj.header.empty()) return;
+        const std::string stem = asd::StemForHeader(proj.header);
+        asd::SingleFile one; one.projects.push_back(std::move(proj));
+        byStem[stem] = std::move(one);
+    };
+    for (fs::recursive_directory_iterator it(root / "actors", ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        const auto& p = it->path();
+        if (p.extension() == ".yaml" && p.parent_path().filename() == "setdata" &&
+            p.parent_path().parent_path().filename() == "data") { ingest(p); ++units; }
+    }
+    for (fs::directory_iterator it(root / "animationsetdatasinglefile.txt" / "setdata", ec), end;
+         !ec && it != end; it.increment(ec))
+        if (it->path().extension() == ".yaml") { ingest(it->path()); ++fb; }
+
+    const std::map<std::string, std::map<std::string, std::vector<asd::CrcTriple>>> noCrcs;
+    const std::string composed = asd::EmitSingleFile(asd::AssembleSetdata(headers, byStem, noCrcs));
+    std::printf("  %d char setdata.yaml + %d fallback -> %zu projects\n", units, fb, headers.size());
+    if (out.empty()) std::fwrite(composed.data(), 1, composed.size(), stdout);
+    else { std::ofstream(out, std::ios::binary).write(composed.data(), (std::streamsize)composed.size());
+           std::printf("wrote %s (%zu bytes)\n", out.c_str(), composed.size()); }
+    return 0;
+}
+
 // ── animationdatasinglefile.txt ".txt/" folder verbs (siblings of the setdata ones) ──
 namespace {
 // index -> clip NAME labels for a project (what EmitMotionYaml keys motion on).
@@ -6251,6 +6300,7 @@ int main(int argc, char** argv) {
     if (verb == "setdata-tree-roundtrip") return doSetdataTreeRoundtrip(in, extra);
     if (verb == "setdata-decompose") return doSetdataDecompose(in, out);
     if (verb == "setdata-compose") return doSetdataCompose(in, out);
+    if (verb == "setdata-compose-units") return doSetdataComposeUnits(in, out);
     if (verb == "animdata-tree-roundtrip") return doAnimdataTreeRoundtrip(in, extra);
     if (verb == "animdata-decompose") return doAnimdataDecompose(in, extra, out);
     if (verb == "animdata-compose") return doAnimdataCompose(in, extra, out);

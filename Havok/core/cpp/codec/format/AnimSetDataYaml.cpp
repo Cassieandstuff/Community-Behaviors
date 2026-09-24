@@ -155,6 +155,37 @@ SingleFile ParseMovesetsYaml(const std::string& text, const std::string& project
     return sf;
 }
 
+std::string EmitSetdataUnitYaml(const Project& project)
+{
+    std::string y = "project: " + QuoteSq(project.header) + "\n";   // exact asdsf header (has '\')
+    y += EmitMovesetsYaml(project);                                  // sets: gate/equip/attacks/animations
+    return y;
+}
+
+Project ParseSetdataUnitYaml(const std::string& text, std::string& err)
+{
+    Project p;
+    std::string header;
+    {   // read the exact header from `project:` (a separate small parse; setdata units are tiny)
+        std::string storage = text;
+        try {
+            c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(storage));
+            auto root = tree.rootref();
+            if (root.readable() && root.is_map() && root.has_child(c4::to_csubstr("project")) &&
+                root[c4::to_csubstr("project")].has_val())
+                c4::from_chars(root[c4::to_csubstr("project")].val(), &header);
+        } catch (const std::exception&) { /* header stays empty; sets parse below reports err */ }
+    }
+    SingleFile sf = ParseMovesetsYaml(text, "unit", err);            // parses `sets:` (ignores `project:`)
+    if (!sf.projects.empty()) {
+        p = std::move(sf.projects.front());
+        if (!header.empty()) p.header = header;                      // the exact header wins
+    } else if (!header.empty()) {
+        p.header = header;                                           // header-only unit (no sets)
+    }
+    return p;
+}
+
 std::string StemForHeader(const std::string& header)
 {
     const auto bs = header.find_last_of("\\/");

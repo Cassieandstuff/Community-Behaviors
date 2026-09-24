@@ -68,6 +68,17 @@ namespace havok::animsetdata {
         const std::map<std::string, SingleFile>& movesetsByStem,
         const std::map<std::string, std::map<std::string, std::vector<CrcTriple>>>& crcsByStem);
 
+    // ── Per-character setdata unit (co-located with the character) ───────────────────
+    // A character's replacer sets live in its unit folder as `data/setdata.yaml`, beside
+    // `data/animations.yaml` (the roster). Self-identifying: it carries `project:` (the exact asdsf
+    // header) so the serve can key it back to the index order without a char->project reverse map.
+    // Body is the same `sets:` shape as EmitMovesetsYaml (gate/equip/attacks + animations).
+    std::string EmitSetdataUnitYaml(const Project& project);
+
+    // Parse a data/setdata.yaml -> one Project (header from `project:`, sets from `sets:`). Never
+    // throws — malformed input leaves `err` set and returns whatever parsed.
+    Project ParseSetdataUnitYaml(const std::string& text, std::string& err);
+
     // ── CRC <-> path resolution (the searchable codec, authorable side) ──────────────
     // Build a (folderCrc<<32 | fileCrc) -> data-relative-path index from candidate animation paths
     // (each in the form the engine CRCs, e.g. "meshes\actors\character\animations\x.hkx"). The caller

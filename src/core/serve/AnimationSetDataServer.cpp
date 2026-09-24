@@ -388,24 +388,31 @@ namespace CB::asdserve {
                 if (!ierr.empty()) LOG_WARN("SetData: base index.yaml parse: {}", ierr);
                 std::map<std::string, asd::SingleFile>                                    movesetsByStem;
                 std::map<std::string, std::map<std::string, std::vector<asd::CrcTriple>>> crcsByStem;
-                const auto stemOf = [](const std::string& path) {
-                    std::string s = path.substr(path.find_last_of('/') + 1);
-                    if (const auto dot = s.rfind('.'); dot != std::string::npos) s.erase(dot);
-                    return s;
+                // The sets live CO-LOCATED with each character as <unit>.hkx/data/setdata.yaml (beside
+                // data/animations.yaml), self-identifying via `project:`. Scan the char units for them,
+                // plus a top-level animationsetdatasinglefile.txt/setdata/ fallback for projects whose
+                // character didn't resolve. Key by StemForHeader(header) to match the index order.
+                const auto ingestUnit = [&](const std::string& yamlText) {
+                    std::string   yerr;
+                    asd::Project  proj = asd::ParseSetdataUnitYaml(yamlText, yerr);
+                    if (!yerr.empty()) LOG_WARN("SetData: base setdata unit parse: {}", yerr);
+                    if (proj.header.empty()) return;
+                    const std::string stem = asd::StemForHeader(proj.header);
+                    asd::SingleFile one; one.projects.push_back(std::move(proj));
+                    movesetsByStem[stem] = std::move(one);
                 };
-                for (const std::string& path : masterReader->filesUnder(dir + "/movesets", ".yaml"))
-                    if (const auto y = masterReader->read(path)) {
-                        const std::string stem = stemOf(path);
-                        std::string       yerr;
-                        movesetsByStem[stem] = asd::ParseMovesetsYaml(*y, stem, yerr);
-                        if (!yerr.empty()) LOG_WARN("SetData: base movesets '{}': {}", stem, yerr);
-                    }
-                // The master's movesets now carry the authored `animations` membership; AssembleSetdata
-                // compiles each set's CRC list from those paths (re-hash). No derive-from-roster union,
-                // no bloat — the fix for the 48 MB / save-corrupting per-set CRC count. (`crcsByStem`
-                // stays empty: the opaque crcs/ folder is retired.)
+                for (const std::string& path : masterReader->filesUnder("meshes/actors", ".yaml")) {
+                    if (path.find("/data/setdata/") == std::string::npos) continue;  // char unit's setdata/<proj>.yaml
+                    if (const auto y = masterReader->read(path)) ingestUnit(*y);
+                }
+                for (const std::string& path : masterReader->filesUnder(dir + "/setdata", ".yaml"))
+                    if (const auto y = masterReader->read(path)) ingestUnit(*y);
+
+                // Each unit's sets carry the authored `animations` membership; AssembleSetdata compiles
+                // the CRC list from those paths (re-hash). No derive-from-roster union, no bloat — the
+                // fix for the 48 MB / save-corrupting per-set CRC count. (`crcsByStem` stays empty.)
                 base     = asd::AssembleSetdata(headers, movesetsByStem, crcsByStem);
-                baseFrom = "Skyrim.hky/" + dir + "/ (composed from authored animations)";
+                baseFrom = "Skyrim.hky char units (setdata.yaml, composed from authored animations)";
                 composed = true;
             }
         }

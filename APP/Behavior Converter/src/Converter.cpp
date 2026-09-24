@@ -2363,7 +2363,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             try {
                 auto           parsed  = havok::animsetdata::ParseSingleFile(setText);
                 const fs::path setRoot  = stageHky / "meshes" / "animationsetdatasinglefile.txt";
-                fs::create_directories(setRoot / "movesets", ec);
+                fs::create_directories(setRoot, ec);   // index.yaml (+ setdata/ fallback); sets live in char units
 
                 // EXTRACT the per-condition animation MEMBERSHIP to authorable paths: build a
                 // (folder,file)CRC -> path index from the datasource meshes, then reverse each set's
@@ -2393,22 +2393,38 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 std::ofstream(setRoot / "index.yaml", std::ios::binary)
                     .write(idx.data(), static_cast<std::streamsize>(idx.size()));
 
-                // movesets/<stem>.yaml — the AUTHORED sets: gate/equip/attacks + the extracted
-                // `animations` membership. The runtime re-hashes the paths (no derive, no roster union).
-                int movesets = 0;
+                // Each project's sets (gate/equip/attacks + the extracted `animations`) are written
+                // CO-LOCATED with its character, as <char-unit>/data/setdata.yaml — self-identifying
+                // (carries `project:`), beside data/animations.yaml. A project whose character doesn't
+                // resolve falls back to a top-level animationsetdatasinglefile.txt/setdata/<stem>.yaml.
+                // The runtime re-hashes the paths (no derive, no roster union).
+                const auto projChars = havok::animdata::LoadProjectCharacters((stageHky / "meshes").string());
+                int units = 0, fallback = 0;
                 for (const auto& proj : parsed.projects) {
+                    if (proj.sets.empty()) continue;
                     const std::string stem = havok::animsetdata::StemForHeader(proj.header);
                     if (stem.empty()) continue;
-                    if (!proj.sets.empty()) {
-                        const std::string mv = havok::animsetdata::EmitMovesetsYaml(proj);
-                        std::ofstream(setRoot / "movesets" / (stem + ".yaml"), std::ios::binary)
-                            .write(mv.data(), static_cast<std::streamsize>(mv.size()));
-                        ++movesets;
+                    const std::string body = havok::animsetdata::EmitSetdataUnitYaml(proj);
+                    const auto pc = projChars.find(stem);
+                    if (pc != projChars.end() && !pc->second.ref.empty()) {
+                        // data/setdata/<projectstem>.yaml — keyed by PROJECT (a character can host
+                        // several projects, e.g. a creature's base + variant), so they never collide.
+                        const fs::path unitData = stageHky / "meshes" / fs::path(pc->second.ref) / "data" / "setdata";
+                        fs::create_directories(unitData, ec);
+                        std::ofstream(unitData / (stem + ".yaml"), std::ios::binary)
+                            .write(body.data(), static_cast<std::streamsize>(body.size()));
+                        ++units;
+                    } else {
+                        fs::create_directories(setRoot / "setdata", ec);
+                        std::ofstream(setRoot / "setdata" / (stem + ".yaml"), std::ios::binary)
+                            .write(body.data(), static_cast<std::streamsize>(body.size()));
+                        ++fallback;
                     }
                 }
                 say("  decomposed animationsetdatasinglefile.txt/ -> index.yaml + " +
-                    std::to_string(movesets) + " movesets/ (" + std::to_string(nResolved) +
-                    " anim paths, " + std::to_string(nResidue) + " residue; " +
+                    std::to_string(units) + " char setdata.yaml + " + std::to_string(fallback) +
+                    " fallback (" + std::to_string(nResolved) + " anim paths, " +
+                    std::to_string(nResidue) + " residue; " +
                     std::to_string(parsed.projects.size()) + " projects indexed)");
             } catch (const std::exception& e) {
                 say(std::string("  WARN: animationsetdata decompose failed: ") + e.what());
