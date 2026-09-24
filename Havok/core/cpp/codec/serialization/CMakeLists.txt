@@ -18,7 +18,16 @@
 # <codec/serialization/packfile/…> — the function-folder IS the path namespace (no havok/ prefix).
 sct_collect_sources(CB_SERIALIZATION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 
-add_library(serialization STATIC ${CB_SERIALIZATION_SOURCES})
+# HkyArchive (the .hky zip container, phase 1b) is backed by vendored miniz (amalgamated C, MIT), now
+# homed in common/ as <common/miniz.h>. common is a header-only INTERFACE lib and HkyArchive is miniz's
+# only user, so the impl (miniz.c) compiles HERE, beside its consumer, with warnings suppressed.
+set(_MINIZ_C "${CMAKE_SOURCE_DIR}/Havok/core/cpp/common/miniz.c")
+
+add_library(serialization STATIC ${CB_SERIALIZATION_SOURCES} "${_MINIZ_C}")
+
+if(MSVC)
+    set_source_files_properties("${_MINIZ_C}" PROPERTIES COMPILE_FLAGS "/w")
+endif()
 
 target_include_directories(serialization
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Havok/core/cpp>   # <codec/serialization/…>
@@ -27,7 +36,10 @@ target_include_directories(serialization
 # common = the portable HkTypes value types the byte cursors read/write; havok-schema = the
 # ClassSchema descriptors HavokIo walks (its public header pulls <havok-schema/HavokSchema.h>).
 # havok-schema is a clean ryml-only base — no cycle back through framing/serialization.
-target_link_libraries(serialization PUBLIC common havok-schema)
+# interface = IUnitSource (HkyArchive::source() returns a std::shared_ptr<const IUnitSource>), lifted to
+# interface/ in phase 1b. interface links only common, so serialization -> interface -> common stays a
+# clean base chain (interface never depends back on serialization; havok-model -> serialization already).
+target_link_libraries(serialization PUBLIC common havok-schema interface)
 
 set_target_properties(serialization PROPERTIES
     CXX_STANDARD 23

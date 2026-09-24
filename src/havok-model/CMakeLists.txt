@@ -31,14 +31,9 @@ target_include_directories(havok-model
 # serialization, so name the framing dep directly (it migrates as those stragglers relocate).
 target_link_libraries(havok-model PUBLIC havok-io havok-schema interface havok-framing)   # interface = AnimationData model (firesale)
 
-# The .hky in-memory archive reader (HkyArchive) is backed by vendored miniz (amalgamated C, MIT),
-# relocated here with the loader out of havok-core.
-set(_MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
-target_sources(havok-model PRIVATE "${_MINIZ_DIR}/miniz.c")
-target_include_directories(havok-model PRIVATE "${_MINIZ_DIR}")
-if(MSVC)
-    set_source_files_properties("${_MINIZ_DIR}/miniz.c" PROPERTIES COMPILE_FLAGS "/w")
-endif()
+# HkyArchive + its vendored miniz backing moved to codec/serialization/ (+ common/miniz.*) in firesale
+# phase 1b — the .hky container belongs beside the packfile spine under one serialization roof. miniz.c
+# now compiles in the serialization lib; havok-model reaches HkyArchive through its serialization dep.
 
 set_target_properties(havok-model PROPERTIES
     CXX_STANDARD 23

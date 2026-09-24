@@ -1,6 +1,6 @@
-#include "havok/model/yaml/HkyArchive.h"
+#include <codec/serialization/HkyArchive.h>
 
-#include "miniz.h"
+#include <common/miniz.h>
 
 #include <algorithm>
 #include <atomic>

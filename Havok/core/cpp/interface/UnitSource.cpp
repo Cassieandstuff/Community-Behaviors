@@ -3,7 +3,7 @@
 // directory_iterator); its semantics are byte-for-byte what the loader did before
 // the source abstraction, so the disk path is unchanged.
 
-#include "havok/model/yaml/UnitSource.h"
+#include <interface/UnitSource.h>
 
 #include <fstream>
 #include <sstream>
