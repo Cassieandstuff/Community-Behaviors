@@ -31,10 +31,13 @@ cmake/                      helpers (CommonLibSSE, Deploy, SctSources, ports, gl
 
 ## Build
 
-Requires the **Visual Studio 18 2026** toolchain and env `VCPKG_ROOT` (plus `COMMONLIB_SSE_FOLDER`
-for a local CommonLibSSE-NG clone; otherwise a pinned fork is fetched).
+Requires the **Visual Studio 18 2026** toolchain and env `VCPKG_ROOT`. CommonLibSSE-NG is vendored
+as a git submodule ([alandtse fork](https://github.com/alandtse/CommonLibSSE-NG), `ng` branch, full
+SE+AE+VR) at `lib/commonlibsse-ng` — clone with submodules, or initialise them after cloning:
 
 ```bash
+git submodule update --init --recursive
+
 cmake --preset release          # full build: plugin + converter + build-time gates
 cmake --build build/release --config RelWithDebInfo --target CommunityBehaviors
 ```

@@ -13,7 +13,6 @@
 #
 # Env contract (top-level build only):
 #   VCPKG_ROOT            — vcpkg clone (toolchain, via the preset)
-#   COMMONLIB_SSE_FOLDER  — a local CommonLibSSE-NG clone (add_subdirectory'd, offline)
 #   SKYRIM_MODS_FOLDER    — MO2 mods folder (deploy target)
 #   SKYRIM_DATASOURCE     — unpacked vanilla data (arms the Skyrim.hky regen)
 #   SCT_BASE_MASTER_DIR   — short D-drive path for the unpacked-master diff tree
@@ -129,24 +128,19 @@ endif()
 # ════════════════════════════════════════════════════════════════════════════════
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-# CommonLibSSE (powerof3 fork) build options — set BEFORE it configures. AE (1.6.x) exposes the
-# modern SKSE plugin-version format (SKSE::PluginVersionData); xbyak enables trampoline hooks. SSE 1.170 = AE.
-set(SKYRIM_SUPPORT_AE  ON CACHE BOOL "" FORCE)
-set(SKSE_SUPPORT_XBYAK ON CACHE BOOL "" FORCE)
+# CommonLibSSE-NG (alandtse fork) build options — set BEFORE it configures. Full NG: one DLL for
+# SE + AE + VR, addressed at runtime via REL::VariantID. xbyak enables trampoline hooks; the fork's
+# unit tests are off (we don't build them). SKSE_SUPPORT_PATCH_SAFETY stays at its ON default.
+set(ENABLE_SKYRIM_SE   ON  CACHE BOOL "" FORCE)
+set(ENABLE_SKYRIM_AE   ON  CACHE BOOL "" FORCE)
+set(ENABLE_SKYRIM_VR   ON  CACHE BOOL "" FORCE)
+set(SKSE_SUPPORT_XBYAK ON  CACHE BOOL "" FORCE)
+set(BUILD_TESTS        OFF CACHE BOOL "" FORCE)
 
-# ── CommonLibSSE: a local clone if COMMONLIB_SSE_FOLDER points at one, else the pinned fork ──
-if(DEFINED ENV{COMMONLIB_SSE_FOLDER} AND IS_DIRECTORY "$ENV{COMMONLIB_SSE_FOLDER}")
-    message(STATUS "CommonLibSSE: local clone at $ENV{COMMONLIB_SSE_FOLDER}")
-    add_subdirectory("$ENV{COMMONLIB_SSE_FOLDER}" "${CMAKE_BINARY_DIR}/CommonLibSSE")
-else()
-    message(STATUS "CommonLibSSE: FetchContent powerof3 fork (pinned)")
-    include(FetchContent)
-    FetchContent_Declare(CommonLibSSE
-        GIT_REPOSITORY https://github.com/powerof3/CommonLibSSE.git
-        GIT_TAG        aad6fb7dc9cd39754a28742b3b709ae29dd20843
-        SOURCE_DIR     "${CMAKE_BINARY_DIR}/_deps/commonlibsse-src")
-    FetchContent_MakeAvailable(CommonLibSSE)
-endif()
+# ── CommonLibSSE-NG: vendored as a git submodule (lib/commonlibsse-ng, alandtse `ng` branch) ──
+# Single source of truth — no env var, no network fetch. `git submodule update --init --recursive`.
+message(STATUS "CommonLibSSE-NG: submodule at lib/commonlibsse-ng")
+add_subdirectory(lib/commonlibsse-ng "${CMAKE_BINARY_DIR}/CommonLibSSE")
 
 include(CommonLibSSE)   # add_commonlibsse_plugin() — SHARED lib + generated version-data TU
 include(Deploy)         # cb_deploy() — MO2 deploy
