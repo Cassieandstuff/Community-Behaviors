@@ -79,17 +79,17 @@ inline RE::BSTriShape* MakeTriShape(const void* packedVB, std::uint32_t vertCoun
     RE::BSTriShape*        shape = dyn ? static_cast<RE::BSTriShape*>(dyn) : CreateTriShape();
     if (!shape) return nullptr;   // rd leaked on this OOM-only path
 
-    shape->rendererData = rd;
-    std::memcpy(&shape->vertexDesc, &vertexDesc, sizeof(std::uint64_t));
-    shape->vertexCount   = static_cast<std::uint16_t>(vertCount);
-    shape->triangleCount = static_cast<std::uint16_t>(indexCount / 3);
+    shape->GetGeometryRuntimeData().rendererData = rd;
+    std::memcpy(&shape->GetGeometryRuntimeData().vertexDesc, &vertexDesc, sizeof(std::uint64_t));
+    shape->GetTrishapeRuntimeData().vertexCount   = static_cast<std::uint16_t>(vertCount);
+    shape->GetTrishapeRuntimeData().triangleCount = static_cast<std::uint16_t>(indexCount / 3);
 
     if (dyn) {
         const std::uint32_t vbBytes = vertCount * stride;
         if (void* dd = AllocateVertexData(static_cast<std::size_t>(vbBytes))) {
             std::memcpy(dd, packedVB, vbBytes);
-            dyn->dynamicData = dd;
-            dyn->dataSize    = vbBytes;
+            dyn->GetDynamicTrishapeRuntimeData().dynamicData = dd;
+            dyn->GetDynamicTrishapeRuntimeData().dataSize    = vbBytes;
         }
     }
     return shape;
