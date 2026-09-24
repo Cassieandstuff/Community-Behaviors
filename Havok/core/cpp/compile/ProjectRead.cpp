@@ -1,8 +1,8 @@
 #include <compile/ProjectRead.h>
 
-#include "havok/core/PackFileDeserializer.h"
+#include <codec/serialization/packfile/PackFileDeserializer.h>
 
-#include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
+#include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
 #include <cstring>

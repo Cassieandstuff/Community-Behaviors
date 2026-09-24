@@ -57,6 +57,7 @@ add_subdirectory(Havok/core/cpp/common)      # CB::core foundational value types
 add_subdirectory(Havok/core/cpp/interface)   # CB::core model structs (base; depends only on common)
 add_subdirectory(src/havok-framing)
 add_subdirectory(src/havok-schema)
+add_subdirectory(Havok/core/cpp/codec/serialization)   # CB::core foundational codec: packfile spine + HavokIo (firesale phase 1)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(Havok/core/cpp/codec)   # CB::core codecs (spline + format yaml loaders; org-pass firesale step 1)

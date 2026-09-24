@@ -1,6 +1,6 @@
 #include <compile/GraphCompile.h>
 
-#include "havok/core/PackFileSerializer.h"   // PackFileSerializer + BinaryWriterEx
+#include <codec/serialization/packfile/PackFileSerializer.h>   // PackFileSerializer + BinaryWriterEx
 
 #include <havok-model/HavokModel.h>    // model::AssembleGraph/AssembleCharacter/AssembleProject + ResolveBehaviorBindings
 #include "havok/model/BehaviorData.h"  // model::BehaviorData full def (copied for the resolve pass)

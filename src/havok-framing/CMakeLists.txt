@@ -49,7 +49,13 @@ target_include_directories(havok-framing PUBLIC
 )
 
 # common = the base value types; havok/core/HkTypes.h is now a shim over <common/HkTypes.h>.
-target_link_libraries(havok-framing PUBLIC common)
+# serialization = the packfile spine (IHavokObject/HavokRegistry/Binary*Ex/PackFile*), lifted to
+# codec/serialization/ in org-pass firesale phase 1. The old havok/core/*.h + havok/classes/
+# IHavokObject.h headers here are now forwarding SHIMS over <codec/serialization/…>; PUBLIC-linking
+# serialization gives framing's remaining tenants (Xml/TagfileOracle/HavokEnums/PandoraCompatShim)
+# and every downstream consumer the symbols + the Havok/core/cpp include path. Delete the shims when
+# Retirement Home/havok-core (their last user) is cut.
+target_link_libraries(havok-framing PUBLIC common serialization)
 
 if(MSVC)
     target_compile_options(havok-framing PRIVATE /W4 /wd4100 /MP)

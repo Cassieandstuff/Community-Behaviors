@@ -20,10 +20,10 @@
 
 #include "havok/anim/AnimDataYaml.h"      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
 #include "codec/spline/SplineDecompressor.h"
-#include "havok/core/BinaryReaderEx.h"
-#include "havok/core/PackFileDeserializer.h"
+#include <codec/serialization/packfile/BinaryReaderEx.h>
+#include <codec/serialization/packfile/PackFileDeserializer.h>
 
-#include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
+#include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
 #include <cstdio>

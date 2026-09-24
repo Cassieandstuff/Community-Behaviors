@@ -12,10 +12,10 @@
 //
 // Single public header (monorepo rule): consumers write  #include <havok-model/HavokModel.h>.
 
-#include <havok-io/HavokIo.h>
+#include <codec/serialization/HavokIo.h>
 #include <havok-schema/HavokSchema.h>
 
-#include "havok/classes/IHavokObject.h"
+#include <codec/serialization/packfile/IHavokObject.h>
 
 #include <memory>
 #include <string>

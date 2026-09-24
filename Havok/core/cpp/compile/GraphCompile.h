@@ -14,7 +14,7 @@
 // The heavy lifting (field traversal) lives in havok::model::Assemble* (havok-model), shared with the
 // gate harness's schema branch, so the two can't drift.
 
-#include "havok/core/PackFileTypes.h"   // HKXHeader
+#include <codec/serialization/packfile/PackFileTypes.h>   // HKXHeader
 
 #include <cstdint>
 #include <string>

@@ -4,9 +4,9 @@
 #include "havok/model/BehaviorData.h"
 #include "havok/model/defs/GeneratorDefs.h"
 
-#include "havok/core/PackFileDeserializer.h"
+#include <codec/serialization/packfile/PackFileDeserializer.h>
 
-#include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory (schema-native anim read)
+#include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory (schema-native anim read)
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
 #include <cctype>

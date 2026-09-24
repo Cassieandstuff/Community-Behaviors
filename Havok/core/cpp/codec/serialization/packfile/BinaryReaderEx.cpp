@@ -1,4 +1,4 @@
-#include "havok/core/BinaryReaderEx.h"
+#include <codec/serialization/packfile/BinaryReaderEx.h>
 
 #include <sstream>
 #include <stdexcept>

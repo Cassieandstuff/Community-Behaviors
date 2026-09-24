@@ -1,4 +1,4 @@
-#include "havok/core/BinaryWriterEx.h"
+#include <codec/serialization/packfile/BinaryWriterEx.h>
 
 #include <stdexcept>
 
