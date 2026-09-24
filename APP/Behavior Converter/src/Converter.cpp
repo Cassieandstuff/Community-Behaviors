@@ -2361,19 +2361,40 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         std::string   setText((std::istreambuf_iterator<char>(sf)), std::istreambuf_iterator<char>());
         if (!setText.empty()) {
             try {
-                const auto     parsed  = havok::animsetdata::ParseSingleFile(setText);
+                auto           parsed  = havok::animsetdata::ParseSingleFile(setText);
                 const fs::path setRoot  = stageHky / "meshes" / "animationsetdatasinglefile.txt";
                 fs::create_directories(setRoot / "movesets", ec);
+
+                // EXTRACT the per-condition animation MEMBERSHIP to authorable paths: build a
+                // (folder,file)CRC -> path index from the datasource meshes, then reverse each set's
+                // baked CRCs to real animation paths (residue tokens for the ~0.1% not in the source).
+                // Replaces the old "derive the whole roster per set" runtime bloat that corrupted saves.
+                std::vector<std::string> cands;
+                { std::error_code wec;
+                  for (fs::recursive_directory_iterator it(meshes, wec), end; !wec && it != end; it.increment(wec)) {
+                      if (!it->is_regular_file(wec)) continue;
+                      std::string extn = it->path().extension().string();
+                      for (char& c : extn) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                      if (extn != ".hkx") continue;
+                      std::string rel = fs::relative(it->path(), meshes, wec).string();
+                      for (char& c : rel) if (c == '/') c = '\\';
+                      cands.push_back("meshes\\" + rel);
+                  } }
+                const auto crcIndex = havok::animsetdata::BuildCrcIndex(cands);
+                std::size_t nResolved = 0, nResidue = 0;
+                for (auto& proj : parsed.projects) {
+                    havok::animsetdata::ResolveSetdataPaths(proj, crcIndex);
+                    for (const auto& s : proj.sets)
+                        for (const auto& a : s.animations) (a.compare(0, 4, "@crc") == 0 ? nResidue : nResolved)++;
+                }
 
                 // index.yaml — the project ORDER + exact header strings (load-bearing manifest).
                 const std::string idx = havok::animsetdata::EmitSetdataIndexYaml(parsed);
                 std::ofstream(setRoot / "index.yaml", std::ios::binary)
                     .write(idx.data(), static_cast<std::streamsize>(idx.size()));
 
-                // FULL DERIVE (release item 4): crcs/ is NO LONGER SHIPPED. A set's CRC registration
-                // is a pure function of the project roster (TripleForAnimation over "<actorRoot>\<rel>"),
-                // so the runtime re-derives it from movesets + rosters. Only index.yaml + the AUTHORED
-                // movesets/ (gate/equip/attacks — the irreducible residue) ride in the hky.
+                // movesets/<stem>.yaml — the AUTHORED sets: gate/equip/attacks + the extracted
+                // `animations` membership. The runtime re-hashes the paths (no derive, no roster union).
                 int movesets = 0;
                 for (const auto& proj : parsed.projects) {
                     const std::string stem = havok::animsetdata::StemForHeader(proj.header);
@@ -2386,7 +2407,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     }
                 }
                 say("  decomposed animationsetdatasinglefile.txt/ -> index.yaml + " +
-                    std::to_string(movesets) + " movesets/ (crcs DERIVED at runtime; " +
+                    std::to_string(movesets) + " movesets/ (" + std::to_string(nResolved) +
+                    " anim paths, " + std::to_string(nResidue) + " residue; " +
                     std::to_string(parsed.projects.size()) + " projects indexed)");
             } catch (const std::exception& e) {
                 say(std::string("  WARN: animationsetdata decompose failed: ") + e.what());

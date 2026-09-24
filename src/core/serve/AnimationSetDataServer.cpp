@@ -400,42 +400,12 @@ namespace CB::asdserve {
                         movesetsByStem[stem] = asd::ParseMovesetsYaml(*y, stem, yerr);
                         if (!yerr.empty()) LOG_WARN("SetData: base movesets '{}': {}", stem, yerr);
                     }
-                bool masterHasCrcs = false;
-                for (const std::string& path : masterReader->filesUnder(dir + "/crcs", ".yaml"))
-                    if (const auto y = masterReader->read(path)) {
-                        masterHasCrcs = true;
-                        const std::string stem = stemOf(path);
-                        std::string       yerr;
-                        crcsByStem[stem] = asd::ParseSetdataCrcsYaml(*y, yerr);
-                        if (!yerr.empty()) LOG_WARN("SetData: base crcs '{}': {}", stem, yerr);
-                    }
-                // Stripped master (release item 4): no crcs/ shipped — DERIVE each base set's CRC
-                // registration from the project's roster (TripleForAnimation over "<actorRoot>\<rel>",
-                // the exact form the mod path uses). Injected into the authored moveset sets (which ship
-                // empty crcs); AssembleSetdata then keeps them (crcsByStem is empty → no override).
-                if (!masterHasCrcs)
-                    for (auto& [stem, sf] : movesetsByStem) {
-                        const std::string charStem = ProjectToCharStem(stem);
-                        std::vector<asd::CrcTriple> crcs;
-                        const auto ri = rosterPaths.find(charStem);
-                        const auto ai = charActorRoot.find(charStem);
-                        if (ri != rosterPaths.end() && ai != charActorRoot.end()) {
-                            std::set<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>> seen;
-                            for (const auto& rel : ri->second) {
-                                // Collapse ".." (paired killmoves escape to actors\sharedkillmoves\...).
-                                const std::string full = CollapseDotDot(ai->second + "\\" + rel);
-                                const asd::CrcTriple t = asd::TripleForAnimation(full);
-                                if (seen.emplace(t.folder, t.file, t.ext).second) crcs.push_back(t);
-                            }
-                        }
-                        if (!crcs.empty())
-                            for (auto& pr : sf.projects)
-                                for (auto& s : pr.sets)
-                                    if (s.crcs.empty()) s.crcs = crcs;
-                    }
+                // The master's movesets now carry the authored `animations` membership; AssembleSetdata
+                // compiles each set's CRC list from those paths (re-hash). No derive-from-roster union,
+                // no bloat — the fix for the 48 MB / save-corrupting per-set CRC count. (`crcsByStem`
+                // stays empty: the opaque crcs/ folder is retired.)
                 base     = asd::AssembleSetdata(headers, movesetsByStem, crcsByStem);
-                baseFrom = masterHasCrcs ? "Skyrim.hky/" + dir + "/ (composed)"
-                                         : "Skyrim.hky/" + dir + "/ (CRCs DERIVED from roster)";
+                baseFrom = "Skyrim.hky/" + dir + "/ (composed from authored animations)";
                 composed = true;
             }
         }
