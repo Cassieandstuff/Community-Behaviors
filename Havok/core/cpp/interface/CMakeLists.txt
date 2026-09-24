@@ -7,6 +7,10 @@
 # IT, no cycle. Also holds MotionSample (the root-motion sample-label codec, beside its MotionRecord).
 # Include root Havok/core/cpp/ -> <interface/*.h>.
 sct_collect_sources(CB_INTERFACE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+# reflection/ is a NESTED sub-target (the descriptor registry, its own add_library + ryml link), but
+# sct_collect_sources GLOB_RECURSEs — drop its sources here so interface neither double-compiles them
+# nor drags ryml into the ryml-free model-structs lib.
+list(FILTER CB_INTERFACE_SOURCES EXCLUDE REGEX "/reflection/")
 
 add_library(interface STATIC ${CB_INTERFACE_SOURCES})
 

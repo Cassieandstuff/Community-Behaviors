@@ -3,7 +3,7 @@
 // gate (all schema:: types) lives beside the types it checks, and so havok-anim can reach the same
 // registry without a havok-core dependency. havok-core's SchemaCompilerState now delegates here.
 
-#include "havok-schema/HavokSchema.h"
+#include <interface/reflection/HavokSchema.h>
 
 #include <cstdlib>
 #include <string>

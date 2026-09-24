@@ -5,6 +5,10 @@
 # lifted from src/havok-anim. Include ROOT is Havok/core/cpp/, so headers resolve as
 # <codec/spline/*.h> — the function-folder IS the path namespace (no havok/ prefix).
 sct_collect_sources(CB_CODEC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+# serialization/ is a NESTED sub-target (its own add_library), but sct_collect_sources GLOB_RECURSEs —
+# so drop its sources here or codec double-compiles them (a latent duplicate that linked only by link
+# order). codec owns spline/crc/format directly; serialization is its own lib.
+list(FILTER CB_CODEC_SOURCES EXCLUDE REGEX "/serialization/")
 
 add_library(codec STATIC ${CB_CODEC_SOURCES})
 

@@ -1,4 +1,4 @@
-#include <havok-schema/HavokSchema.h>
+#include <interface/reflection/HavokSchema.h>
 
 #include <RymlInclude.h>   // the ONLY sanctioned way to pull in rapidyaml (C++20+ shim)
 
