@@ -1,6 +1,6 @@
-#include "havok/model/CompileTrace.h"
+#include <compile/CompileTrace.h>
 
-#include "havok/model/BehaviorData.h"
+#include <interface/BehaviorData.h>
 
 #include <RymlInclude.h>
 

@@ -5,8 +5,8 @@
 // (the neutral model layer) so the schema compile path (Havok/core/cpp/compile) can reach it without a
 // havok-core dependency; havok-core's typed builder + the offline gate still call the same one symbol.
 
-#include "havok/model/BehaviorData.h"
-#include "havok/model/HavokEnums.h"   // enums::ResolveEnum / BindingType (binding-kind resolve)
+#include <interface/BehaviorData.h>
+#include <interface/HavokEnums.h>   // enums::ResolveEnum / BindingType (binding-kind resolve)
 
 #include <map>
 #include <optional>

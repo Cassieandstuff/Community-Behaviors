@@ -1,4 +1,4 @@
-#include "havok/anim/AnimDataDeriver.h"
+#include <compile/AnimDataDeriver.h>
 
 #include <interface/linker/Membrane.h>   // the roster IndexMembrane (one clip<->roster join)
 
