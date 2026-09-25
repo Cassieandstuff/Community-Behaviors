@@ -1,4 +1,4 @@
-#include "havok/model/yaml/CharacterYamlLoader.h"
+#include <codec/format/CharacterYamlLoader.h>
 
 #include <RymlInclude.h>
 

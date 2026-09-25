@@ -3,7 +3,7 @@
 #include <codec/serialization/packfile/PackFileSerializer.h>   // PackFileSerializer + BinaryWriterEx
 
 #include <havok-model/HavokModel.h>    // model::AssembleGraph/AssembleCharacter/AssembleProject + ResolveBehaviorBindings
-#include "havok/model/BehaviorData.h"  // model::BehaviorData full def (copied for the resolve pass)
+#include <interface/BehaviorData.h>  // model::BehaviorData full def (copied for the resolve pass)
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
 #include <atomic>

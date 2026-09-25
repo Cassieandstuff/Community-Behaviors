@@ -9,7 +9,7 @@
 // Namespace kept havok::sct (normalization deferred to the mechanical pass).
 
 #include <codec/serialization/packfile/PackFileTypes.h>   // HKXHeader
-#include "havok/model/ProjectData.h"    // model::ProjectSpec (aliased below)
+#include <interface/ProjectData.h>    // model::ProjectSpec (aliased below)
 
 #include <cstdint>
 #include <string>

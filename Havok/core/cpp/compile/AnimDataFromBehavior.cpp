@@ -1,8 +1,8 @@
 #include <compile/AnimDataFromBehavior.h>
 
 #include "interface/AnimationData.h"          // animdata::ProjectPatch / PatchAddition / ...
-#include "havok/model/BehaviorData.h"
-#include "havok/model/defs/GeneratorDefs.h"
+#include <interface/BehaviorData.h>
+#include <interface/defs/GeneratorDefs.h>
 
 #include <codec/serialization/packfile/PackFileDeserializer.h>
 

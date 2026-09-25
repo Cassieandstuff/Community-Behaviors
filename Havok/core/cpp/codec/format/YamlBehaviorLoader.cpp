@@ -6,11 +6,11 @@
 // target_link_libraries(... ryml::ryml); includes below. Verified in the Visual
 // Studio build, not in the standalone havok-core test build.
 
-#include "havok/model/yaml/YamlBehaviorLoader.h"
+#include <codec/format/YamlBehaviorLoader.h>
 
-#include "havok/model/BashMerge.h"   // shared merge decision (havok::merge::decideParam)
-#include <havok-schema/HavokSchema.h> // SchemaRegistry — per-field `merge:` tag classifier
-#include "havok/model/HavokEnums.h"  // enums::ResolveEnum for symbolic flag fields
+#include <interface/BashMerge.h>   // shared merge decision (havok::merge::decideParam)
+#include <interface/reflection/HavokSchema.h> // SchemaRegistry — per-field `merge:` tag classifier
+#include <interface/HavokEnums.h>  // enums::ResolveEnum for symbolic flag fields
 #include <compile/AnimDataFromBehavior.h>  // sct::ReadClipInputsFromClipsDir (implemented here — ryml is isolated to this TU)
 
 // rapidyaml MUST come in via this shim (include/external/RymlInclude.h): it
