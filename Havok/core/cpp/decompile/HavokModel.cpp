@@ -1743,20 +1743,43 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
         sAssignNameIds(mg, ambiguous, mIdent);
 
         // Vanilla schema READ-ORDER ids — identical to what BuildBaseBundle's DecompileBehaviorSchema
-        // assigns for the shipped base, so matched mod overrides land on the base's ids.
+        // assigns for the shipped base, so matched mod overrides land on the base's ids. Capture the raw
+        // NUMERIC vanilla id per name-identity BEFORE the FormId transform (identToNum keys the matcher).
         Identity vId = AssignIdentity(vdes, reg, "");
         std::unordered_map<std::string, std::string> identToNum;
         for (const auto& [obj, id] : vId.ids)
             if (auto it = vIdent.find(obj); it != vIdent.end()) identToNum[it->second] = id;
 
-        // Mod ids: matched -> the vanilla read-order id; new -> "<code>$N" (namespaced, collision-proof).
-        const std::string code = modCode.empty() ? std::string("d") : modCode;
+        // FormId minting. A loose-derive bundle sees only vanilla (precompiled: no foreign mod codes), so
+        // it masters SKYRIM ONLY -> master table [skyrim(0), self(1)]. So: an edit of a vanilla node ->
+        // "0000x<local>" (index 0 = Skyrim), an own new node -> "0001x<seq>" (index 1 = self). Matches
+        // what the loader's BuildMasterTable(stem, {}, haveSkyrim) resolves. (modCode is retired — the
+        // FormId's self index replaces the "<code>$N" string namespace.)
+        (void)modCode;
+        auto toNumericFormId = [](const std::string& decId, std::uint16_t idx) -> std::string {
+            char* end = nullptr;
+            const unsigned long v = std::strtoul(decId.c_str(), &end, 10);
+            if (end && *end == '\0')
+                if (const auto f = CB::core::formid::make(idx, static_cast<std::uint32_t>(v)))
+                    return CB::core::formid::format(*f);
+            return decId;   // non-numeric (a secondary identity) or >16-bit: leave as-is
+        };
+        // Vanilla side = Skyrim (index 0) — every id -> "0000x<local>" (so matched-unchanged nodes diff away).
+        for (auto& [obj, id] : vId.ids) { (void)obj; id = toNumericFormId(id, /*skyrim*/ 0); }
+
+        constexpr std::uint16_t kSelfIndex = 1;   // masters skyrim only -> self is table index 1
         Identity mId = AssignIdentity(mdes, reg, "");   // category for all; ids overridden for named nodes
         int newSeq = 0;
         for (const void* o : mg.order) {
             auto* obj = static_cast<IHavokObject*>(const_cast<void*>(o));
-            if (auto it = identToNum.find(mIdent[o]); it != identToNum.end()) { mId.ids[obj] = it->second; ++r.matched; }
-            else { mId.ids[obj] = code + "$" + std::to_string(++newSeq); ++r.added; }
+            if (auto it = identToNum.find(mIdent[o]); it != identToNum.end()) {
+                mId.ids[obj] = toNumericFormId(it->second, /*skyrim*/ 0);   // edit of vanilla
+                ++r.matched;
+            } else {
+                if (const auto f = CB::core::formid::make(kSelfIndex, static_cast<std::uint32_t>(++newSeq)))
+                    mId.ids[obj] = CB::core::formid::format(*f);            // own new node
+                ++r.added;
+            }
         }
 
         // Emit both trees, diff by relative path (same id => same filename => same node), copy each NEW or
