@@ -9,7 +9,7 @@
 // runs over the source with those prior edits applied. So we mutate the token stream as we go
 // and count each block's index over the *mutated* prefix — not the pristine base.
 
-#include "havok/compat/PandoraCompatShim.h"
+#include <decompile/PandoraCompatShim.h>
 
 #include <algorithm>
 #include <cctype>

@@ -1,9 +1,9 @@
 #include <decompile/BehaviorDecompile.h>
 
-#include "havok/sct/TagfileOracle.h"      // AlignTagfile — the structural #NNNN oracle (reused verbatim)
+#include <decompile/TagfileOracle.h>      // AlignTagfile — the structural #NNNN oracle (reused verbatim)
 #include <interface/HavokEnums.h>       // enum tables (value<->name), revNum, FormatFlags, ResolveEnum — reused
 #include <common/Xml.h>                // first-party tagfile XML parser (xml::Node / xml::Parse)
-#include "havok/compat/PandoraCompatShim.h" // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
+#include <decompile/PandoraCompatShim.h> // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include <interface/BashMerge.h>        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
 #include <common/Vec4Text.h>              // havok::vec4::parseVec4 (the ONE vec4 text parser)
