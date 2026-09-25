@@ -2,6 +2,7 @@
 #include "havok/core/PackFileTypes.h"
 #include "havok/sct/BehaviorCompiler.h"  // CompileResult
 #include "havok/model/ProjectData.h"     // model::ProjectSpec (moved to havok-model — see below)
+#include <codec/format/ProjectYaml.h>    // EmitProjectYaml / ParseProjectYaml moved here (project format codec)
 
 #include <array>
 #include <cstdint>
@@ -60,7 +61,7 @@ CompileResult RewriteProjectCharacterFilename(const std::vector<std::uint8_t>& b
 // text (no YAML lib) so they round-trip 1:1. The CLI decompile path is
 // ReadProject(bytes) -> EmitProjectYaml; the compile path is ParseProjectYaml ->
 // BuildProject. ParseProjectYaml returns false only on malformed input.
-std::string EmitProjectYaml(const ProjectSpec& spec);
-bool        ParseProjectYaml(const std::string& text, ProjectSpec& out);
+// EmitProjectYaml / ParseProjectYaml moved to <codec/format/ProjectYaml.h> (included above) — the
+// bidirectional project.yaml format codec, drained out of havok-core (org-pass character/project port).
 
 } // namespace havok::sct
