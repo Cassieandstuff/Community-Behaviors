@@ -156,14 +156,12 @@ add_subdirectory(src/sct-config)
 set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
 add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
 
-# tree-diff — the record-keyed semantic diff tool (cb-tree-diff lib + standalone exe). Top-level so
-# it builds in lean configs too: it needs only havok-core + havok-model (added above), NOT the
-# converter's glfw/imgui, so it lives OUTSIDE the CB_BUILD_CONVERTER block. The Behavior Converter's
-# "Diff" tab links the same cb-tree-diff library when the converter is built.
-option(CB_BUILD_TREEDIFF "Build the tree-diff tool" ON)
-if(CB_BUILD_TREEDIFF)
-    add_subdirectory("APP/tree-diff")
-endif()
+# tree-diff — RETIRED in the org-pass firesale. The old cb-tree-diff engine was built before the schema
+# stack + the linker/BoneMembrane and pulled the quarantined typed havok-core (typed DecompileToDir +
+# skeleton import) back into the converter — the last thing blocking the havok-core cut. It is being
+# replaced by a ground-up Pandora-vs-CB diff tool (Pandora layered OVER vanilla, schema-native, no manual
+# skeleton) in its own session. The converter's Diff tab is stubbed (src/ui/TreeDiffAdapters.h) meanwhile.
+# (add_subdirectory("APP/tree-diff") removed; APP/tree-diff deleted.)
 
 # ── The plugin ─────────────────────────────────────────────────────────────────
 # Sources are FLAT: each Foo.cpp beside its Foo.h directly under src/ (src/ IS the private include root).
