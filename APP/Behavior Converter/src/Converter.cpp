@@ -1,8 +1,6 @@
 #include "Converter.h"
 
-#include <havok/sct/CharacterDecompiler.h>   // DecompileToDir (character units)
-#include <havok/sct/BehaviorCompiler.h>      // CompileBehavior (base unit -> vanilla binary)
-#include <havok/sct/HavokFile.h>             // ReadHavokFile / WriteHavokFile
+#include <codec/serialization/HavokFile.h>             // ReadHavokFile / WriteHavokFile
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
@@ -17,14 +15,14 @@
 #include <compile/AnimationCompiler.h>       // havok::anim::CompileAnimation — recompile leg (schema-native)
 #include <decompile/AnimationDecompiler.h>   // havok::anim::DecompileAnimation — schema-native import leg
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
-#include <havok/classes/Generators.h>        // hkbClipGenerator / hkbBehaviorReferenceGenerator (pass 2d RBG walk)
-#include <havok/sct/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
+#include <decompile/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
 #include <havok-model/HavokModel.h>          // ConvertModDelta — the DEFAULT data-driven per-mod delta
 #include <havok-schema/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
 #include <compile/ProjectRead.h>             // havok::sct::ReadProject (schema-native project read)
 #include <codec/format/ProjectYaml.h>        // havok::sct::EmitProjectYaml (project.yaml codec)
 #include <decompile/CharacterDecompile.h>    // havok::decompile::DecompileCharacterSchema (schema character decompile)
+#include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior (schema compile, replaces typed sct::CompileBehavior)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
 #include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
@@ -57,6 +55,15 @@ std::string ToLower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
+}
+
+// Read a string field off a generic SchemaObject by name (empty if absent / not a string field).
+std::string SoStr(const havok::io::SchemaObject& so, const char* name) {
+    const auto flds = so.Fields();
+    const auto& vs = so.Values();
+    for (std::size_t i = 0; i < flds.size() && i < vs.size(); ++i)
+        if (flds[i]->name == name) return vs[i].str;
+    return {};
 }
 
 // ── schema-native unit decompile (the havok-core DecompileToDir replacement) ──────────────────────
@@ -162,8 +169,13 @@ bool ReadLooseBehaviorRefs(const std::string& hkxPath, LooseBehaviorRefs& out) {
     std::vector<std::uint8_t> bytes;
     std::string               err;
     if (!havok::sct::ReadHavokFile(hkxPath, bytes, &err)) return false;
+    // Schema-native: build the clip/RBG objects as generic SchemaObjects (schema factory) and read the
+    // one field each off the field table by name — no typed hkbClipGenerator/hkbBehaviorReferenceGenerator.
+    havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
+    if (!reg) return false;
     try {
         havok::PackFileDeserializer des;
+        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
         havok::BinaryReaderEx       br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
         des.DeserializePartially(br);
         const bool le = des._header.Endian == 0;
@@ -171,14 +183,18 @@ bool ReadLooseBehaviorRefs(const std::string& hkxPath, LooseBehaviorRefs& out) {
         {
             havok::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
             for (const auto& o : des.ConstructAllOfClass(dr, "hkbClipGenerator"))
-                if (auto c = std::dynamic_pointer_cast<havok::hkbClipGenerator>(o); c && !c->m_animationName.empty())
-                    out.animationNames.push_back(c->m_animationName);
+                if (const auto* c = dynamic_cast<const havok::io::SchemaObject*>(o.get())) {
+                    const std::string an = SoStr(*c, "animationName");
+                    if (!an.empty()) out.animationNames.push_back(an);
+                }
         }
         {
             havok::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
             for (const auto& o : des.ConstructAllOfClass(dr, "hkbBehaviorReferenceGenerator"))
-                if (auto r = std::dynamic_pointer_cast<havok::hkbBehaviorReferenceGenerator>(o); r && !r->m_behaviorName.empty())
-                    out.behaviorNames.push_back(r->m_behaviorName);
+                if (const auto* r = dynamic_cast<const havok::io::SchemaObject*>(o.get())) {
+                    const std::string bn = SoStr(*r, "behaviorName");
+                    if (!bn.empty()) out.behaviorNames.push_back(bn);
+                }
         }
         return true;
     } catch (const std::exception&) {
@@ -1211,7 +1227,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (baseArc && baseUnits.count(prefix)) {
             try {
                 auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(prefix) });
-                const auto cr = havok::sct::CompileBehavior(data);
+                const auto cr = CB::core::compile::CompileBehavior(data);
                 std::string werr;
                 const fs::path outBin = baseBinTmp / (g + ".hkx");
                 if (cr.ok && havok::sct::WriteHavokFile(outBin.string(), cr.bytes, &werr)) {
@@ -2738,7 +2754,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         try {
             auto data = havok::model::YamlBehaviorLoader::LoadMerged({ arc->source(prefix) });
             if (data.boneNames.empty()) data.boneNames = charBoneNames;   // back-fill skeleton (like the runtime)
-            const auto cr = havok::sct::CompileBehavior(data);
+            const auto cr = CB::core::compile::CompileBehavior(data);
             if (!cr.ok) { say("  " + g + ": regen base compile failed — " + cr.error); continue; }
             reBytes = cr.bytes;
         } catch (const std::exception& e) { say("  " + g + ": regen base load threw — " + std::string(e.what())); continue; }
