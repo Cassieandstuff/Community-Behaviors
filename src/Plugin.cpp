@@ -3,6 +3,7 @@
 #include "core/serve/AnimationDataServer.h"
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/serve/ByteServe.h"
+#include "core/serve/conditions/Conditions.h"
 #include "core/bootstrap/CompileGate.h"
 #include "core/debug/DebugOverlay.h"
 #include "core/debug/RuntimeTrace.h"
@@ -527,6 +528,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::byteserve::Install();  // typed-hkx byte-substitution: serves project/character/
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
+
+    // OAR-parity conditional setdata (Inc 1): register the built-in condition roster + install the
+    // producer/matcher hooks. Inert until config compose registers ConditionInstances (Inc 2).
+    CB::conditions::RegisterBuiltins();
+    CB::conditions::InstallConditionHooks();
 
     // Animdata cache form: COLLATED is the only supported path — it serves
     // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion from
