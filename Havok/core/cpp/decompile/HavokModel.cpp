@@ -1543,6 +1543,11 @@ bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir
     namespace fs = std::filesystem;
     namespace en = havok::model::enums;
     std::error_code ec;
+    // Ensure outDir exists. EmitHky (run before this) only creates a dir per EMITTED node, so a
+    // near-empty graph — e.g. the creature *_lod behaviors, an hkbBehaviorGraph shell with no generator
+    // tree / graphdata (the stripped "far from player" logic) — leaves outDir absent, and the
+    // behavior.yaml write below then fails to open. Create it here so the minimal unit still writes.
+    fs::create_directories(outDir, ec);
     const auto* bg = findBehaviorGraph(identity);
     const auto [gd, sd] = findGraphData(identity);
 
