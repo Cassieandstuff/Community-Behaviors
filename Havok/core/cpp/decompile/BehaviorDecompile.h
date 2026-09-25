@@ -81,8 +81,13 @@ bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir
 // #NNNN when `xmlText` is the matching tagfile, else encounter-order) → EmitHky (nodes) +
 // EmitFullBaseScaffolding (behavior.yaml + graphdata). Byte-identical to the typed base (emit-check gate),
 // so base + per-mod deltas are produced by ONE emitter. Behaviors only (character/project/anim stay typed).
+// `selfIndex` (default -1 = legacy bare ids): when >= 0, every emitted node id becomes a FormId
+// "selfIndex:local" (ids AND refs, both from identity.ids) — the base master passes 0 (Skyrim = index 0),
+// so its nodes read "0:NNNN" (self-teaching: copy the id to author an override). Byte-neutral to compiled
+// graphdata (the id text isn't compiled).
 bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
-                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err);
+                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err,
+                             int selfIndex = -1);
 
 // Schema-native loose-graph delta derive — the peer of havok-core's typed DeriveLooseBehaviorDelta, for a
 // mod shipping a precompiled FULL behavior graph (no Nemesis patch). Deserialize vanilla + mod to

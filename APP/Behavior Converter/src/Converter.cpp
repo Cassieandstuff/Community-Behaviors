@@ -2323,7 +2323,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     // ConvertPatch stays as the fallback if the shared schema registry is unavailable or it errors.
                     if (auto* sreg = havok::schema::SharedRegistry()) {
                         std::string derr;
-                        if (havok::model::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr)) {
+                        if (havok::model::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr,
+                                                                  /*selfIndex=Skyrim*/ 0)) {
                             ++r.behaviors; continue;
                         }
                         say("  WARN: schema base decompile failed for " + fs::path(rel).stem().string() +
@@ -2349,7 +2350,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         if (kind == HkxKind::Behavior) {
             if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
                 std::string derr;
-                if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr)) { ++r.behaviors; continue; }
+                if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr,
+                                                          /*selfIndex=Skyrim*/ 0)) { ++r.behaviors; continue; }
                 say("  WARN: schema decompile failed for " + rel + " (" + derr + ") — unit skipped (no typed fallback; needs a schema fix).");
                 ++r.failed; continue;   // re-running the same schema emitter via DecompileUnit won't help
             }

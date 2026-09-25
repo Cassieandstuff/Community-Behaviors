@@ -6,6 +6,7 @@
 #include <decompile/PandoraCompatShim.h> // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include <interface/BashMerge.h>        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
+#include <codec/formid/FormId.h>          // CB::core::formid — node identity as a FormId "idx:local"
 #include <common/Vec4Text.h>              // havok::vec4::parseVec4 (the ONE vec4 text parser)
 
 #include <algorithm>
@@ -640,6 +641,15 @@ std::string renderBoneIndexSidecar(const io::SchemaObject* arr, const std::strin
     return y;
 }
 
+// A FormId "idx:local" is a valid id STRING (and the identity keyOf reads) but NOT a valid Windows
+// FILENAME — ':' is reserved. The on-disk node filename swaps ':' -> '-'; the `id:` field content keeps
+// the colon. Bijective + reversible; bare ids and Nemesis "code$N" contain no colon, so unaffected.
+static std::string fsId(const std::string& id) {
+    std::string s = id;
+    for (char& c : s) if (c == ':') c = '-';
+    return s;
+}
+
 // Write every data/ sidecar a file-node modifier owns (id keys the file: data/<id>_<suffix>.yaml). Called
 // right after the modifier's own YAML so the sidecar always ships with it (full emit AND per-mod delta).
 void emitModifierSidecars(const io::SchemaObject& so, const std::string& id,
@@ -652,7 +662,7 @@ void emitModifierSidecars(const io::SchemaObject& so, const std::string& id,
         if (body.empty()) return;
         const fs::path dir = outDir / "data";
         fs::create_directories(dir, ec);
-        std::ofstream(dir / (id + suffix + ".yaml"), std::ios::binary) << "id: " << id << suffix << "\n" << body;
+        std::ofstream(dir / (fsId(id + suffix) + ".yaml"), std::ios::binary) << "id: " << id << suffix << "\n" << body;
     };
     const std::string cls   = so.ClassName();
     const std::string mname = fStr(so, "name");   // expressions/eventRanges `name:` = the MODIFIER's name;
@@ -1278,7 +1288,7 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
             else                                          y = renderModifier(*so, identity, nr);
             const fs::path dir = fs::path(outDir) / cat;
             fs::create_directories(dir, ec);
-            std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
+            std::ofstream of(dir / (fsId(id) + ".yaml"), std::ios::binary);
             of << "id: " << id << "\n" << y;
             // A modifier that says `<field>: null` for an owned data array MUST ship the array as a
             // data/<id>_<suffix>.yaml sidecar, or the runtime re-link leaves it null and Havok crashes.
@@ -1343,7 +1353,7 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
 
         const fs::path dir = fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
-        std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
+        std::ofstream of(dir / (fsId(id) + ".yaml"), std::ios::binary);
         of << "id: " << id << "\n" << y;
     }
     return true;
@@ -1567,7 +1577,8 @@ bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir
 }
 
 bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
-                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err) {
+                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err,
+                             int selfIndex) {
     try {
         PackFileDeserializer des;
         des.ObjectFactory = io::MakeSchemaFactory(reg);
@@ -1575,7 +1586,23 @@ bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::
         des.Deserialize(br);
         // xmlText = the matching vanilla tagfile → oracle #NNNN (aligns with the per-mod deltas that
         // reference those ids); empty → encounter-order (self-consistent round-trip).
-        const Identity ident = AssignIdentity(des, reg, xmlText);
+        Identity ident = AssignIdentity(des, reg, xmlText);
+        // FormId identity (selfIndex >= 0): every node here is owned by THIS bundle at `selfIndex` — 0
+        // for the base master (Skyrim, index 0). Prefix each id -> "idx:local". Because ids AND refs
+        // (idRef, refTag, rootGenerator) all read from identity.ids, this makes both carry the FormId
+        // form; the loader treats them as opaque keys, so compiled graphdata is byte-unchanged (17/17).
+        if (selfIndex >= 0) {
+            for (auto& [obj, id] : ident.ids) {
+                (void)obj;
+                char* end = nullptr;
+                const unsigned long v = std::strtoul(id.c_str(), &end, 10);
+                if (end && *end == '\0')   // numeric id -> guard the 16-bit local (hkbNode::id is ushort)
+                    if (const auto f = CB::core::formid::make(static_cast<std::uint32_t>(selfIndex),
+                                                              static_cast<std::uint32_t>(v)))
+                        id = CB::core::formid::format(*f);
+                // non-numeric (a secondary identity, e.g. Class:@animName) or a >16-bit id: left as-is
+            }
+        }
         if (!EmitHky(ident, reg, outDir, err)) return false;                 // node files
         if (!EmitFullBaseScaffolding(ident, outDir, err)) return false;      // behavior.yaml + graphdata
         return true;

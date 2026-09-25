@@ -784,19 +784,26 @@ static void loadDirInto(BehaviorData& data,
     //     emits FormIds. Both yield (class, localId, ownerStem), so a FormId override "0:184" and a
     //     bare vanilla "184" (owner inferred = skyrim) still group together during the mixed-era window.
     for (Entry& e : entries) {
-        std::string idPart, scope;
-        if (const auto fid = CB::core::formid::parse(e.key)) {
-            const auto owner = CB::core::formid::ResolveOwner(layers[e.li].masterTable, fid->masterIndex);
-            if (!owner)
-                emitMergeDiag("YamlBehaviorLoader: node '" + e.key + "' — master index " +
-                              std::to_string(fid->masterIndex) + " is out of range for bundle '" +
-                              layers[e.li].stem + "' (master table size " +
-                              std::to_string(layers[e.li].masterTable.size()) + "); binding to self");
-            idPart = std::to_string(fid->local);
-            scope  = owner ? std::string(*owner) : layers[e.li].stem;
+        std::string idPart = e.key;                  // default: opaque key (bare, or a FormId w/ no context)
+        std::string scope;
+        // Resolve a FormId id ONLY with real load-order context (a non-empty master table). The offline
+        // meta-less path has no table, so there a "0:184" is just an opaque key -> scopeOf (no spurious
+        // out-of-range diag). Bare ids always take scopeOf (transitional).
+        if (!layers[e.li].masterTable.empty()) {
+            if (const auto fid = CB::core::formid::parse(e.key)) {
+                const auto owner = CB::core::formid::ResolveOwner(layers[e.li].masterTable, fid->masterIndex);
+                if (!owner)
+                    emitMergeDiag("YamlBehaviorLoader: node '" + e.key + "' — master index " +
+                                  std::to_string(fid->masterIndex) + " is out of range for bundle '" +
+                                  layers[e.li].stem + "' (master table size " +
+                                  std::to_string(layers[e.li].masterTable.size()) + "); binding to self");
+                idPart = std::to_string(fid->local);
+                scope  = owner ? std::string(*owner) : layers[e.li].stem;
+            } else {
+                scope = scopeOf(e.li, e.key);
+            }
         } else {
-            idPart = e.key;                          // bare id (or name-keyed) — transitional
-            scope  = scopeOf(e.li, e.key);
+            scope = scopeOf(e.li, e.key);
         }
         std::string gk = e.cls;
         gk += '\x1f';
