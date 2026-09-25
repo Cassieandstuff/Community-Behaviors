@@ -64,6 +64,7 @@ add_subdirectory(src/havok-model)
 add_subdirectory(Havok/core/cpp/codec)   # CB::core codecs (spline + format yaml loaders; org-pass firesale step 1)
 add_subdirectory(Havok/core/cpp/compile)     # CB::core one-way derives + Animation/Skeleton compilers (firesale)
 add_subdirectory(Havok/core/cpp/decompile)   # CB::core emit-direction + Animation/Skeleton import (firesale)
+add_subdirectory(Havok/tools/hky)            # hky-tool: standalone .hky pack/unpack over codec/serialization (firesale phase 4a)
 add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
                                    # repo root — graduates to its own repo (both CB + Skyrim Content Tools
                                    # need it now). Dependency-free leaf: consumers link `niffer` and
