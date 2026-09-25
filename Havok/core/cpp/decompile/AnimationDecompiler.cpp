@@ -18,7 +18,7 @@
 
 #include "decompile/AnimationDecompiler.h"
 
-#include "havok/anim/AnimDataYaml.h"      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
+#include <codec/format/AnimDataYaml.h>      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
 #include "codec/spline/SplineDecompressor.h"
 #include <codec/serialization/packfile/BinaryReaderEx.h>
 #include <codec/serialization/packfile/PackFileDeserializer.h>
