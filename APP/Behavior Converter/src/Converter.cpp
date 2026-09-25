@@ -23,6 +23,7 @@
 #include <codec/format/ProjectYaml.h>        // havok::sct::EmitProjectYaml (project.yaml codec)
 #include <decompile/CharacterDecompile.h>    // havok::decompile::DecompileCharacterSchema (schema character decompile)
 #include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior (schema compile, replaces typed sct::CompileBehavior)
+#include <decompile/UnitDecompile.h>         // havok::decompile::DecompileUnit (shared schema decompile dispatcher)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
 #include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
@@ -66,69 +67,6 @@ std::string SoStr(const havok::io::SchemaObject& so, const char* name) {
     return {};
 }
 
-// ── schema-native unit decompile (the havok-core DecompileToDir replacement) ──────────────────────
-// Deserialize a compiled unit .hkx, detect its root dialect, and decompile it to `outDir` entirely
-// through the schema stack — NO typed havok-core. Same content-dispatch as the typed DecompileToDir:
-//   project   -> ReadProject (schema) + EmitProjectYaml            (compile/ProjectRead + codec/format)
-//   animation -> DecompileAnimation (schema)                       (decompile/AnimationDecompiler)
-//   character -> DecompileCharacterSchema (schema, field-name read; character-schema-parity gated 46/46)
-//   behavior  -> DecompileBehaviorSchema (schema, encounter-order ids)
-// Returns the same {ok, error, kind} shape the call sites already read.
-struct SchemaDecompResult { bool ok = false; std::string error; std::string kind; };
-SchemaDecompResult SchemaDecompileUnit(const std::vector<std::uint8_t>& bytes, const std::string& outDir) {
-    const fs::path dir = outDir;
-    // Cheap root sniff (partial deserialize, like the typed path's project/spline dispatch).
-    bool hasProject = false, hasSpline = false;
-    try {
-        havok::PackFileDeserializer pd;
-        havok::BinaryReaderEx br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
-        pd.DeserializePartially(br);
-        for (const auto& [off, cls] : pd.ListObjects()) {
-            if (cls == "hkbProjectData")                    hasProject = true;
-            else if (cls == "hkaSplineCompressedAnimation") hasSpline  = true;
-        }
-    } catch (const std::exception& e) { return { false, std::string("partial deserialize: ") + e.what(), "" }; }
-
-    if (hasProject) {
-        const auto pr = havok::sct::ReadProject(bytes);
-        if (!pr.ok) return { false, pr.error, "project" };
-        std::error_code ec; fs::create_directories(dir, ec);
-        std::ofstream(dir / "project.yaml", std::ios::binary) << havok::sct::EmitProjectYaml(pr.spec);
-        return { true, "", "project" };
-    }
-    if (hasSpline) {
-        const auto ar = havok::anim::DecompileAnimation(bytes, dir, nullptr);
-        return { ar.ok, ar.error, "animation" };
-    }
-
-    // character / behavior: full schema graph walk (needs the shared registry).
-    havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
-    if (!reg) return { false, "shared schema registry unavailable", "" };
-    havok::PackFileDeserializer des;
-    des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
-    try { havok::BinaryReaderEx br(false, true, bytes); des.Deserialize(br); }
-    catch (const std::exception& e) { return { false, std::string("deserialize: ") + e.what(), "" }; }
-
-    const havok::io::SchemaObject* cd = nullptr;
-    bool hasBehavior = false;
-    for (const auto& [off, o] : des.DeserializedObjects()) {
-        const auto* so = dynamic_cast<const havok::io::SchemaObject*>(o.get());
-        if (!so) continue;
-        const std::string cn = so->ClassName();
-        if (cn == "hkbCharacterData") { cd = so; break; }
-        if (cn == "hkbBehaviorGraph")  hasBehavior = true;
-    }
-    if (cd) {
-        const auto cr = havok::decompile::DecompileCharacterSchema(*cd, dir);
-        return { cr.ok, cr.error, "character" };
-    }
-    if (hasBehavior) {
-        std::string derr;
-        const bool ok = havok::model::DecompileBehaviorSchema(bytes, "", *reg, dir.string(), derr);
-        return { ok, derr, "behavior" };
-    }
-    return { false, "unrecognized root variant (not project/animation/character/behavior)", "unknown" };
-}
 
 // Decode XML entity references to their literal characters — mirrors havok::model
 // CharacterYamlLoader::xmlUnescape. The character DECOMPILER emits roster paths through an
@@ -1294,7 +1232,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             if (!havok::sct::ReadHavokFile(winner.string(), bytes, &rerr)) {
                 ++r.skipped; say("  " + rel + ": loose-file READ FAILED — " + rerr); continue;
             }
-            const auto dres = SchemaDecompileUnit(bytes, scratch.string());
+            const auto dres = havok::decompile::DecompileUnit(bytes, scratch.string());
             if (!(dres.ok && dres.kind == "character")) {
                 ++r.skipped;
                 say("  " + rel + ": loose-file DECOMPILE FAILED — " +
@@ -1339,7 +1277,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 std::vector<std::uint8_t> vbytes;
                 std::string               vrerr;
                 if (havok::sct::ReadHavokFile(tmpl.string(), vbytes, &vrerr) &&
-                    SchemaDecompileUnit(vbytes, vscratch.string()).ok)
+                    havok::decompile::DecompileUnit(vbytes, vscratch.string()).ok)
                     vanilla = readRoster(vscratch);
                 fs::remove_all(vscratch, we);
             }
@@ -1797,7 +1735,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         std::vector<std::uint8_t> ub;
                         std::string               uerr;
                         if (havok::sct::ReadHavokFile(hkx.string(), ub, &uerr)) {
-                            const auto dres = SchemaDecompileUnit(ub, unitDir.string());
+                            const auto dres = havok::decompile::DecompileUnit(ub, unitDir.string());
                             if (dres.ok && dres.kind == "behavior") ++ownedUnits;
                             else fs::remove_all(unitDir, ue);   // not a behavior / failed — leave no junk
                         }
@@ -2412,7 +2350,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 say("  WARN: schema no-template decompile failed for " + rel + " (" + derr + "); typed fallback.");
             }
         }
-        const auto d = SchemaDecompileUnit(bytes, unit.string());
+        const auto d = havok::decompile::DecompileUnit(bytes, unit.string());
         if (!d.ok) { ++r.failed; continue; }   // e.g. the 2 CC tagfile characters
         if      (d.kind == "behavior")  ++r.behaviors;
         else if (d.kind == "project")   ++r.projects;
@@ -2763,8 +2701,8 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         if (!havok::sct::ReadHavokFile(van.string(), vanBytes, &rerr)) { say("  " + g + ": vanilla read failed — " + rerr); continue; }
 
         const fs::path reDir = gate / (g + "_re"), vaDir = gate / (g + "_va");
-        const auto rd = SchemaDecompileUnit(reBytes,  reDir.string());
-        const auto vd = SchemaDecompileUnit(vanBytes, vaDir.string());
+        const auto rd = havok::decompile::DecompileUnit(reBytes,  reDir.string());
+        const auto vd = havok::decompile::DecompileUnit(vanBytes, vaDir.string());
         if (rd.ok && vd.ok) {
             ++r.checked;
             if (readFile(reDir / "data" / "graphdata.yaml") == readFile(vaDir / "data" / "graphdata.yaml"))
