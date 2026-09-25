@@ -43,6 +43,14 @@ public:
     // first); only the base must contain behavior.yaml.
     static BehaviorData LoadMerged(const std::vector<std::shared_ptr<const IUnitSource>>& sources);
 
+    // Scope-aware merge: each layer carries its load-order identity ({stem, rank, ancestors}), so a
+    // node's merge identity is (scope, id) — scope = the bundle whose id-space owns the node (the
+    // lowest-ranked layer among self ∪ ancestors that defines the id). Overrides of a master's node
+    // collapse under that master's scope; two unrelated bundles that mint the same bare id resolve to
+    // DIFFERENT scopes and no longer mis-merge. The shared_ptr overload above forwards here with empty
+    // meta (scope degenerates to bare-id grouping, identical to the pre-scope merge).
+    static BehaviorData LoadMerged(const std::vector<LayerSource>& layers);
+
     // Opt-in sink for NON-FATAL merge notices (today: same-slot collisions on a
     // positional array, where load-order last-writer keeps the highest-priority mod's
     // slot and drops another mod's differing edit). havok-core has no logger by design

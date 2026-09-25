@@ -884,7 +884,17 @@ namespace CB {
                       });
             GraphSources gs;
             gs.layers.reserve(ls.size());
-            for (auto& l : ls) gs.layers.push_back(l.source);
+            for (auto& l : ls) {
+                // Carry each layer's load-order identity so the merge keys node identity by scope.
+                havok::model::LayerSource lsrc;
+                lsrc.source = l.source;
+                lsrc.stem   = l.stem;
+                const auto rit = plan.rank.find(l.stem);
+                lsrc.rank   = rit != plan.rank.end() ? rit->second : 0;
+                if (const auto ait = plan.ancestors.find(l.stem); ait != plan.ancestors.end())
+                    lsrc.ancestors.assign(ait->second.begin(), ait->second.end());
+                gs.layers.push_back(std::move(lsrc));
+            }
             gs.isCharacter = !ls.empty() && ls.front().isChar;
             const std::size_t n = gs.layers.size();
             m_sources.emplace(key, std::move(gs));
@@ -900,8 +910,11 @@ namespace CB {
         // later contributor that MASTERS that base is a legitimate OVERRIDE (load order decides
         // the winner — e.g. two combat mods both editing a vanilla state, both mastering
         // Skyrim). A contributor that does NOT master the base independently introduced the same
-        // identity — a namespace CLASH (the bug: two unrelated mods' node #2 collide). Every
-        // overlap is recorded (with the flag) for the MO2 manager; only clashes warn.
+        // identity — a namespace CLASH (two unrelated mods' node #2 share a bare id). The merge now
+        // RESOLVES this by scope (each bundle owns its own id-space, so the two are kept as independent
+        // nodes rather than mis-merged — see LayerSource/scopeOf); this scan stays as the load-order
+        // report so the MO2 manager can surface it (an author who MEANT an override forgot to declare a
+        // master). Every overlap is recorded (with the flag); only clashes warn.
         {
             std::size_t clashes = 0;
             for (const auto& [key, ls] : layers) {
@@ -929,8 +942,9 @@ namespace CB {
                         std::string names;
                         for (const auto& b : c.bundles) { if (!names.empty()) names += ", "; names += b; }
                         LOG_WARN("Resolver: node CLASH — graph '{}' node '{}' ({}) touched by unrelated bundles "
-                                 "[{}]; none masters the introducer (declare a master to make it an intended "
-                                 "override, or rename to avoid the collision).", key, c.key, c.cls, names);
+                                 "[{}]; none masters the introducer. CB keeps them as SEPARATE nodes (scope by "
+                                 "bundle); if one was meant to OVERRIDE the other, declare a master.",
+                                 key, c.key, c.cls, names);
                     }
                     m_conflicts.push_back(std::move(c));
                 }
@@ -1393,11 +1407,11 @@ namespace CB {
     // CASE-SENSITIVELY (a miscased ref silently binds nothing → universal A-pose; see the case
     // directive in CLAUDE.md).
     static std::string ReadCharacterName(
-        const std::vector<std::shared_ptr<const havok::model::IUnitSource>>& layers)
+        const std::vector<havok::model::LayerSource>& layers)
     {
         for (const auto& L : layers) {
-            if (!L) continue;
-            const auto txt = L->read("character.yaml");
+            if (!L.source) continue;
+            const auto txt = L.source->read("character.yaml");
             if (!txt) continue;
             const std::string& t = *txt;
             const auto cp = t.find("character:");

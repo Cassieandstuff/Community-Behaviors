@@ -85,29 +85,7 @@ std::string keyOf(const c4::yml::ConstNodeRef& n) {
     return !id.empty() ? id : str(n, "name", "");
 }
 
-// ── Node namespace declaration (Stage A of the node-identity plan) ───────────────────────────────
-// A node MAY declare its namespace membership explicitly, so the resolver validates intent instead
-// of inferring it from id collisions (the inference whose mis-fire was the ~40 horsebehavior clash):
-//   ns: self        -> this bundle MINTED the node (a NEW node). Its `id` is unique within THIS
-//                      bundle's namespace: a bare "#NNNN" for the base (Skyrim mints all its nodes),
-//                      "<code>$N" for a mod's new node. Identity = (this bundle, hkx, id).
-//   ns: master[i]   -> an EDIT/OVERRIDE of node `id` in this bundle's i-th declared master.
-//                      Identity = (master[i], hkx, id).
-// Absent -> today's inference (byte-neutral). NOTE: the id form alone does NOT distinguish self from
-// master — base-self is a bare "#NNNN", exactly like an override — which is precisely WHY `ns` exists.
-// So Stage A only checks the value is WELL-FORMED; the real self/master check (does master[i] contain
-// `id`; is a `self` id unique to this bundle) needs the master-DAG (per-layer bundle context) and is
-// deferred. Option 1: `ns` is a DECLARATION over the namespace-encoding id; keyOf/merge are unchanged.
 void emitMergeDiag(const std::string& m);   // fwd (defined below, next to the diag sink)
-
-std::string nsOf(const c4::yml::ConstNodeRef& n) { return str(n, "ns", ""); }
-
-// Warn only if a node's `ns` value is malformed (a typo like "mater[0]"). self-vs-master consistency
-// is NOT context-free (see above) — that validation is deferred to the master-DAG step. Empty = OK.
-std::string nsDeclWarning(const std::string& ns) {
-    if (ns.empty() || ns == "self" || ns.rfind("master", 0) == 0) return {};
-    return "has unknown 'ns: " + ns + "' (expected 'self' or 'master[i]')";
-}
 
 bool has(const c4::yml::ConstNodeRef& n, const char* key) { return hasChild(n, key); }
 
@@ -344,11 +322,6 @@ void scanSourceSection(const IUnitSource& src, const char* sub, bool recursive, 
         c4::yml::Tree tree  = parseNamed(probe, fs::path(rel));
         std::string   k     = keyOf(tree.rootref());
         if (k.empty()) continue;                            // keyless: both consumers skip it
-        // Stage A: validate an explicit `ns` declaration against the id form (byte-neutral — the
-        // grouping key below is unchanged; this only surfaces a mislabeled node as a loud diagnostic
-        // instead of a silent mis-merge). No-op when `ns` is absent (every node today).
-        if (std::string w = nsDeclWarning(nsOf(tree.rootref())); !w.empty())
-            emitMergeDiag("YamlBehaviorLoader: " + rel + ": node '" + k + "' " + w);
         std::string   cls   = peekClass(tree.rootref());
         cb(std::move(cls), std::move(k), std::move(*text));
     }
@@ -729,11 +702,12 @@ void mergeLayers(c4::yml::Tree& mt, const std::vector<c4::yml::Tree*>& deltas,
 // throws on a missing behavior.yaml — the base needs it; a merged-in delta may omit
 // it (then it keeps the base's root/rootGenerator).
 static void loadDirInto(BehaviorData& data,
-                        const std::vector<std::shared_ptr<const IUnitSource>>& sources,
+                        const std::vector<LayerSource>& layers,
                         bool requireRoot) {
     // ── behavior.yaml (per layer, in load order; only the base is required) ──
-    for (std::size_t li = 0; li < sources.size(); ++li) {
-        std::optional<std::string> text = sources[li]->read("behavior.yaml");
+    for (std::size_t li = 0; li < layers.size(); ++li) {
+        if (!layers[li].source) continue;
+        std::optional<std::string> text = layers[li].source->read("behavior.yaml");
         if (!text || text->empty()) {
             if (requireRoot && li == 0)
                 throw std::runtime_error("YamlBehaviorLoader: missing behavior.yaml in base unit");
@@ -766,17 +740,51 @@ static void loadDirInto(BehaviorData& data,
     std::unordered_map<std::string, std::vector<std::string>> gtexts;   // group key -> per-layer texts
     std::unordered_map<std::string, std::string>              gclass;   // group key -> class
     std::unordered_map<std::string, std::string>              gname;    // group key -> keyOf (merge diag)
-    for (const auto& src : sources) {
-        if (!src) continue;
-        scanSourceSection(*src, /*sub*/ "", /*recursive*/ true,
+
+    // Pass 1: scan every layer ONCE, buffer each node, and record which ids each layer defines. The
+    // per-layer id sets + the layer's master DAG (ancestors/rank) are what let pass 2 resolve a node's
+    // SCOPE (id-space owner) rather than grouping by bare id.
+    struct Entry { std::size_t li; std::string cls; std::string key; std::string text; };
+    std::vector<Entry>                             entries;
+    std::vector<std::unordered_set<std::string>>   layerIds(layers.size());
+    for (std::size_t li = 0; li < layers.size(); ++li) {
+        if (!layers[li].source) continue;
+        scanSourceSection(*layers[li].source, /*sub*/ "", /*recursive*/ true,
             [&](std::string cls, std::string k, std::string text) {
-                std::string gk = cls;
-                gk += '\x1f';
-                gk += k;
-                auto it = gtexts.find(gk);
-                if (it == gtexts.end()) { gorder.push_back(gk); gclass.emplace(gk, std::move(cls)); gname.emplace(gk, k); }
-                gtexts[gk].push_back(std::move(text));
+                layerIds[li].insert(k);
+                entries.push_back(Entry{ li, std::move(cls), std::move(k), std::move(text) });
             });
+    }
+
+    // Scope of layer `li`'s node `key` = the stem of the EARLIEST (lowest-rank) layer among {li} ∪ its
+    // declared masters that also defines `key`. That layer is the id-space owner: an override collapses
+    // onto its master (both resolve to the master's stem); an added node no master defines resolves to
+    // `li` itself. When every stem is empty (the offline/anonymous path), this returns "" for all nodes
+    // and the group key is the bare (class,id) — identical to the pre-scope merge.
+    auto scopeOf = [&](std::size_t li, const std::string& key) -> std::string {
+        const LayerSource* owner = &layers[li];                 // self always defines `key` here
+        for (std::size_t j = 0; j < layers.size(); ++j) {
+            if (j == li) continue;
+            const LayerSource& L = layers[j];
+            if (L.stem.empty()) continue;                       // anonymous layer can't own a scope
+            if (std::find(layers[li].ancestors.begin(), layers[li].ancestors.end(), L.stem)
+                    == layers[li].ancestors.end()) continue;    // not one of li's masters
+            if (!layerIds[j].count(key)) continue;              // this master doesn't define `key`
+            if (L.rank < owner->rank) owner = &L;               // earliest introducer wins
+        }
+        return owner->stem;
+    };
+
+    // Pass 2: group by (class, id, scope), preserving first-seen (load) order.
+    for (Entry& e : entries) {
+        const std::string scope = scopeOf(e.li, e.key);
+        std::string gk = e.cls;
+        gk += '\x1f';
+        gk += e.key;
+        if (!scope.empty()) { gk += '\x1f'; gk += scope; }
+        auto it = gtexts.find(gk);
+        if (it == gtexts.end()) { gorder.push_back(gk); gclass.emplace(gk, e.cls); gname.emplace(gk, e.key); }
+        gtexts[gk].push_back(std::move(e.text));
     }
     std::vector<char> gconsumed(gorder.size(), 0);
 
@@ -1444,7 +1452,8 @@ static void loadDirInto(BehaviorData& data,
 
     // ── data/graphdata.yaml (per layer; last-writer for step 0b — step 3 unions) ──
     if (data.behavior.behavior.data && *data.behavior.behavior.data != "null")
-        for (const auto& src : sources) {
+        for (const auto& lyr : layers) {
+        const auto& src = lyr.source; if (!src) continue;
         std::optional<std::string> dtext = src->read("data/" + *data.behavior.behavior.data + ".yaml");
         if (dtext) {
             std::string text = std::move(*dtext);
@@ -1556,7 +1565,8 @@ static void loadDirInto(BehaviorData& data,
                     gdOpt->characterPropertyNames.push_back(std::move(c));
                 }
         };
-        for (const auto& src : sources) {
+        for (const auto& lyr : layers) {
+            const auto& src = lyr.source; if (!src) continue;
             if (auto t = src->read("data/variables.yaml")) applyVocab(std::move(*t));
             if (auto t = src->read("data/events.yaml"))    applyVocab(std::move(*t));
             if (auto t = src->read("data/additive.yaml"))  applyVocab(std::move(*t));
@@ -1564,7 +1574,8 @@ static void loadDirInto(BehaviorData& data,
     }
 
     // ── bone_presets.yaml (per layer; last-writer per preset) ──
-    for (const auto& src : sources) {
+    for (const auto& lyr : layers) {
+        const auto& src = lyr.source; if (!src) continue;
         std::optional<std::string> ptext = src->read("bone_presets.yaml");
         if (ptext) {
             std::string text = std::move(*ptext);
@@ -1590,8 +1601,9 @@ static void loadDirInto(BehaviorData& data,
     }
 
     // ── skeleton bone names (per layer; last non-empty wins) ──
-    for (const auto& src : sources)
-        if (auto bn = findAndLoadSkeleton(*src); !bn.empty()) data.boneNames = std::move(bn);
+    for (const auto& lyr : layers)
+        if (lyr.source)
+            if (auto bn = findAndLoadSkeleton(*lyr.source); !bn.empty()) data.boneNames = std::move(bn);
 
     // ── post-load resolution (mirror BehaviorReader) ──
     // (1) expand boneWeights.preset -> named on blender & bone-switch children.
@@ -1727,8 +1739,18 @@ BehaviorData YamlBehaviorLoader::LoadMerged(const std::vector<std::string>& dirs
 }
 
 BehaviorData YamlBehaviorLoader::LoadMerged(const std::vector<std::shared_ptr<const IUnitSource>>& sources) {
+    // No load-order context: wrap each source as an anonymous layer (empty stem/ancestors, rank = load
+    // position). scopeOf then returns "" for every node → bare-id grouping, identical to pre-scope merge.
+    std::vector<LayerSource> layers;
+    layers.reserve(sources.size());
+    for (std::size_t i = 0; i < sources.size(); ++i)
+        layers.push_back(LayerSource{ sources[i], /*stem*/ {}, /*rank*/ static_cast<int>(i), /*ancestors*/ {} });
+    return LoadMerged(layers);
+}
+
+BehaviorData YamlBehaviorLoader::LoadMerged(const std::vector<LayerSource>& layers) {
     BehaviorData data;
-    loadDirInto(data, sources, /*requireRoot*/ true);
+    loadDirInto(data, layers, /*requireRoot*/ true);
     return data;
 }
 

@@ -329,4 +329,12 @@ CharacterData CharacterYamlLoader::LoadMerged(const std::vector<std::string>& di
     return LoadMerged(sources);
 }
 
+CharacterData CharacterYamlLoader::LoadMerged(const std::vector<LayerSource>& layers) {
+    // Character merge is roster-union, not node-id keyed — extract the sources in load order and forward.
+    std::vector<std::shared_ptr<const IUnitSource>> sources;
+    sources.reserve(layers.size());
+    for (const auto& l : layers) sources.push_back(l.source);
+    return LoadMerged(sources);
+}
+
 } // namespace havok::model

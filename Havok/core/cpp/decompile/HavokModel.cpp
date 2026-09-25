@@ -1153,10 +1153,6 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
     namespace fs = std::filesystem;
     std::error_code ec;
     const NameResolver nr = buildResolver(identity);
-    // Base emit (no deltaIds) declares `ns: self` on every node — the base master mints all its nodes,
-    // matching the typed decompiler (DecompileBehaviorTree). A per-mod delta emits no ns line: an
-    // override's #NNNN already resolves to the base node it targets (ns is the authoring contract).
-    const std::string nsLine = deltaIds ? std::string() : "ns: self\n";
 
     // Delta mode: emit ONLY the file nodes a patch touched. A patch edits inline sub-objects (the
     // category-"" nodes: transition/event arrays, conditions, clip-trigger arrays, binding sets) BY THEIR
@@ -1283,7 +1279,7 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
             const fs::path dir = fs::path(outDir) / cat;
             fs::create_directories(dir, ec);
             std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
-            of << "id: " << id << "\n" << nsLine << y;
+            of << "id: " << id << "\n" << y;
             // A modifier that says `<field>: null` for an owned data array MUST ship the array as a
             // data/<id>_<suffix>.yaml sidecar, or the runtime re-link leaves it null and Havok crashes.
             emitModifierSidecars(*so, id, fs::path(outDir), nr);
@@ -1348,7 +1344,7 @@ bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
         const fs::path dir = fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
         std::ofstream of(dir / (id + ".yaml"), std::ios::binary);
-        of << "id: " << id << "\n" << nsLine << y;
+        of << "id: " << id << "\n" << y;
     }
     return true;
 }

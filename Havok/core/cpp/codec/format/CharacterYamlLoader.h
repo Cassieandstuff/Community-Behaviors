@@ -38,6 +38,12 @@ struct CharacterYamlLoader {
     // priority order (base first); only the base must be a full character unit.
     static CharacterData Load(const IUnitSource& unit);
     static CharacterData LoadMerged(const std::vector<std::shared_ptr<const IUnitSource>>& sources);
+
+    // LayerSource overload — accepts the scope-carrying merge layers the Resolver assembles, so callers
+    // can hand the same `GraphSources::layers` to either loader. The character merge is roster-union
+    // (animationNames), not node-id keyed, so scope metadata is not consulted here; the layers' `.source`
+    // is extracted in base-first order and forwarded to the source overload above.
+    static CharacterData LoadMerged(const std::vector<LayerSource>& layers);
 };
 
 } // namespace havok::model
