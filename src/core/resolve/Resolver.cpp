@@ -24,6 +24,7 @@
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // havok::anim::CompileAnimation (native anim -> loose .hkx)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
+#include <interface/MasterTable.h>          // CB::core::formid::BuildMasterTable (ordered master table)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
 #include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
@@ -190,6 +191,10 @@ namespace CB {
             // Lets the conflict report tell an expected OVERRIDE (a bundle editing a node its
             // master introduced) from a namespace CLASH (two unrelated bundles editing one node).
             std::unordered_map<std::string, std::unordered_set<std::string>> ancestors;
+            // stem -> its ORDERED master table (index 0 = base game, 1..k = declared masters, last =
+            // self). A node's FormId masterIndex resolves against this. Built from the DIRECT declared
+            // masters (positional), so it's ordered where `ancestors` (a transitive set) is not.
+            std::unordered_map<std::string, std::vector<std::string>> masterTable;
         };
 
         // `manifests`: every scanned bundle stem -> its manifest (masters declared here).
@@ -255,6 +260,12 @@ namespace CB {
                 survivors.push_back(stem);
                 indeg.emplace(stem, 0);
             }
+
+            // Ordered master table per survivor (index 0 = base game, 1..k = declared masters in file
+            // order, last = self) — what a node's FormId masterIndex resolves against. explicitMasters
+            // is the DIRECT declared set in manifest order (deduped, self-excluded, lowercase).
+            for (const std::string& s : survivors)
+                plan.masterTable[s] = CB::core::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
             for (const std::string& s : survivors) {
                 std::vector<std::string> masters = explicitMasters[s];          // all present (survivors)
                 if (haveSkyrim && s != "skyrim" &&
@@ -893,6 +904,8 @@ namespace CB {
                 lsrc.rank   = rit != plan.rank.end() ? rit->second : 0;
                 if (const auto ait = plan.ancestors.find(l.stem); ait != plan.ancestors.end())
                     lsrc.ancestors.assign(ait->second.begin(), ait->second.end());
+                if (const auto mit = plan.masterTable.find(l.stem); mit != plan.masterTable.end())
+                    lsrc.masterTable = mit->second;
                 gs.layers.push_back(std::move(lsrc));
             }
             gs.isCharacter = !ls.empty() && ls.front().isChar;

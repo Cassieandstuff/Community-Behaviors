@@ -11,6 +11,8 @@
 #include <interface/BashMerge.h>   // shared merge decision (havok::merge::decideParam)
 #include <interface/reflection/HavokSchema.h> // SchemaRegistry — per-field `merge:` tag classifier
 #include <interface/HavokEnums.h>  // enums::ResolveEnum for symbolic flag fields
+#include <codec/formid/FormId.h>   // CB::core::formid::parse — a node id may be a FormId "idx:local"
+#include <interface/MasterTable.h> // CB::core::formid::ResolveOwner (masterIndex -> owning bundle)
 #include <compile/AnimDataFromBehavior.h>  // sct::ReadClipInputsFromClipsDir (implemented here — ryml is isolated to this TU)
 
 // rapidyaml MUST come in via this shim (include/external/RymlInclude.h): it
@@ -775,12 +777,30 @@ static void loadDirInto(BehaviorData& data,
         return owner->stem;
     };
 
-    // Pass 2: group by (class, id, scope), preserving first-seen (load) order.
+    // Pass 2: group by (class, localId, scope), preserving first-seen (load) order.
+    //   - A FormId id ("idx:local") DECLARES its identity: resolve masterIndex against the layer's
+    //     master table -> the owning bundle; key by (class, local, owner). This is the FormID path.
+    //   - A bare id keeps the scope INFERENCE (scopeOf) — the transitional path until every bundle
+    //     emits FormIds. Both yield (class, localId, ownerStem), so a FormId override "0:184" and a
+    //     bare vanilla "184" (owner inferred = skyrim) still group together during the mixed-era window.
     for (Entry& e : entries) {
-        const std::string scope = scopeOf(e.li, e.key);
+        std::string idPart, scope;
+        if (const auto fid = CB::core::formid::parse(e.key)) {
+            const auto owner = CB::core::formid::ResolveOwner(layers[e.li].masterTable, fid->masterIndex);
+            if (!owner)
+                emitMergeDiag("YamlBehaviorLoader: node '" + e.key + "' — master index " +
+                              std::to_string(fid->masterIndex) + " is out of range for bundle '" +
+                              layers[e.li].stem + "' (master table size " +
+                              std::to_string(layers[e.li].masterTable.size()) + "); binding to self");
+            idPart = std::to_string(fid->local);
+            scope  = owner ? std::string(*owner) : layers[e.li].stem;
+        } else {
+            idPart = e.key;                          // bare id (or name-keyed) — transitional
+            scope  = scopeOf(e.li, e.key);
+        }
         std::string gk = e.cls;
         gk += '\x1f';
-        gk += e.key;
+        gk += idPart;
         if (!scope.empty()) { gk += '\x1f'; gk += scope; }
         auto it = gtexts.find(gk);
         if (it == gtexts.end()) { gorder.push_back(gk); gclass.emplace(gk, e.cls); gname.emplace(gk, e.key); }
