@@ -47,6 +47,7 @@
 #include <niffer/Niffer.h>                   // NIF reader — control-decompile nif/aux pose fill
 #include <optional>                          // control-decompile convention derive
 #include <decompile/SkeletonImport.h>       // schema-native reader (skeleton-parity gate)
+#include <decompile/CharacterDecompile.h>   // schema-native character decompile (character-schema-parity gate)
 #include <compile/SkeletonCompiler.h>       // schema-native writer (skeleton-full-parity gate)
 #include <codec/format/SkeletonYaml.h>      // schema-native yaml (skeleton-yaml-parity gate)
 #include "havok/sct/SkeletonCompiler.h"     // CompileSkeleton (skeleton-recompile gate)
@@ -5984,6 +5985,64 @@ int doOracleBaseline(const std::string& corpusRoot,
 //          sized (a missing/mis-typed field won't sum to `size`).
 //   SIG  — the schema's `signature:` == the old class's Signature() (via HavokRegistry::Create), when
 //          the old class exists. Proves the descriptor names + identifies the right class.
+// character-schema-parity <char.hkx> <Havok-dir>: prove the NEW schema-native character decompile
+// (decompile::DecompileCharacterSchema, reads the SchemaObject graph by field name) reproduces the
+// TYPED decompileCharacter (havok::sct::DecompileToDir) byte-for-byte. Decompile the same .hkx both
+// ways into scratch trees and byte-diff every file. Zero diff = the schema peer is faithful, and the
+// converter can drop the typed path. The character/project port's gate — same shape as emit-check.
+int doCharacterSchemaParity(const std::string& in, const std::string& havokDir) {
+    namespace fs = std::filesystem;
+    if (havokDir.empty()) { std::printf("usage: character-schema-parity <char.hkx> <Havok-dir>\n"); return 1; }
+    std::vector<std::uint8_t> bytes; std::string err;
+    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    havok::schema::SchemaRegistry reg;
+    if (!reg.LoadDir(havokDir, err)) { std::printf("ERROR loading schema: %s\n", err.c_str()); return 1; }
+
+    // typed reference
+    const fs::path tDir = fs::temp_directory_path() / "csp_typed";
+    std::error_code ec; fs::remove_all(tDir, ec);
+    const auto td = havok::sct::DecompileToDir(bytes, tDir);
+    if (!(td.ok && td.kind == "character")) { std::printf("SKIP (typed: %s / kind=%s)\n", td.error.c_str(), td.kind.c_str()); return 0; }
+
+    // schema peer: deserialize generically, find the hkbCharacterData root, decompile by field name
+    havok::PackFileDeserializer des;
+    des.ObjectFactory = havok::io::MakeSchemaFactory(reg);
+    try { havok::BinaryReaderEx br(false, true, bytes); des.Deserialize(br); }
+    catch (const std::exception& e) { std::printf("SCHEMA READ FAIL: %s\n", e.what()); return 1; }
+    const havok::io::SchemaObject* cd = nullptr;
+    for (const auto& [off, o] : des.DeserializedObjects())
+        if (auto* so = dynamic_cast<const havok::io::SchemaObject*>(o.get()); so && std::string(so->ClassName()) == "hkbCharacterData") { cd = so; break; }
+    if (!cd) { std::printf("SCHEMA: no hkbCharacterData root found\n"); return 1; }
+    const fs::path sDir = fs::temp_directory_path() / "csp_schema";
+    fs::remove_all(sDir, ec);
+    const auto sd = havok::decompile::DecompileCharacterSchema(*cd, sDir);
+    if (!sd.ok) { std::printf("SCHEMA DECOMPILE FAIL: %s\n", sd.error.c_str()); return 1; }
+
+    // byte-diff the two trees (union of relative paths)
+    auto readF = [](const fs::path& p){ std::ifstream f(p, std::ios::binary); std::stringstream ss; ss << f.rdbuf(); return ss.str(); };
+    auto rels = [&](const fs::path& root){ std::vector<std::string> v; for (auto& e : fs::recursive_directory_iterator(root, ec)) if (e.is_regular_file()) v.push_back(fs::relative(e.path(), root).generic_string()); std::sort(v.begin(), v.end()); return v; };
+    std::vector<std::string> rt = rels(tDir), rs = rels(sDir);
+    int match = 0, total = 0, shown = 0;
+    std::set<std::string> all(rt.begin(), rt.end()); all.insert(rs.begin(), rs.end());
+    for (const auto& rel : all) {
+        ++total;
+        const std::string a = readF(tDir / rel), b = readF(sDir / rel);
+        if (a == b) { ++match; continue; }
+        if (shown++ < 8) {
+            std::printf("  DIFF %s (typed %zuB vs schema %zuB)\n", rel.c_str(), a.size(), b.size());
+            std::size_t ap = 0, bp = 0; int ln = 1;
+            while (ap < a.size() && bp < b.size()) {
+                std::size_t ae = a.find('\n', ap), be = b.find('\n', bp);
+                std::string al = a.substr(ap, ae-ap), bl = b.substr(bp, be-bp);
+                if (al != bl) { std::printf("    L%d typed:  %s\n    L%d schema: %s\n", ln, al.c_str(), ln, bl.c_str()); break; }
+                ap = ae+1; bp = be+1; ++ln;
+            }
+        }
+    }
+    std::printf("character-schema-parity: %d/%d files byte-identical\n", match, total);
+    return match == total ? 0 : 1;
+}
+
 // A class with no old struct (schema-only) is fine (sig unchecked). Usage: schema-parity <Havok-dir>
 int doSchemaParity(const std::string& havokDir) {
     havok::schema::SchemaRegistry reg;
@@ -6279,6 +6338,7 @@ int main(int argc, char** argv) {
                                                  extra.size() > 2 ? extra[2] : std::string{});
     if (verb == "oracle-baseline") return doOracleBaseline(in, extra, out);
     if (verb == "schema-parity")   return doSchemaParity(in);
+    if (verb == "character-schema-parity") return doCharacterSchemaParity(in, extra.empty() ? std::string{} : extra[0]);
     if (verb == "skeleton-parity") return doSkeletonParity(in);
     if (verb == "skeleton-full-parity") return doSkeletonFullParity(in);
     if (verb == "skeleton-overbase-parity") return doSkeletonOverbaseParity(in);
