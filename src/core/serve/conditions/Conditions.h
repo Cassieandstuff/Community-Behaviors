@@ -87,9 +87,14 @@ namespace CB::conditions {
     public:
         RE::Actor*            actor = nullptr;   // = the producer's param_1 (verified Actor*)
         RE::hkbClipGenerator* clip  = nullptr;   // may be null
+        std::uint32_t         currentConfigId = 0;   // the config whose expression is being evaluated NOW
 
         // Compute-or-return-cached: a primitive runs at most once per (id, args) per pass.
         Value Primitive(PrimId id, std::span<const Value> args = {}) const;
+
+        // Stable seed for Random(): hash(actor formID, currentConfigId) — stable per (actor, config)
+        // so a roll doesn't strobe per animation queue (spec §5a). 0 actor → configId only.
+        std::uint64_t RandomSeed() const;
 
         // Per-pass arena for array-valued primitive outputs (spans in Value borrow from here).
         std::vector<Value>& ArenaBlock() const;   // returns a fresh, stable block for this pass
@@ -153,9 +158,10 @@ namespace CB::conditions {
     // assignment array so the engine's native setdata evaluates the gate. `enabled` is the per-config
     // toggle (§8). Registration is what config-compose produces; empty until Inc 2 → the hook is inert.
     struct ConditionInstance {
-        RE::BSFixedString gateName;   // interned; matched by pointer against the set's condition name
+        RE::BSFixedString gateName;       // interned; matched by pointer against the set's condition name
         CompiledExpr      expr;
-        const bool*       enabled;    // per-config toggle flag (owned by the toggle store); nullptr = on
+        const bool*       enabled = nullptr;   // per-config toggle flag (toggle store); nullptr = on
+        std::uint32_t     configId = 0;        // seeds Random() + identifies the source config
     };
     void RegisterConditionInstance(ConditionInstance inst);
     void ClearConditionInstances();

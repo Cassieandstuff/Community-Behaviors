@@ -51,6 +51,7 @@ namespace CB::conditions {
             for (const ConditionInstance& inst : Instances()) {
                 if (inst.enabled && !*inst.enabled) continue;              // per-config toggle
                 if (!inst.expr.Valid()) continue;
+                ctx.currentConfigId = inst.configId;                      // seeds Random() for this config
                 const std::int32_t v = inst.expr.Evaluate(ctx).AsInt();   // bool → 0/1, int passthrough
                 out.push_back({ inst.gateName.c_str(), v, 0 });           // interned name ptr, verified compare
             }

@@ -22,8 +22,17 @@ namespace CB::conditions {
     void EvalContext::Reset(RE::Actor* a, RE::hkbClipGenerator* c) {
         actor = a;
         clip  = c;
+        currentConfigId = 0;
         _memo.clear();
         _arena.clear();
+    }
+
+    std::uint64_t EvalContext::RandomSeed() const {
+        std::uint64_t h = 1469598103934665603ull;
+        const std::uint32_t fid = actor ? actor->GetFormID() : 0u;
+        h ^= fid;             h *= 1099511628211ull;
+        h ^= currentConfigId; h *= 1099511628211ull;
+        return h;
     }
 
     std::vector<Value>& EvalContext::ArenaBlock() const {
