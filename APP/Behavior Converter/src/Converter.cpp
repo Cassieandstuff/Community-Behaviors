@@ -2341,13 +2341,17 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
         // No-template BEHAVIOR → schema READ-ORDER decompile (the coordinated flip): matches the schema
         // loose-derive so no-template mod deltas (horse, creatures) align with this base. Gated on the same
-        // shared registry as the loose-derive, so base + delta are always both-schema or both-typed. Only
-        // behaviors route here; character/project/animation stay on the typed DecompileToDir below.
+        // shared registry as the loose-derive. Only behaviors route here; character/project/animation go
+        // through the schema DecompileUnit below. The typed fallback was retired with havok-core, so a
+        // behavior that fails schema decompile here is a genuine failure (DecompileUnit's behavior leg is
+        // this same DecompileBehaviorSchema) — currently the 3 creature *_lod graphs, whose schema
+        // EmitFullBaseScaffolding can't yet write behavior.yaml (a known, isolated schema-decompile gap).
         if (kind == HkxKind::Behavior) {
             if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
                 std::string derr;
                 if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr)) { ++r.behaviors; continue; }
-                say("  WARN: schema no-template decompile failed for " + rel + " (" + derr + "); typed fallback.");
+                say("  WARN: schema decompile failed for " + rel + " (" + derr + ") — unit skipped (no typed fallback; needs a schema fix).");
+                ++r.failed; continue;   // re-running the same schema emitter via DecompileUnit won't help
             }
         }
         const auto d = havok::decompile::DecompileUnit(bytes, unit.string());
