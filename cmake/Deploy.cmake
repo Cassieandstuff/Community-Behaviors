@@ -51,10 +51,10 @@ function(cb_deploy TARGET MOD_NAME)
     #    Packed .hky is not bit-reproducible, so only the unpacked tree diffs meaningfully; the helper
     #    rotates current->previous so a two-point diff is always available. Needs havok-core-cli, which
     #    pack-hky-bundles (a dependency of ${TARGET}) already builds first.
-    if(DEFINED ENV{SCT_BASE_MASTER_DIR} AND TARGET havok-core-cli)
+    if(DEFINED ENV{SCT_BASE_MASTER_DIR} AND TARGET hky-tool)
         add_custom_command(TARGET ${TARGET} POST_BUILD
             COMMAND "${CMAKE_COMMAND}"
-                    "-DCLI=$<TARGET_FILE:havok-core-cli>"
+                    "-DCLI=$<TARGET_FILE:hky-tool>"
                     "-DMASTER=${_mod}/community_behaviors/plugins/Skyrim.hky"
                     "-DOUT=$ENV{SCT_BASE_MASTER_DIR}"
                     -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/UnpackMaster.cmake"

@@ -22,7 +22,7 @@ endif()
 
 file(MAKE_DIRECTORY "${OUT}/current")
 execute_process(
-    COMMAND "${CLI}" hky-unpack "${MASTER}" -o "${OUT}/current"
+    COMMAND "${CLI}" unpack "${MASTER}" -o "${OUT}/current"
     RESULT_VARIABLE _rc)
 if(NOT _rc EQUAL 0)
     message(WARNING "unpack-master: hky-unpack failed (rc=${_rc}) for '${MASTER}'.")

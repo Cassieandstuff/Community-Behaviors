@@ -149,12 +149,14 @@ add_subdirectory(lib/commonlibsse-ng "${CMAKE_BINARY_DIR}/CommonLibSSE")
 include(CommonLibSSE)   # add_commonlibsse_plugin() — SHARED lib + generated version-data TU
 include(Deploy)         # cb_deploy() — MO2 deploy
 
-# havok-pipeline (feature SDK), sct-config (config scanner), havok-core (quarantined backbone + CLI) —
-# needed only by the plugin/converter/gates, so top-level only.
+# havok-pipeline (feature SDK), sct-config (config scanner) — top-level only.
 add_subdirectory(src/havok-pipeline)
 add_subdirectory(src/sct-config)
-set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
-add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
+# Retirement Home/havok-core (the quarantined typed backbone + havok-core-cli) DELETED in the org-pass
+# firesale final cut: nothing links it any more (plugin + converter both havok-core-free; the schema
+# stack fully replaces the typed compile/decompile, gate-proven). hky-pack/unpack -> Havok/tools/hky
+# (hky-tool); the free correctness gates -> Havok/tools/gates; the typed schema-vs-oracle gates retired
+# with their oracle. The base-master regen runs through the (havok-core-free) converter.
 
 # tree-diff — RETIRED in the org-pass firesale. The old cb-tree-diff engine was built before the schema
 # stack + the linker/BoneMembrane and pulled the quarantined typed havok-core (typed DecompileToDir +
@@ -238,8 +240,8 @@ foreach(_hky_src ${CB_HKY_BUNDLES})
     file(GLOB_RECURSE _hky_files CONFIGURE_DEPENDS "${_hky_src}/*")
     add_custom_command(
         OUTPUT  "${_hky_out}"
-        COMMAND "$<TARGET_FILE:havok-core-cli>" hky-pack "${_hky_src}" -o "${_hky_out}"
-        DEPENDS havok-core-cli ${_hky_files}
+        COMMAND "$<TARGET_FILE:hky-tool>" pack "${_hky_src}" -o "${_hky_out}"
+        DEPENDS hky-tool ${_hky_files}
         COMMENT "Community Behaviors: packing ${_hky_name} from source YAML tree"
         VERBATIM)
     list(APPEND _cb_hky_outputs "${_hky_out}")
