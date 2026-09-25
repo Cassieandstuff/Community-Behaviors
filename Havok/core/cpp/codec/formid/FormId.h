@@ -66,40 +66,48 @@ namespace CB::core::formid {
         return FormId{ static_cast<std::uint16_t>(masterIndex), static_cast<std::uint16_t>(local) };
     }
 
-    // ── text "idx:local" (the authoring form) ───────────────────────────────────────────────────
-    inline std::string format(FormId f) {
-        return std::to_string(f.masterIndex) + ":" + std::to_string(f.local);
-    }
-
     namespace detail {
-        // Parse an unsigned decimal in [0, 0xFFFF] from an already-trimmed view; nullopt on empty,
-        // non-digit, or overflow. (No exceptions, no locale — a tight leaf.)
-        inline std::optional<std::uint16_t> parseU16(std::string_view s) {
-            if (s.empty()) return std::nullopt;
-            std::uint32_t v = 0;
-            for (char c : s) {
-                if (c < '0' || c > '9') return std::nullopt;
-                v = v * 10 + static_cast<std::uint32_t>(c - '0');
-                if (v > 0xFFFFu) return std::nullopt;
-            }
-            return static_cast<std::uint16_t>(v);
-        }
         inline std::string_view trim(std::string_view s) {
             const auto ws = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
             while (!s.empty() && ws(s.front())) s.remove_prefix(1);
             while (!s.empty() && ws(s.back()))  s.remove_suffix(1);
             return s;
         }
+        inline int hexNibble(char c) {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        }
+        inline std::optional<std::uint16_t> hex4(std::string_view h) {
+            if (h.size() != 4) return std::nullopt;
+            std::uint16_t v = 0;
+            for (char c : h) { const int d = hexNibble(c); if (d < 0) return std::nullopt; v = static_cast<std::uint16_t>((v << 4) | d); }
+            return v;
+        }
     }
 
-    // "idx:local" -> FormId. REQUIRES the colon (a reference is self-marking); tolerates surrounding
-    // whitespace. nullopt on a malformed or out-of-range token.
+    // ── text "IIIIxLLLL" (the authoring / on-disk form) ──────────────────────────────────────────
+    // Fixed-width hex: 4-hex master index + 'x' + 4-hex local. No variable-width separator to parse
+    // around (positions ARE the fields); the 'x' self-marks a FormId reference vs a data value (so the
+    // reference-canonicalization pass is a generic scan, not a per-field enumeration); filename-safe
+    // (no sanitization); and the 4-hex LOCAL visually documents the engine's node-id ceiling — hkbNode::id
+    // is a signed 16-bit, so a graph tops out near 0x7FFF nodes.
+    inline std::string format(FormId f) {
+        static constexpr char H[] = "0123456789abcdef";
+        std::string out(9, 'x');                                  // "____x____", index 4 stays 'x'
+        for (int i = 0; i < 4; ++i) out[static_cast<std::size_t>(3 - i)] = H[(f.masterIndex >> (i * 4)) & 0xF];
+        for (int i = 0; i < 4; ++i) out[static_cast<std::size_t>(8 - i)] = H[(f.local       >> (i * 4)) & 0xF];
+        return out;
+    }
+
+    // "IIIIxLLLL" -> FormId. REQUIRES the exact fixed shape (4 hex, 'x', 4 hex); tolerates surrounding
+    // whitespace. nullopt otherwise — so a bare number or a name is NOT mistaken for a FormId.
     inline std::optional<FormId> parse(std::string_view s) {
         s = detail::trim(s);
-        const auto colon = s.find(':');
-        if (colon == std::string_view::npos) return std::nullopt;   // no colon = not a FormId text
-        const auto idx = detail::parseU16(detail::trim(s.substr(0, colon)));
-        const auto loc = detail::parseU16(detail::trim(s.substr(colon + 1)));
+        if (s.size() != 9 || (s[4] != 'x' && s[4] != 'X')) return std::nullopt;
+        const auto idx = detail::hex4(s.substr(0, 4));
+        const auto loc = detail::hex4(s.substr(5, 4));
         if (!idx || !loc) return std::nullopt;
         return FormId{ *idx, *loc };
     }
