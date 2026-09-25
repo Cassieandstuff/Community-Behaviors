@@ -2,17 +2,17 @@
 // serialized by havok-io. The replacement for havok-core's typed BehaviorBuilder (which constructs
 // hk* C++ objects). Grown node-by-node, each gated byte-identical against the typed compile.
 
-#include <havok-model/HavokModel.h>
+#include <compile/GraphBuild.h>
 
-#include "havok/model/defs/GeneratorDefs.h"   // ClipGeneratorDef (the doc lives in havok-model since 3r.1)
-#include "havok/model/defs/CommonDefs.h"       // ClipTriggerDef, BindingDef
-#include "havok/model/defs/StateMachineDefs.h" // StateMachineDef, StateDef, TransitionInfoDef, EventPropertyDef
-#include "havok/model/defs/ModifierDefs.h"     // modifier node Defs
-#include "havok/model/defs/BehaviorDef.h"      // BehaviorDef, BehaviorGraphDataDef (graph assembler)
-#include "havok/model/BehaviorData.h"          // the merged name-keyed doc (AssembleGraph input)
-#include "havok/model/ProjectData.h"           // ProjectSpec (AssembleProject input)
-#include "havok/model/defs/CharacterDefs.h"    // CharacterData (AssembleCharacter input)
-#include "havok/model/HavokEnums.h"            // enums::ResolveEnum / PlaybackMode / BindingType (havok-framing)
+#include <interface/defs/GeneratorDefs.h> // ClipGeneratorDef (the doc lives in havok-model since 3r.1)
+#include <interface/defs/CommonDefs.h> // ClipTriggerDef, BindingDef
+#include <interface/defs/StateMachineDefs.h> // StateMachineDef, StateDef, TransitionInfoDef, EventPropertyDef
+#include <interface/defs/ModifierDefs.h> // modifier node Defs
+#include <interface/defs/BehaviorDef.h> // BehaviorDef, BehaviorGraphDataDef (graph assembler)
+#include <interface/BehaviorData.h>          // the merged name-keyed doc (AssembleGraph input)
+#include <interface/ProjectData.h>           // ProjectSpec (AssembleProject input)
+#include <interface/defs/CharacterDefs.h> // CharacterData (AssembleCharacter input)
+#include <interface/HavokEnums.h>            // enums::ResolveEnum / PlaybackMode / BindingType (havok-framing)
 
 #include <cstdint>
 #include <cstdlib>
