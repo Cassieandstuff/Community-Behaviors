@@ -21,6 +21,7 @@
 #include <RymlInclude.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -743,16 +744,56 @@ static void loadDirInto(BehaviorData& data,
     std::unordered_map<std::string, std::string>              gclass;   // group key -> class
     std::unordered_map<std::string, std::string>              gname;    // group key -> keyOf (merge diag)
 
-    // Pass 1: scan every layer ONCE, buffer each node, and record which ids each layer defines. The
-    // per-layer id sets + the layer's master DAG (ancestors/rank) are what let pass 2 resolve a node's
-    // SCOPE (id-space owner) rather than grouping by bare id.
+    // ── FormId CANONICALIZATION (Bethesda's load-time index relocation) ──────────────────────────
+    // A node's on-disk id/ref is a FormId "IIIIxLLLL" whose master index is RELATIVE to its bundle's
+    // table — so two unrelated mods both mint "0001x0005" for their own node 5 (self = index 1 for all).
+    // Resolve each FormId (the 'x' self-marks it) via the storing layer's masterTable -> owner stem ->
+    // owner's GLOBAL load rank, and rewrite to a distinct canonical "@<rank>.<local>". After this every
+    // id + ref is globally unique per logical node, so the downstream keyOf / grouping / data maps /
+    // byName all key on an owner-distinct string (no cross-mod collision). Canonical is deliberately NOT
+    // the IIIIxLLLL shape (leading '@'), so nothing re-resolves it. Engages only with a real master table
+    // (runtime); the offline/anonymous path (empty table) leaves ids raw — byte-identical bare grouping.
+    std::unordered_map<std::string, int> stemRank;                 // owner stem -> global load rank
+    for (const LayerSource& L : layers) if (!L.stem.empty()) stemRank.emplace(L.stem, L.rank);
+    auto canonToken = [&](const std::string& tok, std::size_t li) -> std::string {
+        const auto f = CB::core::formid::parse(tok);
+        if (!f) return tok;                                        // not a FormId -> unchanged
+        const auto owner = CB::core::formid::ResolveOwner(layers[li].masterTable, f->masterIndex);
+        if (!owner) return tok;                                    // idx out of range -> leave (pass 2 warns)
+        const auto rit = stemRank.find(std::string(*owner));
+        if (rit == stemRank.end()) return tok;                     // owner not loaded -> leave raw
+        return "@" + std::to_string(rit->second) + "." + std::to_string(f->local);
+    };
+    auto canonText = [&](const std::string& text, std::size_t li) -> std::string {
+        std::string out; out.reserve(text.size());
+        bool inS = false, inD = false;                             // skip quoted scalars (names/strings)
+        for (std::size_t i = 0; i < text.size();) {
+            const char c = text[i];
+            if (inS) { out += c; if (c == '\'') inS = false; ++i; continue; }
+            if (inD) { out += c; if (c == '"')  inD = false; ++i; continue; }
+            if (c == '\'') { inS = true; out += c; ++i; continue; }
+            if (c == '"')  { inD = true; out += c; ++i; continue; }
+            if (std::isalnum(static_cast<unsigned char>(c))) {
+                std::size_t j = i;
+                while (j < text.size() && std::isalnum(static_cast<unsigned char>(text[j]))) ++j;
+                out += canonToken(text.substr(i, j - i), li);      // FormId run -> canonical; else verbatim
+                i = j;
+            } else { out += c; ++i; }
+        }
+        return out;
+    };
+
+    // Pass 1: scan every layer ONCE (canonicalizing FormId ids/refs), buffer each node, and record which
+    // ids each layer defines. The per-layer id sets + the master DAG let pass 2 group by node identity.
     struct Entry { std::size_t li; std::string cls; std::string key; std::string text; };
     std::vector<Entry>                             entries;
     std::vector<std::unordered_set<std::string>>   layerIds(layers.size());
     for (std::size_t li = 0; li < layers.size(); ++li) {
         if (!layers[li].source) continue;
+        const bool canon = !layers[li].masterTable.empty();       // runtime (has a table) vs offline
         scanSourceSection(*layers[li].source, /*sub*/ "", /*recursive*/ true,
             [&](std::string cls, std::string k, std::string text) {
+                if (canon) { k = canonToken(k, li); text = canonText(text, li); }
                 layerIds[li].insert(k);
                 entries.push_back(Entry{ li, std::move(cls), std::move(k), std::move(text) });
             });
