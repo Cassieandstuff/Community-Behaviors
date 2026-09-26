@@ -15,7 +15,7 @@ target_include_directories(decompile
 # SchemaObject/MakeSchemaFactory; havok-schema = SharedRegistry; havok-model = AnimDataYaml
 # (MotionFromAmrAnnotations/EmitMotionSidecar — the AMR->motion sidecar, transitional until it splits
 # to codec/motion). interface = the AnimationDef/AnimationData model + the sample-label codec.
-target_link_libraries(decompile PUBLIC interface havok-io havok-schema havok-framing havok-model codec)
+target_link_libraries(decompile PUBLIC interface havok-io havok-schema havok-framing havok-model codec compile)   # +compile: UnitDecompile uses ReadProject (project leg); compile does NOT link decompile, no cycle
 
 set_target_properties(decompile PROPERTIES
     CXX_STANDARD 23

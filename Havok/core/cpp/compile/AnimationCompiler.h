@@ -7,7 +7,7 @@
 // unavailable the compile fails with a clear error instead of falling back to a typed path.
 
 #include "interface/AnimationDef.h"
-#include "havok/core/PackFileTypes.h"   // HKXHeader (havok-framing)
+#include <codec/serialization/packfile/PackFileTypes.h>   // HKXHeader (havok-framing)
 
 #include <cstdint>
 #include <filesystem>

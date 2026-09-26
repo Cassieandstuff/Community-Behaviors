@@ -1,28 +1,17 @@
-# ── havok-schema ────────────────────────────────────────────────────────────
-# The loader/model for the Havok/ class schema — the source of truth for what a
-# Havok class IS in the SSE/AE packfile. PASSIVE: parses descriptors into
-# ClassSchema and computes serialized size by walking fields. Knows nothing of
-# read/write/compile — those are consumers (havok-io, merge, codegen).
+# ── havok-schema (shim) ──────────────────────────────────────────────────────
+# The descriptor registry moved to interface/reflection/ (the `reflection` target) in org-pass
+# firesale phase 2 — it's CB's Base/Reflection analogue and belongs under interface/, kept a DISTINCT
+# target so its ryml dependency stays quarantined off the ryml-free interface model-structs lib.
 #
-# CB source module. Public header on the path as <havok-schema/HavokSchema.h>.
+# What's left here is a forwarding SHIM header at <havok-schema/HavokSchema.h> so the ~16 source
+# consumers + the 11 CMake link references keep resolving without churn. INTERFACE target: no sources,
+# PUBLIC-links reflection (real symbols + the bare <RymlInclude.h> conduit) and keeps this dir on the
+# include path for the shim. Delete when the last <havok-schema/…> include migrates.
 
-sct_collect_sources(HAVOK_SCHEMA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
-
-add_library(havok-schema STATIC ${HAVOK_SCHEMA_SOURCES})
+add_library(havok-schema INTERFACE)
 
 target_include_directories(havok-schema
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>            # <havok-schema/HavokSchema.h>
-           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external>  # RymlInclude.h (build-only shim)
-           $<INSTALL_INTERFACE:include>)
+    INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok-schema/HavokSchema.h> (shim: the havok-schema/ segment is a subdir here)
+              $<INSTALL_INTERFACE:include>)
 
-find_package(ryml CONFIG REQUIRED)                 # descriptor YAML parsing
-target_link_libraries(havok-schema PUBLIC ryml::ryml)
-
-set_target_properties(havok-schema PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF)
-
-if(MSVC)
-    target_compile_options(havok-schema PRIVATE /W4 /wd4100 /MP /EHsc)
-endif()
+target_link_libraries(havok-schema INTERFACE reflection)

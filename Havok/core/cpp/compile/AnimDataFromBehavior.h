@@ -15,7 +15,7 @@
 // (merged from each animation's annotation track) and the roster are supplied by the caller,
 // exactly as the offline deriveOneProject does — this function does not read animation files.
 
-#include "havok/anim/AnimDataDeriver.h"   // animdata::DeriveClipInput, ClipGenerator, DeriveClipList
+#include <compile/AnimDataDeriver.h>   // animdata::DeriveClipInput, ClipGenerator, DeriveClipList
 
 #include <cstdint>
 #include <functional>

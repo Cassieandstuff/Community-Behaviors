@@ -1,8 +1,6 @@
 #include "Converter.h"
 
-#include <havok/sct/CharacterDecompiler.h>   // DecompileToDir (character units)
-#include <havok/sct/BehaviorCompiler.h>      // CompileBehavior (base unit -> vanilla binary)
-#include <havok/sct/HavokFile.h>             // ReadHavokFile / WriteHavokFile
+#include <codec/serialization/HavokFile.h>             // ReadHavokFile / WriteHavokFile
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
@@ -12,15 +10,20 @@
 #include <codec/format/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
 #include <interface/AnimationData.h>        // parse vanilla animationdatasinglefile
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
-#include <havok/core/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
-#include <havok/core/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
+#include <codec/serialization/packfile/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
+#include <codec/serialization/packfile/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
 #include <compile/AnimationCompiler.h>       // havok::anim::CompileAnimation — recompile leg (schema-native)
 #include <decompile/AnimationDecompiler.h>   // havok::anim::DecompileAnimation — schema-native import leg
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
-#include <havok/classes/Generators.h>        // hkbClipGenerator / hkbBehaviorReferenceGenerator (pass 2d RBG walk)
-#include <havok/sct/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
+#include <decompile/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
 #include <havok-model/HavokModel.h>          // ConvertModDelta — the DEFAULT data-driven per-mod delta
 #include <havok-schema/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
+#include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
+#include <compile/ProjectRead.h>             // havok::sct::ReadProject (schema-native project read)
+#include <codec/format/ProjectYaml.h>        // havok::sct::EmitProjectYaml (project.yaml codec)
+#include <decompile/CharacterDecompile.h>    // havok::decompile::DecompileCharacterSchema (schema character decompile)
+#include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior (schema compile, replaces typed sct::CompileBehavior)
+#include <decompile/UnitDecompile.h>         // havok::decompile::DecompileUnit (shared schema decompile dispatcher)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
 #include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
@@ -54,6 +57,16 @@ std::string ToLower(std::string s) {
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
 }
+
+// Read a string field off a generic SchemaObject by name (empty if absent / not a string field).
+std::string SoStr(const havok::io::SchemaObject& so, const char* name) {
+    const auto flds = so.Fields();
+    const auto& vs = so.Values();
+    for (std::size_t i = 0; i < flds.size() && i < vs.size(); ++i)
+        if (flds[i]->name == name) return vs[i].str;
+    return {};
+}
+
 
 // Decode XML entity references to their literal characters — mirrors havok::model
 // CharacterYamlLoader::xmlUnescape. The character DECOMPILER emits roster paths through an
@@ -94,8 +107,13 @@ bool ReadLooseBehaviorRefs(const std::string& hkxPath, LooseBehaviorRefs& out) {
     std::vector<std::uint8_t> bytes;
     std::string               err;
     if (!havok::sct::ReadHavokFile(hkxPath, bytes, &err)) return false;
+    // Schema-native: build the clip/RBG objects as generic SchemaObjects (schema factory) and read the
+    // one field each off the field table by name — no typed hkbClipGenerator/hkbBehaviorReferenceGenerator.
+    havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
+    if (!reg) return false;
     try {
         havok::PackFileDeserializer des;
+        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
         havok::BinaryReaderEx       br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
         des.DeserializePartially(br);
         const bool le = des._header.Endian == 0;
@@ -103,14 +121,18 @@ bool ReadLooseBehaviorRefs(const std::string& hkxPath, LooseBehaviorRefs& out) {
         {
             havok::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
             for (const auto& o : des.ConstructAllOfClass(dr, "hkbClipGenerator"))
-                if (auto c = std::dynamic_pointer_cast<havok::hkbClipGenerator>(o); c && !c->m_animationName.empty())
-                    out.animationNames.push_back(c->m_animationName);
+                if (const auto* c = dynamic_cast<const havok::io::SchemaObject*>(o.get())) {
+                    const std::string an = SoStr(*c, "animationName");
+                    if (!an.empty()) out.animationNames.push_back(an);
+                }
         }
         {
             havok::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
             for (const auto& o : des.ConstructAllOfClass(dr, "hkbBehaviorReferenceGenerator"))
-                if (auto r = std::dynamic_pointer_cast<havok::hkbBehaviorReferenceGenerator>(o); r && !r->m_behaviorName.empty())
-                    out.behaviorNames.push_back(r->m_behaviorName);
+                if (const auto* r = dynamic_cast<const havok::io::SchemaObject*>(o.get())) {
+                    const std::string bn = SoStr(*r, "behaviorName");
+                    if (!bn.empty()) out.behaviorNames.push_back(bn);
+                }
         }
         return true;
     } catch (const std::exception&) {
@@ -983,11 +1005,12 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // single dir. `label` prefixes log lines (a Nemesis code, or "Pandora"). Returns true if a delta landed.
     // Shared by the per-code delta path and the future merged/single-mod paths — the one behavior source.
     auto convertBehaviorGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
-                                    const std::string& label, const std::string& outHkx) -> bool {
+                                    const std::string& label, const std::string& outHkx,
+                                    const havok::model::NemesisFormIdCtx& fidCtx) -> bool {
         if (haveSchema) {
             const std::string& baseXml = baseXmlOf(g);
             if (!baseXml.empty()) {
-                const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx);
+                const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
                 if (md.ok) {
                     ++r.deltas;
                     for (const auto& w : md.warnings) say("      " + label + "/" + g + ": " + w);
@@ -1005,7 +1028,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // Convert ONE first-person behavior graph's patch dir(s) into `outHkx` (schema-only — no typed
     // first-person source). Same list/label contract as convertBehaviorGraph.
     auto convertFirstPersonGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
-                                       const std::string& label, const std::string& outHkx) -> bool {
+                                       const std::string& label, const std::string& outHkx,
+                                       const havok::model::NemesisFormIdCtx& fidCtx) -> bool {
         if (!haveSchema) {
             ++r.skipped;
             say("  " + label + "/_1stperson/" + g + ": first-person needs the schema path (Havok/ absent) — skipped");
@@ -1017,7 +1041,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             say("  " + label + "/_1stperson/" + g + ": no first-person template — skipped");
             return false;
         }
-        const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx);
+        const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
         if (md.ok) {
             ++r.deltas;
             for (const auto& w : md.warnings) say("      " + label + "/_1stperson/" + g + ": " + w);
@@ -1143,7 +1167,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (baseArc && baseUnits.count(prefix)) {
             try {
                 auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(prefix) });
-                const auto cr = havok::sct::CompileBehavior(data);
+                const auto cr = CB::core::compile::CompileBehavior(data);
                 std::string werr;
                 const fs::path outBin = baseBinTmp / (g + ".hkx");
                 if (cr.ok && havok::sct::WriteHavokFile(outBin.string(), cr.bytes, &werr)) {
@@ -1210,7 +1234,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             if (!havok::sct::ReadHavokFile(winner.string(), bytes, &rerr)) {
                 ++r.skipped; say("  " + rel + ": loose-file READ FAILED — " + rerr); continue;
             }
-            const auto dres = havok::sct::DecompileToDir(bytes, scratch.string());
+            const auto dres = havok::decompile::DecompileUnit(bytes, scratch.string());
             if (!(dres.ok && dres.kind == "character")) {
                 ++r.skipped;
                 say("  " + rel + ": loose-file DECOMPILE FAILED — " +
@@ -1255,7 +1279,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 std::vector<std::uint8_t> vbytes;
                 std::string               vrerr;
                 if (havok::sct::ReadHavokFile(tmpl.string(), vbytes, &vrerr) &&
-                    havok::sct::DecompileToDir(vbytes, vscratch.string()).ok)
+                    havok::decompile::DecompileUnit(vbytes, vscratch.string()).ok)
                     vanilla = readRoster(vscratch);
                 fs::remove_all(vscratch, we);
             }
@@ -1592,6 +1616,36 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             " warning(s) — dumped to D:\\cb-diffs\\patchplan.txt (not yet consumed).");
     }
 
+    // FormId minting: which Nemesis codes does a set of patch dirs REFERENCE (#<code>$<N> tokens)? Scan
+    // the raw patch text — a code appearing here that isn't the bundle's own is a FOREIGN master. Recurse
+    // each code dir (all graphs) so a master's index is stable across every graph of the bundle.
+    auto scanReferencedCodes = [&](const std::vector<std::string>& codes) {
+        std::set<std::string> refs;
+        for (const auto& c : codes) {
+            std::error_code se;
+            for (fs::recursive_directory_iterator it(codeDirOf(c), se), end; !se && it != end; it.increment(se)) {
+                if (!it->is_regular_file()) continue;
+                const std::string fn = it->path().filename().string();
+                if (fn.empty() || fn[0] != '#' || it->path().extension() != ".txt") continue;
+                std::ifstream in(it->path(), std::ios::binary);
+                const std::string t((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                for (std::size_t p = t.find('#'); p != std::string::npos; p = t.find('#', p + 1)) {
+                    std::size_t i = p + 1, dollar = std::string::npos;
+                    for (; i < t.size(); ++i) {
+                        const char ch = t[i];
+                        if (ch == '$') { dollar = i; }
+                        else if (!(std::isalnum((unsigned char)ch) || ch == '_')) break;
+                    }
+                    if (dollar != std::string::npos && dollar > p + 1 && i > dollar + 1)   // "#<code>$<digits>"
+                        refs.insert(ToLower(t.substr(p + 1, dollar - (p + 1))));
+                }
+            }
+        }
+        return refs;
+    };
+    havok::model::NemesisFormIdCtx fidCtx;                                    // rebuilt per bundle below
+    std::unordered_map<std::string, std::vector<std::string>> bundleMasters;  // bundle -> ordered master names
+
     for (const auto& bname : bundleOrder) {
         if (cancel) { r.error = "cancelled"; return r; }
         const std::vector<std::string>& codeList = bundleCodes[bname];
@@ -1599,6 +1653,32 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         bool any = false;
         std::string codeLabel;   // "tdmh+tdmlen+tdmv" for logs
         for (const auto& c : codeList) { if (!codeLabel.empty()) codeLabel += "+"; codeLabel += c; }
+
+        // Build this bundle's FormId master table ONCE (pre-scanning all its graphs), so a master's index
+        // is identical in every graph. Own codes -> selfIndex; each foreign code -> its master's index.
+        std::set<std::string> ownLower;
+        for (const auto& c : codeList) ownLower.insert(ToLower(c));
+        const std::set<std::string> refCodes = scanReferencedCodes(codeList);
+        std::set<std::string> foreignBundlesSet;
+        for (const auto& rc : refCodes)
+            if (!ownLower.count(rc))
+                if (const auto it = codeToMod.find(rc); it != codeToMod.end()) foreignBundlesSet.insert(it->second);
+        std::vector<std::string> mastersOrdered(foreignBundlesSet.begin(), foreignBundlesSet.end());
+        std::stable_sort(mastersOrdered.begin(), mastersOrdered.end(), [&](const std::string& a, const std::string& b) {
+            const auto pa = bundlePriority.find(a), pb = bundlePriority.find(b);
+            const int va = pa != bundlePriority.end() ? pa->second : 0;
+            const int vb = pb != bundlePriority.end() ? pb->second : 0;
+            return va != vb ? va < vb : a < b;
+        });
+        if (!mastersOrdered.empty()) bundleMasters[bname] = mastersOrdered;
+        std::unordered_map<std::string, std::uint16_t> bIdx;
+        for (std::size_t i = 0; i < mastersOrdered.size(); ++i) bIdx[mastersOrdered[i]] = static_cast<std::uint16_t>(i + 1);
+        fidCtx.selfIndex = static_cast<std::uint16_t>(mastersOrdered.size() + 1);
+        fidCtx.codeIndex.clear();
+        for (const auto& oc : ownLower) fidCtx.codeIndex[oc] = fidCtx.selfIndex;
+        for (const auto& rc : refCodes)
+            if (!ownLower.count(rc))
+                if (const auto it = codeToMod.find(rc); it != codeToMod.end()) fidCtx.codeIndex[rc] = bIdx[it->second];
 
         // 2a) behavior graph deltas — MERGE every owning code's patch dir for a graph in ONE convert.
         int n = 0;
@@ -1608,7 +1688,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path patch = codeDirOf(c) / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() && convertBehaviorGraph(g, patchDirs, bname, unitOut(bname, g))) ++n;
+            if (!patchDirs.empty() && convertBehaviorGraph(g, patchDirs, bname, unitOut(bname, g), fidCtx)) ++n;
         }
 
         // 2a') FIRST-PERSON behavior graph deltas — same cross-code merge against the first-person base.
@@ -1623,7 +1703,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path patch = codeDirOf(c) / "_1stperson" / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() && convertFirstPersonGraph(g, patchDirs, bname, fpUnitOut(bname, g))) ++n;
+            if (!patchDirs.empty() && convertFirstPersonGraph(g, patchDirs, bname, fpUnitOut(bname, g), fidCtx)) ++n;
         }
 
         if (n > 0) { any = true; say("  " + bname + " [" + codeLabel + "]: " + std::to_string(n) + " graph delta(s)."); }
@@ -1713,7 +1793,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         std::vector<std::uint8_t> ub;
                         std::string               uerr;
                         if (havok::sct::ReadHavokFile(hkx.string(), ub, &uerr)) {
-                            const auto dres = havok::sct::DecompileToDir(ub, unitDir.string());
+                            const auto dres = havok::decompile::DecompileUnit(ub, unitDir.string());
                             if (dres.ok && dres.kind == "behavior") ++ownedUnits;
                             else fs::remove_all(unitDir, ue);   // not a behavior / failed — leave no junk
                         }
@@ -1994,9 +2074,15 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     for (const auto& code : emitted) {
         if (code == "CharacterFiles" || code == "BehaviorFiles") continue;   // synthetic bundles handled above
         const NemesisInfo ni = ReadNemesisInfo(dataDir / "Nemesis_Engine" / "mod" / code);
+        // Masters = Skyrim (implicit index 0) + any FOREIGN bundles this bundle's patches referenced
+        // (discovered during the graph converts, ordered by load priority). BR's BuildMasterTable rebuilds
+        // [skyrim(0), these…, self] to resolve the FormId indices this bundle emitted.
+        std::vector<std::string> masters{ "Skyrim" };
+        if (const auto it = bundleMasters.find(code); it != bundleMasters.end())
+            for (const auto& m : it->second) masters.push_back(m);
         WriteManifest(plugins / (code + ".hky"),
                       ni.name.empty() ? code : ni.name,
-                      ni.version, ni.author, { "Skyrim" });
+                      ni.version, ni.author, masters);
         ++manifests;
     }
     say("  wrote " + std::to_string(manifests) + " manifest.json file(s).");
@@ -2301,7 +2387,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     // ConvertPatch stays as the fallback if the shared schema registry is unavailable or it errors.
                     if (auto* sreg = havok::schema::SharedRegistry()) {
                         std::string derr;
-                        if (havok::model::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr)) {
+                        if (havok::model::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr,
+                                                                  /*selfIndex=Skyrim*/ 0)) {
                             ++r.behaviors; continue;
                         }
                         say("  WARN: schema base decompile failed for " + fs::path(rel).stem().string() +
@@ -2319,16 +2406,21 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
         // No-template BEHAVIOR → schema READ-ORDER decompile (the coordinated flip): matches the schema
         // loose-derive so no-template mod deltas (horse, creatures) align with this base. Gated on the same
-        // shared registry as the loose-derive, so base + delta are always both-schema or both-typed. Only
-        // behaviors route here; character/project/animation stay on the typed DecompileToDir below.
+        // shared registry as the loose-derive. Only behaviors route here; character/project/animation go
+        // through the schema DecompileUnit below. The typed fallback was retired with havok-core, so a
+        // behavior that fails schema decompile here is a genuine failure (DecompileUnit's behavior leg is
+        // this same DecompileBehaviorSchema) — currently the 3 creature *_lod graphs, whose schema
+        // EmitFullBaseScaffolding can't yet write behavior.yaml (a known, isolated schema-decompile gap).
         if (kind == HkxKind::Behavior) {
             if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
                 std::string derr;
-                if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr)) { ++r.behaviors; continue; }
-                say("  WARN: schema no-template decompile failed for " + rel + " (" + derr + "); typed fallback.");
+                if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr,
+                                                          /*selfIndex=Skyrim*/ 0)) { ++r.behaviors; continue; }
+                say("  WARN: schema decompile failed for " + rel + " (" + derr + ") — unit skipped (no typed fallback; needs a schema fix).");
+                ++r.failed; continue;   // re-running the same schema emitter via DecompileUnit won't help
             }
         }
-        const auto d = havok::sct::DecompileToDir(bytes, unit.string());
+        const auto d = havok::decompile::DecompileUnit(bytes, unit.string());
         if (!d.ok) { ++r.failed; continue; }   // e.g. the 2 CC tagfile characters
         if      (d.kind == "behavior")  ++r.behaviors;
         else if (d.kind == "project")   ++r.projects;
@@ -2670,7 +2762,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         try {
             auto data = havok::model::YamlBehaviorLoader::LoadMerged({ arc->source(prefix) });
             if (data.boneNames.empty()) data.boneNames = charBoneNames;   // back-fill skeleton (like the runtime)
-            const auto cr = havok::sct::CompileBehavior(data);
+            const auto cr = CB::core::compile::CompileBehavior(data);
             if (!cr.ok) { say("  " + g + ": regen base compile failed — " + cr.error); continue; }
             reBytes = cr.bytes;
         } catch (const std::exception& e) { say("  " + g + ": regen base load threw — " + std::string(e.what())); continue; }
@@ -2679,8 +2771,8 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         if (!havok::sct::ReadHavokFile(van.string(), vanBytes, &rerr)) { say("  " + g + ": vanilla read failed — " + rerr); continue; }
 
         const fs::path reDir = gate / (g + "_re"), vaDir = gate / (g + "_va");
-        const auto rd = havok::sct::DecompileToDir(reBytes,  reDir.string());
-        const auto vd = havok::sct::DecompileToDir(vanBytes, vaDir.string());
+        const auto rd = havok::decompile::DecompileUnit(reBytes,  reDir.string());
+        const auto vd = havok::decompile::DecompileUnit(vanBytes, vaDir.string());
         if (rd.ok && vd.ok) {
             ++r.checked;
             if (readFile(reDir / "data" / "graphdata.yaml") == readFile(vaDir / "data" / "graphdata.yaml"))

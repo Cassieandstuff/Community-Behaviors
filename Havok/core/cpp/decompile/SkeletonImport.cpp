@@ -6,11 +6,11 @@
 
 #include "decompile/SkeletonImport.h"
 
-#include <havok-io/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
+#include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
-#include "havok/core/BinaryReaderEx.h"
-#include "havok/core/PackFileDeserializer.h"
+#include <codec/serialization/packfile/BinaryReaderEx.h>
+#include <codec/serialization/packfile/PackFileDeserializer.h>
 
 #include <cmath>
 #include <cstring>

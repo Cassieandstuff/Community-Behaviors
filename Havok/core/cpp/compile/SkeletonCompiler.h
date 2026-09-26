@@ -7,7 +7,7 @@
 // byte-exact compiler, so the emit stays byte-identical (gated by havok-core-cli skeleton-full-parity).
 
 #include "interface/SkeletonData.h"
-#include "havok/core/PackFileTypes.h"   // HKXHeader (havok-framing)
+#include <codec/serialization/packfile/PackFileTypes.h>   // HKXHeader (havok-framing)
 
 #include <cstdint>
 #include <filesystem>

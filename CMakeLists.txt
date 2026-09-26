@@ -55,13 +55,17 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
 add_subdirectory(Havok/core/cpp/common)      # CB::core foundational value types (HkTypes; base tier, no deps)
 add_subdirectory(Havok/core/cpp/interface)   # CB::core model structs (base; depends only on common)
+add_subdirectory(Havok/core/cpp/interface/reflection)  # CB::core descriptor registry (Base/Reflection analogue; ryml provider, firesale phase 2)
 add_subdirectory(src/havok-framing)
-add_subdirectory(src/havok-schema)
+add_subdirectory(src/havok-schema)           # now an INTERFACE shim over reflection (firesale phase 2)
+add_subdirectory(Havok/core/cpp/codec/serialization)   # CB::core foundational codec: packfile spine + HavokIo (firesale phase 1)
 add_subdirectory(src/havok-io)
 add_subdirectory(src/havok-model)
 add_subdirectory(Havok/core/cpp/codec)   # CB::core codecs (spline + format yaml loaders; org-pass firesale step 1)
 add_subdirectory(Havok/core/cpp/compile)     # CB::core one-way derives + Animation/Skeleton compilers (firesale)
 add_subdirectory(Havok/core/cpp/decompile)   # CB::core emit-direction + Animation/Skeleton import (firesale)
+add_subdirectory(Havok/tools/hky)            # hky-tool: standalone .hky pack/unpack over codec/serialization (firesale phase 4a)
+add_subdirectory(Havok/tools/gates)          # gates: havok-core-free correctness gates over Havok/core (firesale phase 4b)
 add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
                                    # repo root — graduates to its own repo (both CB + Skyrim Content Tools
                                    # need it now). Dependency-free leaf: consumers link `niffer` and
@@ -75,7 +79,7 @@ add_subdirectory(API)              # the single public API facade (<CB-API.h>): 
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 # cb-api is the canonical facade (<CB-API.h> → cb::CB-API); cb-resolve stays as a legacy component target.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api cb-resolve common interface havok-framing havok-schema havok-io havok-model codec compile decompile
+install(TARGETS cb-api cb-resolve common interface reflection serialization havok-framing havok-schema havok-io havok-model codec compile decompile
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
@@ -145,21 +149,21 @@ add_subdirectory(lib/commonlibsse-ng "${CMAKE_BINARY_DIR}/CommonLibSSE")
 include(CommonLibSSE)   # add_commonlibsse_plugin() — SHARED lib + generated version-data TU
 include(Deploy)         # cb_deploy() — MO2 deploy
 
-# havok-pipeline (feature SDK), sct-config (config scanner), havok-core (quarantined backbone + CLI) —
-# needed only by the plugin/converter/gates, so top-level only.
+# havok-pipeline (feature SDK), sct-config (config scanner) — top-level only.
 add_subdirectory(src/havok-pipeline)
 add_subdirectory(src/sct-config)
-set(HAVOK_CORE_BUILD_TOOLS ON CACHE BOOL "havok-core-cli for the build-time gates + master regen" FORCE)
-add_subdirectory("Retirement Home/havok-core" "${CMAKE_BINARY_DIR}/havok-core")
+# Retirement Home/havok-core (the quarantined typed backbone + havok-core-cli) DELETED in the org-pass
+# firesale final cut: nothing links it any more (plugin + converter both havok-core-free; the schema
+# stack fully replaces the typed compile/decompile, gate-proven). hky-pack/unpack -> Havok/tools/hky
+# (hky-tool); the free correctness gates -> Havok/tools/gates; the typed schema-vs-oracle gates retired
+# with their oracle. The base-master regen runs through the (havok-core-free) converter.
 
-# tree-diff — the record-keyed semantic diff tool (cb-tree-diff lib + standalone exe). Top-level so
-# it builds in lean configs too: it needs only havok-core + havok-model (added above), NOT the
-# converter's glfw/imgui, so it lives OUTSIDE the CB_BUILD_CONVERTER block. The Behavior Converter's
-# "Diff" tab links the same cb-tree-diff library when the converter is built.
-option(CB_BUILD_TREEDIFF "Build the tree-diff tool" ON)
-if(CB_BUILD_TREEDIFF)
-    add_subdirectory("APP/tree-diff")
-endif()
+# tree-diff — RETIRED in the org-pass firesale. The old cb-tree-diff engine was built before the schema
+# stack + the linker/BoneMembrane and pulled the quarantined typed havok-core (typed DecompileToDir +
+# skeleton import) back into the converter — the last thing blocking the havok-core cut. It is being
+# replaced by a ground-up Pandora-vs-CB diff tool (Pandora layered OVER vanilla, schema-native, no manual
+# skeleton) in its own session. The converter's Diff tab is stubbed (src/ui/TreeDiffAdapters.h) meanwhile.
+# (add_subdirectory("APP/tree-diff") removed; APP/tree-diff deleted.)
 
 # ── The plugin ─────────────────────────────────────────────────────────────────
 # Sources are FLAT: each Foo.cpp beside its Foo.h directly under src/ (src/ IS the private include root).
@@ -236,8 +240,8 @@ foreach(_hky_src ${CB_HKY_BUNDLES})
     file(GLOB_RECURSE _hky_files CONFIGURE_DEPENDS "${_hky_src}/*")
     add_custom_command(
         OUTPUT  "${_hky_out}"
-        COMMAND "$<TARGET_FILE:havok-core-cli>" hky-pack "${_hky_src}" -o "${_hky_out}"
-        DEPENDS havok-core-cli ${_hky_files}
+        COMMAND "$<TARGET_FILE:hky-tool>" pack "${_hky_src}" -o "${_hky_out}"
+        DEPENDS hky-tool ${_hky_files}
         COMMENT "Community Behaviors: packing ${_hky_name} from source YAML tree"
         VERBATIM)
     list(APPEND _cb_hky_outputs "${_hky_out}")

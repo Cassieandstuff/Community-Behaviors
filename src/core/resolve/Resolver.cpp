@@ -24,6 +24,7 @@
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // havok::anim::CompileAnimation (native anim -> loose .hkx)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
+#include <interface/MasterTable.h>          // CB::core::formid::BuildMasterTable (ordered master table)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
 #include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
@@ -190,6 +191,10 @@ namespace CB {
             // Lets the conflict report tell an expected OVERRIDE (a bundle editing a node its
             // master introduced) from a namespace CLASH (two unrelated bundles editing one node).
             std::unordered_map<std::string, std::unordered_set<std::string>> ancestors;
+            // stem -> its ORDERED master table (index 0 = base game, 1..k = declared masters, last =
+            // self). A node's FormId masterIndex resolves against this. Built from the DIRECT declared
+            // masters (positional), so it's ordered where `ancestors` (a transitive set) is not.
+            std::unordered_map<std::string, std::vector<std::string>> masterTable;
         };
 
         // `manifests`: every scanned bundle stem -> its manifest (masters declared here).
@@ -255,6 +260,12 @@ namespace CB {
                 survivors.push_back(stem);
                 indeg.emplace(stem, 0);
             }
+
+            // Ordered master table per survivor (index 0 = base game, 1..k = declared masters in file
+            // order, last = self) — what a node's FormId masterIndex resolves against. explicitMasters
+            // is the DIRECT declared set in manifest order (deduped, self-excluded, lowercase).
+            for (const std::string& s : survivors)
+                plan.masterTable[s] = CB::core::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
             for (const std::string& s : survivors) {
                 std::vector<std::string> masters = explicitMasters[s];          // all present (survivors)
                 if (haveSkyrim && s != "skyrim" &&
@@ -884,7 +895,19 @@ namespace CB {
                       });
             GraphSources gs;
             gs.layers.reserve(ls.size());
-            for (auto& l : ls) gs.layers.push_back(l.source);
+            for (auto& l : ls) {
+                // Carry each layer's load-order identity so the merge keys node identity by scope.
+                havok::model::LayerSource lsrc;
+                lsrc.source = l.source;
+                lsrc.stem   = l.stem;
+                const auto rit = plan.rank.find(l.stem);
+                lsrc.rank   = rit != plan.rank.end() ? rit->second : 0;
+                if (const auto ait = plan.ancestors.find(l.stem); ait != plan.ancestors.end())
+                    lsrc.ancestors.assign(ait->second.begin(), ait->second.end());
+                if (const auto mit = plan.masterTable.find(l.stem); mit != plan.masterTable.end())
+                    lsrc.masterTable = mit->second;
+                gs.layers.push_back(std::move(lsrc));
+            }
             gs.isCharacter = !ls.empty() && ls.front().isChar;
             const std::size_t n = gs.layers.size();
             m_sources.emplace(key, std::move(gs));
@@ -900,8 +923,11 @@ namespace CB {
         // later contributor that MASTERS that base is a legitimate OVERRIDE (load order decides
         // the winner — e.g. two combat mods both editing a vanilla state, both mastering
         // Skyrim). A contributor that does NOT master the base independently introduced the same
-        // identity — a namespace CLASH (the bug: two unrelated mods' node #2 collide). Every
-        // overlap is recorded (with the flag) for the MO2 manager; only clashes warn.
+        // identity — a namespace CLASH (two unrelated mods' node #2 share a bare id). The merge now
+        // RESOLVES this by scope (each bundle owns its own id-space, so the two are kept as independent
+        // nodes rather than mis-merged — see LayerSource/scopeOf); this scan stays as the load-order
+        // report so the MO2 manager can surface it (an author who MEANT an override forgot to declare a
+        // master). Every overlap is recorded (with the flag); only clashes warn.
         {
             std::size_t clashes = 0;
             for (const auto& [key, ls] : layers) {
@@ -929,8 +955,9 @@ namespace CB {
                         std::string names;
                         for (const auto& b : c.bundles) { if (!names.empty()) names += ", "; names += b; }
                         LOG_WARN("Resolver: node CLASH — graph '{}' node '{}' ({}) touched by unrelated bundles "
-                                 "[{}]; none masters the introducer (declare a master to make it an intended "
-                                 "override, or rename to avoid the collision).", key, c.key, c.cls, names);
+                                 "[{}]; none masters the introducer. CB keeps them as SEPARATE nodes (scope by "
+                                 "bundle); if one was meant to OVERRIDE the other, declare a master.",
+                                 key, c.key, c.cls, names);
                     }
                     m_conflicts.push_back(std::move(c));
                 }
@@ -1393,11 +1420,11 @@ namespace CB {
     // CASE-SENSITIVELY (a miscased ref silently binds nothing → universal A-pose; see the case
     // directive in CLAUDE.md).
     static std::string ReadCharacterName(
-        const std::vector<std::shared_ptr<const havok::model::IUnitSource>>& layers)
+        const std::vector<havok::model::LayerSource>& layers)
     {
         for (const auto& L : layers) {
-            if (!L) continue;
-            const auto txt = L->read("character.yaml");
+            if (!L.source) continue;
+            const auto txt = L.source->read("character.yaml");
             if (!txt) continue;
             const std::string& t = *txt;
             const auto cp = t.find("character:");

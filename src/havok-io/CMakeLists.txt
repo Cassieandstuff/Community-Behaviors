@@ -1,28 +1,17 @@
-# ── havok-io ─────────────────────────────────────────────────────────────────
-# The generic, schema-driven packfile reader/writer (data-driven Havok stack).
-# ONE interpreter that walks a havok-schema ClassSchema over the salvaged packfile framing
-# (sections/fixups/BinaryReaderEx), replacing the hand-written per-class ClassRead/ClassWrite. Reads a
-# .hkx into a generic SchemaObject graph and writes it back byte-identically.
+# ── havok-io (shim) ──────────────────────────────────────────────────────────
+# The generic schema-driven packfile reader/writer moved to codec/serialization/ (HavokIo.{h,cpp})
+# in org-pass firesale phase 1 — HavokIo IS the object layer over the packfile spine, so it belongs
+# beside it under one serialization roof (mirrors Havok's Common/Serialize).
 #
-# CB source module. Public header on the path as <havok-io/HavokIo.h>.
+# What's left here is a forwarding SHIM header at <havok-io/HavokIo.h> so the many quarantined
+# Retirement Home/havok-core consumers keep resolving without churn. INTERFACE target: no sources,
+# PUBLIC-links serialization (the real symbols) and keeps this dir on the include path for the shim.
+# Delete when havok-core is cut and the last <havok-io/HavokIo.h> include is migrated.
 
-sct_collect_sources(HAVOK_IO_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
-
-add_library(havok-io STATIC ${HAVOK_IO_SOURCES})
+add_library(havok-io INTERFACE)
 
 target_include_directories(havok-io
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok-io/HavokIo.h>
-           $<INSTALL_INTERFACE:include>)
+    INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok-io/HavokIo.h> (shim)
+              $<INSTALL_INTERFACE:include>)
 
-# havok-framing provides the packfile framing + BinaryReader/Writer;
-# havok-schema provides the ClassSchema descriptors.
-target_link_libraries(havok-io PUBLIC havok-framing havok-schema)
-
-set_target_properties(havok-io PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF)
-
-if(MSVC)
-    target_compile_options(havok-io PRIVATE /W4 /wd4100 /MP /EHsc)
-endif()
+target_link_libraries(havok-io INTERFACE serialization)

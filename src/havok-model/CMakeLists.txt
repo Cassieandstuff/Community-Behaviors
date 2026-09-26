@@ -1,46 +1,21 @@
-# ── havok-model ──────────────────────────────────────────────────────────────
-# The name-keyed .hky model + schema-driven emit/parse. Sits on top of
-# havok-io's generic SchemaObject graph:
+# ── havok-model (shim) ────────────────────────────────────────────────────────
+# FULLY DRAINED by the org-pass firesale (phase 3): the name-keyed .hky model split to its permanent
+# homes — model structs + Cross + BashMerge + enums -> interface; the YAML loaders + adsf codec ->
+# codec/format; MotionFromAmr -> codec/motion; the builder half -> compile (GraphBuild + SchemaBuilder +
+# ResolveBindings + AnimDataDeriver + CompileTrace); the emit/identity/tagfile/convert half -> decompile
+# (BehaviorDecompile + HavokModel.cpp).
 #
-#   .hkx ↔ SchemaObject graph            (havok-io)
-#        ↕ identity/index pass           ← obj → canonical id + category (the .hky yaml filenames)
-#   id-keyed model + name-resolution     (event/var/… index ↔ name via hkbBehaviorGraphStringData)
-#        ↕ schema-driven emit/parse      ← pure projection to/from the .hky tree
-#   .hky tree                            ── gated file-vs-Skyrim.hky, hkx→hky→hkx byte-exact
-#
-# Canonical ids (yaml filenames) are owned HERE (the identity/index step), NOT the Havok/ schema and NOT
-# the emit formatting. The emit is a pure projection that consumes the ids the identity pass produced.
-#
-# CB source module. Public header on the path as <havok-model/HavokModel.h>.
+# What's left here is forwarding SHIM headers (<havok-model/HavokModel.h>, havok/model/*, havok/anim/*,
+# havok/cross/*) so consumers keep resolving without churn. INTERFACE target: no sources, PUBLIC-links
+# interface to propagate the Havok/core/cpp include root (so the shims' <compile/…>/<decompile/…>/
+# <codec/…>/<interface/…> resolve). It does NOT link compile/decompile/codec — those link havok-model,
+# and consumers already link them directly for the real symbols. Delete when the last <havok-model/…>
+# / havok/model/… include migrates.
 
-# GLOB_RECURSE (CONFIGURE_DEPENDS) picks up every *.cpp under this module, so new components are
-# compiled with no edit here.
-sct_collect_sources(HAVOK_MODEL_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
-
-add_library(havok-model STATIC ${HAVOK_MODEL_SOURCES})
+add_library(havok-model INTERFACE)
 
 target_include_directories(havok-model
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok-model/HavokModel.h> + havok/model/*, havok/anim/*, havok/sct/*, havok/cross/*
-           $<INSTALL_INTERFACE:include>)
+    INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>   # <havok-model/HavokModel.h> + havok/model/* shims
+              $<INSTALL_INTERFACE:include>)
 
-# havok-io provides the SchemaObject graph + framing; havok-schema the ClassSchema descriptors
-# (and ryml, PUBLIC-propagated — the moved YAML loaders need it). havok-framing comes transitively.
-target_link_libraries(havok-model PUBLIC havok-io havok-schema interface)   # interface = AnimationData model (firesale)
-
-# The .hky in-memory archive reader (HkyArchive) is backed by vendored miniz (amalgamated C, MIT),
-# relocated here with the loader out of havok-core.
-set(_MINIZ_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
-target_sources(havok-model PRIVATE "${_MINIZ_DIR}/miniz.c")
-target_include_directories(havok-model PRIVATE "${_MINIZ_DIR}")
-if(MSVC)
-    set_source_files_properties("${_MINIZ_DIR}/miniz.c" PROPERTIES COMPILE_FLAGS "/w")
-endif()
-
-set_target_properties(havok-model PROPERTIES
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF)
-
-if(MSVC)
-    target_compile_options(havok-model PRIVATE /W4 /wd4100 /MP /EHsc)
-endif()
+target_link_libraries(havok-model INTERFACE interface)

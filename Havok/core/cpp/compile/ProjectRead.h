@@ -8,8 +8,8 @@
 // Drained out of the quarantined havok-core (was ProjectCompiler.cpp's typed ReadProject).
 // Namespace kept havok::sct (normalization deferred to the mechanical pass).
 
-#include "havok/core/PackFileTypes.h"   // HKXHeader
-#include "havok/model/ProjectData.h"    // model::ProjectSpec (aliased below)
+#include <codec/serialization/packfile/PackFileTypes.h>   // HKXHeader
+#include <interface/ProjectData.h>    // model::ProjectSpec (aliased below)
 
 #include <cstdint>
 #include <string>

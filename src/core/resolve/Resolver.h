@@ -6,6 +6,7 @@
 #include "core/resolve/SymbolInjector.h"
 
 #include <interface/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
+#include <interface/UnitSource.h>  // LayerSource — merge layer + load-order identity (by value in GraphSources)
 
 #include <atomic>
 #include <condition_variable>
@@ -312,7 +313,9 @@ namespace CB {
         // subtree (ZipUnitSource) transparently. LoadMerged overlays the layers (later
         // overrides earlier by node name) into one graph — the record-level merge.
         struct GraphSources {
-            std::vector<std::shared_ptr<const havok::model::IUnitSource>> layers;
+            // Each layer carries its load-order identity ({stem, rank, ancestors}) so the merge can key
+            // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
+            std::vector<havok::model::LayerSource> layers;
             bool isCharacter = false;
         };
         // normalized serve path -> its merge layers.
