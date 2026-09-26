@@ -5,6 +5,7 @@
 #include <interface/reflection/HavokSchema.h>
 #include <codec/serialization/packfile/IHavokObject.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <functional>
@@ -165,6 +166,21 @@ struct ModDeltaResult {
     int                      deltaIds   = 0;   // ids a patch overrode or added
     std::vector<std::string> warnings;
 };
+
+// FormId minting context for ConvertModDelta. nullptr => legacy bare ids ("#NNNN" overrides, "code$N" new
+// nodes). When supplied, each node id becomes a FormId "IIIIxLLLL":
+//   bare "#NNNN"        -> "0000x<local>"        (edit of a vanilla/Skyrim node; index 0)
+//   "<code>$N"          -> "<codeIndex[code]>x<N>"  (own code -> selfIndex; foreign code -> its master index)
+// The converter builds `codeIndex` ONCE per bundle (pre-scanning all the bundle's graphs, so a master's
+// index is the SAME in every graph) as its position in the ordered master table [skyrim(0), masters…,
+// self(last)] — matching the loader's BuildMasterTable so emit + load-time resolution agree. A "code$N"
+// whose code is absent from codeIndex is unknown-foreign: bound to selfIndex + a warning.
+struct NemesisFormIdCtx {
+    std::uint16_t                                selfIndex = 1;   // this bundle's index (= master count + 1)
+    std::unordered_map<std::string, std::uint16_t> codeIndex;     // Nemesis code (lowercase) -> master index
+};
+
 ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& patchDirs,
-                               const schema::SchemaRegistry& reg, const std::string& outDeltaDir);
+                               const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
+                               const NemesisFormIdCtx* fid = nullptr);
 } // namespace havok::model

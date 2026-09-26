@@ -2244,7 +2244,8 @@ bool MergeTagfiles(const std::string& baseXml, const std::vector<std::string>& p
 }
 
 ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& patchDirs,
-                               const schema::SchemaRegistry& reg, const std::string& outDeltaDir) {
+                               const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
+                               const NemesisFormIdCtx* fid) {
     namespace fs = std::filesystem;
     ModDeltaResult r;
 
@@ -2277,10 +2278,44 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
     if (!MergeTagfiles(baseTagfileXml, patches, reg, merged, deltaIds, err)) { r.error = "merge: " + err; return r; }
     r.deltaIds = static_cast<int>(deltaIds.size());
 
-    const std::set<std::string> ds(deltaIds.begin(), deltaIds.end());
-    // Nodes keep the merged tagfile #NNNN (override) / mod$N (new). The oracle aligned every override to
-    // the base node it targets, so the (class, #NNNN) merge lands on the right base node without a name
-    // remap. Deltas merge onto the base by that stable oracle id.
+    std::set<std::string> ds(deltaIds.begin(), deltaIds.end());
+
+    // FormId minting (fid != nullptr). APPLY the converter's pre-built code->index map (built once for the
+    // whole bundle, so a master's index is identical in every graph). Each id -> a FormId "IIIIxLLLL":
+    // bare "184" -> "0000x00b8" (vanilla edit, index 0); "<code>$N" -> "<codeIndex[code]>x<N>". Both
+    // identity.ids AND ds (EmitHky's writeIds gate) are rewritten in lockstep — EmitHky keys byId off the
+    // transformed identity.
+    if (fid) {
+        auto low = [](std::string s) { for (char& c : s) c = static_cast<char>(std::tolower((unsigned char)c)); return s; };
+        std::set<std::string> unknownCodes;
+        auto toFormId = [&](const std::string& raw) -> std::string {
+            const auto d = raw.rfind('$');
+            char* end = nullptr;
+            if (d == std::string::npos) {                                 // bare -> vanilla node (index 0)
+                const unsigned long v = std::strtoul(raw.c_str(), &end, 10);
+                if (end && *end == '\0')
+                    if (const auto f = CB::core::formid::make(0, static_cast<std::uint32_t>(v))) return CB::core::formid::format(*f);
+                return raw;                                               // non-numeric bare (name key) -> as-is
+            }
+            const std::string code = low(raw.substr(0, d));
+            const unsigned long n = std::strtoul(raw.c_str() + d + 1, &end, 10);
+            if (!end || *end != '\0') return raw;                        // malformed $N
+            std::uint16_t idx = fid->selfIndex;
+            if (const auto it = fid->codeIndex.find(code); it != fid->codeIndex.end()) idx = it->second;
+            else unknownCodes.insert(code);                              // unknown foreign -> self + warn
+            if (const auto f = CB::core::formid::make(idx, static_cast<std::uint32_t>(n))) return CB::core::formid::format(*f);
+            return raw;
+        };
+        std::unordered_map<std::string, std::string> remap;
+        for (auto& [obj, raw] : merged.identity.ids) { (void)obj; const std::string v = toFormId(raw); remap[raw] = v; raw = v; }
+        std::set<std::string> newDs;
+        for (const std::string& d : ds) { const auto it = remap.find(d); newDs.insert(it != remap.end() ? it->second : d); }
+        ds = std::move(newDs);
+        for (const std::string& c : unknownCodes)
+            r.warnings.push_back("FormId: unknown foreign mod code '" + c + "$..' not in this bundle's master table; "
+                                 "bound to self (a cross-bundle reference to it will not reconcile — is that mod converted?)");
+    }
+
     if (!EmitHky(merged.identity, reg, outDeltaDir, err, &ds, &r.warnings)) { r.error = "emit: " + err; return r; }
 
     // Added-vocabulary sidecar — diff the base graph vocab against the merged graph's.

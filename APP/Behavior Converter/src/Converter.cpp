@@ -1005,11 +1005,12 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // single dir. `label` prefixes log lines (a Nemesis code, or "Pandora"). Returns true if a delta landed.
     // Shared by the per-code delta path and the future merged/single-mod paths — the one behavior source.
     auto convertBehaviorGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
-                                    const std::string& label, const std::string& outHkx) -> bool {
+                                    const std::string& label, const std::string& outHkx,
+                                    const havok::model::NemesisFormIdCtx& fidCtx) -> bool {
         if (haveSchema) {
             const std::string& baseXml = baseXmlOf(g);
             if (!baseXml.empty()) {
-                const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx);
+                const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
                 if (md.ok) {
                     ++r.deltas;
                     for (const auto& w : md.warnings) say("      " + label + "/" + g + ": " + w);
@@ -1027,7 +1028,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // Convert ONE first-person behavior graph's patch dir(s) into `outHkx` (schema-only — no typed
     // first-person source). Same list/label contract as convertBehaviorGraph.
     auto convertFirstPersonGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
-                                       const std::string& label, const std::string& outHkx) -> bool {
+                                       const std::string& label, const std::string& outHkx,
+                                       const havok::model::NemesisFormIdCtx& fidCtx) -> bool {
         if (!haveSchema) {
             ++r.skipped;
             say("  " + label + "/_1stperson/" + g + ": first-person needs the schema path (Havok/ absent) — skipped");
@@ -1039,7 +1041,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             say("  " + label + "/_1stperson/" + g + ": no first-person template — skipped");
             return false;
         }
-        const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx);
+        const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
         if (md.ok) {
             ++r.deltas;
             for (const auto& w : md.warnings) say("      " + label + "/_1stperson/" + g + ": " + w);
@@ -1614,6 +1616,36 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             " warning(s) — dumped to D:\\cb-diffs\\patchplan.txt (not yet consumed).");
     }
 
+    // FormId minting: which Nemesis codes does a set of patch dirs REFERENCE (#<code>$<N> tokens)? Scan
+    // the raw patch text — a code appearing here that isn't the bundle's own is a FOREIGN master. Recurse
+    // each code dir (all graphs) so a master's index is stable across every graph of the bundle.
+    auto scanReferencedCodes = [&](const std::vector<std::string>& codes) {
+        std::set<std::string> refs;
+        for (const auto& c : codes) {
+            std::error_code se;
+            for (fs::recursive_directory_iterator it(codeDirOf(c), se), end; !se && it != end; it.increment(se)) {
+                if (!it->is_regular_file()) continue;
+                const std::string fn = it->path().filename().string();
+                if (fn.empty() || fn[0] != '#' || it->path().extension() != ".txt") continue;
+                std::ifstream in(it->path(), std::ios::binary);
+                const std::string t((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                for (std::size_t p = t.find('#'); p != std::string::npos; p = t.find('#', p + 1)) {
+                    std::size_t i = p + 1, dollar = std::string::npos;
+                    for (; i < t.size(); ++i) {
+                        const char ch = t[i];
+                        if (ch == '$') { dollar = i; }
+                        else if (!(std::isalnum((unsigned char)ch) || ch == '_')) break;
+                    }
+                    if (dollar != std::string::npos && dollar > p + 1 && i > dollar + 1)   // "#<code>$<digits>"
+                        refs.insert(ToLower(t.substr(p + 1, dollar - (p + 1))));
+                }
+            }
+        }
+        return refs;
+    };
+    havok::model::NemesisFormIdCtx fidCtx;                                    // rebuilt per bundle below
+    std::unordered_map<std::string, std::vector<std::string>> bundleMasters;  // bundle -> ordered master names
+
     for (const auto& bname : bundleOrder) {
         if (cancel) { r.error = "cancelled"; return r; }
         const std::vector<std::string>& codeList = bundleCodes[bname];
@@ -1621,6 +1653,32 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         bool any = false;
         std::string codeLabel;   // "tdmh+tdmlen+tdmv" for logs
         for (const auto& c : codeList) { if (!codeLabel.empty()) codeLabel += "+"; codeLabel += c; }
+
+        // Build this bundle's FormId master table ONCE (pre-scanning all its graphs), so a master's index
+        // is identical in every graph. Own codes -> selfIndex; each foreign code -> its master's index.
+        std::set<std::string> ownLower;
+        for (const auto& c : codeList) ownLower.insert(ToLower(c));
+        const std::set<std::string> refCodes = scanReferencedCodes(codeList);
+        std::set<std::string> foreignBundlesSet;
+        for (const auto& rc : refCodes)
+            if (!ownLower.count(rc))
+                if (const auto it = codeToMod.find(rc); it != codeToMod.end()) foreignBundlesSet.insert(it->second);
+        std::vector<std::string> mastersOrdered(foreignBundlesSet.begin(), foreignBundlesSet.end());
+        std::stable_sort(mastersOrdered.begin(), mastersOrdered.end(), [&](const std::string& a, const std::string& b) {
+            const auto pa = bundlePriority.find(a), pb = bundlePriority.find(b);
+            const int va = pa != bundlePriority.end() ? pa->second : 0;
+            const int vb = pb != bundlePriority.end() ? pb->second : 0;
+            return va != vb ? va < vb : a < b;
+        });
+        if (!mastersOrdered.empty()) bundleMasters[bname] = mastersOrdered;
+        std::unordered_map<std::string, std::uint16_t> bIdx;
+        for (std::size_t i = 0; i < mastersOrdered.size(); ++i) bIdx[mastersOrdered[i]] = static_cast<std::uint16_t>(i + 1);
+        fidCtx.selfIndex = static_cast<std::uint16_t>(mastersOrdered.size() + 1);
+        fidCtx.codeIndex.clear();
+        for (const auto& oc : ownLower) fidCtx.codeIndex[oc] = fidCtx.selfIndex;
+        for (const auto& rc : refCodes)
+            if (!ownLower.count(rc))
+                if (const auto it = codeToMod.find(rc); it != codeToMod.end()) fidCtx.codeIndex[rc] = bIdx[it->second];
 
         // 2a) behavior graph deltas — MERGE every owning code's patch dir for a graph in ONE convert.
         int n = 0;
@@ -1630,7 +1688,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path patch = codeDirOf(c) / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() && convertBehaviorGraph(g, patchDirs, bname, unitOut(bname, g))) ++n;
+            if (!patchDirs.empty() && convertBehaviorGraph(g, patchDirs, bname, unitOut(bname, g), fidCtx)) ++n;
         }
 
         // 2a') FIRST-PERSON behavior graph deltas — same cross-code merge against the first-person base.
@@ -1645,7 +1703,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path patch = codeDirOf(c) / "_1stperson" / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() && convertFirstPersonGraph(g, patchDirs, bname, fpUnitOut(bname, g))) ++n;
+            if (!patchDirs.empty() && convertFirstPersonGraph(g, patchDirs, bname, fpUnitOut(bname, g), fidCtx)) ++n;
         }
 
         if (n > 0) { any = true; say("  " + bname + " [" + codeLabel + "]: " + std::to_string(n) + " graph delta(s)."); }
@@ -2016,9 +2074,15 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     for (const auto& code : emitted) {
         if (code == "CharacterFiles" || code == "BehaviorFiles") continue;   // synthetic bundles handled above
         const NemesisInfo ni = ReadNemesisInfo(dataDir / "Nemesis_Engine" / "mod" / code);
+        // Masters = Skyrim (implicit index 0) + any FOREIGN bundles this bundle's patches referenced
+        // (discovered during the graph converts, ordered by load priority). BR's BuildMasterTable rebuilds
+        // [skyrim(0), these…, self] to resolve the FormId indices this bundle emitted.
+        std::vector<std::string> masters{ "Skyrim" };
+        if (const auto it = bundleMasters.find(code); it != bundleMasters.end())
+            for (const auto& m : it->second) masters.push_back(m);
         WriteManifest(plugins / (code + ".hky"),
                       ni.name.empty() ? code : ni.name,
-                      ni.version, ni.author, { "Skyrim" });
+                      ni.version, ni.author, masters);
         ++manifests;
     }
     say("  wrote " + std::to_string(manifests) + " manifest.json file(s).");
