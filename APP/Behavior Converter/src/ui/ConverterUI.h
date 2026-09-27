@@ -26,6 +26,8 @@ public:
 
 private:
     void DrawConverterTab();           // the conversion UI (the "Converter" tab body)
+    void RefreshPlan();                // (re)build the pre-conversion LoadOrderPlan from m_profile
+    void DrawLoadOrderArranger();      // the arranger where the log used to be (plan mods, drag-reorder)
     void DrawPandoraTab();             // the "Pandora Order" tab: mod->codes tree in Pandora order + conflicts
     void DrawDiffTab();                // the "Diff" tab: the record-keyed tree-diff tool (cb-tree-diff)
     void DrawDebugTab();               // the "Debug" tab: plugin debug flags auto-enumerated from DebugFlags.h
@@ -56,6 +58,16 @@ private:
                                // and the delta load order follows modlist priority; empty = auto/off
     bool m_singleBundle = false; // MO2-PROFILE mode: merge the whole load order into ONE Pandora.hky
                                  // (unified delta, MO2 priority order, winner last). Options.singleBundle.
+
+    // ── Redesigned Converter tab (MO2-profile-only) state ─────────────────────────────────────
+    std::string          m_profile;               // MO2 profile folder (or instance root) — the ONE input
+    std::string          m_outputDir;             // where the converted set is written (or zipped into)
+    bool                 m_autoZip = false;        // zip the output instead of writing the tree directly
+    bool                 m_exportLoadOrder = true; // write loadorder.plan.txt alongside the conversion
+    bconv::LoadOrderPlan m_plan;                  // pre-conversion plan (built on profile select)
+    bool                 m_planPending = false;    // rebuild the plan on the next frame (after a profile change)
+    std::string          m_planMsg;               // status line under the profile field
+    int                  m_dragRow = -1;           // arranger drag source index (-1 = none)
 
     // Fixed, next to the exe (never shown):
     std::string m_exeDir;

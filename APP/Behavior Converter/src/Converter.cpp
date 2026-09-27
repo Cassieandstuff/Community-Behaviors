@@ -1,6 +1,7 @@
 #include "Converter.h"
 
 #include <codec/serialization/HavokFile.h>             // ReadHavokFile / WriteHavokFile
+#include <codec/formid/FormId.h>                        // CB::core::formid::SELF_INDEX / BASE_GAME_INDEX (index convention)
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
@@ -559,6 +560,192 @@ std::vector<LooseModContribution> DiscoverContributions(const Mo2Layout& mo2, co
     return out;
 }
 
+}  // namespace  (file-local helpers above; the plan API below is external in bconv)
+
+// ── Pre-conversion load-order plan (the framework the GUI arranger + the converter read) ─────────────
+// Parse a SPECIFIC profile's modlist.txt (top-first enabled) — the "point straight at the profile" path.
+static Mo2Layout ReadProfileLayout(const fs::path& profileDir, const fs::path& modsDir) {
+    Mo2Layout out;
+    std::ifstream ml(profileDir / "modlist.txt");
+    if (!ml) return out;
+    std::string line;
+    while (std::getline(ml, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        if (line.empty() || line[0] != '+') continue;   // '-' disabled, '#'/'*' separators
+        out.enabledTopFirst.push_back(line.substr(1));
+    }
+    out.ok      = !out.enabledTopFirst.empty();
+    out.modsDir = modsDir;
+    return out;
+}
+
+// Scan one mod's Nemesis patch dirs for the DISTINCT mod-codes it REFERENCES ("#<code>$<N>" markers) —
+// how a bundle's cross-bundle masters are discovered (a code it references but doesn't own is foreign).
+static std::set<std::string> ScanReferencedCodesForMod(const fs::path& modDir, const std::vector<std::string>& ownCodes) {
+    std::set<std::string> refs;
+    std::error_code se;
+    for (const auto& c : ownCodes) {
+        const fs::path codeDir = modDir / "Nemesis_Engine" / "mod" / c;
+        for (fs::recursive_directory_iterator it(codeDir, se), end; !se && it != end; it.increment(se)) {
+            if (!it->is_regular_file()) continue;
+            const std::string fn = it->path().filename().string();
+            if (fn.empty() || fn[0] != '#' || it->path().extension() != ".txt") continue;
+            std::ifstream in(it->path(), std::ios::binary);
+            const std::string t((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            for (std::size_t p = t.find('#'); p != std::string::npos; p = t.find('#', p + 1)) {
+                std::size_t i = p + 1, dollar = std::string::npos;
+                for (; i < t.size(); ++i) {
+                    const char ch = t[i];
+                    if (ch == '$') dollar = i;
+                    else if (!(std::isalnum((unsigned char)ch) || ch == '_')) break;
+                }
+                if (dollar != std::string::npos && dollar > p + 1 && i > dollar + 1)
+                    refs.insert(ToLower(t.substr(p + 1, dollar - (p + 1))));
+            }
+        }
+    }
+    return refs;
+}
+
+LoadOrderPlan BuildLoadOrderPlan(const std::string& profileOrInstance, const LogFn& log) {
+    LoadOrderPlan plan;
+    std::error_code ec;
+    const fs::path in = profileOrInstance;
+
+    // Resolve the layout: a profile dir (has modlist.txt) is used verbatim; an instance root resolves its
+    // active profile. This is the profile-first entry the redesigned GUI drives.
+    fs::path instanceRoot;
+    Mo2Layout mo2;
+    if (fs::is_regular_file(in / "modlist.txt", ec)) {                 // pointed straight at a profile
+        instanceRoot   = in.parent_path().parent_path();              // profiles/<profile> -> instance
+        mo2            = ReadProfileLayout(in, instanceRoot / "mods");
+        plan.profileDir = in.string();
+    } else if (fs::is_directory(in / "mods", ec) && fs::is_directory(in / "profiles", ec)) {
+        instanceRoot = in;
+        mo2          = ResolveMo2Layout(in);                          // active profile
+    } else {
+        plan.error = "not an MO2 profile or instance: " + profileOrInstance;
+        return plan;
+    }
+    if (!mo2.ok) { plan.error = "no enabled modlist under " + profileOrInstance; return plan; }
+    plan.modsDir = mo2.modsDir.string();
+
+    // Resolve the DATA dir the converter reads the base + existing bundles from: it needs
+    // <dataDir>/community_behaviors/plugins/Skyrim.hky (the master everything derives against). That base
+    // ships INSIDE the Community Behaviors mod, so under a standalone (non-VFS) run it is NOT in the game
+    // Data — find the enabled mod (top-first) that ships it and use ITS folder as the data dir. When the
+    // tool is launched THROUGH MO2 the VFS ./Data already overlays that mod, but resolving the mod folder
+    // works either way. Fall back to the ini gamePath\Data only if no mod ships the base.
+    {
+        std::error_code de;
+        for (const std::string& modName : mo2.enabledTopFirst) {
+            const fs::path cand = mo2.modsDir / modName;
+            if (fs::is_regular_file(cand / "community_behaviors" / "plugins" / "Skyrim.hky", de)) {
+                plan.gameDataDir = cand.generic_string();   // the folder that IS the base's data root
+                break;
+            }
+        }
+    }
+    // gamePath from ModOrganizer.ini — a fallback data root (and surfaced in the GUI) when no mod ships the base.
+    if (plan.gameDataDir.empty())
+        if (std::ifstream ini{ instanceRoot / "ModOrganizer.ini" }) {
+            std::string line;
+            while (std::getline(ini, line)) {
+                const auto p = line.find("gamePath");
+                if (p == std::string::npos) continue;
+                const auto eq = line.find('=', p); if (eq == std::string::npos) break;
+                std::string v = line.substr(eq + 1);
+                if (const auto ba = v.find("ByteArray("); ba != std::string::npos) {
+                    const auto o = v.find('(', ba), c = v.rfind(')');
+                    if (o != std::string::npos && c != std::string::npos && c > o) v = v.substr(o + 1, c - o - 1);
+                }
+                while (!v.empty() && (v.back()=='\r'||v.back()=='\n'||v.back()==' '||v.back()=='"')) v.pop_back();
+                while (!v.empty() && (v.front()==' '||v.front()=='"')) v.erase(v.begin());
+                for (char& ch : v) if (ch == '\\') ch = '/';
+                if (!v.empty()) plan.gameDataDir = v + "/Data";
+                break;
+            }
+        }
+
+    std::unordered_set<std::string> excluded;   // engine codes (Pandora/Nemesis) dropped by discovery
+    const auto contribs = DiscoverContributions(mo2, log, excluded);
+
+    // code -> owning mod = the DEDICATED mod (fewest codes; tie -> top load priority). A shared code
+    // (e.g. `dmco` in both BFCO and the standalone Dodge MCO-DXP) is owned by the mod it is the primary
+    // content of, so it lives in ONE bundle and other mods MASTER it — matching the converter's grouping.
+    {
+        std::vector<const LooseModContribution*> byDedication;
+        for (const auto& c : contribs) byDedication.push_back(&c);
+        std::stable_sort(byDedication.begin(), byDedication.end(),
+            [](const LooseModContribution* a, const LooseModContribution* b) {
+                if (a->nemesisCodes.size() != b->nemesisCodes.size()) return a->nemesisCodes.size() < b->nemesisCodes.size();
+                return a->priority < b->priority;
+            });
+        for (const LooseModContribution* c : byDedication)
+            for (const auto& code : c->nemesisCodes)
+                plan.codeOwner.emplace(ToLower(code), c->modName);
+    }
+
+    // Per-mod: master table = [Skyrim, ...cross-bundle owners of the FOREIGN codes it references...],
+    // ordered by load priority (winner first). Self is the implicit index 0.
+    std::unordered_map<std::string, int> priOf;
+    for (const auto& c : contribs) priOf[c.modName] = c.priority;
+    for (const auto& c : contribs) {
+        PlanMod pm;
+        pm.modName        = c.modName;
+        pm.priority       = c.priority + 1;               // 1 = winner (top)
+        pm.codes          = c.nemesisCodes;
+        pm.hasPrecompiled = !c.precompiledGraphs.empty();
+        pm.masters.push_back("Skyrim");                   // base, present for all (index 1)
+
+        std::unordered_set<std::string> own;
+        for (const auto& code : c.nemesisCodes) own.insert(ToLower(code));
+        std::set<std::string> foreignMods;
+        // (1) SHARED-OWNED codes: a code this mod ships is CANONICALLY owned by a higher-priority mod
+        // (both ship it — e.g. BFCO bundles `dmco`, Dodge MCO-DXP owns `dmco`). The lower-priority mod
+        // masters the owner so its edits to that code's nodes resolve to the owner's identity, not a
+        // separate self node. This is the case that fixed the DMCO_Stt Dodge collision.
+        for (const auto& oc : own)
+            if (const auto it = plan.codeOwner.find(oc); it != plan.codeOwner.end() && it->second != c.modName)
+                foreignMods.insert(it->second);
+        // (2) REFERENCED foreign codes: a `#code$N` this mod's patches reference that another mod owns.
+        const auto refs = ScanReferencedCodesForMod(mo2.modsDir / c.modName, c.nemesisCodes);
+        for (const auto& rc : refs)
+            if (!own.count(rc))
+                if (const auto it = plan.codeOwner.find(rc); it != plan.codeOwner.end() && it->second != c.modName)
+                    foreignMods.insert(it->second);
+        std::vector<std::string> ordered(foreignMods.begin(), foreignMods.end());
+        std::stable_sort(ordered.begin(), ordered.end(), [&](const std::string& a, const std::string& b) {
+            const int pa = priOf.count(a) ? priOf[a] : 1<<30, pb = priOf.count(b) ? priOf[b] : 1<<30;
+            return pa != pb ? pa < pb : a < b;
+        });
+        for (auto& m : ordered) pm.masters.push_back(m);
+        if (log && ordered.size())
+            log("  plan: '" + c.modName + "' masters " + std::to_string(ordered.size()) +
+                " cross-bundle bundle(s) via shared code(s).");
+        plan.mods.push_back(std::move(pm));
+    }
+    plan.ok = true;
+    return plan;
+}
+
+std::string EmitLoadOrderText(const LoadOrderPlan& plan) {
+    // One mod per line, winner (priority 1) FIRST, with its resolved master table. The authoritative,
+    // reproducible record of the order the conversion used. Lines are "prio\tmod\t[codes]\tmasters:...".
+    std::string out = "# Community Behaviors load order (winner first)\n";
+    out += "# self = FormId index 0; masters listed are indices 1..k (Skyrim first)\n";
+    for (const auto& m : plan.mods) {
+        out += std::to_string(m.priority) + "\t" + m.modName + "\t[";
+        for (std::size_t i = 0; i < m.codes.size(); ++i) { if (i) out += ","; out += m.codes[i]; }
+        out += "]\tmasters:";
+        for (std::size_t i = 0; i < m.masters.size(); ++i) { if (i) out += ","; out += m.masters[i]; }
+        out += "\n";
+    }
+    return out;
+}
+
+namespace {  // file-local helpers resume
+
 // Best-effort auto-derive of the MO2 instance root when the caller gave none. dataDir is usually
 // the VFS-merged game Data (NOT under the instance), so this rarely succeeds — the explicit
 // Options::mo2Instance is the reliable path — but try the cheap signals: climb dataDir's parents
@@ -883,7 +1070,9 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     std::unordered_map<std::string, std::string> prefixToMod;  // lower(prefix) -> modName (winner)
     std::unordered_map<std::string, int>         bundlePriority; // modName -> modlist rank (0 = top/winner)
     std::unordered_set<std::string>              excludedCodes;  // lower(code) — engine (Pandora/Nemesis) codes to skip
-    Mo2Layout mo2;   // hoisted to function scope so the per-mod animation pass (after `plugins` below) can walk enabled mods
+    Mo2Layout     mo2;   // hoisted to function scope so the per-mod animation pass (after `plugins` below) can walk enabled mods
+    LoadOrderPlan plan;  // the SAME pre-conversion plan the GUI arranger builds — single source of truth for the
+                         // load order + resolved master tables; logged here and exported as the authoritative record.
     {
         const fs::path inst = DeriveInstanceRoot(dataDir, opt.mo2Instance, log);
         if (inst.empty()) {
@@ -897,11 +1086,34 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             } else {
                 say("MO2 instance: " + inst.string() + " (" + std::to_string(mo2.enabledTopFirst.size()) +
                     " enabled mod(s)). Attributing bundles to owning mods.");
+                // Pre-conversion plan: decide the load order + cross-bundle master tables ONCE, up-front,
+                // so they're stable and reproducible. The GUI arranger builds this same object; exported
+                // below as loadorder.plan.txt (the runtime loadorder.txt — bundle order — is written later).
+                plan = BuildLoadOrderPlan(inst.string(), log);
+                if (plan.ok)
+                    say("Plan: " + std::to_string(plan.mods.size()) + " behavior mod(s), master tables resolved (self=0, Skyrim=1).");
                 const auto contribs = DiscoverContributions(mo2, log, excludedCodes);
+                for (const auto& c : contribs) bundlePriority[c.modName] = c.priority;
+                // OWNERSHIP of a shared code = the DEDICATED mod. A code carried by several mods (e.g. `dmco`
+                // in both BFCO's integration and the standalone Dodge MCO-DXP) is owned by the mod for which
+                // it is the primary content — the one with the FEWEST codes (tie -> top load priority). This
+                // keeps a shared code in ONE bundle (its dedicated mod) and lets the bundling mod MASTER it,
+                // instead of top-priority absorbing it into a multi-code bundle where its locals collide with
+                // that bundle's own code (the bfco$3 / dmco$3 -> 0000x0003 collision).
+                {
+                    std::vector<const LooseModContribution*> byDedication;
+                    for (const auto& c : contribs) byDedication.push_back(&c);
+                    std::stable_sort(byDedication.begin(), byDedication.end(),
+                        [](const LooseModContribution* a, const LooseModContribution* b) {
+                            if (a->nemesisCodes.size() != b->nemesisCodes.size())
+                                return a->nemesisCodes.size() < b->nemesisCodes.size();   // fewest codes = dedicated
+                            return a->priority < b->priority;                              // tie -> top priority
+                        });
+                    for (const LooseModContribution* c : byDedication)
+                        for (const auto& code : c->nemesisCodes)
+                            codeToMod.emplace(ToLower(code), c->modName);   // dedicated owner claims first
+                }
                 for (const auto& c : contribs) {
-                    bundlePriority[c.modName] = c.priority;
-                    for (const auto& code : c.nemesisCodes)
-                        codeToMod.emplace(ToLower(code), c.modName);   // first (top-priority) wins
                     for (const auto& hkx : c.precompiledGraphs) {
                         // meshes-relative prefix, e.g. "meshes/actors/horse/behaviors/horsebehavior.hkx"
                         std::error_code re;
@@ -1671,9 +1883,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             return va != vb ? va < vb : a < b;
         });
         if (!mastersOrdered.empty()) bundleMasters[bname] = mastersOrdered;
+        // Index convention (FormId.h): self=0, skyrim=1, further masters 2+. Foreign cross-bundle masters
+        // therefore start at index 2 (skyrim occupies 1). Bare vanilla refs resolve to skyrim=1 in toFormId.
         std::unordered_map<std::string, std::uint16_t> bIdx;
-        for (std::size_t i = 0; i < mastersOrdered.size(); ++i) bIdx[mastersOrdered[i]] = static_cast<std::uint16_t>(i + 1);
-        fidCtx.selfIndex = static_cast<std::uint16_t>(mastersOrdered.size() + 1);
+        for (std::size_t i = 0; i < mastersOrdered.size(); ++i) bIdx[mastersOrdered[i]] = static_cast<std::uint16_t>(i + 2);
+        fidCtx.selfIndex = CB::core::formid::SELF_INDEX;   // 0 — this bundle's own new nodes
         fidCtx.codeIndex.clear();
         for (const auto& oc : ownLower) fidCtx.codeIndex[oc] = fidCtx.selfIndex;
         for (const auto& rc : refCodes)
@@ -1793,9 +2007,26 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         std::vector<std::uint8_t> ub;
                         std::string               uerr;
                         if (havok::sct::ReadHavokFile(hkx.string(), ub, &uerr)) {
-                            const auto dres = havok::decompile::DecompileUnit(ub, unitDir.string());
-                            if (dres.ok && dres.kind == "behavior") ++ownedUnits;
-                            else fs::remove_all(unitDir, ue);   // not a behavior / failed — leave no junk
+                            // Emit this new sub-behavior's node ids in the bundle's FormId SELF space
+                            // (fidCtx.selfIndex) — the SAME space the mod's 0_master delta already
+                            // references it by. A generic DecompileUnit emits BARE ids, which the loader
+                            // canonicalizer keys differently from a FormId ref (bare "N" vs "@rank.N"),
+                            // so a future mod that MASTERS this graph would mis-merge against it (the
+                            // stale-base id-space mismatch, applied to a new graph). Schema behavior path
+                            // only; a non-behavior / no-schema / failed unit falls back to the generic
+                            // decompile (bare ids, standalone-safe) so nothing regresses.
+                            std::string schErr;
+                            bool        owned = false;
+                            if (haveSchema &&
+                                havok::model::DecompileBehaviorSchema(ub, "", schemaReg, unitDir.string(), schErr,
+                                                                      /*selfIndex*/ fidCtx.selfIndex)) {
+                                ++ownedUnits; owned = true;
+                            }
+                            if (!owned) {
+                                const auto dres = havok::decompile::DecompileUnit(ub, unitDir.string());
+                                if (dres.ok && dres.kind == "behavior") ++ownedUnits;
+                                else fs::remove_all(unitDir, ue);   // not a behavior / failed — leave no junk
+                            }
                         }
                     }
                 }
@@ -2052,6 +2283,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (appended) say("  loadorder.txt: preserved existing order, appended " +
                           std::to_string(appended) + " new bundle(s).");
         else say("  loadorder.txt: preserved existing order (no new bundles).");
+
+        // Authoritative pre-conversion record: the resolved order + each mod's master table (self=0,
+        // Skyrim=1, cross-bundle 2+). Reproducible companion to the runtime loadorder.txt above.
+        if (plan.ok) {
+            std::ofstream planOut(loPath.parent_path() / "loadorder.plan.txt", std::ios::binary);
+            planOut << EmitLoadOrderText(plan);
+            say("  loadorder.plan.txt: wrote resolved plan (" + std::to_string(plan.mods.size()) + " mod(s)).");
+        }
     }
 
     // 5) Manifests — one manifest.json per bundle (BundleManifest schema). Every mod bundle
@@ -2074,9 +2313,9 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     for (const auto& code : emitted) {
         if (code == "CharacterFiles" || code == "BehaviorFiles") continue;   // synthetic bundles handled above
         const NemesisInfo ni = ReadNemesisInfo(dataDir / "Nemesis_Engine" / "mod" / code);
-        // Masters = Skyrim (implicit index 0) + any FOREIGN bundles this bundle's patches referenced
-        // (discovered during the graph converts, ordered by load priority). BR's BuildMasterTable rebuilds
-        // [skyrim(0), these…, self] to resolve the FormId indices this bundle emitted.
+        // Masters = Skyrim (index 1) + any FOREIGN bundles this bundle's patches referenced (discovered
+        // during the graph converts, ordered by load priority; indices 2+). BR's BuildMasterTable rebuilds
+        // [self(0), skyrim(1), these…(2+)] to resolve the FormId indices this bundle emitted. Skyrim first.
         std::vector<std::string> masters{ "Skyrim" };
         if (const auto it = bundleMasters.find(code); it != bundleMasters.end())
             for (const auto& m : it->second) masters.push_back(m);
@@ -2388,7 +2627,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     if (auto* sreg = havok::schema::SharedRegistry()) {
                         std::string derr;
                         if (havok::model::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr,
-                                                                  /*selfIndex=Skyrim*/ 0)) {
+                                                                  /*selfIndex=self(base)*/ 0)) {
                             ++r.behaviors; continue;
                         }
                         say("  WARN: schema base decompile failed for " + fs::path(rel).stem().string() +
@@ -2415,7 +2654,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
                 std::string derr;
                 if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr,
-                                                          /*selfIndex=Skyrim*/ 0)) { ++r.behaviors; continue; }
+                                                          /*selfIndex=self(base)*/ 0)) { ++r.behaviors; continue; }
                 say("  WARN: schema decompile failed for " + rel + " (" + derr + ") — unit skipped (no typed fallback; needs a schema fix).");
                 ++r.failed; continue;   // re-running the same schema emitter via DecompileUnit won't help
             }

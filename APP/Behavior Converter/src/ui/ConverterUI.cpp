@@ -133,6 +133,8 @@ ConverterUI::ConverterUI() {
     m_stagingDir    = (exe / "staging").string();
     LoadSettings();   // override m_dataDir / m_zipDir from sct_converter.ini if present
     LoadPandoraOrderFile();   // <exe>/pandora_order.txt -> m_pandoraModOrder (Pandora Order tab override)
+    if (m_outputDir.empty()) m_outputDir = m_zipDir;   // sensible default: the downloads/mods folder
+    m_planPending = true;   // build the plan on the first frame if a profile was restored from settings
 }
 
 std::string ConverterUI::BrLoadOrderPath() const {
@@ -159,6 +161,9 @@ void ConverterUI::LoadSettings() {
         else if (key == "name" && !val.empty()) m_zipName = val;
         else if (key == "mo2") m_mo2Instance = val;   // may be empty (optional)
         else if (key == "pandora") m_singleBundle = (val == "1" || val == "true" || val == "yes" || val == "on");
+        else if (key == "profile" && !val.empty()) m_profile = val;
+        else if (key == "output"  && !val.empty()) m_outputDir = val;
+        else if (key == "autozip") m_autoZip = (val == "1" || val == "true" || val == "yes" || val == "on");
     }
 }
 
@@ -171,6 +176,9 @@ void ConverterUI::SaveSettings() const {
     f << "name=" << m_zipName  << "\n";
     f << "mo2="  << m_mo2Instance << "\n";
     f << "pandora=" << (m_singleBundle ? "true" : "false") << "\n";
+    f << "profile=" << m_profile   << "\n";
+    f << "output="  << m_outputDir << "\n";
+    f << "autozip=" << (m_autoZip ? "true" : "false") << "\n";
 }
 
 ConverterUI::~ConverterUI() {
@@ -196,65 +204,51 @@ void ConverterUI::StartConvert() {
     { std::lock_guard<std::mutex> lk(m_logMx); m_log.clear(); m_zipMsg.clear(); }
     SaveSettings();
     m_cancel = false; m_running = true; m_finished = false;
-    bconv::Options opt{ m_dataDir, m_templatesDir, m_baseDir, m_stagingDir, Trim(m_mo2Instance),
-                        m_singleBundle };
-    if (m_singleBundle) opt.pandoraModOrder = m_pandoraModOrder;   // tuned order from the Pandora Order tab
-    // Snapshot everything the worker touches so it never races the UI fields.
-    const std::string staging = m_stagingDir;
-    const std::string zipDir  = m_zipDir;
-    const std::string loPath  = BrLoadOrderPath();   // the ACTIVE loadorder.txt in the Data VFS
-    // Resolve the zip file name here (base name -> "<name>.zip"): empty falls back to the
-    // default; a user-typed ".zip" isn't doubled (case-insensitive check).
-    std::string zipFile = Trim(m_zipName);
-    if (zipFile.empty()) zipFile = "Output_Community Behaviors";
-    {
-        std::string ext = zipFile.size() >= 4 ? zipFile.substr(zipFile.size() - 4) : "";
-        std::transform(ext.begin(), ext.end(), ext.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (ext != ".zip") zipFile += ".zip";
-    }
-    m_worker = std::thread([this, opt, staging, zipDir, loPath, zipFile]() {
+
+    // MO2-profile only: derive the instance root from the profile (a profile dir carries modlist.txt;
+    // otherwise the field already IS an instance root). dataDir = the game Data from the profile ini.
+    const std::string prof = Trim(m_profile);
+    std::string instance = prof;
+    { std::error_code ec;
+      if (fs::is_regular_file(fs::path(prof) / "modlist.txt", ec))
+          instance = fs::path(prof).parent_path().parent_path().string(); }
+
+    const bool        autoZip = m_autoZip;
+    const std::string outDir  = Trim(m_outputDir);
+    const std::string convOut = autoZip ? m_stagingDir : outDir;      // the converter writes its tree here
+    // dataDir = where the base Skyrim.hky + existing bundles are read. Prefer the VFS ./Data (has the full
+    // mod overlay) when the tool is launched THROUGH MO2 and it actually contains the base; otherwise use
+    // the mod folder the plan resolved as shipping the base (standalone run).
+    std::string dataDir = m_plan.ok ? m_plan.gameDataDir : std::string();
+    { std::error_code ec;
+      if (fs::is_regular_file(fs::path(m_dataDir) / "community_behaviors" / "plugins" / "Skyrim.hky", ec))
+          dataDir = m_dataDir; }
+
+    // per-mod bundles (singleBundle=false) — the mockup's "N behavior bundles" model.
+    bconv::Options opt{ dataDir, m_templatesDir, m_baseDir, convOut, instance, /*singleBundle*/ false };
+
+    const std::string zipName = "Output_Community Behaviors.zip";
+
+    m_worker = std::thread([this, opt, autoZip, outDir, convOut, zipName]() {
         std::error_code ec;
-
-        // 1) Wipe staging so a shrinking conversion (a removed mod) can't leave a stale
-        //    bundle in the zip. Safe: staging is ours, next to the exe.
-        fs::remove_all(staging, ec);
-        const fs::path brDir = fs::path(staging) / "community_behaviors";
-        fs::create_directories(brDir, ec);
-
-        // 2) Seed the canonical loadorder.txt (kept next to the exe, so it survives the wipe)
-        //    into staging so ConvertLoadOrder's preserve-and-append logic finds the user's
-        //    tuned order. Without this, every convert would revert to fresh alphabetical —
-        //    the exact order-clobber that broke combat before.
-        if (fs::exists(loPath, ec))
-            fs::copy_file(loPath, brDir / "loadorder.txt",
-                          fs::copy_options::overwrite_existing, ec);
+        if (autoZip) fs::remove_all(convOut, ec);                     // clean staging for a fresh zip
+        fs::create_directories(fs::path(convOut) / "community_behaviors", ec);
 
         m_result = bconv::ConvertLoadOrder(
             opt, [this](std::string s) { AppendLog(std::move(s)); }, m_cancel);
 
-        if (m_result.ok) {
-            // 3) Persist the (preserved + appended) loadorder back to the ACTIVE Data-VFS copy
-            //    so the Load Order tab and the next convert see the same order (under MO2 this
-            //    write lands in overwrite, which shadows the installed mod's copy — same bytes).
-            //    Create community_behaviors/ first in case no BR mod is installed there yet.
-            std::error_code ce;
-            fs::create_directories(fs::path(loPath).parent_path(), ce);
-            fs::copy_file(brDir / "loadorder.txt", loPath,
-                          fs::copy_options::overwrite_existing, ce);
-
-            // 4) Always package: zip staging -> <zipDir>/<name>.zip (beside staging, never
-            //    inside it). Install it in MO2 as a replace. Full path logged.
-            if (zipDir.empty()) {
-                SetZipMsg("No zip destination set.");
-                AppendLog("Package FAILED: no zip destination set.");
-            } else {
-                const std::string zip = (fs::path(zipDir) / zipFile).string();
+        if (m_result.ok && autoZip) {
+            if (outDir.empty()) { SetZipMsg("No output folder set."); AppendLog("Package FAILED: no output folder."); }
+            else {
+                const std::string zip = (fs::path(outDir) / zipName).string();
                 std::string err;
-                const bool ok = sct::util::ZipDir(staging, zip, err);
+                const bool ok = sct::util::ZipDir(convOut, zip, err);
                 SetZipMsg(ok ? ("Packaged -> " + zip) : ("Package failed: " + err));
                 AppendLog(ok ? ("Packaged -> " + zip) : ("Package FAILED: " + err));
             }
+        } else if (m_result.ok) {
+            SetZipMsg("Wrote converted set -> " + convOut);
+            AppendLog("Wrote converted set -> " + convOut);
         }
         m_running  = false;
         m_finished = true;
@@ -300,112 +294,152 @@ void ConverterUI::Draw() {
     ImGui::End();
 }
 
-void ConverterUI::DrawConverterTab() {
-    ImGui::TextUnformatted(
-        "Convert a Nemesis/Pandora behavior load order into a Community Behaviors .zip.");
-    ImGui::TextDisabled("Run through MO2 so the Data folder is the merged VFS view. "
-                        "Install the .zip in MO2 (as a replace when re-running).");
-    ImGui::Separator();
+void ConverterUI::RefreshPlan() {
+    m_planMsg.clear();
+    const std::string prof = Trim(m_profile);
+    if (prof.empty()) { m_plan = {}; m_planMsg = "Select an MO2 profile (or instance root) above."; return; }
+    m_plan = bconv::BuildLoadOrderPlan(prof, [](std::string) {});
+    if (!m_plan.ok) { m_planMsg = "Plan: " + m_plan.error; return; }
+    int withCodes = 0; for (const auto& m : m_plan.mods) if (!m.codes.empty()) ++withCodes;
+    m_planMsg = "auto-detected — " + std::to_string(m_plan.mods.size()) + " behavior mod(s), " +
+                std::to_string(withCodes) + " with codes · master tables resolved (self=0, Skyrim=1)";
+}
 
+void ConverterUI::DrawLoadOrderArranger() {
+    if (!m_plan.ok) {
+        ImGui::Dummy(ImVec2(0, 8));
+        ImGui::TextDisabled("Select an MO2 profile above to catalogue its behavior mods and resolve master tables.");
+        return;
+    }
+    ImGui::TextDisabled("Load order — drag to reorder · priority 1 = winner · masters resolved from shared mod-codes");
+    const ImGuiTableFlags tf = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                               ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
+    if (ImGui::BeginTable("loarr", 4, tf)) {
+        ImGui::TableSetupColumn("#",       ImGuiTableColumnFlags_WidthFixed, 34.0f);
+        ImGui::TableSetupColumn("Mod");
+        ImGui::TableSetupColumn("Codes",   ImGuiTableColumnFlags_WidthFixed, 180.0f);
+        ImGui::TableSetupColumn("Masters", ImGuiTableColumnFlags_WidthFixed, 190.0f);
+        ImGui::TableHeadersRow();
+        for (int i = 0; i < static_cast<int>(m_plan.mods.size()); ++i) {
+            auto& m = m_plan.mods[i];
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            const std::string rid = std::to_string(i + 1) + "##row" + std::to_string(i);
+            ImGui::Selectable(rid.c_str(), false, ImGuiSelectableFlags_SpanAllColumns);
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoDisableHover)) {
+                ImGui::SetDragDropPayload("CB_LOROW", &i, sizeof(int));
+                ImGui::TextUnformatted(m.modName.c_str());
+                ImGui::EndDragDropSource();
+            }
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("CB_LOROW")) {
+                    const int src = *static_cast<const int*>(pl->Data);
+                    if (src >= 0 && src < static_cast<int>(m_plan.mods.size()) && src != i) {
+                        bconv::PlanMod moved = m_plan.mods[src];
+                        m_plan.mods.erase(m_plan.mods.begin() + src);
+                        m_plan.mods.insert(m_plan.mods.begin() + i, std::move(moved));
+                        for (int k = 0; k < static_cast<int>(m_plan.mods.size()); ++k) m_plan.mods[k].priority = k + 1;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(m.modName.c_str());
+            ImGui::TableSetColumnIndex(2);
+            std::string codes; for (std::size_t c = 0; c < m.codes.size(); ++c) { if (c) codes += "  "; codes += m.codes[c]; }
+            ImGui::TextColored(ImVec4(0.34f, 0.78f, 0.83f, 1.0f), "%s", codes.c_str());
+            ImGui::TableSetColumnIndex(3);
+            // masters[0] = Skyrim (index 1); [1+] = cross-bundle (index 2+). self is implicit index 0.
+            std::string mstr = "self";
+            for (std::size_t k = 0; k < m.masters.size(); ++k) { mstr += " · "; mstr += m.masters[k]; }
+            ImGui::TextDisabled("%s", mstr.c_str());
+        }
+        ImGui::EndTable();
+    }
+}
+
+void ConverterUI::DrawConverterTab() {
     const bool busy = m_running.load();
 
+    // (Re)build the plan after the profile field settles (not on every keystroke).
+    if (m_planPending && !busy && !ImGui::IsAnyItemActive()) { m_planPending = false; RefreshPlan(); }
+
+    // ── MO2 Profile ──────────────────────────────────────────────────────────────────────────
+    ImGui::TextDisabled("MO2 PROFILE");
     ImGui::BeginDisabled(busy);
-    ImGui::PushItemWidth(-260.0f);
-    InputPath("##data", m_dataDir);
-    ImGui::SameLine();
-    if (ImGui::Button("Browse##data")) {
-        std::string p;
-        if (sct::ui::PickFolder("Select the game Data folder (MO2 VFS)", m_dataDir.c_str(), p)) m_dataDir = p;
-    }
-    ImGui::SameLine(); ImGui::TextUnformatted("Data folder");
-
-    InputPath("##zip", m_zipDir);
-    ImGui::SameLine();
-    if (ImGui::Button("Browse##zip")) {
-        std::string p;
-        if (sct::ui::PickFolder("Select where the .zip should land (your MO2 downloads folder)",
-                                m_zipDir.c_str(), p)) m_zipDir = p;
-    }
-    ImGui::SameLine(); ImGui::TextUnformatted("Zip destination");
-
-    InputPath("##zipname", m_zipName);
-    ImGui::SameLine(); ImGui::TextDisabled(".zip");
-    ImGui::SameLine(); ImGui::TextUnformatted("Zip name (= MO2 mod name)");
-
-    InputPath("##mo2", m_mo2Instance);
-    ImGui::SameLine();
-    if (ImGui::Button("Browse##mo2")) {
-        std::string p;
-        if (sct::ui::PickFolder("Select your MO2 instance root (contains mods\\ and profiles\\)",
-                                m_mo2Instance.c_str(), p)) m_mo2Instance = p;
-    }
-    ImGui::SameLine(); ImGui::TextUnformatted("MO2 instance (optional)");
-    if (m_mo2Instance.empty()) {
-        ImGui::TextDisabled("    Optional: point at your MO2 instance to name bundles after the owning mods");
-        ImGui::TextDisabled("    and pull in loose precompiled behaviors (e.g. HorsePower's horse graph). Blank = off.");
-    }
+    ImGui::PushItemWidth(-120.0f);
+    if (InputPath("##profile", m_profile)) m_planPending = true;
     ImGui::PopItemWidth();
+    ImGui::SameLine();
+    if (ImGui::Button("Change…", ImVec2(110, 0))) {
+        std::string p;
+        if (sct::ui::PickFolder("Select your MO2 profile folder (contains modlist.txt) or instance root",
+                                m_profile.c_str(), p)) { m_profile = p; RefreshPlan(); }
+    }
+    ImGui::EndDisabled();
+    if (!m_planMsg.empty())
+        ImGui::TextColored(m_plan.ok ? ImVec4(0.45f, 0.82f, 0.5f, 1.0f) : ImVec4(0.95f, 0.8f, 0.45f, 1.0f),
+                           "%s", m_planMsg.c_str());
+    if (m_plan.ok) {
+        ImGui::TextDisabled("mods: %s", m_plan.modsDir.c_str());
+        if (!m_plan.gameDataDir.empty()) ImGui::TextDisabled("game data: %s", m_plan.gameDataDir.c_str());
+    }
+    ImGui::Separator();
 
-    ImGui::Spacing();
-    // Mode: single-mod (per-mod bundles, author path) vs MO2-profile (one Pandora.hky, user path).
-    // The Pandora merge needs a real MO2 instance for correct override ORDER (winner last); without
-    // one the codes fall back to alphabetical and overwrites resolve wrong.
-    ImGui::Checkbox("MO2-profile mode: merge the whole load order into one Pandora.hky", &m_singleBundle);
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("On:  merge every mod's patches into a single Pandora.hky (MO2 priority order,\n"
-                          "     later mod wins) — the user ships one bundle, no CB load order to manage.\n"
-                          "Off: per-mod bundles (<Mod>.hky each) — the mod-author / CB-native path.");
-    if (m_singleBundle && Trim(m_mo2Instance).empty())
-        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f),
-                           "    Set the MO2 instance above — without it, override order falls back to alphabetical (wrong).");
+    // ── main area: the load-order arranger (idle) or the conversion log (busy/finished) ────────
+    const float footer = ImGui::GetFrameHeightWithSpacing() * 4.4f + 22.0f;
+    float mainH = ImGui::GetContentRegionAvail().y - footer;
+    if (mainH < 80.0f) mainH = 80.0f;
+    ImGui::BeginChild("mainArea", ImVec2(0, mainH), false);
+    if (busy || m_finished.load()) {
+        std::lock_guard<std::mutex> lk(m_logMx);
+        for (const auto& line : m_log) ImGui::TextUnformatted(line.c_str());
+        if (m_autoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f) ImGui::SetScrollHereY(1.0f);
+    } else {
+        DrawLoadOrderArranger();
+    }
+    ImGui::EndChild();
+
+    // ── footer: output folder + toggles + convert (bottom) ─────────────────────────────────────
+    ImGui::Separator();
+    ImGui::TextDisabled("OUTPUT FOLDER");
+    ImGui::BeginDisabled(busy);
+    ImGui::PushItemWidth(-120.0f);
+    InputPath("##out", m_outputDir);
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+    if (ImGui::Button("Browse…##out", ImVec2(110, 0))) {
+        std::string p;
+        if (sct::ui::PickFolder("Select the output folder (your MO2 mods folder, as a new mod)",
+                                m_outputDir.c_str(), p)) m_outputDir = p;
+    }
+    ImGui::Checkbox("Export loadorder.txt with conversion", &m_exportLoadOrder);
+    ImGui::SameLine(0.0f, 24.0f);
+    ImGui::Checkbox("Zip output automatically", &m_autoZip);
     ImGui::EndDisabled();
 
     ImGui::Spacing();
     if (!busy) {
-        if (ImGui::Button("Convert", ImVec2(150, 34))) StartConvert();
+        const bool ready = m_plan.ok && !Trim(m_outputDir).empty();
+        ImGui::BeginDisabled(!ready);
+        const char* label = !m_plan.ok ? "Convert  (select an MO2 profile first)"
+                          : Trim(m_outputDir).empty() ? "Convert  (choose an output folder)"
+                          : "Convert load order  →  .hky bundles";
+        if (ImGui::Button(label, ImVec2(-1, 40))) StartConvert();
+        ImGui::EndDisabled();
     } else {
-        if (ImGui::Button("Cancel", ImVec2(150, 34))) m_cancel = true;
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Converting...");
+        if (ImGui::Button("Cancel", ImVec2(-1, 40))) m_cancel = true;
     }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Open zip folder", ImVec2(160, 34))) OpenInExplorer(m_zipDir);
-    ImGui::EndDisabled();
-
-    {
-        std::lock_guard<std::mutex> lk(m_logMx);   // m_zipMsg is written by the worker too
-        if (!m_zipMsg.empty()) ImGui::TextDisabled("%s", m_zipMsg.c_str());
-    }
-
     if (m_finished.load()) {
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
         if (m_result.ok)
-            ImGui::TextColored(ImVec4(0.55f, 0.90f, 0.55f, 1.0f),
-                               "OK — %d base graphs, %d mod bundle(s), %d deltas, "
-                               "%d set-data, %d anim-data, %d/2 base%s",
-                               m_result.graphs, m_result.mods, m_result.deltas,
-                               m_result.setMods, m_result.animMods, m_result.baseFiles,
-                               m_result.skipped ? " (some skipped)" : "");
+            ImGui::TextColored(ImVec4(0.55f, 0.90f, 0.55f, 1.0f), "OK — %d mod bundle(s), %d deltas, %d set-data%s",
+                               m_result.mods, m_result.deltas, m_result.setMods, m_result.skipped ? " (some skipped)" : "");
         else
             ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "FAILED: %s", m_result.error.c_str());
     }
-
-    ImGui::Separator();
-    ImGui::Checkbox("Auto-scroll", &m_autoscroll);
-    ImGui::SameLine();
-    ImGui::TextDisabled("Community Behaviors.zip: community_behaviors/plugins/Skyrim.hky (master base) + <Mod>.hky per mod (behavior+setdata+animdata) + loadorder.txt");
-
-    ImGui::BeginChild("log", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
     {
         std::lock_guard<std::mutex> lk(m_logMx);
-        for (const auto& line : m_log) ImGui::TextUnformatted(line.c_str());
+        if (!m_zipMsg.empty()) ImGui::TextDisabled("%s", m_zipMsg.c_str());
     }
-    if (m_autoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f)
-        ImGui::SetScrollHereY(1.0f);
-    ImGui::EndChild();
 }
 
 // ── Pandora Order tab ─────────────────────────────────────────────────────────────────────────

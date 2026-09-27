@@ -6,9 +6,12 @@
 #include <atomic>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace bconv {
+
+using LogFn = std::function<void(std::string)>;
 
 struct Options {
     std::string dataDir;       // VFS Data folder (contains Nemesis_Engine/mod/<code>/)
@@ -74,6 +77,41 @@ struct PandoraAnalysis {
 // ActiveMods.json + (optionally) the MO2 instance for owning-mod grouping. Read-only; no conversion.
 PandoraAnalysis AnalyzePandoraOrder(const std::string& dataDir, const std::string& mo2Instance);
 
+// ── Pre-conversion load-order plan ────────────────────────────────────────────────────────────────
+// The framework the GUI arranger + the converter both read. Built once from an MO2 profile BEFORE any
+// conversion, so master tables are decided up-front and stable (append-only). One entry per installed mod
+// that carries behavior content (Nemesis codes and/or precompiled graphs), in load order.
+struct PlanMod {
+    std::string              modName;                 // installed mod folder name (bundle identity)
+    int                      priority = 0;            // 1 = winner (top of the load order)
+    std::vector<std::string> codes;                   // its Nemesis mod-codes (original case)
+    bool                     hasPrecompiled = false;  // ships precompiled loose behavior graph(s)
+    // Ordered master BUNDLE names: index 0 is IMPLICIT self; [0]="Skyrim" (the base, present for all),
+    // [1..] = cross-bundle masters resolved from shared mod-codes (a mod referencing another's code).
+    // FormId master table = [self(implicit 0), Skyrim(1), ...cross-bundle(2+)] — append-only stable.
+    std::vector<std::string> masters;
+};
+
+// The whole plan: mods in load order + the code->owning-mod map the cross-bundle master resolution used.
+struct LoadOrderPlan {
+    bool                                         ok = false;
+    std::string                                  error;
+    std::string                                  profileDir;   // resolved profiles/<profile>
+    std::string                                  modsDir;      // resolved mods/
+    std::string                                  gameDataDir;  // from the profile (may be empty)
+    std::vector<PlanMod>                         mods;         // priority 1 (winner) FIRST
+    std::unordered_map<std::string, std::string> codeOwner;    // code(lower) -> owning mod (top wins)
+};
+
+// Build the plan from an MO2 profile folder OR instance root (auto-resolves the active profile). Read-only
+// (no conversion, no disk writes). Catalogues each mod's codes, resolves cross-bundle masters by scanning
+// each mod's patches for foreign #code$N references, and orders masters by load priority.
+LoadOrderPlan BuildLoadOrderPlan(const std::string& profileOrInstance, const LogFn& log);
+
+// Serialize a plan to loadorder.txt content (one mod per line, winner first, with its master table) — the
+// authoritative record exported alongside a conversion so the resolved order is reproducible.
+std::string EmitLoadOrderText(const LoadOrderPlan& plan);
+
 struct Result {
     bool        ok = false;
     std::string error;
@@ -89,8 +127,6 @@ struct Result {
     int fnisEvents = 0;   // FNIS events merged into FNIS.hky
     int skipped    = 0;   // graph/mod conversions that failed (see log)
 };
-
-using LogFn = std::function<void(std::string)>;
 
 // Convert the whole load order. BLOCKING — run on a worker thread. `log` receives
 // progress lines; `cancel`, when set, aborts at the next graph boundary.
