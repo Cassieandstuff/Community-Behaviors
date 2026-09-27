@@ -3,6 +3,7 @@
 #include "core/serve/AnimationDataServer.h"
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/serve/ByteServe.h"
+#include "core/serve/conditions/Conditions.h"
 #include "core/bootstrap/CompileGate.h"
 #include "core/debug/DebugOverlay.h"
 #include "core/debug/RuntimeTrace.h"
@@ -75,6 +76,20 @@ namespace CB {
         ini.SetUnicode();
         if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
             return ini.GetBoolValue("ERGate", "bEnable", false);
+        return false;
+    }
+
+    // OAR-parity conditional-setdata framework on/off (settings.ini, [Conditions] bEnable). DEFAULT OFF
+    // for release: Inc 1/2a ships the condition registry + the producer/matcher MinHooks, but the
+    // conditional-replacement actuator (Inc 2b) is unbuilt and the hooks are unproven in a shipped build,
+    // so the whole condition layer is strictly opt-in. OFF = zero engine hooks installed; only the vanilla
+    // setdata serve runs. Flip this default once the framework is proven end-to-end in-engine.
+    static bool ReadConditionsEnabled()
+    {
+        CSimpleIniA ini;
+        ini.SetUnicode();
+        if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
+            return ini.GetBoolValue("Conditions", "bEnable", false);
         return false;
     }
 
@@ -527,6 +542,15 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::byteserve::Install();  // typed-hkx byte-substitution: serves project/character/
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
+
+    // OAR-parity conditional setdata (Inc 1): register the built-in condition roster + install the
+    // producer/matcher hooks. DEFAULT OFF ([Conditions] bEnable) for the minimal release — see
+    // ReadConditionsEnabled. When off, no engine hooks are installed and only the vanilla setdata serve
+    // runs; when on, still inert until config compose registers ConditionInstances (Inc 2).
+    if (CB::ReadConditionsEnabled()) {
+        CB::conditions::RegisterBuiltins();
+        CB::conditions::InstallConditionHooks();
+    }
 
     // Animdata cache form: COLLATED is the only supported path — it serves
     // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion from

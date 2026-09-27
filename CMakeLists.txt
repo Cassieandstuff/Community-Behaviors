@@ -252,9 +252,13 @@ if(_cb_hky_outputs)
     add_dependencies(CommunityBehaviors pack-hky-bundles)
 endif()
 
-# Deploy: DLL + the class schema tree (Havok/, clean) + the packed bundles (merge, preserving Skyrim.hky).
+# Deploy: DLL + the class schema tree + the packed bundles (merge, preserving Skyrim.hky).
+# SCHEMA_DIR is the schema DATA root only (Havok/core/Schema — all 231 *.yaml incl. SCHEMA.yaml + enums +
+# metadata). NOT the whole Havok/ root: post-firesale that also holds Havok/core/cpp (source) + Havok/tools,
+# and copy_directory of the root would ship the entire source tree into the mod. The runtime loader
+# recursive-scans this dir for *.yaml, so the flatter deployed layout resolves identically.
 cb_deploy(CommunityBehaviors "Community Behaviors"
-    SCHEMA_DIR "${CMAKE_SOURCE_DIR}/Havok"
+    SCHEMA_DIR "${CMAKE_SOURCE_DIR}/Havok/core/Schema"
     HKY_STAGE  "${CB_HKY_STAGE}")
 
 # ── DEV-ONLY: x64dbg auto-attach SKSE plugin (NEVER shipped) ─────────────────────

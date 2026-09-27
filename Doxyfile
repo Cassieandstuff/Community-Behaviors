@@ -1,0 +1,66 @@
+# Doxyfile — Community Behaviors API reference + graphs generator.
+# Tooling config (reproducible, like CMakePresets); NOT checked-in docs.
+# Run from the repo root:  doxygen Doxyfile
+# Output is a BUILD ARTIFACT under D:\CB-tmp (never committed): open
+#   D:\CB-tmp\doxygen\html\index.html
+# Only non-default keys are set here; everything else takes Doxygen defaults.
+
+PROJECT_NAME           = "Community Behaviors"
+PROJECT_BRIEF          = "Runtime SKSE Havok behavior compiler + Behavior Converter"
+OUTPUT_DIRECTORY       = D:/CB-tmp/doxygen
+
+# --- what to read -------------------------------------------------------------
+INPUT                  = src include API Havok/core/cpp Havok/tools
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h *.hpp *.cpp *.cc *.cxx
+# Keep the vendored submodule, quarantined legacy, build trees, and scratch out.
+EXCLUDE                = lib \
+                         build \
+                         "Retirement Home" \
+                         .claude \
+                         src/sct-config/external
+EXCLUDE_PATTERNS       = */build/* */lib/* */.git/* */external/*
+USE_MDFILE_AS_MAINPAGE = README.md
+INPUT                  += README.md
+
+# --- extract everything (codebase isn't annotated yet) ------------------------
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+EXTRACT_ANON_NSPACES   = YES
+
+# --- source browsing ----------------------------------------------------------
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+# --- output -------------------------------------------------------------------
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+
+# --- graphs (need Graphviz 'dot' on PATH) -------------------------------------
+HAVE_DOT               = YES
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = YES
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+DIRECTORY_GRAPH        = YES
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+# Uncomment + set if 'dot' isn't found on PATH after install:
+# DOT_PATH             = "C:/Program Files/Graphviz/bin"
+
+# --- noise control (not annotated yet, so don't nag) --------------------------
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+
+# --- C++ niceties -------------------------------------------------------------
+BUILTIN_STL_SUPPORT    = YES
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
