@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace havok::animsetdata {
+namespace CB::core::animsetdata {
 
 namespace {
 
@@ -360,4 +360,4 @@ void CompileSetdataCrcs(SetFile& set)
     }
 }
 
-}  // namespace havok::animsetdata
+}  // namespace CB::core::animsetdata

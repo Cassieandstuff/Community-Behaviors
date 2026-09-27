@@ -3,7 +3,7 @@
 //
 // The compile is SCHEMA-ONLY: AssembleAnimation builds an io::SchemaObject graph from the Havok/
 // descriptors and the shared PackFileSerializer emits it. No typed hka* classes, no havok-core.
-// The registry comes from havok::schema::SharedRegistry() (set once at startup); when it is
+// The registry comes from CB::core::schema::SharedRegistry() (set once at startup); when it is
 // unavailable the compile fails with a clear error instead of falling back to a typed path.
 
 #include "interface/AnimationDef.h"
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::anim {
+namespace CB::core::anim {
 
 // Result of an animation compile. Same shape as havok::sct::CompileResult (kept local so havok-anim
 // carries no havok-core dependency); callers read .ok / .error / .bytes unchanged.
@@ -25,7 +25,7 @@ struct AnimCompileResult {
 };
 
 // Compile a loaded animation model straight to packfile bytes. Never throws — assembly/serializer
-// exceptions are captured into AnimCompileResult::error. Requires havok::schema::SharedRegistry().
+// exceptions are captured into AnimCompileResult::error. Requires CB::core::schema::SharedRegistry().
 //
 // `boneNames` (optional, index-parallel to the served skeleton): each track's authored bone reference
 // is resolved to a bone index through the name<->index codec (BoneMembrane::resolveTrackRef), populating
@@ -41,4 +41,4 @@ AnimCompileResult CompileAnimationToFile(const AnimationDef&          anim,
                                          const HKXHeader&             header = HKXHeader::SkyrimSE(),
                                          const std::vector<std::string>* boneNames = nullptr);
 
-} // namespace havok::anim
+} // namespace CB::core::anim

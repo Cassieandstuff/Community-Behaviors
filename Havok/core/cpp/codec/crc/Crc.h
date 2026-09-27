@@ -9,7 +9,7 @@
 //
 // The hash: CRC-32 with the reflected polynomial 0xEDB88320 but init=0 and NO final xor (NOT zlib's
 // variant), over the lowercased byte string. RE'd + verified against vanilla (chicken stems + folders).
-// Lifted from havok-core (havok::animsetdata) — org-pass firesale, the second codec.
+// Lifted from havok-core (CB::core::animsetdata) — org-pass firesale, the second codec.
 
 #include <cstdint>
 #include <optional>

@@ -22,7 +22,7 @@
 #include <codec/format/SkeletonYaml.h>       // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (Stage D serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
-#include <compile/AnimationCompiler.h>         // havok::anim::CompileAnimation (native anim -> loose .hkx)
+#include <compile/AnimationCompiler.h>         // CB::core::anim::CompileAnimation (native anim -> loose .hkx)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <interface/MasterTable.h>          // CB::core::formid::BuildMasterTable (ordered master table)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
@@ -685,7 +685,7 @@ namespace CB {
             // SkeletonData. filesUnder (normalized, for read()) + filesUnderOrig (original case, for the
             // bone NAME) walk the same range — index i aligns — so bone names keep their exact case (the
             // clip/skin/roster name identity; a lowercased bone would orphan its skin binding, BR-16).
-            auto readBaseUnit = [&](const std::string& unit, havok::skeleton::SkeletonData& out) -> bool {
+            auto readBaseUnit = [&](const std::string& unit, CB::core::skeleton::SkeletonData& out) -> bool {
                 if (!master) return false;
                 const std::string bl = master->read(unit + "/bonelist.yaml").value_or("");
                 const auto norm = master->filesUnder(unit + "/bones/", ".yaml");
@@ -696,7 +696,7 @@ namespace CB {
                         boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
                 if (bl.empty() && boneFiles.empty()) return false;
                 std::string err;
-                if (!havok::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
+                if (!CB::core::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
                     LOG_WARN("Resolver: base skeleton '{}' YAML load failed: {}", unit, err);
                     return false;
                 }
@@ -752,7 +752,7 @@ namespace CB {
             // load is guarded by a plain, UNsynchronized `state` int, so two workers racing the first
             // CompileSkeletonFull could both attempt it. After this call every worker only READS it. (The
             // same pre-warm WriteNativeAnimations does — cheap no-op if already warm.)
-            (void)havok::schema::SharedRegistry();
+            (void)CB::core::schema::SharedRegistry();
 
             // Compile one actor's served skeleton variants. Pure function of the read-only master YAML +
             // this actor's immutable layer texts; writes only its own distinct m_skeletonServe keys (under
@@ -762,8 +762,8 @@ namespace CB {
             std::mutex serveMu;
             auto serveActor = [&](const std::string& ap,
                                   const std::vector<std::pair<std::string, std::string>>& texts) {
-                std::vector<havok::skeleton::SkeletonBoneAdd> adds;
-                havok::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(ap), nullptr);
+                std::vector<CB::core::skeleton::SkeletonBoneAdd> adds;
+                CB::core::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(ap), nullptr);
                 if (adds.empty() || !master) return;
                 std::set<std::string> units;   // "meshes/actors/<actorpath>/<variant>/skeleton*.hkx"
                 for (const std::string& f : master->filesUnder("meshes/actors/" + ap + "/", ".yaml"))
@@ -788,12 +788,12 @@ namespace CB {
                             continue;
                         }
                     }
-                    havok::skeleton::SkeletonData sk;
+                    CB::core::skeleton::SkeletonData sk;
                     if (!readBaseUnit(unit, sk)) continue;
                     std::string merr;
-                    if (!havok::skeleton::MergeBoneAdditions(sk, adds, &merr))
+                    if (!CB::core::skeleton::MergeBoneAdditions(sk, adds, &merr))
                         LOG_WARN("Resolver: skeleton '{}' bone-add merge: {} — base unchanged.", unit, merr);
-                    auto cr = havok::skeleton::CompileSkeletonFull(sk);
+                    auto cr = CB::core::skeleton::CompileSkeletonFull(sk);
                     if (cr.ok) {
                         const std::size_t nBones = sk.bones.size();
                         { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
@@ -841,15 +841,15 @@ namespace CB {
                     }
                 if (unit.empty()) return;
 
-                havok::skeleton::SkeletonData sk;
+                CB::core::skeleton::SkeletonData sk;
                 if (!readBaseUnit(unit, sk)) return;
 
                 std::size_t nAdds = 0;
                 if (auto it = layerTexts.find(actor); it != layerTexts.end()) {
-                    std::vector<havok::skeleton::SkeletonBoneAdd> adds;
-                    havok::skeleton::LoadSkeletonLayerFromTexts(it->second, adds, bonelistFor(actor), nullptr);
+                    std::vector<CB::core::skeleton::SkeletonBoneAdd> adds;
+                    CB::core::skeleton::LoadSkeletonLayerFromTexts(it->second, adds, bonelistFor(actor), nullptr);
                     nAdds = adds.size();
-                    std::string merr; havok::skeleton::MergeBoneAdditions(sk, adds, &merr);
+                    std::string merr; CB::core::skeleton::MergeBoneAdditions(sk, adds, &merr);
                 }
                 havok::sct::BoneNameTable tbl;
                 for (const auto& b : sk.bones) tbl.names.push_back(b.name);
@@ -1166,7 +1166,7 @@ namespace CB {
         // READS it (a pure pointer return). On the serial path this is a harmless no-op — the cold path's
         // CompileAll already warmed it; the WARM path (ArmCacheFromDisk) does NOT run CompileAll, so this is
         // the call that warms it there. Do it regardless of exec so both paths are covered.
-        (void)havok::schema::SharedRegistry();
+        (void)CB::core::schema::SharedRegistry();
 
         // Compile+write ONE native animation. A pure function of its own (outKey, yamlText) entry and the
         // immutable-after-Init m_skeletons; writes its own distinct file. No shared mutable state, so this
@@ -1181,7 +1181,7 @@ namespace CB {
             // doesn't opt in isn't compiled at all, so there is nothing to clobber.
             const fs::path out = dataRoot / fs::path(outKey);
             try {
-                const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                const auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
                 // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
                 // carries an inline `motion:` block, emit it for the adsf finalizer to DRAIN (instead of
                 // the adsf re-reading the YAML — which looked for a `.hkx.yaml` class these `.hkx` units
@@ -1201,7 +1201,7 @@ namespace CB {
                 if (const std::string actor = ActorPathOf(outKey); !actor.empty())
                     if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
                         boneNames = &it->second.names;
-                const auto r   = havok::anim::CompileAnimation(def, 30, havok::HKXHeader::SkyrimSE(), boneNames);
+                const auto r   = CB::core::anim::CompileAnimation(def, 30, havok::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
                     failed.fetch_add(1, std::memory_order_relaxed);
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
@@ -1975,7 +1975,7 @@ namespace CB {
     bool Resolver::DeriveAnimData(const std::filesystem::path& dataDir)
     {
         if (!m_adsfDerive) return false;
-        namespace ad = havok::animdata;
+        namespace ad = CB::core::animdata;
 
         // ── start from the proven collated file (ServeAnimData ran first) ──
         const fs::path out = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";

@@ -10,7 +10,7 @@
 // Pure std implementation — no SKSE/CommonLib/PCH — so it links into both the plugin and
 // a standalone round-trip test. The format is positional (see AnimationSetData.h); every
 // count is implicit, so each parse step is guarded and errors carry a 1-based line number.
-namespace havok::animsetdata {
+namespace CB::core::animsetdata {
 
     namespace {
 
@@ -508,4 +508,4 @@ namespace havok::animsetdata {
         return st;
     }
 
-}  // namespace havok::animsetdata
+}  // namespace CB::core::animsetdata

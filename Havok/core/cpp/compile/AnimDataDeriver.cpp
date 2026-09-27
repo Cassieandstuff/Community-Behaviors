@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
 namespace linker = CB::core::linker;
 
@@ -142,4 +142,4 @@ std::vector<ClipGenerator> DeriveClipList(
     return out;
 }
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

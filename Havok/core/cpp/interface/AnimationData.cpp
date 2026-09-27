@@ -4,7 +4,7 @@
 #include <cctype>
 #include <charconv>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
     namespace {
 
@@ -385,4 +385,4 @@ namespace havok::animdata {
         return any;
     }
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

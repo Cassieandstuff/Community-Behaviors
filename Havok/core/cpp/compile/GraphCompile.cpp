@@ -61,8 +61,8 @@ CompileResult CompileBehavior(const havok::model::BehaviorData& data, const havo
             return r;
         }
 
-        havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
-        if (!reg) { r.error = "schema registry unavailable (" + havok::schema::SharedRegistryError() + ")"; return r; }
+        CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
+        if (!reg) { r.error = "schema registry unavailable (" + CB::core::schema::SharedRegistryError() + ")"; return r; }
 
         // Behavior-preserving bindings resolve on a mutable copy — the index-resolved intermediate the
         // schema assembler emits from (identical prep to the retired facade).
@@ -83,8 +83,8 @@ CompileResult CompileBehavior(const havok::model::BehaviorData& data, const havo
 CompileResult CompileCharacter(const havok::model::CharacterData& data, const havok::HKXHeader& header) {
     CompileResult r;
     try {
-        havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
-        if (!reg) { r.error = "schema registry unavailable (" + havok::schema::SharedRegistryError() + ")"; return r; }
+        CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
+        if (!reg) { r.error = "schema registry unavailable (" + CB::core::schema::SharedRegistryError() + ")"; return r; }
 
         auto sroot = havok::model::AssembleCharacter(data, *reg);
         if (!sroot) { r.error = "AssembleCharacter returned null (schema compile failed)"; return r; }
@@ -100,8 +100,8 @@ CompileResult CompileCharacter(const havok::model::CharacterData& data, const ha
 CompileResult BuildProject(const havok::model::ProjectSpec& spec, const havok::HKXHeader& header) {
     CompileResult r;
     try {
-        havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
-        if (!reg) { r.error = "schema registry unavailable (" + havok::schema::SharedRegistryError() + ")"; return r; }
+        CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
+        if (!reg) { r.error = "schema registry unavailable (" + CB::core::schema::SharedRegistryError() + ")"; return r; }
 
         auto sroot = havok::model::AssembleProject(spec, *reg);
         if (!sroot) { r.error = "AssembleProject returned null (schema compile failed)"; return r; }

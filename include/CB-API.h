@@ -68,53 +68,53 @@ namespace resolve {
 
 // ── cb::schema ───────────────────────────────────────────────────────────────
 namespace schema {
-    using Registry = havok::schema::SchemaRegistry;         // load Havok/ → classify/size/interpret classes
+    using Registry = CB::core::schema::SchemaRegistry;         // load Havok/ → classify/size/interpret classes
 }  // namespace schema
 
 // ── cb::anim ─────────────────────────────────────────────────────────────────
 namespace anim {
-    using Def             = havok::anim::AnimationDef;         // the authoring model (tracks/floats/annotations)
-    using YamlLoader      = havok::anim::AnimationYamlLoader;  // animation.yaml ↔ Def
-    using CompileResult   = havok::anim::AnimCompileResult;    // compile → packfile bytes
-    using DecompileResult = havok::anim::AnimDecompileResult;  // .hkx bytes → animation.yaml
+    using Def             = CB::core::anim::AnimationDef;         // the authoring model (tracks/floats/annotations)
+    using YamlLoader      = CB::core::anim::AnimationYamlLoader;  // animation.yaml ↔ Def
+    using CompileResult   = CB::core::anim::AnimCompileResult;    // compile → packfile bytes
+    using DecompileResult = CB::core::anim::AnimDecompileResult;  // .hkx bytes → animation.yaml
 
-    using havok::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
-    using havok::anim::CompileAnimationToFile;  // Def → .hkx file
-    using havok::anim::DecompileAnimation;      // .hkx bytes → animation.yaml (the export leg)
+    using CB::core::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
+    using CB::core::anim::CompileAnimationToFile;  // Def → .hkx file
+    using CB::core::anim::DecompileAnimation;      // .hkx bytes → animation.yaml (the export leg)
 }  // namespace anim
 
 // ── cb::animdata ───────────────────────────────────────────────────────────────
 namespace animdata {
-    using MotionRecord = havok::animdata::MotionRecord;   // one clip's root-motion record
-    using Project      = havok::animdata::Project;         // an actor's animationdata project
-    using havok::animdata::EmitMotionSidecar;   // MotionRecord → motion/<clip>.yaml sidecar
-    using havok::animdata::ParseMotionSidecar;  // sidecar text → MotionRecord
-    using havok::animdata::EmitMotionYaml;      // project + roster → the combined motion.yaml
-    using havok::animdata::ParseMotionYaml;     // motion.yaml text → MotionRecord[]
+    using MotionRecord = CB::core::animdata::MotionRecord;   // one clip's root-motion record
+    using Project      = CB::core::animdata::Project;         // an actor's animationdata project
+    using CB::core::animdata::EmitMotionSidecar;   // MotionRecord → motion/<clip>.yaml sidecar
+    using CB::core::animdata::ParseMotionSidecar;  // sidecar text → MotionRecord
+    using CB::core::animdata::EmitMotionYaml;      // project + roster → the combined motion.yaml
+    using CB::core::animdata::ParseMotionYaml;     // motion.yaml text → MotionRecord[]
 }  // namespace animdata
 
 // ── cb::skeleton ───────────────────────────────────────────────────────────────
 namespace skeleton {
-    using Data          = havok::skeleton::SkeletonData;          // the plain skeleton model
-    using BoneData      = havok::skeleton::SkeletonBoneData;
-    using Physics       = havok::skeleton::BonePhysics;           // authored ragdoll knobs on a bone
-    using Bumper        = havok::skeleton::SkeletonBumper;
-    using BoneAdd       = havok::skeleton::SkeletonBoneAdd;       // one bone-add layer entry
-    using CompileResult = havok::skeleton::SkeletonCompileResult;
+    using Data          = CB::core::skeleton::SkeletonData;          // the plain skeleton model
+    using BoneData      = CB::core::skeleton::SkeletonBoneData;
+    using Physics       = CB::core::skeleton::BonePhysics;           // authored ragdoll knobs on a bone
+    using Bumper        = CB::core::skeleton::SkeletonBumper;
+    using BoneAdd       = CB::core::skeleton::SkeletonBoneAdd;       // one bone-add layer entry
+    using CompileResult = CB::core::skeleton::SkeletonCompileResult;
 
-    using havok::skeleton::LoadSkeletonsFromHkx;   // skeleton.hkx → SkeletonData (+ ReadSkeletonPhysics)
-    using havok::skeleton::ReadSkeletonPhysics;    // attach ragdoll physics onto the anim skeleton
-    using havok::skeleton::CompileSkeleton;        // anim skeleton → .hkx
-    using havok::skeleton::CompileSkeletonFull;    // + derived ragdoll (6-variant skeleton.hkx)
-    using havok::skeleton::CompileSkeletonOverBase;// rebuild anim bones over a base, carry the rest
-    using havok::skeleton::CompileSkeletonToFile;
-    using havok::skeleton::EmitSkeletonYaml;       // SkeletonData → combined yaml
-    using havok::skeleton::EmitSkeletonYamlTree;   // SkeletonData → bonelist.yaml + bones/ unit
-    using havok::skeleton::LoadSkeletonYaml;       // dir / combined file → SkeletonData
-    using havok::skeleton::LoadSkeletonYamlFromTexts;
-    using havok::skeleton::LoadSkeletonLayer;      // bone-add layer dir → additions
-    using havok::skeleton::LoadSkeletonLayerFromTexts;
-    using havok::skeleton::MergeBoneAdditions;     // append bone-adds onto a base skeleton
+    using CB::core::skeleton::LoadSkeletonsFromHkx;   // skeleton.hkx → SkeletonData (+ ReadSkeletonPhysics)
+    using CB::core::skeleton::ReadSkeletonPhysics;    // attach ragdoll physics onto the anim skeleton
+    using CB::core::skeleton::CompileSkeleton;        // anim skeleton → .hkx
+    using CB::core::skeleton::CompileSkeletonFull;    // + derived ragdoll (6-variant skeleton.hkx)
+    using CB::core::skeleton::CompileSkeletonOverBase;// rebuild anim bones over a base, carry the rest
+    using CB::core::skeleton::CompileSkeletonToFile;
+    using CB::core::skeleton::EmitSkeletonYaml;       // SkeletonData → combined yaml
+    using CB::core::skeleton::EmitSkeletonYamlTree;   // SkeletonData → bonelist.yaml + bones/ unit
+    using CB::core::skeleton::LoadSkeletonYaml;       // dir / combined file → SkeletonData
+    using CB::core::skeleton::LoadSkeletonYamlFromTexts;
+    using CB::core::skeleton::LoadSkeletonLayer;      // bone-add layer dir → additions
+    using CB::core::skeleton::LoadSkeletonLayerFromTexts;
+    using CB::core::skeleton::MergeBoneAdditions;     // append bone-adds onto a base skeleton
 }  // namespace skeleton
 
 }  // namespace cb

@@ -28,6 +28,6 @@ struct CompressedResult {
 };
 
 // Resample every track to a uniform `fps` grid, then spline-compress per block.
-CompressedResult CompressAnimation(const havok::anim::AnimationDef& anim, int fps = 30);
+CompressedResult CompressAnimation(const CB::core::anim::AnimationDef& anim, int fps = 30);
 
 } // namespace CB::core::spline

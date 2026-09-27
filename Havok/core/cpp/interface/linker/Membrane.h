@@ -83,7 +83,7 @@ struct BoneMembrane {
     // bound or an unresolved name falls back to `ordinal` (identity). So a clip re-resolves against
     // the served skeleton by NAME (added bones shift indices) instead of freezing a raw index, and a
     // null/empty skeleton round-trips to the identity binding vanilla ships. Byte-identical to the
-    // former havok::cross::trackBoneRef.
+    // former CB::core::cross::trackBoneRef.
     int resolveTrackRef(std::string_view ref, int ordinal) const {
         if (ref.size() > 5 && ref.substr(0, 5) == "track") {
             int n = 0; bool allDigits = true;

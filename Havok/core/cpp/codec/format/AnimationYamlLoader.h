@@ -24,7 +24,7 @@
 #include <filesystem>
 #include <string>
 
-namespace havok::anim {
+namespace CB::core::anim {
 
 struct AnimationYamlLoader {
     // Throws std::runtime_error on read/parse failure.
@@ -35,4 +35,4 @@ struct AnimationYamlLoader {
     static AnimationDef LoadFromString(const std::string& yamlText, const std::string& sourceName = "<memory>");
 };
 
-} // namespace havok::anim
+} // namespace CB::core::anim

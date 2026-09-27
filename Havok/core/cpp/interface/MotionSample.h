@@ -12,7 +12,7 @@
 
 #include <string>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
 // A canonical "t x y z" (translation) / "t x y z w" (rotation) verbatim sample -> the labeled,
 // readable form "t: <t>, x: <x>, …" (float tokens kept verbatim). Labels are chosen by token count,
@@ -24,4 +24,4 @@ std::string LabelSample(const std::string& verbatim);
 // canonical verbatim string the model + .txt carry. Idempotent on bare input.
 std::string UnlabelSample(const std::string& labeledOrBare);
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

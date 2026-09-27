@@ -38,14 +38,14 @@ namespace {
     }
 }  // namespace
 
-std::vector<havok::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
+std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
     const havok::model::BehaviorData& data)
 {
-    std::vector<havok::animdata::DeriveClipInput> out;
+    std::vector<CB::core::animdata::DeriveClipInput> out;
     out.reserve(data.clips.size());
 
     for (const auto& [key, clip] : data.clips) {
-        havok::animdata::DeriveClipInput dc;
+        CB::core::animdata::DeriveClipInput dc;
         dc.name          = clip.name.empty() ? key : clip.name;
         dc.animationName = clip.animationName;
         dc.playbackSpeed = std::atof(clip.playbackSpeed.c_str());
@@ -58,7 +58,7 @@ std::vector<havok::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
         if (clip.triggers)
             for (const auto& t : *clip.triggers) {
                 if (!t.event || t.event->empty()) continue;
-                havok::animdata::DeriveClipInput::Trigger tr;
+                CB::core::animdata::DeriveClipInput::Trigger tr;
                 tr.event               = *t.event;
                 tr.localTime           = std::atof(t.localTime.c_str());
                 tr.relativeToEndOfClip = t.relativeToEndOfClip;
@@ -129,8 +129,8 @@ AnimClipInfo ExtractAnimClipInfo(const std::vector<std::uint8_t>& bytes)
     return out;
 }
 
-std::vector<havok::animdata::ClipGenerator> DeriveProjectClipList(
-    std::vector<havok::animdata::DeriveClipInput>&                       clips,
+std::vector<CB::core::animdata::ClipGenerator> DeriveProjectClipList(
+    std::vector<CB::core::animdata::DeriveClipInput>&                       clips,
     const std::vector<std::string>&                                     roster,
     std::unordered_map<int, double>&                                    motionDur,
     const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
@@ -160,20 +160,20 @@ std::vector<havok::animdata::ClipGenerator> DeriveProjectClipList(
                 motionDur[ri->second] = info.duration;
     }
 
-    return havok::animdata::DeriveClipList(clips, roster, motionDur, unresolved);
+    return CB::core::animdata::DeriveClipList(clips, roster, motionDur, unresolved);
 }
 
-havok::animdata::Project DeriveProjectAnimData(
+CB::core::animdata::Project DeriveProjectAnimData(
     const std::string&                                                  projectName,
-    std::vector<havok::animdata::DeriveClipInput>&                      clips,
+    std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
     const std::vector<std::string>&                                     roster,
-    const std::vector<havok::animdata::MotionRecord>&                   motions,
+    const std::vector<CB::core::animdata::MotionRecord>&                   motions,
     const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim)
 {
     std::unordered_map<int, double> motionDur;
     for (const auto& m : motions) motionDur[std::atoi(m.animIndex.c_str())] = std::atof(m.duration.c_str());
 
-    havok::animdata::Project proj;
+    CB::core::animdata::Project proj;
     proj.name        = projectName.size() >= 4 && projectName.compare(projectName.size() - 4, 4, ".txt") == 0
                            ? projectName : projectName + ".txt";
     proj.fieldX      = "1";
@@ -183,12 +183,12 @@ havok::animdata::Project DeriveProjectAnimData(
     return proj;
 }
 
-havok::animdata::ProjectPatch DeriveProjectPatch(
+CB::core::animdata::ProjectPatch DeriveProjectPatch(
     const std::string&                                                  projectName,
-    std::vector<havok::animdata::DeriveClipInput>&                      clips,
+    std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
     const std::string&                                                  symbolCode,
     const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
-    const std::unordered_map<std::string, havok::animdata::MotionRecord>* animMotions)
+    const std::unordered_map<std::string, CB::core::animdata::MotionRecord>* animMotions)
 {
     // Synthetic roster = each clip's own animationName, so DeriveProjectClipList resolves every
     // clip to a distinct slot (and reads its anim once for duration + annotation triggers) WITHOUT
@@ -213,7 +213,7 @@ havok::animdata::ProjectPatch DeriveProjectPatch(
         return std::string(buf);
     };
 
-    havok::animdata::ProjectPatch pp;
+    CB::core::animdata::ProjectPatch pp;
     pp.projectName = projectName;
     int n = 0;
     for (const auto& cg : records) {
@@ -221,7 +221,7 @@ havok::animdata::ProjectPatch DeriveProjectPatch(
         const int         synthIdx = std::atoi(cg.animIndex.c_str());
         const double      dur      = (synthIdx >= 0 && motionDur.count(synthIdx)) ? motionDur[synthIdx] : 0.0;
 
-        havok::animdata::PatchAddition add;
+        CB::core::animdata::PatchAddition add;
         add.symbol         = symbol;
         add.clip           = cg;        // canonical record (name / crop / playback / triggers)
         add.clip.animIndex = symbol;    // defer the real index to MergeProjectPatch's high band
@@ -230,7 +230,7 @@ havok::animdata::ProjectPatch DeriveProjectPatch(
         // Real root motion when this clip's animation authored one (BR-native animation.yaml `motion:`),
         // else the FNIS-style in-place placeholder (one zero translation + identity rotation at the
         // clip's duration). Either way the animIndex is the symbol — MergeProjectPatch pairs clip+motion.
-        const havok::animdata::MotionRecord* real = nullptr;
+        const CB::core::animdata::MotionRecord* real = nullptr;
         if (animMotions && synthIdx >= 0 && static_cast<std::size_t>(synthIdx) < synthRoster.size()) {
             const auto it = animMotions->find(normAnim(synthRoster[synthIdx]));
             if (it != animMotions->end()) real = &it->second;

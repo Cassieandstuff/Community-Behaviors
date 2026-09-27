@@ -17,7 +17,7 @@
 #include <filesystem>
 #include <fstream>
 
-namespace havok::decompile {
+namespace CB::core::decompile {
 namespace fs = std::filesystem;
 
 UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const std::string& outDir) {
@@ -42,12 +42,12 @@ UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const 
         return { true, "", "project" };
     }
     if (hasSpline) {
-        const auto ar = havok::anim::DecompileAnimation(bytes, dir, nullptr);
+        const auto ar = CB::core::anim::DecompileAnimation(bytes, dir, nullptr);
         return { ar.ok, ar.error, "animation" };
     }
 
     // character / behavior: full schema graph walk (needs the shared registry).
-    havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
+    CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
     if (!reg) return { false, "shared schema registry unavailable", "" };
     havok::PackFileDeserializer des;
     des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
@@ -75,4 +75,4 @@ UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const 
     return { false, "unrecognized root variant (not project/animation/character/behavior)", "unknown" };
 }
 
-} // namespace havok::decompile
+} // namespace CB::core::decompile

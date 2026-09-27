@@ -2108,7 +2108,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // Per CANONICAL id, the ORDERED layers that define it (base first, then each overriding patch). Each
     // layer records whether it is a delta and, for a delta, the fields it ACTUALLY changed (its MOD_CODE
     // delta, via the shared changedFields). The merge is NO LONGER a field-wise last-writer overlay —
-    // every id's layers go through the SHARED havok::merge::bashMerge, so an array field edited by 2+
+    // every id's layers go through the SHARED CB::core::merge::bashMerge, so an array field edited by 2+
     // mods (variableNames/eventNames rosters, clip triggers, state/transition lists) is UNIONED exactly
     // as the runtime YAML loader does. Field-wise last-writer here silently dropped all-but-the-last
     // mod's array additions — the TDM_Pitch A-pose when one mod's several Nemesis codes are merged into
@@ -2126,13 +2126,13 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             // changedFields wants the RAW patch (with MOD_CODE markers) for an accurate delta; on
             // already-stripped input it degrades to all-fields, which bashMerge's changer filter still
             // narrows to real edits. StripPatchOriginals is idempotent (no-op on a clean node).
-            changedHold.push_back(std::make_unique<std::unordered_set<std::string>>(havok::merge::changedFields(*text)));
+            changedHold.push_back(std::make_unique<std::unordered_set<std::string>>(CB::core::merge::changedFields(*text)));
             changedPtr = changedHold.back().get();
             // Pandora-compat (CONVERTER-ONLY): reproduce Pandora/Nemesis's occurrence-counted
             // placement for numeric text-array params (boneWeights &c) BEFORE the positional
             // strip, so converted bundles match the ecosystem's output. Element params are left
             // for StripPatchOriginals below. See docs/bugs/CB-3.
-            havok::compat::ApplyNemesisTextArrayEdits(parseText);
+            CB::core::compat::ApplyNemesisTextArrayEdits(parseText);
             havok::xml::StripPatchOriginals(parseText);
         }
         roots.push_back(havok::xml::Parse("<r>" + parseText + "</r>"));
@@ -2177,7 +2177,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
         std::size_t seedSkip = 0;
         if (!baseNode) { baseNode = ls.front().node; seedSkip = 1; }   // new node: first layer seeds the merge
 
-        std::vector<havok::merge::PatchLayer> pls; pls.reserve(ls.size());
+        std::vector<CB::core::merge::PatchLayer> pls; pls.reserve(ls.size());
         std::size_t seen = 0;
         for (const Layer& L : ls) {
             const bool isSeed = (seedSkip == 1 && seen++ == 0);
@@ -2185,7 +2185,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             if (std::string(L.node->attr("class")) != objCls) continue;   // source drift — skip this layer
             pls.push_back({ *L.node, L.changed ? *L.changed : std::unordered_set<std::string>{} });
         }
-        std::vector<const havok::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
+        std::vector<const CB::core::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
         for (const auto& p : pls) ptrs.push_back(&p);
         // compose predicate: read the field's `merge:` tag from the SAME SchemaRegistry the runtime
         // merge reads (SchemaRegistry::MergeTag) — so converter and runtime compose identically.
@@ -2193,7 +2193,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             return reg.MergeTag(c, f) == "compose";
         };
         mergedById.emplace(id, ptrs.empty() ? *baseNode
-                               : havok::merge::bashMerge(*baseNode, ptrs, /*guarded*/ {}, composePred));
+                               : CB::core::merge::bashMerge(*baseNode, ptrs, /*guarded*/ {}, composePred));
     }
 
     // Nemesis symbol roster: variable/event NAME -> merged index, from the MERGED hkbBehaviorGraphStringData

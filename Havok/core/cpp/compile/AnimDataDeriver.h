@@ -29,7 +29,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
     // A clip generator's fields as they matter to animationdata derivation, taken from the
     // compiled/decompiled behavior graph (event names already resolved to strings).
@@ -74,4 +74,4 @@ namespace havok::animdata {
         const std::unordered_map<int, double>&        motionDurByIndex,
         std::vector<std::string>*                     unresolved = nullptr);
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

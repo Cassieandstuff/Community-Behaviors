@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
 namespace linker = CB::core::linker;
 
@@ -512,4 +512,4 @@ SingleFile AssembleAnimdata(
     return out;
 }
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

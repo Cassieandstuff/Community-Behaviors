@@ -10,7 +10,7 @@
 #include <cstring>
 
 namespace CB::core::spline {
-using namespace havok::anim;   // transitional: AnimationDef + keyframes still in havok::anim (→ interface later)
+using namespace CB::core::anim;   // transitional: AnimationDef + keyframes still in CB::core::anim (→ interface later)
 namespace {
 
 // ── Little-endian byte sink (mirrors C# BinaryWriter over a MemoryStream) ─────

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
 std::string LabelSample(const std::string& verbatim) {
     static const char* const kAxes[] = { "t", "x", "y", "z", "w" };
@@ -43,4 +43,4 @@ std::string UnlabelSample(const std::string& s) {
     return out;
 }
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

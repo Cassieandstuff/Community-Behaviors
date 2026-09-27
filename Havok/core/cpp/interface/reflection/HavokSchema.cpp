@@ -11,7 +11,7 @@
 
 namespace fs = std::filesystem;
 
-namespace havok::schema {
+namespace CB::core::schema {
 
 int ScalarWidth(Scalar s) {
     switch (s) {
@@ -454,4 +454,4 @@ int SchemaRegistry::ComputeSize(const std::string& className, std::string* err, 
     return cursor;
 }
 
-} // namespace havok::schema
+} // namespace CB::core::schema

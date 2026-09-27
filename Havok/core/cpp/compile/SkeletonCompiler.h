@@ -14,9 +14,9 @@
 #include <string>
 #include <vector>
 
-namespace havok::skeleton {
+namespace CB::core::skeleton {
 
-// Result of a skeleton compile. Same shape as havok::anim::AnimCompileResult (kept local so the module
+// Result of a skeleton compile. Same shape as CB::core::anim::AnimCompileResult (kept local so the module
 // carries no havok-core dependency); callers read .ok / .error / .bytes.
 struct SkeletonCompileResult {
     bool                      ok = false;
@@ -50,4 +50,4 @@ SkeletonCompileResult CompileSkeletonFull(const SkeletonData& data,
 SkeletonCompileResult CompileSkeletonOverBase(const SkeletonData&              animBones,
                                               const std::vector<std::uint8_t>& baseBytes);
 
-} // namespace havok::skeleton
+} // namespace CB::core::skeleton

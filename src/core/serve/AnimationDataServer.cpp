@@ -234,8 +234,8 @@ namespace linker = CB::core::linker;
                 for (const std::string& path : rd.filesUnder(animDir, ".hkx")) {   // lowercased, '/'-sep
                     const auto text = rd.read(path);
                     if (!text) continue;
-                    havok::anim::AnimationDef def;
-                    try { def = havok::anim::AnimationYamlLoader::LoadFromString(*text, path); }
+                    CB::core::anim::AnimationDef def;
+                    try { def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, path); }
                     catch (const std::exception& e) {
                         LOG_WARN("AnimData: native animation '{}' parse failed (motion skipped): {}", path, e.what());
                         continue;
@@ -371,13 +371,13 @@ namespace linker = CB::core::linker;
 
             // Global animation cache keyed by RESOLVED bundle path — read once, shared across projects
             // (a shared killmove is referenced by many actors). Absent/unparseable -> nullopt (cached).
-            std::unordered_map<std::string, std::optional<havok::anim::AnimationDef>> animCache;
-            auto getAnim = [&](const std::string& resolvedPath) -> const havok::anim::AnimationDef* {
+            std::unordered_map<std::string, std::optional<CB::core::anim::AnimationDef>> animCache;
+            auto getAnim = [&](const std::string& resolvedPath) -> const CB::core::anim::AnimationDef* {
                 auto it = animCache.find(resolvedPath);
                 if (it == animCache.end()) {
-                    std::optional<havok::anim::AnimationDef> def;
+                    std::optional<CB::core::anim::AnimationDef> def;
                     if (const auto text = master.read(resolvedPath)) {
-                        try { def = havok::anim::AnimationYamlLoader::LoadFromString(*text, resolvedPath); }
+                        try { def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, resolvedPath); }
                         catch (...) {}
                     }
                     it = animCache.emplace(resolvedPath, std::move(def)).first;
@@ -397,11 +397,11 @@ namespace linker = CB::core::linker;
                 unitByLc.emplace(ToLower(unitPrefix), unitPrefix);
 
             // Per-UNIT clip cache (decompile each behaviour once; male/female share their 17 units).
-            std::unordered_map<std::string, std::vector<havok::animdata::DeriveClipInput>> unitClips;
-            auto clipsForUnit = [&](const std::string& unitLc) -> const std::vector<havok::animdata::DeriveClipInput>& {
+            std::unordered_map<std::string, std::vector<CB::core::animdata::DeriveClipInput>> unitClips;
+            auto clipsForUnit = [&](const std::string& unitLc) -> const std::vector<CB::core::animdata::DeriveClipInput>& {
                 auto it = unitClips.find(unitLc);
                 if (it != unitClips.end()) return it->second;
-                std::vector<havok::animdata::DeriveClipInput> clips;
+                std::vector<CB::core::animdata::DeriveClipInput> clips;
                 const auto uit = unitByLc.find(unitLc);
                 if (uit != unitByLc.end()) {
                     auto src = master.unitSource(uit->second);
@@ -445,7 +445,7 @@ namespace linker = CB::core::linker;
                       if (s2 != std::string::npos) rootLc = rootLc.substr(0, s2); }   // "meshes/actors/character"
 
                     // Clip inputs = union over THIS project's behaviour assets (per-project scoping).
-                    std::vector<havok::animdata::DeriveClipInput> clips;
+                    std::vector<CB::core::animdata::DeriveClipInput> clips;
                     for (const std::string& asset : h.assets) {
                         std::string a = ToLower(asset);
                         for (char& c : a) if (c == '\\') c = '/';
@@ -464,7 +464,7 @@ namespace linker = CB::core::linker;
                     for (auto& dc : clips) {
                         if (dc.animationName.empty()) continue;
                         const std::string rp = resolveAnimPath(rootLc, dc.animationName);
-                        const havok::anim::AnimationDef* def = getAnim(rp);   // reads shared killmoves too
+                        const CB::core::anim::AnimationDef* def = getAnim(rp);   // reads shared killmoves too
                         if (!def) continue;
                         if (!def->annotationTracks.empty())
                             for (const auto& a : def->annotationTracks[0].annotations)
@@ -472,7 +472,7 @@ namespace linker = CB::core::linker;
                         if (const auto ri = rosterIdx.find(rp); ri != rosterIdx.end())
                             motionDur[ri->second] = static_cast<double>(def->duration);
                     }
-                    p.clips = havok::animdata::DeriveClipList(clips, roster, motionDur);
+                    p.clips = CB::core::animdata::DeriveClipList(clips, roster, motionDur);
 
                     // Motion: each animation's inline motion record, bound through the SAME case-folded
                     // roster IndexMembrane the clips resolve through (DeriveClipList). Motion INHERITS the
@@ -483,9 +483,9 @@ namespace linker = CB::core::linker;
                     const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster, /*caseFold*/true);
                     const linker::IndexMembrane rosterMembrane{&rosterBind};
                     for (int i = 0; i < static_cast<int>(roster.size()); ++i) {
-                        const havok::anim::AnimationDef* def = getAnim(resolveAnimPath(rootLc, roster[static_cast<std::size_t>(i)]));
+                        const CB::core::anim::AnimationDef* def = getAnim(resolveAnimPath(rootLc, roster[static_cast<std::size_t>(i)]));
                         if (!def || !def->motion) continue;
-                        havok::animdata::MotionRecord m = *def->motion;
+                        CB::core::animdata::MotionRecord m = *def->motion;
                         m.animIndex = std::to_string(rosterMembrane.encode(roster[static_cast<std::size_t>(i)]).value_or(i));
                         p.motions.push_back(std::move(m));
                     }

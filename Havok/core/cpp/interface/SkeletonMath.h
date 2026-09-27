@@ -13,7 +13,7 @@
 
 #include "interface/SkeletonData.h"   // SkeletonData (worldPoses input)
 
-namespace havok::skeleton::skmath {
+namespace CB::core::skeleton::skmath {
 
 // 4 Vector4 columns (rotation cols 0..2 + translation) — the plain stand-in for hkTransform.
 using Cols4 = std::array<Vector4, 4>;
@@ -90,4 +90,4 @@ inline std::vector<QSTransform> worldPoses(const SkeletonData& d) {
     return w;
 }
 
-} // namespace havok::skeleton::skmath
+} // namespace CB::core::skeleton::skmath

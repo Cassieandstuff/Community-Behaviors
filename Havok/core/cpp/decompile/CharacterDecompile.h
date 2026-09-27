@@ -15,7 +15,7 @@
 #include <filesystem>
 #include <string>
 
-namespace havok::decompile {
+namespace CB::core::decompile {
 
 struct CharDecompileResult { bool ok = false; std::string error; };
 
@@ -24,4 +24,4 @@ struct CharDecompileResult { bool ok = false; std::string error; };
 // structural problem (e.g. missing stringData).
 CharDecompileResult DecompileCharacterSchema(const io::SchemaObject& cd, const std::filesystem::path& dir);
 
-} // namespace havok::decompile
+} // namespace CB::core::decompile

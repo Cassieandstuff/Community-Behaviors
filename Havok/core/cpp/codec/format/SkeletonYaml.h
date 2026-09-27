@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-namespace havok::skeleton {
+namespace CB::core::skeleton {
 
 std::string EmitSkeletonYaml(const SkeletonData& data);
 
@@ -64,4 +64,4 @@ bool LoadSkeletonLayerFromTexts(const std::vector<std::pair<std::string, std::st
 bool MergeBoneAdditions(SkeletonData& base, const std::vector<SkeletonBoneAdd>& adds,
                         std::string* err = nullptr);
 
-} // namespace havok::skeleton
+} // namespace CB::core::skeleton

@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok::decompile {
+namespace CB::core::decompile {
 namespace fs = std::filesystem;
 
 namespace {
@@ -226,4 +226,4 @@ CharDecompileResult DecompileCharacterSchema(const io::SchemaObject& cd, const f
     return { true, "" };
 }
 
-} // namespace havok::decompile
+} // namespace CB::core::decompile

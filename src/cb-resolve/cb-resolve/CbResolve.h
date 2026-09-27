@@ -14,7 +14,7 @@
 // separate (legacy) concern the editor is moving onto CB's schema pipeline.
 //
 // Consumers include ONLY this header and use the cb::resolve:: names; the
-// underlying havok::model / havok::schema types are internal and may move.
+// underlying havok::model / CB::core::schema types are internal and may move.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "havok/model/yaml/HkyArchive.h"        // read + pack a .hky bundle
@@ -52,7 +52,7 @@ namespace cb::resolve {
 
     // The Havok class schema (loaded from the Havok/ tree) that the merge consults.
     // Find the shipped tree via the CB_RESOLVE_SCHEMA_DIR CMake var: reg.LoadDir(dir).
-    using SchemaRegistry = havok::schema::SchemaRegistry;
+    using SchemaRegistry = CB::core::schema::SchemaRegistry;
 
     // The base master (vanilla Skyrim.hky) is the layer-0 input LoadMerged merges mod
     // deltas onto — resolution is "deltas over the base." It is NOT shipped with this
@@ -81,12 +81,12 @@ namespace cb::resolve {
     // Schema-version gating: the editor↔compiler contract stamp. Parse the tree's
     // stamp (SchemaRegistry::SchemaVersionString) and gate an authored .hky against
     // the current tree exactly as the compiler does.
-    using SchemaVersion = havok::schema::SchemaVersion;
-    using SchemaCompat  = havok::schema::SchemaCompat;
-    using havok::schema::CheckSchemaCompat;
+    using SchemaVersion = CB::core::schema::SchemaVersion;
+    using SchemaCompat  = CB::core::schema::SchemaCompat;
+    using CB::core::schema::CheckSchemaCompat;
 
     // Animation data: derive an animationdatasinglefile clip list from a resolved
-    // graph (havok-core-free — distinct from the retired havok::anim path).
+    // graph (havok-core-free — distinct from the retired CB::core::anim path).
     using havok::sct::DeriveClipInputsFromBehavior;
 
     // ── Broader engine namespaces (fuller model, less frozen) ────────────────────
@@ -96,8 +96,8 @@ namespace cb::resolve {
     // tool can spell any of them. They track the engine and may move; prefer the
     // curated names where one exists.
     namespace model    = havok::model;     // BehaviorData's typed *Def node model + loaders
-    namespace animdata = havok::animdata;  // ClipGenerator / Project / SingleFile / DeriveClipList
-    namespace merge    = havok::merge;     // BashMerge: ParamMerge, PatchLayer, MergeReport, …
-    namespace schema   = havok::schema;    // ClassSchema, Field, FieldKind, ScalarWidth, …
+    namespace animdata = CB::core::animdata;  // ClipGenerator / Project / SingleFile / DeriveClipList
+    namespace merge    = CB::core::merge;     // BashMerge: ParamMerge, PatchLayer, MergeReport, …
+    namespace schema   = CB::core::schema;    // ClassSchema, Field, FieldKind, ScalarWidth, …
 
 }  // namespace cb::resolve

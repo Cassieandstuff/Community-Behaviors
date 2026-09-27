@@ -45,7 +45,7 @@
 //
 // NUMERIC FIELDS ARE CARRIED VERBATIM (never reparsed/reformatted) — floats appear as
 // "0.014", "34.7115", and scientific notation "5.96046e-008"; only counts are recomputed.
-namespace havok::animdata {
+namespace CB::core::animdata {
 
     struct ClipGenerator {
         std::string              name;           // "MainIdle", "Idle Fulbody2[mirror]"
@@ -172,4 +172,4 @@ namespace havok::animdata {
     bool MergeProjectPatch(SingleFile& base, const ProjectPatch& patch, MergeStats& stats,
                            long long& a_nextIndex);
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

@@ -15,7 +15,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace havok::skeleton {
+namespace CB::core::skeleton {
 namespace fs = std::filesystem;
 namespace {
 
@@ -510,4 +510,4 @@ bool MergeBoneAdditions(SkeletonData& base, const std::vector<SkeletonBoneAdd>& 
     return true;
 }
 
-} // namespace havok::skeleton
+} // namespace CB::core::skeleton

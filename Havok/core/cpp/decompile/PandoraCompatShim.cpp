@@ -18,7 +18,7 @@
 #include <string_view>
 #include <vector>
 
-namespace havok::compat {
+namespace CB::core::compat {
 namespace {
 
 // Collapse runs of whitespace/parens to a single space and trim tab/CR/LF/parens at the ends
@@ -186,4 +186,4 @@ void ApplyNemesisTextArrayEdits(std::string& src) {
     src.swap(out);
 }
 
-}  // namespace havok::compat
+}  // namespace CB::core::compat

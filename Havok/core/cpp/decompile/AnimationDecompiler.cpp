@@ -33,7 +33,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::anim {
+namespace CB::core::anim {
 namespace fs = std::filesystem;
 
 namespace {
@@ -298,8 +298,8 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                 allAnns.emplace_back(rdF32(*a, "time"), a->FieldRef("text").str);
             }
         }
-        if (auto mr = havok::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration))) {
-            const std::string body = havok::animdata::EmitMotionSidecar(*mr);
+        if (auto mr = CB::core::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration))) {
+            const std::string body = CB::core::animdata::EmitMotionSidecar(*mr);
             y += "  motion:\n";
             for (std::size_t p = 0; p < body.size();) {
                 const std::size_t nl = body.find('\n', p);
@@ -314,4 +314,4 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     return { true, "" };
 }
 
-} // namespace havok::anim
+} // namespace CB::core::anim

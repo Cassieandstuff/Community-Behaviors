@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::anim {
+namespace CB::core::anim {
 
 struct Vec3Keyframe {
     float time     = 0.f;
@@ -86,7 +86,7 @@ struct AnimationDef {
     // Carries duration + translation/rotation samples VERBATIM (byte-exact with the animationdata
     // .txt, same schema as EmitMotionSidecar/ParseMotionSidecar); `animIndex`/`animation` are NOT
     // authored here — the compiler binds them per-project at derive time from this animation's clip.
-    std::optional<havok::animdata::MotionRecord> motion;
+    std::optional<CB::core::animdata::MotionRecord> motion;
 };
 
-} // namespace havok::anim
+} // namespace CB::core::anim

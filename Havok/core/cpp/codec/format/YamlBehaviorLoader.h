@@ -20,7 +20,7 @@
 // It is verified in the Visual Studio build (where ryml is on the include path),
 // not in the standalone havok-core test build.
 
-namespace havok::schema { class SchemaRegistry; }   // fwd — the merge classifier reads field `merge:` tags
+namespace CB::core::schema { class SchemaRegistry; }   // fwd — the merge classifier reads field `merge:` tags
 
 namespace havok::model {
 
@@ -72,7 +72,7 @@ public:
     // array whose tag is missing then unions instead of composing, so its output diverges from the
     // ground truth and the byte-diff gate catches it — proving the merge is genuinely tag-driven,
     // not coasting on the fallback. Production leaves it false (the safe fallback stays live).
-    static void SetSchemaRegistry(const havok::schema::SchemaRegistry* reg, bool strict = false);
+    static void SetSchemaRegistry(const CB::core::schema::SchemaRegistry* reg, bool strict = false);
 
     // One node identity that appears in >1 merge layer (a cross-layer overlap). Identity is
     // (class, id-else-name) — folder-agnostic, matching the loader's Stage-2 dispatch.

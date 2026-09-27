@@ -23,7 +23,7 @@ namespace CB::adserve {
 
     // The animationdata model (parse/emit/merge) now lives in havok-core so the clip-list
     // deriver can share it; keep the short `animdata::` spelling everything here already uses.
-    namespace animdata = ::havok::animdata;
+    namespace animdata = ::CB::core::animdata;
 
     struct ServeResult {
         bool                  attempted = false;   // found >=1 bundle contributing animationdata

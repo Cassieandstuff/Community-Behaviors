@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
     // One project's motion records -> motion.yaml text. `roster` maps each motion's animIndex to its
     // clip-generator NAME (pass the project's clip labels by index). A named record is keyed ONLY by
@@ -179,4 +179,4 @@ namespace havok::animdata {
         const std::map<std::string, std::vector<MotionRecord>>& motionByStem,
         const std::map<std::string, std::vector<std::string>>& rostersByStem);
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

@@ -44,7 +44,7 @@
 // listing the set names (one per line, no count), plus one "<set>.txt" per set holding
 // exactly a setContent. BR bundles ship deltas in the split form under
 // meshes\animationsetdata\<project>data\; the engine reads the concatenated single file.
-namespace havok::animsetdata {
+namespace CB::core::animsetdata {
 
     // A weapon-type condition gate: "when iLeftHandType == value (type)". Two trailing
     // integers, both preserved verbatim (semantics: value is the compared type id, the
@@ -156,4 +156,4 @@ namespace havok::animsetdata {
     // is a no-op (re-emit stays byte-identical) — the merge invariant the tests assert.
     MergeStats MergeInto(SingleFile& base, const SingleFile& delta);
 
-}  // namespace havok::animsetdata
+}  // namespace CB::core::animsetdata

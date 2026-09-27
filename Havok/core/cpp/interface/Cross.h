@@ -1,6 +1,6 @@
 #pragma once
 // ---------------------------------------------------------------------------
-// havok::cross — the cross-kind MEMBRANE.
+// CB::core::cross — the cross-kind MEMBRANE.
 //
 // The behavior pipeline crosses between a human/name/string representation
 // (.hky YAML) and a raw/index/typed one (binary Havok) in three layers: the
@@ -30,7 +30,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok::cross {
+namespace CB::core::cross {
 
 // (hkVector4/Quaternion text parser moved to <common/Vec4Text.h> — havok::vec4::parseVec4.)
 
@@ -90,4 +90,4 @@ inline std::string rosterName(int index, const std::vector<std::string>& roster)
     return roster[static_cast<std::size_t>(index)];
 }
 
-}  // namespace havok::cross
+}  // namespace CB::core::cross

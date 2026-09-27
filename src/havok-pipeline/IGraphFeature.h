@@ -21,7 +21,7 @@
 
 // Forward-declared so this header stays light + pure: a feature body that emits animdata includes
 // the full <havok/anim/AnimDataDeriver.h>; the interface only needs the incomplete type by const-ref.
-namespace havok::animdata { struct DeriveClipInput; }
+namespace CB::core::animdata { struct DeriveClipInput; }
 
 namespace CB::features {
 
@@ -53,7 +53,7 @@ namespace CB::features {
     // animIndex resolution against the roster, high-band alloc, collated emit) once every graph of a
     // project has contributed.
     struct IAnimDataSink {
-        virtual void EmitClip(std::string_view graphKey, const havok::animdata::DeriveClipInput&) = 0;
+        virtual void EmitClip(std::string_view graphKey, const CB::core::animdata::DeriveClipInput&) = 0;
         virtual ~IAnimDataSink() = default;
     };
 

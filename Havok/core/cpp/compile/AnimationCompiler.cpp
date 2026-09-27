@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::anim {
+namespace CB::core::anim {
 
 namespace {
 
@@ -153,4 +153,4 @@ AnimCompileResult CompileAnimationToFile(const AnimationDef& anim,
     return r;
 }
 
-} // namespace havok::anim
+} // namespace CB::core::anim

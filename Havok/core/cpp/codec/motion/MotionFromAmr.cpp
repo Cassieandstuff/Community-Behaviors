@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace havok::animdata {
+namespace CB::core::animdata {
 
 std::optional<MotionRecord> MotionFromAmrAnnotations(
     const std::vector<std::pair<float, std::string>>& annotations, const std::string& duration)
@@ -55,4 +55,4 @@ std::optional<MotionRecord> MotionFromAmrAnnotations(
 }
 
 
-}  // namespace havok::animdata
+}  // namespace CB::core::animdata

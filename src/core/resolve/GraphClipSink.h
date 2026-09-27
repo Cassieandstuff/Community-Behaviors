@@ -12,7 +12,7 @@
 
 #include "IGraphFeature.h"                 // CB::features::IAnimDataSink (havok-pipeline)
 
-#include <havok/anim/AnimDataDeriver.h>    // havok::animdata::DeriveClipInput
+#include <havok/anim/AnimDataDeriver.h>    // CB::core::animdata::DeriveClipInput
 
 #include <cstddef>
 #include <map>
@@ -26,9 +26,9 @@ namespace CB {
     class GraphClipSink final : public CB::features::IAnimDataSink {
     public:
         // graph serve-key (e.g. "meshes/actors/character/behaviors/0_master.hkx") -> its clip inputs.
-        using Contribs = std::map<std::string, std::vector<havok::animdata::DeriveClipInput>>;
+        using Contribs = std::map<std::string, std::vector<CB::core::animdata::DeriveClipInput>>;
 
-        void EmitClip(std::string_view graphKey, const havok::animdata::DeriveClipInput& in) override {
+        void EmitClip(std::string_view graphKey, const CB::core::animdata::DeriveClipInput& in) override {
             std::lock_guard<std::mutex> lk(m_mtx);
             m_byGraph[std::string(graphKey)].push_back(in);
         }

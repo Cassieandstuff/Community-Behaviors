@@ -15,9 +15,9 @@
 // model stays an implementation detail of the codec. This model was lifted out of
 // the quarantined havok-core (havok::sct) unchanged EXCEPT for the namespace: a
 // skeleton .hkx is a generic Havok packfile, so the codec is a first-class member
-// of the data-driven Havok stack (havok::skeleton), not a tool-scoped import.
+// of the data-driven Havok stack (CB::core::skeleton), not a tool-scoped import.
 
-namespace havok::skeleton {
+namespace CB::core::skeleton {
 
 // Per-bone ragdoll PHYSICS — the minimal AUTHORED surface. Everything else (body transform, inertia,
 // constraint frames, capsule endpoints, mappers, resource tree, collision filter) is DERIVED at compile
@@ -90,4 +90,4 @@ struct SkeletonData {
     std::optional<SkeletonBumper> bumper;   // authored FIXED bumper body (skeleton scope), if present
 };
 
-} // namespace havok::skeleton
+} // namespace CB::core::skeleton

@@ -17,7 +17,7 @@
 #include <exception>
 #include <unordered_map>
 
-namespace havok::skeleton {
+namespace CB::core::skeleton {
 
 namespace {
 
@@ -312,4 +312,4 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
     }
 }
 
-} // namespace havok::skeleton
+} // namespace CB::core::skeleton

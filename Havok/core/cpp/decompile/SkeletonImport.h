@@ -14,7 +14,7 @@
 // The output is deliberately NOT hkaSkeleton: plain names, parent indices, transforms, and the authored
 // ragdoll knobs, so callers need no Havok headers.
 
-namespace havok::skeleton {
+namespace CB::core::skeleton {
 
 // Reads every hkaSkeleton in `bytes`, in file order.
 //
@@ -38,4 +38,4 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
                          SkeletonData& animSkel,
                          std::string* err = nullptr);
 
-} // namespace havok::skeleton
+} // namespace CB::core::skeleton

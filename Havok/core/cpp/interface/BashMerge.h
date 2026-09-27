@@ -21,7 +21,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace havok::merge {
+namespace CB::core::merge {
 
 // ── generic (representation-agnostic) merge DECISION ────────────────────────────
 enum class ParamMerge { Keep, LastWriter, ReplaceArray, UnionArray, GuardError };
@@ -320,4 +320,4 @@ inline xml::Node bashMerge(const xml::Node& base, const std::vector<const PatchL
     return merged;
 }
 
-}  // namespace havok::merge
+}  // namespace CB::core::merge

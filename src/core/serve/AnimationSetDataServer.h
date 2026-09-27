@@ -21,10 +21,10 @@
 // Pointing the game at the merged cache is a separate delivery step (a read redirect).
 namespace CB::asdserve {
 
-    // The setdata model moved to havok-core (havok::animsetdata); this alias keeps the
+    // The setdata model moved to havok-core (CB::core::animsetdata); this alias keeps the
     // server's `asd::` code unchanged. Declared inside asdserve so it shadows any outer
     // CB::asd (the Nemesis-convert tool namespace) within this server.
-    namespace asd = havok::animsetdata;
+    namespace asd = CB::core::animsetdata;
 
     struct ServeResult {
         bool        attempted = false;   // found >=1 bundle contributing set-data

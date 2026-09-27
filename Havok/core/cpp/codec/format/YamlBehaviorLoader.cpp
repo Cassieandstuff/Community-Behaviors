@@ -8,7 +8,7 @@
 
 #include <codec/format/YamlBehaviorLoader.h>
 
-#include <interface/BashMerge.h>   // shared merge decision (havok::merge::decideParam)
+#include <interface/BashMerge.h>   // shared merge decision (CB::core::merge::decideParam)
 #include <interface/reflection/HavokSchema.h> // SchemaRegistry — per-field `merge:` tag classifier
 #include <interface/HavokEnums.h>  // enums::ResolveEnum for symbolic flag fields
 #include <codec/formid/FormId.h>   // CB::core::formid::parse — a node id may be a FormId "idx:local"
@@ -353,7 +353,7 @@ std::vector<std::string> findAndLoadSkeleton(const IUnitSource& src) {
 
 // ── native runtime merge (step 1): bash-merge delta layers onto a base node ──────
 // Shares the union/last-writer DECISION with the offline converter via
-// havok::merge::decideParam (BashMerge.h); the mechanics here are ryml-native (the xml
+// CB::core::merge::decideParam (BashMerge.h); the mechanics here are ryml-native (the xml
 // mechanics live in PatchConverter). A delta carries only the params the mod changed,
 // plus an optional top-level `bash: merge|replace` (merge = field/array bash, the
 // default; replace = wholesale). A change to a base value the delta repeats verbatim is
@@ -385,7 +385,7 @@ std::string mergeTagFor(const std::string& cls, const std::string& field) {
 }
 
 // Structural equality of two ryml nodes (scalar val, or children compared positionally
-// with their keys). Mirrors havok::merge::deepEqual on the YAML shape.
+// with their keys). Mirrors CB::core::merge::deepEqual on the YAML shape.
 bool rymlEqual(const c4::yml::Tree& ta, c4::yml::id_type a, const c4::yml::Tree& tb, c4::yml::id_type b) {
     const bool av = ta.has_val(a), bv = tb.has_val(b);
     if (av != bv) return false;
@@ -628,14 +628,14 @@ void mergeLayers(c4::yml::Tree& mt, const std::vector<c4::yml::Tree*>& deltas,
                 continue;   // param fully merged element-wise; skip the decideParam switch
             }
         }
-        switch (havok::merge::decideParam(isArr, static_cast<int>(changers.size()), guarded)) {
-            case havok::merge::ParamMerge::GuardError:
+        switch (CB::core::merge::decideParam(isArr, static_cast<int>(changers.size()), guarded)) {
+            case CB::core::merge::ParamMerge::GuardError:
                 throw std::runtime_error(
                     "YamlBehaviorLoader: bash-merge guard — " + std::to_string(changers.size()) +
                     " mods make NON-APPEND changes to positional array '" + P + "' on node '" + nodeKey +
                     "' (a reorder/removal/mid-array edit); refusing to auto-union (index refs would "
                     "corrupt). Pre-merge offline or express one as an override.");
-            case havok::merge::ParamMerge::UnionArray: {
+            case CB::core::merge::ParamMerge::UnionArray: {
                 // A modifier list unioned across 2+ mods (the ex-guard case: node-id refs, no
                 // positional index into the array). Never silent — surface the order compromise.
                 if (P == "modifiers")
@@ -659,8 +659,8 @@ void mergeLayers(c4::yml::Tree& mt, const std::vector<c4::yml::Tree*>& deltas,
                 }
                 break;
             }
-            case havok::merge::ParamMerge::ReplaceArray:
-            case havok::merge::ParamMerge::LastWriter: {
+            case CB::core::merge::ParamMerge::ReplaceArray:
+            case CB::core::merge::ParamMerge::LastWriter: {
                 c4::yml::Tree* win = changers.back();
                 const c4::yml::id_type wp = win->find_child(win->root_id(), Pc);
                 const c4::yml::id_type mp = mt.find_child(mroot, Pc);
@@ -668,7 +668,7 @@ void mergeLayers(c4::yml::Tree& mt, const std::vector<c4::yml::Tree*>& deltas,
                 mt.duplicate(win, wp, mroot, mt.last_child(mroot));
                 break;
             }
-            case havok::merge::ParamMerge::Keep:
+            case CB::core::merge::ParamMerge::Keep:
                 break;
         }
     }
@@ -1921,10 +1921,10 @@ void YamlBehaviorLoader::SetSchemaRegistry(const schema::SchemaRegistry* reg, bo
 // DeriveClipInputsFromBehavior. Never throws (a bad file is skipped).
 namespace havok::sct {
 
-std::vector<havok::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const std::string& clipsDir) {
+std::vector<CB::core::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const std::string& clipsDir) {
     namespace fs = std::filesystem;
 
-    std::vector<havok::animdata::DeriveClipInput> out;
+    std::vector<CB::core::animdata::DeriveClipInput> out;
     std::error_code ec;
     if (!fs::is_directory(clipsDir, ec)) return out;
 
@@ -1946,7 +1946,7 @@ std::vector<havok::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const s
             // skip anything mislabeled so a stray file can't fabricate a clip.
             if (havok::model::peekClass(r) != "hkbClipGenerator") continue;
 
-            havok::animdata::DeriveClipInput dc;
+            CB::core::animdata::DeriveClipInput dc;
             dc.name          = havok::model::str(r, "name");
             dc.animationName = havok::model::str(r, "animationName");
             dc.playbackSpeed = std::atof(havok::model::str(r, "playbackSpeed", "1.000000").c_str());
@@ -1959,7 +1959,7 @@ std::vector<havok::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const s
             if (auto trg = havok::model::parseTriggers(r)) {
                 for (const auto& t : *trg) {
                     if (!t.event || t.event->empty()) continue;
-                    havok::animdata::DeriveClipInput::Trigger tr;
+                    CB::core::animdata::DeriveClipInput::Trigger tr;
                     tr.event               = *t.event;
                     tr.localTime           = std::atof(t.localTime.c_str());
                     tr.relativeToEndOfClip = t.relativeToEndOfClip;

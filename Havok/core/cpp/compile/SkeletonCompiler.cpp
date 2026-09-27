@@ -27,7 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok::skeleton {
+namespace CB::core::skeleton {
 
 namespace {
 
@@ -686,4 +686,4 @@ SkeletonCompileResult CompileSkeletonToFile(const SkeletonData& data, const std:
     return r;
 }
 
-} // namespace havok::skeleton
+} // namespace CB::core::skeleton

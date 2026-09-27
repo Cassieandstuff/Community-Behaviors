@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::anim {
+namespace CB::core::anim {
 
 struct AnimDecompileResult {
     bool        ok = false;
@@ -20,9 +20,9 @@ struct AnimDecompileResult {
 // Deserialize `hkx` (raw packfile bytes) via the schema stack, decode the first spline animation, and
 // emit `dir`/animation.yaml. `boneNames` (optional, index-parallel to the served skeleton): when set,
 // per-track bone references decompile to bone NAMES via the cross membrane (Phase 2); null = the
-// track<N> placeholder names. Requires havok::schema::SharedRegistry().
+// track<N> placeholder names. Requires CB::core::schema::SharedRegistry().
 AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx,
                                        const std::filesystem::path&      dir,
                                        const std::vector<std::string>*   boneNames = nullptr);
 
-} // namespace havok::anim
+} // namespace CB::core::anim

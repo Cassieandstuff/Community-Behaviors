@@ -31,7 +31,7 @@ namespace havok::sct {
     // One DeriveClipInput per hkbClipGenerator in `data` (input order = the map's key order).
     // Triggers here are the clip generator's authored triggers only; the caller appends
     // annotation triggers and passes the roster to animdata::DeriveClipList.
-    std::vector<havok::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
+    std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
         const havok::model::BehaviorData& data);
 
     // Read clip generators straight out of a decomposed behavior unit's clips/ directory into
@@ -41,7 +41,7 @@ namespace havok::sct {
     // This is how the converter recovers a Nemesis mod's added clips (e.g. BFCO's attacks in
     // 1hm_behavior.hkx/clips/) that a whole-graph load can't reach. Non-clip / malformed files are
     // skipped; never throws.
-    std::vector<havok::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const std::string& clipsDir);
+    std::vector<CB::core::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const std::string& clipsDir);
 
     // An animation's derivation-relevant data: its duration (m_duration — present even when the
     // animation carries no root-motion record) and its annotation-track events (text + time).
@@ -70,8 +70,8 @@ namespace havok::sct {
     // triggers are extended in place; `motionDur` (animIndex -> duration, seeded from the master
     // motion table) is updated. Each distinct animation is read+parsed once (cached). The caller
     // supplies the reader (VFS/loose at runtime, filesystem offline) and the roster in order.
-    std::vector<havok::animdata::ClipGenerator> DeriveProjectClipList(
-        std::vector<havok::animdata::DeriveClipInput>&                       clips,
+    std::vector<CB::core::animdata::ClipGenerator> DeriveProjectClipList(
+        std::vector<CB::core::animdata::DeriveClipInput>&                       clips,
         const std::vector<std::string>&                                     roster,
         std::unordered_map<int, double>&                                    motionDur,
         const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
@@ -83,11 +83,11 @@ namespace havok::sct {
     // seed the trigger clamp. This is the transform the converter/editor runs at ship time so the
     // bundle carries a ready animationdata delta and the runtime only merges (never derives). The
     // caller supplies the roster + the animation-bytes reader.
-    havok::animdata::Project DeriveProjectAnimData(
+    CB::core::animdata::Project DeriveProjectAnimData(
         const std::string&                                                  projectName,   // e.g. "DefaultMale" (".txt" appended)
-        std::vector<havok::animdata::DeriveClipInput>&                      clips,
+        std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
         const std::vector<std::string>&                                     roster,
-        const std::vector<havok::animdata::MotionRecord>&                   motions,
+        const std::vector<CB::core::animdata::MotionRecord>&                   motions,
         const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim);
 
     // Derive a SYMBOL-FORM ProjectPatch (a mergeable animationdata delta) for a set of ADDED
@@ -105,11 +105,11 @@ namespace havok::sct {
     // record (a BR-native animation.yaml `motion:` block, extracted into AnimationDef.motion) gets THAT
     // motion instead of the placeholder — so editor-authored root motion aligns with its clip at derive
     // time (the intended "derive high-band-aligns motion with clips" path, not a runtime override).
-    havok::animdata::ProjectPatch DeriveProjectPatch(
+    CB::core::animdata::ProjectPatch DeriveProjectPatch(
         const std::string&                                                  projectName,
-        std::vector<havok::animdata::DeriveClipInput>&                      clips,
+        std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
         const std::string&                                                  symbolCode,
         const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
-        const std::unordered_map<std::string, havok::animdata::MotionRecord>* animMotions = nullptr);
+        const std::unordered_map<std::string, CB::core::animdata::MotionRecord>* animMotions = nullptr);
 
 }  // namespace havok::sct

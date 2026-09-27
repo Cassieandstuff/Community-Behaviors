@@ -144,8 +144,8 @@ namespace CB {
         // the registry UNARMED, so every compile fails and every graph serves VANILLA (CB effectively off) —
         // a clean kill switch, not a typed path. A schema that fails to LOAD (missing/foreign/version-
         // mismatched Havok/ tree) is the same: all graphs serve vanilla, loudly.
-        havok::schema::SetSharedSchemaDir(enabled ? dir : "");
-        havok::schema::SchemaRegistry* reg = enabled ? havok::schema::SharedRegistry() : nullptr;
+        CB::core::schema::SetSharedSchemaDir(enabled ? dir : "");
+        CB::core::schema::SchemaRegistry* reg = enabled ? CB::core::schema::SharedRegistry() : nullptr;
         havok::model::YamlBehaviorLoader::SetSchemaRegistry(reg);
         const bool ready = (reg != nullptr);
         LOG_INFO("Community Behaviors: data-driven compiler {} (schema registry {}).",
@@ -154,7 +154,7 @@ namespace CB {
         // Surface WHY the schema path is off when it was asked for — a schema-version mismatch
         // (outdated/ahead Havok/ tree vs the version this build speaks) reads as a loud WARN.
         if (enabled && !ready) {
-            const std::string& why = havok::schema::SharedRegistryError();
+            const std::string& why = CB::core::schema::SharedRegistryError();
             if (!why.empty()) LOG_ERROR("Community Behaviors: schema compiler off, ALL GRAPHS SERVE VANILLA — {}.", why);
         }
     }
