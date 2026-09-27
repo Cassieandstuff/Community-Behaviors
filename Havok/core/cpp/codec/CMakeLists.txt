@@ -23,6 +23,12 @@ target_include_directories(codec
 # with it. It carries no descriptor dependency; it's the ryml conduit.
 target_link_libraries(codec PUBLIC interface havok-schema)
 
+# bsa/ (the Bethesda archive reader) decompresses v105 (SSE/AE) file blocks with the LZ4 FRAME API. GLOBAL so
+# the imported target resolves in every consumer's scope (codec is a static lib: its PRIVATE link rides the
+# export as $<LINK_ONLY:lz4::lz4>; the cb-api package config re-finds it via find_dependency(lz4)).
+find_package(lz4 CONFIG REQUIRED GLOBAL)
+target_link_libraries(codec PRIVATE lz4::lz4)
+
 set_target_properties(codec PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON

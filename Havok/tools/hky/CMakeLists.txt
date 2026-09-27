@@ -6,7 +6,7 @@
 
 add_executable(hky-tool hky_tool.cpp)
 
-target_link_libraries(hky-tool PRIVATE serialization)   # HkyArchive + codec/serialization (pulls common/interface/reflection)
+target_link_libraries(hky-tool PRIVATE serialization codec)   # HkyArchive (serialization) + the BSA reader (codec/bsa)
 
 set_target_properties(hky-tool PROPERTIES
     CXX_STANDARD 23

@@ -3,14 +3,19 @@
 // links ONLY Havok/core (codec/serialization/HkyArchive) — NO typed havok-core. Proves the
 // serialization codec stands alone.
 //
-//   hky-tool pack   <bundleDir> -o <out.hky>     YAML tree  -> single-file .hky (round-trip-checked)
-//   hky-tool unpack <in.hky>    -o <outDir>       .hky       -> YAML tree on disk (original case kept)
+//   hky-tool pack        <bundleDir> -o <out.hky>        YAML tree  -> single-file .hky (round-trip-checked)
+//   hky-tool unpack      <in.hky>    -o <outDir>          .hky       -> YAML tree on disk (original case kept)
+//   hky-tool bsa-list    <in.bsa>    [prefix]             list an SSE/AE (v105) archive's files
+//   hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix] extract them (archive-stored lowercase paths)
 //
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
 
+#include <codec/bsa/BsaArchive.h>
 #include <codec/serialization/HkyArchive.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -62,10 +67,60 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
     return 0;
 }
 
+/// @note The prefix matches the archive-stored form (lowercase, backslashes); the user's '/' and case are folded
+///   to that form so "Meshes/Actors" works.
+bool BsaPrefixMatch(const std::string& path, std::string prefix) {
+    std::replace(prefix.begin(), prefix.end(), '/', '\\');
+    std::transform(prefix.begin(), prefix.end(), prefix.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return path.rfind(prefix, 0) == 0;
+}
+
+int doBsaList(const std::string& bsaPath, const std::string& prefix) {
+    std::string err;
+    const auto arc = CB::core::codec::bsa::Archive::Open(bsaPath, &err);
+    if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    std::size_t shown = 0;
+    for (const auto& e : arc->Entries()) {
+        if (!prefix.empty() && !BsaPrefixMatch(e.path, prefix)) continue;
+        std::printf("%s\t%u%s\n", e.path.c_str(), e.size, e.compressed ? "\tlz4" : "");
+        ++shown;
+    }
+    std::printf("OK: v%u, %zu file(s), %zu listed.\n", arc->Version(), arc->Entries().size(), shown);
+    return 0;
+}
+
+int doBsaExtract(const std::string& bsaPath, const std::string& outDir, const std::string& prefix) {
+    if (outDir.empty()) { std::printf("usage: hky-tool bsa-extract <in.bsa> -o <outDir> [prefix]\n"); return 2; }
+    std::string err;
+    const auto arc = CB::core::codec::bsa::Archive::Open(bsaPath, &err);
+    if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    namespace fs = std::filesystem;
+    std::size_t written = 0, failed = 0;
+    std::vector<std::uint8_t> bytes;
+    for (const auto& e : arc->Entries()) {
+        if (!prefix.empty() && !BsaPrefixMatch(e.path, prefix)) continue;
+        if (!arc->Extract(e, bytes, &err)) { std::printf("  FAIL %s: %s\n", e.path.c_str(), err.c_str()); ++failed; continue; }
+        std::string rel = e.path;
+        std::replace(rel.begin(), rel.end(), '\\', '/');
+        const fs::path dst = fs::path(outDir) / fs::path(rel);
+        std::error_code ec;
+        fs::create_directories(dst.parent_path(), ec);
+        std::ofstream os(dst, std::ios::binary);
+        if (!os) { std::printf("  FAIL cannot write %s\n", dst.string().c_str()); ++failed; continue; }
+        os.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        ++written;
+    }
+    std::printf("%s: bsa extract '%s' -> %s (%zu written, %zu failed).\n", failed ? "FAIL" : "OK",
+                bsaPath.c_str(), outDir.c_str(), written, failed);
+    return failed ? 1 : 0;
+}
+
 void usage() {
     std::printf("usage:\n"
-                "  hky-tool pack   <bundleDir> -o <out.hky>\n"
-                "  hky-tool unpack <in.hky>    -o <outDir>\n");
+                "  hky-tool pack        <bundleDir> -o <out.hky>\n"
+                "  hky-tool unpack      <in.hky>    -o <outDir>\n"
+                "  hky-tool bsa-list    <in.bsa>    [prefix]\n"
+                "  hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix]\n");
 }
 
 }  // namespace
@@ -74,16 +129,18 @@ int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     const std::string verb = argv[1];
 
-    // Parse a positional <arg> and an -o <out> from the remaining args.
-    std::string arg, out;
+    std::string arg, arg2, out;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) { out = argv[++i]; }
         else if (arg.empty())         { arg = a; }
+        else if (arg2.empty())        { arg2 = a; }
     }
 
-    if (verb == "pack")   return doHkyPack(arg, out);
-    if (verb == "unpack") return doHkyUnpack(arg, out);
+    if (verb == "pack")        return doHkyPack(arg, out);
+    if (verb == "unpack")      return doHkyUnpack(arg, out);
+    if (verb == "bsa-list")    return doBsaList(arg, arg2);
+    if (verb == "bsa-extract") return doBsaExtract(arg, out, arg2);
     usage();
     return 2;
 }
