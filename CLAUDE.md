@@ -63,6 +63,29 @@ Retirement Home/havok-core/  QUARANTINED legacy typed backbone — see its READM
 APP/Behavior Converter/      the GLFW+ImGui converter (BehaviorConverter.exe); src/ flat, ships templates/+Havok/
 ```
 
+## Namespacing (describes PURPOSE, not location) — directive
+
+A namespace names WHAT code is for; a folder names where it happens to live. They are decoupled on
+purpose — folders churn (the firesale moved everything), a purpose namespace must not. So the namespace
+is NOT derived from the path, and a file moving folders never renames it.
+
+- **One root. `CB::core::` for all core functionality; `CB::feature::<Name>` for features (later).**
+  That is the entire reason `core` exists — there is no bare `havok::` / `sct::` / `linker` / `model` /
+  `merge`, no second root. A stray top-level namespace is a bug.
+- **Depth: `CB::core::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
+  sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
+  tidy. 5 levels is a smell: the deep levels stop disambiguating anything 3 wouldn't. When tempted, the
+  4th-level thing is usually its own level-3 purpose, or it's a type, not a namespace.
+- **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug`
+  (pipeline) · `compile decompile codec interface merge schema` (engine) · `skeleton anim animdata linker`
+  (domain) · `hooks config` (infra). The one sanctioned 4th-level family: `CB::core::codec::{spline,crc,
+  formid,vec4,io}` (all genuinely codecs).
+- **Depth is free — use the language.** Define with nested syntax `namespace CB::core::resolve { … }`
+  (C++17, no brace pyramid); alias at heavy call sites `namespace ccr = CB::core::resolve;`. Verbosity at
+  use sites is a `using`-alias problem, never a reason to flatten a real purpose.
+- **`detail` / `en` / anonymous namespaces** stay as the innermost leaf under a purpose
+  (`CB::core::codec::detail`), never top-level.
+
 ## Build
 
 CLI cmake works (generator **Visual Studio 18 2026**; VS's bundled cmake at
