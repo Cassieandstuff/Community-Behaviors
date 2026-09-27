@@ -151,7 +151,7 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
                 // needs no manifest for ordering, and opening it would decompress the whole thing.
                 if (ToLower(b.stem) != "skyrim") {
                     std::string herr;
-                    if (auto arc = havok::model::HkyArchive::LoadFromFile(it->path().string(), herr))
+                    if (auto arc = CB::core::codec::HkyArchive::LoadFromFile(it->path().string(), herr))
                         if (auto mf = arc->file("manifest.json")) applyManifest(b, *mf);
                 }
             } else {

@@ -11,7 +11,7 @@
 #include <unordered_set>
 
 namespace fs = std::filesystem;
-using namespace havok::animsetdata;   // model types (SingleFile/SetFile/… moved to havok-core)
+using namespace CB::core::animsetdata;   // model types (SingleFile/SetFile/… moved to havok-core)
 
 namespace CommunityBehaviors::asd {
 namespace {

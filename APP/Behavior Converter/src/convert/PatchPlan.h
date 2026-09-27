@@ -20,7 +20,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace havok::model { class HkyArchive; }
+namespace CB::core::codec { class HkyArchive; }
 
 namespace bconv {
 
@@ -39,7 +39,7 @@ struct BaseMaps {
     std::unordered_set<std::string>                           vanillaGraphStems;  // behavior stems present in base (derive-vs-own-new)
 };
 
-BaseMaps BuildBaseMaps(const havok::model::HkyArchive& baseArc);
+BaseMaps BuildBaseMaps(const CB::core::codec::HkyArchive& baseArc);
 
 // "meshes/actors/horse/behaviors/horsebehavior.hkx" -> "actors/horse" (lowercased input expected).
 // Handles the space-folder variants and _1stperson. Used to route a loose/precompiled graph's roster

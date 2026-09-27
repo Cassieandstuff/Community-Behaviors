@@ -5,7 +5,7 @@
 
 #include "ui/ConverterUI.h"
 
-#include "core/debug/DebugFlags.h"   // CB::debug::kFlags — the canonical plugin debug-flag registry (shared, dependency-free)
+#include "core/debug/DebugFlags.h"   // CB::core::debug::kFlags — the canonical plugin debug-flag registry (shared, dependency-free)
 
 #include <sct-utilities/SctUtilities.h>
 
@@ -726,9 +726,9 @@ void ConverterUI::DrawDebugTab() {
     ImGui::Spacing();
 
     // Auto-enumerated from the canonical registry (DebugFlags.h) — add a row there and it shows up here.
-    for (const auto& fl : CB::debug::kFlags) {
+    for (const auto& fl : CB::core::debug::kFlags) {
         const std::string section(fl.section), key(fl.key), id(fl.id);
-        const bool        marker = fl.kind == CB::debug::FlagKind::MarkerFile;
+        const bool        marker = fl.kind == CB::core::debug::FlagKind::MarkerFile;
 
         const bool on  = marker ? fs::exists(markerDir / key) : IniGetBool(iniPath, section, key, fl.defOn);
         bool       cur = on;

@@ -1,7 +1,7 @@
 #include "Converter.h"
 
 #include <codec/serialization/HavokFile.h>             // ReadHavokFile / WriteHavokFile
-#include <codec/formid/FormId.h>                        // CB::core::formid::SELF_INDEX / BASE_GAME_INDEX (index convention)
+#include <codec/formid/FormId.h>                        // CB::core::codec::formid::SELF_INDEX / BASE_GAME_INDEX (index convention)
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
@@ -13,18 +13,18 @@
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
 #include <codec/serialization/packfile/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
 #include <codec/serialization/packfile/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
-#include <compile/AnimationCompiler.h>       // havok::anim::CompileAnimation — recompile leg (schema-native)
-#include <decompile/AnimationDecompiler.h>   // havok::anim::DecompileAnimation — schema-native import leg
+#include <compile/AnimationCompiler.h>       // CB::core::anim::CompileAnimation — recompile leg (schema-native)
+#include <decompile/AnimationDecompiler.h>   // CB::core::anim::DecompileAnimation — schema-native import leg
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <decompile/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
 #include <havok-model/HavokModel.h>          // ConvertModDelta — the DEFAULT data-driven per-mod delta
 #include <havok-schema/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
-#include <compile/ProjectRead.h>             // havok::sct::ReadProject (schema-native project read)
-#include <codec/format/ProjectYaml.h>        // havok::sct::EmitProjectYaml (project.yaml codec)
-#include <decompile/CharacterDecompile.h>    // havok::decompile::DecompileCharacterSchema (schema character decompile)
-#include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior (schema compile, replaces typed sct::CompileBehavior)
-#include <decompile/UnitDecompile.h>         // havok::decompile::DecompileUnit (shared schema decompile dispatcher)
+#include <compile/ProjectRead.h>             // CB::core::compile::ReadProject (schema-native project read)
+#include <codec/format/ProjectYaml.h>        // CB::core::codec::EmitProjectYaml (project.yaml codec)
+#include <decompile/CharacterDecompile.h>    // CB::core::decompile::DecompileCharacterSchema (schema character decompile)
+#include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior (schema compile, replaces typed CB::core::compile::CompileBehavior)
+#include <decompile/UnitDecompile.h>         // CB::core::decompile::DecompileUnit (shared schema decompile dispatcher)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
 #include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
@@ -60,7 +60,7 @@ std::string ToLower(std::string s) {
 }
 
 // Read a string field off a generic SchemaObject by name (empty if absent / not a string field).
-std::string SoStr(const havok::io::SchemaObject& so, const char* name) {
+std::string SoStr(const CB::core::codec::io::SchemaObject& so, const char* name) {
     const auto flds = so.Fields();
     const auto& vs = so.Values();
     for (std::size_t i = 0; i < flds.size() && i < vs.size(); ++i)
@@ -107,30 +107,30 @@ struct LooseBehaviorRefs {
 bool ReadLooseBehaviorRefs(const std::string& hkxPath, LooseBehaviorRefs& out) {
     std::vector<std::uint8_t> bytes;
     std::string               err;
-    if (!havok::sct::ReadHavokFile(hkxPath, bytes, &err)) return false;
+    if (!CB::core::codec::ReadHavokFile(hkxPath, bytes, &err)) return false;
     // Schema-native: build the clip/RBG objects as generic SchemaObjects (schema factory) and read the
     // one field each off the field table by name — no typed hkbClipGenerator/hkbBehaviorReferenceGenerator.
-    havok::schema::SchemaRegistry* reg = havok::schema::SharedRegistry();
+    CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
     if (!reg) return false;
     try {
-        havok::PackFileDeserializer des;
-        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
-        havok::BinaryReaderEx       br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
+        CB::core::codec::PackFileDeserializer des;
+        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
+        CB::core::codec::BinaryReaderEx       br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
         des.DeserializePartially(br);
         const bool le = des._header.Endian == 0;
         const bool p8 = des._header.PointerSize == 8;
         {
-            havok::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
+            CB::core::codec::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
             for (const auto& o : des.ConstructAllOfClass(dr, "hkbClipGenerator"))
-                if (const auto* c = dynamic_cast<const havok::io::SchemaObject*>(o.get())) {
+                if (const auto* c = dynamic_cast<const CB::core::codec::io::SchemaObject*>(o.get())) {
                     const std::string an = SoStr(*c, "animationName");
                     if (!an.empty()) out.animationNames.push_back(an);
                 }
         }
         {
-            havok::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
+            CB::core::codec::BinaryReaderEx dr(le, p8, des.DataSectionBytes());
             for (const auto& o : des.ConstructAllOfClass(dr, "hkbBehaviorReferenceGenerator"))
-                if (const auto* r = dynamic_cast<const havok::io::SchemaObject*>(o.get())) {
+                if (const auto* r = dynamic_cast<const CB::core::codec::io::SchemaObject*>(o.get())) {
                     const std::string bn = SoStr(*r, "behaviorName");
                     if (!bn.empty()) out.behaviorNames.push_back(bn);
                 }
@@ -831,7 +831,7 @@ int DeriveModAnimDeltas(const fs::path& codeDir, const fs::path& bundle,
         if (ToLower(unit.extension().string()) != ".hkx") continue;
         const fs::path clipsDir = unit / "clips";
         if (!fs::is_directory(clipsDir, de)) continue;
-        for (const auto& dc : havok::sct::ReadClipInputsFromClipsDir(clipsDir.string()))
+        for (const auto& dc : CB::core::compile::ReadClipInputsFromClipsDir(clipsDir.string()))
             if (!dc.name.empty() && !dc.animationName.empty())
                 animOf.emplace(dc.name, dc.animationName);
     }
@@ -859,8 +859,8 @@ int DeriveModAnimDeltas(const fs::path& codeDir, const fs::path& bundle,
         }
         if (files.empty()) continue;
 
-        havok::animdata::ProjectPatch pp;
-        try { pp = havok::animdata::AssembleProjectPatch(dirName, files); }
+        CB::core::animdata::ProjectPatch pp;
+        try { pp = CB::core::animdata::AssembleProjectPatch(dirName, files); }
         catch (const std::exception& e) { say("  bad animationdata dir '" + dirName + "': " + e.what()); continue; }
 
         const fs::path cdir = animRoot / "clips" / projStem;
@@ -873,18 +873,18 @@ int DeriveModAnimDeltas(const fs::path& codeDir, const fs::path& bundle,
             auto ai = animOf.find(name);
             if (ai == animOf.end()) ++unmatched;              // no behaviour animationName — emit anyway (metadata only)
 
-            const std::string fn = havok::animdata::UniqueFileName(name, used);
+            const std::string fn = CB::core::animdata::UniqueFileName(name, used);
 
-            havok::animdata::ClipGenerator clip = add.clip;   // name/crop/speed/triggers verbatim from Nemesis
+            CB::core::animdata::ClipGenerator clip = add.clip;   // name/crop/speed/triggers verbatim from Nemesis
             clip.animation = (ai != animOf.end()) ? ai->second : std::string{};   // animationName metadata (best-effort)
             clip.animIndex.clear();                           // no hardwired index — the runtime assigns the high band
-            const std::string cy = havok::animdata::EmitClipYaml(clip, {}, /*writeName*/ fn != name);
+            const std::string cy = CB::core::animdata::EmitClipYaml(clip, {}, /*writeName*/ fn != name);
             fs::create_directories(cdir, de);
             std::ofstream(cdir / (fn + ".yaml"), std::ios::binary).write(cy.data(), static_cast<std::streamsize>(cy.size()));
             ++written;
 
             if (add.hasMotion) {                              // real, un-derivable root motion — keyed by clip name
-                const std::string my = havok::animdata::EmitMotionSidecar(add.motion);
+                const std::string my = CB::core::animdata::EmitMotionSidecar(add.motion);
                 fs::create_directories(mdir, de);
                 std::ofstream(mdir / (fn + ".yaml"), std::ios::binary).write(my.data(), static_cast<std::streamsize>(my.size()));
             }
@@ -1134,12 +1134,12 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     };
 
     // DEFAULT delta path = data-driven (schema). Havok/ ships next to templates/; when it loads, per-mod
-    // behavior deltas go through havok::model::ConvertModDelta (schema-driven — faithful new #code$N nodes,
+    // behavior deltas go through CB::core::decompile::ConvertModDelta (schema-driven — faithful new #code$N nodes,
     // which the typed populators drop). The typed ConvertPatch is the fallback (schema dir absent, or a
     // graph the schema path errors on). Base for the merge is the graph's template tagfile (its #NNNN are
     // the canonical ids the runtime base is keyed by).
     const fs::path havokDir = templatesDir.parent_path() / "Havok";
-    havok::schema::SchemaRegistry schemaReg;
+    CB::core::schema::SchemaRegistry schemaReg;
     std::string schemaErr;
     const bool haveSchema = fs::is_directory(havokDir, ec) && schemaReg.LoadDir(havokDir.string(), schemaErr);
     say(haveSchema ? "Schema: loaded (data-driven delta = default)."
@@ -1218,11 +1218,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // Shared by the per-code delta path and the future merged/single-mod paths — the one behavior source.
     auto convertBehaviorGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
                                     const std::string& label, const std::string& outHkx,
-                                    const havok::model::NemesisFormIdCtx& fidCtx) -> bool {
+                                    const CB::core::decompile::NemesisFormIdCtx& fidCtx) -> bool {
         if (haveSchema) {
             const std::string& baseXml = baseXmlOf(g);
             if (!baseXml.empty()) {
-                const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
+                const auto md = CB::core::decompile::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
                 if (md.ok) {
                     ++r.deltas;
                     for (const auto& w : md.warnings) say("      " + label + "/" + g + ": " + w);
@@ -1241,7 +1241,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // first-person source). Same list/label contract as convertBehaviorGraph.
     auto convertFirstPersonGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
                                        const std::string& label, const std::string& outHkx,
-                                       const havok::model::NemesisFormIdCtx& fidCtx) -> bool {
+                                       const CB::core::decompile::NemesisFormIdCtx& fidCtx) -> bool {
         if (!haveSchema) {
             ++r.skipped;
             say("  " + label + "/_1stperson/" + g + ": first-person needs the schema path (Havok/ absent) — skipped");
@@ -1253,7 +1253,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             say("  " + label + "/_1stperson/" + g + ": no first-person template — skipped");
             return false;
         }
-        const auto md = havok::model::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
+        const auto md = CB::core::decompile::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
         if (md.ok) {
             ++r.deltas;
             for (const auto& w : md.warnings) say("      " + label + "/_1stperson/" + g + ": " + w);
@@ -1275,11 +1275,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // longer aligns to the tagfile. AlignTagfile detects that (class/ref-count mismatch) and
     // such a graph FALLS BACK to templates/<g>.hkx. Base binaries are compiled once per graph
     // and cached (reused across every Nemesis code that patches the graph).
-    std::shared_ptr<havok::model::HkyArchive> baseArc;
+    std::shared_ptr<CB::core::codec::HkyArchive> baseArc;
     {
         const fs::path baseHky = dataDir / "community_behaviors" / "plugins" / "Skyrim.hky";
         std::string herr;
-        baseArc = havok::model::HkyArchive::LoadFromFile(baseHky.string(), herr);
+        baseArc = CB::core::codec::HkyArchive::LoadFromFile(baseHky.string(), herr);
         if (!baseArc)
             say("  note: base bundle not readable at " + baseHky.string() +
                 " (install Community Behaviors first) — Nemesis path falls back to templates/<g>.hkx, "
@@ -1288,7 +1288,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     std::unordered_set<std::string> baseUnits;   // behavior unit prefixes present in Skyrim.hky
     if (baseArc)
         for (const auto& u : baseArc->units())
-            if (u.kind == havok::model::HkyArchive::UnitKind::Behavior) baseUnits.insert(u.prefix);
+            if (u.kind == CB::core::codec::HkyArchive::UnitKind::Behavior) baseUnits.insert(u.prefix);
 
     // Base-derived resolution maps (ground truth = Skyrim.hky). Defined here (before the loose legs +
     // the per-bundle loop + the animationnames post-pass) so every roster leg routes by real actor/
@@ -1356,15 +1356,15 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // still shipped; every other graph is base-sourced from Skyrim.hky.
     auto alignClean = [](const std::vector<std::uint8_t>& bin, const std::string& xmlText) -> bool {
         try {
-            havok::PackFileDeserializer des;
-            havok::BinaryReaderEx br(false, true, bin);
+            CB::core::codec::PackFileDeserializer des;
+            CB::core::codec::BinaryReaderEx br(false, true, bin);
             des.DeserializePartially(br);
             std::uint32_t root = 0xFFFFFFFFu;
             for (const auto& [o, c] : des.ListObjects()) if (c == "hkRootLevelContainer") { root = o; break; }
             if (root == 0xFFFFFFFFu) return false;
-            havok::BinaryReaderEx dr(des._header.Endian == 0, des._header.PointerSize == 8, des.DataSectionBytes());
+            CB::core::codec::BinaryReaderEx dr(des._header.Endian == 0, des._header.PointerSize == 8, des.DataSectionBytes());
             des.ConstructVirtualClass(dr, root);
-            const auto res = havok::sct::AlignTagfile(des, xmlText);
+            const auto res = CB::core::decompile::AlignTagfile(des, xmlText);
             return res.ok && res.classMism == 0 && res.refCountMism == 0 && res.mapped == res.binObjs;
         } catch (...) { return false; }
     };
@@ -1378,11 +1378,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         const std::string prefix = graphServePathOf(g, false);   // real serve path (horsebehavior -> actors/horse)
         if (baseArc && baseUnits.count(prefix)) {
             try {
-                auto data = havok::model::YamlBehaviorLoader::LoadMerged({ baseArc->source(prefix) });
+                auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged({ baseArc->source(prefix) });
                 const auto cr = CB::core::compile::CompileBehavior(data);
                 std::string werr;
                 const fs::path outBin = baseBinTmp / (g + ".hkx");
-                if (cr.ok && havok::sct::WriteHavokFile(outBin.string(), cr.bytes, &werr)) {
+                if (cr.ok && CB::core::codec::WriteHavokFile(outBin.string(), cr.bytes, &werr)) {
                     std::ifstream xf(xmlOf(g), std::ios::binary);
                     const std::string xml((std::istreambuf_iterator<char>(xf)), std::istreambuf_iterator<char>());
                     if (alignClean(cr.bytes, xml)) {
@@ -1443,10 +1443,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             const fs::path scratch = outDir / ".chardiff" / fs::path(rel).stem();
             std::vector<std::uint8_t> bytes;
             std::string rerr;
-            if (!havok::sct::ReadHavokFile(winner.string(), bytes, &rerr)) {
+            if (!CB::core::codec::ReadHavokFile(winner.string(), bytes, &rerr)) {
                 ++r.skipped; say("  " + rel + ": loose-file READ FAILED — " + rerr); continue;
             }
-            const auto dres = havok::decompile::DecompileUnit(bytes, scratch.string());
+            const auto dres = CB::core::decompile::DecompileUnit(bytes, scratch.string());
             if (!(dres.ok && dres.kind == "character")) {
                 ++r.skipped;
                 say("  " + rel + ": loose-file DECOMPILE FAILED — " +
@@ -1490,8 +1490,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path vscratch = outDir / ".chardiff" / (fs::path(rel).stem().string() + "__vanilla");
                 std::vector<std::uint8_t> vbytes;
                 std::string               vrerr;
-                if (havok::sct::ReadHavokFile(tmpl.string(), vbytes, &vrerr) &&
-                    havok::decompile::DecompileUnit(vbytes, vscratch.string()).ok)
+                if (CB::core::codec::ReadHavokFile(tmpl.string(), vbytes, &vrerr) &&
+                    CB::core::decompile::DecompileUnit(vbytes, vscratch.string()).ok)
                     vanilla = readRoster(vscratch);
                 fs::remove_all(vscratch, we);
             }
@@ -1576,15 +1576,15 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
                 }
                 if (bl.empty() && boneFiles.empty()) return names;
-                havok::skeleton::SkeletonData sk; std::string serr;
-                if (!havok::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &serr)) return names;
+                CB::core::skeleton::SkeletonData sk; std::string serr;
+                if (!CB::core::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &serr)) return names;
                 for (const auto& bn : sk.bones) names.push_back(bn.name);
                 return names;
             };
 
             for (const auto& u : baseArc->units()) {
                 if (cancel) { r.error = "cancelled"; return r; }
-                if (u.kind != havok::model::HkyArchive::UnitKind::Behavior) continue;
+                if (u.kind != CB::core::codec::HkyArchive::UnitKind::Behavior) continue;
                 if (u.prefix.rfind("meshes/actors/character/", 0) == 0) continue;   // Nemesis-owned
                 std::error_code we;
                 const fs::path winner = dataDir / fs::path(u.prefix);               // VFS-winning file
@@ -1636,12 +1636,12 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 // armed for every converter mode (Stage 3.5), so this is always taken; the typed
                 // DeriveLooseBehaviorDelta fallback is RETIRED (firesale). Registry absent -> error, never a
                 // schema-base/typed-delta mix.
-                havok::model::LooseDeriveResult res;
-                if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
+                CB::core::decompile::LooseDeriveResult res;
+                if (CB::core::schema::SchemaRegistry* sreg = CB::core::schema::SharedRegistry()) {
                     std::vector<std::uint8_t> vb, mb; std::string re;
-                    if (havok::sct::ReadHavokFile(vanBin.string(), vb, &re) &&
-                        havok::sct::ReadHavokFile(winner.string(), mb, &re))
-                        res = havok::model::DeriveLooseBehaviorDeltaSchema(vb, mb, modCode, *sreg, unit.string());
+                    if (CB::core::codec::ReadHavokFile(vanBin.string(), vb, &re) &&
+                        CB::core::codec::ReadHavokFile(winner.string(), mb, &re))
+                        res = CB::core::decompile::DeriveLooseBehaviorDeltaSchema(vb, mb, modCode, *sreg, unit.string());
                     else res.error = "read: " + re;
                 } else {
                     res.error = "loose-derive: schema registry not armed (typed fallback retired)";
@@ -1855,7 +1855,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         }
         return refs;
     };
-    havok::model::NemesisFormIdCtx fidCtx;                                    // rebuilt per bundle below
+    CB::core::decompile::NemesisFormIdCtx fidCtx;                                    // rebuilt per bundle below
     std::unordered_map<std::string, std::vector<std::string>> bundleMasters;  // bundle -> ordered master names
 
     for (const auto& bname : bundleOrder) {
@@ -1887,7 +1887,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         // therefore start at index 2 (skyrim occupies 1). Bare vanilla refs resolve to skyrim=1 in toFormId.
         std::unordered_map<std::string, std::uint16_t> bIdx;
         for (std::size_t i = 0; i < mastersOrdered.size(); ++i) bIdx[mastersOrdered[i]] = static_cast<std::uint16_t>(i + 2);
-        fidCtx.selfIndex = CB::core::formid::SELF_INDEX;   // 0 — this bundle's own new nodes
+        fidCtx.selfIndex = CB::core::codec::formid::SELF_INDEX;   // 0 — this bundle's own new nodes
         fidCtx.codeIndex.clear();
         for (const auto& oc : ownLower) fidCtx.codeIndex[oc] = fidCtx.selfIndex;
         for (const auto& rc : refCodes)
@@ -2006,7 +2006,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                     if (!fs::exists(unitDir / "behavior.yaml", ue)) {
                         std::vector<std::uint8_t> ub;
                         std::string               uerr;
-                        if (havok::sct::ReadHavokFile(hkx.string(), ub, &uerr)) {
+                        if (CB::core::codec::ReadHavokFile(hkx.string(), ub, &uerr)) {
                             // Emit this new sub-behavior's node ids in the bundle's FormId SELF space
                             // (fidCtx.selfIndex) — the SAME space the mod's 0_master delta already
                             // references it by. A generic DecompileUnit emits BARE ids, which the loader
@@ -2018,12 +2018,12 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                             std::string schErr;
                             bool        owned = false;
                             if (haveSchema &&
-                                havok::model::DecompileBehaviorSchema(ub, "", schemaReg, unitDir.string(), schErr,
+                                CB::core::decompile::DecompileBehaviorSchema(ub, "", schemaReg, unitDir.string(), schErr,
                                                                       /*selfIndex*/ fidCtx.selfIndex)) {
                                 ++ownedUnits; owned = true;
                             }
                             if (!owned) {
-                                const auto dres = havok::decompile::DecompileUnit(ub, unitDir.string());
+                                const auto dres = CB::core::decompile::DecompileUnit(ub, unitDir.string());
                                 if (dres.ok && dres.kind == "behavior") ++ownedUnits;
                                 else fs::remove_all(unitDir, ue);   // not a behavior / failed — leave no junk
                             }
@@ -2417,7 +2417,7 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
     constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
     const fs::path bakeTmp = stageDir / "anim_bake";
     fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
-    const auto dc = havok::anim::DecompileAnimation(abytes, bakeTmp);
+    const auto dc = CB::core::anim::DecompileAnimation(abytes, bakeTmp);
     if (!dc.ok) { reason = dc.error; return AnimBakeOutcome::Skip; }   // incl. "not spline-compressed"
 
     // MOTION-ONLY package (point 5, compile-off bundles): keep the unit ONLY when it carries a `motion:`
@@ -2437,14 +2437,14 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
         return AnimBakeOutcome::Ok;
     }
     try {
-        const auto ref = havok::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
-        const auto rc  = havok::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
+        const auto ref = CB::core::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
+        const auto rc  = CB::core::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
         if (!rc.ok) { reason = "recompile: " + rc.error; return AnimBakeOutcome::Skip; }
 
         // pose gate: re-decompile the recompiled bytes and compare rotations to `ref`.
         const fs::path animRt = stageDir / "anim_rt"; fs::remove_all(animRt, ec); fs::create_directories(animRt, ec);
-        if (!havok::anim::DecompileAnimation(rc.bytes, animRt).ok) { reason = "re-decompile"; return AnimBakeOutcome::Skip; }
-        const auto rt = havok::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
+        if (!CB::core::anim::DecompileAnimation(rc.bytes, animRt).ok) { reason = "re-decompile"; return AnimBakeOutcome::Skip; }
+        const auto rt = CB::core::anim::AnimationYamlLoader::Load(animRt / "animation.yaml");
         bool   faithful = ref.tracks.size() == rt.tracks.size();
         double maxDeg   = 0.0;
         for (std::size_t i = 0; faithful && i < ref.tracks.size(); ++i) {
@@ -2479,7 +2479,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     const fs::path meshes(vanillaMeshesDir);
     if (!fs::is_directory(meshes, ec)) { r.error = "vanilla meshes folder not found: " + vanillaMeshesDir; return r; }
 
-    // The shared schema registry (havok::schema::SharedRegistry) must already be armed by the caller
+    // The shared schema registry (CB::core::schema::SharedRegistry) must already be armed by the caller
     // (main.cpp points it at <exe>/Havok before --build-base / --regen-master) so the schema-native
     // animation round-trip pass can assemble + decompile. If it is not, the anim pass reports the
     // registry error per file and counts them as failures — it does not abort the corpus walk.
@@ -2530,19 +2530,19 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         // every name-keyed hkbBoneIndexArray in that actor's graphs fails to compile.
         if (kind == HkxKind::Skeleton) {
             std::vector<std::uint8_t> sbytes; std::string srerr;
-            std::vector<havok::skeleton::SkeletonData> sk; std::string skerr;
-            if (havok::sct::ReadHavokFile(it->path().string(), sbytes, &srerr) &&
-                havok::skeleton::LoadSkeletonsFromHkx(sbytes.data(), sbytes.size(), sk, &skerr) && !sk.empty()) {
+            std::vector<CB::core::skeleton::SkeletonData> sk; std::string skerr;
+            if (CB::core::codec::ReadHavokFile(it->path().string(), sbytes, &srerr) &&
+                CB::core::skeleton::LoadSkeletonsFromHkx(sbytes.data(), sbytes.size(), sk, &skerr) && !sk.empty()) {
                 // Attach per-bone ragdoll physics (mass/radius/capsule/joint) BEFORE emit. Without this the
                 // YAML tree is anim-only, CompileSkeletonFull derives 0 ragdoll bones, and BR's SERVED
                 // skeleton has no ragdoll skeleton (skels[1]) → hkbRagdollDriver can't bind → every humanoid
                 // bind-poses instead of ragdolling on death. Mirrors doSkeletonDecompileTree (the CLI verb);
                 // this master-regen path is a SECOND skeleton HKX->YAML emitter and must round-trip the same.
                 std::string perr;
-                if (!havok::skeleton::ReadSkeletonPhysics(sbytes.data(), sbytes.size(), sk[0], &perr))
+                if (!CB::core::skeleton::ReadSkeletonPhysics(sbytes.data(), sbytes.size(), sk[0], &perr))
                     say("  note: skeleton physics read failed for " + rel + " (" + perr + ") — anim-only (no ragdoll derive).");
                 std::string eerr;
-                if (havok::skeleton::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++r.skeletons;
+                if (CB::core::skeleton::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++r.skeletons;
                 else { ++r.failed; say("  skeleton emit FAILED: " + rel + " — " + eerr); }
             } else { ++r.failed; say("  skeleton read/parse FAILED: " + rel + " — " + (srerr.empty() ? skerr : srerr)); }
             continue;
@@ -2561,7 +2561,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             // BakeAnimationUnit so the master build and per-mod conversion package animations identically;
             // non-faithful/undecodable => no file written and the engine keeps the loose vanilla .hkx.
             std::vector<std::uint8_t> abytes; std::string arerr;
-            if (!havok::sct::ReadHavokFile(it->path().string(), abytes, &arerr)) {
+            if (!CB::core::codec::ReadHavokFile(it->path().string(), abytes, &arerr)) {
                 ++r.animFail; say("  anim read FAILED: " + rel + " — " + arerr); continue;
             }
             std::string reason;
@@ -2580,7 +2580,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         // BEHAVIOR / CHARACTER / PROJECT — read full + decompile (DecompileToDir content-dispatches).
         std::vector<std::uint8_t> bytes;
         std::string rerr;
-        if (!havok::sct::ReadHavokFile(it->path().string(), bytes, &rerr)) { ++r.failed; continue; }
+        if (!CB::core::codec::ReadHavokFile(it->path().string(), bytes, &rerr)) { ++r.failed; continue; }
 
         // A behavior we have a tagfile template XML for MUST be numbered by the oracle
         // (#NNNN), not DecompileToDir's encounter-order ids, so it merges against the
@@ -2607,8 +2607,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             if (fs::exists(xml, xe)) {
                 std::size_t binObjs = 0;
                 try {
-                    havok::PackFileDeserializer des;
-                    havok::BinaryReaderEx rdr(false, true, bytes);
+                    CB::core::codec::PackFileDeserializer des;
+                    CB::core::codec::BinaryReaderEx rdr(false, true, bytes);
                     des.DeserializePartially(rdr);
                     binObjs = des.ListObjects().size();
                 } catch (...) {}
@@ -2624,9 +2624,9 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     // the typed ConvertPatch/DecompileBehaviorTree (emit-check gate), but now the base master
                     // and the per-mod schema deltas are produced by ONE emitter — no base↔delta drift. Typed
                     // ConvertPatch stays as the fallback if the shared schema registry is unavailable or it errors.
-                    if (auto* sreg = havok::schema::SharedRegistry()) {
+                    if (auto* sreg = CB::core::schema::SharedRegistry()) {
                         std::string derr;
-                        if (havok::model::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr,
+                        if (CB::core::decompile::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr,
                                                                   /*selfIndex=self(base)*/ 0)) {
                             ++r.behaviors; continue;
                         }
@@ -2651,15 +2651,15 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         // this same DecompileBehaviorSchema) — currently the 3 creature *_lod graphs, whose schema
         // EmitFullBaseScaffolding can't yet write behavior.yaml (a known, isolated schema-decompile gap).
         if (kind == HkxKind::Behavior) {
-            if (havok::schema::SchemaRegistry* sreg = havok::schema::SharedRegistry()) {
+            if (CB::core::schema::SchemaRegistry* sreg = CB::core::schema::SharedRegistry()) {
                 std::string derr;
-                if (havok::model::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr,
+                if (CB::core::decompile::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr,
                                                           /*selfIndex=self(base)*/ 0)) { ++r.behaviors; continue; }
                 say("  WARN: schema decompile failed for " + rel + " (" + derr + ") — unit skipped (no typed fallback; needs a schema fix).");
                 ++r.failed; continue;   // re-running the same schema emitter via DecompileUnit won't help
             }
         }
-        const auto d = havok::decompile::DecompileUnit(bytes, unit.string());
+        const auto d = CB::core::decompile::DecompileUnit(bytes, unit.string());
         if (!d.ok) { ++r.failed; continue; }   // e.g. the 2 CC tagfile characters
         if      (d.kind == "behavior")  ++r.behaviors;
         else if (d.kind == "project")   ++r.projects;
@@ -2692,7 +2692,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         std::string   setText((std::istreambuf_iterator<char>(sf)), std::istreambuf_iterator<char>());
         if (!setText.empty()) {
             try {
-                auto           parsed  = havok::animsetdata::ParseSingleFile(setText);
+                auto           parsed  = CB::core::animsetdata::ParseSingleFile(setText);
                 const fs::path setRoot  = stageHky / "meshes" / "animationsetdatasinglefile.txt";
                 fs::create_directories(setRoot, ec);   // index.yaml (+ setdata/ fallback); sets live in char units
 
@@ -2711,16 +2711,16 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                       for (char& c : rel) if (c == '/') c = '\\';
                       cands.push_back("meshes\\" + rel);
                   } }
-                const auto crcIndex = havok::animsetdata::BuildCrcIndex(cands);
+                const auto crcIndex = CB::core::animsetdata::BuildCrcIndex(cands);
                 std::size_t nResolved = 0, nResidue = 0;
                 for (auto& proj : parsed.projects) {
-                    havok::animsetdata::ResolveSetdataPaths(proj, crcIndex);
+                    CB::core::animsetdata::ResolveSetdataPaths(proj, crcIndex);
                     for (const auto& s : proj.sets)
                         for (const auto& a : s.animations) (a.compare(0, 4, "@crc") == 0 ? nResidue : nResolved)++;
                 }
 
                 // index.yaml — the project ORDER + exact header strings (load-bearing manifest).
-                const std::string idx = havok::animsetdata::EmitSetdataIndexYaml(parsed);
+                const std::string idx = CB::core::animsetdata::EmitSetdataIndexYaml(parsed);
                 std::ofstream(setRoot / "index.yaml", std::ios::binary)
                     .write(idx.data(), static_cast<std::streamsize>(idx.size()));
 
@@ -2729,13 +2729,13 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 // (carries `project:`), beside data/animations.yaml. A project whose character doesn't
                 // resolve falls back to a top-level animationsetdatasinglefile.txt/setdata/<stem>.yaml.
                 // The runtime re-hashes the paths (no derive, no roster union).
-                const auto projChars = havok::animdata::LoadProjectCharacters((stageHky / "meshes").string());
+                const auto projChars = CB::core::animdata::LoadProjectCharacters((stageHky / "meshes").string());
                 int units = 0, fallback = 0;
                 for (const auto& proj : parsed.projects) {
                     if (proj.sets.empty()) continue;
-                    const std::string stem = havok::animsetdata::StemForHeader(proj.header);
+                    const std::string stem = CB::core::animsetdata::StemForHeader(proj.header);
                     if (stem.empty()) continue;
-                    const std::string body = havok::animsetdata::EmitSetdataUnitYaml(proj);
+                    const std::string body = CB::core::animsetdata::EmitSetdataUnitYaml(proj);
                     const auto pc = projChars.find(stem);
                     if (pc != projChars.end() && !pc->second.ref.empty()) {
                         // data/setdata/<projectstem>.yaml — keyed by PROJECT (a character can host
@@ -2775,7 +2775,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         std::string   animText((std::istreambuf_iterator<char>(af)), std::istreambuf_iterator<char>());
         if (!animText.empty()) {
             try {
-                const auto     parsed  = havok::animdata::ParseSingleFile(animText);
+                const auto     parsed  = CB::core::animdata::ParseSingleFile(animText);
                 const fs::path animRoot = stageHky / "meshes" / "animationdatasinglefile.txt";
                 fs::create_directories(animRoot, ec);
 
@@ -2783,12 +2783,12 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 // just-decomposed stageHky tree, so clips are keyed by animation name (index resolved
                 // from the roster at compile) instead of a hardwired magic number. Still needed for the
                 // index.yaml `character:` refs and the motion reunion below.
-                const auto pcs = havok::animdata::LoadProjectCharacters((stageHky / "meshes").string());
+                const auto pcs = CB::core::animdata::LoadProjectCharacters((stageHky / "meshes").string());
                 std::map<std::string, std::string> charRefByStem;
                 for (const auto& [stem, pc] : pcs) charRefByStem.emplace(stem, pc.ref);
 
                 // index.yaml — project manifest incl. the per-project `character:` ref.
-                const std::string idx = havok::animdata::EmitAnimdataIndexYaml(parsed, charRefByStem);
+                const std::string idx = CB::core::animdata::EmitAnimdataIndexYaml(parsed, charRefByStem);
                 std::ofstream(animRoot / "index.yaml", std::ios::binary)
                     .write(idx.data(), static_cast<std::streamsize>(idx.size()));
 
@@ -2816,7 +2816,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     std::size_t reunited = 0, unbaked = 0;
                     for (const auto& proj : parsed.projects) {
                         if (!proj.hasAnimData || proj.motions.empty()) continue;
-                        const std::string stem = havok::animdata::StemForProjectName(proj.name);
+                        const std::string stem = CB::core::animdata::StemForProjectName(proj.name);
                         const auto pit = pcs.find(stem);
                         if (pit == pcs.end()) continue;                     // unresolved -> clips kept raw index
                         const auto& roster = pit->second.roster;
@@ -2828,7 +2828,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             char* end = nullptr; const long i = std::strtol(m.animIndex.c_str(), &end, 10);
                             if (!(end && *end == '\0' && i >= 0 && (std::size_t)i < roster.size())) continue;
                             if (roster[(std::size_t)i].empty()) continue;
-                            const std::string canon = havok::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
+                            const std::string canon = CB::core::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
                             // native animation is a SINGLE-FILE unit: the ".hkx" path IS the yaml (not a
                             // "<name>.hkx/animation.yaml" tree). Append the motion block onto that file.
                             const fs::path animYaml = stageHky / "meshes" / canon;   // baked anims now live in Skyrim.hky
@@ -2840,7 +2840,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             chk.close();
                             if (cur.find("\n  motion:") != std::string::npos) continue;
                             // append `motion:` as a child of `animation:` — EmitMotionSidecar body indented +4.
-                            std::string body = havok::animdata::EmitMotionSidecar(m), blk = "  motion:\n";
+                            std::string body = CB::core::animdata::EmitMotionSidecar(m), blk = "  motion:\n";
                             for (std::size_t p = 0; p < body.size();) {
                                 std::size_t nl = body.find('\n', p);
                                 std::string line = body.substr(p, nl == std::string::npos ? std::string::npos : nl - p);
@@ -2913,7 +2913,7 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
             if (PeekHkxKind(p) != HkxKind::Animation) continue;
 
             std::vector<std::uint8_t> abytes; std::string rerr;
-            if (!havok::sct::ReadHavokFile(p.string(), abytes, &rerr)) { ++modFail; continue; }
+            if (!CB::core::codec::ReadHavokFile(p.string(), abytes, &rerr)) { ++modFail; continue; }
             const fs::path rel = fs::relative(p, modRoot, ec);    // "meshes/actors/.../<name>.hkx"
             if (ec || rel.empty()) { ++modFail; continue; }
             const fs::path unit = bundle / rel;                   // single-file attributed unit inside the bundle
@@ -2963,7 +2963,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     say("");
     say("== Validating regenerated master vs vanilla (graphdata fidelity) ==");
     std::string herr;
-    auto arc = havok::model::HkyArchive::LoadFromFile(tempHky.string(), herr);
+    auto arc = CB::core::codec::HkyArchive::LoadFromFile(tempHky.string(), herr);
     if (!arc) { r.error = "cannot reopen built master for validation: " + herr; fs::remove_all(work, ec); return r; }
 
     const fs::path gate = work / ".gate";
@@ -2981,9 +2981,9 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     {
         const fs::path skel = fs::path(vanillaMeshesDir) / "actors" / "character" / "character assets" / "skeleton.hkx";
         std::vector<std::uint8_t> sb; std::string serr;
-        if (havok::sct::ReadHavokFile(skel.string(), sb, &serr)) {
-            std::vector<havok::skeleton::SkeletonData> sk;
-            if (havok::skeleton::LoadSkeletonsFromHkx(sb.data(), sb.size(), sk, &serr) && !sk.empty())
+        if (CB::core::codec::ReadHavokFile(skel.string(), sb, &serr)) {
+            std::vector<CB::core::skeleton::SkeletonData> sk;
+            if (CB::core::skeleton::LoadSkeletonsFromHkx(sb.data(), sb.size(), sk, &serr) && !sk.empty())
                 for (const auto& b : sk[0].bones) charBoneNames.push_back(b.name);
         }
         say(charBoneNames.empty()
@@ -2999,7 +2999,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
 
         std::vector<std::uint8_t> reBytes;              // regenerated base unit -> binary
         try {
-            auto data = havok::model::YamlBehaviorLoader::LoadMerged({ arc->source(prefix) });
+            auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged({ arc->source(prefix) });
             if (data.boneNames.empty()) data.boneNames = charBoneNames;   // back-fill skeleton (like the runtime)
             const auto cr = CB::core::compile::CompileBehavior(data);
             if (!cr.ok) { say("  " + g + ": regen base compile failed — " + cr.error); continue; }
@@ -3007,11 +3007,11 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         } catch (const std::exception& e) { say("  " + g + ": regen base load threw — " + std::string(e.what())); continue; }
 
         std::vector<std::uint8_t> vanBytes; std::string rerr;
-        if (!havok::sct::ReadHavokFile(van.string(), vanBytes, &rerr)) { say("  " + g + ": vanilla read failed — " + rerr); continue; }
+        if (!CB::core::codec::ReadHavokFile(van.string(), vanBytes, &rerr)) { say("  " + g + ": vanilla read failed — " + rerr); continue; }
 
         const fs::path reDir = gate / (g + "_re"), vaDir = gate / (g + "_va");
-        const auto rd = havok::decompile::DecompileUnit(reBytes,  reDir.string());
-        const auto vd = havok::decompile::DecompileUnit(vanBytes, vaDir.string());
+        const auto rd = CB::core::decompile::DecompileUnit(reBytes,  reDir.string());
+        const auto vd = CB::core::decompile::DecompileUnit(vanBytes, vaDir.string());
         if (rd.ok && vd.ok) {
             ++r.checked;
             if (readFile(reDir / "data" / "graphdata.yaml") == readFile(vaDir / "data" / "graphdata.yaml"))

@@ -91,3 +91,7 @@ sct_generate_base_master(
     PACKED_OUT       "${CB_HKY_STAGE}/community_behaviors/plugins/Skyrim.hky"
     UNPACKED_DIR     "${SCT_BASE_MASTER_DIR}"
     DEPENDS          ${_bconv_template_files})
+
+# CB Havok-stack shared vocabulary (see Havok/core/cpp/common/CorePrelude.h) — APP includes core headers
+# that reference CB::core::common / CB::core::codec unqualified; make them ambient in every APP TU.
+target_precompile_headers(behavior-converter PRIVATE "${CMAKE_SOURCE_DIR}/Havok/core/cpp/common/CorePrelude.h")

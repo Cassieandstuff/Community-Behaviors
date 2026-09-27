@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
     // only armed on the regen path, the --cli/GUI loose-derive silently falls back to the TYPED order and
     // misaligns against the schema base master (the horsebehavior crash class). SetSharedSchemaDir only
     // records the dir; SharedRegistry() lazily loads once on first use. The regen path re-arms harmlessly.
-    havok::schema::SetSharedSchemaDir(ExeHavokDir());
+    CB::core::schema::SetSharedSchemaDir(ExeHavokDir());
 
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
         bconv::Options opt;
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
         std::atomic<bool> cancel{ false };
         std::string templatesDir = (argc >= 5) ? argv[4] : "";
         if (templatesDir.empty()) templatesDir = ExeTemplatesDir();  // bundled templates next to the exe
-        havok::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
+        CB::core::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
         const auto res = bconv::BuildBaseBundle(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel,
             templatesDir);
@@ -143,7 +143,7 @@ int main(int argc, char** argv) {
             return EXIT_FAILURE;
         }
         const std::string templatesDir = (pos.size() >= 3) ? pos[2] : ExeTemplatesDir();
-        havok::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
+        CB::core::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
         const auto res = bconv::RegenerateMaster(pos[0], templatesDir, pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }

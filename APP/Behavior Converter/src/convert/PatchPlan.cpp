@@ -51,8 +51,8 @@ const char* originName(GraphOrigin o) {
 
 std::string ActorOfServePath(const std::string& servePathLower) { return actorOf(servePathLower); }
 
-BaseMaps BuildBaseMaps(const havok::model::HkyArchive& baseArc) {
-    using UK = havok::model::HkyArchive::UnitKind;
+BaseMaps BuildBaseMaps(const CB::core::codec::HkyArchive& baseArc) {
+    using UK = CB::core::codec::HkyArchive::UnitKind;
     BaseMaps m;
     for (const auto& u : baseArc.units()) {
         const std::string prefix = toLower(u.prefix);  // already normalized, but be defensive
