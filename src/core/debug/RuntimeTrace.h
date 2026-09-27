@@ -2,7 +2,7 @@
 
 // Community Behaviors — RUNTIME graph-variable trace (the in-game counterpart of the compile trace).
 //
-// Where the compile trace (havok::model::trace) makes the OFFLINE compile greppable, this makes the
+// Where the compile trace (CB::core::compile::trace) makes the OFFLINE compile greppable, this makes the
 // LIVE execution greppable: each frame it samples the behavior-graph variables a debug/*.yaml probe
 // names in its `watch:` list off the player and logs every CHANGE to a greppable file — so a bug of
 // the "a graph variable flips at the wrong moment" class (CB-2: bAnimationDriven dropping to 0 mid-

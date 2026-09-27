@@ -13,7 +13,8 @@
 #include <string>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 
 struct CharacterYamlLoader {
     // Throws std::runtime_error on missing required files / parse failure.
@@ -46,4 +47,4 @@ struct CharacterYamlLoader {
     static CharacterData LoadMerged(const std::vector<LayerSource>& layers);
 };
 
-} // namespace havok::model
+} // namespace CB::core::codec

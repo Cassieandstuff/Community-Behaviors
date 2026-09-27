@@ -17,14 +17,14 @@
 #include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior/CompileCharacter/BuildProject (schema-only)
 #include <compile/ProjectRead.h>             // ReadProject — schema-native (firesale)
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
-#include <havok/model/ProjectData.h>         // model::ProjectSpec (the neutral Def)
+#include <havok/model/ProjectData.h>         // CB::core::common::ProjectSpec (the neutral Def)
 #include <decompile/SkeletonImport.h>        // SkeletonData — schema-native skeleton import
 #include <codec/format/SkeletonYaml.h>       // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (Stage D serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // CB::core::anim::CompileAnimation (native anim -> loose .hkx)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
-#include <interface/MasterTable.h>          // CB::core::formid::BuildMasterTable (ordered master table)
+#include <interface/MasterTable.h>          // CB::core::codec::formid::BuildMasterTable (ordered master table)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
 #include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
@@ -265,7 +265,7 @@ namespace CB {
             // order, last = self) — what a node's FormId masterIndex resolves against. explicitMasters
             // is the DIRECT declared set in manifest order (deduped, self-excluded, lowercase).
             for (const std::string& s : survivors)
-                plan.masterTable[s] = CB::core::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
+                plan.masterTable[s] = CB::core::codec::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
             for (const std::string& s : survivors) {
                 std::vector<std::string> masters = explicitMasters[s];          // all present (survivors)
                 if (haveSkyrim && s != "skyrim" &&
@@ -350,7 +350,7 @@ namespace CB {
         // that loads those base nodes (a full load order can repeat one message tens of thousands of
         // times), and synchronous logging of that flood can crawl the compile to an apparent freeze.
         // Log each unique message once; the first occurrence carries all the information.
-        havok::model::YamlBehaviorLoader::SetDiagnosticSink(
+        CB::core::codec::YamlBehaviorLoader::SetDiagnosticSink(
             [seen = std::make_shared<std::unordered_set<std::string>>()](const std::string& m) {
                 if (!seen->insert(m).second) return;                       // already logged this exact line
                 if (m.find("no handler for node class") != std::string::npos) LOG_ERROR("{}", m);
@@ -386,7 +386,7 @@ namespace CB {
         // archive-backed (ZipUnitSource, a packed .hky) — the merge doesn't care which.
         struct LayerBuild {
             std::string                                      stem;    // owning bundle — its master-DAG rank orders this layer
-            std::shared_ptr<const havok::model::IUnitSource> source;
+            std::shared_ptr<const CB::core::common::IUnitSource> source;
             bool                                             isChar;
         };
         std::unordered_map<std::string, std::vector<LayerBuild>> layers;
@@ -539,7 +539,7 @@ namespace CB {
                     if (key.empty() || key[0] == '.') continue;
 
                     layers[key].push_back({ plugName,
-                                            std::make_shared<havok::model::DiskUnitSource>(unit),
+                                            std::make_shared<CB::core::common::DiskUnitSource>(unit),
                                             fs::exists(unit / "character.yaml", uec) });
                 }
 
@@ -582,7 +582,7 @@ namespace CB {
                 // out of the in-memory blob. The archive is held in m_archives for the
                 // process lifetime so those sources stay valid.
                 std::string err;
-                auto arc = havok::model::HkyArchive::LoadFromFile(bundle.string(), err);
+                auto arc = CB::core::codec::HkyArchive::LoadFromFile(bundle.string(), err);
                 if (!arc) {
                     LOG_WARN("Resolver: cannot read packed .hky '{}': {} — skipped.", bundle.string(), err);
                 } else {
@@ -603,7 +603,7 @@ namespace CB {
                         // serve. But FIRST capture the project's ORIGINAL-CASE characterFilenames ref from project.yaml —
                         // ProjectRedirect re-emits the vanilla identity from it (the case-sensitive bind
                         // the engine does on that string; a lowercased ref A-poses vanilla-only actors).
-                        if (u.kind == havok::model::HkyArchive::UnitKind::Project) {
+                        if (u.kind == CB::core::codec::HkyArchive::UnitKind::Project) {
                             if (auto src = arc->source(u.prefix))
                                 if (auto py = src->read("project.yaml"))
                                     if (std::string ref = FirstCharFilename(*py); !ref.empty())
@@ -615,11 +615,11 @@ namespace CB {
                         // ByteServe REDIRECTED every skeleton load into community_behaviors_cache, but no graph compile
                         // ever wrote that file — the redirect hit a missing file and the skeleton failed to
                         // load: universal A-pose + no root motion. Leave unlayered skeletons to vanilla.
-                        if (u.kind == havok::model::HkyArchive::UnitKind::Skeleton) continue;
+                        if (u.kind == CB::core::codec::HkyArchive::UnitKind::Skeleton) continue;
                         const std::string key = NormalizeKey(u.prefix);   // already lower/'/'-normal
                         if (key.empty() || key[0] == '.') continue;
                         layers[key].push_back({ plugName, arc->source(u.prefix),
-                                                u.kind == havok::model::HkyArchive::UnitKind::Character });
+                                                u.kind == CB::core::codec::HkyArchive::UnitKind::Character });
                     }
 
                     // Author roster drops inside a packed bundle live at "animationnames/
@@ -851,7 +851,7 @@ namespace CB {
                     nAdds = adds.size();
                     std::string merr; CB::core::skeleton::MergeBoneAdditions(sk, adds, &merr);
                 }
-                havok::sct::BoneNameTable tbl;
+                CB::core::common::BoneNameTable tbl;
                 for (const auto& b : sk.bones) tbl.names.push_back(b.name);
                 tbl.Reindex();
                 const std::size_t nBones = tbl.names.size();
@@ -897,7 +897,7 @@ namespace CB {
             gs.layers.reserve(ls.size());
             for (auto& l : ls) {
                 // Carry each layer's load-order identity so the merge keys node identity by scope.
-                havok::model::LayerSource lsrc;
+                CB::core::common::LayerSource lsrc;
                 lsrc.source = l.source;
                 lsrc.stem   = l.stem;
                 const auto rit = plan.rank.find(l.stem);
@@ -932,10 +932,10 @@ namespace CB {
             std::size_t clashes = 0;
             for (const auto& [key, ls] : layers) {
                 if (ls.size() < 2) continue;                        // single bundle -> no overlap
-                std::vector<std::shared_ptr<const havok::model::IUnitSource>> srcs;
+                std::vector<std::shared_ptr<const CB::core::common::IUnitSource>> srcs;
                 srcs.reserve(ls.size());
                 for (const auto& l : ls) srcs.push_back(l.source);
-                for (auto& nc : havok::model::YamlBehaviorLoader::NodeContributions(srcs)) {
+                for (auto& nc : CB::core::codec::YamlBehaviorLoader::NodeContributions(srcs)) {
                     NodeConflict c;
                     c.servePath = key;
                     c.cls       = std::move(nc.cls);
@@ -1105,11 +1105,11 @@ namespace CB {
         }
         if (traceOn) {
             traceLog = std::make_shared<std::ofstream>("Data/community_behaviors/compile_trace.log", std::ios::binary);
-            havok::model::trace::SetSink([traceLog](std::string_view l) {
+            CB::core::compile::trace::SetSink([traceLog](std::string_view l) {
                 traceLog->write(l.data(), static_cast<std::streamsize>(l.size())); traceLog->put('\n');
             });
             std::string pw;
-            const std::size_t np = havok::model::trace::LoadProbes("Data/Community Behaviors/Havok/core/Schema/metadata/debug", &pw);
+            const std::size_t np = CB::core::compile::trace::LoadProbes("Data/Community Behaviors/Havok/core/Schema/metadata/debug", &pw);
             if (!pw.empty()) LOG_WARN("Community Behaviors: compile-trace probe load: {}", pw);
             LOG_INFO("Community Behaviors: COMPILE-TRACE ON ({} probe file(s)) -> Data\\community_behaviors\\compile_trace.log", np);
         }
@@ -1123,8 +1123,8 @@ namespace CB {
 
         if (traceOn) {
             traceLog->flush();
-            havok::model::trace::SetSink({});
-            havok::model::trace::ClearProbes();
+            CB::core::compile::trace::SetSink({});
+            CB::core::compile::trace::ClearProbes();
             LOG_INFO("Community Behaviors: compile-trace written.");
         }
     }
@@ -1201,7 +1201,7 @@ namespace CB {
                 if (const std::string actor = ActorPathOf(outKey); !actor.empty())
                     if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
                         boneNames = &it->second.names;
-                const auto r   = CB::core::anim::CompileAnimation(def, 30, havok::HKXHeader::SkyrimSE(), boneNames);
+                const auto r   = CB::core::anim::CompileAnimation(def, 30, CB::core::codec::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
                     failed.fetch_add(1, std::memory_order_relaxed);
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
@@ -1420,7 +1420,7 @@ namespace CB {
     // CASE-SENSITIVELY (a miscased ref silently binds nothing → universal A-pose; see the case
     // directive in CLAUDE.md).
     static std::string ReadCharacterName(
-        const std::vector<havok::model::LayerSource>& layers)
+        const std::vector<CB::core::common::LayerSource>& layers)
     {
         for (const auto& L : layers) {
             if (!L.source) continue;
@@ -1648,7 +1648,7 @@ namespace CB {
                     // PROJECT UNIT's project.yaml (captured at Init, m_projectOrigCharRef) — original case,
                     // and it works for BSA-only setups because the base ships the project. SECONDARY: read
                     // the loose vanilla project if present. Lowercased fallback only if neither is available.
-                    havok::model::ProjectSpec spec;                     // constants universal (field study)
+                    CB::core::common::ProjectSpec spec;                     // constants universal (field study)
                     bool gotVanillaIdentity = false;
                     if (auto oc = m_projectOrigCharRef.find(projKey); oc != m_projectOrigCharRef.end() && !oc->second.empty()) {
                         spec.characterFilenames = { oc->second };       // base project unit, ORIGINAL case
@@ -1661,7 +1661,7 @@ namespace CB {
                         if (vf) {
                             std::vector<std::uint8_t> vb((std::istreambuf_iterator<char>(vf)), std::istreambuf_iterator<char>());
                             if (!vb.empty()) {
-                                const auto pr2 = havok::sct::ReadProject(vb);
+                                const auto pr2 = CB::core::compile::ReadProject(vb);
                                 if (pr2.ok && !pr2.spec.characterFilenames.empty()) { spec = pr2.spec; gotVanillaIdentity = true; }
                             }
                         }
@@ -1758,7 +1758,7 @@ namespace CB {
             // served character carries the complete merged roster the set-data needs —
             // no runtime animationNames injection required.
             if (gs.isCharacter) {
-                auto cdata = havok::model::CharacterYamlLoader::LoadMerged(gs.layers);
+                auto cdata = CB::core::codec::CharacterYamlLoader::LoadMerged(gs.layers);
 
                 // Author-facing roster drop: fold in any animationnames\<stem>.txt additions
                 // for this character (keyed by the serve-path file stem, e.g. "defaultmale"
@@ -1824,11 +1824,11 @@ namespace CB {
                 return result;
             }
 
-            auto data = havok::model::YamlBehaviorLoader::LoadMerged(gs.layers);
+            auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged(gs.layers);
 
             // Compile-trace tap: name-annotated variable-table / binding / topology records for this
             // merged graph (guarded — trace::Enabled() is a null pointer test, so off = free).
-            if (havok::model::trace::Enabled()) havok::model::TraceGraph(data, key);
+            if (CB::core::compile::trace::Enabled()) CB::core::compile::TraceGraph(data, key);
 
             // Skeleton for bone-name resolution: if the unit didn't carry one, use this actor's
             // merged bone list (base + skeleton-extender appends, folded in Init). Actor key =
@@ -1864,9 +1864,9 @@ namespace CB {
                 {
                     auto& vars = data.graphData->variables;
                     const bool present = std::any_of(vars.begin(), vars.end(),
-                        [](const havok::model::VariableInfoDef& v) { return v.name == watermark::kWatermarkVar; });
+                        [](const CB::core::common::VariableInfoDef& v) { return v.name == watermark::kWatermarkVar; });
                     if (!present) {
-                        havok::model::VariableInfoDef wm;
+                        CB::core::common::VariableInfoDef wm;
                         wm.name  = watermark::kWatermarkVar;
                         wm.type  = "VARIABLE_TYPE_INT32";
                         wm.value = watermark::kWatermarkValue;
@@ -1913,7 +1913,7 @@ namespace CB {
                     // merge and takes over. Roster resolution stays out of here (a finalizer concern): a
                     // resolved animIndex baked into the clip's binding would byte-diverge from vanilla.
                     if (m_adsfDerive) {
-                        const auto inputs = havok::sct::DeriveClipInputsFromBehavior(data);
+                        const auto inputs = CB::core::compile::DeriveClipInputsFromBehavior(data);
                         for (const auto& in : inputs)
                             m_clipSink.EmitClip(key, in);
                         if (!inputs.empty())

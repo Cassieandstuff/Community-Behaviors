@@ -8,7 +8,9 @@
 #include <string>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::codec {
+
+using CB::core::common::IUnitSource;   // the unit backing-store interface lives in the interface layer
 
 // A .hky loaded as an in-memory archive: the whole zip decompressed once into a
 // path -> bytes map (keys lowercased + forward-slashed, so lookups match the loader's
@@ -74,4 +76,4 @@ private:
     std::vector<Unit>            m_units;
 };
 
-} // namespace havok::model
+} // namespace CB::core::codec

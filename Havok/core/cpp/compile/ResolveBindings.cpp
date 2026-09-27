@@ -14,7 +14,9 @@
 #include <string>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::compile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 namespace {
 
@@ -195,4 +197,4 @@ void ResolveBehaviorBindings(BehaviorData& data) {
             if (p.eventValue) rInline(*p.eventValue, m);
 }
 
-} // namespace havok::model
+} // namespace CB::core::compile

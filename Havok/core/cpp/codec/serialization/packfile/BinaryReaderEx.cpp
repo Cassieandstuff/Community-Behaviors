@@ -3,7 +3,8 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace havok {
+namespace CB::core::codec {
+using namespace CB::core::common;
 
 // ── raw / positioning ───────────────────────────────────────────────────────
 
@@ -136,4 +137,4 @@ std::uint64_t BinaryReaderEx::AssertUInt64(std::initializer_list<std::uint64_t> 
 std::int32_t  BinaryReaderEx::AssertInt32(std::initializer_list<std::int32_t> o)  { return assertValue(ReadInt32(), o, "Int32"); }
 std::uint64_t BinaryReaderEx::AssertUSize(std::initializer_list<std::uint64_t> o) { return assertValue(ReadUSize(), o, USizeLong ? "USize64" : "USize32"); }
 
-} // namespace havok
+} // namespace CB::core::codec

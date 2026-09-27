@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <unordered_map>
 
-namespace havok::io {
+namespace CB::core::codec::io {
 
 using schema::ClassSchema;
 using schema::Field;
@@ -301,4 +301,4 @@ bool RebuildHkx(const std::vector<std::uint8_t>& in,
     }
 }
 
-} // namespace havok::io
+} // namespace CB::core::codec::io

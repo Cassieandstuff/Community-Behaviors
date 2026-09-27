@@ -4,7 +4,7 @@
 // havok-core's own minimal value types. Deliberately NOT RE::/System.Numerics
 // analogues (plan §1.3) — havok-core is a standalone, dependency-free library.
 
-namespace havok {
+namespace CB::core::common {
 
 struct Vector4 {
     float x{};
@@ -35,4 +35,4 @@ struct QSTransform {
 // a downstream consumer needs arithmetic on Half values.
 using Half = std::uint16_t;
 
-} // namespace havok
+} // namespace CB::core::common

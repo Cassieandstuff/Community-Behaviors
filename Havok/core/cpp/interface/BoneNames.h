@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok::sct {
+namespace CB::core::common {
 
     struct BoneNameTable {
         std::vector<std::string> names;   // index -> bone name (order = the skeleton's bone order)
@@ -47,4 +47,4 @@ namespace havok::sct {
     // adds indices on top.
     void MergeBoneList(BoneNameTable& base, const BoneNameTable& overrideList);
 
-}  // namespace havok::sct
+}  // namespace CB::core::common

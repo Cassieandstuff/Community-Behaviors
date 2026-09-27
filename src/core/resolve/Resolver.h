@@ -21,11 +21,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace havok::model {
-    struct IUnitSource;   // abstract per-unit backing store (disk dir OR in-memory .hky)
-    class  HkyArchive;    // a packed single-file .hky decompressed in memory
-    struct CharacterData; // compiled-character model (defs/CharacterDefs.h) — held by shared_ptr below
-}
+namespace CB::core::common { struct IUnitSource; struct CharacterData; }
+namespace CB::core::codec     { class HkyArchive; }
 
 namespace CB {
 
@@ -315,7 +312,7 @@ namespace CB {
         struct GraphSources {
             // Each layer carries its load-order identity ({stem, rank, ancestors}) so the merge can key
             // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
-            std::vector<havok::model::LayerSource> layers;
+            std::vector<CB::core::common::LayerSource> layers;
             bool isCharacter = false;
         };
         // normalized serve path -> its merge layers.
@@ -323,7 +320,7 @@ namespace CB {
         // Packed .hky archives held for the process lifetime — each vends ZipUnitSources
         // (into m_sources) that reference back into it, so it must outlive them. Empty
         // when every bundle is an unpacked directory. Immutable after Init().
-        std::vector<std::shared_ptr<havok::model::HkyArchive>> m_archives;
+        std::vector<std::shared_ptr<CB::core::codec::HkyArchive>> m_archives;
         // actor root ("actors/character") -> animation paths relative to the actor dir
         // ("animations\community_behaviors\...\x.hkx"), registered via the opt-in
         // animations\community_behaviors\ subfolder. Immutable after Init().
@@ -342,7 +339,7 @@ namespace CB {
         // level, so BR reads the game's one skeleton rather than compiling its own. Keyed by ACTOR
         // ("character"). Feeds data.boneNames at behavior compile so bone-index fields resolve their
         // NAMES. Immutable after Init().
-        std::unordered_map<std::string, havok::sct::BoneNameTable> m_skeletons;
+        std::unordered_map<std::string, CB::core::common::BoneNameTable> m_skeletons;
         // Skeleton SERVE (Stage D): the compiled skeleton.hkx bytes BR serves per actor, keyed by the
         // skeleton's normalized SERVE PATH ("meshes/actors/<actor>/character assets/skeleton.hkx").
         // Built in Init by compile-over-base (rebuild the anim skeleton from the merged bone-add layers,

@@ -96,7 +96,7 @@ namespace CB::features {
         virtual bool AppliesTo(const FeatureContext&) const = 0;
 
         // Mutate the per-graph model. Pure: touches only `data`, havok-core types, and ctx.
-        virtual FeatureResult Apply(havok::model::BehaviorData& data, const FeatureContext&) = 0;
+        virtual FeatureResult Apply(CB::core::common::BehaviorData& data, const FeatureContext&) = 0;
 
         // Relative run-order constraints (RETURNED BY VALUE-STABLE SPAN over storage the feature
         // owns — return a static array or empty). The host topo-sorts the enabled set from these, so a

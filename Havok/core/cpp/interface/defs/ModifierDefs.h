@@ -9,7 +9,7 @@
 // Tier-B Def POCOs — modifier node kinds + data arrays.
 // Faithful ports of the modifier HKBuild\src\Models\*Def.cs files.
 
-namespace havok::model {
+namespace CB::core::common {
 
 // ── ModifierGeneratorDef.cs ───────────────────────────────────────────────────
 struct ModifierGeneratorDef {
@@ -278,4 +278,4 @@ struct BoneIndexArrayDef {
     std::vector<int>            boneIndices;  // resolved raw indices
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

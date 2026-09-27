@@ -59,11 +59,11 @@ namespace cb {
 
 // ── cb::resolve ──────────────────────────────────────────────────────────────
 namespace resolve {
-    using Archive       = havok::model::HkyArchive;         // a packed .hky bundle, decompressed in memory
-    using UnitKind      = havok::model::HkyArchive::UnitKind;
-    using UnitSource    = havok::model::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
-    using LoadOrder     = havok::model::YamlBehaviorLoader; // LoadMerged — the load-order merge
-    using ResolvedGraph = havok::model::BehaviorData;       // the resolved, merged graph model
+    using Archive       = CB::core::codec::HkyArchive;         // a packed .hky bundle, decompressed in memory
+    using UnitKind      = CB::core::codec::HkyArchive::UnitKind;
+    using UnitSource    = CB::core::common::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
+    using LoadOrder     = CB::core::codec::YamlBehaviorLoader; // LoadMerged — the load-order merge
+    using ResolvedGraph = CB::core::common::BehaviorData;       // the resolved, merged graph model
 }  // namespace resolve
 
 // ── cb::schema ───────────────────────────────────────────────────────────────

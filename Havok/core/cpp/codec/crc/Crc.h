@@ -1,5 +1,5 @@
 #pragma once
-// CB::core::crc — the animationsetdata path CRC, as a SEARCHABLE codec.
+// CB::core::codec::crc — the animationsetdata path CRC, as a SEARCHABLE codec.
 //
 // A hash is lossy (many paths → one 32-bit value), so it has no `decode`. It qualifies as a codec
 // only under the SEARCHABLE kind: the forward `encode` is a genuine computable transform, and the
@@ -17,7 +17,7 @@
 #include <string_view>
 #include <vector>
 
-namespace CB::core::crc {
+namespace CB::core::codec::crc {
 
     // One animation registration: (folderCrc, fileCrc, extCrc). folder+ext are constant within a set
     // (folder = the animation dir, ext = 7891816 for ".hkx"); file varies.
@@ -42,4 +42,4 @@ namespace CB::core::crc {
     // irreducible residue). This is a search over an enumerated set, NOT decoding a hash.
     std::optional<std::string> solve(const CrcTriple& t, const std::vector<std::string>& candidates);
 
-}  // namespace CB::core::crc
+}  // namespace CB::core::codec::crc

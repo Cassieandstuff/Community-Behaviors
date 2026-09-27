@@ -8,7 +8,7 @@
 // Tier-B Def POCOs — state machine, state info, transition effect, transitions.
 // Faithful ports of HKBuild\src\Models\StateMachineDef.cs and TransitionDef.cs.
 
-namespace havok::model {
+namespace CB::core::common {
 
 // ── TransitionDef.cs — TransitionIntervalDef ──────────────────────────────────
 struct TransitionIntervalDef {
@@ -128,4 +128,4 @@ struct TransitionEffectDef {
     std::optional<std::vector<BindingDef>> bindings;
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

@@ -19,6 +19,7 @@
 #include <vector>
 
 namespace CB::core::skeleton {
+using namespace CB::core::common;
 
 std::string EmitSkeletonYaml(const SkeletonData& data);
 

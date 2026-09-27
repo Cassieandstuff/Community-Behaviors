@@ -37,11 +37,11 @@ namespace CB::features {
         // ANDed; a live STRING condition (rare in wildcards) can't be ANDed into an expression, so
         // the gate replaces it (block wins) with a warning; an ignored (disabled) condition is
         // dropped rather than resurrected.
-        std::size_t GateWildcards(havok::model::BehaviorData& data, const std::string& gateVar,
+        std::size_t GateWildcards(CB::core::common::BehaviorData& data, const std::string& gateVar,
                                   std::string_view graphKey, IFeatureLog& log,
                                   std::vector<std::string>& touched)
         {
-            namespace en = havok::model::enums;
+            namespace en = CB::core::common::enums;
             const std::string gate = "!" + gateVar;   // fire only when unlocked
             std::size_t gated = 0;
             for (auto& [smName, sm] : data.stateMachines) {
@@ -78,7 +78,7 @@ namespace CB::features {
 
             bool AppliesTo(const FeatureContext&) const override { return true; }
 
-            FeatureResult Apply(havok::model::BehaviorData& data, const FeatureContext& ctx) override
+            FeatureResult Apply(CB::core::common::BehaviorData& data, const FeatureContext& ctx) override
             {
                 if (!data.graphData) return {};   // no variables table → nothing to inject/gate
 
@@ -86,9 +86,9 @@ namespace CB::features {
                 //    an existing variable index.
                 auto& vars = data.graphData->variables;
                 const bool present = std::any_of(vars.begin(), vars.end(),
-                    [](const havok::model::VariableInfoDef& v) { return v.name == CB::ergate::kGateVar; });
+                    [](const CB::core::common::VariableInfoDef& v) { return v.name == CB::ergate::kGateVar; });
                 if (!present) {
-                    havok::model::VariableInfoDef g;
+                    CB::core::common::VariableInfoDef g;
                     g.name  = CB::ergate::kGateVar;
                     g.type  = "VARIABLE_TYPE_BOOL";
                     g.value = 0;   // unlocked

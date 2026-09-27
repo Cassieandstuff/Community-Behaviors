@@ -19,6 +19,7 @@
 #include <vector>
 
 namespace CB::core::compat {
+using namespace CB::core::common;
 namespace {
 
 // Collapse runs of whitespace/parens to a single space and trim tab/CR/LF/parens at the ends

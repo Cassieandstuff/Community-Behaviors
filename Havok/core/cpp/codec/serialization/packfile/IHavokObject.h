@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-namespace havok {
+namespace CB::core::codec {
 
 // Forward declarations for the (de)serializer. Read/Write join this interface
 // at M2 alongside the PackFileSerializer; for M1 the class model is pure data
@@ -37,7 +37,7 @@ public:
     virtual void Read(PackFileDeserializer& des, BinaryReaderEx& br) = 0;
 };
 
-} // namespace havok
+} // namespace CB::core::codec
 
 // Emit the Signature()/ClassName()/Write/Read overrides' DECLARATIONS for a
 // ported class. Write bodies live in ClassWrite.cpp, Read in ClassRead.cpp.
@@ -46,7 +46,7 @@ public:
 #define HK_CLASS_ID(sig, name)                                              \
     std::uint32_t Signature() const noexcept override { return (sig); }     \
     const char*   ClassName() const noexcept override { return (name); }    \
-    void Write(::havok::PackFileSerializer& s,                              \
-               ::havok::BinaryWriterEx& bw) const override;                 \
-    void Read(::havok::PackFileDeserializer& des,                          \
-              ::havok::BinaryReaderEx& br) override;
+    void Write(::CB::core::codec::PackFileSerializer& s,                              \
+               ::CB::core::codec::BinaryWriterEx& bw) const override;                 \
+    void Read(::CB::core::codec::PackFileDeserializer& des,                          \
+              ::CB::core::codec::BinaryReaderEx& br) override;

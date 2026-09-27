@@ -115,7 +115,7 @@ namespace CB {
             m_decls.size(), nEvent, nVar, nSkip);
     }
 
-    std::size_t SymbolInjector::InjectInto(havok::model::BehaviorGraphDataDef& gd,
+    std::size_t SymbolInjector::InjectInto(CB::core::common::BehaviorGraphDataDef& gd,
                                            std::string_view serveKey) const
     {
         if (m_decls.empty()) return 0;
@@ -132,14 +132,14 @@ namespace CB {
             if (!ProjectMatches(d.project, project)) continue;
             if (d.isEvent) {
                 if (haveEvents.insert(d.name).second) {
-                    havok::model::EventInfoDef e;
+                    CB::core::common::EventInfoDef e;
                     e.name = d.name;              // flags default "0"
                     gd.events.push_back(std::move(e));
                     ++added;
                 }
             } else {
                 if (haveVars.insert(d.name).second) {
-                    havok::model::VariableInfoDef v;
+                    CB::core::common::VariableInfoDef v;
                     v.name  = d.name;
                     v.type  = d.varType;
                     v.value = d.value;            // role / roleFlags default

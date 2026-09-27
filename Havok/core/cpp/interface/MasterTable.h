@@ -1,5 +1,5 @@
 #pragma once
-// CB::core::formid — the header MASTER TABLE, the resolution half of the FormId codec.
+// CB::core::codec::formid — the header MASTER TABLE, the resolution half of the FormId codec.
 //
 // A FormId's masterIndex is RELATIVE to the bundle it is stored in. Each bundle has an ordered table:
 //   index 0     = the base game (Skyrim), RESERVED for everyone including Skyrim itself
@@ -19,7 +19,7 @@
 #include <string_view>
 #include <vector>
 
-namespace CB::core::formid {
+namespace CB::core::codec::formid {
 
     inline constexpr std::string_view BASE_GAME_STEM = "skyrim";   // index 1 for a mod (first master); index 0 for itself
 
@@ -55,4 +55,4 @@ namespace CB::core::formid {
         return std::string_view(table[masterIndex]);
     }
 
-}  // namespace CB::core::formid
+}  // namespace CB::core::codec::formid

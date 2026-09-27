@@ -8,10 +8,12 @@
 #include <cstring>
 #include <memory>
 
-namespace havok::sct {
+namespace CB::core::compile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 namespace {
 
-using havok::io::SchemaObject;
+using CB::core::codec::io::SchemaObject;
 
 std::shared_ptr<SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
     return std::dynamic_pointer_cast<SchemaObject>(o);
@@ -39,7 +41,7 @@ ProjectReadResult ReadProject(const std::vector<std::uint8_t>& bytes) {
 
         PackFileDeserializer des;
         BinaryReaderEx       br(bytes);
-        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
+        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
         auto root = asSO(des.Deserialize(br));
         out.header = des._header;
         if (!root) { out.error = "not a project packfile (no hkRootLevelContainer root)"; return out; }
@@ -76,4 +78,4 @@ ProjectReadResult ReadProject(const std::vector<std::uint8_t>& bytes) {
     return out;
 }
 
-} // namespace havok::sct
+} // namespace CB::core::compile

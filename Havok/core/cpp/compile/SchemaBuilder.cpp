@@ -22,7 +22,9 @@
 #include <unordered_set>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::compile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 namespace {
 
 // Little-endian byte encodings, matching the typed serializer (BinaryWriterEx writes native LE).
@@ -1369,4 +1371,4 @@ std::shared_ptr<io::SchemaObject> BuildClip(const ClipGeneratorDef& def, const s
     return o;
 }
 
-} // namespace havok::model
+} // namespace CB::core::compile

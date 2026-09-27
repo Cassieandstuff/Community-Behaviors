@@ -20,7 +20,8 @@
 // section from offset 0 via virtual fixups (class name -> registry factory ->
 // Read), resolving pointers/arrays/strings through the section fixup maps.
 
-namespace havok {
+namespace CB::core::codec {
+using namespace CB::core::common;
 
 class PackFileDeserializer {
 public:
@@ -362,4 +363,4 @@ private:
     std::unordered_map<std::uint32_t, std::vector<std::uint32_t>>    _refsInReadOrder;
 };
 
-} // namespace havok
+} // namespace CB::core::codec

@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace CB::core::spline {
+namespace CB::core::codec::spline {
 
 struct CompressedResult {
     int   numFrames               = 0;
@@ -30,4 +30,4 @@ struct CompressedResult {
 // Resample every track to a uniform `fps` grid, then spline-compress per block.
 CompressedResult CompressAnimation(const CB::core::anim::AnimationDef& anim, int fps = 30);
 
-} // namespace CB::core::spline
+} // namespace CB::core::codec::spline

@@ -25,8 +25,8 @@ namespace {
 int doHkyPack(const std::string& dir, const std::string& out) {
     if (out.empty()) { std::printf("usage: hky-tool pack <bundleDir> -o <out.hky>\n"); return 2; }
     std::string err;
-    if (!havok::model::HkyArchive::PackDirectory(dir, out, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
-    auto arc = havok::model::HkyArchive::LoadFromFile(out, err);   // round-trip sanity
+    if (!CB::core::codec::HkyArchive::PackDirectory(dir, out, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    auto arc = CB::core::codec::HkyArchive::LoadFromFile(out, err);   // round-trip sanity
     if (!arc) { std::printf("FAIL: packed but unreadable: %s\n", err.c_str()); return 1; }
     std::printf("OK: hky pack '%s' -> %s (%zu unit(s)).\n", dir.c_str(), out.c_str(), arc->units().size());
     return 0;
@@ -37,7 +37,7 @@ int doHkyPack(const std::string& dir, const std::string& out) {
 int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
     if (outDir.empty()) { std::printf("usage: hky-tool unpack <in.hky> -o <outDir>\n"); return 2; }
     std::string err;
-    auto arc = havok::model::HkyArchive::LoadFromFile(hkyPath, err);
+    auto arc = CB::core::codec::HkyArchive::LoadFromFile(hkyPath, err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
 
     // Same ordered range, two views: normalized keys drive file() lookup; original-case paths give the

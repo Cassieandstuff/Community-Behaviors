@@ -8,7 +8,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace havok::model {
+namespace CB::core::common {
 
 namespace fs = std::filesystem;
 
@@ -86,4 +86,4 @@ bool DiskUnitSource::hasDir(const std::string& subdir) const {
     return fs::is_directory(m_root / subdir);
 }
 
-} // namespace havok::model
+} // namespace CB::core::common

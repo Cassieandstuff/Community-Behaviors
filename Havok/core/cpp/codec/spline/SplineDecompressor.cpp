@@ -10,7 +10,7 @@
 #include <cstring>
 #include <limits>
 
-namespace CB::core::spline {
+namespace CB::core::codec::spline {
 namespace {
 
 struct V3 { float x = 0.f, y = 0.f, z = 0.f; };
@@ -451,4 +451,4 @@ bool DecodeSpline(const std::uint8_t* data, std::size_t dataLen,
     return true;
 }
 
-} // namespace CB::core::spline
+} // namespace CB::core::codec::spline

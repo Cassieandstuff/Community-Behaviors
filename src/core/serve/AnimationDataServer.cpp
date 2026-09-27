@@ -258,24 +258,24 @@ namespace linker = CB::core::linker;
                 // files only, NO behavior.yaml root). A delta can't load alone (the loader needs a root)
                 // and its clips only make sense against the base graph, so merge it OVER the Skyrim.hky
                 // master's same unit — exactly like the compile path. Master opened lazily by the caller.
-                std::shared_ptr<const havok::model::IUnitSource> baseSrc;
+                std::shared_ptr<const CB::core::common::IUnitSource> baseSrc;
                 if (master && !src->read("behavior.yaml").has_value()) {  // delta unit -> needs the base root
                     auto ms = master->unitSource(unitPrefix);
                     if (ms && ms->read("behavior.yaml").has_value()) baseSrc = std::move(ms);
                 }
 
-                std::vector<std::shared_ptr<const havok::model::IUnitSource>> sources;
+                std::vector<std::shared_ptr<const CB::core::common::IUnitSource>> sources;
                 if (baseSrc) sources.push_back(baseSrc);
                 sources.push_back(src);
 
-                havok::model::BehaviorData data;
+                CB::core::common::BehaviorData data;
                 try {
-                    data = havok::model::YamlBehaviorLoader::LoadMerged(sources);
+                    data = CB::core::codec::YamlBehaviorLoader::LoadMerged(sources);
                 } catch (const std::exception& e) {
                     LOG_WARN("AnimData: derive skipped unit '{}' in '{}' — load failed: {}", unitPrefix, stem, e.what());
                     continue;
                 }
-                auto clips = havok::sct::DeriveClipInputsFromBehavior(data);
+                auto clips = CB::core::compile::DeriveClipInputsFromBehavior(data);
 
                 // With a base merged in, `clips` is the FULL graph (vanilla + the delta's new clips). The
                 // vanilla clips are ALREADY in the base animationdatasinglefile, and the merge below does
@@ -284,9 +284,9 @@ namespace linker = CB::core::linker;
                 if (baseSrc) {
                     std::unordered_set<std::string> baseNames;
                     try {
-                        auto baseData = havok::model::YamlBehaviorLoader::LoadMerged(
-                            std::vector<std::shared_ptr<const havok::model::IUnitSource>>{ baseSrc });
-                        for (const auto& bc : havok::sct::DeriveClipInputsFromBehavior(baseData))
+                        auto baseData = CB::core::codec::YamlBehaviorLoader::LoadMerged(
+                            std::vector<std::shared_ptr<const CB::core::common::IUnitSource>>{ baseSrc });
+                        for (const auto& bc : CB::core::compile::DeriveClipInputsFromBehavior(baseData))
                             baseNames.insert(ToLower(bc.name));
                     } catch (const std::exception&) { /* base underivable -> keep all (best effort) */ }
                     clips.erase(std::remove_if(clips.begin(), clips.end(),
@@ -320,7 +320,7 @@ namespace linker = CB::core::linker;
                     const auto ar = charActorRoot.find(ch);
                     if (ar != charActorRoot.end() && !ar->second.empty() && ar->second != actorRootLc) continue;
                     auto clipsCopy = clips;   // DeriveProjectPatch appends annotation triggers in place
-                    auto pp = havok::sct::DeriveProjectPatch(ch, clipsCopy, stem, readAnim,
+                    auto pp = CB::core::compile::DeriveProjectPatch(ch, clipsCopy, stem, readAnim,
                                                              animMotions.empty() ? nullptr : &animMotions);
                     if (!pp.additions.empty()) {
                         LOG_INFO("AnimData: derived {} clip record(s) for project '{}' from '{}' (unit {}).",
@@ -407,9 +407,9 @@ namespace linker = CB::core::linker;
                     auto src = master.unitSource(uit->second);
                     if (src && src->read("behavior.yaml").has_value()) {   // base units are full graphs
                         try {
-                            auto data = havok::model::YamlBehaviorLoader::LoadMerged(
-                                std::vector<std::shared_ptr<const havok::model::IUnitSource>>{ src });
-                            clips = havok::sct::DeriveClipInputsFromBehavior(data);
+                            auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged(
+                                std::vector<std::shared_ptr<const CB::core::common::IUnitSource>>{ src });
+                            clips = CB::core::compile::DeriveClipInputsFromBehavior(data);
                         } catch (const std::exception& e) {
                             LOG_WARN("AnimData: base derive load failed for unit '{}': {}", uit->second, e.what());
                         }

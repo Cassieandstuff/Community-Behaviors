@@ -11,7 +11,7 @@
 // of HKX2E's PackFileCommon.cs (read + write). The defaults of HKXHeader ARE the
 // SkyrimSE preset (hk_2010.2.0-r1, 64-bit, big-endian flag 1, no section pad).
 
-namespace havok {
+namespace CB::core::codec {
 
 struct HKXHeader {
     std::uint32_t Magic0 = 0x57E0E057u;
@@ -241,4 +241,4 @@ struct HKXSection {
     }
 };
 
-} // namespace havok
+} // namespace CB::core::codec

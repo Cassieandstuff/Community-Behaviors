@@ -5,7 +5,7 @@
 
 #include <decompile/CharacterDecompile.h>
 
-#include <interface/HavokEnums.h>          // model::enums::VariableType / Role (value<->name)
+#include <interface/HavokEnums.h>          // CB::core::common::enums::VariableType / Role (value<->name)
 
 #include <cstdint>
 #include <cstdio>
@@ -17,6 +17,8 @@
 #include <vector>
 
 namespace CB::core::decompile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 namespace fs = std::filesystem;
 
 namespace {
@@ -73,7 +75,7 @@ std::string f32(const io::SchemaObject* so, const char* n) { return fstr(f32(raw
 
 } // namespace
 
-namespace en = havok::model::enums;
+namespace en = CB::core::common::enums;
 
 CharDecompileResult DecompileCharacterSchema(const io::SchemaObject& cd, const fs::path& dir) {
     std::error_code ec;

@@ -6,8 +6,8 @@
 #include <decompile/PandoraCompatShim.h> // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include <interface/BashMerge.h>        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
-#include <codec/formid/FormId.h>          // CB::core::formid — node identity as a FormId "idx:local"
-#include <common/Vec4Text.h>              // havok::vec4::parseVec4 (the ONE vec4 text parser)
+#include <codec/formid/FormId.h>          // CB::core::codec::formid — node identity as a FormId "idx:local"
+#include <common/Vec4Text.h>              // CB::core::common::vec4::parseVec4 (the ONE vec4 text parser)
 
 #include <algorithm>
 #include <cctype>
@@ -30,7 +30,9 @@
 // Stage 3. Increment 1 scaffolded the lib; increment 2 (here) is the identity/index pass +
 // the class→category map. Increment 3 fills in EmitHky. See HavokModel.h for the architecture.
 
-namespace havok::model {
+namespace CB::core::decompile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 std::string CategoryForClass(const std::string& className) {
     // The .hky folder each top-level node class lives in, extracted verbatim from the reference
@@ -86,7 +88,7 @@ Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry&
     if (!xmlText.empty()) {
         // Tagfile-aligned ids (matches Skyrim.hky): recover #NNNN per binary offset via the structural
         // oracle, then key by object. This is the identity/index step for vanilla content.
-        const havok::sct::OracleResult res = havok::sct::AlignTagfile(des, xmlText);
+        const CB::core::decompile::OracleResult res = CB::core::decompile::AlignTagfile(des, xmlText);
         for (const auto& [off, id] : res.off2id) {
             auto it = byOff.find(off);
             if (it == byOff.end()) continue;
@@ -119,7 +121,7 @@ Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry&
 
 // ── .hky value rendering (ported from BehaviorDecompiler's helpers) ───────────
 namespace {
-namespace en = havok::model::enums;
+namespace en = CB::core::common::enums;
 using schema::Field;
 using schema::FieldKind;
 using schema::Scalar;
@@ -1382,7 +1384,7 @@ const io::SchemaObject* elemAt(const io::FieldValue* arr, std::size_t i) {
 bool EmitAdditiveVocab(const Identity& baseId, const Identity& mergedId,
                        const std::string& outDir, std::string& err) {
     namespace fs = std::filesystem;
-    namespace en = havok::model::enums;
+    namespace en = CB::core::common::enums;
     using schema::Scalar;
     const auto [bGd, bSd] = findGraphData(baseId);
     const auto [mGd, mSd] = findGraphData(mergedId);
@@ -1479,7 +1481,7 @@ const io::SchemaObject* findBehaviorGraph(const Identity& id) {
 // decompiler reproduces data/graphdata.yaml exactly. Reads the same fields EmitAdditiveVocab does, minus
 // the "skip if already in base" filter.
 std::string emitGraphDataFull(const io::SchemaObject* gd, const io::SchemaObject* sd) {
-    namespace en = havok::model::enums;
+    namespace en = CB::core::common::enums;
     using schema::Scalar;
     auto namesOf = [](const io::SchemaObject* s, const char* f) -> std::vector<std::string> {
         if (!s) return {}; const io::FieldValue* v = fieldByName(*s, f); return v ? v->strs : std::vector<std::string>{};
@@ -1547,7 +1549,7 @@ std::string emitGraphDataFull(const io::SchemaObject* gd, const io::SchemaObject
 // FULL decompile (not a per-mod delta, which carries only touched nodes + added vocab via EmitAdditiveVocab).
 bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir, std::string& err) {
     namespace fs = std::filesystem;
-    namespace en = havok::model::enums;
+    namespace en = CB::core::common::enums;
     std::error_code ec;
     // Ensure outDir exists. EmitHky (run before this) only creates a dir per EMITTED node, so a
     // near-empty graph — e.g. the creature *_lod behaviors, an hkbBehaviorGraph shell with no generator
@@ -1597,9 +1599,9 @@ bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::
                 char* end = nullptr;
                 const unsigned long v = std::strtoul(id.c_str(), &end, 10);
                 if (end && *end == '\0')   // numeric id -> guard the 16-bit local (hkbNode::id is ushort)
-                    if (const auto f = CB::core::formid::make(static_cast<std::uint32_t>(selfIndex),
+                    if (const auto f = CB::core::codec::formid::make(static_cast<std::uint32_t>(selfIndex),
                                                               static_cast<std::uint32_t>(v)))
-                        id = CB::core::formid::format(*f);
+                        id = CB::core::codec::formid::format(*f);
                 // non-numeric (a secondary identity, e.g. Class:@animName) or a >16-bit id: left as-is
             }
         }
@@ -1761,23 +1763,23 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
             char* end = nullptr;
             const unsigned long v = std::strtoul(decId.c_str(), &end, 10);
             if (end && *end == '\0')
-                if (const auto f = CB::core::formid::make(idx, static_cast<std::uint32_t>(v)))
-                    return CB::core::formid::format(*f);
+                if (const auto f = CB::core::codec::formid::make(idx, static_cast<std::uint32_t>(v)))
+                    return CB::core::codec::formid::format(*f);
             return decId;   // non-numeric (a secondary identity) or >16-bit: leave as-is
         };
         // Vanilla side = Skyrim (index 1, the origin) — every id -> "0001x<local>" (matched-unchanged diff away).
-        for (auto& [obj, id] : vId.ids) { (void)obj; id = toNumericFormId(id, CB::core::formid::BASE_GAME_INDEX); }
+        for (auto& [obj, id] : vId.ids) { (void)obj; id = toNumericFormId(id, CB::core::codec::formid::BASE_GAME_INDEX); }
 
         Identity mId = AssignIdentity(mdes, reg, "");   // category for all; ids overridden for named nodes
         int newSeq = 0;
         for (const void* o : mg.order) {
             auto* obj = static_cast<IHavokObject*>(const_cast<void*>(o));
             if (auto it = identToNum.find(mIdent[o]); it != identToNum.end()) {
-                mId.ids[obj] = toNumericFormId(it->second, CB::core::formid::BASE_GAME_INDEX);   // edit of vanilla (origin = Skyrim)
+                mId.ids[obj] = toNumericFormId(it->second, CB::core::codec::formid::BASE_GAME_INDEX);   // edit of vanilla (origin = Skyrim)
                 ++r.matched;
             } else {
-                if (const auto f = CB::core::formid::make(CB::core::formid::SELF_INDEX, static_cast<std::uint32_t>(++newSeq)))
-                    mId.ids[obj] = CB::core::formid::format(*f);            // own new node (self=0)
+                if (const auto f = CB::core::codec::formid::make(CB::core::codec::formid::SELF_INDEX, static_cast<std::uint32_t>(++newSeq)))
+                    mId.ids[obj] = CB::core::codec::formid::format(*f);            // own new node (self=0)
                 ++r.added;
             }
         }
@@ -1845,7 +1847,7 @@ std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& 
 
 // ── generic tagfile-XML PARSE (the inverse codec) ────────────────────────────────────────────────
 namespace {
-namespace en = havok::model::enums;
+namespace en = CB::core::common::enums;
 using schema::Field;
 using schema::FieldKind;
 using schema::Scalar;
@@ -1885,11 +1887,11 @@ float parseF(const std::string& t) { return std::strtof(t.c_str(), nullptr); }
 std::int64_t parseL(const std::string& t) { return std::strtoll(t.c_str(), nullptr, 0); }   // 0 base: dec/0xHEX; int64 (#6)
 
 // A vec4/quaternion field's text -> 16 raw bytes (4 floats), via the shared membrane parser
-// (havok::vec4::parseVec4) — the ONE vec4 text codec, also used by havok-core BehaviorBuilder::pv4.
+// (CB::core::common::vec4::parseVec4) — the ONE vec4 text codec, also used by havok-core BehaviorBuilder::pv4.
 // It accepts both the decompiler's "(x y z w)" and the bare/multi-line float form, so BR-28 (a bare
 // axisOfRotation reading as 0 0 0 0) can't recur and the two paths can't diverge (B4 collapsed).
 std::vector<std::uint8_t> parseVec4Raw(const std::string& t) {
-    const auto q = havok::vec4::parseVec4(t);
+    const auto q = CB::core::common::vec4::parseVec4(t);
     std::vector<std::uint8_t> r(16); std::memcpy(r.data(), q.data(), 16); return r;
 }
 
@@ -1942,7 +1944,7 @@ std::vector<std::uint8_t> parseScalarRaw(const std::string& cls, const Field& f,
 }
 
 // The <hkparam name="F"> child of an object node (nullptr if absent — a field the patch didn't set).
-const havok::xml::Node* paramByName(const havok::xml::Node& obj, const std::string& name) {
+const CB::core::common::xml::Node* paramByName(const CB::core::common::xml::Node& obj, const std::string& name) {
     for (const auto& c : obj.children)
         if (c.tag == "hkparam" && c.attr("name") == name) return &c;
     return nullptr;
@@ -1999,7 +2001,7 @@ std::shared_ptr<io::SchemaObject> makeObj(const schema::SchemaRegistry& reg, con
 // Fill an already-created SchemaObject's fields from its tagfile <hkobject> node. `idMap` resolves refs
 // by CANONICAL id (populated in pass 1, so every top-level id — base #NNNN or new-node #code$N — exists).
 // Inline structs recurse.
-void fillObject(io::SchemaObject& so, const havok::xml::Node& node,
+void fillObject(io::SchemaObject& so, const CB::core::common::xml::Node& node,
                 const schema::SchemaRegistry& reg,
                 const std::unordered_map<std::string, std::shared_ptr<io::SchemaObject>>& idMap,
                 const SymTab* syms, std::string& err) {
@@ -2008,7 +2010,7 @@ void fillObject(io::SchemaObject& so, const havok::xml::Node& node,
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
         if (f.name.empty() || f.ignored) continue;         // vtable/skip/pad + SERIALIZE_IGNORED: no hkparam
-        const havok::xml::Node* p = paramByName(node, f.name);
+        const CB::core::common::xml::Node* p = paramByName(node, f.name);
         if (!p) continue;                                  // field absent -> keep prior value (Init default,
                                                            //   or an earlier merge layer's value)
         io::FieldValue& val = so.FieldAt(i);
@@ -2059,7 +2061,7 @@ void fillObject(io::SchemaObject& so, const havok::xml::Node& node,
                 break;
             }
             case FieldKind::Struct: {
-                if (const havok::xml::Node* inner = p->child("hkobject")) {
+                if (const CB::core::common::xml::Node* inner = p->child("hkobject")) {
                     auto sub = makeObj(reg, f.ref);
                     if (!sub) { err = cls + "." + f.name + ": unknown inline struct class '" + f.ref + "'"; return; }
                     fillObject(*sub, *inner, reg, idMap, syms, err); if (!err.empty()) return;
@@ -2084,7 +2086,7 @@ void fillObject(io::SchemaObject& so, const havok::xml::Node& node,
 
 // Recursively collect every top-level object node (tag "hkobject" with a "#NNNN" name attr). Inline
 // struct hkobjects carry no name and are reached through their owner's field, never here.
-void collectTopLevel(const havok::xml::Node& n, std::vector<const havok::xml::Node*>& out) {
+void collectTopLevel(const CB::core::common::xml::Node& n, std::vector<const CB::core::common::xml::Node*>& out) {
     if (n.tag == "hkobject") {
         const auto nm = n.attr("name");
         if (!nm.empty() && nm.front() == '#') { out.push_back(&n); return; }   // don't descend into a named obj
@@ -2103,7 +2105,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // Parse every source into a persistent tree (reserve so the vector never reallocates — the node
     // pointers below alias into these trees). Wrap each in a synthetic root: a source is a bare run of
     // sibling <hkobject> and xml::Parse returns only the first element.
-    std::vector<havok::xml::Node> roots; roots.reserve(sources.size());
+    std::vector<CB::core::common::xml::Node> roots; roots.reserve(sources.size());
 
     // Per CANONICAL id, the ORDERED layers that define it (base first, then each overriding patch). Each
     // layer records whether it is a delta and, for a delta, the fields it ACTUALLY changed (its MOD_CODE
@@ -2113,7 +2115,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // as the runtime YAML loader does. Field-wise last-writer here silently dropped all-but-the-last
     // mod's array additions — the TDM_Pitch A-pose when one mod's several Nemesis codes are merged into
     // one bundle. New-node ids (#code$N) live in the same map as base #NNNN, so refs resolve either way.
-    struct Layer { const havok::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed; };
+    struct Layer { const CB::core::common::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed; };
     std::unordered_map<std::string, std::vector<Layer>> layers;
     std::unordered_map<std::string, bool> touchedByDelta;   // id was overridden/added by a patch source
     std::vector<std::string> order;                         // first-seen id order (base first, new ids appended)
@@ -2133,12 +2135,12 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             // strip, so converted bundles match the ecosystem's output. Element params are left
             // for StripPatchOriginals below. See docs/bugs/CB-3.
             CB::core::compat::ApplyNemesisTextArrayEdits(parseText);
-            havok::xml::StripPatchOriginals(parseText);
+            CB::core::common::xml::StripPatchOriginals(parseText);
         }
-        roots.push_back(havok::xml::Parse("<r>" + parseText + "</r>"));
-        std::vector<const havok::xml::Node*> nodes;
+        roots.push_back(CB::core::common::xml::Parse("<r>" + parseText + "</r>"));
+        std::vector<const CB::core::common::xml::Node*> nodes;
         collectTopLevel(roots.back(), nodes);
-        for (const havok::xml::Node* n : nodes) {
+        for (const CB::core::common::xml::Node* n : nodes) {
             const std::string id = canonId(std::string(n->attr("name")));
             if (layers.find(id) == layers.end()) order.push_back(id);
             layers[id].push_back({ n, isDelta, changedPtr });
@@ -2167,12 +2169,12 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // Bashed-merge each id's layers into ONE node via the shared core. Base = the (single) non-delta
     // layer, or — for a new node with no vanilla base — the first layer as the seed. Delta layers whose
     // class differs from the object (source drift) are dropped from the merge, preserving the old skip.
-    std::unordered_map<std::string, havok::xml::Node> mergedById;
+    std::unordered_map<std::string, CB::core::common::xml::Node> mergedById;
     mergedById.reserve(order.size());
     for (const std::string& id : order) {
         const std::vector<Layer>& ls = layers[id];
         const std::string objCls(idMap[id]->ClassName());
-        const havok::xml::Node* baseNode = nullptr;
+        const CB::core::common::xml::Node* baseNode = nullptr;
         for (const Layer& L : ls) if (!L.isDelta) baseNode = L.node;   // the base node (normally exactly one)
         std::size_t seedSkip = 0;
         if (!baseNode) { baseNode = ls.front().node; seedSkip = 1; }   // new node: first layer seeds the merge
@@ -2202,10 +2204,10 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // string-data wins (the graph's own). Built BEFORE pass 2 so it's ready when a binding field is parsed.
     SymTab syms;
     for (const std::string& id : order) {
-        const havok::xml::Node& n = mergedById[id];
+        const CB::core::common::xml::Node& n = mergedById[id];
         if (std::string(n.attr("class")) != "hkbBehaviorGraphStringData") continue;
         auto fill = [&](const char* param, std::unordered_map<std::string, int>& m) {
-            if (const havok::xml::Node* p = paramByName(n, param)) {
+            if (const CB::core::common::xml::Node* p = paramByName(n, param)) {
                 int idx = 0;
                 for (const auto& c : p->children) if (c.tag == "hkcstring") { m[c.text] = idx; ++idx; }
             }
@@ -2294,7 +2296,7 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
             if (d == std::string::npos) {                                 // bare -> vanilla node (origin = Skyrim, index 1)
                 const unsigned long v = std::strtoul(raw.c_str(), &end, 10);
                 if (end && *end == '\0')
-                    if (const auto f = CB::core::formid::make(CB::core::formid::BASE_GAME_INDEX, static_cast<std::uint32_t>(v))) return CB::core::formid::format(*f);
+                    if (const auto f = CB::core::codec::formid::make(CB::core::codec::formid::BASE_GAME_INDEX, static_cast<std::uint32_t>(v))) return CB::core::codec::formid::format(*f);
                 return raw;                                               // non-numeric bare (name key) -> as-is
             }
             const std::string code = low(raw.substr(0, d));
@@ -2303,7 +2305,7 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
             std::uint16_t idx = fid->selfIndex;
             if (const auto it = fid->codeIndex.find(code); it != fid->codeIndex.end()) idx = it->second;
             else unknownCodes.insert(code);                              // unknown foreign -> self + warn
-            if (const auto f = CB::core::formid::make(idx, static_cast<std::uint32_t>(n))) return CB::core::formid::format(*f);
+            if (const auto f = CB::core::codec::formid::make(idx, static_cast<std::uint32_t>(n))) return CB::core::codec::formid::format(*f);
             return raw;
         };
         std::unordered_map<std::string, std::string> remap;
@@ -2327,4 +2329,4 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
     return r;
 }
 
-} // namespace havok::model
+} // namespace CB::core::decompile

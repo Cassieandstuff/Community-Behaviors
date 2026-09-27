@@ -15,6 +15,8 @@
 #include <vector>
 
 namespace CB::core::anim {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 // Result of an animation compile. Same shape as havok::sct::CompileResult (kept local so havok-anim
 // carries no havok-core dependency); callers read .ok / .error / .bytes unchanged.

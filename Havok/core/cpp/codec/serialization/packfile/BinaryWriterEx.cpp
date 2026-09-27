@@ -2,7 +2,8 @@
 
 #include <stdexcept>
 
-namespace havok {
+namespace CB::core::codec {
+using namespace CB::core::common;
 
 // ── raw / positioning ───────────────────────────────────────────────────────
 
@@ -148,4 +149,4 @@ void BinaryWriterEx::FillHalf(const std::string& name, Half v)            { Step
 void BinaryWriterEx::FillSingle(const std::string& name, float v)         { StepIn(fill(name, "Single"));  WriteSingle(v);  StepOut(); }
 void BinaryWriterEx::FillDouble(const std::string& name, double v)        { StepIn(fill(name, "Double"));  WriteDouble(v);  StepOut(); }
 
-} // namespace havok
+} // namespace CB::core::codec

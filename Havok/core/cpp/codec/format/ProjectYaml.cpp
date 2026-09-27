@@ -9,7 +9,8 @@
 #include <string>
 #include <vector>
 
-namespace havok::sct {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 
 namespace {
     std::string g4(float f) { char b[32]; std::snprintf(b, sizeof(b), "%g", f); return b; }
@@ -81,4 +82,4 @@ bool ParseProjectYaml(const std::string& text, ProjectSpec& out) {
     return true;
 }
 
-} // namespace havok::sct
+} // namespace CB::core::codec

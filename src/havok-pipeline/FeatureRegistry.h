@@ -38,7 +38,7 @@ namespace CB::features {
         // visible). Returns {id, result} per feature that ran, in run order.
         std::vector<std::pair<std::string, FeatureResult>>
         Run(const std::vector<std::string>& orderedIds,
-            havok::model::BehaviorData& data,
+            CB::core::common::BehaviorData& data,
             const FeatureContext& ctx) const;
 
         FeatureRegistry(const FeatureRegistry&)            = delete;

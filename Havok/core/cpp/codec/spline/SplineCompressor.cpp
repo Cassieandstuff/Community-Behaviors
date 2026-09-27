@@ -9,7 +9,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace CB::core::spline {
+namespace CB::core::codec::spline {
 using namespace CB::core::anim;   // transitional: AnimationDef + keyframes still in CB::core::anim (→ interface later)
 namespace {
 
@@ -478,4 +478,4 @@ CompressedResult CompressAnimation(const AnimationDef& anim, int fps) {
     return r;
 }
 
-} // namespace CB::core::spline
+} // namespace CB::core::codec::spline

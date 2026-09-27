@@ -18,10 +18,12 @@
 #include <unordered_map>
 
 namespace CB::core::skeleton {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 namespace {
 
-using havok::io::SchemaObject;
+using CB::core::codec::io::SchemaObject;
 
 std::shared_ptr<SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
     return std::dynamic_pointer_cast<SchemaObject>(o);
@@ -108,10 +110,10 @@ bool LoadSkeletonsFromHkx(const std::uint8_t* data, std::size_t size,
 
     try {
         std::vector<std::uint8_t> bytes(data, data + size);
-        havok::BinaryReaderEx br(bytes);
-        havok::PackFileDeserializer des;
+        CB::core::codec::BinaryReaderEx br(bytes);
+        CB::core::codec::PackFileDeserializer des;
         des.SetTolerateUnregistered(true);   // exotic creature collision shapes may be unported — skip, don't fail
-        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
+        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
         auto root = asSO(des.Deserialize(br));
         if (!root) { if (err) *err = "not a valid packfile root"; return false; }
 
@@ -140,11 +142,11 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
 
     try {
         std::vector<std::uint8_t> bytes(data, data + size);
-        havok::BinaryReaderEx br(bytes);
-        havok::PackFileDeserializer des;
+        CB::core::codec::BinaryReaderEx br(bytes);
+        CB::core::codec::PackFileDeserializer des;
         des.SetTolerateUnregistered(true);   // creature ragdolls may use exotic, unported collision shapes;
                                              // skip them (shape → null → default capsule) instead of failing.
-        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
+        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
         auto root = asSO(des.Deserialize(br));
         if (!root) return true;
 

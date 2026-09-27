@@ -18,6 +18,7 @@
 // of the data-driven Havok stack (CB::core::skeleton), not a tool-scoped import.
 
 namespace CB::core::skeleton {
+using namespace CB::core::common;
 
 // Per-bone ragdoll PHYSICS — the minimal AUTHORED surface. Everything else (body transform, inertia,
 // constraint frames, capsule endpoints, mappers, resource tree, collision filter) is DERIVED at compile

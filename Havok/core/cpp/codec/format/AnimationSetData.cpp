@@ -419,7 +419,7 @@ namespace CB::core::animsetdata {
     }
 
     // ── CRC / animation registration ─────────────────────────────────────────────
-    // MOVED to CB::core::crc (Havok/core/cpp/codec/crc) — the searchable codec. asd::Crc32 /
+    // MOVED to CB::core::codec::crc (Havok/core/cpp/codec/crc) — the searchable codec. asd::Crc32 /
     // asd::TripleForAnimation are now using-aliases (see AnimationSetData.h). Firesale step.
 
     // ── Merge ────────────────────────────────────────────────────────────────────

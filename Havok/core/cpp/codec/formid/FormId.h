@@ -1,5 +1,5 @@
 #pragma once
-// CB::core::formid — the node-identity FormId codec. "Bethesda's plugin FormID, for behavior-graph
+// CB::core::codec::formid — the node-identity FormId codec. "Bethesda's plugin FormID, for behavior-graph
 // nodes." A node's identity is (masterIndex, local): the high half names a bundle RELATIVE to the
 // storing bundle's master table, the low half is the node's local id.
 //
@@ -28,7 +28,7 @@
 #include <string>
 #include <string_view>
 
-namespace CB::core::formid {
+namespace CB::core::codec::formid {
 
     // A node identity relative to a bundle's master table.
     struct FormId {
@@ -151,4 +151,4 @@ namespace CB::core::formid {
     static_assert(fromTag(2, 999) == FormId{2, 999}, "fromTag re-attaches an index to a tagfile id");
     static_assert(pack(unpack(0xABCD1234u)) == 0xABCD1234u, "key round-trips");
 
-}  // namespace CB::core::formid
+}  // namespace CB::core::codec::formid

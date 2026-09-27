@@ -11,9 +11,9 @@
 #include <interface/BashMerge.h>   // shared merge decision (CB::core::merge::decideParam)
 #include <interface/reflection/HavokSchema.h> // SchemaRegistry — per-field `merge:` tag classifier
 #include <interface/HavokEnums.h>  // enums::ResolveEnum for symbolic flag fields
-#include <codec/formid/FormId.h>   // CB::core::formid::parse — a node id may be a FormId "idx:local"
-#include <interface/MasterTable.h> // CB::core::formid::ResolveOwner (masterIndex -> owning bundle)
-#include <compile/AnimDataFromBehavior.h>  // sct::ReadClipInputsFromClipsDir (implemented here — ryml is isolated to this TU)
+#include <codec/formid/FormId.h>   // CB::core::codec::formid::parse — a node id may be a FormId "idx:local"
+#include <interface/MasterTable.h> // CB::core::codec::formid::ResolveOwner (masterIndex -> owning bundle)
+#include <compile/AnimDataFromBehavior.h>  // CB::core::compile::ReadClipInputsFromClipsDir (implemented here — ryml is isolated to this TU)
 
 // rapidyaml MUST come in via this shim (include/external/RymlInclude.h): it
 // neutralizes a c4core v0.5.0 C++20 attribute bug that otherwise breaks the ryml
@@ -35,7 +35,8 @@
 #include <utility>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 
 namespace fs = std::filesystem;
 
@@ -717,9 +718,9 @@ static void loadDirInto(BehaviorData& data,
     std::unordered_map<std::string, int> stemRank;                 // owner stem -> global load rank
     for (const LayerSource& L : layers) if (!L.stem.empty()) stemRank.emplace(L.stem, L.rank);
     auto canonToken = [&](const std::string& tok, std::size_t li) -> std::string {
-        const auto f = CB::core::formid::parse(tok);
+        const auto f = CB::core::codec::formid::parse(tok);
         if (!f) return tok;                                        // not a FormId -> unchanged
-        const auto owner = CB::core::formid::ResolveOwner(layers[li].masterTable, f->masterIndex);
+        const auto owner = CB::core::codec::formid::ResolveOwner(layers[li].masterTable, f->masterIndex);
         if (!owner) return tok;                                    // idx out of range -> leave (pass 2 warns)
         const auto rit = stemRank.find(std::string(*owner));
         if (rit == stemRank.end()) return tok;                     // owner not loaded -> leave raw
@@ -844,8 +845,8 @@ static void loadDirInto(BehaviorData& data,
         // meta-less path has no table, so there a "0:184" is just an opaque key -> scopeOf (no spurious
         // out-of-range diag). Bare ids always take scopeOf (transitional).
         if (!layers[e.li].masterTable.empty()) {
-            if (const auto fid = CB::core::formid::parse(e.key)) {
-                const auto owner = CB::core::formid::ResolveOwner(layers[e.li].masterTable, fid->masterIndex);
+            if (const auto fid = CB::core::codec::formid::parse(e.key)) {
+                const auto owner = CB::core::codec::formid::ResolveOwner(layers[e.li].masterTable, fid->masterIndex);
                 if (!owner)
                     emitMergeDiag("YamlBehaviorLoader: node '" + e.key + "' — master index " +
                                   std::to_string(fid->masterIndex) + " is out of range for bundle '" +
@@ -1909,9 +1910,9 @@ void YamlBehaviorLoader::SetSchemaRegistry(const schema::SchemaRegistry* reg, bo
     g_mergeStrict = strict;
 }
 
-} // namespace havok::model
+} // namespace CB::core::codec
 
-// ── sct::ReadClipInputsFromClipsDir ───────────────────────────────────────────
+// ── CB::core::compile::ReadClipInputsFromClipsDir ───────────────────────────────────────────
 // Implemented in THIS TU (not AnimDataFromBehavior.cpp) so the clip-node YAML parse
 // reuses the file-local ryml helpers (str/parseTriggers/parseNamed) and ryml stays
 // isolated to YamlBehaviorLoader. Reads each clips/*.yaml as an independent
@@ -1919,7 +1920,7 @@ void YamlBehaviorLoader::SetSchemaRegistry(const schema::SchemaRegistry* reg, bo
 // behavior DELTA unit (no behavior.yaml) needs. Maps every field the same way the
 // clips/ section of Load() does, then onto DeriveClipInput like
 // DeriveClipInputsFromBehavior. Never throws (a bad file is skipped).
-namespace havok::sct {
+namespace CB::core::codec {
 
 std::vector<CB::core::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const std::string& clipsDir) {
     namespace fs = std::filesystem;
@@ -1939,24 +1940,24 @@ std::vector<CB::core::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(cons
         if (text.empty()) continue;
 
         try {
-            c4::yml::Tree tree = havok::model::parseNamed(text, p);
+            c4::yml::Tree tree = CB::core::codec::parseNamed(text, p);
             auto r = tree.rootref();
             if (!r.readable() || !r.is_map()) continue;
             // Only genuine clip generators — a clips/ dir should hold nothing else, but
             // skip anything mislabeled so a stray file can't fabricate a clip.
-            if (havok::model::peekClass(r) != "hkbClipGenerator") continue;
+            if (CB::core::codec::peekClass(r) != "hkbClipGenerator") continue;
 
             CB::core::animdata::DeriveClipInput dc;
-            dc.name          = havok::model::str(r, "name");
-            dc.animationName = havok::model::str(r, "animationName");
-            dc.playbackSpeed = std::atof(havok::model::str(r, "playbackSpeed", "1.000000").c_str());
-            dc.cropStart     = std::atof(havok::model::str(r, "cropStartAmountLocalTime", "0.000000").c_str());
-            dc.cropEnd       = std::atof(havok::model::str(r, "cropEndAmountLocalTime", "0.000000").c_str());
+            dc.name          = CB::core::codec::str(r, "name");
+            dc.animationName = CB::core::codec::str(r, "animationName");
+            dc.playbackSpeed = std::atof(CB::core::codec::str(r, "playbackSpeed", "1.000000").c_str());
+            dc.cropStart     = std::atof(CB::core::codec::str(r, "cropStartAmountLocalTime", "0.000000").c_str());
+            dc.cropEnd       = std::atof(CB::core::codec::str(r, "cropEndAmountLocalTime", "0.000000").c_str());
 
             // Clip generator's OWN authored triggers (annotation triggers are the caller's
             // job — DeriveProjectClipList merges them from the animation file). An event with
             // no resolved name contributes nothing to the cache text, so skip it.
-            if (auto trg = havok::model::parseTriggers(r)) {
+            if (auto trg = CB::core::codec::parseTriggers(r)) {
                 for (const auto& t : *trg) {
                     if (!t.event || t.event->empty()) continue;
                     CB::core::animdata::DeriveClipInput::Trigger tr;
@@ -1976,4 +1977,4 @@ std::vector<CB::core::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(cons
     return out;
 }
 
-} // namespace havok::sct
+} // namespace CB::core::codec

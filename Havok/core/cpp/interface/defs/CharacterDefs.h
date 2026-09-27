@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::common {
 
 struct CharControllerDef {
     float capsuleHeight = 0.f;
@@ -91,4 +91,4 @@ struct CharacterData {
     std::vector<std::string>     boneNames;   // empty if no skeleton.yaml found
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

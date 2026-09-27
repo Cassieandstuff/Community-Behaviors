@@ -101,3 +101,10 @@ using namespace std::literals;
 #  include <imgui_internal.h>
 #  include <nlohmann/json.hpp>
 #endif
+
+// CB Havok-stack shared vocabulary (see Havok/core/cpp/common/CorePrelude.h). The plugin includes
+// the codec/compile/decompile headers, which reference CB::core::common / CB::core::codec names
+// unqualified; forward-declare + make ambient here so those headers resolve in plugin TUs too.
+namespace CB { namespace core { namespace common {} namespace codec {} } }
+using namespace CB::core::common;
+using namespace CB::core::codec;

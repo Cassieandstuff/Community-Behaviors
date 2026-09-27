@@ -9,7 +9,8 @@
 // header-only: no Havok knowledge, just I/O. The compiler/validator layer above
 // produces or consumes the byte vectors.
 
-namespace havok::sct {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 
 inline bool WriteHavokFile(const std::filesystem::path& path,
                            const std::vector<std::uint8_t>& bytes,
@@ -37,4 +38,4 @@ inline bool ReadHavokFile(const std::filesystem::path& path,
     return true;
 }
 
-} // namespace havok::sct
+} // namespace CB::core::codec

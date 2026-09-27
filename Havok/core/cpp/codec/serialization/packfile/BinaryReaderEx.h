@@ -10,7 +10,8 @@
 #include <string>
 #include <vector>
 
-namespace havok {
+namespace CB::core::codec {
+using namespace CB::core::common;
 
 // Faithful C++ port of HKX2E's BinaryReaderEx.cs. Owns a copy of the input
 // bytes and reads them through a movable cursor with a step stack (for
@@ -91,4 +92,4 @@ private:
     std::vector<std::size_t>  m_steps;
 };
 
-} // namespace havok
+} // namespace CB::core::codec

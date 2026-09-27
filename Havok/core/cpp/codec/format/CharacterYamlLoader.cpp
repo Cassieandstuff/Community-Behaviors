@@ -13,7 +13,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 namespace fs = std::filesystem;
 namespace {
 
@@ -337,4 +338,4 @@ CharacterData CharacterYamlLoader::LoadMerged(const std::vector<LayerSource>& la
     return LoadMerged(sources);
 }
 
-} // namespace havok::model
+} // namespace CB::core::codec

@@ -22,7 +22,8 @@
 
 namespace CB::core::schema { class SchemaRegistry; }   // fwd — the merge classifier reads field `merge:` tags
 
-namespace havok::model {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 
 class YamlBehaviorLoader {
 public:
@@ -94,4 +95,4 @@ public:
         NodeContributions(const std::vector<std::shared_ptr<const IUnitSource>>& sources);
 };
 
-} // namespace havok::model
+} // namespace CB::core::codec

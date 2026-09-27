@@ -1,6 +1,6 @@
 #include "compile/AnimationCompiler.h"
 
-#include "codec/spline/SplineCompressor.h"     // CB::core::spline::CompressAnimation (the shared spline codec)
+#include "codec/spline/SplineCompressor.h"     // CB::core::codec::spline::CompressAnimation (the shared spline codec)
 #include <codec/serialization/packfile/PackFileSerializer.h>    // havok-framing — the ONE serializer (io::SchemaObject)
 #include <interface/linker/Membrane.h>       // BoneMembrane::resolveTrackRef (the one name<->index codec)
 
@@ -15,6 +15,8 @@
 #include <vector>
 
 namespace CB::core::anim {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 namespace {
 
@@ -33,7 +35,7 @@ std::shared_ptr<io::SchemaObject> mkA(const schema::SchemaRegistry& reg, const c
 std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, int fps,
                                                     const schema::SchemaRegistry& reg,
                                                     const std::vector<std::string>* boneNames) {
-    CB::core::spline::CompressedResult r = CB::core::spline::CompressAnimation(anim, fps);
+    CB::core::codec::spline::CompressedResult r = CB::core::codec::spline::CompressAnimation(anim, fps);
     auto i32b = [](std::int32_t v) { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
     auto f32b = [](float v)        { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
     auto u32arr = [](const std::vector<std::uint32_t>& a) { std::vector<std::uint8_t> o; o.reserve(a.size() * 4);

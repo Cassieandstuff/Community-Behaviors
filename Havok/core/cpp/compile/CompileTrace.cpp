@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok::model::trace {
+namespace CB::core::compile::trace {
 
 namespace {
     // A loaded probe definition (Havok/core/Schema/debug/*.yaml). Empty criterion = "any".
@@ -171,9 +171,11 @@ void Rec(std::string_view phase, std::string_view unit, std::string_view cls,
     g_sink(line);
 }
 
-} // namespace havok::model::trace
+} // namespace CB::core::compile::trace
 
-namespace havok::model {
+namespace CB::core::compile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 namespace {
 // Emit one "bind" record per binding of every node in a (name -> Def) map. Any Def carrying `.bindings`
@@ -359,4 +361,4 @@ void TraceGraph(const BehaviorData& bd, std::string_view unit) {
                    " bindIdx=" + std::to_string(d.animationBindingIndex));
 }
 
-} // namespace havok::model
+} // namespace CB::core::compile

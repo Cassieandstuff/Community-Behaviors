@@ -16,6 +16,7 @@
 #include <vector>
 
 namespace CB::core::skeleton {
+using namespace CB::core::common;
 namespace fs = std::filesystem;
 namespace {
 

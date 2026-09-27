@@ -28,3 +28,5 @@ set_target_properties(compile PROPERTIES
 if(MSVC)
     target_compile_options(compile PRIVATE /W4 /wd4100 /MP /EHsc)
 endif()
+
+target_precompile_headers(compile PRIVATE "${CMAKE_SOURCE_DIR}/Havok/core/cpp/common/CorePrelude.h")

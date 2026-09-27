@@ -22,6 +22,7 @@
 #include <vector>
 
 namespace CB::core::merge {
+using namespace CB::core::common;
 
 // ── generic (representation-agnostic) merge DECISION ────────────────────────────
 enum class ParamMerge { Keep, LastWriter, ReplaceArray, UnionArray, GuardError };

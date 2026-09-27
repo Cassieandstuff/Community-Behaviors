@@ -29,7 +29,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::io {
+namespace CB::core::codec::io {
 
 // One field's value, tagged by its schema FieldKind (the SchemaObject knows the kind, so the value
 // store is a plain aggregate — at most one member is meaningful per field). Empty-slot/pad/skip and
@@ -101,4 +101,4 @@ bool RebuildHkx(const std::vector<std::uint8_t>& in,
                 std::vector<std::uint8_t>&       out,
                 std::string&                     err);
 
-} // namespace havok::io
+} // namespace CB::core::codec::io

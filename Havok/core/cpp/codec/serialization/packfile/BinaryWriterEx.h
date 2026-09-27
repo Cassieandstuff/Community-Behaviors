@@ -11,7 +11,8 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok {
+namespace CB::core::codec {
+using namespace CB::core::common;
 
 // Faithful C++ port of HKX2E's BinaryWriterEx.cs.
 //
@@ -111,4 +112,4 @@ private:
     std::vector<std::size_t>                      m_steps;
 };
 
-} // namespace havok
+} // namespace CB::core::codec

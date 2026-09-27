@@ -58,7 +58,7 @@ set(_body
 #include <string>
 #include <unordered_map>
 
-namespace havok::model::enums {
+namespace CB::core::common::enums {
 namespace {
 struct GenItem { const char* name; long value; };
 struct GenEnum { const char* name; bool isFlags; const GenItem* items; int count; };
@@ -81,7 +81,7 @@ const std::unordered_map<std::string, long>& EnumTable(const std::string& name) 
     auto it = kCache.find(name);
     return it == kCache.end() ? kEmpty : it->second;
 }
-} // namespace havok::model::enums
+} // namespace CB::core::common::enums
 ")
 
 file(WRITE "${OUT_CPP}" "${_body}")

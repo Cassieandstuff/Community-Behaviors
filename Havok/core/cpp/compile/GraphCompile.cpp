@@ -2,8 +2,8 @@
 
 #include <codec/serialization/packfile/PackFileSerializer.h>   // PackFileSerializer + BinaryWriterEx
 
-#include <havok-model/HavokModel.h>    // model::AssembleGraph/AssembleCharacter/AssembleProject + ResolveBehaviorBindings
-#include <interface/BehaviorData.h>  // model::BehaviorData full def (copied for the resolve pass)
+#include <havok-model/HavokModel.h>    // CB::core::compile::AssembleGraph/AssembleCharacter/AssembleProject + ResolveBehaviorBindings
+#include <interface/BehaviorData.h>  // CB::core::common::BehaviorData full def (copied for the resolve pass)
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
 #include <atomic>
@@ -11,6 +11,8 @@
 #include <memory>
 
 namespace CB::core::compile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 namespace {
 
 std::atomic<std::size_t> g_compiled{0};   // graphs+characters served this process (schema-only telemetry)
@@ -22,7 +24,7 @@ constexpr std::size_t kMaxGraphNodes = 0x7FFF;   // 32767
 
 // Count the hkbNode-derived graph nodes (each gets a nextUniqueID at activation). Excludes the owned
 // data arrays (expression/eventRange/boneIndex — hkReferencedObjects, not hkbNodes) and the roster.
-std::size_t behaviorNodeCount(const havok::model::BehaviorData& d) {
+std::size_t behaviorNodeCount(const CB::core::common::BehaviorData& d) {
     return d.clips.size() + d.blenders.size() + d.selectors.size() + d.stateMachines.size()
          + d.states.size() + d.transitionEffects.size() + d.modifierGenerators.size()
          + d.isActiveModifiers.size() + d.stateTaggingGenerators.size() + d.behaviorReferences.size()
@@ -35,10 +37,10 @@ std::size_t behaviorNodeCount(const havok::model::BehaviorData& d) {
 }
 
 // Serialize a schema-assembled root to packfile bytes with the given header.
-CompileResult serializeRoot(const std::shared_ptr<havok::IHavokObject>& sroot, const havok::HKXHeader& header) {
+CompileResult serializeRoot(const std::shared_ptr<CB::core::codec::IHavokObject>& sroot, const CB::core::codec::HKXHeader& header) {
     CompileResult r;
-    havok::PackFileSerializer ser;
-    havok::BinaryWriterEx     bw;
+    CB::core::codec::PackFileSerializer ser;
+    CB::core::codec::BinaryWriterEx     bw;
     ser.Serialize(sroot, bw, header);
     r.bytes = bw.Data();
     r.ok    = true;
@@ -47,7 +49,7 @@ CompileResult serializeRoot(const std::shared_ptr<havok::IHavokObject>& sroot, c
 
 } // namespace
 
-CompileResult CompileBehavior(const havok::model::BehaviorData& data, const havok::HKXHeader& header) {
+CompileResult CompileBehavior(const CB::core::common::BehaviorData& data, const CB::core::codec::HKXHeader& header) {
     CompileResult r;
     try {
         // Graph-budget guard: a merged graph at/over the engine's ~32767 node ceiling would corrupt at
@@ -66,10 +68,10 @@ CompileResult CompileBehavior(const havok::model::BehaviorData& data, const havo
 
         // Behavior-preserving bindings resolve on a mutable copy — the index-resolved intermediate the
         // schema assembler emits from (identical prep to the retired facade).
-        havok::model::BehaviorData resolved = data;
-        havok::model::ResolveBehaviorBindings(resolved);
+        CB::core::common::BehaviorData resolved = data;
+        CB::core::compile::ResolveBehaviorBindings(resolved);
 
-        auto sroot = havok::model::AssembleGraph(resolved, *reg);
+        auto sroot = CB::core::compile::AssembleGraph(resolved, *reg);
         if (!sroot) { r.error = "AssembleGraph returned null (schema compile failed)"; return r; }
         auto out = serializeRoot(sroot, header);
         if (out.ok) g_compiled.fetch_add(1);
@@ -80,13 +82,13 @@ CompileResult CompileBehavior(const havok::model::BehaviorData& data, const havo
     return r;
 }
 
-CompileResult CompileCharacter(const havok::model::CharacterData& data, const havok::HKXHeader& header) {
+CompileResult CompileCharacter(const CB::core::common::CharacterData& data, const CB::core::codec::HKXHeader& header) {
     CompileResult r;
     try {
         CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
         if (!reg) { r.error = "schema registry unavailable (" + CB::core::schema::SharedRegistryError() + ")"; return r; }
 
-        auto sroot = havok::model::AssembleCharacter(data, *reg);
+        auto sroot = CB::core::compile::AssembleCharacter(data, *reg);
         if (!sroot) { r.error = "AssembleCharacter returned null (schema compile failed)"; return r; }
         auto out = serializeRoot(sroot, header);
         if (out.ok) g_compiled.fetch_add(1);
@@ -97,13 +99,13 @@ CompileResult CompileCharacter(const havok::model::CharacterData& data, const ha
     return r;
 }
 
-CompileResult BuildProject(const havok::model::ProjectSpec& spec, const havok::HKXHeader& header) {
+CompileResult BuildProject(const CB::core::common::ProjectSpec& spec, const CB::core::codec::HKXHeader& header) {
     CompileResult r;
     try {
         CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
         if (!reg) { r.error = "schema registry unavailable (" + CB::core::schema::SharedRegistryError() + ")"; return r; }
 
-        auto sroot = havok::model::AssembleProject(spec, *reg);
+        auto sroot = CB::core::compile::AssembleProject(spec, *reg);
         if (!sroot) { r.error = "AssembleProject returned null (schema compile failed)"; return r; }
         return serializeRoot(sroot, header);
     } catch (const std::exception& e) {

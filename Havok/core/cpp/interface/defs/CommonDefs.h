@@ -17,7 +17,7 @@
 //
 // No external dependencies (no ryml) — these headers are pure C++.
 
-namespace havok::model {
+namespace CB::core::common {
 
 // hkbVariableBindingSetBinding source (BindingDef.cs, inside BlenderGeneratorDef.cs).
 // A single variable→property binding inlined on any node that supports bindings.
@@ -76,4 +76,4 @@ struct PackfileDef {
     std::string contentsVersion = "hk_2010.2.0-r1";
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

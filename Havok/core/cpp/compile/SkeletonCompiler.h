@@ -15,6 +15,8 @@
 #include <vector>
 
 namespace CB::core::skeleton {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 // Result of a skeleton compile. Same shape as CB::core::anim::AnimCompileResult (kept local so the module
 // carries no havok-core dependency); callers read .ok / .error / .bytes.

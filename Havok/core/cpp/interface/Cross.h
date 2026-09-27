@@ -32,7 +32,7 @@
 
 namespace CB::core::cross {
 
-// (hkVector4/Quaternion text parser moved to <common/Vec4Text.h> — havok::vec4::parseVec4.)
+// (hkVector4/Quaternion text parser moved to <common/Vec4Text.h> — CB::core::common::vec4::parseVec4.)
 
 // (enum value → name moved to <havok/model/HavokEnums.h> — the whole enum leaf, encode + both
 // decodes, is one authority there now. This header keeps only the contextual name↔index lookups.)

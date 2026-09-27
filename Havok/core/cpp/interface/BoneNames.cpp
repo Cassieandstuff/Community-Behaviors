@@ -2,7 +2,7 @@
 
 #include <cctype>
 
-namespace havok::sct {
+namespace CB::core::common {
 
 namespace {
     std::string ToLower(std::string s) {
@@ -63,4 +63,4 @@ void MergeBoneList(BoneNameTable& base, const BoneNameTable& overrideList) {
         }
 }
 
-}  // namespace havok::sct
+}  // namespace CB::core::common

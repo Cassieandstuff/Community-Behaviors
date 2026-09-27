@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-#include "codec/crc/Crc.h"   // CB::core::crc — the CRC lives in the codec now; aliased below (firesale)
+#include "codec/crc/Crc.h"   // CB::core::codec::crc — the CRC lives in the codec now; aliased below (firesale)
 
 // AnimationSetData — a first-party model + parser/emitter for Skyrim's
 // animationsetdatasinglefile.txt (and its split "<project>data\<set>.txt" form).
@@ -62,9 +62,9 @@ namespace CB::core::animsetdata {
         std::vector<std::string> clips;     // K clip names, e.g. "1HM_AttackLeft"
     };
 
-    // One animation registration: (folderCrc, fileCrc, extCrc). Now owned by CB::core::crc (the CRC
+    // One animation registration: (folderCrc, fileCrc, extCrc). Now owned by CB::core::codec::crc (the CRC
     // codec); aliased here so existing asd::CrcTriple call sites are unchanged during the firesale.
-    using CB::core::crc::CrcTriple;
+    using CB::core::codec::crc::CrcTriple;
 
     // One set file's content (a "V3" record). In the single-file form it carries its
     // own `name` ("1HMDual.txt"); in the split form the name comes from the filename and
@@ -132,10 +132,10 @@ namespace CB::core::animsetdata {
     std::string EmitProjectIndex(const std::vector<std::string>& setNames);
 
     // ── CRC / animation registration ─────────────────────────────────────────────
-    // The path CRC now lives in CB::core::crc (the searchable codec — encode + solve). Aliased here so
+    // The path CRC now lives in CB::core::codec::crc (the searchable codec — encode + solve). Aliased here so
     // asd::Crc32 / asd::TripleForAnimation call sites are unchanged during the firesale.
-    using CB::core::crc::Crc32;
-    using CB::core::crc::TripleForAnimation;
+    using CB::core::codec::crc::Crc32;
+    using CB::core::codec::crc::TripleForAnimation;
 
     // ── Merge (load-order overlay) ───────────────────────────────────────────────
     struct MergeStats {

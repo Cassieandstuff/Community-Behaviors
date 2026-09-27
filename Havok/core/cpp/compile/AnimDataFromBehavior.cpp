@@ -16,7 +16,9 @@
 #include <memory>
 #include <unordered_map>
 
-namespace havok::sct {
+namespace CB::core::compile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 namespace {
     // Trim an annotation's text — byte-identical to the offline StripLine (trailing space/tab/
@@ -29,17 +31,17 @@ namespace {
     }
 
     // Schema-object field readers (mirror AnimationDecompiler.cpp — no typed hka* classes).
-    std::shared_ptr<havok::io::SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
-        return std::dynamic_pointer_cast<havok::io::SchemaObject>(o);
+    std::shared_ptr<CB::core::codec::io::SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
+        return std::dynamic_pointer_cast<CB::core::codec::io::SchemaObject>(o);
     }
-    float rdF32(havok::io::SchemaObject& o, const char* n) {
+    float rdF32(CB::core::codec::io::SchemaObject& o, const char* n) {
         const auto& r = o.FieldRef(n).raw; float v = 0.f;
         if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
     }
 }  // namespace
 
 std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
-    const havok::model::BehaviorData& data)
+    const CB::core::common::BehaviorData& data)
 {
     std::vector<CB::core::animdata::DeriveClipInput> out;
     out.reserve(data.clips.size());
@@ -73,7 +75,7 @@ std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
 
 AnimClipInfo ExtractAnimClipInfo(const std::vector<std::uint8_t>& bytes)
 {
-    using havok::io::SchemaObject;
+    using CB::core::codec::io::SchemaObject;
     AnimClipInfo out;
     if (bytes.empty()) return out;
 
@@ -89,7 +91,7 @@ AnimClipInfo ExtractAnimClipInfo(const std::vector<std::uint8_t>& bytes)
 
         PackFileDeserializer des;
         BinaryReaderEx       br(bytes);
-        des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
+        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
         auto root = asSO(des.Deserialize(br));
         if (!root) return out;
 
@@ -252,4 +254,4 @@ CB::core::animdata::ProjectPatch DeriveProjectPatch(
     return pp;
 }
 
-}  // namespace havok::sct
+}  // namespace CB::core::compile

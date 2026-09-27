@@ -40,7 +40,7 @@ namespace CB {
         // into `gd`, skipping names the graph already declares (the existing one
         // wins — its index is already wired into the compiled graph). Returns the
         // number of symbols actually added.
-        std::size_t InjectInto(havok::model::BehaviorGraphDataDef& gd,
+        std::size_t InjectInto(CB::core::common::BehaviorGraphDataDef& gd,
                                std::string_view serveKey) const;
 
         std::size_t DeclCount() const { return m_decls.size(); }

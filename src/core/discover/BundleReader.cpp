@@ -67,7 +67,7 @@ namespace CB {
         }
         // A regular .hky file -> packed archive (decompress once in memory).
         std::string err;
-        auto arc = havok::model::HkyArchive::LoadFromFile(bundle.string(), err);
+        auto arc = CB::core::codec::HkyArchive::LoadFromFile(bundle.string(), err);
         if (!arc) return std::nullopt;
         BundleReader r;
         r.m_arc = std::move(arc);
@@ -199,7 +199,7 @@ namespace CB {
         std::vector<std::string> out;
         if (m_arc) {
             for (const auto& u : m_arc->units())
-                if (u.kind == havok::model::HkyArchive::UnitKind::Character) out.push_back(u.prefix);
+                if (u.kind == CB::core::codec::HkyArchive::UnitKind::Character) out.push_back(u.prefix);
             return out;
         }
         // Unpacked: walk for "<x>.hkx/character.yaml" dirs (a unit is a leaf — don't descend).
@@ -224,7 +224,7 @@ namespace CB {
         std::vector<std::string> out;
         if (m_arc) {
             for (const auto& u : m_arc->units())
-                if (u.kind == havok::model::HkyArchive::UnitKind::Behavior) out.push_back(u.prefix);
+                if (u.kind == CB::core::codec::HkyArchive::UnitKind::Behavior) out.push_back(u.prefix);
             return out;
         }
         // Unpacked: walk for "<x>.hkx/behavior.yaml" dirs (a unit is a leaf — don't descend).
@@ -244,10 +244,10 @@ namespace CB {
         return out;
     }
 
-    std::shared_ptr<const havok::model::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
+    std::shared_ptr<const CB::core::common::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
     {
         if (m_arc) return m_arc->source(Norm(prefix));
-        return std::make_shared<havok::model::DiskUnitSource>(m_dir / fs::path(prefix));
+        return std::make_shared<CB::core::common::DiskUnitSource>(m_dir / fs::path(prefix));
     }
 
 }  // namespace CB

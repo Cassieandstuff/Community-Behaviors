@@ -9,10 +9,10 @@
 //       Schema-decompile a behavior binary and byte-diff every emitted .hky file against a vanilla
 //       reference tree. This is schema-emit-vs-VANILLA (not vs typed), the base-master fidelity gate.
 
-#include <codec/serialization/HavokFile.h>                    // havok::sct::ReadHavokFile (byte<->disk)
+#include <codec/serialization/HavokFile.h>                    // CB::core::codec::ReadHavokFile (byte<->disk)
 #include <codec/serialization/packfile/PackFileDeserializer.h> // PackFileDeserializer + BinaryReaderEx
-#include <codec/serialization/HavokIo.h>                      // havok::io::MakeSchemaFactory
-#include <interface/reflection/HavokSchema.h>                 // havok::schema::SchemaRegistry
+#include <codec/serialization/HavokIo.h>                      // CB::core::codec::io::MakeSchemaFactory
+#include <interface/reflection/HavokSchema.h>                 // CB::core::schema::SchemaRegistry
 #include <decompile/BehaviorDecompile.h>                      // Identity / AssignIdentity / EmitHky / EmitFullBaseScaffolding
 
 #include <algorithm>
@@ -39,23 +39,23 @@ int doEmitCheck(const std::string& in, const std::string& schemaDir, const std::
         std::printf("usage: gates emit-check <file.hkx> <Havok-dir> <template.xml> <vanbase-ref-dir>\n"); return 1;
     }
     std::vector<std::uint8_t> bytes; std::string err;
-    if (!havok::sct::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
-    havok::schema::SchemaRegistry reg;
+    if (!CB::core::codec::ReadHavokFile(in, bytes, &err)) { std::printf("ERROR: %s\n", err.c_str()); return 1; }
+    CB::core::schema::SchemaRegistry reg;
     if (!reg.LoadDir(schemaDir, err)) { std::printf("ERROR loading schema: %s\n", err.c_str()); return 1; }
     std::string xmlText;
     { std::ifstream xf(xmlFile, std::ios::binary); std::stringstream ss; ss << xf.rdbuf(); xmlText = ss.str(); }
 
-    havok::PackFileDeserializer des;
-    des.ObjectFactory = havok::io::MakeSchemaFactory(reg);
-    try { havok::BinaryReaderEx br(false, true, bytes); des.Deserialize(br); }
+    CB::core::codec::PackFileDeserializer des;
+    des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(reg);
+    try { CB::core::codec::BinaryReaderEx br(false, true, bytes); des.Deserialize(br); }
     catch (const std::exception& e) { std::printf("READ FAIL: %s\n", e.what()); return 1; }
 
-    const havok::model::Identity ident = havok::model::AssignIdentity(des, reg, xmlText);
+    const CB::core::decompile::Identity ident = CB::core::decompile::AssignIdentity(des, reg, xmlText);
     const fs::path outDir = fs::temp_directory_path() / "sct_emitcheck";
     std::error_code ec; fs::remove_all(outDir, ec);
-    if (!havok::model::EmitHky(ident, reg, outDir.string(), err)) { std::printf("EMIT FAIL: %s\n", err.c_str()); return 1; }
+    if (!CB::core::decompile::EmitHky(ident, reg, outDir.string(), err)) { std::printf("EMIT FAIL: %s\n", err.c_str()); return 1; }
     // Full-base scaffolding (behavior.yaml + data/graphdata.yaml) — the whole-graph pieces EmitHky omits.
-    if (!havok::model::EmitFullBaseScaffolding(ident, outDir.string(), err)) { std::printf("SCAFFOLD FAIL: %s\n", err.c_str()); return 1; }
+    if (!CB::core::decompile::EmitFullBaseScaffolding(ident, outDir.string(), err)) { std::printf("SCAFFOLD FAIL: %s\n", err.c_str()); return 1; }
 
     // per-category diff vs the reference tree
     auto readFile = [](const fs::path& p) { std::ifstream f(p, std::ios::binary); std::stringstream ss; ss << f.rdbuf(); return ss.str(); };

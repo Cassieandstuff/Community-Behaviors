@@ -22,7 +22,7 @@
 // A field's textual value may also be a bare integer (the YAML allows both) or a pipe-delimited OR
 // of flag names (e.g. FLAG_IS_LOCAL_WILDCARD|FLAG_DISABLE_CONDITION). ResolveEnum handles all three.
 
-namespace havok::model::enums {
+namespace CB::core::common::enums {
 
 // The generated backing store (GeneratedEnums.cpp). Returns the name→value table for the enum type
 // `name` (the enum's `name:` in its yaml), or an empty table if unknown. Defined out-of-line so the
@@ -152,4 +152,4 @@ inline std::string enumName(long value, const std::unordered_map<std::string, lo
     return best ? *best : std::string();
 }
 
-} // namespace havok::model::enums
+} // namespace CB::core::common::enums

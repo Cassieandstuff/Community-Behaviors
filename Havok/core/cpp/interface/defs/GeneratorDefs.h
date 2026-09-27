@@ -8,7 +8,7 @@
 // Tier-B Def POCOs — generator node kinds.
 // Faithful ports of the generator HKBuild\src\Models\*Def.cs files.
 
-namespace havok::model {
+namespace CB::core::common {
 
 // ── ClipGeneratorDef.cs ───────────────────────────────────────────────────────
 struct ClipTriggerDef {
@@ -205,4 +205,4 @@ struct PoseMatchingGeneratorDef {
     std::optional<std::vector<BindingDef>> bindings;
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

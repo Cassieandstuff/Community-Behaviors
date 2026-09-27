@@ -146,7 +146,7 @@ namespace CB {
         // mismatched Havok/ tree) is the same: all graphs serve vanilla, loudly.
         CB::core::schema::SetSharedSchemaDir(enabled ? dir : "");
         CB::core::schema::SchemaRegistry* reg = enabled ? CB::core::schema::SharedRegistry() : nullptr;
-        havok::model::YamlBehaviorLoader::SetSchemaRegistry(reg);
+        CB::core::codec::YamlBehaviorLoader::SetSchemaRegistry(reg);
         const bool ready = (reg != nullptr);
         LOG_INFO("Community Behaviors: data-driven compiler {} (schema registry {}).",
                  enabled ? "ENABLED" : "off",

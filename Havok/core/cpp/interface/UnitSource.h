@@ -14,7 +14,7 @@
 // e.g. "behavior.yaml", "states/1.yaml", "data/additive.yaml",
 // "character assets/skeleton.yaml".
 
-namespace havok::model {
+namespace CB::core::common {
 
 struct IUnitSource {
     virtual ~IUnitSource() = default;
@@ -49,7 +49,7 @@ struct LayerSource {
     int                                rank = 0;    // base-first load-order rank
     std::vector<std::string>           ancestors;   // transitive master stems (lowercase)
     // The bundle's ORDERED master table (index 0 = base game, 1..k = declared masters, last = self),
-    // built via CB::core::formid::BuildMasterTable. A node's FormId masterIndex resolves against THIS
+    // built via CB::core::codec::formid::BuildMasterTable. A node's FormId masterIndex resolves against THIS
     // (ResolveOwner) -> the owning bundle stem. Empty for an anonymous/offline layer (no FormId
     // resolution -> the merge falls back to bare-id scope inference).
     std::vector<std::string>           masterTable;
@@ -68,4 +68,4 @@ private:
     std::filesystem::path m_root;
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

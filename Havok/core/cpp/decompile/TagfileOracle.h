@@ -17,7 +17,9 @@
 // (ConstructVirtualClass(root)), so RefsInReadOrder()/DeserializedObjects() are
 // populated. `xmlText` is the matching vanilla tagfile XML.
 
-namespace havok::sct {
+namespace CB::core::decompile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 struct OracleResult {
     std::unordered_map<std::uint32_t, std::uint32_t> off2id;  // binary offset -> #NNNN
@@ -111,4 +113,4 @@ inline OracleResult AlignTagfile(PackFileDeserializer& des, const std::string& x
     return res;
 }
 
-}  // namespace havok::sct
+}  // namespace CB::core::decompile

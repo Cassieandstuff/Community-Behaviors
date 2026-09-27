@@ -9,7 +9,7 @@
 // className -> factory map, the C++ stand-in for HKX2E's Type.GetType("HKX2."+name).
 // The deserializer constructs each object by class name (from a virtual fixup).
 
-namespace havok {
+namespace CB::core::codec {
 
 // Registry INFRASTRUCTURE only (className -> factory) — this lives in havok-framing, the
 // leaf, so havok-io/havok-model can use the packfile framing without depending on
@@ -36,4 +36,4 @@ private:
     }
 };
 
-} // namespace havok
+} // namespace CB::core::codec

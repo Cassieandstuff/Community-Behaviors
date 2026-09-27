@@ -16,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-namespace havok::xml {
+namespace CB::core::common::xml {
 
 struct Node {
     std::string tag;
@@ -231,4 +231,4 @@ inline Node Parse(std::string_view src) {
     return {};
 }
 
-}  // namespace havok::xml
+}  // namespace CB::core::common::xml

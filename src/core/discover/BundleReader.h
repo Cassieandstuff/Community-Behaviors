@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::model { class HkyArchive; struct IUnitSource; }
+namespace CB::core::codec { class HkyArchive; } namespace CB::core::common { struct IUnitSource; }
 
 namespace CB {
 
@@ -66,11 +66,11 @@ namespace CB {
         // A read-only IUnitSource rooted at a unit `prefix` (from behaviorUnits/characterUnits),
         // to feed YamlBehaviorLoader::LoadMerged — packed bundle -> ZipUnitSource, unpacked ->
         // DiskUnitSource, so the caller loads a unit's model the same way regardless of form.
-        std::shared_ptr<const havok::model::IUnitSource> unitSource(const std::string& prefix) const;
+        std::shared_ptr<const CB::core::common::IUnitSource> unitSource(const std::string& prefix) const;
 
     private:
         std::filesystem::path                     m_dir;   // set when unpacked (m_arc null)
-        std::shared_ptr<havok::model::HkyArchive> m_arc;   // set when packed  (m_dir empty)
+        std::shared_ptr<CB::core::codec::HkyArchive> m_arc;   // set when packed  (m_dir empty)
     };
 
 }  // namespace CB

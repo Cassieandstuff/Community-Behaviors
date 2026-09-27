@@ -13,7 +13,9 @@
 #include <unordered_map>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::decompile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 // ── identity/index pass ───────────────────────────────────────────────────────
 // Walk the SchemaObject graph in ENCOUNTER ORDER (matching the reference BehaviorDecompiler's DFS, so
 // the yaml filenames + id refs are byte-stable) and assign each object a canonical id + a category
@@ -42,7 +44,7 @@ std::string CategoryForClass(const std::string& className);
 //
 // Ids come from the IDENTITY/INDEX step, which has two providers:
 //   • tagfile-aligned (vanilla, matches Skyrim.hky): pass the matching vanilla tagfile `xmlText` — ids
-//     are the stable #NNNN recovered by the structural oracle (havok::sct::AlignTagfile), the identity
+//     are the stable #NNNN recovered by the structural oracle (CB::core::decompile::AlignTagfile), the identity
 //     the runtime merges by. This is NOT computable from the packfile alone.
 //   • encounter-order fallback (no XML): post-order (ReadCompletionOrder) numbering for a self-
 //     consistent hkx→hky→hkx round-trip when Skyrim.hky-exact filenames aren't required.
@@ -184,4 +186,4 @@ struct NemesisFormIdCtx {
 ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& patchDirs,
                                const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
                                const NemesisFormIdCtx* fid = nullptr);
-} // namespace havok::model
+} // namespace CB::core::decompile

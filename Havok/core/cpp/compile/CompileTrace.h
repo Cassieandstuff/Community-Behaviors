@@ -26,7 +26,7 @@
 #include <string_view>
 #include <vector>
 
-namespace havok::model::trace {
+namespace CB::core::compile::trace {
 
 using Sink = std::function<void(std::string_view line)>;
 
@@ -70,11 +70,13 @@ struct WatchVar {
 };
 std::vector<WatchVar> LoadRuntimeWatch(const std::string& debugDir, std::string* warn = nullptr);
 
-} // namespace havok::model::trace
+} // namespace CB::core::compile::trace
 
-namespace havok::model {
+namespace CB::core::compile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
-struct BehaviorData;   // fwd
+} namespace CB::core::common { struct BehaviorData; } namespace CB::core::compile {   // fwd
 
 // Walk a merged BehaviorData and emit the two records the reference-integrity hunt needs, with the
 // symbolic NAMES still present (this runs on the merged model, pre-compile, before Stage-4 clears them):
@@ -84,4 +86,4 @@ struct BehaviorData;   // fwd
 // actually carries — a mismatch is the bug. No-op when trace is disabled. `unit` labels the records.
 void TraceGraph(const BehaviorData& bd, std::string_view unit);
 
-} // namespace havok::model
+} // namespace CB::core::compile

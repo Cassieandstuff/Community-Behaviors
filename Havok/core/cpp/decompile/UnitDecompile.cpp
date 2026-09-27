@@ -6,10 +6,10 @@
 #include <decompile/UnitDecompile.h>
 
 #include <decompile/CharacterDecompile.h>    // DecompileCharacterSchema
-#include <decompile/BehaviorDecompile.h>     // model::DecompileBehaviorSchema
+#include <decompile/BehaviorDecompile.h>     // CB::core::decompile::DecompileBehaviorSchema
 #include <decompile/AnimationDecompiler.h>   // anim::DecompileAnimation
-#include <compile/ProjectRead.h>             // sct::ReadProject
-#include <codec/format/ProjectYaml.h>        // sct::EmitProjectYaml
+#include <compile/ProjectRead.h>             // CB::core::compile::ReadProject
+#include <codec/format/ProjectYaml.h>        // CB::core::codec::EmitProjectYaml
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject
 #include <codec/serialization/packfile/PackFileDeserializer.h>
 #include <interface/reflection/HavokSchema.h> // schema::SharedRegistry / SchemaRegistry
@@ -18,6 +18,8 @@
 #include <fstream>
 
 namespace CB::core::decompile {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 namespace fs = std::filesystem;
 
 UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const std::string& outDir) {
@@ -25,8 +27,8 @@ UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const 
     // Cheap root sniff (partial deserialize, like the typed path's project/spline dispatch).
     bool hasProject = false, hasSpline = false;
     try {
-        havok::PackFileDeserializer pd;
-        havok::BinaryReaderEx br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
+        CB::core::codec::PackFileDeserializer pd;
+        CB::core::codec::BinaryReaderEx br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);
         pd.DeserializePartially(br);
         for (const auto& [off, cls] : pd.ListObjects()) {
             if (cls == "hkbProjectData")                    hasProject = true;
@@ -35,10 +37,10 @@ UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const 
     } catch (const std::exception& e) { return { false, std::string("partial deserialize: ") + e.what(), "" }; }
 
     if (hasProject) {
-        const auto pr = havok::sct::ReadProject(bytes);
+        const auto pr = CB::core::compile::ReadProject(bytes);
         if (!pr.ok) return { false, pr.error, "project" };
         std::error_code ec; fs::create_directories(dir, ec);
-        std::ofstream(dir / "project.yaml", std::ios::binary) << havok::sct::EmitProjectYaml(pr.spec);
+        std::ofstream(dir / "project.yaml", std::ios::binary) << CB::core::codec::EmitProjectYaml(pr.spec);
         return { true, "", "project" };
     }
     if (hasSpline) {
@@ -49,15 +51,15 @@ UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const 
     // character / behavior: full schema graph walk (needs the shared registry).
     CB::core::schema::SchemaRegistry* reg = CB::core::schema::SharedRegistry();
     if (!reg) return { false, "shared schema registry unavailable", "" };
-    havok::PackFileDeserializer des;
-    des.ObjectFactory = havok::io::MakeSchemaFactory(*reg);
-    try { havok::BinaryReaderEx br(false, true, bytes); des.Deserialize(br); }
+    CB::core::codec::PackFileDeserializer des;
+    des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
+    try { CB::core::codec::BinaryReaderEx br(false, true, bytes); des.Deserialize(br); }
     catch (const std::exception& e) { return { false, std::string("deserialize: ") + e.what(), "" }; }
 
-    const havok::io::SchemaObject* cd = nullptr;
+    const CB::core::codec::io::SchemaObject* cd = nullptr;
     bool hasBehavior = false;
     for (const auto& [off, o] : des.DeserializedObjects()) {
-        const auto* so = dynamic_cast<const havok::io::SchemaObject*>(o.get());
+        const auto* so = dynamic_cast<const CB::core::codec::io::SchemaObject*>(o.get());
         if (!so) continue;
         const std::string cn = so->ClassName();
         if (cn == "hkbCharacterData") { cd = so; break; }
@@ -69,7 +71,7 @@ UnitDecompileResult DecompileUnit(const std::vector<std::uint8_t>& bytes, const 
     }
     if (hasBehavior) {
         std::string derr;
-        const bool ok = havok::model::DecompileBehaviorSchema(bytes, "", *reg, dir.string(), derr);
+        const bool ok = CB::core::decompile::DecompileBehaviorSchema(bytes, "", *reg, dir.string(), derr);
         return { ok, derr, "behavior" };
     }
     return { false, "unrecognized root variant (not project/animation/character/behavior)", "unknown" };

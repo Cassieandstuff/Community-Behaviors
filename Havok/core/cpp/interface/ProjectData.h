@@ -1,7 +1,7 @@
 #pragma once
 // Neutral project Def model — the editable, format-agnostic view of a Havok behavior *project*
 // (hkbProjectData -> hkbProjectStringData). It lives in havok-model (the neutral model layer, next
-// to BehaviorData) so the schema assembler (model::AssembleProject) AND havok-core's typed
+// to BehaviorData) so the schema assembler (CB::core::compile::AssembleProject) AND havok-core's typed
 // BuildProject/ReadProject consume ONE definition. havok-core is being retired; the Def belongs on
 // this side of the line, and the schema emitter can then own the whole project path.
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace havok::model {
+namespace CB::core::common {
 
 // hkbTransitionEffect::EventMode values. Vanilla projects use EVENT_MODE_IGNORE_FROM_GENERATOR (2).
 inline constexpr std::int8_t EVENT_MODE_DEFAULT               = 0;
@@ -31,4 +31,4 @@ struct ProjectSpec {
     std::string              fullPathToSource;      // usually empty
 };
 
-}  // namespace havok::model
+}  // namespace CB::core::common

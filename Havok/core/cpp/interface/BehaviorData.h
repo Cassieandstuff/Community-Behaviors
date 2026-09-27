@@ -13,7 +13,7 @@
 //
 // Pure C++ — no ryml. std::map gives deterministic ordering for reproducibility.
 
-namespace havok::model {
+namespace CB::core::common {
 
 struct BehaviorData {
     BehaviorFile                                            behavior;
@@ -63,4 +63,4 @@ struct BehaviorData {
     // cross-family key collision is reported by the loader, which owns the diagnostic sink.)
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

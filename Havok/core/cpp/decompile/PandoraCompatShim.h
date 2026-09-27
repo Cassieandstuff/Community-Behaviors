@@ -25,6 +25,7 @@
 // This shim makes the CONVERTER reproduce that ecosystem placement so bundles match Pandora.
 
 namespace CB::core::compat {
+using namespace CB::core::common;
 
 // Rewrite every pure-text hkparam in `src` that carries MOD_CODE blocks to the value Pandora
 // would produce, consuming those blocks' comment markers. Params that contain nested elements

@@ -8,13 +8,14 @@
 // std-only, no ryml, no typed hkb* — drained out of the quarantined havok-core ProjectCompiler.cpp.
 // Namespace kept havok::sct (normalization deferred to the mechanical pass).
 
-#include <interface/ProjectData.h>   // model::ProjectSpec
+#include <interface/ProjectData.h>   // CB::core::common::ProjectSpec
 
 #include <string>
 
-namespace havok::sct {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 
-using havok::model::ProjectSpec;
+using CB::core::common::ProjectSpec;
 
 // spec -> project.yaml text (the decompile leg). Verbatim string fields, %g floats — parse(emit(s)) == s.
 std::string EmitProjectYaml(const ProjectSpec& spec);
@@ -22,4 +23,4 @@ std::string EmitProjectYaml(const ProjectSpec& spec);
 // project.yaml text -> spec (the compile leg). Returns false only on malformed input.
 bool ParseProjectYaml(const std::string& text, ProjectSpec& out);
 
-} // namespace havok::sct
+} // namespace CB::core::codec

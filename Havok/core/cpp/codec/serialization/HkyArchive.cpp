@@ -13,7 +13,8 @@
 #include <thread>
 #include <utility>
 
-namespace havok::model {
+namespace CB::core::codec {
+using namespace CB::core::common;   // this layer operates on the interface data model
 
 namespace {
 
@@ -313,4 +314,4 @@ std::shared_ptr<const IUnitSource> HkyArchive::source(const std::string& unitPre
     return std::make_shared<ZipUnitSource>(shared_from_this(), norm(unitPrefix));
 }
 
-}  // namespace havok::model
+}  // namespace CB::core::codec

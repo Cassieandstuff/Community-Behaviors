@@ -24,15 +24,15 @@
 #include <utility>
 #include <vector>
 
-namespace havok::model { struct BehaviorData; }
+namespace CB::core::common { struct BehaviorData; }
 
-namespace havok::sct {
+namespace CB::core::compile {
 
     // One DeriveClipInput per hkbClipGenerator in `data` (input order = the map's key order).
     // Triggers here are the clip generator's authored triggers only; the caller appends
     // annotation triggers and passes the roster to animdata::DeriveClipList.
     std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
-        const havok::model::BehaviorData& data);
+        const CB::core::common::BehaviorData& data);
 
     // Read clip generators straight out of a decomposed behavior unit's clips/ directory into
     // DeriveClipInputs — WITHOUT loading (or base-merging) the full graph. A mod's behavior DELTA unit
@@ -112,4 +112,4 @@ namespace havok::sct {
         const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
         const std::unordered_map<std::string, CB::core::animdata::MotionRecord>* animMotions = nullptr);
 
-}  // namespace havok::sct
+}  // namespace CB::core::compile

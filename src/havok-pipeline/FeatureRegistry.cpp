@@ -95,7 +95,7 @@ namespace CB::features {
 
     std::vector<std::pair<std::string, FeatureResult>>
     FeatureRegistry::Run(const std::vector<std::string>& orderedIds,
-                         havok::model::BehaviorData& data,
+                         CB::core::common::BehaviorData& data,
                          const FeatureContext& ctx) const
     {
         std::vector<std::pair<std::string, FeatureResult>> out;

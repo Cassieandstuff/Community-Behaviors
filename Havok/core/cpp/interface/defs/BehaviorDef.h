@@ -8,7 +8,7 @@
 // Tier-B Def POCOs — behavior root + graph data.
 // Faithful ports of HKBuild\src\Models\BehaviorDef.cs and BehaviorGraphDataDef.cs.
 
-namespace havok::model {
+namespace CB::core::common {
 
 // BehaviorDef.cs — the `behavior:` block.
 struct BehaviorDef {
@@ -60,4 +60,4 @@ struct BehaviorGraphDataDef {
     int                               wordMaxVariableValueCount = 0;
 };
 
-} // namespace havok::model
+} // namespace CB::core::common

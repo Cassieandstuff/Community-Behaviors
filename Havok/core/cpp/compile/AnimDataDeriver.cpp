@@ -11,6 +11,8 @@
 #include <unordered_set>
 
 namespace CB::core::animdata {
+using namespace CB::core::codec;
+using namespace CB::core::common;
 
 namespace linker = CB::core::linker;
 
