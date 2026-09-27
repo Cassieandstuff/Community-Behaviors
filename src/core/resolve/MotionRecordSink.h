@@ -7,7 +7,7 @@
 // Native animations are `<name>.hkx` single-file units (renamed YAMLs); WriteNativeAnimations parses
 // each one's AnimationDef and, when it carries an inline `motion:` block (AnimationDef.motion), emits
 // the MotionRecord here — keyed by actor root + the animation's actor-root-relative path. The adsf
-// finalizer (adserve::ServeAnimData / DeriveProjectPatch) then DRAINS this instead of re-reading the
+// finalizer (CB::core::serve::ServeAnimData / DeriveProjectPatch) then DRAINS this instead of re-reading the
 // YAML, so motion resolved once at compile time flows forward like every other bound compiler output.
 //
 // KEY DISCIPLINE — must match the drain exactly (AnimationDataServer.cpp):

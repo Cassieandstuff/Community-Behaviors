@@ -1,6 +1,6 @@
 #include <sct-config/SctConfig.h>
 
-namespace sct::config {
+namespace CB::core::config {
 
 IniBatch LoadIni(const ScanSpec& spec) {
     ScanSpec s = spec;
@@ -20,4 +20,4 @@ IniBatch LoadIni(const ScanSpec& spec) {
     return batch;
 }
 
-}  // namespace sct::config
+}  // namespace CB::core::config

@@ -4,7 +4,7 @@
 
 #include <havok/model/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
 
-#include "SimpleIni.h"                  // [Debug] bRuntimeTrace toggle (mirrors CB::debug::kFlags row)
+#include "SimpleIni.h"                  // [Debug] bRuntimeTrace toggle (mirrors CB::core::debug::kFlags row)
 
 #include <atomic>
 #include <chrono>
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::RuntimeTrace {
+namespace CB::core::debug {
 
     namespace {
 
@@ -61,7 +61,7 @@ namespace CB::RuntimeTrace {
 
     }  // namespace
 
-    void Install() {
+    void InstallTrace() {
         bool on = false;
         {
             CSimpleIniA ini;
@@ -121,4 +121,4 @@ namespace CB::RuntimeTrace {
         s_log.flush();
     }
 
-}  // namespace CB::RuntimeTrace
+}  // namespace CB::core::debug

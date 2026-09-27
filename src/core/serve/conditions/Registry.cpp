@@ -4,7 +4,7 @@
 
 #include <unordered_map>
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     // ── Value coercions ─────────────────────────────────────────────────────────────────────────
     bool Value::AsBool() const {
@@ -107,4 +107,4 @@ namespace CB::conditions {
         }
     }
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions

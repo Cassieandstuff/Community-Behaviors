@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiler-feature framework — see CLAUDE.md "Compiler features — CB::features (SOP)".
+// Compiler-feature framework — see CLAUDE.md "Compiler features — CB::feature (SOP)".
 //
 // A feature is a self-registered graph transform the BR compile pipeline applies (the ER wildcard
 // gate, Animation Relay's clip-index binding, True Cinematics' 0_master reference wiring, …).
@@ -23,7 +23,7 @@
 // the full <havok/anim/AnimDataDeriver.h>; the interface only needs the incomplete type by const-ref.
 namespace CB::core::animdata { struct DeriveClipInput; }
 
-namespace CB::features {
+namespace CB::feature {
 
     // Logging sink. The host (BR runtime) forwards to the plugin logger; an offline harness can
     // supply a no-op or a capturing sink. The feature pre-formats messages (std::format) and passes
@@ -110,4 +110,4 @@ namespace CB::features {
         virtual std::span<const std::string_view> RunsBefore() const { return {}; }
     };
 
-}  // namespace CB::features
+}  // namespace CB::feature

@@ -17,7 +17,7 @@
 #include <process.h>    // _beginthreadex
 #include <windows.h>    // WaitForSingleObject / CloseHandle / STACK_SIZE_PARAM_IS_A_RESERVATION
 
-namespace CB::seq {
+namespace CB::core::bootstrap {
 
 // ── ThreadPool ──────────────────────────────────────────────────────────────
 unsigned __stdcall ThreadPool::Thunk(void* self) {
@@ -193,4 +193,4 @@ bool SelfTest() {
         && animOverlapObservations.load() > 0;
 }
 
-}  // namespace CB::seq
+}  // namespace CB::core::bootstrap

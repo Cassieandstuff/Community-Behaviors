@@ -1,6 +1,6 @@
 #include <sct-config/SctConfig.h>
 
-namespace sct::config {
+namespace CB::core::config {
 
 YamlBatch LoadYaml(const ScanSpec& spec) {
     ScanSpec s = spec;
@@ -26,4 +26,4 @@ YamlBatch LoadYaml(const ScanSpec& spec) {
     return batch;
 }
 
-}  // namespace sct::config
+}  // namespace CB::core::config

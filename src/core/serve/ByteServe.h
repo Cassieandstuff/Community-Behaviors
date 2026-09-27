@@ -5,20 +5,16 @@
 // rationale. Currently an instrumentation pass (logs the resolver paths); the byte-substitution swap
 // is wired in once the runtime path formats + routing are confirmed.
 
-namespace CB {
+namespace CB { class Resolver; }   // Resolver lives directly under CB (resolve stage)
 
-    class Resolver;
+namespace CB::core::serve {
 
-    namespace byteserve {
+    // Give the serve hook the resolver it asks for owned-asset swaps + on-demand project synth.
+    // Safe before or after Install(); a null resolver disables serving (pure passthrough).
+    void SetResolver(CB::Resolver* a_resolver);
 
-        // Give the serve hook the resolver it asks for owned-asset swaps + on-demand project synth.
-        // Safe before or after Install(); a null resolver disables serving (pure passthrough).
-        void SetResolver(Resolver* a_resolver);
+    // Install the FUN_140ba88b0 (BSResourceAssetLoader::Func3 resolver) hook. Call once at plugin
+    // load, before actors spawn. AE-only addresses (guarded inside).
+    void Install();
 
-        // Install the FUN_140ba88b0 (BSResourceAssetLoader::Func3 resolver) hook. Call once at plugin
-        // load, before actors spawn. AE-only addresses (guarded inside).
-        void Install();
-
-    }  // namespace byteserve
-
-}  // namespace CB
+}  // namespace CB::core::serve

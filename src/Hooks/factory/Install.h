@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace hooks {
+namespace CB::core::hooks {
 
 // Swap virtual function `index` in the vtable identified by `vtblId` (e.g.
 // RE::VTABLE_LookHandler[0], or a REL id), returning the previous entry's ADDRESS.
@@ -46,4 +46,4 @@ template <std::size_t N, class F>
     return original;
 }
 
-} // namespace hooks
+} // namespace CB::core::hooks

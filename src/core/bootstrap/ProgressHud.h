@@ -13,10 +13,10 @@
 // menu comes up and presents, our hook draws the bar, and byteserve's backstop waits on the compile
 // only when a graph is actually needed. The bar reads ProgressOverlay; when the compile finishes
 // (running=false) the hook renders nothing and just forwards Present.
-namespace CB::ProgressHud {
+namespace CB::core::bootstrap {
 
     // Install the Present vtable hook (once). Safe to call before the swapchain exists — returns false
     // then and can be retried. No-op if already installed.
     bool Install();
 
-}  // namespace CB::ProgressHud
+}  // namespace CB::core::bootstrap

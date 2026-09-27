@@ -17,9 +17,9 @@
 // (major*10000 + minor*100 + patch -> 0.3.0.0 = 30000) and add a build rev when compiled output
 // changes between version bumps. A fresh cache regen restamps every graph.
 
-namespace CB::watermark {
+namespace CB::core::resolve {
 
     inline constexpr const char* kWatermarkVar   = "BR_Watermark";
     inline constexpr std::int32_t kWatermarkValue = 30100;   // 0.3.1.0 — case-preserving clip names (BR-16 root-motion fix)
 
-}  // namespace CB::watermark
+}  // namespace CB::core::resolve

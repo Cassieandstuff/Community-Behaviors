@@ -1,6 +1,6 @@
 #include <sct-config/SctConfig.h>
 
-namespace sct::config {
+namespace CB::core::config {
 
 JsonBatch LoadJson(const ScanSpec& spec) {
     ScanSpec s = spec;
@@ -27,4 +27,4 @@ JsonBatch LoadJson(const ScanSpec& spec) {
     return batch;
 }
 
-}  // namespace sct::config
+}  // namespace CB::core::config

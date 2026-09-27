@@ -35,7 +35,7 @@
 
 namespace fs = std::filesystem;
 
-namespace CB::adserve {
+namespace CB::core::serve {
 
 namespace linker = CB::core::linker;
 
@@ -1192,7 +1192,7 @@ namespace linker = CB::core::linker;
 
         // InstallCallDetour guards the 0xE8 (CALL) opcode; 0 => not a CALL (different
         // game version) and the caller falls back to the safe global-write path.
-        const std::uintptr_t orig = hooks::InstallCallDetour<5>(
+        const std::uintptr_t orig = CB::core::hooks::InstallCallDetour<5>(
             site, Hook_OpenAnimData, "AnimData open redirect (AE)");
         if (!orig) return false;
         _openAnimData    = orig;
@@ -1248,4 +1248,4 @@ namespace linker = CB::core::linker;
                  kRedirectPath, result.cachePath);
     }
 
-}  // namespace CB::adserve
+}  // namespace CB::core::serve

@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-namespace CB::features {
+namespace CB::feature {
 
     // Process-wide registry of graph features. Features self-register at static-init via
     // AutoRegister; the HOST decides which run (and in what order) by passing an ordered id list to
@@ -56,12 +56,12 @@ namespace CB::features {
         AutoRegister() { FeatureRegistry::Instance().Register(std::make_unique<F>()); }
     };
 
-}  // namespace CB::features
+}  // namespace CB::feature
 
 // CB_REGISTER_FEATURE(Type) — the documented one-liner to register a feature. Use it at namespace
 // scope where the feature type is visible, right after the class:
 //
-//     class MyFeature final : public CB::features::IGraphFeature { … };
+//     class MyFeature final : public CB::feature::IGraphFeature { … };
 //     CB_REGISTER_FEATURE(MyFeature);
 //
 // Expands to a file-local `static AutoRegister<Type>` whose ctor registers the feature at static
@@ -70,5 +70,5 @@ namespace CB::features {
 #define BR_DETAIL_FEATURE_CONCAT2(a, b) a##b
 #define BR_DETAIL_FEATURE_CONCAT(a, b)  BR_DETAIL_FEATURE_CONCAT2(a, b)
 #define CB_REGISTER_FEATURE(Type)                              \
-    static ::CB::features::AutoRegister<Type>       \
+    static ::CB::feature::AutoRegister<Type>       \
         BR_DETAIL_FEATURE_CONCAT(_br_feature_reg_, __LINE__)

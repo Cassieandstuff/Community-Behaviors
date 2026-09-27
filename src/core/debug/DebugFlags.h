@@ -18,7 +18,7 @@
 #include <array>
 #include <string_view>
 
-namespace CB::debug {
+namespace CB::core::debug {
 
     enum class FlagKind {
         IniBool,     // a [section] key=true/false in Data/SKSE/Plugins/Community Behaviors/settings.ini
@@ -70,4 +70,4 @@ namespace CB::debug {
           "watch: list) per-frame ON CHANGE to a greppable file — the in-game counterpart of compile trace." },
     } };
 
-}  // namespace CB::debug
+}  // namespace CB::core::debug

@@ -9,7 +9,7 @@
 #include "core/debug/RuntimeTrace.h"
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
-#include "core/bootstrap/sequencer/CompileSequencer.h"   // seq::ThreadPool — parallel native-anim compile
+#include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
 #include "core/resolve/Resolver.h"
 
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
@@ -189,7 +189,7 @@ namespace CB {
     // default worker stack. Non-copyable (the optional<ThreadPool> makes it so); use it as a local only.
     struct AnimParallel
     {
-        std::optional<seq::ThreadPool> pool;
+        std::optional<CB::core::bootstrap::ThreadPool> pool;
         Resolver::AnimExecutor         exec;
 
         AnimParallel()
@@ -221,7 +221,7 @@ namespace CB {
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
         g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
-            ProgressOverlay::SetProgress(done, grandTotal, true);   // denominator = grand total
+            CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
         });
         // (The character animationNames roster is built offline now — the converter scans clip
         // generators into each unit's data/animations.yaml and LoadMerged unions every layer at
@@ -238,7 +238,7 @@ namespace CB {
         // synchronicity note on WriteNativeAnimations — the bar is a passive reader, never a gate.
         std::atomic<std::size_t> animDone{ 0 };
         const std::function<void()> onAnimUnit = [grandTotal, graphCount, &animDone] {
-            ProgressOverlay::SetProgress(graphCount + animDone.fetch_add(1, std::memory_order_relaxed) + 1,
+            CB::core::bootstrap::SetProgress(graphCount + animDone.fetch_add(1, std::memory_order_relaxed) + 1,
                                          grandTotal, true);
         };
         AnimParallel animPar;   // parallel native-anim compile when sequencer.enable; serial otherwise
@@ -246,7 +246,7 @@ namespace CB {
             std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
-        ProgressOverlay::SetProgress(grandTotal, grandTotal, false);
+        CB::core::bootstrap::SetProgress(grandTotal, grandTotal, false);
         LOG_INFO("Community Behaviors: precompiled {} graph(s) + {} animation(s), materialized {} to disk "
                  "in {:.1f}s (runtime loads served from disk cache).",
                  graphCount, g_resolver.NativeAnimCount(), wrote, secs);
@@ -295,18 +295,18 @@ namespace CB {
     {
         const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
 
-        const auto sd = asdserve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt");
+        const auto sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt");
         if (sd.attempted && !sd.ok)
             LOG_WARN("Community Behaviors: animationsetdata merge did not complete: {}", sd.error);
-        asdserve::ArmSetDataRedirect(sd);
+        CB::core::serve::ArmSetDataRedirect(sd);
 
         const GraphClipSink* clipSink =
             g_resolver.AdsfDerive() ? &g_resolver.ClipSink() : nullptr;
-        const auto ad = adserve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
+        const auto ad = CB::core::serve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
                                                clipSink, ReadAdsfRosterFromScan());
         if (ad.attempted && !ad.ok)
             LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
-        adserve::ArmAnimDataRedirect(ad);
+        CB::core::serve::ArmAnimDataRedirect(ad);
 
         if (g_resolver.AdsfDerive() && g_resolver.ClipSink().ClipCount() > 0)
             g_resolver.DeriveAnimData(dataAbs);
@@ -339,8 +339,8 @@ namespace CB {
 
         const fs::path asdsf = cacheDir / "animationsetdatasinglefile.txt";
         if (fs::exists(asdsf, ec)) {
-            asdserve::ServeResult sd; sd.attempted = true; sd.ok = true; sd.cachePath = asdsf.string();
-            asdserve::ArmSetDataRedirect(sd);
+            CB::core::serve::SetDataServeResult sd; sd.attempted = true; sd.ok = true; sd.cachePath = asdsf.string();
+            CB::core::serve::ArmSetDataRedirect(sd);
             LOG_INFO("Community Behaviors: warm reuse — serving cached set-data (no re-derive).");
         }
 
@@ -350,8 +350,8 @@ namespace CB {
                      adsf.string());
             return false;
         }
-        adserve::ServeResult ad; ad.attempted = true; ad.ok = true; ad.cachePath = adsf.string();
-        adserve::ArmAnimDataRedirect(ad);
+        CB::core::serve::ServeResult ad; ad.attempted = true; ad.ok = true; ad.cachePath = adsf.string();
+        CB::core::serve::ArmAnimDataRedirect(ad);
         LOG_INFO("Community Behaviors: warm reuse — serving cached animationdata (no re-derive).");
         return true;
     }
@@ -387,14 +387,14 @@ namespace CB {
             AnimParallel animPar;
             g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());
             if (!adsfFromCache) { ArmAdsfSetDataServe(); SignalAdsfArmed(); }
-            ProgressOverlay::SetProgress(0, 0, false);   // work done — retire the bar
+            CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
             g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
 
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
             const std::size_t total      = graphCount + animCount;
-            ProgressOverlay::SetProgress(0, total, true); ProgressHud::Install();
+            CB::core::bootstrap::SetProgress(0, total, true); CB::core::bootstrap::Install();
 
             if (g_resolver.AdsfDerive()) {
                 // adsf-derive ON: adsf needs the compile's clip sink → compile FIRST, then arm + signal.
@@ -436,8 +436,8 @@ namespace CB {
         // Progress bar is DEFAULT — armed NOW, before the ArmThread does any work, so it's visible for the
         // whole arm. Indeterminate until a path sets the real total (DrawBar's total==0 path). No marker
         // gate; it only draws while a compile is running.
-        ProgressOverlay::SetProgress(0, 0, true);   // 0 total => indeterminate "compiling…" bar
-        ProgressHud::Install();                      // installs the present hook + imgui now (idempotent)
+        CB::core::bootstrap::SetProgress(0, 0, true);   // 0 total => indeterminate "compiling…" bar
+        CB::core::bootstrap::Install();                      // installs the present hook + imgui now (idempotent)
 
         // Kick the background arm and RETURN — the main thread stays free to pump the window + present, so
         // the bar paints and the cursor isn't trapped. Per-open waits (WaitAdsfArmed / WaitForCompile)
@@ -484,7 +484,7 @@ namespace CB {
         // 64MB-reserved-stack workers (skeleton compile recurses through Havok graph assembly, like the
         // anim path) at BELOW_NORMAL so it never starves the window's render/main threads during bring-up.
         // Fans the per-actor skeleton SERVE compile + bone-name table build inside Init; nullptr => serial.
-        std::optional<seq::ThreadPool> skelPool;
+        std::optional<CB::core::bootstrap::ThreadPool> skelPool;
         Resolver::AnimExecutor         skelExec;
         if (ParallelAnimCompileEnabled()) {
             skelPool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
@@ -501,17 +501,17 @@ namespace CB {
 
         if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
             // Pre-install the compile progress bar EARLY here (before the menu), NOT at the later compile
-            // gate: ProgressHud::Install eagerly builds imgui + its font/device objects, so doing it at
+            // gate: CB::core::bootstrap::Install eagerly builds imgui + its font/device objects, so doing it at
             // kDataLoaded keeps that heavy work off the live-present path (the Community Shaders pattern).
             // The bar is DEFAULT behavior — no marker gate. It only ever draws while a compile is running
             // (DrawBar's ReadProgress check), so installing it always is harmless; the gate keeps a
             // fallback Install() for the rare case the swapchain isn't ready yet at kDataLoaded.
-            if (!ProgressHud::Install())
+            if (!CB::core::bootstrap::Install())
                 LOG_INFO("Community Behaviors: progress bar early-install deferred (swapchain not ready "
                          "at kDataLoaded) — will retry at the compile gate.");
             // DebugOverlay needs kDataLoaded timing (SMF isn't up at plugin load).
-            CB::RuntimeTrace::Install();   // arm [Debug] bRuntimeTrace before the present hook is live
-            CB::DebugOverlay::Install();
+            CB::core::debug::InstallTrace();   // arm [Debug] bRuntimeTrace before the present hook is live
+            CB::core::debug::Install();         // DebugOverlay present-hook
         }
     }
 
@@ -537,9 +537,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     // the low-level open call site, below OAR) and stay. One shared trampoline covers them; 2KB is
     // ample for the handful of write_call nodes. (ByteServe uses MinHook, not the trampoline.)
     SKSE::AllocTrampoline(1u << 11);
-    CB::asdserve::InstallSetDataHook();
-    CB::adserve::InstallAnimDataHook();
-    CB::byteserve::Install();  // typed-hkx byte-substitution: serves project/character/
+    CB::core::serve::InstallSetDataHook();
+    CB::core::serve::InstallAnimDataHook();
+    CB::core::serve::Install();  // typed-hkx byte-substitution: serves project/character/
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
 
@@ -548,8 +548,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     // ReadConditionsEnabled. When off, no engine hooks are installed and only the vanilla setdata serve
     // runs; when on, still inert until config compose registers ConditionInstances (Inc 2).
     if (CB::ReadConditionsEnabled()) {
-        CB::conditions::RegisterBuiltins();
-        CB::conditions::InstallConditionHooks();
+        CB::core::conditions::RegisterBuiltins();
+        CB::core::conditions::InstallConditionHooks();
     }
 
     // Animdata cache form: COLLATED is the only supported path — it serves
@@ -567,14 +567,14 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     // compile, whose only justification (BR-21) the engine's load order already gives us here for free.
     //
     // The serve HOOKS themselves are installed above (InstallSetDataHook/InstallAnimDataHook/
-    // byteserve::Install), so the detours are already live to catch that first open. Here we only do
+    // CB::core::serve::Install), so the detours are already live to catch that first open. Here we only do
     // what must be ready before it: configure the resolver and hand byteserve the resolver pointer.
     // The behavior compile sources everything from the loose
     // .hky bundles (no BSA dependency), so the gate is safe to fire this early in load.
     {
         // Hand byteserve the resolver pointer NOW (it gates every use on g_resolver.Ready(), so a hook
         // that fires before Init finishes passes through to vanilla instead of reading half-built state).
-        CB::byteserve::SetResolver(&CB::g_resolver);
+        CB::core::serve::SetResolver(&CB::g_resolver);
 
         // Run the whole resolver bring-up (unpack + scan + skeleton compile — ~50s) on a BACKGROUND
         // thread, so SKSEPluginLoad returns immediately and the main thread is free to bring the window

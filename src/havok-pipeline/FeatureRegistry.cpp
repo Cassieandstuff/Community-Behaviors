@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace CB::features {
+namespace CB::feature {
 
     FeatureRegistry& FeatureRegistry::Instance()
     {
@@ -130,4 +130,4 @@ namespace CB::features {
         return out;
     }
 
-}  // namespace CB::features
+}  // namespace CB::feature

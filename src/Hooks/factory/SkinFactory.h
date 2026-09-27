@@ -14,7 +14,7 @@
 
 #include <PCH.h>
 
-namespace hooks::skin {
+namespace CB::core::hooks::skin {
 
 // NiSkinData::Create — alloc 0x60, vtable, identity rootParentToSkin, null boneData. AE 0xD49310.
 inline RE::NiSkinData* CreateSkinData() {
@@ -30,4 +30,4 @@ inline RE::NiSkinPartition* CreateSkinPartition() {
     return fn();
 }
 
-} // namespace hooks::skin
+} // namespace CB::core::hooks::skin

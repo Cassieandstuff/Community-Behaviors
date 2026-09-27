@@ -26,7 +26,7 @@
 
 namespace fs = std::filesystem;
 
-namespace CB::asdserve {
+namespace CB::core::serve {
 
     namespace {
 
@@ -164,9 +164,9 @@ namespace CB::asdserve {
 
     }  // namespace
 
-    ServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni)
+    SetDataServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni)
     {
-        ServeResult r;
+        SetDataServeResult r;
 
         std::error_code ec;
         const auto      order = LoadOrder(loadOrderIni);
@@ -623,7 +623,7 @@ namespace CB::asdserve {
 
         // InstallCallDetour guards the 0xE8 (CALL) opcode; 0 => not a CALL (different
         // game version) and the caller falls back to the safe data-only global write.
-        const std::uintptr_t orig = hooks::InstallCallDetour<5>(
+        const std::uintptr_t orig = CB::core::hooks::InstallCallDetour<5>(
             site, Hook_OpenSetData, "SetData open redirect (AE)");
         if (!orig) return false;
         _openSetData = orig;
@@ -631,7 +631,7 @@ namespace CB::asdserve {
         return true;
     }
 
-    void ArmSetDataRedirect(const ServeResult& result)
+    void ArmSetDataRedirect(const SetDataServeResult& result)
     {
         // Serves ONLY .hky-bundled set-data (the runtime Nemesis side-load that caused the
         // 2026-08-10 char-setup crash was removed). A .hky is expected to carry its behaviors
@@ -655,7 +655,7 @@ namespace CB::asdserve {
                  result.cachePath);
     }
 
-    void RedirectSetDataGlobal(const ServeResult& result)
+    void RedirectSetDataGlobal(const SetDataServeResult& result)
     {
         // RE (AE 1.6, decrypted dump): the AnimationClipDataSingleton set-data loader
         // FUN_14053b000 does `MOV RCX,[0x14315c930]; CALL <open>`, where 0x14315c930 is a
@@ -694,4 +694,4 @@ namespace CB::asdserve {
                  kRedirectPath, result.cachePath);
     }
 
-}  // namespace CB::asdserve
+}  // namespace CB::core::serve

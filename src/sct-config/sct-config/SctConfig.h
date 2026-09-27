@@ -36,7 +36,7 @@
 #include <nlohmann/json.hpp>
 #include <RymlInclude.h>   // rapidyaml through the mandatory c4core C++20 shim
 
-namespace sct::config {
+namespace CB::core::config {
 
 // ── Discovery core (pulls in no parser on its own) ────────────────────────────
 
@@ -122,4 +122,4 @@ using YamlBatch = Batch<YamlDoc>;
 // failure is recorded per-file in .errors rather than thrown.
 YamlBatch LoadYaml(const ScanSpec& spec);
 
-}  // namespace sct::config
+}  // namespace CB::core::config

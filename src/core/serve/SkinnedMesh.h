@@ -6,7 +6,7 @@
 // into the actor's 3D, and let the ENGINE GPU-skin it every frame — exactly like a vanilla
 // body/armor mesh. We build once and never touch a vertex again (no CPU update, no thread
 // hazard). No NIF, no nifly: geometry via the hooks geometry factory, skin objects via the
-// RE'd engine factories (hooks::skin). See memory skyrim-skin-instance-layout for the RE.
+// RE'd engine factories (CB::core::hooks::skin). See memory skyrim-skin-instance-layout for the RE.
 //
 // v1 vertex format is POSITION + SKINNING only (VF_VERTEX|VF_FULLPREC|VF_SKINNED) — proves
 // deform. Normals/UV/color + a material (shaderProperty) are the shading pass. Build-gated
@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::creature {
+namespace CB::core::serve {
 
 // Authored/compiled mesh — positions in the skeleton's model space (bind pose), each vertex
 // bound to up to 4 bones BY NAME (index into `boneNames`) with LBS weights.
@@ -53,4 +53,4 @@ private:
     RE::NiPointer<RE::NiNode>     _root;
 };
 
-} // namespace CB::creature
+} // namespace CB::core::serve

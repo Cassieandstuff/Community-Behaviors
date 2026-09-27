@@ -32,7 +32,7 @@
 // on-demand by Resolver::ProjectRedirect (which also performs the readiness WAIT that keeps an early
 // actor from getting un-merged behaviors) and returns its swap path.
 
-namespace CB::byteserve {
+namespace CB::core::serve {
 
     namespace {
 
@@ -121,7 +121,7 @@ namespace CB::byteserve {
                     const std::size_t rn = std::char_traits<char>::length(raw);
                     if (EndsHkx(raw, rn)) {
                         // Serve key is meshes-prefixed; the resolver path is Meshes-relative.
-                        const std::string serveKey = "meshes/" + servekey::NormalizeKey(raw);
+                        const std::string serveKey = "meshes/" + CB::core::discover::NormalizeKey(raw);
 
                         const bool projShaped = ProjectShaped(serveKey);
                         // (1) Owned character / behavior graph — swap to the cache the warm-up wrote.
@@ -145,7 +145,7 @@ namespace CB::byteserve {
                             // swapping; otherwise fall through to vanilla (safe degradation).
                             if (s_resolver->RedirectReady() && s_resolver->HasCacheFile(serveKey)) {
                                 thread_local std::string swap;
-                                swap = servekey::CacheSwapPath(raw);
+                                swap = CB::core::discover::CacheSwapPath(raw);
                                 if (s_logBudget.fetch_sub(1) > 0)
                                     LOG_INFO("[byteserve] serving '{}' -> '{}'.", raw, swap);
                                 if (projShaped) Capture(std::string("OWNED-SERVE  ") + raw + "  ->  " + swap + CacheProbe(raw));
@@ -198,4 +198,4 @@ namespace CB::byteserve {
                  "(project/character/behavior served from the consolidated community_behaviors_cache).", kResolveRVA);
     }
 
-}  // namespace CB::byteserve
+}  // namespace CB::core::serve

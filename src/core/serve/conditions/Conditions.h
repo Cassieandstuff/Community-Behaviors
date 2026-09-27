@@ -10,7 +10,7 @@
 // Inc 1 (this): registry + compiler/evaluator + the matcher/producer hook skeleton + global toggle.
 // The built-in primitive/function ROSTER is a separate seam (Builtins.cpp) filled on its own branch.
 //
-// Plugin-world only (RE / SKSE / REL). Namespace CB::conditions.
+// Plugin-world only (RE / SKSE / REL). Namespace CB::core::conditions.
 
 #include <PCH.h>
 
@@ -22,7 +22,7 @@
 
 namespace RE { class Actor; class TESForm; class BGSKeyword; class hkbClipGenerator; }
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     // ── Value: the currency between layers ────────────────────────────────────────────────────────
     enum class VType : std::uint8_t {
@@ -176,4 +176,4 @@ namespace CB::conditions {
     // Register the built-in primitive/function roster (Builtins.cpp — SEAM for the roster branch).
     void RegisterBuiltins();
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions

@@ -3,7 +3,7 @@
 
 #include <cstring>
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     namespace {
         // Hash a primitive call site (id + raw arg bits) for the memo key.
@@ -52,4 +52,4 @@ namespace CB::conditions {
         return v;
     }
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions

@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-namespace CB::servekey {
+namespace CB::core::discover {
 
     inline std::string ToLower(std::string s)
     {
@@ -136,4 +136,4 @@ namespace CB::servekey {
         return key.substr(root.size() + 1);
     }
 
-}  // namespace CB::servekey
+}  // namespace CB::core::discover

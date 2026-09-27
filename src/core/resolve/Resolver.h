@@ -51,7 +51,7 @@ namespace CB {
     public:
         // Optional parallel executor for the per-unit native-animation compile: given a batch of
         // independent tasks, run them ALL and BLOCK until every one has finished (exactly the
-        // CB::seq::ThreadPool::parallel_for contract). nullptr => serial (the proven default). Kept as
+        // CB::core::bootstrap::ThreadPool::parallel_for contract). nullptr => serial (the proven default). Kept as
         // a plain std::function so the Resolver carries NO dependency on the sequencer's ThreadPool
         // type; Plugin.cpp wires a real pool in behind the sequencer.enable marker. Each native-anim
         // compile is a pure function of its own def + the immutable served skeleton and writes its own

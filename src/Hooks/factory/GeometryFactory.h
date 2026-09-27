@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace hooks::geometry {
+namespace CB::core::hooks::geometry {
 
 // BSGraphics::Renderer::CreateTriShape — packs a vertex buffer + index buffer (in the
 // engine's own format, described by `vertexDesc`) into renderer data (GPU buffers).
@@ -95,4 +95,4 @@ inline RE::BSTriShape* MakeTriShape(const void* packedVB, std::uint32_t vertCoun
     return shape;
 }
 
-} // namespace hooks::geometry
+} // namespace CB::core::hooks::geometry

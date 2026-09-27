@@ -43,7 +43,7 @@
 #include <thread>
 #include <vector>
 
-namespace CB::seq {
+namespace CB::core::bootstrap {
 
 enum class Mode { Serial, Parallel };
 using PhaseId = std::string;
@@ -112,4 +112,4 @@ private:
 // from a debug entry point (or a test target) to prove the machinery before wiring.
 bool SelfTest();
 
-}  // namespace CB::seq
+}  // namespace CB::core::bootstrap

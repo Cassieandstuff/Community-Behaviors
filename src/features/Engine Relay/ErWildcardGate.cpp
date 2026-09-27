@@ -1,6 +1,6 @@
 // Engine Relay — global wildcard gate (compile-time graph feature).
 //
-// Injects a BOOL graph variable (CB::ergate::kGateVar) into the graph and gates EVERY global wildcard
+// Injects a BOOL graph variable (CB::feature::ergate::kGateVar) into the graph and gates EVERY global wildcard
 // transition on `!kGateVar`, so Engine Relay can pin the actor by flipping the bit (see ERGate.h
 // for the full contract). Default bit = false → byte-behaviour identical to vanilla (inert). LOCAL
 // wildcards (FLAG_IS_LOCAL_WILDCARD=2048) are deliberately spared — the escape hatch that keeps a
@@ -13,7 +13,7 @@
 // header-only CommunityBehaviors constant, no runtime deps).
 
 #include "FeatureRegistry.h"
-#include "features/ERGate.h"   // CB::ergate::kGateVar (main hpp/, on the include path)
+#include "features/ERGate.h"   // CB::feature::ergate::kGateVar (main hpp/, on the include path)
 
 #include <havok/model/BehaviorData.h>
 #include <havok/model/HavokEnums.h>   // ResolveEnum / TransitionFlags
@@ -25,7 +25,7 @@
 #include <string_view>
 #include <vector>
 
-namespace CB::features {
+namespace CB::feature {
 
     namespace {
 
@@ -86,10 +86,10 @@ namespace CB::features {
                 //    an existing variable index.
                 auto& vars = data.graphData->variables;
                 const bool present = std::any_of(vars.begin(), vars.end(),
-                    [](const CB::core::common::VariableInfoDef& v) { return v.name == CB::ergate::kGateVar; });
+                    [](const CB::core::common::VariableInfoDef& v) { return v.name == CB::feature::ergate::kGateVar; });
                 if (!present) {
                     CB::core::common::VariableInfoDef g;
-                    g.name  = CB::ergate::kGateVar;
+                    g.name  = CB::feature::ergate::kGateVar;
                     g.type  = "VARIABLE_TYPE_BOOL";
                     g.value = 0;   // unlocked
                     vars.push_back(std::move(g));
@@ -98,7 +98,7 @@ namespace CB::features {
                 // 2. Gate every global wildcard on !it.
                 FeatureResult r;
                 r.applied   = true;
-                r.mutations = GateWildcards(data, CB::ergate::kGateVar, ctx.graphKey, ctx.log, r.touched);
+                r.mutations = GateWildcards(data, CB::feature::ergate::kGateVar, ctx.graphKey, ctx.log, r.touched);
                 return r;
             }
         };
@@ -107,4 +107,4 @@ namespace CB::features {
 
     }  // namespace
 
-}  // namespace CB::features
+}  // namespace CB::feature

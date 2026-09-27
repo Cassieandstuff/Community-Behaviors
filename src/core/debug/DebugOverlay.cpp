@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 
-namespace CB::DebugOverlay {
+namespace CB::core::debug {
 
     namespace {
 
@@ -61,7 +61,7 @@ namespace CB::DebugOverlay {
         {
             auto* pc = RE::PlayerCharacter::GetSingleton();
             a_out = 0;
-            return pc && pc->GetGraphVariableInt(watermark::kWatermarkVar, a_out);
+            return pc && pc->GetGraphVariableInt(CB::core::resolve::kWatermarkVar, a_out);
         }
 
         // Emit the "BR served" boolean row: whether the watermark is present, and (if so) whether its
@@ -72,11 +72,11 @@ namespace CB::DebugOverlay {
             std::int32_t v = 0;
             char buf[96];
             if (ReadWatermark(v)) {
-                if (v == watermark::kWatermarkValue)
+                if (v == CB::core::resolve::kWatermarkValue)
                     std::snprintf(buf, sizeof buf, "BR served      = YES  (watermark v%d)", v);
                 else
                     std::snprintf(buf, sizeof buf, "BR served      = YES but STALE (v%d, build v%d)",
-                                  v, watermark::kWatermarkValue);
+                                  v, CB::core::resolve::kWatermarkValue);
             } else {
                 std::snprintf(buf, sizeof buf, "BR served      = NO  (vanilla graph — watermark absent)");
             }
@@ -103,7 +103,7 @@ namespace CB::DebugOverlay {
         {
             // Runtime graph-variable trace samples every frame regardless of the HUD checkbox (it's a
             // no-op unless [Debug] bRuntimeTrace is on). This present hook is the per-frame heartbeat.
-            CB::RuntimeTrace::Sample();
+            CB::core::debug::Sample();
 
             if (!s_hudEnabled.load() || !igBegin) return;
             igSetPos(Vec2{ 60.0f, 200.0f }, kCondAlways, Vec2{ 0.0f, 0.0f });
@@ -159,4 +159,4 @@ namespace CB::DebugOverlay {
         LOG_INFO("Community Behaviors: locomotion debug overlay registered (SMF > Community Behaviors > Locomotion Debug).");
     }
 
-}  // namespace CB::DebugOverlay
+}  // namespace CB::core::debug

@@ -14,7 +14,7 @@
 #include <cmath>
 #include <format>
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     // ── operator codes ──────────────────────────────────────────────────────────────────────────
     enum Op : std::uint16_t {
@@ -201,4 +201,4 @@ namespace CB::conditions {
         return st.empty() ? Value::Bool(false) : st.back();
     }
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions

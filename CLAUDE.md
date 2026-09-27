@@ -77,12 +77,23 @@ is NOT derived from the path, and a file moving folders never renames it.
   tidy. 5 levels is a smell: the deep levels stop disambiguating anything 3 wouldn't. When tempted, the
   4th-level thing is usually its own level-3 purpose, or it's a type, not a namespace.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug`
-  (pipeline) · `compile decompile codec interface merge schema` (engine) · `skeleton anim animdata linker`
+  (pipeline) · `compile decompile codec merge schema` (engine) · `skeleton anim animdata linker`
   (domain) · `hooks config` (infra). The one sanctioned 4th-level family: `CB::core::codec::{spline,crc,
-  formid,vec4,io}` (all genuinely codecs).
+  formid,io}` + the packfile serialization spine (all genuinely codecs).
+- **`CB::core::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
+  cross-cutting *types* every layer passes around: the data model (`BehaviorData`, `IUnitSource`, the
+  `*Def` structs — the former "interface", which dissolved into `common` because it was never a real
+  purpose) and the primitives (`Vector4`, `xml`, `vec4`). Not a junk drawer for *operations* — those stay
+  in their purpose namespaces. Because the stack references these types UNqualified throughout, a
+  force-included prelude (`Havok/core/cpp/common/CorePrelude.h`, wired via each lib's PCH + the plugin
+  PCH) forward-declares and makes `CB::core::common` + `CB::core::codec` ambient in every TU. So a file
+  never needs a per-file `using namespace` for the shared vocabulary; add new shared types to `common`.
 - **Depth is free — use the language.** Define with nested syntax `namespace CB::core::resolve { … }`
   (C++17, no brace pyramid); alias at heavy call sites `namespace ccr = CB::core::resolve;`. Verbosity at
   use sites is a `using`-alias problem, never a reason to flatten a real purpose.
+- **Forward-declare a shared type in its OWN namespace.** A fwd-decl inside `CB::core::compile` of a type
+  that lives in `common` creates a phantom `compile::X` that SHADOWS the real one (a fwd-declared name in
+  the current namespace beats a `using`-directive). Always `namespace CB::core::common { struct X; }`.
 - **`detail` / `en` / anonymous namespaces** stay as the innermost leaf under a purpose
   (`CB::core::codec::detail`), never top-level.
 

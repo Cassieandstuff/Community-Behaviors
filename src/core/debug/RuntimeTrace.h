@@ -9,7 +9,7 @@
 // attack -> the ice-skate) becomes a log line with a timestamp instead of an eyeballed HUD.
 //
 // Opt-in via [Debug] bRuntimeTrace in settings.ini (renders in the converter's Debug tab, see
-// CB::debug::kFlags). ZERO COST WHEN OFF: Enabled() is a single atomic load; Sample() returns
+// CB::core::debug::kFlags). ZERO COST WHEN OFF: Enabled() is a single atomic load; Sample() returns
 // immediately. Sampling piggybacks the SMF present hook (DebugOverlay), so it needs SKSE Menu
 // Framework present — the same dependency the locomotion HUD already carries.
 //
@@ -21,11 +21,11 @@
 // The first observation of a variable logs "(none) -> <v>"; when a variable stops resolving (graph
 // swapped / actor unloaded) it logs "<v> -> (n/a)".
 
-namespace CB::RuntimeTrace {
+namespace CB::core::debug {
 
     // Read [Debug] bRuntimeTrace; if on, load the watch list from the deployed debug/ probes and open
-    // the log. Call once at kDataLoaded (before DebugOverlay::Install, order-independent). No-op when off.
-    void Install();
+    // the log. Call once at kDataLoaded (before CB::core::debug::Install, order-independent). No-op when off.
+    void InstallTrace();
 
     // True once Install armed the trace (flag on + at least one watched variable). A plain atomic load.
     bool Enabled() noexcept;
@@ -34,4 +34,4 @@ namespace CB::RuntimeTrace {
     // per frame (DebugOverlay's present hook). No-op when disabled.
     void Sample();
 
-}  // namespace CB::RuntimeTrace
+}  // namespace CB::core::debug

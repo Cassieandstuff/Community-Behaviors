@@ -4,7 +4,7 @@
 
 #include <atomic>
 
-namespace CB::ProgressOverlay {
+namespace CB::core::bootstrap {
 
     namespace {
         std::atomic<std::size_t> s_done{ 0 };
@@ -27,4 +27,4 @@ namespace CB::ProgressOverlay {
         return running;
     }
 
-}  // namespace CB::ProgressOverlay
+}  // namespace CB::core::bootstrap

@@ -54,7 +54,7 @@ namespace CB {
     {
         m_decls.clear();
 
-        sct::config::JsonBatch batch = sct::config::LoadJson({
+        CB::core::config::JsonBatch batch = CB::core::config::LoadJson({
             .roots      = configDirs,
             .extensions = { ".json" },
             .recursive  = false,

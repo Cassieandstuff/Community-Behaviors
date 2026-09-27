@@ -11,7 +11,7 @@
 #include <havok/model/yaml/YamlBehaviorLoader.h>
 #include <havok/model/yaml/CharacterYamlLoader.h>
 #include <havok/model/CompileTrace.h>   // schema-driven compile-trace (opt-in via [Debug] bCompileTrace)
-#include "SimpleIni.h"                  // [Debug] bCompileTrace toggle (mirrors CB::debug::kFlags row)
+#include "SimpleIni.h"                  // [Debug] bCompileTrace toggle (mirrors CB::core::debug::kFlags row)
 #include <havok/model/yaml/UnitSource.h>
 #include <havok/model/yaml/HkyArchive.h>
 #include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior/CompileCharacter/BuildProject (schema-only)
@@ -147,9 +147,9 @@ namespace CB {
             return o;
         }
 
-        using servekey::NormalizeKey;
-        using servekey::FolderRootOf;
-        using servekey::CacheDiskRel;
+        using CB::core::discover::NormalizeKey;
+        using CB::core::discover::FolderRootOf;
+        using CB::core::discover::CacheDiskRel;
         // (serve-key helpers live in hpp/ServeKey.h — shared with br-servekey-test)
 
         std::string TrimLine(const std::string& line)
@@ -163,11 +163,11 @@ namespace CB {
         // ── Compile-time graph features now live in features/ ─────────────────────────
         // The ER wildcard gate (and future graph transforms) moved to self-registered
         // IGraphFeatures under features/<Owner>/ (see CLAUDE.md "Compiler features —
-        // CB::features (SOP)"). The transform runs from the compile loop via the
+        // CB::feature (SOP)"). The transform runs from the compile loop via the
         // FeatureRegistry (below). This host-side adapter bridges a feature's logging to the
         // plugin logger — features never touch LOG_* directly (the pure-Apply rule keeps them
         // offline-reproducible).
-        struct ResolverFeatureLog final : CB::features::IFeatureLog {
+        struct ResolverFeatureLog final : CB::feature::IFeatureLog {
             void Info(std::string_view m) override { LOG_INFO("{}", m); }
             void Warn(std::string_view m) override { LOG_WARN("{}", m); }
         };
@@ -781,7 +781,7 @@ namespace CB {
                     // skeleton the cold path is about to wipe. WriteSkeletonServe skips empty-byte entries,
                     // so the key-only registration doesn't rewrite the already-present file.
                     if (warmReuse) {
-                        const std::string rel = servekey::CacheDiskRel(key);
+                        const std::string rel = CB::core::discover::CacheDiskRel(key);
                         if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
                             { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe.emplace(key, std::vector<std::uint8_t>{}); }
                             LOG_INFO("Resolver: skeleton '{}' — warm cache hit, serve key registered (recompile skipped).", unit);
@@ -1092,7 +1092,7 @@ namespace CB {
         for (const auto& [k, _] : m_sources) keys.push_back(k);
 
         // Compile-trace (opt-in [Debug] bCompileTrace in settings.ini — renders in the converter's
-        // Debug tab, see CB::debug::kFlags): route the schema-driven probe trace of every behavior
+        // Debug tab, see CB::core::debug::kFlags): route the schema-driven probe trace of every behavior
         // compile to a greppable log file. Zero cost when off (no sink -> trace::Enabled() is a null
         // pointer test at the tap). Probes ride on the deployed schema tree (Havok/core/Schema/debug/
         // *.yaml) — edit them to steer.
@@ -1136,7 +1136,7 @@ namespace CB {
         std::error_code ec;
         for (const auto& [key, bytes] : m_skeletonServe) {
             if (bytes.empty()) continue;
-            const std::string rel = servekey::CacheDiskRel(key);
+            const std::string rel = CB::core::discover::CacheDiskRel(key);
             if (rel.empty()) { LOG_WARN("Community Behaviors: skeleton key '{}' has unexpected shape — skipped.", key); continue; }
             const fs::path out = dataRoot / fs::path(rel);
             fs::create_directories(out.parent_path(), ec);
@@ -1283,7 +1283,7 @@ namespace CB {
         //    live in per-root subdirectories (actors\..., weapons\..., ...), so this removes them
         //    while leaving the root-level .txt files intact.
         {
-            const fs::path cacheRoot = dataRoot / servekey::kConsolidatedCacheDir;
+            const fs::path cacheRoot = dataRoot / CB::core::discover::kConsolidatedCacheDir;
             if (fs::is_directory(cacheRoot, ec))
                 for (fs::directory_iterator di(cacheRoot, ec), de; !ec && di != de; di.increment(ec)) {
                     const std::string fn = ToLower(di->path().filename().string());
@@ -1301,7 +1301,7 @@ namespace CB {
         //     Meshes\community_behaviors_cache\, the animdata/setdata caches under community_behaviors\cache\, and
         //     the legacy sentinel community_behaviors\community_behaviors_cache.ready. (community_behaviors\plugins\ — the
         //     INPUT bundles — is NOT touched.)
-        fs::remove_all(dataRoot / "Meshes" / servekey::kConsolidatedCacheDir, ec);
+        fs::remove_all(dataRoot / "Meshes" / CB::core::discover::kConsolidatedCacheDir, ec);
         fs::remove_all(dataRoot / "community_behaviors" / "cache", ec);
         fs::remove(dataRoot / "community_behaviors" / "community_behaviors_cache.ready", ec);
 
@@ -1390,14 +1390,14 @@ namespace CB {
             // cached graphs' injected BR_Watermark then always matches this build (the probe can't
             // read a stale "NO"). A minimal content fingerprint until full invalidation lands.
             std::ofstream(sentinel, std::ios::binary | std::ios::trunc)
-                << watermark::kWatermarkValue << "\n";
+                << CB::core::resolve::kWatermarkValue << "\n";
         } else {
             LOG_WARN("Community Behaviors: cache incomplete ({} graph(s) failed to compile/write) — "
                      "completion sentinel withheld; the next launch will recompile.", failedGraphs);
         }
 
         LOG_INFO("Community Behaviors: materialized {}/{} graph cache file(s) under '{}\\{}'.",
-                 written, total, dataRoot.string(), servekey::kConsolidatedCacheDir);
+                 written, total, dataRoot.string(), CB::core::discover::kConsolidatedCacheDir);
         return written;
     }
 
@@ -1521,7 +1521,7 @@ namespace CB {
         // regenerates into the consolidated Data-root store instead of reusing incompatible stale
         // bytes. Safe against the step-1/step-2 cache wipe because it is removed first and (re)written
         // LAST, only on success (a mid-regen crash leaves no sentinel → next run rebuilds).
-        return dataRoot / servekey::kConsolidatedCacheDir / "cache.ready";
+        return dataRoot / CB::core::discover::kConsolidatedCacheDir / "cache.ready";
     }
 
     bool Resolver::CachePresent(const std::filesystem::path& dataRoot) const
@@ -1537,7 +1537,7 @@ namespace CB {
         std::getline(f, stamp);
         while (!stamp.empty() && (stamp.back() == '\r' || stamp.back() == '\n' || stamp.back() == ' '))
             stamp.pop_back();
-        return stamp == std::to_string(watermark::kWatermarkValue);
+        return stamp == std::to_string(CB::core::resolve::kWatermarkValue);
     }
 
     void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot, const AnimExecutor* animExec)
@@ -1627,7 +1627,7 @@ namespace CB {
         // case). The engine loads BR's synthesized project but interns it under the VANILLA identity
         // (the caller's descriptor is untouched), so the speed-sampler DB key and the animdata table
         // both resolve to the stock stem — no ".br", no alias.
-        const std::string swap = servekey::CacheSwapPath(vanillaProjectPath);
+        const std::string swap = CB::core::discover::CacheSwapPath(vanillaProjectPath);
 
         // Synthesize the project once, on demand, into the consolidated cache at
         // Data\Meshes\community_behaviors_cache\<projKey>. It points at the VANILLA character path (chosen
@@ -1679,7 +1679,7 @@ namespace CB {
                         // project open ("...\DefaultMale.hkx") only finds a same-cased file on disk. (This is
                         // the one path the engine opens under a case we don't control; behaviors/characters
                         // below use BR's own lowercase refs and are self-consistent.)
-                        const fs::path out = m_dataRoot / fs::path(servekey::CacheDiskRelRaw(vanillaProjectPath));
+                        const fs::path out = m_dataRoot / fs::path(CB::core::discover::CacheDiskRelRaw(vanillaProjectPath));
                         std::error_code ec;
                         fs::create_directories(out.parent_path(), ec);
                         std::ofstream f(out, std::ios::binary | std::ios::trunc);
@@ -1864,25 +1864,25 @@ namespace CB {
                 {
                     auto& vars = data.graphData->variables;
                     const bool present = std::any_of(vars.begin(), vars.end(),
-                        [](const CB::core::common::VariableInfoDef& v) { return v.name == watermark::kWatermarkVar; });
+                        [](const CB::core::common::VariableInfoDef& v) { return v.name == CB::core::resolve::kWatermarkVar; });
                     if (!present) {
                         CB::core::common::VariableInfoDef wm;
-                        wm.name  = watermark::kWatermarkVar;
+                        wm.name  = CB::core::resolve::kWatermarkVar;
                         wm.type  = "VARIABLE_TYPE_INT32";
-                        wm.value = watermark::kWatermarkValue;
+                        wm.value = CB::core::resolve::kWatermarkValue;
                         vars.push_back(std::move(wm));
                     }
                 }
 
                 // Compile-time graph features (data-driven, ordered). Each self-registered
                 // IGraphFeature under features/ mutates this graph; the enabled set + order are
-                // DATA. See CLAUDE.md "Compiler features — CB::features (SOP)".
+                // DATA. See CLAUDE.md "Compiler features — CB::feature (SOP)".
                 {
                     ResolverFeatureLog          fLog;
                     // animData (the contribution hook) is supplied only when adsf-derive is collecting, so
                     // a feature can push extra clips into the same sink the first-class derive stage fills
                     // below; null otherwise (no sink to contribute to).
-                    CB::features::FeatureContext    fctx{ .graphKey = key, .log = fLog,
+                    CB::feature::FeatureContext    fctx{ .graphKey = key, .log = fLog,
                                                       .animData = (m_adsfDerive ? &m_clipSink : nullptr) };
 
                     // ENABLED set (from settings) — WHICH features run. The ORDER is no longer written
@@ -1895,7 +1895,7 @@ namespace CB {
                     std::vector<std::string> enabledIds;
                     if (m_erGateEnabled) enabledIds.emplace_back("engine-relay.wildcard-gate");
 
-                    auto& reg    = CB::features::FeatureRegistry::Instance();
+                    auto& reg    = CB::feature::FeatureRegistry::Instance();
                     auto  runIds = reg.ResolveRunOrder(enabledIds, fLog);
                     for (const auto& [id, r] : reg.Run(runIds, data, fctx))
                         if (r.applied && r.mutations)

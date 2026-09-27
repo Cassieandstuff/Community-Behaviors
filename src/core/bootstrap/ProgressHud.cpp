@@ -13,7 +13,7 @@
 #include <backends/imgui_impl_dx11.h>
 #include <backends/imgui_impl_win32.h>
 
-#include "Hooks/factory/Install.h"   // hooks::InstallCallDetour — trampoline write_call<5>
+#include "Hooks/factory/Install.h"   // CB::core::hooks::InstallCallDetour — trampoline write_call<5>
 
 // Startup progress bar, modelled on Community Shaders' Menu (src/Menu.cpp Init + src/Hooks.cpp draw):
 //   • ImGui context + backends + font/device objects are built ONCE, EAGERLY, at Install() time —
@@ -28,7 +28,7 @@
 //     the compile is running).
 //   • Install() is called EARLY (kDataLoaded, before the menu), not at the late compile gate, so the bar
 //     is live from the first frame and the eager init is nowhere near the live-present critical path.
-namespace CB::ProgressHud {
+namespace CB::core::bootstrap {
 
     namespace {
         // We hook the GAME'S internal present CALL (OAR's hook point), not the raw IDXGISwapChain::Present
@@ -91,7 +91,7 @@ namespace CB::ProgressHud {
         void DrawBar()
         {
             std::size_t done = 0, total = 0;
-            if (!ProgressOverlay::ReadProgress(done, total)) return;   // no compile running → nothing to draw
+            if (!CB::core::bootstrap::ReadProgress(done, total)) return;   // no compile running → nothing to draw
 
             ImGui_ImplDX11_NewFrame();
             ImGui_ImplWin32_NewFrame();
@@ -189,7 +189,7 @@ namespace CB::ProgressHud {
         const std::uintptr_t base = vr ? REL::Relocation<std::uintptr_t>{ REL::Offset(0xDBBDD0) }.address()
                                        : REL::Relocation<std::uintptr_t>{ REL::ID(ver[1] >= 6 ? 77246u : 75461u) }.address();
         const std::uintptr_t site = base + (vr ? 0x15u : 0x9u);
-        const std::uintptr_t                  orig = hooks::InstallCallDetour<5>(site, &PresentThunk,
+        const std::uintptr_t                  orig = CB::core::hooks::InstallCallDetour<5>(site, &PresentThunk,
                                                                                  "ProgressHud present");
         if (!orig) {
             LOG_ERROR("ProgressHud: present-call detour not installed — no compile progress bar.");
@@ -201,4 +201,4 @@ namespace CB::ProgressHud {
         return true;
     }
 
-}  // namespace CB::ProgressHud
+}  // namespace CB::core::bootstrap

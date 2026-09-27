@@ -11,7 +11,7 @@
 #include <format>
 #include <unordered_map>
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     std::uint32_t ConfigId(std::string_view id) {
         std::uint32_t h = 2166136261u;                       // FNV-1a/32
@@ -94,4 +94,4 @@ namespace CB::conditions {
         return st;
     }
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions

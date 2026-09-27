@@ -19,7 +19,7 @@
 // providing mod.
 namespace CB { class GraphClipSink; }   // fwd — the adsf-derive stage's clip accumulator
 
-namespace CB::adserve {
+namespace CB::core::serve {
 
     // The animationdata model (parse/emit/merge) now lives in havok-core so the clip-list
     // deriver can share it; keep the short `animdata::` spelling everything here already uses.
@@ -73,4 +73,4 @@ namespace CB::adserve {
     // Logs the global's CURRENT value first (RE confirmation) and only rewrites on result.ok.
     void RedirectAnimDataGlobal(const ServeResult& result);
 
-}  // namespace CB::adserve
+}  // namespace CB::core::serve

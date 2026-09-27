@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     struct ReplaceRule { std::string from; std::string to; };   // relative paths from `meshes`
 
@@ -36,4 +36,4 @@ namespace CB::conditions {
     struct ComposeStats { int total = 0; int registered = 0; int failed = 0; };
     ComposeStats ComposeConfigs(std::span<const ConditionConfig> ordered, std::string& log);
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions

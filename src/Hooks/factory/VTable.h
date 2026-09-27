@@ -19,7 +19,7 @@
 #include <cstdint>
 #include <cstring>
 
-namespace hooks {
+namespace CB::core::hooks {
 
 // The resolved address of an engine vtable, as an integer — for identifying an
 // object's runtime type: `*reinterpret_cast<std::uintptr_t*>(obj) == VTableAddress(id)`.
@@ -29,7 +29,7 @@ template <class VtblID>
 }
 
 // The same address as a void* — stamp it into a hand-built object's vtable slot so the
-// engine treats the object as a real instance: `obj->vtable = hooks::VTablePtr(id);`.
+// engine treats the object as a real instance: `obj->vtable = CB::core::hooks::VTablePtr(id);`.
 template <class VtblID>
 [[nodiscard]] inline void* VTablePtr(VtblID vtblId) {
     return reinterpret_cast<void*>(VTableAddress(vtblId));
@@ -44,4 +44,4 @@ inline void CopyVTable(VtblID vtblId, std::uintptr_t* dst, std::size_t count) {
     std::memcpy(dst, src, count * sizeof(std::uintptr_t));
 }
 
-} // namespace hooks
+} // namespace CB::core::hooks

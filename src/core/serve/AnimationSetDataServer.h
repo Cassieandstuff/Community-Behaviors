@@ -19,14 +19,14 @@
 // instead, so BR stays contained and the
 // canonical file remains a clean upstream base every launch (no self-read, no staleness).
 // Pointing the game at the merged cache is a separate delivery step (a read redirect).
-namespace CB::asdserve {
+namespace CB::core::serve {
 
     // The setdata model moved to havok-core (CB::core::animsetdata); this alias keeps the
     // server's `asd::` code unchanged. Declared inside asdserve so it shadows any outer
     // CB::asd (the Nemesis-convert tool namespace) within this server.
     namespace asd = CB::core::animsetdata;
 
-    struct ServeResult {
+    struct SetDataServeResult {
         bool        attempted = false;   // found >=1 bundle contributing set-data
         bool        ok = false;          // produced + wrote the merged file
         std::size_t bundles = 0;         // bundles that contributed set-data
@@ -41,8 +41,8 @@ namespace CB::asdserve {
     // deltas (ordered by loadOrderIni), merge onto the base resolved from
     // Data\meshes\animationsetdatasinglefile.txt, and write the merged single file to
     // Data\community_behaviors_cache\animationsetdatasinglefile.txt. Safe + idempotent to call
-    // once per launch. Never throws — failures land in ServeResult::error.
-    ServeResult ServeSetData(const std::filesystem::path& dataDir,
+    // once per launch. Never throws — failures land in SetDataServeResult::error.
+    SetDataServeResult ServeSetData(const std::filesystem::path& dataDir,
                              const std::filesystem::path& loadOrderIni);
 
     // Install the DETERMINISTIC set-data redirect: a write_call<5> detour on the loader's
@@ -59,12 +59,12 @@ namespace CB::asdserve {
     // Arm the redirect with BR's merged cache (call after ServeSetData). If the hook is
     // installed, this activates the detour; otherwise it falls back to RedirectSetDataGlobal
     // (the data-only global overwrite). No-op when `result.ok` is false.
-    void ArmSetDataRedirect(const ServeResult& result);
+    void ArmSetDataRedirect(const SetDataServeResult& result);
 
     // Fallback delivery: overwrite the engine's single-file path global (a BSFixedString at
     // RVA 0x315C930) with BR's cache path — data-only, no detour. Used when the deterministic
     // hook can't be installed (unexpected game version). Logs the global's CURRENT value
     // first (RE confirmation) and only rewrites when `result.ok`. AE-only.
-    void RedirectSetDataGlobal(const ServeResult& result);
+    void RedirectSetDataGlobal(const SetDataServeResult& result);
 
-}  // namespace CB::asdserve
+}  // namespace CB::core::serve

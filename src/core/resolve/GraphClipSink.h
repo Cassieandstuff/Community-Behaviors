@@ -1,16 +1,16 @@
 #pragma once
 
-// GraphClipSink — the host's concrete CB::features::IAnimDataSink for the warm-up compile.
+// GraphClipSink — the host's concrete CB::feature::IAnimDataSink for the warm-up compile.
 //
 // The first-class adsf-derive compile stage pushes one DeriveClipInput per hkbClipGenerator as each
 // graph compiles (Resolver::Resolve); features may contribute additional clips into this same sink via
 // FeatureContext::animData. This accumulates them keyed by graph serve-key. The
-// animdata finalizer (adserve::ServeAnimData) reads Contributions() AFTER CompileAll — a single-writer
+// animdata finalizer (CB::core::serve::ServeAnimData) reads Contributions() AFTER CompileAll — a single-writer
 // / single-reader handoff across the warm-up phase boundary. Reads happen only once compile is done;
 // writes are also serialized by the Resolver mutex (Resolve holds it for its whole body), but the sink
 // guards independently so it stays correct if that ever changes.
 
-#include "IGraphFeature.h"                 // CB::features::IAnimDataSink (havok-pipeline)
+#include "IGraphFeature.h"                 // CB::feature::IAnimDataSink (havok-pipeline)
 
 #include <havok/anim/AnimDataDeriver.h>    // CB::core::animdata::DeriveClipInput
 
@@ -23,7 +23,7 @@
 
 namespace CB {
 
-    class GraphClipSink final : public CB::features::IAnimDataSink {
+    class GraphClipSink final : public CB::feature::IAnimDataSink {
     public:
         // graph serve-key (e.g. "meshes/actors/character/behaviors/0_master.hkx") -> its clip inputs.
         using Contribs = std::map<std::string, std::vector<CB::core::animdata::DeriveClipInput>>;

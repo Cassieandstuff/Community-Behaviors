@@ -9,7 +9,7 @@
 //
 // Design (see the AskUserQuestion decision, 2026-08-23): the library holds the shared
 // MECHANISM and the RE'd ENGINE BINDINGS. Hook BODIES stay in their plugin — a plugin
-// defines its detour, then installs it with hooks::InstallVFunc / InstallCallDetour
+// defines its detour, then installs it with CB::core::hooks::InstallVFunc / InstallCallDetour
 // against a binding declared here. Nothing here installs itself; installation is
 // opt-in per plugin.
 //

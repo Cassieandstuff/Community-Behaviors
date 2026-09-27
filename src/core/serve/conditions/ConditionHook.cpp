@@ -17,7 +17,7 @@
 #include <cstring>
 #include <vector>
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     namespace {
         // ── engine ABI ────────────────────────────────────────────────────────────────────────────
@@ -131,4 +131,4 @@ namespace CB::conditions {
                  kMatcherRVA, kProducerRVA, Instances().size());
     }
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions

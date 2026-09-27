@@ -20,7 +20,7 @@
 #include <functional>
 #include <vector>
 
-namespace CB::conditions {
+namespace CB::core::conditions {
 
     namespace {
 
@@ -648,4 +648,4 @@ namespace CB::conditions {
         RegisterFunction("LocationHasKeyword",       V::Bool, kP_Keyword,  &Fn_LocationHasKeyword);
     }
 
-}  // namespace CB::conditions
+}  // namespace CB::core::conditions
