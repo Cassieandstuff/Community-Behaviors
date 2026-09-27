@@ -1588,7 +1588,7 @@ bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::
         // reference those ids); empty → encounter-order (self-consistent round-trip).
         Identity ident = AssignIdentity(des, reg, xmlText);
         // FormId identity (selfIndex >= 0): every node here is owned by THIS bundle at `selfIndex` — 0
-        // for the base master (Skyrim, index 0). Prefix each id -> "idx:local". Because ids AND refs
+        // for the base master (Skyrim's own nodes = self = index 0). Prefix each id -> "idx:local". Because ids AND refs
         // (idRef, refTag, rootGenerator) all read from identity.ids, this makes both carry the FormId
         // form; the loader treats them as opaque keys, so compiled graphdata is byte-unchanged (17/17).
         if (selfIndex >= 0) {
@@ -1750,11 +1750,12 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
         for (const auto& [obj, id] : vId.ids)
             if (auto it = vIdent.find(obj); it != vIdent.end()) identToNum[it->second] = id;
 
-        // FormId minting. A loose-derive bundle sees only vanilla (precompiled: no foreign mod codes), so
-        // it masters SKYRIM ONLY -> master table [skyrim(0), self(1)]. So: an edit of a vanilla node ->
-        // "0000x<local>" (index 0 = Skyrim), an own new node -> "0001x<seq>" (index 1 = self). Matches
-        // what the loader's BuildMasterTable(stem, {}, haveSkyrim) resolves. (modCode is retired — the
-        // FormId's self index replaces the "<code>$N" string namespace.)
+        // FormId minting (index convention: self=0, skyrim=1 — see FormId.h). A loose-derive bundle sees
+        // only vanilla (precompiled: no foreign mod codes), so it masters SKYRIM ONLY -> master table
+        // [self(0), skyrim(1)]. So: an edit of a vanilla node -> "0001x<local>" (index 1 = Skyrim, the
+        // origin), an own new node -> "0000x<seq>" (index 0 = self). Matches what the loader's
+        // BuildMasterTable(stem, {}, haveSkyrim) resolves. (modCode is retired — the FormId's self index
+        // replaces the "<code>$N" string namespace.)
         (void)modCode;
         auto toNumericFormId = [](const std::string& decId, std::uint16_t idx) -> std::string {
             char* end = nullptr;
@@ -1764,20 +1765,19 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
                     return CB::core::formid::format(*f);
             return decId;   // non-numeric (a secondary identity) or >16-bit: leave as-is
         };
-        // Vanilla side = Skyrim (index 0) — every id -> "0000x<local>" (so matched-unchanged nodes diff away).
-        for (auto& [obj, id] : vId.ids) { (void)obj; id = toNumericFormId(id, /*skyrim*/ 0); }
+        // Vanilla side = Skyrim (index 1, the origin) — every id -> "0001x<local>" (matched-unchanged diff away).
+        for (auto& [obj, id] : vId.ids) { (void)obj; id = toNumericFormId(id, CB::core::formid::BASE_GAME_INDEX); }
 
-        constexpr std::uint16_t kSelfIndex = 1;   // masters skyrim only -> self is table index 1
         Identity mId = AssignIdentity(mdes, reg, "");   // category for all; ids overridden for named nodes
         int newSeq = 0;
         for (const void* o : mg.order) {
             auto* obj = static_cast<IHavokObject*>(const_cast<void*>(o));
             if (auto it = identToNum.find(mIdent[o]); it != identToNum.end()) {
-                mId.ids[obj] = toNumericFormId(it->second, /*skyrim*/ 0);   // edit of vanilla
+                mId.ids[obj] = toNumericFormId(it->second, CB::core::formid::BASE_GAME_INDEX);   // edit of vanilla (origin = Skyrim)
                 ++r.matched;
             } else {
-                if (const auto f = CB::core::formid::make(kSelfIndex, static_cast<std::uint32_t>(++newSeq)))
-                    mId.ids[obj] = CB::core::formid::format(*f);            // own new node
+                if (const auto f = CB::core::formid::make(CB::core::formid::SELF_INDEX, static_cast<std::uint32_t>(++newSeq)))
+                    mId.ids[obj] = CB::core::formid::format(*f);            // own new node (self=0)
                 ++r.added;
             }
         }
@@ -2291,10 +2291,10 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
         auto toFormId = [&](const std::string& raw) -> std::string {
             const auto d = raw.rfind('$');
             char* end = nullptr;
-            if (d == std::string::npos) {                                 // bare -> vanilla node (index 0)
+            if (d == std::string::npos) {                                 // bare -> vanilla node (origin = Skyrim, index 1)
                 const unsigned long v = std::strtoul(raw.c_str(), &end, 10);
                 if (end && *end == '\0')
-                    if (const auto f = CB::core::formid::make(0, static_cast<std::uint32_t>(v))) return CB::core::formid::format(*f);
+                    if (const auto f = CB::core::formid::make(CB::core::formid::BASE_GAME_INDEX, static_cast<std::uint32_t>(v))) return CB::core::formid::format(*f);
                 return raw;                                               // non-numeric bare (name key) -> as-is
             }
             const std::string code = low(raw.substr(0, d));

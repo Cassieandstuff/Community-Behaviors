@@ -39,7 +39,13 @@ namespace CB::core::formid {
         }
     };
 
-    inline constexpr std::uint16_t BASE_GAME_INDEX = 0;   // Skyrim.hky is index 0 for everyone
+    // Master-table index convention (append-only stable): index 0 is ALWAYS the storing bundle itself
+    // (self), so a bundle's own new nodes never repoint when it gains a master. Skyrim (the base every
+    // bundle masters against) sits at index 1 because it's the first master everyone declares — it isn't
+    // otherwise special. Further declared/cross-bundle masters append at 2, 3, … Adding a master appends;
+    // nothing existing shifts. (For Skyrim.hky itself, self == base, so its own nodes are index 0.)
+    inline constexpr std::uint16_t SELF_INDEX      = 0;   // the storing bundle's own nodes
+    inline constexpr std::uint16_t BASE_GAME_INDEX = 1;   // Skyrim.hky = first master for everyone (not reserved-special)
 
     // ── packed uint32 (the canonical compiler key) ──────────────────────────────────────────────
     inline constexpr std::uint32_t pack(FormId f) {

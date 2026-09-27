@@ -21,13 +21,15 @@
 
 namespace CB::core::formid {
 
-    inline constexpr std::string_view BASE_GAME_STEM = "skyrim";   // index 0, reserved
+    inline constexpr std::string_view BASE_GAME_STEM = "skyrim";   // index 1 for a mod (first master); index 0 for itself
 
-    // Build a bundle's ordered master table. `declaredMasters` = its manifest.masters (bundle stems,
-    // file order, LOWERCASE; may or may not list skyrim). `haveSkyrim` = a base-game bundle is present.
-    // Result: [skyrim?, ...declared (deduped, skyrim/self excluded)..., self]. For skyrim itself the
-    // table collapses to ["skyrim"] (index 0 = base = self). With no base game, index 0 is the first
-    // declared master or self (a mod that adds a whole graph the base game lacks).
+    // Build a bundle's ordered master table (append-only stable — see FormId.h index convention).
+    // `declaredMasters` = its manifest.masters (bundle stems, file order, LOWERCASE; may or may not list
+    // skyrim). `haveSkyrim` = a base-game bundle is present. Result:
+    //     [self(0), skyrim?(1), ...declared (deduped, self/skyrim excluded)...(2+)]
+    // Self is ALWAYS index 0 so a bundle's own nodes never repoint when it gains a master; skyrim sits at
+    // 1 (first master everyone declares) when present. For skyrim itself the table collapses to ["skyrim"]
+    // (index 0 = self = base). A mod with no base master simply has its first real master at 1.
     inline std::vector<std::string> BuildMasterTable(std::string_view stem,
                                                      const std::vector<std::string>& declaredMasters,
                                                      bool haveSkyrim) {
@@ -35,12 +37,13 @@ namespace CB::core::formid {
         const auto has = [&](std::string_view s) {
             return std::find(table.begin(), table.end(), s) != table.end();
         };
-        if (haveSkyrim) table.emplace_back(BASE_GAME_STEM);          // index 0 = base game (reserved)
+        table.emplace_back(stem);                                    // index 0 = self, always
+        if (haveSkyrim && stem != BASE_GAME_STEM)
+            table.emplace_back(BASE_GAME_STEM);                      // index 1 = base game (first master)
         for (const auto& m : declaredMasters) {
-            if (m == stem || m == BASE_GAME_STEM) continue;          // self + base handled separately
-            if (!has(m)) table.push_back(m);                        // declared masters, file order
+            if (m == stem || m == BASE_GAME_STEM) continue;          // self + base already placed
+            if (!has(m)) table.push_back(m);                        // further masters, file order (2+)
         }
-        if (!has(stem)) table.emplace_back(stem);                    // self = last (skyrim collapses via has)
         return table;
     }
 

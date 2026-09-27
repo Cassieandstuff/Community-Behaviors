@@ -83,9 +83,9 @@ bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir
 // EmitFullBaseScaffolding (behavior.yaml + graphdata). Byte-identical to the typed base (emit-check gate),
 // so base + per-mod deltas are produced by ONE emitter. Behaviors only (character/project/anim stay typed).
 // `selfIndex` (default -1 = legacy bare ids): when >= 0, every emitted node id becomes a FormId
-// "selfIndex:local" (ids AND refs, both from identity.ids) — the base master passes 0 (Skyrim = index 0),
-// so its nodes read "0:NNNN" (self-teaching: copy the id to author an override). Byte-neutral to compiled
-// graphdata (the id text isn't compiled).
+// "selfIndex:local" (ids AND refs, both from identity.ids). The base master passes 0 — Skyrim's own nodes
+// are self (index 0, since for Skyrim.hky self == base) — so its nodes read "0000x<local>" (self-teaching:
+// copy the id to author an override). Byte-neutral to compiled graphdata (the id text isn't compiled).
 bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
                              const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err,
                              int selfIndex = -1);
@@ -168,15 +168,16 @@ struct ModDeltaResult {
 };
 
 // FormId minting context for ConvertModDelta. nullptr => legacy bare ids ("#NNNN" overrides, "code$N" new
-// nodes). When supplied, each node id becomes a FormId "IIIIxLLLL":
-//   bare "#NNNN"        -> "0000x<local>"        (edit of a vanilla/Skyrim node; index 0)
-//   "<code>$N"          -> "<codeIndex[code]>x<N>"  (own code -> selfIndex; foreign code -> its master index)
+// nodes). When supplied, each node id becomes a FormId "IIIIxLLLL" (index convention: self=0, skyrim=1,
+// further masters 2+ — see FormId.h):
+//   bare "#NNNN"        -> "0001x<local>"        (edit of a vanilla/Skyrim node; origin = Skyrim = index 1)
+//   "<code>$N"          -> "<codeIndex[code]>x<N>"  (own code -> selfIndex=0; foreign code -> its master index 2+)
 // The converter builds `codeIndex` ONCE per bundle (pre-scanning all the bundle's graphs, so a master's
-// index is the SAME in every graph) as its position in the ordered master table [skyrim(0), masters…,
-// self(last)] — matching the loader's BuildMasterTable so emit + load-time resolution agree. A "code$N"
+// index is the SAME in every graph) as its position in the ordered master table [self(0), skyrim(1),
+// masters…(2+)] — matching the loader's BuildMasterTable so emit + load-time resolution agree. A "code$N"
 // whose code is absent from codeIndex is unknown-foreign: bound to selfIndex + a warning.
 struct NemesisFormIdCtx {
-    std::uint16_t                                selfIndex = 1;   // this bundle's index (= master count + 1)
+    std::uint16_t                                selfIndex = 0;   // this bundle's own index (self = 0)
     std::unordered_map<std::string, std::uint16_t> codeIndex;     // Nemesis code (lowercase) -> master index
 };
 

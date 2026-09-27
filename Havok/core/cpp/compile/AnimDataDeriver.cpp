@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace havok::animdata {
@@ -50,17 +51,19 @@ std::vector<ClipGenerator> DeriveClipList(
     std::vector<ClipGenerator> out;
     out.reserve(clips.size());
 
-    // The cache lists each clip NAME exactly once (verified: vanilla DefaultMale = 2520 clips /
-    // 2520 unique names), but a graph has many clip generators sharing a name across behaviors.
-    // Collapse to one per name, first occurrence in input order. (Name COLLISIONS — same name,
-    // different clip — are rare; any residual they cause surfaces in the offline byte-gate.)
-    std::unordered_set<std::string> seenNames;
-    seenNames.reserve(clips.size() * 2);
+    // Dedup by FULL record CONTENT, not by name. A behaviour graph reuses a clip-generator name across many
+    // states/behaviours; when those repeats are IDENTICAL (same animation/crop/speed/triggers) the cache
+    // keeps ONE record (vanilla is all-unique-name, so this is a no-op there). But when the same name carries
+    // DIFFERENT content — a genuinely distinct binding, as SkyParkour's ClimbHigh does — each distinct record
+    // is kept, the repeats suffixed "_1", "_2", … in encounter order (the vanilla/Nemesis convention; vanilla
+    // carries 46 such "_N"). The OLD dedup keyed on NAME alone, collapsing distinct same-name bindings into
+    // one — dropping the mod records Pandora emits and shifting the high-band animIndex mapping (mis-bind).
+    std::unordered_map<std::string, int> nameRecords;   // base name -> distinct records emitted so far (for the suffix)
+    std::unordered_set<std::string>      seenContent;    // full record signature -> already emitted (drop exact dupes)
 
     for (const auto& c : clips) {
-        if (!seenNames.insert(c.name).second) continue;   // duplicate name — cache keeps one
         ClipGenerator g;
-        g.name          = c.name;
+        g.name          = c.name;   // the "_N" suffix (if needed) is assigned after the content is known, below
         g.playbackSpeed = FormatG(c.playbackSpeed);
         g.cropStart     = FormatG(c.cropStart);
         g.cropEnd       = FormatG(c.cropEnd);
@@ -121,6 +124,18 @@ std::vector<ClipGenerator> DeriveClipList(
         std::stable_sort(trigs.begin(), trigs.end(),
                          [](const auto& a, const auto& b) { return a.first < b.first; });
         for (auto& [tt, line] : trigs) g.triggers.push_back(std::move(line));
+
+        // Signature = the record's full content under its BASE name (so the "_N" suffix itself isn't part of
+        // the key). An exact duplicate binding is dropped; a new DISTINCT record whose base name was already
+        // used gets the next "_N" suffix — matching Pandora (identical repeats collapse, distinct repeats kept).
+        std::string sig = c.name;
+        sig += '\x1f'; sig += g.animIndex;
+        sig += '\x1f'; sig += g.playbackSpeed;
+        sig += '\x1f'; sig += g.cropStart;
+        sig += '\x1f'; sig += g.cropEnd;
+        for (const auto& tl : g.triggers) { sig += '\x1f'; sig += tl; }
+        if (!seenContent.insert(sig).second) continue;                    // identical binding -> one record
+        if (const int n = nameRecords[c.name]++; n > 0) g.name = c.name + "_" + std::to_string(n);
 
         out.push_back(std::move(g));
     }
