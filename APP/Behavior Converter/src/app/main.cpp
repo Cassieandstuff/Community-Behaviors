@@ -83,6 +83,18 @@ int main(int argc, char** argv) {
         return res.ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
+    if (argc >= 3 && std::string(argv[1]) == "--list-archives") {
+        const auto archives = bconv::ResolveModArchives(argv[2], [](std::string s) { std::printf("%s\n", s.c_str()); });
+        int counted = 0;
+        for (const auto& a : archives) {
+            std::printf("%s  [%s] %s\n    %s\n", a.counted ? "COUNT" : "skip ", a.modName.c_str(),
+                        std::filesystem::path(a.archive).filename().string().c_str(), a.reason.c_str());
+            counted += a.counted ? 1 : 0;
+        }
+        std::printf("OK: %d archive(s) counted, %d skipped.\n", counted, static_cast<int>(archives.size()) - counted);
+        return EXIT_SUCCESS;
+    }
+
     if (argc >= 4 && std::string(argv[1]) == "--zip") {  // headless: --zip <srcDir> <zipPath>
         std::string err;
         const bool ok = sct::util::ZipDir(argv[2], argv[3], err);

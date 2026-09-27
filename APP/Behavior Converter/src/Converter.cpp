@@ -40,6 +40,7 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <sstream>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
@@ -435,8 +436,98 @@ bool IsEngineMod(const fs::path& modDir) {
 struct Mo2Layout {
     bool                     ok = false;
     fs::path                 modsDir;
+    fs::path                 profileDir;
     std::vector<std::string> enabledTopFirst;
+    /// @brief Active plugins (original file names) in LOAD ORDER, earliest first.
+    /// @note Active = starred in plugins.txt, OR present only in loadorder.txt: MO2 never lists the implicit
+    ///   base-game/Creation Club plugins in plugins.txt because the engine always loads them.
+    std::vector<std::string> activePluginsInOrder;
+    /// @brief Directory of the EFFECTIVE Skyrim.ini (+ SkyrimCustom.ini): the profile when MO2's
+    ///   LocalSettings=true, else Documents\My Games\<game>. Empty if none was found.
+    fs::path                 iniDir;
 };
+
+/// @brief Trim trailing CR/LF/spaces (MO2 profile files are CRLF).
+std::string TrimLineEnd(std::string s) {
+    while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' ')) s.pop_back();
+    return s;
+}
+
+/// @brief Fill Mo2Layout::activePluginsInOrder from the profile's loadorder.txt + plugins.txt.
+void ReadActivePlugins(Mo2Layout& out) {
+    std::unordered_map<std::string, bool> listed;   // lower(name) -> starred, for every plugins.txt entry
+    std::vector<std::string>              pluginsOrder;
+    if (std::ifstream pl{ out.profileDir / "plugins.txt" }) {
+        std::string line;
+        while (std::getline(pl, line)) {
+            line = TrimLineEnd(line);
+            if (line.empty() || line[0] == '#') continue;
+            const bool active = line[0] == '*';
+            const std::string name = active ? line.substr(1) : line;
+            listed[ToLower(name)] = active;
+            if (active) pluginsOrder.push_back(name);
+        }
+    }
+    std::ifstream lo{ out.profileDir / "loadorder.txt" };
+    if (!lo) { out.activePluginsInOrder = std::move(pluginsOrder); return; }
+    std::string line;
+    while (std::getline(lo, line)) {
+        line = TrimLineEnd(line);
+        if (line.empty() || line[0] == '#') continue;
+        const auto it = listed.find(ToLower(line));
+        if (it == listed.end() || it->second) out.activePluginsInOrder.push_back(line);
+    }
+}
+
+/// @brief Resolve Mo2Layout::iniDir: the profile when its settings.ini has LocalSettings=true, else the first
+///   Documents\My Games folder (SSE, then GOG) that holds a Skyrim.ini.
+void ResolveIniDir(Mo2Layout& out) {
+    std::error_code ec;
+    if (std::ifstream s{ out.profileDir / "settings.ini" }) {
+        std::string line;
+        while (std::getline(s, line))
+            if (ToLower(TrimLineEnd(line)) == "localsettings=true") { out.iniDir = out.profileDir; return; }
+    }
+    const std::string docsUtf8 = sct::util::DocumentsFolder();
+    if (docsUtf8.empty()) return;
+    const fs::path docs(std::u8string(docsUtf8.begin(), docsUtf8.end()));
+    for (const char* game : { "Skyrim Special Edition", "Skyrim Special Edition GOG" }) {
+        const fs::path d = docs / "My Games" / game;
+        if (fs::is_regular_file(d / "Skyrim.ini", ec)) { out.iniDir = d; return; }
+    }
+}
+
+/// @brief The [Archive] sResourceArchiveList + sResourceArchiveList2 entries, in order.
+/// @note SkyrimCustom.ini overrides any key it sets (the engine's INI layering); names compare case-insensitively.
+std::vector<std::string> ReadIniArchiveLists(const fs::path& iniDir) {
+    std::unordered_map<std::string, std::string> keys;   // lower(key) -> raw value
+    for (const char* file : { "Skyrim.ini", "SkyrimCustom.ini" }) {
+        std::ifstream in(iniDir / file);
+        std::string line, section;
+        while (std::getline(in, line)) {
+            line = TrimLineEnd(line);
+            if (!line.empty() && line.front() == '[') { section = ToLower(line); continue; }
+            if (section != "[archive]") continue;
+            const auto eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            const std::string key = ToLower(line.substr(0, eq));
+            if (key == "sresourcearchivelist" || key == "sresourcearchivelist2") keys[key] = line.substr(eq + 1);
+        }
+    }
+    std::vector<std::string> out;
+    for (const char* key : { "sresourcearchivelist", "sresourcearchivelist2" }) {
+        const auto it = keys.find(key);
+        if (it == keys.end()) continue;
+        std::stringstream ss(it->second);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            while (!item.empty() && item.front() == ' ') item.erase(item.begin());
+            while (!item.empty() && item.back() == ' ') item.pop_back();
+            if (!item.empty()) out.push_back(item);
+        }
+    }
+    return out;
+}
 Mo2Layout ResolveMo2Layout(const fs::path& instanceRoot) {
     Mo2Layout out;
     std::error_code ec;
@@ -485,6 +576,82 @@ Mo2Layout ResolveMo2Layout(const fs::path& instanceRoot) {
     }
     out.ok = !out.enabledTopFirst.empty();
     out.modsDir = mods;
+    out.profileDir = profs / profile;
+    ReadActivePlugins(out);
+    ResolveIniDir(out);
+    return out;
+}
+
+/// @brief Decide which of the enabled mods' root .bsa files the ENGINE actually loads, with MO2 VFS precedence.
+/// @note The engine loads archives three ways (verified in Ghidra, AE 1.6.1170):
+///   1. the INI lists sResourceArchiveList + sResourceArchiveList2 (loaded first => lowest precedence);
+///   2. engine built-ins: MarketplaceTextures.bsa, opened unconditionally by the marketplace/UI init (FUN_14154f4e0);
+///   3. per active .esp/.esm/.esl, EXACTLY "<stem>.bsa" and "<stem> - Textures.bsa" (LoadPluginBSA @ 1401bf710),
+///      case-insensitive. Any other plugin-named suffix (e.g. "Foo - Animations.bsa") is never loaded.
+///   Every name resolves through the VFS, where the highest-priority mod providing that archive name wins.
+/// @return every root archive of every enabled mod with a counted/skipped verdict + reason; counted ones sorted by
+///   precedence (INI/built-in first at loadIndex -1, then plugin load order; loose files beat all archives).
+std::vector<ModArchiveInfo> ResolveModArchivesFor(const Mo2Layout& mo2) {
+    std::unordered_map<std::string, std::string> engineListed;   // lower(archive name) -> why the engine loads it
+    if (!mo2.iniDir.empty())
+        for (const auto& name : ReadIniArchiveLists(mo2.iniDir))
+            engineListed.emplace(ToLower(name), "listed in " + (mo2.iniDir / "Skyrim.ini").string() + " [Archive]");
+    engineListed.emplace("marketplacetextures.bsa", "engine built-in (opened unconditionally at marketplace/UI init)");
+
+    std::unordered_map<std::string, int> loadIndex;   // lower(plugin stem) -> load index
+    for (int i = 0; i < static_cast<int>(mo2.activePluginsInOrder.size()); ++i) {
+        const fs::path p(mo2.activePluginsInOrder[i]);
+        const std::string ext = ToLower(p.extension().string());
+        if (ext == ".esp" || ext == ".esm" || ext == ".esl") loadIndex[ToLower(p.stem().string())] = i;
+    }
+
+    std::vector<ModArchiveInfo>                  out;
+    std::unordered_map<std::string, std::string> winner;   // lower(archive file name) -> owning (highest-priority) mod
+    std::error_code ec;
+    for (const std::string& modName : mo2.enabledTopFirst) {
+        const fs::path root = mo2.modsDir / modName;
+        for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            const fs::path& p = it->path();
+            if (ToLower(p.extension().string()) != ".bsa") continue;
+            ModArchiveInfo a;
+            a.modName = modName;
+            a.archive = p.string();
+            const std::string key = ToLower(p.filename().string());
+            if (const auto w = winner.find(key); w != winner.end()) {
+                a.reason = "overridden by higher-priority mod '" + w->second + "'";
+                out.push_back(std::move(a));
+                continue;
+            }
+            winner.emplace(key, modName);
+
+            if (const auto el = engineListed.find(key); el != engineListed.end()) {
+                a.counted = true;
+                a.reason = el->second;
+                out.push_back(std::move(a));
+                continue;
+            }
+            std::string stem = ToLower(p.stem().string());
+            static const std::string kTex = " - textures";
+            if (stem.size() > kTex.size() && stem.compare(stem.size() - kTex.size(), kTex.size(), kTex) == 0)
+                stem.resize(stem.size() - kTex.size());
+            if (const auto li = loadIndex.find(stem); li != loadIndex.end()) {
+                a.counted = true;
+                a.plugin = mo2.activePluginsInOrder[li->second];
+                a.loadIndex = li->second;
+                a.reason = "loaded by active plugin '" + a.plugin + "'";
+            } else if (const auto dash = stem.rfind(" - "); dash != std::string::npos && loadIndex.count(stem.substr(0, dash))) {
+                a.reason = "suffix '" + stem.substr(dash) + "' is never auto-loaded (only <stem>.bsa and <stem> - Textures.bsa)";
+            } else {
+                a.reason = "no active plugin named '" + stem + "'";
+            }
+            out.push_back(std::move(a));
+        }
+    }
+    std::stable_sort(out.begin(), out.end(), [](const ModArchiveInfo& a, const ModArchiveInfo& b) {
+        if (a.counted != b.counted) return a.counted;
+        return a.counted && a.loadIndex < b.loadIndex;
+    });
     return out;
 }
 
@@ -574,9 +741,26 @@ static Mo2Layout ReadProfileLayout(const fs::path& profileDir, const fs::path& m
         if (line.empty() || line[0] != '+') continue;   // '-' disabled, '#'/'*' separators
         out.enabledTopFirst.push_back(line.substr(1));
     }
-    out.ok      = !out.enabledTopFirst.empty();
-    out.modsDir = modsDir;
+    out.ok         = !out.enabledTopFirst.empty();
+    out.modsDir    = modsDir;
+    out.profileDir = profileDir;
+    ReadActivePlugins(out);
+    ResolveIniDir(out);
     return out;
+}
+
+std::vector<ModArchiveInfo> ResolveModArchives(const std::string& mo2Instance, const LogFn& log) {
+    const Mo2Layout mo2 = ResolveMo2Layout(mo2Instance);
+    if (!mo2.ok) {
+        if (log) log("not an MO2 instance (no profiles/mods, or an empty modlist): " + mo2Instance);
+        return {};
+    }
+    if (log) log("MO2 profile: " + mo2.profileDir.string() + " — " + std::to_string(mo2.enabledTopFirst.size()) +
+                 " enabled mod(s), " + std::to_string(mo2.activePluginsInOrder.size()) + " active plugin(s).");
+    if (log) log(mo2.iniDir.empty() ? std::string("INI archive lists: no Skyrim.ini found (INI-listed archives not counted)")
+                                    : "INI archive lists: " + mo2.iniDir.string() + " (" +
+                                          std::to_string(ReadIniArchiveLists(mo2.iniDir).size()) + " listed)");
+    return ResolveModArchivesFor(mo2);
 }
 
 // Scan one mod's Nemesis patch dirs for the DISTINCT mod-codes it REFERENCES ("#<code>$<N>" markers) —

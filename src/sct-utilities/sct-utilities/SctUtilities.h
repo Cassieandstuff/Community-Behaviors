@@ -42,6 +42,11 @@ namespace sct::util {
 // override it (e.g. point it at their mod manager's downloads directory).
 std::string DownloadsFolder();
 
+/// @brief The current user's Documents folder (FOLDERID_Documents), UTF-8; empty on failure.
+/// @note Follows OneDrive/folder redirection, unlike %USERPROFILE%\Documents — this is where Skyrim's
+///   "My Games" INIs (and thus the archive lists) actually live.
+std::string DocumentsFolder();
+
 // Zip every regular file under `srcDir` into `zipPath` (archive paths are relative
 // to srcDir, forward-slash). Overwrites any existing archive at zipPath. Returns
 // false with `err` set on failure (missing source, empty tree, or I/O error).

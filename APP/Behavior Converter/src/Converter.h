@@ -112,6 +112,19 @@ LoadOrderPlan BuildLoadOrderPlan(const std::string& profileOrInstance, const Log
 // authoritative record exported alongside a conversion so the resolved order is reproducible.
 std::string EmitLoadOrderText(const LoadOrderPlan& plan);
 
+/// @brief One root .bsa of an enabled mod, with the engine's verdict on whether it is ever loaded.
+struct ModArchiveInfo {
+    std::string modName;
+    std::string archive;         ///< full path on disk
+    std::string plugin;          ///< the active plugin that loads it (counted only)
+    std::string reason;          ///< human-readable verdict (why counted / why skipped)
+    int         loadIndex = -1;  ///< that plugin's load index (counted only; later = higher archive precedence)
+    bool        counted = false;
+};
+
+/// @brief Resolve which enabled mods' archives the engine loads (plugin rule + MO2 VFS precedence). Read-only.
+std::vector<ModArchiveInfo> ResolveModArchives(const std::string& mo2Instance, const LogFn& log);
+
 struct Result {
     bool        ok = false;
     std::string error;
