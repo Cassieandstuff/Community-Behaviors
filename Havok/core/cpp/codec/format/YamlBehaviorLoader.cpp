@@ -451,31 +451,30 @@ bool sameLengthEdit(const c4::yml::Tree& bt, c4::yml::id_type ba,
     return bc == c4::yml::NONE && mc == c4::yml::NONE && differs;   // equal length, ≥1 slot changed
 }
 
-// A "compose" (order-sensitive, load-order-composed) array — transitions / states. NOT
-// positionally index-guarded (nothing stores an index INTO it), but a mod's edit of a base slot
-// REPLACES that slot; base slots no mod touched are kept; each mod's new entries append. This is
-// the rule verified byte-for-byte against Pandora on the combat states (AttackState/BlockState);
-// the decideParam UnionArray path (base ∪ every mod, dedup-exact) instead KEEPS the stale base
-// slot a mod meant to replace → the attack-commitment loss + shield-drop bug.
-// [Step 3(b) landed: the schema `merge: compose` tag (composeArray, below) is now the primary
-//  classifier; this name set is the FALLBACK for when no schema registry is wired.]
-bool isComposeArray(const std::string& p) {
-    return p == "transitions" || p == "states";
-}
-
-// Schema-aware classifiers: a field's `merge:` tag wins when it carries one. Otherwise the choice
-// is between the built-in name set (NON-strict — the safe production fallback) and returning "not
-// this policy" (STRICT gate mode — the fallback is disabled, so the schema tag alone drives the
-// merge). In strict mode a real composable array whose tag is missing then UNIONS instead of
-// composing, diverging from the ground truth, which the byte-diff gate catches — that's what makes
-// the gate un-foolable without a name-based check that would false-positive on same-named pointer
-// fields (e.g. hkbStateMachineStateInfo.transitions, a ptr the `&& isArr` site already excludes).
-// An explicit tag is authoritative even when it names a DIFFERENT policy. `cls` = node class (peekClass).
+// A "compose" (order-sensitive, load-order-composed) array — the schema `merge: compose` fields
+// (hkbStateMachine.states, hkbStateMachineTransitionInfoArray.transitions). NOT positionally
+// index-guarded (nothing stores an index INTO it), but a mod's edit of a base slot REPLACES that
+// slot; base slots no mod touched are kept; each mod's new entries append. Verified byte-for-byte
+// against Pandora on the combat states (AttackState/BlockState); the decideParam UnionArray path
+// (base ∪ every mod, dedup-exact) instead KEEPS the stale base slot a mod meant to replace → the
+// attack-commitment loss + shield-drop bug.
+//
+// SINGLE SOURCE OF TRUTH: the schema `merge:` tag (metadata/semantics/merge.yaml → Field::merge via
+// SchemaRegistry::ApplyMergeSemantics) is the ONLY classifier. The old hardcoded transitions/states
+// name set is gone — it was a second answer that could silently drift from the schema (and the whole
+// converter side, HavokModel bashMerge, already read the tag). The runtime wires the registry
+// (Plugin.cpp SetSchemaRegistry) and ApplyMergeSemantics HARD-ERRORS on an unknown class/field, so a
+// schema that loads at all guarantees the tag is present; a null registry (a single-source converter
+// LoadMerged with no deltas) never reaches the 2+-changer compose site below. `cls` = node class
+// (peekClass); the `&& isArr` call site already excludes same-named POINTER fields
+// (hkbStateMachine.transitions / hkbStateMachineStateInfo.transitions are ptrs, not the seq).
 bool composeArray(const std::string& cls, const std::string& p) {
-    if (const std::string t = mergeTagFor(cls, p); !t.empty()) return t == "compose";
-    if (g_mergeSchema && g_mergeStrict) return false;   // strict: tag must carry it; no fallback
-    return isComposeArray(p);
+    return mergeTagFor(cls, p) == "compose";
 }
+// guarded still carries the built-in name set: metadata/semantics/merge.yaml has NO `guarded:` section
+// yet, so the schema query returns "" for children/generators. Authoring those entries (class-qualified,
+// validated by ApplyMergeSemantics) is the follow-up that lets this collapse the same way compose did;
+// until then removing the fallback would silently drop the positional-index guard.
 bool guardedArray(const std::string& cls, const std::string& p) {
     if (const std::string t = mergeTagFor(cls, p); !t.empty()) return t == "guarded";
     if (g_mergeSchema && g_mergeStrict) return false;   // strict: tag must carry it; no fallback
@@ -707,6 +706,26 @@ void mergeLayers(c4::yml::Tree& mt, const std::vector<c4::yml::Tree*>& deltas,
 static void loadDirInto(BehaviorData& data,
                         const std::vector<LayerSource>& layers,
                         bool requireRoot) {
+    // FormId canonicalization primitive, HOISTED above the behavior.yaml load: rootGenerator is read
+    // there (a graph-structure file, NOT scanned by scanSourceSection, so canonText never touches it),
+    // yet it references a node id that the node-file scan below DOES canonicalize to "@<rank>.<local>".
+    // If rootGenerator stays raw "0000x001f" while its target node becomes "@0.31", byName() can't
+    // resolve the root -> a NODELESS graph -> null rootGenerator -> the AutoplayBehavior null-root
+    // char-setup CTD. Canonicalize it here in lockstep. (Engages only with a real master table; the
+    // offline/anonymous path has an empty table -> canon off -> raw, byte-identical. This is why the
+    // offline 17/17 gate never exercised it.)
+    std::unordered_map<std::string, int> stemRank;                 // owner stem -> global load rank
+    for (const LayerSource& L : layers) if (!L.stem.empty()) stemRank.emplace(L.stem, L.rank);
+    auto canonToken = [&](const std::string& tok, std::size_t li) -> std::string {
+        const auto f = CB::core::formid::parse(tok);
+        if (!f) return tok;                                        // not a FormId -> unchanged
+        const auto owner = CB::core::formid::ResolveOwner(layers[li].masterTable, f->masterIndex);
+        if (!owner) return tok;                                    // idx out of range -> leave (pass 2 warns)
+        const auto rit = stemRank.find(std::string(*owner));
+        if (rit == stemRank.end()) return tok;                     // owner not loaded -> leave raw
+        return "@" + std::to_string(rit->second) + "." + std::to_string(f->local);
+    };
+
     // ── behavior.yaml (per layer, in load order; only the base is required) ──
     for (std::size_t li = 0; li < layers.size(); ++li) {
         if (!layers[li].source) continue;
@@ -728,6 +747,8 @@ static void loadDirInto(BehaviorData& data,
             data.behavior.behavior.name         = str(b, "name");
             data.behavior.behavior.variableMode = str(b, "variableMode", "VARIABLE_MODE_DISCARD_WHEN_INACTIVE");
             data.behavior.behavior.rootGenerator = str(b, "rootGenerator");
+            if (!layers[li].masterTable.empty())                    // canonicalize in lockstep with the node ids
+                data.behavior.behavior.rootGenerator = canonToken(data.behavior.behavior.rootGenerator, li);
             data.behavior.behavior.data         = optStr(b, "data").value_or("null");
         }
     }
@@ -753,17 +774,8 @@ static void loadDirInto(BehaviorData& data,
     // byName all key on an owner-distinct string (no cross-mod collision). Canonical is deliberately NOT
     // the IIIIxLLLL shape (leading '@'), so nothing re-resolves it. Engages only with a real master table
     // (runtime); the offline/anonymous path (empty table) leaves ids raw — byte-identical bare grouping.
-    std::unordered_map<std::string, int> stemRank;                 // owner stem -> global load rank
-    for (const LayerSource& L : layers) if (!L.stem.empty()) stemRank.emplace(L.stem, L.rank);
-    auto canonToken = [&](const std::string& tok, std::size_t li) -> std::string {
-        const auto f = CB::core::formid::parse(tok);
-        if (!f) return tok;                                        // not a FormId -> unchanged
-        const auto owner = CB::core::formid::ResolveOwner(layers[li].masterTable, f->masterIndex);
-        if (!owner) return tok;                                    // idx out of range -> leave (pass 2 warns)
-        const auto rit = stemRank.find(std::string(*owner));
-        if (rit == stemRank.end()) return tok;                     // owner not loaded -> leave raw
-        return "@" + std::to_string(rit->second) + "." + std::to_string(f->local);
-    };
+    // (stemRank + canonToken are HOISTED to the top of loadDirInto so the behavior.yaml rootGenerator is
+    // canonicalized in lockstep with these node ids/refs — see the note there. canonText reuses canonToken.)
     auto canonText = [&](const std::string& text, std::size_t li) -> std::string {
         std::string out; out.reserve(text.size());
         bool inS = false, inD = false;                             // skip quoted scalars (names/strings)
@@ -824,6 +836,7 @@ static void loadDirInto(BehaviorData& data,
     //   - A bare id keeps the scope INFERENCE (scopeOf) — the transitional path until every bundle
     //     emits FormIds. Both yield (class, localId, ownerStem), so a FormId override "0:184" and a
     //     bare vanilla "184" (owner inferred = skyrim) still group together during the mixed-era window.
+    std::vector<std::string> nameKeyed;              // runtime nodes that fell back to name-keying (fatal, below)
     for (Entry& e : entries) {
         std::string idPart = e.key;                  // default: opaque key (bare, or a FormId w/ no context)
         std::string scope;
@@ -840,11 +853,25 @@ static void loadDirInto(BehaviorData& data,
                                   std::to_string(layers[e.li].masterTable.size()) + "); binding to self");
                 idPart = std::to_string(fid->local);
                 scope  = owner ? std::string(*owner) : layers[e.li].stem;
+            } else if (!e.key.empty() && e.key[0] == '@') {
+                scope = scopeOf(e.li, e.key);        // canonicalized "@rank.local" — owner+local baked in, globally unique
             } else {
-                scope = scopeOf(e.li, e.key);
+                // NAME-KEYED FALLBACK — RETIRED. At runtime (real master table) every graph node MUST carry
+                // a FormId identity: canonToken either rewrote it to "@rank.local" (handled above) or, for an
+                // owner it couldn't resolve, left it as a raw FormId (the parse() branch above, which diags).
+                // A key that is neither reached here because keyOf() fell back to the node's `name` — the node
+                // shipped with no `id:`. Name-keying COLLIDES the vanilla graph's many duplicate names (the
+                // idle states, …): two distinct nodes fold into one and a transition then lands on the wrong
+                // state → wrong animation / stuck. FormId exists precisely to give every node stable identity,
+                // so don't guess by name — record every offender and fail after the scan (below).
+                emitMergeDiag("YamlBehaviorLoader: node '" + e.key + "' (class " + e.cls + ") in bundle '" +
+                              layers[e.li].stem + "' has NO FormId identity — name-keyed fallback is RETIRED. "
+                              "Reconvert the bundle so every node carries an 'id:'.");
+                nameKeyed.push_back(e.cls + " '" + e.key + "' @ " + layers[e.li].stem);
+                scope = scopeOf(e.li, e.key);        // still compute a scope so the diag list finishes cleanly
             }
         } else {
-            scope = scopeOf(e.li, e.key);
+            scope = scopeOf(e.li, e.key);            // offline/anonymous path (empty table): bare grouping, unchanged
         }
         std::string gk = e.cls;
         gk += '\x1f';
@@ -853,6 +880,18 @@ static void loadDirInto(BehaviorData& data,
         auto it = gtexts.find(gk);
         if (it == gtexts.end()) { gorder.push_back(gk); gclass.emplace(gk, e.cls); gname.emplace(gk, e.key); }
         gtexts[gk].push_back(std::move(e.text));
+    }
+    // Name-keyed fallback is retired: any runtime node without a FormId identity is a hard error (it would
+    // silently collide duplicate vanilla names into one node). Every offender was logged above; fail now with
+    // the count + the first few, so a stale/un-reconverted bundle is named instead of quietly mis-merging.
+    if (!nameKeyed.empty()) {
+        std::string list;
+        for (std::size_t i = 0; i < nameKeyed.size() && i < 8; ++i) list += "\n  - " + nameKeyed[i];
+        if (nameKeyed.size() > 8) list += "\n  - … (" + std::to_string(nameKeyed.size() - 8) + " more)";
+        throw std::runtime_error(
+            "YamlBehaviorLoader: " + std::to_string(nameKeyed.size()) + " node(s) reached the retired "
+            "name-keyed fallback (no FormId identity). Name-keying collides duplicate vanilla names — "
+            "reconvert the offending bundle(s):" + list);
     }
     std::vector<char> gconsumed(gorder.size(), 0);
 
