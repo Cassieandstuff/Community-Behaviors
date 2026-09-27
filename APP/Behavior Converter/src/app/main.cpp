@@ -95,6 +95,12 @@ int main(int argc, char** argv) {
         return EXIT_SUCCESS;
     }
 
+    if (argc >= 4 && std::string(argv[1]) == "--package-animations") {
+        const bool ok = bconv::PackageAllModAnimations(argv[2], argv[3],
+            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
+        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     if (argc >= 4 && std::string(argv[1]) == "--zip") {  // headless: --zip <srcDir> <zipPath>
         std::string err;
         const bool ok = sct::util::ZipDir(argv[2], argv[3], err);

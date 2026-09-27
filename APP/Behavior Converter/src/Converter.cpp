@@ -29,6 +29,7 @@
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
 #include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
 #include <sct-utilities/SctUtilities.h>       // ZipDir — pack the staged master into one Skyrim.hky
+#include <codec/bsa/BsaArchive.h>
 
 #include <algorithm>
 #include <cctype>
@@ -41,6 +42,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
@@ -455,7 +457,7 @@ std::string TrimLineEnd(std::string s) {
 
 /// @brief Fill Mo2Layout::activePluginsInOrder from the profile's loadorder.txt + plugins.txt.
 void ReadActivePlugins(Mo2Layout& out) {
-    std::unordered_map<std::string, bool> listed;   // lower(name) -> starred, for every plugins.txt entry
+    std::unordered_map<std::string, bool> listed;   ///< lower(name) -> starred, for every plugins.txt entry
     std::vector<std::string>              pluginsOrder;
     if (std::ifstream pl{ out.profileDir / "plugins.txt" }) {
         std::string line;
@@ -500,7 +502,7 @@ void ResolveIniDir(Mo2Layout& out) {
 /// @brief The [Archive] sResourceArchiveList + sResourceArchiveList2 entries, in order.
 /// @note SkyrimCustom.ini overrides any key it sets (the engine's INI layering); names compare case-insensitively.
 std::vector<std::string> ReadIniArchiveLists(const fs::path& iniDir) {
-    std::unordered_map<std::string, std::string> keys;   // lower(key) -> raw value
+    std::unordered_map<std::string, std::string> keys;   ///< lower(key) -> raw value
     for (const char* file : { "Skyrim.ini", "SkyrimCustom.ini" }) {
         std::ifstream in(iniDir / file);
         std::string line, section;
@@ -592,13 +594,13 @@ Mo2Layout ResolveMo2Layout(const fs::path& instanceRoot) {
 /// @return every root archive of every enabled mod with a counted/skipped verdict + reason; counted ones sorted by
 ///   precedence (INI/built-in first at loadIndex -1, then plugin load order; loose files beat all archives).
 std::vector<ModArchiveInfo> ResolveModArchivesFor(const Mo2Layout& mo2) {
-    std::unordered_map<std::string, std::string> engineListed;   // lower(archive name) -> why the engine loads it
+    std::unordered_map<std::string, std::string> engineListed;   ///< lower(archive name) -> why the engine loads it
     if (!mo2.iniDir.empty())
         for (const auto& name : ReadIniArchiveLists(mo2.iniDir))
             engineListed.emplace(ToLower(name), "listed in " + (mo2.iniDir / "Skyrim.ini").string() + " [Archive]");
     engineListed.emplace("marketplacetextures.bsa", "engine built-in (opened unconditionally at marketplace/UI init)");
 
-    std::unordered_map<std::string, int> loadIndex;   // lower(plugin stem) -> load index
+    std::unordered_map<std::string, int> loadIndex;   ///< lower(plugin stem) -> load index
     for (int i = 0; i < static_cast<int>(mo2.activePluginsInOrder.size()); ++i) {
         const fs::path p(mo2.activePluginsInOrder[i]);
         const std::string ext = ToLower(p.extension().string());
@@ -606,7 +608,7 @@ std::vector<ModArchiveInfo> ResolveModArchivesFor(const Mo2Layout& mo2) {
     }
 
     std::vector<ModArchiveInfo>                  out;
-    std::unordered_map<std::string, std::string> winner;   // lower(archive file name) -> owning (highest-priority) mod
+    std::unordered_map<std::string, std::string> winner;   ///< lower(archive file name) -> owning (highest-priority) mod
     std::error_code ec;
     for (const std::string& modName : mo2.enabledTopFirst) {
         const fs::path root = mo2.modsDir / modName;
@@ -1334,17 +1336,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // hoisted here so the loose-derive / char-file legs above the bundle grouping can use it too.)
     const std::string kPandora = "Pandora";
 
-    // ── PIECE 1: package each enabled mod's loose animations into its own <modName>.hky as attributed
-    // native units, the per-mod sibling of BuildBaseBundle's animation leg. Only in the MO2-attributed
-    // path (we need the per-mod meshes dirs). FAIL-SAFE: a skip/fail writes no unit and the engine keeps
-    // the loose .hkx — so this can never break the behavior/skeleton bundles built below. Index-bound for
-    // now; bone-name binding (the membrane) is piece 2.
-    // ROOT-MOTION PACKAGING (point 5): package each mod's AMR-motion animations into the bundle so their
-    // root motion feeds the adsf (the runtime motionsForRoot read). MOTION-ONLY — the pose is not
-    // compiled/served unless the bundle's manifest opts into compile (compile_animations, default false),
-    // so this is the "decompiled animations feed the adsf root motion" path, ungated by the compile flag.
-    // Single-bundle mode routes every mod's motion units into Pandora.hky; per-mod mode into each
-    // <modName>.hky. Retires the old hardcoded kGatePerModAnimations release gate.
     if (mo2.ok) PackageModAnimations(mo2, plugins, outDir, log, opt.singleBundle ? kPandora : std::string());
     fs::create_directories(plugins, ec);
 
@@ -2558,28 +2549,36 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     return r;
 }
 
-// The Havok behavior-system kinds the master ingests. Determined BY CONTENT (the packfile's
-// __classnames__ section — read from the file head), NOT by path/name. Path-matching which files
-// are "corpus" was fragile: it silently dropped anything at an unexpected path (the first-person
-// skeleton `characterassets/skeletonfirst.hkx`, and — the bet — others). The class-name markers are
-// mutually exclusive at the root, so one cheap substring scan of the head classifies the file.
+/// @brief The Havok behavior-system kinds the converter ingests, classified BY CONTENT (the packfile's
+///   __classnames__ section at the file head), never by path — path-matching silently dropped files at
+///   unexpected paths (e.g. the first-person skeleton characterassets/skeletonfirst.hkx).
 enum class HkxKind { Other, Skeleton, Behavior, Character, Project, Animation };
-HkxKind PeekHkxKind(const std::filesystem::path& file) {
-    std::ifstream f(file, std::ios::binary);
-    if (!f) return HkxKind::Other;
-    std::string head(1u << 16, '\0');            // 64 KB — the __classnames__ section is at the file start
-    f.read(head.data(), static_cast<std::streamsize>(head.size()));
-    head.resize(static_cast<std::size_t>(f.gcount()));
+/// @brief Classify a .hkx from its leading bytes.
+/// @note Bytes-based so archive (BSA) entries — which never exist as files — classify identically to loose ones.
+/// @warning The animation check MUST precede the skeleton check: some exporters embed hkaSkeleton in an animation
+///   file (census 2026-09-27: 14 mod animations, e.g. OAR sets, + vanilla CC fishing cast/ready), while no real
+///   skeleton file carries spline/interleaved animation data (all 330 vanilla skeletons). Skeleton-first silently
+///   dropped those animations from the bundles.
+HkxKind PeekHkxKindHead(std::string_view head) {
     if (head.find("hkbProjectData")   != std::string::npos) return HkxKind::Project;
     if (head.find("hkbCharacterData") != std::string::npos) return HkxKind::Character;
     if (head.find("hkbBehaviorGraph") != std::string::npos) return HkxKind::Behavior;
-    if (head.find("hkaSkeleton")      != std::string::npos) return HkxKind::Skeleton;
-    // A loose animation carries hkaSplineCompressedAnimation (or interleaved) + hkaAnimationContainer
-    // but NO hkaSkeleton (that lives in the skeleton file), so this can't collide with the skeleton
-    // check above. Only spline animations are decompilable today — the round-trip pass skips the rest.
     if (head.find("hkaSplineCompressedAnimation")      != std::string::npos ||
         head.find("hkaInterleavedUncompressedAnimation") != std::string::npos) return HkxKind::Animation;
-    return HkxKind::Other;                        // non-graph / non-animation asset
+    if (head.find("hkaSkeleton")      != std::string::npos) return HkxKind::Skeleton;
+    return HkxKind::Other;
+}
+HkxKind PeekHkxKind(const std::filesystem::path& file) {
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return HkxKind::Other;
+    std::string head(1u << 16, '\0');
+    f.read(head.data(), static_cast<std::streamsize>(head.size()));
+    head.resize(static_cast<std::size_t>(f.gcount()));
+    return PeekHkxKindHead(head);
+}
+HkxKind PeekHkxKind(const std::vector<std::uint8_t>& bytes) {
+    return PeekHkxKindHead(std::string_view(reinterpret_cast<const char*>(bytes.data()),
+                                            std::min<std::size_t>(bytes.size(), 1u << 16)));
 }
 
 // ── Shared animation bake: decompile a spline animation to an ATTRIBUTED single-file unit at
@@ -2591,11 +2590,17 @@ HkxKind PeekHkxKind(const std::filesystem::path& file) {
 // single-file unit collectNativeAnim consumes). `not spline-compressed` is a quiet Skip (Ok/Skip/Fail
 // counting + logging stays the caller's, unchanged from the inline version).
 enum class AnimBakeOutcome { Ok, Skip, Fail };
+/// @param poseGate true = keep the unit only if it recompiles pose-faithfully (<= kBakeMaxRotDeg): the master's
+///   mode, whose poses may be compiled + served. false = keep EVERY animation that decompiles: the per-mod mode.
+/// @note Per-mod bundles package every decompilable animation, not only faithful or root-motion ones: the unit is
+///   what the runtime roster scan, the adsf root-motion read and the future OAR replacement all consume, so a
+///   skipped unit silently vanishes from all three. Pose fidelity only matters to compile/serve, which the
+///   bundle's manifest (compile_animations) gates separately.
 static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes,
                                          const std::filesystem::path&     unitPath,
                                          const std::filesystem::path&     stageDir,
                                          std::string&                     reason,
-                                         bool                             motionOnly = false) {
+                                         bool                             poseGate = true) {
     namespace fs = std::filesystem;
     std::error_code ec;
     constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
@@ -2604,20 +2609,11 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
     const auto dc = CB::core::anim::DecompileAnimation(abytes, bakeTmp);
     if (!dc.ok) { reason = dc.error; return AnimBakeOutcome::Skip; }   // incl. "not spline-compressed"
 
-    // MOTION-ONLY package (point 5, compile-off bundles): keep the unit ONLY when it carries a `motion:`
-    // block (AMR root motion translated at decompile — point 4), and SKIP the pose recompile+fidelity
-    // gate. The pose is not served unless the bundle opts into compile (manifest compile_animations), so
-    // pose fidelity is irrelevant here; we package the animation purely so its root motion feeds the adsf
-    // (the runtime motionsForRoot read). A non-motion animation isn't packaged at all — no bloat from OAR
-    // animation packs, only the motion-bearing clips.
-    if (motionOnly) {
-        std::ifstream in(bakeTmp / "animation.yaml", std::ios::binary);
-        std::string   y((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        in.close();
-        if (y.find("\n  motion:") == std::string::npos) { reason = "no root motion"; return AnimBakeOutcome::Skip; }
+    if (!poseGate) {
         fs::create_directories(unitPath.parent_path(), ec);
+        std::ifstream src(bakeTmp / "animation.yaml", std::ios::binary);
         std::ofstream dst(unitPath, std::ios::binary | std::ios::trunc);
-        dst << y;
+        dst << src.rdbuf();
         return AnimBakeOutcome::Ok;
     }
     try {
@@ -3063,62 +3059,150 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     return r;
 }
 
-// Per-mod animation packaging (piece 1) — see the forward declaration above ConvertLoadOrder. Walks each
-// enabled mod's loose meshes\ for animation .hkx and bakes them into that mod's <modName>.hky bundle as
-// attributed single-file units (the per-mod sibling of BuildBaseBundle's animation leg). Index-bound for
-// now; bone-name binding (the membrane) is piece 2. FAIL-SAFE: a skip/fail writes no unit and the engine
-// keeps the loose .hkx, so this can never break the behavior/skeleton bundles.
+/// @brief Package EVERY animation each enabled mod contributes into its <modName>.hky (or the one shared
+///   `targetBundle` in Pandora mode) as attributed single-file units — the per-mod sibling of BuildBaseBundle's
+///   animation leg.
+/// @note Sources = the mod's LOOSE meshes\ files + the archives the ENGINE loads for it via the plugin rule
+///   (ResolveModArchivesFor). Loose beats any archive and a later-loaded archive beats an earlier one — the
+///   engine's precedence inside one mod. INI-listed/built-in archives are base-game content: they belong to the
+///   master, never a mod bundle (hence also the reserved bundle name "Skyrim").
+/// @note Shared-bundle (Pandora) mode walks mods highest-priority first, so the FIRST mod to write a path owns it;
+///   a lower-priority mod never overwrites it (it did before: last-writer-wins inverted MO2 priority).
+/// @note FAIL-SAFE: a skip/fail writes no unit and the engine keeps the original file, so this can never break the
+///   behavior/skeleton bundles built alongside.
+/// @warning Archive-sourced units carry the archive's LOWERCASED path (BSA case is unrecoverable); loose-sourced
+///   units keep their on-disk case.
 static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
                                  const fs::path& stageRoot, const LogFn& log,
                                  const std::string& targetBundle) {
+    namespace bsa = CB::core::codec::bsa;
     const auto say = [&](const std::string& s) { if (log) log(s); };
     std::error_code ec;
     const fs::path stage = stageRoot / "modanim_stage";
     fs::create_directories(stage, ec);
 
-    // In single-bundle (Pandora) mode ALL mods' animations land in the one `targetBundle` (Pandora.hky);
-    // otherwise each mod's animations go in its own <modName>.hky. Root-motion packaging (point 5):
-    // BakeAnimationUnit runs MOTION-ONLY — it keeps only the clips that carry AMR root motion (translated
-    // to the `motion:` field at decompile), so the runtime adsf-derive (motionsForRoot) picks up their
-    // root motion. Non-motion animations (plain OAR replacers) are not packaged. Compile/serve of the
-    // pose stays gated by the bundle's manifest compile_animations flag (default false).
-    int totalOk = 0, totalSkip = 0, totalFail = 0, modsWithAnims = 0;
-    for (const std::string& modName : mo2.enabledTopFirst) {
-        const fs::path modRoot = mo2.modsDir / modName;
-        const fs::path meshes  = modRoot / "meshes";
-        if (!fs::is_directory(meshes, ec)) continue;
-        const fs::path bundle = plugins / ((targetBundle.empty() ? modName : targetBundle) + ".hky");
-        int modOk = 0, modSkip = 0, modFail = 0;
-        for (fs::recursive_directory_iterator it(meshes, ec), end; !ec && it != end; it.increment(ec)) {
-            if (!it->is_regular_file(ec)) continue;
-            const fs::path& p = it->path();
-            const std::string lower = ToLower(p.filename().string());
-            if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".hkx") != 0) continue;
-            if (PeekHkxKind(p) != HkxKind::Animation) continue;
+    std::unordered_map<std::string, std::vector<ModArchiveInfo>> pluginArchivesByMod;   ///< ascending load index
+    for (auto& a : ResolveModArchivesFor(mo2))
+        if (a.counted && a.loadIndex >= 0) pluginArchivesByMod[a.modName].push_back(std::move(a));
 
-            std::vector<std::uint8_t> abytes; std::string rerr;
-            if (!CB::core::codec::ReadHavokFile(p.string(), abytes, &rerr)) { ++modFail; continue; }
-            const fs::path rel = fs::relative(p, modRoot, ec);    // "meshes/actors/.../<name>.hkx"
-            if (ec || rel.empty()) { ++modFail; continue; }
-            const fs::path unit = bundle / rel;                   // single-file attributed unit inside the bundle
+    struct Source {
+        fs::path          loose;             ///< set for a loose file
+        std::size_t       archive = 0;       ///< index into `archives` for an archive entry
+        const bsa::Entry* entry = nullptr;
+        std::string       rel;               ///< "meshes/actors/.../x.hkx" — the unit path inside the bundle
+    };
+    std::unordered_set<std::string> sharedClaimed;   ///< lower(rel) already written into the shared bundle
+    std::map<std::string, int>      skipReasons;
+    std::vector<std::string>        unrecognized;    ///< .hkx under an animations/ folder that did NOT classify as an animation
+    int totalOk = 0, totalSkip = 0, totalFail = 0, totalFromArchive = 0, modsWithAnims = 0;
+    std::vector<std::uint8_t> abytes;
+
+    for (const std::string& modName : mo2.enabledTopFirst) {
+        const fs::path    modRoot    = mo2.modsDir / modName;
+        const std::string bundleName = targetBundle.empty() ? modName : targetBundle;
+        const auto        archIt     = pluginArchivesByMod.find(modName);
+        const bool        hasLoose   = fs::is_directory(modRoot / "meshes", ec);
+        if (!hasLoose && archIt == pluginArchivesByMod.end()) continue;
+        if (ToLower(bundleName) == "skyrim") {
+            say("  skipped mod '" + modName + "': bundle name 'Skyrim' is reserved for the master "
+                "(its base-game content is imported by the master regen).");
+            continue;
+        }
+        const fs::path bundle = plugins / (bundleName + ".hky");
+
+        std::map<std::string, Source> sources;   ///< lower(rel) -> the winning source for that path
+        if (hasLoose)
+            for (fs::recursive_directory_iterator it(modRoot / "meshes", ec), end; !ec && it != end; it.increment(ec)) {
+                if (!it->is_regular_file(ec)) continue;
+                const fs::path& p = it->path();
+                if (ToLower(p.extension().string()) != ".hkx") continue;
+                std::error_code rec;
+                const std::string rel = fs::relative(p, modRoot, rec).generic_string();
+                if (rec || rel.empty()) continue;
+                sources.emplace(ToLower(rel), Source{ p, 0, nullptr, rel });
+            }
+
+        std::vector<bsa::Archive> archives;   ///< must outlive `sources`: Source::entry points into these
+        if (archIt != pluginArchivesByMod.end()) {
+            const auto& list = archIt->second;
+            archives.reserve(list.size());
+            for (auto a = list.rbegin(); a != list.rend(); ++a) {
+                std::string err;
+                if (auto arc = bsa::Archive::Open(a->archive, &err)) archives.push_back(std::move(*arc));
+                else { say("  archive unreadable: " + a->archive + " — " + err); ++totalFail; }
+            }
+            for (std::size_t ai = 0; ai < archives.size(); ++ai)
+                for (const auto& e : archives[ai].Entries()) {
+                    if (e.path.rfind("meshes\\", 0) != 0 || e.path.size() < 4 ||
+                        e.path.compare(e.path.size() - 4, 4, ".hkx") != 0) continue;
+                    std::string rel = e.path;
+                    std::replace(rel.begin(), rel.end(), '\\', '/');
+                    sources.emplace(rel, Source{ {}, ai, &e, rel });
+                }
+        }
+
+        int modOk = 0, modSkip = 0, modFail = 0, modFromArchive = 0;
+        for (const auto& [key, src] : sources) {
+            if (!targetBundle.empty() && sharedClaimed.count(key)) continue;
+            std::string err;
+            if (src.entry) {
+                if (!archives[src.archive].Extract(*src.entry, abytes, &err)) {
+                    say("  extract failed: " + src.rel + " — " + err);
+                    ++modFail;
+                    continue;
+                }
+                if (PeekHkxKind(abytes) != HkxKind::Animation) {
+                    if (key.find("/animations/") != std::string::npos) unrecognized.push_back(modName + ": " + src.rel);
+                    continue;
+                }
+            } else {
+                if (PeekHkxKind(src.loose) != HkxKind::Animation) {
+                    if (key.find("/animations/") != std::string::npos) unrecognized.push_back(modName + ": " + src.rel);
+                    continue;
+                }
+                if (!CB::core::codec::ReadHavokFile(src.loose, abytes, &err)) { ++modFail; continue; }
+            }
             std::string reason;
-            switch (BakeAnimationUnit(abytes, unit, stage, reason, /*motionOnly=*/true)) {
-                case AnimBakeOutcome::Ok:   ++modOk;   break;
-                case AnimBakeOutcome::Skip: ++modSkip; break;   // no root motion — not packaged (harmless)
+            switch (BakeAnimationUnit(abytes, bundle / fs::path(src.rel), stage, reason, /*poseGate=*/false)) {
+                case AnimBakeOutcome::Ok:
+                    ++modOk;
+                    if (src.entry) ++modFromArchive;
+                    if (!targetBundle.empty()) sharedClaimed.insert(key);
+                    break;
+                case AnimBakeOutcome::Skip: ++modSkip; ++skipReasons[reason.substr(0, std::min<std::size_t>(reason.find(':'), 60))]; break;
                 case AnimBakeOutcome::Fail: ++modFail; break;
             }
         }
-        if (modOk > 0) {
-            ++modsWithAnims;
-            say("  mod root-motion animations: " + modName + " -> " + std::to_string(modOk) + " motion unit(s).");
+        if (modOk || modSkip || modFail) {
+            modsWithAnims += modOk ? 1 : 0;
+            say("  mod animations: " + modName + " -> " + std::to_string(modOk) + " unit(s) (" +
+                std::to_string(modFromArchive) + " from archives), " + std::to_string(modSkip) + " skipped, " +
+                std::to_string(modFail) + " failed.");
         }
-        totalOk += modOk; totalSkip += modSkip; totalFail += modFail;
+        totalOk += modOk; totalSkip += modSkip; totalFail += modFail; totalFromArchive += modFromArchive;
     }
     fs::remove_all(stage, ec);
-    if (totalOk || totalSkip || totalFail)
-        say("Mod animations: " + std::to_string(totalOk) + " root-motion unit(s) across " +
-            std::to_string(modsWithAnims) + " mod(s) (" + std::to_string(totalSkip) + " no-motion/skipped, " +
-            std::to_string(totalFail) + " failed).");
+    say("Mod animations: " + std::to_string(totalOk) + " unit(s) across " + std::to_string(modsWithAnims) + " mod(s) (" +
+        std::to_string(totalFromArchive) + " from archives), " + std::to_string(totalSkip) + " skipped, " +
+        std::to_string(totalFail) + " failed.");
+    for (const auto& [why, n] : skipReasons) say("    skip reason: " + std::to_string(n) + " x " + why);
+    if (!unrecognized.empty()) {
+        say("  WARNING: " + std::to_string(unrecognized.size()) + " .hkx under an animations/ folder did not classify as an "
+            "animation (not packaged — invisible to the roster scan):");
+        for (std::size_t i = 0; i < unrecognized.size() && i < 20; ++i) say("    " + unrecognized[i]);
+    }
+}
+
+bool PackageAllModAnimations(const std::string& mo2Instance, const std::string& pluginsDir, const LogFn& log) {
+    const Mo2Layout mo2 = ResolveMo2Layout(mo2Instance);
+    if (!mo2.ok) {
+        if (log) log("not an MO2 instance (no profiles/mods, or an empty modlist): " + mo2Instance);
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(pluginsDir, ec);
+    PackageModAnimations(mo2, pluginsDir, pluginsDir, log, std::string());
+    return true;
 }
 
 RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& templatesDir,

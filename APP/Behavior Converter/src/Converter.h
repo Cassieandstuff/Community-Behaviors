@@ -125,6 +125,10 @@ struct ModArchiveInfo {
 /// @brief Resolve which enabled mods' archives the engine loads (plugin rule + MO2 VFS precedence). Read-only.
 std::vector<ModArchiveInfo> ResolveModArchives(const std::string& mo2Instance, const LogFn& log);
 
+/// @brief Run ONLY the per-mod animation packaging pass (loose + engine-loaded archives, every decompilable
+///   animation) into <pluginsDir>/<mod>.hky/ unit trees — no behavior conversion. The stage gate / profiling harness.
+bool PackageAllModAnimations(const std::string& mo2Instance, const std::string& pluginsDir, const LogFn& log);
+
 struct Result {
     bool        ok = false;
     std::string error;
