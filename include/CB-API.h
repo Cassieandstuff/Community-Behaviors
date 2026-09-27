@@ -40,14 +40,14 @@
 #include "havok-schema/HavokSchema.h"
 
 // anim — decode/compile/export animations (schema-native; the CB pipeline itself)
-#include "havok/anim/AnimationDef.h"
+#include "interface/AnimationDef.h"
 #include "codec/format/AnimationYamlLoader.h"
 #include "compile/AnimationCompiler.h"
 #include "decompile/AnimationDecompiler.h"
 
 // animdata — the animationdata (motion / root-motion) model + its YAML sidecar
-#include "havok/anim/AnimationData.h"
-#include "havok/anim/AnimDataYaml.h"
+#include "interface/AnimationData.h"
+#include "codec/format/AnimDataYaml.h"
 
 // skeleton — decode/compile/export skeletons (schema-native codec; anim + ragdoll)
 #include "interface/SkeletonData.h"
