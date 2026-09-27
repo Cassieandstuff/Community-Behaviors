@@ -10,6 +10,7 @@
 #include <codec/format/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior / DeriveProjectPatch
 #include <interface/linker/Membrane.h>     // roster IndexMembrane (motion inherits the clip's bind)
+#include <interface/MasterTable.h>         // BuildMasterTable — FormId canon for the adsf-derive merge
 #include <havok/model/BehaviorData.h>
 #include <havok/model/yaml/YamlBehaviorLoader.h>
 
@@ -264,13 +265,30 @@ namespace linker = CB::core::linker;
                     if (ms && ms->read("behavior.yaml").has_value()) baseSrc = std::move(ms);
                 }
 
-                std::vector<std::shared_ptr<const CB::core::common::IUnitSource>> sources;
-                if (baseSrc) sources.push_back(baseSrc);
-                sources.push_back(src);
+                // Carry the FormId master tables so the loader CANONICALIZES node ids (base vs delta),
+                // exactly like the compile path — the bare-source overload leaves masterTable empty, so
+                // canon is OFF and the base's self-index nodes (0000x…) COLLIDE raw with the delta's own
+                // self-index nodes (also 0000x…), cross-classing them and corrupting the derived clip set
+                // (silent no-root-motion / wrong-clip adsf). This is a base(skyrim) + single-delta merge, so
+                // the minimal correct table is [self, skyrim]: index 0 = self, index 1 = skyrim (declared
+                // masters beyond skyrim aren't present as layers here, so their refs can't resolve regardless).
+                std::vector<CB::core::common::LayerSource> layers;
+                if (baseSrc) {
+                    CB::core::common::LayerSource b;
+                    b.source = baseSrc; b.stem = std::string(CB::core::codec::formid::BASE_GAME_STEM); b.rank = 0;
+                    b.masterTable = CB::core::codec::formid::BuildMasterTable(b.stem, {}, /*haveSkyrim*/ true);
+                    layers.push_back(std::move(b));
+                }
+                {
+                    CB::core::common::LayerSource d;
+                    d.source = src; d.stem = stem; d.rank = baseSrc ? 1 : 0;
+                    d.masterTable = CB::core::codec::formid::BuildMasterTable(stem, {}, /*haveSkyrim*/ baseSrc != nullptr);
+                    layers.push_back(std::move(d));
+                }
 
                 CB::core::common::BehaviorData data;
                 try {
-                    data = CB::core::codec::YamlBehaviorLoader::LoadMerged(sources);
+                    data = CB::core::codec::YamlBehaviorLoader::LoadMerged(layers);
                 } catch (const std::exception& e) {
                     LOG_WARN("AnimData: derive skipped unit '{}' in '{}' — load failed: {}", unitPrefix, stem, e.what());
                     continue;
@@ -284,8 +302,11 @@ namespace linker = CB::core::linker;
                 if (baseSrc) {
                     std::unordered_set<std::string> baseNames;
                     try {
+                        CB::core::common::LayerSource b;
+                        b.source = baseSrc; b.stem = std::string(CB::core::codec::formid::BASE_GAME_STEM); b.rank = 0;
+                        b.masterTable = CB::core::codec::formid::BuildMasterTable(b.stem, {}, /*haveSkyrim*/ true);
                         auto baseData = CB::core::codec::YamlBehaviorLoader::LoadMerged(
-                            std::vector<std::shared_ptr<const CB::core::common::IUnitSource>>{ baseSrc });
+                            std::vector<CB::core::common::LayerSource>{ std::move(b) });
                         for (const auto& bc : CB::core::compile::DeriveClipInputsFromBehavior(baseData))
                             baseNames.insert(ToLower(bc.name));
                     } catch (const std::exception&) { /* base underivable -> keep all (best effort) */ }

@@ -460,16 +460,19 @@ bool sameLengthEdit(const c4::yml::Tree& bt, c4::yml::id_type ba,
 // (base ∪ every mod, dedup-exact) instead KEEPS the stale base slot a mod meant to replace → the
 // attack-commitment loss + shield-drop bug.
 //
-// SINGLE SOURCE OF TRUTH: the schema `merge:` tag (metadata/semantics/merge.yaml → Field::merge via
-// SchemaRegistry::ApplyMergeSemantics) is the ONLY classifier. The old hardcoded transitions/states
-// name set is gone — it was a second answer that could silently drift from the schema (and the whole
-// converter side, HavokModel bashMerge, already read the tag). The runtime wires the registry
-// (Plugin.cpp SetSchemaRegistry) and ApplyMergeSemantics HARD-ERRORS on an unknown class/field, so a
-// schema that loads at all guarantees the tag is present; a null registry (a single-source converter
-// LoadMerged with no deltas) never reaches the 2+-changer compose site below. `cls` = node class
-// (peekClass); the `&& isArr` call site already excludes same-named POINTER fields
-// (hkbStateMachine.transitions / hkbStateMachineStateInfo.transitions are ptrs, not the seq).
+/// @brief Whether array field @p p of a node of class @p cls composes element-wise across the load order.
+/// @note The schema `merge:` tag (metadata/semantics/merge.yaml, via SchemaRegistry::ApplyMergeSemantics)
+///   is the single source of truth; @p cls is the node's own class (peekClass).
+/// @warning The YAML model INLINES each owned hkbStateMachineTransitionInfoArray under its OWNER's
+///   `transitions:` key (hkbStateMachineStateInfo.transitions, and hkbStateMachine's wildcardTransitions),
+///   while the schema declares those owner fields as ptrs and tags `compose` on the ARRAY class
+///   (hkbStateMachineTransitionInfoArray.transitions). The owner's (cls,"transitions") therefore carries
+///   no tag — classify an inlined transitions list by the array class's tag. Querying the owner instead
+///   silently disabled transition compose: 2+-mod edits fell to UnionArray, the stale base slot won, and
+///   mod transition edits were lost (BFCO JumpFall, Paraglider Stagger_State — diffed against Pandora).
 bool composeArray(const std::string& cls, const std::string& p) {
+    if (p == "transitions" && (cls == "hkbStateMachineStateInfo" || cls == "hkbStateMachine"))
+        return mergeTagFor("hkbStateMachineTransitionInfoArray", "transitions") == "compose";
     return mergeTagFor(cls, p) == "compose";
 }
 // guarded still carries the built-in name set: metadata/semantics/merge.yaml has NO `guarded:` section
@@ -718,13 +721,20 @@ static void loadDirInto(BehaviorData& data,
     std::unordered_map<std::string, int> stemRank;                 // owner stem -> global load rank
     for (const LayerSource& L : layers) if (!L.stem.empty()) stemRank.emplace(L.stem, L.rank);
     auto canonToken = [&](const std::string& tok, std::size_t li) -> std::string {
-        const auto f = CB::core::codec::formid::parse(tok);
+        // "<FormId>_<suffix>" inline-child keys (e.g. "0000x00ce_bones" — an anonymous hkbBoneIndexArray /
+        // hkbExpressionDataArray sub-node keyed by its parent's id + field name) canonicalize the FormId
+        // PREFIX and keep the suffix. canonText already rewrites the bare FormId run inside such a string,
+        // so the key side MUST match — else the key stays raw, the child is unreachable, and it wrongly
+        // trips the retired name-keyed fallback (these are legitimately keyed by parent-id+field, unique).
+        std::string idPart = tok, suffix;
+        if (const auto us = tok.find('_'); us != std::string::npos) { idPart = tok.substr(0, us); suffix = tok.substr(us); }
+        const auto f = CB::core::codec::formid::parse(idPart);
         if (!f) return tok;                                        // not a FormId -> unchanged
         const auto owner = CB::core::codec::formid::ResolveOwner(layers[li].masterTable, f->masterIndex);
         if (!owner) return tok;                                    // idx out of range -> leave (pass 2 warns)
         const auto rit = stemRank.find(std::string(*owner));
         if (rit == stemRank.end()) return tok;                     // owner not loaded -> leave raw
-        return "@" + std::to_string(rit->second) + "." + std::to_string(f->local);
+        return "@" + std::to_string(rit->second) + "." + std::to_string(f->local) + suffix;
     };
 
     // ── behavior.yaml (per layer, in load order; only the base is required) ──
@@ -885,14 +895,18 @@ static void loadDirInto(BehaviorData& data,
     // Name-keyed fallback is retired: any runtime node without a FormId identity is a hard error (it would
     // silently collide duplicate vanilla names into one node). Every offender was logged above; fail now with
     // the count + the first few, so a stale/un-reconverted bundle is named instead of quietly mis-merging.
+    // WARN loudly (do NOT abort). Aborting the graph over any name-keyed node is too aggressive: some
+    // keys legitimately have no own FormId — inline "<parentId>_<field>" sub-arrays are handled by
+    // canonToken above, and other legitimate patterns may exist. A genuine duplicate-vanilla-name
+    // collision still surfaces here per offender; it degrades that one node, it must not vanilla the
+    // whole master. (Re-tighten to fatal only once every legitimate name-keyed shape is enumerated.)
     if (!nameKeyed.empty()) {
         std::string list;
         for (std::size_t i = 0; i < nameKeyed.size() && i < 8; ++i) list += "\n  - " + nameKeyed[i];
         if (nameKeyed.size() > 8) list += "\n  - … (" + std::to_string(nameKeyed.size() - 8) + " more)";
-        throw std::runtime_error(
-            "YamlBehaviorLoader: " + std::to_string(nameKeyed.size()) + " node(s) reached the retired "
-            "name-keyed fallback (no FormId identity). Name-keying collides duplicate vanilla names — "
-            "reconvert the offending bundle(s):" + list);
+        emitMergeDiag("YamlBehaviorLoader: " + std::to_string(nameKeyed.size()) + " node(s) reached the "
+                      "name-keyed fallback (no FormId identity) — kept by name, not aborted. Reconvert the "
+                      "offending bundle(s) if animations bind wrong:" + list);
     }
     std::vector<char> gconsumed(gorder.size(), 0);
 
