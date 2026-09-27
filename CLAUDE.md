@@ -127,12 +127,44 @@ still belongs in the session scratchpad dir.)
 ## Knowledge tiers
 
 - **CLAUDE.md** — always-on architectural SOP (this file). Keep it LEAN; it's injected every turn.
-- **Auto-memory** — preferences, decisions + context, project state (soft, per-user). NOT bug status.
+- **Auto-memory** — preferences, project state, and **design rationale** (*why* the code is shaped this
+  way — grounded in RE, a failed approach, or a measurement), soft + per-user. This is the home for design
+  thinking. Verify against the code, flag discrepancies, prune with authoritative caution (the memory skill).
+  NOT bug status.
 - **`docs/bugs/`** — the checked-in bug log: one file per OPEN bug + a thin index, and a fixed bug
   **leaves** (deleted with its index line in the same commit as the fix; git history is the archive —
   nothing accumulates). Bugs are shared/authoritative, so they live here, not in memory. Find a bug →
   add its file; fix it → remove it; sync in the same change as the code. See `docs/bugs/README.md`.
 - **Code is the source of truth**, above docs and comments. Verify code-shaped claims against the code.
 
+**The repo stays PURE — no design docs.** The only prose the repo carries is: build + architecture (this
+file), how-to-use (README + API comments), and `docs/bugs/`. Design *rationale* graduates to memory (above);
+*vision*/speculative work lives at most in an ephemeral plan that dies when the work lands — never a
+checked-in artifact. **No artifact — doc, memory, or comment — may present unbuilt or unverified work as
+settled:** rationale records a decision already grounded; vision stays disposable. (A shared `docs/decisions/`
+rationale tier, bugs-sheet style, is a possible future move — not adopted; revisit if collaborators appear.)
+
 When about to record something SOP-shaped into a checked-in file, flag it for the user's approval —
 don't add it silently.
+
+## Comment hygiene (the Doxygen paradigm)
+
+Doxygen generates the API reference + class/include/collaboration/call graphs from the code ITSELF
+(`Doxyfile` at repo root — tooling config; output to `D:\CB-tmp\doxygen`, a build artifact, never
+committed). So **the code is the `what`**; comments carry only what the generated mirror can't derive.
+
+- **No comment for what Doxygen already shows** — signatures, types, structure, "this is class/function X",
+  restating what the line does. Redundant narration is DELETED, not written. The mirror shows it.
+- **Comments exist ONLY as Doxygen annotations** (`/// @brief`, `@param`, `@return`, `@note`, `@warning`,
+  `@invariant`, `@pre`/`@post`) — never plain prose comments. One form, so every kept comment lands in the
+  generated reference.
+- **Annotate only the non-derivable:** the *why* (rationale, a failed approach, a case-sensitivity / ordering
+  trap), the *contract* (ownership, pre/post-conditions, invariants, units), the *gotcha*. If it restates the
+  code, cut it.
+- **Verified or gone.** An annotation is checked against the code the moment it's written or touched; a stale
+  or wrong annotation is a bug — fix or delete it, never leave it lying (same leave-on-obsolete spirit as
+  `docs/bugs/`).
+- **Deep rationale that outlives one symbol → memory** (the design-rationale tier), not a wall of comment.
+
+Going forward this is the only comment style; a retroactive sweep converts/prunes legacy comments to it
+(verify-first, then annotate). A whole-tree sweep is merge-hostile — run it against a quiesced tree.
