@@ -52,7 +52,7 @@ fuller model is reachable through the namespace aliases `cb::resolve::model` / `
 
 Resolution is **deltas over a base**: `LoadMerged` takes layers *base-first*, and layer 0 is the vanilla
 master `Skyrim.hky`. That master is **not** in this package — it's a decompiled representation of the
-user's own vanilla game data (produced only by the full CB build from `$SKYRIM_DATASOURCE`), so
+user's own vanilla game data (produced only by the full CB build from `$CB_REGEN_SOURCE`), so
 redistributing it would ship Bethesda's assets. A consumer instead **opens it from the user's install at
 runtime**, the same way the Scene Editor does: resolve the game `Data/` root (MO2's VFS / registry)
 yourself, then load the CB-mod-relative path under it:

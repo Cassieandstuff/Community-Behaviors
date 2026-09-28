@@ -62,7 +62,7 @@ Resolution is *deltas over a base*: `LoadMerged` is base-first and layer 0 is th
 `Skyrim.hky`. It is neither package source nor package artifact — it's a **runtime input**:
 
 - **Not shipped.** It's a decompiled representation of the user's own vanilla game data (Bethesda IP,
-  ~27 MB), produced only by the full CB build from `$SKYRIM_DATASOURCE`. A public registry must not
+  ~27 MB), produced only by the full CB build from `$CB_REGEN_SOURCE`. A public registry must not
   redistribute it — a stronger bar than CB's own All-Rights-Reserved code.
 - **cb-resolve can't produce it** anyway (regen needs the converter → havok-core); the resolve surface
   can only *read* a master, which is all a consumer needs.

@@ -2665,23 +2665,26 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     // registry error per file and counts them as failures — it does not abort the corpus walk.
 
     // Stage under a SHORT root so the deep decompiled unit tree stays under MAX_PATH; only the packed
-    // archive survives — UNLESS keepStagingDir is set, in which case the unpacked Skyrim.hky/ tree is
+    // archive survives — UNLESS keepStagingDir is set, in which case the unpacked <Name>.hky/ tree is
     // built there and KEPT (a short, observable layout with no unpack step; the caller picks the path).
-    const bool     keepStage = !keepStagingDir.empty();
-    const fs::path stage    = keepStage ? fs::path(keepStagingDir) : (fs::temp_directory_path(ec) / "sct_base_build");
-    const fs::path stageHky = stage / "Skyrim.hky";
-    // Baked native ANIMATIONS now ride in Skyrim.hky itself (point 1 of the root-motion/animation-compiler
-    // plan — reunited with their behaviors/characters/projects). They are present in the master so their
-    // ROOT MOTION can feed the adsf; whether they COMPILE/serve is gated per bundle by the manifest compile
-    // flag (point 2), which Skyrim.hky omits. No separate "Skyrim - Animations.hky" bundle any more.
-    fs::remove_all(stage, ec);
+    // The bundle's name IS the output's filename (original case): every regen source runs this same build.
+    const std::string bundle    = fs::path(outHky).filename().string();
+    const bool        keepStage = !keepStagingDir.empty();
+    const fs::path    stage     = keepStage ? fs::path(keepStagingDir)
+                                            : (fs::temp_directory_path(ec) / ("sct_base_build_" + fs::path(bundle).stem().string()));
+    const fs::path    stageHky  = stage / bundle;
+    // Baked native ANIMATIONS ride in the bundle itself, reunited with their behaviors/characters/projects,
+    // so their ROOT MOTION can feed the adsf; whether they COMPILE/serve is gated per bundle by the manifest
+    // compile flag. The kept root is SHARED by every regenerated bundle (and cb_deploy's diff unpack), so
+    // only this bundle's own subtree is cleared.
+    fs::remove_all(keepStage ? stageHky : stage, ec);
     fs::create_directories(stageHky / "meshes", ec);
 
     // NOTE: the singlefile decomposes are now FLAT per-project (keyed by the cache project-name stem),
     // landing in the two "<name>.txt/" folders — so the old project/character -> actor-root maps that
     // placed motion/movesets under actors/<actor>/ are gone (the folders don't need them).
 
-    say("== Building Skyrim.hky master (full vanilla corpus) ==");
+    say("== Building " + bundle + " (every unit under " + meshes.string() + ") ==");
     for (fs::recursive_directory_iterator it(meshes, fs::directory_options::skip_permission_denied, ec), end;
          !ec && it != end; it.increment(ec)) {
         if (cancel) { r.error = "cancelled"; return r; }
@@ -2700,9 +2703,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         const HkxKind kind = PeekHkxKind(it->path());
         if (kind == HkxKind::Other) continue;
 
-        // Everything — behaviors, characters, projects, skeletons AND animations — bakes into the one base
-        // bundle (Skyrim.hky). Animations reunited with the rest (point 1); the compile flag (point 2) decides
-        // whether they serve.
+        // Everything — behaviors, characters, projects, skeletons AND animations — bakes into the one bundle.
         const fs::path unit = stageHky / "meshes" / fs::path(rel);
 
         // SKELETON: hkaSkeleton -> bonelist.yaml + bones/ unit (SkeletonImport -> EmitSkeletonYamlTree).
@@ -2866,7 +2867,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     // the base — the monolithic .txt no longer ships; the set-data server composes it back byte-exact
     // (gated: havok-core-cli setdata-tree-roundtrip). Flat per-project (keyed by header stem), so NO
     // actor-root resolution and NO noActor gap — every one of the 49 projects lands.
-    say("== Skyrim editable caches (per-project YAML) ==");
+    say("== editable caches (per-project YAML) ==");
     {
         std::ifstream sf(meshes / "animationsetdatasinglefile.txt", std::ios::binary);
         std::string   setText((std::istreambuf_iterator<char>(sf)), std::istreambuf_iterator<char>());
@@ -3011,7 +3012,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             const std::string canon = CB::core::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
                             // native animation is a SINGLE-FILE unit: the ".hkx" path IS the yaml (not a
                             // "<name>.hkx/animation.yaml" tree). Append the motion block onto that file.
-                            const fs::path animYaml = stageHky / "meshes" / canon;   // baked anims now live in Skyrim.hky
+                            const fs::path animYaml = stageHky / "meshes" / canon;   // baked anims live in the bundle
                             std::error_code fe;
                             if (!fs::exists(animYaml, fe)) { ++unbaked; continue; }   // not baked -> vanilla loose keeps its adsf motion
                             // don't double-append (first-writer wins across the male/female duplicate).
@@ -3044,17 +3045,9 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     std::string zerr;
     if (!sct::util::ZipDir(stageHky.string(), outHky, zerr)) { r.error = "pack failed: " + zerr; return r; }
 
-    // Animations are now IN Skyrim.hky (no separate bundle). Remove any stale sibling "Skyrim -
-    // Animations.hky" left by an older build so the runtime doesn't load its animations twice.
-    {
-        std::error_code de;
-        const fs::path staleAnim = fs::path(outHky).parent_path() / "Skyrim - Animations.hky";
-        if (fs::remove(staleAnim, de)) say("  removed stale " + staleAnim.string() + " (animations now in Skyrim.hky).");
-    }
-
     if (keepStage) say("  kept unpacked tree: " + stageHky.string());
     else           fs::remove_all(stage, ec);   // keep only the archives
-    say("  master built: " + outHky);
+    say("  built: " + outHky);
     r.ok = true;
     return r;
 }
@@ -3213,13 +3206,14 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     RegenResult r;
     std::error_code ec;
 
-    const fs::path work    = fs::temp_directory_path(ec) / "sct_regen_master";
-    const fs::path tempHky = work / "Skyrim.hky";
+    const std::string bundle  = fs::path(outHky).filename().string();
+    const fs::path    work    = fs::temp_directory_path(ec) / ("sct_regen_" + fs::path(bundle).stem().string());
+    const fs::path    tempHky = work / bundle;
     fs::remove_all(work, ec);
     fs::create_directories(work, ec);
 
-    // 1) Build the whole master to a TEMP file (never touch outHky until it validates). keepStagingDir
-    //    (optional) keeps the unpacked Skyrim.hky/ tree there for observation — built regardless of the
+    // 1) Build the whole bundle to a TEMP file (never touch outHky until it validates). keepStagingDir
+    //    (optional) keeps the unpacked <Name>.hky/ tree there for observation — built regardless of the
     //    validation outcome below (you want to inspect it precisely when it DIDN'T validate).
     r.build = BuildBaseBundle(vanillaMeshesDir, tempHky.string(), log, cancel, templatesDir, keepStagingDir);
     if (!r.build.ok) { r.error = "build-base failed: " + r.build.error; fs::remove_all(work, ec); return r; }
@@ -3229,7 +3223,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     //    decompile. graphdata carries the symbol tables + role/flags the XML-oracle path used to
     //    corrupt (37 vs 5804/5849), so a drift here is the exact alarm we lacked.
     say("");
-    say("== Validating regenerated master vs vanilla (graphdata fidelity) ==");
+    say("== Validating regenerated " + bundle + " vs its source binaries (graphdata fidelity) ==");
     std::string herr;
     auto arc = CB::core::codec::HkyArchive::LoadFromFile(tempHky.string(), herr);
     if (!arc) { r.error = "cannot reopen built master for validation: " + herr; fs::remove_all(work, ec); return r; }
@@ -3305,16 +3299,9 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     }
     fs::create_directories(fs::path(outHky).parent_path(), ec);
     fs::copy_file(tempHky, outHky, fs::copy_options::overwrite_existing, ec);
-    if (ec) { r.error = "failed to write master to " + outHky + ": " + ec.message(); fs::remove_all(work, ec); return r; }
-    // Animations are now baked into Skyrim.hky (point 1). Remove any stale sibling "Skyrim -
-    // Animations.hky" at the output dir so the runtime never loads its animations twice.
-    {
-        std::error_code ae;
-        const fs::path staleAnim = fs::path(outHky).parent_path() / "Skyrim - Animations.hky";
-        if (fs::remove(staleAnim, ae)) say("  removed stale " + staleAnim.string() + " (animations now in Skyrim.hky).");
-    }
+    if (ec) { r.error = "failed to write " + outHky + ": " + ec.message(); fs::remove_all(work, ec); return r; }
     fs::remove_all(work, ec);
-    say("  master -> " + outHky + (r.drift.empty() ? "" : "  (written with " + std::to_string(r.drift.size()) +
+    say("  " + bundle + " -> " + outHky + (r.drift.empty() ? "" : "  (written with " + std::to_string(r.drift.size()) +
         " known/benign drift graph(s) — review the DRIFT lines above)"));
     r.ok = true;
     return r;

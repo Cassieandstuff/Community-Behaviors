@@ -14,7 +14,7 @@
 # Env contract (top-level build only):
 #   VCPKG_ROOT            — vcpkg clone (toolchain, via the preset)
 #   SKYRIM_MODS_FOLDER    — MO2 mods folder (deploy target)
-#   SKYRIM_DATASOURCE     — unpacked vanilla data (arms the Skyrim.hky regen)
+#   CB_REGEN_SOURCE       — root of <Name>.hky regen source folders (arms the derived-bundle regen)
 #   SCT_BASE_MASTER_DIR   — short D-drive path for the unpacked-master diff tree
 #
 # Consumer contract (subproject): the consumer's toolchain must provide `ryml`
@@ -37,6 +37,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # — not top-level), or CB_API_ONLY=ON (vcpkg builds CB as top-level, so the portfile passes this).
 # (CB_RESOLVE_ONLY accepted as the legacy spelling.)
 option(CB_API_ONLY "Build only the cb-api surface (for vcpkg / library consumers)" OFF)
+option(CB_BUILD_CONVERTER "Build the Behavior Converter GUI tool (+ the derived-bundle regen)" ON)
 if(CB_RESOLVE_ONLY)
     set(CB_API_ONLY ON)
 endif()
@@ -227,16 +228,32 @@ target_link_libraries(CommunityBehaviors PRIVATE imgui_dx11 d3d11 dxgi)
 # Each hky/<Bundle>.hky/ is the uncompressed, git-tracked YAML tree; the build packs every such folder
 # to a single-file .hky under CB_HKY_STAGE, already shaped as the runtime serve path
 # (community_behaviors/plugins/<Bundle>.hky) so the deploy is a straight mirror. Adding a bundle = drop a
-# hky/<Name>.hky/ folder (CONFIGURE_DEPENDS). Skyrim.hky (the vanilla master) is NOT packed here — it
-# regenerates from the vanilla datasource via the converter; only the small mutable bundles pack.
+# hky/<Name>.hky/ folder (CONFIGURE_DEPENDS). A bundle the converter REGENERATES (a <Name>.hky source
+# folder under $CB_REGEN_SOURCE — see cmake/GenerateBaseMaster.cmake) is NOT packed here: the regen owns
+# that output, so a same-named hky/ tree would race it for the one staged file.
 set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
 file(GLOB CB_HKY_BUNDLES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/hky/*.hky")
+set(_cb_regen_owned "")
+if(CB_BUILD_CONVERTER)
+    include(GenerateBaseMaster)
+    cb_regen_sources(_cb_regen_srcs)
+    foreach(_r ${_cb_regen_srcs})
+        get_filename_component(_r "${_r}" NAME)
+        string(TOLOWER "${_r}" _r)   # internal-only match key; the staged file keeps its source's case
+        list(APPEND _cb_regen_owned "${_r}")
+    endforeach()
+endif()
 set(_cb_hky_outputs "")
 foreach(_hky_src ${CB_HKY_BUNDLES})
     if(NOT IS_DIRECTORY "${_hky_src}")
         continue()   # a stray packed .hky FILE in the source tree, not a bundle folder
     endif()
     get_filename_component(_hky_name "${_hky_src}" NAME)   # "<Bundle>.hky"
+    string(TOLOWER "${_hky_name}" _hky_key)
+    if(_hky_key IN_LIST _cb_regen_owned)
+        message(STATUS "pack-hky-bundles: ${_hky_name} is regen-owned (CB_REGEN_SOURCE) — not packed from hky/")
+        continue()
+    endif()
     set(_hky_out "${CB_HKY_STAGE}/community_behaviors/plugins/${_hky_name}")
     file(GLOB_RECURSE _hky_files CONFIGURE_DEPENDS "${_hky_src}/*")
     add_custom_command(
@@ -274,7 +291,6 @@ endif()
 # ── The Behavior Converter (end-user + author GUI tool) ──────────────────────────
 # Shares CB's whole engine; a GLFW + Dear ImGui desktop app — heavier deps (glfw + imgui via
 # FetchContent), so gated: -DCB_BUILD_CONVERTER=OFF gives a lean plugin-only configure.
-option(CB_BUILD_CONVERTER "Build the Behavior Converter GUI tool" ON)
 if(CB_BUILD_CONVERTER)
     include(FetchContent)
 

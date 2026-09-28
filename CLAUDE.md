@@ -121,11 +121,14 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 - `SKYRIM_MODS_FOLDER` — MO2 mods folder; `cb_deploy` ships the mod there (`<mod>/SKSE/Plugins`,
   `<mod>/Community Behaviors/Havok` schema, `<mod>/community_behaviors/plugins/*.hky` bundles).
 - `SKYRIM_TOOLS_FOLDER` — the converter deploys `BehaviorConverter.exe` (+ templates/ + Havok/) here.
-- `SKYRIM_DATASOURCE` — unpacked vanilla game data root (contains `meshes\`); when set, arms the
-  `generate-base-master` regen (derives + byte-validates `Skyrim.hky` vs vanilla). Unset → regen skipped,
-  the already-deployed master stays.
-- `SCT_BASE_MASTER_DIR` — a **SHORT** D-drive path (e.g. `D:\sct-base-master`) for the unpacked master.
-  See the diff strategy below. Must be short: these trees blow past Windows MAX_PATH under a deep root.
+- `CB_REGEN_SOURCE` — root of the derived-bundle regen sources (e.g. `D:\CB Regen Source`): one folder per
+  bundle, NAMED for it (`Skyrim.hky\`, `XPMSSE.hky\`), laid out like a Data folder (`meshes\...`). Each one
+  runs the SAME `generate-base-master` regen (decompile everything it holds, gate graphdata vs its own
+  binaries where templated, pack) → `<Name>.hky`. A new derived bundle = a new source folder; a regen-owned
+  name is never also packed from `hky/`. Unset → regen skipped, the already-deployed bundles stay.
+- `SCT_BASE_MASTER_DIR` — a **SHORT** D-drive path (e.g. `D:\sct-base-master`) for the unpacked trees (each
+  regen keeps `<Name>.hky\` there). See the diff strategy below. Must be short: these trees blow past
+  Windows MAX_PATH under a deep root.
 
 ## Base-master diff strategy (packed .hky is NOT bit-reproducible)
 
@@ -138,7 +141,7 @@ toolchain versions **even when the content is identical**, so a byte-diff of pac
 - When `SCT_BASE_MASTER_DIR` is set, `cb_deploy` auto-unpacks the deployed master to
   `<SCT_BASE_MASTER_DIR>/current`, rotating the prior tree to `<SCT_BASE_MASTER_DIR>/previous` — so a
   two-point cross-build diff (`diff -rq previous current`) is always ready with no manual bookkeeping.
-  The regen's kept-unpacked tree honors the same env var.
+  The regen's kept-unpacked `<Name>.hky` trees honor the same env var.
 
 ## Scratch outputs go under `D:\CB-tmp` (directive)
 

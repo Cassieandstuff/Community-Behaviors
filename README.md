@@ -47,7 +47,7 @@ Options: `-DCB_BUILD_CONVERTER=OFF` (skip the GUI converter for a lean plugin bu
 `-DCB_RESOLVE_ONLY=ON` (build only `cb-resolve`).
 
 Relevant env vars: `SKYRIM_MODS_FOLDER` (MO2 deploy target for the plugin + its data),
-`SKYRIM_TOOLS_FOLDER` (converter deploy), `SKYRIM_DATASOURCE` (arms the `Skyrim.hky` master regen),
+`SKYRIM_TOOLS_FOLDER` (converter deploy), `CB_REGEN_SOURCE` (per-bundle `<Name>.hky` source folders; arms the derived-bundle regen),
 `SCT_BASE_MASTER_DIR` (short path for the cross-build master-diff tree).
 
 ## Using the resolution API (`cb-resolve`)

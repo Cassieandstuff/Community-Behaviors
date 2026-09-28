@@ -140,11 +140,11 @@ int main(int argc, char** argv) {
         return EXIT_SUCCESS;
     }
 
-    // Regenerate + VALIDATE the shipped Skyrim.hky master in one call (see RegenerateMaster):
+    // Regenerate + VALIDATE one derived bundle (<outHky>'s filename names it) in one call (see RegenerateMaster):
     // build-base to a temp, gate every templated graph's graphdata against vanilla, then promote.
     //   --regen-master <vanillaMeshesDir> <outHky> [<templatesDir>] [--strict] [--keep-unpacked <dir>]
     // --strict makes any drift fatal (master not written); default writes + reports drift.
-    // --keep-unpacked <dir> keeps the unpacked Skyrim.hky/ tree at <dir> (short path) for observation.
+    // --keep-unpacked <dir> keeps the unpacked <Name>.hky/ tree under <dir> (short path) for observation.
     if (argc >= 4 && std::string(argv[1]) == "--regen-master") {
         std::atomic<bool> cancel{ false };
         bool strict = false;
@@ -165,9 +165,9 @@ int main(int argc, char** argv) {
         const auto res = bconv::RegenerateMaster(pos[0], templatesDir, pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
-        std::printf("OK: Skyrim.hky master -> %s (%d behaviors, %d projects, %d characters, %d skeletons; "
+        std::printf("OK: %s -> %s (%d behaviors, %d projects, %d characters, %d skeletons; "
                     "validated %d/%d graphdata match%s)\n",
-                    pos[1].c_str(), res.build.behaviors, res.build.projects, res.build.characters,
+                    std::filesystem::path(pos[1]).filename().string().c_str(), pos[1].c_str(), res.build.behaviors, res.build.projects, res.build.characters,
                     res.build.skeletons, res.faithful, res.checked, res.drift.empty() ? "" : ", drift present (see log)");
         return EXIT_SUCCESS;
     }

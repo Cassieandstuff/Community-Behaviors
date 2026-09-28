@@ -174,9 +174,12 @@ struct BaseBuildResult {
 // onto the wrong node (the horse-behavior null-child crash). Behaviors with no template
 // have no delta either, so their (arbitrary) numbering is harmless. Empty = the old
 // all-encounter-order behaviour.
-// `keepStagingDir` (optional): when non-empty, the unpacked staging tree (Skyrim.hky/<meshes…>) is
-// built THERE and KEPT instead of a temp dir that's deleted after packing — a short, observable layout
-// for debugging with no separate unpack step. Pick a SHORT path (e.g. a D:\ root) to stay under MAX_PATH.
+// The bundle is named by `outHky`'s filename (Skyrim.hky, XPMSSE.hky, ...): any regen source runs this
+// same build over whatever its meshes tree holds.
+// `keepStagingDir` (optional): when non-empty, the unpacked staging tree (<Name>.hky/<meshes…>) is
+// built under it and KEPT instead of a temp dir that's deleted after packing — a short, observable layout
+// for debugging with no separate unpack step. The root is shared across bundles; only <Name>.hky/ is
+// cleared. Pick a SHORT path (e.g. a D:\ root) to stay under MAX_PATH.
 BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& templatesDir = "", const std::string& keepStagingDir = "");

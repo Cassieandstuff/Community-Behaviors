@@ -70,25 +70,26 @@ if(DEFINED ENV{SKYRIM_TOOLS_FOLDER})
         VERBATIM)
 endif()
 
-# ── Base master (Skyrim.hky) regeneration ─────────────────────────────────────
-# The converter derives + validates the vanilla base master from $SKYRIM_DATASOURCE and packs it into
-# the plugin's .hky stage, so cb_deploy's bundle merge-copy carries a fresh Skyrim.hky into the mod.
-# Gated on SKYRIM_DATASOURCE: unset -> skipped, the already-deployed Skyrim.hky stays. See the helper.
-# Short-path root for the unpacked master (regen's kept-unpacked tree + cb_deploy's cross-build diff
-# unpack both land here). Honors the SCT_BASE_MASTER_DIR env var when set (the one knob), else defaults.
+# ── Derived-bundle regeneration (CB_REGEN_SOURCE) ───────────────────────────────
+# The converter regenerates every derived bundle (Skyrim.hky, XPMSSE.hky, ...) from its $CB_REGEN_SOURCE
+# source folder and packs it into the plugin's .hky stage, so cb_deploy's bundle merge-copy carries them
+# into the mod. Gated on CB_REGEN_SOURCE: unset -> skipped, the already-deployed bundles stay. See the
+# helper. Short-path root for the unpacked trees (each regen's kept-unpacked <Name>.hky/ + cb_deploy's
+# cross-build diff unpack both land here). Honors the SCT_BASE_MASTER_DIR env var when set (the one
+# knob), else defaults.
 if(DEFINED ENV{SCT_BASE_MASTER_DIR})
     set(_base_master_default "$ENV{SCT_BASE_MASTER_DIR}")
 else()
     set(_base_master_default "D:/sct-base-master")
 endif()
 set(SCT_BASE_MASTER_DIR "${_base_master_default}" CACHE PATH
-    "Short-path dir where the unpacked Skyrim.hky base tree is kept (env SCT_BASE_MASTER_DIR)")
+    "Short-path root where each regenerated bundle's unpacked <Name>.hky/ tree is kept (env SCT_BASE_MASTER_DIR)")
 file(GLOB_RECURSE _bconv_template_files CONFIGURE_DEPENDS "${BCONV_TEMPLATES}/*")
 include(GenerateBaseMaster)
-sct_generate_base_master(
+cb_regen_bundles(
     CONVERTER_TARGET behavior-converter
     TEMPLATES        "${BCONV_TEMPLATES}"
-    PACKED_OUT       "${CB_HKY_STAGE}/community_behaviors/plugins/Skyrim.hky"
+    PACKED_DIR       "${CB_HKY_STAGE}/community_behaviors/plugins"
     UNPACKED_DIR     "${SCT_BASE_MASTER_DIR}"
     DEPENDS          ${_bconv_template_files})
 
