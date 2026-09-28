@@ -70,11 +70,11 @@ namespace CB {
         // the redundant every-launch main-thread skeleton compile (the plugin-load / main-menu stall).
         // When false (cold / forced regen), skeletons compile fresh as before.
         // skelExec (optional): the same task-fanning executor contract as AnimExecutor. When set, the
-        // skeleton SERVE compile (CompileSkeletonFull per variant) and the per-actor bone-name table
-        // build are fanned across the pool instead of run serially. Each task compiles one actor's
-        // skeletons / one actor's bone table — a pure function of the read-only master YAML + immutable
-        // layer texts, writing its own distinct m_skeletonServe / m_skeletons key under a mutex — so the
-        // parallel result is byte-identical to serial (stage 2). nullptr => serial (proven default).
+        // skeleton SERVE compile (CompileSkeletonFull per served unit) and the per-rig bone-name table
+        // build are fanned across the pool instead of run serially. Each task handles one skeleton unit /
+        // one rig — a pure function of the read-only bundles, writing its own distinct m_skeletonServe /
+        // m_skeletons key under a mutex — so the parallel result is byte-identical to serial.
+        // nullptr => serial (proven default).
         void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
                   bool warmReuse = false, const AnimExecutor* skelExec = nullptr);
 
@@ -287,6 +287,19 @@ namespace CB {
         std::size_t ConflictCount() const { return m_conflicts.size(); }
 
     private:
+        /// @brief The bone table a graph / animation binds, found through the characters that run it.
+        struct RigBones {
+            const CB::core::common::BoneNameTable* table = nullptr;   ///< null = no character binds this key
+            std::string                            rig;               ///< the rig unit `table` came from
+            bool ambiguous = false;   ///< the binding characters' rigs disagree on bone order
+        };
+        /// @brief Rig lookup for a serve key: the characters whose root behavior IS the key, else whose root
+        ///        behavior shares its folder (referenced graphs), else of the deepest project folder above it
+        ///        (animations). Several rigs in one match = a shared graph; the first (sorted) supplies names.
+        /// @note  Vanilla ships shared graphs over rigs of DIFFERENT bone order (dlc01 crossbow: plain vs
+        ///        dwarven), so disagreement is reported via `ambiguous`, never fatal.
+        RigBones BonesFor(const std::string& key) const;
+
         // If BR serves the child a graph references (childRef is folderRoot-relative, e.g.
         // "Behaviors\1HM_Behavior.hkx"; graphKey is the referencing graph's serve key),
         // return childRef with the "community_behaviors_cache\" prefix; otherwise return childRef
@@ -334,18 +347,20 @@ namespace CB {
         // converter emits the same files, so authored + converted bundles share one path.
         // Immutable after Init().
         std::unordered_map<std::string, std::vector<std::string>> m_characterAnimNames;
-        // Per-actor skeleton bone lists, read at Init from the ACTUAL loaded skeleton.hkx (the load
-        // order's result — XPMSSE included) via SkeletonImport. Skeletons already merge at the file
-        // level, so BR reads the game's one skeleton rather than compiling its own. Keyed by ACTOR
-        // ("character"). Feeds data.boneNames at behavior compile so bone-index fields resolve their
-        // NAMES. Immutable after Init().
+        /// @brief Bone-name tables keyed by RIG unit (normalized serve path, e.g.
+        ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
+        ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
         std::unordered_map<std::string, CB::core::common::BoneNameTable> m_skeletons;
-        // Skeleton SERVE (Stage D): the compiled skeleton.hkx bytes BR serves per actor, keyed by the
-        // skeleton's normalized SERVE PATH ("meshes/actors/<actor>/character assets/skeleton.hkx").
-        // Built in Init by compile-over-base (rebuild the anim skeleton from the merged bone-add layers,
-        // carry the game skeleton's physics) — but ONLY when a bundle contributes bone-add layers for the
-        // actor, so setups that add no bones stay empty (and inert). Owns() serves these like a compiled
-        // graph; WriteSkeletonServe() writes them to the cache. Immutable after Init().
+        /// @brief Rig bindings harvested from project.yaml characterFilenames -> character.yaml rig/behavior
+        ///        (project-dir relative). Keys are normalized serve paths; values are sorted rig unit keys.
+        ///        Consulted by BonesFor in this order. Immutable after Init().
+        std::unordered_map<std::string, std::vector<std::string>> m_rigsByBehavior;
+        std::unordered_map<std::string, std::vector<std::string>> m_rigsByBehaviorDir;
+        std::unordered_map<std::string, std::vector<std::string>> m_rigsByProjectDir;
+        /// @brief Compiled skeleton.hkx bytes BR serves, keyed by the unit's normalized serve path. A skeleton
+        ///        unit is path-local in every bundle; one is served only when a bundle OTHER than Skyrim.hky
+        ///        wins its path (vanilla-won units stay with the engine). Owns() serves these like a compiled
+        ///        graph; WriteSkeletonServe() writes them to the cache. Immutable after Init().
         std::unordered_map<std::string, std::vector<std::uint8_t>> m_skeletonServe;
         // Native BR animations authored as YAML inside a .hky. Each entry: { meshes-relative OUTPUT key
         // ("meshes/actors/<actor>/animations/community_behaviors/<mod>/<name>.hkx"), yaml text }. The key IS

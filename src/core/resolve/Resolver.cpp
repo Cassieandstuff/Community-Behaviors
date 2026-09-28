@@ -19,7 +19,8 @@
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
 #include <havok/model/ProjectData.h>         // CB::core::common::ProjectSpec (the neutral Def)
 #include <decompile/SkeletonImport.h>        // SkeletonData — schema-native skeleton import
-#include <codec/format/SkeletonYaml.h>       // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
+#include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
+#include <codec/format/ProjectYaml.h>        // ParseProjectYaml (rig binding: project -> characters)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (Stage D serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // CB::core::anim::CompileAnimation (native anim -> loose .hkx)
@@ -611,7 +612,7 @@ namespace CB {
                             continue;
                         }
                         // Skeletons are NOT a behavior/character graph — they compile through the dedicated
-                        // skeleton path (m_skeletonServe, layer-driven). Adding them here made Owns() true so
+                        // skeleton path (m_skeletonServe, path-local winners). Adding them here made Owns() true so
                         // ByteServe REDIRECTED every skeleton load into community_behaviors_cache, but no graph compile
                         // ever wrote that file — the redirect hit a missing file and the skeleton failed to
                         // load: universal A-pose + no root motion. Leave unlayered skeletons to vanilla.
@@ -660,89 +661,77 @@ namespace CB {
             }
         }
 
-        // Skeleton SERVE (Stage D) + bone-name tables. BR ships EVERY vanilla skeleton as a YAML tree
-        // in Skyrim.hky (bonelist.yaml + bones/<name>.yaml); a bundle's skeleton/<actorpath>/bones/
-        // layer (e.g. XPMSSE) EXTENDS it. For each actor with a layer we compile base-YAML + adds via
-        // CompileSkeletonFull (anim + ragdoll + constraints + mappers) and serve at the unit path. The
-        // whole thing is PATH-DRIVEN off the .hky's Data-mirrored tree — nested creatures
-        // (dlc01/chaurusflyer, canine dog/wolf) and every skeleton VARIANT of an actor just work. No
-        // layer ⇒ no serve, so add-no-bones setups are untouched. (Replaces the old read-binary +
-        // CompileSkeletonOverBase path — the binaries are gone; BR owns the skeleton fully from YAML.)
+        // Resolve the master DAG into a base-first rank per bundle (masters drive order;
+        // loadorder.txt breaks peer ties only) and the set of bundles skipped because a
+        // declared master is absent. This REPLACES the old flat loadorder.txt priority —
+        // the missing/out-of-order-master conditions the old warn-only pass merely reported
+        // are now enforced: a master always sorts base-first, a dependent with no base drops.
+        const LoadPlan plan = PlanLoadOrder(m_manifests, order);
+
+        /// @note Skeletons are PATH-LOCAL units in every bundle ("meshes/actors/<actor>/<variant>/<x>.hkx/"
+        ///       bonelist.yaml + bones/), and the load-order winner of a unit path IS that skeleton — a later
+        ///       bundle replaces it whole (XPMSSE ships its full skeletons; an identical one is a no-op
+        ///       replacement). Bone tables bind through the characters' `rig:` (see BonesFor), never
+        ///       "the first skeleton under the actor folder" — that picked _1stperson/skeletonfirst for the
+        ///       3rd-person character ('_' sorts before 'c').
         {
             const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
-            std::optional<BundleReader> master;          // Skyrim.hky — the base-skeleton authority
-            std::vector<BundleReader>   allBundles;      // every bundle — scanned for skeleton/ layers
+            struct RankedBundle { std::string stem; int rank = 0; BundleReader reader; };
+            std::vector<RankedBundle> bundles;
             {
                 std::error_code me;
                 if (fs::is_directory(pluginsRoot, me))
                     for (fs::directory_iterator bi(pluginsRoot, me), bend; !me && bi != bend; bi.increment(me)) {
-                        if (ToLower(bi->path().stem().string()) == "skyrim") master = BundleReader::Open(bi->path());
-                        if (auto br = BundleReader::Open(bi->path())) allBundles.push_back(std::move(*br));
+                        if (ToLower(bi->path().extension().string()) != ".hky") continue;
+                        const std::string stem = ToLower(bi->path().stem().string());
+                        if (plan.dropped.count(stem)) continue;
+                        auto br = BundleReader::Open(bi->path());
+                        if (!br) continue;
+                        const auto rit = plan.rank.find(stem);
+                        bundles.push_back({ stem, rit != plan.rank.end() ? rit->second : 0, std::move(*br) });
                     }
             }
+            std::sort(bundles.begin(), bundles.end(), [](const RankedBundle& a, const RankedBundle& b) {
+                return a.rank != b.rank ? a.rank < b.rank : a.stem < b.stem;
+            });
 
-            // Read a base skeleton YAML unit (meshes/actors/.../skeleton*.hkx) from the master into a
-            // SkeletonData. filesUnder (normalized, for read()) + filesUnderOrig (original case, for the
-            // bone NAME) walk the same range — index i aligns — so bone names keep their exact case (the
-            // clip/skin/roster name identity; a lowercased bone would orphan its skin binding, BR-16).
-            auto readBaseUnit = [&](const std::string& unit, CB::core::skeleton::SkeletonData& out) -> bool {
-                if (!master) return false;
-                const std::string bl = master->read(unit + "/bonelist.yaml").value_or("");
-                const auto norm = master->filesUnder(unit + "/bones/", ".yaml");
-                const auto orig = master->filesUnderOrig(unit + "/bones/", ".yaml");
+            /// @note Unit identity is the NORMALIZED path: the engine opens these files case-insensitively,
+            ///       and XPMSSE ships "actors/Chaurus/…" / "skeever/…/Skeleton.hkx" over vanilla's lowercase
+            ///       paths. Internal-only key; bone NAMES are read original-case (readUnit).
+            std::unordered_map<std::string, std::size_t> skelWinner, projWinner, charWinner;
+            for (std::size_t bi = 0; bi < bundles.size(); ++bi)
+                for (const std::string& f : bundles[bi].reader.filesUnder("meshes/", ".yaml")) {
+                    const auto endsWith = [&f](std::string_view t) {
+                        return f.size() > t.size() && f.compare(f.size() - t.size(), t.size(), t) == 0;
+                    };
+                    if      (endsWith("/bonelist.yaml"))  skelWinner[f.substr(0, f.size() - 14)] = bi;
+                    else if (endsWith("/project.yaml"))   projWinner[f.substr(0, f.size() - 13)] = bi;
+                    else if (endsWith("/character.yaml")) charWinner[f.substr(0, f.size() - 15)] = bi;
+                }
+
+            /// @note filesUnder (normalized, for read) and filesUnderOrig (original case, for the bone NAME)
+            ///       walk the same range, so index i aligns — a lowercased bone would orphan its skin binding.
+            auto readUnit = [&](std::size_t bi, const std::string& unit, CB::core::skeleton::SkeletonData& out) -> bool {
+                const BundleReader& br = bundles[bi].reader;
+                const std::string bl   = br.read(unit + "/bonelist.yaml").value_or("");
+                const auto norm = br.filesUnder(unit + "/bones/", ".yaml");
+                const auto orig = br.filesUnderOrig(unit + "/bones/", ".yaml");
                 std::vector<std::pair<std::string, std::string>> boneFiles;
                 for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i)
-                    if (auto t = master->read(norm[i]))
+                    if (auto t = br.read(norm[i]))
                         boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
                 if (bl.empty() && boneFiles.empty()) return false;
                 std::string err;
                 if (!CB::core::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
-                    LOG_WARN("Resolver: base skeleton '{}' YAML load failed: {}", unit, err);
+                    LOG_WARN("Resolver: skeleton '{}' ({}) YAML load failed: {}", unit, bundles[bi].stem, err);
                     return false;
                 }
                 return true;
             };
 
-            // 1) Collect bone-add layers across bundles, keyed by actorpath (nested). A layer file lives
-            //    at "skeleton/<actorpath>/bones/<name>.yaml"; original-case stem = the bone name.
-            std::map<std::string, std::vector<std::pair<std::string, std::string>>> layerTexts;
-            std::map<std::string, std::string> layerBonelist;   // actorpath -> bonelist.yaml text (added-bone order)
-            for (auto& br : allBundles) {
-                const auto norm = br.filesUnder("skeleton/", ".yaml");
-                const auto orig = br.filesUnderOrig("skeleton/", ".yaml");
-                for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i) {
-                    const std::string& n  = norm[i];
-                    if (n.rfind("skeleton/", 0) != 0) continue;
-                    // A layer's bonelist.yaml (skeleton/<actorpath>/bonelist.yaml) records the SOURCE bone
-                    // order — load-bearing so HKX-target animations bind added bones to the right indices.
-                    // bl/bp > 8 rejects a rootless drop ("skeleton/bonelist.yaml", "skeleton/bones/x.yaml"):
-                    // there the delimiter sits at index 8, so `bl - 9`/`bp - 9` would underflow (size_t wraps
-                    // to SIZE_MAX and substr clamps to a bogus non-empty tail, defeating the empty guards).
-                    if (const auto bl = n.rfind("/bonelist.yaml"); bl != std::string::npos && bl > 8 && bl + 14 == n.size()) {
-                        const std::string actorpath = n.substr(9, bl - 9);   // after "skeleton/", before "/bonelist.yaml"
-                        if (!actorpath.empty()) if (auto t = br.read(n)) layerBonelist[actorpath] = std::move(*t);
-                        continue;
-                    }
-                    const auto bp = n.find("/bones/");
-                    if (bp == std::string::npos || bp <= 8) continue;
-                    const std::string actorpath = n.substr(9, bp - 9);   // after "skeleton/", before "/bones/"
-                    if (actorpath.empty()) continue;
-                    if (auto t = br.read(n)) layerTexts[actorpath].emplace_back(fs::path(orig[i]).stem().string(), *t);
-                }
-            }
-            const auto bonelistFor = [&](const std::string& ap) -> const std::string& {
-                static const std::string kEmpty;
-                auto it = layerBonelist.find(ap);
-                return it == layerBonelist.end() ? kEmpty : it->second;
-            };
-
-            // 2) SERVE: for each actor with a layer, compile every skeleton variant (base-YAML + adds).
             // DIAGNOSTIC opt-out (marker file Data\community_behaviors\noskeletonserve.enable): skip the
-            // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton
-            // (e.g. the installed XPMSSE skeleton.hkx, which carries the full 3ds-Max export-helper
-            // resource tree BR's derived physics-only container omits). If the A-pose clears with this
-            // set, the runtime DOES rely on that export tree and BR must reproduce it. The bone-name
-            // table below is still built (behaviors need it), so only the served skeleton changes.
+            // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton.
+            // The bone-name tables below are still built (behaviors need them); only the serve changes.
             const bool skipSkelServe = std::filesystem::exists("Data/community_behaviors/noskeletonserve.enable");
             if (skipSkelServe)
                 LOG_WARN("Resolver: SKELETON SERVE DISABLED (noskeletonserve.enable) — skeleton opens fall "
@@ -750,131 +739,136 @@ namespace CB {
 
             // Pre-warm the shared schema registry ON THIS (single) thread before any fan-out: its one-time
             // load is guarded by a plain, UNsynchronized `state` int, so two workers racing the first
-            // CompileSkeletonFull could both attempt it. After this call every worker only READS it. (The
-            // same pre-warm WriteNativeAnimations does — cheap no-op if already warm.)
+            // CompileSkeletonFull could both attempt it. After this call every worker only READS it.
             (void)CB::core::schema::SharedRegistry();
 
-            // Compile one actor's served skeleton variants. Pure function of the read-only master YAML +
-            // this actor's immutable layer texts; writes only its own distinct m_skeletonServe keys (under
-            // serveMu), so fanning across actors is byte-identical to serial. `ap`/`texts` are pointers into
-            // the stable std::map layerTexts (element addresses don't move), captured to dodge the pre-C++20
-            // structured-binding-capture limitation.
+            // SERVE: every unit a non-master bundle wins. Each task writes only its own m_skeletonServe key
+            // (under serveMu), so fanning across units is byte-identical to serial.
             std::mutex serveMu;
-            auto serveActor = [&](const std::string& ap,
-                                  const std::vector<std::pair<std::string, std::string>>& texts) {
-                std::vector<CB::core::skeleton::SkeletonBoneAdd> adds;
-                CB::core::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(ap), nullptr);
-                if (adds.empty() || !master) return;
-                std::set<std::string> units;   // "meshes/actors/<actorpath>/<variant>/skeleton*.hkx"
-                for (const std::string& f : master->filesUnder("meshes/actors/" + ap + "/", ".yaml"))
-                    if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size())
-                        units.insert(f.substr(0, b));
-                for (const std::string& unit : units) {
-                    const std::string key = NormalizeKey(unit);
-                    // WARM REUSE: this skeleton was compiled on a prior run and its bytes are already in
-                    // the consolidated cache on disk. ByteServe serves that file via a path swap and
-                    // Owns() needs only the key present — so register the key and SKIP the expensive
-                    // CompileSkeletonFull recompile. This removes the redundant every-launch skeleton
-                    // compile that ran on the main thread at plugin load (the main-menu stall). Guarded on
-                    // warmReuse (== gate's !force && CachePresent) AND the cache file actually existing, so
-                    // a forced regen or a missing file falls through and compiles fresh — we never serve a
-                    // skeleton the cold path is about to wipe. WriteSkeletonServe skips empty-byte entries,
-                    // so the key-only registration doesn't rewrite the already-present file.
-                    if (warmReuse) {
-                        const std::string rel = CB::core::discover::CacheDiskRel(key);
-                        if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
-                            { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe.emplace(key, std::vector<std::uint8_t>{}); }
-                            LOG_INFO("Resolver: skeleton '{}' — warm cache hit, serve key registered (recompile skipped).", unit);
-                            continue;
-                        }
+            auto serveUnit = [&](const std::string& unit, std::size_t bi) {
+                const std::string key = NormalizeKey(unit);
+                // WARM REUSE: the compiled bytes from a prior run are already in the consolidated cache;
+                // ByteServe serves that file via a path swap and Owns() needs only the key, so register it
+                // and skip the recompile. Guarded on warmReuse (== the gate's !force && CachePresent) AND the
+                // file existing, so a forced regen or a missing file compiles fresh. WriteSkeletonServe skips
+                // empty-byte entries, so the key-only registration doesn't rewrite the present file.
+                if (warmReuse) {
+                    const std::string rel = CB::core::discover::CacheDiskRel(key);
+                    if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
+                        { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe.emplace(key, std::vector<std::uint8_t>{}); }
+                        LOG_INFO("Resolver: skeleton '{}' ({}) — warm cache hit, serve key registered (recompile skipped).",
+                                 unit, bundles[bi].stem);
+                        return;
                     }
-                    CB::core::skeleton::SkeletonData sk;
-                    if (!readBaseUnit(unit, sk)) continue;
-                    std::string merr;
-                    if (!CB::core::skeleton::MergeBoneAdditions(sk, adds, &merr))
-                        LOG_WARN("Resolver: skeleton '{}' bone-add merge: {} — base unchanged.", unit, merr);
-                    auto cr = CB::core::skeleton::CompileSkeletonFull(sk);
-                    if (cr.ok) {
-                        const std::size_t nBones = sk.bones.size();
-                        { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
-                        LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), nBones);
-                    } else
-                        LOG_WARN("Resolver: skeleton '{}' compile failed: {} — not served.", unit, cr.error);
                 }
+                CB::core::skeleton::SkeletonData sk;
+                if (!readUnit(bi, unit, sk)) return;
+                auto cr = CB::core::skeleton::CompileSkeletonFull(sk);
+                if (cr.ok) {
+                    const std::size_t nBones = sk.bones.size();
+                    { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
+                    LOG_INFO("Resolver: SERVING skeleton '{}' from '{}' ({} bones).", unit, bundles[bi].stem, nBones);
+                } else
+                    LOG_WARN("Resolver: skeleton '{}' ({}) compile failed: {} — not served.", unit, bundles[bi].stem, cr.error);
             };
             if (!skipSkelServe) {
                 std::vector<std::function<void()>> serveTasks;
-                serveTasks.reserve(layerTexts.size());
-                for (auto it = layerTexts.begin(); it != layerTexts.end(); ++it) {
-                    const std::string* ap = &it->first;
-                    const auto*        tx = &it->second;
-                    serveTasks.push_back([&serveActor, ap, tx] { serveActor(*ap, *tx); });
+                for (const auto& [unit, bi] : skelWinner) {
+                    if (bundles[bi].stem == "skyrim") continue;
+                    const std::string* u = &unit;
+                    const std::size_t  b = bi;
+                    serveTasks.push_back([&serveUnit, u, b] { serveUnit(*u, b); });
                 }
                 if (skelExec && *skelExec && serveTasks.size() > 1) (*skelExec)(std::move(serveTasks));
                 else for (auto& t : serveTasks) t();
             }
 
-            // 3) BONE-NAME TABLE (behavior bone-index resolution): for each behavior actor, read its
-            //    primary skeleton from the master YAML (+ this actor's adds, if any). Keyed by the
-            //    ACTOR PATH (segments between actors/ and /behaviors/, so nested creatures stay
-            //    distinct — dlc02/netch vs dlc02/riekling). The skeleton unit is found by searching
-            //    the actor's whole subtree for a bonelist.yaml — nested creatures and variant
-            //    folders ("character assets", "characterassets", "character assets dog") all resolve.
-            std::set<std::string> behActors;
-            for (const auto& [key, ls] : layers)
-                if (std::string ap = ActorPathOf(key); !ap.empty())
-                    behActors.insert(std::move(ap));
-
-            // Build one actor's bone-name table. Pure function of the read-only master YAML + this actor's
-            // immutable layer texts; builds a LOCAL table then moves it into its own distinct m_skeletons
-            // key under tblMu — so fanning across actors is byte-identical to serial. This loop runs on
-            // EVERY launch (warm included, unlike the SERVE compile above), so it's the piece the pool
-            // actually shortens on a warm cache. `actor` is copied by value (a std::set element).
-            std::mutex tblMu;
-            auto buildBoneTable = [&](const std::string& actor) {
-                if (!master) return;
-                // First skeleton unit under this actor's subtree (deterministic: filesUnder is sorted).
-                std::string unit;
-                for (const std::string& f : master->filesUnder("meshes/actors/" + actor + "/", ".yaml"))
-                    if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size()) {
-                        unit = f.substr(0, b); break;
-                    }
-                if (unit.empty()) return;
-
-                CB::core::skeleton::SkeletonData sk;
-                if (!readBaseUnit(unit, sk)) return;
-
-                std::size_t nAdds = 0;
-                if (auto it = layerTexts.find(actor); it != layerTexts.end()) {
-                    std::vector<CB::core::skeleton::SkeletonBoneAdd> adds;
-                    CB::core::skeleton::LoadSkeletonLayerFromTexts(it->second, adds, bonelistFor(actor), nullptr);
-                    nAdds = adds.size();
-                    std::string merr; CB::core::skeleton::MergeBoneAdditions(sk, adds, &merr);
-                }
-                CB::core::common::BoneNameTable tbl;
-                for (const auto& b : sk.bones) tbl.names.push_back(b.name);
-                tbl.Reindex();
-                const std::size_t nBones = tbl.names.size();
-                { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[actor] = std::move(tbl); }
-                LOG_INFO("Resolver: skeleton '{}' = {} bone(s){}.", actor, nBones,
-                         nAdds ? (" incl. " + std::to_string(nAdds) + " added") : std::string{});
+            // RIG BINDING: project dir + characterFilenames -> character unit; the character's `rig:` and
+            // `behavior:` are project-dir relative (".." allowed — generic single-bone rigs live up-tree).
+            auto dirOf = [](const std::string& k) {
+                const auto p = k.rfind('/');
+                return p == std::string::npos ? std::string{} : k.substr(0, p);
             };
-            {
-                std::vector<std::function<void()>> boneTasks;
-                boneTasks.reserve(behActors.size());
-                for (const std::string& actor : behActors)
-                    boneTasks.push_back([&buildBoneTable, actor] { buildBoneTable(actor); });
-                if (skelExec && *skelExec && boneTasks.size() > 1) (*skelExec)(std::move(boneTasks));
-                else for (auto& t : boneTasks) t();
+            auto joinRel = [](const std::string& dir, const std::string& rel) {
+                std::vector<std::string> parts;
+                auto push = [&parts](const std::string& path) {
+                    std::size_t s = 0;
+                    while (s <= path.size()) {
+                        const std::size_t e = std::min(path.find('/', s), path.size());
+                        const std::string seg = path.substr(s, e - s);
+                        if (seg == "..") { if (!parts.empty()) parts.pop_back(); }
+                        else if (!seg.empty() && seg != ".") parts.push_back(seg);
+                        s = e + 1;
+                    }
+                };
+                push(dir);
+                push(NormalizeKey(rel));
+                std::string out;
+                for (const auto& p : parts) { if (!out.empty()) out += '/'; out += p; }
+                return out;
+            };
+            std::set<std::string> boundRigs;
+            auto bind = [](std::unordered_map<std::string, std::vector<std::string>>& m, const std::string& k,
+                           const std::string& rig) {
+                auto& v = m[k];
+                if (std::find(v.begin(), v.end(), rig) == v.end()) v.push_back(rig);
+            };
+            for (const auto& [projUnit, pbi] : projWinner) {
+                CB::core::common::ProjectSpec spec;
+                const auto py = bundles[pbi].reader.read(projUnit + "/project.yaml");
+                if (!py || !CB::core::codec::ParseProjectYaml(*py, spec)) continue;
+                const std::string projDir = dirOf(projUnit);
+                for (const std::string& cf : spec.characterFilenames) {
+                    const std::string charUnit = joinRel(projDir, cf);
+                    const auto cit = charWinner.find(charUnit);
+                    if (cit == charWinner.end()) continue;
+                    const auto src = bundles[cit->second].reader.unitSource(charUnit);
+                    if (!src) continue;
+                    CB::core::common::CharacterDef def;
+                    try { def = CB::core::codec::CharacterYamlLoader::LoadDef(*src); }
+                    catch (const std::exception& e) { LOG_WARN("Resolver: character '{}' unreadable: {}", charUnit, e.what()); continue; }
+                    if (def.rig.empty()) continue;
+                    const std::string rig = joinRel(projDir, def.rig);
+                    if (!skelWinner.count(rig)) {
+                        LOG_WARN("Resolver: character '{}' rig '{}' has no skeleton unit in any bundle.", charUnit, rig);
+                        continue;
+                    }
+                    bind(m_rigsByProjectDir, projDir, rig);
+                    if (!def.behavior.empty()) {
+                        const std::string beh = joinRel(projDir, def.behavior);
+                        bind(m_rigsByBehavior, beh, rig);
+                        bind(m_rigsByBehaviorDir, dirOf(beh), rig);
+                    }
+                    boundRigs.insert(rig);
+                }
             }
-        }
+            for (auto* m : { &m_rigsByBehavior, &m_rigsByBehaviorDir, &m_rigsByProjectDir })
+                for (auto& [k, v] : *m) std::sort(v.begin(), v.end());
 
-        // Resolve the master DAG into a base-first rank per bundle (masters drive order;
-        // loadorder.txt breaks peer ties only) and the set of bundles skipped because a
-        // declared master is absent. This REPLACES the old flat loadorder.txt priority —
-        // the missing/out-of-order-master conditions the old warn-only pass merely reported
-        // are now enforced: a master always sorts base-first, a dependent with no base drops.
-        const LoadPlan plan = PlanLoadOrder(m_manifests, order);
+            // BONE TABLES, one per bound rig, from that rig unit's winner. Each task builds a LOCAL table
+            // and moves it into its own distinct m_skeletons key under tblMu (serial-equivalent).
+            std::mutex tblMu;
+            std::vector<std::function<void()>> boneTasks;
+            boneTasks.reserve(boundRigs.size());
+            for (const std::string& rig : boundRigs) {
+                const std::string* r  = &rig;
+                const std::size_t  bi = skelWinner.at(rig);
+                boneTasks.push_back([&, r, bi] {
+                    CB::core::skeleton::SkeletonData sk;
+                    if (!readUnit(bi, *r, sk)) return;
+                    CB::core::common::BoneNameTable tbl;
+                    for (const auto& b : sk.bones) tbl.names.push_back(b.name);
+                    tbl.Reindex();
+                    const std::size_t nBones = tbl.names.size();
+                    { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[*r] = std::move(tbl); }
+                    LOG_INFO("Resolver: rig '{}' = {} bone(s) from '{}'.", *r, nBones, bundles[bi].stem);
+                });
+            }
+            if (skelExec && *skelExec && boneTasks.size() > 1) (*skelExec)(std::move(boneTasks));
+            else for (auto& t : boneTasks) t();
+            LOG_INFO("Resolver: {} skeleton unit(s) across {} bundle(s); {} served; {} rig(s) bound.",
+                     skelWinner.size(), bundles.size(), m_skeletonServe.size(), m_skeletons.size());
+        }
 
         // Record each graph's layers, base-first by the master-DAG rank, for the merge to
         // overlay. The base (front) layer's isChar flag decides the compile path (character
@@ -1194,13 +1188,16 @@ namespace CB {
                     if (const auto ap = low.find("/animations/"); ap != std::string::npos)
                         m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *def.motion);
                 }
-                // INVERSE MEMBRANE: resolve this clip's per-track bone references through the SERVED
-                // skeleton (the same actor-path -> m_skeletons lookup the graph compile uses), so its
+                // INVERSE MEMBRANE: resolve this clip's per-track bone references through the rig of the
+                // characters that play it (BonesFor — the same lookup the graph compile uses), so its
                 // hkaAnimationBinding.transformTrackToBoneIndices follows the actor's bones by name.
                 const std::vector<std::string>* boneNames = nullptr;
-                if (const std::string actor = ActorPathOf(outKey); !actor.empty())
-                    if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
-                        boneNames = &it->second.names;
+                if (const RigBones rb = BonesFor(outKey); rb.table) {
+                    boneNames = &rb.table->names;
+                    if (rb.ambiguous)
+                        LOG_WARN("Resolver: animation '{}' binds rigs that disagree on bone order — tracks resolve "
+                                 "against '{}'.", outKey, rb.rig);
+                }
                 const auto r   = CB::core::anim::CompileAnimation(def, 30, CB::core::codec::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
                     failed.fetch_add(1, std::memory_order_relaxed);
@@ -1558,6 +1555,33 @@ namespace CB {
                  dataRoot.string());
     }
 
+    Resolver::RigBones Resolver::BonesFor(const std::string& key) const
+    {
+        const auto dirOf = [](const std::string& k) {
+            const auto p = k.rfind('/');
+            return p == std::string::npos ? std::string{} : k.substr(0, p);
+        };
+        const std::string k = NormalizeKey(key);
+        const std::vector<std::string>* rigs = nullptr;
+        if (const auto it = m_rigsByBehavior.find(k); it != m_rigsByBehavior.end())
+            rigs = &it->second;
+        else if (const auto dit = m_rigsByBehaviorDir.find(dirOf(k)); dit != m_rigsByBehaviorDir.end())
+            rigs = &dit->second;
+        else
+            for (std::string d = dirOf(k); !d.empty(); d = dirOf(d))
+                if (const auto pit = m_rigsByProjectDir.find(d); pit != m_rigsByProjectDir.end()) { rigs = &pit->second; break; }
+
+        RigBones out;
+        if (!rigs) return out;
+        for (const std::string& r : *rigs) {
+            const auto t = m_skeletons.find(r);
+            if (t == m_skeletons.end()) continue;
+            if (!out.table) { out.table = &t->second; out.rig = r; }
+            else if (t->second.names != out.table->names) out.ambiguous = true;
+        }
+        return out;
+    }
+
     std::string Resolver::QualifyChildRef(const std::string& /*graphKey*/, const std::string& childRef) const
     {
         // Byte-substitution model: compiled graphs/characters keep their VANILLA child refs. The
@@ -1830,15 +1854,16 @@ namespace CB {
             // merged graph (guarded — trace::Enabled() is a null pointer test, so off = free).
             if (CB::core::compile::trace::Enabled()) CB::core::compile::TraceGraph(data, key);
 
-            // Skeleton for bone-name resolution: if the unit didn't carry one, use this actor's
-            // merged bone list (base + skeleton-extender appends, folded in Init). Actor key =
-            // ActorPathOf(serve path) — the SAME derivation Init used to build the table, so nested
-            // creatures (dlc02/netch, ambient/chicken) match instead of collapsing onto a namespace
-            // segment. Bone-index fields authored as NAMES then resolve; numeric ones are unaffected.
-            if (data.boneNames.empty() && !m_skeletons.empty()) {
-                if (const std::string actor = ActorPathOf(key); !actor.empty())
-                    if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
-                        data.boneNames = it->second.names;
+            // Skeleton for bone-name resolution: if the unit didn't carry one, use the rig of the
+            // characters that run this graph (BonesFor). Bone-index fields authored as NAMES then
+            // resolve; numeric ones are unaffected.
+            if (data.boneNames.empty()) {
+                if (const RigBones rb = BonesFor(key); rb.table) {
+                    data.boneNames = rb.table->names;
+                    if (rb.ambiguous)
+                        LOG_WARN("Resolver: '{}' is shared by characters whose rigs disagree on bone order — "
+                                 "name-keyed bone refs resolve against '{}'.", key, rb.rig);
+                }
             }
 
             // NOTE: the character's animationNames roster is now built OFFLINE — the converter

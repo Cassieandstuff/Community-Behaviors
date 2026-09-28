@@ -286,6 +286,8 @@ void unionAnimations(CharacterData& data, const IUnitSource& u, std::unordered_s
 
 } // namespace
 
+CharacterDef CharacterYamlLoader::LoadDef(const IUnitSource& unit) { return loadCharacter(unit); }
+
 CharacterData CharacterYamlLoader::Load(const IUnitSource& unit) {
     CharacterData data;
     data.character  = loadCharacter(unit);

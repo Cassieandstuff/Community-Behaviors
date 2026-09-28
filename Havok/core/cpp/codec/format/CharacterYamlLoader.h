@@ -40,6 +40,11 @@ struct CharacterYamlLoader {
     static CharacterData Load(const IUnitSource& unit);
     static CharacterData LoadMerged(const std::vector<std::shared_ptr<const IUnitSource>>& sources);
 
+    /// @brief Only the unit's character.yaml record (name / rig / ragdoll / behavior / controller / model).
+    /// @note  Skips the roster, properties, foot IK, mirror and skeleton reads that Load() does — for callers
+    ///        that only need the character's file links (the Resolver's rig binding).
+    static CharacterDef LoadDef(const IUnitSource& unit);
+
     // LayerSource overload — accepts the scope-carrying merge layers the Resolver assembles, so callers
     // can hand the same `GraphSources::layers` to either loader. The character merge is roster-union
     // (animationNames), not node-id keyed, so scope metadata is not consulted here; the layers' `.source`
