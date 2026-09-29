@@ -193,6 +193,10 @@ bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const 
 /// @brief The reflective-format gate over every behavior .hkx under `meshesDir`: vanilla -> reflective .hky ->
 ///        ParseHky -> binary, byte-compared (RoundTripReflective). Differing graphs' trees are kept under
 ///        `<workRoot>/<n>` (SHORT path). `baseHky` supplies the rig binding for bone names.
+/// @brief The multi-layer gate over every templated graph patched by 2+ Nemesis mods under `modsDir` (MO2 mods):
+///        each mod's derived field patch merged onto the base in order vs today's all-mods MergeTagfiles.
+bool MultiLayerRoundTripAll(const std::string& modsDir, const std::string& templatesDir, const std::string& workRoot,
+                            const LogFn& log, const std::string& baseHky = "");
 /// @brief The field-patch gate: for every behavior/character .hkx under `moddedMeshes` with a vanilla counterpart,
 ///        merge(vanilla, derive(vanilla, mod)) must serialize byte-identical to the mod. Work trees under `workRoot`.
 bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& moddedMeshes, const std::string& workRoot,

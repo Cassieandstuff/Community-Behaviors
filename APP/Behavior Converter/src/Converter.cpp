@@ -3236,6 +3236,68 @@ bool SerializerRoundTrip(const std::string& meshesDir, const std::string& outRoo
     return fails == 0;
 }
 
+bool MultiLayerRoundTripAll(const std::string& modsDir, const std::string& templatesDir, const std::string& workRoot,
+                            const LogFn& log, const std::string& baseHky) {
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    auto* reg = CB::core::schema::SharedRegistry();
+    if (!reg) { say("multilayer-roundtrip: schema registry not armed"); return false; }
+    std::optional<bconv::BaseUnitCompiler> rigs;
+    if (!baseHky.empty()) {
+        std::string herr;
+        if (auto arc = CB::core::codec::HkyArchive::LoadFromFile(baseHky, herr)) rigs.emplace(arc);
+    }
+    // code -> Nemesis mod dir, across every MO2 mod (<mod>/Nemesis_Engine/mod/<code>/)
+    std::map<std::string, fs::path> codes;
+    std::error_code ec;
+    for (fs::directory_iterator it(modsDir, ec), end; !ec && it != end; it.increment(ec)) {
+        const fs::path nm = it->path() / "Nemesis_Engine" / "mod";
+        std::error_code e2;
+        if (!fs::is_directory(nm, e2)) continue;
+        for (fs::directory_iterator jt(nm, e2), jend; !e2 && jt != jend; jt.increment(e2))
+            if (jt->is_directory()) codes[jt->path().filename().string()] = jt->path();
+    }
+    int graphs = 0, same = 0, fails = 0;
+    for (const std::string& g : ScanGraphs(templatesDir)) {
+        std::vector<CB::core::decompile::MultiLayerMod> mods;
+        for (const auto& [code, dir] : codes) {
+            const fs::path gd = dir / g;
+            std::error_code e3;
+            if (!fs::is_directory(gd, e3)) continue;
+            CB::core::decompile::MultiLayerMod m{ code, {} };
+            std::vector<fs::path> files;
+            for (fs::directory_iterator kt(gd, e3), kend; !e3 && kt != kend; kt.increment(e3)) {
+                const std::string fn = kt->path().filename().string();
+                if (kt->is_regular_file() && !fn.empty() && fn[0] == '#' && kt->path().extension() == ".txt") files.push_back(kt->path());
+            }
+            std::sort(files.begin(), files.end());
+            for (const auto& f : files) {
+                std::ifstream in(f, std::ios::binary);
+                std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                if (!s.empty()) m.patches.push_back(std::move(s));
+            }
+            if (const char* only = std::getenv("CB_MULTILAYER_ONLY"))   // debug: restrict to a comma list of codes
+                if (("," + std::string(only) + ",").find("," + code + ",") == std::string::npos) continue;
+            if (!m.patches.empty()) mods.push_back(std::move(m));
+        }
+        if (mods.size() < (std::getenv("CB_MULTILAYER_ONLY") ? 1u : 2u)) continue;   // a single layer is the patch-roundtrip gate's job
+        std::ifstream xf(fs::path(templatesDir) / (g + ".xml"), std::ios::binary);
+        const std::string xml((std::istreambuf_iterator<char>(xf)), std::istreambuf_iterator<char>());
+        const std::vector<std::string>* bones = nullptr;
+        if (rigs) if (const auto& b = rigs->BonesFor("meshes/actors/character/behaviors/" + g + ".hkx"); !b.empty()) bones = &b;
+        const auto r = CB::core::decompile::MultiLayerRoundTrip(xml, mods, *reg, (fs::path(workRoot) / g).string(), bones);
+        ++graphs;
+        std::string who;
+        for (const auto& [name, st] : r.perMod) who += (who.empty() ? "" : " ") + name + "(" + std::to_string(st.patched) + "+" + std::to_string(st.added) + ")";
+        if (!r.ok) { ++fails; say("  FAIL " + g + " [" + std::to_string(mods.size()) + " mods] — " + r.error); continue; }
+        say(std::string(r.identical ? "  SAME " : "  DIFF ") + g + " [" + std::to_string(mods.size()) + " mods] " + who +
+            (r.detail.empty() ? "" : " | " + r.detail));
+        same += r.identical;
+    }
+    say("multilayer-roundtrip: " + std::to_string(same) + "/" + std::to_string(graphs) +
+        " graphs: every mod's derived patch, merged in order, == today's merge of all (" + std::to_string(fails) + " failed)");
+    return fails == 0;
+}
+
 bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& moddedMeshes, const std::string& workRoot,
                        const LogFn& log, const std::string& baseHky) {
     const auto say = [&](const std::string& s) { if (log) log(s); };

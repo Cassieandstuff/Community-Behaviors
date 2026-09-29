@@ -179,6 +179,18 @@ HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseByte
                                        const schema::SchemaRegistry& reg, const std::string& workDir,
                                        const std::vector<std::string>* bones = nullptr);
 
+/// @brief The MULTI-LAYER gate: every mod's field patch (derived from base + that mod's Nemesis patches alone),
+///        merged onto the base in order, must equal today's merge of all the mods' patches (MergeTagfiles).
+struct MultiLayerMod { std::string name; std::vector<std::string> patches; };   ///< raw Nemesis #*.txt texts
+struct MultiLayerResult {
+    bool ok = false, identical = false;
+    std::vector<std::pair<std::string, HkyPatchStats>> perMod;
+    std::string detail, error;
+};
+MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vector<MultiLayerMod>& mods,
+                                     const schema::SchemaRegistry& reg, const std::string& workDir,
+                                     const std::vector<std::string>* bones = nullptr);
+
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
 // form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field

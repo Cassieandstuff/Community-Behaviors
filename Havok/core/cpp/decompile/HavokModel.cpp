@@ -3194,7 +3194,10 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
         const auto c = base.identity.category.find(o);
         const bool node = (c != base.identity.category.end() && !c->second.empty()) || std::string(o->ClassName()) == "hkRootLevelContainer";
         if (!node) continue;
-        if (auto it = own.find(o); it != own.end()) { ps.byId[baseCanon(id)] = it->second; ps.nodes.insert(o); }
+        /// @note Ids a previous merge added are already CANONICAL ("bfco:54"); only the base's own FormIds resolve
+        ///       through `baseMasters`. Re-resolving a merged-in id as the base's would alias another bundle's node.
+        const std::string key = id.find(':') != std::string::npos ? id : baseCanon(id);
+        if (auto it = own.find(o); it != own.end()) { ps.byId[key] = it->second; ps.nodes.insert(o); }
     }
     ps.all = base.objects;
     auto docs = loadHkyDocs(patch);
@@ -3209,7 +3212,7 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
         ps.byId[ps.canon(id)] = obj;
         ps.nodes.insert(obj.get());
         ps.all.push_back(obj);
-        base.identity.ids[obj.get()] = id;
+        base.identity.ids[obj.get()] = ps.canon(id);   // owner-qualified: stays unambiguous across later merges
         base.identity.category[obj.get()] = d->cat;
         targets.push_back({ obj, false });
         if (stats) ++stats->added;
@@ -3240,7 +3243,19 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
     for (const auto& s : ps.symbols) {
         const auto& L = s.isEvent ? nr.eventsL : nr.variablesL;
         const auto idx = L.encode(s.name);
-        if (!idx) { err = s.where + ": " + (s.isEvent ? "event" : "variable") + " '" + s.name + "' is not in the merged roster"; return false; }
+        if (!idx) {
+            int stringDatas = 0, holding = 0;
+            for (const auto& [o, c] : base.identity.category)
+                if (const auto* sd = dynamic_cast<const io::SchemaObject*>(o); sd && std::string(sd->ClassName()) == "hkbBehaviorGraphStringData") {
+                    ++stringDatas;
+                    const io::FieldValue* fv = fieldByName(*sd, s.isEvent ? "eventNames" : "variableNames");
+                    if (fv && std::find(fv->strs.begin(), fv->strs.end(), s.name) != fv->strs.end()) ++holding;
+                }
+            err = s.where + ": " + (s.isEvent ? "event" : "variable") + " '" + s.name + "' is not in the merged roster (live roster " +
+                  std::to_string(s.isEvent ? nr.events.size() : nr.variables.size()) + " names; " + std::to_string(holding) + "/" +
+                  std::to_string(stringDatas) + " string-data objects hold it)";
+            return false;
+        }
         s.obj->FieldAt(s.field).raw = encInt(static_cast<std::int64_t>(*idx), s.obj->Fields()[s.field]->scalar);
     }
     base.objects = std::move(ps.all);
@@ -3296,6 +3311,86 @@ HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseByte
         r.ok = true;
     } catch (const std::exception& e) {
         r.error = std::string("PatchRoundTrip: ") + e.what();
+    }
+    return r;
+}
+
+MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vector<MultiLayerMod>& mods,
+                                     const schema::SchemaRegistry& reg, const std::string& workDir,
+                                     const std::vector<std::string>* bones) {
+    namespace fs = std::filesystem;
+    MultiLayerResult r;
+    try {
+        std::error_code ec;
+        fs::remove_all(workDir, ec);
+        const HKXHeader header = HKXHeader::SkyrimSE();
+        auto rootOf = [](const ParsedTagfile& p) -> std::shared_ptr<IHavokObject> {
+            for (const auto& o : p.objects) if (std::string(o->ClassName()) == "hkRootLevelContainer") return o;
+            return nullptr;
+        };
+        auto serialize = [&](const std::shared_ptr<IHavokObject>& o) {
+            PackFileSerializer ser;
+            BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
+            ser.Serialize(o, bw, header);
+            return bw.Data();
+        };
+        ParsedTagfile base;
+        if (!ParseTagfile(baseXml, reg, base, r.error)) { r.error = "base: " + r.error; return r; }
+        const auto baseBytes = serialize(rootOf(base));
+
+        // Today's merge of everything, in order (the reference).
+        std::vector<std::string> all;
+        for (const auto& m : mods) all.insert(all.end(), m.patches.begin(), m.patches.end());
+        ParsedTagfile everything; std::vector<std::string> ids;
+        if (!MergeTagfiles(baseXml, all, reg, everything, ids, r.error)) { r.error = "merge-all: " + r.error; return r; }
+        const auto want = serialize(rootOf(everything));
+
+        // The base unit (self index 0) -> ParseHky; then every mod's derived field patch, in order.
+        PackFileDeserializer desB;
+        desB.ObjectFactory = io::MakeSchemaFactory(reg);
+        { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
+        Identity idB = AssignIdentity(desB, reg, "");
+        for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
+        if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), r.error, bones)) return r;
+        ParsedHky merged;
+        if (!ParseHkyReflective((fs::path(workDir) / "base").string(), reg, merged, r.error, bones)) return r;
+        for (const auto& m : mods) {
+            ParsedTagfile one; std::vector<std::string> oneIds;
+            if (!MergeTagfiles(baseXml, m.patches, reg, one, oneIds, r.error)) { r.error = m.name + ": " + r.error; return r; }
+            const fs::path pd = fs::path(workDir) / ("patch_" + m.name);
+            HkyPatchStats st;
+            if (!DeriveHkyPatch(baseBytes, serialize(rootOf(one)), reg, pd.string(), r.error, bones, 1, &st)) { r.error = m.name + ": " + r.error; return r; }
+            if (!MergeHkyPatch(merged, CB::core::common::DiskUnitSource(pd.string()), reg, { "base" }, { m.name, "base" }, r.error, bones)) {
+                r.error = m.name + ": " + r.error;
+                std::string e2;   // the merged state at failure, for inspection
+                EmitHkyReflective(merged.identity, reg, (fs::path(workDir) / ("failed_after_" + m.name)).string(), e2, bones);
+                return r;
+            }
+            r.perMod.push_back({ m.name, st });
+            /// @note Debug knob: CB_MULTILAYER_TRACE=1 dumps the merged state after each mod (after_<mod>/).
+            if (std::getenv("CB_MULTILAYER_TRACE")) {
+                std::string e2;
+                EmitHkyReflective(merged.identity, reg, (fs::path(workDir) / ("after_" + m.name)).string(), e2, bones);
+            }
+        }
+        const auto got = serialize(merged.root);
+        r.identical = (got == want);
+        if (!r.identical) {
+            std::ofstream(fs::path(workDir) / "want.bin", std::ios::binary).write(reinterpret_cast<const char*>(want.data()), static_cast<std::streamsize>(want.size()));
+            std::ofstream(fs::path(workDir) / "got.bin",  std::ios::binary).write(reinterpret_cast<const char*>(got.data()),  static_cast<std::streamsize>(got.size()));
+            std::string e2;
+            for (const auto& [name, bytes] : { std::pair<const char*, const std::vector<std::uint8_t>*>{ "want", &want }, { "got", &got } }) {
+                PackFileDeserializer d;
+                d.ObjectFactory = io::MakeSchemaFactory(reg);
+                BinaryReaderEx br(false, true, *bytes);
+                d.Deserialize(br);
+                EmitHkyReflective(AssignIdentity(d, reg, ""), reg, (fs::path(workDir) / name).string(), e2, bones);
+            }
+            r.detail = "size " + std::to_string(want.size()) + " -> " + std::to_string(got.size());
+        }
+        r.ok = true;
+    } catch (const std::exception& e) {
+        r.error = std::string("MultiLayerRoundTrip: ") + e.what();
     }
     return r;
 }
