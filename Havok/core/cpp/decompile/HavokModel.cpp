@@ -2540,6 +2540,59 @@ void collectTopLevel(const CB::core::common::xml::Node& n, std::vector<const CB:
     for (const auto& c : n.children) collectTopLevel(c, out);
 }
 
+/// @brief Expand a patch layer's SNIPPET element arrays to the full array the mod intends. A Nemesis array param
+///        whose `numelements` is not a count (e.g. `"existing"`) lists only a window: the lines outside MOD_CODE are
+///        base context, not the whole array — taken verbatim, a lone changer's snippet REPLACED the array (CB-6:
+///        0_master's 1217 events -> 7). The mod's view of its base (`orig`, via StripToOriginal) is a contiguous run
+///        of the base array; the layer's (modded) window is spliced over that run.
+/// @note Ambiguous runs (eventInfos context is `{flags: 0}` objects, which match almost anywhere) anchor at the
+///       LAST match: a snippet extends the roster tail. A window that matches nowhere is an error, never a truncation.
+/// @return true with `out` = the expanded layer when any param was anchored; false (out untouched) when none was.
+bool anchorSnippets(const CB::core::common::xml::Node& base, const CB::core::common::xml::Node& layer,
+                    const CB::core::common::xml::Node* orig, CB::core::common::xml::Node& out, std::string& err) {
+    namespace xml = CB::core::common::xml;
+    auto param = [](const xml::Node& n, std::string_view name) -> const xml::Node* {
+        for (const auto& c : n.children) if (c.tag == "hkparam" && c.attr("name") == name) return &c;
+        return nullptr;
+    };
+    auto isSnippet = [](const xml::Node& p) {
+        const std::string_view ne = p.attr("numelements");
+        if (ne.empty() || std::all_of(ne.begin(), ne.end(), [](char ch) { return std::isdigit(static_cast<unsigned char>(ch)) != 0; }))
+            return false;
+        for (const auto& c : p.children) if (c.tag == "hkobject" || c.tag == "hkcstring") return true;
+        return false;
+    };
+    bool any = false;
+    for (std::size_t i = 0; i < layer.children.size(); ++i) {
+        const xml::Node& lp = layer.children[i];
+        if (lp.tag != "hkparam" || !isSnippet(lp)) continue;
+        const std::string name(lp.attr("name"));
+        const xml::Node* bp = param(base, name);
+        const xml::Node* op = orig ? param(*orig, name) : nullptr;
+        if (!bp || !op) continue;
+        const auto& B = bp->children;
+        const auto& O = op->children;
+        std::size_t at = std::string::npos;
+        for (std::size_t k = 0; O.size() <= B.size() && k + O.size() <= B.size(); ++k) {
+            bool eq = true;
+            for (std::size_t j = 0; eq && j < O.size(); ++j) eq = CB::core::merge::deepEqual(B[k + j], O[j]);
+            if (eq) at = k;
+        }
+        if (at == std::string::npos) {
+            err = "#" + std::string(layer.attr("name")) + " " + name + ": the patch's numelements=\"" +
+                  std::string(lp.attr("numelements")) + "\" window matches no run of the base array";
+            return false;
+        }
+        if (!any) { out = layer; any = true; }
+        xml::Node& np = out.children[i];
+        np.children.assign(B.begin(), B.begin() + static_cast<std::ptrdiff_t>(at));
+        np.children.insert(np.children.end(), lp.children.begin(), lp.children.end());
+        np.children.insert(np.children.end(), B.begin() + static_cast<std::ptrdiff_t>(at + O.size()), B.end());
+        for (auto& [k, v] : np.attrs) if (k == "numelements") v = std::to_string(np.children.size());
+    }
+    return any;
+}
+
 // The shared parse core. `sources` is a precedence-ordered list of tagfile texts: per #NNNN, the LAST
 // source that defines the id WINS (so patches override the base), and refs resolve across the MERGED id
 // space (a patch object may point at a base-only node). Single-source parse and base+patch merge are the
@@ -2552,6 +2605,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // pointers below alias into these trees). Wrap each in a synthetic root: a source is a bare run of
     // sibling <hkobject> and xml::Parse returns only the first element.
     std::vector<CB::core::common::xml::Node> roots; roots.reserve(sources.size());
+    std::vector<CB::core::common::xml::Node> origRoots; origRoots.reserve(sources.size());   ///< deltas as their mod saw the base
 
     // Per CANONICAL id, the ORDERED layers that define it (base first, then each overriding patch). Each
     // layer records whether it is a delta and, for a delta, the fields it ACTUALLY changed (its MOD_CODE
@@ -2561,7 +2615,8 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // as the runtime YAML loader does. Field-wise last-writer here silently dropped all-but-the-last
     // mod's array additions — the TDM_Pitch A-pose when one mod's several Nemesis codes are merged into
     // one bundle. New-node ids (#code$N) live in the same map as base #NNNN, so refs resolve either way.
-    struct Layer { const CB::core::common::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed; };
+    struct Layer { const CB::core::common::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed;
+                   const CB::core::common::xml::Node* orig = nullptr; };
     std::unordered_map<std::string, std::vector<Layer>> layers;
     std::unordered_map<std::string, bool> touchedByDelta;   // id was overridden/added by a patch source
     std::vector<std::string> order;                         // first-seen id order (base first, new ids appended)
@@ -2586,10 +2641,20 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
         roots.push_back(CB::core::common::xml::Parse("<r>" + parseText + "</r>"));
         std::vector<const CB::core::common::xml::Node*> nodes;
         collectTopLevel(roots.back(), nodes);
+        std::unordered_map<std::string, const CB::core::common::xml::Node*> origById;
+        if (isDelta) {
+            std::string origText = *text;
+            CB::core::common::xml::StripToOriginal(origText);
+            origRoots.push_back(CB::core::common::xml::Parse("<r>" + origText + "</r>"));
+            std::vector<const CB::core::common::xml::Node*> on;
+            collectTopLevel(origRoots.back(), on);
+            for (const auto* o : on) origById[canonId(std::string(o->attr("name")))] = o;
+        }
         for (const CB::core::common::xml::Node* n : nodes) {
             const std::string id = canonId(std::string(n->attr("name")));
             if (layers.find(id) == layers.end()) order.push_back(id);
-            layers[id].push_back({ n, isDelta, changedPtr });
+            const auto oi = origById.find(id);
+            layers[id].push_back({ n, isDelta, changedPtr, oi == origById.end() ? nullptr : oi->second });
             if (isDelta) touchedByDelta[id] = true;
         }
     }
@@ -2631,7 +2696,11 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             const bool isSeed = (seedSkip == 1 && seen++ == 0);
             if (!L.isDelta || isSeed) continue;
             if (std::string(L.node->attr("class")) != objCls) continue;   // source drift — skip this layer
-            pls.push_back({ *L.node, L.changed ? *L.changed : std::unordered_set<std::string>{} });
+            CB::core::common::xml::Node anchored;
+            std::string aerr;
+            const bool expanded = seedSkip == 0 && anchorSnippets(*baseNode, *L.node, L.orig, anchored, aerr);
+            if (!aerr.empty()) { err = "parseSourcesMerged: " + aerr; return false; }
+            pls.push_back({ expanded ? std::move(anchored) : *L.node, L.changed ? *L.changed : std::unordered_set<std::string>{} });
         }
         std::vector<const CB::core::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
         for (const auto& p : pls) ptrs.push_back(&p);

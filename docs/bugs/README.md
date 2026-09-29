@@ -27,8 +27,6 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   .hky (EmitHky's generic modifier path drops struct/struct-array fields).
 - [CB-5](CB-5-spriggan-istate-statedata-lost.md) — OPEN: spriggan's `BSIStateManagerModifier` loses `stateData`
   in the .hky (same root cause as CB-4).
-- [CB-6](CB-6-existing-snippet-truncates-roster.md) — OPEN: one mod's Nemesis `numelements="existing"` array snippet
-  REPLACES the whole array when it's the only changer (trflt alone truncates 0_master's events 1217 -> 7).
 
 ## Per-bug file template
 
