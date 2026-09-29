@@ -2,6 +2,7 @@
 #include "Converter.h"
 
 #include <havok-schema/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
+#include <codec/format/YamlBehaviorLoader.h>   // SetSchemaRegistry / SetDiagnosticSink — arm the merge loader
 #include <sct-utilities/SctUtilities.h>
 
 #include <atomic>
@@ -9,6 +10,8 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <memory>
+#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -58,6 +61,16 @@ int main(int argc, char** argv) {
     // misaligns against the schema base master (the horsebehavior crash class). SetSharedSchemaDir only
     // records the dir; SharedRegistry() lazily loads once on first use. The regen path re-arms harmlessly.
     CB::core::schema::SetSharedSchemaDir(ExeHavokDir());
+    /// @note The YAML loader routes every modifier class without a dedicated handler (hkbTimerModifier,
+    ///       hkbKeyframeBonesModifier, BSLookAtModifier, ...) through its generic path ONLY when it holds the
+    ///       schema. Unarmed, those nodes fall to "no handler" and a base-unit compile silently loses them —
+    ///       what broke every creature graph's compile(Skyrim.hky unit). Arm it exactly as the plugin does,
+    ///       and surface merge diagnostics (deduped) so a dropped node is never silent again.
+    CB::core::codec::YamlBehaviorLoader::SetSchemaRegistry(CB::core::schema::SharedRegistry());
+    CB::core::codec::YamlBehaviorLoader::SetDiagnosticSink(
+        [seen = std::make_shared<std::unordered_set<std::string>>()](const std::string& m) {
+            if (seen->insert(m).second) { std::printf("  merge: %s\n", m.c_str()); std::fflush(stdout); }
+        });
 
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
         bconv::Options opt;
@@ -166,9 +179,10 @@ int main(int argc, char** argv) {
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
         std::printf("OK: %s -> %s (%d behaviors, %d projects, %d characters, %d skeletons; "
-                    "validated %d/%d graphdata match%s)\n",
+                    "validated %d/%d graphdata match%s; base-unit round-trip %d/%d)\n",
                     std::filesystem::path(pos[1]).filename().string().c_str(), pos[1].c_str(), res.build.behaviors, res.build.projects, res.build.characters,
-                    res.build.skeletons, res.faithful, res.checked, res.drift.empty() ? "" : ", drift present (see log)");
+                    res.build.skeletons, res.faithful, res.checked, res.drift.empty() ? "" : ", drift present (see log)",
+                    res.roundTripFaithful, res.roundTripChecked);
         return EXIT_SUCCESS;
     }
 

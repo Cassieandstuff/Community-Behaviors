@@ -23,6 +23,7 @@
 #include <compile/ProjectRead.h>             // CB::core::compile::ReadProject (schema-native project read)
 #include <codec/format/ProjectYaml.h>        // CB::core::codec::EmitProjectYaml (project.yaml codec)
 #include <decompile/CharacterDecompile.h>    // CB::core::decompile::DecompileCharacterSchema (schema character decompile)
+#include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
 #include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior (schema compile, replaces typed CB::core::compile::CompileBehavior)
 #include <decompile/UnitDecompile.h>         // CB::core::decompile::DecompileUnit (shared schema decompile dispatcher)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
@@ -1710,53 +1711,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     if (baseArc) {
             const fs::path tmpDir   = fs::temp_directory_path(ec);
 
-            // Bone-name resolution for the base compile. A creature's vanilla behavior
-            // (horse's horsebehavior.hkx, canine's, …) references hkbBoneIndexArray by NAME
-            // (`18_bones`, `91_bones`), which BehaviorBuilder resolves against data.boneNames.
-            // The RUNTIME injects a per-actor bone table at Init from the served skeleton YAML;
-            // the offline converter must do the same here or the base compile throws "bone list
-            // is EMPTY" and the whole loose-derive is skipped (HorsePower's horsebehavior never
-            // converts — BR-34 follow-up). Same source: the Skyrim.hky base carries every vanilla
-            // skeleton as a YAML tree; find the actor's skeleton unit (a bonelist.yaml under
-            // meshes/actors/<actor>/) and assemble its names. Mirrors Resolver::ActorPathOf + the
-            // Init bone-table producer. Cached per actor path (negative cache included).
-            std::map<std::string, std::vector<std::string>> boneNameCache;
-            auto actorPathOf = [](const std::string& prefix) -> std::string {
-                std::string k = ToLower(prefix);
-                const auto ap = k.find("actors/");
-                if (ap == std::string::npos) return {};
-                const std::string rest = k.substr(ap + 7);
-                for (const char* seg : { "/behaviors/", "/characters/" })
-                    if (const auto b = rest.find(seg); b != std::string::npos) return rest.substr(0, b);
-                return rest.substr(0, rest.find('/'));   // fallback: first segment
-            };
-            auto boneNamesForActor = [&](const std::string& actor) -> const std::vector<std::string>& {
-                static const std::vector<std::string> kEmpty;
-                if (actor.empty()) return kEmpty;
-                if (const auto cit = boneNameCache.find(actor); cit != boneNameCache.end()) return cit->second;
-                std::vector<std::string>& names = boneNameCache[actor];   // insert (empty = negative cache)
-                std::string unit;   // first skeleton unit under the actor subtree (filesUnder is sorted)
-                for (const std::string& f : baseArc->filesUnder("meshes/actors/" + actor + "/"))
-                    if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size()) {
-                        unit = f.substr(0, b); break;
-                    }
-                if (unit.empty()) return names;
-                const std::string bl = baseArc->file(unit + "/bonelist.yaml").value_or("");
-                const auto norm = baseArc->filesUnder(unit + "/bones/");
-                const auto orig = baseArc->filesUnderOrig(unit + "/bones/");
-                std::vector<std::pair<std::string, std::string>> boneFiles;
-                for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i) {
-                    if (norm[i].size() < 5 || norm[i].compare(norm[i].size() - 5, 5, ".yaml") != 0) continue;
-                    if (auto t = baseArc->file(norm[i]))
-                        boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
-                }
-                if (bl.empty() && boneFiles.empty()) return names;
-                CB::core::skeleton::SkeletonData sk; std::string serr;
-                if (!CB::core::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &serr)) return names;
-                for (const auto& bn : sk.bones) names.push_back(bn.name);
-                return names;
-            };
-
             for (const auto& u : baseArc->units()) {
                 if (cancel) { r.error = "cancelled"; return r; }
                 if (u.kind != CB::core::codec::HkyArchive::UnitKind::Behavior) continue;
@@ -3234,24 +3188,9 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         return f ? std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()) : std::string{};
     };
 
-    // Skeleton back-fill for the gate compile: bone-index arrays in the base units are stored by NAME
-    // (e.g. 206_bones), so CompileBehavior needs the actor's bone list to resolve them — exactly as the
-    // runtime does (Resolver back-fills BehaviorData.boneNames from the per-actor skeleton). The gate is
-    // character-family (actors/character/behaviors/*, incl. horsebehavior), so load the ONE character
-    // skeleton once. Absent it, name-keyed graphs (0_master/horsebehavior) just stay un-gated (as before).
-    std::vector<std::string> charBoneNames;
-    {
-        const fs::path skel = fs::path(vanillaMeshesDir) / "actors" / "character" / "character assets" / "skeleton.hkx";
-        std::vector<std::uint8_t> sb; std::string serr;
-        if (CB::core::codec::ReadHavokFile(skel.string(), sb, &serr)) {
-            std::vector<CB::core::skeleton::SkeletonData> sk;
-            if (CB::core::skeleton::LoadSkeletonsFromHkx(sb.data(), sb.size(), sk, &serr) && !sk.empty())
-                for (const auto& b : sk[0].bones) charBoneNames.push_back(b.name);
-        }
-        say(charBoneNames.empty()
-                ? "  note: character skeleton not loaded (" + skel.string() + ") — name-keyed bone arrays can't be gate-compiled"
-                : "  gate: character skeleton loaded (" + std::to_string(charBoneNames.size()) + " bones) for bone-name resolution");
-    }
+    /// @note Gate compiles back-fill bone names from the rig the graph's characters bind (BaseUnitCompiler ->
+    ///       RigIndex), exactly as the runtime Resolver does.
+    bconv::BaseUnitCompiler baseCompiler(arc);
 
     for (const auto& g : ScanGraphs(templatesDir)) {
         if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
@@ -3261,11 +3200,8 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
 
         std::vector<std::uint8_t> reBytes;              // regenerated base unit -> binary
         try {
-            auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged({ arc->source(prefix) });
-            if (data.boneNames.empty()) data.boneNames = charBoneNames;   // back-fill skeleton (like the runtime)
-            const auto cr = CB::core::compile::CompileBehavior(data);
-            if (!cr.ok) { say("  " + g + ": regen base compile failed — " + cr.error); continue; }
-            reBytes = cr.bytes;
+            std::string cerr;
+            if (!baseCompiler.CompileBehavior(prefix, reBytes, cerr)) { say("  " + g + ": regen base compile failed — " + cerr); continue; }
         } catch (const std::exception& e) { say("  " + g + ": regen base load threw — " + std::string(e.what())); continue; }
 
         std::vector<std::uint8_t> vanBytes; std::string rerr;
@@ -3289,7 +3225,83 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     say("  fidelity: " + std::to_string(r.faithful) + "/" + std::to_string(r.checked) +
         " templated graph(s) match vanilla graphdata" + (r.drift.empty() ? "." : ("; drift: " + driftList)));
 
+    /// @note 2b) BASE-UNIT ROUND-TRIP gate: decompile(compile(unit)) vs decompile(source binary) for every
+    ///       non-character behavior with a source binary. It compares the .hky YAML, so it cannot see fields
+    ///       EmitHky never writes — a fixed-point check, not a losslessness proof. Drift = renumbered objects
+    ///       (the compile's emission order differs from vanilla's read order) or values that don't round-trip.
+    say("");
+    say("== Base-unit round-trip (decompile(compile(" + fs::path(outHky).filename().string() +
+        " unit)) vs decompile(source)) ==");
+    {
+        auto* sreg = CB::core::schema::SharedRegistry();
+        auto diffFiles = [&](const fs::path& a, const fs::path& b) {
+            std::error_code de;
+            std::set<std::string> rels;
+            std::vector<std::string> out;
+            for (const fs::path& root : { a, b })
+                for (fs::recursive_directory_iterator it(root, de), end; !de && it != end; it.increment(de))
+                    if (it->is_regular_file()) rels.insert(fs::relative(it->path(), root).generic_string());
+            for (const std::string& rel : rels)
+                if (readFile(a / rel) != readFile(b / rel)) out.push_back(rel);
+            return out;
+        };
+        /// @note Drifting pairs are KEPT (base-unit decompile vs source decompile) under the temp dir for inspection.
+        const fs::path driftKeep = fs::temp_directory_path(ec) / ("sct_roundtrip_drift_" + fs::path(outHky).stem().string());
+        fs::remove_all(driftKeep, ec);
+        const fs::path og = work / ".roundtrip";
+        for (const auto& u : arc->units()) {
+            if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
+            if (u.kind != CB::core::codec::HkyArchive::UnitKind::Behavior) continue;
+            if (u.prefix.rfind("meshes/actors/character/", 0) == 0 || u.prefix.rfind("meshes/", 0) != 0) continue;
+            const fs::path src = fs::path(vanillaMeshesDir) / u.prefix.substr(7);
+            if (!fs::is_regular_file(src, ec)) continue;
+            if (!sreg) { say("  round-trip gate skipped: schema registry not armed"); break; }
+
+            std::vector<std::uint8_t> reBytes, vanBytes;
+            std::string e1, e2;
+            if (!baseCompiler.CompileBehavior(u.prefix, reBytes, e1)) {
+                r.roundTripDrift.push_back(u.prefix);
+                say("  ROUND-TRIP: " + u.prefix + " — base compile failed: " + e1);
+                continue;
+            }
+            if (!CB::core::codec::ReadHavokFile(src.string(), vanBytes, &e2)) { say("  " + u.prefix + ": source read failed — " + e2); continue; }
+            const fs::path reDir = og / "re", vaDir = og / "va";
+            fs::remove_all(og, ec);
+            const bool okRe = CB::core::decompile::DecompileBehaviorSchema(reBytes,  "", *sreg, reDir.string(), e1);
+            const bool okVa = CB::core::decompile::DecompileBehaviorSchema(vanBytes, "", *sreg, vaDir.string(), e2);
+            if (!okRe || !okVa) {
+                r.roundTripDrift.push_back(u.prefix);
+                say("  ROUND-TRIP: " + u.prefix + " — decompile failed (base:" + (okRe ? "ok" : e1) + " src:" + (okVa ? "ok" : e2) + ")");
+                continue;
+            }
+            ++r.roundTripChecked;
+            const auto diffs = diffFiles(reDir, vaDir);
+            if (diffs.empty()) { ++r.roundTripFaithful; continue; }
+            r.roundTripDrift.push_back(u.prefix);
+            std::string list;
+            for (std::size_t i = 0; i < diffs.size() && i < 5; ++i) list += (i ? ", " : "") + diffs[i];
+            say("  ROUND-TRIP DRIFT: " + u.prefix + " — " + std::to_string(diffs.size()) + " file(s) differ: " + list +
+                (diffs.size() > 5 ? ", ..." : ""));
+            const fs::path keep = driftKeep / fs::path(u.prefix).relative_path();
+            fs::create_directories(keep, ec);
+            fs::rename(reDir, keep / "base", ec);
+            fs::rename(vaDir, keep / "source", ec);
+        }
+        fs::remove_all(og, ec);
+        if (!r.roundTripDrift.empty()) say("  drift pairs kept under " + driftKeep.string());
+        say("  base-unit round-trip: " + std::to_string(r.roundTripFaithful) + "/" + std::to_string(r.roundTripChecked) +
+            " graph(s) decompile identically from the compiled base unit" +
+            (r.roundTripDrift.empty() ? "." : ("; " + std::to_string(r.roundTripDrift.size()) + " drift/fail (see ROUND-TRIP lines)")));
+    }
+
     // 3) Promote — or, in strict mode, refuse to write if anything drifted.
+    if (!r.roundTripDrift.empty() && strict) {
+        r.error = "strict gate: " + std::to_string(r.roundTripDrift.size()) +
+                  " graph(s) fail the base-unit round-trip — bundle NOT written";
+        say("  " + r.error);
+        fs::remove_all(work, ec);
+        return r;
+    }
     if (!r.drift.empty() && strict) {
         r.error = "strict gate: " + std::to_string(r.drift.size()) +
                   " graph(s) drift from vanilla graphdata (" + driftList + ") — master NOT written";

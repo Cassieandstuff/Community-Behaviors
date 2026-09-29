@@ -191,6 +191,9 @@ struct RegenResult {
     int             checked  = 0;          // templated graphs validated against vanilla
     int             faithful = 0;          // of those, byte-identical graphdata to vanilla
     std::vector<std::string> drift;        // graphs whose regenerated graphdata != vanilla
+    int             roundTripChecked  = 0;    ///< non-character graphs decompiled from base unit AND source
+    int             roundTripFaithful = 0;    ///< of those, identical .hky trees
+    std::vector<std::string> roundTripDrift;  ///< graphs that differ (or failed to compile/decompile)
 };
 
 // Regenerate the shipped Skyrim.hky MASTER **and validate it** in one call — the reproducible,
