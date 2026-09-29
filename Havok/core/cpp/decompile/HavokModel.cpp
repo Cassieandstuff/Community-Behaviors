@@ -1825,9 +1825,6 @@ struct ReflectCtx {
     std::string                     path;                            ///< dotted field path from the node to this object
 };
 
-/// @brief A node's rosters live in its own folder, `<category>/<id>/<field.path>.yaml`; the root's in `graph/`.
-constexpr const char* kRootRosterDir = "graph";
-
 /// @brief The context for an inline object reached through field `f` (its rosters still belong to the node's folder).
 ReflectCtx subCtx(const ReflectCtx& c, const std::string& f) { ReflectCtx s = c; if (s.sink) s.path += f + "."; return s; }
 /// @brief The context for list ENTRIES: rosters nested in an entry stay inline in that entry.
@@ -2000,34 +1997,60 @@ const std::vector<std::string>* strsOf(const io::SchemaObject* so, const char* f
 /// @brief VECTOR3 / VECTOR4 / QUATERNION variables store their value in the quad array (word = quad index).
 bool isQuadType(long t) { return t == 6 || t == 7 || t == 8; }
 
-bool vocabRenderable(const io::SchemaObject& gd) {
-    const auto* sd = ptrObj(gd, "stringData");
-    const auto* vs = ptrObj(gd, "variableInitialValues");
+/// @brief A VALUED name roster: names in the owner's `stringData`, infos on the owner, initial values in a value set
+///        (word values parallel to the names; vector/quaternion values in its quad array, the word holding the index).
+///        Graph `variables` and character `characterProperties` are the same shape.
+struct ValuedRoster { const char* key; const char* names; const char* infos; const char* values; };
+constexpr ValuedRoster kGraphVariables{ "variables", "variableNames", "variableInfos", "variableInitialValues" };
+constexpr ValuedRoster kCharacterProperties{ "characterProperties", "characterPropertyNames", "characterPropertyInfos", "characterPropertyValues" };
+
+bool uniqueNames(const std::vector<std::string>& n) { return std::set<std::string>(n.begin(), n.end()).size() == n.size(); }
+
+/// @brief POINTER variables (character bone-weight properties) store their value in the variant array (word = index).
+bool isPointerType(long t) { return t == 5; }
+
+/// @brief The valued roster renders losslessly as records: names / infos / words in lockstep, unique names, and the
+///        quad / variant indices running in roster order over the whole quad / variant array.
+bool valuedRenderable(const io::SchemaObject& owner, const ValuedRoster& r, bool lenient = false) {
+    const auto* sd = ptrObj(owner, "stringData");
+    const auto* vs = ptrObj(owner, r.values);
     if (!sd || !vs) return false;
-    const auto* vn = strsOf(sd, "variableNames"); const auto* en = strsOf(sd, "eventNames");
-    const auto* cn = strsOf(sd, "characterPropertyNames"); const auto* an = strsOf(sd, "attributeNames");
-    const auto* vi = objsOf(gd, "variableInfos"); const auto* ei = objsOf(gd, "eventInfos"); const auto* ci = objsOf(gd, "characterPropertyInfos");
-    const auto* wv = objsOf(*vs, "wordVariableValues");
-    const io::FieldValue* ad = fieldByName(gd, "attributeDefaults");
-    const io::FieldValue* qv = fieldByName(*vs, "quadVariableValues");
-    const auto* pv = objsOf(*vs, "variantVariableValues");
-    if (!vn || !en || !cn || !an || !vi || !ei || !ci || !wv || !ad || !qv || !pv) return false;
-    if (vn->size() != vi->size() || vn->size() != wv->size() || en->size() != ei->size() || cn->size() != ci->size() ||
-        an->size() * 4 != ad->raw.size()) return false;
-    if (!objsOf(gd, "wordMinVariableValues")->empty() || !objsOf(gd, "wordMaxVariableValues")->empty()) return false;
-    if (!pv->empty()) return false;
-    for (const auto* names : { vn, en, cn, an })
-        if (std::set<std::string>(names->begin(), names->end()).size() != names->size()) return false;
-    std::size_t q = 0;
-    for (std::size_t i = 0; i < vi->size(); ++i) {
-        const auto* info = dynamic_cast<const io::SchemaObject*>((*vi)[i].get());
-        const auto* word = dynamic_cast<const io::SchemaObject*>((*wv)[i].get());
+    const auto* names = strsOf(sd, r.names);
+    const auto* infos = objsOf(owner, r.infos);
+    const auto* words = objsOf(*vs, "wordVariableValues");
+    const io::FieldValue* quads = fieldByName(*vs, "quadVariableValues");
+    const auto* variants = objsOf(*vs, "variantVariableValues");
+    if (!names || !infos || !words || !quads || !variants) return false;
+    if (names->size() != infos->size() || names->size() != words->size() || (!lenient && !uniqueNames(*names))) return false;
+    std::size_t q = 0, p = 0;
+    for (std::size_t i = 0; i < infos->size(); ++i) {
+        const auto* info = dynamic_cast<const io::SchemaObject*>((*infos)[i].get());
+        const auto* word = dynamic_cast<const io::SchemaObject*>((*words)[i].get());
         if (!info || !word) return false;
         const long t = fInt(*info, "type");
-        if (t == 5) return false;
-        if (isQuadType(t)) { if (fInt(*word, "value") != static_cast<long>(q)) return false; ++q; }
+        if (isPointerType(t)) { if (fInt(*word, "value") != static_cast<long>(p)) return false; ++p; }
+        else if (isQuadType(t)) { if (fInt(*word, "value") != static_cast<long>(q)) return false; ++q; }
     }
-    return q * 16 == qv->raw.size();
+    return q * 16 == quads->raw.size() && p == variants->size();
+}
+
+/// @brief `lenient` (derive's MOD side only) allows duplicate names: a mod that renames an entry onto a name the roster
+///        already has (Precision renames vanilla's ' iState_NPCSneaking' onto 'iState_NPCSneaking') still diffs by
+///        name — names are identity and rosters only union, so the rename drops out (first occurrence wins).
+bool vocabRenderable(const io::SchemaObject& so, bool lenient = false) {
+    if (so.Schema()->vocab == "character") return valuedRenderable(so, kCharacterProperties, lenient);
+    if (so.Schema()->vocab != "graph" || !valuedRenderable(so, kGraphVariables, lenient)) return false;
+    const auto* sd = ptrObj(so, "stringData");
+    const auto* en = strsOf(sd, "eventNames");
+    const auto* cn = strsOf(sd, "characterPropertyNames");
+    const auto* an = strsOf(sd, "attributeNames");
+    const auto* ei = objsOf(so, "eventInfos");
+    const auto* ci = objsOf(so, "characterPropertyInfos");
+    const io::FieldValue* ad = fieldByName(so, "attributeDefaults");
+    if (!en || !cn || !an || !ei || !ci || !ad) return false;
+    if (en->size() != ei->size() || cn->size() != ci->size() || an->size() * 4 != ad->raw.size()) return false;
+    if (!objsOf(so, "wordMinVariableValues")->empty() || !objsOf(so, "wordMaxVariableValues")->empty()) return false;
+    return lenient || (uniqueNames(*en) && uniqueNames(*cn) && uniqueNames(*an));
 }
 
 std::string enumText(const char* table, long v, bool flags) {
@@ -2037,17 +2060,30 @@ std::string enumText(const char* table, long v, bool flags) {
     return n.empty() ? std::to_string(v) : n;
 }
 
-/// @brief One variable / character-property record, as flow YAML. `quad` = its quad value (quad types only).
+/// @brief One variable / character-property record. Flow YAML (`{type: …, value: …}`) for word and quad values; a
+///        block for a POINTER value, whose `value:` is the pointed-to object (a bone-weight set: its bone-name map) or
+///        a node id when shared. `quad` / `variant` = the value's slot (their types only).
 /// @note `full` states role + flags even at 0: a PATCH record's absent key means "unchanged", so a diff that
 ///       clears one must say so.
-std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* word, const std::uint8_t* quad, bool full) {
+std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* word, const std::uint8_t* quad,
+                       const std::shared_ptr<IHavokObject>* variant, bool full, const ReflectCtx& c) {
     const long t = fInt(info, "type");
-    std::string y = "{type: " + enumText("VariableType", t, false);
+    std::vector<std::pair<std::string, std::string>> kv{ { "type", enumText("VariableType", t, false) } };
     if (const auto* role = ptrObj(info, "role")) {
         const long r = fInt(*role, "role");
         const long fl = static_cast<long>(static_cast<std::uint16_t>(fInt(*role, "flags")));
-        if (r || full)  y += ", role: " + enumText("Role", r, false);
-        if (fl || full) y += ", flags: " + enumText("RoleFlags", fl, true);
+        if (r || full)  kv.push_back({ "role", enumText("Role", r, false) });
+        if (fl || full) kv.push_back({ "flags", enumText("RoleFlags", fl, true) });
+    }
+    if (word && variant) {
+        const auto& p = *variant;
+        const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
+        std::string y;
+        for (const auto& [k, v] : kv) y += k + ": " + v + "\n";
+        if (!p) return y + "value: null\n";
+        if (isFileNode(p.get(), c)) return y + "value: " + refIdOf(p, c.id) + "\n";
+        const std::string body = so ? reflectObject(*so, inlCtx(c), "hkReferencedObject") : std::string();
+        return y + (body.empty() ? std::string("value: {}\n") : "value:\n" + indentLines(body, "  ", "  "));
     }
     if (word) {
         const io::FieldValue* wv = fieldByName(*word, "value");
@@ -2058,30 +2094,42 @@ std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* wor
             const long w = fInt(*word, "value");
             val = (t == 0 && (w == 0 || w == 1)) ? boolstr(w != 0) : std::to_string(w);
         }
-        y += ", value: " + val;
+        kv.push_back({ "value", val });
     }
+    std::string y = "{";
+    for (std::size_t k = 0; k < kv.size(); ++k) y += (k ? ", " : "") + kv[k].first + ": " + kv[k].second;
     return y + "}";
 }
 
 /// @brief Every record of the vocabulary, per roster, in roster order: (roster key, name, record text).
-std::vector<std::tuple<std::string, std::string, std::string>> vocabRecords(const io::SchemaObject& gd, bool full = false) {
-    std::vector<std::tuple<std::string, std::string, std::string>> out;
-    const auto* sd = ptrObj(gd, "stringData");
-    const auto* vs = ptrObj(gd, "variableInitialValues");
-    const auto& vn = *strsOf(sd, "variableNames");
-    const auto& vi = *objsOf(gd, "variableInfos");
-    const auto& wv = *objsOf(*vs, "wordVariableValues");
-    const auto& qv = fieldByName(*vs, "quadVariableValues")->raw;
-    std::size_t q = 0;
-    for (std::size_t i = 0; i < vn.size(); ++i) {
-        const auto& info = *dynamic_cast<const io::SchemaObject*>(vi[i].get());
-        const std::uint8_t* quad = isQuadType(fInt(info, "type")) ? qv.data() + 16 * q++ : nullptr;
-        out.emplace_back("variables", vn[i], infoRecord(info, dynamic_cast<const io::SchemaObject*>(wv[i].get()), quad, full));
+void valuedRecords(const io::SchemaObject& owner, const ValuedRoster& r, bool full, const ReflectCtx& c,
+                   std::vector<std::tuple<std::string, std::string, std::string>>& out) {
+    const auto* vs = ptrObj(owner, r.values);
+    const auto& names = *strsOf(ptrObj(owner, "stringData"), r.names);
+    const auto& infos = *objsOf(owner, r.infos);
+    const auto& words = *objsOf(*vs, "wordVariableValues");
+    const auto& quads = fieldByName(*vs, "quadVariableValues")->raw;
+    const auto& variants = *objsOf(*vs, "variantVariableValues");
+    std::size_t q = 0, p = 0;
+    for (std::size_t i = 0; i < names.size(); ++i) {
+        const auto& info = *dynamic_cast<const io::SchemaObject*>(infos[i].get());
+        const long t = fInt(info, "type");
+        const std::uint8_t* quad = isQuadType(t) ? quads.data() + 16 * q++ : nullptr;
+        const std::shared_ptr<IHavokObject>* variant = isPointerType(t) ? &variants[p++] : nullptr;
+        out.emplace_back(r.key, names[i], infoRecord(info, dynamic_cast<const io::SchemaObject*>(words[i].get()), quad, variant, full, c));
     }
+}
+
+std::vector<std::tuple<std::string, std::string, std::string>> vocabRecords(const io::SchemaObject& gd, const ReflectCtx& c,
+                                                                            bool full = false) {
+    std::vector<std::tuple<std::string, std::string, std::string>> out;
+    if (gd.Schema()->vocab == "character") { valuedRecords(gd, kCharacterProperties, full, c, out); return out; }
+    valuedRecords(gd, kGraphVariables, full, c, out);
+    const auto* sd = ptrObj(gd, "stringData");
     const auto& cn = *strsOf(sd, "characterPropertyNames");
     const auto& ci = *objsOf(gd, "characterPropertyInfos");
     for (std::size_t i = 0; i < cn.size(); ++i)
-        out.emplace_back("characterProperties", cn[i], infoRecord(*dynamic_cast<const io::SchemaObject*>(ci[i].get()), nullptr, nullptr, full));
+        out.emplace_back("characterProperties", cn[i], infoRecord(*dynamic_cast<const io::SchemaObject*>(ci[i].get()), nullptr, nullptr, nullptr, full, c));
     const auto& enm = *strsOf(sd, "eventNames");
     const auto& ei = *objsOf(gd, "eventInfos");
     for (std::size_t i = 0; i < enm.size(); ++i) {
@@ -2094,14 +2142,32 @@ std::vector<std::tuple<std::string, std::string, std::string>> vocabRecords(cons
     return out;
 }
 
-std::string renderVocab(const io::SchemaObject& gd) {
+/// @brief The vocabulary's record keys, in render order.
+std::vector<const char*> vocabKeys(const io::SchemaObject& so) {
+    if (so.Schema()->vocab == "character") return { kCharacterProperties.key };
+    return { "variables", "characterProperties", "events", "attributes" };
+}
+
+/// @brief One vocabulary record line(s) at indent 2: flow records inline, block records (pointer values) nested.
+std::string vocabLine(const std::string& name, const std::string& rec) {
+    return rec.find('\n') == std::string::npos ? "  " + q(name) + ": " + rec + "\n"
+                                               : "  " + q(name) + ":\n" + indentLines(rec, "    ", "    ");
+}
+
+std::string renderVocab(const io::SchemaObject& gd, const ReflectCtx& c) {
     std::map<std::string, std::string> blocks;
-    for (const char* k : { "variables", "characterProperties", "events", "attributes" }) blocks[k];
-    for (const auto& [k, name, rec] : vocabRecords(gd)) blocks[k] += "  " + q(name) + ": " + rec + "\n";
+    for (const char* k : vocabKeys(gd)) blocks[k];
+    for (const auto& [k, name, rec] : vocabRecords(gd, c)) blocks[k] += vocabLine(name, rec);
     std::string y;
-    for (const char* k : { "variables", "characterProperties", "events", "attributes" })
+    for (const char* k : vocabKeys(gd))
         y += blocks[k].empty() ? std::string(k) + ": {}\n" : std::string(k) + ":\n" + blocks[k];
     return y;
+}
+
+/// @brief True when field `name` of `so` is carried by the vocabulary view instead of its own rendering: the valued
+///        roster's infos and value set (its names are left out of `stringData`).
+bool vocabField(const io::SchemaObject& so, const std::string& name) {
+    return so.Schema()->vocab == "character" && (name == kCharacterProperties.infos || name == kCharacterProperties.values);
 }
 
 /// @brief True when `so`'s `<field>=<value>` condition (a schema `charpropif`) holds.
@@ -2274,26 +2340,26 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
 
 std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass) {
     std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
-    if (so.Schema()->vocab && vocabRenderable(so)) return y + renderVocab(so);
+    if (!so.Schema()->vocab.empty() && vocabRenderable(so) && !isFileNode(ptrObj(so, "stringData"), c)) {
+        if (so.Schema()->vocab == "graph") return y + renderVocab(so, c);
+        const auto fields = so.Fields();
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            if (vocabField(so, fields[i]->name)) continue;
+            if (fields[i]->name != "stringData") { y += renderField(so, i, c); continue; }
+            const auto* sd = ptrObj(so, "stringData");
+            std::string body;
+            const auto sf = sd->Fields();
+            for (std::size_t j = 0; j < sf.size(); ++j)
+                if (sf[j]->name != kCharacterProperties.names) body += renderField(*sd, j, subCtx(c, "stringData"));
+            y += body.empty() ? std::string("stringData: {}\n") : "stringData:\n" + indentLines(body, "  ", "  ");
+        }
+        return y + renderVocab(so, c);
+    }
     const std::size_t n = so.Fields().size();
     for (std::size_t i = 0; i < n; ++i) y += renderField(so, i, c);
     return y;
 }
 
-/// @brief The rendered list items of an array field (one `  - ...` block per element) — the compose-diff unit.
-std::vector<std::string> elementBlocks(const std::vector<std::shared_ptr<IHavokObject>>& objs, const ReflectCtx& c,
-                                       const std::string& declared) {
-    std::vector<std::string> out;
-    for (const auto& p : objs) {
-        if (!p) { out.push_back("  - null\n"); continue; }
-        if (isFileNode(p.get(), c)) { out.push_back("  - " + refIdOf(p, c.id) + "\n"); continue; }
-        const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
-        if (!so) { out.push_back("  - '?'\n"); continue; }
-        const std::string b = reflectObject(*so, inlCtx(c), declared);
-        out.push_back(b.empty() ? std::string("  - {}\n") : indentLines(b, "  - ", "    "));
-    }
-    return out;
-}
 } // namespace
 
 /// @brief File-node categories plus `shared` for every inline object referenced from 2+ places.
@@ -2343,13 +2409,13 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         const std::string idStr = identity.ids.at(obj);
         std::vector<std::pair<std::string, std::string>> rosters;
         ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
-        ctx.sink = &rosters;
+        if (!root) ctx.sink = &rosters;
         const std::string body = reflectObject(*so, ctx);
         const fs::path dir = root ? fs::path(outDir) : fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
         std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary) << "id: " << idStr << "\n" << body;
         if (rosters.empty()) continue;
-        const fs::path own = root ? fs::path(outDir) / kRootRosterDir : dir / fsId(idStr);
+        const fs::path own = dir / fsId(idStr);
         fs::create_directories(own, ec);
         for (const auto& [path, entries] : rosters) std::ofstream(own / (path + ".yaml"), std::ios::binary) << entries;
     }
@@ -2650,6 +2716,11 @@ void collectTopLevel(const CB::core::common::xml::Node& n, std::vector<const CB:
 ///        of the base array; the layer's (modded) window is spliced over that run.
 /// @note Ambiguous runs (eventInfos context is `{flags: 0}` objects, which match almost anywhere) anchor at the
 ///       LAST match: a snippet extends the roster tail. A window that matches nowhere is an error, never a truncation.
+/// @note CONTEXT IS NOT CONTENT, for a whole array too: a mod that writes out the full array (its view of the base has
+///       the base's length) copies the base's lines outside MOD_CODE from its tool's template — which can differ
+///       (Nemesis templates trim whitespace: vanilla's ' iState_NPCSneaking' arrives as a duplicate
+///       'iState_NPCSneaking'). The lines its original and modded views share are its untouched ones; each takes the
+///       base's line at the same position, verbatim (Havok names are whitespace- and case-sensitive).
 /// @return true with `out` = the expanded layer when any param was anchored; false (out untouched) when none was.
 bool anchorSnippets(const CB::core::common::xml::Node& base, const CB::core::common::xml::Node& layer,
                     const CB::core::common::xml::Node* orig, CB::core::common::xml::Node& out, std::string& err) {
@@ -2658,23 +2729,52 @@ bool anchorSnippets(const CB::core::common::xml::Node& base, const CB::core::com
         for (const auto& c : n.children) if (c.tag == "hkparam" && c.attr("name") == name) return &c;
         return nullptr;
     };
-    auto isSnippet = [](const xml::Node& p) {
-        const std::string_view ne = p.attr("numelements");
-        if (ne.empty() || std::all_of(ne.begin(), ne.end(), [](char ch) { return std::isdigit(static_cast<unsigned char>(ch)) != 0; }))
-            return false;
+    auto isElementArray = [](const xml::Node& p) {
         for (const auto& c : p.children) if (c.tag == "hkobject" || c.tag == "hkcstring") return true;
         return false;
+    };
+    auto isSnippet = [&](const xml::Node& p) {
+        const std::string_view ne = p.attr("numelements");
+        return !ne.empty() && !std::all_of(ne.begin(), ne.end(), [](char ch) { return std::isdigit(static_cast<unsigned char>(ch)) != 0; }) &&
+               isElementArray(p);
     };
     bool any = false;
     for (std::size_t i = 0; i < layer.children.size(); ++i) {
         const xml::Node& lp = layer.children[i];
-        if (lp.tag != "hkparam" || !isSnippet(lp)) continue;
+        if (lp.tag != "hkparam" || !isElementArray(lp)) continue;
         const std::string name(lp.attr("name"));
         const xml::Node* bp = param(base, name);
         const xml::Node* op = orig ? param(*orig, name) : nullptr;
         if (!bp || !op) continue;
         const auto& B = bp->children;
         const auto& O = op->children;
+        if (!isSnippet(lp)) {
+            const auto& L = lp.children;
+            bool same = O.size() == B.size();
+            if (!same) continue;
+            for (std::size_t k = 0; same && k < O.size(); ++k) same = CB::core::merge::deepEqual(O[k], B[k]);
+            if (same) continue;
+            const std::size_t n = O.size(), m = L.size();
+            std::vector<std::uint32_t> dp((n + 1) * (m + 1), 0);
+            for (std::size_t a = n; a-- > 0;)
+                for (std::size_t b = m; b-- > 0;)
+                    dp[a * (m + 1) + b] = CB::core::merge::deepEqual(O[a], L[b])
+                        ? dp[(a + 1) * (m + 1) + b + 1] + 1
+                        : std::max(dp[(a + 1) * (m + 1) + b], dp[a * (m + 1) + b + 1]);
+            std::vector<xml::Node> fixed = L;
+            bool changed = false;
+            for (std::size_t a = 0, b = 0; a < n && b < m;) {
+                if (CB::core::merge::deepEqual(O[a], L[b]) && dp[a * (m + 1) + b] == dp[(a + 1) * (m + 1) + b + 1] + 1) {
+                    if (!CB::core::merge::deepEqual(O[a], B[a])) { fixed[b] = B[a]; changed = true; }
+                    ++a; ++b;
+                } else if (dp[(a + 1) * (m + 1) + b] >= dp[a * (m + 1) + b + 1]) ++a;
+                else ++b;
+            }
+            if (!changed) continue;
+            if (!any) { out = layer; any = true; }
+            out.children[i].children = std::move(fixed);
+            continue;
+        }
         std::size_t at = std::string::npos;
         for (std::size_t k = 0; O.size() <= B.size() && k + O.size() <= B.size(); ++k) {
             bool eq = true;
@@ -2847,13 +2947,6 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
 } // namespace
 
 // ── ParseHky — the reflective .hky -> SchemaObject graph (the exact inverse of EmitHkyReflective) ─────────────
-/// @brief Per (object, list field): the list before any patch changed its membership, how many patches did, and every
-///        element they added (load order). Keys are stable: merged objects persist across MergeHkyPatch calls.
-struct HkyListHistory {
-    struct Entry { io::FieldValue before; io::FieldValue adds; int touches = 0; };
-    std::map<std::pair<const IHavokObject*, std::size_t>, Entry> lists;
-};
-
 namespace {
 namespace yml = c4::yml;
 
@@ -2869,7 +2962,6 @@ struct HkyParse {
     bool                                                                   patch = false;   ///< fill as a FIELD PATCH
     std::function<std::string(const std::string&)>                         canon;   ///< id -> canonical key (null = verbatim)
     std::unordered_set<const IHavokObject*>                                nodes;   ///< file / shared / root objects
-    HkyListHistory*                                                        history = nullptr;   ///< set by MergeHkyPatch
     std::map<std::pair<const IHavokObject*, std::size_t>, std::vector<std::string>> subKeys;   ///< minted roster keys
     std::function<std::string(const std::string&)>                         baseCanon;   ///< a stored base key -> canonical
 };
@@ -2976,6 +3068,7 @@ bool boneIndex(const std::string& text, std::int64_t& out, HkyParse& ps, const s
 }
 
 bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps);
+bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps);
 bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps);
 
 /// @brief One pointer / struct value: a file-node id, an inline map (optionally `class:`-tagged), or the `unwrap:`
@@ -3173,41 +3266,36 @@ bool enumParse(const char* table, const std::string& text, long& out, HkyParse& 
     return true;
 }
 
-/// @brief Build (full) or patch (ps.patch) a `vocab` graph-data object from its name-keyed records. New names append
-///        to every parallel array (a quad-typed variable also appends its quad value and takes the running quad index);
-///        an existing name updates only what its record states.
-/// @note A `union` string roster (diffObject) likewise only ever ADDS names: names are identity there, so a mod
-///       never replaces or reorders one.
-bool fillVocab(io::SchemaObject& gd, const yml::ConstNodeRef& map, HkyParse& ps) {
-    auto ensure = [&](const char* field, const char* cls) -> io::SchemaObject* {
-        io::FieldValue& fv = gd.FieldRef(field);
-        if (!fv.obj) { auto o = makeObj(ps.reg, cls); ps.all.push_back(o); fv.obj = o; }
+/// @brief The inline object behind pointer field `field`, created (declared class) when absent.
+io::SchemaObject* ensurePtr(io::SchemaObject& so, const char* field, HkyParse& ps) {
+    const auto fs = so.Fields();
+    for (std::size_t j = 0; j < fs.size(); ++j) {
+        if (fs[j]->name != field) continue;
+        io::FieldValue& fv = so.FieldAt(j);
+        if (!fv.obj) {
+            auto o = makeObj(ps.reg, fs[j]->ref);
+            if (!o) return nullptr;
+            ps.all.push_back(o);
+            fv.obj = o;
+        }
         return dynamic_cast<io::SchemaObject*>(fv.obj.get());
-    };
-    io::SchemaObject* sd = ensure("stringData", "hkbBehaviorGraphStringData");
-    io::SchemaObject* vs = ensure("variableInitialValues", "hkbVariableValueSet");
-    if (!sd || !vs) { ps.err = ps.where + ": vocabulary objects missing"; return false; }
-    auto& vNames = sd->FieldRef("variableNames").strs;
-    auto& cNames = sd->FieldRef("characterPropertyNames").strs;
-    auto& eNames = sd->FieldRef("eventNames").strs;
-    auto& aNames = sd->FieldRef("attributeNames").strs;
-    auto& vInfos = gd.FieldRef("variableInfos").objs;
-    auto& cInfos = gd.FieldRef("characterPropertyInfos").objs;
-    auto& eInfos = gd.FieldRef("eventInfos").objs;
-    auto& aDefs  = gd.FieldRef("attributeDefaults").raw;
-    auto& words  = vs->FieldRef("wordVariableValues").objs;
-    auto& quads  = vs->FieldRef("quadVariableValues").raw;
-    if (!ps.patch) { vNames.clear(); cNames.clear(); eNames.clear(); aNames.clear(); vInfos.clear(); cInfos.clear(); eInfos.clear(); aDefs.clear(); words.clear(); quads.clear(); }
-    auto nameOf = [](const yml::ConstNodeRef& e) { std::string s; c4::from_chars(e.key(), &s); return s; };
-    auto make = [&](const char* cls) { auto o = makeObj(ps.reg, cls); ps.all.push_back(o); return o; };
+    }
+    return nullptr;
+}
 
-    auto applyInfo = [&](io::SchemaObject& info, const yml::ConstNodeRef& rec, bool fresh, io::SchemaObject* word,
-                         const std::string& what) -> bool {
+/// @brief One variable / character-property record onto `info` (+ its word, and its quad for vector types). `fresh`
+///        = a new entry (needs `type:`); an existing one keeps what its record leaves out.
+bool applyInfoRecord(io::SchemaObject& info, const yml::ConstNodeRef& rec, bool fresh, io::SchemaObject* word,
+                     std::vector<std::uint8_t>& quads, std::vector<std::shared_ptr<IHavokObject>>* variants,
+                     const std::string& what, HkyParse& ps) {
+    auto make = [&](const char* cls) { auto o = makeObj(ps.reg, cls); ps.all.push_back(o); return o; };
+    auto storage = [](long t) { return isPointerType(t) ? 2 : isQuadType(t) ? 1 : 0; };
+    {
         long type = fInt(info, "type");
         if (yhas(rec, "type")) {
             long t = 0;
             if (!enumParse("VariableType", ystr(yget(rec, "type")), t, ps, what)) return false;
-            if (!fresh && isQuadType(t) != isQuadType(type)) { ps.err = ps.where + ": " + what + ": changing a variable between quad and word storage is not supported"; return false; }
+            if (!fresh && storage(t) != storage(type)) { ps.err = ps.where + ": " + what + ": changing a variable's storage (word / quad / pointer) is not supported"; return false; }
             type = t;
             info.FieldRef("type").raw = encInt(type, Scalar::Int8);
         } else if (fresh) { ps.err = ps.where + ": " + what + ": a new entry needs `type:`"; return false; }
@@ -3217,6 +3305,22 @@ bool fillVocab(io::SchemaObject& gd, const yml::ConstNodeRef& map, HkyParse& ps)
         if (yhas(rec, "role"))  { long r = 0;  if (!enumParse("Role", ystr(yget(rec, "role")), r, ps, what)) return false; role->FieldRef("role").raw = encInt(r, Scalar::Int16); }
         if (yhas(rec, "flags")) { long fl = 0; if (!enumParse("RoleFlags", ystr(yget(rec, "flags")), fl, ps, what)) return false; role->FieldRef("flags").raw = encInt(fl, Scalar::Int16); }
         if (!word) return true;
+        if (isPointerType(type)) {
+            if (!variants) { ps.err = ps.where + ": " + what + ": a pointer value needs a value set"; return false; }
+            std::size_t vi = variants->size();
+            if (fresh) { word->FieldRef("value").raw = encInt(static_cast<std::int64_t>(vi), Scalar::Int32); variants->push_back(nullptr); }
+            else vi = static_cast<std::size_t>(fInt(*word, "value"));
+            if (yhas(rec, "value") && vi < variants->size()) {
+                std::shared_ptr<IHavokObject> o;
+                const bool was = ps.patch;
+                ps.patch = false;
+                const bool ok = objectValue(yget(rec, "value"), "hkReferencedObject", o, ps, what);
+                ps.patch = was;
+                if (!ok) return false;
+                (*variants)[vi] = o;
+            }
+            return true;
+        }
         if (isQuadType(type)) {
             std::size_t qi = quads.size() / 16;
             if (fresh) { word->FieldRef("value").raw = encInt(static_cast<std::int64_t>(qi), Scalar::Int32); quads.resize(quads.size() + 16, 0); }
@@ -3239,32 +3343,72 @@ bool fillVocab(io::SchemaObject& gd, const yml::ConstNodeRef& map, HkyParse& ps)
             }
         }
         return true;
-    };
+    }
+}
 
-    if (yhas(map, "variables"))
-        for (auto e : yget(map, "variables")) {
-            const std::string name = nameOf(e);
-            const auto it = std::find(vNames.begin(), vNames.end(), name);
-            if (it == vNames.end()) {
-                auto info = make("hkbVariableInfo"); auto word = make("hkbVariableValue");
-                vNames.push_back(name); vInfos.push_back(info); words.push_back(word);
-                if (!applyInfo(*info, e, true, word.get(), "variable '" + name + "'")) return false;
-            } else {
-                const std::size_t k = static_cast<std::size_t>(it - vNames.begin());
-                if (!applyInfo(*dynamic_cast<io::SchemaObject*>(vInfos[k].get()), e, false,
-                               dynamic_cast<io::SchemaObject*>(words[k].get()), "variable '" + name + "'")) return false;
-            }
+/// @brief Build (full) or patch (ps.patch) a VALUED roster from its name-keyed records: a new name appends to the
+///        names, infos and word values (a vector type also appends its quad and takes the running quad index); an
+///        existing name updates only what its record states.
+bool fillValued(io::SchemaObject& owner, const ValuedRoster& r, const yml::ConstNodeRef* entries, HkyParse& ps) {
+    io::SchemaObject* sd = ensurePtr(owner, "stringData", ps);
+    io::SchemaObject* vs = ensurePtr(owner, r.values, ps);
+    if (!sd || !vs) { ps.err = ps.where + ": " + r.key + ": vocabulary objects missing"; return false; }
+    auto& names = sd->FieldRef(r.names).strs;
+    auto& infos = owner.FieldRef(r.infos).objs;
+    auto& words = vs->FieldRef("wordVariableValues").objs;
+    auto& quads = vs->FieldRef("quadVariableValues").raw;
+    auto& variants = vs->FieldRef("variantVariableValues").objs;
+    if (!ps.patch) { names.clear(); infos.clear(); words.clear(); quads.clear(); variants.clear(); }
+    if (!entries) return true;
+    for (auto e : *entries) {
+        const std::string name = ykey(e);
+        const std::string what = std::string(r.key) + " '" + name + "'";
+        const auto it = std::find(names.begin(), names.end(), name);
+        if (it == names.end()) {
+            auto info = makeObj(ps.reg, "hkbVariableInfo"), word = makeObj(ps.reg, "hkbVariableValue");
+            ps.all.push_back(info);
+            ps.all.push_back(word);
+            names.push_back(name); infos.push_back(info); words.push_back(word);
+            if (!applyInfoRecord(*info, e, true, word.get(), quads, &variants, what, ps)) return false;
+        } else {
+            const std::size_t k = static_cast<std::size_t>(it - names.begin());
+            if (!applyInfoRecord(*dynamic_cast<io::SchemaObject*>(infos[k].get()), e, false,
+                                 dynamic_cast<io::SchemaObject*>(words[k].get()), quads, &variants, what, ps)) return false;
         }
+    }
+    return true;
+}
+
+/// @brief Build (full) or patch (ps.patch) a `vocab: graph` graph-data object from its name-keyed records (see
+///        fillValued; the unvalued rosters append the same way).
+/// @note A `union` string roster (diffObject) likewise only ever ADDS names: names are identity there, so a mod
+///       never replaces or reorders one.
+bool fillVocab(io::SchemaObject& gd, const yml::ConstNodeRef& map, HkyParse& ps) {
+    io::SchemaObject* sd = ensurePtr(gd, "stringData", ps);
+    if (!sd) { ps.err = ps.where + ": vocabulary objects missing"; return false; }
+    const yml::ConstNodeRef vars = yhas(map, "variables") ? yget(map, "variables") : yml::ConstNodeRef();
+    if (!fillValued(gd, kGraphVariables, yhas(map, "variables") ? &vars : nullptr, ps)) return false;
+    auto& cNames = sd->FieldRef("characterPropertyNames").strs;
+    auto& eNames = sd->FieldRef("eventNames").strs;
+    auto& aNames = sd->FieldRef("attributeNames").strs;
+    auto& cInfos = gd.FieldRef("characterPropertyInfos").objs;
+    auto& eInfos = gd.FieldRef("eventInfos").objs;
+    auto& aDefs  = gd.FieldRef("attributeDefaults").raw;
+    if (!ps.patch) { cNames.clear(); eNames.clear(); aNames.clear(); cInfos.clear(); eInfos.clear(); aDefs.clear(); }
+    auto nameOf = [](const yml::ConstNodeRef& e) { return ykey(e); };
+    auto make = [&](const char* cls) { auto o = makeObj(ps.reg, cls); ps.all.push_back(o); return o; };
+    std::vector<std::uint8_t> noQuads;
     if (yhas(map, "characterProperties"))
         for (auto e : yget(map, "characterProperties")) {
             const std::string name = nameOf(e);
+            const std::string what = "character property '" + name + "'";
             const auto it = std::find(cNames.begin(), cNames.end(), name);
             if (it == cNames.end()) {
                 auto info = make("hkbVariableInfo");
                 cNames.push_back(name); cInfos.push_back(info);
-                if (!applyInfo(*info, e, true, nullptr, "character property '" + name + "'")) return false;
-            } else if (!applyInfo(*dynamic_cast<io::SchemaObject*>(cInfos[static_cast<std::size_t>(it - cNames.begin())].get()), e, false,
-                                  nullptr, "character property '" + name + "'")) return false;
+                if (!applyInfoRecord(*info, e, true, nullptr, noQuads, nullptr, what, ps)) return false;
+            } else if (!applyInfoRecord(*dynamic_cast<io::SchemaObject*>(cInfos[static_cast<std::size_t>(it - cNames.begin())].get()), e, false,
+                                        nullptr, noQuads, nullptr, what, ps)) return false;
         }
     if (yhas(map, "events"))
         for (auto e : yget(map, "events")) {
@@ -3361,15 +3505,15 @@ bool rosterPatch(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n
     return true;
 }
 
-/// @brief FIELD-PATCH semantics for one present field (`handled` = done; else the caller replaces the value):
-///        a map onto an existing inline object of the same class merges field-wise (recursively); compose/union
-///        arrays APPEND (union skips strings already present); `{replace: [...]}` replaces an array outright.
+/// @brief FIELD-PATCH semantics for one present field (`handled` = done; else the caller replaces the value WHOLE):
+///        a keyed roster merges by key (rosterPatch); a map onto an existing inline object of the same class merges
+///        field-wise (recursively); a `union` name roster only ADDS the names it lacks. Every other value — any list
+///        without a roster — is replaced whole: the last mod to change it wins.
 bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps, bool& handled) {
     handled = false;
     const Field& f = *so.Fields()[i];
     io::FieldValue& v = so.FieldAt(i);
-    if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty() && n.is_map() &&
-        !yhas(n, "at") && !yhas(n, "append") && !yhas(n, "replace")) {
+    if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty() && n.is_map()) {
         handled = true;
         return rosterPatch(so, i, n, ps);
     }
@@ -3388,134 +3532,31 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
             return fillHky(*co, n, ps);   // ps.patch stays set: the nested object merges field-wise too
         }
     }
-    if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && n.is_map() && !yhas(n, "replace") &&
-        (yhas(n, "at") || yhas(n, "append"))) {
+    if (f.kind == FieldKind::StringArray && n.is_seq() && mergeTagOf(ps.reg, so.ClassName(), f.name) == "union") {
         handled = true;
-        if (yhas(n, "at"))
-            for (auto e : yget(n, "at")) {
-                std::string ks; c4::from_chars(e.key(), &ks);
-                const std::size_t k = static_cast<std::size_t>(std::strtoull(ks.c_str(), nullptr, 10));
-                if (k >= v.objs.size()) { ps.err = ps.where + ": " + f.name + ": at " + ks + " is past the array (" + std::to_string(v.objs.size()) + ")"; return false; }
-                auto* co = dynamic_cast<io::SchemaObject*>(v.objs[k].get());
-                const std::string cls = (e.is_map() && yhas(e, "class")) ? ystr(yget(e, "class")) : (co ? std::string(co->ClassName()) : f.ref);
-                if (e.is_map() && e.num_children() > 0 && co && !ps.nodes.count(co) && cls == co->ClassName()) {
-                    if (!fillHky(*co, e, ps)) return false;   // deep, field-wise (ps.patch stays set)
-                    continue;
-                }
-                const bool was = ps.patch;
-                ps.patch = false;                              // a replaced element is a whole value
-                const bool ok = objectValue(e, f.ref, v.objs[k], ps, f.name);
-                ps.patch = was;
-                if (!ok) return false;
-            }
-        if (yhas(n, "append"))
-            for (auto e : yget(n, "append")) {
-                std::shared_ptr<IHavokObject> o;
-                const bool was = ps.patch;
-                ps.patch = false;
-                const bool ok = objectValue(e, f.ref, o, ps, f.name);
-                ps.patch = was;
-                if (!ok) return false;
-                v.objs.push_back(o);
-            }
-        return true;
-    }
-    if (f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray || f.kind == FieldKind::StringArray) {
-        if (n.is_map() && yhas(n, "replace")) {
-            handled = true;
-            const bool was = ps.patch;
-            ps.patch = false;
-            const bool ok = fieldValue(so, i, yget(n, "replace"), ps);
-            ps.patch = was;
-            return ok;
-        }
-        const std::string tag = mergeTagOf(ps.reg, so.ClassName(), f.name);
-        if ((tag == "compose" || tag == "union") && n.is_seq()) {
-            handled = true;
-            io::FieldValue old = v;
-            const bool was = ps.patch;
-            ps.patch = false;
-            const bool ok = fieldValue(so, i, n, ps);
-            ps.patch = was;
-            if (!ok) return false;
-            io::FieldValue added = std::move(v);
-            v = std::move(old);
-            if (f.kind == FieldKind::StringArray) {
-                for (auto& s2 : added.strs)
-                    if (tag != "union" || std::find(v.strs.begin(), v.strs.end(), s2) == v.strs.end()) v.strs.push_back(s2);
-            } else {
-                for (auto& o : added.objs) v.objs.push_back(o);
-            }
-            return true;
+        for (auto e : n) {
+            const std::string s = ystr(e);
+            if (std::find(v.strs.begin(), v.strs.end(), s) == v.strs.end()) v.strs.push_back(s);
         }
     }
     return true;
-}
-
-/// @brief Element identity for list merging: a pointer that names a NODE is that node (identity); an inline object
-///        (embedded struct, or a pointer to an unshared non-node) is its content — a replace that restates an inline
-///        element builds a new object, which must still read as the same element.
-bool sameElem(const std::shared_ptr<IHavokObject>& a, const std::shared_ptr<IHavokObject>& b, const HkyParse& ps) {
-    if (a == b) return true;
-    if (!a || !b || ps.nodes.count(a.get()) || ps.nodes.count(b.get())) return false;
-    const auto* x = dynamic_cast<const io::SchemaObject*>(a.get());
-    const auto* y = dynamic_cast<const io::SchemaObject*>(b.get());
-    if (!x || !y || std::string(x->ClassName()) != y->ClassName()) return false;
-    const auto& xv = x->Values();
-    const auto& yv = y->Values();
-    for (std::size_t i = 0; i < xv.size(); ++i) {
-        const io::FieldValue& p = xv[i];
-        const io::FieldValue& q = yv[i];
-        if (p.raw != q.raw || p.str != q.str || p.strs != q.strs || p.objs.size() != q.objs.size() || !sameElem(p.obj, q.obj, ps))
-            return false;
-        for (std::size_t k = 0; k < p.objs.size(); ++k) if (!sameElem(p.objs[k], q.objs[k], ps)) return false;
-    }
-    return true;
-}
-
-std::size_t listSize(const io::FieldValue& v, FieldKind k) { return k == FieldKind::StringArray ? v.strs.size() : v.objs.size(); }
-bool listEq(const io::FieldValue& a, std::size_t i, const io::FieldValue& b, std::size_t j, FieldKind k, const HkyParse& ps) {
-    return k == FieldKind::StringArray ? a.strs[i] == b.strs[j] : sameElem(a.objs[i], b.objs[j], ps);
-}
-/// @brief Multiset membership: claim an as-yet-unclaimed element of `v` equal to `from[e]`. Value records with no
-///        identity (eventInfos' `{flags: 0}`) repeat, so presence must be COUNTED — N+1 equal records is one addition.
-bool listClaim(const io::FieldValue& v, std::size_t limit, std::vector<bool>& claimed, FieldKind k,
-               const io::FieldValue& from, std::size_t e, const HkyParse& ps) {
-    claimed.resize(limit, false);
-    for (std::size_t j = 0; j < limit; ++j)
-        if (!claimed[j] && listEq(v, j, from, e, k, ps)) { claimed[j] = true; return true; }
-    return false;
-}
-void listPush(io::FieldValue& v, FieldKind k, const io::FieldValue& from, std::size_t e) {
-    if (k == FieldKind::StringArray) v.strs.push_back(from.strs[e]);
-    else v.objs.push_back(from.objs[e]);
-}
-
-/// @brief UNION WINS (see MergeHkyPatch): after a patch changed list field `i` from `before`, record the change; the
-///        first mod to change a list keeps its version verbatim, a second makes it `before-first-touch + all additions`.
-void unionTouch(io::SchemaObject& so, std::size_t i, const io::FieldValue& before, HkyParse& ps) {
-    const FieldKind k = so.Fields()[i]->kind;
-    io::FieldValue& v = so.FieldAt(i);
-    bool same = listSize(before, k) == listSize(v, k);
-    for (std::size_t e = 0; same && e < listSize(v, k); ++e) same = listEq(before, e, v, e, k, ps);
-    if (same) return;   // in-place element edits are not membership changes
-    auto [it, fresh] = ps.history->lists.try_emplace({ &so, i });
-    HkyListHistory::Entry& h = it->second;
-    if (fresh) h.before = before;
-    std::vector<bool> inBefore, inAdds;
-    const std::size_t known = listSize(h.adds, k);   ///< only EARLIER mods' additions are claimable
-    for (std::size_t e = 0; e < listSize(v, k); ++e)
-        if (!listClaim(h.before, listSize(h.before, k), inBefore, k, v, e, ps) && !listClaim(h.adds, known, inAdds, k, v, e, ps))
-            listPush(h.adds, k, v, e);
-    if (++h.touches == 1) return;
-    io::FieldValue u = h.before;
-    for (std::size_t e = 0; e < listSize(h.adds, k); ++e) listPush(u, k, h.adds, e);
-    v = std::move(u);
 }
 
 bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
-    if (so.Schema()->vocab && (yhas(map, "variables") || yhas(map, "events") || yhas(map, "characterProperties") || yhas(map, "attributes")))
+    if (so.Schema()->vocab == "graph" &&
+        (yhas(map, "variables") || yhas(map, "events") || yhas(map, "characterProperties") || yhas(map, "attributes")))
         return fillVocab(so, map, ps);
+    if (so.Schema()->vocab == "character" && yhas(map, kCharacterProperties.key)) {
+        if (!fillFields(so, map, ps)) return false;
+        const yml::ConstNodeRef props = yget(map, kCharacterProperties.key);
+        return fillValued(so, kCharacterProperties, &props, ps);
+    }
+    return fillFields(so, map, ps);
+}
+
+/// @brief fillHky's field walk: every schema field the map names (a patch touches only those; a full fill defaults
+///        the rest).
+bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
     const auto fields = so.Fields();
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
@@ -3532,17 +3573,9 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
             continue;
         }
         bool handled = false;
-        const bool list = ps.patch && ps.history && f.roster.empty() &&
-            (f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray || f.kind == FieldKind::StringArray);
-        io::FieldValue before;
-        if (list) before = so.FieldAt(i);
         if (ps.patch && !patchField(so, i, yget(map, f.name), ps, handled)) return false;
         if (!handled && !fieldValue(so, i, yget(map, f.name), ps)) return false;
-        if (list) unionTouch(so, i, before, ps);
-        if (!f.roster.empty()) {
-            const auto n = yget(map, f.name);
-            if (!n.is_map() || yhas(n, "at") || yhas(n, "append") || yhas(n, "replace")) ps.subKeys.erase({ &so, i });
-        }
+        if (!f.roster.empty() && !yget(map, f.name).is_map()) ps.subKeys.erase({ &so, i });
         if (!f.eventRef.empty() && yhas(map, f.eventRef)) ps.symbols.push_back({ &so, i, true,  ystr(yget(map, f.eventRef)), ps.where });
         if (!f.varRef.empty()   && yhas(map, f.varRef))   ps.symbols.push_back({ &so, i, false, ystr(yget(map, f.varRef)),   ps.where });
     }
@@ -3556,8 +3589,8 @@ bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& re
 }
 
 namespace {
-/// @brief One YAML file of a unit. A ROSTER file (`<cat>/<id>/<field.path>.yaml`, or `graph/<field.path>.yaml` for the
-///        root) carries one roster of node `owner` (empty = the root) at `field`; anything else is a node file.
+/// @brief One YAML file of a unit. A ROSTER file (`<cat>/<id>/<field.path>.yaml`) carries one roster of node `owner`
+///        at `field` (the root's rosters stay inline in graph.yaml); anything else is a node file.
 struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false; std::string owner, field; };
 /// @brief Every YAML file of a unit, parsed in place (the text buffer lives beside its tree).
 std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSource& src) {
@@ -3577,9 +3610,6 @@ std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSo
                 d->roster = true;
                 d->owner = d->cat.substr(d->cat.rfind('/') + 1);
                 for (char& ch : d->owner) if (ch == '-') ch = ':';
-                d->field = stem;
-            } else if (d->cat == kRootRosterDir) {
-                d->roster = true;
                 d->field = stem;
             }
         }
@@ -3660,8 +3690,8 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
     }
     for (auto& d : docs) {
         if (!d->roster) continue;
-        const auto it = d->owner.empty() ? ps.byId.end() : ps.byId.find(d->owner);
-        io::SchemaObject* owner = d->owner.empty() ? root.get() : it == ps.byId.end() ? nullptr : it->second.get();
+        const auto it = ps.byId.find(d->owner);
+        io::SchemaObject* owner = it == ps.byId.end() ? nullptr : it->second.get();
         if (!owner) { err = d->file + ": no node '" + d->owner + "' for this roster"; return false; }
         if (!applyRosterFile(*owner, *d, false, ps)) { err = ps.err; return false; }
     }
@@ -3702,7 +3732,9 @@ bool isArrayKind(FieldKind k) {
            k == FieldKind::ScalarArray || k == FieldKind::Vec4Array || k == FieldKind::QsTransformArray || k == FieldKind::BoolArray;
 }
 
-std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm);
+using FieldSkip = std::function<bool(const std::string&)>;
+std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm,
+                       const FieldSkip& skip = {});
 
 /// @brief A roster field's KEYED patch: changed entries (field-level for an inline record), new entries (whole, keyed
 ///        as the mod's own), and `{deleted: true}` for base entries the mod dropped. Returns the entry lines (indented
@@ -3795,22 +3827,46 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
 /// @brief The field-level patch turning `b` into `m` (empty = identical). Nested inline objects of the same class
 ///        deep-diff; compose/union arrays whose base is a prefix emit only the appended tail (else `{replace: [...]}`);
 ///        a value that became absent is written explicitly (`null` / `[]` / -1) — a patch never relies on omission.
-std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm) {
+std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm,
+                       const FieldSkip& skip) {
     std::string y;
-    if (m.Schema()->vocab && vocabRenderable(b) && vocabRenderable(m)) {
-        std::map<std::pair<std::string, std::string>, std::string> base;
-        for (const auto& [k, name, rec] : vocabRecords(b, true)) base[{ k, name }] = rec;
+    if (!skip && !m.Schema()->vocab.empty() && vocabRenderable(b) && vocabRenderable(m, true) &&
+        !isFileNode(ptrObj(b, "stringData"), cb) && !isFileNode(ptrObj(m, "stringData"), cm)) {
+        /// @note A name the mod duplicated (a rename onto an existing name) takes the occurrence at the BASE entry's
+        ///       position — the one it didn't rename; a name new to the roster takes its first occurrence.
+        using Key = std::pair<std::string, std::string>;
+        std::map<Key, std::pair<std::size_t, std::string>> base;
+        std::map<std::string, std::size_t> pos;
+        for (const auto& [k, name, rec] : vocabRecords(b, inlCtx(cb), true)) base[{ k, name }] = { pos[k]++, rec };
+        std::map<Key, std::pair<std::size_t, std::string>> mod;
+        pos.clear();
+        std::vector<Key> order;
+        for (const auto& [k, name, rec] : vocabRecords(m, inlCtx(cm), true)) {
+            const std::size_t at = pos[k]++;
+            const auto bi = base.find({ k, name });
+            auto [it, fresh] = mod.try_emplace({ k, name }, at, rec);
+            if (fresh) order.push_back({ k, name });
+            else if (bi != base.end() && at == bi->second.first) it->second = { at, rec };
+        }
         std::map<std::string, std::string> blocks;
-        for (const auto& [k, name, rec] : vocabRecords(m, true))
-            if (auto it = base.find({ k, name }); it == base.end() || it->second != rec) blocks[k] += "  " + q(name) + ": " + rec + "\n";
-        for (const char* k : { "variables", "characterProperties", "events", "attributes" })
+        for (const Key& key : order) {
+            const std::string& rec = mod.at(key).second;
+            if (auto it = base.find(key); it == base.end() || it->second.second != rec) blocks[key.first] += vocabLine(key.second, rec);
+        }
+        for (const char* k : vocabKeys(m))
             if (!blocks[k].empty()) y += std::string(k) + ":\n" + blocks[k];
-        return y;
+        if (m.Schema()->vocab == "graph") return y;
+        /// @note A character's other fields diff as usual; its string data diffs without the names the records carry.
+        std::string rest = diffObject(b, m, cb, cm, [&](const std::string& n) { return vocabField(m, n) || n == "stringData"; });
+        const std::string sd = diffObject(*ptrObj(b, "stringData"), *ptrObj(m, "stringData"), subCtx(cb, "stringData"),
+                                          subCtx(cm, "stringData"), [](const std::string& n) { return n == kCharacterProperties.names; });
+        if (!sd.empty()) rest += "stringData:\n" + indentLines(sd, "  ", "  ");
+        return rest + y;
     }
     const auto fields = m.Fields();
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
-        if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
+        if (f.name.empty() || (f.ignored && !f.hkyEmit) || (skip && skip(f.name))) continue;
         const std::string tb = renderField(b, i, inlCtx(cb)), tm = renderField(m, i, inlCtx(cm));
         if (tb == tm) continue;
         if (tm.empty()) {
@@ -3843,73 +3899,13 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
                 else y += f.name + ":\n" + indentLines(*r, "  ", "  ");
                 continue;
             }
-        const std::string tag = mergeTagOf(cm.reg, m.ClassName(), f.name);
-        /// @note Object arrays patch BY POSITION: `at: {i: <deep patch | element>}` + `append: [...]`; a plain list is
-        ///       the compose shorthand for append-only. Shrinking (removal) replaces the whole array.
-        if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && vm.objs.size() >= vb.objs.size()) {
-            const auto eb = elementBlocks(vb.objs, cb, f.ref), em = elementBlocks(vm.objs, cm, f.ref);
-            std::string at;
-            for (std::size_t k = 0; k < eb.size(); ++k) {
-                if (eb[k] == em[k]) continue;
-                const auto& be = vb.objs[k];
-                const auto& me = vm.objs[k];
-                const auto* bo = dynamic_cast<const io::SchemaObject*>(be.get());
-                const auto* mo = dynamic_cast<const io::SchemaObject*>(me.get());
-                const schema::ClassSchema* ecs = mo ? cm.reg.Find(mo->ClassName()) : nullptr;
-                if (bo && mo && !isFileNode(be.get(), cb) && !isFileNode(me.get(), cm) &&
-                    std::string(bo->ClassName()) == mo->ClassName() && !(ecs && !ecs->unwrap.empty())) {
-                    const std::string sub = diffObject(*bo, *mo, inlCtx(cb), inlCtx(cm));
-                    if (!sub.empty()) at += std::to_string(k) + ":\n" + indentLines(sub, "  ", "  ");
-                    continue;
-                }
-                if (!me) at += std::to_string(k) + ": null\n";
-                else if (isFileNode(me.get(), cm)) at += std::to_string(k) + ": " + refIdOf(me, cm.id) + "\n";
-                else if (mo) {
-                    const std::string full = reflectObject(*mo, inlCtx(cm), f.ref);
-                    at += full.empty() ? std::to_string(k) + ": {}\n" : std::to_string(k) + ":\n" + indentLines(full, "  ", "  ");
-                }
-            }
-            if (at.empty() && tag == "compose") {   // append-only: the plain-list shorthand
-                y += f.name + ":\n";
-                for (std::size_t k = eb.size(); k < em.size(); ++k) y += em[k];
-                continue;
-            }
-            y += f.name + ":\n";
-            if (!at.empty()) y += "  at:\n" + indentLines(at, "    ", "    ");
-            if (em.size() > eb.size()) {
-                y += "  append:\n";
-                for (std::size_t k = eb.size(); k < em.size(); ++k) y += indentLines(em[k], "  ", "  ");
-            }
-            continue;
-        }
-        if ((tag == "compose" || tag == "union") &&
-            (f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray || f.kind == FieldKind::StringArray)) {
-            std::vector<std::string> eb, em;
-            if (f.kind == FieldKind::StringArray) {
-                for (const auto& s2 : vb.strs) eb.push_back(q(s2));
-                for (const auto& s2 : vm.strs) em.push_back(q(s2));
-            } else {
-                eb = elementBlocks(vb.objs, cb, f.ref);
-                em = elementBlocks(vm.objs, cm, f.ref);
-            }
-            const bool prefix = em.size() >= eb.size() && std::equal(eb.begin(), eb.end(), em.begin());
-            if (f.kind == FieldKind::StringArray && tag == "union") {
-                const std::set<std::string> have(eb.begin(), eb.end());
-                std::string list;
-                for (const auto& s2 : em) if (!have.count(s2)) list += (list.empty() ? "" : ", ") + s2;
-                if (!list.empty()) y += f.name + ": [" + list + "]\n";
-            } else if (f.kind == FieldKind::StringArray) {
-                const std::size_t from = prefix ? eb.size() : 0;
-                std::string list;
-                for (std::size_t k = from; k < em.size(); ++k) list += (k > from ? ", " : "") + em[k];
-                y += prefix ? f.name + ": [" + list + "]\n" : f.name + ":\n  replace: [" + list + "]\n";
-            } else if (prefix) {
-                y += f.name + ":\n";
-                for (std::size_t k = eb.size(); k < em.size(); ++k) y += em[k];
-            } else {
-                y += f.name + ":\n  replace:\n";
-                for (const auto& e : em) y += indentLines(e, "  ", "  ");
-            }
+        /// @note A `union` name roster only ever ADDS the names it lacks (names are identity; a mod never replaces or
+        ///       reorders one). Every other list without a roster is a whole value.
+        if (f.kind == FieldKind::StringArray && mergeTagOf(cm.reg, m.ClassName(), f.name) == "union") {
+            const std::set<std::string> have(vb.strs.begin(), vb.strs.end());
+            std::string list;
+            for (const auto& s2 : vm.strs) if (!have.count(s2)) list += (list.empty() ? "" : ", ") + q(s2);
+            if (!list.empty()) y += f.name + ": [" + list + "]\n";
             continue;
         }
         y += tm;
@@ -3990,7 +3986,7 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
             std::string body;
             std::vector<std::pair<std::string, std::string>> rosters;
             ReflectCtx cMn = cM;
-            cMn.sink = &rosters;
+            if (!isRoot(o)) cMn.sink = &rosters;
             if (auto it = baseById.find(id); it != baseById.end()) {
                 const auto* bo = dynamic_cast<const io::SchemaObject*>(it->second);
                 if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
@@ -4010,7 +4006,7 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
                     << "id: " << id << "\n" << (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string())
                     << body;
             if (rosters.empty()) continue;
-            const fs::path own = isRoot(o) ? fs::path(patchDir) / kRootRosterDir : dir / fsId(id);
+            const fs::path own = dir / fsId(id);
             fs::create_directories(own, ec);
             for (const auto& [path, entries] : rosters) std::ofstream(own / (path + ".yaml"), std::ios::binary) << entries;
         }
@@ -4037,8 +4033,6 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
-    if (!base.listHistory) base.listHistory = std::make_shared<HkyListHistory>();
-    ps.history = base.listHistory.get();
     ps.canon = canonFor(patchMasters);
     const auto baseCanon = canonFor(baseMasters);
     ps.baseCanon = baseCanon;
@@ -4090,11 +4084,8 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
     /// @note A roster file may arrive WITHOUT its node's file (a mod that only adds a transition): its owner is then an
     ///       existing node, patched; a node this patch creates takes its rosters whole.
     for (auto& d : rosters) {
-        io::SchemaObject* owner = base.root.get();
-        if (!d->owner.empty()) {
-            const auto it = ps.byId.find(ps.canon(d->owner));
-            owner = it == ps.byId.end() ? nullptr : it->second.get();
-        }
+        const auto it = ps.byId.find(ps.canon(d->owner));
+        io::SchemaObject* owner = it == ps.byId.end() ? nullptr : it->second.get();
         if (!owner) { err = d->file + ": no node '" + d->owner + "' for this roster"; return false; }
         if (!applyRosterFile(*owner, *d, !fresh.count(owner), ps)) { err = ps.err; return false; }
     }

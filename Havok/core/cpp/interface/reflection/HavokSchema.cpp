@@ -156,7 +156,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         { const std::string s = childStr(root, "signature"); if (!s.empty()) out.signature = static_cast<std::uint32_t>(std::stoul(s, nullptr, 0)); }
         { const std::string s = childStr(root, "size");      if (!s.empty()) out.size = std::stoi(s); }
         out.unwrap = childStr(root, "unwrap");
-        out.vocab  = (childStr(root, "vocab") == "true");
+        out.vocab  = childStr(root, "vocab");
 
         if (hasKey(root, "runtime"))
             out.runtime = (childStr(root[c4::to_csubstr("runtime")], "source") == "self")

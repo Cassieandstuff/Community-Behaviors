@@ -129,12 +129,10 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
 
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
 ///        categories; inline objects join with category "").
-struct HkyListHistory;
 struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
     Identity                                       identity;
-    std::shared_ptr<HkyListHistory>                listHistory;   ///< @brief MergeHkyPatch's per-list record (see UNION WINS)
 };
 /// @brief ParseHky — the exact inverse of EmitHkyReflective: `dir` (graph.yaml + `<category>/<id>.yaml`) -> the
 ///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
@@ -165,17 +163,17 @@ struct HkyPatchStats { int patched = 0; int added = 0; };
 /// @brief Derive the FIELD PATCH turning `baseBytes` into `modBytes`: mod nodes match base nodes by (class, name)
 ///        (unnamed shared leaves by content) and take the base's FormIds as master `baseIndex`; unmatched nodes are
 ///        NEW (self index 0, full body). A patched node file carries only its changed fields (nested inline objects
-///        deep-diffed; compose/union arrays as the appended tail).
+///        deep-diffed; a roster as its changed / new / `{deleted: true}` entries by key, in the node's folder; a union
+///        name roster as the names it adds; any other list whole).
 bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
                     const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
                     const std::vector<std::string>* bones = nullptr, std::uint16_t baseIndex = 1, HkyPatchStats* stats = nullptr);
 /// @brief Apply a patch unit onto a parsed graph. FormIds resolve through each unit's master table (`baseMasters` /
 ///        `patchMasters`, index -> bundle), so a patch's `0001x…` names the base's `0000x…`. A patched node changes
-///        only the fields it names; compose/union arrays append; `{replace: [...]}` replaces.
-/// @note UNION WINS (user decision, 2026-09-29): a list whose membership ONE mod changes takes that mod's version
-///       verbatim (removals, order); once a SECOND mod changes it, it becomes the pre-patch list + every mod's
-///       additions in load order, so both mods' additions survive and contested removals are dropped. The record
-///       lives on `base.listHistory` across calls.
+///        only the fields it names.
+/// @note What mods co-edit has its OWN identity (user decision, 2026-09-29 — Bethesda's model): a roster's entries
+///       are sub-records, overridden / added / deleted by key, so two mods' entries never collide; everything else is
+///       a whole value, and the last mod to change it wins. There is no element-wise list merging.
 bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);

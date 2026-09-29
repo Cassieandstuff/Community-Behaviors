@@ -1,5 +1,6 @@
 name:      hkbCharacterData
 parent:    hkReferencedObject
+vocab:     character   # .hky: character properties (names / infos / values) as name-keyed records
 signature: 0x300d6808
 size:      176
 fields:
