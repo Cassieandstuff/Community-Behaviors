@@ -60,6 +60,8 @@ struct Field {
     bool        boneList = false;        ///< @brief `bonelist: true` — a scalar array of bone indices; the .hky lists names.
     bool        boneWeights = false;     ///< @brief `boneweights: <default>` — a float array indexed by rig bone; the .hky
     std::string boneWeightDefault;       ///<        is a bone-name -> weight map, unlisted bones taking this default.
+    std::string charPropIf;              ///< @brief `charpropif: <field>=<value>` — the `varref` index names a CHARACTER
+                                         ///<        PROPERTY (not a variable) when that sibling field holds that value.
     bool        hkyEmit = false;         // force-emit this field in the .hky even though it is `ignored`
                                          // (SERIALIZE_IGNORED but semantically authored, e.g.
                                          // hkbBlendingTransitionEffect.initializeCharacterPose).
@@ -82,6 +84,8 @@ struct ClassSchema {
                                              // asserts ComputeSize == size when present (0 = omit/derive).
     std::vector<Field> fields;               // this class's OWN fields, in serialized order (parent's come first, from its schema)
     RuntimeSource      runtime   = RuntimeSource::Game;
+    bool               vocab = false;            ///< @brief `vocab: true` — the .hky renders this graph-data object's rosters as
+                                                 ///<        name-keyed vocabulary records (see renderVocab), not parallel arrays.
     std::string        unwrap;                   ///< @brief `unwrap: <field>` — a .hky convenience: a pointer/struct to this
                                                  ///<        class renders as that one field's value directly, when every other
                                                  ///<        field would emit nothing (else the full object form, so lossless).

@@ -156,6 +156,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         { const std::string s = childStr(root, "signature"); if (!s.empty()) out.signature = static_cast<std::uint32_t>(std::stoul(s, nullptr, 0)); }
         { const std::string s = childStr(root, "size");      if (!s.empty()) out.size = std::stoi(s); }
         out.unwrap = childStr(root, "unwrap");
+        out.vocab  = (childStr(root, "vocab") == "true");
 
         if (hasKey(root, "runtime"))
             out.runtime = (childStr(root[c4::to_csubstr("runtime")], "source") == "self")
@@ -204,6 +205,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     if (const std::string h = childStr(fn, "hkyenum"); !h.empty()) { f.enumName = h; f.hkyOnlyEnum = true; }
                     f.boneRef  = (childStr(fn, "boneref")  == "true");
                     f.boneList = (childStr(fn, "bonelist") == "true");
+                    f.charPropIf = childStr(fn, "charpropif");
                     if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
                     f.isFlags  = (childStr(fn, "flags") == "true");   // bitfield → FormatFlags in .hky
                     f.hkyEmit  = (childStr(fn, "hky")   == "true");   // force-emit an ignored field in .hky

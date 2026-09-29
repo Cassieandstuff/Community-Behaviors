@@ -1,5 +1,6 @@
 name:      hkbBehaviorGraphData
 parent:    hkReferencedObject
+vocab:     true   # .hky: variables / events / character properties / attributes as name-keyed records
 signature: 0x095aca5d
 size:      128
 # Variable/event metadata + defaults.

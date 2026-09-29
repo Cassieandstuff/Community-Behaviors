@@ -8,7 +8,7 @@ fields:
   - { name: offsetInObjectPlusOne,  type: int32, ignored: true }
   - { name: offsetInArrayPlusOne,   type: int32, ignored: true }
   - { name: rootVariableIndex,      type: int32, ignored: true }
-  - { name: variableIndex,          type: int32 }
+  - { name: variableIndex,          type: int32, varref: variable, charpropif: bindingType=1 }
   - { name: bitIndex,               type: int8 }
   - { name: bindingType,            type: int8, enum: BindingType }
   - { name: memberType,             type: byte, ignored: true }

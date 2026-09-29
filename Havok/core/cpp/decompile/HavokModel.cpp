@@ -1967,6 +1967,138 @@ std::string flowList(std::size_t n, F&& at) {
     return y + "]";
 }
 
+/// @note VOCABULARY VIEW (`vocab: true`, hkbBehaviorGraphData): the graph's variables / character properties /
+///       events / attributes render as NAME-KEYED RECORDS instead of Havok's parallel arrays (names in the string
+///       data, infos, word values, quad values). Position is meaningless for vocabulary and names are identity, so
+///       mods add or change entries by name. Lossless under invariants that hold for every vanilla graph (parallel
+///       lengths, unique names, empty min/max, quad/variant indices running in variable order); an object that
+///       breaks one keeps the raw field form.
+const io::SchemaObject* ptrObj(const io::SchemaObject& so, const char* field) {
+    const io::FieldValue* v = fieldByName(so, field);
+    return v ? dynamic_cast<const io::SchemaObject*>(v->obj.get()) : nullptr;
+}
+const std::vector<std::shared_ptr<IHavokObject>>* objsOf(const io::SchemaObject& so, const char* field) {
+    const io::FieldValue* v = fieldByName(so, field);
+    return v ? &v->objs : nullptr;
+}
+const std::vector<std::string>* strsOf(const io::SchemaObject* so, const char* field) {
+    const io::FieldValue* v = so ? fieldByName(*so, field) : nullptr;
+    return v ? &v->strs : nullptr;
+}
+/// @brief VECTOR3 / VECTOR4 / QUATERNION variables store their value in the quad array (word = quad index).
+bool isQuadType(long t) { return t == 6 || t == 7 || t == 8; }
+
+bool vocabRenderable(const io::SchemaObject& gd) {
+    const auto* sd = ptrObj(gd, "stringData");
+    const auto* vs = ptrObj(gd, "variableInitialValues");
+    if (!sd || !vs) return false;
+    const auto* vn = strsOf(sd, "variableNames"); const auto* en = strsOf(sd, "eventNames");
+    const auto* cn = strsOf(sd, "characterPropertyNames"); const auto* an = strsOf(sd, "attributeNames");
+    const auto* vi = objsOf(gd, "variableInfos"); const auto* ei = objsOf(gd, "eventInfos"); const auto* ci = objsOf(gd, "characterPropertyInfos");
+    const auto* wv = objsOf(*vs, "wordVariableValues");
+    const io::FieldValue* ad = fieldByName(gd, "attributeDefaults");
+    const io::FieldValue* qv = fieldByName(*vs, "quadVariableValues");
+    const auto* pv = objsOf(*vs, "variantVariableValues");
+    if (!vn || !en || !cn || !an || !vi || !ei || !ci || !wv || !ad || !qv || !pv) return false;
+    if (vn->size() != vi->size() || vn->size() != wv->size() || en->size() != ei->size() || cn->size() != ci->size() ||
+        an->size() * 4 != ad->raw.size()) return false;
+    if (!objsOf(gd, "wordMinVariableValues")->empty() || !objsOf(gd, "wordMaxVariableValues")->empty()) return false;
+    if (!pv->empty()) return false;
+    for (const auto* names : { vn, en, cn, an })
+        if (std::set<std::string>(names->begin(), names->end()).size() != names->size()) return false;
+    std::size_t q = 0;
+    for (std::size_t i = 0; i < vi->size(); ++i) {
+        const auto* info = dynamic_cast<const io::SchemaObject*>((*vi)[i].get());
+        const auto* word = dynamic_cast<const io::SchemaObject*>((*wv)[i].get());
+        if (!info || !word) return false;
+        const long t = fInt(*info, "type");
+        if (t == 5) return false;
+        if (isQuadType(t)) { if (fInt(*word, "value") != static_cast<long>(q)) return false; ++q; }
+    }
+    return q * 16 == qv->raw.size();
+}
+
+std::string enumText(const char* table, long v, bool flags) {
+    const auto& t = en::EnumTable(table);
+    if (flags) return en::FormatFlags(v, t);
+    const std::string n = en::enumName(v, t);
+    return n.empty() ? std::to_string(v) : n;
+}
+
+/// @brief One variable / character-property record, as flow YAML. `quad` = its quad value (quad types only).
+/// @note `full` states role + flags even at 0: a PATCH record's absent key means "unchanged", so a diff that
+///       clears one must say so.
+std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* word, const std::uint8_t* quad, bool full) {
+    const long t = fInt(info, "type");
+    std::string y = "{type: " + enumText("VariableType", t, false);
+    if (const auto* role = ptrObj(info, "role")) {
+        const long r = fInt(*role, "role");
+        const long fl = static_cast<long>(static_cast<std::uint16_t>(fInt(*role, "flags")));
+        if (r || full)  y += ", role: " + enumText("Role", r, false);
+        if (fl || full) y += ", flags: " + enumText("RoleFlags", fl, true);
+    }
+    if (word) {
+        const io::FieldValue* wv = fieldByName(*word, "value");
+        std::string val;
+        if (quad) val = rvec(std::vector<std::uint8_t>(quad, quad + 16));
+        else if (t == 4 && wv) val = rfloat(wv->raw);
+        else {
+            const long w = fInt(*word, "value");
+            val = (t == 0 && (w == 0 || w == 1)) ? boolstr(w != 0) : std::to_string(w);
+        }
+        y += ", value: " + val;
+    }
+    return y + "}";
+}
+
+/// @brief Every record of the vocabulary, per roster, in roster order: (roster key, name, record text).
+std::vector<std::tuple<std::string, std::string, std::string>> vocabRecords(const io::SchemaObject& gd, bool full = false) {
+    std::vector<std::tuple<std::string, std::string, std::string>> out;
+    const auto* sd = ptrObj(gd, "stringData");
+    const auto* vs = ptrObj(gd, "variableInitialValues");
+    const auto& vn = *strsOf(sd, "variableNames");
+    const auto& vi = *objsOf(gd, "variableInfos");
+    const auto& wv = *objsOf(*vs, "wordVariableValues");
+    const auto& qv = fieldByName(*vs, "quadVariableValues")->raw;
+    std::size_t q = 0;
+    for (std::size_t i = 0; i < vn.size(); ++i) {
+        const auto& info = *dynamic_cast<const io::SchemaObject*>(vi[i].get());
+        const std::uint8_t* quad = isQuadType(fInt(info, "type")) ? qv.data() + 16 * q++ : nullptr;
+        out.emplace_back("variables", vn[i], infoRecord(info, dynamic_cast<const io::SchemaObject*>(wv[i].get()), quad, full));
+    }
+    const auto& cn = *strsOf(sd, "characterPropertyNames");
+    const auto& ci = *objsOf(gd, "characterPropertyInfos");
+    for (std::size_t i = 0; i < cn.size(); ++i)
+        out.emplace_back("characterProperties", cn[i], infoRecord(*dynamic_cast<const io::SchemaObject*>(ci[i].get()), nullptr, nullptr, full));
+    const auto& enm = *strsOf(sd, "eventNames");
+    const auto& ei = *objsOf(gd, "eventInfos");
+    for (std::size_t i = 0; i < enm.size(); ++i) {
+        const long fl = static_cast<long>(static_cast<std::uint32_t>(fInt(*dynamic_cast<const io::SchemaObject*>(ei[i].get()), "flags")));
+        out.emplace_back("events", enm[i], fl || full ? "{flags: " + enumText("EventInfoFlags", fl, true) + "}" : std::string("{}"));
+    }
+    const auto& an = *strsOf(sd, "attributeNames");
+    const auto& ad = fieldByName(gd, "attributeDefaults")->raw;
+    for (std::size_t i = 0; i < an.size(); ++i) out.emplace_back("attributes", an[i], rfloat(ad.data() + 4 * i));
+    return out;
+}
+
+std::string renderVocab(const io::SchemaObject& gd) {
+    std::map<std::string, std::string> blocks;
+    for (const char* k : { "variables", "characterProperties", "events", "attributes" }) blocks[k];
+    for (const auto& [k, name, rec] : vocabRecords(gd)) blocks[k] += "  " + q(name) + ": " + rec + "\n";
+    std::string y;
+    for (const char* k : { "variables", "characterProperties", "events", "attributes" })
+        y += blocks[k].empty() ? std::string(k) + ": {}\n" : std::string(k) + ":\n" + blocks[k];
+    return y;
+}
+
+/// @brief True when `so`'s `<field>=<value>` condition (a schema `charpropif`) holds.
+bool condTrue(const io::SchemaObject& so, const std::string& cond) {
+    const auto eq = cond.find('=');
+    if (cond.empty() || eq == std::string::npos) return false;
+    return fInt(so, cond.substr(0, eq).c_str()) == std::strtol(cond.c_str() + eq + 1, nullptr, 10);
+}
+
 /// @brief One field's rendering (possibly empty = absent), exactly as reflectObject writes it — the unit of both the
 ///        emit and the field-patch diff.
 std::string renderField(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c) {
@@ -1988,7 +2120,10 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                     y += f.name + ": " + scalarText(f, v.raw, c.reg) + "\n";
                     const long iv = static_cast<long>(decodeInt(v.raw, f.scalar));
                     if (!f.eventRef.empty()) { const std::string s = c.nr.safeEvent(iv);    if (!s.empty()) y += f.eventRef + ": " + q(s) + "\n"; }
-                    if (!f.varRef.empty())   { const std::string s = c.nr.safeVariable(iv); if (!s.empty()) y += f.varRef + ": " + q(s) + "\n"; }
+                    if (!f.varRef.empty()) {
+                        const std::string s = condTrue(so, f.charPropIf) ? c.nr.safe(c.nr.charPropsL, iv) : c.nr.safeVariable(iv);
+                        if (!s.empty()) y += f.varRef + ": " + q(s) + "\n";
+                    }
                 } else {
                     y += f.name + ": " + flowList(n, [&](std::size_t k) { return scalarText(f, slice(v.raw, k, w), c.reg); }) + "\n";
                 }
@@ -2042,6 +2177,7 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
 
 std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass) {
     std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
+    if (so.Schema()->vocab && vocabRenderable(so)) return y + renderVocab(so);
     const std::size_t n = so.Fields().size();
     for (std::size_t i = 0; i < n; ++i) y += renderField(so, i, c);
     return y;
@@ -2780,6 +2916,148 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
 
 /// @brief Fill every schema field present in `map`. Absent fields keep their rendered-absent meaning: a null
 ///        pointer / empty array (Init default), -1 for a `boneref`, a default object for an inline struct.
+/// @brief Enum / flags text -> value through the schema-generated table; an unknown name is an error.
+bool enumParse(const char* table, const std::string& text, long& out, HkyParse& ps, const std::string& what) {
+    const auto& t = en::EnumTable(table);
+    out = 0;
+    std::size_t s = 0;
+    while (s <= text.size()) {
+        std::size_t e = text.find('|', s);
+        if (e == std::string::npos) e = text.size();
+        std::string tok = text.substr(s, e - s);
+        tok.erase(0, tok.find_first_not_of(' '));
+        if (const auto l = tok.find_last_not_of(' '); l != std::string::npos) tok.erase(l + 1);
+        if (!tok.empty()) {
+            if (auto it = t.find(tok); it != t.end()) out |= it->second;
+            else {
+                char* end = nullptr;
+                const long long n = std::strtoll(tok.c_str(), &end, 0);
+                if (!end || *end) { ps.err = ps.where + ": " + what + ": unknown " + table + " value '" + tok + "'"; return false; }
+                out |= static_cast<long>(n);
+            }
+        }
+        s = e + 1;
+    }
+    return true;
+}
+
+/// @brief Build (full) or patch (ps.patch) a `vocab` graph-data object from its name-keyed records. New names append
+///        to every parallel array (a quad-typed variable also appends its quad value and takes the running quad index);
+///        an existing name updates only what its record states.
+/// @note A `union` string roster (diffObject) likewise only ever ADDS names: names are identity there, so a mod
+///       never replaces or reorders one.
+bool fillVocab(io::SchemaObject& gd, const yml::ConstNodeRef& map, HkyParse& ps) {
+    auto ensure = [&](const char* field, const char* cls) -> io::SchemaObject* {
+        io::FieldValue& fv = gd.FieldRef(field);
+        if (!fv.obj) { auto o = makeObj(ps.reg, cls); ps.all.push_back(o); fv.obj = o; }
+        return dynamic_cast<io::SchemaObject*>(fv.obj.get());
+    };
+    io::SchemaObject* sd = ensure("stringData", "hkbBehaviorGraphStringData");
+    io::SchemaObject* vs = ensure("variableInitialValues", "hkbVariableValueSet");
+    if (!sd || !vs) { ps.err = ps.where + ": vocabulary objects missing"; return false; }
+    auto& vNames = sd->FieldRef("variableNames").strs;
+    auto& cNames = sd->FieldRef("characterPropertyNames").strs;
+    auto& eNames = sd->FieldRef("eventNames").strs;
+    auto& aNames = sd->FieldRef("attributeNames").strs;
+    auto& vInfos = gd.FieldRef("variableInfos").objs;
+    auto& cInfos = gd.FieldRef("characterPropertyInfos").objs;
+    auto& eInfos = gd.FieldRef("eventInfos").objs;
+    auto& aDefs  = gd.FieldRef("attributeDefaults").raw;
+    auto& words  = vs->FieldRef("wordVariableValues").objs;
+    auto& quads  = vs->FieldRef("quadVariableValues").raw;
+    if (!ps.patch) { vNames.clear(); cNames.clear(); eNames.clear(); aNames.clear(); vInfos.clear(); cInfos.clear(); eInfos.clear(); aDefs.clear(); words.clear(); quads.clear(); }
+    auto nameOf = [](const yml::ConstNodeRef& e) { std::string s; c4::from_chars(e.key(), &s); return s; };
+    auto make = [&](const char* cls) { auto o = makeObj(ps.reg, cls); ps.all.push_back(o); return o; };
+
+    auto applyInfo = [&](io::SchemaObject& info, const yml::ConstNodeRef& rec, bool fresh, io::SchemaObject* word,
+                         const std::string& what) -> bool {
+        long type = fInt(info, "type");
+        if (yhas(rec, "type")) {
+            long t = 0;
+            if (!enumParse("VariableType", ystr(yget(rec, "type")), t, ps, what)) return false;
+            if (!fresh && isQuadType(t) != isQuadType(type)) { ps.err = ps.where + ": " + what + ": changing a variable between quad and word storage is not supported"; return false; }
+            type = t;
+            info.FieldRef("type").raw = encInt(type, Scalar::Int8);
+        } else if (fresh) { ps.err = ps.where + ": " + what + ": a new entry needs `type:`"; return false; }
+        io::FieldValue& rf = info.FieldRef("role");
+        if (!rf.obj) rf.obj = make("hkbRoleAttribute");
+        auto* role = dynamic_cast<io::SchemaObject*>(rf.obj.get());
+        if (yhas(rec, "role"))  { long r = 0;  if (!enumParse("Role", ystr(yget(rec, "role")), r, ps, what)) return false; role->FieldRef("role").raw = encInt(r, Scalar::Int16); }
+        if (yhas(rec, "flags")) { long fl = 0; if (!enumParse("RoleFlags", ystr(yget(rec, "flags")), fl, ps, what)) return false; role->FieldRef("flags").raw = encInt(fl, Scalar::Int16); }
+        if (!word) return true;
+        if (isQuadType(type)) {
+            std::size_t qi = quads.size() / 16;
+            if (fresh) { word->FieldRef("value").raw = encInt(static_cast<std::int64_t>(qi), Scalar::Int32); quads.resize(quads.size() + 16, 0); }
+            else qi = static_cast<std::size_t>(fInt(*word, "value"));
+            if (yhas(rec, "value") && qi * 16 + 16 <= quads.size()) {
+                const auto b = vec4Strict(ystr(yget(rec, "value")));
+                std::memcpy(quads.data() + qi * 16, b.data(), 16);
+            }
+            return true;
+        }
+        if (yhas(rec, "value")) {
+            const std::string t = ystr(yget(rec, "value"));
+            if (type == 4) word->FieldRef("value").raw = floatBytes(t);
+            else if (t == "true" || t == "false") word->FieldRef("value").raw = encInt(t == "true" ? 1 : 0, Scalar::Int32);
+            else {
+                char* end = nullptr;
+                const long long n = std::strtoll(t.c_str(), &end, 0);
+                if (!end || *end) { ps.err = ps.where + ": " + what + ": value '" + t + "' is not a number"; return false; }
+                word->FieldRef("value").raw = encInt(n, Scalar::Int32);
+            }
+        }
+        return true;
+    };
+
+    if (yhas(map, "variables"))
+        for (auto e : yget(map, "variables")) {
+            const std::string name = nameOf(e);
+            const auto it = std::find(vNames.begin(), vNames.end(), name);
+            if (it == vNames.end()) {
+                auto info = make("hkbVariableInfo"); auto word = make("hkbVariableValue");
+                vNames.push_back(name); vInfos.push_back(info); words.push_back(word);
+                if (!applyInfo(*info, e, true, word.get(), "variable '" + name + "'")) return false;
+            } else {
+                const std::size_t k = static_cast<std::size_t>(it - vNames.begin());
+                if (!applyInfo(*dynamic_cast<io::SchemaObject*>(vInfos[k].get()), e, false,
+                               dynamic_cast<io::SchemaObject*>(words[k].get()), "variable '" + name + "'")) return false;
+            }
+        }
+    if (yhas(map, "characterProperties"))
+        for (auto e : yget(map, "characterProperties")) {
+            const std::string name = nameOf(e);
+            const auto it = std::find(cNames.begin(), cNames.end(), name);
+            if (it == cNames.end()) {
+                auto info = make("hkbVariableInfo");
+                cNames.push_back(name); cInfos.push_back(info);
+                if (!applyInfo(*info, e, true, nullptr, "character property '" + name + "'")) return false;
+            } else if (!applyInfo(*dynamic_cast<io::SchemaObject*>(cInfos[static_cast<std::size_t>(it - cNames.begin())].get()), e, false,
+                                  nullptr, "character property '" + name + "'")) return false;
+        }
+    if (yhas(map, "events"))
+        for (auto e : yget(map, "events")) {
+            const std::string name = nameOf(e);
+            auto it = std::find(eNames.begin(), eNames.end(), name);
+            std::shared_ptr<io::SchemaObject> info;
+            if (it == eNames.end()) { info = make("hkbEventInfo"); eNames.push_back(name); eInfos.push_back(info); }
+            else info = std::dynamic_pointer_cast<io::SchemaObject>(eInfos[static_cast<std::size_t>(it - eNames.begin())]);
+            if (yhas(e, "flags")) {
+                long fl = 0;
+                if (!enumParse("EventInfoFlags", ystr(yget(e, "flags")), fl, ps, "event '" + name + "'")) return false;
+                info->FieldRef("flags").raw = encInt(fl, Scalar::UInt32);
+            }
+        }
+    if (yhas(map, "attributes"))
+        for (auto e : yget(map, "attributes")) {
+            const std::string name = nameOf(e);
+            const auto b = floatBytes(ystr(e));
+            auto it = std::find(aNames.begin(), aNames.end(), name);
+            if (it == aNames.end()) { aNames.push_back(name); aDefs.insert(aDefs.end(), b.begin(), b.end()); }
+            else std::memcpy(aDefs.data() + 4 * static_cast<std::size_t>(it - aNames.begin()), b.data(), 4);
+        }
+    return true;
+}
+
 /// @brief FIELD-PATCH semantics for one present field (`handled` = done; else the caller replaces the value):
 ///        a map onto an existing inline object of the same class merges field-wise (recursively); compose/union
 ///        arrays APPEND (union skips strings already present); `{replace: [...]}` replaces an array outright.
@@ -2867,6 +3145,8 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
 }
 
 bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
+    if (so.Schema()->vocab && (yhas(map, "variables") || yhas(map, "events") || yhas(map, "characterProperties") || yhas(map, "attributes")))
+        return fillVocab(so, map, ps);
     const auto fields = so.Fields();
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
@@ -2949,7 +3229,8 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
     // Name companions: the NAME wins over the index (indices shift when mods add symbols; names don't).
     const NameResolver nr = buildResolver(out.identity);
     for (const auto& s : ps.symbols) {
-        const auto& L = s.isEvent ? nr.eventsL : nr.variablesL;
+        const auto& L = s.isEvent ? nr.eventsL
+                      : condTrue(*s.obj, s.obj->Fields()[s.field]->charPropIf) ? nr.charPropsL : nr.variablesL;
         const auto idx = L.encode(s.name);
         if (!idx) { err = s.where + ": " + (s.isEvent ? "event" : "variable") + " '" + s.name + "' is not in the graph's roster"; return false; }
         const Field& f = *s.obj->Fields()[s.field];
@@ -2982,6 +3263,16 @@ bool isArrayKind(FieldKind k) {
 ///        a value that became absent is written explicitly (`null` / `[]` / -1) — a patch never relies on omission.
 std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm) {
     std::string y;
+    if (m.Schema()->vocab && vocabRenderable(b) && vocabRenderable(m)) {
+        std::map<std::pair<std::string, std::string>, std::string> base;
+        for (const auto& [k, name, rec] : vocabRecords(b, true)) base[{ k, name }] = rec;
+        std::map<std::string, std::string> blocks;
+        for (const auto& [k, name, rec] : vocabRecords(m, true))
+            if (auto it = base.find({ k, name }); it == base.end() || it->second != rec) blocks[k] += "  " + q(name) + ": " + rec + "\n";
+        for (const char* k : { "variables", "characterProperties", "events", "attributes" })
+            if (!blocks[k].empty()) y += std::string(k) + ":\n" + blocks[k];
+        return y;
+    }
     const auto fields = m.Fields();
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
@@ -3057,7 +3348,12 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
                 em = elementBlocks(vm.objs, cm, f.ref);
             }
             const bool prefix = em.size() >= eb.size() && std::equal(eb.begin(), eb.end(), em.begin());
-            if (f.kind == FieldKind::StringArray) {
+            if (f.kind == FieldKind::StringArray && tag == "union") {
+                const std::set<std::string> have(eb.begin(), eb.end());
+                std::string list;
+                for (const auto& s2 : em) if (!have.count(s2)) list += (list.empty() ? "" : ", ") + s2;
+                if (!list.empty()) y += f.name + ": [" + list + "]\n";
+            } else if (f.kind == FieldKind::StringArray) {
                 const std::size_t from = prefix ? eb.size() : 0;
                 std::string list;
                 for (std::size_t k = from; k < em.size(); ++k) list += (k > from ? ", " : "") + em[k];
@@ -3241,7 +3537,8 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
     }
     const NameResolver nr = buildResolver(live);
     for (const auto& s : ps.symbols) {
-        const auto& L = s.isEvent ? nr.eventsL : nr.variablesL;
+        const auto& L = s.isEvent ? nr.eventsL
+                      : condTrue(*s.obj, s.obj->Fields()[s.field]->charPropIf) ? nr.charPropsL : nr.variablesL;
         const auto idx = L.encode(s.name);
         if (!idx) {
             int stringDatas = 0, holding = 0;
@@ -3367,10 +3664,16 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
                 return r;
             }
             r.perMod.push_back({ m.name, st });
-            /// @note Debug knob: CB_MULTILAYER_TRACE=1 dumps the merged state after each mod (after_<mod>/).
+            /// @note Debug knob: CB_MULTILAYER_TRACE=1 dumps the merged state after each mod (after_<mod>/) and
+            ///       that mod's single-mod reference merge (one_<mod>/, what its patch was derived from).
             if (std::getenv("CB_MULTILAYER_TRACE")) {
                 std::string e2;
                 EmitHkyReflective(merged.identity, reg, (fs::path(workDir) / ("after_" + m.name)).string(), e2, bones);
+                PackFileDeserializer d1;
+                d1.ObjectFactory = io::MakeSchemaFactory(reg);
+                BinaryReaderEx br1(false, true, serialize(rootOf(one)));
+                d1.Deserialize(br1);
+                EmitHkyReflective(AssignIdentity(d1, reg, ""), reg, (fs::path(workDir) / ("one_" + m.name)).string(), e2, bones);
             }
         }
         const auto got = serialize(merged.root);
