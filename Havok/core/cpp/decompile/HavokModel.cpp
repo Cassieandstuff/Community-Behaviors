@@ -2744,6 +2744,13 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
 } // namespace
 
 // ── ParseHky — the reflective .hky -> SchemaObject graph (the exact inverse of EmitHkyReflective) ─────────────
+/// @brief Per (object, list field): the list before any patch changed its membership, how many patches did, and every
+///        element they added (load order). Keys are stable: merged objects persist across MergeHkyPatch calls.
+struct HkyListHistory {
+    struct Entry { io::FieldValue before; io::FieldValue adds; int touches = 0; };
+    std::map<std::pair<const IHavokObject*, std::size_t>, Entry> lists;
+};
+
 namespace {
 namespace yml = c4::yml;
 
@@ -2759,6 +2766,7 @@ struct HkyParse {
     bool                                                                   patch = false;   ///< fill as a FIELD PATCH
     std::function<std::string(const std::string&)>                         canon;   ///< id -> canonical key (null = verbatim)
     std::unordered_set<const IHavokObject*>                                nodes;   ///< file / shared / root objects
+    HkyListHistory*                                                        history = nullptr;   ///< set by MergeHkyPatch
 };
 
 /// @brief The merge tag for `field`, looked up on the class that DECLARES it (MergeTag consults own fields only).
@@ -3213,6 +3221,67 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     return true;
 }
 
+/// @brief Element identity for list merging: a pointer that names a NODE is that node (identity); an inline object
+///        (embedded struct, or a pointer to an unshared non-node) is its content — a replace that restates an inline
+///        element builds a new object, which must still read as the same element.
+bool sameElem(const std::shared_ptr<IHavokObject>& a, const std::shared_ptr<IHavokObject>& b, const HkyParse& ps) {
+    if (a == b) return true;
+    if (!a || !b || ps.nodes.count(a.get()) || ps.nodes.count(b.get())) return false;
+    const auto* x = dynamic_cast<const io::SchemaObject*>(a.get());
+    const auto* y = dynamic_cast<const io::SchemaObject*>(b.get());
+    if (!x || !y || std::string(x->ClassName()) != y->ClassName()) return false;
+    const auto& xv = x->Values();
+    const auto& yv = y->Values();
+    for (std::size_t i = 0; i < xv.size(); ++i) {
+        const io::FieldValue& p = xv[i];
+        const io::FieldValue& q = yv[i];
+        if (p.raw != q.raw || p.str != q.str || p.strs != q.strs || p.objs.size() != q.objs.size() || !sameElem(p.obj, q.obj, ps))
+            return false;
+        for (std::size_t k = 0; k < p.objs.size(); ++k) if (!sameElem(p.objs[k], q.objs[k], ps)) return false;
+    }
+    return true;
+}
+
+std::size_t listSize(const io::FieldValue& v, FieldKind k) { return k == FieldKind::StringArray ? v.strs.size() : v.objs.size(); }
+bool listEq(const io::FieldValue& a, std::size_t i, const io::FieldValue& b, std::size_t j, FieldKind k, const HkyParse& ps) {
+    return k == FieldKind::StringArray ? a.strs[i] == b.strs[j] : sameElem(a.objs[i], b.objs[j], ps);
+}
+/// @brief Multiset membership: claim an as-yet-unclaimed element of `v` equal to `from[e]`. Value records with no
+///        identity (eventInfos' `{flags: 0}`) repeat, so presence must be COUNTED — N+1 equal records is one addition.
+bool listClaim(const io::FieldValue& v, std::size_t limit, std::vector<bool>& claimed, FieldKind k,
+               const io::FieldValue& from, std::size_t e, const HkyParse& ps) {
+    claimed.resize(limit, false);
+    for (std::size_t j = 0; j < limit; ++j)
+        if (!claimed[j] && listEq(v, j, from, e, k, ps)) { claimed[j] = true; return true; }
+    return false;
+}
+void listPush(io::FieldValue& v, FieldKind k, const io::FieldValue& from, std::size_t e) {
+    if (k == FieldKind::StringArray) v.strs.push_back(from.strs[e]);
+    else v.objs.push_back(from.objs[e]);
+}
+
+/// @brief UNION WINS (see MergeHkyPatch): after a patch changed list field `i` from `before`, record the change; the
+///        first mod to change a list keeps its version verbatim, a second makes it `before-first-touch + all additions`.
+void unionTouch(io::SchemaObject& so, std::size_t i, const io::FieldValue& before, HkyParse& ps) {
+    const FieldKind k = so.Fields()[i]->kind;
+    io::FieldValue& v = so.FieldAt(i);
+    bool same = listSize(before, k) == listSize(v, k);
+    for (std::size_t e = 0; same && e < listSize(v, k); ++e) same = listEq(before, e, v, e, k, ps);
+    if (same) return;   // in-place element edits are not membership changes
+    auto [it, fresh] = ps.history->lists.try_emplace({ &so, i });
+    HkyListHistory::Entry& h = it->second;
+    if (fresh) h.before = before;
+    std::vector<bool> inBefore, inAdds;
+    const std::size_t known = listSize(h.adds, k);   ///< only EARLIER mods' additions are claimable
+    for (std::size_t e = 0; e < listSize(v, k); ++e)
+        if (!listClaim(h.before, listSize(h.before, k), inBefore, k, v, e, ps) && !listClaim(h.adds, known, inAdds, k, v, e, ps))
+            listPush(h.adds, k, v, e);
+    if (++h.touches == 1) return;
+    io::FieldValue u = h.before;
+    for (std::size_t e = 0; e < listSize(h.adds, k); ++e) listPush(u, k, h.adds, e);
+    v = std::move(u);
+}
+
 bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
     if (so.Schema()->vocab && (yhas(map, "variables") || yhas(map, "events") || yhas(map, "characterProperties") || yhas(map, "attributes")))
         return fillVocab(so, map, ps);
@@ -3232,8 +3301,13 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
             continue;
         }
         bool handled = false;
+        const bool list = ps.patch && ps.history &&
+            (f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray || f.kind == FieldKind::StringArray);
+        io::FieldValue before;
+        if (list) before = so.FieldAt(i);
         if (ps.patch && !patchField(so, i, yget(map, f.name), ps, handled)) return false;
         if (!handled && !fieldValue(so, i, yget(map, f.name), ps)) return false;
+        if (list) unionTouch(so, i, before, ps);
         if (!f.eventRef.empty() && yhas(map, f.eventRef)) ps.symbols.push_back({ &so, i, true,  ystr(yget(map, f.eventRef)), ps.where });
         if (!f.varRef.empty()   && yhas(map, f.varRef))   ps.symbols.push_back({ &so, i, false, ystr(yget(map, f.varRef)),   ps.where });
     }
@@ -3551,6 +3625,8 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
+    if (!base.listHistory) base.listHistory = std::make_shared<HkyListHistory>();
+    ps.history = base.listHistory.get();
     ps.canon = canonFor(patchMasters);
     const auto baseCanon = canonFor(baseMasters);
     std::unordered_map<const IHavokObject*, std::shared_ptr<io::SchemaObject>> own;

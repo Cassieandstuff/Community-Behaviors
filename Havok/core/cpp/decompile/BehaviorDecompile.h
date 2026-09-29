@@ -125,10 +125,12 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
 
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
 ///        categories; inline objects join with category "").
+struct HkyListHistory;
 struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
     Identity                                       identity;
+    std::shared_ptr<HkyListHistory>                listHistory;   ///< @brief MergeHkyPatch's per-list record (see UNION WINS)
 };
 /// @brief ParseHky — the exact inverse of EmitHkyReflective: `dir` (graph.yaml + `<category>/<id>.yaml`) -> the
 ///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
@@ -166,6 +168,10 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
 /// @brief Apply a patch unit onto a parsed graph. FormIds resolve through each unit's master table (`baseMasters` /
 ///        `patchMasters`, index -> bundle), so a patch's `0001x…` names the base's `0000x…`. A patched node changes
 ///        only the fields it names; compose/union arrays append; `{replace: [...]}` replaces.
+/// @note UNION WINS (user decision, 2026-09-29): a list whose membership ONE mod changes takes that mod's version
+///       verbatim (removals, order); once a SECOND mod changes it, it becomes the pre-patch list + every mod's
+///       additions in load order, so both mods' additions survive and contested removals are dropped. The record
+///       lives on `base.listHistory` across calls.
 bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
