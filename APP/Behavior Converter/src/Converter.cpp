@@ -3236,6 +3236,54 @@ bool SerializerRoundTrip(const std::string& meshesDir, const std::string& outRoo
     return fails == 0;
 }
 
+bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& moddedMeshes, const std::string& workRoot,
+                       const LogFn& log, const std::string& baseHky) {
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    auto* reg = CB::core::schema::SharedRegistry();
+    if (!reg) { say("patch-roundtrip: schema registry not armed"); return false; }
+    std::optional<bconv::BaseUnitCompiler> rigs;
+    if (!baseHky.empty()) {
+        std::string herr;
+        if (auto arc = CB::core::codec::HkyArchive::LoadFromFile(baseHky, herr)) rigs.emplace(arc);
+    }
+    std::error_code ec;
+    std::map<std::string, fs::path> vanilla;   // lowercase rel -> path (internal match key; the files keep their case)
+    for (fs::recursive_directory_iterator it(vanillaMeshes, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code fe;
+        if (!it->is_regular_file(fe)) continue;
+        std::string rel = fs::relative(it->path(), vanillaMeshes, fe).generic_string();
+        for (char& ch : rel) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        vanilla[rel] = it->path();
+    }
+    int n = 0, same = 0, fails = 0;
+    for (fs::recursive_directory_iterator it(moddedMeshes, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code fe;
+        if (!it->is_regular_file(fe)) continue;
+        std::string rel = fs::relative(it->path(), moddedMeshes, fe).generic_string();
+        std::string key = rel;
+        for (char& ch : key) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (key.size() < 4 || key.compare(key.size() - 4, 4, ".hkx") != 0) continue;
+        const HkxKind kind = PeekHkxKind(it->path());
+        if (kind != HkxKind::Behavior && kind != HkxKind::Character) continue;
+        auto v = vanilla.find(key);
+        if (v == vanilla.end()) { say("  SKIP " + rel + " (no vanilla counterpart)"); continue; }
+        std::vector<std::uint8_t> vb, mb; std::string err;
+        if (!CB::core::codec::ReadHavokFile(v->second.string(), vb, &err) || !CB::core::codec::ReadHavokFile(it->path().string(), mb, &err)) { ++fails; continue; }
+        const std::vector<std::string>* bones = nullptr;
+        if (rigs) if (const auto& b = rigs->BonesFor("meshes/" + key); !b.empty()) bones = &b;
+        const auto r = CB::core::decompile::PatchRoundTrip(vb, mb, *reg, (fs::path(workRoot) / std::to_string(n)).string(), bones);
+        ++n;
+        if (!r.ok) { ++fails; say("  FAIL " + std::to_string(n - 1) + " " + rel + " — " + r.error); continue; }
+        say(std::string(r.identical ? "  SAME " : "  DIFF ") + std::to_string(n - 1) + " " + rel + " — patch: " +
+            std::to_string(r.derived.patched) + " patched + " + std::to_string(r.derived.added) + " new node(s)" +
+            (r.detail.empty() ? "" : " | " + r.detail));
+        same += r.identical;
+    }
+    say("patch-roundtrip: " + std::to_string(same) + "/" + std::to_string(n) + " merge(base, derive(base, mod)) == mod (" +
+        std::to_string(fails) + " failed). Work trees under " + workRoot);
+    return fails == 0;
+}
+
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky,
                   bool allKinds) {
     const auto say = [&](const std::string& s) { if (log) log(s); };

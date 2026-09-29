@@ -120,6 +120,12 @@ int main(int argc, char** argv) {
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
+    if (argc >= 5 && std::string(argv[1]) == "--patch-roundtrip") {   // <vanillaMeshes> <moddedMeshes> <work> [<base.hky>]
+        const bool ok = bconv::PatchRoundTripAll(argv[2], argv[3], argv[4],
+            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, argc >= 6 ? argv[5] : "");
+        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     if (argc >= 4 && std::string(argv[1]) == "--hky-roundtrip") {   // <meshesDir> <workRoot> [<base.hky>] [--all-kinds]
         std::string base; bool all = false;
         for (int i = 4; i < argc; ++i) { if (std::string(argv[i]) == "--all-kinds") all = true; else base = argv[i]; }

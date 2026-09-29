@@ -154,6 +154,31 @@ struct HkyRoundTripResult {
 HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
                                        const std::string& workDir, const std::vector<std::string>* bones = nullptr);
 
+// ── Field patches: reflective .hky DELTAS ──────────────────────────────────────────────────────────────────────────
+struct HkyPatchStats { int patched = 0; int added = 0; };
+/// @brief Derive the FIELD PATCH turning `baseBytes` into `modBytes`: mod nodes match base nodes by (class, name)
+///        (unnamed shared leaves by content) and take the base's FormIds as master `baseIndex`; unmatched nodes are
+///        NEW (self index 0, full body). A patched node file carries only its changed fields (nested inline objects
+///        deep-diffed; compose/union arrays as the appended tail).
+bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
+                    const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
+                    const std::vector<std::string>* bones = nullptr, std::uint16_t baseIndex = 1, HkyPatchStats* stats = nullptr);
+/// @brief Apply a patch unit onto a parsed graph. FormIds resolve through each unit's master table (`baseMasters` /
+///        `patchMasters`, index -> bundle), so a patch's `0001x…` names the base's `0000x…`. A patched node changes
+///        only the fields it names; compose/union arrays append; `{replace: [...]}` replaces.
+bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
+                   const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
+                   std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+/// @brief The field-patch GATE: merge(base, derive(base, mod)) must serialize byte-identical to the mod.
+struct HkyPatchRoundTripResult {
+    bool ok = false, identical = false;
+    HkyPatchStats derived, merged;
+    std::string detail, error;
+};
+HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
+                                       const schema::SchemaRegistry& reg, const std::string& workDir,
+                                       const std::vector<std::string>* bones = nullptr);
+
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
 // form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field

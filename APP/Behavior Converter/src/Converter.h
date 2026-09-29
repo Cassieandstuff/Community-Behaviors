@@ -193,6 +193,10 @@ bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const 
 /// @brief The reflective-format gate over every behavior .hkx under `meshesDir`: vanilla -> reflective .hky ->
 ///        ParseHky -> binary, byte-compared (RoundTripReflective). Differing graphs' trees are kept under
 ///        `<workRoot>/<n>` (SHORT path). `baseHky` supplies the rig binding for bone names.
+/// @brief The field-patch gate: for every behavior/character .hkx under `moddedMeshes` with a vanilla counterpart,
+///        merge(vanilla, derive(vanilla, mod)) must serialize byte-identical to the mod. Work trees under `workRoot`.
+bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& moddedMeshes, const std::string& workRoot,
+                       const LogFn& log, const std::string& baseHky = "");
 /// @param allKinds also gate characters, projects and skeletons (the reflective codec is schema-generic).
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "",
                   bool allKinds = false);

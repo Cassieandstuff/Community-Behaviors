@@ -1967,14 +1967,16 @@ std::string flowList(std::size_t n, F&& at) {
     return y + "]";
 }
 
-std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass) {
-    std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
+/// @brief One field's rendering (possibly empty = absent), exactly as reflectObject writes it — the unit of both the
+///        emit and the field-patch diff.
+std::string renderField(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c) {
     const auto fields = so.Fields();
     const auto& vals  = so.Values();
-    for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i) {
+    if (i >= fields.size() || i >= vals.size()) return {};
+    std::string y;
         const Field& f = *fields[i];
         const io::FieldValue& v = vals[i];
-        if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
+        if (f.name.empty() || (f.ignored && !f.hkyEmit)) return y;
         switch (f.kind) {
             case FieldKind::Scalar: {
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
@@ -2035,19 +2037,37 @@ std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const
                 break;
             default: break;   // Vtable / Pad / Skip / EmptyArray / EmptyPtr carry no authored value
         }
-    }
     return y;
+}
+
+std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass) {
+    std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
+    const std::size_t n = so.Fields().size();
+    for (std::size_t i = 0; i < n; ++i) y += renderField(so, i, c);
+    return y;
+}
+
+/// @brief The rendered list items of an array field (one `  - ...` block per element) — the compose-diff unit.
+std::vector<std::string> elementBlocks(const std::vector<std::shared_ptr<IHavokObject>>& objs, const ReflectCtx& c,
+                                       const std::string& declared) {
+    std::vector<std::string> out;
+    for (const auto& p : objs) {
+        if (!p) { out.push_back("  - null\n"); continue; }
+        if (isFileNode(p.get(), c)) { out.push_back("  - " + refIdOf(p, c.id) + "\n"); continue; }
+        const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
+        if (!so) { out.push_back("  - '?'\n"); continue; }
+        const std::string b = reflectObject(*so, c, declared);
+        out.push_back(b.empty() ? std::string("  - {}\n") : indentLines(b, "  - ", "    "));
+    }
+    return out;
 }
 } // namespace
 
-bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
-                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const NameResolver nr = buildResolver(identity);
-    /// @note An inline object referenced from 2+ places is SHARED in the binary; nesting a copy under each parent
-    ///       would parse back as N objects (the serializer then writes N). So it becomes its own node under
-    ///       `shared/<id>.yaml`, referenced by id like any file node — the topology round-trips exactly.
+/// @brief File-node categories plus `shared` for every inline object referenced from 2+ places.
+/// @note  An inline object referenced from 2+ places is SHARED in the binary; nesting a copy under each parent would
+///        parse back as N objects (the serializer then writes N). So it becomes its own node under `shared/<id>.yaml`,
+///        referenced by id like any file node — the topology round-trips exactly.
+std::unordered_map<const IHavokObject*, std::string> EffectiveCategories(const Identity& identity) {
     std::unordered_map<const IHavokObject*, std::string> effCat(identity.category.begin(), identity.category.end());
     {
         /// @note Count POINTER references across the whole graph, descending through embedded structs (a
@@ -2073,6 +2093,15 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         for (auto& [obj, cat] : effCat)
             if (cat.empty() && refs[obj] >= 2 && std::string(obj->ClassName()) != "hkRootLevelContainer") cat = "shared";
     }
+    return effCat;
+}
+
+bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
+                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const NameResolver nr = buildResolver(identity);
+    const auto effCat = EffectiveCategories(identity);
     const ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
     for (const auto& [obj, cat] : effCat) {
         const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
@@ -2522,7 +2551,21 @@ struct HkyParse {
     std::vector<Symbol>                                                    symbols;  ///< name companions, resolved last
     std::string                                                            err;
     std::string                                                            where;    ///< "<file>" for messages
+    bool                                                                   patch = false;   ///< fill as a FIELD PATCH
+    std::function<std::string(const std::string&)>                         canon;   ///< id -> canonical key (null = verbatim)
+    std::unordered_set<const IHavokObject*>                                nodes;   ///< file / shared / root objects
 };
+
+/// @brief The merge tag for `field`, looked up on the class that DECLARES it (MergeTag consults own fields only).
+std::string mergeTagOf(const schema::SchemaRegistry& reg, std::string cls, const std::string& field) {
+    for (int d = 0; d < 64 && !cls.empty(); ++d) {
+        if (std::string t = reg.MergeTag(cls, field); !t.empty()) return t;
+        const schema::ClassSchema* cs = reg.Find(cls);
+        if (!cs) break;
+        cls = cs->parent;
+    }
+    return {};
+}
 
 std::string ystr(const yml::ConstNodeRef& n) {
     std::string s;
@@ -2624,7 +2667,7 @@ bool objectValue(const yml::ConstNodeRef& n, const std::string& declared, std::s
     if (n.has_val() && !n.is_map() && !n.is_seq()) {
         const std::string r = ystr(n);
         if (r == "null") { out = nullptr; return true; }
-        auto it = ps.byId.find(r);
+        auto it = ps.byId.find(ps.canon ? ps.canon(r) : r);
         if (it == ps.byId.end()) { ps.err = ps.where + ": " + field + ": no node with id '" + r + "'"; return false; }
         out = it->second;
         return true;
@@ -2737,11 +2780,98 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
 
 /// @brief Fill every schema field present in `map`. Absent fields keep their rendered-absent meaning: a null
 ///        pointer / empty array (Init default), -1 for a `boneref`, a default object for an inline struct.
+/// @brief FIELD-PATCH semantics for one present field (`handled` = done; else the caller replaces the value):
+///        a map onto an existing inline object of the same class merges field-wise (recursively); compose/union
+///        arrays APPEND (union skips strings already present); `{replace: [...]}` replaces an array outright.
+bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps, bool& handled) {
+    handled = false;
+    const Field& f = *so.Fields()[i];
+    io::FieldValue& v = so.FieldAt(i);
+    if ((f.kind == FieldKind::Ptr || f.kind == FieldKind::Struct) && n.is_map() && n.num_children() > 0 && v.obj) {
+        auto* co = dynamic_cast<io::SchemaObject*>(v.obj.get());
+        /// @note In a patch, an absent `class:` means "the class already there" — a polymorphic pointer (declared as a
+        ///       base class) must not read as a class change and be replaced by a stub of the declared class.
+        const std::string cls = yhas(n, "class") ? ystr(yget(n, "class")) : (co ? std::string(co->ClassName()) : f.ref);
+        bool collapsed = false;
+        if (const schema::ClassSchema* dcs = ps.reg.Find(f.ref); co && dcs && !dcs->unwrap.empty()) {
+            collapsed = true;
+            for (const Field* g : co->Fields()) if (!g->name.empty() && yhas(n, g->name)) { collapsed = false; break; }
+        }
+        if (co && !ps.nodes.count(co) && cls == co->ClassName() && !collapsed) {
+            handled = true;
+            return fillHky(*co, n, ps);   // ps.patch stays set: the nested object merges field-wise too
+        }
+    }
+    if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && n.is_map() && !yhas(n, "replace") &&
+        (yhas(n, "at") || yhas(n, "append"))) {
+        handled = true;
+        if (yhas(n, "at"))
+            for (auto e : yget(n, "at")) {
+                std::string ks; c4::from_chars(e.key(), &ks);
+                const std::size_t k = static_cast<std::size_t>(std::strtoull(ks.c_str(), nullptr, 10));
+                if (k >= v.objs.size()) { ps.err = ps.where + ": " + f.name + ": at " + ks + " is past the array (" + std::to_string(v.objs.size()) + ")"; return false; }
+                auto* co = dynamic_cast<io::SchemaObject*>(v.objs[k].get());
+                const std::string cls = (e.is_map() && yhas(e, "class")) ? ystr(yget(e, "class")) : (co ? std::string(co->ClassName()) : f.ref);
+                if (e.is_map() && e.num_children() > 0 && co && !ps.nodes.count(co) && cls == co->ClassName()) {
+                    if (!fillHky(*co, e, ps)) return false;   // deep, field-wise (ps.patch stays set)
+                    continue;
+                }
+                const bool was = ps.patch;
+                ps.patch = false;                              // a replaced element is a whole value
+                const bool ok = objectValue(e, f.ref, v.objs[k], ps, f.name);
+                ps.patch = was;
+                if (!ok) return false;
+            }
+        if (yhas(n, "append"))
+            for (auto e : yget(n, "append")) {
+                std::shared_ptr<IHavokObject> o;
+                const bool was = ps.patch;
+                ps.patch = false;
+                const bool ok = objectValue(e, f.ref, o, ps, f.name);
+                ps.patch = was;
+                if (!ok) return false;
+                v.objs.push_back(o);
+            }
+        return true;
+    }
+    if (f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray || f.kind == FieldKind::StringArray) {
+        if (n.is_map() && yhas(n, "replace")) {
+            handled = true;
+            const bool was = ps.patch;
+            ps.patch = false;
+            const bool ok = fieldValue(so, i, yget(n, "replace"), ps);
+            ps.patch = was;
+            return ok;
+        }
+        const std::string tag = mergeTagOf(ps.reg, so.ClassName(), f.name);
+        if ((tag == "compose" || tag == "union") && n.is_seq()) {
+            handled = true;
+            io::FieldValue old = v;
+            const bool was = ps.patch;
+            ps.patch = false;
+            const bool ok = fieldValue(so, i, n, ps);
+            ps.patch = was;
+            if (!ok) return false;
+            io::FieldValue added = std::move(v);
+            v = std::move(old);
+            if (f.kind == FieldKind::StringArray) {
+                for (auto& s2 : added.strs)
+                    if (tag != "union" || std::find(v.strs.begin(), v.strs.end(), s2) == v.strs.end()) v.strs.push_back(s2);
+            } else {
+                for (auto& o : added.objs) v.objs.push_back(o);
+            }
+            return true;
+        }
+    }
+    return true;
+}
+
 bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
     const auto fields = so.Fields();
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
         if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
+        if (!yhas(map, f.name) && ps.patch) continue;   // a patch touches only what it names
         if (!yhas(map, f.name)) {
             if (f.kind == FieldKind::Scalar && f.boneRef) so.FieldAt(i).raw = encInt(-1, f.scalar);
             else if (f.kind == FieldKind::Struct && !so.FieldAt(i).obj) {
@@ -2752,7 +2882,9 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
             }
             continue;
         }
-        if (!fieldValue(so, i, yget(map, f.name), ps)) return false;
+        bool handled = false;
+        if (ps.patch && !patchField(so, i, yget(map, f.name), ps, handled)) return false;
+        if (!handled && !fieldValue(so, i, yget(map, f.name), ps)) return false;
         if (!f.eventRef.empty() && yhas(map, f.eventRef)) ps.symbols.push_back({ &so, i, true,  ystr(yget(map, f.eventRef)), ps.where });
         if (!f.varRef.empty()   && yhas(map, f.varRef))   ps.symbols.push_back({ &so, i, false, ystr(yget(map, f.varRef)),   ps.where });
     }
@@ -2765,15 +2897,15 @@ bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& re
     return ParseHkyReflective(CB::core::common::DiskUnitSource(dir), reg, out, err, bones);
 }
 
-bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
-                        std::string& err, const std::vector<std::string>* bones) {
-    HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
-    struct Doc { std::string text; yml::Tree tree; std::string cat; std::string file; };
-    std::vector<std::unique_ptr<Doc>> docs;
+namespace {
+struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; };
+/// @brief Every YAML file of a unit, parsed in place (the text buffer lives beside its tree).
+std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSource& src) {
+    std::vector<std::unique_ptr<HkyDoc>> docs;
     for (const std::string& rel : src.listYaml("", true)) {
         auto text = src.read(rel);
         if (!text) continue;
-        auto d = std::make_unique<Doc>();
+        auto d = std::make_unique<HkyDoc>();
         d->text = std::move(*text);
         d->file = rel;
         const auto slash = rel.rfind('/');
@@ -2781,6 +2913,14 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
         d->tree = yml::parse_in_place(c4::to_csubstr(d->file), c4::to_substr(d->text));
         docs.push_back(std::move(d));
     }
+    return docs;
+}
+} // namespace
+
+bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
+                        std::string& err, const std::vector<std::string>* bones) {
+    HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
+    auto docs = loadHkyDocs(src);
     // Pass 1: create every file node (and the root) so ids resolve regardless of file order.
     std::shared_ptr<io::SchemaObject> root;
     for (auto& d : docs) {
@@ -2818,6 +2958,346 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
     out.root = root;
     out.objects = std::move(ps.all);
     return true;
+}
+
+// ── Field patches — reflective .hky DELTAS: derive (base vs mod -> patch) and merge (base + patch -> graph) ────────
+namespace {
+
+std::string formIdOf(std::uint16_t idx, const std::string& decId) {
+    char* end = nullptr;
+    const unsigned long v = std::strtoul(decId.c_str(), &end, 10);
+    if (end && *end == '\0')
+        if (const auto f = CB::core::codec::formid::make(idx, static_cast<std::uint32_t>(v)))
+            return CB::core::codec::formid::format(*f);
+    return decId;
+}
+
+bool isArrayKind(FieldKind k) {
+    return k == FieldKind::PtrArray || k == FieldKind::StructArray || k == FieldKind::StringArray ||
+           k == FieldKind::ScalarArray || k == FieldKind::Vec4Array || k == FieldKind::QsTransformArray || k == FieldKind::BoolArray;
+}
+
+/// @brief The field-level patch turning `b` into `m` (empty = identical). Nested inline objects of the same class
+///        deep-diff; compose/union arrays whose base is a prefix emit only the appended tail (else `{replace: [...]}`);
+///        a value that became absent is written explicitly (`null` / `[]` / -1) — a patch never relies on omission.
+std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm) {
+    std::string y;
+    const auto fields = m.Fields();
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        const Field& f = *fields[i];
+        if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
+        const std::string tb = renderField(b, i, cb), tm = renderField(m, i, cm);
+        if (tb == tm) continue;
+        if (tm.empty()) {
+            if (f.kind == FieldKind::Ptr || f.kind == FieldKind::Struct) y += f.name + ": null\n";
+            else if (isArrayKind(f.kind))                              y += f.name + ": []\n";
+            else if (f.kind == FieldKind::Scalar && f.boneRef)         y += f.name + ": -1\n";
+            continue;
+        }
+        const io::FieldValue& vb = b.Values()[i];
+        const io::FieldValue& vm = m.Values()[i];
+        if ((f.kind == FieldKind::Ptr || f.kind == FieldKind::Struct) && vb.obj && vm.obj &&
+            !isFileNode(vb.obj.get(), cb) && !isFileNode(vm.obj.get(), cm) &&
+            std::string(vb.obj->ClassName()) == vm.obj->ClassName() && vm.obj->ClassName() != std::string()) {
+            const auto* bo = dynamic_cast<const io::SchemaObject*>(vb.obj.get());
+            const auto* mo = dynamic_cast<const io::SchemaObject*>(vm.obj.get());
+            const schema::ClassSchema* dcs = cm.reg.Find(f.ref);
+            const bool collapsible = dcs && !dcs->unwrap.empty();   // a collapsed value is atomic (e.g. a weight map)
+            if (bo && mo && !collapsible) {
+                const std::string sub = diffObject(*bo, *mo, cb, cm);
+                if (!sub.empty()) { y += f.name + ":\n" + indentLines(sub, "  ", "  "); continue; }
+            }
+        }
+        const std::string tag = mergeTagOf(cm.reg, m.ClassName(), f.name);
+        /// @note Object arrays patch BY POSITION: `at: {i: <deep patch | element>}` + `append: [...]`; a plain list is
+        ///       the compose shorthand for append-only. Shrinking (removal) replaces the whole array.
+        if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && vm.objs.size() >= vb.objs.size()) {
+            const auto eb = elementBlocks(vb.objs, cb, f.ref), em = elementBlocks(vm.objs, cm, f.ref);
+            std::string at;
+            for (std::size_t k = 0; k < eb.size(); ++k) {
+                if (eb[k] == em[k]) continue;
+                const auto& be = vb.objs[k];
+                const auto& me = vm.objs[k];
+                const auto* bo = dynamic_cast<const io::SchemaObject*>(be.get());
+                const auto* mo = dynamic_cast<const io::SchemaObject*>(me.get());
+                const schema::ClassSchema* ecs = mo ? cm.reg.Find(mo->ClassName()) : nullptr;
+                if (bo && mo && !isFileNode(be.get(), cb) && !isFileNode(me.get(), cm) &&
+                    std::string(bo->ClassName()) == mo->ClassName() && !(ecs && !ecs->unwrap.empty())) {
+                    const std::string sub = diffObject(*bo, *mo, cb, cm);
+                    if (!sub.empty()) { at += std::to_string(k) + ":\n" + indentLines(sub, "  ", "  "); continue; }
+                }
+                if (!me) at += std::to_string(k) + ": null\n";
+                else if (isFileNode(me.get(), cm)) at += std::to_string(k) + ": " + refIdOf(me, cm.id) + "\n";
+                else if (mo) {
+                    const std::string full = reflectObject(*mo, cm, f.ref);
+                    at += full.empty() ? std::to_string(k) + ": {}\n" : std::to_string(k) + ":\n" + indentLines(full, "  ", "  ");
+                }
+            }
+            if (at.empty() && tag == "compose") {   // append-only: the plain-list shorthand
+                y += f.name + ":\n";
+                for (std::size_t k = eb.size(); k < em.size(); ++k) y += em[k];
+                continue;
+            }
+            y += f.name + ":\n";
+            if (!at.empty()) y += "  at:\n" + indentLines(at, "    ", "    ");
+            if (em.size() > eb.size()) {
+                y += "  append:\n";
+                for (std::size_t k = eb.size(); k < em.size(); ++k) y += indentLines(em[k], "  ", "  ");
+            }
+            continue;
+        }
+        if ((tag == "compose" || tag == "union") &&
+            (f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray || f.kind == FieldKind::StringArray)) {
+            std::vector<std::string> eb, em;
+            if (f.kind == FieldKind::StringArray) {
+                for (const auto& s2 : vb.strs) eb.push_back(q(s2));
+                for (const auto& s2 : vm.strs) em.push_back(q(s2));
+            } else {
+                eb = elementBlocks(vb.objs, cb, f.ref);
+                em = elementBlocks(vm.objs, cm, f.ref);
+            }
+            const bool prefix = em.size() >= eb.size() && std::equal(eb.begin(), eb.end(), em.begin());
+            if (f.kind == FieldKind::StringArray) {
+                const std::size_t from = prefix ? eb.size() : 0;
+                std::string list;
+                for (std::size_t k = from; k < em.size(); ++k) list += (k > from ? ", " : "") + em[k];
+                y += prefix ? f.name + ": [" + list + "]\n" : f.name + ":\n  replace: [" + list + "]\n";
+            } else if (prefix) {
+                y += f.name + ":\n";
+                for (std::size_t k = eb.size(); k < em.size(); ++k) y += em[k];
+            } else {
+                y += f.name + ":\n  replace:\n";
+                for (const auto& e : em) y += indentLines(e, "  ", "  ");
+            }
+            continue;
+        }
+        y += tm;
+    }
+    return y;
+}
+} // namespace
+
+bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
+                    const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
+                    const std::vector<std::string>* bones, std::uint16_t baseIndex, HkyPatchStats* stats) {
+    namespace fs = std::filesystem;
+    try {
+        PackFileDeserializer desB, desM;
+        desB.ObjectFactory = io::MakeSchemaFactory(reg);
+        desM.ObjectFactory = io::MakeSchemaFactory(reg);
+        { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
+        { BinaryReaderEx br(false, true, modBytes);  desM.Deserialize(br); }
+        Identity idB = AssignIdentity(desB, reg, ""), idM = AssignIdentity(desM, reg, "");
+        for (auto& [o, id] : idB.ids) id = formIdOf(baseIndex, id);
+        const auto effB = EffectiveCategories(idB), effM = EffectiveCategories(idM);
+        const NameResolver nrB = buildResolver(idB), nrM = buildResolver(idM);
+        auto isRoot = [](const IHavokObject* o) { return std::string(o->ClassName()) == "hkRootLevelContainer"; };
+        auto nameOf = [](const IHavokObject* o) {
+            const auto* so = dynamic_cast<const io::SchemaObject*>(o);
+            return so ? fStr(*so, "name") : std::string();
+        };
+        const ReflectCtx cB{ idB, nrB, reg, bones, &effB };
+
+        // Base lookups: named nodes by (class, name); unnamed shared leaves by rendered content; the root.
+        std::map<std::pair<std::string, std::string>, const IHavokObject*> baseNamed;
+        std::map<std::string, const IHavokObject*> baseContent;
+        std::unordered_map<std::string, const IHavokObject*> baseById;
+        const IHavokObject* baseRoot = nullptr;
+        for (const auto& [o, cat] : effB) {
+            if (cat.empty() && !isRoot(o)) continue;
+            baseById[idB.ids.at(o)] = o;
+            if (isRoot(o)) { baseRoot = o; continue; }
+            if (const std::string n = nameOf(o); !n.empty()) baseNamed[{ o->ClassName(), n }] = o;
+            else if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
+                baseContent[std::string(o->ClassName()) + "\n" + reflectObject(*so, cB)] = o;
+        }
+
+        /// @note Identity by (class, name) — unique per vanilla graph (0 dups / 35,661 nodes); a mod duplicate takes the
+        ///       base id first-come in read order, the rest are new. Unnamed shared leaves (conditions, payloads) match by
+        ///       content. Everything unmatched is a NEW node: FormId(self=0, seq).
+        std::vector<const IHavokObject*> modNodes;
+        for (const auto& [o, cat] : effM) if (!cat.empty() || isRoot(o)) modNodes.push_back(o);
+        std::sort(modNodes.begin(), modNodes.end(), [&](const IHavokObject* a, const IHavokObject* b) {
+            return std::strtoul(idM.ids.at(a).c_str(), nullptr, 10) < std::strtoul(idM.ids.at(b).c_str(), nullptr, 10);
+        });
+        const ReflectCtx cM0{ idM, nrM, reg, bones, &effM };   // content keys only (leaves carry no refs)
+        std::set<const IHavokObject*> taken;
+        std::unordered_map<const IHavokObject*, std::string> modId;
+        int seq = 0;
+        for (const IHavokObject* o : modNodes) {
+            const IHavokObject* match = nullptr;
+            if (isRoot(o)) match = baseRoot;
+            else if (const std::string n = nameOf(o); !n.empty()) {
+                if (auto it = baseNamed.find({ o->ClassName(), n }); it != baseNamed.end()) match = it->second;
+            } else if (const auto* so = dynamic_cast<const io::SchemaObject*>(o)) {
+                if (auto it = baseContent.find(std::string(o->ClassName()) + "\n" + reflectObject(*so, cM0)); it != baseContent.end())
+                    match = it->second;
+            }
+            if (match && !taken.count(match)) { taken.insert(match); modId[o] = idB.ids.at(match); }
+            else modId[o] = formIdOf(CB::core::codec::formid::SELF_INDEX, std::to_string(++seq));
+        }
+        for (const auto& [o, id] : modId) idM.ids[o] = id;
+        const ReflectCtx cM{ idM, nrM, reg, bones, &effM };
+
+        std::error_code ec;
+        fs::remove_all(patchDir, ec);
+        for (const IHavokObject* o : modNodes) {
+            const auto* mo = dynamic_cast<const io::SchemaObject*>(o);
+            if (!mo) continue;
+            const std::string id = idM.ids.at(o);
+            const std::string cat = effM.at(o);
+            std::string body;
+            if (auto it = baseById.find(id); it != baseById.end()) {
+                const auto* bo = dynamic_cast<const io::SchemaObject*>(it->second);
+                if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
+                body = diffObject(*bo, *mo, cB, cM);
+                if (body.empty()) continue;
+                if (stats) ++stats->patched;
+            } else {
+                body = reflectObject(*mo, cM);
+                if (stats) ++stats->added;
+            }
+            const fs::path dir = isRoot(o) ? fs::path(patchDir) : fs::path(patchDir) / cat;
+            fs::create_directories(dir, ec);
+            std::ofstream(dir / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), std::ios::binary)
+                << "id: " << id << "\n" << (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string())
+                << body;   // a patch states its class for the reader; a new node's body already carries it
+        }
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("DeriveHkyPatch: ") + e.what();
+        return false;
+    }
+}
+
+namespace {
+/// @brief A unit's id -> canonical owner key: FormId "idx:local" resolves through the unit's master table
+///        (`masters[idx]:local`); anything else stays verbatim.
+std::function<std::string(const std::string&)> canonFor(const std::vector<std::string>& masters) {
+    return [masters](const std::string& id) {
+        if (const auto f = CB::core::codec::formid::parse(id); f && f->masterIndex < masters.size())
+            return masters[f->masterIndex] + ":" + std::to_string(f->local);
+        return id;
+    };
+}
+} // namespace
+
+bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
+                   const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
+                   std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
+    HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
+    ps.canon = canonFor(patchMasters);
+    const auto baseCanon = canonFor(baseMasters);
+    std::unordered_map<const IHavokObject*, std::shared_ptr<io::SchemaObject>> own;
+    for (const auto& o : base.objects) own[o.get()] = o;
+    for (const auto& [o, id] : base.identity.ids) {
+        const auto c = base.identity.category.find(o);
+        const bool node = (c != base.identity.category.end() && !c->second.empty()) || std::string(o->ClassName()) == "hkRootLevelContainer";
+        if (!node) continue;
+        if (auto it = own.find(o); it != own.end()) { ps.byId[baseCanon(id)] = it->second; ps.nodes.insert(o); }
+    }
+    ps.all = base.objects;
+    auto docs = loadHkyDocs(patch);
+    std::vector<std::pair<std::shared_ptr<io::SchemaObject>, bool>> targets;   // (object, patch-mode)
+    for (auto& d : docs) {
+        const auto r = d->tree.crootref();
+        const std::string id = ystr(yget(r, "id"));
+        if (auto it = ps.byId.find(ps.canon(id)); it != ps.byId.end()) { targets.push_back({ it->second, true }); if (stats) ++stats->patched; continue; }
+        const std::string cls = ystr(yget(r, "class"));
+        auto obj = makeObj(reg, cls);
+        if (!obj) { err = d->file + ": unknown class '" + cls + "'"; return false; }
+        ps.byId[ps.canon(id)] = obj;
+        ps.nodes.insert(obj.get());
+        ps.all.push_back(obj);
+        base.identity.ids[obj.get()] = id;
+        base.identity.category[obj.get()] = d->cat;
+        targets.push_back({ obj, false });
+        if (stats) ++stats->added;
+    }
+    for (std::size_t k = 0; k < docs.size(); ++k) {
+        ps.where = docs[k]->file;
+        ps.patch = targets[k].second;
+        if (!fillHky(*targets[k].first, docs[k]->tree.crootref(), ps)) { err = ps.err; return false; }
+    }
+    int anon = static_cast<int>(base.identity.ids.size());
+    for (const auto& o : ps.all)
+        if (!base.identity.category.count(o.get())) { base.identity.category[o.get()] = ""; base.identity.ids[o.get()] = "~" + std::to_string(++anon); }
+    /// @note Names resolve against the roster REACHABLE from the merged root — a replaced subtree leaves the old
+    ///       graph data in the identity, unreachable, and "first found" would read the stale roster.
+    Identity live;
+    {
+        std::unordered_set<const IHavokObject*> seen;
+        std::function<void(const IHavokObject*)> walk = [&](const IHavokObject* o) {
+            if (!o || !seen.insert(o).second) return;
+            if (auto it = base.identity.category.find(o); it != base.identity.category.end()) live.category[o] = it->second;
+            if (auto it = base.identity.ids.find(o); it != base.identity.ids.end()) live.ids[o] = it->second;
+            if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
+                for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+        };
+        walk(base.root.get());
+    }
+    const NameResolver nr = buildResolver(live);
+    for (const auto& s : ps.symbols) {
+        const auto& L = s.isEvent ? nr.eventsL : nr.variablesL;
+        const auto idx = L.encode(s.name);
+        if (!idx) { err = s.where + ": " + (s.isEvent ? "event" : "variable") + " '" + s.name + "' is not in the merged roster"; return false; }
+        s.obj->FieldAt(s.field).raw = encInt(static_cast<std::int64_t>(*idx), s.obj->Fields()[s.field]->scalar);
+    }
+    base.objects = std::move(ps.all);
+    return true;
+}
+
+HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
+                                       const schema::SchemaRegistry& reg, const std::string& workDir,
+                                       const std::vector<std::string>* bones) {
+    namespace fs = std::filesystem;
+    HkyPatchRoundTripResult r;
+    try {
+        std::error_code ec;
+        fs::remove_all(workDir, ec);
+        // The base UNIT, as its own bundle stores it (self index 0).
+        PackFileDeserializer desB;
+        desB.ObjectFactory = io::MakeSchemaFactory(reg);
+        { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
+        Identity idB = AssignIdentity(desB, reg, "");
+        for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
+        if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), r.error, bones)) return r;
+        // The mod's PATCH, seen from the mod bundle (self = 0, the base = master 1).
+        if (!DeriveHkyPatch(baseBytes, modBytes, reg, (fs::path(workDir) / "patch").string(), r.error, bones, 1, &r.derived)) return r;
+        ParsedHky merged;
+        if (!ParseHkyReflective((fs::path(workDir) / "base").string(), reg, merged, r.error, bones)) return r;
+        if (!MergeHkyPatch(merged, CB::core::common::DiskUnitSource((fs::path(workDir) / "patch").string()), reg,
+                           { "base" }, { "mod", "base" }, r.error, bones, &r.merged)) return r;
+        PackFileDeserializer desM;
+        desM.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx brM(false, true, modBytes);
+        std::shared_ptr<IHavokObject> modRoot = desM.Deserialize(brM);
+        const HKXHeader header = desM._header;
+        auto serialize = [&](const std::shared_ptr<IHavokObject>& o) {
+            PackFileSerializer ser;
+            BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
+            ser.Serialize(o, bw, header);
+            return bw.Data();
+        };
+        const auto want = serialize(modRoot), got = serialize(merged.root);
+        r.identical = (want == got);
+        if (!r.identical) {
+            std::ofstream(fs::path(workDir) / "want.bin", std::ios::binary).write(reinterpret_cast<const char*>(want.data()), static_cast<std::streamsize>(want.size()));
+            std::ofstream(fs::path(workDir) / "got.bin",  std::ios::binary).write(reinterpret_cast<const char*>(got.data()),  static_cast<std::streamsize>(got.size()));
+            std::string e2;
+            EmitHkyReflective(AssignIdentity(desM, reg, ""), reg, (fs::path(workDir) / "want").string(), e2, bones);
+            PackFileDeserializer desG;
+            desG.ObjectFactory = io::MakeSchemaFactory(reg);
+            BinaryReaderEx brG(false, true, got);
+            desG.Deserialize(brG);
+            EmitHkyReflective(AssignIdentity(desG, reg, ""), reg, (fs::path(workDir) / "got").string(), e2, bones);
+            r.detail = "size " + std::to_string(want.size()) + " -> " + std::to_string(got.size());
+        }
+        r.ok = true;
+    } catch (const std::exception& e) {
+        r.error = std::string("PatchRoundTrip: ") + e.what();
+    }
+    return r;
 }
 
 HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
