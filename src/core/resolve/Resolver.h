@@ -5,7 +5,8 @@
 #include "core/resolve/MotionRecordSink.h" // MotionRecordSink — the compile-side root-motion accumulator
 #include "core/resolve/SymbolInjector.h"
 
-#include <interface/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
+#include <interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
+#include <codec/format/RigIndex.h> // RigIndex — which rig each graph / animation binds
 #include <interface/UnitSource.h>  // LayerSource — merge layer + load-order identity (by value in GraphSources)
 
 #include <atomic>
@@ -293,9 +294,8 @@ namespace CB {
             std::string                            rig;               ///< the rig unit `table` came from
             bool ambiguous = false;   ///< the binding characters' rigs disagree on bone order
         };
-        /// @brief Rig lookup for a serve key: the characters whose root behavior IS the key, else whose root
-        ///        behavior shares its folder (referenced graphs), else of the deepest project folder above it
-        ///        (animations). Several rigs in one match = a shared graph; the first (sorted) supplies names.
+        /// @brief Bone table for a serve key via m_rigIndex.RigsFor. Several rigs in one match = a shared
+        ///        graph; the first (sorted) supplies the names.
         /// @note  Vanilla ships shared graphs over rigs of DIFFERENT bone order (dlc01 crossbow: plain vs
         ///        dwarven), so disagreement is reported via `ambiguous`, never fatal.
         RigBones BonesFor(const std::string& key) const;
@@ -351,12 +351,9 @@ namespace CB {
         ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
         ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
         std::unordered_map<std::string, CB::core::common::BoneNameTable> m_skeletons;
-        /// @brief Rig bindings harvested from project.yaml characterFilenames -> character.yaml rig/behavior
-        ///        (project-dir relative). Keys are normalized serve paths; values are sorted rig unit keys.
-        ///        Consulted by BonesFor in this order. Immutable after Init().
-        std::unordered_map<std::string, std::vector<std::string>> m_rigsByBehavior;
-        std::unordered_map<std::string, std::vector<std::string>> m_rigsByBehaviorDir;
-        std::unordered_map<std::string, std::vector<std::string>> m_rigsByProjectDir;
+        /// @brief Which rig each graph / animation binds (project -> character rig/behavior). Consulted by
+        ///        BonesFor. Immutable after Init().
+        CB::core::skeleton::RigIndex m_rigIndex;
         /// @brief Compiled skeleton.hkx bytes BR serves, keyed by the unit's normalized serve path. A skeleton
         ///        unit is path-local in every bundle; one is served only when a bundle OTHER than Skyrim.hky
         ///        wins its path (vanilla-won units stay with the engine). Owns() serves these like a compiled

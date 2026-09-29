@@ -20,7 +20,6 @@
 #include <havok/model/ProjectData.h>         // CB::core::common::ProjectSpec (the neutral Def)
 #include <decompile/SkeletonImport.h>        // SkeletonData — schema-native skeleton import
 #include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
-#include <codec/format/ProjectYaml.h>        // ParseProjectYaml (rig binding: project -> characters)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (Stage D serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // CB::core::anim::CompileAnimation (native anim -> loose .hkx)
@@ -783,67 +782,27 @@ namespace CB {
                 else for (auto& t : serveTasks) t();
             }
 
-            // RIG BINDING: project dir + characterFilenames -> character unit; the character's `rig:` and
-            // `behavior:` are project-dir relative (".." allowed — generic single-bone rigs live up-tree).
-            auto dirOf = [](const std::string& k) {
-                const auto p = k.rfind('/');
-                return p == std::string::npos ? std::string{} : k.substr(0, p);
-            };
-            auto joinRel = [](const std::string& dir, const std::string& rel) {
-                std::vector<std::string> parts;
-                auto push = [&parts](const std::string& path) {
-                    std::size_t s = 0;
-                    while (s <= path.size()) {
-                        const std::size_t e = std::min(path.find('/', s), path.size());
-                        const std::string seg = path.substr(s, e - s);
-                        if (seg == "..") { if (!parts.empty()) parts.pop_back(); }
-                        else if (!seg.empty() && seg != ".") parts.push_back(seg);
-                        s = e + 1;
-                    }
-                };
-                push(dir);
-                push(NormalizeKey(rel));
-                std::string out;
-                for (const auto& p : parts) { if (!out.empty()) out += '/'; out += p; }
-                return out;
-            };
-            std::set<std::string> boundRigs;
-            auto bind = [](std::unordered_map<std::string, std::vector<std::string>>& m, const std::string& k,
-                           const std::string& rig) {
-                auto& v = m[k];
-                if (std::find(v.begin(), v.end(), rig) == v.end()) v.push_back(rig);
-            };
+            // RIG BINDING (shared with the converter): project characterFilenames -> character rig/behavior.
             for (const auto& [projUnit, pbi] : projWinner) {
-                CB::core::common::ProjectSpec spec;
                 const auto py = bundles[pbi].reader.read(projUnit + "/project.yaml");
-                if (!py || !CB::core::codec::ParseProjectYaml(*py, spec)) continue;
-                const std::string projDir = dirOf(projUnit);
-                for (const std::string& cf : spec.characterFilenames) {
-                    const std::string charUnit = joinRel(projDir, cf);
-                    const auto cit = charWinner.find(charUnit);
-                    if (cit == charWinner.end()) continue;
-                    const auto src = bundles[cit->second].reader.unitSource(charUnit);
-                    if (!src) continue;
-                    CB::core::common::CharacterDef def;
-                    try { def = CB::core::codec::CharacterYamlLoader::LoadDef(*src); }
-                    catch (const std::exception& e) { LOG_WARN("Resolver: character '{}' unreadable: {}", charUnit, e.what()); continue; }
-                    if (def.rig.empty()) continue;
-                    const std::string rig = joinRel(projDir, def.rig);
-                    if (!skelWinner.count(rig)) {
-                        LOG_WARN("Resolver: character '{}' rig '{}' has no skeleton unit in any bundle.", charUnit, rig);
-                        continue;
-                    }
-                    bind(m_rigsByProjectDir, projDir, rig);
-                    if (!def.behavior.empty()) {
-                        const std::string beh = joinRel(projDir, def.behavior);
-                        bind(m_rigsByBehavior, beh, rig);
-                        bind(m_rigsByBehaviorDir, dirOf(beh), rig);
-                    }
-                    boundRigs.insert(rig);
-                }
+                if (!py) continue;
+                m_rigIndex.AddProject(projUnit, *py,
+                    [&](const std::string& charUnit) -> std::optional<CB::core::common::CharacterDef> {
+                        const auto cit = charWinner.find(charUnit);
+                        if (cit == charWinner.end()) return std::nullopt;
+                        const auto src = bundles[cit->second].reader.unitSource(charUnit);
+                        if (!src) return std::nullopt;
+                        try { return CB::core::codec::CharacterYamlLoader::LoadDef(*src); }
+                        catch (const std::exception& e) {
+                            LOG_WARN("Resolver: character '{}' unreadable: {}", charUnit, e.what());
+                            return std::nullopt;
+                        }
+                    },
+                    [&](const std::string& rig) { return skelWinner.count(rig) != 0; },
+                    [](const std::string& m) { LOG_WARN("Resolver: {}.", m); });
             }
-            for (auto* m : { &m_rigsByBehavior, &m_rigsByBehaviorDir, &m_rigsByProjectDir })
-                for (auto& [k, v] : *m) std::sort(v.begin(), v.end());
+            m_rigIndex.Finalize();
+            const std::set<std::string>& boundRigs = m_rigIndex.BoundRigs();
 
             // BONE TABLES, one per bound rig, from that rig unit's winner. Each task builds a LOCAL table
             // and moves it into its own distinct m_skeletons key under tblMu (serial-equivalent).
@@ -1557,20 +1516,7 @@ namespace CB {
 
     Resolver::RigBones Resolver::BonesFor(const std::string& key) const
     {
-        const auto dirOf = [](const std::string& k) {
-            const auto p = k.rfind('/');
-            return p == std::string::npos ? std::string{} : k.substr(0, p);
-        };
-        const std::string k = NormalizeKey(key);
-        const std::vector<std::string>* rigs = nullptr;
-        if (const auto it = m_rigsByBehavior.find(k); it != m_rigsByBehavior.end())
-            rigs = &it->second;
-        else if (const auto dit = m_rigsByBehaviorDir.find(dirOf(k)); dit != m_rigsByBehaviorDir.end())
-            rigs = &dit->second;
-        else
-            for (std::string d = dirOf(k); !d.empty(); d = dirOf(d))
-                if (const auto pit = m_rigsByProjectDir.find(d); pit != m_rigsByProjectDir.end()) { rigs = &pit->second; break; }
-
+        const std::vector<std::string>* rigs = m_rigIndex.RigsFor(NormalizeKey(key));
         RigBones out;
         if (!rigs) return out;
         for (const std::string& r : *rigs) {
