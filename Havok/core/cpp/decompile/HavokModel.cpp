@@ -1911,8 +1911,9 @@ std::string boneText(std::int64_t idx, const ReflectCtx& c) {
 ///        array's most common value differs from the schema default) and `count:` (only when the array length
 ///        differs from the rig). Unlisted bones take the default; compile sizes the array to the rig when no
 ///        count is given, so a bone added to the rig gets the default automatically.
-/// @note  Values compare by their rendered text, so -0 stays distinct from 0 (bit-exact).
-std::string boneWeightsText(const Field& f, const std::vector<std::uint8_t>& raw, const ReflectCtx& c) {
+/// @note  Values compare by their rendered text, so -0 stays distinct from 0 (bit-exact). `whole` states `default:` and
+///        `count:` always — in a PATCH a map without them is a per-bone override, so a whole value must say so.
+std::string boneWeightsText(const Field& f, const std::vector<std::uint8_t>& raw, const ReflectCtx& c, bool whole = false) {
     const std::size_t n = raw.size() / 4;
     std::vector<std::string> vals;
     for (std::size_t k = 0; k < n; ++k) vals.push_back(rfloat(slice(raw, k, 4)));
@@ -1927,8 +1928,8 @@ std::string boneWeightsText(const Field& f, const std::vector<std::uint8_t>& raw
     std::size_t best = freq.count(dflt) ? freq[dflt] : 0;
     for (const auto& [v, k] : freq) if (k > best) { best = k; dflt = v; }
     std::string body;
-    if (dflt != f.boneWeightDefault) body += "  default: " + dflt + "\n";
-    if (n != c.bones->size())        body += "  count: " + std::to_string(n) + "\n";
+    if (whole || dflt != f.boneWeightDefault) body += "  default: " + dflt + "\n";
+    if (whole || n != c.bones->size())        body += "  count: " + std::to_string(n) + "\n";
     for (std::size_t k = 0; k < n; ++k)
         if (vals[k] != dflt) body += "  " + q((*c.bones)[k]) + ": " + vals[k] + "\n";
     return body.empty() ? f.name + ": {}\n" : f.name + ":\n" + body;
@@ -3531,6 +3532,59 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
             handled = true;
             return fillHky(*co, n, ps);   // ps.patch stays set: the nested object merges field-wise too
         }
+        /// @note A COLLAPSED patch (the `unwrap:` field's value right under this field — a weight map's changed bones)
+        ///       patches that field of the existing object; only a form the field can't patch replaces it whole.
+        if (co && !ps.nodes.count(co) && collapsed) {
+            const auto cf = co->Fields();
+            const std::string& u = ps.reg.Find(f.ref)->unwrap;
+            for (std::size_t j = 0; j < cf.size(); ++j) {
+                if (cf[j]->name != u) continue;
+                bool h = false;
+                if (!patchField(*co, j, n, ps, h)) return false;
+                if (!h && !fieldValue(*co, j, n, ps)) return false;
+                handled = true;
+                return true;
+            }
+        }
+    }
+    /// @note Bones merge PER BONE: a weight map in a patch sets only the bones it names (a mod never restates another
+    ///       mod's weights); a bone set adds `'Bone': {}` / removes `'Bone': {deleted: true}`. A weight map carrying
+    ///       `default:` / `count:` is a whole value (it resizes or re-bases the array).
+    if (f.kind == FieldKind::ScalarArray && n.is_map() && f.boneWeights && f.scalar == Scalar::Float &&
+        !yhas(n, "default") && !yhas(n, "count")) {
+        handled = true;
+        for (auto e : n) {
+            const std::string bone = ykey(e);
+            std::int64_t idx = -1;
+            if (!boneIndex(bone, idx, ps, f.name)) return false;
+            if (idx < 0 || static_cast<std::size_t>(idx) * 4 + 4 > v.raw.size()) {
+                ps.err = ps.where + ": " + f.name + ": bone '" + bone + "' is past the weight array (" + std::to_string(v.raw.size() / 4) + ")";
+                return false;
+            }
+            const auto wb = floatBytes(ystr(e));
+            std::memcpy(v.raw.data() + static_cast<std::size_t>(idx) * 4, wb.data(), 4);
+        }
+        return true;
+    }
+    if (f.kind == FieldKind::ScalarArray && n.is_map() && f.boneSet) {
+        handled = true;
+        const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
+        for (auto e : n) {
+            const std::string bone = ykey(e);
+            std::int64_t idx = -1;
+            if (!boneIndex(bone, idx, ps, f.name)) return false;
+            std::size_t at = v.raw.size() / w;
+            for (std::size_t k = 0; w && k < v.raw.size() / w; ++k) if (decodeInt(slice(v.raw, k, w), f.scalar) == idx) { at = k; break; }
+            const bool present = at < v.raw.size() / w;
+            if (e.is_map() && yhas(e, "deleted")) {
+                if (present) v.raw.erase(v.raw.begin() + static_cast<std::ptrdiff_t>(at * w), v.raw.begin() + static_cast<std::ptrdiff_t>(at * w + w));
+            } else if (!present) {
+                auto b = encInt(idx, f.scalar);
+                b.resize(w);
+                v.raw.insert(v.raw.end(), b.begin(), b.end());
+            }
+        }
+        return true;
     }
     if (f.kind == FieldKind::StringArray && n.is_seq() && mergeTagOf(ps.reg, so.ClassName(), f.name) == "union") {
         handled = true;
@@ -3732,6 +3786,44 @@ bool isArrayKind(FieldKind k) {
            k == FieldKind::ScalarArray || k == FieldKind::Vec4Array || k == FieldKind::QsTransformArray || k == FieldKind::BoolArray;
 }
 
+/// @brief A `boneweights` array's PER-BONE patch: `'Bone': weight` for each bone whose weight changed (indent 2; empty
+///        = unchanged). nullopt when the arrays can't be compared bone by bone (no rig, or the length changed).
+std::optional<std::string> boneWeightsDiff(const Field& f, const io::FieldValue& vb, const io::FieldValue& vm, const ReflectCtx& c) {
+    if (!f.boneWeights || f.scalar != Scalar::Float || !c.bones) return std::nullopt;
+    const std::size_t n = vb.raw.size() / 4;
+    if (vm.raw.size() != vb.raw.size() || n > c.bones->size()) return std::nullopt;
+    std::string y;
+    for (std::size_t k = 0; k < n; ++k) {
+        const std::string wb = rfloat(slice(vb.raw, k, 4)), wm = rfloat(slice(vm.raw, k, 4));
+        if (wb != wm) y += "  " + q((*c.bones)[k]) + ": " + wm + "\n";
+    }
+    return y;
+}
+
+/// @brief A `boneset` list's patch: `'Bone': {}` for each bone added, `'Bone': {deleted: true}` for each removed (indent
+///        2; empty = same set). nullopt when either side isn't a set of rig bones (an unknown index, a duplicate).
+std::optional<std::string> boneSetDiff(const Field& f, const io::FieldValue& vb, const io::FieldValue& vm, const ReflectCtx& c) {
+    if (!f.boneSet || !c.bones) return std::nullopt;
+    const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
+    auto bonesOf = [&](const io::FieldValue& v) -> std::optional<std::vector<std::int64_t>> {
+        std::vector<std::int64_t> out;
+        for (std::size_t k = 0; w && k < v.raw.size() / w; ++k) {
+            const std::int64_t bi = decodeInt(slice(v.raw, k, w), f.scalar);
+            if (bi < 0 || bi >= static_cast<std::int64_t>(c.bones->size()) || std::find(out.begin(), out.end(), bi) != out.end()) return std::nullopt;
+            out.push_back(bi);
+        }
+        return out;
+    };
+    const auto b = bonesOf(vb), m = bonesOf(vm);
+    if (!b || !m) return std::nullopt;
+    std::string y;
+    for (const std::int64_t bi : *m)
+        if (std::find(b->begin(), b->end(), bi) == b->end()) y += "  " + q((*c.bones)[static_cast<std::size_t>(bi)]) + ": {}\n";
+    for (const std::int64_t bi : *b)
+        if (std::find(m->begin(), m->end(), bi) == m->end()) y += "  " + q((*c.bones)[static_cast<std::size_t>(bi)]) + ": {deleted: true}\n";
+    return y;
+}
+
 using FieldSkip = std::function<bool(const std::string&)>;
 std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm,
                        const FieldSkip& skip = {});
@@ -3883,14 +3975,25 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
             const auto* bo = dynamic_cast<const io::SchemaObject*>(vb.obj.get());
             const auto* mo = dynamic_cast<const io::SchemaObject*>(vm.obj.get());
             const schema::ClassSchema* dcs = cm.reg.Find(f.ref);
-            const bool collapsible = dcs && !dcs->unwrap.empty();   // a collapsed value is atomic (e.g. a weight map)
+            const bool collapsible = dcs && !dcs->unwrap.empty();
             /// @note An empty sub-diff means UNCHANGED even though the texts differed: base-owned roster keys render as
-            ///       the master's (`0001x…`), the mod's as its own (`0000x…`).
-            if (bo && mo && !collapsible) {
+            ///       the master's (`0001x…`), the mod's as its own (`0000x…`). A sub-diff of only the `unwrap:` field is
+            ///       written collapsed, like the object itself (a weight map's changed bones right under the field).
+            if (bo && mo) {
                 const std::string sub = diffObject(*bo, *mo, subCtx(cb, f.name), subCtx(cm, f.name));
-                if (!sub.empty()) y += f.name + ":\n" + indentLines(sub, "  ", "  ");
+                if (!sub.empty()) {
+                    const std::string u = collapsible ? unwrapped(*mo, sub, f.name) : std::string();
+                    y += u.empty() ? f.name + ":\n" + indentLines(sub, "  ", "  ") : u;
+                }
                 continue;
             }
+        }
+        if (f.kind == FieldKind::ScalarArray) {
+            if (const auto d = f.boneWeights ? boneWeightsDiff(f, vb, vm, cm) : boneSetDiff(f, vb, vm, cm)) {
+                if (!d->empty()) y += f.name + ":\n" + *d;
+                continue;
+            }
+            if (f.boneWeights && f.scalar == Scalar::Float) { y += boneWeightsText(f, vm.raw, inlCtx(cm), true); continue; }
         }
         if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty())
             if (const auto r = rosterDiff(b, m, i, cb, cm)) {
