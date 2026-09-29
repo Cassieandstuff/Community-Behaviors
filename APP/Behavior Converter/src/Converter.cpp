@@ -3152,6 +3152,34 @@ bool PackageAllModAnimations(const std::string& mo2Instance, const std::string& 
     return true;
 }
 
+bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log) {
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    auto* reg = CB::core::schema::SharedRegistry();
+    if (!reg) { say("reflect-dump: schema registry not armed"); return false; }
+    std::error_code ec;
+    fs::create_directories(outDir, ec);
+    std::ofstream index(fs::path(outDir) / "index.txt", std::ios::binary);
+    int n = 0, fails = 0;
+    for (fs::recursive_directory_iterator it(meshesDir, fs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
+        std::error_code fe;
+        if (!it->is_regular_file(fe)) continue;
+        std::string ext = it->path().extension().string();
+        for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (ext != ".hkx" || PeekHkxKind(it->path()) != HkxKind::Behavior) continue;
+        std::vector<std::uint8_t> bytes; std::string err;
+        if (!CB::core::codec::ReadHavokFile(it->path().string(), bytes, &err)) { ++fails; say("  read failed: " + it->path().string()); continue; }
+        const fs::path g = fs::path(outDir) / std::to_string(n);
+        const bool okCur = CB::core::decompile::DecompileBehaviorSchema(bytes, "", *reg, (g / "cur").string(), err);
+        const bool okGen = okCur && CB::core::decompile::DecompileBehaviorReflective(bytes, *reg, (g / "gen").string(), err);
+        if (!okCur || !okGen) { ++fails; say("  decompile failed: " + it->path().string() + " — " + err); continue; }
+        index << n << "\t" << fs::relative(it->path(), meshesDir, fe).generic_string() << "\n";
+        ++n;
+    }
+    say("reflect-dump: " + std::to_string(n) + " behavior graph(s) dumped, " + std::to_string(fails) + " failed -> " + outDir);
+    return fails == 0;
+}
+
 RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& templatesDir,
                              const std::string& outHky, bool strict,
                              const LogFn& log, const std::atomic<bool>& cancel,

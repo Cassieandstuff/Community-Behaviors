@@ -108,6 +108,17 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
                                                  const schema::SchemaRegistry& reg,
                                                  const std::string& outDeltaDir);
 
+/// @brief Reflective .hky emit — every schema field of every file node, in schema order, rendered by FieldKind
+///        alone (inline objects nest as maps with their `class:`; the root container's inline subtree lands in
+///        graph.yaml). MEASUREMENT stage of the reflective-format work: diffed against EmitHky to find what the
+///        bespoke renderers drop or reshape. No loader consumes it yet.
+bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
+                       const std::string& outDir, std::string& err);
+/// @brief Deserialize + encounter-order AssignIdentity + EmitHkyReflective (ids align with an XML-less
+///        DecompileBehaviorSchema of the same bytes, so the two trees diff file-for-file).
+bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
+                                 const std::string& outDir, std::string& err);
+
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
 // form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field

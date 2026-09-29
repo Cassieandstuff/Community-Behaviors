@@ -184,6 +184,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& templatesDir = "", const std::string& keepStagingDir = "");
 
+/// @brief Measurement harness for the reflective-format work: for every behavior .hkx under `meshesDir`, write
+///        `<outDir>/<n>/cur` (today's EmitHky tree) and `<outDir>/<n>/gen` (EmitHkyReflective), ids aligned;
+///        `<outDir>/index.txt` maps n -> source path. Pick a SHORT outDir (MAX_PATH).
+bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log);
+
 struct RegenResult {
     bool            ok = false;
     std::string     error;

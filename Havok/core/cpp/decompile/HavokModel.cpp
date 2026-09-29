@@ -1821,6 +1821,174 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
     }
 }
 
+namespace {
+/// @note Reflective emit, MEASUREMENT stage: every schema field in schema order, rendered by FieldKind alone.
+///       File nodes (non-empty category) render as their id; inline objects nest as maps with their `class:`.
+std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr);
+
+std::string indentLines(const std::string& block, const std::string& first, const std::string& rest) {
+    std::string out;
+    std::size_t s = 0;
+    bool firstLine = true;
+    while (s < block.size()) {
+        const std::size_t e = block.find('\n', s);
+        const std::string line = block.substr(s, e == std::string::npos ? std::string::npos : e - s);
+        out += (firstLine ? first : rest) + line + "\n";
+        firstLine = false;
+        if (e == std::string::npos) break;
+        s = e + 1;
+    }
+    return out;
+}
+
+bool isFileNode(const IHavokObject* o, const Identity& id) {
+    const auto c = id.category.find(o);
+    return c != id.category.end() && !c->second.empty();
+}
+
+std::string scalarText(const Field& f, const std::vector<std::uint8_t>& raw) {
+    if (f.scalar == Scalar::Half) {
+        std::uint16_t h = 0; if (raw.size() >= 2) std::memcpy(&h, raw.data(), 2);
+        char b[16]; std::snprintf(b, sizeof b, "0x%04x", h); return b;
+    }
+    io::FieldValue v; v.raw = raw;
+    return renderScalar(f, v);
+}
+
+std::string elemText(const std::shared_ptr<IHavokObject>& p, const Identity& id, const NameResolver& nr, const std::string& key) {
+    if (!p) return key + ": null\n";
+    if (isFileNode(p.get(), id)) return key + ": " + refIdOf(p, id) + "\n";
+    const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
+    if (!so) return key + ": '?'\n";
+    return key + ":\n" + indentLines(reflectObject(*so, id, nr), "  ", "  ");
+}
+
+std::string listText(const std::vector<std::shared_ptr<IHavokObject>>& objs, const Identity& id, const NameResolver& nr,
+                     const std::string& key) {
+    if (objs.empty()) return key + ": []\n";
+    std::string y = key + ":\n";
+    for (const auto& p : objs) {
+        if (!p) { y += "  - null\n"; continue; }
+        if (isFileNode(p.get(), id)) { y += "  - " + refIdOf(p, id) + "\n"; continue; }
+        const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
+        if (!so) { y += "  - '?'\n"; continue; }
+        y += indentLines(reflectObject(*so, id, nr), "  - ", "    ");
+    }
+    return y;
+}
+
+template <class F>
+std::string flowList(std::size_t n, F&& at) {
+    std::string y = "[";
+    for (std::size_t i = 0; i < n; ++i) y += (i ? ", " : "") + at(i);
+    return y + "]";
+}
+
+std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
+    std::string y = "class: " + std::string(so.ClassName()) + "\n";
+    const auto fields = so.Fields();
+    const auto& vals  = so.Values();
+    for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i) {
+        const Field& f = *fields[i];
+        const io::FieldValue& v = vals[i];
+        if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
+        switch (f.kind) {
+            case FieldKind::Scalar: {
+                const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
+                const std::size_t n = w ? v.raw.size() / w : 0;
+                if (n <= 1) {
+                    y += f.name + ": " + scalarText(f, v.raw) + "\n";
+                    const long iv = static_cast<long>(decodeInt(v.raw, f.scalar));
+                    if (!f.eventRef.empty()) { const std::string s = nr.safeEvent(iv);    if (!s.empty()) y += f.eventRef + ": " + q(s) + "\n"; }
+                    if (!f.varRef.empty())   { const std::string s = nr.safeVariable(iv); if (!s.empty()) y += f.varRef + ": " + q(s) + "\n"; }
+                } else {
+                    y += f.name + ": " + flowList(n, [&](std::size_t k) {
+                        return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w));
+                    }) + "\n";
+                }
+                break;
+            }
+            case FieldKind::String:
+            case FieldKind::CString:    y += f.name + ": " + q(v.str) + "\n"; break;
+            case FieldKind::Vector4:
+            case FieldKind::Quaternion: y += f.name + ": " + pvecRaw(v.raw) + "\n"; break;
+            case FieldKind::QsTransform:
+                y += f.name + ": " + flowList(3, [&](std::size_t k) {
+                    return pvecRaw(std::vector<std::uint8_t>(v.raw.begin() + std::min(v.raw.size(), k * 16),
+                                                             v.raw.begin() + std::min(v.raw.size(), (k + 1) * 16)));
+                }) + "\n";
+                break;
+            case FieldKind::Ptr:
+            case FieldKind::Struct:     y += elemText(v.obj, id, nr, f.name); break;
+            case FieldKind::PtrArray:
+            case FieldKind::StructArray: y += listText(v.objs, id, nr, f.name); break;
+            case FieldKind::StringArray:
+                y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return q(v.strs[k]); }) + "\n";
+                break;
+            case FieldKind::ScalarArray: {
+                const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
+                const std::size_t n = w ? v.raw.size() / w : 0;
+                y += f.name + ": " + flowList(n, [&](std::size_t k) {
+                    return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w));
+                }) + "\n";
+                break;
+            }
+            case FieldKind::Vec4Array:
+                y += f.name + ": " + flowList(v.raw.size() / 16, [&](std::size_t k) {
+                    return pvecRaw(std::vector<std::uint8_t>(v.raw.begin() + k * 16, v.raw.begin() + (k + 1) * 16));
+                }) + "\n";
+                break;
+            case FieldKind::QsTransformArray:
+                y += f.name + ": " + flowList(v.raw.size() / 48, [&](std::size_t k) {
+                    return flowList(3, [&](std::size_t j) {
+                        const std::size_t o = k * 48 + j * 16;
+                        return pvecRaw(std::vector<std::uint8_t>(v.raw.begin() + o, v.raw.begin() + o + 16));
+                    });
+                }) + "\n";
+                break;
+            case FieldKind::BoolArray:
+                y += f.name + ": " + flowList(v.raw.size(), [&](std::size_t k) { return boolstr(v.raw[k] != 0); }) + "\n";
+                break;
+            default: break;   // Vtable / Pad / Skip / EmptyArray / EmptyPtr carry no authored value
+        }
+    }
+    return y;
+}
+} // namespace
+
+bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
+                       const std::string& outDir, std::string& err) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const NameResolver nr = buildResolver(identity);
+    for (const auto& [obj, cat] : identity.category) {
+        const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
+        if (!so) { err = "EmitHkyReflective expects a SchemaObject graph"; return false; }
+        const bool root = std::string(so->ClassName()) == "hkRootLevelContainer";
+        if (cat.empty() && !root) continue;
+        const std::string idStr = identity.ids.at(obj);
+        const fs::path dir = root ? fs::path(outDir) : fs::path(outDir) / cat;
+        fs::create_directories(dir, ec);
+        std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary)
+            << "id: " << idStr << "\n" << reflectObject(*so, identity, nr);
+    }
+    return true;
+}
+
+bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
+                                 const std::string& outDir, std::string& err) {
+    try {
+        PackFileDeserializer des;
+        des.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx br(false, true, bytes);
+        des.Deserialize(br);
+        return EmitHkyReflective(AssignIdentity(des, reg, ""), reg, outDir, err);
+    } catch (const std::exception& e) {
+        err = std::string("DecompileBehaviorReflective: ") + e.what();
+        return false;
+    }
+}
+
 std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& /*reg*/, std::string& /*err*/) {
     // objects in canonical id order (== tagfile #NNNN document order): numeric base ids ascending by
     // VALUE (byte-identical to the old int order), then any new-node ($) ids after, sorted lexically.
