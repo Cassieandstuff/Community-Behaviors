@@ -2762,19 +2762,22 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
 
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
                         const std::vector<std::string>* bones) {
-    namespace fs = std::filesystem;
+    return ParseHkyReflective(CB::core::common::DiskUnitSource(dir), reg, out, err, bones);
+}
+
+bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
+                        std::string& err, const std::vector<std::string>* bones) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
     struct Doc { std::string text; yml::Tree tree; std::string cat; std::string file; };
     std::vector<std::unique_ptr<Doc>> docs;
-    std::error_code ec;
-    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-        if (!it->is_regular_file() || it->path().extension() != ".yaml") continue;
+    for (const std::string& rel : src.listYaml("", true)) {
+        auto text = src.read(rel);
+        if (!text) continue;
         auto d = std::make_unique<Doc>();
-        std::ifstream f(it->path(), std::ios::binary);
-        d->text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-        d->file = fs::relative(it->path(), dir).generic_string();
-        const fs::path parent = fs::relative(it->path().parent_path(), dir);
-        d->cat = parent.empty() || parent == "." ? std::string() : parent.generic_string();
+        d->text = std::move(*text);
+        d->file = rel;
+        const auto slash = rel.rfind('/');
+        d->cat = slash == std::string::npos ? std::string() : rel.substr(0, slash);
         d->tree = yml::parse_in_place(c4::to_csubstr(d->file), c4::to_substr(d->text));
         docs.push_back(std::move(d));
     }

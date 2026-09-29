@@ -3236,7 +3236,8 @@ bool SerializerRoundTrip(const std::string& meshesDir, const std::string& outRoo
     return fails == 0;
 }
 
-bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky) {
+bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky,
+                  bool allKinds) {
     const auto say = [&](const std::string& s) { if (log) log(s); };
     auto* reg = CB::core::schema::SharedRegistry();
     if (!reg) { say("hky-roundtrip: schema registry not armed"); return false; }
@@ -3248,13 +3249,18 @@ bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, con
     }
     std::error_code ec;
     int n = 0, same = 0, canonOk = 0, fails = 0;
+    std::map<std::string, std::pair<int, int>> perKind;   // kind -> (identical, total)
     for (fs::recursive_directory_iterator it(meshesDir, fs::directory_options::skip_permission_denied, ec), end;
          !ec && it != end; it.increment(ec)) {
         std::error_code fe;
         if (!it->is_regular_file(fe)) continue;
         std::string ext = it->path().extension().string();
         for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (ext != ".hkx" || PeekHkxKind(it->path()) != HkxKind::Behavior) continue;
+        if (ext != ".hkx") continue;
+        const HkxKind kind = PeekHkxKind(it->path());
+        const char* kindName = kind == HkxKind::Behavior ? "behavior" : kind == HkxKind::Character ? "character"
+                             : kind == HkxKind::Project ? "project" : kind == HkxKind::Skeleton ? "skeleton" : nullptr;
+        if (!kindName || (!allKinds && kind != HkxKind::Behavior)) continue;
         std::vector<std::uint8_t> bytes; std::string err;
         if (!CB::core::codec::ReadHavokFile(it->path().string(), bytes, &err)) { ++fails; continue; }
         const std::string rel = fs::relative(it->path(), meshesDir, fe).generic_string();
@@ -3266,10 +3272,13 @@ bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, con
         ++n;
         if (!r.ok) { ++fails; say("  FAIL " + rel + " — " + r.error); continue; }
         canonOk += r.canonIsSource;
-        if (r.identical) { ++same; std::error_code re; fs::remove_all(fs::path(workRoot) / std::to_string(n - 1), re); continue; }
+        ++perKind[kindName].second;
+        if (r.identical) { ++same; ++perKind[kindName].first; std::error_code re; fs::remove_all(fs::path(workRoot) / std::to_string(n - 1), re); continue; }
         say("  DIFF " + std::to_string(n - 1) + " " + rel + " — first byte " + std::to_string(r.firstDiff) +
             ", size delta " + std::to_string(r.sizeDelta) + (r.detail.empty() ? "" : " | " + r.detail));
     }
+    for (const auto& [k, v] : perKind)
+        say("  " + k + ": " + std::to_string(v.first) + "/" + std::to_string(v.second) + " byte-identical");
     say("hky-roundtrip: " + std::to_string(same) + "/" + std::to_string(n) + " byte-identical via the reflective .hky (" +
         std::to_string(canonOk) + "/" + std::to_string(n) + " serializer round-trips equal the source; " +
         std::to_string(fails) + " failed). Differing trees kept under " + workRoot);

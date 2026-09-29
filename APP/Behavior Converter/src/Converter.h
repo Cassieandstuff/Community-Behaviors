@@ -193,7 +193,9 @@ bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const 
 /// @brief The reflective-format gate over every behavior .hkx under `meshesDir`: vanilla -> reflective .hky ->
 ///        ParseHky -> binary, byte-compared (RoundTripReflective). Differing graphs' trees are kept under
 ///        `<workRoot>/<n>` (SHORT path). `baseHky` supplies the rig binding for bone names.
-bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "");
+/// @param allKinds also gate characters, projects and skeletons (the reflective codec is schema-generic).
+bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "",
+                  bool allKinds = false);
 /// @brief The serializer's own round-trip over every behavior .hkx: deserialize -> re-serialize vs the source bytes.
 ///        Differing pairs are kept as `<outRoot>/<n>/{src,canon}.bin` for inspection.
 bool SerializerRoundTrip(const std::string& meshesDir, const std::string& outRoot, const LogFn& log);

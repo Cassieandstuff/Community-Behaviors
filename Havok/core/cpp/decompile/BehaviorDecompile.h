@@ -2,6 +2,7 @@
 // Split out of <havok-model/HavokModel.h> in org-pass firesale phase 3f. Impl: decompile/HavokModel.cpp.
 #pragma once
 #include <codec/serialization/HavokIo.h>
+#include <interface/UnitSource.h>
 #include <interface/reflection/HavokSchema.h>
 #include <codec/serialization/packfile/IHavokObject.h>
 
@@ -133,6 +134,9 @@ struct ParsedHky {
 ///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
 ///        name is the stable identity across mods); bone names resolve through `bones` (the graph's rig). Fail-loud:
 ///        an unknown enum name, bone, symbol, class or id is an error, never a silent 0.
+bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
+                        std::string& err, const std::vector<std::string>* bones = nullptr);
+/// @brief Convenience: an on-disk unit directory.
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
                         const std::vector<std::string>* bones = nullptr);
 
