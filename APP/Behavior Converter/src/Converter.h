@@ -197,6 +197,10 @@ bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const 
 ///        each mod's derived field patch merged onto the base in order vs today's all-mods MergeTagfiles.
 bool MultiLayerRoundTripAll(const std::string& modsDir, const std::string& templatesDir, const std::string& workRoot,
                             const LogFn& log, const std::string& baseHky = "");
+/// @brief Apply hand-written .hky patch units (in order) onto `meshesDir/rel` (a vanilla behavior / character .hkx); the
+///        base unit, merged unit and merged.hkx land in `outDir`. Bones resolve through `baseHky`'s rigs.
+bool HkyMerge(const std::string& baseHky, const std::string& meshesDir, const std::string& rel, const std::string& outDir,
+              const std::vector<std::string>& patchDirs, const LogFn& log);
 /// @brief The field-patch gate: for every behavior/character .hkx under `moddedMeshes` with a vanilla counterpart,
 ///        merge(vanilla, derive(vanilla, mod)) must serialize byte-identical to the mod. Work trees under `workRoot`.
 bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& moddedMeshes, const std::string& workRoot,

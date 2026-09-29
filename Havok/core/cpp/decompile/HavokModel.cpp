@@ -2102,6 +2102,22 @@ std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* wor
     return y + "}";
 }
 
+/// @brief A valued roster entry's info and (pointer types) its value object, by roster position.
+const io::SchemaObject* valuedInfo(const io::SchemaObject& owner, const ValuedRoster& r, std::size_t pos) {
+    const auto* infos = objsOf(owner, r.infos);
+    return infos && pos < infos->size() ? dynamic_cast<const io::SchemaObject*>((*infos)[pos].get()) : nullptr;
+}
+std::shared_ptr<IHavokObject> valuedPointer(const io::SchemaObject& owner, const ValuedRoster& r, std::size_t pos) {
+    const auto* info = valuedInfo(owner, r, pos);
+    const auto* vs = ptrObj(owner, r.values);
+    if (!info || !vs || !isPointerType(fInt(*info, "type"))) return nullptr;
+    const auto& words = *objsOf(*vs, "wordVariableValues");
+    const auto& variants = *objsOf(*vs, "variantVariableValues");
+    const auto* word = pos < words.size() ? dynamic_cast<const io::SchemaObject*>(words[pos].get()) : nullptr;
+    const long vi = word ? fInt(*word, "value") : -1;
+    return vi >= 0 && static_cast<std::size_t>(vi) < variants.size() ? variants[static_cast<std::size_t>(vi)] : nullptr;
+}
+
 /// @brief Every record of the vocabulary, per roster, in roster order: (roster key, name, record text).
 void valuedRecords(const io::SchemaObject& owner, const ValuedRoster& r, bool full, const ReflectCtx& c,
                    std::vector<std::tuple<std::string, std::string, std::string>>& out) {
@@ -3312,10 +3328,17 @@ bool applyInfoRecord(io::SchemaObject& info, const yml::ConstNodeRef& rec, bool 
             if (fresh) { word->FieldRef("value").raw = encInt(static_cast<std::int64_t>(vi), Scalar::Int32); variants->push_back(nullptr); }
             else vi = static_cast<std::size_t>(fInt(*word, "value"));
             if (yhas(rec, "value") && vi < variants->size()) {
+                /// @note A PATCH record onto an existing inline value of the same class (a bone-weight preset) patches
+                ///       it in place — per bone — so two mods adjusting different bones of `UpperBody` both land.
+                const yml::ConstNodeRef val = yget(rec, "value");
+                auto* co = dynamic_cast<io::SchemaObject*>((*variants)[vi].get());
+                if (!fresh && ps.patch && val.is_map() && co && !ps.nodes.count(co) &&
+                    (!yhas(val, "class") || ystr(yget(val, "class")) == co->ClassName()))
+                    return fillHky(*co, val, ps);
                 std::shared_ptr<IHavokObject> o;
                 const bool was = ps.patch;
                 ps.patch = false;
-                const bool ok = objectValue(yget(rec, "value"), "hkReferencedObject", o, ps, what);
+                const bool ok = objectValue(val, "hkReferencedObject", o, ps, what);
                 ps.patch = was;
                 if (!ok) return false;
                 (*variants)[vi] = o;
@@ -3828,6 +3851,26 @@ using FieldSkip = std::function<bool(const std::string&)>;
 std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm,
                        const FieldSkip& skip = {});
 
+/// @brief A changed POINTER vocabulary entry (a character bone-weight preset) as a PATCH record: type / role / flags in
+///        full, and `value:` as only what changed inside the preset (its changed bones), when both sides hold the same
+///        inline class. nullopt otherwise (the caller writes the whole record).
+std::optional<std::string> pointerRecordPatch(const io::SchemaObject& b, const io::SchemaObject& m, const ValuedRoster& r,
+                                              std::size_t bpos, std::size_t mpos, const ReflectCtx& cb, const ReflectCtx& cm) {
+    const auto bp = valuedPointer(b, r, bpos), mp = valuedPointer(m, r, mpos);
+    const auto* bo = dynamic_cast<const io::SchemaObject*>(bp.get());
+    const auto* mo = dynamic_cast<const io::SchemaObject*>(mp.get());
+    const auto* info = valuedInfo(m, r, mpos);
+    if (!bo || !mo || !info || isFileNode(bp.get(), cb) || isFileNode(mp.get(), cm) || std::string(bo->ClassName()) != mo->ClassName())
+        return std::nullopt;
+    std::string y = "type: " + enumText("VariableType", fInt(*info, "type"), false) + "\n";
+    if (const auto* role = ptrObj(*info, "role")) {
+        y += "role: " + enumText("Role", fInt(*role, "role"), false) + "\n";
+        y += "flags: " + enumText("RoleFlags", static_cast<long>(static_cast<std::uint16_t>(fInt(*role, "flags"))), true) + "\n";
+    }
+    const std::string sub = diffObject(*bo, *mo, inlCtx(cb), inlCtx(cm));
+    return sub.empty() ? y : y + "value:\n" + indentLines(sub, "  ", "  ");
+}
+
 /// @brief A roster field's KEYED patch: changed entries (field-level for an inline record), new entries (whole, keyed
 ///        as the mod's own), and `{deleted: true}` for base entries the mod dropped. Returns the entry lines (indented
 ///        two), empty when nothing changed; nullopt when either side can't be keyed (the caller patches positionally).
@@ -3941,9 +3984,15 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
             else if (bi != base.end() && at == bi->second.first) it->second = { at, rec };
         }
         std::map<std::string, std::string> blocks;
+        const ValuedRoster& valued = m.Schema()->vocab == "character" ? kCharacterProperties : kGraphVariables;
         for (const Key& key : order) {
-            const std::string& rec = mod.at(key).second;
-            if (auto it = base.find(key); it == base.end() || it->second.second != rec) blocks[key.first] += vocabLine(key.second, rec);
+            const auto& [mpos, rec] = mod.at(key);
+            const auto it = base.find(key);
+            if (it != base.end() && it->second.second == rec) continue;
+            std::string out = rec;
+            if (it != base.end() && key.first == valued.key)
+                if (const auto p = pointerRecordPatch(b, m, valued, it->second.first, mpos, cb, cm)) out = *p;
+            blocks[key.first] += vocabLine(key.second, out);
         }
         for (const char* k : vocabKeys(m))
             if (!blocks[k].empty()) y += std::string(k) + ":\n" + blocks[k];
@@ -4231,6 +4280,47 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
         s.obj->FieldAt(s.field).raw = encInt(static_cast<std::int64_t>(*idx), s.obj->Fields()[s.field]->scalar);
     }
     return true;
+}
+
+bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::string>& patchDirs,
+                   const schema::SchemaRegistry& reg, const std::string& workDir, std::string& err,
+                   const std::vector<std::string>* bones) {
+    namespace fs = std::filesystem;
+    try {
+        std::error_code ec;
+        fs::remove_all(workDir, ec);
+        PackFileDeserializer desB;
+        desB.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx brB(false, true, baseBytes);
+        desB.Deserialize(brB);
+        const HKXHeader header = desB._header;
+        Identity idB = AssignIdentity(desB, reg, "");
+        for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
+        if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), err, bones)) return false;
+        ParsedHky merged;
+        if (!ParseHkyReflective((fs::path(workDir) / "base").string(), reg, merged, err, bones)) return false;
+        for (std::size_t k = 0; k < patchDirs.size(); ++k) {
+            const std::string self = "mod" + std::to_string(k + 1);
+            if (!MergeHkyPatch(merged, CB::core::common::DiskUnitSource(patchDirs[k]), reg, { "base" }, { self, "base" }, err, bones)) {
+                err = patchDirs[k] + ": " + err;
+                return false;
+            }
+        }
+        PackFileSerializer ser;
+        BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
+        ser.Serialize(merged.root, bw, header);
+        const auto out = bw.Data();
+        std::ofstream(fs::path(workDir) / "merged.hkx", std::ios::binary)
+            .write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(out.size()));
+        PackFileDeserializer desM;
+        desM.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx brM(false, true, out);
+        desM.Deserialize(brM);
+        return EmitHkyReflective(AssignIdentity(desM, reg, ""), reg, (fs::path(workDir) / "merged").string(), err, bones);
+    } catch (const std::exception& e) {
+        err = std::string("MergeHkyUnits: ") + e.what();
+        return false;
+    }
 }
 
 HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,

@@ -3298,6 +3298,25 @@ bool MultiLayerRoundTripAll(const std::string& modsDir, const std::string& templ
     return fails == 0;
 }
 
+bool HkyMerge(const std::string& baseHky, const std::string& meshesDir, const std::string& rel, const std::string& outDir,
+              const std::vector<std::string>& patchDirs, const LogFn& log) {
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    auto* reg = CB::core::schema::SharedRegistry();
+    if (!reg) { say("hky-merge: schema registry not armed"); return false; }
+    std::optional<bconv::BaseUnitCompiler> rigs;
+    std::string err;
+    if (auto arc = CB::core::codec::HkyArchive::LoadFromFile(baseHky, err)) rigs.emplace(arc);
+    std::vector<std::uint8_t> bytes;
+    if (!CB::core::codec::ReadHavokFile((fs::path(meshesDir) / rel).string(), bytes, &err)) { say("hky-merge: " + err); return false; }
+    std::string serveKey = "meshes/" + fs::path(rel).generic_string();
+    for (char& ch : serveKey) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));   // internal RigIndex key
+    const std::vector<std::string>* bones = nullptr;
+    if (rigs) if (const auto& b = rigs->BonesFor(serveKey); !b.empty()) bones = &b;
+    if (!CB::core::decompile::MergeHkyUnits(bytes, patchDirs, *reg, outDir, err, bones)) { say("hky-merge: " + err); return false; }
+    say("hky-merge: " + std::to_string(patchDirs.size()) + " unit(s) merged onto " + rel + (bones ? "" : " (no rig)") + " -> " + outDir);
+    return true;
+}
+
 bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& moddedMeshes, const std::string& workRoot,
                        const LogFn& log, const std::string& baseHky) {
     const auto say = [&](const std::string& s) { if (log) log(s); };

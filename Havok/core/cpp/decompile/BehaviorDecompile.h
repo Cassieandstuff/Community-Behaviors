@@ -177,6 +177,12 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
 bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+/// @brief Apply hand-written patch units onto a base binary, in load order (unit k's masters: `mod<k>`, then the base
+///        as master 1 — so `0001x…` names a base node, `0000x…` the unit's own). Writes `<workDir>/base` (the base
+///        unit), `<workDir>/merged.hkx` and `<workDir>/merged` (the result, re-decompiled).
+bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::string>& patchDirs,
+                   const schema::SchemaRegistry& reg, const std::string& workDir, std::string& err,
+                   const std::vector<std::string>* bones = nullptr);
 /// @brief The field-patch GATE: merge(base, derive(base, mod)) must serialize byte-identical to the mod.
 struct HkyPatchRoundTripResult {
     bool ok = false, identical = false;

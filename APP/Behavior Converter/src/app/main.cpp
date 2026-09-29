@@ -126,6 +126,13 @@ int main(int argc, char** argv) {
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
+    if (argc >= 7 && std::string(argv[1]) == "--hky-merge") {   // <base.hky> <meshesDir> <rel.hkx> <outDir> <patchDir>...
+        const std::vector<std::string> patches(argv + 6, argv + argc);
+        const bool ok = bconv::HkyMerge(argv[2], argv[3], argv[4], argv[5], patches,
+            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
+        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     if (argc >= 5 && std::string(argv[1]) == "--patch-roundtrip") {   // <vanillaMeshes> <moddedMeshes> <work> [<base.hky>]
         const bool ok = bconv::PatchRoundTripAll(argv[2], argv[3], argv[4],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, argc >= 6 ? argv[5] : "");
