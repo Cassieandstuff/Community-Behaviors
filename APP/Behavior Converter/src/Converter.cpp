@@ -3190,6 +3190,52 @@ bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const 
     return fails == 0;
 }
 
+bool SerializerRoundTrip(const std::string& meshesDir, const std::string& outRoot, const LogFn& log) {
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    auto* reg = CB::core::schema::SharedRegistry();
+    if (!reg) { say("serializer-roundtrip: schema registry not armed"); return false; }
+    std::error_code ec;
+    int n = 0, same = 0, fails = 0;
+    for (fs::recursive_directory_iterator it(meshesDir, fs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
+        std::error_code fe;
+        if (!it->is_regular_file(fe)) continue;
+        std::string ext = it->path().extension().string();
+        for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (ext != ".hkx" || PeekHkxKind(it->path()) != HkxKind::Behavior) continue;
+        std::vector<std::uint8_t> src, canon; std::string err;
+        if (!CB::core::codec::ReadHavokFile(it->path().string(), src, &err) ||
+            !CB::core::codec::io::RoundtripHkx(src, *reg, canon, err)) { ++fails; say("  FAIL " + it->path().string() + " — " + err); ++n; continue; }
+        const std::string rel = fs::relative(it->path(), meshesDir, fe).generic_string();
+        if (canon == src) { ++same; ++n; continue; }
+        const fs::path d = fs::path(outRoot) / std::to_string(n);
+        fs::create_directories(d, ec);
+        std::ofstream(d / "src.bin", std::ios::binary).write(reinterpret_cast<const char*>(src.data()), static_cast<std::streamsize>(src.size()));
+        std::ofstream(d / "canon.bin", std::ios::binary).write(reinterpret_cast<const char*>(canon.data()), static_cast<std::streamsize>(canon.size()));
+        std::size_t i = 0;
+        while (i < src.size() && i < canon.size() && src[i] == canon[i]) ++i;
+        // Same GRAPH? Reflective emit of both (ids follow graph traversal, not file layout) must match file-for-file.
+        std::string e1, e2;
+        const bool okA = CB::core::decompile::DecompileBehaviorReflective(src,   *reg, (d / "src").string(),   e1);
+        const bool okB = CB::core::decompile::DecompileBehaviorReflective(canon, *reg, (d / "canon").string(), e2);
+        bool sameGraph = okA && okB;
+        if (sameGraph) {
+            std::set<std::string> rels;
+            for (const char* side : { "src", "canon" })
+                for (fs::recursive_directory_iterator jt(d / side, fe), jend; !fe && jt != jend; jt.increment(fe))
+                    if (jt->is_regular_file()) rels.insert(fs::relative(jt->path(), d / side).generic_string());
+            auto slurp = [](const fs::path& p) { std::ifstream f(p, std::ios::binary); return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()); };
+            for (const auto& r : rels) if (slurp(d / "src" / r) != slurp(d / "canon" / r)) { sameGraph = false; break; }
+        }
+        say("  DIFF " + std::to_string(n) + "\t" + rel + "\tfirst " + std::to_string(i) + "\tsize " +
+            std::to_string(src.size()) + " -> " + std::to_string(canon.size()) + (sameGraph ? "\tSAME-GRAPH" : "\tGRAPH-DIFFERS"));
+        ++n;
+    }
+    say("serializer-roundtrip: " + std::to_string(same) + "/" + std::to_string(n) + " identical to the source (" +
+        std::to_string(fails) + " failed); differing pairs under " + outRoot);
+    return fails == 0;
+}
+
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky) {
     const auto say = [&](const std::string& s) { if (log) log(s); };
     auto* reg = CB::core::schema::SharedRegistry();
