@@ -1821,7 +1821,17 @@ struct ReflectCtx {
     const std::vector<std::string>* bones;   ///< the graph's rig, in rig order; null = unknown (indices stay numeric)
     const std::unordered_map<const IHavokObject*, std::string>* cat;   ///< effective category (file nodes + shared/)
     std::uint16_t                   keyOwner = CB::core::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
+    std::vector<std::pair<std::string, std::string>>* sink = nullptr;   ///< node-level rosters -> (field path, entries)
+    std::string                     path;                            ///< dotted field path from the node to this object
 };
+
+/// @brief A node's rosters live in its own folder, `<category>/<id>/<field.path>.yaml`; the root's in `graph/`.
+constexpr const char* kRootRosterDir = "graph";
+
+/// @brief The context for an inline object reached through field `f` (its rosters still belong to the node's folder).
+ReflectCtx subCtx(const ReflectCtx& c, const std::string& f) { ReflectCtx s = c; if (s.sink) s.path += f + "."; return s; }
+/// @brief The context for list ENTRIES: rosters nested in an entry stay inline in that entry.
+ReflectCtx inlCtx(const ReflectCtx& c) { ReflectCtx s = c; s.sink = nullptr; s.path.clear(); return s; }
 
 std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass = {});
 
@@ -1942,7 +1952,7 @@ std::string elemText(const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c
     if (isFileNode(p.get(), c)) return key + ": " + refIdOf(p, c.id) + "\n";
     const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
     if (!so) return key + ": '?'\n";
-    const std::string body = reflectObject(*so, c, declared);
+    const std::string body = reflectObject(*so, subCtx(c, key), declared);
     if (const std::string u = unwrapped(*so, body, key); !u.empty()) return u;
     return body.empty() ? key + ": {}\n" : key + ":\n" + indentLines(body, "  ", "  ");   // {} != null on parse
 }
@@ -1956,7 +1966,7 @@ std::string listText(const std::vector<std::shared_ptr<IHavokObject>>& objs, con
         if (isFileNode(p.get(), c)) { y += "  - " + refIdOf(p, c.id) + "\n"; continue; }
         const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
         if (!so) { y += "  - '?'\n"; continue; }
-        const std::string body = reflectObject(*so, c, declared);
+        const std::string body = reflectObject(*so, inlCtx(c), declared);
         y += body.empty() ? std::string("  - {}\n") : indentLines(body, "  - ", "    ");
     }
     return y;
@@ -2131,20 +2141,28 @@ std::pair<std::string, std::size_t> naturalKey(const io::SchemaObject& e, const 
     return { std::string(), ef.size() };
 }
 
-/// @brief A `roster:` array as a KEYED map (`'key': body`), in list order. Keys: the child node's id (`ref`), an
-///        element string field (`field:`), the bone an element's index field names (`bone:`), or the minted
+/// @brief One roster entry line(s) at indent 0: `'key': value` — `{}` for empty, inline for a scalar (a ref / null),
+///        a nested block otherwise.
+std::string rosterEntry(const std::string& key, const std::string& v) {
+    const bool block = v.find('\n') != std::string::npos;
+    return q(key) + ":" + (v.empty() ? std::string(" {}\n") : block ? "\n" + indentLines(v, "  ", "  ") : " " + v + "\n");
+}
+
+/// @brief A `roster:` array's KEYED entries (`'key': body`, indent 0), in list order. Keys: the child node's id
+///        (`ref`), an element string field (`field:`), the bone an element's index field names (`bone:`), or the minted
 ///        sub-record FormID (`id`/`slot`, from Identity::subKeys, else by position). The key field is not repeated in
-///        the body.
+///        the body; rosters nested inside an entry render inline in it.
 /// @return nullopt when this list can't be keyed losslessly (a null / inline child in a `ref` roster, a duplicate
 ///         key, an unknown bone) — the caller keeps the plain list.
-std::optional<std::string> rosterText(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c) {
+std::optional<std::string> rosterEntries(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c) {
     const Field& f = *so.Fields()[i];
     const auto& objs = so.Values()[i].objs;
     const auto [kind, keyField] = rosterKind(f);
+    const ReflectCtx ci = inlCtx(c);
     const std::vector<std::string>* keys = nullptr;
     if (auto it = c.id.subKeys.find({ &so, i }); it != c.id.subKeys.end() && it->second.size() == objs.size()) keys = &it->second;
     std::set<std::string> seen;
-    std::string y = f.name + ":\n";
+    std::string y;
     for (std::size_t k = 0; k < objs.size(); ++k) {
         const auto& p = objs[k];
         const auto* e = p ? dynamic_cast<const io::SchemaObject*>(p.get()) : nullptr;
@@ -2156,19 +2174,18 @@ std::optional<std::string> rosterText(const io::SchemaObject& so, std::size_t i,
             key = keys ? (*keys)[k] : mintedKey(k, c.keyOwner);
             if (!p) body = "null";
             else if (isFileNode(p.get(), c)) body = refIdOf(p, c.id);
-            else if (e) body = reflectObject(*e, c, f.ref);
+            else if (e) body = reflectObject(*e, ci, f.ref);
             else return std::nullopt;
         } else if ((kind == "field" || kind == "bone") && e && !isFileNode(p.get(), c) && e->ClassName() == f.ref) {
             std::size_t kf = 0;
             std::tie(key, kf) = naturalKey(*e, kind, keyField, c);
             if (kf == e->Fields().size() || (kind == "bone" && key.empty())) return std::nullopt;
-            for (std::size_t j = 0; j < e->Fields().size(); ++j) if (j != kf) body += renderField(*e, j, c);
+            for (std::size_t j = 0; j < e->Fields().size(); ++j) if (j != kf) body += renderField(*e, j, ci);
         } else {
             return std::nullopt;
         }
         if (!seen.insert(key).second) return std::nullopt;
-        const bool block = body.find('\n') != std::string::npos;
-        y += "  " + q(key) + ":" + (body.empty() ? std::string(" {}\n") : block ? "\n" + indentLines(body, "    ", "    ") : " " + body + "\n");
+        y += rosterEntry(key, body);
     }
     return y;
 }
@@ -2213,7 +2230,11 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
             case FieldKind::PtrArray:
             case FieldKind::StructArray:
                 if (!f.roster.empty() && !v.objs.empty())
-                    if (auto r = rosterText(so, i, c)) { y += *r; break; }
+                    if (auto r = rosterEntries(so, i, c)) {
+                        if (c.sink) c.sink->push_back({ c.path + f.name, *r });
+                        else y += f.name + ":\n" + indentLines(*r, "  ", "  ");
+                        break;
+                    }
                 y += listText(v.objs, c, f.name, f.ref);
                 break;
             case FieldKind::StringArray:
@@ -2268,7 +2289,7 @@ std::vector<std::string> elementBlocks(const std::vector<std::shared_ptr<IHavokO
         if (isFileNode(p.get(), c)) { out.push_back("  - " + refIdOf(p, c.id) + "\n"); continue; }
         const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
         if (!so) { out.push_back("  - '?'\n"); continue; }
-        const std::string b = reflectObject(*so, c, declared);
+        const std::string b = reflectObject(*so, inlCtx(c), declared);
         out.push_back(b.empty() ? std::string("  - {}\n") : indentLines(b, "  - ", "    "));
     }
     return out;
@@ -2314,17 +2335,23 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
     std::error_code ec;
     const NameResolver nr = buildResolver(identity);
     const auto effCat = EffectiveCategories(identity);
-    const ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
     for (const auto& [obj, cat] : effCat) {
         const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
         if (!so) { err = "EmitHkyReflective expects a SchemaObject graph"; return false; }
         const bool root = std::string(so->ClassName()) == "hkRootLevelContainer";
         if (cat.empty() && !root) continue;
         const std::string idStr = identity.ids.at(obj);
+        std::vector<std::pair<std::string, std::string>> rosters;
+        ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
+        ctx.sink = &rosters;
+        const std::string body = reflectObject(*so, ctx);
         const fs::path dir = root ? fs::path(outDir) : fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
-        std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary)
-            << "id: " << idStr << "\n" << reflectObject(*so, ctx);
+        std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary) << "id: " << idStr << "\n" << body;
+        if (rosters.empty()) continue;
+        const fs::path own = root ? fs::path(outDir) / kRootRosterDir : dir / fsId(idStr);
+        fs::create_directories(own, ec);
+        for (const auto& [path, entries] : rosters) std::ofstream(own / (path + ".yaml"), std::ios::binary) << entries;
     }
     return true;
 }
@@ -3529,7 +3556,9 @@ bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& re
 }
 
 namespace {
-struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; };
+/// @brief One YAML file of a unit. A ROSTER file (`<cat>/<id>/<field.path>.yaml`, or `graph/<field.path>.yaml` for the
+///        root) carries one roster of node `owner` (empty = the root) at `field`; anything else is a node file.
+struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false; std::string owner, field; };
 /// @brief Every YAML file of a unit, parsed in place (the text buffer lives beside its tree).
 std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSource& src) {
     std::vector<std::unique_ptr<HkyDoc>> docs;
@@ -3539,12 +3568,66 @@ std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSo
         auto d = std::make_unique<HkyDoc>();
         d->text = std::move(*text);
         d->file = rel;
-        const auto slash = rel.rfind('/');
+        const auto slash = rel.rfind('/'), first = rel.find('/');
         d->cat = slash == std::string::npos ? std::string() : rel.substr(0, slash);
+        if (slash != std::string::npos) {
+            std::string stem = rel.substr(slash + 1);
+            if (stem.size() > 5 && stem.compare(stem.size() - 5, 5, ".yaml") == 0) stem.resize(stem.size() - 5);
+            if (first != slash) {
+                d->roster = true;
+                d->owner = d->cat.substr(d->cat.rfind('/') + 1);
+                for (char& ch : d->owner) if (ch == '-') ch = ':';
+                d->field = stem;
+            } else if (d->cat == kRootRosterDir) {
+                d->roster = true;
+                d->field = stem;
+            }
+        }
         d->tree = yml::parse_in_place(c4::to_csubstr(d->file), c4::to_substr(d->text));
         docs.push_back(std::move(d));
     }
     return docs;
+}
+
+/// @brief Apply a node-folder roster file to `owner`: walk the dotted field path through the owner's objects
+///        (creating an absent one of the declared class), then fill the roster field whole, or as a patch.
+bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyParse& ps) {
+    const yml::ConstNodeRef root = d.tree.crootref();
+    io::SchemaObject* obj = &owner;
+    ps.where = d.file;
+    for (std::size_t s = 0;;) {
+        const std::size_t dot = d.field.find('.', s);
+        const std::string name = d.field.substr(s, dot == std::string::npos ? std::string::npos : dot - s);
+        const auto fs = obj->Fields();
+        std::size_t j = fs.size();
+        for (std::size_t k = 0; k < fs.size(); ++k) if (fs[k]->name == name) { j = k; break; }
+        if (j == fs.size()) { ps.err = d.file + ": " + obj->ClassName() + " has no field '" + name + "'"; return false; }
+        const Field& f = *fs[j];
+        if (dot == std::string::npos) {
+            if (f.roster.empty()) { ps.err = d.file + ": " + f.name + " is not a roster"; return false; }
+            const bool was = ps.patch;
+            ps.patch = patch;
+            bool handled = false, ok = true;
+            if (patch) ok = patchField(*obj, j, root, ps, handled);
+            if (ok && !handled) ok = fieldValue(*obj, j, root, ps);
+            ps.patch = was;
+            return ok;
+        }
+        if (f.kind != FieldKind::Ptr && f.kind != FieldKind::Struct) { ps.err = d.file + ": " + f.name + " is not an inline object"; return false; }
+        io::FieldValue& v = obj->FieldAt(j);
+        if (!v.obj) {
+            auto o = makeObj(ps.reg, f.ref);
+            if (!o) { ps.err = d.file + ": unknown class '" + f.ref + "'"; return false; }
+            ps.all.push_back(o);
+            v.obj = o;
+        }
+        /// @note The path names a LIST, not an object: when an earlier mod re-pointed the field at a node (bfco shares one
+        ///       notify-event array between states), the roster applies to the list the owner uses now.
+        auto* next = dynamic_cast<io::SchemaObject*>(v.obj.get());
+        if (!next) { ps.err = d.file + ": " + f.name + " is not an object"; return false; }
+        obj = next;
+        s = dot + 1;
+    }
 }
 } // namespace
 
@@ -3555,6 +3638,7 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
     // Pass 1: create every file node (and the root) so ids resolve regardless of file order.
     std::shared_ptr<io::SchemaObject> root;
     for (auto& d : docs) {
+        if (d->roster) continue;
         const auto r = d->tree.crootref();
         const std::string id = ystr(yget(r, "id")), cls = ystr(yget(r, "class"));
         auto obj = makeObj(reg, cls);
@@ -3567,11 +3651,19 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
         if (cls == "hkRootLevelContainer") root = obj;
     }
     if (!root) { err = "no graph.yaml (hkRootLevelContainer)"; return false; }
-    // Pass 2: fill.
+    // Pass 2: fill the nodes, then each node-folder roster into its owner.
     for (auto& d : docs) {
+        if (d->roster) continue;
         ps.where = d->file;
         const auto r = d->tree.crootref();
         if (!fillHky(*ps.byId.at(ystr(yget(r, "id"))), r, ps)) { err = ps.err; return false; }
+    }
+    for (auto& d : docs) {
+        if (!d->roster) continue;
+        const auto it = d->owner.empty() ? ps.byId.end() : ps.byId.find(d->owner);
+        io::SchemaObject* owner = d->owner.empty() ? root.get() : it == ps.byId.end() ? nullptr : it->second.get();
+        if (!owner) { err = d->file + ": no node '" + d->owner + "' for this roster"; return false; }
+        if (!applyRosterFile(*owner, *d, false, ps)) { err = ps.err; return false; }
     }
     // Every inline object joins the identity (category "") so the name resolver and re-emit see the whole graph.
     int anon = 0;
@@ -3621,12 +3713,14 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
 std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::SchemaObject& m, std::size_t i,
                                       const ReflectCtx& cb, const ReflectCtx& cm) {
     const Field& f = *m.Fields()[i];
-    if (!rosterText(b, i, cb) || !rosterText(m, i, cm)) return std::nullopt;
+    if (!rosterEntries(b, i, cb) || !rosterEntries(m, i, cm)) return std::nullopt;
     const auto [kind, keyField] = rosterKind(f);
     const auto& B = b.Values()[i].objs;
     const auto& M = m.Values()[i].objs;
     if (kind == "slot" && M.size() < B.size()) return std::nullopt;
-    auto body = [&](const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c) -> std::string {
+    const ReflectCtx bi = inlCtx(cb), mi = inlCtx(cm);
+    auto body = [&](const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c0) -> std::string {
+        const ReflectCtx c = inlCtx(c0);
         if (!p) return "null";
         if (isFileNode(p.get(), c)) return refIdOf(p, c.id);
         const auto* e = dynamic_cast<const io::SchemaObject*>(p.get());
@@ -3665,15 +3759,11 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
         if (kind == "field" || kind == "bone") return natural(B[bk], cb);
         return mintedKey(bk, cb.keyOwner);
     };
-    auto entry = [](const std::string& key, const std::string& v) {
-        const bool block = v.find('\n') != std::string::npos;
-        return "  " + q(key) + ":" + (v.empty() ? std::string(" {}\n") : block ? "\n" + indentLines(v, "    ", "    ") : " " + v + "\n");
-    };
     auto whole = [&](const std::shared_ptr<IHavokObject>& p) -> std::string {
         if (!p) return "null";
         if (isFileNode(p.get(), cm)) return refIdOf(p, cm.id);
         const auto* e = dynamic_cast<const io::SchemaObject*>(p.get());
-        return e ? reflectObject(*e, cm, f.ref) : std::string();
+        return e ? reflectObject(*e, mi, f.ref) : std::string();
     };
     std::string y;
     std::size_t fresh = 0;
@@ -3684,10 +3774,10 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
             const auto* bo = dynamic_cast<const io::SchemaObject*>(B[bk].get());
             const auto* mo = dynamic_cast<const io::SchemaObject*>(M[mk].get());
             if (bo && mo && !isFileNode(B[bk].get(), cb) && !isFileNode(M[mk].get(), cm) && std::string(bo->ClassName()) == mo->ClassName()) {
-                const std::string sub = diffObject(*bo, *mo, cb, cm);
-                if (!sub.empty()) y += entry(baseKey(bk), sub);
+                const std::string sub = diffObject(*bo, *mo, bi, mi);
+                if (!sub.empty()) y += rosterEntry(baseKey(bk), sub);
             } else {
-                y += entry(baseKey(bk), whole(M[mk]));
+                y += rosterEntry(baseKey(bk), whole(M[mk]));
             }
             continue;
         }
@@ -3695,10 +3785,10 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
         if (kind == "ref") key = refIdOf(M[mk], cm.id);
         else if (kind == "field" || kind == "bone") key = natural(M[mk], cm);
         else key = mintedKey(fresh++, cm.keyOwner);
-        y += entry(key, whole(M[mk]));
+        y += rosterEntry(key, whole(M[mk]));
     }
     for (std::size_t bk = 0; bk < B.size(); ++bk)
-        if (!claimed[bk]) y += "  " + q(baseKey(bk)) + ": {deleted: true}\n";
+        if (!claimed[bk]) y += q(baseKey(bk)) + ": {deleted: true}\n";
     return y;
 }
 
@@ -3721,7 +3811,7 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
         if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
-        const std::string tb = renderField(b, i, cb), tm = renderField(m, i, cm);
+        const std::string tb = renderField(b, i, inlCtx(cb)), tm = renderField(m, i, inlCtx(cm));
         if (tb == tm) continue;
         if (tm.empty()) {
             if (f.kind == FieldKind::Ptr || f.kind == FieldKind::Struct) y += f.name + ": null\n";
@@ -3741,14 +3831,16 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
             /// @note An empty sub-diff means UNCHANGED even though the texts differed: base-owned roster keys render as
             ///       the master's (`0001x…`), the mod's as its own (`0000x…`).
             if (bo && mo && !collapsible) {
-                const std::string sub = diffObject(*bo, *mo, cb, cm);
+                const std::string sub = diffObject(*bo, *mo, subCtx(cb, f.name), subCtx(cm, f.name));
                 if (!sub.empty()) y += f.name + ":\n" + indentLines(sub, "  ", "  ");
                 continue;
             }
         }
         if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty())
             if (const auto r = rosterDiff(b, m, i, cb, cm)) {
-                if (!r->empty()) y += f.name + ":\n" + *r;
+                if (r->empty()) continue;
+                if (cm.sink) cm.sink->push_back({ cm.path + f.name, *r });
+                else y += f.name + ":\n" + indentLines(*r, "  ", "  ");
                 continue;
             }
         const std::string tag = mergeTagOf(cm.reg, m.ClassName(), f.name);
@@ -3766,14 +3858,14 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
                 const schema::ClassSchema* ecs = mo ? cm.reg.Find(mo->ClassName()) : nullptr;
                 if (bo && mo && !isFileNode(be.get(), cb) && !isFileNode(me.get(), cm) &&
                     std::string(bo->ClassName()) == mo->ClassName() && !(ecs && !ecs->unwrap.empty())) {
-                    const std::string sub = diffObject(*bo, *mo, cb, cm);
+                    const std::string sub = diffObject(*bo, *mo, inlCtx(cb), inlCtx(cm));
                     if (!sub.empty()) at += std::to_string(k) + ":\n" + indentLines(sub, "  ", "  ");
                     continue;
                 }
                 if (!me) at += std::to_string(k) + ": null\n";
                 else if (isFileNode(me.get(), cm)) at += std::to_string(k) + ": " + refIdOf(me, cm.id) + "\n";
                 else if (mo) {
-                    const std::string full = reflectObject(*mo, cm, f.ref);
+                    const std::string full = reflectObject(*mo, inlCtx(cm), f.ref);
                     at += full.empty() ? std::to_string(k) + ": {}\n" : std::to_string(k) + ":\n" + indentLines(full, "  ", "  ");
                 }
             }
@@ -3896,21 +3988,31 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
             const std::string id = idM.ids.at(o);
             const std::string cat = effM.at(o);
             std::string body;
+            std::vector<std::pair<std::string, std::string>> rosters;
+            ReflectCtx cMn = cM;
+            cMn.sink = &rosters;
             if (auto it = baseById.find(id); it != baseById.end()) {
                 const auto* bo = dynamic_cast<const io::SchemaObject*>(it->second);
                 if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
-                body = diffObject(*bo, *mo, cB, cM);
-                if (body.empty()) continue;
+                body = diffObject(*bo, *mo, cB, cMn);
+                if (body.empty() && rosters.empty()) continue;
                 if (stats) ++stats->patched;
             } else {
-                body = reflectObject(*mo, cM);
+                body = reflectObject(*mo, cMn);
                 if (stats) ++stats->added;
             }
             const fs::path dir = isRoot(o) ? fs::path(patchDir) : fs::path(patchDir) / cat;
             fs::create_directories(dir, ec);
-            std::ofstream(dir / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), std::ios::binary)
-                << "id: " << id << "\n" << (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string())
-                << body;   // a patch states its class for the reader; a new node's body already carries it
+            /// @note A patch states its class for the reader (a new node's body already carries it). A node whose only
+            ///       change is a roster ships just that roster file.
+            if (!body.empty() || !baseById.count(id))
+                std::ofstream(dir / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), std::ios::binary)
+                    << "id: " << id << "\n" << (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string())
+                    << body;
+            if (rosters.empty()) continue;
+            const fs::path own = isRoot(o) ? fs::path(patchDir) / kRootRosterDir : dir / fsId(id);
+            fs::create_directories(own, ec);
+            for (const auto& [path, entries] : rosters) std::ofstream(own / (path + ".yaml"), std::ios::binary) << entries;
         }
         return true;
     } catch (const std::exception& e) {
@@ -3941,6 +4043,12 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
     const auto baseCanon = canonFor(baseMasters);
     ps.baseCanon = baseCanon;
     ps.subKeys = base.identity.subKeys;
+    /// @note Hand every object this merge created back to `base` on EVERY exit: a failed patch leaves the graph
+    ///       pointing at its new objects, and dropping `ps.all` then left dangling pointers (a crash on the failure dump).
+    struct Keep {
+        ParsedHky& b; HkyParse& p;
+        ~Keep() { if (!p.all.empty()) b.objects = std::move(p.all); b.identity.subKeys = std::move(p.subKeys); }
+    } keep{ base, ps };
     std::unordered_map<const IHavokObject*, std::shared_ptr<io::SchemaObject>> own;
     for (const auto& o : base.objects) own[o.get()] = o;
     for (const auto& [o, id] : base.identity.ids) {
@@ -3953,7 +4061,9 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
         if (auto it = own.find(o); it != own.end()) { ps.byId[key] = it->second; ps.nodes.insert(o); }
     }
     ps.all = base.objects;
-    auto docs = loadHkyDocs(patch);
+    auto all = loadHkyDocs(patch);
+    std::vector<std::unique_ptr<HkyDoc>> docs, rosters;
+    for (auto& d : all) (d->roster ? rosters : docs).push_back(std::move(d));
     std::vector<std::pair<std::shared_ptr<io::SchemaObject>, bool>> targets;   // (object, patch-mode)
     for (auto& d : docs) {
         const auto r = d->tree.crootref();
@@ -3970,11 +4080,25 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
         targets.push_back({ obj, false });
         if (stats) ++stats->added;
     }
+    std::unordered_set<const IHavokObject*> fresh;
     for (std::size_t k = 0; k < docs.size(); ++k) {
         ps.where = docs[k]->file;
         ps.patch = targets[k].second;
+        if (!targets[k].second) fresh.insert(targets[k].first.get());
         if (!fillHky(*targets[k].first, docs[k]->tree.crootref(), ps)) { err = ps.err; return false; }
     }
+    /// @note A roster file may arrive WITHOUT its node's file (a mod that only adds a transition): its owner is then an
+    ///       existing node, patched; a node this patch creates takes its rosters whole.
+    for (auto& d : rosters) {
+        io::SchemaObject* owner = base.root.get();
+        if (!d->owner.empty()) {
+            const auto it = ps.byId.find(ps.canon(d->owner));
+            owner = it == ps.byId.end() ? nullptr : it->second.get();
+        }
+        if (!owner) { err = d->file + ": no node '" + d->owner + "' for this roster"; return false; }
+        if (!applyRosterFile(*owner, *d, !fresh.count(owner), ps)) { err = ps.err; return false; }
+    }
+    ps.patch = false;
     int anon = static_cast<int>(base.identity.ids.size());
     for (const auto& o : ps.all)
         if (!base.identity.category.count(o.get())) { base.identity.category[o.get()] = ""; base.identity.ids[o.get()] = "~" + std::to_string(++anon); }
@@ -4012,8 +4136,6 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
         }
         s.obj->FieldAt(s.field).raw = encInt(static_cast<std::int64_t>(*idx), s.obj->Fields()[s.field]->scalar);
     }
-    base.objects = std::move(ps.all);
-    base.identity.subKeys = std::move(ps.subKeys);
     return true;
 }
 
