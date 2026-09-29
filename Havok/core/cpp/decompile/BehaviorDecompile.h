@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <map>
 #include <set>
 #include <unordered_map>
 #include <vector>
@@ -29,6 +30,9 @@ struct Identity {
     // letting patch-added nodes (and refs to them) live in the same graph.
     std::unordered_map<const IHavokObject*, std::string> ids;
     std::unordered_map<const IHavokObject*, std::string> category;  // obj -> folder
+    /// @brief Minted roster keys (`roster: id|slot`) per (owner object, field index), parallel to that list. Absent
+    ///        (or out of step with the list) = keyed by position, the base unit's own sub-record FormIDs.
+    std::map<std::pair<const IHavokObject*, std::size_t>, std::vector<std::string>> subKeys;
     // DIFF-ONLY: when set, refIdOf emits a node ref as the target's `Class:name` instead of its numeric
     // #NNNN, so a cross-compile tree-diff aligns refs by stable identity (two compiles renumber the same
     // node differently). Never set on a production emit — it changes ref rendering and is not a valid .hky.

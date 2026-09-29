@@ -5,4 +5,4 @@ size:      104
 fields:
   - { name: iStateVar, type: int32 }
   - { skip: 4 }
-  - { name: stateData, type: structarray, ref: BSIStateManagerModifierBSiStateData }
+  - { name: stateData, type: structarray, ref: BSIStateManagerModifierBSiStateData, roster: id }

@@ -60,6 +60,11 @@ struct Field {
     bool        boneList = false;        ///< @brief `bonelist: true` — a scalar array of bone indices; the .hky lists names.
     bool        boneWeights = false;     ///< @brief `boneweights: <default>` — a float array indexed by rig bone; the .hky
     std::string boneWeightDefault;       ///<        is a bone-name -> weight map, unlisted bones taking this default.
+    std::string roster;                  ///< @brief `roster: <key>` — the array is a keyed ROSTER in the .hky: `ref` (keyed by
+                                         ///<        the child node's FormID), `field:<f>` (by an element's string field),
+                                         ///<        `bone:<f>` (by the bone an element's index field names), `id` (minted
+                                         ///<        sub-record FormIDs, owner-qualified, scoped to the parent), `slot` (as
+                                         ///<        `id`, but entries are referenced by position elsewhere: never deleted).
     std::string charPropIf;              ///< @brief `charpropif: <field>=<value>` — the `varref` index names a CHARACTER
                                          ///<        PROPERTY (not a variable) when that sibling field holds that value.
     bool        hkyEmit = false;         // force-emit this field in the .hky even though it is `ignored`

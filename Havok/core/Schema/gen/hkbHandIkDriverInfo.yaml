@@ -3,6 +3,6 @@ parent:    hkReferencedObject
 signature: 0xc299090a
 size:      40
 fields:
-  - { name: hands, type: structarray, ref: hkbHandIkDriverInfoHand }
+  - { name: hands, type: structarray, ref: hkbHandIkDriverInfoHand, roster: id }
   - { name: fadeInOutCurve, type: int8 }
   - { skip: 7 }

@@ -3,7 +3,7 @@ parent:    hkbGenerator
 signature: 0xd932fab8
 size:      96
 fields:
-  - { name: generators,             type: ptrarray, ref: hkbGenerator }
+  - { name: generators,             type: ptrarray, ref: hkbGenerator, roster: slot }
   - { name: selectedGeneratorIndex, type: int8 }
   - { name: currentGeneratorIndex,  type: int8 }
   - { skip: 6 }

@@ -5,8 +5,8 @@ size:      224
 fields:
   - { name: lookAtTarget, type: bool }
   - { skip: 7 }
-  - { name: bones,    type: structarray, ref: BSLookAtModifierBoneData }
-  - { name: eyeBones, type: structarray, ref: BSLookAtModifierBoneData }
+  - { name: bones,    type: structarray, ref: BSLookAtModifierBoneData, roster: bone:index }
+  - { name: eyeBones, type: structarray, ref: BSLookAtModifierBoneData, roster: bone:index }
   - { name: limitAngleDegrees,          type: float }
   - { name: limitAngleThresholdDegrees, type: float }
   - { name: continueLookOutsideOfLimit, type: bool }

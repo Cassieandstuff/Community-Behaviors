@@ -22,6 +22,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <memory>
 #include <string>
@@ -1819,6 +1820,7 @@ struct ReflectCtx {
     const schema::SchemaRegistry&   reg;
     const std::vector<std::string>* bones;   ///< the graph's rig, in rig order; null = unknown (indices stay numeric)
     const std::unordered_map<const IHavokObject*, std::string>* cat;   ///< effective category (file nodes + shared/)
+    std::uint16_t                   keyOwner = CB::core::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
 };
 
 std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass = {});
@@ -2101,6 +2103,76 @@ bool condTrue(const io::SchemaObject& so, const std::string& cond) {
 
 /// @brief One field's rendering (possibly empty = absent), exactly as reflectObject writes it — the unit of both the
 ///        emit and the field-patch diff.
+std::string renderField(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c);
+
+/// @brief A roster key's parts: `ref`, `id`, `slot`, or `field|bone` with the element field it reads.
+std::pair<std::string, std::string> rosterKind(const Field& f) {
+    const auto c = f.roster.find(':');
+    return c == std::string::npos ? std::pair{ f.roster, std::string() } : std::pair{ f.roster.substr(0, c), f.roster.substr(c + 1) };
+}
+
+/// @brief The positional sub-record key for list position `k`: the unit's own (self) unless `owner` names a master.
+std::string mintedKey(std::size_t k, std::uint16_t owner = CB::core::codec::formid::SELF_INDEX) {
+    const auto f = CB::core::codec::formid::make(owner, static_cast<std::uint32_t>(k));
+    return f ? CB::core::codec::formid::format(*f) : std::to_string(k);
+}
+
+/// @brief A `field:`/`bone:` roster element's natural key and the index of the field it comes from (empty key = none).
+std::pair<std::string, std::size_t> naturalKey(const io::SchemaObject& e, const std::string& kind, const std::string& keyField,
+                                               const ReflectCtx& c) {
+    const auto ef = e.Fields();
+    for (std::size_t j = 0; j < ef.size(); ++j) {
+        if (ef[j]->name != keyField) continue;
+        if (kind == "field") return { e.Values()[j].str, j };
+        const std::int64_t bi = decodeInt(e.Values()[j].raw, ef[j]->scalar);
+        if (!c.bones || bi < 0 || bi >= static_cast<std::int64_t>(c.bones->size())) return { std::string(), j };
+        return { (*c.bones)[static_cast<std::size_t>(bi)], j };
+    }
+    return { std::string(), ef.size() };
+}
+
+/// @brief A `roster:` array as a KEYED map (`'key': body`), in list order. Keys: the child node's id (`ref`), an
+///        element string field (`field:`), the bone an element's index field names (`bone:`), or the minted
+///        sub-record FormID (`id`/`slot`, from Identity::subKeys, else by position). The key field is not repeated in
+///        the body.
+/// @return nullopt when this list can't be keyed losslessly (a null / inline child in a `ref` roster, a duplicate
+///         key, an unknown bone) — the caller keeps the plain list.
+std::optional<std::string> rosterText(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c) {
+    const Field& f = *so.Fields()[i];
+    const auto& objs = so.Values()[i].objs;
+    const auto [kind, keyField] = rosterKind(f);
+    const std::vector<std::string>* keys = nullptr;
+    if (auto it = c.id.subKeys.find({ &so, i }); it != c.id.subKeys.end() && it->second.size() == objs.size()) keys = &it->second;
+    std::set<std::string> seen;
+    std::string y = f.name + ":\n";
+    for (std::size_t k = 0; k < objs.size(); ++k) {
+        const auto& p = objs[k];
+        const auto* e = p ? dynamic_cast<const io::SchemaObject*>(p.get()) : nullptr;
+        std::string key, body;
+        if (kind == "ref") {
+            if (!p || !isFileNode(p.get(), c)) return std::nullopt;
+            key = refIdOf(p, c.id);
+        } else if (kind == "id" || kind == "slot") {
+            key = keys ? (*keys)[k] : mintedKey(k, c.keyOwner);
+            if (!p) body = "null";
+            else if (isFileNode(p.get(), c)) body = refIdOf(p, c.id);
+            else if (e) body = reflectObject(*e, c, f.ref);
+            else return std::nullopt;
+        } else if ((kind == "field" || kind == "bone") && e && !isFileNode(p.get(), c) && e->ClassName() == f.ref) {
+            std::size_t kf = 0;
+            std::tie(key, kf) = naturalKey(*e, kind, keyField, c);
+            if (kf == e->Fields().size() || (kind == "bone" && key.empty())) return std::nullopt;
+            for (std::size_t j = 0; j < e->Fields().size(); ++j) if (j != kf) body += renderField(*e, j, c);
+        } else {
+            return std::nullopt;
+        }
+        if (!seen.insert(key).second) return std::nullopt;
+        const bool block = body.find('\n') != std::string::npos;
+        y += "  " + q(key) + ":" + (body.empty() ? std::string(" {}\n") : block ? "\n" + indentLines(body, "    ", "    ") : " " + body + "\n");
+    }
+    return y;
+}
+
 std::string renderField(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c) {
     const auto fields = so.Fields();
     const auto& vals  = so.Values();
@@ -2139,7 +2211,11 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
             case FieldKind::Ptr:
             case FieldKind::Struct:      y += elemText(v.obj, c, f.name, f.ref); break;
             case FieldKind::PtrArray:
-            case FieldKind::StructArray: y += listText(v.objs, c, f.name, f.ref); break;
+            case FieldKind::StructArray:
+                if (!f.roster.empty() && !v.objs.empty())
+                    if (auto r = rosterText(so, i, c)) { y += *r; break; }
+                y += listText(v.objs, c, f.name, f.ref);
+                break;
             case FieldKind::StringArray:
                 if (v.strs.empty()) break;
                 y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return q(v.strs[k]); }) + "\n";
@@ -2767,6 +2843,8 @@ struct HkyParse {
     std::function<std::string(const std::string&)>                         canon;   ///< id -> canonical key (null = verbatim)
     std::unordered_set<const IHavokObject*>                                nodes;   ///< file / shared / root objects
     HkyListHistory*                                                        history = nullptr;   ///< set by MergeHkyPatch
+    std::map<std::pair<const IHavokObject*, std::size_t>, std::vector<std::string>> subKeys;   ///< minted roster keys
+    std::function<std::string(const std::string&)>                         baseCanon;   ///< a stored base key -> canonical
 };
 
 /// @brief The merge tag for `field`, looked up on the class that DECLARES it (MergeTag consults own fields only).
@@ -2910,10 +2988,60 @@ bool objectValue(const yml::ConstNodeRef& n, const std::string& declared, std::s
     return n.is_map() ? fillHky(*obj, n, ps) : true;
 }
 
+std::string ykey(const yml::ConstNodeRef& e) { std::string s; c4::from_chars(e.key(), &s); return s; }
+
+/// @brief One roster entry built WHOLE (not patched): a `ref` key IS the child node; other kinds build the element
+///        from the entry's value, then restore the key field the emitter left out of the body.
+bool rosterElement(const yml::ConstNodeRef& e, const Field& f, const std::string& kind, const std::string& keyField,
+                   const std::string& key, std::shared_ptr<IHavokObject>& out, HkyParse& ps) {
+    if (kind == "ref") {
+        const auto it = ps.byId.find(ps.canon ? ps.canon(key) : key);
+        if (it == ps.byId.end()) { ps.err = ps.where + ": " + f.name + ": no node with id '" + key + "'"; return false; }
+        out = it->second;
+        return true;
+    }
+    const bool was = ps.patch;
+    ps.patch = false;
+    const bool ok = objectValue(e, f.ref, out, ps, f.name);
+    ps.patch = was;
+    if (!ok || (kind != "field" && kind != "bone")) return ok;
+    auto* so = dynamic_cast<io::SchemaObject*>(out.get());
+    if (!so) { ps.err = ps.where + ": " + f.name + ": roster entry '" + key + "' must be an inline " + f.ref; return false; }
+    const auto ef = so->Fields();
+    for (std::size_t j = 0; j < ef.size(); ++j) {
+        if (ef[j]->name != keyField) continue;
+        if (kind == "field") { so->FieldAt(j).str = key; return true; }
+        std::int64_t idx = -1;
+        if (!boneIndex(key, idx, ps, f.name)) return false;
+        so->FieldAt(j).raw = encInt(idx, ef[j]->scalar);
+        return true;
+    }
+    ps.err = ps.where + ": " + f.name + ": " + f.ref + " has no key field '" + keyField + "'";
+    return false;
+}
+
+/// @brief A keyed roster (`roster:` field written as a map), built whole in list order; minted keys are kept.
+bool rosterValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps) {
+    const Field& f = *so.Fields()[i];
+    const auto [kind, keyField] = rosterKind(f);
+    std::vector<std::string> keys;
+    for (auto e : n) {
+        const std::string key = ykey(e);
+        std::shared_ptr<IHavokObject> o;
+        if (!rosterElement(e, f, kind, keyField, key, o, ps)) return false;
+        so.FieldAt(i).objs.push_back(o);
+        keys.push_back(ps.canon ? ps.canon(key) : key);
+    }
+    if (kind == "id" || kind == "slot") ps.subKeys[{ &so, i }] = std::move(keys);
+    return true;
+}
+
 bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps) {
     const Field& f = *so.Fields()[i];
     io::FieldValue& v = so.FieldAt(i);
     v = io::FieldValue{};
+    if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty() && n.is_map())
+        return rosterValue(so, i, n, ps);
     switch (f.kind) {
         case FieldKind::Scalar: {
             if (f.boneRef && !n.is_seq()) {
@@ -3135,6 +3263,77 @@ bool fillVocab(io::SchemaObject& gd, const yml::ConstNodeRef& map, HkyParse& ps)
     return true;
 }
 
+/// @brief A keyed roster in a PATCH: each entry names a sub-record by its key. A known key overrides that entry
+///        (field-wise for an inline record); an unknown key appends a new entry; `{deleted: true}` removes one.
+///        Keys compare CANONICALLY (patch keys through the patch's masters, stored base keys through the base's).
+/// @note A `slot` roster's positions are referenced elsewhere (hkbManualSelectorGenerator.selectedGeneratorIndex),
+///       so deleting a slot would silently re-point every later index — refused.
+bool rosterPatch(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps) {
+    const Field& f = *so.Fields()[i];
+    const auto [kind, keyField] = rosterKind(f);
+    io::FieldValue& v = so.FieldAt(i);
+    const bool minted = kind == "id" || kind == "slot";
+    std::vector<std::string>* keys = nullptr;
+    if (minted) {
+        keys = &ps.subKeys[{ &so, i }];
+        if (keys->size() != v.objs.size()) {
+            keys->clear();
+            for (std::size_t k = 0; k < v.objs.size(); ++k) keys->push_back(mintedKey(k));
+        }
+    }
+    auto stored = [&](const std::string& s) { return s.find(':') != std::string::npos || !ps.baseCanon ? s : ps.baseCanon(s); };
+    auto elemKey = [&](const std::shared_ptr<IHavokObject>& p) -> std::string {
+        const auto* e = dynamic_cast<const io::SchemaObject*>(p.get());
+        if (!e) return {};
+        const auto ef = e->Fields();
+        for (std::size_t j = 0; j < ef.size(); ++j) {
+            if (ef[j]->name != keyField) continue;
+            if (kind == "field") return e->Values()[j].str;
+            const std::int64_t bi = decodeInt(e->Values()[j].raw, ef[j]->scalar);
+            return ps.bones && bi >= 0 && bi < static_cast<std::int64_t>(ps.bones->size()) ? (*ps.bones)[static_cast<std::size_t>(bi)] : std::string();
+        }
+        return {};
+    };
+    for (auto e : n) {
+        const std::string key = ykey(e);
+        const std::string ck = ps.canon ? ps.canon(key) : key;
+        std::size_t j = v.objs.size();
+        if (kind == "ref") {
+            if (const auto it = ps.byId.find(ck); it != ps.byId.end())
+                for (std::size_t k = 0; k < v.objs.size(); ++k) if (v.objs[k] == it->second) { j = k; break; }
+        } else if (minted) {
+            for (std::size_t k = 0; k < keys->size(); ++k) if (stored((*keys)[k]) == ck) { j = k; break; }
+        } else {
+            for (std::size_t k = 0; k < v.objs.size(); ++k) if (elemKey(v.objs[k]) == key) { j = k; break; }
+        }
+        if (e.is_map() && yhas(e, "deleted")) {
+            if (j == v.objs.size()) continue;
+            if (kind == "slot") { ps.err = ps.where + ": " + f.name + ": slot '" + key + "' is referenced by position and can't be deleted"; return false; }
+            v.objs.erase(v.objs.begin() + static_cast<std::ptrdiff_t>(j));
+            if (keys) keys->erase(keys->begin() + static_cast<std::ptrdiff_t>(j));
+            continue;
+        }
+        if (j < v.objs.size()) {
+            if (kind == "ref") continue;
+            auto* co = dynamic_cast<io::SchemaObject*>(v.objs[j].get());
+            const bool sameClass = !(e.is_map() && yhas(e, "class")) || (co && ystr(yget(e, "class")) == co->ClassName());
+            if (e.is_map() && co && !ps.nodes.count(co) && sameClass) {
+                if (!fillHky(*co, e, ps)) return false;
+                continue;
+            }
+            std::shared_ptr<IHavokObject> o;
+            if (!rosterElement(e, f, kind, keyField, key, o, ps)) return false;
+            v.objs[j] = o;
+            continue;
+        }
+        std::shared_ptr<IHavokObject> o;
+        if (!rosterElement(e, f, kind, keyField, key, o, ps)) return false;
+        v.objs.push_back(o);
+        if (keys) keys->push_back(ck);
+    }
+    return true;
+}
+
 /// @brief FIELD-PATCH semantics for one present field (`handled` = done; else the caller replaces the value):
 ///        a map onto an existing inline object of the same class merges field-wise (recursively); compose/union
 ///        arrays APPEND (union skips strings already present); `{replace: [...]}` replaces an array outright.
@@ -3142,6 +3341,11 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     handled = false;
     const Field& f = *so.Fields()[i];
     io::FieldValue& v = so.FieldAt(i);
+    if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty() && n.is_map() &&
+        !yhas(n, "at") && !yhas(n, "append") && !yhas(n, "replace")) {
+        handled = true;
+        return rosterPatch(so, i, n, ps);
+    }
     if ((f.kind == FieldKind::Ptr || f.kind == FieldKind::Struct) && n.is_map() && n.num_children() > 0 && v.obj) {
         auto* co = dynamic_cast<io::SchemaObject*>(v.obj.get());
         /// @note In a patch, an absent `class:` means "the class already there" — a polymorphic pointer (declared as a
@@ -3301,13 +3505,17 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
             continue;
         }
         bool handled = false;
-        const bool list = ps.patch && ps.history &&
+        const bool list = ps.patch && ps.history && f.roster.empty() &&
             (f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray || f.kind == FieldKind::StringArray);
         io::FieldValue before;
         if (list) before = so.FieldAt(i);
         if (ps.patch && !patchField(so, i, yget(map, f.name), ps, handled)) return false;
         if (!handled && !fieldValue(so, i, yget(map, f.name), ps)) return false;
         if (list) unionTouch(so, i, before, ps);
+        if (!f.roster.empty()) {
+            const auto n = yget(map, f.name);
+            if (!n.is_map() || yhas(n, "at") || yhas(n, "append") || yhas(n, "replace")) ps.subKeys.erase({ &so, i });
+        }
         if (!f.eventRef.empty() && yhas(map, f.eventRef)) ps.symbols.push_back({ &so, i, true,  ystr(yget(map, f.eventRef)), ps.where });
         if (!f.varRef.empty()   && yhas(map, f.varRef))   ps.symbols.push_back({ &so, i, false, ystr(yget(map, f.varRef)),   ps.where });
     }
@@ -3381,6 +3589,7 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
     }
     out.root = root;
     out.objects = std::move(ps.all);
+    out.identity.subKeys = std::move(ps.subKeys);
     return true;
 }
 
@@ -3399,6 +3608,98 @@ std::string formIdOf(std::uint16_t idx, const std::string& decId) {
 bool isArrayKind(FieldKind k) {
     return k == FieldKind::PtrArray || k == FieldKind::StructArray || k == FieldKind::StringArray ||
            k == FieldKind::ScalarArray || k == FieldKind::Vec4Array || k == FieldKind::QsTransformArray || k == FieldKind::BoolArray;
+}
+
+std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, const ReflectCtx& cb, const ReflectCtx& cm);
+
+/// @brief A roster field's KEYED patch: changed entries (field-level for an inline record), new entries (whole, keyed
+///        as the mod's own), and `{deleted: true}` for base entries the mod dropped. Returns the entry lines (indented
+///        two), empty when nothing changed; nullopt when either side can't be keyed (the caller patches positionally).
+/// @note  Pairing a mod's entry with vanilla's happens ONCE, here at convert time: `ref`/`field`/`bone` pair by key;
+///        minted `id` pairs identical records first, then the remaining ones in order (an edited record overrides its
+///        original); a `slot` pairs by position and can't shrink.
+std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::SchemaObject& m, std::size_t i,
+                                      const ReflectCtx& cb, const ReflectCtx& cm) {
+    const Field& f = *m.Fields()[i];
+    if (!rosterText(b, i, cb) || !rosterText(m, i, cm)) return std::nullopt;
+    const auto [kind, keyField] = rosterKind(f);
+    const auto& B = b.Values()[i].objs;
+    const auto& M = m.Values()[i].objs;
+    if (kind == "slot" && M.size() < B.size()) return std::nullopt;
+    auto body = [&](const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c) -> std::string {
+        if (!p) return "null";
+        if (isFileNode(p.get(), c)) return refIdOf(p, c.id);
+        const auto* e = dynamic_cast<const io::SchemaObject*>(p.get());
+        return e ? std::string(e->ClassName()) + "\n" + reflectObject(*e, c, f.ref) : std::string("?");
+    };
+    auto natural = [&](const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c) {
+        const auto* e = dynamic_cast<const io::SchemaObject*>(p.get());
+        return e ? naturalKey(*e, kind, keyField, c).first : std::string();
+    };
+    std::vector<std::string> bb, mb;
+    for (const auto& p : B) bb.push_back(body(p, cb));
+    for (const auto& p : M) mb.push_back(body(p, cm));
+    std::vector<long> pairOf(M.size(), -1);
+    std::vector<bool> claimed(B.size(), false);
+    auto link = [&](std::size_t mk, std::size_t bk) { pairOf[mk] = static_cast<long>(bk); claimed[bk] = true; };
+    if (kind == "slot") {
+        for (std::size_t k = 0; k < B.size(); ++k) link(k, k);
+    } else if (kind == "field" || kind == "bone") {
+        for (std::size_t mk = 0; mk < M.size(); ++mk)
+            for (std::size_t bk = 0; bk < B.size(); ++bk)
+                if (!claimed[bk] && natural(B[bk], cb) == natural(M[mk], cm)) { link(mk, bk); break; }
+    } else {
+        for (std::size_t mk = 0; mk < M.size(); ++mk)
+            for (std::size_t bk = 0; bk < B.size(); ++bk)
+                if (!claimed[bk] && bb[bk] == mb[mk]) { link(mk, bk); break; }
+        if (kind == "id") {
+            std::vector<std::size_t> ub, um;
+            for (std::size_t bk = 0; bk < B.size(); ++bk) if (!claimed[bk]) ub.push_back(bk);
+            for (std::size_t mk = 0; mk < M.size(); ++mk) if (pairOf[mk] < 0) um.push_back(mk);
+            for (std::size_t t = 0; t < ub.size() && t < um.size(); ++t)
+                if (bb[ub[t]].substr(0, bb[ub[t]].find('\n')) == mb[um[t]].substr(0, mb[um[t]].find('\n'))) link(um[t], ub[t]);
+        }
+    }
+    auto baseKey = [&](std::size_t bk) {
+        if (kind == "ref") return refIdOf(B[bk], cb.id);
+        if (kind == "field" || kind == "bone") return natural(B[bk], cb);
+        return mintedKey(bk, cb.keyOwner);
+    };
+    auto entry = [](const std::string& key, const std::string& v) {
+        const bool block = v.find('\n') != std::string::npos;
+        return "  " + q(key) + ":" + (v.empty() ? std::string(" {}\n") : block ? "\n" + indentLines(v, "    ", "    ") : " " + v + "\n");
+    };
+    auto whole = [&](const std::shared_ptr<IHavokObject>& p) -> std::string {
+        if (!p) return "null";
+        if (isFileNode(p.get(), cm)) return refIdOf(p, cm.id);
+        const auto* e = dynamic_cast<const io::SchemaObject*>(p.get());
+        return e ? reflectObject(*e, cm, f.ref) : std::string();
+    };
+    std::string y;
+    std::size_t fresh = 0;
+    for (std::size_t mk = 0; mk < M.size(); ++mk) {
+        if (pairOf[mk] >= 0) {
+            const std::size_t bk = static_cast<std::size_t>(pairOf[mk]);
+            if (bb[bk] == mb[mk]) continue;
+            const auto* bo = dynamic_cast<const io::SchemaObject*>(B[bk].get());
+            const auto* mo = dynamic_cast<const io::SchemaObject*>(M[mk].get());
+            if (bo && mo && !isFileNode(B[bk].get(), cb) && !isFileNode(M[mk].get(), cm) && std::string(bo->ClassName()) == mo->ClassName()) {
+                const std::string sub = diffObject(*bo, *mo, cb, cm);
+                if (!sub.empty()) y += entry(baseKey(bk), sub);
+            } else {
+                y += entry(baseKey(bk), whole(M[mk]));
+            }
+            continue;
+        }
+        std::string key;
+        if (kind == "ref") key = refIdOf(M[mk], cm.id);
+        else if (kind == "field" || kind == "bone") key = natural(M[mk], cm);
+        else key = mintedKey(fresh++, cm.keyOwner);
+        y += entry(key, whole(M[mk]));
+    }
+    for (std::size_t bk = 0; bk < B.size(); ++bk)
+        if (!claimed[bk]) y += "  " + q(baseKey(bk)) + ": {deleted: true}\n";
+    return y;
 }
 
 /// @brief The field-level patch turning `b` into `m` (empty = identical). Nested inline objects of the same class
@@ -3437,11 +3738,19 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
             const auto* mo = dynamic_cast<const io::SchemaObject*>(vm.obj.get());
             const schema::ClassSchema* dcs = cm.reg.Find(f.ref);
             const bool collapsible = dcs && !dcs->unwrap.empty();   // a collapsed value is atomic (e.g. a weight map)
+            /// @note An empty sub-diff means UNCHANGED even though the texts differed: base-owned roster keys render as
+            ///       the master's (`0001x…`), the mod's as its own (`0000x…`).
             if (bo && mo && !collapsible) {
                 const std::string sub = diffObject(*bo, *mo, cb, cm);
-                if (!sub.empty()) { y += f.name + ":\n" + indentLines(sub, "  ", "  "); continue; }
+                if (!sub.empty()) y += f.name + ":\n" + indentLines(sub, "  ", "  ");
+                continue;
             }
         }
+        if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty())
+            if (const auto r = rosterDiff(b, m, i, cb, cm)) {
+                if (!r->empty()) y += f.name + ":\n" + *r;
+                continue;
+            }
         const std::string tag = mergeTagOf(cm.reg, m.ClassName(), f.name);
         /// @note Object arrays patch BY POSITION: `at: {i: <deep patch | element>}` + `append: [...]`; a plain list is
         ///       the compose shorthand for append-only. Shrinking (removal) replaces the whole array.
@@ -3458,7 +3767,8 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
                 if (bo && mo && !isFileNode(be.get(), cb) && !isFileNode(me.get(), cm) &&
                     std::string(bo->ClassName()) == mo->ClassName() && !(ecs && !ecs->unwrap.empty())) {
                     const std::string sub = diffObject(*bo, *mo, cb, cm);
-                    if (!sub.empty()) { at += std::to_string(k) + ":\n" + indentLines(sub, "  ", "  "); continue; }
+                    if (!sub.empty()) at += std::to_string(k) + ":\n" + indentLines(sub, "  ", "  ");
+                    continue;
                 }
                 if (!me) at += std::to_string(k) + ": null\n";
                 else if (isFileNode(me.get(), cm)) at += std::to_string(k) + ": " + refIdOf(me, cm.id) + "\n";
@@ -3535,7 +3845,7 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
             const auto* so = dynamic_cast<const io::SchemaObject*>(o);
             return so ? fStr(*so, "name") : std::string();
         };
-        const ReflectCtx cB{ idB, nrB, reg, bones, &effB };
+        const ReflectCtx cB{ idB, nrB, reg, bones, &effB, baseIndex };
 
         // Base lookups: named nodes by (class, name); unnamed shared leaves by rendered content; the root.
         std::map<std::pair<std::string, std::string>, const IHavokObject*> baseNamed;
@@ -3629,6 +3939,8 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
     ps.history = base.listHistory.get();
     ps.canon = canonFor(patchMasters);
     const auto baseCanon = canonFor(baseMasters);
+    ps.baseCanon = baseCanon;
+    ps.subKeys = base.identity.subKeys;
     std::unordered_map<const IHavokObject*, std::shared_ptr<io::SchemaObject>> own;
     for (const auto& o : base.objects) own[o.get()] = o;
     for (const auto& [o, id] : base.identity.ids) {
@@ -3701,6 +4013,7 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
         s.obj->FieldAt(s.field).raw = encInt(static_cast<std::int64_t>(*idx), s.obj->Fields()[s.field]->scalar);
     }
     base.objects = std::move(ps.all);
+    base.identity.subKeys = std::move(ps.subKeys);
     return true;
 }
 

@@ -11,7 +11,7 @@ fields:
   - { name: flags,                        type: int16, hkyenum: BlenderFlags, flags: true }
   - { name: subtractLastChild,            type: bool }
   - { skip: 3 }
-  - { name: children,                     type: ptrarray, ref: hkbBlenderGeneratorChild }
+  - { name: children,                     type: ptrarray, ref: hkbBlenderGeneratorChild, roster: id }
   - { empty: array }
   - { empty: array }
   - { name: endIntervalWeight,  type: float, ignored: true }

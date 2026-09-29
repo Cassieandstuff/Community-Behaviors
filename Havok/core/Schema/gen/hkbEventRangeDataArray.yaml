@@ -3,4 +3,4 @@ parent:    hkReferencedObject
 signature: 0x330a56ee
 size:      32
 fields:
-  - { name: eventData, type: structarray, ref: hkbEventRangeData }
+  - { name: eventData, type: structarray, ref: hkbEventRangeData, roster: id }
