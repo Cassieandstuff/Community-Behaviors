@@ -55,6 +55,11 @@ struct Field {
                                          // (A|B) rather than a single name. (.hky-only; no serde effect.)
     bool        hkyOnlyEnum = false;     ///< @brief `hkyenum:` — enumName is a .hky rendering convenience only; Havok's
                                          ///<        reflection has no enum here, so the tagfile keeps the number.
+    bool        boneRef = false;         ///< @brief `boneref: true` — a scalar bone index into the graph's rig; the .hky
+                                         ///<        names the bone (-1 = none, omitted).
+    bool        boneList = false;        ///< @brief `bonelist: true` — a scalar array of bone indices; the .hky lists names.
+    bool        boneWeights = false;     ///< @brief `boneweights: <default>` — a float array indexed by rig bone; the .hky
+    std::string boneWeightDefault;       ///<        is a bone-name -> weight map, unlisted bones taking this default.
     bool        hkyEmit = false;         // force-emit this field in the .hky even though it is `ignored`
                                          // (SERIALIZE_IGNORED but semantically authored, e.g.
                                          // hkbBlendingTransitionEffect.initializeCharacterPose).

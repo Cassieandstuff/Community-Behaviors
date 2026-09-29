@@ -13,7 +13,7 @@ fields:
   - { name: maxKneeAngleDegrees, type: float }
   - { name: minKneeAngleDegrees, type: float }
   - { name: maxAnkleAngleDegrees, type: float }
-  - { name: hipIndex,   type: int16 }
-  - { name: kneeIndex,  type: int16 }
-  - { name: ankleIndex, type: int16 }
+  - { name: hipIndex,   type: int16, boneref: true }
+  - { name: kneeIndex,  type: int16, boneref: true }
+  - { name: ankleIndex, type: int16, boneref: true }
   - { skip: 14 }

@@ -3152,10 +3152,16 @@ bool PackageAllModAnimations(const std::string& mo2Instance, const std::string& 
     return true;
 }
 
-bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log) {
+bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log, const std::string& baseHky) {
     const auto say = [&](const std::string& s) { if (log) log(s); };
     auto* reg = CB::core::schema::SharedRegistry();
     if (!reg) { say("reflect-dump: schema registry not armed"); return false; }
+    std::optional<bconv::BaseUnitCompiler> rigs;   // rig binding from the base bundle (bone names by rig order)
+    if (!baseHky.empty()) {
+        std::string herr;
+        if (auto arc = CB::core::codec::HkyArchive::LoadFromFile(baseHky, herr)) rigs.emplace(arc);
+        else say("reflect-dump: base bundle unreadable (" + herr + ") — bone fields stay numeric");
+    }
     std::error_code ec;
     fs::create_directories(outDir, ec);
     std::ofstream index(fs::path(outDir) / "index.txt", std::ios::binary);
@@ -3171,7 +3177,11 @@ bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const 
         if (!CB::core::codec::ReadHavokFile(it->path().string(), bytes, &err)) { ++fails; say("  read failed: " + it->path().string()); continue; }
         const fs::path g = fs::path(outDir) / std::to_string(n);
         const bool okCur = CB::core::decompile::DecompileBehaviorSchema(bytes, "", *reg, (g / "cur").string(), err);
-        const bool okGen = okCur && CB::core::decompile::DecompileBehaviorReflective(bytes, *reg, (g / "gen").string(), err);
+        std::string serveKey = "meshes/" + fs::relative(it->path(), meshesDir, fe).generic_string();
+        for (char& ch : serveKey) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));   // internal RigIndex key
+        const std::vector<std::string>* bones = nullptr;
+        if (rigs) if (const auto& b = rigs->BonesFor(serveKey); !b.empty()) bones = &b;
+        const bool okGen = okCur && CB::core::decompile::DecompileBehaviorReflective(bytes, *reg, (g / "gen").string(), err, bones);
         if (!okCur || !okGen) { ++fails; say("  decompile failed: " + it->path().string() + " — " + err); continue; }
         index << n << "\t" << fs::relative(it->path(), meshesDir, fe).generic_string() << "\n";
         ++n;

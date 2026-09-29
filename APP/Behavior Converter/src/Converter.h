@@ -186,8 +186,9 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
 /// @brief Measurement harness for the reflective-format work: for every behavior .hkx under `meshesDir`, write
 ///        `<outDir>/<n>/cur` (today's EmitHky tree) and `<outDir>/<n>/gen` (EmitHkyReflective), ids aligned;
-///        `<outDir>/index.txt` maps n -> source path. Pick a SHORT outDir (MAX_PATH).
-bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log);
+///        `<outDir>/index.txt` maps n -> source path. Pick a SHORT outDir (MAX_PATH). `baseHky` (optional) supplies the
+///        rig binding, so bone fields render by name.
+bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log, const std::string& baseHky = "");
 
 struct RegenResult {
     bool            ok = false;

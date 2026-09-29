@@ -112,12 +112,15 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
 ///        alone (inline objects nest as maps with their `class:`; the root container's inline subtree lands in
 ///        graph.yaml). MEASUREMENT stage of the reflective-format work: diffed against EmitHky to find what the
 ///        bespoke renderers drop or reshape. No loader consumes it yet.
+/// @param bones the graph's rig in rig order (RigIndex), so `boneref`/`bonelist`/`boneweights` fields render by bone
+///              NAME; null = rig unknown (indices stay numeric — still lossless).
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
-                       const std::string& outDir, std::string& err);
+                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones = nullptr);
 /// @brief Deserialize + encounter-order AssignIdentity + EmitHkyReflective (ids align with an XML-less
 ///        DecompileBehaviorSchema of the same bytes, so the two trees diff file-for-file).
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
-                                 const std::string& outDir, std::string& err);
+                                 const std::string& outDir, std::string& err,
+                                 const std::vector<std::string>* bones = nullptr);
 
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`

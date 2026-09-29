@@ -16,9 +16,9 @@ fields:
   - { name: minKneeAngleDegrees, type: float }
   - { name: verticalError,       type: float }
   - { name: maxAnkleAngleDegrees, type: float }
-  - { name: hipIndex,   type: int16 }
-  - { name: kneeIndex,  type: int16 }
-  - { name: ankleIndex, type: int16 }
+  - { name: hipIndex,   type: int16, boneref: true }
+  - { name: kneeIndex,  type: int16, boneref: true }
+  - { name: ankleIndex, type: int16, boneref: true }
   - { name: hitSomething, type: bool }
   - { name: isPlantedMS,  type: bool }
   - { name: isOriginalAnkleTransformMSSet, type: bool }

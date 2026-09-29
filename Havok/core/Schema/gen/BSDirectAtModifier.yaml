@@ -5,9 +5,9 @@ size:      224
 fields:
   - { name: directAtTarget, type: bool }
   - { skip: 1 }
-  - { name: sourceBoneIndex, type: int16 }
-  - { name: startBoneIndex,  type: int16 }
-  - { name: endBoneIndex,    type: int16 }
+  - { name: sourceBoneIndex, type: int16, boneref: true }
+  - { name: startBoneIndex,  type: int16, boneref: true }
+  - { name: endBoneIndex,    type: int16, boneref: true }
   - { name: limitHeadingDegrees,  type: float }
   - { name: limitPitchDegrees,    type: float }
   - { name: offsetHeadingDegrees, type: float }

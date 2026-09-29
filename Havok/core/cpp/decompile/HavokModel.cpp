@@ -1806,12 +1806,19 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
 }
 
 namespace {
-/// @note Reflective emit, MEASUREMENT stage: every schema field in schema order, rendered by FieldKind alone.
-///       File nodes (non-empty category) render as their id; inline objects nest as maps. Generic, lossless
-///       elisions: a nested object states `class:` only when it differs from the field's declared class (a
-///       subclass); a null pointer or an empty array is omitted (absent == null / empty on parse).
-std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr,
-                          const schema::SchemaRegistry& reg, const std::string& declaredClass = {});
+/// @note Reflective emit, MEASUREMENT stage: every schema field in schema order, rendered by FieldKind + schema
+///       annotations alone. File nodes (non-empty category) render as their id; inline objects nest as maps.
+///       Lossless elisions: a nested object states `class:` only when it differs from the field's declared class
+///       (a subclass); a null pointer or an empty array is omitted (absent == null / empty on parse); a `boneref`
+///       of -1 ("no bone") is omitted (absent == -1).
+struct ReflectCtx {
+    const Identity&                 id;
+    const NameResolver&             nr;
+    const schema::SchemaRegistry&   reg;
+    const std::vector<std::string>* bones;   ///< the graph's rig, in rig order; null = unknown (indices stay numeric)
+};
+
+std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass = {});
 
 std::string indentLines(const std::string& block, const std::string& first, const std::string& rest) {
     std::string out;
@@ -1831,6 +1838,11 @@ std::string indentLines(const std::string& block, const std::string& first, cons
 bool isFileNode(const IHavokObject* o, const Identity& id) {
     const auto c = id.category.find(o);
     return c != id.category.end() && !c->second.empty();
+}
+
+std::vector<std::uint8_t> slice(const std::vector<std::uint8_t>& raw, std::size_t k, std::size_t w) {
+    const std::size_t a = std::min(raw.size(), k * w), b = std::min(raw.size(), (k + 1) * w);
+    return std::vector<std::uint8_t>(raw.begin() + a, raw.begin() + b);
 }
 
 /// @note Enums render through the REGISTRY (schema enum tree), not a hardcoded table. Flags decode UNSIGNED at the
@@ -1858,25 +1870,59 @@ std::string scalarText(const Field& f, const std::vector<std::uint8_t>& raw, con
     return renderScalar(f, v);
 }
 
-std::string elemText(const std::shared_ptr<IHavokObject>& p, const Identity& id, const NameResolver& nr,
-                     const schema::SchemaRegistry& reg, const std::string& key, const std::string& declared) {
-    if (!p) return {};
-    if (isFileNode(p.get(), id)) return key + ": " + refIdOf(p, id) + "\n";
-    const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
-    if (!so) return key + ": '?'\n";
-    return key + ":\n" + indentLines(reflectObject(*so, id, nr, reg, declared), "  ", "  ");
+/// @brief A bone index as its rig name; the raw number when the rig is unknown or the index is out of range.
+std::string boneText(std::int64_t idx, const ReflectCtx& c) {
+    if (c.bones && idx >= 0 && idx < static_cast<std::int64_t>(c.bones->size())) return q((*c.bones)[static_cast<std::size_t>(idx)]);
+    return std::to_string(idx);
 }
 
-std::string listText(const std::vector<std::shared_ptr<IHavokObject>>& objs, const Identity& id, const NameResolver& nr,
-                     const schema::SchemaRegistry& reg, const std::string& key, const std::string& declared) {
+/// @brief `boneweights`: a flat map bone-name -> weight over the rig. Reserved keys: `default:` (only when the
+///        array's most common value differs from the schema default) and `count:` (only when the array length
+///        differs from the rig). Unlisted bones take the default; compile sizes the array to the rig when no
+///        count is given, so a bone added to the rig gets the default automatically.
+/// @note  Values compare by their rendered text, so -0 stays distinct from 0 (bit-exact).
+std::string boneWeightsText(const Field& f, const std::vector<std::uint8_t>& raw, const ReflectCtx& c) {
+    const std::size_t n = raw.size() / 4;
+    std::vector<std::string> vals;
+    for (std::size_t k = 0; k < n; ++k) vals.push_back(fstr(decodeFloat(slice(raw, k, 4))));
+    if (!c.bones || n > c.bones->size()) {   // no rig / array longer than the rig: raw list, still lossless
+        std::string y = f.name + ": [";
+        for (std::size_t k = 0; k < n; ++k) y += (k ? ", " : "") + vals[k];
+        return y + "]\n";
+    }
+    std::map<std::string, std::size_t> freq;
+    for (const auto& v : vals) ++freq[v];
+    std::string dflt = f.boneWeightDefault;
+    std::size_t best = freq.count(dflt) ? freq[dflt] : 0;
+    for (const auto& [v, k] : freq) if (k > best) { best = k; dflt = v; }
+    std::string body;
+    if (dflt != f.boneWeightDefault) body += "  default: " + dflt + "\n";
+    if (n != c.bones->size())        body += "  count: " + std::to_string(n) + "\n";
+    for (std::size_t k = 0; k < n; ++k)
+        if (vals[k] != dflt) body += "  " + q((*c.bones)[k]) + ": " + vals[k] + "\n";
+    return body.empty() ? f.name + ": {}\n" : f.name + ":\n" + body;
+}
+
+std::string elemText(const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c, const std::string& key, const std::string& declared) {
+    if (!p) return {};
+    if (isFileNode(p.get(), c.id)) return key + ": " + refIdOf(p, c.id) + "\n";
+    const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
+    if (!so) return key + ": '?'\n";
+    const std::string body = reflectObject(*so, c, declared);
+    return body.empty() ? key + ": {}\n" : key + ":\n" + indentLines(body, "  ", "  ");   // {} != null on parse
+}
+
+std::string listText(const std::vector<std::shared_ptr<IHavokObject>>& objs, const ReflectCtx& c,
+                     const std::string& key, const std::string& declared) {
     if (objs.empty()) return {};
     std::string y = key + ":\n";
     for (const auto& p : objs) {
         if (!p) { y += "  - null\n"; continue; }
-        if (isFileNode(p.get(), id)) { y += "  - " + refIdOf(p, id) + "\n"; continue; }
+        if (isFileNode(p.get(), c.id)) { y += "  - " + refIdOf(p, c.id) + "\n"; continue; }
         const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
         if (!so) { y += "  - '?'\n"; continue; }
-        y += indentLines(reflectObject(*so, id, nr, reg, declared), "  - ", "    ");
+        const std::string body = reflectObject(*so, c, declared);
+        y += body.empty() ? std::string("  - {}\n") : indentLines(body, "  - ", "    ");
     }
     return y;
 }
@@ -1888,8 +1934,7 @@ std::string flowList(std::size_t n, F&& at) {
     return y + "]";
 }
 
-std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr,
-                          const schema::SchemaRegistry& reg, const std::string& declaredClass) {
+std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass) {
     std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
     const auto fields = so.Fields();
     const auto& vals  = so.Values();
@@ -1901,15 +1946,16 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
             case FieldKind::Scalar: {
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
                 const std::size_t n = w ? v.raw.size() / w : 0;
-                if (n <= 1) {
-                    y += f.name + ": " + scalarText(f, v.raw, reg) + "\n";
+                if (f.boneRef && n <= 1) {
+                    const std::int64_t iv = decodeInt(v.raw, f.scalar);
+                    if (iv != -1) y += f.name + ": " + boneText(iv, c) + "\n";
+                } else if (n <= 1) {
+                    y += f.name + ": " + scalarText(f, v.raw, c.reg) + "\n";
                     const long iv = static_cast<long>(decodeInt(v.raw, f.scalar));
-                    if (!f.eventRef.empty()) { const std::string s = nr.safeEvent(iv);    if (!s.empty()) y += f.eventRef + ": " + q(s) + "\n"; }
-                    if (!f.varRef.empty())   { const std::string s = nr.safeVariable(iv); if (!s.empty()) y += f.varRef + ": " + q(s) + "\n"; }
+                    if (!f.eventRef.empty()) { const std::string s = c.nr.safeEvent(iv);    if (!s.empty()) y += f.eventRef + ": " + q(s) + "\n"; }
+                    if (!f.varRef.empty())   { const std::string s = c.nr.safeVariable(iv); if (!s.empty()) y += f.varRef + ": " + q(s) + "\n"; }
                 } else {
-                    y += f.name + ": " + flowList(n, [&](std::size_t k) {
-                        return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w), reg);
-                    }) + "\n";
+                    y += f.name + ": " + flowList(n, [&](std::size_t k) { return scalarText(f, slice(v.raw, k, w), c.reg); }) + "\n";
                 }
                 break;
             }
@@ -1918,15 +1964,12 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
             case FieldKind::Vector4:
             case FieldKind::Quaternion: y += f.name + ": " + pvecRaw(v.raw) + "\n"; break;
             case FieldKind::QsTransform:
-                y += f.name + ": " + flowList(3, [&](std::size_t k) {
-                    return pvecRaw(std::vector<std::uint8_t>(v.raw.begin() + std::min(v.raw.size(), k * 16),
-                                                             v.raw.begin() + std::min(v.raw.size(), (k + 1) * 16)));
-                }) + "\n";
+                y += f.name + ": " + flowList(3, [&](std::size_t k) { return pvecRaw(slice(v.raw, k, 16)); }) + "\n";
                 break;
             case FieldKind::Ptr:
-            case FieldKind::Struct:     y += elemText(v.obj, id, nr, reg, f.name, f.ref); break;
+            case FieldKind::Struct:      y += elemText(v.obj, c, f.name, f.ref); break;
             case FieldKind::PtrArray:
-            case FieldKind::StructArray: y += listText(v.objs, id, nr, reg, f.name, f.ref); break;
+            case FieldKind::StructArray: y += listText(v.objs, c, f.name, f.ref); break;
             case FieldKind::StringArray:
                 if (v.strs.empty()) break;
                 y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return q(v.strs[k]); }) + "\n";
@@ -1935,24 +1978,22 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
                 const std::size_t n = w ? v.raw.size() / w : 0;
                 if (n == 0) break;
-                y += f.name + ": " + flowList(n, [&](std::size_t k) {
-                    return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w), reg);
-                }) + "\n";
+                if (f.boneWeights && f.scalar == Scalar::Float) { y += boneWeightsText(f, v.raw, c); break; }
+                if (f.boneList) {
+                    y += f.name + ": " + flowList(n, [&](std::size_t k) { return boneText(decodeInt(slice(v.raw, k, w), f.scalar), c); }) + "\n";
+                    break;
+                }
+                y += f.name + ": " + flowList(n, [&](std::size_t k) { return scalarText(f, slice(v.raw, k, w), c.reg); }) + "\n";
                 break;
             }
             case FieldKind::Vec4Array:
                 if (v.raw.empty()) break;
-                y += f.name + ": " + flowList(v.raw.size() / 16, [&](std::size_t k) {
-                    return pvecRaw(std::vector<std::uint8_t>(v.raw.begin() + k * 16, v.raw.begin() + (k + 1) * 16));
-                }) + "\n";
+                y += f.name + ": " + flowList(v.raw.size() / 16, [&](std::size_t k) { return pvecRaw(slice(v.raw, k, 16)); }) + "\n";
                 break;
             case FieldKind::QsTransformArray:
                 if (v.raw.empty()) break;
                 y += f.name + ": " + flowList(v.raw.size() / 48, [&](std::size_t k) {
-                    return flowList(3, [&](std::size_t j) {
-                        const std::size_t o = k * 48 + j * 16;
-                        return pvecRaw(std::vector<std::uint8_t>(v.raw.begin() + o, v.raw.begin() + o + 16));
-                    });
+                    return flowList(3, [&](std::size_t j) { return pvecRaw(slice(v.raw, k * 3 + j, 16)); });
                 }) + "\n";
                 break;
             case FieldKind::BoolArray:
@@ -1967,10 +2008,11 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
 } // namespace
 
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
-                       const std::string& outDir, std::string& err) {
+                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
     namespace fs = std::filesystem;
     std::error_code ec;
     const NameResolver nr = buildResolver(identity);
+    const ReflectCtx ctx{ identity, nr, reg, bones };
     for (const auto& [obj, cat] : identity.category) {
         const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
         if (!so) { err = "EmitHkyReflective expects a SchemaObject graph"; return false; }
@@ -1980,19 +2022,19 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         const fs::path dir = root ? fs::path(outDir) : fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
         std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary)
-            << "id: " << idStr << "\n" << reflectObject(*so, identity, nr, reg);
+            << "id: " << idStr << "\n" << reflectObject(*so, ctx);
     }
     return true;
 }
 
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
-                                 const std::string& outDir, std::string& err) {
+                                 const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
     try {
         PackFileDeserializer des;
         des.ObjectFactory = io::MakeSchemaFactory(reg);
         BinaryReaderEx br(false, true, bytes);
         des.Deserialize(br);
-        return EmitHkyReflective(AssignIdentity(des, reg, ""), reg, outDir, err);
+        return EmitHkyReflective(AssignIdentity(des, reg, ""), reg, outDir, err, bones);
     } catch (const std::exception& e) {
         err = std::string("DecompileBehaviorReflective: ") + e.what();
         return false;

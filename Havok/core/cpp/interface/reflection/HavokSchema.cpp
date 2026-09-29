@@ -201,6 +201,9 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.merge    = childStr(fn, "merge");
                     f.enumName = childStr(fn, "enum");   // Scalar enum type for .hky name rendering
                     if (const std::string h = childStr(fn, "hkyenum"); !h.empty()) { f.enumName = h; f.hkyOnlyEnum = true; }
+                    f.boneRef  = (childStr(fn, "boneref")  == "true");
+                    f.boneList = (childStr(fn, "bonelist") == "true");
+                    if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
                     f.isFlags  = (childStr(fn, "flags") == "true");   // bitfield → FormatFlags in .hky
                     f.hkyEmit  = (childStr(fn, "hky")   == "true");   // force-emit an ignored field in .hky
                     f.eventRef  = childStr(fn, "eventref");           // event-index companion key
