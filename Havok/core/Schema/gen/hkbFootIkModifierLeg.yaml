@@ -3,7 +3,7 @@ parent:    null
 size:      160
 # Inline classArray element of hkbFootIkModifier (not registered).
 fields:
-  - { skip: 48 }                             # originalAnkleTransformMS (hkQsTransform) — runtime state
+  - { name: originalAnkleTransformMS, type: qstransform, ignored: true, hky: true }   # runtime state, but vanilla files carry bytes (dragon: identity transform) — emitted so they round-trip
   - { name: prevAnkleRotLS, type: quaternion }
   - { name: kneeAxisLS,     type: vector4 }
   - { name: footEndLS,      type: vector4 }

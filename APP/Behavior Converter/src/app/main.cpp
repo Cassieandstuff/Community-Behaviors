@@ -114,6 +114,12 @@ int main(int argc, char** argv) {
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
+    if (argc >= 4 && std::string(argv[1]) == "--hky-roundtrip") {   // <meshesDir> <workRoot> [<base.hky>]
+        const bool ok = bconv::HkyRoundTrip(argv[2], argv[3],
+            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, argc >= 5 ? argv[4] : "");
+        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     if (argc >= 4 && std::string(argv[1]) == "--reflect-dump") {   // <meshesDir> <outDir> [<base.hky>]
         const bool ok = bconv::ReflectDump(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, argc >= 5 ? argv[4] : "");

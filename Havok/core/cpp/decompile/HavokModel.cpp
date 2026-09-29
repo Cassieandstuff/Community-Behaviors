@@ -8,6 +8,8 @@
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
 #include <codec/formid/FormId.h>          // CB::core::codec::formid — node identity as a FormId "idx:local"
 #include <common/Vec4Text.h>              // CB::core::common::vec4::parseVec4 (the ONE vec4 text parser)
+#include <RymlInclude.h>                  // ParseHky — the reflective .hky reader
+#include <codec/serialization/packfile/PackFileSerializer.h>   // RoundTripReflective re-serialize
 
 #include <algorithm>
 #include <cctype>
@@ -1816,9 +1818,28 @@ struct ReflectCtx {
     const NameResolver&             nr;
     const schema::SchemaRegistry&   reg;
     const std::vector<std::string>* bones;   ///< the graph's rig, in rig order; null = unknown (indices stay numeric)
+    const std::unordered_map<const IHavokObject*, std::string>* cat;   ///< effective category (file nodes + shared/)
 };
 
 std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass = {});
+
+/// @note A float renders as %.9g (exact for float32) — except NaN, whose PAYLOAD bits the text form can't carry
+///       (vanilla stores e.g. 0xFFC00000 in unused vector lanes); NaN renders as `nan_<8 hex bits>`, bit-exact.
+std::string rfloat(const std::uint8_t* p) {
+    float f; std::memcpy(&f, p, 4);
+    if (f != f) { std::uint32_t u; std::memcpy(&u, p, 4); char b[24]; std::snprintf(b, sizeof b, "nan_%08x", u); return b; }
+    return fstr(f);
+}
+std::string rfloat(const std::vector<std::uint8_t>& raw) {
+    std::uint8_t b[4] = { 0, 0, 0, 0 };
+    std::memcpy(b, raw.data(), std::min<std::size_t>(4, raw.size()));
+    return rfloat(b);
+}
+std::string rvec(const std::vector<std::uint8_t>& raw) {
+    std::uint8_t b[16] = {};
+    std::memcpy(b, raw.data(), std::min<std::size_t>(16, raw.size()));
+    return "'(" + rfloat(b) + " " + rfloat(b + 4) + " " + rfloat(b + 8) + " " + rfloat(b + 12) + ")'";
+}
 
 std::string indentLines(const std::string& block, const std::string& first, const std::string& rest) {
     std::string out;
@@ -1835,9 +1856,9 @@ std::string indentLines(const std::string& block, const std::string& first, cons
     return out;
 }
 
-bool isFileNode(const IHavokObject* o, const Identity& id) {
-    const auto c = id.category.find(o);
-    return c != id.category.end() && !c->second.empty();
+bool isFileNode(const IHavokObject* o, const ReflectCtx& c) {
+    const auto it = c.cat->find(o);
+    return it != c.cat->end() && !it->second.empty();
 }
 
 std::vector<std::uint8_t> slice(const std::vector<std::uint8_t>& raw, std::size_t k, std::size_t w) {
@@ -1852,6 +1873,7 @@ std::string scalarText(const Field& f, const std::vector<std::uint8_t>& raw, con
         std::uint16_t h = 0; if (raw.size() >= 2) std::memcpy(&h, raw.data(), 2);
         char b[16]; std::snprintf(b, sizeof b, "0x%04x", h); return b;
     }
+    if (f.scalar == Scalar::Float) return rfloat(raw);
     if (!f.enumName.empty())
         if (const schema::EnumDef* e = reg.FindEnum(f.enumName)) {
             std::unordered_map<std::string, long> t;
@@ -1884,7 +1906,7 @@ std::string boneText(std::int64_t idx, const ReflectCtx& c) {
 std::string boneWeightsText(const Field& f, const std::vector<std::uint8_t>& raw, const ReflectCtx& c) {
     const std::size_t n = raw.size() / 4;
     std::vector<std::string> vals;
-    for (std::size_t k = 0; k < n; ++k) vals.push_back(fstr(decodeFloat(slice(raw, k, 4))));
+    for (std::size_t k = 0; k < n; ++k) vals.push_back(rfloat(slice(raw, k, 4)));
     if (!c.bones || n > c.bones->size()) {   // no rig / array longer than the rig: raw list, still lossless
         std::string y = f.name + ": [";
         for (std::size_t k = 0; k < n; ++k) y += (k ? ", " : "") + vals[k];
@@ -1903,12 +1925,23 @@ std::string boneWeightsText(const Field& f, const std::vector<std::uint8_t>& raw
     return body.empty() ? f.name + ": {}\n" : f.name + ":\n" + body;
 }
 
+/// @brief `unwrap:` collapse — when an inline object's rendered body is exactly its unwrap field (no `class:` line,
+///        no other top-level key), return that field's rendering re-keyed as `key`; else empty (keep the full form).
+std::string unwrapped(const io::SchemaObject& so, const std::string& body, const std::string& key) {
+    const std::string& u = so.Schema()->unwrap;
+    if (u.empty() || body.rfind(u + ":", 0) != 0 || body == u + ": {}\n") return {};   // `{}` stays an empty object
+    for (std::size_t s = body.find('\n'); s != std::string::npos && s + 1 < body.size(); s = body.find('\n', s + 1))
+        if (body[s + 1] != ' ') return {};   // a second top-level key: other fields are present
+    return key + body.substr(u.size());
+}
+
 std::string elemText(const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c, const std::string& key, const std::string& declared) {
     if (!p) return {};
-    if (isFileNode(p.get(), c.id)) return key + ": " + refIdOf(p, c.id) + "\n";
+    if (isFileNode(p.get(), c)) return key + ": " + refIdOf(p, c.id) + "\n";
     const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
     if (!so) return key + ": '?'\n";
     const std::string body = reflectObject(*so, c, declared);
+    if (const std::string u = unwrapped(*so, body, key); !u.empty()) return u;
     return body.empty() ? key + ": {}\n" : key + ":\n" + indentLines(body, "  ", "  ");   // {} != null on parse
 }
 
@@ -1918,7 +1951,7 @@ std::string listText(const std::vector<std::shared_ptr<IHavokObject>>& objs, con
     std::string y = key + ":\n";
     for (const auto& p : objs) {
         if (!p) { y += "  - null\n"; continue; }
-        if (isFileNode(p.get(), c.id)) { y += "  - " + refIdOf(p, c.id) + "\n"; continue; }
+        if (isFileNode(p.get(), c)) { y += "  - " + refIdOf(p, c.id) + "\n"; continue; }
         const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
         if (!so) { y += "  - '?'\n"; continue; }
         const std::string body = reflectObject(*so, c, declared);
@@ -1962,9 +1995,9 @@ std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const
             case FieldKind::String:
             case FieldKind::CString:    y += f.name + ": " + q(v.str) + "\n"; break;
             case FieldKind::Vector4:
-            case FieldKind::Quaternion: y += f.name + ": " + pvecRaw(v.raw) + "\n"; break;
+            case FieldKind::Quaternion: y += f.name + ": " + rvec(v.raw) + "\n"; break;
             case FieldKind::QsTransform:
-                y += f.name + ": " + flowList(3, [&](std::size_t k) { return pvecRaw(slice(v.raw, k, 16)); }) + "\n";
+                y += f.name + ": " + flowList(3, [&](std::size_t k) { return rvec(slice(v.raw, k, 16)); }) + "\n";
                 break;
             case FieldKind::Ptr:
             case FieldKind::Struct:      y += elemText(v.obj, c, f.name, f.ref); break;
@@ -1988,12 +2021,12 @@ std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const
             }
             case FieldKind::Vec4Array:
                 if (v.raw.empty()) break;
-                y += f.name + ": " + flowList(v.raw.size() / 16, [&](std::size_t k) { return pvecRaw(slice(v.raw, k, 16)); }) + "\n";
+                y += f.name + ": " + flowList(v.raw.size() / 16, [&](std::size_t k) { return rvec(slice(v.raw, k, 16)); }) + "\n";
                 break;
             case FieldKind::QsTransformArray:
                 if (v.raw.empty()) break;
                 y += f.name + ": " + flowList(v.raw.size() / 48, [&](std::size_t k) {
-                    return flowList(3, [&](std::size_t j) { return pvecRaw(slice(v.raw, k * 3 + j, 16)); });
+                    return flowList(3, [&](std::size_t j) { return rvec(slice(v.raw, k * 3 + j, 16)); });
                 }) + "\n";
                 break;
             case FieldKind::BoolArray:
@@ -2012,8 +2045,36 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
     namespace fs = std::filesystem;
     std::error_code ec;
     const NameResolver nr = buildResolver(identity);
-    const ReflectCtx ctx{ identity, nr, reg, bones };
-    for (const auto& [obj, cat] : identity.category) {
+    /// @note An inline object referenced from 2+ places is SHARED in the binary; nesting a copy under each parent
+    ///       would parse back as N objects (the serializer then writes N). So it becomes its own node under
+    ///       `shared/<id>.yaml`, referenced by id like any file node — the topology round-trips exactly.
+    std::unordered_map<const IHavokObject*, std::string> effCat(identity.category.begin(), identity.category.end());
+    {
+        /// @note Count POINTER references across the whole graph, descending through embedded structs (a
+        ///       transition-info element holds the `condition` pointer — it is not a top-level object itself).
+        ///       Only pointers (Ptr/PtrArray) can share; embedded structs are owned by value.
+        std::unordered_map<const IHavokObject*, int> refs;
+        std::function<void(const io::SchemaObject&)> visit = [&](const io::SchemaObject& so) {
+            const auto fields = so.Fields();
+            const auto& vals  = so.Values();
+            for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i) {
+                const FieldKind k = fields[i]->kind;
+                if (k == FieldKind::Ptr || k == FieldKind::PtrArray) {
+                    if (vals[i].obj) ++refs[vals[i].obj.get()];
+                    for (const auto& e : vals[i].objs) if (e) ++refs[e.get()];
+                } else if (k == FieldKind::Struct || k == FieldKind::StructArray) {
+                    if (const auto* e = dynamic_cast<const io::SchemaObject*>(vals[i].obj.get())) visit(*e);
+                    for (const auto& o : vals[i].objs) if (const auto* e = dynamic_cast<const io::SchemaObject*>(o.get())) visit(*e);
+                }
+            }
+        };
+        for (const auto& [obj, cat] : identity.category)
+            if (const auto* so = dynamic_cast<const io::SchemaObject*>(obj)) visit(*so);
+        for (auto& [obj, cat] : effCat)
+            if (cat.empty() && refs[obj] >= 2 && std::string(obj->ClassName()) != "hkRootLevelContainer") cat = "shared";
+    }
+    const ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
+    for (const auto& [obj, cat] : effCat) {
         const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
         if (!so) { err = "EmitHkyReflective expects a SchemaObject graph"; return false; }
         const bool root = std::string(so->ClassName()) == "hkRootLevelContainer";
@@ -2447,6 +2508,374 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
 }
 
 } // namespace
+
+// ── ParseHky — the reflective .hky -> SchemaObject graph (the exact inverse of EmitHkyReflective) ─────────────
+namespace {
+namespace yml = c4::yml;
+
+struct HkyParse {
+    const schema::SchemaRegistry&                                          reg;
+    const std::vector<std::string>*                                        bones;
+    std::unordered_map<std::string, std::shared_ptr<io::SchemaObject>>     byId;     ///< file nodes + the root
+    std::vector<std::shared_ptr<io::SchemaObject>>                         all;      ///< every object (owns them)
+    struct Symbol { io::SchemaObject* obj; std::size_t field; bool isEvent; std::string name; std::string where; };
+    std::vector<Symbol>                                                    symbols;  ///< name companions, resolved last
+    std::string                                                            err;
+    std::string                                                            where;    ///< "<file>" for messages
+};
+
+std::string ystr(const yml::ConstNodeRef& n) {
+    std::string s;
+    if (n.readable() && n.has_val()) c4::from_chars(n.val(), &s);
+    return s;
+}
+bool yhas(const yml::ConstNodeRef& n, const std::string& k) {
+    return n.readable() && n.is_map() && n.has_child(c4::to_csubstr(k));
+}
+yml::ConstNodeRef yget(const yml::ConstNodeRef& n, const std::string& k) { return n[c4::to_csubstr(k)]; }
+
+/// @note strtof per token (not istringstream): NaN / inf spellings (`nan`, `-nan(ind)`, `inf`) must parse — a
+///       stream extraction fails on them and silently leaves zeros.
+/// @brief Float text -> bits: `nan_<8 hex>` is raw NaN bits (the emitter's bit-exact NaN form), else strtof.
+std::vector<std::uint8_t> floatBytes(const std::string& t) {
+    std::vector<std::uint8_t> r(4, 0);
+    if (t.rfind("nan_", 0) == 0) {
+        const std::uint32_t u = static_cast<std::uint32_t>(std::strtoul(t.c_str() + 4, nullptr, 16));
+        std::memcpy(r.data(), &u, 4);
+        return r;
+    }
+    const float f = std::strtof(t.c_str(), nullptr);
+    std::memcpy(r.data(), &f, 4);
+    return r;
+}
+float parseFloatStrict(const std::string& t) { float f; const auto b = floatBytes(t); std::memcpy(&f, b.data(), 4); return f; }
+std::vector<std::uint8_t> vec4Strict(const std::string& text) {
+    std::string s = text;
+    for (char& c : s) if (c == '(' || c == ')' || c == ',' || c == '\'') c = ' ';
+    std::vector<std::uint8_t> r(16, 0);
+    std::size_t i = 0;
+    for (int k = 0; k < 4; ++k) {
+        while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n')) ++i;
+        if (i >= s.size()) break;
+        std::size_t e = i;
+        while (e < s.size() && s[e] != ' ' && s[e] != '\t' && s[e] != '\n') ++e;
+        const auto b = floatBytes(s.substr(i, e - i));
+        std::memcpy(r.data() + k * 4, b.data(), 4);
+        i = e;
+    }
+    return r;
+}
+
+/// @brief Scalar text -> little-endian bytes. Enum/flag names resolve through the schema-generated tables; an
+///        unknown name is an ERROR (never a silent 0).
+bool scalarBytes(const Field& f, const std::string& text, std::vector<std::uint8_t>& out, HkyParse& ps) {
+    if (f.scalar == Scalar::Float) { out = floatBytes(text); return true; }
+    if (f.scalar == Scalar::Bool)  { out = encInt(text == "true" ? 1 : 0, Scalar::Bool); return true; }
+    std::int64_t v = 0;
+    if (!f.enumName.empty()) {
+        const auto& t = en::EnumTable(f.enumName);
+        std::size_t s = 0;
+        while (s <= text.size()) {
+            std::size_t e = text.find('|', s);
+            if (e == std::string::npos) e = text.size();
+            std::string tok = text.substr(s, e - s);
+            tok.erase(0, tok.find_first_not_of(' '));
+            if (const auto l = tok.find_last_not_of(' '); l != std::string::npos) tok.erase(l + 1);
+            if (!tok.empty()) {
+                if (auto it = t.find(tok); it != t.end()) v |= it->second;
+                else {
+                    char* end = nullptr;
+                    const long long n = std::strtoll(tok.c_str(), &end, 0);
+                    if (!end || *end) { ps.err = ps.where + ": " + f.name + ": unknown " + f.enumName + " value '" + tok + "'"; return false; }
+                    v |= n;
+                }
+            }
+            s = e + 1;
+        }
+    } else {
+        char* end = nullptr;
+        v = (!text.empty() && text[0] == '-') ? std::strtoll(text.c_str(), &end, 0)
+                                                : static_cast<std::int64_t>(std::strtoull(text.c_str(), &end, 0));
+        if (!end || *end) { ps.err = ps.where + ": " + f.name + ": not a number '" + text + "'"; return false; }
+    }
+    out = encInt(v, f.scalar);
+    return true;
+}
+
+/// @brief A bone reference: a rig name (resolved against the graph's rig) or a raw index.
+bool boneIndex(const std::string& text, std::int64_t& out, HkyParse& ps, const std::string& field) {
+    char* end = nullptr;
+    const long long n = std::strtoll(text.c_str(), &end, 10);
+    if (!text.empty() && end && !*end) { out = n; return true; }
+    if (ps.bones)
+        for (std::size_t i = 0; i < ps.bones->size(); ++i)
+            if ((*ps.bones)[i] == text) { out = static_cast<std::int64_t>(i); return true; }
+    ps.err = ps.where + ": " + field + ": bone '" + text + "' is not in the graph's rig";
+    return false;
+}
+
+bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps);
+bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps);
+
+/// @brief One pointer / struct value: a file-node id, an inline map (optionally `class:`-tagged), or the `unwrap:`
+///        collapsed form of the declared class.
+bool objectValue(const yml::ConstNodeRef& n, const std::string& declared, std::shared_ptr<IHavokObject>& out, HkyParse& ps,
+                 const std::string& field) {
+    if (n.has_val() && !n.is_map() && !n.is_seq()) {
+        const std::string r = ystr(n);
+        if (r == "null") { out = nullptr; return true; }
+        auto it = ps.byId.find(r);
+        if (it == ps.byId.end()) { ps.err = ps.where + ": " + field + ": no node with id '" + r + "'"; return false; }
+        out = it->second;
+        return true;
+    }
+    const schema::ClassSchema* dcs = ps.reg.Find(declared);
+    std::string cls = declared;
+    if (n.is_map() && yhas(n, "class")) cls = ystr(yget(n, "class"));
+    auto obj = makeObj(ps.reg, cls);
+    if (!obj) { ps.err = ps.where + ": " + field + ": unknown class '" + cls + "'"; return false; }
+    ps.all.push_back(obj);
+    out = obj;
+    // `unwrap:` — the value IS the declared class's single field: a seq, or a NON-EMPTY map naming none of the
+    // class's fields. `{}` always means an empty object (the emitter never collapses to `{}`).
+    if (dcs && !dcs->unwrap.empty() && !(n.is_map() && yhas(n, "class"))) {
+        bool collapsed = n.is_seq();
+        if (n.is_map() && n.num_children() > 0) {
+            collapsed = true;
+            for (const Field* f : obj->Fields())
+                if (!f->name.empty() && yhas(n, f->name)) { collapsed = false; break; }
+        }
+        if (collapsed) {
+            const auto fields = obj->Fields();
+            for (std::size_t i = 0; i < fields.size(); ++i)
+                if (fields[i]->name == dcs->unwrap) return fieldValue(*obj, i, n, ps);
+        }
+    }
+    return n.is_map() ? fillHky(*obj, n, ps) : true;
+}
+
+bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n, HkyParse& ps) {
+    const Field& f = *so.Fields()[i];
+    io::FieldValue& v = so.FieldAt(i);
+    v = io::FieldValue{};
+    switch (f.kind) {
+        case FieldKind::Scalar: {
+            if (f.boneRef && !n.is_seq()) {
+                std::int64_t idx = -1;
+                if (!boneIndex(ystr(n), idx, ps, f.name)) return false;
+                v.raw = encInt(idx, f.scalar);
+                return true;
+            }
+            if (n.is_seq()) {
+                for (auto e : n) { std::vector<std::uint8_t> b; if (!scalarBytes(f, ystr(e), b, ps)) return false; v.raw.insert(v.raw.end(), b.begin(), b.end()); }
+                return true;
+            }
+            return scalarBytes(f, ystr(n), v.raw, ps);
+        }
+        case FieldKind::String:
+        case FieldKind::CString:    v.str = ystr(n); return true;
+        case FieldKind::Vector4:
+        case FieldKind::Quaternion: v.raw = vec4Strict(ystr(n)); return true;
+        case FieldKind::QsTransform:
+            for (auto e : n) { const auto b = vec4Strict(ystr(e)); v.raw.insert(v.raw.end(), b.begin(), b.end()); }
+            return true;
+        case FieldKind::Ptr:
+        case FieldKind::Struct:     return objectValue(n, f.ref, v.obj, ps, f.name);
+        case FieldKind::PtrArray:
+        case FieldKind::StructArray:
+            for (auto e : n) {
+                std::shared_ptr<IHavokObject> o;
+                if (!objectValue(e, f.ref, o, ps, f.name)) return false;
+                v.objs.push_back(o);
+            }
+            return true;
+        case FieldKind::StringArray:
+            for (auto e : n) v.strs.push_back(ystr(e));
+            return true;
+        case FieldKind::ScalarArray: {
+            const int w = schema::ScalarWidth(f.scalar);
+            if (f.boneWeights && n.is_map()) {
+                std::string dflt = f.boneWeightDefault;
+                if (yhas(n, "default")) dflt = ystr(yget(n, "default"));
+                std::size_t count = ps.bones ? ps.bones->size() : 0;
+                if (yhas(n, "count")) count = static_cast<std::size_t>(std::strtoull(ystr(yget(n, "count")).c_str(), nullptr, 10));
+                else if (!ps.bones) { ps.err = ps.where + ": " + f.name + ": a weight map needs the graph's rig (or a count:)"; return false; }
+                std::vector<std::uint8_t> d = floatBytes(dflt);
+                for (std::size_t k = 0; k < count; ++k) v.raw.insert(v.raw.end(), d.begin(), d.end());
+                for (auto e : n) {
+                    const std::string key = [&] { std::string s; c4::from_chars(e.key(), &s); return s; }();
+                    if (key == "default" || key == "count") continue;
+                    std::int64_t idx = -1;
+                    if (!boneIndex(key, idx, ps, f.name)) return false;
+                    if (idx < 0 || static_cast<std::size_t>(idx) >= count) { ps.err = ps.where + ": " + f.name + ": bone '" + key + "' is past count " + std::to_string(count); return false; }
+                    const auto b = floatBytes(ystr(e));
+                    std::memcpy(v.raw.data() + idx * 4, b.data(), 4);
+                }
+                return true;
+            }
+            for (auto e : n) {
+                std::vector<std::uint8_t> b;
+                if (f.boneList) { std::int64_t idx = -1; if (!boneIndex(ystr(e), idx, ps, f.name)) return false; b = encInt(idx, f.scalar); }
+                else if (!scalarBytes(f, ystr(e), b, ps)) return false;
+                b.resize(static_cast<std::size_t>(w));
+                v.raw.insert(v.raw.end(), b.begin(), b.end());
+            }
+            return true;
+        }
+        case FieldKind::Vec4Array:
+            for (auto e : n) { const auto b = vec4Strict(ystr(e)); v.raw.insert(v.raw.end(), b.begin(), b.end()); }
+            return true;
+        case FieldKind::QsTransformArray:
+            for (auto e : n) for (auto q : e) { const auto b = vec4Strict(ystr(q)); v.raw.insert(v.raw.end(), b.begin(), b.end()); }
+            return true;
+        case FieldKind::BoolArray:
+            for (auto e : n) v.raw.push_back(ystr(e) == "true" ? 1 : 0);
+            return true;
+        default: return true;
+    }
+}
+
+/// @brief Fill every schema field present in `map`. Absent fields keep their rendered-absent meaning: a null
+///        pointer / empty array (Init default), -1 for a `boneref`, a default object for an inline struct.
+bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
+    const auto fields = so.Fields();
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        const Field& f = *fields[i];
+        if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
+        if (!yhas(map, f.name)) {
+            if (f.kind == FieldKind::Scalar && f.boneRef) so.FieldAt(i).raw = encInt(-1, f.scalar);
+            else if (f.kind == FieldKind::Struct && !so.FieldAt(i).obj) {
+                auto d = makeObj(ps.reg, f.ref);
+                if (!d) { ps.err = ps.where + ": " + f.name + ": unknown struct class '" + f.ref + "'"; return false; }
+                ps.all.push_back(d);
+                so.FieldAt(i).obj = d;
+            }
+            continue;
+        }
+        if (!fieldValue(so, i, yget(map, f.name), ps)) return false;
+        if (!f.eventRef.empty() && yhas(map, f.eventRef)) ps.symbols.push_back({ &so, i, true,  ystr(yget(map, f.eventRef)), ps.where });
+        if (!f.varRef.empty()   && yhas(map, f.varRef))   ps.symbols.push_back({ &so, i, false, ystr(yget(map, f.varRef)),   ps.where });
+    }
+    return true;
+}
+} // namespace
+
+bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
+                        const std::vector<std::string>* bones) {
+    namespace fs = std::filesystem;
+    HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
+    struct Doc { std::string text; yml::Tree tree; std::string cat; std::string file; };
+    std::vector<std::unique_ptr<Doc>> docs;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file() || it->path().extension() != ".yaml") continue;
+        auto d = std::make_unique<Doc>();
+        std::ifstream f(it->path(), std::ios::binary);
+        d->text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        d->file = fs::relative(it->path(), dir).generic_string();
+        const fs::path parent = fs::relative(it->path().parent_path(), dir);
+        d->cat = parent.empty() || parent == "." ? std::string() : parent.generic_string();
+        d->tree = yml::parse_in_place(c4::to_csubstr(d->file), c4::to_substr(d->text));
+        docs.push_back(std::move(d));
+    }
+    // Pass 1: create every file node (and the root) so ids resolve regardless of file order.
+    std::shared_ptr<io::SchemaObject> root;
+    for (auto& d : docs) {
+        const auto r = d->tree.crootref();
+        const std::string id = ystr(yget(r, "id")), cls = ystr(yget(r, "class"));
+        auto obj = makeObj(reg, cls);
+        if (!obj) { err = d->file + ": unknown class '" + cls + "'"; return false; }
+        if (ps.byId.count(id)) { err = d->file + ": duplicate id '" + id + "'"; return false; }
+        ps.byId[id] = obj;
+        ps.all.push_back(obj);
+        out.identity.ids[obj.get()] = id;
+        out.identity.category[obj.get()] = d->cat;
+        if (cls == "hkRootLevelContainer") root = obj;
+    }
+    if (!root) { err = "no graph.yaml (hkRootLevelContainer)"; return false; }
+    // Pass 2: fill.
+    for (auto& d : docs) {
+        ps.where = d->file;
+        const auto r = d->tree.crootref();
+        if (!fillHky(*ps.byId.at(ystr(yget(r, "id"))), r, ps)) { err = ps.err; return false; }
+    }
+    // Every inline object joins the identity (category "") so the name resolver and re-emit see the whole graph.
+    int anon = 0;
+    for (const auto& o : ps.all)
+        if (!out.identity.category.count(o.get())) { out.identity.category[o.get()] = ""; out.identity.ids[o.get()] = "~" + std::to_string(++anon); }
+    // Name companions: the NAME wins over the index (indices shift when mods add symbols; names don't).
+    const NameResolver nr = buildResolver(out.identity);
+    for (const auto& s : ps.symbols) {
+        const auto& L = s.isEvent ? nr.eventsL : nr.variablesL;
+        const auto idx = L.encode(s.name);
+        if (!idx) { err = s.where + ": " + (s.isEvent ? "event" : "variable") + " '" + s.name + "' is not in the graph's roster"; return false; }
+        const Field& f = *s.obj->Fields()[s.field];
+        s.obj->FieldAt(s.field).raw = encInt(static_cast<std::int64_t>(*idx), f.scalar);
+    }
+    out.root = root;
+    out.objects = std::move(ps.all);
+    return true;
+}
+
+HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
+                                       const std::string& workDir, const std::vector<std::string>* bones) {
+    HkyRoundTripResult r;
+    try {
+        PackFileDeserializer des;
+        des.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx br(false, true, bytes);
+        std::shared_ptr<IHavokObject> root = des.Deserialize(br);
+        const HKXHeader header = des._header;
+        auto serialize = [&](const std::shared_ptr<IHavokObject>& o) {
+            PackFileSerializer ser;
+            BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
+            ser.Serialize(o, bw, header);
+            return bw.Data();
+        };
+        const std::vector<std::uint8_t> canon = serialize(root);
+        r.canonIsSource = (canon == bytes);
+        std::error_code ec;
+        std::filesystem::remove_all(workDir, ec);
+        if (!EmitHkyReflective(AssignIdentity(des, reg, ""), reg, workDir, r.error, bones)) return r;
+        ParsedHky parsed;
+        if (!ParseHkyReflective(workDir, reg, parsed, r.error, bones)) return r;
+        const std::vector<std::uint8_t> back = serialize(parsed.root);
+        r.identical = (back == canon);
+        if (!r.identical) {
+            const std::size_t n = std::min(back.size(), canon.size());
+            std::size_t i = 0;
+            while (i < n && back[i] == canon[i]) ++i;
+            r.firstDiff = i;
+            r.sizeDelta = static_cast<long long>(back.size()) - static_cast<long long>(canon.size());
+            std::ofstream(std::filesystem::path(workDir) / "canon.bin", std::ios::binary)
+                .write(reinterpret_cast<const char*>(canon.data()), static_cast<std::streamsize>(canon.size()));
+            std::ofstream(std::filesystem::path(workDir) / "back.bin", std::ios::binary)
+                .write(reinterpret_cast<const char*>(back.data()), static_cast<std::streamsize>(back.size()));
+            // Diagnose by topology: re-read `back` and compare per-class object counts with the source graph.
+            auto histogram = [](PackFileDeserializer& d) {
+                std::map<std::string, int> h;
+                for (const auto& [off, o] : d.DeserializedObjects()) if (o) ++h[o->ClassName()];
+                return h;
+            };
+            PackFileDeserializer des2;
+            des2.ObjectFactory = io::MakeSchemaFactory(reg);
+            BinaryReaderEx br2(false, true, back);
+            des2.Deserialize(br2);
+            const auto a = histogram(des), b = histogram(des2);
+            std::set<std::string> classes;
+            for (const auto& [k, n] : a) classes.insert(k);
+            for (const auto& [k, n] : b) classes.insert(k);
+            for (const auto& k : classes) {
+                const int x = a.count(k) ? a.at(k) : 0, y = b.count(k) ? b.at(k) : 0;
+                if (x != y) r.detail += (r.detail.empty() ? "" : ", ") + k + ":" + std::to_string(x) + "->" + std::to_string(y);
+            }
+        }
+        r.ok = true;
+    } catch (const std::exception& e) {
+        r.error = std::string("RoundTripReflective: ") + e.what();
+    }
+    return r;
+}
 
 bool ParseTagfile(const std::string& xmlText, const schema::SchemaRegistry& reg,
                   ParsedTagfile& out, std::string& err) {

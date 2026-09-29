@@ -82,6 +82,9 @@ struct ClassSchema {
                                              // asserts ComputeSize == size when present (0 = omit/derive).
     std::vector<Field> fields;               // this class's OWN fields, in serialized order (parent's come first, from its schema)
     RuntimeSource      runtime   = RuntimeSource::Game;
+    std::string        unwrap;                   ///< @brief `unwrap: <field>` — a .hky convenience: a pointer/struct to this
+                                                 ///<        class renders as that one field's value directly, when every other
+                                                 ///<        field would emit nothing (else the full object form, so lossless).
 };
 
 // ── Enum definitions (Havok/core/Schema/enums/*.yaml) ─────────────────────────────────────────────

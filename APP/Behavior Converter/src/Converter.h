@@ -190,6 +190,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 ///        rig binding, so bone fields render by name.
 bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log, const std::string& baseHky = "");
 
+/// @brief The reflective-format gate over every behavior .hkx under `meshesDir`: vanilla -> reflective .hky ->
+///        ParseHky -> binary, byte-compared (RoundTripReflective). Differing graphs' trees are kept under
+///        `<workRoot>/<n>` (SHORT path). `baseHky` supplies the rig binding for bone names.
+bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "");
+
 struct RegenResult {
     bool            ok = false;
     std::string     error;

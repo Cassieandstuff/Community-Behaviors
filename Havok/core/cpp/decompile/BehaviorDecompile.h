@@ -122,6 +122,34 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
                                  const std::string& outDir, std::string& err,
                                  const std::vector<std::string>* bones = nullptr);
 
+/// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
+///        categories; inline objects join with category "").
+struct ParsedHky {
+    std::vector<std::shared_ptr<io::SchemaObject>> objects;
+    std::shared_ptr<io::SchemaObject>              root;
+    Identity                                       identity;
+};
+/// @brief ParseHky — the exact inverse of EmitHkyReflective: `dir` (graph.yaml + `<category>/<id>.yaml`) -> the
+///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
+///        name is the stable identity across mods); bone names resolve through `bones` (the graph's rig). Fail-loud:
+///        an unknown enum name, bone, symbol, class or id is an error, never a silent 0.
+bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
+                        const std::vector<std::string>* bones = nullptr);
+
+/// @brief The reflective-format GATE for one behavior binary: deserialize -> re-serialize (`canon`), EmitHkyReflective
+///        into `workDir` -> ParseHkyReflective -> serialize with the same header, compared byte-for-byte to canon.
+struct HkyRoundTripResult {
+    bool        ok = false;             ///< the pipeline ran (else `error`)
+    bool        identical = false;      ///< parse(emit(x)) serializes byte-identical to canon
+    bool        canonIsSource = false;  ///< canon == the input bytes (the serializer's own round-trip)
+    std::size_t firstDiff = 0;          ///< first differing byte offset when !identical
+    long long   sizeDelta = 0;          ///< re-serialized size minus canon size
+    std::string detail;                 ///< on a mismatch: per-class object-count differences (class:canon->back)
+    std::string error;
+};
+HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
+                                       const std::string& workDir, const std::vector<std::string>* bones = nullptr);
+
 // ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
 // Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
 // form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field
