@@ -6,16 +6,16 @@ fields:
   - { name: eventToSendWhenStateOrTransitionChanges, type: struct, ref: hkbEvent }
   - { name: startStateChooser,                   type: ptr, ref: hkbStateChooser }
   - { name: startStateId,                        type: int32 }
-  - { name: returnToPreviousStateEventId,        type: int32 }
-  - { name: randomTransitionEventId,             type: int32 }
-  - { name: transitionToNextHigherStateEventId,  type: int32 }
-  - { name: transitionToNextLowerStateEventId,   type: int32 }
-  - { name: syncVariableIndex,                   type: int32 }
+  - { name: returnToPreviousStateEventId,        type: int32, eventref: returnToPreviousStateEvent }
+  - { name: randomTransitionEventId,             type: int32, eventref: randomTransitionEvent }
+  - { name: transitionToNextHigherStateEventId,  type: int32, eventref: transitionToNextHigherStateEvent }
+  - { name: transitionToNextLowerStateEventId,   type: int32, eventref: transitionToNextLowerStateEvent }
+  - { name: syncVariableIndex,                   type: int32, varref: syncVariable }
   - { name: currentStateId,                      type: int32, ignored: true }
   - { name: wrapAroundStateId,                   type: bool }
   - { name: maxSimultaneousTransitions,          type: int8 }
   - { name: startStateMode,                      type: int8, enum: StartStateMode }
-  - { name: selfTransitionMode,                  type: int8, enum: StateMachineSelfTransitionMode }
+  - { name: selfTransitionMode,                  type: int8, enum: SmSelfTransitionMode }
   - { name: isActive,                            type: bool, ignored: true }
   - { skip: 7 }
   - { name: states,                              type: ptrarray, ref: hkbStateMachineStateInfo }   # merge policy in metadata/semantics/merge.yaml

@@ -8,7 +8,7 @@ fields:
   - { name: minCyclicBlendParameter,      type: float }
   - { name: maxCyclicBlendParameter,      type: float }
   - { name: indexOfSyncMasterChild,       type: int16 }
-  - { name: flags,                        type: int16 }
+  - { name: flags,                        type: int16, hkyenum: BlenderFlags, flags: true }
   - { name: subtractLastChild,            type: bool }
   - { skip: 3 }
   - { name: children,                     type: ptrarray, ref: hkbBlenderGeneratorChild }

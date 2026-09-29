@@ -165,27 +165,11 @@ std::string q(const std::string& s) {
 
 // enum type name -> table. Extended as categories need more; the decompiler references these by the
 // same names (en::SelfTransitionMode() etc.).
+/// @note Resolves through the schema-generated tables (en::EnumTable, baked from Havok/core/Schema/metadata/enums),
+///       so any enum yaml renders/parses by annotation alone — no hand-kept list to fall out of date.
 const std::unordered_map<std::string, long>* enumTable(const std::string& n) {
-    static const std::unordered_map<std::string, const std::unordered_map<std::string, long>*> reg = {
-        {"PlaybackMode",                  &en::PlaybackMode()},
-        {"VariableMode",                  &en::VariableMode()},
-        {"StartStateMode",                &en::StartStateMode()},
-        {"StateMachineSelfTransitionMode", &en::SmSelfTransitionMode()},  // annotation name != en:: name
-        {"SelfTransitionMode",            &en::SelfTransitionMode()},
-        {"EventMode",                     &en::EventMode()},
-        {"EndMode",                       &en::EndMode()},
-        {"BlendCurve",                    &en::BlendCurve()},
-        {"BlendModeFunction",             &en::BlendModeFunction()},
-        {"SetAngleMethod",                &en::SetAngleMethod()},
-        {"RotationAxisCoordinates",       &en::RotationAxisCoordinates()},
-        {"BindingType",                   &en::BindingType()},
-        {"TransitionFlags",               &en::TransitionFlags()},
-        {"FlagBits",                      &en::FlagBits()},
-        {"ClipGeneratorFlags",            &en::ClipGeneratorFlags()},
-        {"BlenderFlags",                  &en::BlenderFlags()},
-    };
-    auto it = reg.find(n);
-    return it == reg.end() ? nullptr : it->second;
+    const auto& t = en::EnumTable(n);
+    return t.empty() ? nullptr : &t;
 }
 
 // Decode a scalar field's raw little-endian bytes to a signed long (sign-extended by type).
@@ -1079,7 +1063,7 @@ void tfBody(std::string& x, const std::string& ind, const io::SchemaObject& so, 
                     else if (cls == "hkbRoleAttribute" && f.name == "flags") { sval = tfFlags(decodeInt(v.raw, f.scalar), en::RoleFlags()); }
                     if (t) { const long iv = decodeInt(v.raw, f.scalar); sval = fl ? en::FormatFlags(iv, *t) : revNum(*t, iv); }
                 }
-                if (sval.empty()) sval = renderScalar(f, v);
+                if (sval.empty()) sval = f.hkyOnlyEnum ? std::to_string(decodeInt(v.raw, f.scalar)) : renderScalar(f, v);
                 x += open + ">" + sval + "</hkparam>\n";
                 break;
             }
@@ -1823,8 +1807,11 @@ LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>
 
 namespace {
 /// @note Reflective emit, MEASUREMENT stage: every schema field in schema order, rendered by FieldKind alone.
-///       File nodes (non-empty category) render as their id; inline objects nest as maps with their `class:`.
-std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr);
+///       File nodes (non-empty category) render as their id; inline objects nest as maps. Generic, lossless
+///       elisions: a nested object states `class:` only when it differs from the field's declared class (a
+///       subclass); a null pointer or an empty array is omitted (absent == null / empty on parse).
+std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr,
+                          const schema::SchemaRegistry& reg, const std::string& declaredClass = {});
 
 std::string indentLines(const std::string& block, const std::string& first, const std::string& rest) {
     std::string out;
@@ -1846,33 +1833,50 @@ bool isFileNode(const IHavokObject* o, const Identity& id) {
     return c != id.category.end() && !c->second.empty();
 }
 
-std::string scalarText(const Field& f, const std::vector<std::uint8_t>& raw) {
+/// @note Enums render through the REGISTRY (schema enum tree), not a hardcoded table. Flags decode UNSIGNED at the
+///       field's width: sign-extending an int16 bitfield turns garbage high bits into 0xFFFF....
+std::string scalarText(const Field& f, const std::vector<std::uint8_t>& raw, const schema::SchemaRegistry& reg) {
     if (f.scalar == Scalar::Half) {
         std::uint16_t h = 0; if (raw.size() >= 2) std::memcpy(&h, raw.data(), 2);
         char b[16]; std::snprintf(b, sizeof b, "0x%04x", h); return b;
     }
+    if (!f.enumName.empty())
+        if (const schema::EnumDef* e = reg.FindEnum(f.enumName)) {
+            std::unordered_map<std::string, long> t;
+            for (const auto& it : e->items) t.emplace(it.name, it.value);
+            if (f.isFlags || e->isFlags) {
+                const int w = schema::ScalarWidth(f.scalar);
+                std::uint64_t u = 0;
+                for (int i = 0; i < w && i < static_cast<int>(raw.size()); ++i) u |= static_cast<std::uint64_t>(raw[i]) << (8 * i);
+                return en::FormatFlags(static_cast<long>(u), t);
+            }
+            const std::int64_t iv = decodeInt(raw, f.scalar);
+            const std::string nm = en::enumName(static_cast<long>(iv), t);
+            return nm.empty() ? std::to_string(iv) : nm;
+        }
     io::FieldValue v; v.raw = raw;
     return renderScalar(f, v);
 }
 
-std::string elemText(const std::shared_ptr<IHavokObject>& p, const Identity& id, const NameResolver& nr, const std::string& key) {
-    if (!p) return key + ": null\n";
+std::string elemText(const std::shared_ptr<IHavokObject>& p, const Identity& id, const NameResolver& nr,
+                     const schema::SchemaRegistry& reg, const std::string& key, const std::string& declared) {
+    if (!p) return {};
     if (isFileNode(p.get(), id)) return key + ": " + refIdOf(p, id) + "\n";
     const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
     if (!so) return key + ": '?'\n";
-    return key + ":\n" + indentLines(reflectObject(*so, id, nr), "  ", "  ");
+    return key + ":\n" + indentLines(reflectObject(*so, id, nr, reg, declared), "  ", "  ");
 }
 
 std::string listText(const std::vector<std::shared_ptr<IHavokObject>>& objs, const Identity& id, const NameResolver& nr,
-                     const std::string& key) {
-    if (objs.empty()) return key + ": []\n";
+                     const schema::SchemaRegistry& reg, const std::string& key, const std::string& declared) {
+    if (objs.empty()) return {};
     std::string y = key + ":\n";
     for (const auto& p : objs) {
         if (!p) { y += "  - null\n"; continue; }
         if (isFileNode(p.get(), id)) { y += "  - " + refIdOf(p, id) + "\n"; continue; }
         const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
         if (!so) { y += "  - '?'\n"; continue; }
-        y += indentLines(reflectObject(*so, id, nr), "  - ", "    ");
+        y += indentLines(reflectObject(*so, id, nr, reg, declared), "  - ", "    ");
     }
     return y;
 }
@@ -1884,8 +1888,9 @@ std::string flowList(std::size_t n, F&& at) {
     return y + "]";
 }
 
-std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: " + std::string(so.ClassName()) + "\n";
+std::string reflectObject(const io::SchemaObject& so, const Identity& id, const NameResolver& nr,
+                          const schema::SchemaRegistry& reg, const std::string& declaredClass) {
+    std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
     const auto fields = so.Fields();
     const auto& vals  = so.Values();
     for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i) {
@@ -1897,13 +1902,13 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
                 const std::size_t n = w ? v.raw.size() / w : 0;
                 if (n <= 1) {
-                    y += f.name + ": " + scalarText(f, v.raw) + "\n";
+                    y += f.name + ": " + scalarText(f, v.raw, reg) + "\n";
                     const long iv = static_cast<long>(decodeInt(v.raw, f.scalar));
                     if (!f.eventRef.empty()) { const std::string s = nr.safeEvent(iv);    if (!s.empty()) y += f.eventRef + ": " + q(s) + "\n"; }
                     if (!f.varRef.empty())   { const std::string s = nr.safeVariable(iv); if (!s.empty()) y += f.varRef + ": " + q(s) + "\n"; }
                 } else {
                     y += f.name + ": " + flowList(n, [&](std::size_t k) {
-                        return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w));
+                        return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w), reg);
                     }) + "\n";
                 }
                 break;
@@ -1919,26 +1924,30 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
                 }) + "\n";
                 break;
             case FieldKind::Ptr:
-            case FieldKind::Struct:     y += elemText(v.obj, id, nr, f.name); break;
+            case FieldKind::Struct:     y += elemText(v.obj, id, nr, reg, f.name, f.ref); break;
             case FieldKind::PtrArray:
-            case FieldKind::StructArray: y += listText(v.objs, id, nr, f.name); break;
+            case FieldKind::StructArray: y += listText(v.objs, id, nr, reg, f.name, f.ref); break;
             case FieldKind::StringArray:
+                if (v.strs.empty()) break;
                 y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return q(v.strs[k]); }) + "\n";
                 break;
             case FieldKind::ScalarArray: {
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
                 const std::size_t n = w ? v.raw.size() / w : 0;
+                if (n == 0) break;
                 y += f.name + ": " + flowList(n, [&](std::size_t k) {
-                    return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w));
+                    return scalarText(f, std::vector<std::uint8_t>(v.raw.begin() + k * w, v.raw.begin() + (k + 1) * w), reg);
                 }) + "\n";
                 break;
             }
             case FieldKind::Vec4Array:
+                if (v.raw.empty()) break;
                 y += f.name + ": " + flowList(v.raw.size() / 16, [&](std::size_t k) {
                     return pvecRaw(std::vector<std::uint8_t>(v.raw.begin() + k * 16, v.raw.begin() + (k + 1) * 16));
                 }) + "\n";
                 break;
             case FieldKind::QsTransformArray:
+                if (v.raw.empty()) break;
                 y += f.name + ": " + flowList(v.raw.size() / 48, [&](std::size_t k) {
                     return flowList(3, [&](std::size_t j) {
                         const std::size_t o = k * 48 + j * 16;
@@ -1947,6 +1956,7 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
                 }) + "\n";
                 break;
             case FieldKind::BoolArray:
+                if (v.raw.empty()) break;
                 y += f.name + ": " + flowList(v.raw.size(), [&](std::size_t k) { return boolstr(v.raw[k] != 0); }) + "\n";
                 break;
             default: break;   // Vtable / Pad / Skip / EmptyArray / EmptyPtr carry no authored value
@@ -1956,7 +1966,7 @@ std::string reflectObject(const io::SchemaObject& so, const Identity& id, const 
 }
 } // namespace
 
-bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
+bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
                        const std::string& outDir, std::string& err) {
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -1970,7 +1980,7 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& /
         const fs::path dir = root ? fs::path(outDir) : fs::path(outDir) / cat;
         fs::create_directories(dir, ec);
         std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary)
-            << "id: " << idStr << "\n" << reflectObject(*so, identity, nr);
+            << "id: " << idStr << "\n" << reflectObject(*so, identity, nr, reg);
     }
     return true;
 }

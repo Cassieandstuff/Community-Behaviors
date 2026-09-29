@@ -53,6 +53,8 @@ struct Field {
                                          // the value by name (MODE_SINGLE_PLAY); no serde/size effect.
     bool        isFlags = false;         // enum is an OR-able bitfield → .hky renders via FormatFlags
                                          // (A|B) rather than a single name. (.hky-only; no serde effect.)
+    bool        hkyOnlyEnum = false;     ///< @brief `hkyenum:` — enumName is a .hky rendering convenience only; Havok's
+                                         ///<        reflection has no enum here, so the tagfile keeps the number.
     bool        hkyEmit = false;         // force-emit this field in the .hky even though it is `ignored`
                                          // (SERIALIZE_IGNORED but semantically authored, e.g.
                                          // hkbBlendingTransitionEffect.initializeCharacterPose).

@@ -6,5 +6,5 @@ fields:
   - { name: upperBound, type: float }
   - { skip: 4 }
   - { name: event,     type: struct, ref: hkbEventProperty }
-  - { name: eventMode, type: int8 }
+  - { name: eventMode, type: int8, enum: EventRangeMode }
   - { skip: 7 }

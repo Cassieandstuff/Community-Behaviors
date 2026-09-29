@@ -8,13 +8,13 @@ fields:
   - { name: minSpeedToSwitch,       type: float }
   - { name: minSwitchTimeNoError,   type: float }
   - { name: minSwitchTimeFullError, type: float }
-  - { name: startPlayingEventId,    type: int32 }
-  - { name: startMatchingEventId,   type: int32 }
+  - { name: startPlayingEventId,    type: int32, eventref: startPlayingEvent }
+  - { name: startMatchingEventId,   type: int32, eventref: startMatchingEvent }
   - { name: rootBoneIndex,          type: int16 }
   - { name: otherBoneIndex,         type: int16 }
   - { name: anotherBoneIndex,       type: int16 }
   - { name: pelvisIndex,            type: int16 }
-  - { name: mode,                   type: int8 }
+  - { name: mode,                   type: int8, enum: PoseMatchingMode }
   - { skip: 3 }
   - { name: currentMatch,           type: int32, ignored: true }
   - { name: bestMatch,              type: int32, ignored: true }

@@ -1047,15 +1047,10 @@ std::shared_ptr<io::SchemaObject> BuildRootContainer(const std::string& graphKey
 // ── generic modifier (schema-driven field-walk; covers the flat Bethesda modifiers) ──
 namespace {
 // enum-table-by-name (the subset the generic modifiers reference), mirroring HavokModel.cpp's emit map.
+/// @note Schema-generated tables (enums::EnumTable) — the same source the decompile renders from.
 const std::unordered_map<std::string,long>* genEnumTable(const std::string& n) {
-    using namespace enums;
-    static const std::unordered_map<std::string, const std::unordered_map<std::string,long>*> reg = {
-        {"SetAngleMethod", &SetAngleMethod()}, {"RotationAxisCoordinates", &RotationAxisCoordinates()},
-        {"BlendCurve", &BlendCurve()}, {"BlendModeFunction", &BlendModeFunction()}, {"EventMode", &EventMode()},
-        {"EndMode", &EndMode()}, {"FlagBits", &FlagBits()}, {"TransitionFlags", &TransitionFlags()},
-        {"BindingType", &BindingType()}, {"StartStateMode", &StartStateMode()}, {"BlenderFlags", &BlenderFlags()},
-    };
-    auto it = reg.find(n); return it == reg.end() ? nullptr : it->second;
+    const auto& t = enums::EnumTable(n);
+    return t.empty() ? nullptr : &t;
 }
 bool isHeaderName(const std::string& n) { return n=="name" || n=="userData" || n=="enable" || n=="variableBindingSet"; }
 } // namespace

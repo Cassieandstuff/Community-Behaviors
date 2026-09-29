@@ -7,7 +7,7 @@ fields:
   - { name: initiateInterval,   type: struct, ref: hkbStateMachineTimeInterval }
   - { name: transition,         type: ptr, ref: hkbTransitionEffect }
   - { name: condition,          type: ptr, ref: hkbCondition }
-  - { name: eventId,            type: int32 }
+  - { name: eventId,            type: int32, eventref: event }
   - { name: toStateId,          type: int32 }
   - { name: fromNestedStateId,  type: int32 }
   - { name: toNestedStateId,    type: int32 }
