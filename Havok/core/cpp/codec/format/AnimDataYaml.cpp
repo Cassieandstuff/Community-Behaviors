@@ -226,15 +226,13 @@ std::string UniqueFileName(const std::string& base, std::set<std::string>& used)
     }
 }
 
-std::map<std::string, ProjectCharacter> LoadProjectCharacters(const std::string& treeMeshesDir)
+std::map<std::string, ProjectCharacter> LoadProjectCharacters(
+    const std::string& treeMeshesDir,
+    const std::function<std::vector<std::string>(const std::filesystem::path& unit)>& rosterOf,
+    const std::function<bool(const std::filesystem::path& unit)>& isProject)
 {
     namespace fs = std::filesystem;
     auto lc = [](std::string s){ for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return s; };
-    auto strip = [](std::string s){
-        while (!s.empty() && (s.back()=='\r'||s.back()=='\n'||s.back()==' '||s.back()=='\t')) s.pop_back();
-        std::size_t b = 0; while (b < s.size() && (s[b]==' '||s[b]=='\t')) ++b;
-        return s.substr(b);
-    };
     std::error_code ec;
     const fs::path base(treeMeshesDir);
     auto rel = [&](const fs::path& p){ return p.lexically_relative(base).generic_string(); };
@@ -250,28 +248,11 @@ std::map<std::string, ProjectCharacter> LoadProjectCharacters(const std::string&
         const std::string parent = lc(unit.parent_path().filename().string());
         const std::string stem   = lc(unit.stem().string());
         if (parent.rfind("characters", 0) == 0) {                // .../characters[ x]/<char>.hkx
-            const fs::path ap = unit / "data" / "animations.yaml";
-            if (!fs::exists(ap, ec)) continue;
-            std::vector<std::string> roster;
-            std::ifstream rf(ap); std::string line;
-            while (std::getline(rf, line)) {   // block seq of single-quoted scalars: `- 'path'`
-                std::string t = strip(line);
-                if (t.empty() || t[0] == '#') continue;
-                if (t.rfind("- ", 0) == 0) t = strip(t.substr(2));
-                else if (!t.empty() && t[0] == '-') t = strip(t.substr(1));
-                if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
-                    const std::string inner = t.substr(1, t.size() - 2); std::string un;
-                    for (std::size_t i = 0; i < inner.size(); ++i)
-                        if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
-                        else un += inner[i];
-                    t = std::move(un);
-                }
-                if (!t.empty()) roster.push_back(std::move(t));
-            }
+            std::vector<std::string> roster = rosterOf(unit);
             if (roster.empty()) continue;
             charByStem.emplace(stem, ProjectCharacter{ rel(unit), roster });
             charsByRoot[rel(unit.parent_path().parent_path())].push_back(stem);
-        } else if (fs::exists(unit / "project.yaml", ec)) {      // a PROJECT unit at the actor root
+        } else if (isProject(unit)) {                            // a PROJECT unit at the actor root
             projRoot.emplace(stem, rel(unit.parent_path()));
         }
     }

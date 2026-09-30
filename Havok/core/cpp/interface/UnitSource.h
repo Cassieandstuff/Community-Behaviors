@@ -5,14 +5,12 @@
 #include <string>
 #include <vector>
 
-// IUnitSource — an abstract backing store for ONE behavior unit (a single .hky
-// layer: a base or a delta). YamlBehaviorLoader reads every unit-relative file
-// through this interface so a unit can live on disk (DiskUnitSource, the default)
-// or, later, in memory (a BR zip/blob backend) without the loader knowing which.
+// IUnitSource — an abstract backing store for ONE unit (a single .hky layer: a base or a patch). The
+// reflective reader reads every unit-relative file through it, so a unit lives on disk (DiskUnitSource)
+// or in a packed .hky (ZipUnitSource) without the reader knowing which.
 //
-// A "unit-relative path" is the path of a file inside the unit, forward-slashed,
-// e.g. "behavior.yaml", "states/1.yaml", "data/additive.yaml",
-// "character assets/skeleton.yaml".
+// A "unit-relative path" is the path of a file inside the unit, forward-slashed, e.g. "graph.yaml",
+// "states/0000x0001.yaml", "states/0000x0001/transitions.yaml".
 
 namespace CB::core::common {
 

@@ -11,13 +11,14 @@
 #include <vector>
 
 namespace CB::core::codec { class HkyArchive; }
+namespace CB::core::decompile { struct ParsedHky; }
 
 namespace bconv {
 
-/// @brief Compiles a base bundle's behavior units back to binaries with the bone table of the rig their
-///        characters bind (RigIndex — the same binding the runtime Resolver uses).
-/// @note  Name-keyed hkbBoneIndexArrays only compile against the right rig; a hardcoded character skeleton
-///        left every creature graph uncompilable (or compiled against the wrong bones).
+/// @brief Reads a base bundle's units with the bone table of the rig their characters bind (RigIndex — the same
+///        binding the runtime Resolver uses).
+/// @note  Bone-named fields (weight maps, bone refs, bone-keyed rosters) only resolve against the right rig; a
+///        hardcoded character skeleton left every creature graph unreadable (or read against the wrong bones).
 class BaseUnitCompiler {
 public:
     explicit BaseUnitCompiler(std::shared_ptr<const CB::core::codec::HkyArchive> base);
@@ -25,9 +26,10 @@ public:
     /// @brief Bone names of the rig bound to `serveKey` (first sorted rig of a shared graph); empty if none.
     const std::vector<std::string>& BonesFor(const std::string& serveKey);
 
-    /// @brief Compile the base unit at `prefix` (a behavior serve key) to packfile bytes.
-    /// @return false with `err` set when the unit is absent or fails to compile.
-    bool CompileBehavior(const std::string& prefix, std::vector<std::uint8_t>& out, std::string& err);
+    /// @brief Parse the base unit at `prefix` (a serve key), bones bound through its rig.
+    bool Parse(const std::string& prefix, CB::core::decompile::ParsedHky& out, std::string& err);
+    /// @brief Parse + serialize the base unit at `prefix` to packfile bytes.
+    bool Compile(const std::string& prefix, std::vector<std::uint8_t>& out, std::string& err);
 
 private:
     std::shared_ptr<const CB::core::codec::HkyArchive> m_base;

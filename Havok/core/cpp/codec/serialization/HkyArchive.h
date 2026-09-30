@@ -45,11 +45,19 @@ public:
     // format has both directions in one place (per the omnidirectional round-trip rule).
     static bool PackDirectory(const std::string& dir, const std::string& outHkyPath, std::string& err);
 
-    // Every unit in the archive — a subtree holding behavior.yaml / character.yaml /
-    // project.yaml. `prefix` doubles as the serve key.
+    /// @brief A reflective unit's kind from its graph.yaml: the root's named variant class (hkbCharacterData,
+    ///        hkbProjectData, hkaAnimationContainer); anything else — or no graph.yaml — is a Behavior. (A skeleton
+    ///        unit is bonelist.yaml + bones/, not reflective: see units().)
+    /// @note  A mod's patch unit names its base's variant class too; pair with IsPatchGraphYaml.
+    static UnitKind KindOfGraphYaml(std::string_view graphYaml);
+    /// @brief True when graph.yaml is a PATCH's: its root `id:` is a FormID owned by a master (`0001x…`), not by the
+    ///        unit itself (`0000x…`). A patch unit is incomplete alone — it only overlays its master's unit.
+    static bool IsPatchGraphYaml(std::string_view graphYaml);
+
+    // Every unit in the archive — every "<prefix>.hkx/" subtree. `prefix` doubles as the serve key.
     const std::vector<Unit>& units() const { return m_units; }
 
-    // A read-only IUnitSource rooted at `unitPrefix` (feed to YamlBehaviorLoader::LoadMerged).
+    /// @brief A read-only IUnitSource rooted at `unitPrefix` (a merge layer: ParseHkyReflective / MergeHkyPatch).
     std::shared_ptr<const IUnitSource> source(const std::string& unitPrefix) const;
 
     // Raw lookup by full archive path (lowercase, forward-slash — the normalized key). nullopt if absent.

@@ -34,7 +34,7 @@ std::string Scalar(const std::string& s) {
 }
 
 // Always single-quote (animation paths carry backslashes; residue tokens carry spaces) — verbatim
-// round-trip, matching how data/animations.yaml stores roster paths.
+// round-trip, matching how a character's roster stores its paths.
 std::string QuoteSq(const std::string& s) {
     std::string o = "'";
     for (char c : s) { if (c == '\'') o += "''"; else o += c; }

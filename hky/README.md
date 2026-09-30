@@ -27,7 +27,7 @@ a bundle never edits the id-keyed vanilla node.
 ```
 src/SKSE/Behavior Relay/hky/<Bundle>.hky/        <- authored tree (this folder)
   manifest.json                                  <- identity + declared masters
-  meshes/actors/.../<graph>.hkx/                 <- graph units (behavior.yaml + node dirs)
+  meshes/actors/.../<graph>.hkx/                 <- graph units (graph.yaml + <category>/<id>.yaml)
   animationnames/<character>.txt                 <- optional roster drops
         │
         │  build: havok-core-cli hky-pack "<Bundle>.hky" -o <build>/packed-hky/behavior_relay/plugins/<Bundle>.hky

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <interface/defs/CharacterDefs.h>
-
 #include <functional>
 #include <optional>
 #include <set>
@@ -11,20 +9,23 @@
 
 namespace CB::core::skeleton {
 
+/// @brief A character's rig and root behavior, as its string data names them (project-dir relative).
+struct CharacterRig { std::string rig, behavior; };
+
 /// @brief Which skeleton (rig) each behavior graph / animation binds, harvested from the data itself:
-///        project.yaml characterFilenames -> character.yaml `rig:` / `behavior:` (both project-dir relative).
+///        a project's characterFilenames -> each character's rig / behavior (both project-dir relative).
 /// @note  All keys are normalized serve paths (lowercase, '/'): unit identity is path identity, and the
 ///        engine opens these files case-insensitively. Bone NAMES never pass through here.
 class RigIndex {
 public:
     /// @brief Bind every character a project lists.
-    /// @param projUnit     normalized project unit path ("meshes/actors/horse/horseproject.hkx").
-    /// @param projectYaml  that unit's project.yaml text.
-    /// @param loadChar     character unit key -> its CharacterDef, or nullopt if absent/unreadable.
-    /// @param hasSkeleton  rig unit key -> whether a skeleton unit exists at that path.
-    /// @param warn         diagnostic sink (a rig with no skeleton unit).
-    void AddProject(const std::string& projUnit, const std::string& projectYaml,
-                    const std::function<std::optional<CB::core::common::CharacterDef>(const std::string&)>& loadChar,
+    /// @param projUnit            normalized project unit path ("meshes/actors/horse/horseproject.hkx").
+    /// @param characterFilenames  that project's characterFilenames.
+    /// @param loadChar            character unit key -> its rig / behavior, or nullopt if absent/unreadable.
+    /// @param hasSkeleton         rig unit key -> whether a skeleton unit exists at that path.
+    /// @param warn                diagnostic sink (a rig with no skeleton unit).
+    void AddProject(const std::string& projUnit, const std::vector<std::string>& characterFilenames,
+                    const std::function<std::optional<CharacterRig>(const std::string&)>& loadChar,
                     const std::function<bool(const std::string&)>& hasSkeleton,
                     const std::function<void(const std::string&)>& warn = {});
 

@@ -1,8 +1,8 @@
 # ── compile ──────────────────────────────────────────────────────────────────
 # CB::core compile — build-direction orchestration + one-way DERIVES (no reverse,
 # so NOT codecs). First tenant (org-pass firesale): AnimDataFromBehavior — derive a
-# project's animationdata (clip list + annotation triggers + durations) FROM an
-# in-memory BehaviorData, the runtime+offline shared derive. ExtractAnimClipInfo is
+# project's animationdata (clip list + annotation triggers + durations) FROM a
+# behavior graph's clip generators, the runtime+offline shared derive. ExtractAnimClipInfo is
 # now schema-native (havok-io SchemaObject graph, no typed hka* classes), so this
 # drained cleanly out of the quarantined havok-core. Include root Havok/core/cpp/ ->
 # headers resolve as <compile/*.h>.
@@ -14,7 +14,7 @@ target_include_directories(compile
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/Havok/core/cpp>   # <compile/*.h>
             $<INSTALL_INTERFACE:include>)
 
-# interface = AnimationData model; havok-model = BehaviorData + defs + AnimDataDeriver (DeriveClipList);
+# interface = AnimationData model; havok-model = the AnimDataDeriver forwarding headers;
 # havok-framing = PackFileDeserializer; havok-io = SchemaObject/MakeSchemaFactory; havok-schema =
 # SharedRegistry (the schema-native anim read). havok-model PUBLIC-propagates io/schema/interface, but
 # name them so the deps are explicit and survive a havok-model retarget.

@@ -13,9 +13,7 @@
 #include "core/resolve/Resolver.h"
 
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
-#include <compile/GraphCompile.h>                 // CB::core::compile::CompiledCount (warm-up telemetry)
 #include <havok-schema/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
-#include "havok/model/yaml/YamlBehaviorLoader.h"  // YamlBehaviorLoader::SetSchemaRegistry (wire the merge classifier)
 
 #include <atomic>
 #include <chrono>
@@ -120,12 +118,9 @@ namespace CB {
         return false;
     }
 
-    // Data-driven compiler toggle (settings.ini, [Compiler] bUseSchema / sSchemaDir). DEFAULT ON now
-    // (havok-core retirement flip): the schema-driven AssembleGraph is byte-identical to the typed
-    // builder offline across the whole vanilla corpus, and CompileBehavior falls back to the typed path
-    // on ANY per-graph failure — so serving through it can't regress a graph, only route it. The Havok/
+    // Schema compiler toggle (settings.ini, [Compiler] bUseSchema / sSchemaDir). DEFAULT ON. The Havok/
     // schema tree ships with BR (Data/Community Behaviors/Havok, staged by CMake); sSchemaDir overrides,
-    // then env SCT_HAVOK_SCHEMA_DIR, then that shipped default. Set bUseSchema=false to force typed.
+    // then env SCT_HAVOK_SCHEMA_DIR, then that shipped default. bUseSchema=false is the kill switch.
     static void ApplySchemaCompilerSetting()
     {
         bool        enabled = true;
@@ -140,13 +135,12 @@ namespace CB {
             dir = "Data/Community Behaviors/Havok";   // BR-shipped schema tree (MO2 VFS-merged path)
 
         // Schema-only compiler (firesale — the typed BehaviorBuilder fallback is retired). Arm the shared
-        // registry dir + wire the load-order merge classifier to the same schema. bUseSchema=false leaves
+        // registry dir. bUseSchema=false leaves
         // the registry UNARMED, so every compile fails and every graph serves VANILLA (CB effectively off) —
         // a clean kill switch, not a typed path. A schema that fails to LOAD (missing/foreign/version-
         // mismatched Havok/ tree) is the same: all graphs serve vanilla, loudly.
         CB::core::schema::SetSharedSchemaDir(enabled ? dir : "");
         CB::core::schema::SchemaRegistry* reg = enabled ? CB::core::schema::SharedRegistry() : nullptr;
-        CB::core::codec::YamlBehaviorLoader::SetSchemaRegistry(reg);
         const bool ready = (reg != nullptr);
         LOG_INFO("Community Behaviors: data-driven compiler {} (schema registry {}).",
                  enabled ? "ENABLED" : "off",
@@ -168,7 +162,7 @@ namespace CB {
     // NOTE: the main-menu freeze-then-crash originally chased here was NOT a stack
     // overflow. It was a VFS collision between two enabled mods both shipping
     // Data\community_behaviors\plugins\ (a stale offline pre-merged bundle overlaying the
-    // per-mod deltas), which fed CompileBehavior a corrupt merged 0_master. That is a
+    // per-mod deltas), which fed the compile a corrupt merged 0_master. That is a
     // load-order/data fix (drop the stale bundle), not a code fix.
     // Multithreaded native-animation compile toggle. DEFAULT ON in every build — the per-unit native-anim
     // compile fans across a worker pool (proven massively faster in-game, and each unit is a pure function
@@ -223,9 +217,8 @@ namespace CB {
         g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
             CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
         });
-        // (The character animationNames roster is built offline now — the converter scans clip
-        // generators into each unit's data/animations.yaml and LoadMerged unions every layer at
-        // compile time — so there is no runtime roster-completion pass between compile and disk write.)
+        // (The character animationNames roster is a union roster: the merge unions every layer's names at
+        // compile time, so there is no runtime roster-completion pass between compile and disk write.)
         // Write every compiled graph to the consolidated cache (<Data>\Meshes\community_behaviors_cache\...)
         // and publish the redirect map; the synthesized project per character is written on demand by
         // ProjectRedirect into the same cache (vanilla path/identity, no ".br"). The project serve hook
@@ -250,8 +243,6 @@ namespace CB {
         LOG_INFO("Community Behaviors: precompiled {} graph(s) + {} animation(s), materialized {} to disk "
                  "in {:.1f}s (runtime loads served from disk cache).",
                  graphCount, g_resolver.NativeAnimCount(), wrote, secs);
-        { const std::size_t s = CB::core::compile::CompiledCount();
-          if (s) LOG_INFO("Community Behaviors: schema-compiled {} graph(s)/character(s) this warm-up (typed path retired).", s); }
         return 0;
     }
 
@@ -303,7 +294,10 @@ namespace CB {
         const GraphClipSink* clipSink =
             g_resolver.AdsfDerive() ? &g_resolver.ClipSink() : nullptr;
         const auto ad = CB::core::serve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt",
-                                               clipSink, ReadAdsfRosterFromScan());
+            [](const std::string& key, const std::vector<CB::core::common::LayerSource>& layers) {
+                return g_resolver.ClipInputsOf(key, layers);
+            },
+            clipSink, ReadAdsfRosterFromScan());
         if (ad.attempted && !ad.ok)
             LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);
         CB::core::serve::ArmAnimDataRedirect(ad);

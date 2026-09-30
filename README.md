@@ -21,7 +21,6 @@ src/                        CB source (flat: each Foo.cpp beside its Foo.h)
   havok-io/                  generic schema-driven .hkx read/write (byte-exact)     │ Havok stack
   havok-model/               name-keyed .hky model + load-order merge + emit        │
   havok-pipeline/            the graph-feature SDK (IGraphFeature/FeatureRegistry)  ┘
-  cb-resolve/                minimal public load-order-resolution API (see below)
   sct-config/ sct-utilities/ config scanner / desktop plumbing
 Havok/core/Schema/          the vanilla Havok class schema, described once as data
 Retirement Home/havok-core/ QUARANTINED legacy typed backbone (being dissolved; don't build on it)
@@ -42,26 +41,26 @@ cmake --preset release          # full build: plugin + converter + build-time ga
 cmake --build build/release --config RelWithDebInfo --target CommunityBehaviors
 ```
 
-Presets: `release` / `debug` (full), `resolve` (the `cb-resolve` library surface only).
+Presets: `release` / `debug` (full), `api` (the `cb::CB-API` library surface only).
 Options: `-DCB_BUILD_CONVERTER=OFF` (skip the GUI converter for a lean plugin build),
-`-DCB_RESOLVE_ONLY=ON` (build only `cb-resolve`).
+`-DCB_API_ONLY=ON` (build only `cb::CB-API`).
 
 Relevant env vars: `SKYRIM_MODS_FOLDER` (MO2 deploy target for the plugin + its data),
 `SKYRIM_TOOLS_FOLDER` (converter deploy), `CB_REGEN_SOURCE` (per-bundle `<Name>.hky` source folders; arms the derived-bundle regen),
 `SCT_BASE_MASTER_DIR` (short path for the cross-build master-diff tree).
 
-## Using the resolution API (`cb-resolve`)
+## Using the API (`cb::CB-API`)
 
-Any tool can resolve a load order **identically to the CB compiler** by linking the `cb-resolve`
-library — the load-order merge + `.hky` document model, with no SKSE/plugin dependency. Consume it via
-FetchContent; see **[docs/consuming-cb-resolve.md](docs/consuming-cb-resolve.md)**.
+Any tool can merge a load order **identically to the CB compiler** by linking `cb::CB-API` and
+including `<CB-API.h>` — the `.hky` reader, the FormID merge, patch derivation, and the animation /
+skeleton codecs, with no SKSE/plugin dependency. The header documents the surface.
 
 ```cmake
 FetchContent_Declare(community_behaviors
     GIT_REPOSITORY https://github.com/Cassieandstuff/Community-Behaviors.git
     GIT_TAG        v0.3.2)
 FetchContent_MakeAvailable(community_behaviors)
-target_link_libraries(your-tool PRIVATE cb::cb-resolve)
+target_link_libraries(your-tool PRIVATE cb::CB-API)
 ```
 
 ## How it works (the short version)

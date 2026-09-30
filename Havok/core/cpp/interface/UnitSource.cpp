@@ -1,7 +1,4 @@
-// DiskUnitSource — the on-disk backing for IUnitSource. A pure indirection over
-// the filesystem access YamlBehaviorLoader used to do inline (ifstream +
-// directory_iterator); its semantics are byte-for-byte what the loader did before
-// the source abstraction, so the disk path is unchanged.
+// DiskUnitSource — the on-disk backing for IUnitSource.
 
 #include <interface/UnitSource.h>
 
@@ -14,8 +11,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// Binary slurp + UTF-8 BOM strip. Mirrors the old YamlBehaviorLoader::readFile:
-// returns "" when the stream can't be opened OR the file is empty — the caller
+// Binary slurp + UTF-8 BOM strip: returns "" when the stream can't be opened OR the file is empty — the caller
 // (read, below) distinguishes absence via fs::exists so it can map absent ->
 // nullopt while keeping an empty-but-present file as "".
 std::string slurp(const fs::path& p) {

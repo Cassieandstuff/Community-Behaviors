@@ -23,10 +23,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   delivery layer**: byteserve byte-swaps every owned open (project, character, behaviors) to its
   community_behaviors_cache twin under the vanilla identity (no `.br` rename), loading the whole tree above
   OAR. Not graph content. (Earlier boneWeights-placement root cause is superseded — see the doc's top section.)
-- [CB-4](CB-4-dragon-footik-legs-gains-lost.md) — OPEN: dragon's `hkbFootIkModifier` loses `legs`/`gains` in the
-  .hky (EmitHky's generic modifier path drops struct/struct-array fields).
-- [CB-5](CB-5-spriggan-istate-statedata-lost.md) — OPEN: spriggan's `BSIStateManagerModifier` loses `stateData`
-  in the .hky (same root cause as CB-4).
+- [CB-7](CB-7-fnis-not-on-formid-format.md) — OPEN: FNIS conversion isn't on the FormID .hky format yet; a load
+  order with FNIS lists skips them (the converter logs `FNIS: FAILED`).
 
 ## Per-bug file template
 

@@ -5,8 +5,6 @@
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
-#include <havok/model/yaml/YamlBehaviorLoader.h>  // LoadMerged (base unit -> BehaviorData)
-#include <compile/AnimDataFromBehavior.h>        // DeriveClipInputsFromBehavior / DeriveProjectClipList
 #include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
 #include <codec/format/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
 #include <interface/AnimationData.h>        // parse vanilla animationdatasinglefile
@@ -16,16 +14,10 @@
 #include <compile/AnimationCompiler.h>       // CB::core::anim::CompileAnimation — recompile leg (schema-native)
 #include <decompile/AnimationDecompiler.h>   // CB::core::anim::DecompileAnimation — schema-native import leg
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
-#include <decompile/TagfileOracle.h>         // AlignTagfile — base-source fidelity gate (pass 2a)
-#include <havok-model/HavokModel.h>          // ConvertModDelta — the DEFAULT data-driven per-mod delta
+#include <decompile/BehaviorDecompile.h>     // ConvertModDelta / DeriveHkyPatch / the reflective unit codec
 #include <havok-schema/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
-#include <compile/ProjectRead.h>             // CB::core::compile::ReadProject (schema-native project read)
-#include <codec/format/ProjectYaml.h>        // CB::core::codec::EmitProjectYaml (project.yaml codec)
-#include <decompile/CharacterDecompile.h>    // CB::core::decompile::DecompileCharacterSchema (schema character decompile)
 #include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
-#include <compile/GraphCompile.h>            // CB::core::compile::CompileBehavior (schema compile, replaces typed CB::core::compile::CompileBehavior)
-#include <decompile/UnitDecompile.h>         // CB::core::decompile::DecompileUnit (shared schema decompile dispatcher)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
 #include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
@@ -73,8 +65,7 @@ std::string SoStr(const CB::core::codec::io::SchemaObject& so, const char* name)
 }
 
 
-// Decode XML entity references to their literal characters — mirrors havok::model
-// CharacterYamlLoader::xmlUnescape. The character DECOMPILER emits roster paths through an
+// Decode XML entity references to their literal characters. The character DECOMPILER emits roster paths through an
 // XML-style pipeline, so a shared-killmove path arrives as "..\SharedKillMoves\Human&amp;Boar\..".
 // The vanilla template roster it is diffed against is LITERAL ('&'), so an escaped line never
 // matches — every killmove looks "new" and gets written as a phantom roster addition. Those
@@ -178,10 +169,9 @@ std::vector<std::string> ScanGraphs(const fs::path& templatesDir) {
 // Vanilla character templates: <templates>/characters/ mirrors the meshes-relative game
 // tree, e.g. characters/actors/character/characters/defaultmale.hkx (and "characters
 // female/defaultfemale.hkx" — the space is part of the real path and thus of the serve
-// key). Each file becomes a decompiled character unit in Skyrim.hky at
-// meshes/<relative path>/, which the Resolver serves via CharacterYamlLoader::LoadMerged
-// + CompileCharacter with mod roster deltas overlaid — the compile-time replacement for
-// the runtime animationNames injection. Returns meshes-relative paths ("actors/.../x.hkx").
+// key). Each is a character unit in Skyrim.hky at meshes/<relative path>/, which the Resolver
+// serves with mod roster patches merged — the compile-time replacement for the runtime
+// animationNames injection. Returns meshes-relative paths ("actors/.../x.hkx").
 std::vector<std::string> ScanCharacterTemplates(const fs::path& templatesDir) {
     std::vector<std::string> chars;
     std::error_code ec;
@@ -200,60 +190,80 @@ std::vector<std::string> ScanCharacterTemplates(const fs::path& templatesDir) {
     return chars;
 }
 
-// Union `names` into a bundle's character-unit roster delta: <bundle>/<characterServePath>/data/
-// animations.yaml — a YAML block sequence of single-quoted, case-preserved animation paths. This is
-// the NATIVE roster contract the schema reads (CharacterYamlLoader::LoadMerged -> unionAnimations),
-// the replacement for the bundle-root animationnames/<stem>.txt shim: the runtime overlays each
-// delta layer's data/animations.yaml onto the base character, keyed by the unit's serve path. Merges
-// with what the delta file already holds (deduped case-insensitively). `characterServePath` is a
-// meshes-relative serve key ("meshes/actors/horse/characters/horse.hkx"). Returns count newly added.
-int AddRosterToCharacterUnit(const fs::path& bundleDir, const std::string& characterServePath,
+/// @brief Read a packfile through the schema and hand its first `cls` object to `fn` (while the graph is alive).
+/// @return false when the bytes don't deserialize or hold no `cls`.
+static bool WithFirstOfClass(const std::vector<std::uint8_t>& bytes, const CB::core::schema::SchemaRegistry& reg,
+                             std::string_view cls, const std::function<void(CB::core::codec::io::SchemaObject&)>& fn) {
+    try {
+        CB::core::codec::PackFileDeserializer des;
+        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(reg);
+        CB::core::codec::BinaryReaderEx br(false, true, bytes);
+        des.Deserialize(br);
+        for (const auto& [off, o] : des.DeserializedObjects())
+            if (auto* so = dynamic_cast<CB::core::codec::io::SchemaObject*>(o.get()); so && cls == so->ClassName()) {
+                fn(*so);
+                return true;
+            }
+    } catch (const std::exception&) {}
+    return false;
+}
+
+/// @brief Character roster additions, per (bundle dir, character serve path), flushed as character PATCH units
+///        (FlushRosters) once every leg has contributed.
+/// @note  Names dedup case-insensitively: a name differing only by case would pad the roster and shift the
+///        animation-binding indices (the phantom-padding hazard).
+struct RosterSink {
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>>        names;
+    std::map<std::pair<std::string, std::string>, std::unordered_set<std::string>> seen;
+};
+
+/// @return how many of `names` are new to the sink for that character.
+int AddRosterToCharacterUnit(RosterSink& sink, const fs::path& bundleDir, const std::string& characterServePath,
                              const std::vector<std::string>& names) {
     if (names.empty() || characterServePath.empty()) return 0;
-    const fs::path yaml = bundleDir / fs::path(characterServePath) / "data" / "animations.yaml";
-    std::error_code we;
-    std::vector<std::string>        lines;   // existing (order-preserving)
-    std::unordered_set<std::string> have;    // lowercased dedup
-    // Parse any existing delta (single-quoted block seq; '' -> literal '), same shape readRoster uses.
-    if (std::ifstream in{ yaml }) {
-        std::string l;
-        while (std::getline(in, l)) {
-            while (!l.empty() && (l.back() == '\r' || l.back() == '\n' || l.back() == ' ' || l.back() == '\t')) l.pop_back();
-            std::size_t s = l.find_first_not_of(" \t");
-            if (s == std::string::npos) continue;
-            std::string t = l.substr(s);
-            if (t.empty() || t[0] == '#') continue;
-            if (t.rfind("- ", 0) == 0) t = t.substr(2);
-            else if (t[0] == '-')      t = t.substr(1);
-            s = t.find_first_not_of(" \t");
-            if (s != std::string::npos) t = t.substr(s);
-            if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
-                const std::string inner = t.substr(1, t.size() - 2); std::string un;
-                for (std::size_t i = 0; i < inner.size(); ++i)
-                    if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
-                    else un += inner[i];
-                t = std::move(un);
-            }
-            if (!t.empty() && have.insert(ToLower(t)).second) lines.push_back(std::move(t));
-        }
-    }
+    const std::pair<std::string, std::string> key{ bundleDir.string(), ToLower(characterServePath) };
+    auto& have = sink.seen[key];
+    auto& list = sink.names[key];
     int added = 0;
     for (const auto& a : names)
-        if (!a.empty() && have.insert(ToLower(a)).second) { lines.push_back(a); ++added; }
-    if (added == 0) return 0;
-    fs::create_directories(yaml.parent_path(), we);
-    std::string text;
-    for (const auto& l : lines) {
-        std::string q; q.reserve(l.size() + 2);
-        q += '\'';
-        for (char c : l) { q += c; if (c == '\'') q += '\''; }   // YAML single-quote escaping
-        q += '\'';
-        text += "- " + q + "\n";
-    }
-    std::ofstream out(yaml, std::ios::binary);
-    out << text;
-    if (!out) return 0;   // write failed (e.g. MAX_PATH) — report nothing added, don't claim success
+        if (!a.empty() && have.insert(ToLower(a)).second) { list.push_back(a); ++added; }
     return added;
+}
+
+/// @brief Write every sink entry as the bundle's patch for that character: its base unit's animationNames plus the
+///        names the base lacks (a union roster — the patch states only the additions).
+/// @return the number of character patch units written.
+int FlushRosters(const RosterSink& sink, bconv::BaseUnitCompiler& base, const CB::core::schema::SchemaRegistry& reg,
+                 const LogFn& log) {
+    const auto say = [&](const std::string& m) { if (log) log(m); };
+    int written = 0;
+    for (const auto& [key, names] : sink.names) {
+        const auto& [bundleDir, serve] = key;
+        CB::core::decompile::ParsedHky g;
+        std::string err;
+        if (!base.Parse(serve, g, err)) { say("  roster: " + serve + " — no base character (" + err + "); additions dropped."); continue; }
+        std::vector<std::string> add;
+        CB::core::decompile::GraphEdit(g, reg).ForEach("hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
+            auto& roster = so.FieldRef("animationNames").strs;
+            std::unordered_set<std::string> have;
+            for (const auto& n : roster) have.insert(ToLower(n));
+            for (const auto& n : names) if (have.insert(ToLower(n)).second) add.push_back(n);
+            roster.insert(roster.end(), add.begin(), add.end());
+        });
+        if (add.empty()) continue;
+        std::vector<std::uint8_t> bytes;
+        CB::core::decompile::ParsedHky fresh;
+        const auto& bones = base.BonesFor(serve);
+        const fs::path unit = fs::path(bundleDir) / fs::path(serve);
+        if (!CB::core::decompile::SerializeGraph(g, bytes, err) || !base.Parse(serve, fresh, err) ||
+            !CB::core::decompile::DeriveHkyPatch(fresh, { "skyrim" }, { ToLower(fs::path(bundleDir).stem().string()), "skyrim" },
+                                                  bytes, reg, unit.string(), err, bones.empty() ? nullptr : &bones)) {
+            say("  roster: " + serve + " — patch FAILED: " + err);
+            continue;
+        }
+        ++written;
+    }
+    return written;
 }
 
 // Nemesis codes = the child dirs of <dataDir>/Nemesis_Engine/mod/. Under MO2's VFS this
@@ -969,118 +979,6 @@ fs::path DeriveInstanceRoot(const fs::path& dataDir, const std::string& explicit
     return {};
 }
 
-// Verbatim-copy a mod's Nemesis anim-data patch dirs into the bundle. Source:
-// Derive a mod bundle's animationdata as per-clip yaml DELTAS — the BR-native replacement for the
-// verbatim Nemesis copy. Two sources join by clip NAME:
-//   • the mod's <codeDir>/animationdatasinglefile/<Project>~<n>/ is the AUTHORITATIVE addition set:
-//     which clips the mod adds to which PROJECT, and their MOTION (proprietary root-motion extraction
-//     that is NOT derivable from the graph). This is exactly what the old verbatim copy shipped — and
-//     it is the correct SET (a mod behaviour delta's clips/ carries the mod's WHOLE clip set, vanilla
-//     records included, so it over-represents; the Nemesis animationdata is precisely the additions).
-//   • the bundle's behaviour clip generators carry each clip's animationName (the Nemesis clip record
-//     does not). We read them straight from each behaviour unit's clips/ dir — a mod behaviour DELTA
-//     has no behavior.yaml, so a whole-graph load fails; ReadClipInputsFromClipsDir reads the clip
-//     nodes directly — and join clip-name -> animationName.
-// For each Nemesis addition we emit clips/<projStem>/<clip>.yaml keyed by `animation:` (+ its crop/
-// speed/triggers verbatim from Nemesis) and, when it carries motion, motion/<projStem>/<clip>.yaml (the
-// real record). NO animIndex is written: the runtime resolves it by name against the MERGED roster
-// (base + this mod's animationnames additions), so a mod clip lands on the exact roster slot char-setup
-// binds — replacing the old high-band allocation that could not line up with the roster. Returns the
-// number of clip records emitted.
-int DeriveModAnimDeltas(const fs::path& codeDir, const fs::path& bundle,
-                        const fs::path& /*dataDir*/, const LogFn& say) {
-    std::error_code ec;
-    const fs::path nemRoot = codeDir / "animationdatasinglefile";
-    if (!fs::is_directory(nemRoot, ec)) return 0;   // this mod ships no animationdata
-
-    // FULL-DERIVE (root-motion plan, item 4): do NOT ship the adsf clips+motion delta. With no native
-    // animationdata delta in the bundle, the runtime's DeriveBundleAnimData takes over — it derives each
-    // clip from the behavior graph (DeriveClipInputsFromBehavior) and its ROOT MOTION from the packaged
-    // animation's `motion:` field (motionsForRoot). So motion + clips are 100% derived from the animations,
-    // never the mod's shipped adsf (which, for AMR mods, disagrees with the animation motion). asdsf
-    // (attack-event tables) is still shipped by the set-data path. This is the deliberate strip: if the
-    // runtime derive can't reproduce a clip/motion, it breaks HERE and we know exactly why.
-    say("  anim-data: full-derive — adsf clips+motion NOT shipped; runtime derives from behavior + animation motion.");
-    (void)bundle;
-    return 0;
-#if 0  // stripped: the mod's shipped adsf clips+motion (superseded by the runtime derive above)
-
-    // ── behaviour clip-name -> animationName (join key) ──
-    // Every behaviour unit in the bundle ("*.hkx" dir with a clips/ subdir). First occurrence wins;
-    // a clip name maps to one animation (a Nemesis addition names an animation exactly once).
-    std::unordered_map<std::string, std::string> animOf;
-    for (fs::recursive_directory_iterator it(bundle / "meshes",
-             fs::directory_options::skip_permission_denied, ec), end;
-         !ec && it != end; it.increment(ec)) {
-        std::error_code de;
-        if (!it->is_directory(de)) continue;
-        const fs::path unit = it->path();
-        if (ToLower(unit.extension().string()) != ".hkx") continue;
-        const fs::path clipsDir = unit / "clips";
-        if (!fs::is_directory(clipsDir, de)) continue;
-        for (const auto& dc : CB::core::compile::ReadClipInputsFromClipsDir(clipsDir.string()))
-            if (!dc.name.empty() && !dc.animationName.empty())
-                animOf.emplace(dc.name, dc.animationName);
-    }
-    // animOf may be empty (a pure-animationdata mod with no behaviour clips) — still emit every Nemesis
-    // record; the animationName is only browsable metadata now (the runtime assigns the high-band index).
-
-    const fs::path animRoot = bundle / "meshes" / "animationdatasinglefile.txt";
-    int written = 0, unmatched = 0;
-
-    // ── per Nemesis project dir (DefaultMale~1, DefaultFemale~1, …) ──
-    for (fs::directory_iterator pi(nemRoot, ec), pend; !ec && pi != pend; pi.increment(ec)) {
-        std::error_code de;
-        if (!pi->is_directory(de)) continue;
-        const std::string dirName = pi->path().filename().string();          // "DefaultMale~1"
-        const std::string projName = dirName.substr(0, dirName.find('~'));   // "DefaultMale"
-        const std::string projStem = ToLower(projName);                      // clips/<stem>/ key (== master's)
-
-        std::vector<std::pair<std::string, std::string>> files;
-        for (fs::directory_iterator fi(pi->path(), de), fend; !de && fi != fend; fi.increment(de)) {
-            std::error_code fe;
-            if (!fi->is_regular_file(fe) || fi->path().extension() != ".txt") continue;
-            std::ifstream f(fi->path(), std::ios::binary);
-            std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-            files.emplace_back(fi->path().filename().string(), std::move(body));
-        }
-        if (files.empty()) continue;
-
-        CB::core::animdata::ProjectPatch pp;
-        try { pp = CB::core::animdata::AssembleProjectPatch(dirName, files); }
-        catch (const std::exception& e) { say("  bad animationdata dir '" + dirName + "': " + e.what()); continue; }
-
-        const fs::path cdir = animRoot / "clips" / projStem;
-        const fs::path mdir = animRoot / "motion" / projStem;
-        std::set<std::string> used;   // filename dedup within this project (case-insensitive)
-
-        for (const auto& add : pp.additions) {
-            if (!add.hasClip) continue;                       // a motion-only symbol pairs to nothing addable
-            const std::string& name = add.clip.name;
-            auto ai = animOf.find(name);
-            if (ai == animOf.end()) ++unmatched;              // no behaviour animationName — emit anyway (metadata only)
-
-            const std::string fn = CB::core::animdata::UniqueFileName(name, used);
-
-            CB::core::animdata::ClipGenerator clip = add.clip;   // name/crop/speed/triggers verbatim from Nemesis
-            clip.animation = (ai != animOf.end()) ? ai->second : std::string{};   // animationName metadata (best-effort)
-            clip.animIndex.clear();                           // no hardwired index — the runtime assigns the high band
-            const std::string cy = CB::core::animdata::EmitClipYaml(clip, {}, /*writeName*/ fn != name);
-            fs::create_directories(cdir, de);
-            std::ofstream(cdir / (fn + ".yaml"), std::ios::binary).write(cy.data(), static_cast<std::streamsize>(cy.size()));
-            ++written;
-
-            if (add.hasMotion) {                              // real, un-derivable root motion — keyed by clip name
-                const std::string my = CB::core::animdata::EmitMotionSidecar(add.motion);
-                fs::create_directories(mdir, de);
-                std::ofstream(mdir / (fn + ".yaml"), std::ios::binary).write(my.data(), static_cast<std::streamsize>(my.size()));
-            }
-        }
-    }
-    if (unmatched) say("  " + std::to_string(unmatched) + " Nemesis clip(s) had no behaviour animationName (emitted without — metadata only).");
-    return written;
-#endif  // stripped adsf clips+motion emission (full-derive)
-}
 
 // Minimal JSON string escaper for the flat manifest schema — escape the JSON-significant
 // characters so a stray quote/backslash in a mod name can't corrupt the file.
@@ -1320,17 +1218,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         return it == codeToMod.end() ? code : it->second;
     };
 
-    // DEFAULT delta path = data-driven (schema). Havok/ ships next to templates/; when it loads, per-mod
-    // behavior deltas go through CB::core::decompile::ConvertModDelta (schema-driven — faithful new #code$N nodes,
-    // which the typed populators drop). The typed ConvertPatch is the fallback (schema dir absent, or a
-    // graph the schema path errors on). Base for the merge is the graph's template tagfile (its #NNNN are
-    // the canonical ids the runtime base is keyed by).
-    const fs::path havokDir = templatesDir.parent_path() / "Havok";
-    CB::core::schema::SchemaRegistry schemaReg;
-    std::string schemaErr;
-    const bool haveSchema = fs::is_directory(havokDir, ec) && schemaReg.LoadDir(havokDir.string(), schemaErr);
-    say(haveSchema ? "Schema: loaded (data-driven delta = default)."
-                   : "Schema: Havok/ not loaded (" + schemaErr + ") — using the typed delta path.");
+    CB::core::schema::SchemaRegistry* sharedReg = CB::core::schema::SharedRegistry();
+    if (!sharedReg) { r.error = "schema registry not armed (" + CB::core::schema::SharedRegistryError() + ")"; return r; }
+    const CB::core::schema::SchemaRegistry& schemaReg = *sharedReg;
+    RosterSink rosters;
 
     const fs::path plugins = outDir / "community_behaviors" / "plugins";
     // MO2-PROFILE (single-bundle) mode ships one merged bundle; every leg routes into it. (Definition
@@ -1347,7 +1238,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // fallback for a new/custom graph not present in the base.
     std::function<std::string(const std::string& g, bool firstPerson)> graphServePathOf;
 
-    auto binOf   = [&](const std::string& g) { return (templatesDir / (g + ".hkx")).string(); };
     auto xmlOf   = [&](const std::string& g) { return (templatesDir / (g + ".xml")).string(); };
     auto unitOut = [&](const std::string& bundle, const std::string& g) {
         return (plugins / (bundle + ".hky") / fs::path(graphServePathOf(g, false))).string();
@@ -1382,89 +1272,15 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     if (!fpGraphs.empty())
         say("First-person: " + std::to_string(fpGraphs.size()) + " template(s) — _1stperson deltas enabled.");
 
-    // Forward declaration — the typed fallback's vanilla-binary source. Its definition (and the
-    // baseArc/alignClean/vanBinCache chain it needs) lives below; convertBehaviorGraph only CALLS
-    // it from the per-code loop (later still), so a std::function bound after this point is safe.
-    std::function<std::string(const std::string&)> getVanillaBin;
-
-    // Convert ONE third-person behavior graph's patch dir(s) into `outHkx` — schema path by default,
-    // typed ConvertPatch as the fallback (same policy as before; see the batch loop's 2a). `patchDirs` is a
-    // LIST so the merged path can pass every mod's dir for this graph in one call; the delta path passes a
-    // single dir. `label` prefixes log lines (a Nemesis code, or "Pandora"). Returns true if a delta landed.
-    // Shared by the per-code delta path and the future merged/single-mod paths — the one behavior source.
-    auto convertBehaviorGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
-                                    const std::string& label, const std::string& outHkx,
-                                    const CB::core::decompile::NemesisFormIdCtx& fidCtx) -> bool {
-        if (haveSchema) {
-            const std::string& baseXml = baseXmlOf(g);
-            if (!baseXml.empty()) {
-                const auto md = CB::core::decompile::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
-                if (md.ok) {
-                    ++r.deltas;
-                    for (const auto& w : md.warnings) say("      " + label + "/" + g + ": " + w);
-                    return true;
-                }
-                say("  " + label + "/" + g + ": schema delta failed (" + md.error + ") — falling back to typed");
-            }
-        }
-        // Typed ConvertPatch fallback RETIRED (firesale) — schema (ConvertModDelta) is the only path.
-        ++r.skipped;
-        say("  " + label + "/" + g + ": no schema conversion (base xml absent or schema failed; typed retired) — skipped");
-        return false;
-    };
-
-    // Convert ONE first-person behavior graph's patch dir(s) into `outHkx` (schema-only — no typed
-    // first-person source). Same list/label contract as convertBehaviorGraph.
-    auto convertFirstPersonGraph = [&](const std::string& g, const std::vector<std::string>& patchDirs,
-                                       const std::string& label, const std::string& outHkx,
-                                       const CB::core::decompile::NemesisFormIdCtx& fidCtx) -> bool {
-        if (!haveSchema) {
-            ++r.skipped;
-            say("  " + label + "/_1stperson/" + g + ": first-person needs the schema path (Havok/ absent) — skipped");
-            return false;
-        }
-        const std::string& baseXml = fpBaseXmlOf(g);
-        if (baseXml.empty()) {
-            ++r.skipped;
-            say("  " + label + "/_1stperson/" + g + ": no first-person template — skipped");
-            return false;
-        }
-        const auto md = CB::core::decompile::ConvertModDelta(baseXml, patchDirs, schemaReg, outHkx, &fidCtx);
-        if (md.ok) {
-            ++r.deltas;
-            for (const auto& w : md.warnings) say("      " + label + "/_1stperson/" + g + ": " + w);
-            return true;
-        }
-        ++r.skipped; say("  " + label + "/_1stperson/" + g + ": first-person delta FAILED — " + md.error);
-        return false;
-    };
-
-    // ── Vanilla behavior binary source for the Nemesis path (pass 2a) ─────────────────
-    // Pass 2a used to read the vanilla binary from templates/<g>.hkx. It now SOURCES that
-    // binary from the shipped Skyrim.hky base: compile the graph's base unit
-    // (meshes/actors/character/behaviors/<g>.hkx) and feed the recompiled binary to the
-    // UNCHANGED ConvertPatch — one canonical vanilla source, the very bytes the deltas merge
-    // onto. templates/<g>.xml stays the oracle's alignment source; only WHERE the binary
-    // comes from changes. A per-graph FIDELITY GATE keeps it safe: recompiling a base unit
-    // whose YAML has an inline sub-object with id != name (the root 0_master's empty
-    // hkbBoneWeightArray blender children) drops those objects, so the recompiled binary no
-    // longer aligns to the tagfile. AlignTagfile detects that (class/ref-count mismatch) and
-    // such a graph FALLS BACK to templates/<g>.hkx. Base binaries are compiled once per graph
-    // and cached (reused across every Nemesis code that patches the graph).
+    /// @note The shipped Skyrim.hky base is REQUIRED: every patch derives against its units' own FormIDs.
     std::shared_ptr<CB::core::codec::HkyArchive> baseArc;
     {
         const fs::path baseHky = dataDir / "community_behaviors" / "plugins" / "Skyrim.hky";
         std::string herr;
         baseArc = CB::core::codec::HkyArchive::LoadFromFile(baseHky.string(), herr);
-        if (!baseArc)
-            say("  note: base bundle not readable at " + baseHky.string() +
-                " (install Community Behaviors first) — Nemesis path falls back to templates/<g>.hkx, "
-                "loose-behavior derive skipped. " + herr);
+        if (!baseArc) { r.error = "base bundle not readable at " + baseHky.string() + " (install Community Behaviors first): " + herr; return r; }
     }
-    std::unordered_set<std::string> baseUnits;   // behavior unit prefixes present in Skyrim.hky
-    if (baseArc)
-        for (const auto& u : baseArc->units())
-            if (u.kind == CB::core::codec::HkyArchive::UnitKind::Behavior) baseUnits.insert(u.prefix);
+    bconv::BaseUnitCompiler baseCompiler(baseArc);
 
     // Base-derived resolution maps (ground truth = Skyrim.hky). Defined here (before the loose legs +
     // the per-bundle loop + the animationnames post-pass) so every roster leg routes by real actor/
@@ -1509,79 +1325,38 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         return std::string(firstPerson ? kBehSub1st : kBehSub) + "/" + g + ".hkx";  // new/custom graph fallback
     };
 
-    const fs::path baseBinTmp = fs::temp_directory_path(ec) / "sct_conv_basebin";
-    fs::remove_all(baseBinTmp, ec);
-    fs::create_directories(baseBinTmp, ec);
-
-    // FIDELITY GATE — a recompiled base binary is safe to source from iff it is STRUCTURALLY
-    // ISOMORPHIC to the tagfile: co-DFS from the shared root maps every binary object to a
-    // tagfile #NNNN of the same class with the same out-ref count (0 class / 0 ref-count
-    // mismatch), and every binary object is reached (mapped == binObjs). That guarantees the
-    // ConvertPatch decompile keyed by this alignment reproduces the tagfile node structure —
-    // i.e. an IDENTICAL vanilla base to templates/<g>.hkx (verified byte-for-byte across the
-    // vanilla corpus by `havok-core-cli basefidelity`). Benign deltas are tolerated: object-count
-    // differences with full mapping and 0 mismatches (mt_behavior/horsebehavior re-share nodes),
-    // and `conflict` (an id reached twice, consistently). The one graph this rejects is 0_master —
-    // its base unit YAML has inline sub-objects (empty hkbBoneWeightArray blender children) with
-    // id != name that the compiler drops, so the recompiled binary is genuinely missing objects
-    // (7 ref-count mismatches) and it falls back to the retained templates/0_master.hkx. It also
-    // conservatively rejects 1hm_behavior, whose tagfile carries an INHERENT oracle quirk (a
-    // shared clip-trigger/binding pair the co-DFS can't split) that the template binary reproduces
-    // too — safe to base-source in principle, but indistinguishable from a real drop without the
-    // template on hand, so it keeps its template as well. Both kept templates are the only .hkx
-    // still shipped; every other graph is base-sourced from Skyrim.hky.
-    auto alignClean = [](const std::vector<std::uint8_t>& bin, const std::string& xmlText) -> bool {
-        try {
-            CB::core::codec::PackFileDeserializer des;
-            CB::core::codec::BinaryReaderEx br(false, true, bin);
-            des.DeserializePartially(br);
-            std::uint32_t root = 0xFFFFFFFFu;
-            for (const auto& [o, c] : des.ListObjects()) if (c == "hkRootLevelContainer") { root = o; break; }
-            if (root == 0xFFFFFFFFu) return false;
-            CB::core::codec::BinaryReaderEx dr(des._header.Endian == 0, des._header.PointerSize == 8, des.DataSectionBytes());
-            des.ConstructVirtualClass(dr, root);
-            const auto res = CB::core::decompile::AlignTagfile(des, xmlText);
-            return res.ok && res.classMism == 0 && res.refCountMism == 0 && res.mapped == res.binObjs;
-        } catch (...) { return false; }
-    };
-
-    // graph -> vanilla binary path fed to ConvertPatch (base-sourced when the gate passes,
-    // templates/<g>.hkx otherwise; "" when neither is available). Cached per graph.
-    std::unordered_map<std::string, std::string> vanBinCache;
-    getVanillaBin = [&](const std::string& g) -> std::string {
-        if (auto it = vanBinCache.find(g); it != vanBinCache.end()) return it->second;
-        std::string chosen;
-        const std::string prefix = graphServePathOf(g, false);   // real serve path (horsebehavior -> actors/horse)
-        if (baseArc && baseUnits.count(prefix)) {
-            try {
-                auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged({ baseArc->source(prefix) });
-                const auto cr = CB::core::compile::CompileBehavior(data);
-                std::string werr;
-                const fs::path outBin = baseBinTmp / (g + ".hkx");
-                if (cr.ok && CB::core::codec::WriteHavokFile(outBin.string(), cr.bytes, &werr)) {
-                    std::ifstream xf(xmlOf(g), std::ios::binary);
-                    const std::string xml((std::istreambuf_iterator<char>(xf)), std::istreambuf_iterator<char>());
-                    if (alignClean(cr.bytes, xml)) {
-                        chosen = outBin.string();   // base-sourced from Skyrim.hky
-                    } else {
-                        std::error_code re; fs::remove(outBin, re);
-                        say("  " + g + ": base unit not tagfile-clean — using retained templates/" + g + ".hkx");
-                    }
-                } else {
-                    say("  " + g + ": base unit compile failed (" + (cr.ok ? werr : cr.error) +
-                        ") — using templates/" + g + ".hkx");
-                }
-            } catch (const std::exception& e) {
-                say("  " + g + ": base unit load threw (" + std::string(e.what()) +
-                    ") — using templates/" + g + ".hkx");
+    /// @brief Each bundle's master table `[self, skyrim, masters…]` by lower bundle name (filled before the bundle
+    ///        loop) — a dependent merges each master's already-written patch unit through that master's table.
+    std::unordered_map<std::string, std::vector<std::string>> masterTableOf;
+    /// @brief Convert ONE graph's Nemesis patch dirs into a patch unit at `outUnit`, derived against the graph's base
+    ///        unit with the bundle's masters' patch units merged in (load order).
+    auto convertGraph = [&](const std::string& g, bool firstPerson, const std::string& bname,
+                            const std::vector<std::string>& masters, const std::vector<std::string>& masterPatchDirs,
+                            const std::vector<std::string>& patchDirs, const std::string& outUnit) -> bool {
+        const std::string label = bname + "/" + (firstPerson ? "_1stperson/" : "") + g;
+        const std::string& baseXml = firstPerson ? fpBaseXmlOf(g) : baseXmlOf(g);
+        if (baseXml.empty()) { ++r.skipped; say("  " + label + ": no template — skipped"); return false; }
+        const std::string prefix = ToLower(graphServePathOf(g, firstPerson));
+        CB::core::decompile::ParsedHky base;
+        std::string err;
+        if (!baseCompiler.Parse(prefix, base, err)) { ++r.skipped; say("  " + label + ": base unit unreadable — " + err); return false; }
+        const auto& bones = baseCompiler.BonesFor(prefix);
+        const auto* bp = bones.empty() ? nullptr : &bones;
+        for (const auto& m : masters) {
+            const fs::path mu = plugins / (m + ".hky") / fs::path(prefix);
+            std::error_code me;
+            if (!fs::is_directory(mu, me)) continue;
+            if (!CB::core::decompile::MergeHkyPatch(base, CB::core::common::DiskUnitSource(mu.string()), schemaReg,
+                                                    { "skyrim" }, masterTableOf[ToLower(m)], err, bp)) {
+                ++r.skipped; say("  " + label + ": master '" + m + "' patch doesn't merge — " + err); return false;
             }
         }
-        if (chosen.empty()) {   // fall back to the shipped template binary if present
-            std::error_code te;
-            if (fs::is_regular_file(fs::path(binOf(g)), te)) chosen = binOf(g);
-        }
-        vanBinCache.emplace(g, chosen);
-        return chosen;
+        const auto md = CB::core::decompile::ConvertModDelta(baseXml, masterPatchDirs, patchDirs, base, { "skyrim" },
+                                                             masterTableOf[ToLower(bname)], schemaReg, outUnit, bp);
+        if (!md.ok) { ++r.skipped; say("  " + label + ": patch FAILED — " + md.error); return false; }
+        if (md.patched == 0 && md.added == 0) return false;
+        ++r.deltas;
+        return true;
     };
 
     // The converter no longer emits its OWN Skyrim.hky base. The full-corpus vanilla master
@@ -1616,82 +1391,33 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             // fast path: identical size -> almost certainly vanilla; skip the decompile
             if (fs::file_size(winner, we) == fs::file_size(tmpl, we)) continue;
 
-            const fs::path scratch = outDir / ".chardiff" / fs::path(rel).stem();
             std::vector<std::uint8_t> bytes;
             std::string rerr;
             if (!CB::core::codec::ReadHavokFile(winner.string(), bytes, &rerr)) {
                 ++r.skipped; say("  " + rel + ": loose-file READ FAILED — " + rerr); continue;
             }
-            const auto dres = CB::core::decompile::DecompileUnit(bytes, scratch.string());
-            if (!(dres.ok && dres.kind == "character")) {
-                ++r.skipped;
-                say("  " + rel + ": loose-file DECOMPILE FAILED — " +
-                    (dres.ok ? ("kind: " + dres.kind) : dres.error));
-                fs::remove_all(scratch, we);
-                continue;
+            std::vector<std::string> modded;
+            if (!WithFirstOfClass(bytes, schemaReg, "hkbCharacterStringData",
+                                  [&](CB::core::codec::io::SchemaObject& so) { modded = so.FieldRef("animationNames").strs; })) {
+                ++r.skipped; say("  " + rel + ": loose-file is not a readable character"); continue;
             }
-            // additions = winner roster lines not in the vanilla unit's roster.
-            // Both rosters are the decompiled unit's data/animations.yaml — a block sequence of
-            // single-quoted LITERAL paths (the decompiler no longer XML-escapes), so no UnescapeXml.
-            auto readRoster = [](const fs::path& unitDir) {
-                std::vector<std::string> lines;
-                std::ifstream f(unitDir / "data" / "animations.yaml");
-                std::string line;
-                while (std::getline(f, line)) {
-                    std::string t = line;
-                    while (!t.empty() && (t.back() == '\r' || t.back() == '\n' || t.back() == ' ' || t.back() == '\t')) t.pop_back();
-                    const std::size_t s = t.find_first_not_of(" \t");
-                    if (s == std::string::npos) continue;
-                    t = t.substr(s);
-                    if (t.empty() || t[0] == '#') continue;
-                    if (t.rfind("- ", 0) == 0) t = t.substr(2);
-                    else if (t[0] == '-') t = t.substr(1);
-                    const std::size_t s2 = t.find_first_not_of(" \t");
-                    if (s2 != std::string::npos) t = t.substr(s2);
-                    if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
-                        const std::string inner = t.substr(1, t.size() - 2); std::string un;
-                        for (std::size_t i = 0; i < inner.size(); ++i)
-                            if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
-                            else un += inner[i];
-                        t = std::move(un);
-                    }
-                    if (!t.empty()) lines.push_back(std::move(t));
-                }
-                return lines;
-            };
-            // Vanilla roster to diff against — decompile the template on demand (the base is no
-            // longer emitted to Skyrim.hky, so read the roster straight from the template).
-            std::vector<std::string> vanilla;
-            {
-                const fs::path vscratch = outDir / ".chardiff" / (fs::path(rel).stem().string() + "__vanilla");
-                std::vector<std::uint8_t> vbytes;
-                std::string               vrerr;
-                if (CB::core::codec::ReadHavokFile(tmpl.string(), vbytes, &vrerr) &&
-                    CB::core::decompile::DecompileUnit(vbytes, vscratch.string()).ok)
-                    vanilla = readRoster(vscratch);
-                fs::remove_all(vscratch, we);
-            }
-            const auto modded = readRoster(scratch);
             std::unordered_set<std::string> have;
-            have.reserve(vanilla.size() * 2);
-            for (const auto& a : vanilla) have.insert(ToLower(a));
+            if (const auto src = baseArc->source(ToLower("meshes/" + fs::path(rel).generic_string())))
+                if (const auto cs = CB::core::decompile::ReadCharacterStrings(*src))
+                    for (const auto& a : cs->animationNames) have.insert(ToLower(a));
             std::vector<std::string> adds;
-            for (const auto& a : modded) if (!have.count(ToLower(a))) adds.push_back(a);
-            fs::remove_all(scratch, we);
+            for (const auto& a : modded) if (have.insert(ToLower(a)).second) adds.push_back(a);
             if (adds.empty()) continue;   // replaced file, but same roster — nothing to carry
 
-            // Native roster delta at the character unit's real serve path (rel mirrors the meshes tree,
-            // e.g. "actors/horse/characters/horse.hkx") — data/animations.yaml the runtime unions on top
-            // of the base character, replacing the bundle-root animationnames/<stem>.txt shim.
+            // Roster patch at the character unit's real serve path (rel mirrors the meshes tree,
+            // e.g. "actors/horse/characters/horse.hkx"), unioned onto the base character at runtime.
             const std::string charServe = "meshes/" + fs::path(rel).generic_string();
-            const int rAdded = AddRosterToCharacterUnit(cfBundle, charServe, adds);
+            const int rAdded = AddRosterToCharacterUnit(rosters, cfBundle, charServe, adds);
             if (rAdded <= 0) continue;
             ++r.charDeltas; charFilesAny = true;
             say("  CharacterFiles: " + rel + " — " + std::to_string(rAdded) +
                 " roster addition(s) (loose replacement).");
         }
-        std::error_code te;
-        fs::remove_all(outDir / ".chardiff", te);
     }
 
     // 1d) LOOSE BEHAVIOR replacements — some mods ship a whole precompiled behavior GRAPH
@@ -1708,9 +1434,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     //     patch). With no owner it lands in the anonymous BehaviorFiles.hky exactly as before.
     bool behFilesAny = false;                     // the anonymous fallback bundle got content
     std::set<std::string> precompiledBundles;     // attributed <modName> bundles that got a precompiled delta
-    if (baseArc) {
-            const fs::path tmpDir   = fs::temp_directory_path(ec);
-
+    {
             for (const auto& u : baseArc->units()) {
                 if (cancel) { r.error = "cancelled"; return r; }
                 if (u.kind != CB::core::codec::HkyArchive::UnitKind::Behavior) continue;
@@ -1725,72 +1449,30 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const std::string bname      = opt.singleBundle ? kPandora : (attributed ? pm->second : std::string("BehaviorFiles"));
                 const fs::path    outBundle  = plugins / (bname + ".hky");
 
-                // Base numbering ORACLE for the derive: the delta's matched ids must equal the SHIPPED
-                // base master's #NNNN. For these no-template graphs the base master IS a straight
-                // decompile of the vanilla binary, so deriving against the vanilla .hkx gives matched
-                // ids that line up exactly. A compile/decompile ROUND-TRIP of the base master does NOT
-                // preserve #NNNN (only names survive it) — that desynced every override and crashed
-                // horsebehavior. Prefer the vanilla binary from SKYRIM_DATASOURCE (the unpacked vanilla
-                // root); fall back to the round-trip only when it is absent (degraded — new nodes are
-                // still namespaced so they can't collide, but matched overrides may misalign).
-                // The loose-derive needs the pristine VANILLA binary as the numbering ORACLE: its read-order
-                // is what the base master was decompiled by, so matched overrides land on the base's ids. A
-                // compile/decompile round-trip of the base master does NOT preserve that order (only names
-                // survive) — there is NO safe fallback. Without SKYRIM_DATASOURCE, skip the loose-derive
-                // rather than emit a delta whose overrides misalign the base (the horsebehavior crash class).
-                fs::path vanBin;
-                if (const char* ds = std::getenv("SKYRIM_DATASOURCE")) {
-                    const fs::path cand = fs::path(ds) / u.prefix;   // prefix is meshes-relative
-                    if (fs::is_regular_file(cand, we)) vanBin = cand;
-                }
-                if (vanBin.empty()) {
-                    ++r.skipped;
-                    say("  " + bname + ": " + u.prefix + " — no SKYRIM_DATASOURCE vanilla; skipping loose-derive "
-                        "(a round-tripped base would misalign the delta).");
-                    continue;
-                }
-
+                /// @note Derived against the base UNIT (its own FormIDs), so matched overrides land on the served
+                ///       base's nodes by construction — no vanilla binary or numbering oracle involved.
                 const fs::path unit = outBundle / fs::path(u.prefix);
-                // Mod namespace code for this bundle's NEW derived nodes ("<code>$N"). Short + unique:
-                // an alnum-lowercased slug of the bundle name (<=8 chars) + a 4-hex hash of the full
-                // name, so two mods never share a code and the id stays filename-safe/MAX_PATH-friendly.
-                std::string slug;
-                for (char c : ToLower(bname)) { if (std::isalnum(static_cast<unsigned char>(c))) slug += c; if (slug.size() >= 8) break; }
-                unsigned h16 = static_cast<unsigned>(std::hash<std::string>{}(bname) & 0xFFFFu);
-                std::string hx(4, '0');
-                for (int i = 3; i >= 0; --i) { hx[i] = "0123456789abcdef"[h16 & 0xF]; h16 >>= 4; }
-                const std::string modCode = slug + hx;
-                // SCHEMA loose-derive (read-order) — matches the schema base decompile (BuildBaseBundle's
-                // no-template leg), so matched overrides land on the base's read-order ids. SharedRegistry is
-                // armed for every converter mode (Stage 3.5), so this is always taken; the typed
-                // DeriveLooseBehaviorDelta fallback is RETIRED (firesale). Registry absent -> error, never a
-                // schema-base/typed-delta mix.
-                CB::core::decompile::LooseDeriveResult res;
-                if (CB::core::schema::SchemaRegistry* sreg = CB::core::schema::SharedRegistry()) {
-                    std::vector<std::uint8_t> vb, mb; std::string re;
-                    if (CB::core::codec::ReadHavokFile(vanBin.string(), vb, &re) &&
-                        CB::core::codec::ReadHavokFile(winner.string(), mb, &re))
-                        res = CB::core::decompile::DeriveLooseBehaviorDeltaSchema(vb, mb, modCode, *sreg, unit.string());
-                    else res.error = "read: " + re;
-                } else {
-                    res.error = "loose-derive: schema registry not armed (typed fallback retired)";
+                std::vector<std::uint8_t> mb;
+                std::string derr;
+                CB::core::decompile::ParsedHky base;
+                CB::core::decompile::HkyPatchStats st;
+                const auto& bones = baseCompiler.BonesFor(u.prefix);
+                if (!CB::core::codec::ReadHavokFile(winner.string(), mb, &derr) || !baseCompiler.Parse(u.prefix, base, derr) ||
+                    !CB::core::decompile::DeriveHkyPatch(base, { "skyrim" }, { ToLower(bname), "skyrim" }, mb, schemaReg,
+                                                         unit.string(), derr, bones.empty() ? nullptr : &bones, &st)) {
+                    ++r.skipped; say("  " + bname + ": " + u.prefix + " — DERIVE FAILED: " + derr); continue;
                 }
-                if (!res.ok) { ++r.skipped; say("  " + bname + ": " + u.prefix + " — DERIVE FAILED: " + res.error); continue; }
-                if (res.changedNodes == 0 && res.newNodes == 0) { fs::remove_all(unit, we); continue; }  // vanilla — nothing to carry
+                if (st.patched == 0 && st.added == 0) { fs::remove_all(unit, we); continue; }  // vanilla — nothing to carry
                 ++r.deltas;
                 if (attributed) precompiledBundles.insert(bname); else behFilesAny = true;
-                say("  " + bname + ": " + u.prefix + " — " + std::to_string(res.changedNodes) + " changed + " +
-                    std::to_string(res.newNodes) + " new node(s) (" + std::to_string(res.matched) +
-                    " matched to base ids, " + std::to_string(res.added) + " new).");
-                if (res.removedFromBase)
-                    say("    note: " + std::to_string(res.removedFromBase) +
-                        " vanilla node(s) absent in the mod graph (removal isn't expressible; left as base).");
+                say("  " + bname + ": " + u.prefix + " — " + std::to_string(st.patched) + " changed + " +
+                    std::to_string(st.added) + " new node(s).");
 
                 // ROSTER (Phase 1): a precompiled loose graph (the horse's real ship path) carries its
                 // new clips ONLY in the binary — the derive above emits the node delta but no roster, so
                 // without this the new animations never enter the character's animationNames and bind to
                 // nothing. Read the loose graph's clip animationNames and union them into the graph's own
-                // character unit(s) (actors/horse -> characters/horse.hkx) as a data/animations.yaml delta.
+                // character unit(s) (actors/horse -> characters/horse.hkx) as a roster patch.
                 {
                     // Route by the precompiled graph's REAL actor prefix (actors/horse), not the stem
                     // map — the horse creature's roster belongs to the horse character, and the stem
@@ -1801,7 +1483,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         LooseBehaviorRefs refs;
                         if (ReadLooseBehaviorRefs(winner.string(), refs) && !refs.animationNames.empty()) {
                             int rAdded = 0;
-                            for (const auto& s : serves) rAdded += AddRosterToCharacterUnit(outBundle, s, refs.animationNames);
+                            for (const auto& s : serves) rAdded += AddRosterToCharacterUnit(rosters, outBundle, s, refs.animationNames);
                             if (rAdded > 0)
                                 say("    roster: " + std::to_string(refs.animationNames.size()) +
                                     " clip animation(s) -> " + std::to_string(serves.size()) +
@@ -1821,11 +1503,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 
     // GROUP codes by their owning BUNDLE (mod when attributed, else the code itself). A mod with
     // several Nemesis codes (TDM: tdmh+tdmlen+tdmv) MUST have them MERGED into one bundle: each
-    // code's ConvertModDelta writes the SAME shared unit files (additive.yaml, graphdata, base-node
-    // overrides), so converting them one-at-a-time last-writer-clobbers all but the last — dropping
-    // e.g. tdmlen's `TDM_Pitch` variable declaration, which 0_master then references undeclared →
-    // compile fail → universal A-pose. Merging all a bundle's codes' patch dirs in ONE convert per
-    // graph unions their added vocab correctly. Excluded engine (Pandora/Nemesis) codes are dropped.
+    // code's patch for a graph is the SAME unit (its root, vocabulary, base-node overrides), so
+    // converting them one-at-a-time last-writer-clobbers all but the last — dropping e.g. tdmlen's
+    // `TDM_Pitch` variable declaration, which 0_master then references undeclared → universal
+    // A-pose. Merging all a bundle's codes' patch dirs in ONE convert per graph unions their vocab. Excluded engine (Pandora/Nemesis) codes are dropped.
     // ScanCodes order is preserved within each bundle (deterministic override-merge order).
     std::vector<std::string>                                  bundleOrder;   // first-seen order
     std::unordered_map<std::string, std::vector<std::string>> bundleCodes;   // bundle -> its codes
@@ -1984,26 +1665,17 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         }
         return refs;
     };
-    CB::core::decompile::NemesisFormIdCtx fidCtx;                                    // rebuilt per bundle below
+    /// @note Every bundle's masters (the bundles owning the foreign codes its patches reference, by load priority),
+    ///       then the bundles ordered masters-first: a dependent derives against its masters' written patch units.
     std::unordered_map<std::string, std::vector<std::string>> bundleMasters;  // bundle -> ordered master names
-
     for (const auto& bname : bundleOrder) {
-        if (cancel) { r.error = "cancelled"; return r; }
         const std::vector<std::string>& codeList = bundleCodes[bname];
-        const fs::path                  bundle   = plugins / (bname + ".hky");
-        bool any = false;
-        std::string codeLabel;   // "tdmh+tdmlen+tdmv" for logs
-        for (const auto& c : codeList) { if (!codeLabel.empty()) codeLabel += "+"; codeLabel += c; }
-
-        // Build this bundle's FormId master table ONCE (pre-scanning all its graphs), so a master's index
-        // is identical in every graph. Own codes -> selfIndex; each foreign code -> its master's index.
         std::set<std::string> ownLower;
         for (const auto& c : codeList) ownLower.insert(ToLower(c));
-        const std::set<std::string> refCodes = scanReferencedCodes(codeList);
         std::set<std::string> foreignBundlesSet;
-        for (const auto& rc : refCodes)
+        for (const auto& rc : scanReferencedCodes(codeList))
             if (!ownLower.count(rc))
-                if (const auto it = codeToMod.find(rc); it != codeToMod.end()) foreignBundlesSet.insert(it->second);
+                if (const auto it = codeToMod.find(rc); it != codeToMod.end() && it->second != bname) foreignBundlesSet.insert(it->second);
         std::vector<std::string> mastersOrdered(foreignBundlesSet.begin(), foreignBundlesSet.end());
         std::stable_sort(mastersOrdered.begin(), mastersOrdered.end(), [&](const std::string& a, const std::string& b) {
             const auto pa = bundlePriority.find(a), pb = bundlePriority.find(b);
@@ -2012,16 +1684,67 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             return va != vb ? va < vb : a < b;
         });
         if (!mastersOrdered.empty()) bundleMasters[bname] = mastersOrdered;
-        // Index convention (FormId.h): self=0, skyrim=1, further masters 2+. Foreign cross-bundle masters
-        // therefore start at index 2 (skyrim occupies 1). Bare vanilla refs resolve to skyrim=1 in toFormId.
-        std::unordered_map<std::string, std::uint16_t> bIdx;
-        for (std::size_t i = 0; i < mastersOrdered.size(); ++i) bIdx[mastersOrdered[i]] = static_cast<std::uint16_t>(i + 2);
-        fidCtx.selfIndex = CB::core::codec::formid::SELF_INDEX;   // 0 — this bundle's own new nodes
-        fidCtx.codeIndex.clear();
-        for (const auto& oc : ownLower) fidCtx.codeIndex[oc] = fidCtx.selfIndex;
-        for (const auto& rc : refCodes)
-            if (!ownLower.count(rc))
-                if (const auto it = codeToMod.find(rc); it != codeToMod.end()) fidCtx.codeIndex[rc] = bIdx[it->second];
+        auto& table = masterTableOf[ToLower(bname)];
+        table = { ToLower(bname), "skyrim" };
+        for (const auto& m : mastersOrdered) table.push_back(ToLower(m));
+    }
+    {
+        std::vector<std::string>        ordered;
+        std::unordered_set<std::string> done, active;
+        std::function<void(const std::string&)> visit = [&](const std::string& b) {
+            if (done.count(b)) return;
+            if (!active.insert(b).second) { say("  WARN: bundle '" + b + "' is in a master cycle — converted without the cycle's order."); return; }
+            if (const auto it = bundleMasters.find(b); it != bundleMasters.end())
+                for (const auto& m : it->second) if (bundleCodes.count(m)) visit(m);
+            active.erase(b);
+            if (done.insert(b).second) ordered.push_back(b);
+        };
+        for (const auto& b : bundleOrder) visit(b);
+        bundleOrder = std::move(ordered);
+    }
+    /// @note Masters are TRANSITIVE: a master's patch names its own masters' nodes, so merging it (and tagfile-merging
+    ///       its Nemesis patches) needs them first. Closure in conversion order, which is masters-first.
+    {
+        std::unordered_map<std::string, std::size_t> pos;
+        for (std::size_t i = 0; i < bundleOrder.size(); ++i) pos[bundleOrder[i]] = i;
+        for (const auto& b : bundleOrder) {
+            const auto it = bundleMasters.find(b);
+            if (it == bundleMasters.end()) continue;
+            std::set<std::string> all(it->second.begin(), it->second.end());
+            for (const auto& m : it->second)
+                if (const auto mt = bundleMasters.find(m); mt != bundleMasters.end()) all.insert(mt->second.begin(), mt->second.end());
+            all.erase(b);
+            std::vector<std::string> closure(all.begin(), all.end());
+            std::stable_sort(closure.begin(), closure.end(), [&](const std::string& x, const std::string& y) {
+                const auto px = pos.find(x), py = pos.find(y);
+                return (px != pos.end() ? px->second : 0) < (py != pos.end() ? py->second : 0);
+            });
+            it->second = closure;
+            auto& table = masterTableOf[ToLower(b)];
+            table = { ToLower(b), "skyrim" };
+            for (const auto& m : closure) table.push_back(ToLower(m));
+        }
+    }
+
+    for (const auto& bname : bundleOrder) {
+        if (cancel) { r.error = "cancelled"; return r; }
+        const std::vector<std::string>& codeList = bundleCodes[bname];
+        const fs::path                  bundle   = plugins / (bname + ".hky");
+        bool any = false;
+        std::string codeLabel;   // "tdmh+tdmlen+tdmv" for logs
+        for (const auto& c : codeList) { if (!codeLabel.empty()) codeLabel += "+"; codeLabel += c; }
+        static const std::vector<std::string> kNoMasters;
+        const auto mit = bundleMasters.find(bname);
+        const std::vector<std::string>& masters = mit != bundleMasters.end() ? mit->second : kNoMasters;
+        /// @brief The masters' own patch dirs for graph `sub` ("<g>" or "_1stperson/<g>"), in master order.
+        auto masterDirsOf = [&](const fs::path& sub) {
+            std::vector<std::string> dirs;
+            for (const auto& m : masters)
+                if (const auto bc = bundleCodes.find(m); bc != bundleCodes.end())
+                    for (const auto& c : bc->second)
+                        if (fs::is_directory(codeDirOf(c) / sub, ec)) dirs.push_back((codeDirOf(c) / sub).string());
+            return dirs;
+        };
 
         // 2a) behavior graph deltas — MERGE every owning code's patch dir for a graph in ONE convert.
         int n = 0;
@@ -2031,7 +1754,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path patch = codeDirOf(c) / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() && convertBehaviorGraph(g, patchDirs, bname, unitOut(bname, g), fidCtx)) ++n;
+            if (!patchDirs.empty() && convertGraph(g, false, bname, masters, masterDirsOf(g), patchDirs, unitOut(bname, g))) ++n;
         }
 
         // 2a') FIRST-PERSON behavior graph deltas — same cross-code merge against the first-person base.
@@ -2046,7 +1769,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path patch = codeDirOf(c) / "_1stperson" / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() && convertFirstPersonGraph(g, patchDirs, bname, fpUnitOut(bname, g), fidCtx)) ++n;
+            if (!patchDirs.empty() &&
+                convertGraph(g, true, bname, masters, masterDirsOf(fs::path("_1stperson") / g), patchDirs, fpUnitOut(bname, g))) ++n;
         }
 
         if (n > 0) { any = true; say("  " + bname + " [" + codeLabel + "]: " + std::to_string(n) + " graph delta(s)."); }
@@ -2110,7 +1834,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 
             // Per character-unit roster accumulation (serve path -> clip animationNames), routed by the
             // base maps' actor/character resolution. Replaces the old {defaultmale,defaultfemale} hardcode:
-            // a horse graph's clips land in the horse character unit's data/animations.yaml, a first-person
+            // a horse graph's clips land in the horse character's roster, a first-person
             // graph's in firstperson, a humanoid graph's in defaultmale+defaultfemale — the roster the
             // schema reads natively (no bundle-root animationnames/ shim).
             std::map<std::string, std::vector<std::string>>        byServe;
@@ -2132,31 +1856,17 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 if (!vanillaStems.count(ToLower(hkx.stem().string()))) {                  // (B) own+serve
                     const fs::path  unitDir = bundle / hkx.lexically_normal().lexically_relative(dataDir.lexically_normal());
                     std::error_code ue;
-                    if (!fs::exists(unitDir / "behavior.yaml", ue)) {
+                    if (!fs::exists(unitDir / "graph.yaml", ue)) {
                         std::vector<std::uint8_t> ub;
                         std::string               uerr;
-                        if (CB::core::codec::ReadHavokFile(hkx.string(), ub, &uerr)) {
-                            // Emit this new sub-behavior's node ids in the bundle's FormId SELF space
-                            // (fidCtx.selfIndex) — the SAME space the mod's 0_master delta already
-                            // references it by. A generic DecompileUnit emits BARE ids, which the loader
-                            // canonicalizer keys differently from a FormId ref (bare "N" vs "@rank.N"),
-                            // so a future mod that MASTERS this graph would mis-merge against it (the
-                            // stale-base id-space mismatch, applied to a new graph). Schema behavior path
-                            // only; a non-behavior / no-schema / failed unit falls back to the generic
-                            // decompile (bare ids, standalone-safe) so nothing regresses.
-                            std::string schErr;
-                            bool        owned = false;
-                            if (haveSchema &&
-                                CB::core::decompile::DecompileBehaviorSchema(ub, "", schemaReg, unitDir.string(), schErr,
-                                                                      /*selfIndex*/ fidCtx.selfIndex)) {
-                                ++ownedUnits; owned = true;
-                            }
-                            if (!owned) {
-                                const auto dres = CB::core::decompile::DecompileUnit(ub, unitDir.string());
-                                if (dres.ok && dres.kind == "behavior") ++ownedUnits;
-                                else fs::remove_all(unitDir, ue);   // not a behavior / failed — leave no junk
-                            }
-                        }
+                        const std::string unitKey = ToLower(hkx.lexically_normal().lexically_relative(dataDir.lexically_normal()).generic_string());
+                        const auto& ubones = baseCompiler.BonesFor(unitKey);
+                        if (CB::core::codec::ReadHavokFile(hkx.string(), ub, &uerr) &&
+                            CB::core::decompile::DecompileBehaviorReflective(ub, schemaReg, unitDir.string(), uerr,
+                                                                             ubones.empty() ? nullptr : &ubones))
+                            ++ownedUnits;
+                        else
+                            fs::remove_all(unitDir, ue);   // not a readable behavior — leave no junk
                     }
                 }
                 for (const auto& b : refs.behaviorNames) {                               // recurse
@@ -2214,14 +1924,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             }
 
             if (!byServe.empty()) {
-                // Write each character unit's roster delta as data/animations.yaml — the runtime unions
-                // every layer's yaml onto the base character (CharacterYamlLoader::LoadMerged), so a
-                // collected name that IS vanilla is a harmless dedup there.
+                // Each character's roster additions — a collected name that IS vanilla drops out when the
+                // patch is derived against the base character (FlushRosters).
                 int         totalAdded = 0;
                 std::size_t totalNames = 0;
                 for (const auto& [serve, names] : byServe) {
                     totalNames += names.size();
-                    totalAdded += AddRosterToCharacterUnit(bundle, serve, names);
+                    totalAdded += AddRosterToCharacterUnit(rosters, bundle, serve, names);
                 }
                 if (totalAdded > 0) {
                     any = true;
@@ -2237,20 +1946,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             }
         }
 
-        // 2c') anim-data — BR-native per-clip deltas: clips/<proj>/<clip>.yaml (animation: name, from the
-        //      behaviour graph) + motion/<proj>/<clip>.yaml (real Nemesis motion). Runs here, after the
-        //      RBG-chain ingest, so every behaviour unit (incl. RBG-owned) is present for the name join.
-        //      The runtime resolves each clip's animIndex against the merged roster — no mod codes, no
-        //      verbatim Nemesis copy, no high-band allocation.
-        //      Per code into the shared bundle (clip-name-keyed: different codes add different clips;
-        //      a same-named clip is last-writer, harmless). Accumulates across the bundle's codes.
-        for (const auto& c : codeList) {
-            if (const int clipFiles = DeriveModAnimDeltas(codeDirOf(c), bundle, dataDir, [&](const std::string& s){ say("    " + s); })) {
-                any = true; ++r.animMods;
-                say("  " + bname + " [" + c + "]: anim-data — " + std::to_string(clipFiles) +
-                    " per-clip delta(s) (animation: + real motion).");
-            }
-        }
+        /// @note 2c') anim-data ships nothing: the runtime derives each clip from the behavior graph and its root
+        ///       motion from the packaged animation's `motion:` (a mod's shipped adsf disagrees with AMR motion).
 
         // Emit the BUNDLE (mod) name — one slot per bundle (its codes already merged above).
         // A precompiled-only mod's bundle is added in the loose-replacement pass below.
@@ -2312,13 +2009,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (fs::is_directory(plugins / (kPandora + ".hky"), ec)) emitted.push_back(kPandora);
     }
 
-    // 3b) animationnames/ -> character-unit data/animations.yaml (Phase 1 retirement) — the set-data
-    //     (2b) and FNIS legs still emit the legacy bundle-root animationnames/<stem>.txt roster drops.
-    //     Re-file every remaining one into its character unit's data/animations.yaml (the native roster
-    //     the schema reads via CharacterYamlLoader::LoadMerged), keyed by file stem -> base character
-    //     serve path, then remove the shim folder so no bundle ships it. Roster lines are UnescapeXml'd
-    //     to literal (data/animations.yaml holds literal paths; the shim drops may be XML-escaped, as the
-    //     runtime read path unescaped them). A stem with no base character is left in place + warned.
+    // 3b) animationnames/ -> character roster patches — the set-data leg (2b) still emits bundle-root
+    //     animationnames/<stem>.txt roster drops. Re-file every one into its character's roster, keyed by
+    //     file stem -> base character serve path, then remove the shim folder so no bundle ships it. Roster
+    //     lines are UnescapeXml'd to literal (the roster holds literal paths; the shim drops may be
+    //     XML-escaped). A stem with no base character is left in place + warned.
     {
         std::error_code pe;
         int movedFiles = 0, movedNames = 0;
@@ -2352,7 +2047,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                         names.push_back(UnescapeXml(t));
                     }
                 }
-                const int added = AddRosterToCharacterUnit(bi->path(), sit->second, names);
+                const int added = AddRosterToCharacterUnit(rosters, bi->path(), sit->second, names);
                 if (added > 0) { ++movedFiles; movedNames += added; }
             }
             if (!anyUnroutable) fs::remove_all(anDir, pe);   // retire the shim folder from the bundle
@@ -2360,6 +2055,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (movedFiles > 0)
             say("  roster: re-filed " + std::to_string(movedFiles) + " animationnames drop(s) into "
                 "character units (" + std::to_string(movedNames) + " roster line(s)).");
+        if (const int n = FlushRosters(rosters, baseCompiler, schemaReg, log))
+            say("  roster: wrote " + std::to_string(n) + " character patch unit(s).");
     }
 
     // 4) loadorder.txt — PRESERVE an existing file's order (the user hand-tunes it and a
@@ -2498,7 +2195,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         " with anim-data)" +
         (r.fnisAnims ? ("; FNIS: " + std::to_string(r.fnisAnims) + " anim(s)") : "") +
         (r.skipped ? ("; " + std::to_string(r.skipped) + " skipped") : "") + ".");
-    fs::remove_all(baseBinTmp, ec);   // drop the per-graph base binaries compiled for pass 2a
     r.ok = true;
     return r;
 }
@@ -2638,6 +2334,66 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     // landing in the two "<name>.txt/" folders — so the old project/character -> actor-root maps that
     // placed motion/movesets under actors/<actor>/ are gone (the folders don't need them).
 
+    auto* sreg = CB::core::schema::SharedRegistry();
+    if (!sreg) { r.error = "schema registry not armed"; return r; }
+
+    /// @note RIG BINDING before any emit: a graph's bone-named fields render through the rig its characters bind
+    ///       (project characterFilenames -> character rigName / behaviorFilename), read from the source binaries —
+    ///       the same binding the runtime rebuilds from the emitted units (Resolver / BaseUnitCompiler).
+    CB::core::skeleton::RigIndex                    rigIndex;
+    std::map<std::string, std::vector<std::string>> rigBones;   // skeleton serve key -> bone names (original case)
+    {
+        std::map<std::string, fs::path> projects, characters;   // serve key -> source file
+        for (fs::recursive_directory_iterator it(meshes, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec)) {
+            std::error_code fe;
+            if (!it->is_regular_file(fe) || fe) continue;
+            std::string key = "meshes/" + fs::relative(it->path(), meshes, fe).generic_string();
+            for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (key.size() < 4 || key.compare(key.size() - 4, 4, ".hkx") != 0) continue;
+            switch (PeekHkxKind(it->path())) {
+                case HkxKind::Project:   projects[key] = it->path(); break;
+                case HkxKind::Character: characters[key] = it->path(); break;
+                case HkxKind::Skeleton: {
+                    std::vector<std::uint8_t> b; std::vector<CB::core::skeleton::SkeletonData> sk;
+                    if (CB::core::codec::ReadHavokFile(it->path().string(), b, nullptr) &&
+                        CB::core::skeleton::LoadSkeletonsFromHkx(b.data(), b.size(), sk, nullptr) && !sk.empty()) {
+                        auto& names = rigBones[key];
+                        for (const auto& bone : sk[0].bones) names.push_back(bone.name);
+                    }
+                    break;
+                }
+                default: break;
+            }
+        }
+        for (const auto& [projKey, file] : projects) {
+            std::vector<std::uint8_t> pb;
+            std::vector<std::string>  chars;
+            if (CB::core::codec::ReadHavokFile(file.string(), pb, nullptr))
+                WithFirstOfClass(pb, *sreg, "hkbProjectStringData",
+                                 [&](CB::core::codec::io::SchemaObject& so) { chars = so.FieldRef("characterFilenames").strs; });
+            rigIndex.AddProject(projKey, chars,
+                [&](const std::string& charUnit) -> std::optional<CB::core::skeleton::CharacterRig> {
+                    const auto c = characters.find(charUnit);
+                    std::vector<std::uint8_t> cb;
+                    if (c == characters.end() || !CB::core::codec::ReadHavokFile(c->second.string(), cb, nullptr)) return std::nullopt;
+                    std::optional<CB::core::skeleton::CharacterRig> rig;
+                    WithFirstOfClass(cb, *sreg, "hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
+                        rig = CB::core::skeleton::CharacterRig{ so.FieldRef("rigName").str, so.FieldRef("behaviorFilename").str };
+                    });
+                    return rig;
+                },
+                [&](const std::string& rig) { return rigBones.count(rig) != 0; });
+        }
+        rigIndex.Finalize();
+    }
+    const auto bonesFor = [&](const std::string& serveKey) -> const std::vector<std::string>* {
+        const auto* rigs = rigIndex.RigsFor(serveKey);
+        if (!rigs || rigs->empty()) return nullptr;
+        const auto b = rigBones.find(rigs->front());
+        return b == rigBones.end() || b->second.empty() ? nullptr : &b->second;
+    };
+
     say("== Building " + bundle + " (every unit under " + meshes.string() + ") ==");
     for (fs::recursive_directory_iterator it(meshes, fs::directory_options::skip_permission_denied, ec), end;
          !ec && it != end; it.increment(ec)) {
@@ -2661,8 +2417,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         const fs::path unit = stageHky / "meshes" / fs::path(rel);
 
         // SKELETON: hkaSkeleton -> bonelist.yaml + bones/ unit (SkeletonImport -> EmitSkeletonYamlTree).
-        // The runtime back-fills BehaviorData.boneNames from these (Resolver m_skeletons); without one,
-        // every name-keyed hkbBoneIndexArray in that actor's graphs fails to compile.
+        // The runtime builds each rig's bone table from these (Resolver m_skeletons); without one, every
+        // bone-named field in that actor's graphs fails to parse.
         if (kind == HkxKind::Skeleton) {
             std::vector<std::uint8_t> sbytes; std::string srerr;
             std::vector<CB::core::skeleton::SkeletonData> sk; std::string skerr;
@@ -2712,93 +2468,21 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             continue;
         }
 
-        // BEHAVIOR / CHARACTER / PROJECT — read full + decompile (DecompileToDir content-dispatches).
+        /// @note BEHAVIOR / CHARACTER / PROJECT — a complete reflective unit (self-owned FormIDs, encounter order), its
+        ///       bone-named fields rendered through the rig its characters bind. A mod's patch is derived against
+        ///       THIS unit's identity, so no template numbering is involved.
         std::vector<std::uint8_t> bytes;
         std::string rerr;
         if (!CB::core::codec::ReadHavokFile(it->path().string(), bytes, &rerr)) { ++r.failed; continue; }
-
-        // A behavior we have a tagfile template XML for MUST be numbered by the oracle
-        // (#NNNN), not DecompileToDir's encounter-order ids, so it merges against the
-        // per-mod deltas (which reference those #NNNN). Route it through ConvertPatch's
-        // vanilla-base path (no patch dirs). Fall back to DecompileToDir on any failure.
-        //
-        // STRUCTURAL GATE: a template is matched by stem, but stems collide — the 1st-person
-        // `_1stperson/behaviors/1hm_behavior.hkx` shares the stem of the 3rd-person one yet is
-        // a DIFFERENT graph. Applying the wrong template emits a garbage-numbered base (its
-        // state refs dangle -> the runtime compile fails -> that actor T-poses). Only use the
-        // template when its object count matches this binary's, i.e. it really describes THIS
-        // file. A file under _1stperson/behaviors/ is numbered from templates/_1stperson/<stem>.xml (its
-        // OWN first-person template, a different graph than the same-named third-person one) so the base's
-        // #NNNN match the first-person deltas — the fix for the FirstPerson-project A-pose.
-        if (kind == HkxKind::Behavior && !templatesDir.empty()) {
-            std::error_code xe;
-            // First-person graphs use their OWN templates/_1stperson/<stem>.xml (a different graph than the
-            // same-named third-person one). This IS a legitimate path distinction (template selection), not
-            // type detection — the `_1stperson` segment is how the two same-stem graphs are told apart.
-            const bool is1st = lower.find("/_1stperson/") != std::string::npos;
-            const fs::path xml = is1st
-                ? fs::path(templatesDir) / "_1stperson" / (fs::path(rel).stem().string() + ".xml")
-                : fs::path(templatesDir) / (fs::path(rel).stem().string() + ".xml");
-            if (fs::exists(xml, xe)) {
-                std::size_t binObjs = 0;
-                try {
-                    CB::core::codec::PackFileDeserializer des;
-                    CB::core::codec::BinaryReaderEx rdr(false, true, bytes);
-                    des.DeserializePartially(rdr);
-                    binObjs = des.ListObjects().size();
-                } catch (...) {}
-                std::ifstream xf(xml, std::ios::binary);
-                const std::string xtext((std::istreambuf_iterator<char>(xf)), std::istreambuf_iterator<char>());
-                std::size_t xmlObjs = 0;
-                for (std::size_t p = xtext.find("<hkobject name=\"#"); p != std::string::npos;
-                     p = xtext.find("<hkobject name=\"#", p + 1)) ++xmlObjs;
-
-                if (binObjs != 0 && binObjs == xmlObjs) {
-                    // SCHEMA base decompile (the unified emitter): deserialize → SchemaObject → AssignIdentity
-                    // (oracle #NNNN from this tagfile) → EmitHky + EmitFullBaseScaffolding. Byte-identical to
-                    // the typed ConvertPatch/DecompileBehaviorTree (emit-check gate), but now the base master
-                    // and the per-mod schema deltas are produced by ONE emitter — no base↔delta drift. Typed
-                    // ConvertPatch stays as the fallback if the shared schema registry is unavailable or it errors.
-                    if (auto* sreg = CB::core::schema::SharedRegistry()) {
-                        std::string derr;
-                        if (CB::core::decompile::DecompileBehaviorSchema(bytes, xtext, *sreg, unit.string(), derr,
-                                                                  /*selfIndex=self(base)*/ 0)) {
-                            ++r.behaviors; continue;
-                        }
-                        say("  WARN: schema base decompile failed for " + fs::path(rel).stem().string() +
-                            " (" + derr + "); falling through to encounter-order ids.");
-                    }
-                    // Typed ConvertPatch oracle fallback RETIRED (firesale). Schema is the base emitter;
-                    // if it ever fails, DecompileToDir below catches it (encounter-order ids).
-                } else if (xmlObjs != 0) {
-                    say("  note: template " + fs::path(rel).stem().string() + ".xml (" +
-                        std::to_string(xmlObjs) + " objs) != " + rel + " (" + std::to_string(binObjs) +
-                        " objs) — different graph, using encounter-order ids.");
-                }
-            }
+        std::string derr;
+        if (!CB::core::decompile::DecompileBehaviorReflective(bytes, *sreg, unit.string(), derr, bonesFor("meshes/" + lower))) {
+            ++r.failed;
+            say("  decompile FAILED: " + rel + " — " + derr);
+            continue;
         }
-
-        // No-template BEHAVIOR → schema READ-ORDER decompile (the coordinated flip): matches the schema
-        // loose-derive so no-template mod deltas (horse, creatures) align with this base. Gated on the same
-        // shared registry as the loose-derive. Only behaviors route here; character/project/animation go
-        // through the schema DecompileUnit below. The typed fallback was retired with havok-core, so a
-        // behavior that fails schema decompile here is a genuine failure (DecompileUnit's behavior leg is
-        // this same DecompileBehaviorSchema) — currently the 3 creature *_lod graphs, whose schema
-        // EmitFullBaseScaffolding can't yet write behavior.yaml (a known, isolated schema-decompile gap).
-        if (kind == HkxKind::Behavior) {
-            if (CB::core::schema::SchemaRegistry* sreg = CB::core::schema::SharedRegistry()) {
-                std::string derr;
-                if (CB::core::decompile::DecompileBehaviorSchema(bytes, "", *sreg, unit.string(), derr,
-                                                          /*selfIndex=self(base)*/ 0)) { ++r.behaviors; continue; }
-                say("  WARN: schema decompile failed for " + rel + " (" + derr + ") — unit skipped (no typed fallback; needs a schema fix).");
-                ++r.failed; continue;   // re-running the same schema emitter via DecompileUnit won't help
-            }
-        }
-        const auto d = CB::core::decompile::DecompileUnit(bytes, unit.string());
-        if (!d.ok) { ++r.failed; continue; }   // e.g. the 2 CC tagfile characters
-        if      (d.kind == "behavior")  ++r.behaviors;
-        else if (d.kind == "project")   ++r.projects;
-        else if (d.kind == "character") ++r.characters;
+        if      (kind == HkxKind::Behavior)  ++r.behaviors;
+        else if (kind == HkxKind::Character) ++r.characters;
+        else if (kind == HkxKind::Project)   ++r.projects;
     }
     say("  decompiled: " + std::to_string(r.behaviors) + " behaviors, " +
         std::to_string(r.projects) + " projects, " + std::to_string(r.characters) +
@@ -2859,37 +2543,23 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 std::ofstream(setRoot / "index.yaml", std::ios::binary)
                     .write(idx.data(), static_cast<std::streamsize>(idx.size()));
 
-                // Each project's sets (gate/equip/attacks + the extracted `animations`) are written
-                // CO-LOCATED with its character, as <char-unit>/data/setdata.yaml — self-identifying
-                // (carries `project:`), beside data/animations.yaml. A project whose character doesn't
-                // resolve falls back to a top-level animationsetdatasinglefile.txt/setdata/<stem>.yaml.
-                // The runtime re-hashes the paths (no derive, no roster union).
-                const auto projChars = CB::core::animdata::LoadProjectCharacters((stageHky / "meshes").string());
-                int units = 0, fallback = 0;
+                /// @note Each project's sets (gate/equip/attacks + the extracted `animations`) are one file,
+                ///       setdata/<projectstem>.yaml, self-identifying (carries `project:`) — keyed by PROJECT (a
+                ///       character can host several). A unit folder holds only its graph. The runtime re-hashes the
+                ///       paths (no derive, no roster union).
+                int units = 0;
+                fs::create_directories(setRoot / "setdata", ec);
                 for (const auto& proj : parsed.projects) {
                     if (proj.sets.empty()) continue;
                     const std::string stem = CB::core::animsetdata::StemForHeader(proj.header);
                     if (stem.empty()) continue;
                     const std::string body = CB::core::animsetdata::EmitSetdataUnitYaml(proj);
-                    const auto pc = projChars.find(stem);
-                    if (pc != projChars.end() && !pc->second.ref.empty()) {
-                        // data/setdata/<projectstem>.yaml — keyed by PROJECT (a character can host
-                        // several projects, e.g. a creature's base + variant), so they never collide.
-                        const fs::path unitData = stageHky / "meshes" / fs::path(pc->second.ref) / "data" / "setdata";
-                        fs::create_directories(unitData, ec);
-                        std::ofstream(unitData / (stem + ".yaml"), std::ios::binary)
-                            .write(body.data(), static_cast<std::streamsize>(body.size()));
-                        ++units;
-                    } else {
-                        fs::create_directories(setRoot / "setdata", ec);
-                        std::ofstream(setRoot / "setdata" / (stem + ".yaml"), std::ios::binary)
-                            .write(body.data(), static_cast<std::streamsize>(body.size()));
-                        ++fallback;
-                    }
+                    std::ofstream(setRoot / "setdata" / (stem + ".yaml"), std::ios::binary)
+                        .write(body.data(), static_cast<std::streamsize>(body.size()));
+                    ++units;
                 }
                 say("  decomposed animationsetdatasinglefile.txt/ -> index.yaml + " +
-                    std::to_string(units) + " char setdata.yaml + " + std::to_string(fallback) +
-                    " fallback (" + std::to_string(nResolved) + " anim paths, " +
+                    std::to_string(units) + " setdata/ (" + std::to_string(nResolved) + " anim paths, " +
                     std::to_string(nResidue) + " residue; " +
                     std::to_string(parsed.projects.size()) + " projects indexed)");
             } catch (const std::exception& e) {
@@ -2918,7 +2588,16 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 // just-decomposed stageHky tree, so clips are keyed by animation name (index resolved
                 // from the roster at compile) instead of a hardwired magic number. Still needed for the
                 // index.yaml `character:` refs and the motion reunion below.
-                const auto pcs = CB::core::animdata::LoadProjectCharacters((stageHky / "meshes").string());
+                const auto pcs = CB::core::animdata::LoadProjectCharacters((stageHky / "meshes").string(),
+                    [](const fs::path& unit) {
+                        const auto cs = CB::core::decompile::ReadCharacterStrings(CB::core::common::DiskUnitSource(unit));
+                        return cs ? cs->animationNames : std::vector<std::string>{};
+                    },
+                    [](const fs::path& unit) {
+                        std::ifstream g(unit / "graph.yaml", std::ios::binary);
+                        const std::string t((std::istreambuf_iterator<char>(g)), std::istreambuf_iterator<char>());
+                        return CB::core::codec::HkyArchive::KindOfGraphYaml(t) == CB::core::codec::HkyArchive::UnitKind::Project;
+                    });
                 std::map<std::string, std::string> charRefByStem;
                 for (const auto& [stem, pc] : pcs) charRefByStem.emplace(stem, pc.ref);
 
@@ -3150,44 +2829,6 @@ bool PackageAllModAnimations(const std::string& mo2Instance, const std::string& 
     fs::create_directories(pluginsDir, ec);
     PackageModAnimations(mo2, pluginsDir, pluginsDir, log, std::string());
     return true;
-}
-
-bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log, const std::string& baseHky) {
-    const auto say = [&](const std::string& s) { if (log) log(s); };
-    auto* reg = CB::core::schema::SharedRegistry();
-    if (!reg) { say("reflect-dump: schema registry not armed"); return false; }
-    std::optional<bconv::BaseUnitCompiler> rigs;   // rig binding from the base bundle (bone names by rig order)
-    if (!baseHky.empty()) {
-        std::string herr;
-        if (auto arc = CB::core::codec::HkyArchive::LoadFromFile(baseHky, herr)) rigs.emplace(arc);
-        else say("reflect-dump: base bundle unreadable (" + herr + ") — bone fields stay numeric");
-    }
-    std::error_code ec;
-    fs::create_directories(outDir, ec);
-    std::ofstream index(fs::path(outDir) / "index.txt", std::ios::binary);
-    int n = 0, fails = 0;
-    for (fs::recursive_directory_iterator it(meshesDir, fs::directory_options::skip_permission_denied, ec), end;
-         !ec && it != end; it.increment(ec)) {
-        std::error_code fe;
-        if (!it->is_regular_file(fe)) continue;
-        std::string ext = it->path().extension().string();
-        for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (ext != ".hkx" || PeekHkxKind(it->path()) != HkxKind::Behavior) continue;
-        std::vector<std::uint8_t> bytes; std::string err;
-        if (!CB::core::codec::ReadHavokFile(it->path().string(), bytes, &err)) { ++fails; say("  read failed: " + it->path().string()); continue; }
-        const fs::path g = fs::path(outDir) / std::to_string(n);
-        const bool okCur = CB::core::decompile::DecompileBehaviorSchema(bytes, "", *reg, (g / "cur").string(), err);
-        std::string serveKey = "meshes/" + fs::relative(it->path(), meshesDir, fe).generic_string();
-        for (char& ch : serveKey) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));   // internal RigIndex key
-        const std::vector<std::string>* bones = nullptr;
-        if (rigs) if (const auto& b = rigs->BonesFor(serveKey); !b.empty()) bones = &b;
-        const bool okGen = okCur && CB::core::decompile::DecompileBehaviorReflective(bytes, *reg, (g / "gen").string(), err, bones);
-        if (!okCur || !okGen) { ++fails; say("  decompile failed: " + it->path().string() + " — " + err); continue; }
-        index << n << "\t" << fs::relative(it->path(), meshesDir, fe).generic_string() << "\n";
-        ++n;
-    }
-    say("reflect-dump: " + std::to_string(n) + " behavior graph(s) dumped, " + std::to_string(fails) + " failed -> " + outDir);
-    return fails == 0;
 }
 
 bool SerializerRoundTrip(const std::string& meshesDir, const std::string& outRoot, const LogFn& log) {
@@ -3434,139 +3075,49 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     r.build = BuildBaseBundle(vanillaMeshesDir, tempHky.string(), log, cancel, templatesDir, keepStagingDir);
     if (!r.build.ok) { r.error = "build-base failed: " + r.build.error; fs::remove_all(work, ec); return r; }
 
-    // 2) Fidelity gate — for every templated graph, compile its base unit out of the fresh master,
-    //    decompile it, and byte-diff data/graphdata.yaml against the SAME graph's vanilla binary
-    //    decompile. graphdata carries the symbol tables + role/flags the XML-oracle path used to
-    //    corrupt (37 vs 5804/5849), so a drift here is the exact alarm we lacked.
+    /// @note 2) SERVED-BYTES gate: every reflective unit of the fresh bundle (behavior / character / project) must parse
+    ///       back through the runtime's own reader — bones bound through its rig, as the Resolver binds them — and
+    ///       serialize byte-identical to its source binary's canonical re-serialization. That is exactly what the
+    ///       runtime serves for a graph no mod touches. Drifting pairs are kept for inspection.
     say("");
-    say("== Validating regenerated " + bundle + " vs its source binaries (graphdata fidelity) ==");
+    say("== Validating regenerated " + bundle + " (parse + serialize every unit vs its source) ==");
     std::string herr;
     auto arc = CB::core::codec::HkyArchive::LoadFromFile(tempHky.string(), herr);
-    if (!arc) { r.error = "cannot reopen built master for validation: " + herr; fs::remove_all(work, ec); return r; }
-
-    const fs::path gate = work / ".gate";
-    auto readFile = [](const fs::path& p) -> std::string {
-        std::ifstream f(p, std::ios::binary);
-        return f ? std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()) : std::string{};
-    };
-
-    /// @note Gate compiles back-fill bone names from the rig the graph's characters bind (BaseUnitCompiler ->
-    ///       RigIndex), exactly as the runtime Resolver does.
+    if (!arc) { r.error = "cannot reopen built bundle for validation: " + herr; fs::remove_all(work, ec); return r; }
+    auto* sreg = CB::core::schema::SharedRegistry();
+    if (!sreg) { r.error = "schema registry not armed"; fs::remove_all(work, ec); return r; }
     bconv::BaseUnitCompiler baseCompiler(arc);
-
-    for (const auto& g : ScanGraphs(templatesDir)) {
+    const fs::path driftKeep = fs::temp_directory_path(ec) / ("sct_regen_drift_" + fs::path(outHky).stem().string());
+    fs::remove_all(driftKeep, ec);
+    for (const auto& u : arc->units()) {
         if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
-        const fs::path van = fs::path(vanillaMeshesDir) / "actors" / "character" / "behaviors" / (g + ".hkx");
-        if (!fs::is_regular_file(van, ec)) continue;   // only gate graphs we have vanilla ground truth for
-        const std::string prefix = std::string(kBehSub) + "/" + g + ".hkx";
-
-        std::vector<std::uint8_t> reBytes;              // regenerated base unit -> binary
-        try {
-            std::string cerr;
-            if (!baseCompiler.CompileBehavior(prefix, reBytes, cerr)) { say("  " + g + ": regen base compile failed — " + cerr); continue; }
-        } catch (const std::exception& e) { say("  " + g + ": regen base load threw — " + std::string(e.what())); continue; }
-
-        std::vector<std::uint8_t> vanBytes; std::string rerr;
-        if (!CB::core::codec::ReadHavokFile(van.string(), vanBytes, &rerr)) { say("  " + g + ": vanilla read failed — " + rerr); continue; }
-
-        const fs::path reDir = gate / (g + "_re"), vaDir = gate / (g + "_va");
-        const auto rd = CB::core::decompile::DecompileUnit(reBytes,  reDir.string());
-        const auto vd = CB::core::decompile::DecompileUnit(vanBytes, vaDir.string());
-        if (rd.ok && vd.ok) {
-            ++r.checked;
-            if (readFile(reDir / "data" / "graphdata.yaml") == readFile(vaDir / "data" / "graphdata.yaml"))
-                ++r.faithful;
-            else { r.drift.push_back(g); say("  DRIFT: " + g + " — graphdata differs from vanilla"); }
-        } else {
-            say("  " + g + ": decompile failed (regen:" + (rd.ok ? "ok" : rd.error) + " van:" + (vd.ok ? "ok" : vd.error) + ")");
+        if (u.kind == CB::core::codec::HkyArchive::UnitKind::Skeleton || u.prefix.rfind("meshes/", 0) != 0) continue;
+        const fs::path src = fs::path(vanillaMeshesDir) / u.prefix.substr(7);
+        std::vector<std::uint8_t> srcBytes, canon, got;
+        std::string e;
+        if (!fs::is_regular_file(src, ec) || !CB::core::codec::ReadHavokFile(src.string(), srcBytes, &e)) continue;
+        if (!CB::core::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) { say("  " + u.prefix + ": source unreadable — " + e); continue; }
+        ++r.checked;
+        if (!baseCompiler.Compile(u.prefix, got, e)) {
+            r.drift.push_back(u.prefix);
+            say("  FAIL: " + u.prefix + " — " + e);
+            continue;
         }
-        fs::remove_all(reDir, ec); fs::remove_all(vaDir, ec);
+        if (got == canon) { ++r.faithful; continue; }
+        r.drift.push_back(u.prefix);
+        say("  DRIFT: " + u.prefix + " — served " + std::to_string(got.size()) + " bytes vs canonical " + std::to_string(canon.size()));
+        const fs::path keep = driftKeep / fs::path(u.prefix).relative_path();
+        fs::create_directories(keep, ec);
+        std::ofstream(keep / "served.bin", std::ios::binary).write(reinterpret_cast<const char*>(got.data()), static_cast<std::streamsize>(got.size()));
+        std::ofstream(keep / "canon.bin", std::ios::binary).write(reinterpret_cast<const char*>(canon.data()), static_cast<std::streamsize>(canon.size()));
     }
-    std::string driftList;
-    for (const auto& d : r.drift) { if (!driftList.empty()) driftList += ", "; driftList += d; }
-    say("  fidelity: " + std::to_string(r.faithful) + "/" + std::to_string(r.checked) +
-        " templated graph(s) match vanilla graphdata" + (r.drift.empty() ? "." : ("; drift: " + driftList)));
-
-    /// @note 2b) BASE-UNIT ROUND-TRIP gate: decompile(compile(unit)) vs decompile(source binary) for every
-    ///       non-character behavior with a source binary. It compares the .hky YAML, so it cannot see fields
-    ///       EmitHky never writes — a fixed-point check, not a losslessness proof. Drift = renumbered objects
-    ///       (the compile's emission order differs from vanilla's read order) or values that don't round-trip.
-    say("");
-    say("== Base-unit round-trip (decompile(compile(" + fs::path(outHky).filename().string() +
-        " unit)) vs decompile(source)) ==");
-    {
-        auto* sreg = CB::core::schema::SharedRegistry();
-        auto diffFiles = [&](const fs::path& a, const fs::path& b) {
-            std::error_code de;
-            std::set<std::string> rels;
-            std::vector<std::string> out;
-            for (const fs::path& root : { a, b })
-                for (fs::recursive_directory_iterator it(root, de), end; !de && it != end; it.increment(de))
-                    if (it->is_regular_file()) rels.insert(fs::relative(it->path(), root).generic_string());
-            for (const std::string& rel : rels)
-                if (readFile(a / rel) != readFile(b / rel)) out.push_back(rel);
-            return out;
-        };
-        /// @note Drifting pairs are KEPT (base-unit decompile vs source decompile) under the temp dir for inspection.
-        const fs::path driftKeep = fs::temp_directory_path(ec) / ("sct_roundtrip_drift_" + fs::path(outHky).stem().string());
-        fs::remove_all(driftKeep, ec);
-        const fs::path og = work / ".roundtrip";
-        for (const auto& u : arc->units()) {
-            if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
-            if (u.kind != CB::core::codec::HkyArchive::UnitKind::Behavior) continue;
-            if (u.prefix.rfind("meshes/actors/character/", 0) == 0 || u.prefix.rfind("meshes/", 0) != 0) continue;
-            const fs::path src = fs::path(vanillaMeshesDir) / u.prefix.substr(7);
-            if (!fs::is_regular_file(src, ec)) continue;
-            if (!sreg) { say("  round-trip gate skipped: schema registry not armed"); break; }
-
-            std::vector<std::uint8_t> reBytes, vanBytes;
-            std::string e1, e2;
-            if (!baseCompiler.CompileBehavior(u.prefix, reBytes, e1)) {
-                r.roundTripDrift.push_back(u.prefix);
-                say("  ROUND-TRIP: " + u.prefix + " — base compile failed: " + e1);
-                continue;
-            }
-            if (!CB::core::codec::ReadHavokFile(src.string(), vanBytes, &e2)) { say("  " + u.prefix + ": source read failed — " + e2); continue; }
-            const fs::path reDir = og / "re", vaDir = og / "va";
-            fs::remove_all(og, ec);
-            const bool okRe = CB::core::decompile::DecompileBehaviorSchema(reBytes,  "", *sreg, reDir.string(), e1);
-            const bool okVa = CB::core::decompile::DecompileBehaviorSchema(vanBytes, "", *sreg, vaDir.string(), e2);
-            if (!okRe || !okVa) {
-                r.roundTripDrift.push_back(u.prefix);
-                say("  ROUND-TRIP: " + u.prefix + " — decompile failed (base:" + (okRe ? "ok" : e1) + " src:" + (okVa ? "ok" : e2) + ")");
-                continue;
-            }
-            ++r.roundTripChecked;
-            const auto diffs = diffFiles(reDir, vaDir);
-            if (diffs.empty()) { ++r.roundTripFaithful; continue; }
-            r.roundTripDrift.push_back(u.prefix);
-            std::string list;
-            for (std::size_t i = 0; i < diffs.size() && i < 5; ++i) list += (i ? ", " : "") + diffs[i];
-            say("  ROUND-TRIP DRIFT: " + u.prefix + " — " + std::to_string(diffs.size()) + " file(s) differ: " + list +
-                (diffs.size() > 5 ? ", ..." : ""));
-            const fs::path keep = driftKeep / fs::path(u.prefix).relative_path();
-            fs::create_directories(keep, ec);
-            fs::rename(reDir, keep / "base", ec);
-            fs::rename(vaDir, keep / "source", ec);
-        }
-        fs::remove_all(og, ec);
-        if (!r.roundTripDrift.empty()) say("  drift pairs kept under " + driftKeep.string());
-        say("  base-unit round-trip: " + std::to_string(r.roundTripFaithful) + "/" + std::to_string(r.roundTripChecked) +
-            " graph(s) decompile identically from the compiled base unit" +
-            (r.roundTripDrift.empty() ? "." : ("; " + std::to_string(r.roundTripDrift.size()) + " drift/fail (see ROUND-TRIP lines)")));
-    }
+    if (!r.drift.empty()) say("  drift pairs kept under " + driftKeep.string());
+    say("  served-bytes gate: " + std::to_string(r.faithful) + "/" + std::to_string(r.checked) +
+        " unit(s) serve byte-identical to their source" + (r.drift.empty() ? "." : "; " + std::to_string(r.drift.size()) + " drift/fail."));
 
     // 3) Promote — or, in strict mode, refuse to write if anything drifted.
-    if (!r.roundTripDrift.empty() && strict) {
-        r.error = "strict gate: " + std::to_string(r.roundTripDrift.size()) +
-                  " graph(s) fail the base-unit round-trip — bundle NOT written";
-        say("  " + r.error);
-        fs::remove_all(work, ec);
-        return r;
-    }
     if (!r.drift.empty() && strict) {
-        r.error = "strict gate: " + std::to_string(r.drift.size()) +
-                  " graph(s) drift from vanilla graphdata (" + driftList + ") — master NOT written";
+        r.error = "strict gate: " + std::to_string(r.drift.size()) + " unit(s) don't serve their source — bundle NOT written";
         say("  " + r.error);
         fs::remove_all(work, ec);
         return r;
@@ -3576,7 +3127,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     if (ec) { r.error = "failed to write " + outHky + ": " + ec.message(); fs::remove_all(work, ec); return r; }
     fs::remove_all(work, ec);
     say("  " + bundle + " -> " + outHky + (r.drift.empty() ? "" : "  (written with " + std::to_string(r.drift.size()) +
-        " known/benign drift graph(s) — review the DRIFT lines above)"));
+        " drifting unit(s) — review the DRIFT / FAIL lines above)"));
     r.ok = true;
     return r;
 }

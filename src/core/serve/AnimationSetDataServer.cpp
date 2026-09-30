@@ -6,6 +6,8 @@
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (codec/format, firesale)
+#include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
+#include <codec/serialization/HkyArchive.h>
 
 #include <algorithm>
 #include <atomic>
@@ -228,41 +230,20 @@ namespace CB::core::serve {
                     }
                 }
 
-                // Roster additions ALSO live in each character unit's data/animations.yaml — the location
-                // the tagfile+roster refactor moved them to, replacing animationnames/<char>.txt. A DELTA
-                // character unit ships ONLY animations.yaml (no character.yaml), so characterUnits() won't
-                // list it — scan the files directly. WITHOUT this the coverage guard's roster is empty for
-                // every relocated mod animation, its set-data CRC is dropped as "unrostered", and that
-                // attack/dodge/parkour binds the WRONG animation (SkyParkour/HorsePower/BFCO regressions).
-                // The path "<unit>.hkx/data/animations.yaml" gives the char stem (the .hkx basename); the
-                // body is a single-quoted YAML sequence ("- 'Animations\\X.hkx'"). Union across bundles.
-                static const std::string kSuffix = "/data/animations.yaml";
-                for (const std::string& path : rd->filesUnder("meshes/actors", ".yaml")) {
-                    if (path.size() <= kSuffix.size() ||
-                        path.compare(path.size() - kSuffix.size(), kSuffix.size(), kSuffix) != 0) continue;
-                    std::string unit = path.substr(0, path.size() - kSuffix.size());  // ".../defaultmale.hkx"
+                /// @note Roster additions ALSO live in each character unit's animationNames (a union roster: a patch
+                ///       unit states only the names it adds). WITHOUT these the coverage guard's roster is empty for
+                ///       every mod animation, its set-data CRC is dropped as "unrostered", and that attack / dodge /
+                ///       parkour binds the WRONG animation (SkyParkour / HorsePower / BFCO regressions).
+                for (const std::string& unit : rd->units(CB::core::codec::HkyArchive::UnitKind::Character)) {
+                    const auto src = rd->unitSource(unit);
+                    auto cs = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                    if (!cs || cs->animationNames.empty()) continue;
                     const auto s1 = unit.find_last_of('/');
-                    std::string charName = (s1 == std::string::npos) ? unit : unit.substr(s1 + 1);
+                    std::string charName = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
                     if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
-                    const auto ry = rd->read(path);
-                    if (!ry) continue;
-                    std::istringstream in(*ry);
-                    std::string        line;
-                    auto&              dst = rosterPaths[charName];
-                    while (std::getline(in, line)) {
-                        std::string t = TrimLine(line);
-                        if (t.rfind("- ", 0) == 0)          t = t.substr(2);
-                        else if (!t.empty() && t[0] == '-') t = t.substr(1);
-                        else continue;                                  // not a list item (comment/blank)
-                        t = TrimLine(t);
-                        if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') t = t.substr(1, t.size() - 2);
-                        std::string u;                                  // YAML single-quote unescape ('' -> ')
-                        for (std::size_t i = 0; i < t.size(); ++i) {
-                            if (t[i] == '\'' && i + 1 < t.size() && t[i + 1] == '\'') { u += '\''; ++i; }
-                            else u += t[i];
-                        }
-                        if (!u.empty()) dst.push_back(std::move(u));
-                    }
+                    auto& dst = rosterPaths[charName];
+                    dst.insert(dst.end(), std::make_move_iterator(cs->animationNames.begin()),
+                               std::make_move_iterator(cs->animationNames.end()));
                 }
 
                 const auto oit  = order.find(stem);  // loadorder lists bare stems ("bfco")
@@ -315,7 +296,7 @@ namespace CB::core::serve {
         // two. Now sourced from the packed master too (its 344 vanilla characters carry these roots).
         std::unordered_map<std::string, std::string> charActorRoot;  // charStem(lower) -> "meshes\actors\..."
         const auto ingestCharUnits = [&](const BundleReader& rd) {
-            for (std::string rel : rd.characterUnits()) {
+            for (std::string rel : rd.units(CB::core::codec::HkyArchive::UnitKind::Character)) {
                 rel = ToLower(rel);                             // "meshes/actors/horse/characters/horse.hkx"
                 const auto s1 = rel.find_last_of('/');
                 const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rel.find_last_of('/', s1 - 1);
@@ -388,10 +369,9 @@ namespace CB::core::serve {
                 if (!ierr.empty()) LOG_WARN("SetData: base index.yaml parse: {}", ierr);
                 std::map<std::string, asd::SingleFile>                                    movesetsByStem;
                 std::map<std::string, std::map<std::string, std::vector<asd::CrcTriple>>> crcsByStem;
-                // The sets live CO-LOCATED with each character as <unit>.hkx/data/setdata.yaml (beside
-                // data/animations.yaml), self-identifying via `project:`. Scan the char units for them,
-                // plus a top-level animationsetdatasinglefile.txt/setdata/ fallback for projects whose
-                // character didn't resolve. Key by StemForHeader(header) to match the index order.
+                /// @note One file per project under animationsetdatasinglefile.txt/setdata/, self-identifying via
+                ///       `project:` (a unit folder holds only its graph). Keyed by StemForHeader(header) to match the
+                ///       index order.
                 const auto ingestUnit = [&](const std::string& yamlText) {
                     std::string   yerr;
                     asd::Project  proj = asd::ParseSetdataUnitYaml(yamlText, yerr);
@@ -401,10 +381,6 @@ namespace CB::core::serve {
                     asd::SingleFile one; one.projects.push_back(std::move(proj));
                     movesetsByStem[stem] = std::move(one);
                 };
-                for (const std::string& path : masterReader->filesUnder("meshes/actors", ".yaml")) {
-                    if (path.find("/data/setdata/") == std::string::npos) continue;  // char unit's setdata/<proj>.yaml
-                    if (const auto y = masterReader->read(path)) ingestUnit(*y);
-                }
                 for (const std::string& path : masterReader->filesUnder(dir + "/setdata", ".yaml"))
                     if (const auto y = masterReader->read(path)) ingestUnit(*y);
 
@@ -412,7 +388,7 @@ namespace CB::core::serve {
                 // the CRC list from those paths (re-hash). No derive-from-roster union, no bloat — the
                 // fix for the 48 MB / save-corrupting per-set CRC count. (`crcsByStem` stays empty.)
                 base     = asd::AssembleSetdata(headers, movesetsByStem, crcsByStem);
-                baseFrom = "Skyrim.hky char units (setdata.yaml, composed from authored animations)";
+                baseFrom = "Skyrim.hky setdata/ (composed from authored animations)";
                 composed = true;
             }
         }

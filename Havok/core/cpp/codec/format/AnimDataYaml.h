@@ -12,6 +12,8 @@
 #include <interface/MotionSample.h>   // Label/UnlabelSample (the sample-label codec) — re-exported for callers
 #include <codec/motion/MotionFromAmr.h> // MotionFromAmrAnnotations moved to codec/motion (3f-2), re-exported here
 
+#include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -101,9 +103,10 @@ namespace CB::core::animdata {
     struct ProjectCharacter { std::string ref; std::vector<std::string> roster; };
 
     // Map each project stem -> its character (roster source) by ACTOR-FOLDER co-location, over a
-    // DECOMPOSED tree under <treeMeshesDir> (reads animations.txt directly, no decompile). Resolution
+    // DECOMPOSED tree under <treeMeshesDir>. The unit format is the caller's: `rosterOf(unit)` reads a
+    // character unit's animationNames, `isProject(unit)` tells a project unit. Resolution
     // order: (1) a character unit named "<P>.hkx" (humanoid: DefaultMale -> characters/defaultmale.hkx);
-    // (2) a PROJECT unit "<P>.hkx" (has project.yaml) locates the actor root, use its co-located
+    // (2) a PROJECT unit "<P>.hkx" locates the actor root, use its co-located
     // character (creature: ChickenProject -> chickenproject.hkx -> actors/ambient/chicken ->
     // characters/chickencharater.hkx, beating the name/typo mismatch); (3) "<P>project|data" char;
     // (4) an actor FOLDER named "<P>" (ChaurusFlyer/HMDaedra: char is "chaurusflyercharacter" but lives
@@ -111,7 +114,10 @@ namespace CB::core::animdata {
     // absent from the map -> its clips keep raw indices. Shared by the converter (decompose over
     // stageHky) and the havok-core-cli tools; the runtime instead reads the `character:` header the
     // decompose writes and loads that roster directly.
-    std::map<std::string, ProjectCharacter> LoadProjectCharacters(const std::string& treeMeshesDir);
+    std::map<std::string, ProjectCharacter> LoadProjectCharacters(
+        const std::string& treeMeshesDir,
+        const std::function<std::vector<std::string>(const std::filesystem::path& unit)>& rosterOf,
+        const std::function<bool(const std::filesystem::path& unit)>& isProject);
 
     // index.yaml: the per-project manifest — name + assets + hasAnimData + `character:` (the roster the
     // project's clip indices key into, meshes-relative). `charRefByStem` supplies the character ref per

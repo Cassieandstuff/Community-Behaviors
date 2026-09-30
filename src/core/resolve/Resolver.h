@@ -8,6 +8,7 @@
 #include <interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
 #include <codec/format/RigIndex.h> // RigIndex — which rig each graph / animation binds
 #include <interface/UnitSource.h>  // LayerSource — merge layer + load-order identity (by value in GraphSources)
+#include <decompile/BehaviorDecompile.h>   // GraphEdit — the merged graph the compile stages edit
 
 #include <atomic>
 #include <condition_variable>
@@ -46,8 +47,7 @@ namespace CB {
     // meshes can't accidentally swallow its .hky). No config locator: the tree IS it.
     //
     // Merge: all bundles providing a given serve path contribute layers, merged base-first
-    // by load order (LoadMerged overlays them into one graph); the record-level additive
-    // merge lives in Resolve()'s gather+merge step.
+    // by load order (each layer's FormID patch applies over the merge so far) in Resolve().
     class Resolver {
     public:
         // Optional parallel executor for the per-unit native-animation compile: given a batch of
@@ -71,7 +71,7 @@ namespace CB {
         // the redundant every-launch main-thread skeleton compile (the plugin-load / main-menu stall).
         // When false (cold / forced regen), skeletons compile fresh as before.
         // skelExec (optional): the same task-fanning executor contract as AnimExecutor. When set, the
-        // skeleton SERVE compile (CompileSkeletonFull per served unit) and the per-rig bone-name table
+        // skeleton SERVE compile (parse + serialize per served unit) and the per-rig bone-name table
         // build are fanned across the pool instead of run serially. Each task handles one skeleton unit /
         // one rig — a pure function of the read-only bundles, writing its own distinct m_skeletonServe /
         // m_skeletons key under a mutex — so the parallel result is byte-identical to serial.
@@ -219,6 +219,12 @@ namespace CB {
         bool                 AdsfDerive() const { return m_adsfDerive; }
         const GraphClipSink& ClipSink() const { return m_clipSink; }
 
+        /// @brief The clip generators of `layers` (base first) merged the way Resolve merges them, bone names bound
+        ///        through the rig of the characters that run `key`. Empty when the merge fails (logged).
+        /// @pre   Init() done (the rig tables are built there).
+        std::vector<CB::core::animdata::DeriveClipInput> ClipInputsOf(
+            const std::string& key, const std::vector<CB::core::common::LayerSource>& layers) const;
+
         // Root-motion the animation compile produced (WriteNativeAnimations emits each native `.hkx`
         // unit's inline motion here). The adsf finalizer drains this instead of re-reading the YAML, so
         // the compiler is the single motion producer. Populated during the native-anim compile (which may
@@ -228,7 +234,7 @@ namespace CB {
         // Finalize the animationdata cache from the COMPILED results (opt-in; requires the adsf-derive
         // feature). Marries the per-graph clips the feature pushed into m_clipSink with the per-character
         // MERGED rosters captured during CompileAll, and writes the collated animationdatasinglefile.txt
-        // to <dataDir>/community_behaviors_cache/. Clips come straight from the merged graphs — LoadMerged already
+        // to <dataDir>/community_behaviors_cache/. Clips come straight from the merged graphs — the merge already
         // resolved the load order, so there are NO deltas to merge; the Skyrim.hky master supplies only
         // the un-derivable half (root motion + project headers). Call AFTER CompileAll. Returns true iff
         // it wrote the file; a no-op returning false when the feature is off or the master is unreadable.
@@ -269,24 +275,6 @@ namespace CB {
 
         std::size_t ManifestCount() const { return m_manifests.size(); }
 
-        // ── Node-granular load-order conflicts ─────────────────────────────────────
-        // Built in Init(): every node that more than one bundle contributes to the SAME
-        // served graph, classified as an expected OVERRIDE (a bundle edits a node one of its
-        // declared masters introduced — load order arbitrates the winner) or a namespace
-        // CLASH (two bundles with no master relationship both touch the node — a bug, the
-        // behavior-domain analog of two ESPs editing one record with neither mastering the
-        // other). Immutable after Init(); metadata only — never gates the serve path. The MO2
-        // manager reads this to surface conflicts at behavior-node resolution.
-        struct NodeConflict {
-            std::string              servePath;      // the graph (normalized serve key)
-            std::string              cls;            // node class (folder-agnostic identity, with `key`)
-            std::string              key;            // node id-else-name
-            std::vector<std::string> bundles;        // contributing bundle stems, base-first
-            bool                     clash = false;  // true = namespace clash (bug); false = expected override
-        };
-        const std::vector<NodeConflict>& Conflicts() const { return m_conflicts; }
-        std::size_t ConflictCount() const { return m_conflicts.size(); }
-
     private:
         /// @brief The bone table a graph / animation binds, found through the characters that run it.
         struct RigBones {
@@ -307,6 +295,10 @@ namespace CB {
         // steer above-OAR cascade loads into BR's cache for owned children only.
         std::string QualifyChildRef(const std::string& graphKey, const std::string& childRef) const;
 
+        /// @brief A merged CHARACTER's compile stage: fold the author roster additions into animationNames, capture
+        ///        the roster / actor path for the animdata derive, and cache-qualify its behavior reference.
+        void ResolveCharacter(const std::string& key, CB::core::decompile::GraphEdit& edit);
+
         // Build the above-OAR redirect map (folderRoot -> owned characters) from m_sources and
         // publish it (m_redirectReady). Shared by MaterializeCacheToDisk (after it writes the
         // cache) and ArmCacheFromDisk (reuse path — map only, no compile). Depends only on
@@ -316,12 +308,9 @@ namespace CB {
         // Path of the cache-completion sentinel under the data root (Community Behaviors/cache.ready).
         static std::filesystem::path CacheSentinelPath(const std::filesystem::path& cacheRoot);
 
-        // The merge layers for ONE served graph: its unit sources ordered base-first
-        // then deltas by load order, plus whether the base is a character (carries
-        // character.yaml → the CharacterYamlLoader/CompileCharacter path) vs a behavior
-        // graph. Each source is backed by a disk dir (DiskUnitSource) or a packed .hky
-        // subtree (ZipUnitSource) transparently. LoadMerged overlays the layers (later
-        // overrides earlier by node name) into one graph — the record-level merge.
+        /// @brief The merge layers for ONE served graph: its unit sources, base first then patches by load order,
+        ///        and whether the base is a character (ResolveCharacter) vs a behavior graph. Each source is a disk
+        ///        dir (DiskUnitSource) or a packed .hky subtree (ZipUnitSource), transparently.
         struct GraphSources {
             // Each layer carries its load-order identity ({stem, rank, ancestors}) so the merge can key
             // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
@@ -371,9 +360,6 @@ namespace CB {
         // version, declared masters). Every scanned .hky has an entry (defaulted when
         // no manifest ships). Immutable after Init(); metadata only — never gates serve.
         std::unordered_map<std::string, BundleManifest> m_manifests;
-        // Node-granular load-order conflicts (see Conflicts()). Built in Init from each
-        // multi-bundle graph's layers + the master DAG; immutable after Init().
-        std::vector<NodeConflict> m_conflicts;
         // normalized serve path -> compiled bytes (nullptr = resolved-but-not-ours/failed)
         std::unordered_map<std::string, std::shared_ptr<const std::vector<std::uint8_t>>> m_cache;
         // Above-OAR redirect map, built in MaterializeCacheToDisk. Keyed by the actor's
@@ -386,12 +372,12 @@ namespace CB {
         // thread before m_redirectReady flips; immutable after.
         struct ProjectRedirectEntry { std::string charStem; std::string cacheCharRef; };
         std::unordered_map<std::string, std::vector<ProjectRedirectEntry>> m_projectRedirects;
-        // projKey (meshes-prefixed, e.g. "meshes/actors/character/defaultmale.hkx") -> the project's
-        // ORIGINAL-CASE characterFilenames ref (e.g. "Characters\DefaultMale.hkx"), captured from the base
-        // project unit's project.yaml at Init. ProjectRedirect re-emits the vanilla identity from this,
-        // so it never needs the (BSA-packed, unreadable-as-loose) vanilla project — the case-sensitive
-        // char->setdata/animdata bind stays intact for vanilla-only actors (the A-pose fix).
-        std::unordered_map<std::string, std::string> m_projectOrigCharRef;
+        /// @brief projKey (meshes-prefixed, e.g. "meshes/actors/character/defaultmale.hkx") -> that project's complete
+        ///        unit (the vanilla project, from the base). ProjectRedirect serves it as the redirected project.
+        /// @note  Its characterFilenames keep the ORIGINAL case ("Characters\DefaultMale.hkx") — the engine binds the
+        ///        character to its setdata / animdata by that string case-sensitively (a lowercased ref A-poses
+        ///        vanilla-only actors) — and it never needs the BSA-packed, unreadable-as-loose vanilla project.
+        std::unordered_map<std::string, std::shared_ptr<const CB::core::common::IUnitSource>> m_projectUnits;
         std::atomic<bool>                                                  m_redirectReady{ false };
         // Init-complete signal (see Ready/WaitReady). Set with release at the very end of Init(); serve
         // hooks acquire it before touching any Init-built state. Init runs off the main thread.

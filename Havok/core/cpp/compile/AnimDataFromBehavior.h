@@ -1,47 +1,28 @@
 #pragma once
-// AnimDataFromBehavior — extract animationdata DeriveClipInputs from an in-memory
-// BehaviorData (the model YamlBehaviorLoader produces and Community Behaviors compiles at
-// runtime).
+// AnimDataFromBehavior — animationdata DeriveClipInputs from a behavior graph's clip generators (the merged
+// SchemaObject graph the runtime compiles), plus the per-project derive over them.
 //
-// This is the RUNTIME counterpart to the offline animdata-derive path: the offline oracle
-// decompiles each behavior .hkx and parses clips/<id>.yaml into DeriveClipInput; the runtime
-// already holds the same clip generators in BehaviorData::clips, so it reads them straight
-// from the model. Same DeriveClipInput, same downstream DeriveClipList — only the SOURCE of
-// the clip-generator fields differs (model vs files). Written here in havok-core so both
-// paths share it (the omnidirectional rule: one transform, two callers).
-//
-// This covers the CLIP-GENERATOR half of a DeriveClipInput (name, animationName, playback
-// speed, crop, and the clip generator's OWN triggers). The animation ANNOTATION triggers
-// (merged from each animation's annotation track) and the roster are supplied by the caller,
-// exactly as the offline deriveOneProject does — this function does not read animation files.
+// This covers the CLIP-GENERATOR half of a DeriveClipInput (name, animationName, playback speed, crop, and the
+// clip generator's OWN triggers). The animation ANNOTATION triggers (merged from each animation's annotation
+// track) and the roster are supplied by the caller — the graph reader does not read animation files.
 
 #include <compile/AnimDataDeriver.h>   // animdata::DeriveClipInput, ClipGenerator, DeriveClipList
+#include <codec/serialization/packfile/IHavokObject.h>
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-namespace CB::core::common { struct BehaviorData; }
-
 namespace CB::core::compile {
 
-    // One DeriveClipInput per hkbClipGenerator in `data` (input order = the map's key order).
-    // Triggers here are the clip generator's authored triggers only; the caller appends
-    // annotation triggers and passes the roster to animdata::DeriveClipList.
-    std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
-        const CB::core::common::BehaviorData& data);
-
-    // Read clip generators straight out of a decomposed behavior unit's clips/ directory into
-    // DeriveClipInputs — WITHOUT loading (or base-merging) the full graph. A mod's behavior DELTA unit
-    // has no behavior.yaml (so YamlBehaviorLoader can't load it standalone), yet its clips/<id>.yaml
-    // ARE complete hkbClipGenerator nodes carrying name + animationName + crop + speed + own-triggers.
-    // This is how the converter recovers a Nemesis mod's added clips (e.g. BFCO's attacks in
-    // 1hm_behavior.hkx/clips/) that a whole-graph load can't reach. Non-clip / malformed files are
-    // skipped; never throws.
-    std::vector<CB::core::animdata::DeriveClipInput> ReadClipInputsFromClipsDir(const std::string& clipsDir);
+    /// @brief One DeriveClipInput per hkbClipGenerator reachable from a merged graph's `root` (the reflective path's
+    ///        SchemaObject graph), trigger event ids resolved through the graph's eventNames; in clip-name order.
+    std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(
+        const std::shared_ptr<CB::core::codec::IHavokObject>& root);
 
     // An animation's derivation-relevant data: its duration (m_duration — present even when the
     // animation carries no root-motion record) and its annotation-track events (text + time).

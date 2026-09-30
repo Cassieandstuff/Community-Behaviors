@@ -6,10 +6,9 @@
 # the build-time gates.
 #
 # CONSUMED as a subproject (FetchContent / add_subdirectory): exposes ONLY the
-# shareable load-order resolution surface — the `cb-resolve` target and its engine
-# modules — so a tool (e.g. a behavior editor) links `cb-resolve` and resolves a
-# load order IDENTICALLY to the CB compiler, WITHOUT pulling in CommonLibSSE, the
-# SKSE plugin, or the converter. See src/cb-resolve.
+# public API surface — the `cb::CB-API` target (<CB-API.h>) and its engine modules —
+# so a tool (e.g. a behavior editor) merges a load order IDENTICALLY to the CB
+# compiler, WITHOUT pulling in CommonLibSSE, the SKSE plugin, or the converter.
 #
 # Env contract (top-level build only):
 #   VCPKG_ROOT            — vcpkg clone (toolchain, via the preset)
@@ -18,7 +17,7 @@
 #   SCT_BASE_MASTER_DIR   — short D-drive path for the unpacked-master diff tree
 #
 # Consumer contract (subproject): the consumer's toolchain must provide `ryml`
-# (find_package(ryml CONFIG) — the engine modules' YAML front-end). Link `cb-resolve`.
+# (find_package(ryml CONFIG) — the engine modules' YAML front-end). Link `cb::CB-API`.
 # ============================================================================
 cmake_minimum_required(VERSION 3.25)
 project(CommunityBehaviors VERSION 0.3.3 LANGUAGES CXX C
@@ -50,9 +49,8 @@ endif()
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 # ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
-# The data-driven modules ARE CB's source. cb-resolve is the curated, havok-core-free public
-# contract (<cb-resolve/CbResolve.h>) a consumer links; it PUBLIC-pulls havok-model + havok-schema
-# (→ havok-io + havok-framing transitively), so linking cb-resolve is all a consumer needs.
+# The data-driven modules ARE CB's source. cb::CB-API (<CB-API.h>) is the curated public contract a
+# consumer links; it PUBLIC-pulls the engine modules, so linking it is all a consumer needs.
 include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
 add_subdirectory(Havok/core/cpp/common)      # CB::core foundational value types (HkTypes; base tier, no deps)
 add_subdirectory(Havok/core/cpp/interface)   # CB::core model structs (base; depends only on common)
@@ -66,22 +64,19 @@ add_subdirectory(Havok/core/cpp/codec)   # CB::core codecs (spline + format yaml
 add_subdirectory(Havok/core/cpp/compile)     # CB::core one-way derives + Animation/Skeleton compilers (firesale)
 add_subdirectory(Havok/core/cpp/decompile)   # CB::core emit-direction + Animation/Skeleton import (firesale)
 add_subdirectory(Havok/tools/hky)            # hky-tool: standalone .hky pack/unpack over codec/serialization (firesale phase 4a)
-add_subdirectory(Havok/tools/gates)          # gates: havok-core-free correctness gates over Havok/core (firesale phase 4b)
 add_subdirectory(Havok/tools/cbdiff)         # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
 add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
                                    # repo root — graduates to its own repo (both CB + Skyrim Content Tools
                                    # need it now). Dependency-free leaf: consumers link `niffer` and
                                    # #include <niffer/Niffer.h>. Its own PUBLIC include/ makes the lift-out clean.
-add_subdirectory(src/cb-resolve)
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # ── Install / export rules for the cb-api surface ────────────────────────────────
 # So a consumer can `find_package(cb-api)` (vcpkg, or a manual cmake --install). Inert unless someone
 # actually installs — FetchContent (add_subdirectory) ignores these; vcpkg's vcpkg_cmake_install() runs them.
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
-# cb-api is the canonical facade (<CB-API.h> → cb::CB-API); cb-resolve stays as a legacy component target.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api cb-resolve common interface reflection serialization havok-framing havok-schema havok-io havok-model codec compile decompile
+install(TARGETS cb-api common interface reflection serialization havok-framing havok-schema havok-io havok-model codec compile decompile
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
@@ -93,7 +88,6 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"   DESTINATION 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"       DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/core/cpp/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/cb-resolve/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
 # The Havok/ class-schema tree is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
@@ -157,8 +151,8 @@ add_subdirectory(src/sct-config)
 # Retirement Home/havok-core (the quarantined typed backbone + havok-core-cli) DELETED in the org-pass
 # firesale final cut: nothing links it any more (plugin + converter both havok-core-free; the schema
 # stack fully replaces the typed compile/decompile, gate-proven). hky-pack/unpack -> Havok/tools/hky
-# (hky-tool); the free correctness gates -> Havok/tools/gates; the typed schema-vs-oracle gates retired
-# with their oracle. The base-master regen runs through the (havok-core-free) converter.
+# (hky-tool); the typed schema-vs-oracle gates retired with their oracle. The base-master regen (and its
+# served-bytes gate) runs through the converter.
 
 # tree-diff — RETIRED in the org-pass firesale. The old cb-tree-diff engine was built before the schema
 # stack + the linker/BoneMembrane and pulled the quarantined typed havok-core (typed DecompileToDir +

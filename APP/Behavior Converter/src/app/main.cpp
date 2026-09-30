@@ -2,7 +2,6 @@
 #include "Converter.h"
 
 #include <havok-schema/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
-#include <codec/format/YamlBehaviorLoader.h>   // SetSchemaRegistry / SetDiagnosticSink — arm the merge loader
 #include <sct-utilities/SctUtilities.h>
 
 #include <atomic>
@@ -61,16 +60,6 @@ int main(int argc, char** argv) {
     // misaligns against the schema base master (the horsebehavior crash class). SetSharedSchemaDir only
     // records the dir; SharedRegistry() lazily loads once on first use. The regen path re-arms harmlessly.
     CB::core::schema::SetSharedSchemaDir(ExeHavokDir());
-    /// @note The YAML loader routes every modifier class without a dedicated handler (hkbTimerModifier,
-    ///       hkbKeyframeBonesModifier, BSLookAtModifier, ...) through its generic path ONLY when it holds the
-    ///       schema. Unarmed, those nodes fall to "no handler" and a base-unit compile silently loses them —
-    ///       what broke every creature graph's compile(Skyrim.hky unit). Arm it exactly as the plugin does,
-    ///       and surface merge diagnostics (deduped) so a dropped node is never silent again.
-    CB::core::codec::YamlBehaviorLoader::SetSchemaRegistry(CB::core::schema::SharedRegistry());
-    CB::core::codec::YamlBehaviorLoader::SetDiagnosticSink(
-        [seen = std::make_shared<std::unordered_set<std::string>>()](const std::string& m) {
-            if (seen->insert(m).second) { std::printf("  merge: %s\n", m.c_str()); std::fflush(stdout); }
-        });
 
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
         bconv::Options opt;
@@ -147,12 +136,6 @@ int main(int argc, char** argv) {
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
-    if (argc >= 4 && std::string(argv[1]) == "--reflect-dump") {   // <meshesDir> <outDir> [<base.hky>]
-        const bool ok = bconv::ReflectDump(argv[2], argv[3],
-            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, argc >= 5 ? argv[4] : "");
-        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
-    }
-
     if (argc >= 4 && std::string(argv[1]) == "--zip") {  // headless: --zip <srcDir> <zipPath>
         std::string err;
         const bool ok = sct::util::ZipDir(argv[2], argv[3], err);
@@ -193,7 +176,7 @@ int main(int argc, char** argv) {
     }
 
     // Regenerate + VALIDATE one derived bundle (<outHky>'s filename names it) in one call (see RegenerateMaster):
-    // build-base to a temp, gate every templated graph's graphdata against vanilla, then promote.
+    // build-base to a temp, gate every unit's served bytes against its source, then promote.
     //   --regen-master <vanillaMeshesDir> <outHky> [<templatesDir>] [--strict] [--keep-unpacked <dir>]
     // --strict makes any drift fatal (master not written); default writes + reports drift.
     // --keep-unpacked <dir> keeps the unpacked <Name>.hky/ tree under <dir> (short path) for observation.
@@ -218,10 +201,9 @@ int main(int argc, char** argv) {
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
         std::printf("OK: %s -> %s (%d behaviors, %d projects, %d characters, %d skeletons; "
-                    "validated %d/%d graphdata match%s; base-unit round-trip %d/%d)\n",
+                    "served-bytes gate %d/%d%s)\n",
                     std::filesystem::path(pos[1]).filename().string().c_str(), pos[1].c_str(), res.build.behaviors, res.build.projects, res.build.characters,
-                    res.build.skeletons, res.faithful, res.checked, res.drift.empty() ? "" : ", drift present (see log)",
-                    res.roundTripFaithful, res.roundTripChecked);
+                    res.build.skeletons, res.faithful, res.checked, res.drift.empty() ? "" : ", drift present (see log)");
         return EXIT_SUCCESS;
     }
 

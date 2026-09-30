@@ -5,13 +5,16 @@
 #include <interface/UnitSource.h>
 #include <interface/reflection/HavokSchema.h>
 #include <codec/serialization/packfile/IHavokObject.h>
+#include <codec/serialization/packfile/PackFileTypes.h>
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -45,84 +48,19 @@ struct Identity {
 std::string CategoryForClass(const std::string& className);
 
 // Assign canonical ids + categories over a fully-deserialized graph. `des` must have completed a full
-// Deserialize (root walk) so ListObjects/RefsInReadOrder/DeserializedObjects are populated.
-//
-// Ids come from the IDENTITY/INDEX step, which has two providers:
-//   • tagfile-aligned (vanilla, matches Skyrim.hky): pass the matching vanilla tagfile `xmlText` — ids
-//     are the stable #NNNN recovered by the structural oracle (CB::core::decompile::AlignTagfile), the identity
-//     the runtime merges by. This is NOT computable from the packfile alone.
-//   • encounter-order fallback (no XML): post-order (ReadCompletionOrder) numbering for a self-
-//     consistent hkx→hky→hkx round-trip when Skyrim.hky-exact filenames aren't required.
-// Category is a pure function of class either way. (Stage 3, increment 2.)
-Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry& reg,
-                        const std::string& xmlText = {});
-
-// ── schema-driven emit ────────────────────────────────────────────────────────
-// Emit the per-node `.hky` files for a behavior graph into `outDir` — `<category>/<id>.yaml` for every
-// node with a non-empty category, a pure projection of the SchemaObject graph driven by the schema +
-// the Identity map (ids/refs) + name resolution from the graph's hkbBehaviorGraphStringData. Gated
-// file-vs-live-`vanbase`. (Stage 3, increment 3 — built out category by category.)
-// `deltaIds` (optional): emit ONLY the file nodes a patch touched — the per-mod .hky DELTA LoadMerged
-// serves. Each category-"" delta id (an inline sub-object a Nemesis patch edits by its own #NNNN) is
-// folded up to the file node that inlines it; an id with no file-node owner is reported via `warnings`
-// as moot (not referenced by the merged graph). nullptr = emit the whole graph (the base bundle).
-bool EmitHky(const Identity& identity, const schema::SchemaRegistry& reg,
-             const std::string& outDir, std::string& err, const std::set<std::string>* deltaIds = nullptr,
-             std::vector<std::string>* warnings = nullptr);
-
-// Emit `<outDir>/data/additive.yaml` — the vocabulary a merge ADDED over the base (events/variables/
-// character-properties present in the merged graph's string-data but not the base's), each with the
-// type/flags/initial-value read from the merged graph-data. The runtime unions this in. No file is
-// written when nothing was added. Pairs with EmitHky's delta mode to complete a per-mod .hky delta.
-bool EmitAdditiveVocab(const Identity& baseId, const Identity& mergedId,
-                       const std::string& outDir, std::string& err);
-
-// Emit the whole-graph scaffolding a FULL decompile needs but EmitHky (node-only) omits:
-// `<outDir>/behavior.yaml` (packfile + behavior header: name/variableMode/rootGenerator/data) and
-// `<outDir>/data/graphdata.yaml` (the full variable/event/characterProperty roster). Together with a
-// full EmitHky node emit (no deltaIds), this reproduces the typed DecompileBehaviorTree tree — the schema
-// decompiler's base-master output. Not used for per-mod deltas.
-bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir, std::string& err);
-
-// Schema decompile of a whole BEHAVIOR binary to a full `.hky` unit tree — the schema peer of the typed
-// DecompileBehaviorTree / ConvertPatch base path. Deserialize (MakeSchemaFactory) → AssignIdentity (oracle
-// #NNNN when `xmlText` is the matching tagfile, else encounter-order) → EmitHky (nodes) +
-// EmitFullBaseScaffolding (behavior.yaml + graphdata). Byte-identical to the typed base (emit-check gate),
-// so base + per-mod deltas are produced by ONE emitter. Behaviors only (character/project/anim stay typed).
-// `selfIndex` (default -1 = legacy bare ids): when >= 0, every emitted node id becomes a FormId
-// "selfIndex:local" (ids AND refs, both from identity.ids). The base master passes 0 — Skyrim's own nodes
-// are self (index 0, since for Skyrim.hky self == base) — so its nodes read "0000x<local>" (self-teaching:
-// copy the id to author an override). Byte-neutral to compiled graphdata (the id text isn't compiled).
-bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
-                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err,
-                             int selfIndex = -1);
-
-// Schema-native loose-graph delta derive — the peer of havok-core's typed DeriveLooseBehaviorDelta, for a
-// mod shipping a precompiled FULL behavior graph (no Nemesis patch). Deserialize vanilla + mod to
-// SchemaObject graphs, match nodes by owner-qualified name identity, number the vanilla side by the SAME
-// schema READ-ORDER the base master now uses (so matched overrides land on the base's ids), mint new nodes
-// as "<modCode>$N", emit both trees, and copy each new/changed mod node into `outDeltaDir`. Pairs with
-// BuildBaseBundle's schema base decompile (both read-order) — the coordinated no-template flip.
-struct LooseDeriveResult {
-    bool ok = false; std::string error;
-    int matched = 0, added = 0, changedNodes = 0, newNodes = 0, removedFromBase = 0;
-};
-LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>& vanBytes,
-                                                 const std::vector<std::uint8_t>& modBytes,
-                                                 const std::string& modCode,
-                                                 const schema::SchemaRegistry& reg,
-                                                 const std::string& outDeltaDir);
+// Deserialize (root walk) so ListObjects/RefsInReadOrder/DeserializedObjects are populated. Ids are
+// encounter order; category is a pure function of class.
+Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry& reg);
 
 /// @brief Reflective .hky emit — every schema field of every file node, in schema order, rendered by FieldKind
 ///        alone (inline objects nest as maps with their `class:`; the root container's inline subtree lands in
-///        graph.yaml). MEASUREMENT stage of the reflective-format work: diffed against EmitHky to find what the
-///        bespoke renderers drop or reshape. No loader consumes it yet.
+///        graph.yaml). ParseHkyReflective is its exact inverse.
 /// @param bones the graph's rig in rig order (RigIndex), so `boneref`/`bonelist`/`boneweights` fields render by bone
 ///              NAME; null = rig unknown (indices stay numeric — still lossless).
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
                        const std::string& outDir, std::string& err, const std::vector<std::string>* bones = nullptr);
-/// @brief Deserialize + encounter-order AssignIdentity + EmitHkyReflective (ids align with an XML-less
-///        DecompileBehaviorSchema of the same bytes, so the two trees diff file-for-file).
+/// @brief Deserialize + encounter-order AssignIdentity + EmitHkyReflective: a complete unit, its nodes self-owned
+///        FormIDs (`0000x…`) — the form a base unit (and any full graph a bundle ships) takes.
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
                                  const std::string& outDir, std::string& err,
                                  const std::vector<std::string>* bones = nullptr);
@@ -134,6 +72,41 @@ struct ParsedHky {
     std::shared_ptr<io::SchemaObject>              root;
     Identity                                       identity;
 };
+/// @brief The compile-time EDITING view over a merged graph — the handle every graph feature receives.
+/// @note  Vocabulary edits keep Havok's parallel arrays in LOCKSTEP (names / infos / word values), so a feature can't
+///        push a name without its info and value. New names append, so every index a mod already relies on stays
+///        valid. Structural edits go through the SchemaObject graph; an object shared by several owners (a condition
+///        used by two transitions) must be REPLACED per owner, never mutated in place.
+class GraphEdit {
+public:
+    enum class Add { Added, Exists, Failed };
+    GraphEdit(ParsedHky& graph, const schema::SchemaRegistry& reg) : m_graph(graph), m_reg(reg) {}
+
+    /// @brief The behavior graph's data object (variables / events), or null (a character / project graph).
+    io::SchemaObject* GraphData() const;
+    std::optional<std::size_t> VariableIndex(std::string_view name) const;
+    std::optional<std::size_t> EventIndex(std::string_view name) const;
+    /// @brief Append a WORD-typed variable (`type` = a VariableType name, e.g. "VARIABLE_TYPE_BOOL"; `word` = its raw
+    ///        4-byte value — a REAL's float bits). Exists = the name is already declared (left untouched: the graph's
+    ///        own declaration is authoritative). Failed (+ `err`) for a vector / pointer type or no graph data.
+    Add AddVariable(std::string_view name, std::string_view type, std::int32_t word, std::string& err);
+    Add AddEvent(std::string_view name, std::string& err);
+
+    /// @brief Every object of class `cls` reachable from the root (nodes and inline objects), once each.
+    void ForEach(std::string_view cls, const std::function<void(io::SchemaObject&)>& fn);
+    /// @brief How many reachable objects are `base` or derive from it.
+    std::size_t CountDerived(std::string_view base);
+    /// @brief A new object of `cls`, schema-initialized and owned by the graph.
+    std::shared_ptr<io::SchemaObject> Make(std::string_view cls);
+    /// @brief A node's id (FormID / canonical key) for FeatureResult::touched; "" for an inline object.
+    std::string IdOf(const IHavokObject* o) const;
+    const schema::SchemaRegistry& Registry() const { return m_reg; }
+
+private:
+    ParsedHky&                     m_graph;
+    const schema::SchemaRegistry&  m_reg;
+};
+
 /// @brief ParseHky — the exact inverse of EmitHkyReflective: `dir` (graph.yaml + `<category>/<id>.yaml`) -> the
 ///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
 ///        name is the stable identity across mods); bone names resolve through `bones` (the graph's rig). Fail-loud:
@@ -143,6 +116,18 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
 /// @brief Convenience: an on-disk unit directory.
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
                         const std::vector<std::string>* bones = nullptr);
+
+/// @brief UNIT READERS — the facts load planning needs from a reflective unit, without compiling it.
+std::vector<std::string> ReadProjectCharacters(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg);
+/// @brief A character's string data (original case).
+struct CharacterStrings {
+    std::string              name, rigName, behaviorFilename;
+    std::vector<std::string> animationNames;
+};
+/// @note  Read straight from graph.yaml, not parsed: a full parse needs the rig's bone names (the bone-weight presets
+///        are bone-keyed) — the very thing the rig binding is for. A patch unit yields only what it states; its
+///        animationNames (a union roster) are its additions.
+std::optional<CharacterStrings> ReadCharacterStrings(const CB::core::common::IUnitSource& src);
 
 /// @brief The reflective-format GATE for one behavior binary: deserialize -> re-serialize (`canon`), EmitHkyReflective
 ///        into `workDir` -> ParseHkyReflective -> serialize with the same header, compared byte-for-byte to canon.
@@ -168,6 +153,14 @@ struct HkyPatchStats { int patched = 0; int added = 0; };
 bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
                     const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
                     const std::vector<std::string>* bones = nullptr, std::uint16_t baseIndex = 1, HkyPatchStats* stats = nullptr);
+/// @brief Derive the patch against an already PARSED (and possibly merged) base — the base unit plus its masters'
+///        patches — so every node a master added keeps its real FormID: `baseMasters` resolves the base unit's own
+///        FormIDs (its owner first), merged-in ids are canonical, and all are re-expressed through `patchMasters`
+///        (`[self, skyrim, masters…]`, by bundle stem).
+bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters,
+                    const std::vector<std::string>& patchMasters, const std::vector<std::uint8_t>& modBytes,
+                    const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
+                    const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
 /// @brief Apply a patch unit onto a parsed graph. FormIds resolve through each unit's master table (`baseMasters` /
 ///        `patchMasters`, index -> bundle), so a patch's `0001x…` names the base's `0000x…`. A patched node changes
 ///        only the fields it names.
@@ -177,6 +170,19 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
 bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
+/// @brief The RUNTIME compile through the reflective format: `layers[0]` is the graph's base unit (parsed whole), every
+///        later layer a patch unit merged in load order — each layer's FormIds resolve through its own master table
+///        (`[self, skyrim, declared…]` by bundle stem), so `0001x…` in a mod and `0000x…` in Skyrim.hky name the same
+///        node. The merged graph serializes with `header` into `out`.
+bool CompileLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                             const std::vector<std::string>* bones, std::vector<std::uint8_t>& out, std::string& err,
+                             const CB::core::codec::HKXHeader& header = CB::core::codec::HKXHeader::SkyrimSE());
+/// @brief The merge half of CompileLayersReflective — the merged graph, for the compile stages that edit or read it
+///        (features, reference qualification, adsf-derive) before SerializeGraph.
+bool MergeLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                           const std::vector<std::string>* bones, ParsedHky& graph, std::string& err);
+bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,
+                    const CB::core::codec::HKXHeader& header = CB::core::codec::HKXHeader::SkyrimSE());
 /// @brief Apply hand-written patch units onto a base binary, in load order (unit k's masters: `mod<k>`, then the base
 ///        as master 1 — so `0001x…` names a base node, `0000x…` the unit's own). Writes `<workDir>/base` (the base
 ///        unit), `<workDir>/merged.hkx` and `<workDir>/merged` (the result, re-decompiled).
@@ -241,7 +247,7 @@ bool ParseTagfile(const std::string& xmlText, const schema::SchemaRegistry& reg,
 // tagfile (no binary, no oracle, no off2id); patch ids match by construction. Merge is a field-wise
 // overlay in load order (base, then each patch — a later layer wins on the fields it names, keeps the
 // rest), and refs resolve across the MERGED id space (a patch node may point at a base-only node). The
-// result is a single SchemaObject graph ready for EmitHky (the .hky delta LoadMerged serves) or EmitTagfile.
+// result is a single SchemaObject graph — serialized, it is the mod side ConvertModDelta derives a patch from.
 // `deltaIds` receives every id a patch overrode or added — the set a per-mod .hky delta emits.
 //
 // Base + patches are already the Nemesis flow's inputs: pass each patch through xml::StripPatchOriginals
@@ -250,37 +256,22 @@ bool MergeTagfiles(const std::string& baseXml, const std::vector<std::string>& p
                    const schema::SchemaRegistry& reg, ParsedTagfile& out,
                    std::vector<std::string>& deltaIds, std::string& err);
 
-// One mod's full behavior delta, data-driven end to end — the schema-path replacement for the converter's
-// typed ConvertPatch+DecompileNativeDelta. Reads every `#*.txt` in `patchDirs` (load order), applies each
-// Nemesis MOD_CODE edit (StripPatchOriginals), overlays them onto `baseTagfileXml` by #NNNN (MergeTagfiles,
-// new #code$N nodes included), and writes the per-mod `.hky` delta into `outDeltaDir` — reachable delta
-// file nodes + data/additive.yaml (added vocab). `baseTagfileXml` is the vanilla graph's tagfile (its
-// #NNNN are the canonical ids the runtime base is keyed by). Faithful to the patch by construction (same
-// parse+emit machinery gated byte-identical to the typed path on overrides, and strictly more complete on
-// new nodes, which the typed populators drop).
+/// @brief One bundle's PATCH for one graph, from its Nemesis patches (`patchDirs`' `#*.txt`, load order).
+///        The mod side is the tagfile merge (MergeTagfiles) of its masters' patches (`masterPatchDirs`, load order)
+///        and its own over the vanilla template; it is derived (DeriveHkyPatch) against `base` — the graph's base
+///        unit with its masters' patch units merged in — so a master's node keeps its FormID and a `#<code>$N`
+///        reference to it lands on that FormID. `patchMasters` is the bundle's table `[self, skyrim, masters…]`.
+/// @note  Never the base unit's template-renumbered ids: the patch names base nodes by the base unit's own FormIDs.
 struct ModDeltaResult {
-    bool                     ok = false;
-    std::string              error;
-    int                      patchNodes = 0;   // #*.txt patch objects read (overrides + new)
-    int                      deltaIds   = 0;   // ids a patch overrode or added
-    std::vector<std::string> warnings;
+    bool        ok = false;
+    std::string error;
+    int         patchNodes = 0;   ///< the bundle's own `#*.txt` patch objects read
+    int         patched = 0;      ///< base nodes the patch changes
+    int         added = 0;        ///< nodes the patch adds
 };
-
-// FormId minting context for ConvertModDelta. nullptr => legacy bare ids ("#NNNN" overrides, "code$N" new
-// nodes). When supplied, each node id becomes a FormId "IIIIxLLLL" (index convention: self=0, skyrim=1,
-// further masters 2+ — see FormId.h):
-//   bare "#NNNN"        -> "0001x<local>"        (edit of a vanilla/Skyrim node; origin = Skyrim = index 1)
-//   "<code>$N"          -> "<codeIndex[code]>x<N>"  (own code -> selfIndex=0; foreign code -> its master index 2+)
-// The converter builds `codeIndex` ONCE per bundle (pre-scanning all the bundle's graphs, so a master's
-// index is the SAME in every graph) as its position in the ordered master table [self(0), skyrim(1),
-// masters…(2+)] — matching the loader's BuildMasterTable so emit + load-time resolution agree. A "code$N"
-// whose code is absent from codeIndex is unknown-foreign: bound to selfIndex + a warning.
-struct NemesisFormIdCtx {
-    std::uint16_t                                selfIndex = 0;   // this bundle's own index (self = 0)
-    std::unordered_map<std::string, std::uint16_t> codeIndex;     // Nemesis code (lowercase) -> master index
-};
-
-ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& patchDirs,
+ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& masterPatchDirs,
+                               const std::vector<std::string>& patchDirs, const ParsedHky& base,
+                               const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                                const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
-                               const NemesisFormIdCtx* fid = nullptr);
+                               const std::vector<std::string>* bones = nullptr);
 } // namespace CB::core::decompile

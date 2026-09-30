@@ -60,7 +60,7 @@ struct GraphChange {
 };
 
 struct RosterChange {
-    std::string              characterServePath;  // where the data/animations.yaml delta goes
+    std::string              characterServePath;  // the character whose roster the additions join
     std::vector<std::string> addedAnimations;     // filled in Phase 1 (decision A) — empty in Phase 0
 };
 

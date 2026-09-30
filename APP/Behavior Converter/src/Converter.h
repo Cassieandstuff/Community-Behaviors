@@ -184,11 +184,6 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& templatesDir = "", const std::string& keepStagingDir = "");
 
-/// @brief Measurement harness for the reflective-format work: for every behavior .hkx under `meshesDir`, write
-///        `<outDir>/<n>/cur` (today's EmitHky tree) and `<outDir>/<n>/gen` (EmitHkyReflective), ids aligned;
-///        `<outDir>/index.txt` maps n -> source path. Pick a SHORT outDir (MAX_PATH). `baseHky` (optional) supplies the
-///        rig binding, so bone fields render by name.
-bool ReflectDump(const std::string& meshesDir, const std::string& outDir, const LogFn& log, const std::string& baseHky = "");
 
 /// @brief The reflective-format gate over every behavior .hkx under `meshesDir`: vanilla -> reflective .hky ->
 ///        ParseHky -> binary, byte-compared (RoundTripReflective). Differing graphs' trees are kept under
@@ -216,26 +211,20 @@ struct RegenResult {
     bool            ok = false;
     std::string     error;
     BaseBuildResult build;                 // counts from the underlying BuildBaseBundle
-    int             checked  = 0;          // templated graphs validated against vanilla
-    int             faithful = 0;          // of those, byte-identical graphdata to vanilla
-    std::vector<std::string> drift;        // graphs whose regenerated graphdata != vanilla
-    int             roundTripChecked  = 0;    ///< non-character graphs decompiled from base unit AND source
-    int             roundTripFaithful = 0;    ///< of those, identical .hky trees
-    std::vector<std::string> roundTripDrift;  ///< graphs that differ (or failed to compile/decompile)
+    int             checked  = 0;              ///< units with a source binary, validated
+    int             faithful = 0;              ///< of those, serving byte-identical to the source's re-serialization
+    std::vector<std::string> drift;            ///< units that don't (or fail to parse)
 };
 
 // Regenerate the shipped Skyrim.hky MASTER **and validate it** in one call — the reproducible,
 // self-checking entry point for rebuilding the base (use this instead of a bare BuildBaseBundle
 // so a lossy-flag / dropped-symbol regression can never silently ship again). It:
-//   1. builds the whole master to a TEMP file via BuildBaseBundle (canonical corpus + templates),
-//   2. GATE: for every templated graph, compiles its base unit out of the fresh master, decompiles
-//      it, and byte-diffs data/graphdata.yaml against the SAME graph's vanilla binary decompile
-//      (graphdata is where the symbol tables + role/flags live — exactly what the XML-oracle path
-//      used to corrupt), collecting any drift, then
+//   1. builds the whole master to a TEMP file via BuildBaseBundle (every unit, reflective + skeletons),
+//   2. GATE: parses every behavior / character / project unit back through the runtime's reader (rig-bound
+//      bones) and serializes it, byte-comparing against its source binary's canonical re-serialization —
+//      exactly what the runtime serves for an untouched graph — collecting any drift, then
 //   3. promotes TEMP -> outHky. In `strict` mode any drift is fatal and outHky is left untouched;
-//      otherwise it writes and returns the drift list for the caller/operator to eyeball (some
-//      drift is a known-benign pre-existing quirk, e.g. the ' iState_NPCSneaking' leading-space
-//      duplicate magicbehavior/magicmountedbehavior carry). BLOCKING — run on a worker thread.
+//      otherwise it writes and returns the drift list. BLOCKING — run on a worker thread.
 RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& templatesDir,
                              const std::string& outHky, bool strict,
                              const LogFn& log, const std::atomic<bool>& cancel,

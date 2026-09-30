@@ -57,7 +57,10 @@ public:
         // handles "" correctly, so the disk-only acceptance gate never caught it.
         const std::string base = subdir.empty() ? m_root : (m_root + norm(subdir) + "/");
         std::vector<std::string> out;
-        for (const auto& full : m_arc->filesUnder(base)) {
+        /// @note ORIGINAL-case paths: a reflective roster file is named for the field it holds
+        ///       (`wildcardTransitions.transitions.yaml`), and Havok field names are case-sensitive — a lowercased
+        ///       name binds nothing. read() re-normalizes, and norm() never changes length, so offsets line up.
+        for (const auto& full : m_arc->filesUnderOrig(base)) {
             if (!endsWith(full, ".yaml")) continue;
             const std::string afterBase = full.substr(base.size());
             if (!recursive && afterBase.find('/') != std::string::npos) continue;
@@ -158,27 +161,43 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
     for (auto& sh : shards)
         for (auto& kv : sh) arc->m_files.emplace(std::move(kv.first), std::move(kv.second));
 
-    // Index units: EVERY "<prefix>.hkx/..." subtree is a unit. The KIND comes from a base-marker
-    // yaml when present (character/project.yaml; behavior is the default). A mod DELTA carries no
-    // marker yaml — just changed-node subfolders (states/, clips/, data/) — yet is a real layer,
-    // so it indexes as a Behavior unit. Keying only on behavior.yaml (as before) made packed mod
-    // bundles index ZERO units, silently dropping every delta (graphs compiled base-only = vanilla).
-    // m_files is sorted, so all files under one root are consecutive — dedup by tracking the last.
+    /// @note EVERY "<prefix>.hkx/..." subtree is a unit (a mod's patch unit may hold only changed nodes / rosters and
+    ///       is still a real layer). m_files is sorted, so all files under one root are consecutive. A skeleton is
+    ///       its own format (bonelist.yaml + bones/, the skeleton compiler's), not a reflective graph.
     std::string lastRoot;
     for (const auto& [k, _] : arc->m_files) {
         const auto pos = k.find(".hkx/");
         if (pos == std::string::npos) continue;
-        std::string root = k.substr(0, pos + 4);          // include ".hkx"
+        std::string root = k.substr(0, pos + 4);
         if (root == lastRoot) continue;
         lastRoot = root;
-        UnitKind kind = UnitKind::Behavior;
-        if      (arc->m_files.count(root + "/bonelist.yaml"))  kind = UnitKind::Skeleton;   // skeleton tree/unit, NOT a graph
-        else if (arc->m_files.count(root + "/character.yaml")) kind = UnitKind::Character;
-        else if (arc->m_files.count(root + "/project.yaml"))   kind = UnitKind::Project;
+        const auto g = arc->m_files.find(root + "/graph.yaml");
+        const UnitKind kind = arc->m_files.count(root + "/bonelist.yaml") ? UnitKind::Skeleton
+                            : g == arc->m_files.end()                    ? UnitKind::Behavior
+                                                                          : KindOfGraphYaml(g->second.content);
         arc->m_units.push_back({ std::move(root), kind });
     }
     if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
     return arc;
+}
+
+HkyArchive::UnitKind HkyArchive::KindOfGraphYaml(std::string_view graphYaml) {
+    if (graphYaml.find("'hkbCharacterData'") != std::string_view::npos)      return UnitKind::Character;
+    if (graphYaml.find("'hkbProjectData'") != std::string_view::npos)        return UnitKind::Project;
+    if (graphYaml.find("'hkaAnimationContainer'") != std::string_view::npos) return UnitKind::Skeleton;
+    return UnitKind::Behavior;
+}
+
+bool HkyArchive::IsPatchGraphYaml(std::string_view graphYaml) {
+    std::size_t v = 4;
+    if (graphYaml.compare(0, 4, "id: ") != 0) {
+        v = graphYaml.find("\nid: ");
+        if (v == std::string_view::npos) return false;
+        v += 5;
+    }
+    const std::size_t x = graphYaml.find_first_not_of("0123456789abcdefABCDEF", v);
+    if (x == std::string_view::npos || graphYaml[x] != 'x' || x == v) return false;
+    return graphYaml.substr(v, x - v).find_first_not_of('0') != std::string_view::npos;
 }
 
 bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHkyPath, std::string& err) {

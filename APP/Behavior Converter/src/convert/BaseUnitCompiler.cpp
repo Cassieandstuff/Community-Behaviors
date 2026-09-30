@@ -1,10 +1,9 @@
 #include "BaseUnitCompiler.h"
 
-#include <codec/format/CharacterYamlLoader.h>
 #include <codec/format/SkeletonYaml.h>
-#include <compile/GraphCompile.h>
-#include <havok/model/yaml/HkyArchive.h>
-#include <havok/model/yaml/YamlBehaviorLoader.h>
+#include <codec/serialization/HkyArchive.h>
+#include <decompile/BehaviorDecompile.h>
+#include <havok-schema/HavokSchema.h>
 
 #include <algorithm>
 #include <cctype>
@@ -21,7 +20,8 @@ std::string lower(std::string s) {
 }  // namespace
 
 BaseUnitCompiler::BaseUnitCompiler(std::shared_ptr<const CB::core::codec::HkyArchive> base) : m_base(std::move(base)) {
-    if (!m_base) return;
+    auto* reg = CB::core::schema::SharedRegistry();
+    if (!m_base || !reg) return;
     using Kind = CB::core::codec::HkyArchive::UnitKind;
     std::unordered_map<std::string, std::string> charPrefix;   // normalized key -> archive prefix
     for (const auto& u : m_base->units()) {
@@ -31,16 +31,15 @@ BaseUnitCompiler::BaseUnitCompiler(std::shared_ptr<const CB::core::codec::HkyArc
     for (const auto& u : m_base->units()) {
         if (u.kind != Kind::Project) continue;
         const auto src = m_base->source(u.prefix);
-        const auto py  = src ? src->read("project.yaml") : std::nullopt;
-        if (!py) continue;
-        m_rigs.AddProject(lower(u.prefix), *py,
-            [&](const std::string& charUnit) -> std::optional<CB::core::common::CharacterDef> {
+        if (!src) continue;
+        m_rigs.AddProject(lower(u.prefix), CB::core::decompile::ReadProjectCharacters(*src, *reg),
+            [&](const std::string& charUnit) -> std::optional<CB::core::skeleton::CharacterRig> {
                 const auto it = charPrefix.find(charUnit);
                 if (it == charPrefix.end()) return std::nullopt;
                 const auto cs = m_base->source(it->second);
-                if (!cs) return std::nullopt;
-                try { return CB::core::codec::CharacterYamlLoader::LoadDef(*cs); }
-                catch (const std::exception&) { return std::nullopt; }
+                const auto s  = cs ? CB::core::decompile::ReadCharacterStrings(*cs) : std::nullopt;
+                if (!s) return std::nullopt;
+                return CB::core::skeleton::CharacterRig{ s->rigName, s->behaviorFilename };
             },
             [&](const std::string& rig) { return m_skeletonUnits.count(rig) != 0; });
     }
@@ -76,21 +75,18 @@ const std::vector<std::string>& BaseUnitCompiler::BonesFor(const std::string& se
     return names;
 }
 
-bool BaseUnitCompiler::CompileBehavior(const std::string& prefix, std::vector<std::uint8_t>& out, std::string& err) {
-    if (!m_base) { err = "no base bundle"; return false; }
+bool BaseUnitCompiler::Parse(const std::string& prefix, CB::core::decompile::ParsedHky& out, std::string& err) {
+    auto* reg = CB::core::schema::SharedRegistry();
+    if (!m_base || !reg) { err = "no base bundle / schema registry"; return false; }
     const auto src = m_base->source(prefix);
     if (!src) { err = "no base unit " + prefix; return false; }
-    try {
-        auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged({ src });
-        if (data.boneNames.empty()) data.boneNames = BonesFor(prefix);
-        const auto cr = CB::core::compile::CompileBehavior(data);
-        if (!cr.ok) { err = cr.error; return false; }
-        out = cr.bytes;
-        return true;
-    } catch (const std::exception& e) {
-        err = e.what();
-        return false;
-    }
+    const auto& bones = BonesFor(prefix);
+    return CB::core::decompile::ParseHkyReflective(*src, *reg, out, err, bones.empty() ? nullptr : &bones);
+}
+
+bool BaseUnitCompiler::Compile(const std::string& prefix, std::vector<std::uint8_t>& out, std::string& err) {
+    CB::core::decompile::ParsedHky g;
+    return Parse(prefix, g, err) && CB::core::decompile::SerializeGraph(g, out, err);
 }
 
 }  // namespace bconv

@@ -1,6 +1,5 @@
 #include <decompile/BehaviorDecompile.h>
 
-#include <decompile/TagfileOracle.h>      // AlignTagfile — the structural #NNNN oracle (reused verbatim)
 #include <interface/HavokEnums.h>       // enum tables (value<->name), revNum, FormatFlags, ResolveEnum — reused
 #include <common/Xml.h>                // first-party tagfile XML parser (xml::Node / xml::Parse)
 #include <decompile/PandoraCompatShim.h> // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
@@ -29,9 +28,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-
-// Stage 3. Increment 1 scaffolded the lib; increment 2 (here) is the identity/index pass +
-// the class→category map. Increment 3 fills in EmitHky. See HavokModel.h for the architecture.
 
 namespace CB::core::decompile {
 using namespace CB::core::codec;
@@ -83,28 +79,11 @@ std::string CategoryForClass(const std::string& className) {
     return it == kMap.end() ? std::string{} : it->second;
 }
 
-Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry& /*reg*/,
-                        const std::string& xmlText) {
+Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry& /*reg*/) {
     Identity out;
     const auto& byOff = des.DeserializedObjects();   // offset -> object
-
-    if (!xmlText.empty()) {
-        // Tagfile-aligned ids (matches Skyrim.hky): recover #NNNN per binary offset via the structural
-        // oracle, then key by object. This is the identity/index step for vanilla content.
-        const CB::core::decompile::OracleResult res = CB::core::decompile::AlignTagfile(des, xmlText);
-        for (const auto& [off, id] : res.off2id) {
-            auto it = byOff.find(off);
-            if (it == byOff.end()) continue;
-            IHavokObject* obj = it->second.get();
-            out.ids[obj]      = std::to_string(id);   // canonical: unpadded decimal
-            out.category[obj] = CategoryForClass(obj->ClassName());
-        }
-        return out;
-    }
-
-    // Encounter-order fallback (no XML): post-order numbering for a self-consistent round-trip. Base =
-    // ClassnamesCount (approx; not the true tagfile base) — filenames won't match Skyrim.hky, but the
-    // hkx→hky→hkx round-trip stays internally consistent.
+    /// @note Post-order (read-completion) numbering from ClassnamesCount: stable for the same bytes, which is all a
+    ///       unit's identity needs — FormIDs are assigned once, at emit, and patches derive against them.
     const std::uint32_t base = static_cast<std::uint32_t>(des.ClassnamesCount());
     std::uint32_t rootOff = std::numeric_limits<std::uint32_t>::max();
     for (const auto& [off, cls] : des.ListObjects())
@@ -334,302 +313,6 @@ std::string refIdOf(const std::shared_ptr<IHavokObject>& p, const Identity& id) 
     auto it = id.ids.find(p.get());
     return it == id.ids.end() ? std::string() : it->second;
 }
-// merge-safe event/variable name companion line (only when uniquely nameable).
-void evLine (std::string& y, const std::string& ind, const char* key, long id,  const NameResolver& nr) { const std::string n=nr.safeEvent(id);    if(!n.empty()) y+=ind+key+": "+q(n)+"\n"; }
-void varLine(std::string& y, const std::string& ind, const char* key, long idx, const NameResolver& nr) { const std::string n=nr.safeVariable(idx); if(!n.empty()) y+=ind+key+": "+q(n)+"\n"; }
-
-std::string bindingsBlock(const std::shared_ptr<IHavokObject>& bsP, const NameResolver& nr, const std::string& ind) {
-    const auto* bs = dynamic_cast<const io::SchemaObject*>(bsP.get());
-    if (!bs) return {};
-    const io::FieldValue* bl = fieldByName(*bs, "bindings");
-    if (!bl || bl->objs.empty()) return {};
-    const long enIdx = fInt(*bs, "indexOfBindingToEnable");
-    std::string y = ind + "bindings:\n";
-    for (int i = 0; i < static_cast<int>(bl->objs.size()); ++i) {
-        const auto* b = dynamic_cast<const io::SchemaObject*>(bl->objs[i].get());
-        if (!b) continue;
-        y += ind + "  - memberPath: " + q(fStr(*b,"memberPath")) + "\n";
-        const long vi = fInt(*b,"variableIndex");
-        y += ind + "    variableIndex: " + std::to_string(vi) + "\n";
-        const long bt = fInt(*b,"bindingType");
-        const std::string vn = (bt == 1) ? nr.charProp(vi) : nr.variable(vi);
-        if (!vn.empty()) y += ind + "    variable: " + q(vn) + "\n";
-        y += ind + "    bitIndex: " + std::to_string(fInt(*b,"bitIndex")) + "\n";
-        y += ind + "    bindingType: " + revNum(en::BindingType(), bt) + "\n";
-        if (i == enIdx) y += ind + "    enableTarget: true\n";
-    }
-    return y;
-}
-
-std::string intervalBlock(const io::SchemaObject& iv, const std::string& ind, const NameResolver& nr) {
-    std::string y;
-    const long en1 = fInt(iv,"enterEventId"); y += ind + "  enterEventId: " + std::to_string(en1) + "\n"; evLine(y, ind+"  ", "enterEvent", en1, nr);
-    const long ex1 = fInt(iv,"exitEventId");  y += ind + "  exitEventId: "  + std::to_string(ex1) + "\n"; evLine(y, ind+"  ", "exitEvent",  ex1, nr);
-    y += ind + "  enterTime: " + fstr(fFloat(iv,"enterTime")) + "\n";
-    y += ind + "  exitTime: "  + fstr(fFloat(iv,"exitTime"))  + "\n";
-    return y;
-}
-
-std::string transitionsBlock(const std::shared_ptr<IHavokObject>& arrP, const Identity& id, const NameResolver& nr, const std::string& ind) {
-    const auto* arr = dynamic_cast<const io::SchemaObject*>(arrP.get());
-    if (!arr) return {};
-    const io::FieldValue* tv = fieldByName(*arr, "transitions");
-    if (!tv || tv->objs.empty()) return {};
-    std::string y = ind + "transitions:\n";
-    for (const auto& te : tv->objs) {
-        const auto* t = dynamic_cast<const io::SchemaObject*>(te.get());
-        if (!t) continue;
-        const io::FieldValue* tiv = fieldByName(*t,"triggerInterval");
-        const io::FieldValue* iiv = fieldByName(*t,"initiateInterval");
-        if (tiv && tiv->obj) if (auto* o=dynamic_cast<const io::SchemaObject*>(tiv->obj.get())) y += ind + "  - triggerInterval:\n" + intervalBlock(*o, ind+"    ", nr);
-        if (iiv && iiv->obj) if (auto* o=dynamic_cast<const io::SchemaObject*>(iiv->obj.get())) y += ind + "    initiateInterval:\n" + intervalBlock(*o, ind+"    ", nr);
-        if (auto tr = fPtr(*t,"transition")) { const std::string r=refIdOf(tr,id); if(!r.empty()) y += ind + "    transition: " + r + "\n"; }
-        if (auto c = fPtr(*t,"condition")) {
-            const auto* co = dynamic_cast<const io::SchemaObject*>(c.get());
-            if (co) {
-                const std::string cc = co->ClassName();
-                if (cc == "hkbExpressionCondition") y += ind + "    condition: " + q(fStr(*co,"expression")) + "\n";
-                else if (cc == "hkbStringCondition") y += ind + "    conditionString: " + q(fStr(*co,"conditionString")) + "\n";
-            }
-        }
-        const long ev = fInt(*t,"eventId"); y += ind + "    eventId: " + std::to_string(ev) + "\n"; evLine(y, ind+"    ", "event", ev, nr);
-        y += ind + "    toStateId: "         + std::to_string(fInt(*t,"toStateId"))         + "\n";
-        y += ind + "    fromNestedStateId: " + std::to_string(fInt(*t,"fromNestedStateId")) + "\n";
-        y += ind + "    toNestedStateId: "   + std::to_string(fInt(*t,"toNestedStateId"))   + "\n";
-        y += ind + "    priority: "          + std::to_string(fInt(*t,"priority"))          + "\n";
-        y += ind + "    flags: " + en::FormatFlags(fInt(*t,"flags"), en::TransitionFlags()) + "\n";
-    }
-    return y;
-}
-
-std::string notifyBlock(const std::shared_ptr<IHavokObject>& arrP, const char* key, const NameResolver& nr) {
-    const auto* arr = dynamic_cast<const io::SchemaObject*>(arrP.get());
-    if (!arr) return {};
-    const io::FieldValue* ev = fieldByName(*arr, "events");
-    if (!ev || ev->objs.empty()) return {};
-    std::string y = std::string(key) + ":\n";
-    for (const auto& ee : ev->objs) {
-        const auto* e = dynamic_cast<const io::SchemaObject*>(ee.get());
-        if (!e) continue;
-        const long id = fInt(*e,"id");
-        y += "  - id: " + std::to_string(id) + "\n";
-        const std::string n = nr.safeEvent(id); if (!n.empty()) y += "    event: " + q(n) + "\n";
-        if (auto pl = fPtr(*e,"payload")) y += "    payload: " + q(payloadStr(pl)) + "\n";
-    }
-    return y;
-}
-
-std::string boneWeightsBlock(const std::shared_ptr<IHavokObject>& bwP, const std::string& ind) {
-    const auto* bw = dynamic_cast<const io::SchemaObject*>(bwP.get());
-    if (!bw) return {};
-    const io::FieldValue* w = fieldByName(*bw, "boneWeights");   // scalararray float (raw bytes)
-    if (!w) return {};
-    const std::size_t n = w->raw.size() / 4;
-    std::string vals;
-    for (std::size_t i = 0; i < n; ++i) { if (i) vals += ' '; float f; std::memcpy(&f, w->raw.data() + i*4, 4); vals += fstr(f); }
-    return ind + "boneWeights:\n" + ind + "  count: " + std::to_string(n) + "\n" + ind + "  values: " + q(vals) + "\n";
-}
-
-std::string pvecRaw(const std::vector<std::uint8_t>& raw);  // fwd
-std::string modifierEvent(const io::SchemaObject& ev, const NameResolver& nr, const std::string& key);  // fwd
-
-// Shared blender/pose-matching `children:` block (hkbBlenderGeneratorChild elements).
-std::string blenderChildren(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "children:\n";
-    const io::FieldValue* ch = fieldByName(so, "children");
-    if (ch) for (const auto& ce : ch->objs) {
-        const auto* c = dynamic_cast<const io::SchemaObject*>(ce.get());
-        if (!c) continue;
-        y += "  - generator: " + refIdOf(fPtr(*c,"generator"), id) + "\n";
-        y += "    weight: " + fstr(fFloat(*c,"weight")) + "\n";
-        y += "    worldFromModelWeight: " + fstr(fFloat(*c,"worldFromModelWeight")) + "\n";
-        if (auto bw = fPtr(*c,"boneWeights")) y += boneWeightsBlock(bw, "    ");
-        y += bindingsBlock(fPtr(*c,"variableBindingSet"), nr, "    ");
-    }
-    return y;
-}
-
-std::string renderBlender(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: hkbBlenderGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "referencePoseWeightThreshold: " + fstr(fFloat(so,"referencePoseWeightThreshold")) + "\n";
-    y += "blendParameter: " + fstr(fFloat(so,"blendParameter")) + "\n";
-    y += "minCyclicBlendParameter: " + fstr(fFloat(so,"minCyclicBlendParameter")) + "\n";
-    y += "maxCyclicBlendParameter: " + fstr(fFloat(so,"maxCyclicBlendParameter")) + "\n";
-    y += "indexOfSyncMasterChild: " + std::to_string(fInt(so,"indexOfSyncMasterChild")) + "\n";
-    y += "flags: " + en::FormatFlags(fInt(so,"flags"), en::BlenderFlags()) + "\n";
-    y += "subtractLastChild: " + boolstr(fBool(so,"subtractLastChild")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    y += blenderChildren(so, id, nr);
-    return y;
-}
-
-std::string renderOffsetAnim(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: BSOffsetAnimationGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    if (auto g = fPtr(so,"pDefaultGenerator"))    { const std::string r=refIdOf(g,id); if(!r.empty()) y += "pDefaultGenerator: " + r + "\n"; }
-    if (auto g = fPtr(so,"pOffsetClipGenerator")) { const std::string r=refIdOf(g,id); if(!r.empty()) y += "pOffsetClipGenerator: " + r + "\n"; }
-    y += "fOffsetVariable: " + fstr(fFloat(so,"fOffsetVariable")) + "\n";
-    y += "fOffsetRangeStart: " + fstr(fFloat(so,"fOffsetRangeStart")) + "\n";
-    y += "fOffsetRangeEnd: " + fstr(fFloat(so,"fOffsetRangeEnd")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderSyncClip(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: BSSynchronizedClipGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    if (auto g = fPtr(so,"pClipGenerator")) { const std::string r=refIdOf(g,id); if(!r.empty()) y += "pClipGenerator: " + r + "\n"; }
-    y += "SyncAnimPrefix: " + q(fStr(so,"SyncAnimPrefix")) + "\n";
-    y += "bSyncClipIgnoreMarkPlacement: " + boolstr(fBool(so,"bSyncClipIgnoreMarkPlacement")) + "\n";
-    y += "fGetToMarkTime: " + fstr(fFloat(so,"fGetToMarkTime")) + "\n";
-    y += "fMarkErrorThreshold: " + fstr(fFloat(so,"fMarkErrorThreshold")) + "\n";
-    y += "bLeadCharacter: " + boolstr(fBool(so,"bLeadCharacter")) + "\n";
-    y += "bReorientSupportChar: " + boolstr(fBool(so,"bReorientSupportChar")) + "\n";
-    y += "bApplyMotionFromRoot: " + boolstr(fBool(so,"bApplyMotionFromRoot")) + "\n";
-    y += "sAnimationBindingIndex: " + std::to_string(fInt(so,"sAnimationBindingIndex")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderReferencePose(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: hkbReferencePoseGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderGamebryo(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: BGSGamebryoSequenceGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "sequence: " + q(fStr(so,"pSequence")) + "\n";
-    y += "blendModeFunction: " + revNum(en::BlendModeFunction(), fInt(so,"eBlendModeFunction")) + "\n";
-    y += "percent: " + fstr(fFloat(so,"fPercent")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderPoseMatching(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: hkbPoseMatchingGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "referencePoseWeightThreshold: " + fstr(fFloat(so,"referencePoseWeightThreshold")) + "\n";
-    y += "blendParameter: " + fstr(fFloat(so,"blendParameter")) + "\n";
-    y += "minCyclicBlendParameter: " + fstr(fFloat(so,"minCyclicBlendParameter")) + "\n";
-    y += "maxCyclicBlendParameter: " + fstr(fFloat(so,"maxCyclicBlendParameter")) + "\n";
-    y += "indexOfSyncMasterChild: " + std::to_string(fInt(so,"indexOfSyncMasterChild")) + "\n";
-    y += "flags: " + en::FormatFlags(fInt(so,"flags"), en::BlenderFlags()) + "\n";
-    y += "subtractLastChild: " + boolstr(fBool(so,"subtractLastChild")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    y += blenderChildren(so, id, nr);
-    const io::FieldValue* wr = fieldByName(so,"worldFromModelRotation");
-    y += "worldFromModelRotation: " + pvecRaw(wr ? wr->raw : std::vector<std::uint8_t>{}) + "\n";
-    y += "blendSpeed: " + fstr(fFloat(so,"blendSpeed")) + "\n";
-    y += "minSpeedToSwitch: " + fstr(fFloat(so,"minSpeedToSwitch")) + "\n";
-    y += "minSwitchTimeNoError: " + fstr(fFloat(so,"minSwitchTimeNoError")) + "\n";
-    y += "minSwitchTimeFullError: " + fstr(fFloat(so,"minSwitchTimeFullError")) + "\n";
-    const long sp = fInt(so,"startPlayingEventId");  y += "startPlayingEventId: " + std::to_string(sp) + "\n"; evLine(y,"","startPlayingEvent",sp,nr);
-    const long sm = fInt(so,"startMatchingEventId"); y += "startMatchingEventId: " + std::to_string(sm) + "\n"; evLine(y,"","startMatchingEvent",sm,nr);
-    y += "rootBoneIndex: " + std::to_string(fInt(so,"rootBoneIndex")) + "\n";
-    y += "otherBoneIndex: " + std::to_string(fInt(so,"otherBoneIndex")) + "\n";
-    y += "anotherBoneIndex: " + std::to_string(fInt(so,"anotherBoneIndex")) + "\n";
-    y += "pelvisIndex: " + std::to_string(fInt(so,"pelvisIndex")) + "\n";
-    y += "mode: " + std::string(fInt(so,"mode") == 1 ? "MODE_PLAY" : "MODE_MATCH") + "\n";
-    return y;
-}
-
-std::string renderModifierGenerator(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: hkbModifierGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    if (auto m = fPtr(so,"modifier"))  { const std::string r=refIdOf(m,id); if(!r.empty()) y += "modifier: "  + r + "\n"; }
-    if (auto g = fPtr(so,"generator")) { const std::string r=refIdOf(g,id); if(!r.empty()) y += "generator: " + r + "\n"; }
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string modifierEvent(const io::SchemaObject& ev, const NameResolver& nr, const std::string& key);  // fwd
-
-// hkbEvaluateExpressionModifier: `expressions: null` (the array is a data/ sidecar, linked by name),
-// then bindings. (The data/<name>_expressions sidecar itself isn't emitted here yet — not gated.)
-std::string renderEvaluateExpression(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: hkbEvaluateExpressionModifier\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    y += "expressions: null\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-// hkbExpressionData::eventMode (sbyte) — matches the decompiler's exprModeStr.
-std::string exprEventMode(long v) {
-    switch (v) {
-        case 1:  return "EVENT_MODE_SEND_ON_TRUE";
-        case 2:  return "EVENT_MODE_SEND_ON_FALSE_TO_TRUE";
-        case 3:  return "EVENT_MODE_SEND_EVERY_FRAME_ONCE_TRUE";
-        default: return "EVENT_MODE_SEND_ONCE";
-    }
-}
-
-// data/<id>_<suffix> SIDECARS — hkbEvaluateExpressionModifier.expressions, hkbEventsFromRangeModifier.
-// eventRanges, and the IK/ragdoll/keyframe modifiers' bone-index arrays are emitted as SEPARATE files
-// (the modifier YAML says `<field>: null`); the runtime re-links by the naming convention <id>_<suffix>.
-// Absent the sidecar the array stays null and Havok null-derefs it the moment the modifier runs (the
-// hkbExpressionDataArray copy crash). One renderer per array class; empty string => nothing to emit.
-std::string renderExpressionsSidecar(const io::SchemaObject& mod, const std::string& sidecarName, const NameResolver& nr) {
-    const io::FieldValue* ex = fieldByName(mod, "expressions");
-    const auto* arr = (ex && ex->obj) ? dynamic_cast<const io::SchemaObject*>(ex->obj.get()) : nullptr;
-    if (!arr) return {};
-    std::string y = "class: hkbExpressionDataArray\nname: " + q(sidecarName) + "\nexpressionsData:\n";
-    if (const io::FieldValue* data = fieldByName(*arr, "expressionsData"))
-        for (const auto& e : data->objs) {
-            const auto* ed = dynamic_cast<const io::SchemaObject*>(e.get()); if (!ed) continue;
-            y += "  - expression: " + q(fStr(*ed, "expression")) + "\n";
-            const long avi = fInt(*ed, "assignmentVariableIndex");
-            y += "    assignmentVariableIndex: " + std::to_string(avi) + "\n";
-            varLine(y, "    ", "assignmentVariable", avi, nr);
-            const long aei = fInt(*ed, "assignmentEventIndex");
-            y += "    assignmentEventIndex: " + std::to_string(aei) + "\n";
-            evLine(y, "    ", "assignmentEvent", aei, nr);
-            y += "    eventMode: " + exprEventMode(fInt(*ed, "eventMode")) + "\n";
-        }
-    return y;
-}
-std::string renderEventRangesSidecar(const io::SchemaObject& mod, const std::string& sidecarName, const NameResolver& nr) {
-    const io::FieldValue* er = fieldByName(mod, "eventRanges");
-    const auto* arr = (er && er->obj) ? dynamic_cast<const io::SchemaObject*>(er->obj.get()) : nullptr;
-    if (!arr) return {};
-    std::string y = "class: hkbEventRangeDataArray\nname: " + q(sidecarName) + "\neventData:\n";
-    if (const io::FieldValue* data = fieldByName(*arr, "eventData"))
-        for (const auto& e : data->objs) {
-            const auto* ed = dynamic_cast<const io::SchemaObject*>(e.get()); if (!ed) continue;
-            y += "  - upperBound: " + fstr(decodeFloat(fieldByName(*ed, "upperBound")->raw)) + "\n";
-            if (const io::FieldValue* evp = fieldByName(*ed, "event"); evp && evp->obj)
-                if (const auto* evo = dynamic_cast<const io::SchemaObject*>(evp->obj.get()))
-                    y += renderEventProperty(*evo, nr, "    ");
-            y += "    eventMode: " + exprEventMode(fInt(*ed, "eventMode")) + "\n";
-        }
-    return y;
-}
-std::string renderBoneIndexSidecar(const io::SchemaObject* arr, const std::string& sidecarName) {
-    if (!arr) return {};
-    std::string y = "class: hkbBoneIndexArray\nname: " + q(sidecarName) + "\nboneIndices:\n";
-    if (const io::FieldValue* bi = fieldByName(*arr, "boneIndices")) {
-        const std::size_t k = bi->raw.size() / 2;   // int16 scalar array
-        for (std::size_t i = 0; i < k; ++i) {
-            std::int16_t v; std::memcpy(&v, bi->raw.data() + i * 2, 2);
-            y += "  - " + std::to_string(static_cast<int>(v)) + "\n";
-        }
-    }
-    return y;
-}
-
 // A FormId "idx:local" is a valid id STRING (and the identity keyOf reads) but NOT a valid Windows
 // FILENAME — ':' is reserved. The on-disk node filename swaps ':' -> '-'; the `id:` field content keeps
 // the colon. Bijective + reversible; bare ids and Nemesis "code$N" contain no colon, so unaffected.
@@ -637,345 +320,6 @@ static std::string fsId(const std::string& id) {
     std::string s = id;
     for (char& c : s) if (c == ':') c = '-';
     return s;
-}
-
-// Write every data/ sidecar a file-node modifier owns (id keys the file: data/<id>_<suffix>.yaml). Called
-// right after the modifier's own YAML so the sidecar always ships with it (full emit AND per-mod delta).
-void emitModifierSidecars(const io::SchemaObject& so, const std::string& id,
-                          const std::filesystem::path& outDir, const NameResolver& nr) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    // Each sidecar is a .hky node: `id: <id>_<suffix>` then the body. (Matches DecompileNativeDelta.)
-    // The FILENAME is the id + suffix (a stable #NNNN / mod$N id is filename-legal).
-    auto put = [&](const std::string& suffix, const std::string& body) {
-        if (body.empty()) return;
-        const fs::path dir = outDir / "data";
-        fs::create_directories(dir, ec);
-        std::ofstream(dir / (fsId(id + suffix) + ".yaml"), std::ios::binary) << "id: " << id << suffix << "\n" << body;
-    };
-    const std::string cls   = so.ClassName();
-    const std::string mname = fStr(so, "name");   // expressions/eventRanges `name:` = the MODIFIER's name;
-    if (cls == "hkbEvaluateExpressionModifier") put("_expressions", renderExpressionsSidecar(so, mname, nr));
-    else if (cls == "hkbEventsFromRangeModifier") put("_eventRanges", renderEventRangesSidecar(so, mname, nr));
-    else if (cls == "hkbKeyframeBonesModifier") {   // bone-index arrays `name:` = <id>_<suffix>
-        const io::FieldValue* f = fieldByName(so, "keyframedBonesList");
-        put("_keyframedBonesList", renderBoneIndexSidecar(f && f->obj ? dynamic_cast<const io::SchemaObject*>(f->obj.get()) : nullptr, id + "_keyframedBonesList"));
-    } else {   // IK / ragdoll modifiers own a `bones` hkbBoneIndexArray
-        if (const io::FieldValue* f = fieldByName(so, "bones"); f && f->obj)
-            put("_bones", renderBoneIndexSidecar(dynamic_cast<const io::SchemaObject*>(f->obj.get()), id + "_bones"));
-    }
-}
-
-// 12 foot-IK gain fields, at `ind` indent.
-std::string gainsFields(const io::SchemaObject& g, const std::string& ind) {
-    static const char* names[] = {
-        "onOffGain","groundAscendingGain","groundDescendingGain","footPlantedGain","footRaisedGain",
-        "footUnlockGain","worldFromModelFeedbackGain","errorUpDownBias","alignWorldFromModelGain",
-        "hipOrientationGain","maxKneeAngleDifference","ankleOrientationGain" };
-    std::string y;
-    for (const char* n : names) y += ind + n + ": " + fstr(fFloat(g, n)) + "\n";
-    return y;
-}
-// hkbEventProperty as `<key>:\n<ind>id: <id>\n<ind>event: '<name>'\n<ind>payload:` at a given indent.
-std::string evBlock(const io::SchemaObject& ev, const NameResolver& nr, const std::string& key, const std::string& ind) {
-    const long id = fInt(ev, "id");
-    std::string y = key + ":\n" + ind + "id: " + std::to_string(id) + "\n";
-    const std::string n = nr.safeEvent(id); if (!n.empty()) y += ind + "event: " + q(n) + "\n";
-    if (auto pl = fPtr(ev,"payload")) y += ind + "payload: " + q(payloadStr(pl)) + "\n";
-    return y;
-}
-
-std::string renderRigidBodyRagdollControls(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: hkbRigidBodyRagdollControlsModifier\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    if (auto cd = fPtr(so,"controlData")) if (auto* c = dynamic_cast<const io::SchemaObject*>(cd.get())) {
-        y += "durationToBlend: " + fstr(fFloat(*c,"durationToBlend")) + "\n";
-        if (auto k = fPtr(*c,"keyFrameHierarchyControlData")) if (auto* kfh = dynamic_cast<const io::SchemaObject*>(k.get())) {
-            static const char* g[] = {"hierarchyGain","velocityDamping","accelerationGain","velocityGain",
-                "positionGain","positionMaxLinearVelocity","positionMaxAngularVelocity","snapGain",
-                "snapMaxLinearVelocity","snapMaxAngularVelocity","snapMaxLinearDistance","snapMaxAngularDistance"};
-            for (const char* n : g) y += std::string(n) + ": " + fstr(fFloat(*kfh, n)) + "\n";
-        }
-    }
-    return y;
-}
-
-std::string renderPoweredRagdollControls(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: hkbPoweredRagdollControlsModifier\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    if (auto cd = fPtr(so,"controlData")) if (auto* c = dynamic_cast<const io::SchemaObject*>(cd.get())) {
-        y += "maxForce: " + fstr(fFloat(*c,"maxForce")) + "\n";
-        y += "tau: " + fstr(fFloat(*c,"tau")) + "\n";
-        y += "damping: " + fstr(fFloat(*c,"damping")) + "\n";
-        y += "proportionalRecoveryVelocity: " + fstr(fFloat(*c,"proportionalRecoveryVelocity")) + "\n";
-        y += "constantRecoveryVelocity: " + fstr(fFloat(*c,"constantRecoveryVelocity")) + "\n";
-    }
-    if (auto w = fPtr(so,"worldFromModelModeData")) if (auto* wfm = dynamic_cast<const io::SchemaObject*>(w.get())) {
-        y += "poseMatchingBone0: " + std::to_string(fInt(*wfm,"poseMatchingBone0")) + "\n";
-        y += "poseMatchingBone1: " + std::to_string(fInt(*wfm,"poseMatchingBone1")) + "\n";
-        y += "poseMatchingBone2: " + std::to_string(fInt(*wfm,"poseMatchingBone2")) + "\n";
-        y += "worldFromModelMode: " + std::to_string(fInt(*wfm,"mode")) + "\n";
-    }
-    return y;
-}
-
-std::string renderFootIkControls(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: hkbFootIkControlsModifier\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    y += "controlData:\n  gains:\n";
-    if (auto cd = fPtr(so,"controlData")) if (auto* c = dynamic_cast<const io::SchemaObject*>(cd.get()))
-        if (auto g = fPtr(*c,"gains")) if (auto* gains = dynamic_cast<const io::SchemaObject*>(g.get()))
-            y += gainsFields(*gains, "    ");
-    const io::FieldValue* eot = fieldByName(so,"errorOutTranslation");
-    y += "errorOutTranslation: " + pvecRaw(eot ? eot->raw : std::vector<std::uint8_t>{}) + "\n";
-    const io::FieldValue* awg = fieldByName(so,"alignWithGroundRotation");
-    y += "alignWithGroundRotation: " + pvecRaw(awg ? awg->raw : std::vector<std::uint8_t>{}) + "\n";
-    const io::FieldValue* legs = fieldByName(so,"legs");
-    if (legs && !legs->objs.empty()) {
-        y += "legs:\n";
-        for (const auto& le : legs->objs) {
-            const auto* l = dynamic_cast<const io::SchemaObject*>(le.get());
-            if (!l) continue;
-            const io::FieldValue* gp = fieldByName(*l,"groundPosition");
-            y += "  - groundPosition: " + pvecRaw(gp ? gp->raw : std::vector<std::uint8_t>{}) + "\n";
-            if (auto ue = fPtr(*l,"ungroundedEvent")) if (auto* ueo = dynamic_cast<const io::SchemaObject*>(ue.get()))
-                y += "    " + evBlock(*ueo, nr, "ungroundedEvent", "      ");
-            y += "    verticalError: " + fstr(fFloat(*l,"verticalError")) + "\n";
-            y += "    hitSomething: " + boolstr(fBool(*l,"hitSomething")) + "\n";
-            y += "    isPlantedMS: " + boolstr(fBool(*l,"isPlantedMS")) + "\n";
-        }
-    }
-    return y;
-}
-
-std::string renderLookAt(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: BSLookAtModifier\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    y += "lookAtTarget: " + boolstr(fBool(so,"lookAtTarget")) + "\n";
-    auto boneArr = [&](const char* key) {
-        const io::FieldValue* a = fieldByName(so, key);
-        if (!a || a->objs.empty()) return;
-        y += std::string(key) + ":\n";
-        for (const auto& be : a->objs) {
-            const auto* b = dynamic_cast<const io::SchemaObject*>(be.get());
-            if (!b) continue;
-            const io::FieldValue* fa = fieldByName(*b,"fwdAxisLS");
-            y += "  - index: " + std::to_string(fInt(*b,"index")) + "\n";
-            y += "    fwdAxisLS: " + pvecRaw(fa ? fa->raw : std::vector<std::uint8_t>{}) + "\n";
-            y += "    limitAngleDegrees: " + fstr(fFloat(*b,"limitAngleDegrees")) + "\n";
-            y += "    onGain: " + fstr(fFloat(*b,"onGain")) + "\n";
-            y += "    offGain: " + fstr(fFloat(*b,"offGain")) + "\n";
-            y += "    enabled: " + boolstr(fBool(*b,"enabled")) + "\n";
-        }
-    };
-    boneArr("bones");
-    boneArr("eyeBones");
-    y += "limitAngleDegrees: " + fstr(fFloat(so,"limitAngleDegrees")) + "\n";
-    y += "limitAngleThresholdDegrees: " + fstr(fFloat(so,"limitAngleThresholdDegrees")) + "\n";
-    y += "continueLookOutsideOfLimit: " + boolstr(fBool(so,"continueLookOutsideOfLimit")) + "\n";
-    y += "onGain: " + fstr(fFloat(so,"onGain")) + "\n";
-    y += "offGain: " + fstr(fFloat(so,"offGain")) + "\n";
-    y += "useBoneGains: " + boolstr(fBool(so,"useBoneGains")) + "\n";
-    const io::FieldValue* tl = fieldByName(so,"targetLocation");
-    y += "targetLocation: " + pvecRaw(tl ? tl->raw : std::vector<std::uint8_t>{}) + "\n";
-    y += "targetOutsideLimits: " + boolstr(fBool(so,"targetOutsideLimits")) + "\n";
-    if (auto e = fPtr(so,"targetOutOfLimitEvent")) if (auto* eo = dynamic_cast<const io::SchemaObject*>(e.get()))
-        y += modifierEvent(*eo, nr, "targetOutOfLimitEvent");
-    y += "lookAtCamera: " + boolstr(fBool(so,"lookAtCamera")) + "\n";
-    y += "lookAtCameraX: " + fstr(fFloat(so,"lookAtCameraX")) + "\n";
-    y += "lookAtCameraY: " + fstr(fFloat(so,"lookAtCameraY")) + "\n";
-    y += "lookAtCameraZ: " + fstr(fFloat(so,"lookAtCameraZ")) + "\n";
-    return y;
-}
-
-std::string renderEventsFromRange(const io::SchemaObject& so, const Identity&, const NameResolver& nr) {
-    std::string y = "class: hkbEventsFromRangeModifier\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    y += "inputValue: " + fstr(fFloat(so,"inputValue")) + "\n";
-    y += "lowerBound: " + fstr(fFloat(so,"lowerBound")) + "\n";
-    y += "eventRanges: null\n";   // the array is a data/ sidecar, linked by name
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderTagging(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: BSiStateTaggingGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    if (auto g = fPtr(so,"pDefaultGenerator")) { const std::string r=refIdOf(g,id); if(!r.empty()) y += "pDefaultGenerator: " + r + "\n"; }
-    y += "iStateToSetAs: " + std::to_string(fInt(so,"iStateToSetAs")) + "\n";
-    y += "iPriority: " + std::to_string(fInt(so,"iPriority")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderBoneSwitch(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: BSBoneSwitchGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    if (auto g = fPtr(so,"pDefaultGenerator")) { const std::string r=refIdOf(g,id); if(!r.empty()) y += "pDefaultGenerator: " + r + "\n"; }
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    y += "children:\n";
-    const io::FieldValue* ch = fieldByName(so, "ChildrenA");   // ptrarray BSBoneSwitchGeneratorBoneData
-    if (ch) for (const auto& ce : ch->objs) {
-        const auto* c = dynamic_cast<const io::SchemaObject*>(ce.get());
-        if (!c) continue;
-        y += "  - pGenerator: " + refIdOf(fPtr(*c,"pGenerator"), id) + "\n";
-        if (auto bw = fPtr(*c,"spBoneWeight")) y += boneWeightsBlock(bw, "    ");
-        y += bindingsBlock(fPtr(*c,"variableBindingSet"), nr, "    ");
-    }
-    return y;
-}
-
-std::string renderCyclicBlend(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: BSCyclicBlendTransitionGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    if (auto g = fPtr(so,"pBlenderGenerator")) { const std::string r=refIdOf(g,id); if(!r.empty()) y += "pBlenderGenerator: " + r + "\n"; }
-    if (auto e = fPtr(so,"EventToFreezeBlendValue")) if (auto* eo=dynamic_cast<const io::SchemaObject*>(e.get())) y += modifierEvent(*eo, nr, "EventToFreezeBlendValue");
-    if (auto e = fPtr(so,"EventToCrossBlend"))      if (auto* eo=dynamic_cast<const io::SchemaObject*>(e.get())) y += modifierEvent(*eo, nr, "EventToCrossBlend");
-    y += "fBlendParameter: " + fstr(fFloat(so,"fBlendParameter")) + "\n";
-    y += "fTransitionDuration: " + fstr(fFloat(so,"fTransitionDuration")) + "\n";
-    y += "eBlendCurve: " + revNum(en::BlendCurve(), fInt(so,"eBlendCurve")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderManualSelector(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: hkbManualSelectorGenerator\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "selectedGeneratorIndex: " + std::to_string(fInt(so,"selectedGeneratorIndex")) + "\n";
-    y += "currentGeneratorIndex: " + std::to_string(fInt(so,"currentGeneratorIndex")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    y += "generators:\n";
-    const io::FieldValue* g = fieldByName(so, "generators");
-    if (g) for (const auto& ge : g->objs) y += "  - " + refIdOf(ge, id) + "\n";
-    return y;
-}
-
-// Vector4/Quaternion (raw 16 bytes) -> '(x y z w)' string (behavior modifier param form).
-std::string pvecRaw(const std::vector<std::uint8_t>& raw) {
-    float v[4] = {0,0,0,0};
-    for (int i = 0; i < 4 && raw.size() >= static_cast<std::size_t>((i+1)*4); ++i) std::memcpy(&v[i], raw.data()+i*4, 4);
-    return "'(" + fstr(v[0]) + " " + fstr(v[1]) + " " + fstr(v[2]) + " " + fstr(v[3]) + ")'";
-}
-// hkbEventProperty in a modifier: `<key>:\n    id: <id>\n    event: '<name>'\n    payload: '<str>'`.
-std::string modifierEvent(const io::SchemaObject& ev, const NameResolver& nr, const std::string& key) {
-    const long id = fInt(ev, "id");
-    std::string y = key + ":\n    id: " + std::to_string(id) + "\n";
-    const std::string n = nr.safeEvent(id); if (!n.empty()) y += "    event: " + q(n) + "\n";
-    if (auto pl = fPtr(ev, "payload")) y += "    payload: " + q(payloadStr(pl)) + "\n";
-    return y;
-}
-
-// Generic modifier: fixed header (class/name/userData/enable) + bindings, then per-type fields in
-// SCHEMA ORDER with value rendering (float/bool/enum/flags via renderScalar, vector4/quaternion via
-// pvec, hkbEventProperty via modifierEvent). Handles the simple majority; modifiers with array/struct
-// blocks (footIk legs, keyframe info, control-data) fall through their extra fields and are refined
-// as their diffs surface.
-std::string renderModifier(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    // Dedicated-handler modifiers place the bindings block at the END (after fields); the generic
-    // block places it right after `enable`.
-    static const std::set<std::string> kBindEnd = { "BSIsActiveModifier", "hkbEventDrivenModifier" };
-    const std::string cls = so.ClassName();
-    const bool bindEnd = kBindEnd.count(cls) != 0;
-
-    std::string y = "class: " + cls + "\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    if (!bindEnd) y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    const auto fields = so.Fields();
-    const auto& vals = so.Values();
-    for (std::size_t i = 0; i < fields.size(); ++i) {
-        const Field& f = *fields[i];
-        if (f.name.empty() || f.name == "name" || f.name == "userData" || f.name == "enable"
-            || f.name == "variableBindingSet") continue;
-        if (f.ignored && !f.hkyEmit) continue;
-        switch (f.kind) {
-            case FieldKind::Scalar:
-                y += f.name + ": " + renderScalar(f, vals[i]) + "\n";
-                if (!f.eventRef.empty()) { const std::string n = nr.safeEvent(decodeInt(vals[i].raw, f.scalar)); if (!n.empty()) y += f.eventRef + ": " + q(n) + "\n"; }
-                if (!f.varRef.empty())   { const std::string n = nr.safeVariable(decodeInt(vals[i].raw, f.scalar)); if (!n.empty()) y += f.varRef + ": " + q(n) + "\n"; }
-                break;
-            case FieldKind::String:     y += f.name + ": " + q(vals[i].str) + "\n"; break;
-            case FieldKind::Vector4:
-            case FieldKind::Quaternion: y += f.name + ": " + pvecRaw(vals[i].raw) + "\n"; break;
-            case FieldKind::Struct:
-                if (vals[i].obj) if (auto* eo = dynamic_cast<const io::SchemaObject*>(vals[i].obj.get())) {
-                    if (std::string(eo->ClassName()) == "hkbEventProperty") y += modifierEvent(*eo, nr, f.name);
-                }
-                break;
-            case FieldKind::Ptr:
-                if (vals[i].obj) {
-                    const auto* t = dynamic_cast<const io::SchemaObject*>(vals[i].obj.get());
-                    if (t && std::string(t->ClassName()) == "hkbBoneIndexArray") break;   // emitted as a data/ sidecar, not inline
-                    const std::string r = refIdOf(vals[i].obj, id); if (!r.empty()) y += f.name + ": " + r + "\n";
-                }
-                break;
-            case FieldKind::PtrArray:
-                if (!vals[i].objs.empty()) { y += f.name + ":\n"; for (const auto& e : vals[i].objs) y += "  - " + refIdOf(e, id) + "\n"; }
-                break;
-            default: break;   // struct arrays / other blocks — refined per modifier as diffs surface
-        }
-    }
-    if (bindEnd) y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderStateInfo(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: hkbStateMachineStateInfo\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "stateId: " + std::to_string(fInt(so,"stateId")) + "\n";
-    y += "probability: " + fstr(fFloat(so,"probability")) + "\n";
-    y += "enable: " + boolstr(fBool(so,"enable")) + "\n";
-    if (auto g = fPtr(so,"generator")) { const std::string r=refIdOf(g,id); if(!r.empty()) y += "generator: " + r + "\n"; }
-    y += notifyBlock(fPtr(so,"enterNotifyEvents"), "enterNotifyEvents", nr);
-    y += notifyBlock(fPtr(so,"exitNotifyEvents"),  "exitNotifyEvents",  nr);
-    y += transitionsBlock(fPtr(so,"transitions"), id, nr, "");
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    return y;
-}
-
-std::string renderStateMachine(const io::SchemaObject& so, const Identity& id, const NameResolver& nr) {
-    std::string y = "class: hkbStateMachine\n";
-    y += "name: " + q(fStr(so,"name")) + "\n";
-    y += "userData: " + std::to_string(fInt(so,"userData")) + "\n";
-    y += "startStateId: " + std::to_string(fInt(so,"startStateId")) + "\n";
-    long e0 = 0;   // eventToSendWhenStateOrTransitionChanges is an inline hkbEvent struct (stored in .obj)
-    if (auto evp = fPtr(so,"eventToSendWhenStateOrTransitionChanges"))
-        if (auto* evs = dynamic_cast<const io::SchemaObject*>(evp.get())) e0 = fInt(*evs,"id");
-    y += "eventToSendWhenStateOrTransitionChanges: " + std::to_string(e0) + "\n";
-    evLine(y, "", "eventToSendWhenStateOrTransitionChangesEvent", e0, nr);
-    const long rp = fInt(so,"returnToPreviousStateEventId");       y += "returnToPreviousStateEventId: " + std::to_string(rp) + "\n";       evLine(y,"","returnToPreviousStateEvent",rp,nr);
-    const long rt = fInt(so,"randomTransitionEventId");            y += "randomTransitionEventId: " + std::to_string(rt) + "\n";            evLine(y,"","randomTransitionEvent",rt,nr);
-    const long th = fInt(so,"transitionToNextHigherStateEventId"); y += "transitionToNextHigherStateEventId: " + std::to_string(th) + "\n"; evLine(y,"","transitionToNextHigherStateEvent",th,nr);
-    const long tl = fInt(so,"transitionToNextLowerStateEventId");  y += "transitionToNextLowerStateEventId: " + std::to_string(tl) + "\n";  evLine(y,"","transitionToNextLowerStateEvent",tl,nr);
-    const long sv = fInt(so,"syncVariableIndex");                  y += "syncVariableIndex: " + std::to_string(sv) + "\n";                  varLine(y,"","syncVariable",sv,nr);
-    y += "wrapAroundStateId: " + boolstr(fBool(so,"wrapAroundStateId")) + "\n";
-    y += "maxSimultaneousTransitions: " + std::to_string(fInt(so,"maxSimultaneousTransitions")) + "\n";
-    y += "startStateMode: " + revNum(en::StartStateMode(), fInt(so,"startStateMode")) + "\n";
-    y += "selfTransitionMode: " + revNum(en::SmSelfTransitionMode(), fInt(so,"selfTransitionMode")) + "\n";
-    y += bindingsBlock(fPtr(so,"variableBindingSet"), nr, "");
-    y += transitionsBlock(fPtr(so,"wildcardTransitions"), id, nr, "");
-    const io::FieldValue* st = fieldByName(so,"states");
-    if (st) { y += "states:\n"; for (const auto& s : st->objs) { const std::string r=refIdOf(s,id); if(!r.empty()) y += "  - " + r + "\n"; } }
-    return y;
 }
 
 // ── generic tagfile-XML emit (the tagfile codec) ─────────────────────────────────────────────────
@@ -1145,668 +489,6 @@ void tfBody(std::string& x, const std::string& ind, const io::SchemaObject& so, 
     }
 }
 } // namespace
-
-bool EmitHky(const Identity& identity, const schema::SchemaRegistry& /*reg*/,
-             const std::string& outDir, std::string& err, const std::set<std::string>* deltaIds,
-             std::vector<std::string>* warnings) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const NameResolver nr = buildResolver(identity);
-
-    // Delta mode: emit ONLY the file nodes a patch touched. A patch edits inline sub-objects (the
-    // category-"" nodes: transition/event arrays, conditions, clip-trigger arrays, binding sets) BY THEIR
-    // OWN #NNNN, but those get no file — their corrected content lives in the OWNING node's YAML. So fold
-    // each category-"" delta id up to the file node that inlines it (mirrors DecompileNativeDelta's
-    // em.subOwner fold). A delta id with no file-node owner is not referenced by the merged graph — its
-    // edit is moot (another change repointed its former owner); surface it rather than silently drop.
-    std::set<std::string> writeIds;
-    if (deltaIds) {
-        std::unordered_map<std::string, const io::SchemaObject*> byId;
-        for (const auto& [o, c] : identity.category)
-            if (const auto* s = dynamic_cast<const io::SchemaObject*>(o)) byId[identity.ids.at(o)] = s;
-        auto catStr = [&](const IHavokObject* o) -> const std::string* {
-            auto c = identity.category.find(o); return c == identity.category.end() ? nullptr : &c->second;
-        };
-
-        // ONE DFS from the graph root, mirroring the typed decompiler's sink-based emit: it (a) collects
-        // every REACHABLE top-level id — only reachable nodes emit; an added-but-unwired node is moot —
-        // and (b) folds each reachable category-"" node (transition/event arrays, conditions, clip-trigger
-        // arrays, binding sets — a Nemesis patch edits these by their OWN #NNNN, but they get no file) up
-        // to the nearest enclosing FILE node, whose YAML carries the corrected inline block. Edges are
-        // followed THROUGH inline (id-less) structs, so a node reachable only via a transition-info struct
-        // (its effect ptr) is still seen. `owner` on the stack is the nearest enclosing file-node id.
-        std::set<std::string> reachable;                 // reachable top-level ids
-        std::unordered_map<std::string, std::string> subOwner;
-        const IHavokObject* rootObj = nullptr;
-        for (const auto& [o, c] : identity.category)
-            if (std::string(o->ClassName()) == "hkRootLevelContainer") { rootObj = o; break; }
-
-        const bool haveRoot = rootObj != nullptr;
-        if (haveRoot) {
-            std::vector<std::pair<const IHavokObject*, std::string>> st;
-            if (auto rit = identity.ids.find(rootObj); rit != identity.ids.end()) reachable.insert(rit->second);
-            st.push_back({ rootObj, std::string() });
-            while (!st.empty()) {
-                auto [o, owner] = st.back(); st.pop_back();
-                const auto* s = dynamic_cast<const io::SchemaObject*>(o);
-                if (!s) continue;
-                std::string childOwner = owner;
-                if (auto idIt = identity.ids.find(o); idIt != identity.ids.end()) {
-                    const std::string& myId = idIt->second;
-                    const std::string* c = catStr(o);
-                    if (c && !c->empty()) childOwner = myId;                         // this is a file node
-                    else if (!owner.empty() && !subOwner.count(myId)) subOwner[myId] = owner;  // fold to owner
-                }
-                for (const io::FieldValue& v : s->Values()) {
-                    auto follow = [&](const std::shared_ptr<IHavokObject>& p) {
-                        if (!p) return;
-                        auto pit = identity.ids.find(p.get());
-                        if (pit != identity.ids.end()) {                            // top-level node
-                            if (!reachable.insert(pit->second).second) return;      // already visited
-                        }
-                        st.push_back({ p.get(), childOwner });                      // recurse (inline: no id, tree)
-                    };
-                    follow(v.obj); for (const auto& e : v.objs) follow(e);
-                }
-            }
-        }
-
-        for (const std::string& did : *deltaIds) {
-            const io::SchemaObject* s = byId.count(did) ? byId[did] : nullptr;
-            // Vocab symbol nodes carry the roster, not graph structure — a patch's edit to them ships via
-            // data/additive.yaml (EmitAdditiveVocab), never a node file. Skip silently (no owner, no moot).
-            if (s) {
-                const std::string c = s->ClassName();
-                if (c == "hkbBehaviorGraphStringData" || c == "hkbBehaviorGraphData" || c == "hkbVariableValueSet") continue;
-            }
-            const std::string* cat = s ? catStr(static_cast<const IHavokObject*>(s)) : nullptr;
-            if (haveRoot && !reachable.count(did)) {       // added/edited but not wired into the merged graph
-                if (warnings) warnings->push_back("delta: changed object #" + did +
-                                                  " is not referenced by the merged graph — edit skipped as moot");
-                continue;
-            }
-            if (cat && !cat->empty()) { writeIds.insert(did); continue; }   // reachable file node
-            auto oit = subOwner.find(did);                                  // reachable category-"" -> owner
-            if (oit != subOwner.end()) writeIds.insert(oit->second);
-            else if (warnings) warnings->push_back("delta: changed object #" + did +
-                                                   " has no file-node owner — edit skipped as moot");
-        }
-    }
-
-    for (const auto& [obj, cat] : identity.category) {
-        if (cat.empty()) continue;
-        const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
-        if (!so) { err = "havok-model: EmitHky expects a SchemaObject graph"; return false; }
-
-        const std::string id = identity.ids.at(obj);
-        if (deltaIds && !writeIds.count(id)) continue;   // delta mode: only patched file nodes
-        const std::string cls = so->ClassName();
-
-        // Complex categories with hand-authored structure use dedicated renderers (reading the same
-        // generic SchemaObject accessors — no typed-class dependency).
-        if (cls == "hkbStateMachine" || cls == "hkbStateMachineStateInfo"
-            || cls == "hkbBlenderGenerator" || cls == "hkbManualSelectorGenerator"
-            || cls == "BSiStateTaggingGenerator" || cls == "BSBoneSwitchGenerator"
-            || cls == "BSCyclicBlendTransitionGenerator" || cls == "hkbEvaluateExpressionModifier"
-            || cls == "BSOffsetAnimationGenerator" || cls == "BSSynchronizedClipGenerator"
-            || cls == "hkbReferencePoseGenerator" || cls == "BGSGamebryoSequenceGenerator"
-            || cls == "hkbPoseMatchingGenerator" || cls == "hkbEventsFromRangeModifier"
-            || cls == "BSLookAtModifier" || cls == "hkbFootIkControlsModifier"
-            || cls == "hkbPoweredRagdollControlsModifier" || cls == "hkbRigidBodyRagdollControlsModifier"
-            || cat == "modifiers") {
-            std::string y;
-            if      (cls == "hkbStateMachine")            y = renderStateMachine(*so, identity, nr);
-            else if (cls == "hkbStateMachineStateInfo")   y = renderStateInfo(*so, identity, nr);
-            else if (cls == "hkbBlenderGenerator")        y = renderBlender(*so, identity, nr);
-            else if (cls == "hkbManualSelectorGenerator") y = renderManualSelector(*so, identity, nr);
-            else if (cls == "BSiStateTaggingGenerator")   y = renderTagging(*so, identity, nr);
-            else if (cls == "BSBoneSwitchGenerator")      y = renderBoneSwitch(*so, identity, nr);
-            else if (cls == "BSCyclicBlendTransitionGenerator") y = renderCyclicBlend(*so, identity, nr);
-            else if (cls == "hkbModifierGenerator")       y = renderModifierGenerator(*so, identity, nr);
-            else if (cls == "hkbEvaluateExpressionModifier") y = renderEvaluateExpression(*so, identity, nr);
-            else if (cls == "BSOffsetAnimationGenerator") y = renderOffsetAnim(*so, identity, nr);
-            else if (cls == "BSSynchronizedClipGenerator") y = renderSyncClip(*so, identity, nr);
-            else if (cls == "hkbReferencePoseGenerator")  y = renderReferencePose(*so, identity, nr);
-            else if (cls == "BGSGamebryoSequenceGenerator") y = renderGamebryo(*so, identity, nr);
-            else if (cls == "hkbPoseMatchingGenerator")   y = renderPoseMatching(*so, identity, nr);
-            else if (cls == "hkbEventsFromRangeModifier") y = renderEventsFromRange(*so, identity, nr);
-            else if (cls == "BSLookAtModifier")           y = renderLookAt(*so, identity, nr);
-            else if (cls == "hkbFootIkControlsModifier")  y = renderFootIkControls(*so, identity, nr);
-            else if (cls == "hkbPoweredRagdollControlsModifier")  y = renderPoweredRagdollControls(*so, identity, nr);
-            else if (cls == "hkbRigidBodyRagdollControlsModifier") y = renderRigidBodyRagdollControls(*so, identity, nr);
-            else                                          y = renderModifier(*so, identity, nr);
-            const fs::path dir = fs::path(outDir) / cat;
-            fs::create_directories(dir, ec);
-            std::ofstream of(dir / (fsId(id) + ".yaml"), std::ios::binary);
-            of << "id: " << id << "\n" << y;
-            // A modifier that says `<field>: null` for an owned data array MUST ship the array as a
-            // data/<id>_<suffix>.yaml sidecar, or the runtime re-link leaves it null and Havok crashes.
-            emitModifierSidecars(*so, id, fs::path(outDir), nr);
-            continue;
-        }
-
-        const std::vector<const Field*> fields = so->Fields();
-        const std::vector<io::FieldValue>& vals = so->Values();
-
-        // header: class / name / userData (fixed order — name before userData, unlike schema order).
-        std::string y = "class: " + std::string(so->ClassName()) + "\n";
-        auto findField = [&](const char* nm) -> int {
-            for (std::size_t i = 0; i < fields.size(); ++i) if (fields[i]->name == nm) return static_cast<int>(i);
-            return -1;
-        };
-        if (const int ni = findField("name");     ni >= 0) y += "name: " + q(vals[ni].str) + "\n";
-        if (const int ui = findField("userData"); ui >= 0) y += "userData: " + std::to_string(decodeInt(vals[ui].raw, fields[ui]->scalar)) + "\n";
-        // Pass 1 — scalar/string value fields in schema order (skip header/ignored-unless-hky/blocks).
-        for (std::size_t i = 0; i < fields.size(); ++i) {
-            const Field& f = *fields[i];
-            if (f.name.empty() || isHeaderField(f.name)) continue;
-            if (f.ignored && !f.hkyEmit) continue;
-            if (f.kind == FieldKind::Scalar)
-                y += f.name + ": " + renderScalar(f, vals[i]) + "\n";
-            else if (f.kind == FieldKind::String)
-                y += f.name + ": " + q(vals[i].str) + "\n";
-        }
-        // Pass 2 — inline blocks (ptr → category "" targets). Emitted AFTER the scalars, matching the
-        // decompiler. Dispatch by target class (recurring wrapper shapes).
-        for (std::size_t i = 0; i < fields.size(); ++i) {
-            const Field& f = *fields[i];
-            if (f.kind != FieldKind::Ptr || isHeaderField(f.name) || !vals[i].obj) continue;
-            const auto* tgt = dynamic_cast<const io::SchemaObject*>(vals[i].obj.get());
-            if (!tgt) continue;
-            const std::string tcls = tgt->ClassName();
-            if (tcls == "hkbClipTriggerArray") {
-                const io::FieldValue* arr = fieldByName(*tgt, "triggers");   // structarray hkbClipTrigger
-                if (!arr || arr->objs.empty()) continue;
-                y += "triggers:\n";
-                for (const auto& te : arr->objs) {
-                    const auto* trg = dynamic_cast<const io::SchemaObject*>(te.get());
-                    if (!trg) continue;
-                    const io::FieldValue* lt = fieldByName(*trg, "localTime");
-                    y += "  - localTime: " + fstr(lt ? decodeFloat(lt->raw) : 0.f) + "\n";
-                    const Field* ef = nullptr; const io::FieldValue* evp = fieldByName(*trg, "event", &ef);
-                    if (evp && evp->obj) {
-                        const auto* evo = dynamic_cast<const io::SchemaObject*>(evp->obj.get());
-                        if (evo) y += renderEventProperty(*evo, nr, "    ");
-                    }
-                    for (const char* bn : {"relativeToEndOfClip", "acyclic", "isAnnotation"}) {
-                        const io::FieldValue* bv = fieldByName(*trg, bn);
-                        y += std::string("    ") + bn + ": " + boolstr(bv && !bv->raw.empty() && bv->raw[0] != 0) + "\n";
-                    }
-                }
-            }
-        }
-        // bindings block at the end (transitions/clips/generators; modifiers place it after the header —
-        // handled when that category lands).
-        if (const io::FieldValue* vbs = fieldByName(*so, "variableBindingSet"))
-            y += bindingsBlock(vbs->obj, nr, "");
-
-        const fs::path dir = fs::path(outDir) / cat;
-        fs::create_directories(dir, ec);
-        std::ofstream of(dir / (fsId(id) + ".yaml"), std::ios::binary);
-        of << "id: " << id << "\n" << y;
-    }
-    return true;
-}
-
-namespace {
-// Find a graph's hkbBehaviorGraphData + the hkbBehaviorGraphStringData it points at (the graph's OWN
-// vocabulary roster). Returns {nullptr,nullptr} if the graph carries no data node.
-std::pair<const io::SchemaObject*, const io::SchemaObject*> findGraphData(const Identity& id) {
-    for (const auto& [obj, cat] : id.category) {
-        if (std::string(obj->ClassName()) != "hkbBehaviorGraphData") continue;
-        const auto* gd = dynamic_cast<const io::SchemaObject*>(obj);
-        if (!gd) continue;
-        const io::FieldValue* sdF = fieldByName(*gd, "stringData");
-        const auto* sd = (sdF && sdF->obj) ? dynamic_cast<const io::SchemaObject*>(sdF->obj.get()) : nullptr;
-        return { gd, sd };
-    }
-    return { nullptr, nullptr };
-}
-const io::SchemaObject* elemAt(const io::FieldValue* arr, std::size_t i) {
-    if (!arr || i >= arr->objs.size()) return nullptr;
-    return dynamic_cast<const io::SchemaObject*>(arr->objs[i].get());
-}
-} // namespace
-
-bool EmitAdditiveVocab(const Identity& baseId, const Identity& mergedId,
-                       const std::string& outDir, std::string& err) {
-    namespace fs = std::filesystem;
-    namespace en = CB::core::common::enums;
-    using schema::Scalar;
-    const auto [bGd, bSd] = findGraphData(baseId);
-    const auto [mGd, mSd] = findGraphData(mergedId);
-    (void)bGd;
-    if (!mGd || !mSd) return true;   // no graph vocab to diff — nothing to add (not an error)
-
-    auto namesOf = [](const io::SchemaObject* sd, const char* f) -> std::vector<std::string> {
-        if (!sd) return {}; const io::FieldValue* v = fieldByName(*sd, f); return v ? v->strs : std::vector<std::string>{};
-    };
-    const std::vector<std::string> bEv = namesOf(bSd, "eventNames"), bVar = namesOf(bSd, "variableNames"), bCp = namesOf(bSd, "characterPropertyNames");
-    const std::vector<std::string> mEv = namesOf(mSd, "eventNames"), mVar = namesOf(mSd, "variableNames"), mCp = namesOf(mSd, "characterPropertyNames");
-    const std::set<std::string> bEvS(bEv.begin(), bEv.end()), bVarS(bVar.begin(), bVar.end()), bCpS(bCp.begin(), bCp.end());
-
-    const io::FieldValue* varInfos = fieldByName(*mGd, "variableInfos");
-    const io::FieldValue* evInfos  = fieldByName(*mGd, "eventInfos");
-    const io::FieldValue* cpInfos  = fieldByName(*mGd, "characterPropertyInfos");
-    const io::FieldValue* vivF     = fieldByName(*mGd, "variableInitialValues");
-    const auto* viv = (vivF && vivF->obj) ? dynamic_cast<const io::SchemaObject*>(vivF->obj.get()) : nullptr;
-    const io::FieldValue* wordVals = viv ? fieldByName(*viv, "wordVariableValues") : nullptr;
-    const io::FieldValue* quadVals = viv ? fieldByName(*viv, "quadVariableValues") : nullptr;
-
-    // Split for consistency with data/animations.yaml: each vocab kind is its OWN union file —
-    // data/variables.yaml, data/events.yaml — legible to an author and union-merged at load. Character
-    // properties stay in data/additive.yaml (rare, and carry the count-only-base guard); additive.yaml is
-    // also still READ for events/variables, so pre-split bundles keep working.
-    std::string yVar, yEv, yCp;
-    // Added variables (name, type, initial value; quadValue for vector/quaternion).
-    { bool hdr = false;
-      for (std::size_t i = 0; i < mVar.size(); ++i) {
-        if (bVarS.count(mVar[i])) continue;
-        if (!hdr) { yVar += "variables:\n"; hdr = true; }
-        yVar += "  - name: " + q(mVar[i]) + "\n";
-        long type = 0; if (const auto* vi = elemAt(varInfos, i)) type = decodeInt(fieldByName(*vi, "type")->raw, Scalar::Int8);
-        const std::string typeStr = revNum(en::VariableType(), type);
-        yVar += "    type: " + typeStr + "\n";
-        long val = 0; if (const auto* wv = elemAt(wordVals, i)) val = decodeInt(fieldByName(*wv, "value")->raw, Scalar::Int32);
-        yVar += "    value: " + std::to_string(val) + "\n";
-        if ((typeStr == "VARIABLE_TYPE_VECTOR4" || typeStr == "VARIABLE_TYPE_QUATERNION" || typeStr == "VARIABLE_TYPE_VECTOR3")
-            && quadVals && val >= 0 && static_cast<std::size_t>(val) * 16 + 16 <= quadVals->raw.size())
-            yVar += "    quadValue: " + pvecRaw(std::vector<std::uint8_t>(quadVals->raw.begin() + val * 16, quadVals->raw.begin() + val * 16 + 16)) + "\n";
-      }
-    }
-    // Added events (name, flags).
-    { bool hdr = false;
-      for (std::size_t i = 0; i < mEv.size(); ++i) {
-        if (bEvS.count(mEv[i])) continue;
-        if (!hdr) { yEv += "events:\n"; hdr = true; }
-        yEv += "  - name: " + q(mEv[i]) + "\n";
-        long flags = 0; if (const auto* ei = elemAt(evInfos, i)) flags = decodeInt(fieldByName(*ei, "flags")->raw, Scalar::UInt32);
-        yEv += "    flags: " + en::FormatFlags(flags, en::EventInfoFlags()) + "\n";
-      }
-    }
-    // Added character properties (name, type, role flags).
-    { bool hdr = false;
-      for (std::size_t i = 0; i < mCp.size(); ++i) {
-        if (bCpS.count(mCp[i])) continue;
-        if (!hdr) { yCp += "characterPropertyNames:\n"; hdr = true; }
-        yCp += "  - name: " + q(mCp[i]) + "\n";
-        const auto* ci = elemAt(cpInfos, i);
-        long type = ci ? decodeInt(fieldByName(*ci, "type")->raw, Scalar::Int8) : 0;
-        yCp += "    type: " + revNum(en::VariableType(), type) + "\n";
-        long flags = 0;
-        if (ci) if (const io::FieldValue* roleF = fieldByName(*ci, "role"); roleF && roleF->obj)
-            if (const auto* role = dynamic_cast<const io::SchemaObject*>(roleF->obj.get()))
-                flags = decodeInt(fieldByName(*role, "flags")->raw, Scalar::Int16);
-        yCp += "    flags: " + en::FormatFlags(flags, en::RoleFlags()) + "\n";
-      }
-    }
-
-    if (yVar.empty() && yEv.empty() && yCp.empty()) return true;   // no added vocabulary
-    const fs::path dataDir = fs::path(outDir) / "data";
-    std::error_code ec; fs::create_directories(dataDir, ec);
-    auto writeVocab = [&](const char* file, const std::string& body) -> bool {
-        if (body.empty()) return true;
-        std::ofstream of(dataDir / file, std::ios::binary);
-        of << body;
-        if (!of) { err = std::string("EmitAdditiveVocab: cannot write ") + file; return false; }
-        return true;
-    };
-    return writeVocab("variables.yaml", yVar) && writeVocab("events.yaml", yEv) && writeVocab("additive.yaml", yCp);
-}
-
-namespace {
-// The graph's hkbBehaviorGraph node (name / variableMode / rootGenerator) for the behavior.yaml header.
-const io::SchemaObject* findBehaviorGraph(const Identity& id) {
-    for (const auto& [obj, cat] : id.category)
-        if (std::string(obj->ClassName()) == "hkbBehaviorGraph")
-            return dynamic_cast<const io::SchemaObject*>(obj);
-    return nullptr;
-}
-
-// The FULL graph roster (every variable/event/characterProperty), NOT the base-vs-merged diff that
-// EmitAdditiveVocab emits. Byte-matches the typed emitGraphData (BehaviorDecompiler.cpp) so the schema
-// decompiler reproduces data/graphdata.yaml exactly. Reads the same fields EmitAdditiveVocab does, minus
-// the "skip if already in base" filter.
-std::string emitGraphDataFull(const io::SchemaObject* gd, const io::SchemaObject* sd) {
-    namespace en = CB::core::common::enums;
-    using schema::Scalar;
-    auto namesOf = [](const io::SchemaObject* s, const char* f) -> std::vector<std::string> {
-        if (!s) return {}; const io::FieldValue* v = fieldByName(*s, f); return v ? v->strs : std::vector<std::string>{};
-    };
-    const auto vars   = namesOf(sd, "variableNames");
-    const auto events = namesOf(sd, "eventNames");
-    const auto cps    = namesOf(sd, "characterPropertyNames");
-    const io::FieldValue* varInfos = gd ? fieldByName(*gd, "variableInfos") : nullptr;
-    const io::FieldValue* evInfos  = gd ? fieldByName(*gd, "eventInfos") : nullptr;
-    const io::FieldValue* cpInfos  = gd ? fieldByName(*gd, "characterPropertyInfos") : nullptr;
-    const io::FieldValue* vivF     = gd ? fieldByName(*gd, "variableInitialValues") : nullptr;
-    const auto* viv = (vivF && vivF->obj) ? dynamic_cast<const io::SchemaObject*>(vivF->obj.get()) : nullptr;
-    const io::FieldValue* wordVals = viv ? fieldByName(*viv, "wordVariableValues") : nullptr;
-    const io::FieldValue* quadVals = viv ? fieldByName(*viv, "quadVariableValues") : nullptr;
-
-    std::string y;
-    if (vars.empty()) {
-        y += "variables: []\n\n";
-    } else {
-        y += "variables:\n";
-        for (std::size_t i = 0; i < vars.size(); ++i) {
-            y += "  - name: " + q(vars[i]) + "\n";
-            long type = 0; if (const auto* vi = elemAt(varInfos, i)) type = decodeInt(fieldByName(*vi, "type")->raw, Scalar::Int8);
-            const std::string typeStr = revNum(en::VariableType(), type);
-            y += "    type: " + typeStr + "\n";
-            long val = 0; if (const auto* wv = elemAt(wordVals, i)) val = decodeInt(fieldByName(*wv, "value")->raw, Scalar::Int32);
-            y += "    value: " + std::to_string(val) + "\n";
-            if ((typeStr == "VARIABLE_TYPE_VECTOR4" || typeStr == "VARIABLE_TYPE_QUATERNION" || typeStr == "VARIABLE_TYPE_VECTOR3")
-                && quadVals && val >= 0 && static_cast<std::size_t>(val) * 16 + 16 <= quadVals->raw.size())
-                y += "    quadValue: " + pvecRaw(std::vector<std::uint8_t>(quadVals->raw.begin() + val * 16, quadVals->raw.begin() + val * 16 + 16)) + "\n";
-        }
-        y += "\n";
-    }
-    if (events.empty()) {
-        y += "events: []\n";
-    } else {
-        y += "events:\n";
-        for (std::size_t i = 0; i < events.size(); ++i) {
-            y += "  - name: " + q(events[i]) + "\n";
-            long flags = 0; if (const auto* ei = elemAt(evInfos, i)) flags = decodeInt(fieldByName(*ei, "flags")->raw, Scalar::UInt32);
-            y += "    flags: " + en::FormatFlags(flags, en::EventInfoFlags()) + "\n";
-        }
-    }
-    if (!cps.empty()) {
-        y += "\ncharacterPropertyNames:\n";
-        for (std::size_t i = 0; i < cps.size(); ++i) {
-            y += "  - name: " + q(cps[i]) + "\n";
-            const auto* ci = elemAt(cpInfos, i);
-            long type = ci ? decodeInt(fieldByName(*ci, "type")->raw, Scalar::Int8) : 0;
-            y += "    type: " + revNum(en::VariableType(), type) + "\n";
-            long flags = 0;
-            if (ci) if (const io::FieldValue* roleF = fieldByName(*ci, "role"); roleF && roleF->obj)
-                if (const auto* role = dynamic_cast<const io::SchemaObject*>(roleF->obj.get()))
-                    flags = decodeInt(fieldByName(*role, "flags")->raw, Scalar::Int16);
-            y += "    flags: " + en::FormatFlags(flags, en::RoleFlags()) + "\n";
-        }
-    }
-    return y;
-}
-} // namespace
-
-// Whole-graph scaffolding EmitHky (node-only) omits: behavior.yaml (packfile + behavior header) and
-// data/graphdata.yaml (full roster). Together with EmitHky's node files this reproduces the typed
-// DecompileBehaviorTree tree byte-for-byte — the schema decompiler's full-base output. Written only for a
-// FULL decompile (not a per-mod delta, which carries only touched nodes + added vocab via EmitAdditiveVocab).
-bool EmitFullBaseScaffolding(const Identity& identity, const std::string& outDir, std::string& err) {
-    namespace fs = std::filesystem;
-    namespace en = CB::core::common::enums;
-    std::error_code ec;
-    // Ensure outDir exists. EmitHky (run before this) only creates a dir per EMITTED node, so a
-    // near-empty graph — e.g. the creature *_lod behaviors, an hkbBehaviorGraph shell with no generator
-    // tree / graphdata (the stripped "far from player" logic) — leaves outDir absent, and the
-    // behavior.yaml write below then fails to open. Create it here so the minimal unit still writes.
-    fs::create_directories(outDir, ec);
-    const auto* bg = findBehaviorGraph(identity);
-    const auto [gd, sd] = findGraphData(identity);
-
-    std::string h;
-    h += "packfile:\n  classversion: 8\n  contentsversion: \"hk_2010.2.0-r1\"\n\n";
-    h += "behavior:\n";
-    h += "  name: " + q(bg ? fStr(*bg, "name") : std::string()) + "\n";
-    h += "  variableMode: " + revNum(en::VariableMode(), bg ? fInt(*bg, "variableMode") : 0) + "\n";
-    if (bg) if (const io::FieldValue* rg = fieldByName(*bg, "rootGenerator"); rg && rg->obj)
-        if (auto it = identity.ids.find(rg->obj.get()); it != identity.ids.end())
-            h += "  rootGenerator: " + it->second + "\n";
-    h += "  data: graphdata\n";
-    { std::ofstream of(fs::path(outDir) / "behavior.yaml", std::ios::binary); of << h;
-      if (!of) { err = "EmitFullBaseScaffolding: cannot write behavior.yaml"; return false; } }
-
-    const fs::path dataDir = fs::path(outDir) / "data";
-    fs::create_directories(dataDir, ec);
-    { std::ofstream of(dataDir / "graphdata.yaml", std::ios::binary); of << emitGraphDataFull(gd, sd);
-      if (!of) { err = "EmitFullBaseScaffolding: cannot write graphdata.yaml"; return false; } }
-    return true;
-}
-
-bool DecompileBehaviorSchema(const std::vector<std::uint8_t>& bytes, const std::string& xmlText,
-                             const schema::SchemaRegistry& reg, const std::string& outDir, std::string& err,
-                             int selfIndex) {
-    try {
-        PackFileDeserializer des;
-        des.ObjectFactory = io::MakeSchemaFactory(reg);
-        BinaryReaderEx br(false, true, bytes);
-        des.Deserialize(br);
-        // xmlText = the matching vanilla tagfile → oracle #NNNN (aligns with the per-mod deltas that
-        // reference those ids); empty → encounter-order (self-consistent round-trip).
-        Identity ident = AssignIdentity(des, reg, xmlText);
-        // FormId identity (selfIndex >= 0): every node here is owned by THIS bundle at `selfIndex` — 0
-        // for the base master (Skyrim's own nodes = self = index 0). Prefix each id -> "idx:local". Because ids AND refs
-        // (idRef, refTag, rootGenerator) all read from identity.ids, this makes both carry the FormId
-        // form; the loader treats them as opaque keys, so compiled graphdata is byte-unchanged (17/17).
-        if (selfIndex >= 0) {
-            for (auto& [obj, id] : ident.ids) {
-                (void)obj;
-                char* end = nullptr;
-                const unsigned long v = std::strtoul(id.c_str(), &end, 10);
-                if (end && *end == '\0')   // numeric id -> guard the 16-bit local (hkbNode::id is ushort)
-                    if (const auto f = CB::core::codec::formid::make(static_cast<std::uint32_t>(selfIndex),
-                                                              static_cast<std::uint32_t>(v)))
-                        id = CB::core::codec::formid::format(*f);
-                // non-numeric (a secondary identity, e.g. Class:@animName) or a >16-bit id: left as-is
-            }
-        }
-        if (!EmitHky(ident, reg, outDir, err)) return false;                 // node files
-        if (!EmitFullBaseScaffolding(ident, outDir, err)) return false;      // behavior.yaml + graphdata
-        return true;
-    } catch (const std::exception& e) {
-        err = std::string("DecompileBehaviorSchema: ") + e.what();
-        return false;
-    }
-}
-
-namespace {
-// Schema peer of DeltaDeriver's LoadedGraph — per-SchemaObject (class,name) + owner map for the loose-
-// derive name-identity match. Named referenceable nodes only; nameless inline objects (arrays, binding
-// sets, conditions) are folded by EmitHky and excluded here (they never match/emit as files).
-struct SGraph {
-    std::vector<const void*>                                              order;   // named objs, read order
-    std::unordered_map<const void*, std::pair<std::string, std::string>>  meta;    // obj -> (class,name)
-    std::unordered_map<const void*, const void*>                          owner;   // obj -> owning node
-    std::unordered_map<std::string, int>                                  nameCount;
-};
-
-void sLoadGraphMeta(PackFileDeserializer& des, SGraph& g) {
-    // Node->child refs for the owner map. MIRROR DeltaDeriver's typed loadGraphMeta EXACTLY — only the
-    // specific generator/state parent edges, NOT every object field. A blanket all-fields walk attributes
-    // nodes reached via inline structs (binding sets, transition/trigger arrays) wrong, shifting owner-
-    // qualification so a cross-class same-name pair (e.g. an SM state vs a pose-matching generator) can
-    // collapse to one name-identity — the 15-collision bug. Recorded edges (child -> referrer):
-    //   hkbStateMachine.states[i]                -> the SM
-    //   hkbStateMachineStateInfo.generator       -> the state
-    //   hkb{Blender,PoseMatching}Generator.children[i].generator -> the blender
-    //   hkbManualSelectorGenerator.generators[i] -> the selector
-    //   hkbModifierGenerator.{generator,modifier}-> the modGen
-    std::unordered_map<const void*, std::vector<const void*>> refs;
-    auto ptr = [](const io::FieldValue* v) -> const void* { return (v && v->obj) ? v->obj.get() : nullptr; };
-    for (const auto& [off, obj] : des.DeserializedObjects()) {
-        auto* so = dynamic_cast<io::SchemaObject*>(obj.get());
-        if (!so) continue;
-        const std::string cls = so->ClassName();
-        if (cls == "hkbStateMachine") {
-            if (const io::FieldValue* st = fieldByName(*so, "states"))
-                for (const auto& s : st->objs) if (s) refs[s.get()].push_back(so);
-        } else if (cls == "hkbStateMachineStateInfo") {
-            if (const void* g2 = ptr(fieldByName(*so, "generator"))) refs[g2].push_back(so);
-        } else if (cls == "hkbBlenderGenerator" || cls == "hkbPoseMatchingGenerator") {
-            if (const io::FieldValue* ch = fieldByName(*so, "children"))
-                for (const auto& c : ch->objs)
-                    if (auto* cc = dynamic_cast<const io::SchemaObject*>(c.get()))
-                        if (const void* g2 = ptr(fieldByName(*cc, "generator"))) refs[g2].push_back(so);
-        } else if (cls == "hkbManualSelectorGenerator") {
-            if (const io::FieldValue* gs = fieldByName(*so, "generators"))
-                for (const auto& gg : gs->objs) if (gg) refs[gg.get()].push_back(so);
-        } else if (cls == "hkbModifierGenerator") {
-            if (const void* g2 = ptr(fieldByName(*so, "generator"))) refs[g2].push_back(so);
-            if (const void* m2 = ptr(fieldByName(*so, "modifier")))  refs[m2].push_back(so);
-        }
-    }
-    for (const auto& [off, obj] : des.DeserializedObjects()) {
-        auto* so = dynamic_cast<io::SchemaObject*>(obj.get());
-        if (!so) continue;
-        const std::string cls = so->ClassName();
-        std::string nm = fStr(*so, "name");
-        if (nm.empty()) {
-            if (cls == "hkbBehaviorGraph" || cls == "hkbBehaviorGraphData" ||
-                cls == "hkbBehaviorGraphStringData" || cls == "hkbVariableValueSet")
-                nm = "$" + cls;   // referenceable singletons need a stable identity
-            else
-                continue;         // nameless inline object — folded by EmitHky, not a match target
-        }
-        g.order.push_back(so);
-        g.meta[so] = { cls, nm };
-        if (nm[0] != '$') g.nameCount[nm]++;
-    }
-    for (const auto& [child, rs] : refs) {
-        const void* best = nullptr;
-        for (const void* rf : rs) {
-            if (!g.meta.count(rf)) continue;
-            if (!best || g.meta.at(rf) < g.meta.at(best)) best = rf;
-        }
-        if (best) g.owner[child] = best;
-    }
-}
-
-// Identity = bare name when unambiguous in BOTH graphs, else owner-qualified ("<ownerId>~<name>"),
-// then made globally unique. Verbatim port of DeltaDeriver::assignNameIds over SGraph.
-void sAssignNameIds(const SGraph& g, const std::set<std::string>& ambiguous,
-                    std::unordered_map<const void*, std::string>& ids) {
-    std::unordered_map<const void*, std::string> ident;
-    std::function<std::string(const void*)> identOf = [&](const void* o) -> std::string {
-        auto mi = g.meta.find(o); if (mi == g.meta.end()) return {};
-        if (auto it = ident.find(o); it != ident.end()) return it->second;
-        const std::string& nm = mi->second.second;
-        std::string result = nm;
-        if (nm[0] != '$' && ambiguous.count(nm)) {
-            ident[o] = nm;   // cycle guard
-            auto oit = g.owner.find(o);
-            const std::string op = (oit != g.owner.end()) ? identOf(oit->second) : std::string();
-            if (!op.empty()) result = op + "~" + nm;
-        }
-        ident[o] = result; return result;
-    };
-    std::unordered_map<std::string, std::vector<const void*>> groups;
-    for (const void* o : g.order) groups[identOf(o)].push_back(o);
-    for (auto& [base, objs] : groups) {
-        if (objs.size() > 1)
-            std::stable_sort(objs.begin(), objs.end(), [&](const void* a, const void* b) {
-                const auto& ma = g.meta.at(a); const auto& mb = g.meta.at(b);
-                if (ma.first != mb.first) return ma.first < mb.first;
-                auto oa = g.owner.find(a), ob = g.owner.find(b);
-                std::string ka = (oa != g.owner.end()) ? identOf(oa->second) : std::string();
-                std::string kb = (ob != g.owner.end()) ? identOf(ob->second) : std::string();
-                return ka < kb;
-            });
-        for (std::size_t i = 0; i < objs.size(); ++i)
-            ids[objs[i]] = (i == 0) ? base : base + "~" + std::to_string(i);
-    }
-}
-} // namespace
-
-LooseDeriveResult DeriveLooseBehaviorDeltaSchema(const std::vector<std::uint8_t>& vanBytes,
-                                                 const std::vector<std::uint8_t>& modBytes,
-                                                 const std::string& modCode,
-                                                 const schema::SchemaRegistry& reg,
-                                                 const std::string& outDeltaDir) {
-    namespace fs = std::filesystem;
-    LooseDeriveResult r;
-    try {
-        PackFileDeserializer vdes, mdes;
-        vdes.ObjectFactory = io::MakeSchemaFactory(reg);
-        mdes.ObjectFactory = io::MakeSchemaFactory(reg);
-        { BinaryReaderEx br(false, true, vanBytes); vdes.Deserialize(br); }
-        { BinaryReaderEx br(false, true, modBytes); mdes.Deserialize(br); }
-
-        SGraph vg, mg; sLoadGraphMeta(vdes, vg); sLoadGraphMeta(mdes, mg);
-        std::set<std::string> ambiguous;
-        for (const auto& [k, n] : vg.nameCount) if (n > 1) ambiguous.insert(k);
-        for (const auto& [k, n] : mg.nameCount) if (n > 1) ambiguous.insert(k);
-        std::unordered_map<const void*, std::string> vIdent, mIdent;
-        sAssignNameIds(vg, ambiguous, vIdent);
-        sAssignNameIds(mg, ambiguous, mIdent);
-
-        // Vanilla schema READ-ORDER ids — identical to what BuildBaseBundle's DecompileBehaviorSchema
-        // assigns for the shipped base, so matched mod overrides land on the base's ids. Capture the raw
-        // NUMERIC vanilla id per name-identity BEFORE the FormId transform (identToNum keys the matcher).
-        Identity vId = AssignIdentity(vdes, reg, "");
-        std::unordered_map<std::string, std::string> identToNum;
-        for (const auto& [obj, id] : vId.ids)
-            if (auto it = vIdent.find(obj); it != vIdent.end()) identToNum[it->second] = id;
-
-        // FormId minting (index convention: self=0, skyrim=1 — see FormId.h). A loose-derive bundle sees
-        // only vanilla (precompiled: no foreign mod codes), so it masters SKYRIM ONLY -> master table
-        // [self(0), skyrim(1)]. So: an edit of a vanilla node -> "0001x<local>" (index 1 = Skyrim, the
-        // origin), an own new node -> "0000x<seq>" (index 0 = self). Matches what the loader's
-        // BuildMasterTable(stem, {}, haveSkyrim) resolves. (modCode is retired — the FormId's self index
-        // replaces the "<code>$N" string namespace.)
-        (void)modCode;
-        auto toNumericFormId = [](const std::string& decId, std::uint16_t idx) -> std::string {
-            char* end = nullptr;
-            const unsigned long v = std::strtoul(decId.c_str(), &end, 10);
-            if (end && *end == '\0')
-                if (const auto f = CB::core::codec::formid::make(idx, static_cast<std::uint32_t>(v)))
-                    return CB::core::codec::formid::format(*f);
-            return decId;   // non-numeric (a secondary identity) or >16-bit: leave as-is
-        };
-        // Vanilla side = Skyrim (index 1, the origin) — every id -> "0001x<local>" (matched-unchanged diff away).
-        for (auto& [obj, id] : vId.ids) { (void)obj; id = toNumericFormId(id, CB::core::codec::formid::BASE_GAME_INDEX); }
-
-        Identity mId = AssignIdentity(mdes, reg, "");   // category for all; ids overridden for named nodes
-        int newSeq = 0;
-        for (const void* o : mg.order) {
-            auto* obj = static_cast<IHavokObject*>(const_cast<void*>(o));
-            if (auto it = identToNum.find(mIdent[o]); it != identToNum.end()) {
-                mId.ids[obj] = toNumericFormId(it->second, CB::core::codec::formid::BASE_GAME_INDEX);   // edit of vanilla (origin = Skyrim)
-                ++r.matched;
-            } else {
-                if (const auto f = CB::core::codec::formid::make(CB::core::codec::formid::SELF_INDEX, static_cast<std::uint32_t>(++newSeq)))
-                    mId.ids[obj] = CB::core::codec::formid::format(*f);            // own new node (self=0)
-                ++r.added;
-            }
-        }
-
-        // Emit both trees, diff by relative path (same id => same filename => same node), copy each NEW or
-        // CHANGED mod node into the delta (mirrors DeltaDeriver's fs diff; emitter-agnostic).
-        const fs::path work = fs::temp_directory_path() /
-            ("schderive_" + std::to_string(std::hash<std::string>{}(outDeltaDir) & 0xffffffffu));
-        const fs::path vt = work / "van", mt = work / "mod";
-        std::error_code ec; fs::remove_all(work, ec); fs::create_directories(vt, ec); fs::create_directories(mt, ec);
-        std::string e;
-        if (!EmitHky(vId, reg, vt.string(), e)) { r.error = "van emit: " + e; fs::remove_all(work, ec); return r; }
-        EmitFullBaseScaffolding(vId, vt.string(), e);
-        if (!EmitHky(mId, reg, mt.string(), e)) { r.error = "mod emit: " + e; fs::remove_all(work, ec); return r; }
-        EmitFullBaseScaffolding(mId, mt.string(), e);
-
-        auto readAll = [](const fs::path& p) { std::ifstream f(p, std::ios::binary); return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()); };
-        int copyFail = 0;
-        for (fs::recursive_directory_iterator it(mt, ec), end; !ec && it != end; it.increment(ec)) {
-            if (!it->is_regular_file()) continue;
-            const fs::path rel = fs::relative(it->path(), mt);
-            if (rel.filename() == "behavior.yaml") continue;   // graph header comes from the base
-            const fs::path vp = vt / rel;
-            const bool isNew = !fs::exists(vp, ec);
-            if (!isNew && readAll(it->path()) == readAll(vp)) continue;   // unchanged -> base serves it
-            const fs::path dst = fs::path(outDeltaDir) / rel;
-            std::error_code ce; fs::create_directories(dst.parent_path(), ce);
-            fs::copy_file(it->path(), dst, fs::copy_options::overwrite_existing, ce);
-            if (ce) ++copyFail; else if (isNew) ++r.newNodes; else ++r.changedNodes;
-        }
-        if (copyFail) { r.error = "failed to write " + std::to_string(copyFail) + " delta node file(s)"; fs::remove_all(work, ec); return r; }
-        for (fs::recursive_directory_iterator it(vt, ec), end; !ec && it != end; it.increment(ec))
-            if (it->is_regular_file() && !fs::exists(mt / fs::relative(it->path(), vt), ec)) ++r.removedFromBase;
-        fs::remove_all(work, ec);
-        r.ok = true; return r;
-    } catch (const std::exception& e) {
-        r.error = std::string("DeriveLooseBehaviorDeltaSchema: ") + e.what();
-        return r;
-    }
-}
 
 namespace {
 /// @note Reflective emit, MEASUREMENT stage: every schema field in schema order, rendered by FieldKind + schema
@@ -2404,8 +1086,21 @@ std::unordered_map<const IHavokObject*, std::string> EffectiveCategories(const I
                 }
             }
         };
+        /// @note A PARSED identity also lists the embedded struct objects themselves; visiting one on its own as well as
+        ///       through its owner would count its pointers twice (a once-referenced condition would read as shared).
+        std::unordered_set<const IHavokObject*> embedded;
         for (const auto& [obj, cat] : identity.category)
-            if (const auto* so = dynamic_cast<const io::SchemaObject*>(obj)) visit(*so);
+            if (const auto* so = dynamic_cast<const io::SchemaObject*>(obj)) {
+                const auto fields = so->Fields();
+                const auto& vals  = so->Values();
+                for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i)
+                    if (fields[i]->kind == FieldKind::Struct || fields[i]->kind == FieldKind::StructArray) {
+                        if (vals[i].obj) embedded.insert(vals[i].obj.get());
+                        for (const auto& o : vals[i].objs) if (o) embedded.insert(o.get());
+                    }
+            }
+        for (const auto& [obj, cat] : identity.category)
+            if (const auto* so = dynamic_cast<const io::SchemaObject*>(obj); so && !embedded.count(obj)) visit(*so);
         for (auto& [obj, cat] : effCat)
             if (cat.empty() && refs[obj] >= 2 && std::string(obj->ClassName()) != "hkRootLevelContainer") cat = "shared";
     }
@@ -2439,6 +1134,8 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
     return true;
 }
 
+namespace { std::string formIdOf(std::uint16_t idx, const std::string& decId); }
+
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
                                  const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
     try {
@@ -2446,7 +1143,9 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
         des.ObjectFactory = io::MakeSchemaFactory(reg);
         BinaryReaderEx br(false, true, bytes);
         des.Deserialize(br);
-        return EmitHkyReflective(AssignIdentity(des, reg, ""), reg, outDir, err, bones);
+        Identity id = AssignIdentity(des, reg);
+        for (auto& [o, v] : id.ids) v = formIdOf(CB::core::codec::formid::SELF_INDEX, v);
+        return EmitHkyReflective(id, reg, outDir, err, bones);
     } catch (const std::exception& e) {
         err = std::string("DecompileBehaviorReflective: ") + e.what();
         return false;
@@ -4066,18 +2765,18 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
 }
 } // namespace
 
-bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
-                    const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
-                    const std::vector<std::string>* bones, std::uint16_t baseIndex, HkyPatchStats* stats) {
+namespace {
+/// @brief The derive over a base identity whose ids are already FormIDs of the PATCH's master table; `keyOwner` is
+///        the master index of the base's positional roster keys.
+bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<std::uint8_t>& modBytes,
+                 const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
+                 const std::vector<std::string>* bones, HkyPatchStats* stats) {
     namespace fs = std::filesystem;
     try {
-        PackFileDeserializer desB, desM;
-        desB.ObjectFactory = io::MakeSchemaFactory(reg);
+        PackFileDeserializer desM;
         desM.ObjectFactory = io::MakeSchemaFactory(reg);
-        { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
-        { BinaryReaderEx br(false, true, modBytes);  desM.Deserialize(br); }
-        Identity idB = AssignIdentity(desB, reg, ""), idM = AssignIdentity(desM, reg, "");
-        for (auto& [o, id] : idB.ids) id = formIdOf(baseIndex, id);
+        { BinaryReaderEx br(false, true, modBytes); desM.Deserialize(br); }
+        Identity idM = AssignIdentity(desM, reg);
         const auto effB = EffectiveCategories(idB), effM = EffectiveCategories(idM);
         const NameResolver nrB = buildResolver(idB), nrM = buildResolver(idM);
         auto isRoot = [](const IHavokObject* o) { return std::string(o->ClassName()) == "hkRootLevelContainer"; };
@@ -4085,7 +2784,7 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
             const auto* so = dynamic_cast<const io::SchemaObject*>(o);
             return so ? fStr(*so, "name") : std::string();
         };
-        const ReflectCtx cB{ idB, nrB, reg, bones, &effB, baseIndex };
+        const ReflectCtx cB{ idB, nrB, reg, bones, &effB, keyOwner };
 
         // Base lookups: named nodes by (class, name); unnamed shared leaves by rendered content; the root.
         std::map<std::pair<std::string, std::string>, const IHavokObject*> baseNamed;
@@ -4169,7 +2868,6 @@ bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vecto
     }
 }
 
-namespace {
 /// @brief A unit's id -> canonical owner key: FormId "idx:local" resolves through the unit's master table
 ///        (`masters[idx]:local`); anything else stays verbatim.
 std::function<std::string(const std::string&)> canonFor(const std::vector<std::string>& masters) {
@@ -4179,7 +2877,65 @@ std::function<std::string(const std::string&)> canonFor(const std::vector<std::s
         return id;
     };
 }
+
+/// @brief A canonical owner key ("stem:local") -> the FormID naming it through `masters`; anything else (an inline
+///        object's "~N", a stem absent from the table) stays verbatim.
+std::string relFormId(const std::string& canon, const std::vector<std::string>& masters) {
+    const auto c = canon.rfind(':');
+    if (c == std::string::npos) return canon;
+    const auto it = std::find(masters.begin(), masters.end(), canon.substr(0, c));
+    if (it == masters.end()) return canon;
+    return formIdOf(static_cast<std::uint16_t>(it - masters.begin()), canon.substr(c + 1));
+}
 } // namespace
+
+bool DeriveHkyPatch(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::uint8_t>& modBytes,
+                    const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
+                    const std::vector<std::string>* bones, std::uint16_t baseIndex, HkyPatchStats* stats) {
+    try {
+        PackFileDeserializer desB;
+        desB.ObjectFactory = io::MakeSchemaFactory(reg);
+        { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
+        Identity idB = AssignIdentity(desB, reg);
+        for (auto& [o, id] : idB.ids) id = formIdOf(baseIndex, id);
+        return derivePatch(idB, baseIndex, modBytes, reg, patchDir, err, bones, stats);
+    } catch (const std::exception& e) {
+        err = std::string("DeriveHkyPatch: ") + e.what();
+        return false;
+    }
+}
+
+bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseMasters,
+                    const std::vector<std::string>& patchMasters, const std::vector<std::uint8_t>& modBytes,
+                    const schema::SchemaRegistry& reg, const std::string& patchDir, std::string& err,
+                    const std::vector<std::string>* bones, HkyPatchStats* stats) {
+    if (baseMasters.empty()) { err = "DeriveHkyPatch: the base has no master table"; return false; }
+    const auto baseCanon = canonFor(baseMasters);
+    /// @note Ids a merge added are already canonical ("bfco:54"); the base unit's own FormIds resolve through
+    ///       `baseMasters`. Only the graph reachable from the root counts — a replaced subtree's old objects linger
+    ///       in the identity, and a stale (class, name) there would steal the live node's match.
+    const auto rel = [&](const std::string& id) {
+        return relFormId(id.find(':') != std::string::npos ? id : baseCanon(id), patchMasters);
+    };
+    Identity idB;
+    std::unordered_set<const IHavokObject*> seen;
+    std::function<void(const IHavokObject*)> walk = [&](const IHavokObject* o) {
+        if (!o || !seen.insert(o).second) return;
+        if (auto it = base.identity.category.find(o); it != base.identity.category.end()) idB.category[o] = it->second;
+        if (auto it = base.identity.ids.find(o); it != base.identity.ids.end()) idB.ids[o] = rel(it->second);
+        if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
+            for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+    };
+    walk(base.root.get());
+    for (const auto& [k, keys] : base.identity.subKeys) {
+        if (!seen.count(k.first)) continue;
+        auto& out = idB.subKeys[k];
+        for (const std::string& key : keys) out.push_back(rel(key));
+    }
+    const auto self = std::find(patchMasters.begin(), patchMasters.end(), baseMasters.front());
+    if (self == patchMasters.end()) { err = "DeriveHkyPatch: the base unit's owner '" + baseMasters.front() + "' is not a master"; return false; }
+    return derivePatch(idB, static_cast<std::uint16_t>(self - patchMasters.begin()), modBytes, reg, patchDir, err, bones, stats);
+}
 
 bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
@@ -4282,6 +3038,204 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
     return true;
 }
 
+io::SchemaObject* GraphEdit::GraphData() const {
+    const auto* root = m_graph.root.get();
+    const io::FieldValue* nv = root ? fieldByName(*root, "namedVariants") : nullptr;
+    if (!nv) return nullptr;
+    for (const auto& e : nv->objs) {
+        const auto* entry = dynamic_cast<const io::SchemaObject*>(e.get());
+        const io::FieldValue* variant = entry ? fieldByName(*entry, "variant") : nullptr;
+        const auto* graph = variant ? dynamic_cast<io::SchemaObject*>(variant->obj.get()) : nullptr;
+        if (!graph || std::string(graph->ClassName()) != "hkbBehaviorGraph") continue;
+        const io::FieldValue* d = fieldByName(*graph, "data");
+        return d ? dynamic_cast<io::SchemaObject*>(d->obj.get()) : nullptr;
+    }
+    return nullptr;
+}
+
+namespace {
+/// @brief The graph data's string data (names), created when absent.
+io::SchemaObject* stringDataOf(io::SchemaObject& gd, const schema::SchemaRegistry& reg, std::vector<std::shared_ptr<io::SchemaObject>>& own) {
+    io::FieldValue& fv = gd.FieldRef("stringData");
+    if (!fv.obj) { auto o = makeObj(reg, "hkbBehaviorGraphStringData"); own.push_back(o); fv.obj = o; }
+    return dynamic_cast<io::SchemaObject*>(fv.obj.get());
+}
+std::optional<std::size_t> indexIn(const std::vector<std::string>& names, std::string_view name) {
+    for (std::size_t k = 0; k < names.size(); ++k) if (names[k] == name) return k;
+    return std::nullopt;
+}
+} // namespace
+
+std::optional<std::size_t> GraphEdit::VariableIndex(std::string_view name) const {
+    auto* gd = GraphData();
+    const auto* sd = gd ? ptrObj(*gd, "stringData") : nullptr;
+    const auto* names = strsOf(sd, "variableNames");
+    return names ? indexIn(*names, name) : std::nullopt;
+}
+
+std::optional<std::size_t> GraphEdit::EventIndex(std::string_view name) const {
+    auto* gd = GraphData();
+    const auto* sd = gd ? ptrObj(*gd, "stringData") : nullptr;
+    const auto* names = strsOf(sd, "eventNames");
+    return names ? indexIn(*names, name) : std::nullopt;
+}
+
+GraphEdit::Add GraphEdit::AddVariable(std::string_view name, std::string_view type, std::int32_t word, std::string& err) {
+    io::SchemaObject* gd = GraphData();
+    if (!gd) { err = "no behavior graph data"; return Add::Failed; }
+    const auto& types = en::EnumTable("VariableType");
+    const auto t = types.find(std::string(type));
+    if (t == types.end()) { err = "unknown variable type '" + std::string(type) + "'"; return Add::Failed; }
+    if (isQuadType(t->second) || isPointerType(t->second)) { err = std::string(name) + ": features add word variables only"; return Add::Failed; }
+    if (VariableIndex(name)) return Add::Exists;
+    io::SchemaObject* sd = stringDataOf(*gd, m_reg, m_graph.objects);
+    io::FieldValue& vsv = gd->FieldRef("variableInitialValues");
+    if (!vsv.obj) { auto o = makeObj(m_reg, "hkbVariableValueSet"); m_graph.objects.push_back(o); vsv.obj = o; }
+    auto* vs = dynamic_cast<io::SchemaObject*>(vsv.obj.get());
+    auto info = makeObj(m_reg, "hkbVariableInfo"), role = makeObj(m_reg, "hkbRoleAttribute"), value = makeObj(m_reg, "hkbVariableValue");
+    if (!sd || !vs || !info || !role || !value) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
+    for (const auto& o : { info, role, value }) m_graph.objects.push_back(o);
+    info->FieldRef("type").raw = encInt(t->second, Scalar::Int8);
+    info->FieldRef("role").obj = role;
+    value->FieldRef("value").raw = encInt(word, Scalar::Int32);
+    sd->FieldRef("variableNames").strs.emplace_back(name);
+    gd->FieldRef("variableInfos").objs.push_back(info);
+    vs->FieldRef("wordVariableValues").objs.push_back(value);
+    return Add::Added;
+}
+
+GraphEdit::Add GraphEdit::AddEvent(std::string_view name, std::string& err) {
+    io::SchemaObject* gd = GraphData();
+    if (!gd) { err = "no behavior graph data"; return Add::Failed; }
+    if (EventIndex(name)) return Add::Exists;
+    io::SchemaObject* sd = stringDataOf(*gd, m_reg, m_graph.objects);
+    auto info = makeObj(m_reg, "hkbEventInfo");
+    if (!sd || !info) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
+    m_graph.objects.push_back(info);
+    sd->FieldRef("eventNames").strs.emplace_back(name);
+    gd->FieldRef("eventInfos").objs.push_back(info);
+    return Add::Added;
+}
+
+void GraphEdit::ForEach(std::string_view cls, const std::function<void(io::SchemaObject&)>& fn) {
+    std::unordered_set<const IHavokObject*> seen;
+    std::function<void(IHavokObject*)> walk = [&](IHavokObject* o) {
+        if (!o || !seen.insert(o).second) return;
+        auto* so = dynamic_cast<io::SchemaObject*>(o);
+        if (!so) return;
+        if (std::string_view(so->ClassName()) == cls) fn(*so);
+        for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+    };
+    walk(m_graph.root.get());
+}
+
+std::size_t GraphEdit::CountDerived(std::string_view base) {
+    std::unordered_map<std::string, bool> derives;
+    const auto isA = [&](const std::string& cls) {
+        const auto [it, fresh] = derives.try_emplace(cls, false);
+        if (fresh)
+            for (const schema::ClassSchema* c = m_reg.Find(cls); c; c = c->parent.empty() ? nullptr : m_reg.Find(c->parent))
+                if (c->name == base) { it->second = true; break; }
+        return it->second;
+    };
+    std::size_t n = 0;
+    std::unordered_set<const IHavokObject*> seen;
+    std::function<void(IHavokObject*)> walk = [&](IHavokObject* o) {
+        if (!o || !seen.insert(o).second) return;
+        auto* so = dynamic_cast<io::SchemaObject*>(o);
+        if (!so) return;
+        if (isA(so->ClassName())) ++n;
+        for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+    };
+    walk(m_graph.root.get());
+    return n;
+}
+
+std::shared_ptr<io::SchemaObject> GraphEdit::Make(std::string_view cls) {
+    auto o = makeObj(m_reg, std::string(cls));
+    if (o) m_graph.objects.push_back(o);
+    return o;
+}
+
+std::string GraphEdit::IdOf(const IHavokObject* o) const {
+    const auto it = m_graph.identity.ids.find(o);
+    return it == m_graph.identity.ids.end() || it->second.rfind('~', 0) == 0 ? std::string() : it->second;
+}
+
+std::vector<std::string> ReadProjectCharacters(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg) {
+    ParsedHky project;
+    std::string err;
+    std::vector<std::string> out;
+    if (!ParseHkyReflective(src, reg, project, err)) return out;
+    GraphEdit(project, reg).ForEach("hkbProjectStringData", [&](io::SchemaObject& so) {
+        if (out.empty()) out = so.FieldRef("characterFilenames").strs;
+    });
+    return out;
+}
+
+std::optional<CharacterStrings> ReadCharacterStrings(const CB::core::common::IUnitSource& src) {
+    auto text = src.read("graph.yaml");
+    if (!text) return std::nullopt;
+    std::string buf = std::move(*text);
+    const yml::Tree tree = yml::parse_in_place(c4::to_substr(buf));
+    const yml::ConstNodeRef root = tree.crootref();
+    if (!root.is_map() || !yhas(root, "namedVariants")) return std::nullopt;
+    for (auto e : yget(root, "namedVariants")) {
+        if (!e.is_map() || !yhas(e, "variant")) continue;
+        const auto v = yget(e, "variant");
+        if (!v.is_map() || !yhas(v, "stringData")) continue;
+        const auto sd = yget(v, "stringData");
+        if (!sd.is_map()) continue;
+        CharacterStrings r;
+        if (yhas(sd, "name"))             r.name             = ystr(yget(sd, "name"));
+        if (yhas(sd, "rigName"))          r.rigName          = ystr(yget(sd, "rigName"));
+        if (yhas(sd, "behaviorFilename")) r.behaviorFilename = ystr(yget(sd, "behaviorFilename"));
+        if (yhas(sd, "animationNames"))
+            for (auto n : yget(sd, "animationNames")) r.animationNames.push_back(ystr(n));
+        return r;
+    }
+    return std::nullopt;
+}
+
+bool MergeLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                           const std::vector<std::string>* bones, ParsedHky& graph, std::string& err) {
+    try {
+        if (layers.empty() || !layers.front().source) { err = "MergeLayersReflective: no base layer"; return false; }
+        if (!ParseHkyReflective(*layers.front().source, reg, graph, err, bones)) { err = layers.front().stem + ": " + err; return false; }
+        for (std::size_t k = 1; k < layers.size(); ++k) {
+            if (!layers[k].source) continue;
+            if (!MergeHkyPatch(graph, *layers[k].source, reg, layers.front().masterTable, layers[k].masterTable, err, bones)) {
+                err = layers[k].stem + ": " + err;
+                return false;
+            }
+        }
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("MergeLayersReflective: ") + e.what();
+        return false;
+    }
+}
+
+bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err, const CB::core::codec::HKXHeader& header) {
+    try {
+        PackFileSerializer ser;
+        BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
+        ser.Serialize(graph.root, bw, header);
+        out = bw.Data();
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("SerializeGraph: ") + e.what();
+        return false;
+    }
+}
+
+bool CompileLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+                             const std::vector<std::string>* bones, std::vector<std::uint8_t>& out, std::string& err,
+                             const CB::core::codec::HKXHeader& header) {
+    ParsedHky graph;
+    return MergeLayersReflective(layers, reg, bones, graph, err) && SerializeGraph(graph, out, err, header);
+}
+
 bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::string>& patchDirs,
                    const schema::SchemaRegistry& reg, const std::string& workDir, std::string& err,
                    const std::vector<std::string>* bones) {
@@ -4294,7 +3248,7 @@ bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector
         BinaryReaderEx brB(false, true, baseBytes);
         desB.Deserialize(brB);
         const HKXHeader header = desB._header;
-        Identity idB = AssignIdentity(desB, reg, "");
+        Identity idB = AssignIdentity(desB, reg);
         for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
         if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), err, bones)) return false;
         ParsedHky merged;
@@ -4316,7 +3270,7 @@ bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector
         desM.ObjectFactory = io::MakeSchemaFactory(reg);
         BinaryReaderEx brM(false, true, out);
         desM.Deserialize(brM);
-        return EmitHkyReflective(AssignIdentity(desM, reg, ""), reg, (fs::path(workDir) / "merged").string(), err, bones);
+        return EmitHkyReflective(AssignIdentity(desM, reg), reg, (fs::path(workDir) / "merged").string(), err, bones);
     } catch (const std::exception& e) {
         err = std::string("MergeHkyUnits: ") + e.what();
         return false;
@@ -4335,7 +3289,7 @@ HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseByte
         PackFileDeserializer desB;
         desB.ObjectFactory = io::MakeSchemaFactory(reg);
         { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
-        Identity idB = AssignIdentity(desB, reg, "");
+        Identity idB = AssignIdentity(desB, reg);
         for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
         if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), r.error, bones)) return r;
         // The mod's PATCH, seen from the mod bundle (self = 0, the base = master 1).
@@ -4361,12 +3315,12 @@ HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseByte
             std::ofstream(fs::path(workDir) / "want.bin", std::ios::binary).write(reinterpret_cast<const char*>(want.data()), static_cast<std::streamsize>(want.size()));
             std::ofstream(fs::path(workDir) / "got.bin",  std::ios::binary).write(reinterpret_cast<const char*>(got.data()),  static_cast<std::streamsize>(got.size()));
             std::string e2;
-            EmitHkyReflective(AssignIdentity(desM, reg, ""), reg, (fs::path(workDir) / "want").string(), e2, bones);
+            EmitHkyReflective(AssignIdentity(desM, reg), reg, (fs::path(workDir) / "want").string(), e2, bones);
             PackFileDeserializer desG;
             desG.ObjectFactory = io::MakeSchemaFactory(reg);
             BinaryReaderEx brG(false, true, got);
             desG.Deserialize(brG);
-            EmitHkyReflective(AssignIdentity(desG, reg, ""), reg, (fs::path(workDir) / "got").string(), e2, bones);
+            EmitHkyReflective(AssignIdentity(desG, reg), reg, (fs::path(workDir) / "got").string(), e2, bones);
             r.detail = "size " + std::to_string(want.size()) + " -> " + std::to_string(got.size());
         }
         r.ok = true;
@@ -4410,7 +3364,7 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
         PackFileDeserializer desB;
         desB.ObjectFactory = io::MakeSchemaFactory(reg);
         { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
-        Identity idB = AssignIdentity(desB, reg, "");
+        Identity idB = AssignIdentity(desB, reg);
         for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
         if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), r.error, bones)) return r;
         ParsedHky merged;
@@ -4420,7 +3374,12 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
             if (!MergeTagfiles(baseXml, m.patches, reg, one, oneIds, r.error)) { r.error = m.name + ": " + r.error; return r; }
             const fs::path pd = fs::path(workDir) / ("patch_" + m.name);
             HkyPatchStats st;
-            if (!DeriveHkyPatch(baseBytes, serialize(rootOf(one)), reg, pd.string(), r.error, bones, 1, &st)) { r.error = m.name + ": " + r.error; return r; }
+            ParsedHky vanilla;
+            if (!ParseHkyReflective((fs::path(workDir) / "base").string(), reg, vanilla, r.error, bones) ||
+                !DeriveHkyPatch(vanilla, { "base" }, { m.name, "base" }, serialize(rootOf(one)), reg, pd.string(), r.error, bones, &st)) {
+                r.error = m.name + ": " + r.error;
+                return r;
+            }
             if (!MergeHkyPatch(merged, CB::core::common::DiskUnitSource(pd.string()), reg, { "base" }, { m.name, "base" }, r.error, bones)) {
                 r.error = m.name + ": " + r.error;
                 std::string e2;   // the merged state at failure, for inspection
@@ -4437,7 +3396,7 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
                 d1.ObjectFactory = io::MakeSchemaFactory(reg);
                 BinaryReaderEx br1(false, true, serialize(rootOf(one)));
                 d1.Deserialize(br1);
-                EmitHkyReflective(AssignIdentity(d1, reg, ""), reg, (fs::path(workDir) / ("one_" + m.name)).string(), e2, bones);
+                EmitHkyReflective(AssignIdentity(d1, reg), reg, (fs::path(workDir) / ("one_" + m.name)).string(), e2, bones);
             }
         }
         const auto got = serialize(merged.root);
@@ -4451,7 +3410,7 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
                 d.ObjectFactory = io::MakeSchemaFactory(reg);
                 BinaryReaderEx br(false, true, *bytes);
                 d.Deserialize(br);
-                EmitHkyReflective(AssignIdentity(d, reg, ""), reg, (fs::path(workDir) / name).string(), e2, bones);
+                EmitHkyReflective(AssignIdentity(d, reg), reg, (fs::path(workDir) / name).string(), e2, bones);
             }
             r.detail = "size " + std::to_string(want.size()) + " -> " + std::to_string(got.size());
         }
@@ -4481,7 +3440,7 @@ HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, c
         r.canonIsSource = (canon == bytes);
         std::error_code ec;
         std::filesystem::remove_all(workDir, ec);
-        if (!EmitHkyReflective(AssignIdentity(des, reg, ""), reg, workDir, r.error, bones)) return r;
+        if (!EmitHkyReflective(AssignIdentity(des, reg), reg, workDir, r.error, bones)) return r;
         ParsedHky parsed;
         if (!ParseHkyReflective(workDir, reg, parsed, r.error, bones)) return r;
         const std::vector<std::uint8_t> back = serialize(parsed.root);
@@ -4539,87 +3498,61 @@ bool MergeTagfiles(const std::string& baseXml, const std::vector<std::string>& p
     return parseSourcesMerged(sources, reg, out, &deltaIds, err);
 }
 
-ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& patchDirs,
+ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& masterPatchDirs,
+                               const std::vector<std::string>& patchDirs, const ParsedHky& base,
+                               const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                                const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
-                               const NemesisFormIdCtx* fid) {
+                               const std::vector<std::string>* bones) {
     namespace fs = std::filesystem;
     ModDeltaResult r;
-
-    // Gather every Nemesis patch node (#*.txt) across the mod's dirs, IN LOAD ORDER. Pass the RAW text
-    // (MOD_CODE markers intact): MergeTagfiles -> parseSourcesMerged strips for the node parse AND reads
-    // the markers via changedFields, so the bashMerge unions only each mod's ACTUAL edits (matching the
-    // typed PatchConverter). Stripping here would erase the markers and force the all-fields fallback.
-    std::vector<std::string> patches;
-    std::error_code ec;
-    for (const std::string& dir : patchDirs) {
-        if (!fs::is_directory(dir, ec)) continue;
-        std::vector<fs::path> files;
-        for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-            if (!it->is_regular_file()) continue;
-            const std::string fn = it->path().filename().string();
-            if (!fn.empty() && fn[0] == '#' && it->path().extension() == ".txt") files.push_back(it->path());
-        }
-        std::sort(files.begin(), files.end());   // stable, deterministic order within a dir
-        for (const fs::path& f : files) {
-            std::ifstream in(f, std::ios::binary);
-            std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-            if (s.empty()) continue;
-            patches.push_back(std::move(s));   // RAW — parseSourcesMerged strips + reads MOD_CODE
-        }
-    }
-    r.patchNodes = static_cast<int>(patches.size());
-    if (patches.empty()) { r.ok = true; return r; }   // this mod doesn't touch this graph
-
-    ParsedTagfile merged; std::vector<std::string> deltaIds; std::string err;
-    if (!MergeTagfiles(baseTagfileXml, patches, reg, merged, deltaIds, err)) { r.error = "merge: " + err; return r; }
-    r.deltaIds = static_cast<int>(deltaIds.size());
-
-    std::set<std::string> ds(deltaIds.begin(), deltaIds.end());
-
-    // FormId minting (fid != nullptr). APPLY the converter's pre-built code->index map (built once for the
-    // whole bundle, so a master's index is identical in every graph). Each id -> a FormId "IIIIxLLLL":
-    // bare "184" -> "0000x00b8" (vanilla edit, index 0); "<code>$N" -> "<codeIndex[code]>x<N>". Both
-    // identity.ids AND ds (EmitHky's writeIds gate) are rewritten in lockstep — EmitHky keys byId off the
-    // transformed identity.
-    if (fid) {
-        auto low = [](std::string s) { for (char& c : s) c = static_cast<char>(std::tolower((unsigned char)c)); return s; };
-        std::set<std::string> unknownCodes;
-        auto toFormId = [&](const std::string& raw) -> std::string {
-            const auto d = raw.rfind('$');
-            char* end = nullptr;
-            if (d == std::string::npos) {                                 // bare -> vanilla node (origin = Skyrim, index 1)
-                const unsigned long v = std::strtoul(raw.c_str(), &end, 10);
-                if (end && *end == '\0')
-                    if (const auto f = CB::core::codec::formid::make(CB::core::codec::formid::BASE_GAME_INDEX, static_cast<std::uint32_t>(v))) return CB::core::codec::formid::format(*f);
-                return raw;                                               // non-numeric bare (name key) -> as-is
+    /// @note RAW patch text (MOD_CODE markers intact): parseSourcesMerged strips for the node parse AND reads the
+    ///       markers, so the merge takes only each mod's ACTUAL edits.
+    auto readPatches = [](const std::vector<std::string>& dirs, std::vector<std::string>& out) {
+        std::error_code ec;
+        for (const std::string& dir : dirs) {
+            if (!fs::is_directory(dir, ec)) continue;
+            std::vector<fs::path> files;
+            for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+                if (!it->is_regular_file()) continue;
+                const std::string fn = it->path().filename().string();
+                if (!fn.empty() && fn[0] == '#' && it->path().extension() == ".txt") files.push_back(it->path());
             }
-            const std::string code = low(raw.substr(0, d));
-            const unsigned long n = std::strtoul(raw.c_str() + d + 1, &end, 10);
-            if (!end || *end != '\0') return raw;                        // malformed $N
-            std::uint16_t idx = fid->selfIndex;
-            if (const auto it = fid->codeIndex.find(code); it != fid->codeIndex.end()) idx = it->second;
-            else unknownCodes.insert(code);                              // unknown foreign -> self + warn
-            if (const auto f = CB::core::codec::formid::make(idx, static_cast<std::uint32_t>(n))) return CB::core::codec::formid::format(*f);
-            return raw;
-        };
-        std::unordered_map<std::string, std::string> remap;
-        for (auto& [obj, raw] : merged.identity.ids) { (void)obj; const std::string v = toFormId(raw); remap[raw] = v; raw = v; }
-        std::set<std::string> newDs;
-        for (const std::string& d : ds) { const auto it = remap.find(d); newDs.insert(it != remap.end() ? it->second : d); }
-        ds = std::move(newDs);
-        for (const std::string& c : unknownCodes)
-            r.warnings.push_back("FormId: unknown foreign mod code '" + c + "$..' not in this bundle's master table; "
-                                 "bound to self (a cross-bundle reference to it will not reconcile — is that mod converted?)");
+            std::sort(files.begin(), files.end());
+            for (const fs::path& f : files) {
+                std::ifstream in(f, std::ios::binary);
+                std::string t((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                if (!t.empty()) out.push_back(std::move(t));
+            }
+        }
+    };
+    std::vector<std::string> patches;
+    readPatches(masterPatchDirs, patches);
+    const std::size_t fromMasters = patches.size();
+    readPatches(patchDirs, patches);
+    r.patchNodes = static_cast<int>(patches.size() - fromMasters);
+    if (r.patchNodes == 0) { r.ok = true; return r; }
+
+    try {
+        ParsedTagfile merged; std::vector<std::string> deltaIds; std::string err;
+        if (!MergeTagfiles(baseTagfileXml, patches, reg, merged, deltaIds, err)) { r.error = "merge: " + err; return r; }
+        std::shared_ptr<IHavokObject> root;
+        for (const auto& o : merged.objects) if (std::string(o->ClassName()) == "hkRootLevelContainer") { root = o; break; }
+        if (!root) { r.error = "merge: no root container"; return r; }
+        const HKXHeader header = HKXHeader::SkyrimSE();
+        PackFileSerializer ser;
+        BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
+        ser.Serialize(root, bw, header);
+        HkyPatchStats st;
+        if (!DeriveHkyPatch(base, baseMasters, patchMasters, bw.Data(), reg, outDeltaDir, err, bones, &st)) {
+            r.error = "derive: " + err;
+            return r;
+        }
+        r.patched = st.patched;
+        r.added   = st.added;
+        r.ok = true;
+    } catch (const std::exception& e) {
+        r.error = std::string("ConvertModDelta: ") + e.what();
     }
-
-    if (!EmitHky(merged.identity, reg, outDeltaDir, err, &ds, &r.warnings)) { r.error = "emit: " + err; return r; }
-
-    // Added-vocabulary sidecar — diff the base graph vocab against the merged graph's.
-    ParsedTagfile baseParsed;
-    if (ParseTagfile(baseTagfileXml, reg, baseParsed, err))
-        if (!EmitAdditiveVocab(baseParsed.identity, merged.identity, outDeltaDir, err)) { r.error = "additive: " + err; return r; }
-
-    r.ok = true;
     return r;
 }
 

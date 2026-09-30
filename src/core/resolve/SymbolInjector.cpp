@@ -80,24 +80,25 @@ namespace CB {
                 if (type.empty() || name.empty() || project.empty()) { ++nSkip; continue; }
 
                 Decl d;
-                d.project = std::move(project);
-                d.name    = name;
+                d.project     = std::move(project);
+                d.symbol.name = name;
 
                 if (type == "kEvent") {
-                    d.isEvent = true;
+                    d.symbol.isEvent = true;
                     ++nEvent;
                 } else if (type == "kInt" || type == "kBool" || type == "kFloat") {
                     // value is a raw 4-byte word: bool -> 0/1, int -> as-is, float ->
                     // the bit pattern of the parsed float (matches Engine Relay's
                     // ConfigLoader; std::stoi-style truncation would corrupt floats).
+                    auto& s = d.symbol;
                     try {
-                        if (type == "kBool")      { d.varType = "VARIABLE_TYPE_BOOL";  d.value = entry.value("value", false) ? 1 : 0; }
-                        else if (type == "kInt")  { d.varType = "VARIABLE_TYPE_INT32"; d.value = entry.value("value", 0); }
-                        else /* kFloat */         { d.varType = "VARIABLE_TYPE_REAL";  d.value = std::bit_cast<std::int32_t>(entry.value("value", 0.0f)); }
+                        if (type == "kBool")      { s.varType = "VARIABLE_TYPE_BOOL";  s.value = entry.value("value", false) ? 1 : 0; }
+                        else if (type == "kInt")  { s.varType = "VARIABLE_TYPE_INT32"; s.value = entry.value("value", 0); }
+                        else /* kFloat */         { s.varType = "VARIABLE_TYPE_REAL";  s.value = std::bit_cast<std::int32_t>(entry.value("value", 0.0f)); }
                     } catch (const std::exception&) {
                         LOG_WARN("SymbolInjector: '{}' — bad value for '{}' — defaulting to 0.",
                             doc.source.path.filename().string(), name);
-                        d.value = 0;
+                        s.value = 0;
                     }
                     ++nVar;
                 } else {
@@ -115,42 +116,14 @@ namespace CB {
             m_decls.size(), nEvent, nVar, nSkip);
     }
 
-    std::size_t SymbolInjector::InjectInto(CB::core::common::BehaviorGraphDataDef& gd,
-                                           std::string_view serveKey) const
+    std::vector<CB::feature::SymbolDecl> SymbolInjector::For(std::string_view graphKey) const
     {
-        if (m_decls.empty()) return 0;
-        const std::string project = ProjectOfKey(serveKey);
-
-        // Names already declared by the graph (vanilla/base + any lower layer).
-        // Owning copies, not string_view — we push into these very vectors below.
-        std::unordered_set<std::string> haveEvents, haveVars;
-        for (const auto& e : gd.events)    haveEvents.insert(e.name);
-        for (const auto& v : gd.variables) haveVars.insert(v.name);
-
-        std::size_t added = 0;
-        for (const auto& d : m_decls) {
-            if (!ProjectMatches(d.project, project)) continue;
-            if (d.isEvent) {
-                if (haveEvents.insert(d.name).second) {
-                    CB::core::common::EventInfoDef e;
-                    e.name = d.name;              // flags default "0"
-                    gd.events.push_back(std::move(e));
-                    ++added;
-                }
-            } else {
-                if (haveVars.insert(d.name).second) {
-                    CB::core::common::VariableInfoDef v;
-                    v.name  = d.name;
-                    v.type  = d.varType;
-                    v.value = d.value;            // role / roleFlags default
-                    gd.variables.push_back(std::move(v));
-                    ++added;
-                }
-                // else: the graph already declares this name — leave it (its index is
-                // already wired); the base is authoritative over a mod re-declaration.
-            }
-        }
-        return added;
+        std::vector<CB::feature::SymbolDecl> out;
+        if (m_decls.empty()) return out;
+        const std::string project = ProjectOfKey(graphKey);
+        for (const auto& d : m_decls)
+            if (ProjectMatches(d.project, project)) out.push_back(d.symbol);
+        return out;
     }
 
 }  // namespace CB

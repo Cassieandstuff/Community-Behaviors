@@ -8,11 +8,11 @@
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
 #include <codec/format/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
-#include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior / DeriveProjectPatch
+#include <compile/AnimDataFromBehavior.h>   // DeriveProjectPatch
 #include <interface/linker/Membrane.h>     // roster IndexMembrane (motion inherits the clip's bind)
 #include <interface/MasterTable.h>         // BuildMasterTable — FormId canon for the adsf-derive merge
-#include <havok/model/BehaviorData.h>
-#include <havok/model/yaml/YamlBehaviorLoader.h>
+#include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
+#include <codec/serialization/HkyArchive.h>
 
 #include <tuple>
 
@@ -123,8 +123,8 @@ namespace linker = CB::core::linker;
                 for (const auto& e : v) if (ToLower(e) == ToLower(rel)) return;
                 v.push_back(std::move(rel));
             };
-            for (const auto& u : rd.behaviorUnits())  addUnit(u);
-            for (const auto& u : rd.characterUnits()) addUnit(u);
+            for (const auto& u : rd.units(CB::core::codec::HkyArchive::UnitKind::Behavior))  addUnit(u);
+            for (const auto& u : rd.units(CB::core::codec::HkyArchive::UnitKind::Character)) addUnit(u);
         }
 
         // Collect a bundle's animationdata patches: one ProjectPatch per <Project>~<n> dir
@@ -167,50 +167,41 @@ namespace linker = CB::core::linker;
         // Each addition carries a SYMBOL, so the caller's high-band allocator assigns the real
         // (safe) animIndex.
         //
-        // The bundle declares WHICH characters it extends via its animationnames/<char>.txt drops
-        // (the same roster the behaviors were folded into); its behavior units carry the clips. So
-        // we derive one ProjectPatch per (behavior unit x declared character). Returns {} if the
-        // bundle adds no clips to any project.
+        // The bundle declares WHICH characters it extends via the rosters its character units state
+        // (or legacy animationnames/<char>.txt drops); its behavior units carry the clips. So we derive
+        // one ProjectPatch per (behavior unit x declared character). Returns {} if the bundle adds no
+        // clips to any project.
         std::vector<animdata::ProjectPatch> DeriveBundleAnimData(
             const BundleReader& rd, const std::string& stem, const fs::path& dataDir,
-            const BundleReader* master)
+            const BundleReader* master, const GraphClipReader& clipsOf)
         {
-            // Character stems this bundle extends ("defaultmale"). Sourced from each character unit's
-            // data/animations.yaml — the location the tagfile+roster refactor moved the roster to
-            // (animationnames/<char>.txt was emptied by it; a delta character unit ships ONLY
-            // data/animations.yaml, no character.yaml, so characterUnits() won't list it — scan the files
-            // directly). Without this the derive found no chars -> returned {} -> no adsf cache -> mod root
-            // motion never served (the same stale-roster-source bug as the SetData guard). Legacy
-            // animationnames/*.txt bundles still work via the fallback.
+            /// @note The characters this bundle extends: each character unit whose animationNames it states (for a
+            ///       patch unit, its additions — a union roster). A character's clips derive only into characters of
+            ///       its own actor root: a canine unit's clips never reach defaultmale.
             std::vector<std::string>        chars;
             std::unordered_set<std::string> haveChar;
             std::unordered_map<std::string, std::string> charActorRoot;  // char stem -> its actor root (lowercased)
-            {
-                static const std::string kSuffix = "/data/animations.yaml";
-                for (const std::string& path : rd.filesUnder("meshes/actors", ".yaml")) {
-                    if (path.size() <= kSuffix.size() ||
-                        path.compare(path.size() - kSuffix.size(), kSuffix.size(), kSuffix) != 0) continue;
-                    std::string unit = path.substr(0, path.size() - kSuffix.size());   // ".../defaultmale.hkx"
-                    const auto s1 = unit.find_last_of('/');
-                    std::string cn = (s1 == std::string::npos) ? unit : unit.substr(s1 + 1);
-                    if (const auto dot = cn.rfind('.'); dot != std::string::npos) cn.erase(dot);   // "defaultmale"
-                    // actor root = strip the last two segments (characters[ x]/<stem>.hkx) — a canine char
-                    // unit's clips must derive only into canine projects, not every character in the bundle.
-                    std::string aroot;
-                    if (s1 != std::string::npos) {
-                        const auto s2 = (s1 == 0) ? std::string::npos : unit.find_last_of('/', s1 - 1);
-                        if (s2 != std::string::npos) aroot = ToLower(unit.substr(0, s2));
-                    }
-                    if (!cn.empty() && haveChar.insert(cn).second) { chars.push_back(cn); charActorRoot[cn] = aroot; }
+            for (const std::string& unit : rd.units(CB::core::codec::HkyArchive::UnitKind::Character)) {
+                const auto src = rd.unitSource(unit);
+                const auto cs  = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                if (!cs || cs->animationNames.empty()) continue;
+                const auto s1 = unit.find_last_of('/');
+                std::string cn = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
+                if (const auto dot = cn.rfind('.'); dot != std::string::npos) cn.erase(dot);   // "defaultmale"
+                std::string aroot;
+                if (s1 != std::string::npos) {
+                    const auto s2 = (s1 == 0) ? std::string::npos : unit.find_last_of('/', s1 - 1);
+                    if (s2 != std::string::npos) aroot = ToLower(unit.substr(0, s2));
                 }
+                if (!cn.empty() && haveChar.insert(cn).second) { chars.push_back(cn); charActorRoot[cn] = aroot; }
             }
             for (const std::string& fn : rd.files("animationnames", ".txt")) {   // legacy fallback (no actor root)
                 std::string s = ToLower(fn);
                 if (EndsWith(s, ".txt")) s.erase(s.size() - 4);
                 if (!s.empty() && haveChar.insert(s).second) chars.push_back(std::move(s));
             }
-            const auto units = rd.behaviorUnits();
-            if (chars.empty() || units.empty()) return {};
+            const auto units = rd.units(CB::core::codec::HkyArchive::UnitKind::Behavior);
+            if (chars.empty() || units.empty() || !clipsOf) return {};
 
             std::vector<animdata::ProjectPatch> out;
 
@@ -254,62 +245,38 @@ namespace linker = CB::core::linker;
                 auto src = rd.unitSource(unitPrefix);
                 if (!src) continue;
 
-                // A bundle unit is EITHER a full new graph (fnis.hkx, skyparkour_behavior.hkx — carries
-                // behavior.yaml) OR a DELTA over a vanilla unit (horsebehavior.hkx, 0_master.hkx — node
-                // files only, NO behavior.yaml root). A delta can't load alone (the loader needs a root)
-                // and its clips only make sense against the base graph, so merge it OVER the Skyrim.hky
-                // master's same unit — exactly like the compile path. Master opened lazily by the caller.
+                /// @note A bundle unit is EITHER a full new graph (fnis.hkx) OR a patch over a vanilla unit (its
+                ///       root owned by a master). A patch's clips only make sense over its base, so it merges over the
+                ///       Skyrim.hky master's same unit — exactly like the compile path.
+                const auto graphYaml = src->read("graph.yaml");
+                const bool patch     = !graphYaml || CB::core::codec::HkyArchive::IsPatchGraphYaml(*graphYaml);
                 std::shared_ptr<const CB::core::common::IUnitSource> baseSrc;
-                if (master && !src->read("behavior.yaml").has_value()) {  // delta unit -> needs the base root
-                    auto ms = master->unitSource(unitPrefix);
-                    if (ms && ms->read("behavior.yaml").has_value()) baseSrc = std::move(ms);
-                }
+                if (patch && master) baseSrc = master->unitSource(unitPrefix);
+                if (patch && !baseSrc) continue;
 
-                // Carry the FormId master tables so the loader CANONICALIZES node ids (base vs delta),
-                // exactly like the compile path — the bare-source overload leaves masterTable empty, so
-                // canon is OFF and the base's self-index nodes (0000x…) COLLIDE raw with the delta's own
-                // self-index nodes (also 0000x…), cross-classing them and corrupting the derived clip set
-                // (silent no-root-motion / wrong-clip adsf). This is a base(skyrim) + single-delta merge, so
-                // the minimal correct table is [self, skyrim]: index 0 = self, index 1 = skyrim (declared
-                // masters beyond skyrim aren't present as layers here, so their refs can't resolve regardless).
-                std::vector<CB::core::common::LayerSource> layers;
-                if (baseSrc) {
+                const auto baseLayer = [&] {
                     CB::core::common::LayerSource b;
                     b.source = baseSrc; b.stem = std::string(CB::core::codec::formid::BASE_GAME_STEM); b.rank = 0;
                     b.masterTable = CB::core::codec::formid::BuildMasterTable(b.stem, {}, /*haveSkyrim*/ true);
-                    layers.push_back(std::move(b));
-                }
+                    return b;
+                };
+                std::vector<CB::core::common::LayerSource> layers;
+                if (baseSrc) layers.push_back(baseLayer());
                 {
                     CB::core::common::LayerSource d;
                     d.source = src; d.stem = stem; d.rank = baseSrc ? 1 : 0;
                     d.masterTable = CB::core::codec::formid::BuildMasterTable(stem, {}, /*haveSkyrim*/ baseSrc != nullptr);
                     layers.push_back(std::move(d));
                 }
+                const std::string unitKey = ToLower(unitPrefix);
+                auto clips = clipsOf(unitKey, layers);
 
-                CB::core::common::BehaviorData data;
-                try {
-                    data = CB::core::codec::YamlBehaviorLoader::LoadMerged(layers);
-                } catch (const std::exception& e) {
-                    LOG_WARN("AnimData: derive skipped unit '{}' in '{}' — load failed: {}", unitPrefix, stem, e.what());
-                    continue;
-                }
-                auto clips = CB::core::compile::DeriveClipInputsFromBehavior(data);
-
-                // With a base merged in, `clips` is the FULL graph (vanilla + the delta's new clips). The
-                // vanilla clips are ALREADY in the base animationdatasinglefile, and the merge below does
-                // NOT dedupe (a duplicate row is the double-merge signature — see the integrity check), so
-                // SUBTRACT the base's own clips: keep only the names the delta actually introduces.
+                /// @note With a base merged in, `clips` is the FULL graph. The base's own clips are already in the
+                ///       base animationdatasinglefile and the merge below does not dedupe (a duplicate row is the
+                ///       double-merge signature), so keep only the names the patch introduces.
                 if (baseSrc) {
                     std::unordered_set<std::string> baseNames;
-                    try {
-                        CB::core::common::LayerSource b;
-                        b.source = baseSrc; b.stem = std::string(CB::core::codec::formid::BASE_GAME_STEM); b.rank = 0;
-                        b.masterTable = CB::core::codec::formid::BuildMasterTable(b.stem, {}, /*haveSkyrim*/ true);
-                        auto baseData = CB::core::codec::YamlBehaviorLoader::LoadMerged(
-                            std::vector<CB::core::common::LayerSource>{ std::move(b) });
-                        for (const auto& bc : CB::core::compile::DeriveClipInputsFromBehavior(baseData))
-                            baseNames.insert(ToLower(bc.name));
-                    } catch (const std::exception&) { /* base underivable -> keep all (best effort) */ }
+                    for (const auto& bc : clipsOf(unitKey, { baseLayer() })) baseNames.insert(ToLower(bc.name));
                     clips.erase(std::remove_if(clips.begin(), clips.end(),
                                     [&](const auto& c) { return baseNames.count(ToLower(c.name)) != 0; }),
                                 clips.end());
@@ -367,7 +334,8 @@ namespace linker = CB::core::linker;
         animdata::SingleFile DeriveBaseAnimData(
             const BundleReader&                                          master,
             const std::vector<animdata::ProjectHeader>&                  headers,
-            const std::map<std::string, std::vector<std::string>>&       rostersByStem)
+            const std::map<std::string, std::vector<std::string>>&       rostersByStem,
+            const GraphClipReader&                                       clipsOf)
         {
             auto trimAnn = [](std::string s) {
                 while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' ' || s.back() == '\t')) s.pop_back();
@@ -407,14 +375,14 @@ namespace linker = CB::core::linker;
             };
 
             // Per actor-root cache: the graph clip inputs (parsed once; male/female/etc. share an actor).
-            // behaviorUnits() lookup: lowercased '/'-sep unit path -> original prefix (unitSource key).
+            // Behavior-unit lookup: lowercased '/'-sep unit path -> original prefix (unitSource key).
             // A project's behaviors are named by its assetPaths ("Behaviors\X.hkx", "Behaviors Wolf\..."),
             // resolved against the actor root — NOT "every unit under the actor root": Dog + Wolf share
             // actors\canine but use DIFFERENT behavior subfolders (behaviors\ vs behaviors wolf\) with
             // DISTINCT clip sets, so a per-root union cross-contaminates them. assetPaths lists ALL of a
             // project's behaviors (male 17, dog 4), so per-project asset scoping is exact + complete.
             std::unordered_map<std::string, std::string> unitByLc;
-            for (const std::string& unitPrefix : master.behaviorUnits())
+            for (const std::string& unitPrefix : master.units(CB::core::codec::HkyArchive::UnitKind::Behavior))
                 unitByLc.emplace(ToLower(unitPrefix), unitPrefix);
 
             // Per-UNIT clip cache (decompile each behaviour once; male/female share their 17 units).
@@ -424,16 +392,12 @@ namespace linker = CB::core::linker;
                 if (it != unitClips.end()) return it->second;
                 std::vector<CB::core::animdata::DeriveClipInput> clips;
                 const auto uit = unitByLc.find(unitLc);
-                if (uit != unitByLc.end()) {
-                    auto src = master.unitSource(uit->second);
-                    if (src && src->read("behavior.yaml").has_value()) {   // base units are full graphs
-                        try {
-                            auto data = CB::core::codec::YamlBehaviorLoader::LoadMerged(
-                                std::vector<std::shared_ptr<const CB::core::common::IUnitSource>>{ src });
-                            clips = CB::core::compile::DeriveClipInputsFromBehavior(data);
-                        } catch (const std::exception& e) {
-                            LOG_WARN("AnimData: base derive load failed for unit '{}': {}", uit->second, e.what());
-                        }
+                if (uit != unitByLc.end() && clipsOf) {
+                    if (auto src = master.unitSource(uit->second)) {
+                        CB::core::common::LayerSource b;
+                        b.source = std::move(src); b.stem = std::string(CB::core::codec::formid::BASE_GAME_STEM); b.rank = 0;
+                        b.masterTable = CB::core::codec::formid::BuildMasterTable(b.stem, {}, /*haveSkyrim*/ true);
+                        clips = clipsOf(unitLc, { std::move(b) });
                     }
                 }
                 return unitClips.emplace(unitLc, std::move(clips)).first->second;
@@ -705,7 +669,7 @@ namespace linker = CB::core::linker;
     }  // namespace
 
     ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni,
-                              const GraphClipSink* sink, bool rosterFromScan)
+                              const GraphClipReader& clipsOf, const GraphClipSink* sink, bool rosterFromScan)
     {
         ServeResult r;
 
@@ -768,9 +732,9 @@ namespace linker = CB::core::linker;
         const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
 
         // Resolve the master bundle path UP FRONT (independent of directory-iteration order) so a
-        // bundle that DERIVES its animationdata can merge each delta unit over the master's base
-        // unit (a delta unit — horsebehavior.hkx, 0_master.hkx — has no behavior.yaml root and can't
-        // load alone). Opened lazily below, only when a delta unit is actually encountered, to keep
+        // bundle that DERIVES its animationdata can merge each patch unit over the master's base
+        // unit (a patch unit — horsebehavior.hkx, 0_master.hkx — only overlays its base and can't
+        // load alone). Opened lazily below, only when a patch unit is actually encountered, to keep
         // the 18 MB master out of an animationdata-free / all-full-graph launch.
         if (fs::is_directory(pluginsRoot, ec))
             for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec))
@@ -840,7 +804,7 @@ namespace linker = CB::core::linker;
                     // high-band merge below; the records come from the graph, not the Nemesis format.
                     if (!deriveMaster && !masterBundle.empty()) deriveMaster = BundleReader::Open(masterBundle);
                     auto derived = DeriveBundleAnimData(*rd, stem, dataDir,
-                                                        deriveMaster ? &*deriveMaster : nullptr);
+                                                        deriveMaster ? &*deriveMaster : nullptr, clipsOf);
                     if (!derived.empty()) {
                         deltas.push_back({ prio, std::move(derived) });
                         ++bundleCount;
@@ -992,28 +956,14 @@ namespace linker = CB::core::linker;
                     const auto prev = path.find_last_of('/', last - 1);
                     return ToLower(path.substr(prev + 1, last - prev - 1));
                 };
-                // Rosters come from each project's `character:` header ref (index.yaml) — load once.
+                /// @note Rosters come from each project's `character:` header ref (index.yaml): that character unit's
+                ///       animationNames, original case.
                 for (const auto& h : headers) {
                     if (h.character.empty()) continue;
-                    if (const auto rz = masterReader->read("meshes/" + h.character + "/data/animations.yaml")) {
-                        std::vector<std::string> roster;
-                        std::istringstream in(*rz); std::string line;
-                        while (std::getline(in, line)) {   // block seq of single-quoted scalars: `- 'path'`
-                            std::string t = TrimLine(line);
-                            if (t.empty() || t[0] == '#') continue;
-                            if (t.rfind("- ", 0) == 0) t = TrimLine(t.substr(2));
-                            else if (t[0] == '-') t = TrimLine(t.substr(1));
-                            if (t.size() >= 2 && t.front() == '\'' && t.back() == '\'') {
-                                const std::string inner = t.substr(1, t.size() - 2); std::string un;
-                                for (std::size_t i = 0; i < inner.size(); ++i)
-                                    if (inner[i] == '\'' && i + 1 < inner.size() && inner[i + 1] == '\'') { un += '\''; ++i; }
-                                    else un += inner[i];
-                                t = std::move(un);
-                            }
-                            if (!t.empty()) roster.push_back(std::move(t));
-                        }
-                        if (!roster.empty()) rostersByStem[animdata::StemForProjectName(h.name)] = std::move(roster);
-                    }
+                    const auto src = masterReader->unitSource("meshes/" + h.character);
+                    auto cs = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                    if (cs && !cs->animationNames.empty())
+                        rostersByStem[animdata::StemForProjectName(h.name)] = std::move(cs->animationNames);
                 }
                 bool masterHasClips = false;
                 for (const std::string& path : masterReader->filesUnderOrig(dir + "/clips", ".yaml")) {
@@ -1040,7 +990,7 @@ namespace linker = CB::core::linker;
                 } else {
                     // Stripped master (release item 4): no clips/ shipped — DERIVE the whole base
                     // from the graph + the CB-native animation units (annotations + duration + motion).
-                    base     = DeriveBaseAnimData(*masterReader, headers, rostersByStem);
+                    base     = DeriveBaseAnimData(*masterReader, headers, rostersByStem, clipsOf);
                     baseFrom = "Skyrim.hky/" + dir + "/ (DERIVED from graph)";
                 }
                 composed = true;

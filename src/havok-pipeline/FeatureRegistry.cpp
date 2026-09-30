@@ -95,7 +95,7 @@ namespace CB::feature {
 
     std::vector<std::pair<std::string, FeatureResult>>
     FeatureRegistry::Run(const std::vector<std::string>& orderedIds,
-                         CB::core::common::BehaviorData& data,
+                         CB::core::decompile::GraphEdit& graph,
                          const FeatureContext& ctx) const
     {
         std::vector<std::pair<std::string, FeatureResult>> out;
@@ -105,7 +105,7 @@ namespace CB::feature {
             if (it == m_byId.end()) continue;
             IGraphFeature& f = *it->second;
             if (!f.AppliesTo(ctx)) continue;
-            out.emplace_back(id, f.Apply(data, ctx));
+            out.emplace_back(id, f.Apply(graph, ctx));
         }
 
         // Collision report: any node key written by >=2 features. `writers` preserves run order, so the

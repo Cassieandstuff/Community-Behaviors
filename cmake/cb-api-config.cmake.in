@@ -1,6 +1,6 @@
 @PACKAGE_INIT@
 
-# cb-resolve links ryml transitively (havok-schema/model), so a consumer's find_package(cb-api)
+# cb-api links ryml transitively (havok-schema/model), so a consumer's find_package(cb-api)
 # must be able to find ryml too. It's impl-only in the public headers but a real link dependency.
 include(CMakeFindDependencyMacro)
 find_dependency(ryml)
@@ -40,7 +40,7 @@ elseif(_cb_cfgs)
     list(GET _cb_cfgs 0 _cb_fallback)
 endif()
 if(_cb_fallback)
-    foreach(_cb_t cb::cb-resolve cb::havok-framing cb::havok-schema cb::havok-io cb::havok-model cb::havok-anim cb::havok-skeleton)
+    foreach(_cb_t cb::havok-framing cb::havok-schema cb::havok-io cb::havok-model cb::havok-anim cb::havok-skeleton)
         foreach(_cb_c DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
             set_property(TARGET ${_cb_t} PROPERTY MAP_IMPORTED_CONFIG_${_cb_c} "${_cb_fallback}")
         endforeach()

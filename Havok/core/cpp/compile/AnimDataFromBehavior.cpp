@@ -1,18 +1,18 @@
 #include <compile/AnimDataFromBehavior.h>
 
 #include "interface/AnimationData.h"          // animdata::ProjectPatch / PatchAddition / ...
-#include <interface/BehaviorData.h>
-#include <interface/defs/GeneratorDefs.h>
 
 #include <codec/serialization/packfile/PackFileDeserializer.h>
 
 #include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory (schema-native anim read)
 #include <havok-schema/HavokSchema.h>  // schema::SharedRegistry
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 
@@ -40,36 +40,59 @@ namespace {
     }
 }  // namespace
 
-std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromBehavior(
-    const CB::core::common::BehaviorData& data)
+std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const std::shared_ptr<IHavokObject>& root)
 {
+    using CB::core::codec::io::SchemaObject;
     std::vector<CB::core::animdata::DeriveClipInput> out;
-    out.reserve(data.clips.size());
+    auto so = [](const std::shared_ptr<IHavokObject>& o) { return dynamic_cast<SchemaObject*>(o.get()); };
+    auto* r = so(root);
+    if (!r) return out;
 
-    for (const auto& [key, clip] : data.clips) {
+    const std::vector<std::string>* events = nullptr;
+    for (auto& nv : r->FieldRef("namedVariants").objs)
+        if (auto* e = so(nv))
+            if (auto* graph = so(e->FieldRef("variant").obj); graph && std::string(graph->ClassName()) == "hkbBehaviorGraph")
+                if (auto* data = so(graph->FieldRef("data").obj))
+                    if (auto* sd = so(data->FieldRef("stringData").obj)) events = &sd->FieldRef("eventNames").strs;
+
+    std::vector<SchemaObject*> clips;
+    std::unordered_map<const IHavokObject*, bool> seen;
+    std::function<void(IHavokObject*)> walk = [&](IHavokObject* o) {
+        auto* s = dynamic_cast<SchemaObject*>(o);
+        if (!s || !seen.emplace(o, true).second) return;
+        if (std::string(s->ClassName()) == "hkbClipGenerator") clips.push_back(s);
+        for (const auto& fv : s->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
+    };
+    walk(r);
+
+    for (SchemaObject* c : clips) {
         CB::core::animdata::DeriveClipInput dc;
-        dc.name          = clip.name.empty() ? key : clip.name;
-        dc.animationName = clip.animationName;
-        dc.playbackSpeed = std::atof(clip.playbackSpeed.c_str());
-        dc.cropStart     = std::atof(clip.cropStartAmountLocalTime.c_str());
-        dc.cropEnd       = std::atof(clip.cropEndAmountLocalTime.c_str());
-
-        // The clip generator's OWN triggers (authored on the node). Annotation triggers are
-        // the caller's job (they come from the animation file, not the graph). An event with
-        // no resolved name is skipped — it contributes nothing to the cache text.
-        if (clip.triggers)
-            for (const auto& t : *clip.triggers) {
-                if (!t.event || t.event->empty()) continue;
+        dc.name          = c->FieldRef("name").str;
+        dc.animationName = c->FieldRef("animationName").str;
+        dc.playbackSpeed = rdF32(*c, "playbackSpeed");
+        dc.cropStart     = rdF32(*c, "cropStartAmountLocalTime");
+        dc.cropEnd       = rdF32(*c, "cropEndAmountLocalTime");
+        if (auto* arr = so(c->FieldRef("triggers").obj))
+            for (auto& to : arr->FieldRef("triggers").objs) {
+                auto* t  = so(to);
+                auto* ev = t ? so(t->FieldRef("event").obj) : nullptr;
+                if (!t || !ev) continue;
+                std::int32_t id = -1;
+                const auto& idRaw = ev->FieldRef("id").raw;
+                if (idRaw.size() >= 4) std::memcpy(&id, idRaw.data(), 4);
+                if (!events || id < 0 || static_cast<std::size_t>(id) >= events->size() || (*events)[id].empty()) continue;
                 CB::core::animdata::DeriveClipInput::Trigger tr;
-                tr.event               = *t.event;
-                tr.localTime           = std::atof(t.localTime.c_str());
-                tr.relativeToEndOfClip = t.relativeToEndOfClip;
+                tr.event               = (*events)[id];
+                tr.localTime           = rdF32(*t, "localTime");
+                const auto& rel        = t->FieldRef("relativeToEndOfClip").raw;
+                tr.relativeToEndOfClip = !rel.empty() && rel[0] != 0;
                 tr.fromAnnotation      = false;
                 dc.triggers.push_back(std::move(tr));
             }
-
         out.push_back(std::move(dc));
     }
+    /// @note Name order, as the node-name-keyed model it replaces produced them.
+    std::stable_sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
     return out;
 }
 

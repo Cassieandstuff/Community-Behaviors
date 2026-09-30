@@ -33,12 +33,12 @@ namespace CB::feature {
         ResolveRunOrder(const std::vector<std::string>& enabledIds, IFeatureLog& log) const;
 
         // For each id in `orderedIds` (already ordered — see ResolveRunOrder): if a feature with that
-        // id is registered AND AppliesTo(ctx), Apply it to `data`. After the run, any node key written
-        // by two or more features is reported via `ctx.log` (last writer wins; the clobber is made
+        // id is registered AND AppliesTo(ctx), Apply it to `graph`. After the run, any node written by
+        // two or more features is reported via `ctx.log` (last writer wins; the clobber is made
         // visible). Returns {id, result} per feature that ran, in run order.
         std::vector<std::pair<std::string, FeatureResult>>
         Run(const std::vector<std::string>& orderedIds,
-            CB::core::common::BehaviorData& data,
+            CB::core::decompile::GraphEdit& graph,
             const FeatureContext& ctx) const;
 
         FeatureRegistry(const FeatureRegistry&)            = delete;

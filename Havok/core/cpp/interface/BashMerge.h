@@ -1,14 +1,9 @@
 #pragma once
 
-// BashMerge — the shared multi-mod field/array merge, extracted from PatchConverter
-// so the offline converter (Nemesis XML -> merged binary) and the runtime loader
-// (native YAML deltas -> merged BehaviorData) share ONE merge core and can never
-// drift apart. The divergence-prone part — the per-param union/last-writer DECISION —
-// is a single function (`decideParam`); each representation supplies thin mechanics.
-//
-// This header carries the xml::Node adapter (Havok-XML shape: a node's fields are
-// `<hkparam name=..>` children). The ryml/YAML adapter used by YamlBehaviorLoader
-// lives in that TU (ryml is isolated to it) and calls the SAME `decideParam`.
+// BashMerge — the multi-mod field/array merge of Nemesis patches (the converter's tagfile merge,
+// MergeTagfiles). The divergence-prone part — the per-param union/last-writer DECISION — is a single
+// function (`decideParam`); this header carries the xml::Node adapter (Havok-XML shape: a node's fields
+// are `<hkparam name=..>` children).
 
 #include <common/Xml.h>
 
@@ -196,8 +191,7 @@ inline std::size_t objCount(const xml::Node& p) {
 // TAIL tokens (past base length) in load order. The token mirror of composeArrayInto: without it a
 // compose-tagged ptrarray touched by 2+ mods hits composeArrayInto, which sees zero <hkobject> items
 // and appends nothing → every mod's added ref (e.g. DMCO's dodge state on 1HM_Behavior) is silently
-// dropped → a transition to the missing state derefs null in-game. Matches the runtime ryml compose
-// (YamlBehaviorLoader), which already walks scalar seqs generically — the two adapters stay lockstep.
+// dropped → a transition to the missing state derefs null in-game.
 inline void composeTokenArrayInto(xml::Node& dst, const std::vector<const xml::Node*>& changers) {
     std::vector<std::string> base = tokens(dst.text);
     const std::size_t baseN = base.size();
@@ -215,9 +209,8 @@ inline void composeTokenArrayInto(xml::Node& dst, const std::vector<const xml::N
 
 // Compose an <hkobject>-array param onto `dst` (already a copy of `base`): element-wise over the base
 // prefix — a slot ANY changer edited is REPLACED (last changer in load order wins), base slots no mod
-// touched stay — then each changer's TAIL items (past base length) append in load order. The xml::Node
-// mirror of the runtime YamlBehaviorLoader compose (BR-39): keeps transitions/states load-order-composed
-// instead of unioning stale base entries. Caller guarantees every changer covers the base prefix.
+// touched stay — then each changer's TAIL items (past base length) append in load order (BR-39): keeps
+// transitions/states load-order-composed instead of unioning stale base entries. Caller guarantees every changer covers the base prefix.
 inline void composeArrayInto(xml::Node& dst, const std::vector<const xml::Node*>& changers) {
     std::vector<xml::Node*> dstItems;                       // dst's item children (valid until we append)
     for (auto& c : dst.children) if (c.tag == "hkobject") dstItems.push_back(&c);

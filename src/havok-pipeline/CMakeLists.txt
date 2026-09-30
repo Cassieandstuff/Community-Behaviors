@@ -4,8 +4,8 @@
 # The self-registered graph-feature SDK (IGraphFeature / FeatureRegistry / the
 # BR_REGISTER_FEATURE macro), so the offline compiler and the editor present the
 # same feature hook as the CB runtime. A feature's Apply() depends ONLY on
-# havok-model's BehaviorData + the framework's FeatureContext interfaces (the
-# pure-Apply rule) — never on SKSE/CommonLib/CB.
+# decompile's GraphEdit (the merged reflective graph) + the framework's FeatureContext
+# interfaces (the pure-Apply rule) — never on SKSE/CommonLib/CB.
 #
 # Consumers include the SDK headers bare ("FeatureRegistry.h" / "IGraphFeature.h");
 # the include dir is PUBLIC so that resolves for anyone linking havok-pipeline.
@@ -27,8 +27,8 @@ set_target_properties(havok-pipeline PROPERTIES
 # Bare includes ("FeatureRegistry.h") resolve from here for every consumer.
 target_include_directories(havok-pipeline PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# The framework operates on the name-keyed document (havok-model::BehaviorData).
-target_link_libraries(havok-pipeline PUBLIC havok-model)
+# The framework edits the merged reflective graph (decompile::GraphEdit).
+target_link_libraries(havok-pipeline PUBLIC decompile)
 
 if(MSVC)
     target_compile_options(havok-pipeline PRIVATE /W4 /wd4100 /MP /EHsc)

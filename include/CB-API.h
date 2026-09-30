@@ -10,8 +10,8 @@
 // a FIRST-PARTY CONSUMER of it (we compile against <CB-API.h> too), so the surface
 // can't rot: if it's insufficient for us, we feel it immediately.
 //
-//   cb::resolve  — read .hky bundles + resolve/merge a load order → the resolved model
-//                  (identical to what the CB compiler does; single owner, no drift)
+//   cb::resolve  — read .hky bundles + merge a load order → the merged graph, and derive a mod's
+//                  patch (identical to what the CB compiler does; single owner, no drift)
 //   cb::anim     — decode / compile / EXPORT animations exactly as CB does
 //   cb::animdata — the animationdata (motion / root-motion) model + its YAML sidecar
 //   cb::skeleton — decode / compile / EXPORT skeletons (schema-native; anim + ragdoll)
@@ -30,11 +30,10 @@
 //       mint it. One canonical base, not N tool-specific ones.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// resolve — the .hky document + the load-order merge + the resolved graph model
-#include "havok/model/yaml/HkyArchive.h"
-#include "havok/model/yaml/UnitSource.h"
-#include "havok/model/yaml/YamlBehaviorLoader.h"
-#include "havok/model/BehaviorData.h"
+// resolve — the .hky document + the load-order merge + the merged graph
+#include "codec/serialization/HkyArchive.h"
+#include "interface/UnitSource.h"
+#include "decompile/BehaviorDecompile.h"
 
 // schema — the Havok class-schema registry (merge classifier / model interpreter)
 #include "havok-schema/HavokSchema.h"
@@ -59,11 +58,20 @@ namespace cb {
 
 // ── cb::resolve ──────────────────────────────────────────────────────────────
 namespace resolve {
-    using Archive       = CB::core::codec::HkyArchive;         // a packed .hky bundle, decompressed in memory
-    using UnitKind      = CB::core::codec::HkyArchive::UnitKind;
-    using UnitSource    = CB::core::common::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
-    using LoadOrder     = CB::core::codec::YamlBehaviorLoader; // LoadMerged — the load-order merge
-    using ResolvedGraph = CB::core::common::BehaviorData;       // the resolved, merged graph model
+    using Archive     = CB::core::codec::HkyArchive;         // a packed .hky bundle, decompressed in memory
+    using UnitKind    = CB::core::codec::HkyArchive::UnitKind;
+    using UnitSource  = CB::core::common::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
+    using Layer       = CB::core::common::LayerSource;        // one load-order layer: unit + bundle stem + master table
+    using Graph       = CB::core::decompile::ParsedHky;       // a parsed / merged graph (schema objects + FormIDs)
+    using GraphEdit   = CB::core::decompile::GraphEdit;       // the editing view the compile-time features receive
+    using PatchStats  = CB::core::decompile::HkyPatchStats;
+
+    using CB::core::decompile::ParseHkyReflective;           // one unit → Graph
+    using CB::core::decompile::MergeLayersReflective;        // layers (base first) → the merged Graph
+    using CB::core::decompile::MergeHkyPatch;                // apply one patch unit onto a Graph
+    using CB::core::decompile::SerializeGraph;               // Graph → packfile bytes
+    using CB::core::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
+    using CB::core::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
 }  // namespace resolve
 
 // ── cb::schema ───────────────────────────────────────────────────────────────

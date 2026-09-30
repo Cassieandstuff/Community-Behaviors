@@ -1,9 +1,13 @@
 #pragma once
 
 #include <interface/AnimationData.h>
+#include <interface/UnitSource.h>        // LayerSource
+#include <havok/anim/AnimDataDeriver.h>  // DeriveClipInput
 
 #include <filesystem>
+#include <functional>
 #include <string>
+#include <vector>
 
 // AnimationDataServer — the runtime clip/motion-metadata merge (animationdatasinglefile.txt).
 //
@@ -52,8 +56,16 @@ namespace CB::core::serve {
     // the roster WITHOUT a hand-authored index.yaml. Additive + case-insensitive dedup onto the
     // canonically-cased base, so the ESM-cased char->adsf bind is never rewritten. Off by default
     // (the proven authored-index.yaml path is unchanged when false).
+    /// @brief A graph's clip generators after merging `layers` (base first); `key` (the graph's serve path) binds
+    ///        its rig, which the merge needs to resolve bone names.
+    using GraphClipReader = std::function<std::vector<animdata::DeriveClipInput>(
+        const std::string& key, const std::vector<CB::core::common::LayerSource>& layers)>;
+
+    /// @param clipsOf reads the clips of a bundle's behavior graphs, for a bundle that ships no animationdata of its
+    ///        own (and for a master that ships no clips/); without it those derive legs are skipped.
     ServeResult ServeAnimData(const std::filesystem::path& dataDir,
                               const std::filesystem::path& loadOrderIni,
+                              const GraphClipReader&       clipsOf,
                               const GraphClipSink*         sink = nullptr,
                               bool                         rosterFromScan = false);
 

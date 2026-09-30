@@ -53,13 +53,13 @@ src/                         CB's source. src/ is the private include root; the 
   havok-framing|schema|io|model|anim|pipeline/   the data-driven Havok stack (each an add_library module).
                              Headers + sources are CO-LOCATED (no include/ vs cpp/ split): a component's
                              Foo.h sits beside Foo.cpp under the module's namespaced path (e.g.
-                             havok-model/havok/model/BehaviorData.{h,cpp}); the module root IS the include
-                             root, so cross-module includes keep their <havok/model/…> paths. Exported
+                             Havok/core/cpp/decompile/BehaviorDecompile.h + HavokModel.cpp); the module
+                             root IS the include root (<decompile/…>, <codec/…>). Exported
                              modules install only *.h. The public CB-API facade lives at the root include/.
   sct-config/                config scanner (JSON/YAML/INI); sct-utilities/ folder-picker+zip (converter)
 Havok/core/Schema/           the vanilla class-schema tree (schema-as-core; room for Havok/features/ later)
-Retirement Home/havok-core/  QUARANTINED legacy typed backbone — see its README; do NOT build new things
-                             here, put new components in src/. It's the offline oracle + converter core.
+Retirement Home/_archive/    ARCHIVED legacy typed backbone (havok-core) — not built, nothing links it;
+                             reference only. Never build on it.
 APP/Behavior Converter/      the GLFW+ImGui converter (BehaviorConverter.exe); src/ flat, ships templates/+Havok/
 ```
 
@@ -81,9 +81,8 @@ is NOT derived from the path, and a file moving folders never renames it.
   (domain) · `hooks config` (infra). The one sanctioned 4th-level family: `CB::core::codec::{spline,crc,
   formid,io}` + the packfile serialization spine (all genuinely codecs).
 - **`CB::core::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
-  cross-cutting *types* every layer passes around: the data model (`BehaviorData`, `IUnitSource`, the
-  `*Def` structs — the former "interface", which dissolved into `common` because it was never a real
-  purpose) and the primitives (`Vector4`, `xml`, `vec4`). Not a junk drawer for *operations* — those stay
+  cross-cutting *types* every layer passes around: the unit/layer vocabulary (`IUnitSource`,
+  `LayerSource`) and the primitives (`Vector4`, `xml`, `vec4`). Not a junk drawer for *operations* — those stay
   in their purpose namespaces. Because the stack references these types UNqualified throughout, a
   force-included prelude (`Havok/core/cpp/common/CorePrelude.h`, wired via each lib's PCH + the plugin
   PCH) forward-declares and makes `CB::core::common` + `CB::core::codec` ambient in every TU. So a file
@@ -109,7 +108,7 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 ```
 
 - `-DCB_BUILD_CONVERTER=OFF` → lean plugin-only configure (skips the glfw/imgui FetchContent + converter).
-- Build one target (`CommunityBehaviors`, `behavior-converter`, `havok-core-cli`) rather than `ALL` to
+- Build one target (`CommunityBehaviors`, `behavior-converter`, `hky-tool`) rather than `ALL` to
   avoid triggering the multi-minute `generate-base-master` regen.
 - **No builds without a green light** — the deploy writes over the live MO2 mod + tools folder that the
   user (and parallel sessions) may be testing. Propose + wait for an explicit yes before building.
@@ -123,8 +122,8 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 - `SKYRIM_TOOLS_FOLDER` — the converter deploys `BehaviorConverter.exe` (+ templates/ + Havok/) here.
 - `CB_REGEN_SOURCE` — root of the derived-bundle regen sources (e.g. `D:\CB Regen Source`): one folder per
   bundle, NAMED for it (`Skyrim.hky\`, `XPMSSE.hky\`), laid out like a Data folder (`meshes\...`). Each one
-  runs the SAME `generate-base-master` regen (decompile everything it holds, gate graphdata vs its own
-  binaries where templated, pack) → `<Name>.hky`. A new derived bundle = a new source folder; a regen-owned
+  runs the SAME `generate-base-master` regen (decompile everything it holds to reflective units, gate
+  every unit's served bytes vs its own binaries, pack) → `<Name>.hky`. A new derived bundle = a new source folder; a regen-owned
   name is never also packed from `hky/`. Unset → regen skipped, the already-deployed bundles stay.
 - `SCT_BASE_MASTER_DIR` — a **SHORT** D-drive path (e.g. `D:\sct-base-master`) for the unpacked trees (each
   regen keeps `<Name>.hky\` there). See the diff strategy below. Must be short: these trees blow past
@@ -136,7 +135,7 @@ A packed `.hky` (Skyrim.hky, the bundles) is a miniz/deflate zip — its compres
 toolchain versions **even when the content is identical**, so a byte-diff of packed files is meaningless.
 **Always diff the UNPACKED trees.** Two supports for this:
 
-- `havok-core-cli hky-unpack <in.hky> -o <shortDir>` — decompress any `.hky` to its YAML tree,
+- `hky-tool unpack <in.hky> -o <shortDir>` — decompress any `.hky` to its YAML tree,
   original path case preserved. Unpack to a SHORT path (MAX_PATH).
 - When `SCT_BASE_MASTER_DIR` is set, `cb_deploy` auto-unpacks the deployed master to
   `<SCT_BASE_MASTER_DIR>/current`, rotating the prior tree to `<SCT_BASE_MASTER_DIR>/previous` — so a
@@ -154,10 +153,14 @@ still belongs in the session scratchpad dir.)
 
 ## Correctness gates
 
-- **Schema vs typed** — `havok-core-cli` byte-diffs the schema-driven emit against the typed oracle.
-- **Master fidelity** — `generate-base-master` validates every templated graph's graphdata byte-vs-vanilla
-  (17/17 on the base chain).
-- Both halves are proven: runtime (ragdolls + behaviors in-game) and offline (converter fidelity).
+- **Served bytes** — `generate-base-master` parses every behavior / character / project unit back through
+  the runtime's reader (rig-bound bones) and byte-compares its serialization to the source binary's
+  canonical re-serialization (1238/1238 on Skyrim.hky).
+- **Reflective round-trips** (BehaviorConverter verbs) — `--hky-roundtrip [--all-kinds]` (emit→parse→serialize),
+  `--patch-roundtrip` (merge(base, derive(base, mod)) == mod), `--multilayer-roundtrip` (every mod's derived
+  patch merged in order vs today's merge of all).
+- Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
+  until the schema codec reads ragdoll physics.
 
 ---
 

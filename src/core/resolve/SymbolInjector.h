@@ -7,7 +7,7 @@
 // after it loads — a workaround for the fact that, pre-Behavior-Relay, nobody
 // could recompile a graph's symbol table. BR *does* recompile it, so the same job
 // becomes a compile-time union: read the declarations, merge them into the graph's
-// hkbBehaviorGraphData before CompileBehavior, and the symbols are simply *in* the
+// hkbBehaviorGraphData before it serializes (the cb.bdi-symbols feature), and the symbols are simply *in* the
 // bytes — no runtime append, name->index consistency across the whole project by
 // construction (spec §6).
 //
@@ -19,7 +19,7 @@
 // "Actors" broadcasts to every actor project, "actors\\Character" targets one);
 // type discriminates variable (kInt/kBool/kFloat, with value) from event (kEvent).
 
-#include <havok/model/defs/BehaviorDef.h>
+#include "IGraphFeature.h"   // CB::feature::ISymbolDecls / SymbolDecl
 
 #include <cstddef>
 #include <cstdint>
@@ -30,28 +30,22 @@
 
 namespace CB {
 
-    class SymbolInjector {
+    /// @brief Loads the BDI declarations and serves the ones scoped to a graph to the `cb.bdi-symbols` feature.
+    class SymbolInjector final : public CB::feature::ISymbolDecls {
     public:
         // Scan the given config dirs (via sct-config) and parse every declaration.
         // Idempotent — replaces any prior load.
         void Load(const std::vector<std::filesystem::path>& configDirs);
 
-        // Append every declaration whose projectPath scopes to `serveKey`'s project
-        // into `gd`, skipping names the graph already declares (the existing one
-        // wins — its index is already wired into the compiled graph). Returns the
-        // number of symbols actually added.
-        std::size_t InjectInto(CB::core::common::BehaviorGraphDataDef& gd,
-                               std::string_view serveKey) const;
+        /// @brief The declarations whose projectPath scopes to `graphKey`'s project, in load order.
+        std::vector<CB::feature::SymbolDecl> For(std::string_view graphKey) const override;
 
         std::size_t DeclCount() const { return m_decls.size(); }
 
     private:
         struct Decl {
-            std::string  project;        // normalized lowercase '/'-form, e.g. "actors/character"
-            std::string  name;
-            bool         isEvent = false;
-            std::string  varType;        // VARIABLE_TYPE_* (variables only)
-            std::int32_t value = 0;      // raw word value (variables only)
+            std::string             project;   ///< normalized lowercase '/'-form, e.g. "actors/character"
+            CB::feature::SymbolDecl symbol;
         };
         std::vector<Decl> m_decls;
     };

@@ -71,19 +71,3 @@ struct WatchVar {
 std::vector<WatchVar> LoadRuntimeWatch(const std::string& debugDir, std::string* warn = nullptr);
 
 } // namespace CB::core::compile::trace
-
-namespace CB::core::compile {
-using namespace CB::core::codec;
-using namespace CB::core::common;
-
-} namespace CB::core::common { struct BehaviorData; } namespace CB::core::compile {   // fwd
-
-// Walk a merged BehaviorData and emit the two records the reference-integrity hunt needs, with the
-// symbolic NAMES still present (this runs on the merged model, pre-compile, before Stage-4 clears them):
-//   * the variable table   ("vars" phase): idx=<i> name='<var>'   (graphData->variables, in order)
-//   * every node binding    ("bind" phase): <class>#<node> <memberPath> var='<name>' idx=<variableIndex>
-// So `grep BFCO_IsBlocking` shows both the table slot the name occupies AND the index each binding to it
-// actually carries — a mismatch is the bug. No-op when trace is disabled. `unit` labels the records.
-void TraceGraph(const BehaviorData& bd, std::string_view unit);
-
-} // namespace CB::core::compile

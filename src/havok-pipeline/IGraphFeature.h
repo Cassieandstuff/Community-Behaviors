@@ -2,18 +2,19 @@
 
 // Compiler-feature framework — see CLAUDE.md "Compiler features — CB::feature (SOP)".
 //
-// A feature is a self-registered graph transform the BR compile pipeline applies (the ER wildcard
-// gate, Animation Relay's clip-index binding, True Cinematics' 0_master reference wiring, …).
+// A feature is a self-registered COMPILE-TIME GRAPH MANIPULATION the compile pipeline applies to the merged graph
+// (the ER wildcard gate, the BDI symbol injection, the watermark, …).
 //
-// PURE-Apply rule (directive): a feature body depends ONLY on havok-core's BehaviorData model +
-// these context interfaces — it NEVER #includes or uses SKSE/CommonLib/BR-runtime. (The BR target
-// force-includes the plugin PCH, so a feature TU *compiles* with CommonLib in scope; that is a build
-// detail. The feature's SOURCE keeps its logical dependency to havok-core + this header, so it stays
-// unit-testable without a plugin and offline-reproducible.)
+// PURE-Apply rule (directive): a feature body depends ONLY on the core graph API (decompile::GraphEdit over the
+// merged SchemaObject graph) + these context interfaces — it NEVER #includes or uses SKSE/CommonLib/runtime. (The
+// plugin target force-includes the plugin PCH, so a feature TU *compiles* with CommonLib in scope; that is a build
+// detail. The feature's SOURCE keeps its logical dependency to the core + this header, so it stays unit-testable
+// without a plugin and offline-reproducible.)
 
-#include <havok/model/BehaviorData.h>
+#include <decompile/BehaviorDecompile.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
@@ -57,16 +58,32 @@ namespace CB::feature {
         virtual ~IAnimDataSink() = default;
     };
 
+    /// @brief One compile-time symbol declaration (a BDI config entry): an event, or a WORD variable with its raw
+    ///        4-byte value (a REAL's float bits).
+    struct SymbolDecl {
+        std::string  name;
+        bool         isEvent = false;
+        std::string  varType;          ///< VARIABLE_TYPE_* (variables only)
+        std::int32_t value = 0;        ///< raw word (variables only)
+    };
+
+    /// @brief The declarations scoped to a graph (BDI's projectPath match) — loaded by the host, read by the feature.
+    struct ISymbolDecls {
+        virtual std::vector<SymbolDecl> For(std::string_view graphKey) const = 0;
+        virtual ~ISymbolDecls() = default;
+    };
+
     // Per-graph inputs a feature may read. Grows as features need it (settings, id-minting, …) — each
     // a narrow interface so the pure-Apply rule keeps holding. The service pointers are NULLABLE: the
     // host supplies only what a given compile provides (offline unit tests and mutation-only features
     // like the wildcard gate leave them null), so a feature that needs one gates on it (in AppliesTo
     // or a null check) rather than assuming presence.
     struct FeatureContext {
-        std::string_view      graphKey;              // the graph currently being compiled (BR serve key)
+        std::string_view      graphKey;              // the graph currently being compiled (serve key)
         IFeatureLog&          log;
         const IRosterService* roster   = nullptr;    // the actor's merged animationNames roster, or null
-        IAnimDataSink*        animData = nullptr;     // where a derive feature pushes clips, or null
+        IAnimDataSink*        animData = nullptr;    // where a derive feature pushes clips, or null
+        const ISymbolDecls*   symbols  = nullptr;    // BDI declarations, or null
     };
 
     // What a feature did — the host logs a summary from this.
@@ -74,7 +91,7 @@ namespace CB::feature {
         bool        applied   = false;
         std::size_t mutations = 0;
 
-        // Node keys (BehaviorData map keys — clip/state-machine/… names) this feature WROTE.
+        // Node ids (FormIDs — GraphEdit::IdOf) this feature WROTE.
         // Self-reported: features are declarative about what they touch (the Community Shaders idiom —
         // authors declare, the host surfaces — rather than an auto-tracking membrane). The host
         // aggregates these across the run and warns when two features write the same key: run order
@@ -95,8 +112,8 @@ namespace CB::feature {
         // guards on data validity.
         virtual bool AppliesTo(const FeatureContext&) const = 0;
 
-        // Mutate the per-graph model. Pure: touches only `data`, havok-core types, and ctx.
-        virtual FeatureResult Apply(CB::core::common::BehaviorData& data, const FeatureContext&) = 0;
+        // Edit the merged graph. Pure: touches only `graph`, core types, and ctx.
+        virtual FeatureResult Apply(CB::core::decompile::GraphEdit& graph, const FeatureContext&) = 0;
 
         // Relative run-order constraints (RETURNED BY VALUE-STABLE SPAN over storage the feature
         // owns — return a static array or empty). The host topo-sorts the enabled set from these, so a

@@ -1,7 +1,5 @@
 #include <codec/format/RigIndex.h>
 
-#include <codec/format/ProjectYaml.h>
-
 #include <algorithm>
 #include <cctype>
 
@@ -39,14 +37,12 @@ std::string RigIndex::JoinRel(const std::string& dir, const std::string& rel) {
     return out;
 }
 
-void RigIndex::AddProject(const std::string& projUnit, const std::string& projectYaml,
-                          const std::function<std::optional<CB::core::common::CharacterDef>(const std::string&)>& loadChar,
+void RigIndex::AddProject(const std::string& projUnit, const std::vector<std::string>& characterFilenames,
+                          const std::function<std::optional<CharacterRig>(const std::string&)>& loadChar,
                           const std::function<bool(const std::string&)>& hasSkeleton,
                           const std::function<void(const std::string&)>& warn) {
-    CB::core::common::ProjectSpec spec;
-    if (!CB::core::codec::ParseProjectYaml(projectYaml, spec)) return;
     const std::string projDir = DirOf(projUnit);
-    for (const std::string& cf : spec.characterFilenames) {
+    for (const std::string& cf : characterFilenames) {
         const std::string charUnit = JoinRel(projDir, cf);
         const auto def = loadChar(charUnit);
         if (!def || def->rig.empty()) continue;
