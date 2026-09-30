@@ -6,6 +6,7 @@
 #include <interface/reflection/HavokSchema.h>
 #include <codec/serialization/packfile/IHavokObject.h>
 #include <codec/serialization/packfile/PackFileTypes.h>
+#include <codec/format/AnimationScan.h>
 
 #include <cstdint>
 #include <memory>
@@ -57,13 +58,17 @@ Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry&
 ///        graph.yaml). ParseHkyReflective is its exact inverse.
 /// @param bones the graph's rig in rig order (RigIndex), so `boneref`/`bonelist`/`boneweights` fields render by bone
 ///              NAME; null = rig unknown (indices stay numeric — still lossless).
+/// @brief A `scan:` list's RECIPE, made from the list it replaces (the base-master regen derives a character's
+///        animations.yaml from its vanilla roster + the baked animation tree). nullopt = keep the literal list.
+using AnimationScanFn = std::function<std::optional<CB::core::anim::AnimationScan>(const std::vector<std::string>& list)>;
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
-                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones = nullptr);
+                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones = nullptr,
+                       const AnimationScanFn* scan = nullptr);
 /// @brief Deserialize + encounter-order AssignIdentity + EmitHkyReflective: a complete unit, its nodes self-owned
 ///        FormIDs (`0000x…`) — the form a base unit (and any full graph a bundle ships) takes.
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
                                  const std::string& outDir, std::string& err,
-                                 const std::vector<std::string>* bones = nullptr);
+                                 const std::vector<std::string>* bones = nullptr, const AnimationScanFn* scan = nullptr);
 
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
 ///        categories; inline objects join with category "").
@@ -71,6 +76,9 @@ struct ParsedHky {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;
     std::shared_ptr<io::SchemaObject>              root;
     Identity                                       identity;
+    /// @brief A `scan:` field read as its recipe: the list stays EMPTY until ExpandAnimationScans builds it.
+    struct ScanField { io::SchemaObject* obj; std::size_t field; CB::core::anim::AnimationScan recipe; };
+    std::vector<ScanField>                         scans;
 };
 /// @brief The compile-time EDITING view over a merged graph — the handle every graph feature receives.
 /// @note  Vocabulary edits keep Havok's parallel arrays in LOCKSTEP (names / infos / word values), so a feature can't
@@ -179,6 +187,15 @@ bool CompileLayersReflective(const std::vector<CB::core::common::LayerSource>& l
                              const CB::core::codec::HKXHeader& header = CB::core::codec::HKXHeader::SkyrimSE());
 /// @brief The merge half of CompileLayersReflective — the merged graph, for the compile stages that edit or read it
 ///        (features, reference qualification, adsf-derive) before SerializeGraph.
+/// @brief A character unit's roster recipe (its animations.yaml), if it has one.
+std::optional<CB::core::anim::AnimationScan> ReadAnimationScan(const CB::core::common::IUnitSource& src);
+/// @brief A character unit's PROJECT folder as a lowercase '/' data path: the unit path minus `characters[ x]/<name>.hkx`.
+std::string ProjectDirOf(const std::string& unitKey);
+/// @brief Build every `scan:` list of `graph` (a unit at serve path `unitKey`) from `index`. Returns how many it built.
+std::size_t ExpandAnimationScans(ParsedHky& graph, const std::string& unitKey, const CB::core::anim::AnimationIndex& index,
+                                 std::vector<std::string>* collisions = nullptr);
+/// @brief Empty every `scan:` list under `root` (a gate compares everything EXCEPT the scanned rosters).
+void ClearScanFields(const std::shared_ptr<IHavokObject>& root);
 bool MergeLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err);
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,

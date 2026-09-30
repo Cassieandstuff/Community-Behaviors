@@ -6,7 +6,6 @@
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (codec/format, firesale)
-#include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
 
 #include <algorithm>
@@ -166,7 +165,7 @@ namespace CB::core::serve {
 
     }  // namespace
 
-    SetDataServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni)
+    SetDataServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni, const RosterMap& rosters)
     {
         SetDataServeResult r;
 
@@ -189,11 +188,16 @@ namespace CB::core::serve {
         // after the actor-root map exists.
         std::vector<std::tuple<int, std::string, asd::SingleFile>> yamlDeltas;  // (prio, project, delta)
 
-        // Roster (animationNames) additions per character, unioned across ALL mod bundles — the
-        // same additions the served compiled character file now bakes into its roster. Used by
-        // the coverage guard below so the served cache never registers a CRC the character's
-        // roster can't resolve (that mismatch is the char-setup set-data-bind rep-stosq crash).
+        /// @note Each character's SERVED roster (the scan), by character stem — the coverage guard below never lets
+        ///       the served cache register a CRC the character's roster can't resolve (that mismatch is the
+        ///       char-setup set-data-bind rep-stosq crash).
         std::unordered_map<std::string, std::vector<std::string>> rosterPaths;  // charName(lower) -> paths
+        for (const auto& [unit, roster] : rosters) {
+            const auto s1 = unit.find_last_of('/');
+            std::string charName = ToLower(s1 == std::string::npos ? unit : unit.substr(s1 + 1));
+            if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
+            rosterPaths[charName] = roster;
+        }
 
         // Open every MOD bundle once — a <Mod>.hky is EITHER an unpacked dir OR a packed .hky
         // file, read the same way through BundleReader. The Skyrim.hky MASTER (stem "skyrim")
@@ -214,37 +218,6 @@ namespace CB::core::serve {
 
                 auto rd = BundleReader::Open(bundle);
                 if (!rd) { LOG_WARN("SetData: cannot read bundle '{}' — skipped.", bundle.string()); continue; }
-
-                // Roster additions (animationnames/<char>.txt) — collected even if the bundle
-                // ships no set-data (a character's roster is the union across bundles).
-                for (const std::string& fn : rd->files("animationnames", ".txt")) {
-                    const std::string charName = ToLower(fs::path(fn).stem().string());
-                    if (const auto txt = rd->read(std::string("animationnames/") + fn)) {
-                        std::istringstream in(*txt);
-                        std::string        line;
-                        auto&              dst = rosterPaths[charName];
-                        while (std::getline(in, line)) {
-                            const std::string t = TrimLine(line);
-                            if (!t.empty()) dst.push_back(t);
-                        }
-                    }
-                }
-
-                /// @note Roster additions ALSO live in each character unit's animationNames (a union roster: a patch
-                ///       unit states only the names it adds). WITHOUT these the coverage guard's roster is empty for
-                ///       every mod animation, its set-data CRC is dropped as "unrostered", and that attack / dodge /
-                ///       parkour binds the WRONG animation (SkyParkour / HorsePower / BFCO regressions).
-                for (const std::string& unit : rd->units(CB::core::codec::HkyArchive::UnitKind::Character)) {
-                    const auto src = rd->unitSource(unit);
-                    auto cs = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
-                    if (!cs || cs->animationNames.empty()) continue;
-                    const auto s1 = unit.find_last_of('/');
-                    std::string charName = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
-                    if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
-                    auto& dst = rosterPaths[charName];
-                    dst.insert(dst.end(), std::make_move_iterator(cs->animationNames.begin()),
-                               std::make_move_iterator(cs->animationNames.end()));
-                }
 
                 const auto oit  = order.find(stem);  // loadorder lists bare stems ("bfco")
                 const int  prio = (oit != order.end()) ? oit->second : 0;
@@ -462,11 +435,10 @@ namespace CB::core::serve {
         r.mergedProjects = base.projects.size();
 
         // ── Coverage guard (part 2) ──────────────────────────────────────────────────
-        // Each character's roster additions (animationnames, the same set BR bakes into the
-        // served compiled character) extend what its set-data may safely reference. Compute the
+        // Each character's served (scanned) roster extends what its set-data may safely reference. Compute the
         // CRC of each addition using THAT character's actor root (not a hardcoded humanoid one),
         // and pool them into a GLOBAL roster-covered set. Global is both correct and safe here:
-        // roster additions live under per-actor animation folders, so their CRCs don't collide
+        // roster entries live under per-actor animation folders, so their CRCs don't collide
         // across actors — and it sidesteps the project-vs-character keying gap (a project header
         // yields the PROJECT stem "horseproject" while a roster file is the CHARACTER stem
         // "horse"; per-character keying silently failed to cover every creature whose project

@@ -67,6 +67,8 @@ struct Field {
                                          ///<        `bone:<f>` (by the bone an element's index field names), `id` (minted
                                          ///<        sub-record FormIDs, owner-qualified, scoped to the parent), `slot` (as
                                          ///<        `id`, but entries are referenced by position elsewhere: never deleted).
+    std::string scan;                    ///< @brief `scan: animations` — the list is not stored but BUILT by scanning asset
+                                         ///<        folders (the unit's animations.yaml recipe); patches never touch it.
     std::string charPropIf;              ///< @brief `charpropif: <field>=<value>` — the `varref` index names a CHARACTER
                                          ///<        PROPERTY (not a variable) when that sibling field holds that value.
     bool        hkyEmit = false;         // force-emit this field in the .hky even though it is `ignored`

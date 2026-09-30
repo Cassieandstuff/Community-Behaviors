@@ -4,6 +4,8 @@
 
 #include <filesystem>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 // AnimationSetDataServer — the runtime moveset-table merge.
 //
@@ -26,6 +28,9 @@ namespace CB::core::serve {
     // CB::asd (the Nemesis-convert tool namespace) within this server.
     namespace asd = CB::core::animsetdata;
 
+    /// @brief Character serve key -> its served (scanned) roster (Resolver::ScannedRosters).
+    using RosterMap = std::unordered_map<std::string, std::vector<std::string>>;
+
     struct SetDataServeResult {
         bool        attempted = false;   // found >=1 bundle contributing set-data
         bool        ok = false;          // produced + wrote the merged file
@@ -42,8 +47,9 @@ namespace CB::core::serve {
     // Data\meshes\animationsetdatasinglefile.txt, and write the merged single file to
     // Data\community_behaviors_cache\animationsetdatasinglefile.txt. Safe + idempotent to call
     // once per launch. Never throws — failures land in SetDataServeResult::error.
+    /// @param rosters every character's served roster: what its set-data CRCs may reference.
     SetDataServeResult ServeSetData(const std::filesystem::path& dataDir,
-                             const std::filesystem::path& loadOrderIni);
+                             const std::filesystem::path& loadOrderIni, const RosterMap& rosters);
 
     // Install the DETERMINISTIC set-data redirect: a write_call<5> detour on the loader's
     // file-open call site (AnimationClipDataSingleton / FUN_14053b000 does

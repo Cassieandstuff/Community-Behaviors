@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -63,9 +64,13 @@ namespace CB::core::serve {
 
     /// @param clipsOf reads the clips of a bundle's behavior graphs, for a bundle that ships no animationdata of its
     ///        own (and for a master that ships no clips/); without it those derive legs are skipped.
+    /// @brief Character serve key -> its served (scanned) roster (Resolver::ScannedRosters).
+    using RosterMap = std::unordered_map<std::string, std::vector<std::string>>;
+
     ServeResult ServeAnimData(const std::filesystem::path& dataDir,
                               const std::filesystem::path& loadOrderIni,
                               const GraphClipReader&       clipsOf,
+                              const RosterMap&             rosters,
                               const GraphClipSink*         sink = nullptr,
                               bool                         rosterFromScan = false);
 

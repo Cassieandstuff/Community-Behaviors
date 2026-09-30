@@ -124,7 +124,7 @@ namespace CB {
         // LOOSE .hkx binaries under Data\meshes\ so the engine's
         // startup loose scan indexes them (actor animations resolve by crc32(path) against that scan,
         // NOT via the on-demand Func3 community_behaviors_cache serve — hence loose, not community_behaviors_cache). The
-        // clean name is rostered (folded into m_characterAnimNames at Init), so a clip binds it. Called
+        // character's scan recipe rosters it, so a clip binds it. Called
         // from the warm-up; returns the count written. dataRoot is the Data folder (parent of meshes\).
         // onUnit (optional): called once per animation as it FINISHES (ok/skip/fail alike), for the
         // progress bar. Invoked from pool workers when exec is set, so it must be thread-safe — the
@@ -256,17 +256,10 @@ namespace CB {
 
         std::size_t AnimationActorCount() const { return m_actorAnimations.size(); }
 
-        // Character-roster additions ingested from bundles (Data\community_behaviors\plugins\
-        // <Mod>.hky\animationnames\<character>.txt — one animation name per line, produced by
-        // br-nemesis-to-hky from a mod's hkbCharacterStringData patches). Keyed by character
-        // name (case-insensitive; matches hkbCharacterStringData::name, e.g. "DefaultMale").
-        // The character injector dedup-appends these to the character's animationNames so a
-        // mod's set-data crcs resolve against a roster that actually lists those anims — the
-        // consistency the standalone set-data serve was missing. Lock-free (immutable after
-        // Init). Empty if none.
-        const std::vector<std::string>& AnimationNamesForCharacter(std::string_view characterName) const;
-
-        std::size_t CharacterAnimNameCount() const { return m_characterAnimNames.size(); }
+        /// @brief Every character's SCANNED roster (its animations.yaml recipe over the load order's animations), by
+        ///        character serve key ("meshes/actors/character/characters/defaultmale.hkx") — exactly what its served
+        ///        animationNames holds. Immutable after Init().
+        const std::unordered_map<std::string, std::vector<std::string>>& ScannedRosters() const { return m_scannedRosters; }
 
         // Parsed manifest for a bundle by its load-order stem (case-insensitive, e.g.
         // "bfco"), or nullptr if that bundle was never scanned. Immutable after Init();
@@ -330,12 +323,10 @@ namespace CB {
         // compiled character file now carries the merged roster. Kept until a resolver
         // dead-code pass prunes these feeders + their scan in Init().
         std::unordered_map<std::string, std::vector<std::string>> m_actorAnimations;
-        // character-file stem (lowercase, e.g. "defaultmale") -> animationNames additions,
-        // ingested from bundles' animationnames\<stem>.txt. The AUTHOR-FACING roster drop:
-        // folded into the character's compiled animationNames at Resolve() (deduped). The
-        // converter emits the same files, so authored + converted bundles share one path.
-        // Immutable after Init().
-        std::unordered_map<std::string, std::vector<std::string>> m_characterAnimNames;
+        /// @brief Every animation file of the load order (lowercase data path -> original case). Immutable after Init().
+        CB::core::anim::AnimationIndex m_animIndex;
+        /// @brief Character serve key -> its scanned roster (see ScannedRosters). Immutable after Init().
+        std::unordered_map<std::string, std::vector<std::string>> m_scannedRosters;
         /// @brief Bone-name tables keyed by RIG unit (normalized serve path, e.g.
         ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
         ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
@@ -353,8 +344,7 @@ namespace CB {
         // the ".hkx" source path (compile-target model: the file is YAML, the ".hkx" name is the binary
         // to emit — source path == output path). Collected in Init from every bare "<name>.hkx" FILE
         // under an actor's animations\ dir; WriteNativeAnimations() compiles each to a loose .hkx there.
-        // Their clean char-relative names are auto-folded into m_characterAnimNames at Init so a clip
-        // binds. Immutable after Init().
+        // A character rosters them through its scan recipe. Immutable after Init().
         std::vector<std::pair<std::string, std::string>> m_nativeAnims;
         // bundle stem (lowercase, e.g. "bfco") -> its parsed manifest.json (identity,
         // version, declared masters). Every scanned .hky has an entry (defaulted when

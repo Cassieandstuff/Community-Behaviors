@@ -205,35 +205,45 @@ struct VecCurve {
     }
 };
 
-// ── scalar float channel (float tracks) ───────────────────────────────────────
-// Verified against a large real corpus: every float track uses mask 0x03 =
-// STATIC, a single raw f32 (the values are per-animation constants, e.g. MCO
-// combat flags). Identity (mask 0) yields 0. A dynamic channel (high nibble set)
-// is decoded as the encoder's 1-component BITS16 spline; no real file exercises
-// it, so that path is self-consistent with the encoder but unvalidated vs Havok.
+/// @brief One float track's channel: a 1-component (X) vector channel.
+/// @note Mask byte, per the game's float sampler (SkyrimSE 1.6.1170 FUN_140c33100/FUN_140c33190, called
+///       from hkaSplineCompressedAnimation::samplePartialTracks): flags = mask & 0xF9 (0x01 STATIC_X,
+///       0x10 SPLINE_X), ScalarQuantization = (mask >> 1) & 3 (0 BITS8, 1 BITS16). Vanilla ships only
+///       0x03 (static, BITS16) and 0x12 (spline, BITS16). Identity (mask 0) yields 0.
+/// @warning Havok align4's the read pointer after EVERY float track. A static f32 is always aligned, but a
+///          spline's (n+1) BITS16 control points leave the pointer 2-aligned when n is even; skipping that
+///          align desynced every following float track (the 10 vanilla 0x12 clips that failed to decode).
 struct FloatChan {
     bool                dynamic = false;
     float               sV = 0.f;
     float               mn = 0.f, mx = 0.f;
     int                 n = 0, deg = 0;
+    int                 bpc = 2;
     const std::uint8_t* K = nullptr;
     const std::uint8_t* C = nullptr;
 
     static FloatChan Rd(Reader& r, std::uint8_t mask, const std::uint8_t* base) {
         FloatChan c;
-        if (mask == 0) return c;               // identity → 0
-        if (mask & 0xF0) {                     // dynamic scalar spline
+        if (mask == 0) return c;
+        if (mask & 0xF0) {
             c.dynamic = true;
+            c.bpc = (((mask >> 1) & 0x3) == 0) ? 1 : 2;
             c.n   = static_cast<int>(r.U16());
             c.deg = static_cast<int>(r.U8());
             if (c.deg > kMaxSplineDegree) { r.ok = false; return c; }   // stack d[deg+1] cap; garbage otherwise
             c.K   = r.p; r.skip(c.n + c.deg + 2);
             r.align4(base);
             c.mn = r.F32(); c.mx = r.F32();
-            c.C  = r.p; r.skip((c.n + 1) * 2);  // BITS16
-        } else {                                // static (0x03) → one raw f32
+            c.C  = r.p; r.skip((c.n + 1) * c.bpc);
+        } else {
             c.sV = r.F32();
         }
+        if (!r.ok) return c;
+        /// @note Tolerant align: a pre-fix CB compile of a spline float can end the blob without the pad
+        ///       after its LAST float track; any following read still bounds-checks itself.
+        const std::uintptr_t off = static_cast<std::uintptr_t>(r.p - base);
+        const std::uint8_t* aligned = base + ((off + 3u) & ~std::uintptr_t(3u));
+        r.p = (aligned > r.end) ? r.end : aligned;
         return c;
     }
 
@@ -251,6 +261,7 @@ struct FloatChan {
         const float range = mx - mn;
         auto unpack = [&](int ci) -> float {
             ci = std::clamp(ci, 0, n);
+            if (bpc == 1) return mn + (C[ci] / 255.f) * range;
             std::uint16_t v; std::memcpy(&v, C + ci * 2, 2);
             return mn + (v / 65535.f) * range;
         };

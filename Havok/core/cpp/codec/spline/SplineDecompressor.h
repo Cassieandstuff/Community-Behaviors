@@ -26,8 +26,8 @@ struct DecodedPose {
 //
 // `floatOut`, if non-null, is filled with the per-frame float-track values,
 // sized numFrames*numFloatTracks, index = frame*numFloatTracks + floatTrack.
-// Static floats (mask 0x03 — the only form seen across a large real corpus) are
-// exact; dynamic float channels use the encoder's 1-component BITS16 spline.
+// Static floats (mask 0x03) are exact; spline floats (mask 0x12 in vanilla, e.g.
+// trap/clutter visibility switches) decode as a 1-component BITS8/BITS16 spline.
 bool DecodeSpline(const std::uint8_t* data, std::size_t dataLen,
                   int numFrames, int numBlocks, int maxFramesPerBlock,
                   int maskAndQuantizationSize,

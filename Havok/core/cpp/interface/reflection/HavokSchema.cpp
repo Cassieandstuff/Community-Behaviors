@@ -207,6 +207,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.boneList = (childStr(fn, "bonelist") == "true");
                     f.boneSet  = (childStr(fn, "boneset")  == "true");
                     f.charPropIf = childStr(fn, "charpropif");
+                    f.scan       = childStr(fn, "scan");
                     f.roster     = childStr(fn, "roster");
                     if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
                     f.isFlags  = (childStr(fn, "flags") == "true");   // bitfield → FormatFlags in .hky

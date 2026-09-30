@@ -86,33 +86,6 @@ namespace CB {
             return rest.substr(0, rest.find('/'));   // fallback: first segment
         }
 
-        // Decode XML entity references (&amp; &lt; &gt; &quot; &apos;) to their literal
-        // characters. Author-drop
-        // animationnames\<char>.txt rosters can arrive HTML-escaped (a mod's loose character
-        // decompiled through an XML pipeline), so a shared-killmove path like
-        // "..\SharedKillMoves\Human&amp;Boar\..." must fold back to "...Human&Boar\..." BEFORE
-        // it is deduped against the (literal-'&') base roster. Without this, the escaped copy
-        // fails the dedup, is appended as a phantom "addition", and inflates animationNames.
-        // Those phantom paths don't exist on disk so they bind to nothing — but OAR sets its
-        // synchronized-clip index offset to animationNames.size(), so the padding makes OAR's
-        // (uint16) `animationBindingIndex -= offset` UNDERFLOW → out-of-bounds → the rep-stosq
-        // char-setup CTD. Keeping the roster literal keeps count == bindings == OAR's offset.
-        std::string UnescapeXml(const std::string& s)
-        {
-            std::string o;
-            o.reserve(s.size());
-            for (std::size_t i = 0; i < s.size();) {
-                if (s[i] == '&') {
-                    if (s.compare(i, 5, "&amp;")  == 0) { o += '&';  i += 5; continue; }
-                    if (s.compare(i, 4, "&lt;")   == 0) { o += '<';  i += 4; continue; }
-                    if (s.compare(i, 4, "&gt;")   == 0) { o += '>';  i += 4; continue; }
-                    if (s.compare(i, 6, "&quot;") == 0) { o += '"';  i += 6; continue; }
-                    if (s.compare(i, 6, "&apos;") == 0) { o += '\''; i += 6; continue; }
-                }
-                o += s[i++];
-            }
-            return o;
-        }
 
         using CB::core::discover::NormalizeKey;
         using CB::core::discover::FolderRootOf;
@@ -367,19 +340,8 @@ namespace CB {
 
             const std::string outKey = relOrig;            // the ".hkx" path IS the output name
 
-            // COLLECT FOR RECOMPILE ONLY — do NOT auto-roster. A .hkx file's presence under an
-            // actor's animations\ dir is NOT membership in that actor's animationName roster. The
-            // authoritative roster is the character's animationNames (a union roster across layers) plus
-            // any explicit animationnames\<char>.txt drop and the rosterref clip membrane. Force-adding
-            // every file here was over-inclusive: a full master carries ~5900 anims under
-            // meshes\actors\character\animations\, but only ~1656 belong to defaultmale — the rest are
-            // other character variants, DLC/creature-under-character projects, first-person, or
-            // DAR/behavior-only clips. Folding all of them into defaultmale/defaultfemale inflated the
-            // roster ~3.5x; char-setup binds against roster.size() (== the OAR synchronized offset), so
-            // the surplus entries overran the binding/offset math → the AutoplayBehavior char-setup CTD.
-            // (Reached only for a compile-opted-in bundle now; still don't auto-roster from raw file
-            // discovery.) When the real in-memory serve lands, binding will be driven from the
-            // authoritative roster, not from raw file discovery.
+            /// @note COLLECT FOR RECOMPILE ONLY. Rostering is the characters' own scan recipes (animations.yaml),
+            ///       which name their source folders — a file's presence alone rosters nothing.
             m_nativeAnims.emplace_back(outKey, std::move(yamlText));
         };
 
@@ -486,37 +448,6 @@ namespace CB {
                     layers[key].push_back({ plugName, std::move(src), kind == CB::core::codec::HkyArchive::UnitKind::Character });
                 }
 
-                // AUTHOR-FACING ROSTER DROP: a bundle adds animations to a character by
-                // dropping a flat list at <Mod>.hky\animationnames\<character-file-stem>.txt
-                // (e.g. animationnames\defaultmale.txt for characters\defaultmale.hkx). One
-                // animation path per line; '#'/';' lines and blanks ignored. No need to mirror
-                // the deep character-unit directory, and no Nemesis — these fold into the
-                // character's compiled animationNames roster at Resolve() time (deduped,
-                // case-insensitive). The converter emits the same files, so converter mods and
-                // hand-authored bundles share one path. Unioned across bundles; the compile
-                // dedups, so priority/order is immaterial here.
-                std::error_code anec;
-                const fs::path animNamesDir = bundle / "animationnames";
-                if (fs::is_directory(animNamesDir, anec)) {
-                    for (fs::directory_iterator ai(animNamesDir, anec), aEnd; !anec && ai != aEnd; ai.increment(anec)) {
-                        std::error_code fec;
-                        if (!ai->is_regular_file(fec)) continue;
-                        if (ToLower(ai->path().extension().string()) != ".txt") continue;
-                        const std::string charKey = ToLower(ai->path().stem().string());  // "defaultmale"
-                        std::ifstream     nf(ai->path());
-                        std::string       nline;
-                        auto&             names = m_characterAnimNames[charKey];
-                        while (std::getline(nf, nline)) {
-                            const std::string t = TrimLine(nline);
-                            // Un-escape XML entities so escaped killmove paths fold back to
-                            // their literal form and dedup against the base roster (see
-                            // UnescapeXml) — otherwise they pad animationNames and underflow
-                            // OAR's synchronized-clip index offset.
-                            if (!t.empty() && t[0] != '#' && t[0] != ';') names.push_back(UnescapeXml(t));
-                        }
-                    }
-                }
-
               } else {
                 // ── Packed bundle (shipped form) — decompress the whole .hky in memory. ──
                 // A single-file .hky is a zip of the same game-tree unit layout. Read it
@@ -559,23 +490,6 @@ namespace CB {
                         if (key.empty() || key[0] == '.') continue;
                         layers[key].push_back({ plugName, arc->source(u.prefix),
                                                 u.kind == CB::core::codec::HkyArchive::UnitKind::Character });
-                    }
-
-                    // Author roster drops inside a packed bundle live at "animationnames/
-                    // <char-stem>.txt" (same convention as the on-disk dir above). The
-                    // full-corpus master ships none, but a packed MOD bundle may.
-                    for (const auto& full : arc->filesUnder("animationnames/")) {
-                        if (ToLower(fs::path(full).extension().string()) != ".txt") continue;
-                        const std::string charKey = ToLower(fs::path(full).stem().string());
-                        if (auto txt = arc->file(full)) {
-                            auto& names = m_characterAnimNames[charKey];
-                            std::istringstream ns(*txt);
-                            std::string        nline;
-                            while (std::getline(ns, nline)) {
-                                const std::string t = TrimLine(nline);
-                                if (!t.empty() && t[0] != '#' && t[0] != ';') names.push_back(UnescapeXml(t));
-                            }
-                        }
                     }
 
                     // Native animations authored inside the packed bundle: a bare "<name>.hkx" FILE
@@ -681,6 +595,15 @@ namespace CB {
             /// @note Loaded HERE, single-threaded, before any fan-out: its one-time load is guarded by a plain,
             ///       unsynchronized `state` int, so two workers racing the first use could both attempt it.
             auto* schemaReg = CB::core::schema::SharedRegistry();
+
+            /// @note Every animation file the load order holds (master + bundles, base first — a later bundle's
+            ///       same path wins), which the characters' roster recipes scan.
+            for (const auto& b : bundles) CB::core::anim::IndexAnimationFiles(m_animIndex, b.reader.filesUnderOrig("meshes/", ".hkx"));
+            for (const auto& [unit, bi] : charWinner)
+                if (const auto src = bundles[bi].reader.unitSource(unit))
+                    if (const auto recipe = CB::core::decompile::ReadAnimationScan(*src))
+                        m_scannedRosters[unit] = CB::core::anim::ExpandAnimationScan(*recipe, CB::core::decompile::ProjectDirOf(unit), m_animIndex);
+            LOG_INFO("Resolver: {} animation file(s) indexed; {} character roster(s) scanned.", m_animIndex.size(), m_scannedRosters.size());
 
             // DIAGNOSTIC opt-out (marker file Data\community_behaviors\noskeletonserve.enable): skip the
             // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton.
@@ -868,13 +791,6 @@ namespace CB {
             LOG_INFO("Resolver: {} registered animation(s) across {} actor(s) (via animations\\community_behaviors\\).",
                      animCount, m_actorAnimations.size());
 
-        if (!m_characterAnimNames.empty()) {
-            std::size_t total = 0;
-            for (const auto& [k, v] : m_characterAnimNames) total += v.size();
-            LOG_INFO("Resolver: {} character-roster addition list(s) ingested ({} name(s) total) via animationnames\\.",
-                     m_characterAnimNames.size(), total);
-        }
-
         // FULLY built — publish the ready signal LAST (release), so any serve hook that acquires it sees
         // every field above completely written. Init runs on a background thread; hooks pass through to
         // vanilla until this fires, and the compile gate blocks on WaitReady().
@@ -920,15 +836,6 @@ namespace CB {
         // No lock: m_manifests is immutable after Init(). Keyed by lowercase bundle stem.
         const auto it = m_manifests.find(ToLower(std::string(bundleStem)));
         return it != m_manifests.end() ? &it->second : nullptr;
-    }
-
-    const std::vector<std::string>& Resolver::AnimationNamesForCharacter(std::string_view characterName) const
-    {
-        // No lock: m_characterAnimNames is immutable after Init(). Keyed by lowercase name.
-        static const std::vector<std::string> kEmpty;
-        if (m_characterAnimNames.empty() || characterName.empty()) return kEmpty;
-        const auto it = m_characterAnimNames.find(ToLower(std::string(characterName)));
-        return it != m_characterAnimNames.end() ? it->second : kEmpty;
     }
 
     void Resolver::CompileAll(const std::function<void(std::size_t, std::size_t)>& progress)
@@ -1555,16 +1462,7 @@ namespace CB {
         if (!sd) { LOG_WARN("Resolver: character '{}' has no string data — served as merged.", key); return; }
         const std::string cstem = ToLower(fs::path(key).stem().string());
 
-        /// @note The author-facing roster drop (animationnames\<stem>.txt) folds in as an EXACT-case union: Havok binds
-        ///       case-sensitively, so a lowercased dedup would drop the exact name a clip binds.
-        std::vector<std::string>& names = sd->FieldRef("animationNames").strs;
-        if (const auto ci = m_characterAnimNames.find(cstem); ci != m_characterAnimNames.end() && !ci->second.empty()) {
-            std::unordered_set<std::string> have(names.begin(), names.end());
-            std::size_t folded = 0;
-            for (const auto& a : ci->second)
-                if (have.insert(a).second) { names.push_back(a); ++folded; }
-            if (folded) LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
-        }
+        const std::vector<std::string>& names = sd->FieldRef("animationNames").strs;
         if (m_adsfDerive) m_characterRosters[cstem] = names;
         m_characterActor[cstem] = ActorPathOf(key);
 
@@ -1618,6 +1516,12 @@ namespace CB {
                 m_cache.emplace(key, nullptr);
                 return nullptr;
             }
+            /// @note A character's roster is BUILT from its animations.yaml recipe over every bundle's animations.
+            std::vector<std::string> collisions;
+            if (CB::core::decompile::ExpandAnimationScans(graph, key, m_animIndex, &collisions))
+                for (const auto& c : collisions)
+                    LOG_WARN("Resolver: '{}' roster — two animations share a filename (the engine's slot key); kept the "
+                             "first: {}", key, c);
             CB::core::decompile::GraphEdit edit(graph, *reg);
 
             if (gs.isCharacter) {

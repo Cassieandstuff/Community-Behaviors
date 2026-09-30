@@ -286,7 +286,7 @@ namespace CB {
     {
         const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
 
-        const auto sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt");
+        const auto sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt", g_resolver.ScannedRosters());
         if (sd.attempted && !sd.ok)
             LOG_WARN("Community Behaviors: animationsetdata merge did not complete: {}", sd.error);
         CB::core::serve::ArmSetDataRedirect(sd);
@@ -297,6 +297,7 @@ namespace CB {
             [](const std::string& key, const std::vector<CB::core::common::LayerSource>& layers) {
                 return g_resolver.ClipInputsOf(key, layers);
             },
+            g_resolver.ScannedRosters(),
             clipSink, ReadAdsfRosterFromScan());
         if (ad.attempted && !ad.ok)
             LOG_WARN("Community Behaviors: animationdata merge did not complete: {}", ad.error);

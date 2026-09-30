@@ -213,15 +213,14 @@ void WriteMask(ByteBuf& bw, ChannelType pos, ChannelType rot, ChannelType scale)
     bw.u8(qTypes); bw.u8(posTypes); bw.u8(rotTypes); bw.u8(scaleTypes);
 }
 
+/// @note Float mask = flags | (ScalarQuantization << 1), the game's float-sampler decode (flags = mask & 0xF9,
+///       quant = (mask >> 1) & 3). 0x03 = STATIC_X|BITS16, 0x12 = SPLINE_X|BITS16: the only two forms vanilla
+///       ships (2625 / 66 clips). 0x00 = identity. The former dynamic marker 0x50 (SPLINE_X|SPLINE_Z) was
+///       never vanilla and would make the game read a second min/max pair.
 void WriteFloatMask(ByteBuf& bw, FloatChannelType ft) {
-    // 0x03 = STATIC single f32 — verified as the real Havok encoding against a
-    // large loose-animation corpus (every float track uses it). 0x00 = identity.
-    // 0x50 = a dynamic (high-nibble) marker matching SplineDecompressor's scalar
-    // spline path; no real file uses dynamic floats, so it is self-consistent
-    // with the decoder but not validated against Havok.
     std::uint8_t mask = 0x00;
     if (ft == FloatChannelType::Static)  mask = 0x03;
-    if (ft == FloatChannelType::Dynamic) mask = 0x50;
+    if (ft == FloatChannelType::Dynamic) mask = 0x12;
     bw.u8(mask);
 }
 
@@ -369,9 +368,8 @@ void WriteScaleData(ByteBuf& bw, const TransformFrame* frames, int start, int co
 }
 
 void WriteFloatData(ByteBuf& bw, const float* frames, int start, int count, FloatChannelType type) {
-    // NOTE: the first-party decoder does not yet decode float tracks, so this
-    // layout is UNVERIFIED (no shipping tree exercises it). Written as a
-    // 1-component dynamic vec / single static float for forward-compatibility.
+    /// @note Layout matches vanilla 0x12 spline floats (verified vs the 66 vanilla clips): u16 n, u8 degree,
+    ///       knots, align4, f32 min/max, BITS16 control points. A static float is one raw f32.
     if (type == FloatChannelType::Identity) return;
     if (type == FloatChannelType::Static) { bw.f32(frames[start]); return; }
     std::vector<std::vector<float>> c(1, std::vector<float>(count));
@@ -414,8 +412,12 @@ void WriteBlock(ByteBuf& bw,
         bw.alignTo(4);
     }
 
-    for (int t = 0; t < numFloat; ++t)
+    /// @note Havok align4's after EVERY float track; only a spline float's BITS16 control points can end
+    ///       unaligned, so this is a no-op for static/identity floats (their bytes are unchanged).
+    for (int t = 0; t < numFloat; ++t) {
         WriteFloatData(bw, floatFrames[t].data(), blockStart, framesInBlock, floatMask[t]);
+        bw.alignTo(4);
+    }
 }
 
 } // namespace
