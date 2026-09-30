@@ -230,38 +230,76 @@ int AddRosterToCharacterUnit(RosterSink& sink, const fs::path& bundleDir, const 
     return added;
 }
 
-/// @brief Write every sink entry as the bundle's patch for that character: its base unit's animationNames plus the
-///        names the base lacks (a union roster — the patch states only the additions).
+/// @brief Write the sink as each bundle's character PATCHES: a union roster stating only the names the base lacks.
+/// @warning Characters sharing a root behavior (defaultmale + defaultfemale) bind their shared graphs' clips
+///          POSITIONALLY, so their rosters must stay slot-aligned: the engine keys a slot by its lowercase FILENAME, and
+///          `male\MT_X` in a clip IS the female roster's `female\MT_X`. So a name whose filename any member's base
+///          already holds is vanilla, and every genuine addition goes to EVERY member, in the same order. Deduping per
+///          character appended 17 phantom `male\MT_*` to defaultfemale, shifting every later slot (BFCO / SkyParkour
+///          clips bound the wrong animation — or past the roster into OAR's appended range: `1hm_equip`).
 /// @return the number of character patch units written.
-int FlushRosters(const RosterSink& sink, bconv::BaseUnitCompiler& base, const CB::core::schema::SchemaRegistry& reg,
-                 const LogFn& log) {
+int FlushRosters(const RosterSink& sink, bconv::BaseUnitCompiler& base, const CB::core::codec::HkyArchive& arc,
+                 const CB::core::schema::SchemaRegistry& reg, const LogFn& log) {
     const auto say = [&](const std::string& m) { if (log) log(m); };
-    int written = 0;
+    const auto fileKey = [](const std::string& n) {
+        const auto p = n.find_last_of("\\/");
+        return ToLower(p == std::string::npos ? n : n.substr(p + 1));
+    };
+    std::map<std::string, std::string>              groupOf;      // character serve key -> alignment group
+    std::map<std::string, std::vector<std::string>> members;      // group -> character serve keys
+    std::map<std::string, std::vector<std::string>> baseRoster;   // character serve key -> its base animationNames
+    for (const auto& u : arc.units()) {
+        if (u.kind != CB::core::codec::HkyArchive::UnitKind::Character) continue;
+        const auto src = arc.source(u.prefix);
+        const auto cs  = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+        if (!cs) continue;
+        const std::string serve = ToLower(u.prefix);
+        const auto s1 = serve.find_last_of('/');
+        const auto s2 = s1 == std::string::npos || s1 == 0 ? std::string::npos : serve.find_last_of('/', s1 - 1);
+        std::string behavior = ToLower(cs->behaviorFilename);
+        for (char& c : behavior) if (c == '\\') c = '/';
+        const std::string group = (s2 == std::string::npos ? serve : serve.substr(0, s2)) + "|" + behavior;
+        groupOf[serve] = group;
+        members[group].push_back(serve);
+        baseRoster[serve] = cs->animationNames;
+    }
+
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>> additions;   // (bundle, group) -> names
     for (const auto& [key, names] : sink.names) {
         const auto& [bundleDir, serve] = key;
-        CB::core::decompile::ParsedHky g;
-        std::string err;
-        if (!base.Parse(serve, g, err)) { say("  roster: " + serve + " — no base character (" + err + "); additions dropped."); continue; }
+        const auto g = groupOf.find(serve);
+        if (g == groupOf.end()) { say("  roster: " + serve + " — no base character; additions dropped."); continue; }
+        auto& list = additions[{ bundleDir, g->second }];
+        list.insert(list.end(), names.begin(), names.end());
+    }
+
+    int written = 0;
+    for (const auto& [key, names] : additions) {
+        const auto& [bundleDir, group] = key;
+        std::unordered_set<std::string> have;
+        for (const auto& m : members[group])
+            for (const auto& n : baseRoster[m]) have.insert(fileKey(n));
         std::vector<std::string> add;
-        CB::core::decompile::GraphEdit(g, reg).ForEach("hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
-            auto& roster = so.FieldRef("animationNames").strs;
-            std::unordered_set<std::string> have;
-            for (const auto& n : roster) have.insert(ToLower(n));
-            for (const auto& n : names) if (have.insert(ToLower(n)).second) add.push_back(n);
-            roster.insert(roster.end(), add.begin(), add.end());
-        });
+        for (const auto& n : names) if (!n.empty() && have.insert(fileKey(n)).second) add.push_back(n);
         if (add.empty()) continue;
-        std::vector<std::uint8_t> bytes;
-        CB::core::decompile::ParsedHky fresh;
-        const auto& bones = base.BonesFor(serve);
-        const fs::path unit = fs::path(bundleDir) / fs::path(serve);
-        if (!CB::core::decompile::SerializeGraph(g, bytes, err) || !base.Parse(serve, fresh, err) ||
-            !CB::core::decompile::DeriveHkyPatch(fresh, { "skyrim" }, { ToLower(fs::path(bundleDir).stem().string()), "skyrim" },
-                                                  bytes, reg, unit.string(), err, bones.empty() ? nullptr : &bones)) {
-            say("  roster: " + serve + " — patch FAILED: " + err);
-            continue;
+        for (const auto& serve : members[group]) {
+            CB::core::decompile::ParsedHky g, fresh;
+            std::string err;
+            std::vector<std::uint8_t> bytes;
+            const auto& bones = base.BonesFor(serve);
+            const fs::path unit = fs::path(bundleDir) / fs::path(serve);
+            bool ok = base.Parse(serve, g, err);
+            if (ok)
+                CB::core::decompile::GraphEdit(g, reg).ForEach("hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
+                    auto& roster = so.FieldRef("animationNames").strs;
+                    roster.insert(roster.end(), add.begin(), add.end());
+                });
+            ok = ok && CB::core::decompile::SerializeGraph(g, bytes, err) && base.Parse(serve, fresh, err) &&
+                 CB::core::decompile::DeriveHkyPatch(fresh, { "skyrim" }, { ToLower(fs::path(bundleDir).stem().string()), "skyrim" },
+                                                     bytes, reg, unit.string(), err, bones.empty() ? nullptr : &bones);
+            if (!ok) { say("  roster: " + serve + " — patch FAILED: " + err); continue; }
+            ++written;
         }
-        ++written;
     }
     return written;
 }
@@ -1884,7 +1922,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 std::error_code de;
                 if (!fs::is_directory(refsDir, de)) continue;
                 curServes = charServesFor(ToLower(g), /*firstPerson*/ false);
-                for (const auto& e : fs::directory_iterator(refsDir, de)) {
+                for (const auto& e : fs::recursive_directory_iterator(refsDir, de)) {
                     std::ifstream f(e.path());
                     std::string   line;
                     while (std::getline(f, line)) {
@@ -1909,7 +1947,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                     const fs::path  clipsDir = fs::path(unitPath) / "clips";
                     std::error_code ce;
                     if (!fs::is_directory(clipsDir, ce)) return;
-                    for (const auto& e : fs::directory_iterator(clipsDir, ce)) {
+                    for (const auto& e : fs::recursive_directory_iterator(clipsDir, ce)) {
                         if (ToLower(e.path().extension().string()) != ".yaml") continue;
                         std::ifstream f(e.path());
                         std::string   line;
@@ -2055,7 +2093,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (movedFiles > 0)
             say("  roster: re-filed " + std::to_string(movedFiles) + " animationnames drop(s) into "
                 "character units (" + std::to_string(movedNames) + " roster line(s)).");
-        if (const int n = FlushRosters(rosters, baseCompiler, schemaReg, log))
+        if (const int n = FlushRosters(rosters, baseCompiler, *baseArc, schemaReg, log))
             say("  roster: wrote " + std::to_string(n) + " character patch unit(s).");
     }
 

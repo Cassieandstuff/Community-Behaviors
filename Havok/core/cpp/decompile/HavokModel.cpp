@@ -1123,13 +1123,12 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
         if (!root) ctx.sink = &rosters;
         const std::string body = reflectObject(*so, ctx);
-        const fs::path dir = root ? fs::path(outDir) : fs::path(outDir) / cat;
+        /// @note A node with sub-records is a FOLDER: its body `<cat>/<id>/<id>.yaml` beside its rosters
+        ///       `<cat>/<id>/<field.path>.yaml`; a node without any is the single file `<cat>/<id>.yaml`.
+        const fs::path dir = root ? fs::path(outDir) : rosters.empty() ? fs::path(outDir) / cat : fs::path(outDir) / cat / fsId(idStr);
         fs::create_directories(dir, ec);
         std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary) << "id: " << idStr << "\n" << body;
-        if (rosters.empty()) continue;
-        const fs::path own = dir / fsId(idStr);
-        fs::create_directories(own, ec);
-        for (const auto& [path, entries] : rosters) std::ofstream(own / (path + ".yaml"), std::ios::binary) << entries;
+        for (const auto& [path, entries] : rosters) std::ofstream(dir / (path + ".yaml"), std::ios::binary) << entries;
     }
     return true;
 }
@@ -2366,7 +2365,8 @@ bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& re
 
 namespace {
 /// @brief One YAML file of a unit. A ROSTER file (`<cat>/<id>/<field.path>.yaml`) carries one roster of node `owner`
-///        at `field` (the root's rosters stay inline in graph.yaml); anything else is a node file.
+///        at `field` (the root's rosters stay inline in graph.yaml); anything else is a node file — `<cat>/<id>.yaml`,
+///        or `<cat>/<id>/<id>.yaml` for a node with sub-records.
 struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false; std::string owner, field; };
 /// @brief Every YAML file of a unit, parsed in place (the text buffer lives beside its tree).
 std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSource& src) {
@@ -2383,10 +2383,15 @@ std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSo
             std::string stem = rel.substr(slash + 1);
             if (stem.size() > 5 && stem.compare(stem.size() - 5, 5, ".yaml") == 0) stem.resize(stem.size() - 5);
             if (first != slash) {
-                d->roster = true;
-                d->owner = d->cat.substr(d->cat.rfind('/') + 1);
-                for (char& ch : d->owner) if (ch == '-') ch = ':';
-                d->field = stem;
+                const std::string folder = d->cat.substr(d->cat.rfind('/') + 1);
+                if (stem == folder) {
+                    d->cat = d->cat.substr(0, d->cat.rfind('/'));   // `<cat>/<id>/<id>.yaml`: the node's own body
+                } else {
+                    d->roster = true;
+                    d->owner = folder;
+                    for (char& ch : d->owner) if (ch == '-') ch = ':';
+                    d->field = stem;
+                }
             }
         }
         d->tree = yml::parse_in_place(c4::to_csubstr(d->file), c4::to_substr(d->text));
@@ -2848,18 +2853,17 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
                 body = reflectObject(*mo, cMn);
                 if (stats) ++stats->added;
             }
-            const fs::path dir = isRoot(o) ? fs::path(patchDir) : fs::path(patchDir) / cat;
+            /// @note Same layout as a full unit: a node with sub-records is a folder (body + rosters). A patch states its
+            ///       class for the reader (a new node's body already carries it); a node whose only change is a roster
+            ///       ships just that roster file in its folder.
+            const fs::path dir = isRoot(o) ? fs::path(patchDir) : rosters.empty() ? fs::path(patchDir) / cat
+                                                                                  : fs::path(patchDir) / cat / fsId(id);
             fs::create_directories(dir, ec);
-            /// @note A patch states its class for the reader (a new node's body already carries it). A node whose only
-            ///       change is a roster ships just that roster file.
             if (!body.empty() || !baseById.count(id))
                 std::ofstream(dir / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), std::ios::binary)
                     << "id: " << id << "\n" << (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string())
                     << body;
-            if (rosters.empty()) continue;
-            const fs::path own = dir / fsId(id);
-            fs::create_directories(own, ec);
-            for (const auto& [path, entries] : rosters) std::ofstream(own / (path + ".yaml"), std::ios::binary) << entries;
+            for (const auto& [path, entries] : rosters) std::ofstream(dir / (path + ".yaml"), std::ios::binary) << entries;
         }
         return true;
     } catch (const std::exception& e) {
