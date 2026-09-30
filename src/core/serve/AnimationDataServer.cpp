@@ -11,7 +11,7 @@
 #include <compile/AnimDataFromBehavior.h>   // DeriveProjectPatch
 #include <interface/linker/Membrane.h>     // roster IndexMembrane (motion inherits the clip's bind)
 #include <interface/MasterTable.h>         // BuildMasterTable — FormId canon for the adsf-derive merge
-#include <decompile/BehaviorDecompile.h>   // ProjectDirOf
+#include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
 
 #include <tuple>
@@ -167,21 +167,38 @@ namespace linker = CB::core::linker;
         // Each addition carries a SYMBOL, so the caller's high-band allocator assigns the real
         // (safe) animIndex.
         //
-        // Its behavior units carry the clips: one ProjectPatch per (behavior unit x character of that unit's
-        // project folder). Returns {} if the bundle adds no clips to any project.
+        // The bundle declares WHICH characters it extends via the rosters its character units state
+        // (or legacy animationnames/<char>.txt drops); its behavior units carry the clips. So we derive
+        // one ProjectPatch per (behavior unit x declared character). Returns {} if the bundle adds no
+        // clips to any project.
         std::vector<animdata::ProjectPatch> DeriveBundleAnimData(
             const BundleReader& rd, const std::string& stem, const fs::path& dataDir,
-            const BundleReader* master, const GraphClipReader& clipsOf, const RosterMap& rosters)
+            const BundleReader* master, const GraphClipReader& clipsOf)
         {
-            /// @note A behavior unit's clips derive into every character of its own project folder (a canine
-            ///       graph's clips never reach defaultmale) — the characters whose scanned rosters hold its animations.
-            std::vector<std::string>                     chars;
-            std::unordered_map<std::string, std::string> charActorRoot;  // char stem -> its project folder (lowercase)
-            for (const auto& [unit, roster] : rosters) {
+            /// @note The characters this bundle extends: each character unit whose animationNames it states (for a
+            ///       patch unit, its additions — a union roster). A character's clips derive only into characters of
+            ///       its own actor root: a canine unit's clips never reach defaultmale.
+            std::vector<std::string>        chars;
+            std::unordered_set<std::string> haveChar;
+            std::unordered_map<std::string, std::string> charActorRoot;  // char stem -> its actor root (lowercased)
+            for (const std::string& unit : rd.units(CB::core::codec::HkyArchive::UnitKind::Character)) {
+                const auto src = rd.unitSource(unit);
+                const auto cs  = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                if (!cs || cs->animationNames.empty()) continue;
                 const auto s1 = unit.find_last_of('/');
-                std::string cn = ToLower(s1 == std::string::npos ? unit : unit.substr(s1 + 1));
-                if (const auto dot = cn.rfind('.'); dot != std::string::npos) cn.erase(dot);
-                if (!cn.empty() && charActorRoot.emplace(cn, CB::core::decompile::ProjectDirOf(unit)).second) chars.push_back(cn);
+                std::string cn = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
+                if (const auto dot = cn.rfind('.'); dot != std::string::npos) cn.erase(dot);   // "defaultmale"
+                std::string aroot;
+                if (s1 != std::string::npos) {
+                    const auto s2 = (s1 == 0) ? std::string::npos : unit.find_last_of('/', s1 - 1);
+                    if (s2 != std::string::npos) aroot = ToLower(unit.substr(0, s2));
+                }
+                if (!cn.empty() && haveChar.insert(cn).second) { chars.push_back(cn); charActorRoot[cn] = aroot; }
+            }
+            for (const std::string& fn : rd.files("animationnames", ".txt")) {   // legacy fallback (no actor root)
+                std::string s = ToLower(fn);
+                if (EndsWith(s, ".txt")) s.erase(s.size() - 4);
+                if (!s.empty() && haveChar.insert(s).second) chars.push_back(std::move(s));
             }
             const auto units = rd.units(CB::core::codec::HkyArchive::UnitKind::Behavior);
             if (chars.empty() || units.empty() || !clipsOf) return {};
@@ -285,7 +302,11 @@ namespace linker = CB::core::linker;
                 const auto& animMotions = motionsForRoot(actorRoot);
                 const std::string actorRootLc = ToLower(actorRoot);
                 for (const std::string& ch : chars) {
-                    if (charActorRoot.at(ch) != actorRootLc) continue;
+                    // Scope: only derive this unit's clips into characters of the SAME actor root (a canine
+                    // behavior's clips belong to canine projects, not defaultmale/horse). Unknown actor root
+                    // (legacy animationnames fallback) is not filtered — preserves the single-actor path.
+                    const auto ar = charActorRoot.find(ch);
+                    if (ar != charActorRoot.end() && !ar->second.empty() && ar->second != actorRootLc) continue;
                     auto clipsCopy = clips;   // DeriveProjectPatch appends annotation triggers in place
                     auto pp = CB::core::compile::DeriveProjectPatch(ch, clipsCopy, stem, readAnim,
                                                              animMotions.empty() ? nullptr : &animMotions);
@@ -648,8 +669,7 @@ namespace linker = CB::core::linker;
     }  // namespace
 
     ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni,
-                              const GraphClipReader& clipsOf, const RosterMap& rosters, const GraphClipSink* sink,
-                              bool rosterFromScan)
+                              const GraphClipReader& clipsOf, const GraphClipSink* sink, bool rosterFromScan)
     {
         ServeResult r;
 
@@ -784,7 +804,7 @@ namespace linker = CB::core::linker;
                     // high-band merge below; the records come from the graph, not the Nemesis format.
                     if (!deriveMaster && !masterBundle.empty()) deriveMaster = BundleReader::Open(masterBundle);
                     auto derived = DeriveBundleAnimData(*rd, stem, dataDir,
-                                                        deriveMaster ? &*deriveMaster : nullptr, clipsOf, rosters);
+                                                        deriveMaster ? &*deriveMaster : nullptr, clipsOf);
                     if (!derived.empty()) {
                         deltas.push_back({ prio, std::move(derived) });
                         ++bundleCount;
@@ -936,14 +956,14 @@ namespace linker = CB::core::linker;
                     const auto prev = path.find_last_of('/', last - 1);
                     return ToLower(path.substr(prev + 1, last - prev - 1));
                 };
-                /// @note Rosters come from each project's `character:` header ref (index.yaml): that character's SERVED
-                ///       (scanned) roster — the clip indices key into exactly what the engine binds.
+                /// @note Rosters come from each project's `character:` header ref (index.yaml): that character unit's
+                ///       animationNames, original case.
                 for (const auto& h : headers) {
                     if (h.character.empty()) continue;
-                    std::string key = "meshes/" + ToLower(h.character);
-                    for (char& c : key) if (c == '\\') c = '/';
-                    if (const auto it = rosters.find(key); it != rosters.end() && !it->second.empty())
-                        rostersByStem[animdata::StemForProjectName(h.name)] = it->second;
+                    const auto src = masterReader->unitSource("meshes/" + h.character);
+                    auto cs = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                    if (cs && !cs->animationNames.empty())
+                        rostersByStem[animdata::StemForProjectName(h.name)] = std::move(cs->animationNames);
                 }
                 bool masterHasClips = false;
                 for (const std::string& path : masterReader->filesUnderOrig(dir + "/clips", ".yaml")) {

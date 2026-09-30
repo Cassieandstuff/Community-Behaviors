@@ -78,9 +78,9 @@ int main(int argc, char** argv) {
         std::atomic<bool> cancel{ false };
         const auto res = bconv::ConvertLoadOrder(
             opt, [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel);
-        if (res.ok) std::printf("OK: %d mods, %d behavior deltas, %d set-data, %d skipped "
+        if (res.ok) std::printf("OK: %d mods, %d behavior deltas, %d set-data, %d anim-data, %d char-roster, %d skipped "
                                 "(deltas over the shipped Skyrim.hky master)\n",
-                                res.mods, res.deltas, res.setMods, res.skipped);
+                                res.mods, res.deltas, res.setMods, res.animMods, res.charDeltas, res.skipped);
         else        std::printf("FAILED: %s\n", res.error.c_str());
         return res.ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }

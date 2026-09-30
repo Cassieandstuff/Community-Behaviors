@@ -505,8 +505,6 @@ struct ReflectCtx {
     std::uint16_t                   keyOwner = CB::core::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
     std::vector<std::pair<std::string, std::string>>* sink = nullptr;   ///< node-level rosters -> (field path, entries)
     std::string                     path;                            ///< dotted field path from the node to this object
-    const AnimationScanFn*          scan = nullptr;                  ///< `scan:` fields -> their recipe (null = literal list)
-    std::optional<std::pair<std::string, CB::core::anim::AnimationScan>>* scanOut = nullptr;   ///< (file stem, recipe)
 };
 
 /// @brief The context for an inline object reached through field `f` (its rosters still belong to the node's folder).
@@ -1005,14 +1003,6 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                 y += listText(v.objs, c, f.name, f.ref);
                 break;
             case FieldKind::StringArray:
-                /// @note A `scan:` list renders as its recipe file (`<scan>.yaml` at the unit root) when the emitter was
-                ///       handed a recipe maker; without one it stays the literal list (lossless round-trips).
-                if (!f.scan.empty() && c.scan && *c.scan && c.scanOut)
-                    if (auto recipe = (*c.scan)(v.strs)) {
-                        *c.scanOut = std::make_pair(f.scan, std::move(*recipe));
-                        y += f.name + ": " + f.scan + ".yaml\n";
-                        break;
-                    }
                 if (v.strs.empty()) break;
                 y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return q(v.strs[k]); }) + "\n";
                 break;
@@ -1118,13 +1108,11 @@ std::unordered_map<const IHavokObject*, std::string> EffectiveCategories(const I
 }
 
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
-                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones,
-                       const AnimationScanFn* scan) {
+                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
     namespace fs = std::filesystem;
     std::error_code ec;
     const NameResolver nr = buildResolver(identity);
     const auto effCat = EffectiveCategories(identity);
-    std::optional<std::pair<std::string, CB::core::anim::AnimationScan>> recipe;
     for (const auto& [obj, cat] : effCat) {
         const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
         if (!so) { err = "EmitHkyReflective expects a SchemaObject graph"; return false; }
@@ -1133,8 +1121,6 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         const std::string idStr = identity.ids.at(obj);
         std::vector<std::pair<std::string, std::string>> rosters;
         ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
-        ctx.scan    = scan;
-        ctx.scanOut = &recipe;
         if (!root) ctx.sink = &rosters;
         const std::string body = reflectObject(*so, ctx);
         /// @note A node with sub-records is a FOLDER: its body `<cat>/<id>/<id>.yaml` beside its rosters
@@ -1144,15 +1130,13 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary) << "id: " << idStr << "\n" << body;
         for (const auto& [path, entries] : rosters) std::ofstream(dir / (path + ".yaml"), std::ios::binary) << entries;
     }
-    if (recipe) std::ofstream(fs::path(outDir) / (recipe->first + ".yaml"), std::ios::binary) << CB::core::anim::EmitAnimationScanYaml(recipe->second);
     return true;
 }
 
 namespace { std::string formIdOf(std::uint16_t idx, const std::string& decId); }
 
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
-                                 const std::string& outDir, std::string& err, const std::vector<std::string>* bones,
-                                 const AnimationScanFn* scan) {
+                                 const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
     try {
         PackFileDeserializer des;
         des.ObjectFactory = io::MakeSchemaFactory(reg);
@@ -1160,7 +1144,7 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
         des.Deserialize(br);
         Identity id = AssignIdentity(des, reg);
         for (auto& [o, v] : id.ids) v = formIdOf(CB::core::codec::formid::SELF_INDEX, v);
-        return EmitHkyReflective(id, reg, outDir, err, bones, scan);
+        return EmitHkyReflective(id, reg, outDir, err, bones);
     } catch (const std::exception& e) {
         err = std::string("DecompileBehaviorReflective: ") + e.what();
         return false;
@@ -1695,8 +1679,6 @@ struct HkyParse {
     std::unordered_set<const IHavokObject*>                                nodes;   ///< file / shared / root objects
     std::map<std::pair<const IHavokObject*, std::size_t>, std::vector<std::string>> subKeys;   ///< minted roster keys
     std::function<std::string(const std::string&)>                         baseCanon;   ///< a stored base key -> canonical
-    const CB::core::common::IUnitSource*                                   src = nullptr;   ///< the unit (recipe files)
-    std::vector<ParsedHky::ScanField>                                      scans;   ///< `scan:` fields and their recipes
 };
 
 /// @brief The merge tag for `field`, looked up on the class that DECLARES it (MergeTag consults own fields only).
@@ -1927,16 +1909,6 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
             }
             return true;
         case FieldKind::StringArray:
-            /// @note A `scan:` field names its recipe file: the list stays empty until ExpandAnimationScans builds it.
-            if (!f.scan.empty() && !n.is_seq()) {
-                const std::string file = ystr(n);
-                const auto text = ps.src ? ps.src->read(file) : std::nullopt;
-                if (!text) { ps.err = ps.where + ": " + f.name + ": no recipe '" + file + "' in the unit"; return false; }
-                auto recipe = CB::core::anim::ParseAnimationScanYaml(*text, ps.err);
-                if (!recipe) { ps.err = ps.where + ": " + file + ": " + ps.err; return false; }
-                ps.scans.push_back({ &so, i, std::move(*recipe) });
-                return true;
-            }
             for (auto e : n) v.strs.push_back(ystr(e));
             return true;
         case FieldKind::ScalarArray: {
@@ -2263,8 +2235,6 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     handled = false;
     const Field& f = *so.Fields()[i];
     io::FieldValue& v = so.FieldAt(i);
-    /// @note A `scan:` list is built from asset folders, never patched: a mod adds animations by shipping the files.
-    if (!f.scan.empty()) { handled = true; return true; }
     if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty() && n.is_map()) {
         handled = true;
         return rosterPatch(so, i, n, ps);
@@ -2402,9 +2372,6 @@ struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string f
 std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSource& src) {
     std::vector<std::unique_ptr<HkyDoc>> docs;
     for (const std::string& rel : src.listYaml("", true)) {
-        /// @note The unit root holds `graph.yaml` (the root node) and scan recipes (`animations.yaml`) — the recipes are
-        ///       read by their `scan:` field, never as nodes.
-        if (rel.find('/') == std::string::npos && rel != "graph.yaml") continue;
         auto text = src.read(rel);
         if (!text) continue;
         auto d = std::make_unique<HkyDoc>();
@@ -2478,7 +2445,6 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
 bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
                         std::string& err, const std::vector<std::string>* bones) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
-    ps.src = &src;
     auto docs = loadHkyDocs(src);
     // Pass 1: create every file node (and the root) so ids resolve regardless of file order.
     std::shared_ptr<io::SchemaObject> root;
@@ -2527,7 +2493,6 @@ bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::
     out.root = root;
     out.objects = std::move(ps.all);
     out.identity.subKeys = std::move(ps.subKeys);
-    out.scans = std::move(ps.scans);
     return true;
 }
 
@@ -2746,7 +2711,7 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
     const auto fields = m.Fields();
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
-        if (f.name.empty() || (f.ignored && !f.hkyEmit) || (skip && skip(f.name)) || !f.scan.empty()) continue;
+        if (f.name.empty() || (f.ignored && !f.hkyEmit) || (skip && skip(f.name))) continue;
         const std::string tb = renderField(b, i, inlCtx(cb)), tm = renderField(m, i, inlCtx(cm));
         if (tb == tm) continue;
         if (tm.empty()) {
@@ -2980,7 +2945,6 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
-    ps.src = &patch;
     ps.canon = canonFor(patchMasters);
     const auto baseCanon = canonFor(baseMasters);
     ps.baseCanon = baseCanon;
@@ -2989,11 +2953,7 @@ bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, 
     ///       pointing at its new objects, and dropping `ps.all` then left dangling pointers (a crash on the failure dump).
     struct Keep {
         ParsedHky& b; HkyParse& p;
-        ~Keep() {
-            if (!p.all.empty()) b.objects = std::move(p.all);
-            b.identity.subKeys = std::move(p.subKeys);
-            for (auto& sf : p.scans) b.scans.push_back(std::move(sf));
-        }
+        ~Keep() { if (!p.all.empty()) b.objects = std::move(p.all); b.identity.subKeys = std::move(p.subKeys); }
     } keep{ base, ps };
     std::unordered_map<const IHavokObject*, std::shared_ptr<io::SchemaObject>> own;
     for (const auto& o : base.objects) own[o.get()] = o;
@@ -3241,40 +3201,6 @@ std::optional<CharacterStrings> ReadCharacterStrings(const CB::core::common::IUn
     return std::nullopt;
 }
 
-std::optional<CB::core::anim::AnimationScan> ReadAnimationScan(const CB::core::common::IUnitSource& src) {
-    const auto text = src.read("animations.yaml");
-    if (!text) return std::nullopt;
-    std::string err;
-    return CB::core::anim::ParseAnimationScanYaml(*text, err);
-}
-
-std::string ProjectDirOf(const std::string& unitKey) {
-    std::string k = unitKey;
-    for (char& c : k) c = c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    for (int i = 0; i < 2; ++i) { const auto p = k.find_last_of('/'); k = p == std::string::npos ? std::string() : k.substr(0, p); }
-    return k;
-}
-
-std::size_t ExpandAnimationScans(ParsedHky& graph, const std::string& unitKey, const CB::core::anim::AnimationIndex& index,
-                                 std::vector<std::string>* collisions) {
-    const std::string project = ProjectDirOf(unitKey);
-    for (auto& sf : graph.scans) sf.obj->FieldAt(sf.field).strs = CB::core::anim::ExpandAnimationScan(sf.recipe, project, index, collisions);
-    return graph.scans.size();
-}
-
-void ClearScanFields(const std::shared_ptr<IHavokObject>& root) {
-    std::unordered_set<const IHavokObject*> seen;
-    std::function<void(IHavokObject*)> walk = [&](IHavokObject* o) {
-        auto* so = dynamic_cast<io::SchemaObject*>(o);
-        if (!so || !seen.insert(o).second) return;
-        const auto fields = so->Fields();
-        for (std::size_t i = 0; i < fields.size(); ++i)
-            if (!fields[i]->scan.empty()) so->FieldAt(i).strs.clear();
-        for (const io::FieldValue& fv : so->Values()) { walk(fv.obj.get()); for (const auto& e : fv.objs) walk(e.get()); }
-    };
-    walk(root.get());
-}
-
 bool MergeLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err) {
     try {
@@ -3387,9 +3313,6 @@ HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseByte
             ser.Serialize(o, bw, header);
             return bw.Data();
         };
-        /// @note `scan:` rosters are built from asset folders, never patched — compared WITHOUT them.
-        ClearScanFields(modRoot);
-        ClearScanFields(merged.root);
         const auto want = serialize(modRoot), got = serialize(merged.root);
         r.identical = (want == got);
         if (!r.identical) {

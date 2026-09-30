@@ -24,5 +24,5 @@ format (`behavior.yaml`, `data/graphdata.yaml`, name-keyed node files, a `0_mast
 Port: build the FNIS container graph as schema objects (FNIS_RootSM, one clip + state per animation,
 global-wildcard entries, chain triggers) with vanilla-shaped defaults, emit it with
 `DecompileBehaviorReflective`; build the `0_master` edit (the `CB_FNIS_State` state → RBG → FNIS.hkx, its events
-+ variables) as a `GraphEdit` on the base unit and `DeriveHkyPatch` it. No roster work: FNIS animations sit under
-the character's animation folders, which its `animations.yaml` scan already covers.
++ variables) as a `GraphEdit` on the base unit and `DeriveHkyPatch` it; add the roster through the converter's
+`RosterSink`.

@@ -11,7 +11,6 @@
 #include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
 #include <codec/serialization/packfile/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
 #include <codec/serialization/packfile/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
-#include <codec/serialization/packfile/PackFileSerializer.h>   // the regen gate re-serializes a source without its rosters
 #include <compile/AnimationCompiler.h>       // CB::core::anim::CompileAnimation — recompile leg (schema-native)
 #include <decompile/AnimationDecompiler.h>   // CB::core::anim::DecompileAnimation — schema-native import leg
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
@@ -65,6 +64,30 @@ std::string SoStr(const CB::core::codec::io::SchemaObject& so, const char* name)
     return {};
 }
 
+
+// Decode XML entity references to their literal characters. The character DECOMPILER emits roster paths through an
+// XML-style pipeline, so a shared-killmove path arrives as "..\SharedKillMoves\Human&amp;Boar\..".
+// The vanilla template roster it is diffed against is LITERAL ('&'), so an escaped line never
+// matches — every killmove looks "new" and gets written as a phantom roster addition. Those
+// phantom paths don't exist on disk (bind to nothing) yet still pad animationNames, and OAR sets
+// its synchronized-clip index offset to animationNames.size() — so the padding underflows OAR's
+// (uint16) binding-index subtraction → out-of-bounds → the char-setup rep-stosq CTD. Normalizing
+// both sides to literal before the diff keeps the emitted delta to REAL additions only.
+std::string UnescapeXml(const std::string& s) {
+    std::string o;
+    o.reserve(s.size());
+    for (std::size_t i = 0; i < s.size();) {
+        if (s[i] == '&') {
+            if (s.compare(i, 5, "&amp;")  == 0) { o += '&';  i += 5; continue; }
+            if (s.compare(i, 4, "&lt;")   == 0) { o += '<';  i += 4; continue; }
+            if (s.compare(i, 4, "&gt;")   == 0) { o += '>';  i += 4; continue; }
+            if (s.compare(i, 6, "&quot;") == 0) { o += '"';  i += 6; continue; }
+            if (s.compare(i, 6, "&apos;") == 0) { o += '\''; i += 6; continue; }
+        }
+        o += s[i++];
+    }
+    return o;
+}
 
 // The clip animationNames + RBG behaviorNames read straight out of a loose behavior .hkx —
 // the seed for pass 2d's RBG-chain roster derivation (BR-14).
@@ -143,6 +166,30 @@ std::vector<std::string> ScanGraphs(const fs::path& templatesDir) {
     return graphs;
 }
 
+// Vanilla character templates: <templates>/characters/ mirrors the meshes-relative game
+// tree, e.g. characters/actors/character/characters/defaultmale.hkx (and "characters
+// female/defaultfemale.hkx" — the space is part of the real path and thus of the serve
+// key). Each is a character unit in Skyrim.hky at meshes/<relative path>/, which the Resolver
+// serves with mod roster patches merged — the compile-time replacement for the runtime
+// animationNames injection. Returns meshes-relative paths ("actors/.../x.hkx").
+std::vector<std::string> ScanCharacterTemplates(const fs::path& templatesDir) {
+    std::vector<std::string> chars;
+    std::error_code ec;
+    const fs::path root = templatesDir / "characters";
+    if (!fs::is_directory(root, ec)) return chars;
+    for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code fe;
+        if (!it->is_regular_file(fe)) continue;
+        std::string ext = it->path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ext != ".hkx") continue;
+        chars.push_back(it->path().lexically_relative(root).generic_string());
+    }
+    std::sort(chars.begin(), chars.end());
+    return chars;
+}
+
 /// @brief Read a packfile through the schema and hand its first `cls` object to `fn` (while the graph is alive).
 /// @return false when the bytes don't deserialize or hold no `cls`.
 static bool WithFirstOfClass(const std::vector<std::uint8_t>& bytes, const CB::core::schema::SchemaRegistry& reg,
@@ -159,6 +206,102 @@ static bool WithFirstOfClass(const std::vector<std::uint8_t>& bytes, const CB::c
             }
     } catch (const std::exception&) {}
     return false;
+}
+
+/// @brief Character roster additions, per (bundle dir, character serve path), flushed as character PATCH units
+///        (FlushRosters) once every leg has contributed.
+/// @note  Names dedup case-insensitively: a name differing only by case would pad the roster and shift the
+///        animation-binding indices (the phantom-padding hazard).
+struct RosterSink {
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>>        names;
+    std::map<std::pair<std::string, std::string>, std::unordered_set<std::string>> seen;
+};
+
+/// @return how many of `names` are new to the sink for that character.
+int AddRosterToCharacterUnit(RosterSink& sink, const fs::path& bundleDir, const std::string& characterServePath,
+                             const std::vector<std::string>& names) {
+    if (names.empty() || characterServePath.empty()) return 0;
+    const std::pair<std::string, std::string> key{ bundleDir.string(), ToLower(characterServePath) };
+    auto& have = sink.seen[key];
+    auto& list = sink.names[key];
+    int added = 0;
+    for (const auto& a : names)
+        if (!a.empty() && have.insert(ToLower(a)).second) { list.push_back(a); ++added; }
+    return added;
+}
+
+/// @brief Write the sink as each bundle's character PATCHES: a union roster stating only the names the base lacks.
+/// @warning Characters sharing a root behavior (defaultmale + defaultfemale) bind their shared graphs' clips
+///          POSITIONALLY, so their rosters must stay slot-aligned: the engine keys a slot by its lowercase FILENAME, and
+///          `male\MT_X` in a clip IS the female roster's `female\MT_X`. So a name whose filename any member's base
+///          already holds is vanilla, and every genuine addition goes to EVERY member, in the same order. Deduping per
+///          character appended 17 phantom `male\MT_*` to defaultfemale, shifting every later slot (BFCO / SkyParkour
+///          clips bound the wrong animation — or past the roster into OAR's appended range: `1hm_equip`).
+/// @return the number of character patch units written.
+int FlushRosters(const RosterSink& sink, bconv::BaseUnitCompiler& base, const CB::core::codec::HkyArchive& arc,
+                 const CB::core::schema::SchemaRegistry& reg, const LogFn& log) {
+    const auto say = [&](const std::string& m) { if (log) log(m); };
+    const auto fileKey = [](const std::string& n) {
+        const auto p = n.find_last_of("\\/");
+        return ToLower(p == std::string::npos ? n : n.substr(p + 1));
+    };
+    std::map<std::string, std::string>              groupOf;      // character serve key -> alignment group
+    std::map<std::string, std::vector<std::string>> members;      // group -> character serve keys
+    std::map<std::string, std::vector<std::string>> baseRoster;   // character serve key -> its base animationNames
+    for (const auto& u : arc.units()) {
+        if (u.kind != CB::core::codec::HkyArchive::UnitKind::Character) continue;
+        const auto src = arc.source(u.prefix);
+        const auto cs  = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+        if (!cs) continue;
+        const std::string serve = ToLower(u.prefix);
+        const auto s1 = serve.find_last_of('/');
+        const auto s2 = s1 == std::string::npos || s1 == 0 ? std::string::npos : serve.find_last_of('/', s1 - 1);
+        std::string behavior = ToLower(cs->behaviorFilename);
+        for (char& c : behavior) if (c == '\\') c = '/';
+        const std::string group = (s2 == std::string::npos ? serve : serve.substr(0, s2)) + "|" + behavior;
+        groupOf[serve] = group;
+        members[group].push_back(serve);
+        baseRoster[serve] = cs->animationNames;
+    }
+
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>> additions;   // (bundle, group) -> names
+    for (const auto& [key, names] : sink.names) {
+        const auto& [bundleDir, serve] = key;
+        const auto g = groupOf.find(serve);
+        if (g == groupOf.end()) { say("  roster: " + serve + " — no base character; additions dropped."); continue; }
+        auto& list = additions[{ bundleDir, g->second }];
+        list.insert(list.end(), names.begin(), names.end());
+    }
+
+    int written = 0;
+    for (const auto& [key, names] : additions) {
+        const auto& [bundleDir, group] = key;
+        std::unordered_set<std::string> have;
+        for (const auto& m : members[group])
+            for (const auto& n : baseRoster[m]) have.insert(fileKey(n));
+        std::vector<std::string> add;
+        for (const auto& n : names) if (!n.empty() && have.insert(fileKey(n)).second) add.push_back(n);
+        if (add.empty()) continue;
+        for (const auto& serve : members[group]) {
+            CB::core::decompile::ParsedHky g, fresh;
+            std::string err;
+            std::vector<std::uint8_t> bytes;
+            const auto& bones = base.BonesFor(serve);
+            const fs::path unit = fs::path(bundleDir) / fs::path(serve);
+            bool ok = base.Parse(serve, g, err);
+            if (ok)
+                CB::core::decompile::GraphEdit(g, reg).ForEach("hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
+                    auto& roster = so.FieldRef("animationNames").strs;
+                    roster.insert(roster.end(), add.begin(), add.end());
+                });
+            ok = ok && CB::core::decompile::SerializeGraph(g, bytes, err) && base.Parse(serve, fresh, err) &&
+                 CB::core::decompile::DeriveHkyPatch(fresh, { "skyrim" }, { ToLower(fs::path(bundleDir).stem().string()), "skyrim" },
+                                                     bytes, reg, unit.string(), err, bones.empty() ? nullptr : &bones);
+            if (!ok) { say("  roster: " + serve + " — patch FAILED: " + err); continue; }
+            ++written;
+        }
+    }
+    return written;
 }
 
 // Nemesis codes = the child dirs of <dataDir>/Nemesis_Engine/mod/. Under MO2's VFS this
@@ -1116,6 +1259,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     CB::core::schema::SchemaRegistry* sharedReg = CB::core::schema::SharedRegistry();
     if (!sharedReg) { r.error = "schema registry not armed (" + CB::core::schema::SharedRegistryError() + ")"; return r; }
     const CB::core::schema::SchemaRegistry& schemaReg = *sharedReg;
+    RosterSink rosters;
 
     const fs::path plugins = outDir / "community_behaviors" / "plugins";
     // MO2-PROFILE (single-bundle) mode ships one merged bundle; every leg routes into it. (Definition
@@ -1182,6 +1326,36 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     bconv::BaseMaps baseMaps;
     if (baseArc) baseMaps = bconv::BuildBaseMaps(*baseArc);
 
+    // character-file stem (lower) -> its meshes-relative serve path ("horse" -> ".../characters/horse.hkx").
+    std::unordered_map<std::string, std::string> charStemToServe;
+    for (const auto& [actor, chars] : baseMaps.actorCharacters)
+        for (const auto& cp : chars) charStemToServe[ToLower(fs::path(cp).stem().string())] = cp;
+
+    // The character unit serve path(s) a graph's clip roster belongs to: the graph's actor's characters,
+    // filtered to the graph's namespace (third-person graphs -> defaultmale/defaultfemale; first-person
+    // graphs -> firstperson). Empty when the graph/actor isn't in the base (a new/custom graph).
+    // Character serve path(s) for an EXPLICIT actor path (e.g. "actors/horse"), namespace-filtered.
+    // The loose/precompiled path uses this with the graph's REAL actor prefix (leg 1d), sidestepping the
+    // stem-collision in the graph map (horsebehavior lives at both actors/character and actors/horse).
+    auto charServesForActorPath = [&](const std::string& actorPath, bool firstPerson) -> std::vector<std::string> {
+        const auto ci = baseMaps.actorCharacters.find(actorPath);
+        if (ci == baseMaps.actorCharacters.end()) return {};
+        std::vector<std::string> out;
+        for (const auto& cp : ci->second) {
+            const bool cFp = cp.find("_1stperson") != std::string::npos;
+            if (cFp == firstPerson) out.push_back(cp);
+        }
+        return out;
+    };
+    // Character serve path(s) for a TEMPLATED graph stem (resolves via the base map, which prefers
+    // actors/character on a collision — so a Nemesis horsebehavior patch routes to the rider, not the horse).
+    auto charServesFor = [&](const std::string& graphStemLower, bool firstPerson) -> std::vector<std::string> {
+        const auto& actorMap = firstPerson ? baseMaps.fpGraphActorPath : baseMaps.graphActorPath;
+        const auto ai = actorMap.find(graphStemLower);
+        if (ai == actorMap.end() || ai->second.empty()) return {};
+        return charServesForActorPath(ai->second, firstPerson);
+    };
+
     // Bind the serve-path resolver forward-declared above unitOut/fpUnitOut (now that baseMaps exists).
     graphServePathOf = [&](const std::string& g, bool firstPerson) -> std::string {
         const auto& m = firstPerson ? baseMaps.fpGraphServePath : baseMaps.graphServePath;
@@ -1234,6 +1408,56 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // NAME-based, so each delta binds to the shipped master's identically-named nodes. Only the
     // "Skyrim" references in loadorder.txt + the mod manifests remain (they name the base bundle,
     // which is installed separately with BR).
+    const auto charTemplates = ScanCharacterTemplates(templatesDir);
+
+    // 1c) LOOSE character-file replacements — some mods ship a whole character .hkx
+    //     instead of a Nemesis char patch (BFCO's defaultmale.hkx, HorsePower's
+    //     horse.hkx); their roster additions live IN that file. Diff the VFS-winning
+    //     loose file against the vanilla template and emit the additions as a single
+    //     roster delta in a synthetic CharacterFiles.hky bundle: animationnames\<stem>.txt.
+    //     The runtime folds that into the compiled character's roster (author-drop path)
+    //     AND the set-data guard reads the same file — one form, two consumers. Without
+    //     this, serving a compiled character would DROP the replacing mod's roster.
+    bool charFilesAny = false;
+    if (!charTemplates.empty()) {
+        const fs::path cfBundle = plugins / ((opt.singleBundle ? kPandora : std::string("CharacterFiles")) + ".hky");
+        for (const auto& rel : charTemplates) {
+            std::error_code we;
+            const fs::path winner = dataDir / "meshes" / fs::path(rel);
+            const fs::path tmpl   = templatesDir / "characters" / fs::path(rel);
+            if (!fs::is_regular_file(winner, we)) continue;
+            // fast path: identical size -> almost certainly vanilla; skip the decompile
+            if (fs::file_size(winner, we) == fs::file_size(tmpl, we)) continue;
+
+            std::vector<std::uint8_t> bytes;
+            std::string rerr;
+            if (!CB::core::codec::ReadHavokFile(winner.string(), bytes, &rerr)) {
+                ++r.skipped; say("  " + rel + ": loose-file READ FAILED — " + rerr); continue;
+            }
+            std::vector<std::string> modded;
+            if (!WithFirstOfClass(bytes, schemaReg, "hkbCharacterStringData",
+                                  [&](CB::core::codec::io::SchemaObject& so) { modded = so.FieldRef("animationNames").strs; })) {
+                ++r.skipped; say("  " + rel + ": loose-file is not a readable character"); continue;
+            }
+            std::unordered_set<std::string> have;
+            if (const auto src = baseArc->source(ToLower("meshes/" + fs::path(rel).generic_string())))
+                if (const auto cs = CB::core::decompile::ReadCharacterStrings(*src))
+                    for (const auto& a : cs->animationNames) have.insert(ToLower(a));
+            std::vector<std::string> adds;
+            for (const auto& a : modded) if (have.insert(ToLower(a)).second) adds.push_back(a);
+            if (adds.empty()) continue;   // replaced file, but same roster — nothing to carry
+
+            // Roster patch at the character unit's real serve path (rel mirrors the meshes tree,
+            // e.g. "actors/horse/characters/horse.hkx"), unioned onto the base character at runtime.
+            const std::string charServe = "meshes/" + fs::path(rel).generic_string();
+            const int rAdded = AddRosterToCharacterUnit(rosters, cfBundle, charServe, adds);
+            if (rAdded <= 0) continue;
+            ++r.charDeltas; charFilesAny = true;
+            say("  CharacterFiles: " + rel + " — " + std::to_string(rAdded) +
+                " roster addition(s) (loose replacement).");
+        }
+    }
+
     // 1d) LOOSE BEHAVIOR replacements — some mods ship a whole precompiled behavior GRAPH
     //     (HorsePower's actors/horse/behaviors/horsebehavior.hkx) instead of a Nemesis patch,
     //     so a delta-only runtime never sees their changes. AUTO-DETECT them: walk every
@@ -1281,6 +1505,30 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 if (attributed) precompiledBundles.insert(bname); else behFilesAny = true;
                 say("  " + bname + ": " + u.prefix + " — " + std::to_string(st.patched) + " changed + " +
                     std::to_string(st.added) + " new node(s).");
+
+                // ROSTER (Phase 1): a precompiled loose graph (the horse's real ship path) carries its
+                // new clips ONLY in the binary — the derive above emits the node delta but no roster, so
+                // without this the new animations never enter the character's animationNames and bind to
+                // nothing. Read the loose graph's clip animationNames and union them into the graph's own
+                // character unit(s) (actors/horse -> characters/horse.hkx) as a roster patch.
+                {
+                    // Route by the precompiled graph's REAL actor prefix (actors/horse), not the stem
+                    // map — the horse creature's roster belongs to the horse character, and the stem
+                    // "horsebehavior" collides with the rider graph in the base map.
+                    const std::string actorPath = bconv::ActorOfServePath(ToLower(u.prefix));
+                    const std::vector<std::string> serves = charServesForActorPath(actorPath, /*firstPerson*/ false);
+                    if (!serves.empty()) {
+                        LooseBehaviorRefs refs;
+                        if (ReadLooseBehaviorRefs(winner.string(), refs) && !refs.animationNames.empty()) {
+                            int rAdded = 0;
+                            for (const auto& s : serves) rAdded += AddRosterToCharacterUnit(rosters, outBundle, s, refs.animationNames);
+                            if (rAdded > 0)
+                                say("    roster: " + std::to_string(refs.animationNames.size()) +
+                                    " clip animation(s) -> " + std::to_string(serves.size()) +
+                                    " character(s), " + std::to_string(rAdded) + " new roster line(s).");
+                        }
+                    }
+                }
             }
     }
 
@@ -1595,8 +1843,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 
         // 2d) RBG-CHAIN INGEST — follow every RBG behaviorName in this mod's CHARACTER graph deltas
         //     out to the loose sub-behavior (DMCO's dodge chain 0_master -> DMCO.hkx -> DMCO_Dodge.hkx
-        //     -> DMCO_Dodge1/2.hkx; SkyParkour's parkour graph), transitively, and
-        //     OWN it: decompile each NEW sub-behavior into the bundle as an editable,
+        //     -> DMCO_Dodge1/2.hkx; SkyParkour's parkour graph), transitively, and do TWO things:
+        //     (A) ROSTER (BR-14 safe cut): collect the chain's clip animationNames and emit them as
+        //         animationnames\<char>.txt -> the runtime folds them into the compiled character
+        //         roster (author-drop path) so the flattened clips bind (else char-setup can't bind
+        //         the clip's animation -> null binding -> A-pose). Names come from the loose BINARY
+        //         (literal strings) -> no XML-escape phantom-padding hazard (cf. UnescapeXml).
+        //     (B) OWN (full cut): decompile each NEW sub-behavior into the bundle as an editable,
         //         SERVED YAML unit at its game-data path. The runtime serves any bundle unit
         //         (Resolver Owns/Resolve, keyed by the unit path) -> BR compiles+serves it in place
         //         of the loose file, so a BR-native mod can ship (and hand-edit) the sub-behaviors as
@@ -1605,8 +1858,9 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         //         unit would shadow the base + other mods' deltas), as is any unit already present.
         //     behaviorName paths ("Behaviors\X.hkx") resolve under meshes\actors\character\.
         //     Round-trip is semantically faithful (YAML idempotent) but byte-different; the in-game
-        //     gate covers the "engine stricter than the round-trip" risk (BR-12). (Its clips' animations
-        //     need no roster: the character's roster is SCANNED from the animation folders.)
+        //     gate covers the "engine stricter than the round-trip" risk (BR-12). The roster leg (A)
+        //     stands alone, so if serving a recompiled sub-behavior regresses, dropping (B) still
+        //     leaves the dodge fixed.
         {
             const fs::path                  charRoot = dataDir / "meshes" / "actors" / "character";
             std::unordered_set<std::string> visited;    // lowercased loose-file paths (cycle guard)
@@ -1616,12 +1870,27 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             for (const auto& g : graphs) vanillaStems.insert(ToLower(g));
             int ownedUnits = 0;
 
+            // Per character-unit roster accumulation (serve path -> clip animationNames), routed by the
+            // base maps' actor/character resolution. Replaces the old {defaultmale,defaultfemale} hardcode:
+            // a horse graph's clips land in the horse character's roster, a first-person
+            // graph's in firstperson, a humanoid graph's in defaultmale+defaultfemale — the roster the
+            // schema reads natively (no bundle-root animationnames/ shim).
+            std::map<std::string, std::vector<std::string>>        byServe;
+            std::map<std::string, std::unordered_set<std::string>> seenByServe;
+            auto addToServes = [&](const std::vector<std::string>& serves, const std::string& a) {
+                if (a.empty()) return;
+                for (const auto& s : serves)
+                    if (!s.empty() && seenByServe[s].insert(ToLower(a)).second) byServe[s].push_back(a);
+            };
+
+            std::vector<std::string> curServes;   // the current seed graph's character serve path(s)
             std::function<void(const fs::path&)> walk = [&](const fs::path& hkx) {
                 std::error_code we;
                 if (!fs::is_regular_file(hkx, we)) return;
                 if (!visited.insert(ToLower(hkx.lexically_normal().string())).second) return;
                 LooseBehaviorRefs refs;
                 if (!ReadLooseBehaviorRefs(hkx.string(), refs)) return;
+                for (const auto& a : refs.animationNames) addToServes(curServes, a);      // (A) roster
                 if (!vanillaStems.count(ToLower(hkx.stem().string()))) {                  // (B) own+serve
                     const fs::path  unitDir = bundle / hkx.lexically_normal().lexically_relative(dataDir.lexically_normal());
                     std::error_code ue;
@@ -1646,10 +1915,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             };
 
             // Seed: every RBG behaviorName in this mod's just-written character graph deltas. The chain's
+            // clips are routed to the SEED graph's character(s) (curServes), so a creature RBG chain lands
+            // in its own actor's roster, not the humanoid one.
             for (const auto& g : graphs) {
                 const fs::path  refsDir = fs::path(unitOut(bname, g)) / "references";
                 std::error_code de;
                 if (!fs::is_directory(refsDir, de)) continue;
+                curServes = charServesFor(ToLower(g), /*firstPerson*/ false);
                 for (const auto& e : fs::recursive_directory_iterator(refsDir, de)) {
                     std::ifstream f(e.path());
                     std::string   line;
@@ -1663,6 +1935,48 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 }
             }
 
+            // DIRECT-GRAPH ROSTER — the RBG walk above only reaches sub-behaviors, but a mod's clips
+            // also live DIRECTLY in the graphs it patches (BFCO_* in 1hm_behavior/bashbehavior). The
+            // runtime graph-walk membrane used to collect these; do it here so the authored roster is
+            // COMPLETE at convert time (the precondition for retiring that membrane). animationNames come
+            // from the just-written delta unit clips/ (literal single-quoted strings), routed to the
+            // patched graph's own character(s).
+            {
+                auto collectGraphClips = [&](const std::string& unitPath, const std::vector<std::string>& serves) {
+                    if (serves.empty()) return;
+                    const fs::path  clipsDir = fs::path(unitPath) / "clips";
+                    std::error_code ce;
+                    if (!fs::is_directory(clipsDir, ce)) return;
+                    for (const auto& e : fs::recursive_directory_iterator(clipsDir, ce)) {
+                        if (ToLower(e.path().extension().string()) != ".yaml") continue;
+                        std::ifstream f(e.path());
+                        std::string   line;
+                        while (std::getline(f, line)) {
+                            const std::string an = YamlQuoted(line, "animationName:");
+                            if (!an.empty()) addToServes(serves, an);
+                        }
+                    }
+                };
+                for (const auto& g : graphs)   collectGraphClips(unitOut(bname, g),   charServesFor(ToLower(g), false));
+                for (const auto& g : fpGraphs) if (g != "firstperson") collectGraphClips(fpUnitOut(bname, g), charServesFor(ToLower(g), true));
+            }
+
+            if (!byServe.empty()) {
+                // Each character's roster additions — a collected name that IS vanilla drops out when the
+                // patch is derived against the base character (FlushRosters).
+                int         totalAdded = 0;
+                std::size_t totalNames = 0;
+                for (const auto& [serve, names] : byServe) {
+                    totalNames += names.size();
+                    totalAdded += AddRosterToCharacterUnit(rosters, bundle, serve, names);
+                }
+                if (totalAdded > 0) {
+                    any = true;
+                    say("  " + bname + ": clip roster — " + std::to_string(totalNames) +
+                        " clip animation(s) across " + std::to_string(byServe.size()) +
+                        " character(s), " + std::to_string(totalAdded) + " new roster line(s).");
+                }
+            }
             if (ownedUnits > 0) {
                 any = true;
                 say("  " + bname + ": RBG-chain ingest — " + std::to_string(ownedUnits) +
@@ -1688,6 +2002,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     (void)baseDir;
 
     // The synthetic loose-replacement bundle takes a load-order slot like any mod.
+    if (charFilesAny) emitted.push_back("CharacterFiles");
     if (behFilesAny)  emitted.push_back("BehaviorFiles");
     // Attributed precompiled-graph bundles (pass 1d) also need a slot — but a mod that ALSO has a
     // Nemesis leg was already emitted above under the same <modName>, so dedup.
@@ -1732,12 +2047,54 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (fs::is_directory(plugins / (kPandora + ".hky"), ec)) emitted.push_back(kPandora);
     }
 
-    /// @note 3b) The set-data leg (2b) still writes bundle-root animationnames/<stem>.txt roster drops. A roster is
-    ///       SCANNED from the animation folders now, so no bundle ships one: the drops are removed.
+    // 3b) animationnames/ -> character roster patches — the set-data leg (2b) still emits bundle-root
+    //     animationnames/<stem>.txt roster drops. Re-file every one into its character's roster, keyed by
+    //     file stem -> base character serve path, then remove the shim folder so no bundle ships it. Roster
+    //     lines are UnescapeXml'd to literal (the roster holds literal paths; the shim drops may be
+    //     XML-escaped). A stem with no base character is left in place + warned.
     {
         std::error_code pe;
-        for (fs::directory_iterator bi(plugins, pe), bEnd; !pe && bi != bEnd; bi.increment(pe))
-            if (bi->is_directory(pe)) fs::remove_all(bi->path() / "animationnames", pe);
+        int movedFiles = 0, movedNames = 0;
+        for (fs::directory_iterator bi(plugins, pe), bEnd; !pe && bi != bEnd; bi.increment(pe)) {
+            if (!bi->is_directory(pe)) continue;
+            const fs::path anDir = bi->path() / "animationnames";
+            if (!fs::is_directory(anDir, pe)) continue;
+            bool anyUnroutable = false;
+            for (fs::directory_iterator ai(anDir, pe), aEnd; !pe && ai != aEnd; ai.increment(pe)) {
+                std::error_code fe;
+                if (!ai->is_regular_file(fe)) continue;
+                if (ToLower(ai->path().extension().string()) != ".txt") continue;
+                const std::string stem = ToLower(ai->path().stem().string());
+                const auto sit = charStemToServe.find(stem);
+                if (sit == charStemToServe.end()) {
+                    anyUnroutable = true;
+                    say("  WARN: animationnames/" + ai->path().filename().string() + " in " +
+                        bi->path().filename().string() + " has no base character '" + stem +
+                        "' — left in place (unroutable).");
+                    continue;
+                }
+                std::vector<std::string> names;
+                if (std::ifstream in{ ai->path() }) {
+                    std::string l;
+                    while (std::getline(in, l)) {
+                        while (!l.empty() && (l.back() == '\r' || l.back() == '\n')) l.pop_back();
+                        const std::size_t s = l.find_first_not_of(" \t");
+                        if (s == std::string::npos) continue;
+                        const std::string t = l.substr(s);
+                        if (t.empty() || t[0] == '#' || t[0] == ';') continue;
+                        names.push_back(UnescapeXml(t));
+                    }
+                }
+                const int added = AddRosterToCharacterUnit(rosters, bi->path(), sit->second, names);
+                if (added > 0) { ++movedFiles; movedNames += added; }
+            }
+            if (!anyUnroutable) fs::remove_all(anDir, pe);   // retire the shim folder from the bundle
+        }
+        if (movedFiles > 0)
+            say("  roster: re-filed " + std::to_string(movedFiles) + " animationnames drop(s) into "
+                "character units (" + std::to_string(movedNames) + " roster line(s)).");
+        if (const int n = FlushRosters(rosters, baseCompiler, *baseArc, schemaReg, log))
+            say("  roster: wrote " + std::to_string(n) + " character patch unit(s).");
     }
 
     // 4) loadorder.txt — PRESERVE an existing file's order (the user hand-tunes it and a
@@ -1809,6 +2166,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     say("");
     say("== Manifests ==");
     int manifests = 0;
+    if (charFilesAny && !opt.singleBundle) {
+        WriteManifest(plugins / "CharacterFiles.hky", "CharacterFiles", "", "", { "Skyrim" });
+        ++manifests;
+    }
     if (behFilesAny && !opt.singleBundle) {
         WriteManifest(plugins / "BehaviorFiles.hky", "BehaviorFiles", "", "", { "Skyrim" });
         ++manifests;
@@ -1867,7 +2228,9 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     say("");
     say("Done (deltas over the shipped Skyrim.hky master): " + std::to_string(r.mods) +
         " mod bundle(s) (" + std::to_string(r.deltas) + " behavior delta(s), " +
-        std::to_string(r.setMods) + " with set-data)" +
+        std::to_string(r.charDeltas) + " character roster delta(s), " +
+        std::to_string(r.setMods) + " with set-data, " + std::to_string(r.animMods) +
+        " with anim-data)" +
         (r.fnisAnims ? ("; FNIS: " + std::to_string(r.fnisAnims) + " anim(s)") : "") +
         (r.skipped ? ("; " + std::to_string(r.skipped) + " skipped") : "") + ".");
     r.ok = true;
@@ -2069,8 +2432,6 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         return b == rigBones.end() || b->second.empty() ? nullptr : &b->second;
     };
 
-    std::vector<std::pair<fs::path, std::string>> deferredCharacters;   // (source file, meshes-relative path)
-
     say("== Building " + bundle + " (every unit under " + meshes.string() + ") ==");
     for (fs::recursive_directory_iterator it(meshes, fs::directory_options::skip_permission_denied, ec), end;
          !ec && it != end; it.increment(ec)) {
@@ -2147,9 +2508,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
         /// @note BEHAVIOR / CHARACTER / PROJECT — a complete reflective unit (self-owned FormIDs, encounter order), its
         ///       bone-named fields rendered through the rig its characters bind. A mod's patch is derived against
-        ///       THIS unit's identity, so no template numbering is involved. A CHARACTER waits for every animation to
-        ///       be baked: its roster becomes a scan recipe over the baked tree.
-        if (kind == HkxKind::Character) { deferredCharacters.push_back({ it->path(), rel }); continue; }
+        ///       THIS unit's identity, so no template numbering is involved.
         std::vector<std::uint8_t> bytes;
         std::string rerr;
         if (!CB::core::codec::ReadHavokFile(it->path().string(), bytes, &rerr)) { ++r.failed; continue; }
@@ -2160,41 +2519,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             continue;
         }
         if      (kind == HkxKind::Behavior)  ++r.behaviors;
+        else if (kind == HkxKind::Character) ++r.characters;
         else if (kind == HkxKind::Project)   ++r.projects;
-    }
-
-    /// @note Every baked animation, original case — what the characters' roster recipes scan (and the runtime
-    ///       scans the same files from the packed bundle).
-    CB::core::anim::AnimationIndex stageIndex;
-    {
-        std::vector<std::string> paths;
-        for (fs::recursive_directory_iterator it(stageHky / "meshes", fs::directory_options::skip_permission_denied, ec), end;
-             !ec && it != end; it.increment(ec)) {
-            std::error_code fe;
-            if (it->is_regular_file(fe)) paths.push_back("meshes/" + fs::relative(it->path(), stageHky / "meshes", fe).generic_string());
-        }
-        CB::core::anim::IndexAnimationFiles(stageIndex, paths);
-    }
-    for (const auto& [path, rel] : deferredCharacters) {
-        if (cancel) { r.error = "cancelled"; return r; }
-        std::string lower = rel;
-        for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        const std::string key = "meshes/" + lower;
-        const CB::core::decompile::AnimationScanFn scan = [&](const std::vector<std::string>& roster)
-            -> std::optional<CB::core::anim::AnimationScan> {
-            if (roster.empty()) return std::nullopt;
-            return CB::core::anim::DeriveAnimationScan(roster, CB::core::decompile::ProjectDirOf(key), stageIndex);
-        };
-        std::vector<std::uint8_t> bytes;
-        std::string err;
-        if (!CB::core::codec::ReadHavokFile(path.string(), bytes, &err) ||
-            !CB::core::decompile::DecompileBehaviorReflective(bytes, *sreg, (stageHky / "meshes" / fs::path(rel)).string(), err,
-                                                              bonesFor(key), &scan)) {
-            ++r.failed;
-            say("  decompile FAILED: " + rel + " — " + err);
-            continue;
-        }
-        ++r.characters;
     }
     say("  decompiled: " + std::to_string(r.behaviors) + " behaviors, " +
         std::to_string(r.projects) + " projects, " + std::to_string(r.characters) +
@@ -2300,17 +2626,10 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 // just-decomposed stageHky tree, so clips are keyed by animation name (index resolved
                 // from the roster at compile) instead of a hardwired magic number. Still needed for the
                 // index.yaml `character:` refs and the motion reunion below.
-                /// @note The VANILLA roster, read from the source character: vanilla motion records are keyed by a
-                ///       position in it (the served roster is the scan's, whose positions differ).
                 const auto pcs = CB::core::animdata::LoadProjectCharacters((stageHky / "meshes").string(),
-                    [&](const fs::path& unit) {
-                        std::vector<std::uint8_t> cb;
-                        std::vector<std::string>  names;
-                        std::error_code           re;
-                        if (CB::core::codec::ReadHavokFile((meshes / fs::relative(unit, stageHky / "meshes", re)).string(), cb, nullptr))
-                            WithFirstOfClass(cb, *sreg, "hkbCharacterStringData",
-                                             [&](CB::core::codec::io::SchemaObject& so) { names = so.FieldRef("animationNames").strs; });
-                        return names;
+                    [](const fs::path& unit) {
+                        const auto cs = CB::core::decompile::ReadCharacterStrings(CB::core::common::DiskUnitSource(unit));
+                        return cs ? cs->animationNames : std::vector<std::string>{};
                     },
                     [](const fs::path& unit) {
                         std::ifstream g(unit / "graph.yaml", std::ios::binary);
@@ -2808,26 +3127,6 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     bconv::BaseUnitCompiler baseCompiler(arc);
     const fs::path driftKeep = fs::temp_directory_path(ec) / ("sct_regen_drift_" + fs::path(outHky).stem().string());
     fs::remove_all(driftKeep, ec);
-    CB::core::anim::AnimationIndex arcIndex;
-    CB::core::anim::IndexAnimationFiles(arcIndex, arc->filesUnderOrig("meshes/"));
-    std::size_t scanned = 0, rosterExtra = 0;
-    std::vector<std::string> rosterMissing;
-    /// @note A packfile re-serialized with every `scan:` roster emptied — a character is gated on everything EXCEPT its
-    ///       roster, which the scan now builds (and reports separately below).
-    const auto canonWithoutScans = [&](const std::vector<std::uint8_t>& bytes, std::vector<std::uint8_t>& out, std::string& err) {
-        try {
-            CB::core::codec::PackFileDeserializer des;
-            des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*sreg);
-            CB::core::codec::BinaryReaderEx br(false, true, bytes);
-            const auto root = des.Deserialize(br);
-            CB::core::decompile::ClearScanFields(root);
-            CB::core::codec::PackFileSerializer ser;
-            CB::core::codec::BinaryWriterEx bw(des._header.Endian == 0, des._header.PointerSize == 8);
-            ser.Serialize(root, bw, des._header);
-            out = bw.Data();
-            return true;
-        } catch (const std::exception& x) { err = x.what(); return false; }
-    };
     for (const auto& u : arc->units()) {
         if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
         if (u.kind == CB::core::codec::HkyArchive::UnitKind::Skeleton || u.prefix.rfind("meshes/", 0) != 0) continue;
@@ -2835,42 +3134,9 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         std::vector<std::uint8_t> srcBytes, canon, got;
         std::string e;
         if (!fs::is_regular_file(src, ec) || !CB::core::codec::ReadHavokFile(src.string(), srcBytes, &e)) continue;
-        const bool character = u.kind == CB::core::codec::HkyArchive::UnitKind::Character;
-        if (!(character ? canonWithoutScans(srcBytes, canon, e) : CB::core::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e))) {
-            say("  " + u.prefix + ": source unreadable — " + e);
-            continue;
-        }
+        if (!CB::core::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) { say("  " + u.prefix + ": source unreadable — " + e); continue; }
         ++r.checked;
-        bool ok = true;
-        if (character) {
-            CB::core::decompile::ParsedHky g;
-            ok = baseCompiler.Parse(u.prefix, g, e);
-            if (ok && CB::core::decompile::ExpandAnimationScans(g, u.prefix, arcIndex)) {
-                ++scanned;
-                const auto keyOf = [](const std::string& n) {
-                    std::string k = n.substr(n.find_last_of("\\/") + 1);
-                    for (char& c : k) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                    return k;
-                };
-                std::set<std::string> have;
-                for (const auto& sf : g.scans) for (const auto& n : sf.obj->FieldAt(sf.field).strs) have.insert(keyOf(n));
-                std::set<std::string> vanilla;
-                WithFirstOfClass(srcBytes, *sreg, "hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
-                    for (const auto& n : so.FieldRef("animationNames").strs) {
-                        vanilla.insert(keyOf(n));
-                        if (!have.count(keyOf(n))) rosterMissing.push_back(u.prefix + ": " + n);
-                    }
-                });
-                for (const auto& k : have) if (!vanilla.count(k)) ++rosterExtra;
-            }
-            if (ok) {
-                CB::core::decompile::ClearScanFields(g.root);
-                ok = CB::core::decompile::SerializeGraph(g, got, e);
-            }
-        } else {
-            ok = baseCompiler.Compile(u.prefix, got, e);
-        }
-        if (!ok) {
+        if (!baseCompiler.Compile(u.prefix, got, e)) {
             r.drift.push_back(u.prefix);
             say("  FAIL: " + u.prefix + " — " + e);
             continue;
@@ -2885,11 +3151,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     }
     if (!r.drift.empty()) say("  drift pairs kept under " + driftKeep.string());
     say("  served-bytes gate: " + std::to_string(r.faithful) + "/" + std::to_string(r.checked) +
-        " unit(s) serve byte-identical to their source (characters: all but the scanned roster)" +
-        (r.drift.empty() ? "." : "; " + std::to_string(r.drift.size()) + " drift/fail."));
-    say("  roster scan: " + std::to_string(scanned) + " character(s) — +" + std::to_string(rosterExtra) +
-        " unlisted file(s) in their folders, -" + std::to_string(rosterMissing.size()) + " vanilla entr(ies) with no file:");
-    for (const auto& m : rosterMissing) say("    " + m);
+        " unit(s) serve byte-identical to their source" + (r.drift.empty() ? "." : "; " + std::to_string(r.drift.size()) + " drift/fail."));
 
     // 3) Promote — or, in strict mode, refuse to write if anything drifted.
     if (!r.drift.empty() && strict) {
