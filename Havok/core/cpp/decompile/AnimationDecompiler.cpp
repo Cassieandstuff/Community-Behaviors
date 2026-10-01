@@ -20,6 +20,7 @@
 
 #include <codec/format/AnimDataYaml.h>      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
 #include "codec/spline/SplineDecompressor.h"
+#include <codec/motion/RootMotion.h>
 #include <codec/serialization/packfile/BinaryReaderEx.h>
 #include <codec/serialization/packfile/PackFileDeserializer.h>
 
@@ -264,6 +265,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                + fstr(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
     }
 
+    std::optional<CB::core::animdata::MotionRecord> amrMotion;
     // Annotation tracks (AMR root motion / MorphFace payloads) — one lane per entry, verbatim.
     auto& annTracks = spline->FieldRef("annotationTracks").objs;
     if (!annTracks.empty()) {
@@ -284,12 +286,8 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
             }
         }
 
-        // AMR annotations -> CB motion field (point 4 / build-time AMR replacement). Collect every
-        // annotation's (time,text) and translate any animmotion/animrotation tags into a `motion:` block,
-        // so the compiler bakes the motion into the adsf and the game's native motion read serves it (no
-        // AMR runtime hook). Vanilla clips carry no AMR tags -> no motion emitted (the base adsf reunion
-        // supplies theirs); a mod's AMR clips get their motion here. Emitted with the same indent as the
-        // base-build reunion (`  motion:` + body +4) so AnimationYamlLoader parses it identically.
+        /// @note AMR annotations (animmotion/animrotation) are the clip's actor motion; vanilla clips carry none (the
+        ///       base reunion supplies theirs).
         std::vector<std::pair<float, std::string>> allAnns;
         for (auto& atObj : annTracks) {
             auto at = asSO(atObj); if (!at) continue;
@@ -298,18 +296,12 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                 allAnns.emplace_back(rdF32(*a, "time"), a->FieldRef("text").str);
             }
         }
-        if (auto mr = CB::core::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration))) {
-            const std::string body = CB::core::animdata::EmitMotionSidecar(*mr);
-            y += "  motion:\n";
-            for (std::size_t p = 0; p < body.size();) {
-                const std::size_t nl = body.find('\n', p);
-                const std::string line = body.substr(p, nl == std::string::npos ? std::string::npos : nl - p);
-                if (!line.empty()) y += "    " + line + "\n";
-                p = (nl == std::string::npos) ? body.size() : nl + 1;
-            }
-        }
+        amrMotion = CB::core::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration));
     }
 
+    /// @note The unit's motion form: AMR motion folds onto the root where it round-trips (else stays explicit); a
+    ///       moving root with no motion is marked visual-only.
+    CB::core::anim::FinalizeUnitMotion(y, amrMotion);
     writeText(dir / "animation.yaml", y);
     return { true, "" };
 }

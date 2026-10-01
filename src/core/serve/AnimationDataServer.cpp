@@ -8,6 +8,7 @@
 
 #include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
 #include <codec/format/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
+#include <codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <compile/AnimDataFromBehavior.h>   // DeriveProjectPatch
 #include <interface/linker/Membrane.h>     // roster IndexMembrane (motion inherits the clip's bind)
 #include <interface/MasterTable.h>         // BuildMasterTable — FormId canon for the adsf-derive merge
@@ -25,7 +26,9 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <chrono>
 #include <set>
+#include <thread>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -232,6 +235,7 @@ namespace linker = CB::core::linker;
                         LOG_WARN("AnimData: native animation '{}' parse failed (motion skipped): {}", path, e.what());
                         continue;
                     }
+                    def.motion = CB::core::anim::ResolveRootMotion(def);
                     if (!def.motion) continue;
                     std::string rel = path;                                  // "meshes/actors/…/animations/…/x.hkx"
                     const std::string pfx = ToLower(actorRoot) + "/";
@@ -361,15 +365,21 @@ namespace linker = CB::core::linker;
             // Global animation cache keyed by RESOLVED bundle path — read once, shared across projects
             // (a shared killmove is referenced by many actors). Absent/unparseable -> nullopt (cached).
             std::unordered_map<std::string, std::optional<CB::core::anim::AnimationDef>> animCache;
+            /// @note Parsed once, with its actor motion resolved (its record, or extracted from a folded root).
+            const auto loadAnim = [&master](const std::string& resolvedPath) {
+                std::optional<CB::core::anim::AnimationDef> def;
+                if (const auto text = master.read(resolvedPath)) {
+                    try {
+                        def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, resolvedPath);
+                        def->motion = CB::core::anim::ResolveRootMotion(*def);
+                    } catch (...) { def.reset(); }
+                }
+                return def;
+            };
             auto getAnim = [&](const std::string& resolvedPath) -> const CB::core::anim::AnimationDef* {
                 auto it = animCache.find(resolvedPath);
                 if (it == animCache.end()) {
-                    std::optional<CB::core::anim::AnimationDef> def;
-                    if (const auto text = master.read(resolvedPath)) {
-                        try { def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, resolvedPath); }
-                        catch (...) {}
-                    }
-                    it = animCache.emplace(resolvedPath, std::move(def)).first;
+                    it = animCache.emplace(resolvedPath, loadAnim(resolvedPath)).first;
                 }
                 return it->second ? &*it->second : nullptr;
             };
@@ -402,6 +412,35 @@ namespace linker = CB::core::linker;
                 }
                 return unitClips.emplace(unitLc, std::move(clips)).first->second;
             };
+
+            /// @note PREFILL in parallel: parsing every rostered animation (gigabytes of keyframe YAML) is the derive's
+            ///       cost, and the engine's adsf open waits on it. The archive is fully inflated in memory, so reads are
+            ///       const map lookups; each worker parses its own units, and the cache is filled serially after.
+            const auto tPrefill = std::chrono::steady_clock::now();
+            {
+                std::set<std::string> want;
+                for (const auto& h : headers) {
+                    if (!h.hasAnimData || h.character.empty()) continue;
+                    const auto rit = rostersByStem.find(animdata::StemForProjectName(h.name));
+                    if (rit == rostersByStem.end()) continue;
+                    std::string cref = ToLower(h.character);
+                    for (char& c : cref) if (c == '\\') c = '/';
+                    std::string rootLc = "meshes/" + cref;
+                    { const auto s1 = rootLc.find_last_of('/');
+                      const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rootLc.find_last_of('/', s1 - 1);
+                      if (s2 != std::string::npos) rootLc = rootLc.substr(0, s2); }
+                    for (const auto& a : rit->second) want.insert(resolveAnimPath(rootLc, a));
+                }
+                const std::vector<std::string> paths(want.begin(), want.end());
+                std::vector<std::optional<CB::core::anim::AnimationDef>> parsed(paths.size());
+                std::atomic<std::size_t> next{ 0 };
+                std::vector<std::thread> pool;
+                for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
+                    pool.emplace_back([&] { for (std::size_t i; (i = next++) < paths.size();) parsed[i] = loadAnim(paths[i]); });
+                for (auto& t : pool) t.join();
+                for (std::size_t i = 0; i < paths.size(); ++i) animCache.emplace(paths[i], std::move(parsed[i]));
+            }
+            const auto tClips = std::chrono::steady_clock::now();
 
             animdata::SingleFile out;
             out.projects.reserve(headers.size());
@@ -478,8 +517,10 @@ namespace linker = CB::core::linker;
                 }
                 out.projects.push_back(std::move(p));
             }
-            LOG_INFO("AnimData: base DERIVED from graph — {} anim project(s), {} clip(s) (no clips/ in master).",
-                     nProj, nClips);
+            const auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
+            LOG_INFO("AnimData: base DERIVED from graph — {} anim project(s), {} clip(s) (no clips/ in master); {} animation(s) "
+                     "parsed in {} ms (parallel), clips + motion in {} ms.",
+                     nProj, nClips, animCache.size(), ms(tPrefill, tClips), ms(tClips, std::chrono::steady_clock::now()));
             return out;
         }
 

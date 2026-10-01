@@ -62,4 +62,29 @@ struct FoldCheck {
 /// @return nullopt when the unit has no motion or no frame timing.
 std::optional<FoldCheck> CheckFoldRoundTrip(const AnimationDef& def, std::size_t rootTrack);
 
+/// @brief The fold gate's verdict for one unit: the source root is clean (Bethesda extracted all of its travel) and the
+///        extracted motion matches the source within 0.01 + speed x one engine key-time step (IEEE-half key times: both
+///        curves sit on that grid, so a smaller difference is the engine's own resolution, not a fold error).
+bool FoldRoundTrips(const FoldCheck& c);
+
+/// @brief How a unit carries its root motion.
+enum class UnitMotionForm {
+    None,       ///< no motion and a still root
+    Folded,     ///< the root carries the motion (no `motion` key) — extracted at compile
+    Explicit,   ///< a `motion:` record; the root is untouched (its travel stays visual)
+    Visual,     ///< `motion: none` — the root moves, but only visually; nothing is extracted
+};
+
+/// @brief Settle a unit's motion form in its YAML text: fold `motion` onto the root where the fold round-trips, else
+///        write it as an explicit record; with no motion, mark a moving root `motion: none`. Any existing `motion`
+///        key is replaced. Every other byte of the unit is kept.
+/// @note Explicit stays until CB serves the stripped animation: the engine plays the SOURCE binary, whose root still
+///       carries its visual travel, so extracting that travel into the actor too would double it on screen.
+UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::core::animdata::MotionRecord>& motion,
+                                  std::string* err = nullptr);
+
+/// @brief The unit's actor motion: its explicit record; nothing for `motion: none`; else extracted from the root,
+///        which is stripped of it (so a compile of `def` afterwards serves the clean root).
+std::optional<CB::core::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack = 0);
+
 } // namespace CB::core::anim

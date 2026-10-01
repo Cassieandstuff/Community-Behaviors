@@ -35,4 +35,11 @@ struct AnimationYamlLoader {
     static AnimationDef LoadFromString(const std::string& yamlText, const std::string& sourceName = "<memory>");
 };
 
+/// @brief One track in the decompiler's YAML form (`    - bone:` + translation/rotation/scale, `%.9g`).
+std::string EmitAnimTrackYaml(const AnimTrackDef& track);
+
+/// @brief Replace the `trackIndex`-th track of a unit's YAML text in place, leaving every other byte as is.
+/// @return false when the unit has no such track.
+bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrackDef& track);
+
 } // namespace CB::core::anim

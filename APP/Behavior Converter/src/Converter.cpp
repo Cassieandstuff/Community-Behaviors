@@ -16,6 +16,7 @@
 #include <codec/motion/RootMotion.h>
 
 #include <atomic>
+#include <mutex>
 #include <thread>
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <decompile/BehaviorDecompile.h>     // ConvertModDelta / DeriveHkyPatch / the reflective unit codec
@@ -2669,7 +2670,8 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 // Unnamed/hybrid motion (no unique roster slot) is left index-keyed in the adsf as before.
                 {
                     auto lc = [](std::string s){ for (char& c : s) c = (char)std::tolower((unsigned char)c); return s; };
-                    std::size_t reunited = 0, unbaked = 0;
+                    std::size_t reunited = 0, unbaked = 0, folded = 0, kept = 0;
+                    std::set<std::string> handled;
                     for (const auto& proj : parsed.projects) {
                         if (!proj.hasAnimData || proj.motions.empty()) continue;
                         const std::string stem = CB::core::animdata::StemForProjectName(proj.name);
@@ -2685,30 +2687,27 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             if (!(end && *end == '\0' && i >= 0 && (std::size_t)i < roster.size())) continue;
                             if (roster[(std::size_t)i].empty()) continue;
                             const std::string canon = CB::core::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
-                            // native animation is a SINGLE-FILE unit: the ".hkx" path IS the yaml (not a
-                            // "<name>.hkx/animation.yaml" tree). Append the motion block onto that file.
                             const fs::path animYaml = stageHky / "meshes" / canon;   // baked anims live in the bundle
                             std::error_code fe;
                             if (!fs::exists(animYaml, fe)) { ++unbaked; continue; }   // not baked -> vanilla loose keeps its adsf motion
-                            // don't double-append (first-writer wins across the male/female duplicate).
-                            std::ifstream chk(animYaml, std::ios::binary);
-                            std::string cur((std::istreambuf_iterator<char>(chk)), std::istreambuf_iterator<char>());
-                            chk.close();
-                            if (cur.find("\n  motion:") != std::string::npos) continue;
-                            // append `motion:` as a child of `animation:` — EmitMotionSidecar body indented +4.
-                            std::string body = CB::core::animdata::EmitMotionSidecar(m), blk = "  motion:\n";
-                            for (std::size_t p = 0; p < body.size();) {
-                                std::size_t nl = body.find('\n', p);
-                                std::string line = body.substr(p, nl == std::string::npos ? std::string::npos : nl - p);
-                                if (!line.empty()) blk += "    " + line + "\n";
-                                p = (nl == std::string::npos) ? body.size() : nl + 1;
+                            if (!handled.insert(canon).second) continue;   // the male/female duplicate: identical record
+                            std::ifstream in(animYaml, std::ios::binary);
+                            std::string cur((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                            in.close();
+                            std::string ferr;
+                            switch (CB::core::anim::FinalizeUnitMotion(cur, m, &ferr)) {
+                                case CB::core::anim::UnitMotionForm::Folded:   ++folded; break;
+                                case CB::core::anim::UnitMotionForm::Explicit: ++kept; break;
+                                default: say("  motion reunion: " + canon + " unreadable — " + ferr); continue;
                             }
-                            std::ofstream(animYaml, std::ios::binary | std::ios::app) << blk;
+                            std::ofstream(animYaml, std::ios::binary | std::ios::trunc) << cur;
                             ++reunited;
                         }
                     }
-                    say("  motion reunion: " + std::to_string(reunited) + " animation(s) reunited with their motion record (" +
-                        std::to_string(unbaked) + " referenced-but-unbaked, left to vanilla loose).");
+                    say("  motion reunion: " + std::to_string(reunited) + " animation(s) reunited with their motion record — " +
+                        std::to_string(folded) + " folded onto [Root] (fold gate passed), " + std::to_string(kept) +
+                        " kept explicit (still, or the root keeps visual travel); " + std::to_string(unbaked) +
+                        " referenced-but-unbaked, left to vanilla loose.");
                 }
             } catch (const std::exception& e) {
                 say(std::string("  WARN: animationdata decompose failed: ") + e.what());
@@ -3099,7 +3098,7 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
         if (c.rootDrift < kCleanDrift && c.rootYawDeg < kCleanYaw) {
             ++clean;
             cleanErr = std::max(cleanErr, c.motionErr); cleanDeg = std::max(cleanDeg, c.motionDeg);
-            if (within(c.motionErr, c.maxSpeed, c.keyTimeStep) && within(c.motionDeg, c.maxTurn, c.keyTimeStep)) ++cleanPass;
+            if (CB::core::anim::FoldRoundTrips(c)) ++cleanPass;
             else cleanFails.push_back(&*r);
         } else residual.push_back(&*r);
         csv << r->rel << "," << r->skeleton << "," << c.extracted << "," << c.motionErr << "," << c.motionDeg << ","
@@ -3129,6 +3128,68 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
             std::to_string(residual[i]->c.motionDeg) + "deg");
     say("  per-unit CSV: " + outCsv);
     return failed == 0 && cleanPass == clean && visFail == 0;
+}
+
+bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, const LogFn& log) {
+    auto say = [&](const std::string& m) { if (log) log(m); };
+    std::vector<fs::path> files;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(oldTree, ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_regular_file(ec) && ToLower(it->path().extension().string()) == ".hkx" &&
+            ToLower(it->path().generic_string()).find("/animations/") != std::string::npos)
+            files.push_back(it->path());
+    std::atomic<std::size_t> next{ 0 }, checked{ 0 }, folded{ 0 }, bad{ 0 }, missing{ 0 };
+    std::mutex mx;
+    std::vector<std::string> worst;
+    auto work = [&] {
+        for (std::size_t i; (i = next++) < files.size();) {
+            std::ifstream in(files[i], std::ios::binary);
+            std::string oldText((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (oldText.find("\n  motion:\n") == std::string::npos) continue;
+            const fs::path rel = fs::relative(files[i], oldTree, ec);
+            std::ifstream in2(fs::path(newTree) / rel, std::ios::binary);
+            if (!in2) { ++missing; continue; }
+            std::string newText((std::istreambuf_iterator<char>(in2)), std::istreambuf_iterator<char>());
+            try {
+                const auto oldDef = CB::core::anim::AnimationYamlLoader::LoadFromString(oldText, rel.string());
+                auto newDef = CB::core::anim::AnimationYamlLoader::LoadFromString(newText, rel.string());
+                if (!newDef.motion && !newDef.rootMotionVisual) ++folded;
+                const auto got = CB::core::anim::ResolveRootMotion(newDef);
+                const CB::core::anim::EngineMotionCurve want(*oldDef.motion), have(got ? *got : CB::core::animdata::MotionRecord{});
+                double err = 0, speed = 0;
+                CB::core::anim::MotionPose prev = want.Sample(0);
+                for (int f = 0; f < oldDef.numFrames; ++f) {
+                    const double t = f * static_cast<double>(oldDef.frameDuration);
+                    for (const double s : { t, t + 0.5 * oldDef.frameDuration }) {
+                        if (s > oldDef.duration + 1e-6) continue;
+                        const auto a = want.Sample(s), b = have.Sample(s);
+                        err = std::max(err, std::sqrt((a.t[0]-b.t[0])*(a.t[0]-b.t[0]) + (a.t[1]-b.t[1])*(a.t[1]-b.t[1]) + (a.t[2]-b.t[2])*(a.t[2]-b.t[2])));
+                    }
+                    const auto p = want.Sample(t);
+                    if (f) speed = std::max(speed, std::sqrt((p.t[0]-prev.t[0])*(p.t[0]-prev.t[0]) + (p.t[1]-prev.t[1])*(p.t[1]-prev.t[1]) + (p.t[2]-prev.t[2])*(p.t[2]-prev.t[2])) / oldDef.frameDuration);
+                    prev = p;
+                }
+                ++checked;
+                /// @note Same tolerance as the fold gate: 0.01 + speed x the engine's key-time step past 16 s (1/64 s).
+                if (err > 0.01 + speed * (oldDef.duration >= 16 ? 1.0 / 64 : oldDef.duration >= 8 ? 1.0 / 128 : oldDef.duration >= 4 ? 1.0 / 256 : 1.0 / 512)) {
+                    ++bad;
+                    std::lock_guard<std::mutex> lk(mx);
+                    if (worst.size() < 12) worst.push_back(rel.generic_string() + "  " + std::to_string(err) + "u (speed " + std::to_string(speed) + ")");
+                }
+            } catch (const std::exception& e) {
+                ++bad;
+                std::lock_guard<std::mutex> lk(mx);
+                if (worst.size() < 12) worst.push_back(rel.generic_string() + "  unreadable: " + e.what());
+            }
+        }
+    };
+    std::vector<std::thread> pool;
+    for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) pool.emplace_back(work);
+    for (auto& t : pool) t.join();
+    say("motion-storage check: " + std::to_string(checked - bad) + "/" + std::to_string(checked) + " unit(s) resolve to their vanilla motion (" +
+        std::to_string(folded) + " from a folded root); " + std::to_string(missing) + " missing from the new tree.");
+    for (const auto& w : worst) say("  MISMATCH " + w);
+    return bad == 0 && missing == 0;
 }
 
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky,

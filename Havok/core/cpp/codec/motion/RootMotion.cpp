@@ -1,5 +1,8 @@
 #include <codec/motion/RootMotion.h>
 
+#include <codec/format/AnimDataYaml.h>         // EmitMotionSidecar
+#include <codec/format/AnimationYamlLoader.h>
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -347,6 +350,74 @@ std::optional<FoldCheck> CheckFoldRoundTrip(const AnimationDef& def, std::size_t
         c.rootYawDeg = std::max(c.rootYawDeg, angle(tw, ident));
     }
     return c;
+}
+
+bool FoldRoundTrips(const FoldCheck& c) {
+    const auto within = [&](double err, double rate) { return err <= 0.01 + rate * std::max(c.keyTimeStep, 0.001); };
+    return c.rootDrift < 0.01 && c.rootYawDeg < 0.1 && within(c.motionErr, c.maxSpeed) && within(c.motionDeg, c.maxTurn) &&
+           within(c.visualErr, c.maxSpeed) && within(c.visualDeg, c.maxTurn);
+}
+
+namespace {
+/// @brief Remove the unit's `motion` key (a block or `motion: none`), up to the next `animation:` key or the end.
+void StripMotion(std::string& text) {
+    const std::size_t at = text.find("\n  motion:");
+    if (at == std::string::npos) return;
+    std::size_t end = text.size();
+    for (std::size_t p = text.find('\n', at + 1); p != std::string::npos && p + 3 < text.size(); p = text.find('\n', p + 1))
+        if (text.compare(p + 1, 2, "  ") == 0 && text[p + 3] != ' ') { end = p; break; }
+    text.erase(at + 1, end == text.size() ? std::string::npos : end - at);
+}
+
+bool IsStill(const CB::core::animdata::MotionRecord& m) {
+    for (const auto& s : m.translations) {
+        const auto v = Numbers(s);
+        if (v.size() >= 4 && (v[1] != 0 || v[2] != 0 || v[3] != 0)) return false;
+    }
+    for (const auto& s : m.rotations) {
+        const auto v = Numbers(s);
+        if (v.size() >= 5 && (v[1] != 0 || v[2] != 0 || v[3] != 0 || std::abs(v[4]) != 1)) return false;
+    }
+    return true;
+}
+} // namespace
+
+UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::core::animdata::MotionRecord>& motion,
+                                  std::string* err) {
+    StripMotion(text);
+    if (!text.empty() && text.back() != '\n') text += '\n';
+    AnimationDef def;
+    try { def = AnimationYamlLoader::LoadFromString(text, "<unit>"); }
+    catch (const std::exception& e) { if (err) *err = e.what(); return UnitMotionForm::None; }
+
+    if (motion) {
+        def.motion = *motion;
+        if (!IsStill(*motion)) {
+            const auto check = CheckFoldRoundTrip(def, 0);
+            if (check && FoldRoundTrips(*check) && FoldMotionOntoRoot(def, 0) && ReplaceTrackYaml(text, 0, def.tracks[0]))
+                return UnitMotionForm::Folded;
+        }
+        const std::string body = CB::core::animdata::EmitMotionSidecar(*motion);
+        text += "  motion:\n";
+        for (std::size_t p = 0; p < body.size();) {
+            const std::size_t nl = body.find('\n', p);
+            const std::string line = body.substr(p, nl == std::string::npos ? std::string::npos : nl - p);
+            if (!line.empty()) text += "    " + line + "\n";
+            p = nl == std::string::npos ? body.size() : nl + 1;
+        }
+        return UnitMotionForm::Explicit;
+    }
+    if (ExtractRootMotion(def, 0)) {
+        text += "  motion: none\n";
+        return UnitMotionForm::Visual;
+    }
+    return UnitMotionForm::None;
+}
+
+std::optional<CB::core::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack) {
+    if (def.motion) return def.motion;
+    if (def.rootMotionVisual) return std::nullopt;
+    return ExtractRootMotion(def, rootTrack);
 }
 
 } // namespace CB::core::anim

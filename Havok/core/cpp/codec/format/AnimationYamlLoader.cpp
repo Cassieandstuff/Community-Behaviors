@@ -4,6 +4,7 @@
 
 #include <RymlInclude.h>
 
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -189,7 +190,9 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
     // Parsed here directly (rather than re-emitting the subtree to text for ParseMotionSidecar) but kept
     // byte-identical to it by reusing animdata::UnlabelSample on every sample. animIndex/animation stay
     // empty — the compiler binds them per-project at derive time from this animation's clip.
-    if (hasChild(a, "motion")) {
+    if (hasChild(a, "motion") && a["motion"].has_val()) {
+        def.rootMotionVisual = strf(a, "motion") == "none";
+    } else if (hasChild(a, "motion")) {
         auto m = a["motion"];
         CB::core::animdata::MotionRecord mr;
         mr.duration = strf(m, "duration");   // verbatim token (NOT reparsed to float)
@@ -209,6 +212,48 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
     }
 
     return def;
+}
+
+namespace {
+std::string Fmt(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
+} // namespace
+
+std::string EmitAnimTrackYaml(const AnimTrackDef& tr) {
+    std::string y = "    - bone: " + tr.bone + "\n";
+    const auto vec3 = [&](const char* key, const std::vector<Vec3Keyframe>& keys) {
+        if (keys.empty()) return;
+        y += std::string("      ") + key + ":\n";
+        for (const auto& k : keys)
+            y += "        - { time: " + Fmt(k.time) + ", value: [" + Fmt(k.value[0]) + ", " + Fmt(k.value[1]) + ", " +
+                 Fmt(k.value[2]) + "] }\n";
+    };
+    vec3("translation", tr.translation);
+    if (!tr.rotation.empty()) {
+        y += "      rotation:\n";
+        for (const auto& k : tr.rotation)
+            y += "        - { time: " + Fmt(k.time) + ", value: [" + Fmt(k.value[0]) + ", " + Fmt(k.value[1]) + ", " +
+                 Fmt(k.value[2]) + ", " + Fmt(k.value[3]) + "] }\n";
+    }
+    vec3("scale", tr.scale);
+    return y;
+}
+
+bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrackDef& track) {
+    const std::string head = "\n    - bone: ";
+    std::size_t at = text.find("\n  tracks:\n");
+    if (at == std::string::npos) return false;
+    for (std::size_t i = 0; i <= trackIndex; ++i) {
+        at = text.find(head, at + 1);
+        if (at == std::string::npos) return false;
+    }
+    /// @note The block ends at the next track or the next `animation:` key (indent 2).
+    std::size_t end = text.size();
+    for (std::size_t p = text.find('\n', at + 1); p != std::string::npos && p + 1 < text.size(); p = text.find('\n', p + 1)) {
+        if (text.compare(p, head.size(), head) == 0 || (p + 3 < text.size() && text.compare(p + 1, 2, "  ") == 0 && text[p + 3] != ' ')) { end = p; break; }
+    }
+    const std::string body = EmitAnimTrackYaml(track);
+    text.replace(at + 1, end - (at + 1), body.substr(0, body.size() - 1));
+    return true;
 }
 
 AnimationDef AnimationYamlLoader::Load(const std::filesystem::path& yamlFile) {

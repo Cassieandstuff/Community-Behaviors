@@ -206,6 +206,10 @@ bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& modd
 ///        Clean-root clips must round-trip; root-residual clips report how much physical motion extraction adds.
 ///        Writes a per-unit CSV to `outCsv`.
 bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const LogFn& log);
+/// @brief End-to-end check of the folded storage: every unit that carried a `motion:` record in `oldTree` (a pre-fold
+///        regen) must resolve — as the runtime resolves it (ResolveRootMotion) — from the unit of the same path in
+///        `newTree` to the same engine-sampled motion.
+bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, const LogFn& log);
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "",
                   bool allKinds = false);
 /// @brief The serializer's own round-trip over every behavior .hkx: deserialize -> re-serialize vs the source bytes.

@@ -13,6 +13,7 @@
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // CB::core::anim::CompileAnimation (native anim -> loose .hkx)
+#include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <interface/MasterTable.h>          // CB::core::codec::formid::BuildMasterTable (ordered master table)
 #include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
@@ -1000,7 +1001,10 @@ namespace CB {
             // doesn't opt in isn't compiled at all, so there is nothing to clobber.
             const fs::path out = dataRoot / fs::path(outKey);
             try {
-                const auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                /// @note The unit's actor motion (its record, or extracted from a folded root — which also strips the
+                ///       root, so the binary compiled below serves without the travel the adsf now moves the actor by).
+                const auto motion = CB::core::anim::ResolveRootMotion(def);
                 // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
                 // carries an inline `motion:` block, emit it for the adsf finalizer to DRAIN (instead of
                 // the adsf re-reading the YAML — which looked for a `.hkx.yaml` class these `.hkx` units
@@ -1008,10 +1012,10 @@ namespace CB {
                 // path up to "/animations/"; innerKey = the remainder, lowercased '/'-sep (== the form
                 // motionsForRoot produced and DeriveProjectPatch's normAnim(animationName) looks up). Motion
                 // is authored data (not compile-dependent), so emit on a successful PARSE, before compile.
-                if (def.motion) {
+                if (motion) {
                     const std::string low = ToLower(outKey);   // outKey is '/'-sep already
                     if (const auto ap = low.find("/animations/"); ap != std::string::npos)
-                        m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *def.motion);
+                        m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *motion);
                 }
                 // INVERSE MEMBRANE: resolve this clip's per-track bone references through the rig of the
                 // characters that play it (BonesFor — the same lookup the graph compile uses), so its
