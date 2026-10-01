@@ -201,6 +201,11 @@ bool HkyMerge(const std::string& baseHky, const std::string& meshesDir, const st
 bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& moddedMeshes, const std::string& workRoot,
                        const LogFn& log, const std::string& baseHky = "");
 /// @param allKinds also gate characters, projects and skeletons (the reflective codec is schema-generic).
+/// @brief Root-motion fold gate over an unpacked tree's animation units that carry `motion:`: fold the motion onto the
+///        root bone, extract it back (XYZ + yaw, HCT-style), and compare through the engine's own motion evaluator.
+///        Clean-root clips must round-trip; root-residual clips report how much physical motion extraction adds.
+///        Writes a per-unit CSV to `outCsv`.
+bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const LogFn& log);
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "",
                   bool allKinds = false);
 /// @brief The serializer's own round-trip over every behavior .hkx: deserialize -> re-serialize vs the source bytes.

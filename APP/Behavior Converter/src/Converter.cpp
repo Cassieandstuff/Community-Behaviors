@@ -13,6 +13,10 @@
 #include <codec/serialization/packfile/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
 #include <compile/AnimationCompiler.h>       // CB::core::anim::CompileAnimation — recompile leg (schema-native)
 #include <decompile/AnimationDecompiler.h>   // CB::core::anim::DecompileAnimation — schema-native import leg
+#include <codec/motion/RootMotion.h>
+
+#include <atomic>
+#include <thread>
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <decompile/BehaviorDecompile.h>     // ConvertModDelta / DeriveHkyPatch / the reflective unit codec
 #include <havok-schema/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
@@ -3042,6 +3046,89 @@ bool PatchRoundTripAll(const std::string& vanillaMeshes, const std::string& modd
     say("patch-roundtrip: " + std::to_string(same) + "/" + std::to_string(n) + " merge(base, derive(base, mod)) == mod (" +
         std::to_string(fails) + " failed). Work trees under " + workRoot);
     return fails == 0;
+}
+
+bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const LogFn& log) {
+    auto say = [&](const std::string& m) { if (log) log(m); };
+    std::vector<fs::path> files;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(treeDir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec) || ToLower(it->path().extension().string()) != ".hkx") continue;
+        std::string rel = ToLower(it->path().generic_string());
+        if (rel.find("/animations/") != std::string::npos) files.push_back(it->path());
+    }
+    struct Row { std::string rel; CB::core::anim::FoldCheck c; std::string skeleton; };
+    std::vector<std::optional<Row>> rows(files.size());
+    std::atomic<std::size_t> next{ 0 }, failed{ 0 };
+    auto work = [&] {
+        for (std::size_t i; (i = next++) < files.size();) {
+            std::ifstream in(files[i], std::ios::binary);
+            std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (text.find("\n  motion:") == std::string::npos) continue;
+            try {
+                const auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(text, files[i].string());
+                if (const auto c = CB::core::anim::CheckFoldRoundTrip(def, 0))
+                    rows[i] = Row{ fs::relative(files[i], treeDir, ec).generic_string(), *c, def.skeleton };
+            } catch (...) { ++failed; }
+        }
+    };
+    std::vector<std::thread> pool;
+    for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) pool.emplace_back(work);
+    for (auto& t : pool) t.join();
+
+    /// @note "Clean" = Bethesda extracted all of the root's travel (the fold must round-trip); the rest keep visual root
+    ///       motion that wholesale extraction turns into physical motion.
+    constexpr double kCleanDrift = 0.01, kCleanYaw = 0.1;
+    /// @note Tolerance = 0.01 + speed x one key-time step: the engine stores key times as IEEE halves (1/256 s at 4-8 s,
+    ///       1/64 s past 16 s), so vanilla's keys and ours both sit on that grid — a difference below speed x step is the
+    ///       engine's own representational limit, not a fold error.
+    const auto within = [](double err, double rate, double step) { return err <= 0.01 + rate * std::max(step, 0.001); };
+    std::size_t n = 0, clean = 0, rootNamed = 0, cleanPass = 0;
+    double cleanErr = 0, cleanDeg = 0, visErr = 0, visDeg = 0;
+    std::vector<const Row*> residual, cleanFails;
+    std::size_t visFail = 0;
+    std::ofstream csv(outCsv, std::ios::binary);
+    csv << "unit,skeleton,extracted,motionErr,motionDeg,visualErr,visualDeg,rootDrift,rootYawDeg,worstTime\n";
+    for (const auto& r : rows) {
+        if (!r) continue;
+        ++n;
+        const auto& c = r->c;
+        if (r->skeleton.find("[Root]") != std::string::npos) ++rootNamed;
+        if (!within(c.visualErr, c.maxSpeed, c.keyTimeStep) || !within(c.visualDeg, c.maxTurn, c.keyTimeStep)) ++visFail;
+        visErr = std::max(visErr, c.visualErr); visDeg = std::max(visDeg, c.visualDeg);
+        if (c.rootDrift < kCleanDrift && c.rootYawDeg < kCleanYaw) {
+            ++clean;
+            cleanErr = std::max(cleanErr, c.motionErr); cleanDeg = std::max(cleanDeg, c.motionDeg);
+            if (within(c.motionErr, c.maxSpeed, c.keyTimeStep) && within(c.motionDeg, c.maxTurn, c.keyTimeStep)) ++cleanPass;
+            else cleanFails.push_back(&*r);
+        } else residual.push_back(&*r);
+        csv << r->rel << "," << r->skeleton << "," << c.extracted << "," << c.motionErr << "," << c.motionDeg << ","
+            << c.visualErr << "," << c.visualDeg << "," << c.rootDrift << "," << c.rootYawDeg << "," << c.worstTime << "\n";
+    }
+    say("motion-fold gate: " + std::to_string(n) + " unit(s) with motion (" + std::to_string(failed) + " unreadable); " +
+        std::to_string(rootNamed) + " bound to a [Root] skeleton.");
+    say("  on screen (all): " + std::to_string(n - visFail) + "/" + std::to_string(n) + " within tolerance (max " +
+        std::to_string(visErr) + " units / " + std::to_string(visDeg) + " deg from vanilla).");
+    say("  clean-root clips: " + std::to_string(cleanPass) + "/" + std::to_string(clean) + " round-trip (max " +
+        std::to_string(cleanErr) + " units / " + std::to_string(cleanDeg) + " deg).");
+    for (std::size_t i = 0; i < cleanFails.size() && i < 12; ++i)
+        say("    FAIL " + cleanFails[i]->rel + "  " + std::to_string(cleanFails[i]->c.motionErr) + "u @" +
+            std::to_string(cleanFails[i]->c.worstTime) + "s (speed " + std::to_string(cleanFails[i]->c.maxSpeed) + "u/s), " +
+            std::to_string(cleanFails[i]->c.motionDeg) + "deg (turn " + std::to_string(cleanFails[i]->c.maxTurn) + "deg/s)");
+    std::sort(residual.begin(), residual.end(), [](const Row* a, const Row* b) { return a->c.motionErr > b->c.motionErr; });
+    std::size_t buckets[5] = {};
+    for (const Row* r : residual) {
+        const double e = r->c.motionErr;
+        ++buckets[e < 0.1 ? 0 : e < 1 ? 1 : e < 10 ? 2 : e < 100 ? 3 : 4];
+    }
+    say("  root-residual clips: " + std::to_string(residual.size()) + " gain physical motion — <0.1u " + std::to_string(buckets[0]) +
+        ", <1u " + std::to_string(buckets[1]) + ", <10u " + std::to_string(buckets[2]) + ", <100u " + std::to_string(buckets[3]) +
+        ", >=100u " + std::to_string(buckets[4]) + ". Largest:");
+    for (std::size_t i = 0; i < residual.size() && i < 12; ++i)
+        say("    " + residual[i]->rel + "  +" + std::to_string(residual[i]->c.motionErr) + "u / " +
+            std::to_string(residual[i]->c.motionDeg) + "deg");
+    say("  per-unit CSV: " + outCsv);
+    return failed == 0 && cleanPass == clean && visFail == 0;
 }
 
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky,
