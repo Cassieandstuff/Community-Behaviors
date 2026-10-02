@@ -1130,6 +1130,22 @@ namespace linker = CB::core::linker;
         // project's basename stays "<Stem>", the AnimationClipData table keys on the stock "<Stem>"
         // entry, and no alias is needed. Both the descriptor (speed-sampler key) and the loaded-asset
         // name are vanilla; nothing ever sees ".br". (Root cause + fix: BR-1.)
+        /// @warning The engine reads each project's clip- and motion-block line counts through a 16-bit truncation
+        ///          (AnimationClipDataSingleton ctor: movzx of atoi). A block over 65535 lines is read short and
+        ///          desyncs the rest of the file — a crash at load. Refuse to serve such a file (vanilla stays).
+        for (const auto& p : base.projects) {
+            std::size_t clipLines = 3 + p.assetPaths.size(), motionLines = 0;
+            if (p.hasAnimData) {
+                for (const auto& c : p.clips) clipLines += 7 + c.triggers.size();
+                for (const auto& m : p.motions) motionLines += 5 + m.translations.size() + m.rotations.size();
+            }
+            if (clipLines > 0xffff || motionLines > 0xffff) {
+                r.error = "project '" + p.name + "' exceeds the engine's 65535-line block limit (clips " +
+                          std::to_string(clipLines) + ", motion " + std::to_string(motionLines) + ")";
+                LOG_ERROR("AnimData: {} — NOT serving the merged animation data (vanilla stays).", r.error);
+                return r;
+            }
+        }
         const std::string merged    = animdata::EmitSingleFile(base);
         const fs::path    cachePath = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";
         if (!WriteFile(cachePath, merged)) {

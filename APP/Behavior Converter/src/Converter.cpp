@@ -3138,7 +3138,7 @@ bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, 
         if (it->is_regular_file(ec) && ToLower(it->path().extension().string()) == ".hkx" &&
             ToLower(it->path().generic_string()).find("/animations/") != std::string::npos)
             files.push_back(it->path());
-    std::atomic<std::size_t> next{ 0 }, checked{ 0 }, folded{ 0 }, bad{ 0 }, missing{ 0 };
+    std::atomic<std::size_t> next{ 0 }, checked{ 0 }, folded{ 0 }, bad{ 0 }, missing{ 0 }, keysOld{ 0 }, keysNew{ 0 }, keysMax{ 0 };
     std::mutex mx;
     std::vector<std::string> worst;
     auto work = [&] {
@@ -3156,6 +3156,12 @@ bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, 
                 if (!newDef.motion && !newDef.rootMotionVisual) ++folded;
                 const auto got = CB::core::anim::ResolveRootMotion(newDef);
                 const CB::core::anim::EngineMotionCurve want(*oldDef.motion), have(got ? *got : CB::core::animdata::MotionRecord{});
+                keysOld += oldDef.motion->translations.size() + oldDef.motion->rotations.size();
+                if (got) {
+                    const std::size_t k = got->translations.size() + got->rotations.size();
+                    keysNew += k;
+                    for (std::size_t prevMax = keysMax; k > prevMax && !keysMax.compare_exchange_weak(prevMax, k);) {}
+                }
                 double err = 0, speed = 0;
                 CB::core::anim::MotionPose prev = want.Sample(0);
                 for (int f = 0; f < oldDef.numFrames; ++f) {
@@ -3187,7 +3193,8 @@ bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, 
     for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) pool.emplace_back(work);
     for (auto& t : pool) t.join();
     say("motion-storage check: " + std::to_string(checked - bad) + "/" + std::to_string(checked) + " unit(s) resolve to their vanilla motion (" +
-        std::to_string(folded) + " from a folded root); " + std::to_string(missing) + " missing from the new tree.");
+        std::to_string(folded) + " from a folded root); " + std::to_string(missing) + " missing from the new tree; key lines " +
+        std::to_string(keysNew) + " vs vanilla " + std::to_string(keysOld) + " (max " + std::to_string(keysMax) + " per record).");
     for (const auto& w : worst) say("  MISMATCH " + w);
     return bad == 0 && missing == 0;
 }

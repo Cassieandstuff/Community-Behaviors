@@ -158,6 +158,46 @@ Xf SampleTrack(const AnimTrackDef& tr, int f, double time) {
 
 double FrameTime(const AnimationDef& def, int f) { return static_cast<double>(static_cast<float>(f) * def.frameDuration); }
 
+struct Key4 {
+    double time;
+    double v[4];
+};
+
+/// @brief Drop every key the engine reproduces by interpolating its neighbours (translation: lerp; rotation: the engine's
+///        FastSlerp), within `tol` (units / degrees) at each dropped key, from the implicit origin to the kept last key.
+/// @note REQUIRED, not cosmetic: the engine reads a project's motion-block line count through a 16-bit truncation
+///       (AnimationClipDataSingleton ctor: movzx of atoi), so dense per-frame keys overflowed DefaultMale's block
+///       (86198 lines → read as 20662) and desynced the whole file — a crash. Vanilla's keys are this same reduction.
+std::vector<Key4> ReduceKeys(const std::vector<Key4>& keys, bool rotation, double tol) {
+    const auto fits = [&](const Key4& a, const Key4& b, const Key4& k) {
+        const double span = b.time - a.time;
+        const double t = span > 1.1920929e-07 ? (k.time - a.time) / span : 1.0;
+        if (rotation) {
+            double q[4];
+            FastSlerp(t, a.v, b.v, q);
+            return 2.0 * std::acos(std::min(1.0, std::abs(qdot(q, k.v)))) * 57.29577951308232 <= tol;
+        }
+        double d = 0;
+        for (int i = 0; i < 3; ++i) { const double e = a.v[i] + (b.v[i] - a.v[i]) * t - k.v[i]; d += e * e; }
+        return std::sqrt(d) <= tol;
+    };
+    std::vector<Key4> out;
+    Key4 anchor{ 0.0, { 0, 0, 0, rotation ? 1.0 : 0.0 } };
+    for (std::size_t i = 0; i < keys.size();) {
+        std::size_t end = i;
+        for (std::size_t c = i + 1; c < keys.size(); ++c) {
+            bool ok = true;
+            for (std::size_t j = i; j < c && ok; ++j) ok = fits(anchor, keys[c], keys[j]);
+            if (!ok) break;
+            end = c;
+        }
+        out.push_back(keys[end]);
+        anchor = keys[end];
+        i = end + 1;
+    }
+    return out;
+}
+
 } // namespace
 
 EngineMotionCurve::EngineMotionCurve(const CB::core::animdata::MotionRecord& m) {
@@ -260,6 +300,7 @@ std::optional<CB::core::animdata::MotionRecord> ExtractRootMotion(AnimationDef& 
 
     CB::core::animdata::MotionRecord rec;
     rec.duration = Num(def.duration);
+    std::vector<Key4> tKeys, rKeys;
     for (int f = 1; f < n; ++f) {
         /// @note The engine reads key times as IEEE halves: a key at frame time t lands at half(t), up to 1/256 s off at
         ///       4-8 s — at dragon-takeoff speed that is several units. So each key sits AT half(t), its value the
@@ -281,15 +322,18 @@ std::optional<CB::core::animdata::MotionRecord> ExtractRootMotion(AnimationDef& 
         for (int i = 0; i < 3; ++i) m.t[i] += (motion[g].t[i] - m.t[i]) * a;
         for (int i = 0; i < 4; ++i) m.q[i] += (qg[i] - m.q[i]) * a;
         qnorm(m.q);
-        const std::string t = Num(keyTime);
-        rec.translations.push_back(t + " " + Num(m.t[0]) + " " + Num(m.t[1]) + " " + Num(m.t[2]));
-        rec.rotations.push_back(t + " " + Num(m.q[0]) + " " + Num(m.q[1]) + " " + Num(m.q[2]) + " " + Num(m.q[3]));
+        tKeys.push_back({ keyTime, { m.t[0], m.t[1], m.t[2], 0 } });
+        rKeys.push_back({ keyTime, { m.q[0], m.q[1], m.q[2], m.q[3] } });
         const Xf r = compose(inverse(motion[f]), pose[f]);
         root.translation.resize(n); root.rotation.resize(n);
         root.translation[f].time = root.rotation[f].time = static_cast<float>(FrameTime(def, f));
         for (int i = 0; i < 3; ++i) root.translation[f].value[i] = static_cast<float>(r.t[i]);
         for (int i = 0; i < 4; ++i) root.rotation[f].value[i] = static_cast<float>(r.q[i]);
     }
+    for (const Key4& k : ReduceKeys(tKeys, false, 5e-3))
+        rec.translations.push_back(Num(k.time) + " " + Num(k.v[0]) + " " + Num(k.v[1]) + " " + Num(k.v[2]));
+    for (const Key4& k : ReduceKeys(rKeys, true, 5e-3))
+        rec.rotations.push_back(Num(k.time) + " " + Num(k.v[0]) + " " + Num(k.v[1]) + " " + Num(k.v[2]) + " " + Num(k.v[3]));
     root.translation[0].time = root.rotation[0].time = 0.f;
     for (int i = 0; i < 3; ++i) root.translation[0].value[i] = static_cast<float>(pose[0].t[i]);
     for (int i = 0; i < 4; ++i) root.rotation[0].value[i] = static_cast<float>(pose[0].q[i]);
