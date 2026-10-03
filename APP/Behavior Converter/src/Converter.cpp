@@ -15,6 +15,8 @@
 #include <decompile/AnimationDecompiler.h>   // CB::core::anim::DecompileAnimation — schema-native import leg
 #include <codec/motion/RootMotion.h>
 #include <codec/serialization/MetaText.h>
+#include <compile/AnimDataProjection.h>
+#include <compile/AnimDataFromBehavior.h>
 
 #include <atomic>
 #include <mutex>
@@ -2642,8 +2644,30 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                         const std::string t((std::istreambuf_iterator<char>(g)), std::istreambuf_iterator<char>());
                         return CB::core::codec::HkyArchive::KindOfGraphYaml(t) == CB::core::codec::HkyArchive::UnitKind::Project;
                     });
+                /// @note A project's character is the one its OWN asset list names ("Characters Wolf\\Wolf.hkx") — the
+                ///       co-location heuristic above falls back to the first character of a shared actor folder, which
+                ///       bound WolfProject to the dog (and mapped the wolf's motion records through the dog's roster).
+                std::map<std::string, CB::core::animdata::ProjectCharacter> projChar;
+                for (const auto& proj : parsed.projects) {
+                    const std::string stem = CB::core::animdata::StemForProjectName(proj.name);
+                    const auto pit = pcs.find(stem);
+                    if (pit == pcs.end()) continue;
+                    CB::core::animdata::ProjectCharacter pc = pit->second;
+                    const fs::path folder = fs::path(pc.ref).parent_path().parent_path();   // the project's folder
+                    for (const auto& asset : proj.assetPaths) {
+                        std::string a = asset;
+                        std::replace(a.begin(), a.end(), '\\', '/');
+                        if (ToLower(a).rfind("characters", 0) != 0) continue;
+                        const fs::path unit = stageHky / "meshes" / folder / a;
+                        const auto cs = CB::core::decompile::ReadCharacterStrings(CB::core::common::DiskUnitSource(unit));
+                        if (cs && !cs->animationNames.empty()) pc = { (folder / a).generic_string(), cs->animationNames };
+                        break;
+                    }
+                    projChar.emplace(stem, std::move(pc));
+                }
                 std::map<std::string, std::string> charRefByStem;
                 for (const auto& [stem, pc] : pcs) charRefByStem.emplace(stem, pc.ref);
+                for (const auto& [stem, pc] : projChar) charRefByStem[stem] = pc.ref;
 
                 // index.yaml — project manifest incl. the per-project `character:` ref.
                 const std::string idx = CB::core::animdata::EmitAnimdataIndexYaml(parsed, charRefByStem);
@@ -2676,18 +2700,73 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     for (const auto& proj : parsed.projects) {
                         if (!proj.hasAnimData || proj.motions.empty()) continue;
                         const std::string stem = CB::core::animdata::StemForProjectName(proj.name);
-                        const auto pit = pcs.find(stem);
-                        if (pit == pcs.end()) continue;                     // unresolved -> clips kept raw index
+                        const auto pit = projChar.find(stem);
+                        if (pit == projChar.end()) continue;                // unresolved -> clips kept raw index
                         const auto& roster = pit->second.roster;
-                        const std::string refl = lc(pit->second.ref);
-                        const auto cp = refl.find("/characters/");
-                        if (cp == std::string::npos) continue;              // can't locate actor root
-                        const std::string actorRoot = refl.substr(0, cp);   // "actors/<...>"
+                        /// @note The actor root is the character ref minus its last two segments: the characters folder
+                        ///       may be suffixed ("characters female/", "characters dog/") — a "/characters/" search
+                        ///       skipped those projects, so their motion was never reunited.
+                        const std::string actorRoot = fs::path(lc(pit->second.ref)).parent_path().parent_path().generic_string();
+                        /// @note Each motion record goes to the animation its CLIP plays: vanilla's clip (by name) owns record
+                        ///       k; the vanilla graph's clip generator of that name names the animation; the roster slot with
+                        ///       that FILENAME (the engine's LoadClips key — the gendered file for a shared graph) is the
+                        ///       file. Vanilla's animIndex is NOT always today's roster position: the werewolf's adsf predates
+                        ///       5 roster removals, so an index map put TurnRight60's motion on WW_WalkForwardLeft.
+                        ///       Records no clip reaches fall back to the index.
+                        const auto fileKey = [&](const std::string& p) {
+                            const auto s = p.find_last_of("/\\");
+                            return lc(s == std::string::npos ? p : p.substr(s + 1));
+                        };
+                        std::unordered_map<std::string, std::size_t> slotOf;
+                        for (std::size_t i = 0; i < roster.size(); ++i) slotOf.emplace(fileKey(roster[i]), i);
+                        std::unordered_map<std::string, std::string> clipAnim;   // clip-generator name -> animationName
+                        {
+                            std::set<fs::path> dirs;
+                            for (const auto& asset : proj.assetPaths) {
+                                std::string a = asset;
+                                std::replace(a.begin(), a.end(), '\\', '/');
+                                if (lc(a).rfind("behaviors", 0) == 0) dirs.insert((meshes / actorRoot / a).parent_path());
+                            }
+                            for (const auto& d : dirs)
+                                for (fs::directory_iterator di(d, ec), dend; !ec && di != dend; di.increment(ec)) {
+                                    if (lc(di->path().extension().string()) != ".hkx") continue;
+                                    std::vector<std::uint8_t> bytes;
+                                    if (!CB::core::codec::ReadHavokFile(di->path().string(), bytes, nullptr)) continue;
+                                    try {
+                                        CB::core::codec::PackFileDeserializer des;
+                                        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*sreg);
+                                        CB::core::codec::BinaryReaderEx br(false, true, bytes);
+                                        des.DeserializePartially(br);
+                                        CB::core::codec::BinaryReaderEx dr(des._header.Endian == 0, des._header.PointerSize == 8, des.DataSectionBytes());
+                                        for (const auto& o : des.ConstructAllOfClass(dr, "hkbClipGenerator"))
+                                            if (const auto* c = dynamic_cast<const CB::core::codec::io::SchemaObject*>(o.get()))
+                                                clipAnim.emplace(SoStr(*c, "name"), SoStr(*c, "animationName"));
+                                    } catch (...) {}
+                                }
+                            ec.clear();
+                        }
+                        std::unordered_map<std::string, const CB::core::animdata::MotionRecord*> motionByIndex;
+                        for (const auto& m : proj.motions) motionByIndex.emplace(m.animIndex, &m);
+                        std::vector<std::pair<std::size_t, const CB::core::animdata::MotionRecord*>> assign;   // roster slot -> record
+                        std::set<std::string> viaClip;
+                        for (const auto& c : proj.clips) {
+                            const auto mi = motionByIndex.find(c.animIndex);
+                            const auto ca = clipAnim.find(c.name);
+                            if (mi == motionByIndex.end() || ca == clipAnim.end()) continue;
+                            const auto s = slotOf.find(fileKey(ca->second));
+                            if (s == slotOf.end()) continue;
+                            assign.emplace_back(s->second, mi->second);
+                            viaClip.insert(c.animIndex);
+                        }
                         for (const auto& m : proj.motions) {
+                            if (viaClip.count(m.animIndex)) continue;
                             char* end = nullptr; const long i = std::strtol(m.animIndex.c_str(), &end, 10);
-                            if (!(end && *end == '\0' && i >= 0 && (std::size_t)i < roster.size())) continue;
-                            if (roster[(std::size_t)i].empty()) continue;
-                            const std::string canon = CB::core::animdata::CanonicalAnimPath(actorRoot, roster[(std::size_t)i]);
+                            if (end && *end == '\0' && i >= 0 && (std::size_t)i < roster.size()) assign.emplace_back((std::size_t)i, &m);
+                        }
+                        for (const auto& [slot, mp] : assign) {
+                            const auto& m = *mp;
+                            if (roster[slot].empty()) continue;
+                            const std::string canon = CB::core::animdata::CanonicalAnimPath(actorRoot, roster[slot]);
                             const fs::path animYaml = stageHky / "meshes" / canon;   // baked anims live in the bundle
                             std::error_code fe;
                             if (!fs::exists(animYaml, fe)) { ++unbaked; continue; }   // not baked -> vanilla loose keeps its adsf motion
@@ -3129,6 +3208,145 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
             std::to_string(residual[i]->c.motionDeg) + "deg");
     say("  per-unit CSV: " + outCsv);
     return failed == 0 && cleanPass == clean && visFail == 0;
+}
+
+bool AdsfProjectionCheck(const std::string& hkyPath, const std::string& vanillaTxt, const LogFn& log) {
+    using CB::core::codec::io::SchemaObject;
+    auto say = [&](const std::string& m) { if (log) log(m); };
+    const auto* reg = CB::core::schema::SharedRegistry();
+    std::string err;
+    const auto arc = reg ? CB::core::codec::HkyArchive::LoadFromFile(hkyPath, err) : nullptr;
+    if (!arc) { say("adsf-project: " + (reg ? err : std::string("schema registry not armed"))); return false; }
+    const auto index = arc->file("meshes/animationdatasinglefile.txt/index.yaml");
+    if (!index) { say("adsf-project: no animationdatasinglefile.txt/index.yaml in " + hkyPath); return false; }
+    const auto headers = CB::core::animdata::ParseAnimdataIndexYaml(*index, err);
+
+    bconv::BaseUnitCompiler units(arc);
+    std::mutex mx;
+    std::map<std::string, std::vector<CB::core::animdata::DeriveClipInput>> clipCache;
+    std::unordered_map<std::string, std::optional<CB::core::anim::AnimationDef>> anims;
+    CB::core::animdata::ProjectionSource src;
+    src.roster = [&](const std::string& key) -> std::vector<std::string> {
+        const auto s = arc->source(key);
+        const auto cs = s ? CB::core::decompile::ReadCharacterStrings(*s) : std::nullopt;
+        return cs ? cs->animationNames : std::vector<std::string>{};
+    };
+    src.clips = [&](const std::string& key) {
+        if (const auto it = clipCache.find(key); it != clipCache.end()) return it->second;
+        CB::core::decompile::ParsedHky g;
+        std::string e;
+        std::vector<CB::core::animdata::DeriveClipInput> c;
+        if (units.Parse(key, g, e)) c = CB::core::compile::DeriveClipInputsFromGraph(g.root);
+        return clipCache[key] = c;
+    };
+    src.behaviorUnits = [&] {
+        std::vector<std::string> out;
+        for (const auto& u : arc->units())
+            if (u.kind == CB::core::codec::HkyArchive::UnitKind::Behavior) out.push_back(u.prefix);
+        return out;
+    };
+    src.prefetch = [&](const std::vector<std::string>& paths) {
+        std::vector<std::optional<CB::core::anim::AnimationDef>> parsed(paths.size());
+        std::atomic<std::size_t> next{ 0 };
+        std::vector<std::thread> pool;
+        for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
+            pool.emplace_back([&] {
+                for (std::size_t i; (i = next++) < paths.size();)
+                    if (const auto text = arc->file(paths[i])) {
+                        try {
+                            auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, paths[i]);
+                            def.motion = CB::core::anim::ResolveRootMotion(def);
+                            parsed[i] = std::move(def);
+                        } catch (...) {}
+                    }
+            });
+        for (auto& t : pool) t.join();
+        for (std::size_t i = 0; i < paths.size(); ++i) anims[paths[i]] = std::move(parsed[i]);
+    };
+    src.animation = [&](const std::string& path) -> const CB::core::anim::AnimationDef* {
+        auto it = anims.find(path);
+        if (it == anims.end()) {
+            src.prefetch({ path });
+            it = anims.find(path);
+        }
+        return it != anims.end() && it->second ? &*it->second : nullptr;
+    };
+
+    CB::core::animdata::ProjectionStats st;
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto ours = CB::core::animdata::ProjectAnimData(*reg, headers, src, &st, err);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    if (!ours) { say("adsf-project: projection failed — " + err); return false; }
+    std::ifstream vin(vanillaTxt, std::ios::binary);
+    const std::string vtext((std::istreambuf_iterator<char>(vin)), std::istreambuf_iterator<char>());
+    const auto van = CB::core::codec::io::ReadMetaText(*reg, "AnimationDataSingleFile", vtext, err);
+    if (!van) { say("adsf-project: vanilla unreadable — " + err); return false; }
+    std::string outText;
+    if (!CB::core::codec::io::WriteMetaText(*ours, outText, err)) { say("adsf-project: write refused — " + err); return false; }
+    if (const char* dump = std::getenv("CB_ADSF_PROJECT_DUMP")) std::ofstream(dump, std::ios::binary) << outText;
+
+    const auto obj = [](const std::shared_ptr<CB::core::codec::IHavokObject>& o) -> SchemaObject& { return static_cast<SchemaObject&>(*o); };
+    std::map<std::string, SchemaObject*> vanProjects;
+    for (const auto& p : van->FieldRef("projects").objs) vanProjects[obj(p).FieldRef("name").str] = &obj(p);
+    std::size_t clipsBoth = 0, missing = 0, extra = 0, badIndex = 0, badSpeed = 0, badTriggers = 0, motionChecked = 0, badMotion = 0;
+    std::vector<std::string> samples;
+    const auto sample = [&](const std::string& s) { if (samples.size() < 16) samples.push_back(s); };
+    for (const auto& po : ours->FieldRef("projects").objs) {
+        SchemaObject& p = obj(po);
+        const auto vp = vanProjects.find(p.FieldRef("name").str);
+        if (vp == vanProjects.end() || p.FieldRef("hasAnimData").str != "1") continue;
+        const std::string pname = p.FieldRef("name").str;
+        const auto byName = [&](SchemaObject& proj) {
+            std::map<std::string, SchemaObject*> m;
+            for (const auto& c : proj.FieldRef("clips").objs) m.emplace(obj(c).FieldRef("name").str, &obj(c));
+            return m;
+        };
+        const auto motionsOf = [&](SchemaObject& proj) {
+            std::map<std::string, SchemaObject*> m;
+            for (const auto& c : proj.FieldRef("motions").objs) m.emplace(obj(c).FieldRef("animIndex").str, &obj(c));
+            return m;
+        };
+        auto oc = byName(p), vc = byName(*vp->second);
+        auto om = motionsOf(p), vm = motionsOf(*vp->second);
+        for (const auto& [name, v] : vc)
+            if (!oc.count(name)) { ++missing; sample("missing " + pname + ": " + name); }
+        for (const auto& [name, o] : oc) {
+            const auto v = vc.find(name);
+            if (v == vc.end()) { ++extra; continue; }
+            ++clipsBoth;
+            if (o->FieldRef("animIndex").str != v->second->FieldRef("animIndex").str) {
+                ++badIndex; sample("animIndex " + pname + ": " + name + " " + o->FieldRef("animIndex").str + " vs " + v->second->FieldRef("animIndex").str);
+            }
+            if (o->FieldRef("playbackSpeed").str != v->second->FieldRef("playbackSpeed").str) ++badSpeed;
+            if (o->FieldRef("triggers").strs != v->second->FieldRef("triggers").strs) ++badTriggers;
+            /// @note Motion: the clip's own record on each side (by its animIndex), sampled by the engine evaluator.
+            const auto mo = om.find(o->FieldRef("animIndex").str), mv = vm.find(v->second->FieldRef("animIndex").str);
+            if (mv == vm.end()) continue;
+            ++motionChecked;
+            CB::core::animdata::MotionRecord a, b;
+            a.translations = mv->second->FieldRef("translations").strs; a.rotations = mv->second->FieldRef("rotations").strs;
+            if (mo != om.end()) { b.translations = mo->second->FieldRef("translations").strs; b.rotations = mo->second->FieldRef("rotations").strs; }
+            const CB::core::anim::EngineMotionCurve ca(a), cb(b);
+            const double dur = std::atof(mv->second->FieldRef("duration").str.c_str());
+            double worst = 0;
+            for (double t = 0; t <= dur + 1e-6; t += 1.0 / 60) {
+                const auto x = ca.Sample(t), y = cb.Sample(t);
+                worst = std::max(worst, std::sqrt((x.t[0]-y.t[0])*(x.t[0]-y.t[0]) + (x.t[1]-y.t[1])*(x.t[1]-y.t[1]) + (x.t[2]-y.t[2])*(x.t[2]-y.t[2])));
+            }
+            if (worst > 0.5) { ++badMotion; sample("motion " + pname + ": " + name + " off by " + std::to_string(worst) + "u"); }
+        }
+    }
+    say("adsf-project: projected " + std::to_string(st.projects) + " anim project(s), " + std::to_string(st.clips) + " clip(s), " +
+        std::to_string(st.motions) + " motion(s) in " + std::to_string(ms) + " ms; " + std::to_string(st.unresolved) +
+        " clip(s) play an animation the roster lacks; written " + std::to_string(outText.size()) + " bytes (vanilla " +
+        std::to_string(vtext.size()) + ").");
+    for (const auto& u : st.unresolvedSample) say("  unresolved " + u);
+    say("  vs vanilla: " + std::to_string(clipsBoth) + " clip(s) in both, " + std::to_string(missing) + " missing, " +
+        std::to_string(extra) + " extra; animIndex differs " + std::to_string(badIndex) + ", speed " + std::to_string(badSpeed) +
+        ", triggers " + std::to_string(badTriggers) + "; motion " + std::to_string(motionChecked - badMotion) + "/" +
+        std::to_string(motionChecked) + " within 0.5u.");
+    for (const auto& s : samples) say("    " + s);
+    return missing == 0 && badIndex == 0 && badMotion == 0;
 }
 
 bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log) {

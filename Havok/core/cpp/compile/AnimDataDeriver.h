@@ -25,6 +25,8 @@
 #include <interface/AnimationData.h>
 
 #include <cstdint>
+#include <memory>
+#include <unordered_set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -51,6 +53,9 @@ namespace CB::core::animdata {
             bool        fromAnnotation      = false;
         };
         std::vector<Trigger> triggers;
+        /// @brief The clip's own behavior graph's event names (lowercase): an annotation "SoundPlay.X" stays whole
+        ///        when its graph declares "SoundPlay.X" as an event, else it is cut back to "SoundPlay".
+        std::shared_ptr<const std::unordered_set<std::string>> graphEvents;
     };
 
     // Bethesda's cache float convention: printf %g (6 significant digits, Windows 3-digit

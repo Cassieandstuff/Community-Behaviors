@@ -212,6 +212,10 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
 /// @brief The schema-driven text codec gate: read each file through its `kind: metadata` descriptors (MetaText), write
 ///        it back, and require byte-identical output; record counts are cross-checked against the hand-written parsers.
 ///        A file whose name contains "animationset" reads as AnimationSetDataSingleFile, else AnimationDataSingleFile.
+/// @brief The adsf projection gate: project the AnimationDataSingleFile from `hkyPath` alone (its project index,
+///        graphs, rosters and animations — ProjectAnimData, the runtime's code) and compare it against `vanillaTxt`:
+///        clips (presence, animIndex, speed, triggers) and each clip's motion through the engine's evaluator.
+bool AdsfProjectionCheck(const std::string& hkyPath, const std::string& vanillaTxt, const LogFn& log);
 bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log);
 bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, const LogFn& log);
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "",

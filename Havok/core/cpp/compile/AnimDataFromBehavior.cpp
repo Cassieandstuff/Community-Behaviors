@@ -55,6 +55,13 @@ std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const
                 if (auto* data = so(graph->FieldRef("data").obj))
                     if (auto* sd = so(data->FieldRef("stringData").obj)) events = &sd->FieldRef("eventNames").strs;
 
+    auto graphEvents = std::make_shared<std::unordered_set<std::string>>();
+    if (events)
+        for (std::string e : *events) {
+            for (char& ch : e) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            graphEvents->insert(std::move(e));
+        }
+
     std::vector<SchemaObject*> clips;
     std::unordered_map<const IHavokObject*, bool> seen;
     std::function<void(IHavokObject*)> walk = [&](IHavokObject* o) {
@@ -72,6 +79,7 @@ std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const
         dc.playbackSpeed = rdF32(*c, "playbackSpeed");
         dc.cropStart     = rdF32(*c, "cropStartAmountLocalTime");
         dc.cropEnd       = rdF32(*c, "cropEndAmountLocalTime");
+        dc.graphEvents   = graphEvents;
         if (auto* arr = so(c->FieldRef("triggers").obj))
             for (auto& to : arr->FieldRef("triggers").objs) {
                 auto* t  = so(to);

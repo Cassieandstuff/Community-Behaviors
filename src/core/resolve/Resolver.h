@@ -225,6 +225,14 @@ namespace CB {
         std::vector<CB::core::animdata::DeriveClipInput> ClipInputsOf(
             const std::string& key, const std::vector<CB::core::common::LayerSource>& layers) const;
 
+        /// @brief The clip generators of the served graph `key`, merged across EVERY layer of the load order.
+        std::vector<CB::core::animdata::DeriveClipInput> MergedClipInputs(const std::string& key) const;
+        /// @brief The character's SERVED roster: its merged animationNames with the author roster drops folded in —
+        ///        exactly the positions the served character file carries (ResolveCharacter applies the same fold).
+        std::vector<std::string> ServedRoster(const std::string& characterKey) const;
+        /// @brief Every served behavior graph (its parent folder is a `behaviors…` folder).
+        std::vector<std::string> BehaviorUnitKeys() const;
+
         // Root-motion the animation compile produced (WriteNativeAnimations emits each native `.hkx`
         // unit's inline motion here). The adsf finalizer drains this instead of re-reading the YAML, so
         // the compiler is the single motion producer. Populated during the native-anim compile (which may
@@ -298,6 +306,9 @@ namespace CB {
         /// @brief A merged CHARACTER's compile stage: fold the author roster additions into animationNames, capture
         ///        the roster / actor path for the animdata derive, and cache-qualify its behavior reference.
         void ResolveCharacter(const std::string& key, CB::core::decompile::GraphEdit& edit);
+        /// @brief Fold the author roster drops (animationnames\<stem>.txt) onto `names` — an EXACT-case union.
+        /// @return how many were added.
+        std::size_t FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const;
 
         // Build the above-OAR redirect map (folderRoot -> owned characters) from m_sources and
         // publish it (m_redirectReady). Shared by MaterializeCacheToDisk (after it writes the

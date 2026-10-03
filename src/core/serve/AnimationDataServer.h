@@ -1,73 +1,43 @@
 #pragma once
 
 #include <interface/AnimationData.h>
-#include <interface/UnitSource.h>        // LayerSource
-#include <havok/anim/AnimDataDeriver.h>  // DeriveClipInput
+#include <codec/format/AnimDataYaml.h>   // ProjectHeader, ParseAnimdataIndexYaml
+#include <compile/AnimDataDeriver.h>     // DeriveClipInput
 
 #include <filesystem>
 #include <functional>
 #include <string>
 #include <vector>
 
-// AnimationDataServer — the runtime clip/motion-metadata merge (animationdatasinglefile.txt).
-//
-// The 4th leg, parallel to AnimationSetDataServer. At startup BR discovers each bundle's
-// Nemesis animationdata deltas (Data\community_behaviors\plugins\<Mod>.hky\animationdata\
-// <Project>~<n>\), merges them (load order) onto the current winning base
-// animationdatasinglefile.txt, and writes the merged single file to BR's own cache. The
-// game is then pointed at the cache by a read redirect on the loader's open call site.
-//
-// Same MO2-routing rationale as the set-data server: BR writes only a NEW path
-// (community_behaviors_cache\, the consolidated compiled store at the Data root) so the canonical loose
-// file stays a clean upstream base and the write lands in overwrite, never clobbering the
-// providing mod.
-namespace CB { class GraphClipSink; }   // fwd — the adsf-derive stage's clip accumulator
-
 namespace CB::core::serve {
 
-    // The animationdata model (parse/emit/merge) now lives in havok-core so the clip-list
-    // deriver can share it; keep the short `animdata::` spelling everything here already uses.
     namespace animdata = ::CB::core::animdata;
 
     struct ServeResult {
-        bool                  attempted = false;   // found >=1 bundle contributing animationdata
-        bool                  ok = false;          // produced + wrote the merged file
-        std::size_t           bundles = 0;         // bundles that contributed animationdata
+        bool                  attempted = false;
+        bool                  ok = false;          ///< projected + wrote the file
+        std::size_t           bundles = 0;         ///< bundles read (master + mods)
         std::size_t           baseProjects = 0;
         std::size_t           mergedProjects = 0;
-        animdata::MergeStats  stats;               // totals across all merged patches
+        animdata::MergeStats  stats;
         std::string           cachePath;
-        std::string           error;               // set iff ok == false and attempted == true
+        std::string           error;               ///< set iff ok == false and attempted == true
     };
 
-    // Discover Data\community_behaviors\plugins\*.hky\animationdata\<Project>~<n>\ Nemesis patch
-    // dirs (ordered by loadOrderIni), merge onto the base resolved from
-    // Data\meshes\animationdatasinglefile.txt, and write the merged single file to
-    // Data\community_behaviors_cache\animationdatasinglefile.txt. Safe + idempotent per launch;
-    // never throws — failures land in ServeResult::error.
-    // `sink` (optional): when non-null the caller opted into the adsf-derive stage, so this holds
-    // every graph's feature-derived clip inputs. THIS FIRST CUT ONLY VALIDATES the sink — it logs a
-    // summary of what the unified derive produced so it can be compared against the proven collated
-    // output in-engine; it does NOT yet drive the emitted file (that is the follow-up once the sink is
-    // confirmed correct). Passing null (the default) is the unchanged, proven path.
-    // `rosterFromScan` (opt-in): when true, the emitted adsf's per-project `assets:` roster (the
-    // list func3 enumerates) is UNIONED with the havok assets CB actually serves — every mod
-    // bundle's behavior + character units, grouped by actor root — so a mod's added behaviors reach
-    // the roster WITHOUT a hand-authored index.yaml. Additive + case-insensitive dedup onto the
-    // canonically-cased base, so the ESM-cased char->adsf bind is never rewritten. Off by default
-    // (the proven authored-index.yaml path is unchanged when false).
-    /// @brief A graph's clip generators after merging `layers` (base first); `key` (the graph's serve path) binds
-    ///        its rig, which the merge needs to resolve bone names.
-    using GraphClipReader = std::function<std::vector<animdata::DeriveClipInput>(
-        const std::string& key, const std::vector<CB::core::common::LayerSource>& layers)>;
+    /// @brief The load order's merged data the adsf is projected from (the Resolver supplies it). Keys are normalized
+    ///        serve paths ("meshes/actors/character/behaviors/0_master.hkx").
+    struct AdsfSource {
+        std::function<std::vector<std::string>(const std::string& characterKey)>         roster;   ///< served roster
+        std::function<std::vector<animdata::DeriveClipInput>(const std::string& unitKey)> clips;   ///< merged clips
+        std::function<std::vector<std::string>()>                                         behaviorUnits;
+    };
 
-    /// @param clipsOf reads the clips of a bundle's behavior graphs, for a bundle that ships no animationdata of its
-    ///        own (and for a master that ships no clips/); without it those derive legs are skipped.
-    ServeResult ServeAnimData(const std::filesystem::path& dataDir,
-                              const std::filesystem::path& loadOrderIni,
-                              const GraphClipReader&       clipsOf,
-                              const GraphClipSink*         sink = nullptr,
-                              bool                         rosterFromScan = false);
+    /// @brief Project Data\community_behaviors_cachenimationdatasinglefile.txt from the load order (ProjectAnimData:
+    ///        the master's project index, every project's merged behavior graphs, its served roster, and the bundles'
+    ///        animations — the highest bundle carrying an animation wins) and write it through the schema (MetaText).
+    ///        Never throws; a failure (including a frame the engine would misread) leaves vanilla in place.
+    ServeResult ServeAnimData(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
+                              const AdsfSource& source);
 
     // Install the DETERMINISTIC redirect: a write_call<5> detour on the animationdata loader's
     // file-open call site (FUN_140536ec0 does `MOV RCX,[0x14315c918]; CALL 0x140d0a100` at

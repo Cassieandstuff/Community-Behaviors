@@ -109,6 +109,12 @@ int main(int argc, char** argv) {
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
+    if (argc >= 4 && std::string(argv[1]) == "--adsf-project") {   // <Skyrim.hky> <vanilla animationdatasinglefile.txt>
+        const bool ok = bconv::AdsfProjectionCheck(argv[2], argv[3],
+            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
+        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     if (argc >= 3 && std::string(argv[1]) == "--metatext-roundtrip") {   // <file>...
         const bool ok = bconv::MetaTextRoundTrip(std::vector<std::string>(argv + 2, argv + argc),
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });

@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
@@ -100,15 +101,16 @@ std::vector<ClipGenerator> DeriveClipList(
             if (t.fromAnnotation) {
                 // AnimObject load/draw events are handled by the animobject system, not listed.
                 if (ev.rfind("AnimObjDraw", 0) == 0 || ev.rfind("AnimObjLoad", 0) == 0) continue;
-                // A SoundPlay annotation stores only the event name (its ".sound" payload is
-                // consumed from the annotation at runtime); other events (SoundStop.X, foot
-                // events, …) are kept verbatim.
-                // NOTE (2026-08-25): this strip is CONDITIONAL in vanilla — chaurus strips
-                // "SoundPlay.NPCChaurusAttack" -> bare, slaughterfish KEEPS "SoundPlay.NPC
-                // SlaughterfishAttack". Discriminator not yet identified; removing the strip is
-                // net-negative on the 49-project sweep. Part-B byte-exact derivation is blocked on
-                // reversing this rule (see the master memory).
-                if (ev.rfind("SoundPlay.", 0) == 0) ev = "SoundPlay";
+                /// @note An annotation "Event.payload" stays whole when the clip's graph declares that whole text as an
+                ///       event, else it is cut back to "Event" (the payload is consumed at runtime): "SoundPlay.NPCGoatChew"
+                ///       is a goat graph event and stays; "CameraShake.0.75" becomes "CameraShake". Measured on vanilla: all
+                ///       1074 whole SoundPlay.X triggers name a graph event (slaughterfish declares them, chaurus doesn't —
+                ///       the old "conditional strip" mystery).
+                if (const auto dot = ev.find('.'); dot != std::string::npos) {
+                    std::string low = ev;
+                    for (char& ch : low) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    if (!c.graphEvents || !c.graphEvents->count(low)) ev.resize(dot);
+                }
             }
             if (ev.empty()) continue;   // never emit an empty-named trigger
             double tt = t.relativeToEndOfClip ? (hasDur ? eff + t.localTime : t.localTime)
@@ -119,7 +121,9 @@ std::vector<ClipGenerator> DeriveClipList(
             // (matches vanilla Stf_Unequip / CrossBow_Unequip). Identical to the old
             // max(0,min(tt,eff)) whenever eff >= 0, so forward clips (e.g. 2HM_Attack*) are unchanged.
             if (hasDur) tt = std::clamp(tt, std::min(0.0, eff), std::max(0.0, eff));
-            trigs.emplace_back(tt, ev + ":" + FormatG(tt));
+            /// @note Sorted by the PRINTED time: a relative-to-end trigger at 2.3000001 and an annotation at 2.2999999
+            ///       both print "2.3", and the cache keeps graph triggers ahead of annotations at an equal time.
+            trigs.emplace_back(std::atof(FormatG(tt).c_str()), ev + ":" + FormatG(tt));
         }
         // Sort ascending by time; equal times keep source order (the cache's tie-break — e.g.
         // PitchOverrideStart before BeginWeaponDraw, both at 0).

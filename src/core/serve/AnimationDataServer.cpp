@@ -4,36 +4,26 @@
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
-#include "core/resolve/GraphClipSink.h"   // sink->Contributions() (adsf-derive stage, opt-in validation)
 
-#include <havok/anim/AnimDataYaml.h>          // animdata::ParseMotionYaml (editable motion overrides)
-#include <codec/format/AnimationYamlLoader.h>   // native animation.yaml -> AnimationDef (its inline motion:)
+#include <codec/format/AnimationYamlLoader.h>
 #include <codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
-#include <compile/AnimDataFromBehavior.h>   // DeriveProjectPatch
-#include <interface/linker/Membrane.h>     // roster IndexMembrane (motion inherits the clip's bind)
-#include <interface/MasterTable.h>         // BuildMasterTable — FormId canon for the adsf-derive merge
-#include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
-#include <codec/serialization/HkyArchive.h>
-
-#include <tuple>
+#include <codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
+#include <compile/AnimDataProjection.h>         // ProjectAnimData
+#include <havok-schema/HavokSchema.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
-#include <exception>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <optional>
-#include <chrono>
-#include <set>
-#include <thread>
-#include <sstream>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -41,31 +31,20 @@ namespace fs = std::filesystem;
 
 namespace CB::core::serve {
 
-namespace linker = CB::core::linker;
-
     namespace {
 
         std::string ToLower(std::string s)
         {
-            std::transform(s.begin(), s.end(), s.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             return s;
         }
 
         std::string TrimLine(const std::string& line)
         {
-            const auto b = line.find_first_not_of(" \t\r\n");
-            if (b == std::string::npos) return {};
-            const auto e = line.find_last_not_of(" \t\r\n");
-            return line.substr(b, e - b + 1);
-        }
-
-
-        std::string ReadFile(const fs::path& p)
-        {
-            std::ifstream f(p, std::ios::binary);
-            if (!f) return {};
-            return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            std::size_t b = 0, e = line.size();
+            while (b < e && std::isspace(static_cast<unsigned char>(line[b]))) ++b;
+            while (e > b && std::isspace(static_cast<unsigned char>(line[e - 1]))) --e;
+            return line.substr(b, e - b);
         }
 
         bool WriteFile(const fs::path& p, const std::string& data)
@@ -78,1088 +57,129 @@ namespace linker = CB::core::linker;
             return static_cast<bool>(f);
         }
 
-        // Load order (optional): .hky plugin name (lowercased) -> priority, higher wins.
+        /// @brief Bundle stem (lowercase) -> priority: loadorder.txt lists winners first.
         std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
         {
             std::unordered_map<std::string, int> order;
             std::ifstream f(ini);
             std::string   line;
-            int           idx = 0;
+            int           n = 0;
             while (std::getline(f, line)) {
-                const std::string entry = TrimLine(line);
-                if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
-                order[ToLower(entry)] = ++idx;
+                line = TrimLine(line);
+                if (line.empty() || line[0] == '#' || line[0] == ';') continue;
+                order.emplace(ToLower(line), n++);
             }
+            for (auto& [_, v] : order) v = n - v;   // winner first -> highest priority
             return order;
-        }
-
-        // actor root of a lowercased path ("meshes/actors/character/behaviors/x.hkx", or a base
-        // header's "actors/canine/characters dog/dog.hkx") -> "actors/<actor>" — the key the scan
-        // and the base headers agree on. Empty if the path isn't an actor behavior/character path.
-        std::string ActorRootLower(const std::string& pathLower)
-        {
-            const auto ap = pathLower.find("actors/");
-            if (ap == std::string::npos) return {};
-            const std::string rest = pathLower.substr(ap);
-            for (const char* seg : { "/behaviors", "/characters" })
-                if (const auto b = rest.find(seg); b != std::string::npos) return rest.substr(0, b);
-            return {};
-        }
-
-        // Roster-from-scan: enumerate a MOD bundle's behavior + character units as adsf `assets:`
-        // entries, grouped by actor root, in the bundle's ORIGINAL case (disk dev bundles preserve
-        // it; a packed bundle yields lowercase — tolerated because `assets:` are func3 path loads,
-        // resolved case-insensitively, and the union onto the base never overwrites its
-        // canonically-cased entries). Each unit "meshes/actors/<actor>/<sub>/<name>.hkx" becomes the
-        // project-relative "<Sub>\<name>.hkx" (backslashed). Deduped case-insensitively per root.
-        void CollectScanAssets(const BundleReader& rd,
-                               std::map<std::string, std::vector<std::string>>& byRoot)
-        {
-            const auto addUnit = [&](const std::string& unitPrefix) {
-                const std::string low  = ToLower(unitPrefix);
-                const std::string root = ActorRootLower(low);          // "actors/character"
-                if (root.empty()) return;
-                const auto ap = low.find("actors/");
-                std::string rel = unitPrefix.substr(ap + root.size() + 1);  // orig-case "Behaviors/0_Master.hkx"
-                for (char& c : rel) if (c == '/') c = '\\';                 // -> "Behaviors\0_Master.hkx"
-                auto& v = byRoot[root];
-                for (const auto& e : v) if (ToLower(e) == ToLower(rel)) return;
-                v.push_back(std::move(rel));
-            };
-            for (const auto& u : rd.units(CB::core::codec::HkyArchive::UnitKind::Behavior))  addUnit(u);
-            for (const auto& u : rd.units(CB::core::codec::HkyArchive::UnitKind::Character)) addUnit(u);
-        }
-
-        // Collect a bundle's animationdata patches: one ProjectPatch per <Project>~<n> dir
-        // under <bundle>/animationdata/. Returns false if the bundle carries none. Reads through
-        // BundleReader so the bundle may be an unpacked dir OR a packed .hky (a packed bundle
-        // yields lowercase dir/file names).
-        bool LoadBundlePatches(const BundleReader& b, std::vector<animdata::ProjectPatch>& out,
-                               std::string& warn)
-        {
-            bool any = false;
-            for (const std::string& dirName : b.subdirs("animationdata")) {   // e.g. "defaultmale~1"
-                const std::string projDir = std::string("animationdata/") + dirName;
-                std::vector<std::pair<std::string, std::string>> files;
-                for (const std::string& fn : b.files(projDir, ".txt"))
-                    if (const auto t = b.read(projDir + "/" + fn)) files.emplace_back(fn, *t);
-                if (files.empty()) continue;
-
-                try {
-                    animdata::ProjectPatch pp = animdata::AssembleProjectPatch(dirName, files);
-                    if (!pp.additions.empty()) {
-                        out.push_back(std::move(pp));
-                        any = true;
-                    }
-                } catch (const std::exception& e) {
-                    warn += "    bad patch dir '" + dirName + "': " + e.what() + "\n";
-                }
-            }
-            return any;
-        }
-
-        bool EndsWith(const std::string& s, const std::string& suf)
-        {
-            return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
-        }
-
-        // DERIVE a bundle's animationdata delta from its BEHAVIORS — for a bundle that ships new
-        // clips but NO Nemesis animationdata patch (the FNIS converter output). The clips ARE the
-        // graph's hkbClipGenerators; the animationdata records are derived from them (the same
-        // DeriveClipList the offline oracle is gated on), NOT hand-authored in the Nemesis format.
-        // Each addition carries a SYMBOL, so the caller's high-band allocator assigns the real
-        // (safe) animIndex.
-        //
-        // The bundle declares WHICH characters it extends via the rosters its character units state
-        // (or legacy animationnames/<char>.txt drops); its behavior units carry the clips. So we derive
-        // one ProjectPatch per (behavior unit x declared character). Returns {} if the bundle adds no
-        // clips to any project.
-        std::vector<animdata::ProjectPatch> DeriveBundleAnimData(
-            const BundleReader& rd, const std::string& stem, const fs::path& dataDir,
-            const BundleReader* master, const GraphClipReader& clipsOf)
-        {
-            /// @note The characters this bundle extends: each character unit whose animationNames it states (for a
-            ///       patch unit, its additions — a union roster). A character's clips derive only into characters of
-            ///       its own actor root: a canine unit's clips never reach defaultmale.
-            std::vector<std::string>        chars;
-            std::unordered_set<std::string> haveChar;
-            std::unordered_map<std::string, std::string> charActorRoot;  // char stem -> its actor root (lowercased)
-            for (const std::string& unit : rd.units(CB::core::codec::HkyArchive::UnitKind::Character)) {
-                const auto src = rd.unitSource(unit);
-                const auto cs  = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
-                if (!cs || cs->animationNames.empty()) continue;
-                const auto s1 = unit.find_last_of('/');
-                std::string cn = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
-                if (const auto dot = cn.rfind('.'); dot != std::string::npos) cn.erase(dot);   // "defaultmale"
-                std::string aroot;
-                if (s1 != std::string::npos) {
-                    const auto s2 = (s1 == 0) ? std::string::npos : unit.find_last_of('/', s1 - 1);
-                    if (s2 != std::string::npos) aroot = ToLower(unit.substr(0, s2));
-                }
-                if (!cn.empty() && haveChar.insert(cn).second) { chars.push_back(cn); charActorRoot[cn] = aroot; }
-            }
-            for (const std::string& fn : rd.files("animationnames", ".txt")) {   // legacy fallback (no actor root)
-                std::string s = ToLower(fn);
-                if (EndsWith(s, ".txt")) s.erase(s.size() - 4);
-                if (!s.empty() && haveChar.insert(s).second) chars.push_back(std::move(s));
-            }
-            const auto units = rd.units(CB::core::codec::HkyArchive::UnitKind::Behavior);
-            if (chars.empty() || units.empty() || !clipsOf) return {};
-
-            std::vector<animdata::ProjectPatch> out;
-
-            // Root motion authored INLINE in BR-native animations (animation.yaml `motion:` -> AnimationDef.
-            // motion), collected per actor root (memoized — a character has many behavior units sharing one
-            // root) and keyed by the animation's actor-root-relative path (lowercase, '/'-sep). That is the
-            // form a clip's animationName normalizes to in DeriveProjectPatch, so each derived clip pairs with
-            // its real root motion. Empty for a bundle that authors no inline motion (placeholder kept).
-            std::unordered_map<std::string, std::unordered_map<std::string, animdata::MotionRecord>> motionsByRoot;
-            const auto motionsForRoot = [&](const std::string& actorRoot)
-                -> const std::unordered_map<std::string, animdata::MotionRecord>& {
-                auto [it, fresh] = motionsByRoot.try_emplace(actorRoot);
-                if (!fresh) return it->second;
-                // ROOT MOTION FROM THE ANIMATIONS (point 3): a native animation unit is a single-file
-                // "<name>.hkx" (the .hky compile-target model — the .hkx IS the animation.yaml, top-level
-                // `animation:`), NOT "<name>.hkx.yaml". The old ".hkx.yaml" filter matched nothing, so inline
-                // motion was inert (the parked inline-motion-inert finding). Read each "<name>.hkx" under the
-                // actor's animations/ dir, parse it, and pull its inline `motion:` — the root motion the adsf
-                // finalizer drains. UNGATED by the compile flag: the animation is DECOMPILED (parsed) for its
-                // motion even when its binary is NOT compiled (point 5 — the flag gates only the binary).
-                const std::string animDir = ToLower(actorRoot) + "/animations";
-                for (const std::string& path : rd.filesUnder(animDir, ".hkx")) {   // lowercased, '/'-sep
-                    const auto text = rd.read(path);
-                    if (!text) continue;
-                    CB::core::anim::AnimationDef def;
-                    try { def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, path); }
-                    catch (const std::exception& e) {
-                        LOG_WARN("AnimData: native animation '{}' parse failed (motion skipped): {}", path, e.what());
-                        continue;
-                    }
-                    def.motion = CB::core::anim::ResolveRootMotion(def);
-                    if (!def.motion) continue;
-                    std::string rel = path;                                  // "meshes/actors/…/animations/…/x.hkx"
-                    const std::string pfx = ToLower(actorRoot) + "/";
-                    if (rel.rfind(pfx, 0) == 0) rel = rel.substr(pfx.size());  // -> "animations/…/x.hkx"
-                    it->second.emplace(std::move(rel), std::move(*def.motion));
-                }
-                return it->second;
-            };
-
-            for (const std::string& unitPrefix : units) {
-                auto src = rd.unitSource(unitPrefix);
-                if (!src) continue;
-
-                /// @note A bundle unit is EITHER a full new graph (fnis.hkx) OR a patch over a vanilla unit (its
-                ///       root owned by a master). A patch's clips only make sense over its base, so it merges over the
-                ///       Skyrim.hky master's same unit — exactly like the compile path.
-                const auto graphYaml = src->read("graph.yaml");
-                const bool patch     = !graphYaml || CB::core::codec::HkyArchive::IsPatchGraphYaml(*graphYaml);
-                std::shared_ptr<const CB::core::common::IUnitSource> baseSrc;
-                if (patch && master) baseSrc = master->unitSource(unitPrefix);
-                if (patch && !baseSrc) continue;
-
-                const auto baseLayer = [&] {
-                    CB::core::common::LayerSource b;
-                    b.source = baseSrc; b.stem = std::string(CB::core::codec::formid::BASE_GAME_STEM); b.rank = 0;
-                    b.masterTable = CB::core::codec::formid::BuildMasterTable(b.stem, {}, /*haveSkyrim*/ true);
-                    return b;
-                };
-                std::vector<CB::core::common::LayerSource> layers;
-                if (baseSrc) layers.push_back(baseLayer());
-                {
-                    CB::core::common::LayerSource d;
-                    d.source = src; d.stem = stem; d.rank = baseSrc ? 1 : 0;
-                    d.masterTable = CB::core::codec::formid::BuildMasterTable(stem, {}, /*haveSkyrim*/ baseSrc != nullptr);
-                    layers.push_back(std::move(d));
-                }
-                const std::string unitKey = ToLower(unitPrefix);
-                auto clips = clipsOf(unitKey, layers);
-
-                /// @note With a base merged in, `clips` is the FULL graph. The base's own clips are already in the
-                ///       base animationdatasinglefile and the merge below does not dedupe (a duplicate row is the
-                ///       double-merge signature), so keep only the names the patch introduces.
-                if (baseSrc) {
-                    std::unordered_set<std::string> baseNames;
-                    for (const auto& bc : clipsOf(unitKey, { baseLayer() })) baseNames.insert(ToLower(bc.name));
-                    clips.erase(std::remove_if(clips.begin(), clips.end(),
-                                    [&](const auto& c) { return baseNames.count(ToLower(c.name)) != 0; }),
-                                clips.end());
-                }
-                if (clips.empty()) continue;
-
-                // animationNames resolve relative to the ACTOR root (the tree up to "/behaviors/"):
-                // e.g. unit meshes/actors/character/behaviors/community_behaviors/fnis.hkx -> the clip's
-                // "Animations\…\x.hkx" lives at meshes/actors/character/Animations/…/x.hkx.
-                std::string actorRoot = unitPrefix;
-                if (const auto p = ToLower(unitPrefix).find("/behaviors"); p != std::string::npos)
-                    actorRoot = unitPrefix.substr(0, p);
-                const auto readAnim = [&dataDir, actorRoot](const std::string& animName)
-                    -> std::vector<std::uint8_t> {
-                    std::string rel = animName;
-                    for (char& c : rel) if (c == '\\') c = '/';
-                    std::ifstream f(dataDir / fs::path(actorRoot) / fs::path(rel), std::ios::binary);
-                    if (!f) return {};
-                    return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(f)),
-                                                     std::istreambuf_iterator<char>());
-                };
-
-                const auto& animMotions = motionsForRoot(actorRoot);
-                const std::string actorRootLc = ToLower(actorRoot);
-                for (const std::string& ch : chars) {
-                    // Scope: only derive this unit's clips into characters of the SAME actor root (a canine
-                    // behavior's clips belong to canine projects, not defaultmale/horse). Unknown actor root
-                    // (legacy animationnames fallback) is not filtered — preserves the single-actor path.
-                    const auto ar = charActorRoot.find(ch);
-                    if (ar != charActorRoot.end() && !ar->second.empty() && ar->second != actorRootLc) continue;
-                    auto clipsCopy = clips;   // DeriveProjectPatch appends annotation triggers in place
-                    auto pp = CB::core::compile::DeriveProjectPatch(ch, clipsCopy, stem, readAnim,
-                                                             animMotions.empty() ? nullptr : &animMotions);
-                    if (!pp.additions.empty()) {
-                        LOG_INFO("AnimData: derived {} clip record(s) for project '{}' from '{}' (unit {}).",
-                                 pp.additions.size(), ch, stem, unitPrefix);
-                        out.push_back(std::move(pp));
-                    }
-                }
-            }
-            return out;
-        }
-
-        // ── Derive the WHOLE base animationdata from the master's graph + animations ───
-        // The "hky never stores the adsf cache" path (release item 4). When the Skyrim.hky master
-        // ships NO clips/ folder (the converter stripped it), the runtime rebuilds the entire base
-        // cache the same way it derives a mod's delta — clips from the base behaviours, annotation
-        // triggers + durations + root motion from each CB-native animation unit (AnimationDef carries
-        // annotationTracks + duration + motion straight from the bundle; NO loose/BSA read). Unlike
-        // DeriveBundleAnimData this produces the base at NATURAL roster indices (via the shared
-        // animdata::DeriveClipList), so char-setup's animIndex band stays vanilla-shaped. Verified
-        // offline (havok-core-cli animdata-derive-check DefaultMale): the clip SET + roster reproduce
-        // exactly; the residue is annotation-trigger curation (accepted). Every actor root is built
-        // once (male/female/etc. share one actor's behaviours + animations).
-        animdata::SingleFile DeriveBaseAnimData(
-            const BundleReader&                                          master,
-            const std::vector<animdata::ProjectHeader>&                  headers,
-            const std::map<std::string, std::vector<std::string>>&       rostersByStem,
-            const GraphClipReader&                                       clipsOf)
-        {
-            auto trimAnn = [](std::string s) {
-                while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' ' || s.back() == '\t')) s.pop_back();
-                std::size_t b = 0; while (b < s.size() && (s[b] == ' ' || s[b] == '\t')) ++b;
-                return s.substr(b);
-            };
-
-            // Resolve an animationName (roster/clip form, may escape upward with "..") onto the actor
-            // root, collapsing ".." to the RESOLVED bundle path — lowercased, '/'-sep. A paired killmove
-            // ("..\SharedKillMoves\...") escapes actors\character -> actors\sharedkillmoves\..., a
-            // separate root the actor's own animations/ folder does NOT contain. Returns the resolved
-            // unit path the master ships the animation at.
-            auto resolveAnimPath = [](const std::string& actorRootLc, const std::string& animName) {
-                std::string joined = actorRootLc + "/" + ToLower(animName);
-                for (char& c : joined) if (c == '\\') c = '/';
-                std::vector<std::string> seg, out;
-                { std::string s; for (char c : joined) { if (c == '/') { if (!s.empty()) seg.push_back(s); s.clear(); } else s += c; } if (!s.empty()) seg.push_back(s); }
-                for (auto& s : seg) { if (s == "..") { if (!out.empty()) out.pop_back(); } else out.push_back(s); }
-                std::string res; for (std::size_t i = 0; i < out.size(); ++i) { if (i) res += '/'; res += out[i]; }
-                return res;
-            };
-
-            // Global animation cache keyed by RESOLVED bundle path — read once, shared across projects
-            // (a shared killmove is referenced by many actors). Absent/unparseable -> nullopt (cached).
-            std::unordered_map<std::string, std::optional<CB::core::anim::AnimationDef>> animCache;
-            /// @note Parsed once, with its actor motion resolved (its record, or extracted from a folded root).
-            const auto loadAnim = [&master](const std::string& resolvedPath) {
-                std::optional<CB::core::anim::AnimationDef> def;
-                if (const auto text = master.read(resolvedPath)) {
-                    try {
-                        def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, resolvedPath);
-                        def->motion = CB::core::anim::ResolveRootMotion(*def);
-                    } catch (...) { def.reset(); }
-                }
-                return def;
-            };
-            auto getAnim = [&](const std::string& resolvedPath) -> const CB::core::anim::AnimationDef* {
-                auto it = animCache.find(resolvedPath);
-                if (it == animCache.end()) {
-                    it = animCache.emplace(resolvedPath, loadAnim(resolvedPath)).first;
-                }
-                return it->second ? &*it->second : nullptr;
-            };
-
-            // Per actor-root cache: the graph clip inputs (parsed once; male/female/etc. share an actor).
-            // Behavior-unit lookup: lowercased '/'-sep unit path -> original prefix (unitSource key).
-            // A project's behaviors are named by its assetPaths ("Behaviors\X.hkx", "Behaviors Wolf\..."),
-            // resolved against the actor root — NOT "every unit under the actor root": Dog + Wolf share
-            // actors\canine but use DIFFERENT behavior subfolders (behaviors\ vs behaviors wolf\) with
-            // DISTINCT clip sets, so a per-root union cross-contaminates them. assetPaths lists ALL of a
-            // project's behaviors (male 17, dog 4), so per-project asset scoping is exact + complete.
-            std::unordered_map<std::string, std::string> unitByLc;
-            for (const std::string& unitPrefix : master.units(CB::core::codec::HkyArchive::UnitKind::Behavior))
-                unitByLc.emplace(ToLower(unitPrefix), unitPrefix);
-
-            // Per-UNIT clip cache (decompile each behaviour once; male/female share their 17 units).
-            std::unordered_map<std::string, std::vector<CB::core::animdata::DeriveClipInput>> unitClips;
-            auto clipsForUnit = [&](const std::string& unitLc) -> const std::vector<CB::core::animdata::DeriveClipInput>& {
-                auto it = unitClips.find(unitLc);
-                if (it != unitClips.end()) return it->second;
-                std::vector<CB::core::animdata::DeriveClipInput> clips;
-                const auto uit = unitByLc.find(unitLc);
-                if (uit != unitByLc.end() && clipsOf) {
-                    if (auto src = master.unitSource(uit->second)) {
-                        CB::core::common::LayerSource b;
-                        b.source = std::move(src); b.stem = std::string(CB::core::codec::formid::BASE_GAME_STEM); b.rank = 0;
-                        b.masterTable = CB::core::codec::formid::BuildMasterTable(b.stem, {}, /*haveSkyrim*/ true);
-                        clips = clipsOf(unitLc, { std::move(b) });
-                    }
-                }
-                return unitClips.emplace(unitLc, std::move(clips)).first->second;
-            };
-
-            /// @note PREFILL in parallel: parsing every rostered animation (gigabytes of keyframe YAML) is the derive's
-            ///       cost, and the engine's adsf open waits on it. The archive is fully inflated in memory, so reads are
-            ///       const map lookups; each worker parses its own units, and the cache is filled serially after.
-            const auto tPrefill = std::chrono::steady_clock::now();
-            {
-                std::set<std::string> want;
-                for (const auto& h : headers) {
-                    if (!h.hasAnimData || h.character.empty()) continue;
-                    const auto rit = rostersByStem.find(animdata::StemForProjectName(h.name));
-                    if (rit == rostersByStem.end()) continue;
-                    std::string cref = ToLower(h.character);
-                    for (char& c : cref) if (c == '\\') c = '/';
-                    std::string rootLc = "meshes/" + cref;
-                    { const auto s1 = rootLc.find_last_of('/');
-                      const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rootLc.find_last_of('/', s1 - 1);
-                      if (s2 != std::string::npos) rootLc = rootLc.substr(0, s2); }
-                    for (const auto& a : rit->second) want.insert(resolveAnimPath(rootLc, a));
-                }
-                const std::vector<std::string> paths(want.begin(), want.end());
-                std::vector<std::optional<CB::core::anim::AnimationDef>> parsed(paths.size());
-                std::atomic<std::size_t> next{ 0 };
-                std::vector<std::thread> pool;
-                for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
-                    pool.emplace_back([&] { for (std::size_t i; (i = next++) < paths.size();) parsed[i] = loadAnim(paths[i]); });
-                for (auto& t : pool) t.join();
-                for (std::size_t i = 0; i < paths.size(); ++i) animCache.emplace(paths[i], std::move(parsed[i]));
-            }
-            const auto tClips = std::chrono::steady_clock::now();
-
-            animdata::SingleFile out;
-            out.projects.reserve(headers.size());
-            std::size_t nProj = 0, nClips = 0;
-            for (const auto& h : headers) {
-                animdata::Project p;
-                p.name        = h.name;
-                p.fieldX      = "1";
-                p.assetPaths  = h.assets;
-                p.hasAnimData = h.hasAnimData;
-                if (h.hasAnimData && !h.character.empty()) {
-                    const std::string stem = animdata::StemForProjectName(h.name);
-                    const auto        rit  = rostersByStem.find(stem);
-                    static const std::vector<std::string> kEmptyRoster;
-                    const auto&       roster = (rit != rostersByStem.end()) ? rit->second : kEmptyRoster;
-
-                    // Actor root = the character unit's path minus its last TWO segments
-                    // ("<root>/characters[ x]/<stem>.hkx" — the sub-folder may be "characters female",
-                    // "characters dog", etc., so a plain "/characters/" search misses them and left
-                    // DefaultFemale/Dog/Wolf with an empty derive).
-                    std::string cref = ToLower(h.character);   // "actors/character/characters female/defaultfemale.hkx"
-                    for (char& c : cref) if (c == '\\') c = '/';
-                    std::string rootLc = "meshes/" + cref;
-                    { const auto s1 = rootLc.find_last_of('/');
-                      const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rootLc.find_last_of('/', s1 - 1);
-                      if (s2 != std::string::npos) rootLc = rootLc.substr(0, s2); }   // "meshes/actors/character"
-
-                    // Clip inputs = union over THIS project's behaviour assets (per-project scoping).
-                    std::vector<CB::core::animdata::DeriveClipInput> clips;
-                    for (const std::string& asset : h.assets) {
-                        std::string a = ToLower(asset);
-                        for (char& c : a) if (c == '\\') c = '/';
-                        if (a.rfind("behaviors", 0) != 0 || a.size() < 4 || a.compare(a.size() - 4, 4, ".hkx") != 0)
-                            continue;   // only "Behaviors...\<x>.hkx" assets (skip Characters/skeleton)
-                        const auto& uc = clipsForUnit(rootLc + "/" + a);
-                        clips.insert(clips.end(), uc.begin(), uc.end());
-                    }
-
-                    // Clips: extend each graph clip with its animation's annotation triggers + seed the
-                    // trigger-clamp durations (resolved via the roster index), then DeriveClipList.
-                    std::unordered_map<std::string, int> rosterIdx;
-                    for (int i = 0; i < static_cast<int>(roster.size()); ++i)
-                        rosterIdx.emplace(resolveAnimPath(rootLc, roster[i]), i);
-                    std::unordered_map<int, double> motionDur;
-                    for (auto& dc : clips) {
-                        if (dc.animationName.empty()) continue;
-                        const std::string rp = resolveAnimPath(rootLc, dc.animationName);
-                        const CB::core::anim::AnimationDef* def = getAnim(rp);   // reads shared killmoves too
-                        if (!def) continue;
-                        if (!def->annotationTracks.empty())
-                            for (const auto& a : def->annotationTracks[0].annotations)
-                                dc.triggers.push_back({ trimAnn(a.text), static_cast<double>(a.time), false, true });
-                        if (const auto ri = rosterIdx.find(rp); ri != rosterIdx.end())
-                            motionDur[ri->second] = static_cast<double>(def->duration);
-                    }
-                    p.clips = CB::core::animdata::DeriveClipList(clips, roster, motionDur);
-
-                    // Motion: each animation's inline motion record, bound through the SAME case-folded
-                    // roster IndexMembrane the clips resolve through (DeriveClipList). Motion INHERITS the
-                    // clip's bind — a clip and its motion resolve the animation to the SAME index, so they
-                    // can't drift apart (linker/membrane spec; review finding #1). For a unique animation
-                    // encode(roster[i]) == i (byte-neutral); a duplicate binds to its FIRST slot, matching
-                    // the clip, instead of a slot no clip uses.
-                    const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster, /*caseFold*/true);
-                    const linker::IndexMembrane rosterMembrane{&rosterBind};
-                    for (int i = 0; i < static_cast<int>(roster.size()); ++i) {
-                        const CB::core::anim::AnimationDef* def = getAnim(resolveAnimPath(rootLc, roster[static_cast<std::size_t>(i)]));
-                        if (!def || !def->motion) continue;
-                        CB::core::animdata::MotionRecord m = *def->motion;
-                        m.animIndex = std::to_string(rosterMembrane.encode(roster[static_cast<std::size_t>(i)]).value_or(i));
-                        p.motions.push_back(std::move(m));
-                    }
-                    if (!p.clips.empty()) { ++nProj; nClips += p.clips.size(); }
-                }
-                out.projects.push_back(std::move(p));
-            }
-            const auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
-            LOG_INFO("AnimData: base DERIVED from graph — {} anim project(s), {} clip(s) (no clips/ in master); {} animation(s) "
-                     "parsed in {} ms (parallel), clips + motion in {} ms.",
-                     nProj, nClips, animCache.size(), ms(tPrefill, tClips), ms(tClips, std::chrono::steady_clock::now()));
-            return out;
-        }
-
-        // ── BR-native animationdata deltas (the converter's stage-2 output) ───────────
-        // A converted mod ships per-clip yaml under meshes/animationdatasinglefile.txt/clips/<projStem>/
-        // (each keyed by `animation:`, the decomposed form the master uses) with sibling motion under
-        // .../motion/<projStem>/. This is JUST the Nemesis-patch-dir information in the clean BR form (no
-        // mod codes, no verbatim copy) — so it flows through the SAME high-band merge as a Nemesis patch:
-        // each clip+motion is one PatchAddition; AllocateHighBandAndMerge assigns the safe synthetic
-        // animIndex and pairs the clip with its motion.
-        //
-        // Why high band, NOT a roster-position index: the animationdatasinglefile animIndex is an INTERNAL
-        // clip<->motion link, NOT a roster position — the engine matches an animationdata clip record to
-        // its behaviour clip generator by NAME (case-insensitive), and the animation actually PLAYED is
-        // bound by the behaviour graph's animationName against the character's animationNames roster (the
-        // animationnames fold, a separate leg). Proven in-game: Nemesis mods served at high band (32k+)
-        // had working root motion; a roster-position index instead broke it (the mod's motion landed at an
-        // index the engine's separately-built served roster didn't agree with). So we keep the safe high
-        // band and let the roster leg bind the animation.
-
-        // True iff the bundle ships BR-native animationdata clip deltas (vs a Nemesis patch dir / FNIS graph).
-        bool HasNativeAnimDeltas(const BundleReader& rd) {
-            return !rd.filesUnder("meshes/animationdatasinglefile.txt/clips", ".yaml").empty();
-        }
-
-        // Read the native clip+motion deltas into per-project ProjectPatches (symbol form) — one
-        // PatchAddition per clip, carrying its (optional) real motion. The symbol is a placeholder;
-        // MergeProjectPatch replaces it with the allocated high-band index (same value on clip + motion).
-        std::vector<animdata::ProjectPatch> ReadBundleAnimDeltas(const BundleReader& rd, const std::string& stem) {
-            const std::string clipsRoot  = "meshes/animationdatasinglefile.txt/clips";
-            const std::string motionRoot = "meshes/animationdatasinglefile.txt/motion";
-            const auto nameOf = [](const std::string& path) {
-                std::string s = path.substr(path.find_last_of('/') + 1);
-                if (const auto dot = s.rfind('.'); dot != std::string::npos) s.erase(dot);
-                return s;
-            };
-            const auto stemOf = [](const std::string& path) {
-                const auto last = path.find_last_of('/');
-                if (last == std::string::npos || last == 0) return std::string();
-                const auto prev = path.find_last_of('/', last - 1);
-                return ToLower(path.substr(prev + 1, last - prev - 1));   // project stem (matched lowercase); nameOf keeps clip-name case
-            };
-            std::map<std::string, animdata::ProjectPatch> byProj;   // projStem -> patch
-            int sym = 0;
-            for (const std::string& path : rd.filesUnderOrig(clipsRoot, ".yaml")) {   // ORIGINAL case — clip name is case-sensitive
-                const auto y = rd.read(path);
-                if (!y) continue;
-                std::string e;
-                animdata::ClipGenerator c = animdata::ParseClipYaml(*y, e);
-                const std::string fname = nameOf(path);          // filename == clip name unless disambiguated in-body
-                if (c.name.empty()) c.name = fname;
-                if (!e.empty()) LOG_WARN("AnimData: native clip '{}': {}", path, e);
-
-                const std::string projStem = stemOf(path);
-                const std::string symbol   = stem + "$" + std::to_string(sym++);
-
-                animdata::PatchAddition add;
-                add.symbol       = symbol;
-                add.clip         = std::move(c);
-                add.clip.animIndex = symbol;                     // placeholder; the merge assigns the real index
-                add.hasClip      = true;
-                if (const auto m = rd.read(motionRoot + "/" + projStem + "/" + fname + ".yaml")) {
-                    std::string me;
-                    animdata::MotionRecord mr = animdata::ParseMotionSidecar(*m, me);
-                    if (!me.empty()) LOG_WARN("AnimData: native motion '{}/{}': {}", projStem, fname, me);
-                    mr.animIndex   = symbol;
-                    add.motion     = std::move(mr);
-                    add.hasMotion  = true;
-                }
-
-                auto& pp = byProj[projStem];
-                if (pp.projectName.empty()) pp.projectName = projStem;   // MergeProjectPatch matches case-insensitively, ±".txt"
-                pp.additions.push_back(std::move(add));
-            }
-            std::vector<animdata::ProjectPatch> out;
-            out.reserve(byProj.size());
-            for (auto& [k, pp] : byProj) out.push_back(std::move(pp));
-            return out;
-        }
-
-        // Final integrity pass over the merged singlefile (diagnostic only — logs, never mutates).
-        // Catches the two REAL merge faults, both distinct from vanilla's legitimate structure:
-        //   (1) MOD-BAND COLLISION — two records landing on the same HIGH-band animIndex
-        //       (>= modBandFloor, the allocator's floor). Every mod clip+motion gets a UNIQUE high
-        //       index from AllocateHighBandAndMerge, so a repeat there means the merge double-
-        //       assigned → the engine can resolve a mod clip to the wrong motion.
-        //   (2) IDENTICAL-ROW DUPLICATE — a byte-for-byte identical clip (or motion) record twice
-        //       in one project: the signature of a double-merge (merging onto an already-merged
-        //       base, the BR-1 Pandora-pre-merge hazard). Vanilla has ZERO of these.
-        // NOT flagged (the old check's false alarm): a shared animIndex across DISTINCT-named
-        // vanilla clips is NORMAL — one animation reused by many clips, each with its own
-        // triggers/crop (e.g. animIndex 1089 = MT_SprintForward + _CameraControl + H2H_Sprint_Pose).
-        // The engine binds clips by NAME, so every such row is load-bearing; deduping would delete
-        // real clips. Likewise vanilla motion records are NOT sorted by animIndex, and that is fine.
-        void VerifyMergeIntegrity(const animdata::SingleFile& sf, long long modBandFloor)
-        {
-            const auto pureInt = [](const std::string& s, long long& out) {
-                if (s.empty()) return false;
-                for (char c : s) if (c < '0' || c > '9') return false;   // animdata indices are non-negative
-                out = std::atoll(s.c_str());
-                return true;
-            };
-            const auto clipKey = [](const animdata::ClipGenerator& c) {
-                std::string k = c.name; k += '\x1f'; k += c.animIndex; k += '\x1f';
-                k += c.playbackSpeed; k += '\x1f'; k += c.cropStart; k += '\x1f'; k += c.cropEnd;
-                for (const auto& t : c.triggers) { k += '\x1f'; k += t; }
-                return k;
-            };
-            const auto motionKey = [](const animdata::MotionRecord& m) {
-                std::string k = m.animIndex; k += '\x1f'; k += m.duration; k += '\x1e';
-                for (const auto& t : m.translations) { k += '\x1f'; k += t; }
-                k += '\x1d';
-                for (const auto& r : m.rotations) { k += '\x1f'; k += r; }
-                return k;
-            };
-
-            std::size_t projCollide = 0, projIdentical = 0;
-            for (const auto& p : sf.projects) {
-                // (1) mod-band index collisions (clips + motions)
-                std::unordered_map<long long, int> clipHi, motHi;
-                long long idx = 0;
-                for (const auto& c : p.clips)
-                    if (pureInt(c.animIndex, idx) && idx >= modBandFloor) ++clipHi[idx];
-                for (const auto& m : p.motions)
-                    if (pureInt(m.animIndex, idx) && idx >= modBandFloor) ++motHi[idx];
-                std::size_t clipColl = 0, motColl = 0;
-                for (const auto& [k, n] : clipHi) if (n > 1) ++clipColl;
-                for (const auto& [k, n] : motHi)  if (n > 1) ++motColl;
-
-                // (2) byte-identical duplicate rows (clips + motions)
-                std::unordered_set<std::string> clipSeen, motSeen;
-                std::size_t clipDupRow = 0, motDupRow = 0;
-                for (const auto& c : p.clips)   if (!clipSeen.insert(clipKey(c)).second) ++clipDupRow;
-                for (const auto& m : p.motions) if (!motSeen.insert(motionKey(m)).second) ++motDupRow;
-
-                if (clipColl || motColl) {
-                    ++projCollide;
-                    LOG_WARN("AnimData: project '{}' — mod-band index collision ({} clip idx + {} motion idx "
-                             ">= {} shared by >1 record) — a mod clip may resolve to the wrong motion.",
-                             p.name, clipColl, motColl, modBandFloor);
-                }
-                if (clipDupRow || motDupRow) {
-                    ++projIdentical;
-                    LOG_WARN("AnimData: project '{}' — {} identical clip row(s) + {} identical motion row(s) "
-                             "(byte-for-byte) — signature of a double-merge onto a pre-merged base.",
-                             p.name, clipDupRow, motDupRow);
-                }
-            }
-            if (!projCollide && !projIdentical)
-                LOG_INFO("AnimData: merge integrity OK ({} project(s): no mod-band collisions, no duplicate rows).",
-                         sf.projects.size());
-        }
-
-        // Allocate every mod addition a safe HIGH-band animIndex (just under 2^15, above the roster,
-        // Pandora's band) and merge, then verify ordering. The high band is REQUIRED: a mod clip's
-        // animIndex shares the char-setup animation-binding index space, so a low (roster-range)
-        // index collides and crashes char-setup (confirmed in-game 2026-08-11: low ~1656+ crash,
-        // ~32568+ work). SHARED by the Nemesis-delta path AND the derived-clip path — both arrive
-        // as ProjectPatches in `deltas` (already sorted base-first by priority).
-        void AllocateHighBandAndMerge(
-            animdata::SingleFile&                                             base,
-            std::vector<std::pair<int, std::vector<animdata::ProjectPatch>>>& deltas,
-            animdata::MergeStats&                                            stats)
-        {
-            std::size_t totalAdds = 0;
-            for (const auto& [prio, patches] : deltas)
-                for (const auto& pp : patches) totalAdds += pp.additions.size();
-            long long nextIndex = std::max(animdata::GlobalMaxIndex(base) + 1,
-                                           32768LL - static_cast<long long>(totalAdds));
-            const long long modBandFloor = nextIndex;   // additions allocate upward from here
-            // Ceiling guard: additions run UPWARD from nextIndex, so on a very large load order
-            // (nextIndex forced up by GlobalMaxIndex) the top allocation can cross 2^15 — leaving the
-            // in-game-verified safe band and setting bit15 of the 16-bit binding index. Surface it
-            // rather than silently allocate out of band (VerifyMergeIntegrity only checks collisions).
-            if (nextIndex + static_cast<long long>(totalAdds) > 32767LL)
-                LOG_WARN("AnimData: high-band allocation ({} adds from {}) would cross the proven safe "
-                         "ceiling 32767 — indices may leave the in-game-verified band.", totalAdds, nextIndex);
-            LOG_INFO("AnimData: allocating {} mod animIndices from {} (high band, < 2^15).", totalAdds, nextIndex);
-            for (auto& [prio, patches] : deltas)
-                for (const auto& pp : patches)
-                    if (!animdata::MergeProjectPatch(base, pp, stats, nextIndex))
-                        LOG_WARN("AnimData: patch targets unknown project '{}' — skipped.", pp.projectName);
-
-            VerifyMergeIntegrity(base, modBandFloor);
         }
 
     }  // namespace
 
-    ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni,
-                              const GraphClipReader& clipsOf, const GraphClipSink* sink, bool rosterFromScan)
+    ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni, const AdsfSource& adsf)
     {
         ServeResult r;
-
-        // ── adsf-derive stage (opt-in) — VALIDATION cut ────────────────────────────
-        // When the caller opted in, `sink` holds every graph's feature-derived clip inputs (pushed
-        // during CompileAll). This first cut only REPORTS what the unified derive produced — grouped
-        // by actor root (the tree up to "/behaviors/"), so each row is what a project's clip cache
-        // would be sourced from. It intentionally does NOT alter the emitted file yet: the proven
-        // collated merge below still owns the output. Compare this log against the collated result
-        // in-engine; once they agree, a focused follow-up makes the sink drive the emit.
-        if (sink) {
-            std::map<std::string, std::pair<std::size_t, std::set<std::string>>> byActor;  // root -> (clips, uniq anims)
-            for (const auto& [graphKey, clips] : sink->Contributions()) {
-                std::string root = graphKey;
-                if (const auto p = ToLower(graphKey).find("/behaviors"); p != std::string::npos)
-                    root = graphKey.substr(0, p);
-                auto& [n, anims] = byActor[root];
-                n += clips.size();
-                for (const auto& c : clips) anims.insert(ToLower(c.animationName));
-            }
-            LOG_INFO("AnimData[adsf-derive]: sink holds {} clip input(s) across {} graph(s), {} actor root(s):",
-                     sink->ClipCount(), sink->GraphCount(), byActor.size());
-            for (const auto& [root, tally] : byActor)
-                LOG_INFO("AnimData[adsf-derive]:   {} -> {} clip(s), {} unique animation(s).",
-                         root, tally.first, tally.second.size());
-            LOG_INFO("AnimData[adsf-derive]: VALIDATION-ONLY — the collated merge below still drives the emit.");
-        }
-
-        std::error_code ec;
-        const auto      order = LoadOrder(loadOrderIni);
-
-        // Gather (priority, patches) from BR .hky bundles. Each bundle carries a mod's
-        // animationdata deltas alongside its behaviors + set-data, so all legs stay consistent.
-        std::vector<std::pair<int, std::vector<animdata::ProjectPatch>>> deltas;
-        std::size_t                                                      bundleCount = 0;
-
-        // Per-project HEADER deltas from mod bundles' index.yaml — a bundle can add `assets:` to an
-        // existing project (e.g. a new animation the engine should load for that project) or introduce a
-        // whole new project. Merged into the master's base headers before compose (ascending priority).
-        std::vector<std::pair<int, std::vector<animdata::ProjectHeader>>> indexDeltas;
-
-        // Roster-from-scan (opt-in): owned assets (behaviors + characters) grouped by actor root,
-        // ORIGINAL case, collected from each MOD bundle below; unioned onto the base headers by
-        // actor root inside the compose. Empty (and inert) unless rosterFromScan is set.
-        std::map<std::string, std::vector<std::string>> scanAssetsByRoot;
-
-        // Editable motion overrides — (priority, project, records) collected from every mod
-        // bundle's animation/<Project>/motion/*.yaml. These OVERRIDE existing motion records by
-        // animIndex (root-motion edits authored in YAML); they never add a new index, so the
-        // animIndex band char-setup depends on is untouched. The build-time derive owns new-clip
-        // motion (with proper high-band alignment); this is the runtime "grab all motion/*.yaml".
-        std::vector<std::tuple<int, std::string, std::vector<animdata::MotionRecord>>> motionYaml;
-
-        // Each <Mod>.hky is EITHER an unpacked dir OR a packed .hky, read the same way through
-        // BundleReader. The Skyrim.hky MASTER (stem "skyrim") ships only the merge base (no
-        // animationdata delta), so it is opened lazily below — ONLY once some mod contributes —
-        // to skip decompressing the 18 MB master on an animationdata-free launch.
-        fs::path masterBundle;
-
-        const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
-
-        // Resolve the master bundle path UP FRONT (independent of directory-iteration order) so a
-        // bundle that DERIVES its animationdata can merge each patch unit over the master's base
-        // unit (a patch unit — horsebehavior.hkx, 0_master.hkx — only overlays its base and can't
-        // load alone). Opened lazily below, only when a patch unit is actually encountered, to keep
-        // the 18 MB master out of an animationdata-free / all-full-graph launch.
-        if (fs::is_directory(pluginsRoot, ec))
-            for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec))
-                if (ToLower(bi->path().extension().string()) == ".hky" &&
-                    ToLower(bi->path().stem().string()) == "skyrim") { masterBundle = bi->path(); break; }
-        std::optional<BundleReader> deriveMaster;   // lazily opened base for delta-unit derive
-
-        if (fs::is_directory(pluginsRoot, ec)) {
-            for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec)) {
-                const fs::path bundle = bi->path();
-                if (ToLower(bundle.extension().string()) != ".hky") continue;
-                const std::string stem = ToLower(bundle.stem().string());  // "bfco" / "skyrim"
-                if (stem == "skyrim") { masterBundle = bundle; continue; }  // base only, opened lazily
-
-                auto rd = BundleReader::Open(bundle);
-                if (!rd) { LOG_WARN("AnimData: cannot read bundle '{}' — skipped.", bundle.string()); continue; }
-
-                const auto oit  = order.find(stem);  // loadorder lists bare stems ("bfco")
-                const int  prio = (oit != order.end()) ? oit->second : 0;
-
-                // Roster-from-scan: gather this mod bundle's served behaviors/characters as adsf
-                // `assets:` entries (opt-in). Runs for EVERY mod bundle regardless of which delta
-                // form it ships below (native/legacy/derive), so it MUST precede the native `continue`.
-                if (rosterFromScan) CollectScanAssets(*rd, scanAssetsByRoot);
-
-                // HEADER delta (index.yaml) — collected for EVERY bundle (native + legacy), merged into
-                // the base headers before compose. This is how a mod adds assets to a project (the
-                // animation-serve route) or ships a new project header.
-                if (const auto ix = rd->read("meshes/animationdatasinglefile.txt/index.yaml")) {
-                    std::string ierr;
-                    auto hs = animdata::ParseAnimdataIndexYaml(*ix, ierr);
-                    if (!ierr.empty()) LOG_WARN("AnimData: index.yaml parse in '{}': {}", stem, ierr);
-                    if (!hs.empty()) {
-                        LOG_INFO("AnimData: bundle '{}' ships {} index.yaml header delta(s).", stem, hs.size());
-                        indexDeltas.push_back({ prio, std::move(hs) });
-                        ++bundleCount;
-                    }
-                }
-
-                // BR-NATIVE delta (converter stage-2): the Nemesis-patch information in clean BR form.
-                // Flows through the SAME high-band merge as a Nemesis patch dir (proven to serve root
-                // motion) — clip+motion per addition, the animation bound by the roster leg. Supersedes
-                // the Nemesis-patch / FNIS-derive / motion-override paths for THIS bundle.
-                if (HasNativeAnimDeltas(*rd)) {
-                    auto patches = ReadBundleAnimDeltas(*rd, stem);
-                    std::size_t nclips = 0;
-                    for (const auto& pp : patches) nclips += pp.additions.size();
-                    if (nclips) {
-                        LOG_INFO("AnimData: bundle '{}' ships {} native clip delta(s) across {} project(s).",
-                                 stem, nclips, patches.size());
-                        deltas.push_back({ prio, std::move(patches) });
-                        ++bundleCount;
-                    }
-                    continue;   // native bundle: skip the legacy patch/derive + motion-override paths
-                }
-
-                std::vector<animdata::ProjectPatch> patches;
-                std::string                         warn;
-                if (LoadBundlePatches(*rd, patches, warn)) {
-                    if (!warn.empty())
-                        LOG_WARN("AnimData: skipped malformed patch dir(s) in '{}':\n{}", stem, warn);
-                    deltas.push_back({ prio, std::move(patches) });
-                    ++bundleCount;
-                } else {
-                    // No shipped Nemesis animationdata — DERIVE the delta from this bundle's
-                    // behaviors (the FNIS-converter output ships clips but no patch dir). Same
-                    // high-band merge below; the records come from the graph, not the Nemesis format.
-                    if (!deriveMaster && !masterBundle.empty()) deriveMaster = BundleReader::Open(masterBundle);
-                    auto derived = DeriveBundleAnimData(*rd, stem, dataDir,
-                                                        deriveMaster ? &*deriveMaster : nullptr, clipsOf);
-                    if (!derived.empty()) {
-                        deltas.push_back({ prio, std::move(derived) });
-                        ++bundleCount;
-                    }
-                }
-
-                // Collect this bundle's editable motion overrides from the per-motion folder:
-                // meshes/animationdatasinglefile.txt/motion/<project>/<key>.yaml (one record per file,
-                // same convention the master ships). project = the parent-dir name; key = the filename
-                // (a clip-name label, or "unnamed_<N>" for a raw-index block). A bundle may ship ONLY
-                // motion deltas (no Nemesis patch dir), so this is collected independent of LoadBundlePatches.
-                // (A native bundle already applied its motion above, so this only runs for legacy bundles.)
-                std::unordered_map<std::string, std::vector<animdata::MotionRecord>> modMotion;  // project -> records
-                // filesUnderOrig (NOT filesUnder): `key` becomes the motion record's clip-name label,
-                // which is resolved against the base clips' ORIGINAL-CASE names below (clipIdxByName).
-                // filesUnder lowercases, so a mixed-case clip name ("1HMDual") would silently never
-                // match and the override would be dropped — same case rule the base motion leg follows.
-                for (const std::string& path : rd->filesUnderOrig("meshes/animationdatasinglefile.txt/motion", ".yaml")) {
-                    const auto y = rd->read(path);
-                    if (!y) continue;
-                    const auto last = path.find_last_of('/');
-                    const auto prev = (last == std::string::npos || last == 0) ? std::string::npos : path.find_last_of('/', last - 1);
-                    if (prev == std::string::npos) continue;
-                    std::string proj = path.substr(prev + 1, last - prev - 1);          // parent dir = project
-                    std::string key  = path.substr(last + 1);                           // "<key>.yaml"
-                    if (const auto dot = key.rfind('.'); dot != std::string::npos) key.erase(dot);
-                    std::string merr;
-                    animdata::MotionRecord rec = animdata::ParseMotionSidecar(*y, merr);
-                    if (key.rfind("unnamed_", 0) == 0) rec.animIndex = key.substr(8);
-                    else                               rec.animation = key;             // clip-name label
-                    if (!merr.empty()) LOG_WARN("AnimData: motion parse in '{}'/{}/{}: {}", stem, proj, key, merr);
-                    modMotion[proj].push_back(std::move(rec));
-                }
-                for (auto& [proj, recs] : modMotion)
-                    if (!recs.empty()) motionYaml.emplace_back(prio, proj, std::move(recs));
-            }
-        }
-
-        if (deltas.empty() && motionYaml.empty() && indexDeltas.empty())
-            return r;  // no .hky animationdata — leave the game's own file
         r.attempted = true;
-        r.bundles   = deltas.size();
-        LOG_INFO("AnimData: {} .hky bundle(s) contribute animationdata.", bundleCount);
+        std::error_code ec;
+        const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
+        const auto     order       = LoadOrder(loadOrderIni);
 
-        // Base MUST be PURE VANILLA. The VFS-winning meshes\animationdatasinglefile.txt is whatever
-        // mod provides it — and an upstream behavior tool (Pandora) writes its ALREADY-MERGED output
-        // there, so merging onto it DOUBLE-adds every mod's clips (broken root motion, 2026-08-11).
-        // NAME-GATE the base to the Skyrim.hky master (congruent with Skyrim.esm).
-        //
-        // The master ships the decomposed animationdatasinglefile.txt/ FOLDER (index.yaml +
-        // clips/ baked + motion/ authored), not the monolithic .txt. COMPOSE the base from it
-        // (AssembleAnimdata + resolve motion animIndices against clips) — byte-for-byte vanilla,
-        // gated offline by havok-core-cli animdata-tree-roundtrip. Falls back to a legacy loose .txt
-        // only if the folder is absent.
-        std::optional<BundleReader> masterReader;
-        if (!masterBundle.empty()) {
-            masterReader = BundleReader::Open(masterBundle);
-            if (!masterReader) LOG_WARN("AnimData: cannot read master bundle '{}'.", masterBundle.string());
+        /// @note Every bundle, lowest priority first (the master, then mods by load order): an animation is read from
+        ///       the HIGHEST bundle that carries it.
+        std::vector<std::pair<int, BundleReader>> bundles;
+        if (fs::is_directory(pluginsRoot, ec))
+            for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec)) {
+                if (ToLower(bi->path().extension().string()) != ".hky") continue;
+                const std::string stem = ToLower(bi->path().stem().string());
+                auto rd = BundleReader::Open(bi->path());
+                if (!rd) { LOG_WARN("AnimData: cannot read bundle '{}' — skipped.", bi->path().string()); continue; }
+                const auto oit = order.find(stem);
+                bundles.emplace_back(stem == "skyrim" ? -1 : (oit != order.end() ? oit->second : 0), std::move(*rd));
+            }
+        std::stable_sort(bundles.begin(), bundles.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        if (bundles.empty() || bundles.front().first != -1) {
+            r.error = "no Skyrim.hky master (its project index is the adsf's project list)";
+            LOG_WARN("AnimData: {} — vanilla animation data stays.", r.error);
+            return r;
         }
-        animdata::SingleFile base;
-        std::string          baseFrom;
-        bool                 composed = false;
-        if (masterReader) {
-            const std::string dir = "meshes/animationdatasinglefile.txt";
-            if (const auto idxTxt = masterReader->read(dir + "/index.yaml")) {
-                std::string ierr;
-                auto        headers = animdata::ParseAnimdataIndexYaml(*idxTxt, ierr);
-                if (!ierr.empty()) LOG_WARN("AnimData: base index.yaml parse: {}", ierr);
+        r.bundles = bundles.size();
 
-                // ── Merge mod index.yaml header deltas onto the base (ascending priority) ──────────
-                // For a project already in the base: UNION its `assets:` (append the mod's new asset
-                // paths, deduped case-insensitively, base order first) — that's how a mod adds an
-                // animation for the engine to load. A delta project with a name not in the base is added
-                // whole (a new project). fieldX/character/hasAnimData from the base are kept unless the
-                // base lacked the project. (One-way header merge; clip/motion bodies merge separately.)
-                if (!indexDeltas.empty()) {
-                    std::stable_sort(indexDeltas.begin(), indexDeltas.end(),
-                                     [](const auto& a, const auto& b) { return a.first < b.first; });
-                    std::unordered_map<std::string, std::size_t> byName;   // ToLower(name) -> index in headers
-                    for (std::size_t i = 0; i < headers.size(); ++i) byName[ToLower(headers[i].name)] = i;
-                    std::size_t assetsAdded = 0, projAdded = 0;
-                    for (const auto& [prio, hs] : indexDeltas)
-                        for (const auto& dh : hs) {
-                            const auto it = byName.find(ToLower(dh.name));
-                            if (it == byName.end()) {                      // new project
-                                byName[ToLower(dh.name)] = headers.size();
-                                headers.push_back(dh);
-                                ++projAdded;
-                                continue;
-                            }
-                            auto& base_h = headers[it->second];
-                            std::unordered_set<std::string> have;
-                            for (const auto& a : base_h.assets) have.insert(ToLower(a));
-                            for (const auto& a : dh.assets)
-                                if (have.insert(ToLower(a)).second) { base_h.assets.push_back(a); ++assetsAdded; }
-                            if (dh.hasAnimData) base_h.hasAnimData = true;
-                            if (base_h.character.empty() && !dh.character.empty()) base_h.character = dh.character;
-                        }
-                    if (assetsAdded || projAdded)
-                        LOG_INFO("AnimData: merged index.yaml deltas — +{} asset(s), +{} project(s).", assetsAdded, projAdded);
-                }
+        std::string err;
+        const auto  index = bundles.front().second.read("meshes/animationdatasinglefile.txt/index.yaml");
+        const auto  headers = index ? animdata::ParseAnimdataIndexYaml(*index, err) : std::vector<animdata::ProjectHeader>{};
+        if (headers.empty()) {
+            r.error = "master carries no animationdatasinglefile.txt/index.yaml" + (err.empty() ? std::string() : " (" + err + ")");
+            LOG_WARN("AnimData: {} — vanilla animation data stays.", r.error);
+            return r;
+        }
+        r.baseProjects = headers.size();
 
-                // ── Roster-from-scan (opt-in) ────────────────────────────────────────────────
-                // UNION the owned havok assets (behaviors + characters CB actually serves, gathered
-                // from the mod bundles above) onto each base project by ACTOR ROOT, so the emitted
-                // adsf `assets:` — the roster func3 enumerates — reflects the hky contents without a
-                // hand-authored index.yaml. Additive + case-insensitive dedup: the base's canonical
-                // per-project list is never rewritten (protects the ESM-cased char->adsf bind); only
-                // genuinely-new asset paths ride in. A scanned actor root with NO matching base
-                // header is a NEW project — deferred (its canonical name must come from unit content),
-                // logged not synthesized, so this first cut only augments existing projects.
-                if (rosterFromScan && !scanAssetsByRoot.empty()) {
-                    std::size_t                     scanAdded = 0, unmatched = 0;
-                    std::unordered_set<std::string> matchedRoots;
-                    for (auto& h : headers) {
-                        if (h.character.empty()) continue;
-                        const std::string root = ActorRootLower(ToLower(h.character));
-                        const auto        it   = scanAssetsByRoot.find(root);
-                        if (it == scanAssetsByRoot.end()) continue;
-                        matchedRoots.insert(root);
-                        std::unordered_set<std::string> have;
-                        for (const auto& a : h.assets) have.insert(ToLower(a));
-                        for (const auto& a : it->second)
-                            if (have.insert(ToLower(a)).second) { h.assets.push_back(a); ++scanAdded; }
-                    }
-                    for (const auto& [root, assets] : scanAssetsByRoot)
-                        if (!matchedRoots.count(root)) ++unmatched;
-                    LOG_INFO("AnimData: roster-from-scan unioned {} asset(s) onto matching project(s); "
-                             "{} scanned actor root(s) had no base project (new-project synth is a follow-up).",
-                             scanAdded, unmatched);
-                }
-                std::map<std::string, std::vector<animdata::ClipGenerator>> clipsByStem;
-                std::map<std::string, std::vector<animdata::MotionRecord>>  motionByStem;
-                std::map<std::string, std::vector<std::string>>             rostersByStem;
-                // A per-clip/per-motion path is ".../clips/<stem>/<name>.yaml": name = filename, stem =
-                // its parent dir. (nameOf strips the ".yaml"; stemOf takes the parent segment.)
-                // filesUnder now returns ORIGINAL-CASE paths, so nameOf preserves the clip NAME's case
-                // (load-bearing — the engine matches it to the mixed-case behaviour clip generator), while
-                // stemOf is LOWERCASED to key clipsByStem the way AssembleAnimdata looks it up
-                // (StemForProjectName == lowercase).
-                const auto nameOf = [](const std::string& path) {
-                    std::string s = path.substr(path.find_last_of('/') + 1);
-                    if (const auto dot = s.rfind('.'); dot != std::string::npos) s.erase(dot);
-                    return s;
-                };
-                const auto stemOf = [](const std::string& path) {
-                    const auto last = path.find_last_of('/');
-                    if (last == std::string::npos || last == 0) return std::string();
-                    const auto prev = path.find_last_of('/', last - 1);
-                    return ToLower(path.substr(prev + 1, last - prev - 1));
-                };
-                /// @note Rosters come from each project's `character:` header ref (index.yaml): that character unit's
-                ///       animationNames, original case.
-                for (const auto& h : headers) {
-                    if (h.character.empty()) continue;
-                    const auto src = masterReader->unitSource("meshes/" + h.character);
-                    auto cs = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
-                    if (cs && !cs->animationNames.empty())
-                        rostersByStem[animdata::StemForProjectName(h.name)] = std::move(cs->animationNames);
-                }
-                bool masterHasClips = false;
-                for (const std::string& path : masterReader->filesUnderOrig(dir + "/clips", ".yaml")) {
-                    if (const auto y = masterReader->read(path)) {
-                        masterHasClips = true;
-                        std::string e; animdata::ClipGenerator c = animdata::ParseClipYaml(*y, e);
-                        if (c.name.empty()) c.name = nameOf(path);   // filename is the name unless disambiguated (in-body) — ORIGINAL case
-                        clipsByStem[stemOf(path)].push_back(std::move(c));
-                        if (!e.empty()) LOG_WARN("AnimData: base clip '{}': {}", path, e);
+        /// @note Animations are parsed once, in parallel (gigabytes of keyframe YAML; the engine's adsf open waits on
+        ///       this), each with its actor motion resolved — its record, or extracted from a folded root.
+        std::unordered_map<std::string, std::optional<CB::core::anim::AnimationDef>> anims;
+        const auto load = [&](const std::string& path) -> std::optional<CB::core::anim::AnimationDef> {
+            for (auto it = bundles.rbegin(); it != bundles.rend(); ++it)
+                if (const auto text = it->second.read(path)) {
+                    try {
+                        auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, path);
+                        def.motion = CB::core::anim::ResolveRootMotion(def);
+                        return def;
+                    } catch (const std::exception& e) {
+                        LOG_WARN("AnimData: animation '{}' unreadable: {}", path, e.what());
+                        return std::nullopt;
                     }
                 }
-                for (const std::string& path : masterReader->filesUnderOrig(dir + "/motion", ".yaml"))
-                    if (const auto y = masterReader->read(path)) {
-                        std::string e; animdata::MotionRecord m = animdata::ParseMotionSidecar(*y, e);
-                        const std::string key = nameOf(path);
-                        if (key.rfind("unnamed_", 0) == 0) m.animIndex = key.substr(8);   // hybrid block
-                        else                                m.animation = key;            // clip-name label
-                        motionByStem[stemOf(path)].push_back(std::move(m));
-                        if (!e.empty()) LOG_WARN("AnimData: base motion '{}': {}", path, e);
-                    }
-                if (masterHasClips) {
-                    base     = animdata::AssembleAnimdata(headers, clipsByStem, motionByStem, rostersByStem);
-                    baseFrom = "Skyrim.hky/" + dir + "/ (composed)";
-                } else {
-                    // Stripped master (release item 4): no clips/ shipped — DERIVE the whole base
-                    // from the graph + the CB-native animation units (annotations + duration + motion).
-                    base     = DeriveBaseAnimData(*masterReader, headers, rostersByStem, clipsOf);
-                    baseFrom = "Skyrim.hky/" + dir + "/ (DERIVED from graph)";
-                }
-                composed = true;
-            }
-        }
-        if (!composed) {
-            const fs::path vfsBase  = dataDir / "meshes" / "animationdatasinglefile.txt";
-            std::string    baseText;
-            if (masterReader)
-                if (const auto t = masterReader->read("meshes/animationdatasinglefile.txt")) baseText = *t;
-            if (!baseText.empty()) {
-                baseFrom = "Skyrim.hky/meshes/animationdatasinglefile.txt (legacy loose)";
-            } else {
-                baseFrom = vfsBase.string();
-                baseText = ReadFile(vfsBase);
-                LOG_WARN("AnimData: no animationdatasinglefile.txt/ folder in master (bundle '{}') — "
-                         "falling back to the loose file '{}'. If an upstream tool already merged the mods "
-                         "there, this DOUBLE-merges; ship the decomposed Skyrim.hky master.",
-                         masterBundle.string(), vfsBase.string());
-            }
-            if (baseText.empty()) {
-                r.error = "master animationdata base not found (bundle: " + masterBundle.string() + ")";
-                LOG_ERROR("AnimData: {}", r.error);
-                return r;
-            }
-            try {
-                base = animdata::ParseSingleFile(baseText);
-            } catch (const std::exception& e) {
-                r.error = std::string("base parse failed: ") + e.what();
-                LOG_ERROR("AnimData: {}", r.error);
-                return r;
-            }
-        }
-        LOG_INFO("AnimData: base = '{}' ({} projects).", baseFrom, base.projects.size());
-        r.baseProjects = base.projects.size();
+            return std::nullopt;
+        };
+        animdata::ProjectionSource src;
+        src.roster        = adsf.roster;
+        src.clips         = adsf.clips;
+        src.behaviorUnits = adsf.behaviorUnits;
+        src.prefetch      = [&](const std::vector<std::string>& paths) {
+            std::vector<std::optional<CB::core::anim::AnimationDef>> parsed(paths.size());
+            std::atomic<std::size_t> next{ 0 };
+            std::vector<std::thread> pool;
+            for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
+                pool.emplace_back([&] { for (std::size_t i; (i = next++) < paths.size();) parsed[i] = load(paths[i]); });
+            for (auto& t : pool) t.join();
+            for (std::size_t i = 0; i < paths.size(); ++i) anims.emplace(paths[i], std::move(parsed[i]));
+        };
+        src.animation = [&](const std::string& path) -> const CB::core::anim::AnimationDef* {
+            auto it = anims.find(path);
+            if (it == anims.end()) it = anims.emplace(path, load(path)).first;
+            return it->second ? &*it->second : nullptr;
+        };
 
-        // Merge base-first: ascending priority so a higher-priority bundle's patches append
-        // last. stable_sort keeps discovery order among equal (unlisted, prio 0) bundles.
-        std::stable_sort(deltas.begin(), deltas.end(),
-                         [](const auto& a, const auto& b) { return a.first < b.first; });
-        // Allocate the safe high-band animIndices, merge every ProjectPatch (Nemesis-shipped, BR-native,
-        // AND graph-derived alike), and verify the merged file's ordering — one reusable final step.
-        AllocateHighBandAndMerge(base, deltas, r.stats);
-        r.mergedProjects = base.projects.size();
+        const auto* reg = CB::core::schema::SharedRegistry();
+        if (!reg) { r.error = "schema registry not armed"; LOG_ERROR("AnimData: {}.", r.error); return r; }
+        animdata::ProjectionStats st;
+        const auto t0   = std::chrono::steady_clock::now();
+        const auto root = animdata::ProjectAnimData(*reg, headers, src, &st, err);
+        const auto t1   = std::chrono::steady_clock::now();
+        if (!root) { r.error = "projection failed: " + err; LOG_ERROR("AnimData: {}.", r.error); return r; }
 
-        // ── Editable motion overrides (animation/<Project>/motion/*.yaml) ─────────────
-        // Replace a base motion's data (duration + translation/rotation samples) by animIndex
-        // within the matching project. OVERRIDE ONLY: the record must already exist (same
-        // animIndex) — no new index is introduced and no count changes, so the animIndex band
-        // char-setup reads stays byte-stable. New-clip motion is the build-time derive's job
-        // (it high-band-aligns motion with clips); this leg lets an author retune existing root
-        // motion in YAML. Apply ascending-priority so a higher-priority bundle's edit wins.
-        if (!motionYaml.empty()) {
-            std::stable_sort(motionYaml.begin(), motionYaml.end(),
-                             [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
-            std::size_t overridden = 0, missed = 0;
-            for (const auto& entry : motionYaml) {
-                const std::string& proj = std::get<1>(entry);
-                auto pit = std::find_if(base.projects.begin(), base.projects.end(),
-                    [&](const animdata::Project& p) {
-                        std::string n = ToLower(p.name);
-                        if (n.size() >= 4 && n.compare(n.size() - 4, 4, ".txt") == 0) n.erase(n.size() - 4);
-                        return n == ToLower(proj);
-                    });
-                if (pit == base.projects.end()) {
-                    LOG_WARN("AnimData: motion.yaml targets unknown project '{}' — skipped.", proj);
-                    continue;
-                }
-                // A motion override keys on the clip NAME (the de-hardwired form); resolve it to this
-                // project's animIndex via its clips. A record still carrying a raw index uses it as-is.
-                std::unordered_map<std::string, std::string> clipIdxByName;
-                for (const auto& c : pit->clips) if (!c.name.empty()) clipIdxByName.emplace(c.name, c.animIndex);
-                std::unordered_map<std::string, animdata::MotionRecord*> byIdx;
-                for (auto& m : pit->motions) byIdx[m.animIndex] = &m;
-                for (const auto& rec : std::get<2>(entry)) {
-                    std::string idx = rec.animIndex;
-                    if (idx.empty() && !rec.animation.empty()) {
-                        const auto ci = clipIdxByName.find(rec.animation);
-                        if (ci != clipIdxByName.end()) idx = ci->second;
-                    }
-                    auto mi = byIdx.find(idx);
-                    if (mi == byIdx.end()) { ++missed; continue; }  // no such index — derive owns additions
-                    mi->second->duration     = rec.duration;
-                    mi->second->translations = rec.translations;
-                    mi->second->rotations    = rec.rotations;
-                    ++overridden;
-                }
-            }
-            if (overridden || missed)
-                LOG_INFO("AnimData: applied {} motion override(s) from motion.yaml ({} skipped: no matching "
-                         "animIndex — additions are the build-time derive's job).", overridden, missed);
+        /// @note The schema writer enforces the descriptors' `framelimit` (the engine reads each project's frame
+        ///       counts through a 16-bit truncation): a file it would misread is refused and vanilla stays.
+        std::string text;
+        if (!CB::core::codec::io::WriteMetaText(*root, text, err)) {
+            r.error = err;
+            LOG_ERROR("AnimData: {} — NOT serving the projected animation data (vanilla stays).", r.error);
+            return r;
         }
-
-        // NO ".br" project aliases. BR serves its compiled project via byte-substitution under the
-        // EXACT vanilla path (the engine opens "<Stem>.hkx" and gets BR's bytes) — so the loaded
-        // project's basename stays "<Stem>", the AnimationClipData table keys on the stock "<Stem>"
-        // entry, and no alias is needed. Both the descriptor (speed-sampler key) and the loaded-asset
-        // name are vanilla; nothing ever sees ".br". (Root cause + fix: BR-1.)
-        /// @warning The engine reads each project's clip- and motion-block line counts through a 16-bit truncation
-        ///          (AnimationClipDataSingleton ctor: movzx of atoi). A block over 65535 lines is read short and
-        ///          desyncs the rest of the file — a crash at load. Refuse to serve such a file (vanilla stays).
-        for (const auto& p : base.projects) {
-            std::size_t clipLines = 3 + p.assetPaths.size(), motionLines = 0;
-            if (p.hasAnimData) {
-                for (const auto& c : p.clips) clipLines += 7 + c.triggers.size();
-                for (const auto& m : p.motions) motionLines += 5 + m.translations.size() + m.rotations.size();
-            }
-            if (clipLines > 0xffff || motionLines > 0xffff) {
-                r.error = "project '" + p.name + "' exceeds the engine's 65535-line block limit (clips " +
-                          std::to_string(clipLines) + ", motion " + std::to_string(motionLines) + ")";
-                LOG_ERROR("AnimData: {} — NOT serving the merged animation data (vanilla stays).", r.error);
-                return r;
-            }
-        }
-        const std::string merged    = animdata::EmitSingleFile(base);
-        const fs::path    cachePath = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";
-        if (!WriteFile(cachePath, merged)) {
-            r.error = "failed to write merged cache: " + cachePath.string();
+        const fs::path cachePath = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";
+        if (!WriteFile(cachePath, text)) {
+            r.error = "failed to write " + cachePath.string();
             LOG_ERROR("AnimData: {}", r.error);
             return r;
         }
-
-        r.ok        = true;
-        r.cachePath = cachePath.string();
-        LOG_INFO("AnimData: merged {} bundle(s) onto {} base project(s) "
-                 "(+{} clips, +{} motions across {} project-patch(es)); wrote {}.",
-                 r.bundles, r.baseProjects, r.stats.clipsAdded, r.stats.motionsAdded,
-                 r.stats.projectsPatched, r.cachePath);
+        r.ok             = true;
+        r.cachePath      = cachePath.string();
+        r.mergedProjects = headers.size();
+        const auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
+        LOG_INFO("AnimData: projected {} anim project(s) — {} clip(s), {} motion(s), {} animation(s) — from {} bundle(s) in "
+                 "{} ms; wrote {}.", st.projects, st.clips, st.motions, anims.size(), bundles.size(), ms(t0, t1), r.cachePath);
+        if (st.unresolved)
+            LOG_INFO("AnimData: {} clip(s) play an animation their character's roster lacks (no motion; e.g. {}).", st.unresolved,
+                     st.unresolvedSample.empty() ? std::string() : st.unresolvedSample.front());
         return r;
     }
 

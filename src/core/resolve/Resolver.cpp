@@ -1385,6 +1385,57 @@ namespace CB {
         return CB::core::compile::DeriveClipInputsFromGraph(graph.root);
     }
 
+    std::size_t Resolver::FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const
+    {
+        const auto ci = m_characterAnimNames.find(characterStem);
+        if (ci == m_characterAnimNames.end()) return 0;
+        std::unordered_set<std::string> have(names.begin(), names.end());
+        std::size_t folded = 0;
+        for (const auto& a : ci->second)
+            if (have.insert(a).second) { names.push_back(a); ++folded; }
+        return folded;
+    }
+
+    std::vector<CB::core::animdata::DeriveClipInput> Resolver::MergedClipInputs(const std::string& key) const
+    {
+        const auto it = m_sources.find(NormalizeKey(key));
+        return it == m_sources.end() ? std::vector<CB::core::animdata::DeriveClipInput>{} : ClipInputsOf(it->first, it->second.layers);
+    }
+
+    std::vector<std::string> Resolver::ServedRoster(const std::string& characterKey) const
+    {
+        auto* reg = CB::core::schema::SharedRegistry();
+        const auto it = m_sources.find(NormalizeKey(characterKey));
+        if (!reg || it == m_sources.end()) return {};
+        const RigBones rb = BonesFor(it->first);
+        CB::core::decompile::ParsedHky graph;
+        std::string err;
+        if (!CB::core::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+            LOG_WARN("Resolver: roster read of '{}' failed: {}", it->first, err);
+            return {};
+        }
+        CB::core::decompile::GraphEdit edit(graph, *reg);
+        std::vector<std::string> names;
+        bool found = false;
+        edit.ForEach("hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
+            if (!found) { names = so.FieldRef("animationNames").strs; found = true; }
+        });
+        FoldAuthorRoster(ToLower(fs::path(it->first).stem().string()), names);
+        return names;
+    }
+
+    std::vector<std::string> Resolver::BehaviorUnitKeys() const
+    {
+        std::vector<std::string> out;
+        for (const auto& [key, gs] : m_sources) {
+            if (gs.isCharacter) continue;
+            const fs::path p(key);
+            if (p.parent_path().filename().string().rfind("behaviors", 0) == 0) out.push_back(key);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+
     Resolver::RigBones Resolver::BonesFor(const std::string& key) const
     {
         const std::vector<std::string>* rigs = m_rigIndex.RigsFor(NormalizeKey(key));
@@ -1562,13 +1613,8 @@ namespace CB {
         /// @note The author-facing roster drop (animationnames\<stem>.txt) folds in as an EXACT-case union: Havok binds
         ///       case-sensitively, so a lowercased dedup would drop the exact name a clip binds.
         std::vector<std::string>& names = sd->FieldRef("animationNames").strs;
-        if (const auto ci = m_characterAnimNames.find(cstem); ci != m_characterAnimNames.end() && !ci->second.empty()) {
-            std::unordered_set<std::string> have(names.begin(), names.end());
-            std::size_t folded = 0;
-            for (const auto& a : ci->second)
-                if (have.insert(a).second) { names.push_back(a); ++folded; }
-            if (folded) LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
-        }
+        if (const std::size_t folded = FoldAuthorRoster(cstem, names))
+            LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
         if (m_adsfDerive) m_characterRosters[cstem] = names;
         m_characterActor[cstem] = ActorPathOf(key);
 
