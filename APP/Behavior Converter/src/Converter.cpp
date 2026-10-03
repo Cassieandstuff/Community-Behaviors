@@ -19,6 +19,7 @@
 #include <compile/AnimDataFromBehavior.h>
 
 #include <atomic>
+#include <process.h>   // _getpid — a private per-process staging root
 #include <mutex>
 #include <thread>
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
@@ -2360,20 +2361,21 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     // animation round-trip pass can assemble + decompile. If it is not, the anim pass reports the
     // registry error per file and counts them as failures — it does not abort the corpus walk.
 
-    // Stage under a SHORT root so the deep decompiled unit tree stays under MAX_PATH; only the packed
-    // archive survives — UNLESS keepStagingDir is set, in which case the unpacked <Name>.hky/ tree is
-    // built there and KEPT (a short, observable layout with no unpack step; the caller picks the path).
-    // The bundle's name IS the output's filename (original case): every regen source runs this same build.
+    /// @note Stage in a PRIVATE temp root (per process) so the deep unit tree stays under MAX_PATH and nothing else
+    ///       can write into it mid-build; only after packing is the unpacked <Name>.hky/ tree copied to
+    ///       keepStagingDir (when set). Staging straight into the shared SCT_BASE_MASTER_DIR let another project's
+    ///       regen (Skyrim Content Tools, same env var) wipe and rewrite units under a running CB pack — 34 units of
+    ///       a deployed Skyrim.hky came out in the retired format. The bundle's name IS the output's filename.
     const std::string bundle    = fs::path(outHky).filename().string();
     const bool        keepStage = !keepStagingDir.empty();
-    const fs::path    stage     = keepStage ? fs::path(keepStagingDir)
-                                            : (fs::temp_directory_path(ec) / ("sct_base_build_" + fs::path(bundle).stem().string()));
+    const fs::path    stage     = fs::temp_directory_path(ec) /
+                                  ("cb_base_build_" + fs::path(bundle).stem().string() + "_" + std::to_string(_getpid()));
     const fs::path    stageHky  = stage / bundle;
     // Baked native ANIMATIONS ride in the bundle itself, reunited with their behaviors/characters/projects,
     // so their ROOT MOTION can feed the adsf; whether they COMPILE/serve is gated per bundle by the manifest
     // compile flag. The kept root is SHARED by every regenerated bundle (and cb_deploy's diff unpack), so
     // only this bundle's own subtree is cleared.
-    fs::remove_all(keepStage ? stageHky : stage, ec);
+    fs::remove_all(stage, ec);
     fs::create_directories(stageHky / "meshes", ec);
 
     // NOTE: the singlefile decomposes are now FLAT per-project (keyed by the cache project-name stem),
@@ -2799,8 +2801,20 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     std::string zerr;
     if (!sct::util::ZipDir(stageHky.string(), outHky, zerr)) { r.error = "pack failed: " + zerr; return r; }
 
-    if (keepStage) say("  kept unpacked tree: " + stageHky.string());
-    else           fs::remove_all(stage, ec);   // keep only the archives
+    if (keepStage) {
+        const fs::path kept = fs::path(keepStagingDir) / bundle;
+        std::error_code ke;
+        fs::remove_all(kept, ke);
+        fs::create_directories(kept.parent_path(), ke);
+        fs::rename(stageHky, kept, ke);   // same volume: instant
+        if (ke) {                         // across volumes (temp on C:, the kept root on D:): copy
+            ke.clear();
+            fs::copy(stageHky, kept, fs::copy_options::recursive | fs::copy_options::overwrite_existing, ke);
+        }
+        if (ke) say("  WARN: could not keep the unpacked tree at " + kept.string() + " (" + ke.message() + ")");
+        else    say("  kept unpacked tree: " + kept.string());
+    }
+    fs::remove_all(stage, ec);   // the private staging root never outlives the build
     say("  built: " + outHky);
     r.ok = true;
     return r;
@@ -3521,7 +3535,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     std::error_code ec;
 
     const std::string bundle  = fs::path(outHky).filename().string();
-    const fs::path    work    = fs::temp_directory_path(ec) / ("sct_regen_" + fs::path(bundle).stem().string());
+    const fs::path    work    = fs::temp_directory_path(ec) / ("cb_regen_" + fs::path(bundle).stem().string() + "_" + std::to_string(_getpid()));
     const fs::path    tempHky = work / bundle;
     fs::remove_all(work, ec);
     fs::create_directories(work, ec);
@@ -3544,7 +3558,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     auto* sreg = CB::core::schema::SharedRegistry();
     if (!sreg) { r.error = "schema registry not armed"; fs::remove_all(work, ec); return r; }
     bconv::BaseUnitCompiler baseCompiler(arc);
-    const fs::path driftKeep = fs::temp_directory_path(ec) / ("sct_regen_drift_" + fs::path(outHky).stem().string());
+    const fs::path driftKeep = fs::temp_directory_path(ec) / ("cb_regen_drift_" + fs::path(outHky).stem().string());
     fs::remove_all(driftKeep, ec);
     for (const auto& u : arc->units()) {
         if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
