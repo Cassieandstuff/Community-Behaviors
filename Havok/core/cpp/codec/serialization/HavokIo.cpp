@@ -76,6 +76,7 @@ void SchemaObject::Init() {
             case FieldKind::CString:     cur += 8; break;                        // pointer to string, default ""
             case FieldKind::Ptr:         cur += 8 * static_cast<std::size_t>(n); break;   // null pointer(s)
             case FieldKind::EmptyPtr:    cur += 8; break;
+            case FieldKind::Text:        break;                                  // metadata text line (MetaText), no bytes
             case FieldKind::StringArray:
             case FieldKind::PtrArray:
             case FieldKind::StructArray:

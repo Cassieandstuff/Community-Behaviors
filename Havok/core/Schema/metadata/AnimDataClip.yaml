@@ -1,5 +1,6 @@
 name:   AnimDataClip
 kind:   metadata
+terminator: blank                      # a blank line ends each record (counted in the frame)
 # One hkbClipGenerator's cache entry, keyed at runtime by `name` (the clip-generator name in the
 # graph). `animIndex` = roster.indexOf(animationName) — a DERIVED value the compiler resolves against
 # the character's animationNames roster (NOT an identity; the engine reads it, then indexes the

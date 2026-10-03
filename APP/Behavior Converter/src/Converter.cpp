@@ -14,6 +14,7 @@
 #include <compile/AnimationCompiler.h>       // CB::core::anim::CompileAnimation — recompile leg (schema-native)
 #include <decompile/AnimationDecompiler.h>   // CB::core::anim::DecompileAnimation — schema-native import leg
 #include <codec/motion/RootMotion.h>
+#include <codec/serialization/MetaText.h>
 
 #include <atomic>
 #include <mutex>
@@ -3128,6 +3129,51 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
             std::to_string(residual[i]->c.motionDeg) + "deg");
     say("  per-unit CSV: " + outCsv);
     return failed == 0 && cleanPass == clean && visFail == 0;
+}
+
+bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log) {
+    auto say = [&](const std::string& m) { if (log) log(m); };
+    const auto* reg = CB::core::schema::SharedRegistry();
+    if (!reg) { say("metatext-roundtrip: schema registry not armed"); return false; }
+    bool all = true;
+    for (const auto& path : files) {
+        std::ifstream in(path, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        const bool setData = ToLower(path).find("animationset") != std::string::npos;
+        const std::string cls = setData ? "AnimationSetDataSingleFile" : "AnimationDataSingleFile";
+        std::string err, out;
+        const auto root = CB::core::codec::io::ReadMetaText(*reg, cls, text, err);
+        if (!root) { say("  FAIL read " + path + " — " + err); all = false; continue; }
+        if (!CB::core::codec::io::WriteMetaText(*root, out, err)) { say("  FAIL write " + path + " — " + err); all = false; continue; }
+        std::size_t diff = 0;
+        while (diff < text.size() && diff < out.size() && text[diff] == out[diff]) ++diff;
+        const bool same = out == text;
+        /// @note Record counts vs the hand-written parsers: the schema reads the same structure, not just the same bytes.
+        std::size_t projects = root->FieldRef("projects").objs.size(), records = 0, handRecords = 0, handProjects = 0;
+        for (const auto& po : root->FieldRef("projects").objs) {
+            auto& p = static_cast<CB::core::codec::io::SchemaObject&>(*po);
+            if (setData) for (const auto& so : p.FieldRef("sets").objs) { (void)so; ++records; }
+            else records += p.FieldRef("clips").objs.size() + p.FieldRef("motions").objs.size();
+        }
+        try {
+            if (setData) {
+                const auto hand = CB::core::animsetdata::ParseSingleFile(text);
+                handProjects = hand.projects.size();
+                for (const auto& p : hand.projects) handRecords += p.sets.size();
+            } else {
+                const auto hand = CB::core::animdata::ParseSingleFile(text);
+                handProjects = hand.projects.size();
+                for (const auto& p : hand.projects) handRecords += p.clips.size() + p.motions.size();
+            }
+        } catch (const std::exception& e) { say("  (hand-written parser failed: " + std::string(e.what()) + ")"); }
+        const bool counts = projects == handProjects && records == handRecords;
+        say(std::string(same && counts ? "  OK   " : "  FAIL ") + path + " — " + cls + ", " + std::to_string(projects) + " project(s), " +
+            std::to_string(records) + " record(s)" + (counts ? "" : " (hand-written: " + std::to_string(handProjects) + " / " +
+            std::to_string(handRecords) + ")") + (same ? ", byte-identical" : ", first difference at byte " + std::to_string(diff) +
+            " (" + std::to_string(text.size()) + " -> " + std::to_string(out.size()) + " bytes)"));
+        all = all && same && counts;
+    }
+    return all;
 }
 
 bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, const LogFn& log) {

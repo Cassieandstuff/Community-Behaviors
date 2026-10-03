@@ -209,6 +209,10 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
 /// @brief End-to-end check of the folded storage: every unit that carried a `motion:` record in `oldTree` (a pre-fold
 ///        regen) must resolve — as the runtime resolves it (ResolveRootMotion) — from the unit of the same path in
 ///        `newTree` to the same engine-sampled motion.
+/// @brief The schema-driven text codec gate: read each file through its `kind: metadata` descriptors (MetaText), write
+///        it back, and require byte-identical output; record counts are cross-checked against the hand-written parsers.
+///        A file whose name contains "animationset" reads as AnimationSetDataSingleFile, else AnimationDataSingleFile.
+bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log);
 bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, const LogFn& log);
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "",
                   bool allKinds = false);

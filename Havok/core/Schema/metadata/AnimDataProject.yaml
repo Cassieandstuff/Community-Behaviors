@@ -1,12 +1,16 @@
 name:   AnimDataProject
 kind:   metadata
-# One project's block = sectionA (always) + sectionB motion (iff hasAnimData). The per-section line
-# counts in the .txt (aLineCount/bLineCount) are DERIVED framing the reader recomputes on emit, not
-# model fields. fieldX is constant 1 in vanilla. animIndex links a clip to its motion (same value).
+# One project's block = frame A (always) + frame B motion (iff hasAnimData). Each frame is prefixed by
+# its line count (aLineCount/bLineCount) — DERIVED framing, recomputed on emit, not model fields; the
+# clip/motion lists carry no count of their own (`count: frame`: they run to the end of the frame).
+# fieldX is constant 1 in vanilla. animIndex links a clip to its motion (same value).
+# framelimit: the engine reads each frame count through a 16-bit truncation (AnimationClipDataSingleton
+# ctor: movzx of atoi) — a longer frame is read short and desyncs the file (a load crash).
+framelimit: 65535
 fields:
-  - { name: name,        type: string }
-  - { name: fieldX,      type: int }                                           # constant 1
-  - { name: assetPaths,  type: stringarray }                                   # K asset paths (may contain spaces)
-  - { name: hasAnimData, type: bool }                                          # gates the clip/motion body
-  - { name: clips,       type: recordarray, ref: AnimDataClip,   when: hasAnimData }
-  - { name: motions,     type: recordarray, ref: AnimDataMotion, when: hasAnimData }
+  - { name: name,        type: string }                                        # hoisted (the file's name list)
+  - { name: fieldX,      type: int,         frame: A }                         # constant 1
+  - { name: assetPaths,  type: stringarray, frame: A }                         # K asset paths (may contain spaces)
+  - { name: hasAnimData, type: bool,        frame: A }                         # gates the clip/motion body
+  - { name: clips,       type: recordarray, ref: AnimDataClip,   when: hasAnimData, frame: A, count: frame }
+  - { name: motions,     type: recordarray, ref: AnimDataMotion, when: hasAnimData, frame: B, count: frame }

@@ -159,6 +159,9 @@ still belongs in the session scratchpad dir.)
 - **Reflective round-trips** (BehaviorConverter verbs) — `--hky-roundtrip [--all-kinds]` (emit→parse→serialize),
   `--patch-roundtrip` (merge(base, derive(base, mod)) == mod), `--multilayer-roundtrip` (every mod's derived
   patch merged in order vs today's merge of all).
+- **Metadata text codec** — `--metatext-roundtrip <file>...`: the adsf/asdsf read through their `kind: metadata`
+  descriptors (`Havok/core/Schema/metadata/`, MetaText) and written back must be byte-identical (vanilla, Pandora output,
+  CB's cache), with record counts matching the hand-written parsers.
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
 

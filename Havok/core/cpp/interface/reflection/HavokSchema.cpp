@@ -157,6 +157,10 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         { const std::string s = childStr(root, "size");      if (!s.empty()) out.size = std::stoi(s); }
         out.unwrap = childStr(root, "unwrap");
         out.vocab  = childStr(root, "vocab");
+        out.metadata        = childStr(root, "kind") == "metadata";
+        out.file            = childStr(root, "file");
+        out.blankTerminated = childStr(root, "terminator") == "blank";
+        { const std::string s = childStr(root, "framelimit"); if (!s.empty()) out.frameLimit = std::stoi(s); }
 
         if (hasKey(root, "runtime"))
             out.runtime = (childStr(root[c4::to_csubstr("runtime")], "source") == "self")
@@ -176,7 +180,11 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                 } else if (hasKey(fn, "name")) {
                     f.name = childStr(fn, "name");
                     const std::string t = childStr(fn, "type");
-                    if      (t == "string")      f.kind = FieldKind::String;
+                    /// @note A metadata record's scalars are text lines carried verbatim; its record lists are object arrays.
+                    if (out.metadata && (t == "string" || t == "int" || t == "float" || t == "uint32" || t == "bool"))
+                        f.kind = FieldKind::Text;
+                    else if (t == "recordarray") { f.kind = FieldKind::PtrArray; f.ref = childStr(fn, "ref"); }
+                    else if (t == "string")      f.kind = FieldKind::String;
                     else if (t == "cstring")     f.kind = FieldKind::CString;
                     else if (t == "quaternion")  f.kind = FieldKind::Quaternion;
                     else if (t == "ptr")         { f.kind = FieldKind::Ptr;         f.ref = childStr(fn, "ref"); }
@@ -213,12 +221,16 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.hkyEmit  = (childStr(fn, "hky")   == "true");   // force-emit an ignored field in .hky
                     f.eventRef  = childStr(fn, "eventref");           // event-index companion key
                     f.varRef    = childStr(fn, "varref");             // variable-index companion key
+                    f.header       = childStr(fn, "header");
+                    f.when         = childStr(fn, "when");
+                    f.frame        = childStr(fn, "frame");
+                    f.frameCounted = childStr(fn, "count") == "frame";
                     f.rosterRef = childStr(fn, "rosterref");          // string is a member of a character roster
                                                                      // (names the target roster field, e.g.
                                                                      // "animationNames"); the cross membrane
                                                                      // COLLECTS these into that roster at resolve.
                     // fixed inline repeat count (std::array<T,N>) for scalar/ptr/vector4 — boolarray set its own above
-                    if (f.kind != FieldKind::BoolArray) {
+                    if (f.kind != FieldKind::BoolArray && !f.frameCounted) {
                         const std::string c = childStr(fn, "count");
                         if (!c.empty()) f.count = std::stoi(c);
                     }
@@ -329,8 +341,16 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                 std::ifstream sf(p, std::ios::binary);
                 std::stringstream sss; sss << sf.rdbuf();
                 semanticsTexts.push_back(sss.str());
+            } else if (sub == "metadata") {
+                /// @note The adsf/asdsf record descriptors (`kind: metadata`) load as classes MetaText reads/writes;
+                ///       they carry no signature or size, so no packfile path ever meets them.
+                std::ifstream mf(p, std::ios::binary);
+                std::stringstream mss; mss << mf.rdbuf();
+                ClassSchema mcs; std::string merr;
+                if (!ParseSchema(mss.str(), mcs, merr)) { err = p.string() + ": " + merr; return false; }
+                if (!mcs.metadata) { err = p.string() + ": a metadata/ descriptor must declare `kind: metadata`"; return false; }
+                m_byName[mcs.name] = std::move(mcs);
             }
-            // debug/ and the direct adsf/asdsf descriptors: skipped by the class scan.
             continue;
         }
         std::ifstream f(p, std::ios::binary);

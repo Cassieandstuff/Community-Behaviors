@@ -33,7 +33,9 @@ enum class FieldKind {
     EmptyArray,   // void-typed SERIALIZE_IGNORED hkArray slot (16 B, no value)
     EmptyPtr,     // void-typed SERIALIZE_IGNORED pointer slot (8 B, no value)
     Pad,          // align the cursor to `count`-byte boundary
-    Skip          // advance the cursor `count` bytes
+    Skip,         // advance the cursor `count` bytes
+    Text          ///< @brief A metadata (Bethesda text file) scalar: one line, carried VERBATIM in FieldValue::str —
+                  ///<        "5.96046e-008" must round-trip as written, so it is never parsed to binary.
 };
 
 enum class Scalar { Int8, Byte, UInt16, Int16, UInt32, Int32, UInt64, Int64, Float, Half, Bool };
@@ -74,6 +76,13 @@ struct Field {
                                          // hkbBlendingTransitionEffect.initializeCharacterPose).
     std::string eventRef;                // scalar is an event index → .hky also emits `<eventRef>: '<name>'`
     std::string varRef;                  // scalar is a variable index → .hky also emits `<varRef>: '<name>'`
+    std::string header;                  ///< @brief metadata `recordarray`: `header: <field>` hoists that field of every
+                                         ///<        record into a leading list (count, N values), the bodies follow.
+    std::string when;                    ///< @brief metadata: present only when the named bool field reads "1".
+    std::string frame;                   ///< @brief metadata: fields sharing a frame are prefixed by ONE line count
+                                         ///<        covering all their lines (the adsf section A / B framing).
+    bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
+                                         ///<        run to the end of the field's frame.
     std::string rosterRef;               // string field is a member of a character ROSTER; the value names
                                          // the target roster field (e.g. "animationNames"). The cross
                                          // membrane COLLECTS every such value across an actor's served
@@ -93,6 +102,12 @@ struct ClassSchema {
     RuntimeSource      runtime   = RuntimeSource::Game;
     std::string        vocab;                    ///< @brief `vocab: graph|character` — the .hky renders this object's name
                                                  ///<        rosters as name-keyed records (see renderVocab), not parallel arrays.
+    bool               metadata  = false;        ///< @brief `kind: metadata` — a Bethesda text-file record (adsf/asdsf), not
+                                                 ///<        a Havok class: no signature/size; read/written by MetaText.
+    std::string        file;                     ///< @brief metadata: the game file this root class describes.
+    bool               blankTerminated = false;  ///< @brief metadata `terminator: blank` — a blank line ends each record.
+    int                frameLimit = 0;           ///< @brief metadata `framelimit: N` — a frame's line count may not exceed N
+                                                 ///<        (the engine reads it through a 16-bit truncation: 65535).
     std::string        unwrap;                   ///< @brief `unwrap: <field>` — a .hky convenience: a pointer/struct to this
                                                  ///<        class renders as that one field's value directly, when every other
                                                  ///<        field would emit nothing (else the full object form, so lossless).

@@ -1,5 +1,6 @@
 name:   AnimDataMotion
 kind:   metadata
+terminator: blank                      # a blank line ends each record (counted in the frame)
 # One clip's root-motion record, keyed to its clip by `animIndex` (same value as the AnimDataClip).
 # The un-derivable half of the cache (clips derive from the graph; motion comes from the animation's
 # hkaDefaultAnimatedReferenceFrame). Key lines are carried verbatim.
