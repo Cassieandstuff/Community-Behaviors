@@ -3,7 +3,7 @@
 # POST_BUILD deploy of Community Behaviors into the MO2 mods folder as a "<MOD_NAME>" mod, so a build
 # immediately refreshes the in-game plugin AND its runtime data. The MO2 mod folder is the Data root, so:
 #
-#   <mod>/SKSE/Plugins/<dll>                 — the plugin        (always)
+#   <mod>/SKSE/Plugins/<dll> + <pdb>         — the plugin + its symbols (always)
 #   <mod>/Community Behaviors/Havok/...      — the class schema  (SCHEMA_DIR; runtime default
 #                                              "Data/Community Behaviors/Havok", loaded recursively)
 #   <mod>/community_behaviors/plugins/*.hky  — the packed bundles (HKY_STAGE)
@@ -20,11 +20,13 @@ function(cb_deploy TARGET MOD_NAME)
     endif()
     set(_mod "$ENV{SKYRIM_MODS_FOLDER}/${MOD_NAME}")
 
-    # 1. The plugin DLL.
+    # 1. The plugin DLL + its PDB. The PDB must travel with the DLL it was built with: a stale one beside a
+    #    new DLL makes crash loggers resolve every frame to the wrong function.
     add_custom_command(TARGET ${TARGET} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_mod}/SKSE/Plugins"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:${TARGET}>" "${_mod}/SKSE/Plugins/"
-        COMMENT "cb_deploy: ${TARGET}.dll -> ${MOD_NAME}/SKSE/Plugins"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_PDB_FILE:${TARGET}>" "${_mod}/SKSE/Plugins/"
+        COMMENT "cb_deploy: ${TARGET}.dll + .pdb -> ${MOD_NAME}/SKSE/Plugins"
         VERBATIM)
 
     # 2. The class schema tree (clear-then-copy → <mod>/Community Behaviors/Havok).
