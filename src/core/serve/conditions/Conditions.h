@@ -170,7 +170,9 @@ namespace CB::core::conditions {
     void SetGlobalEnabled(bool on);   // false → the whole layer short-circuits (zero cost, native behaviour)
     bool GlobalEnabled();
 
-    // Installs the producer actor-stash + the matcher-append hook (MinHook). Idempotent; call at load.
+    /// @brief Subscribe the producer actor-stash + the matcher-append to the setdata hook points
+    ///        (<Hooks/points/SetData.h>). Idempotent.
+    /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
     void InstallConditionHooks();
 
     // Register the built-in primitive/function roster (Builtins.cpp — SEAM for the roster branch).
