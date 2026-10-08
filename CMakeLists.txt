@@ -187,6 +187,23 @@ target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 # ("PCH.h" / "PluginLogger.h") still resolve everywhere.
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/pch")
 
+# Engine symbol registry: src/Hooks/registry/engine.yaml (the single hand-edited source of every engine
+# address CB uses beyond CommonLib) baked into a constexpr header at build time — see
+# cmake/EmbedEngineRegistry.cmake and <Hooks/registry/Registry.h>.
+set(_cb_gen_dir "${CMAKE_BINARY_DIR}/generated")
+set(_cb_engine_reg "${_cb_gen_dir}/Hooks/registry/EngineRegistry.gen.h")
+add_custom_command(
+    OUTPUT  "${_cb_engine_reg}"
+    COMMAND "${CMAKE_COMMAND}"
+            "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/Hooks/registry/engine.yaml"
+            "-DOUT_H=${_cb_engine_reg}"
+            -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
+    DEPENDS "${CMAKE_SOURCE_DIR}/src/Hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
+    COMMENT "Generating the engine symbol registry from src/Hooks/registry/engine.yaml"
+    VERBATIM)
+target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}")
+target_include_directories(CommunityBehaviors PRIVATE "${_cb_gen_dir}")
+
 # havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
 # (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
 # minhook = function-ENTRY hooks (the BSResource stream ctor).

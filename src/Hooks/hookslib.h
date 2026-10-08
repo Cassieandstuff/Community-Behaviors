@@ -19,6 +19,9 @@
 #include <Hooks/factory/VTable.h>           // VTableAddress / VTablePtr / CopyVTable
 #include <Hooks/factory/GeometryFactory.h>  // runtime BSTriShape creation (mesh injection)
 #include <Hooks/factory/SkinFactory.h>      // NiSkinData / NiSkinPartition factories (skinning)
+#include <Hooks/registry/Registry.h>        // engine symbol registry (engine.yaml → per-runtime Address Library pins)
+#include <Hooks/points/HookPoint.h>         // the shared hook interface: core-owned seams, subscriber chains
+#include <Hooks/points/Resource.h>          // resource-loading hook points (ResolveTypedHkx)
 
 // Add new binding headers here as findings are centralized:
 //   <Hooks/factory/AnimGraph.h>   — animationdata / setdata loader sites, clip vtables

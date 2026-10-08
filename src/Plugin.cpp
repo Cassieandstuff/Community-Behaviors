@@ -12,6 +12,9 @@
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
 #include "core/resolve/Resolver.h"
 
+#include <Hooks/points/HookPoint.h>
+#include <Hooks/registry/Registry.h>
+
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
 #include <havok-schema/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
@@ -501,6 +504,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     PluginLogger::Init("CommunityBehaviors", "Community Behaviors");
     CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
     LOG_INFO("Community Behaviors v0.3.1.0 loading — runtime behavior compiler.");
+    CB::core::hooks::engine::LogAvailability();
 
     // Behavior + character + project DELIVERY is BYTE-SUBSTITUTION (ByteServe): MinHook the
     // BSResourceAssetLoader::Func3 typed-hkx resolver (FUN_140ba88b0) and swap each owned vanilla
@@ -529,6 +533,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         CB::core::conditions::RegisterBuiltins();
         CB::core::conditions::InstallConditionHooks();
     }
+
+    // Every hook-point subscriber is registered by now (serve::Install subscribed ResolveTypedHkx above):
+    // install the subscribed seams once and close subscription.
+    CB::core::hooks::InstallAll();
 
     // Animdata cache form: COLLATED is the only supported path — it serves
     // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion from
