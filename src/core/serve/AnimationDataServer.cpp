@@ -1,5 +1,5 @@
 #include "PCH.h"
-#include <Hooks/hookslib.h>   // repo RE hook toolkit — InstallCallDetour
+#include <Hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
 
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
@@ -186,18 +186,11 @@ namespace CB::core::serve {
     // ── Deterministic redirect: hook the loader's file-open call site ─────────────
     namespace {
 
-        // FUN_140536ec0's single-file open: open(RCX = path BSFixedString value, RDX = &out,
-        // R8 = 0, R9 = 0) -> int (0 ok). Same open fn (0x140d0a100) as set-data.
-        using OpenAnimDataFn = std::int32_t (*)(std::uintptr_t a_path, std::uintptr_t a_out,
-                                                std::uint64_t a_r8, std::uint64_t a_r9);
-
-        REL::Relocation<OpenAnimDataFn> _openAnimData;
         std::atomic<bool>               s_redirectActive{ false };
         RE::BSFixedString               s_cachePath;
-        bool                            s_hookInstalled = false;
 
-        std::int32_t Hook_OpenAnimData(std::uintptr_t a_path, std::uintptr_t a_out,
-                                       std::uint64_t a_r8, std::uint64_t a_r9)
+        std::int32_t OnOpenAnimData(CB::core::hooks::AdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+                                    std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the collated animdata file drives the compile gate. The gate now KICKS a
             // background arm and returns at once (it no longer parks this thread on the whole Init +
@@ -215,42 +208,22 @@ namespace CB::core::serve {
                     bool                     expected = false;
                     if (logged.compare_exchange_strong(expected, true))
                         LOG_INFO("AnimData: intercepted the engine's animationdata open — serving BR's merged cache.");
-                    return _openAnimData(ours, a_out, a_r8, a_r9);
+                    return next(ours, a_out, a_r8, a_r9);
                 }
             }
-            return _openAnimData(a_path, a_out, a_r8, a_r9);
+            return next(a_path, a_out, a_r8, a_r9);
         }
 
     }  // namespace
 
-    bool InstallAnimDataHook()
+    void InstallAnimDataHook()
     {
-        const bool ae = REL::Module::get().version()[1] >= 6;  // 1.6.x = AE
-        if (!ae) {
-            LOG_WARN("AnimData: deterministic redirect hook is AE-only — SE will use the global-write fallback.");
-            return false;
-        }
-
-        // RE (AE, decrypted dump): FUN_140536ec0 opens the single file via a 5-byte
-        // `CALL 0x140d0a100` at 0x140536f8e (RVA 0x536F8E), right after `MOV RCX,[0x14315c918]`
-        // (the single-file path global). It is the FIRST of the loader's three opens (the other
-        // two load secondary per-project listing paths) — detour only this one.
-        constexpr std::uintptr_t kOpenCallSiteRVA = 0x536F8E;
-        const std::uintptr_t     site = REL::Module::get().base() + kOpenCallSiteRVA;
-
-        // InstallCallDetour guards the 0xE8 (CALL) opcode; 0 => not a CALL (different
-        // game version) and the caller falls back to the safe global-write path.
-        const std::uintptr_t orig = CB::core::hooks::InstallCallDetour<5>(
-            site, Hook_OpenAnimData, "AnimData open redirect (AE)");
-        if (!orig) return false;
-        _openAnimData    = orig;
-        s_hookInstalled  = true;
-        return true;
+        CB::core::hooks::AdsfOpen::Subscribe(&OnOpenAnimData, CB::core::hooks::Priority::Normal, "AnimDataServe");
     }
 
     void ArmAnimDataRedirect(const ServeResult& result)
     {
-        if (!s_hookInstalled) {
+        if (!CB::core::hooks::AdsfOpen::Installed()) {
             RedirectAnimDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }
@@ -266,25 +239,18 @@ namespace CB::core::serve {
 
     void RedirectAnimDataGlobal(const ServeResult& result)
     {
-        // RE (AE 1.6, decrypted dump): the animationdata loader FUN_140536ec0 does
-        // `MOV RCX,[0x14315c918]; CALL <open>`, where 0x14315c918 is a global BSFixedString set
-        // by static-init FUN_140090050 to "Meshes/AnimationDataSingleFile.txt". RVA = 0x315C918.
-        constexpr std::uintptr_t     kSingleFileGlobalRVA = 0x315C918;
         static constexpr const char* kRedirectPath = "community_behaviors_cache/animationdatasinglefile.txt";
 
-        const bool ae = REL::Module::get().version()[1] >= 6;
-        if (!ae) {
-            LOG_WARN("AnimData: global redirect is AE-only for now — SE offset not mapped; the merged "
-                     "cache was written but the game will not read it on SE.");
+        namespace engine = CB::core::hooks::engine;
+        if (!engine::Available(engine::Adsf_SingleFilePath)) {
+            LOG_WARN("AnimData: the single-file path global has no verified pin on this runtime — the merged "
+                     "cache was written but the game will not read it.");
             return;
         }
-
-        const std::uintptr_t base   = REL::Module::get().base();
-        auto&                global = *reinterpret_cast<RE::BSFixedString*>(base + kSingleFileGlobalRVA);
+        auto& global = *reinterpret_cast<RE::BSFixedString*>(engine::Resolve(engine::Adsf_SingleFilePath));
 
         const char* cur = global.c_str();
-        LOG_INFO("AnimData: engine single-file path global (rva 0x{:X}) currently = \"{}\".",
-                 kSingleFileGlobalRVA, (cur && *cur) ? cur : "(empty)");
+        LOG_INFO("AnimData: engine single-file path global currently = \"{}\".", (cur && *cur) ? cur : "(empty)");
 
         if (!result.ok) {
             LOG_INFO("AnimData: no merged cache this launch — leaving the engine path global unchanged.");

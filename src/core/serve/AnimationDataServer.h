@@ -39,20 +39,19 @@ namespace CB::core::serve {
     ServeResult ServeAnimData(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
                               const AdsfSource& source);
 
-    // Install the DETERMINISTIC redirect: a write_call<5> detour on the animationdata loader's
-    // file-open call site (FUN_140536ec0 does `MOV RCX,[0x14315c918]; CALL 0x140d0a100` at
-    // RVA 0x536F8E — the FIRST of its three opens, the single-file one). Once armed, the detour
-    // swaps the path to BR's cache. Call once at plugin load, AFTER SKSE::AllocTrampoline.
-    // Returns false (installs nothing) if the site isn't the expected 5-byte CALL. AE-only.
-    bool InstallAnimDataHook();
+    /// @brief Subscribe the DETERMINISTIC redirect to the AdsfOpen hook point (<Hooks/points/Resource.h>): once
+    ///        armed, the loader's single-file open is handed BR's cache path, whenever the loader runs.
+    /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
+    void InstallAnimDataHook();
 
-    // Arm the redirect with BR's merged cache (call after ServeAnimData). Activates the detour
-    // if installed; else falls back to RedirectAnimDataGlobal. No-op when result.ok is false.
+    /// @brief Arm the redirect with BR's merged cache (call after ServeAnimData). Activates the subscriber if
+    ///        AdsfOpen installed; otherwise falls back to RedirectAnimDataGlobal. No-op when result.ok is false.
     void ArmAnimDataRedirect(const ServeResult& result);
 
-    // Fallback delivery: overwrite the engine's single-file path global (a BSFixedString at
-    // RVA 0x315C918) with BR's cache path. Used when the deterministic hook can't install.
-    // Logs the global's CURRENT value first (RE confirmation) and only rewrites on result.ok.
+    /// @brief Fallback delivery: overwrite the engine's single-file path global (registry
+    ///        Adsf_SingleFilePath) with BR's cache path. Logs its CURRENT value first and only rewrites on
+    ///        result.ok.
+    /// @warning Races the loader if it has already run — the AdsfOpen redirect has no such window.
     void RedirectAnimDataGlobal(const ServeResult& result);
 
 }  // namespace CB::core::serve

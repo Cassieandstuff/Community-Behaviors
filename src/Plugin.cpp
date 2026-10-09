@@ -534,9 +534,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         CB::core::conditions::InstallConditionHooks();
     }
 
-    // Every hook-point subscriber is registered by now (serve::Install → ResolveTypedHkx; the condition
-    // layer → the setdata producer + matcher, only when enabled): install the subscribed seams once and
-    // close subscription.
+    // Every hook-point subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
+    // AsdsfOpen / AdsfOpen; serve::Install → ResolveTypedHkx; the condition layer → the setdata producer +
+    // matcher, only when enabled): install the subscribed seams once and close subscription.
     CB::core::hooks::InstallAll();
 
     // Animdata cache form: COLLATED is the only supported path — it serves

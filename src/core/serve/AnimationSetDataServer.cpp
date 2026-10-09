@@ -1,5 +1,5 @@
 #include "PCH.h"
-#include <Hooks/hookslib.h>   // repo RE hook toolkit — InstallCallDetour
+#include <Hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
 
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/discover/BundleReader.h"
@@ -544,20 +544,11 @@ namespace CB::core::serve {
 
     namespace {
 
-        // The engine's set-data file open: FUN_14053b000 calls it as
-        //   open(RCX = path BSFixedString value, RDX = &out, R8 = 0, R9 = 0) -> int (0 ok)
-        // The path is the single pointer a BSFixedString stores (the game loads it via
-        // MOV RCX,[global]); passing our own BSFixedString's stored pointer is ABI-identical.
-        using OpenSetDataFn = std::int32_t (*)(std::uintptr_t a_path, std::uintptr_t a_out,
-                                               std::uint64_t a_r8, std::uint64_t a_r9);
-
-        REL::Relocation<OpenSetDataFn> _openSetData;                 // original (via write_call)
         std::atomic<bool>              s_setDataRedirectActive{ false };
         RE::BSFixedString              s_setDataCachePath;           // interned redirect path
-        bool                           s_setDataHookInstalled = false;
 
-        std::int32_t Hook_OpenSetData(std::uintptr_t a_path, std::uintptr_t a_out,
-                                      std::uint64_t a_r8, std::uint64_t a_r9)
+        std::int32_t OnOpenSetData(CB::core::hooks::AsdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+                                   std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the set-data file drives the compile gate. The gate now KICKS a background
             // arm and returns at once (no longer parks this thread on the whole Init + compile). We block
@@ -575,36 +566,17 @@ namespace CB::core::serve {
                     bool expected = false;
                     if (logged.compare_exchange_strong(expected, true))
                         LOG_INFO("SetData: intercepted the engine's set-data open — serving BR's merged cache.");
-                    return _openSetData(ours, a_out, a_r8, a_r9);
+                    return next(ours, a_out, a_r8, a_r9);
                 }
             }
-            return _openSetData(a_path, a_out, a_r8, a_r9);  // pass through untouched
+            return next(a_path, a_out, a_r8, a_r9);  // pass through untouched
         }
 
     }  // namespace
 
-    bool InstallSetDataHook()
+    void InstallSetDataHook()
     {
-        const bool ae = REL::Module::get().version()[1] >= 6;  // 1.6.x = AE
-        if (!ae) {
-            LOG_WARN("SetData: deterministic redirect hook is AE-only — SE will use the global-write fallback.");
-            return false;
-        }
-
-        // RE (AE, decrypted dump): FUN_14053b000 opens the set-data file via a 5-byte
-        // `CALL 0x140d0a100` at 0x14053b084 (RVA 0x53B084), right after loading the
-        // single-file path global. Detour that call so we can swap the path.
-        constexpr std::uintptr_t kOpenCallSiteRVA = 0x53B084;
-        const std::uintptr_t     site = REL::Module::get().base() + kOpenCallSiteRVA;
-
-        // InstallCallDetour guards the 0xE8 (CALL) opcode; 0 => not a CALL (different
-        // game version) and the caller falls back to the safe data-only global write.
-        const std::uintptr_t orig = CB::core::hooks::InstallCallDetour<5>(
-            site, Hook_OpenSetData, "SetData open redirect (AE)");
-        if (!orig) return false;
-        _openSetData = orig;
-        s_setDataHookInstalled = true;
-        return true;
+        CB::core::hooks::AsdsfOpen::Subscribe(&OnOpenSetData, CB::core::hooks::Priority::Normal, "SetDataServe");
     }
 
     void ArmSetDataRedirect(const SetDataServeResult& result)
@@ -616,7 +588,7 @@ namespace CB::core::serve {
         // crash (OAR Unk3 -> char-setup hkArray resize) — bundle completeness is the author's
         // contract. Safe when idle: with no .hky set-data present, ServeSetData produces no
         // cache and this leaves the redirect inactive.
-        if (!s_setDataHookInstalled) {
+        if (!CB::core::hooks::AsdsfOpen::Installed()) {
             RedirectSetDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }
@@ -633,32 +605,22 @@ namespace CB::core::serve {
 
     void RedirectSetDataGlobal(const SetDataServeResult& result)
     {
-        // RE (AE 1.6, decrypted dump): the AnimationClipDataSingleton set-data loader
-        // FUN_14053b000 does `MOV RCX,[0x14315c930]; CALL <open>`, where 0x14315c930 is a
-        // global BSFixedString set by a static initializer to "Meshes/AnimationSetData
-        // SingleFile.txt". RVA = 0x315C930 (VA - 0x140000000). Confirmed via CommonLibSSE
-        // (AnimationFileManagerSingleton::AnimationFileInfo documents the same crc scheme).
-        constexpr std::uintptr_t kSingleFileGlobalRVA = 0x315C930;
         // Redirect target: BR's merged cache, Data-relative with forward slashes (the form
         // BSResource loose-file resolution expects; the original path is likewise Data-rel).
         static constexpr const char* kRedirectPath = "community_behaviors_cache/animationsetdatasinglefile.txt";
 
-        const bool ae = REL::Module::get().version()[1] >= 6;  // 1.6.x = AE
-        if (!ae) {
-            LOG_WARN("SetData: set-data global redirect is AE-only for now — SE offset not mapped; "
-                     "the merged cache was written but the game will not read it on SE.");
+        namespace engine = CB::core::hooks::engine;
+        if (!engine::Available(engine::Asdsf_SingleFilePath)) {
+            LOG_WARN("SetData: the single-file path global has no verified pin on this runtime — the merged "
+                     "cache was written but the game will not read it.");
             return;
         }
+        auto& global = *reinterpret_cast<RE::BSFixedString*>(engine::Resolve(engine::Asdsf_SingleFilePath));
 
-        const std::uintptr_t base = REL::Module::get().base();
-        auto& global = *reinterpret_cast<RE::BSFixedString*>(base + kSingleFileGlobalRVA);
-
-        // Log the CURRENT value first — in-game confirmation that the RVA/RE is correct
-        // (it should read "Meshes/AnimationSetDataSingleFile.txt") and that the global is
-        // populated by the time we run (static init has executed).
+        // Log the CURRENT value first — in-game confirmation that the pin is correct (it should read
+        // "Meshes/AnimationSetDataSingleFile.txt") and that static init has populated it.
         const char* cur = global.c_str();
-        LOG_INFO("SetData: engine single-file path global (rva 0x{:X}) currently = \"{}\".",
-                 kSingleFileGlobalRVA, (cur && *cur) ? cur : "(empty)");
+        LOG_INFO("SetData: engine single-file path global currently = \"{}\".", (cur && *cur) ? cur : "(empty)");
 
         if (!result.ok) {
             LOG_INFO("SetData: no merged cache this launch — leaving the engine path global unchanged.");
