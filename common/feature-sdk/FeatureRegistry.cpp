@@ -95,7 +95,7 @@ namespace CB::feature {
 
     std::vector<std::pair<std::string, FeatureResult>>
     FeatureRegistry::Run(const std::vector<std::string>& orderedIds,
-                         CB::core::decompile::GraphEdit& graph,
+                         CB::engine::decompile::GraphEdit& graph,
                          const FeatureContext& ctx) const
     {
         std::vector<std::pair<std::string, FeatureResult>> out;

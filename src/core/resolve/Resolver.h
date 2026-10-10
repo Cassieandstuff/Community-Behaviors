@@ -23,8 +23,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace CB::core::common { struct IUnitSource; struct CharacterData; }
-namespace CB::core::codec     { class HkyArchive; }
+namespace CB::engine::common { struct IUnitSource; struct CharacterData; }
+namespace CB::engine::codec     { class HkyArchive; }
 
 namespace CB {
 
@@ -222,11 +222,11 @@ namespace CB {
         /// @brief The clip generators of `layers` (base first) merged the way Resolve merges them, bone names bound
         ///        through the rig of the characters that run `key`. Empty when the merge fails (logged).
         /// @pre   Init() done (the rig tables are built there).
-        std::vector<CB::core::animdata::DeriveClipInput> ClipInputsOf(
-            const std::string& key, const std::vector<CB::core::common::LayerSource>& layers) const;
+        std::vector<CB::engine::animdata::DeriveClipInput> ClipInputsOf(
+            const std::string& key, const std::vector<CB::engine::common::LayerSource>& layers) const;
 
         /// @brief The clip generators of the served graph `key`, merged across EVERY layer of the load order.
-        std::vector<CB::core::animdata::DeriveClipInput> MergedClipInputs(const std::string& key) const;
+        std::vector<CB::engine::animdata::DeriveClipInput> MergedClipInputs(const std::string& key) const;
         /// @brief The character's SERVED roster: its merged animationNames with the author roster drops folded in —
         ///        exactly the positions the served character file carries (ResolveCharacter applies the same fold).
         std::vector<std::string> ServedRoster(const std::string& characterKey) const;
@@ -286,7 +286,7 @@ namespace CB {
     private:
         /// @brief The bone table a graph / animation binds, found through the characters that run it.
         struct RigBones {
-            const CB::core::common::BoneNameTable* table = nullptr;   ///< null = no character binds this key
+            const CB::engine::common::BoneNameTable* table = nullptr;   ///< null = no character binds this key
             std::string                            rig;               ///< the rig unit `table` came from
             bool ambiguous = false;   ///< the binding characters' rigs disagree on bone order
         };
@@ -305,7 +305,7 @@ namespace CB {
 
         /// @brief A merged CHARACTER's compile stage: fold the author roster additions into animationNames, capture
         ///        the roster / actor path for the animdata derive, and cache-qualify its behavior reference.
-        void ResolveCharacter(const std::string& key, CB::core::decompile::GraphEdit& edit);
+        void ResolveCharacter(const std::string& key, CB::engine::decompile::GraphEdit& edit);
         /// @brief Fold the author roster drops (animationnames\<stem>.txt) onto `names` — an EXACT-case union.
         /// @return how many were added.
         std::size_t FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const;
@@ -325,7 +325,7 @@ namespace CB {
         struct GraphSources {
             // Each layer carries its load-order identity ({stem, rank, ancestors}) so the merge can key
             // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
-            std::vector<CB::core::common::LayerSource> layers;
+            std::vector<CB::engine::common::LayerSource> layers;
             bool isCharacter = false;
         };
         // normalized serve path -> its merge layers.
@@ -333,7 +333,7 @@ namespace CB {
         // Packed .hky archives held for the process lifetime — each vends ZipUnitSources
         // (into m_sources) that reference back into it, so it must outlive them. Empty
         // when every bundle is an unpacked directory. Immutable after Init().
-        std::vector<std::shared_ptr<CB::core::codec::HkyArchive>> m_archives;
+        std::vector<std::shared_ptr<CB::engine::codec::HkyArchive>> m_archives;
         // actor root ("actors/character") -> animation paths relative to the actor dir
         // ("animations\community_behaviors\...\x.hkx"), registered via the opt-in
         // animations\community_behaviors\ subfolder. Immutable after Init().
@@ -350,10 +350,10 @@ namespace CB {
         /// @brief Bone-name tables keyed by RIG unit (normalized serve path, e.g.
         ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
         ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
-        std::unordered_map<std::string, CB::core::common::BoneNameTable> m_skeletons;
+        std::unordered_map<std::string, CB::engine::common::BoneNameTable> m_skeletons;
         /// @brief Which rig each graph / animation binds (project -> character rig/behavior). Consulted by
         ///        BonesFor. Immutable after Init().
-        CB::core::skeleton::RigIndex m_rigIndex;
+        CB::engine::skeleton::RigIndex m_rigIndex;
         /// @brief Compiled skeleton.hkx bytes BR serves, keyed by the unit's normalized serve path. A skeleton
         ///        unit is path-local in every bundle; one is served only when a bundle OTHER than Skyrim.hky
         ///        wins its path (vanilla-won units stay with the engine). Owns() serves these like a compiled
@@ -388,7 +388,7 @@ namespace CB {
         /// @note  Its characterFilenames keep the ORIGINAL case ("Characters\DefaultMale.hkx") — the engine binds the
         ///        character to its setdata / animdata by that string case-sensitively (a lowercased ref A-poses
         ///        vanilla-only actors) — and it never needs the BSA-packed, unreadable-as-loose vanilla project.
-        std::unordered_map<std::string, std::shared_ptr<const CB::core::common::IUnitSource>> m_projectUnits;
+        std::unordered_map<std::string, std::shared_ptr<const CB::engine::common::IUnitSource>> m_projectUnits;
         std::atomic<bool>                                                  m_redirectReady{ false };
         // Init-complete signal (see Ready/WaitReady). Set with release at the very end of Init(); serve
         // hooks acquire it before touching any Init-built state. Init runs off the main thread.

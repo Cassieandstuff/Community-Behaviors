@@ -22,7 +22,7 @@
 
 // Forward-declared so this header stays light + pure: a feature body that emits animdata includes
 // the full <havok/anim/AnimDataDeriver.h>; the interface only needs the incomplete type by const-ref.
-namespace CB::core::animdata { struct DeriveClipInput; }
+namespace CB::engine::animdata { struct DeriveClipInput; }
 
 namespace CB::feature {
 
@@ -54,7 +54,7 @@ namespace CB::feature {
     // animIndex resolution against the roster, high-band alloc, collated emit) once every graph of a
     // project has contributed.
     struct IAnimDataSink {
-        virtual void EmitClip(std::string_view graphKey, const CB::core::animdata::DeriveClipInput&) = 0;
+        virtual void EmitClip(std::string_view graphKey, const CB::engine::animdata::DeriveClipInput&) = 0;
         virtual ~IAnimDataSink() = default;
     };
 
@@ -113,7 +113,7 @@ namespace CB::feature {
         virtual bool AppliesTo(const FeatureContext&) const = 0;
 
         // Edit the merged graph. Pure: touches only `graph`, core types, and ctx.
-        virtual FeatureResult Apply(CB::core::decompile::GraphEdit& graph, const FeatureContext&) = 0;
+        virtual FeatureResult Apply(CB::engine::decompile::GraphEdit& graph, const FeatureContext&) = 0;
 
         // Relative run-order constraints (RETURNED BY VALUE-STABLE SPAN over storage the feature
         // owns — return a static array or empty). The host topo-sorts the enabled set from these, so a

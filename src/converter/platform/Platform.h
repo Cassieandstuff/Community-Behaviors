@@ -1,22 +1,10 @@
 #pragma once
-// ── sct-utilities — the public API ────────────────────────────────────────────
-// Shared desktop-app plumbing for the SCT tools (Scene Editor, Behavior
-// Converter, and whatever comes next): native folder/file dialogs, Windows
-// known-folder lookups, and a directory<->zip writer. Consolidates the copies
-// each app was re-cutting (both apps shipped a byte-identical FileDialogs; the
-// converter carried its own Zip + Downloads lookup).
-//
-// SINGLE PUBLIC HEADER (CommonLib `Skyrim.h` model): this file is the entire
-// cross-project surface — consumers write `#include "platform/SctUtilities.h"`
-// and nothing else. Nothing besides this file may ever be added to
-// include/internal/sct-utilities/. Impl details (miniz) stay private to the .cpp.
-//
-// Two namespaces by design: dialog UI lives in `sct::ui`, the non-UI helpers in
-// `sct::util`.
-// ------------------------------------------------------------------------------
+/// @brief The converter's desktop plumbing: native folder/file dialogs, Windows known-folder lookups, and a
+///        directory<->zip writer.
+/// @note The whole surface of platform/ — the .cpp files keep their impl details (miniz, COM) private.
 #include <string>
 
-namespace sct::ui {
+namespace CB::converter::platform {
 
 // Shows a native folder-selection dialog (Vista+ IFileDialog with
 // FOS_PICKFOLDERS — resizable, path-typeable, real folder structure; the legacy
@@ -33,9 +21,9 @@ bool PickFolder(const char* title, const char* initialDir, std::string& outPath)
 bool PickFile(const char* title, const char* initialDir, const char* filterDesc,
               const char* filterExt, std::string& outPath);
 
-}  // namespace sct::ui
+}  // namespace CB::converter::platform
 
-namespace sct::util {
+namespace CB::converter::platform {
 
 // The current user's Downloads folder (FOLDERID_Downloads), UTF-8. Empty on failure.
 // A convenient default target for "package to" flows; the caller may let the user
@@ -59,4 +47,4 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
 // entry stays under the OS path limit — unpack to a SHORT working dir for editing.
 bool UnzipDir(const std::string& zipPath, const std::string& destDir, std::string& err);
 
-}  // namespace sct::util
+}  // namespace CB::converter::platform

@@ -2,7 +2,7 @@
 
 #include <cstdlib>
 
-namespace CB::core::linker {
+namespace CB::engine::linker {
 
 const Linker* BindingContext::space(std::string_view name) const {
     if (name == "roster")         return &roster;
@@ -75,4 +75,4 @@ std::vector<std::optional<Value>> BoneMembrane::encodeIndexList(const std::vecto
     return out;
 }
 
-}  // namespace CB::core::linker
+}  // namespace CB::engine::linker

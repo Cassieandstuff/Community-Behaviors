@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::compile::trace {
+namespace CB::engine::compile::trace {
 
 namespace {
     // A loaded probe definition (schema/metadata/debug/*.yaml). Empty criterion = "any".
@@ -170,4 +170,4 @@ void Rec(std::string_view phase, std::string_view unit, std::string_view cls,
     g_sink(line);
 }
 
-} // namespace CB::core::compile::trace
+} // namespace CB::engine::compile::trace

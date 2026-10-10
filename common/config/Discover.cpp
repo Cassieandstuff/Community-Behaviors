@@ -1,4 +1,4 @@
-#include <config/SctConfig.h>
+#include <config/Config.h>
 
 #include <algorithm>
 #include <cctype>
@@ -7,7 +7,7 @@
 
 namespace fs = std::filesystem;
 
-namespace CB::core::config {
+namespace CB::config {
 namespace {
 
 std::string ToLower(std::string s) {
@@ -89,4 +89,4 @@ std::optional<std::string> ReadText(const fs::path& path) {
     return s;
 }
 
-}  // namespace CB::core::config
+}  // namespace CB::config

@@ -71,7 +71,7 @@ namespace CB::core::debug {
         if (!on) return;
 
         std::string warn;
-        const auto entries = CB::core::compile::trace::LoadRuntimeWatch(
+        const auto entries = CB::engine::compile::trace::LoadRuntimeWatch(
             "Data/Community Behaviors/schema/metadata/debug", &warn);
         if (!warn.empty()) LOG_WARN("Community Behaviors: runtime-trace watch load: {}", warn);
         if (entries.empty()) {

@@ -18,8 +18,8 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::skeleton {
-using namespace CB::core::common;
+namespace CB::engine::skeleton {
+using namespace CB::engine::common;
 
 std::string EmitSkeletonYaml(const SkeletonData& data);
 
@@ -65,4 +65,4 @@ bool LoadSkeletonLayerFromTexts(const std::vector<std::pair<std::string, std::st
 bool MergeBoneAdditions(SkeletonData& base, const std::vector<SkeletonBoneAdd>& adds,
                         std::string* err = nullptr);
 
-} // namespace CB::core::skeleton
+} // namespace CB::engine::skeleton

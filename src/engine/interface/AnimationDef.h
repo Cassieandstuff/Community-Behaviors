@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::anim {
+namespace CB::engine::anim {
 
 struct Vec3Keyframe {
     float time     = 0.f;
@@ -86,7 +86,7 @@ struct AnimationDef {
     // Carries duration + translation/rotation samples VERBATIM (byte-exact with the animationdata
     // .txt, same schema as EmitMotionSidecar/ParseMotionSidecar); `animIndex`/`animation` are NOT
     // authored here — the compiler binds them per-project at derive time from this animation's clip.
-    std::optional<CB::core::animdata::MotionRecord> motion;
+    std::optional<CB::engine::animdata::MotionRecord> motion;
 
     /// @brief `motion: none` — the root bone's travel is VISUAL only (Bethesda left it on the root and gave the clip no
     ///        actor motion: traps, chair exits). Never extracted. Absent `motion` (and not this) = the root carries the
@@ -94,4 +94,4 @@ struct AnimationDef {
     bool rootMotionVisual = false;
 };
 
-} // namespace CB::core::anim
+} // namespace CB::engine::anim

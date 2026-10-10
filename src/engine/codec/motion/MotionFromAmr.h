@@ -11,9 +11,9 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::animdata {
+namespace CB::engine::animdata {
 
 std::optional<MotionRecord> MotionFromAmrAnnotations(
     const std::vector<std::pair<float, std::string>>& annotations, const std::string& duration);
 
-}  // namespace CB::core::animdata
+}  // namespace CB::engine::animdata

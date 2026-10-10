@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace CB::core::codec::io {
+namespace CB::engine::codec::io {
 namespace {
 
 using schema::ClassSchema;
@@ -214,4 +214,4 @@ bool WriteMetaText(const SchemaObject& root, std::string& out, std::string& err)
     }
 }
 
-} // namespace CB::core::codec::io
+} // namespace CB::engine::codec::io

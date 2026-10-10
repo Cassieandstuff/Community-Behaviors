@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-namespace CB::core::codec::io {
+namespace CB::engine::codec::io {
 
 /// @brief Read a Bethesda line-oriented text file (AnimationDataSingleFile.txt / AnimationSetDataSingleFile.txt)
 ///        into a SchemaObject of the metadata class `rootClass`, driven entirely by its `kind: metadata` descriptors.
@@ -23,4 +23,4 @@ std::shared_ptr<SchemaObject> ReadMetaText(const schema::SchemaRegistry& reg, co
 /// @return false with `err` set when a frame exceeds its class's `framelimit` (the engine would read it short).
 bool WriteMetaText(const SchemaObject& root, std::string& out, std::string& err);
 
-} // namespace CB::core::codec::io
+} // namespace CB::engine::codec::io

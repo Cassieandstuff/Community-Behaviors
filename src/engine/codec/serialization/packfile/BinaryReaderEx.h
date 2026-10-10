@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::codec {
-using namespace CB::core::common;
+namespace CB::engine::codec {
+using namespace CB::engine::common;
 
 // Faithful C++ port of HKX2E's BinaryReaderEx.cs. Owns a copy of the input
 // bytes and reads them through a movable cursor with a step stack (for
@@ -92,4 +92,4 @@ private:
     std::vector<std::size_t>  m_steps;
 };
 
-} // namespace CB::core::codec
+} // namespace CB::engine::codec

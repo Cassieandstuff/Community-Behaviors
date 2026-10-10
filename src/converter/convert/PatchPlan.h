@@ -20,9 +20,9 @@
 #include <unordered_set>
 #include <vector>
 
-namespace CB::core::codec { class HkyArchive; }
+namespace CB::engine::codec { class HkyArchive; }
 
-namespace bconv {
+namespace CB::converter {
 
 // Base-derived resolution maps (ground truth = Skyrim.hky's real unit tree). All keys lowercased,
 // matching HkyArchive::Unit::prefix (already lower/'/'-normalized).
@@ -39,7 +39,7 @@ struct BaseMaps {
     std::unordered_set<std::string>                           vanillaGraphStems;  // behavior stems present in base (derive-vs-own-new)
 };
 
-BaseMaps BuildBaseMaps(const CB::core::codec::HkyArchive& baseArc);
+BaseMaps BuildBaseMaps(const CB::engine::codec::HkyArchive& baseArc);
 
 // "meshes/actors/horse/behaviors/horsebehavior.hkx" -> "actors/horse" (lowercased input expected).
 // Handles the space-folder variants and _1stperson. Used to route a loose/precompiled graph's roster
@@ -96,4 +96,4 @@ PatchPlan BuildPlan(const PlanInputs& in);
 // Human-readable dump for inspection (D:\cb-diffs\patchplan.txt). Behavior-neutral.
 void DumpPlan(const PatchPlan& plan, const std::string& outFile);
 
-}  // namespace bconv
+}  // namespace CB::converter

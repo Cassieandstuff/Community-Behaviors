@@ -13,18 +13,15 @@ Converter** that ingests existing Nemesis/Pandora load orders into Community Beh
 ## Layout
 
 ```
-src/                        CB source (flat: each Foo.cpp beside its Foo.h)
-  *.cpp                      the runtime plugin (Plugin.cpp entry, Resolver, ByteServe, …)
-  features/<Owner>/          self-registered compile-time graph features
-  havok-framing/             packfile framing (byte primitives, (de)serializer)   ┐
-  havok-schema/              the class-schema loader (Havok/ is the source of truth)│ the data-driven
-  havok-io/                  generic schema-driven .hkx read/write (byte-exact)     │ Havok stack
-  havok-model/               name-keyed .hky model + load-order merge + emit        │
-  havok-pipeline/            the graph-feature SDK (IGraphFeature/FeatureRegistry)  ┘
-  sct-config/ sct-utilities/ config scanner / desktop plumbing
-schema/                     the Havok class schema, described once as data (+ the converter's templates/)
-APP/Behavior Converter/     the offline GLFW+ImGui converter (BehaviorConverter.exe)
-cmake/                      helpers (CommonLibSSE, Deploy, SctSources, ports, glad)
+src/core/          the runtime SKSE plugin — discover → resolve → serve, plus bootstrap, debug, hooks
+src/engine/        the shared reflection engine (schema registry, codecs, compile/decompile, merge) —
+                   CommonLib-free, linked by the plugin, the converter, and the tools
+src/features/      self-registered compile-time graph features
+src/converter/     the offline GLFW+ImGui Behavior Converter (BehaviorConverter.exe)
+common/            what features build against: feature-sdk/ (IGraphFeature/FeatureRegistry), config/
+schema/            the Havok class schema, described once as data (+ the converter's templates/)
+tools/             dev-only tools (hky-tool, cbdiff, x64dbg auto-attach, Blender control rig)
+cmake/             helpers (CommonLibSSE, Deploy, SctSources, codegen, glad)
 ```
 
 ## Build
@@ -64,8 +61,8 @@ target_link_libraries(your-tool PRIVATE cb::CB-API)
 
 ## How it works (the short version)
 
-A Havok class is described **once as data** (`schema/`), which `havok-schema` loads and
-`havok-io` uses to read/write `.hkx` byte-exactly. `havok-model` holds the name-keyed `.hky` document,
+A Havok class is described **once as data** (`schema/`), which the engine's schema registry loads and
+its codecs use to read/write `.hkx` byte-exactly. The engine holds the name-keyed `.hky` document,
 merges deltas across a load order, and emits compiled graphs. The runtime plugin serves those compiled
 bytes to the engine; the converter runs the same core offline.
 

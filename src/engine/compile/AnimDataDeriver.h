@@ -31,7 +31,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::animdata {
+namespace CB::engine::animdata {
 
     // A clip generator's fields as they matter to animationdata derivation, taken from the
     // compiled/decompiled behavior graph (event names already resolved to strings).
@@ -79,4 +79,4 @@ namespace CB::core::animdata {
         const std::unordered_map<int, double>&        motionDurByIndex,
         std::vector<std::string>*                     unresolved = nullptr);
 
-}  // namespace CB::core::animdata
+}  // namespace CB::engine::animdata

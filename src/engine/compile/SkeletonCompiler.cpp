@@ -27,13 +27,13 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::skeleton {
-using namespace CB::core::codec;
-using namespace CB::core::common;
+namespace CB::engine::skeleton {
+using namespace CB::engine::codec;
+using namespace CB::engine::common;
 
 namespace {
 
-using CB::core::codec::io::SchemaObject;
+using CB::engine::codec::io::SchemaObject;
 using skmath::Cols4;
 
 // ── little-endian field encoders → FieldValue.raw bytes ─────────────────────────
@@ -595,8 +595,8 @@ std::shared_ptr<SchemaObject> assembleFull(const SkeletonData& data, const schem
 SkeletonCompileResult serializeRoot(const std::shared_ptr<SchemaObject>& root, const HKXHeader& header) {
     SkeletonCompileResult r;
     if (!root) { r.error = "assembly failed (unregistered class or empty graph)"; return r; }
-    CB::core::codec::PackFileSerializer ser;
-    CB::core::codec::BinaryWriterEx bw;
+    CB::engine::codec::PackFileSerializer ser;
+    CB::engine::codec::BinaryWriterEx bw;
     ser.Serialize(root, bw, header);
     r.bytes = bw.Data();
     r.ok = true;
@@ -626,12 +626,12 @@ SkeletonCompileResult CompileSkeletonOverBase(const SkeletonData& animBones, con
     try {
         schema::SchemaRegistry* reg = schema::SharedRegistry();
         if (!reg) { r.error = "schema registry unavailable (" + schema::SharedRegistryError() + ")"; return r; }
-        CB::core::codec::BinaryReaderEx br(baseBytes);
-        CB::core::codec::PackFileDeserializer des;
+        CB::engine::codec::BinaryReaderEx br(baseBytes);
+        CB::engine::codec::PackFileDeserializer des;
         // Do NOT tolerate unregistered here: over-base rebuilds+reserializes the WHOLE graph, so a
         // dropped object is silent data loss. Fail loudly on a class the schema can't represent (e.g.
         // hkpMoppBvTreeShape) instead — matches the typed CompileSkeletonOverBase.
-        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
+        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
         auto root = std::dynamic_pointer_cast<SchemaObject>(des.Deserialize(br));
         if (!root) { r.error = "base is not a valid packfile root"; return r; }
 
@@ -656,8 +656,8 @@ SkeletonCompileResult CompileSkeletonOverBase(const SkeletonData& animBones, con
               bo->FieldRef("name").str = b.name; bo->FieldRef("lockTranslation").raw = e8(b.lockTranslation ? 1 : 0); bones.push_back(bo); } }
         { auto& rp = anim->FieldRef("referencePose").raw; rp.clear(); for (const auto& b : animBones.bones) apQt(rp, b.refPose); }
 
-        CB::core::codec::PackFileSerializer ser;
-        CB::core::codec::BinaryWriterEx bw(/*bigEndian*/ false, /*uSizeLong*/ true);
+        CB::engine::codec::PackFileSerializer ser;
+        CB::engine::codec::BinaryWriterEx bw(/*bigEndian*/ false, /*uSizeLong*/ true);
         ser.Serialize(root, bw, des._header);   // the BASE's own header → byte-exact on identity
         r.bytes = bw.Take();
         r.ok = true;
@@ -672,9 +672,9 @@ SkeletonCompileResult CompileSkeletonToFile(const SkeletonData& data, const std:
     if (validate) {
         try {
             schema::SchemaRegistry* reg = schema::SharedRegistry();
-            CB::core::codec::BinaryReaderEx br(r.bytes);
-            CB::core::codec::PackFileDeserializer des; des.SetTolerateUnregistered(true);
-            if (reg) des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
+            CB::engine::codec::BinaryReaderEx br(r.bytes);
+            CB::engine::codec::PackFileDeserializer des; des.SetTolerateUnregistered(true);
+            if (reg) des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
             auto root = std::dynamic_pointer_cast<SchemaObject>(des.Deserialize(br));
             if (!root || root->FieldRef("namedVariants").objs.empty()) {
                 r.ok = false; r.error = "skeleton packfile did not validate"; return r;
@@ -688,4 +688,4 @@ SkeletonCompileResult CompileSkeletonToFile(const SkeletonData& data, const std:
     return r;
 }
 
-} // namespace CB::core::skeleton
+} // namespace CB::engine::skeleton

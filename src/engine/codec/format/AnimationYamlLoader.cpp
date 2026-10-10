@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::anim {
+namespace CB::engine::anim {
 namespace {
 
 // ryml's DEFAULT error handler ABORTS (fail-fast), so a malformed YAML kills the process instead of
@@ -194,19 +194,19 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
         def.rootMotionVisual = strf(a, "motion") == "none";
     } else if (hasChild(a, "motion")) {
         auto m = a["motion"];
-        CB::core::animdata::MotionRecord mr;
+        CB::engine::animdata::MotionRecord mr;
         mr.duration = strf(m, "duration");   // verbatim token (NOT reparsed to float)
         if (hasChild(m, "translation") && m["translation"].is_seq())
             for (auto t : m["translation"]) {
                 if (!t.has_val()) continue;
                 std::string s; c4::from_chars(t.val(), &s);
-                mr.translations.push_back(CB::core::animdata::UnlabelSample(s));
+                mr.translations.push_back(CB::engine::animdata::UnlabelSample(s));
             }
         if (hasChild(m, "rotation") && m["rotation"].is_seq())
             for (auto r : m["rotation"]) {
                 if (!r.has_val()) continue;
                 std::string s; c4::from_chars(r.val(), &s);
-                mr.rotations.push_back(CB::core::animdata::UnlabelSample(s));
+                mr.rotations.push_back(CB::engine::animdata::UnlabelSample(s));
             }
         def.motion = std::move(mr);
     }
@@ -263,4 +263,4 @@ AnimationDef AnimationYamlLoader::Load(const std::filesystem::path& yamlFile) {
     return LoadFromString(text, yamlFile.string());
 }
 
-} // namespace CB::core::anim
+} // namespace CB::engine::anim

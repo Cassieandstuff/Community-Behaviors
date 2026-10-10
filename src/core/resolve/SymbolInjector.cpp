@@ -1,7 +1,7 @@
 #include "PCH.h"
 #include "core/resolve/SymbolInjector.h"
 
-#include <config/SctConfig.h>
+#include <config/Config.h>
 
 #include <bit>
 #include <cctype>
@@ -54,7 +54,7 @@ namespace CB {
     {
         m_decls.clear();
 
-        CB::core::config::JsonBatch batch = CB::core::config::LoadJson({
+        CB::config::JsonBatch batch = CB::config::LoadJson({
             .roots      = configDirs,
             .extensions = { ".json" },
             .recursive  = false,

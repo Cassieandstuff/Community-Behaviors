@@ -7,7 +7,7 @@
 
 #include "core/debug/DebugFlags.h"   // CB::core::debug::kFlags — the canonical plugin debug-flag registry (shared, dependency-free)
 
-#include "platform/SctUtilities.h"
+#include "platform/Platform.h"
 
 #include <imgui.h>
 
@@ -126,7 +126,7 @@ ConverterUI::ConverterUI() {
     m_exeDir        = ExeDir();
     const fs::path exe = m_exeDir;
     m_dataDir       = (fs::current_path(ec) / "Data").string();
-    m_zipDir        = sct::util::DownloadsFolder();   // point at your MO2 downloads folder
+    m_zipDir        = CB::converter::platform::DownloadsFolder();   // point at your MO2 downloads folder
     m_zipName       = "Output_Community Behaviors";        // the .zip / MO2 mod name (editable)
     m_templatesDir  = (exe / "schema" / "templates").string();
     m_baseDir       = (exe / "base").string();
@@ -225,7 +225,7 @@ void ConverterUI::StartConvert() {
           dataDir = m_dataDir; }
 
     // per-mod bundles (singleBundle=false) — the mockup's "N behavior bundles" model.
-    bconv::Options opt{ dataDir, m_templatesDir, m_baseDir, convOut, instance, /*singleBundle*/ false };
+    CB::converter::Options opt{ dataDir, m_templatesDir, m_baseDir, convOut, instance, /*singleBundle*/ false };
 
     const std::string zipName = "Output_Community Behaviors.zip";
 
@@ -234,7 +234,7 @@ void ConverterUI::StartConvert() {
         if (autoZip) fs::remove_all(convOut, ec);                     // clean staging for a fresh zip
         fs::create_directories(fs::path(convOut) / "community_behaviors", ec);
 
-        m_result = bconv::ConvertLoadOrder(
+        m_result = CB::converter::ConvertLoadOrder(
             opt, [this](std::string s) { AppendLog(std::move(s)); }, m_cancel);
 
         if (m_result.ok && autoZip) {
@@ -242,7 +242,7 @@ void ConverterUI::StartConvert() {
             else {
                 const std::string zip = (fs::path(outDir) / zipName).string();
                 std::string err;
-                const bool ok = sct::util::ZipDir(convOut, zip, err);
+                const bool ok = CB::converter::platform::ZipDir(convOut, zip, err);
                 SetZipMsg(ok ? ("Packaged -> " + zip) : ("Package failed: " + err));
                 AppendLog(ok ? ("Packaged -> " + zip) : ("Package FAILED: " + err));
             }
@@ -298,7 +298,7 @@ void ConverterUI::RefreshPlan() {
     m_planMsg.clear();
     const std::string prof = Trim(m_profile);
     if (prof.empty()) { m_plan = {}; m_planMsg = "Select an MO2 profile (or instance root) above."; return; }
-    m_plan = bconv::BuildLoadOrderPlan(prof, [](std::string) {});
+    m_plan = CB::converter::BuildLoadOrderPlan(prof, [](std::string) {});
     if (!m_plan.ok) { m_planMsg = "Plan: " + m_plan.error; return; }
     int withCodes = 0; for (const auto& m : m_plan.mods) if (!m.codes.empty()) ++withCodes;
     m_planMsg = "auto-detected — " + std::to_string(m_plan.mods.size()) + " behavior mod(s), " +
@@ -335,7 +335,7 @@ void ConverterUI::DrawLoadOrderArranger() {
                 if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("CB_LOROW")) {
                     const int src = *static_cast<const int*>(pl->Data);
                     if (src >= 0 && src < static_cast<int>(m_plan.mods.size()) && src != i) {
-                        bconv::PlanMod moved = m_plan.mods[src];
+                        CB::converter::PlanMod moved = m_plan.mods[src];
                         m_plan.mods.erase(m_plan.mods.begin() + src);
                         m_plan.mods.insert(m_plan.mods.begin() + i, std::move(moved));
                         for (int k = 0; k < static_cast<int>(m_plan.mods.size()); ++k) m_plan.mods[k].priority = k + 1;
@@ -372,7 +372,7 @@ void ConverterUI::DrawConverterTab() {
     ImGui::SameLine();
     if (ImGui::Button("Change…", ImVec2(110, 0))) {
         std::string p;
-        if (sct::ui::PickFolder("Select your MO2 profile folder (contains modlist.txt) or instance root",
+        if (CB::converter::platform::PickFolder("Select your MO2 profile folder (contains modlist.txt) or instance root",
                                 m_profile.c_str(), p)) { m_profile = p; RefreshPlan(); }
     }
     ImGui::EndDisabled();
@@ -409,7 +409,7 @@ void ConverterUI::DrawConverterTab() {
     ImGui::SameLine();
     if (ImGui::Button("Browse…##out", ImVec2(110, 0))) {
         std::string p;
-        if (sct::ui::PickFolder("Select the output folder (your MO2 mods folder, as a new mod)",
+        if (CB::converter::platform::PickFolder("Select the output folder (your MO2 mods folder, as a new mod)",
                                 m_outputDir.c_str(), p)) m_outputDir = p;
     }
     ImGui::Checkbox("Export loadorder.txt with conversion", &m_exportLoadOrder);
@@ -465,7 +465,7 @@ void ConverterUI::SavePandoraOrderFile() {
 }
 
 void ConverterUI::RefreshPandora() {
-    const bconv::PandoraAnalysis a = bconv::AnalyzePandoraOrder(m_dataDir, Trim(m_mo2Instance));
+    const CB::converter::PandoraAnalysis a = CB::converter::AnalyzePandoraOrder(m_dataDir, Trim(m_mo2Instance));
     m_pandoraFromPandora    = a.fromPandora;
     m_pandoraConflictGraphs = (int)a.conflicts.size();
     m_pandoraLoaded         = true;
@@ -623,7 +623,7 @@ void ConverterUI::DrawDiffTab() {
     ImGui::SameLine();
     if (ImGui::Button("Browse##diffA")) {
         std::string p;
-        if (sct::ui::PickFile("Select input A (.hkx or singlefile .txt)", m_diffA.c_str(),
+        if (CB::converter::platform::PickFile("Select input A (.hkx or singlefile .txt)", m_diffA.c_str(),
                               "Havok/Text", "*.hkx;*.txt", p)) m_diffA = p;
     }
     ImGui::SameLine(); ImGui::TextUnformatted("Input A");
@@ -632,7 +632,7 @@ void ConverterUI::DrawDiffTab() {
     ImGui::SameLine();
     if (ImGui::Button("Browse##diffB")) {
         std::string p;
-        if (sct::ui::PickFile("Select input B (.hkx or singlefile .txt)", m_diffB.c_str(),
+        if (CB::converter::platform::PickFile("Select input B (.hkx or singlefile .txt)", m_diffB.c_str(),
                               "Havok/Text", "*.hkx;*.txt", p)) m_diffB = p;
     }
     ImGui::SameLine(); ImGui::TextUnformatted("Input B");
@@ -641,7 +641,7 @@ void ConverterUI::DrawDiffTab() {
     ImGui::SameLine();
     if (ImGui::Button("Browse##diffOut")) {
         std::string p;
-        if (sct::ui::PickFolder("Select the delta-folder destination", m_diffOutDir.c_str(), p))
+        if (CB::converter::platform::PickFolder("Select the delta-folder destination", m_diffOutDir.c_str(), p))
             m_diffOutDir = p;
     }
     ImGui::SameLine(); ImGui::TextUnformatted("Output delta folder");
@@ -650,7 +650,7 @@ void ConverterUI::DrawDiffTab() {
     ImGui::SameLine();
     if (ImGui::Button("Browse##diffSkel")) {
         std::string p;
-        if (sct::ui::PickFile("Select an optional skeleton (.hkx or bones .txt)", m_diffSkeleton.c_str(),
+        if (CB::converter::platform::PickFile("Select an optional skeleton (.hkx or bones .txt)", m_diffSkeleton.c_str(),
                               "Skeleton/Bones", "*.hkx;*.txt", p)) m_diffSkeleton = p;
     }
     ImGui::SameLine(); ImGui::TextUnformatted("Skeleton (optional)");

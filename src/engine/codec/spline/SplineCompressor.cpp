@@ -9,8 +9,8 @@
 #include <cmath>
 #include <cstring>
 
-namespace CB::core::codec::spline {
-using namespace CB::core::anim;   // transitional: AnimationDef + keyframes still in CB::core::anim (→ interface later)
+namespace CB::engine::codec::spline {
+using namespace CB::engine::anim;   // transitional: AnimationDef + keyframes still in CB::engine::anim (→ interface later)
 namespace {
 
 // ── Little-endian byte sink (mirrors C# BinaryWriter over a MemoryStream) ─────
@@ -480,4 +480,4 @@ CompressedResult CompressAnimation(const AnimationDef& anim, int fps) {
     return r;
 }
 
-} // namespace CB::core::codec::spline
+} // namespace CB::engine::codec::spline

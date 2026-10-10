@@ -24,7 +24,7 @@
 #include <filesystem>
 #include <string>
 
-namespace CB::core::anim {
+namespace CB::engine::anim {
 
 struct AnimationYamlLoader {
     // Throws std::runtime_error on read/parse failure.
@@ -42,4 +42,4 @@ std::string EmitAnimTrackYaml(const AnimTrackDef& track);
 /// @return false when the unit has no such track.
 bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrackDef& track);
 
-} // namespace CB::core::anim
+} // namespace CB::engine::anim

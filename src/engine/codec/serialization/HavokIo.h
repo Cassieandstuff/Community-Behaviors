@@ -2,7 +2,7 @@
 // havok-io — the generic, schema-driven Havok packfile reader/writer (havok-core v2 rewrite, Stage 2).
 //
 // ONE interpreter replaces the hand-written per-class ClassRead/ClassWrite: a `SchemaObject` (a
-// generic `IHavokObject`) walks its `CB::core::schema::ClassSchema` field list, driving havok-core's
+// generic `IHavokObject`) walks its `CB::engine::schema::ClassSchema` field list, driving havok-core's
 // EXISTING packfile framing (sections, fixups, BinaryReaderEx/WriterEx) through the same public
 // primitives the typed classes used. The framing (which object is which class, pointer/array fixups)
 // is layout-independent and salvaged wholesale; only the per-object field walk becomes data-driven.
@@ -29,7 +29,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::codec::io {
+namespace CB::engine::codec::io {
 
 // One field's value, tagged by its schema FieldKind (the SchemaObject knows the kind, so the value
 // store is a plain aggregate — at most one member is meaningful per field). Empty-slot/pad/skip and
@@ -101,4 +101,4 @@ bool RebuildHkx(const std::vector<std::uint8_t>& in,
                 std::vector<std::uint8_t>&       out,
                 std::string&                     err);
 
-} // namespace CB::core::codec::io
+} // namespace CB::engine::codec::io

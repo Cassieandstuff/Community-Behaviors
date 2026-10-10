@@ -2,7 +2,7 @@
 
 #include "core/discover/BundleManifest.h"
 
-#include <config/SctConfig.h>   // CB::core::config::LoadJson / ReadText
+#include <config/Config.h>   // CB::config::LoadJson / ReadText
 
 #include <system_error>
 
@@ -30,7 +30,7 @@ namespace CB {
         if (!std::filesystem::exists(file, ec))
             return Parse(std::nullopt, bundleStem, warnings);  // no manifest — defaulted + silent
 
-        const auto text = CB::core::config::ReadText(file);
+        const auto text = CB::config::ReadText(file);
         if (!text) {
             std::vector<std::string> local;
             BundleManifest m = Parse(std::nullopt, bundleStem, local);  // defaulted identity

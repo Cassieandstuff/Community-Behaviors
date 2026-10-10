@@ -234,9 +234,9 @@ namespace CB::core::serve {
                 ///       unit states only the names it adds). WITHOUT these the coverage guard's roster is empty for
                 ///       every mod animation, its set-data CRC is dropped as "unrostered", and that attack / dodge /
                 ///       parkour binds the WRONG animation (SkyParkour / HorsePower / BFCO regressions).
-                for (const std::string& unit : rd->units(CB::core::codec::HkyArchive::UnitKind::Character)) {
+                for (const std::string& unit : rd->units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
                     const auto src = rd->unitSource(unit);
-                    auto cs = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                    auto cs = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
                     if (!cs || cs->animationNames.empty()) continue;
                     const auto s1 = unit.find_last_of('/');
                     std::string charName = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
@@ -296,7 +296,7 @@ namespace CB::core::serve {
         // two. Now sourced from the packed master too (its 344 vanilla characters carry these roots).
         std::unordered_map<std::string, std::string> charActorRoot;  // charStem(lower) -> "meshes\actors\..."
         const auto ingestCharUnits = [&](const BundleReader& rd) {
-            for (std::string rel : rd.units(CB::core::codec::HkyArchive::UnitKind::Character)) {
+            for (std::string rel : rd.units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
                 rel = ToLower(rel);                             // "meshes/actors/horse/characters/horse.hkx"
                 const auto s1 = rel.find_last_of('/');
                 const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rel.find_last_of('/', s1 - 1);

@@ -1,4 +1,4 @@
-#include "platform/SctUtilities.h"
+#include "platform/Platform.h"
 
 #include <common/miniz.h>
 
@@ -10,7 +10,7 @@
 
 namespace fs = std::filesystem;
 
-namespace sct::util {
+namespace CB::converter::platform {
 
 bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& err)
 {
@@ -108,4 +108,4 @@ bool UnzipDir(const std::string& zipPath, const std::string& destDir, std::strin
     return true;
 }
 
-}  // namespace sct::util
+}  // namespace CB::converter::platform

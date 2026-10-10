@@ -20,7 +20,7 @@ namespace CB::feature {
 
             bool AppliesTo(const FeatureContext& ctx) const override { return ctx.symbols != nullptr; }
 
-            FeatureResult Apply(CB::core::decompile::GraphEdit& graph, const FeatureContext& ctx) override
+            FeatureResult Apply(CB::engine::decompile::GraphEdit& graph, const FeatureContext& ctx) override
             {
                 if (!graph.GraphData()) return {};
                 FeatureResult r;
@@ -28,9 +28,9 @@ namespace CB::feature {
                 for (const SymbolDecl& d : ctx.symbols->For(ctx.graphKey)) {
                     const auto added = d.isEvent ? graph.AddEvent(d.name, err)
                                                  : graph.AddVariable(d.name, d.varType, d.value, err);
-                    if (added == CB::core::decompile::GraphEdit::Add::Failed)
+                    if (added == CB::engine::decompile::GraphEdit::Add::Failed)
                         ctx.log.Warn(std::format("BDI: {}: '{}': {}", ctx.graphKey, d.name, err));
-                    else if (added == CB::core::decompile::GraphEdit::Add::Added)
+                    else if (added == CB::engine::decompile::GraphEdit::Add::Added)
                         ++r.mutations;
                 }
                 r.applied = r.mutations > 0;

@@ -2,7 +2,7 @@
 #include "Converter.h"
 
 #include <interface/reflection/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
-#include "platform/SctUtilities.h"
+#include "platform/Platform.h"
 
 #include <atomic>
 #include <cstdio>
@@ -48,10 +48,10 @@ int main(int argc, char** argv) {
     // only armed on the regen path, the --cli/GUI loose-derive silently falls back to the TYPED order and
     // misaligns against the schema base master (the horsebehavior crash class). SetSharedSchemaDir only
     // records the dir; SharedRegistry() lazily loads once on first use. The regen path re-arms harmlessly.
-    CB::core::schema::SetSharedSchemaDir(ExeSchemaDir().string());
+    CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());
 
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
-        bconv::Options opt;
+        CB::converter::Options opt;
         opt.dataDir      = argv[2];
         opt.templatesDir = argv[3];
         opt.outputDir    = argv[4];
@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
             else if (opt.baseDir.empty() && !a.empty() && a.rfind("--", 0) != 0) opt.baseDir = a;
         }
         std::atomic<bool> cancel{ false };
-        const auto res = bconv::ConvertLoadOrder(
+        const auto res = CB::converter::ConvertLoadOrder(
             opt, [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel);
         if (res.ok) std::printf("OK: %d mods, %d behavior deltas, %d set-data, %d anim-data, %d char-roster, %d skipped "
                                 "(deltas over the shipped Skyrim.hky master)\n",
@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
     }
 
     if (argc >= 3 && std::string(argv[1]) == "--list-archives") {
-        const auto archives = bconv::ResolveModArchives(argv[2], [](std::string s) { std::printf("%s\n", s.c_str()); });
+        const auto archives = CB::converter::ResolveModArchives(argv[2], [](std::string s) { std::printf("%s\n", s.c_str()); });
         int counted = 0;
         for (const auto& a : archives) {
             std::printf("%s  [%s] %s\n    %s\n", a.counted ? "COUNT" : "skip ", a.modName.c_str(),
@@ -87,56 +87,56 @@ int main(int argc, char** argv) {
     }
 
     if (argc >= 4 && std::string(argv[1]) == "--package-animations") {
-        const bool ok = bconv::PackageAllModAnimations(argv[2], argv[3],
+        const bool ok = CB::converter::PackageAllModAnimations(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 4 && std::string(argv[1]) == "--serializer-roundtrip") {   // <meshesDir> <outRoot>
-        const bool ok = bconv::SerializerRoundTrip(argv[2], argv[3],
+        const bool ok = CB::converter::SerializerRoundTrip(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 4 && std::string(argv[1]) == "--adsf-project") {   // <Skyrim.hky> <vanilla animationdatasinglefile.txt>
-        const bool ok = bconv::AdsfProjectionCheck(argv[2], argv[3],
+        const bool ok = CB::converter::AdsfProjectionCheck(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 3 && std::string(argv[1]) == "--metatext-roundtrip") {   // <file>...
-        const bool ok = bconv::MetaTextRoundTrip(std::vector<std::string>(argv + 2, argv + argc),
+        const bool ok = CB::converter::MetaTextRoundTrip(std::vector<std::string>(argv + 2, argv + argc),
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 4 && std::string(argv[1]) == "--motion-storage-check") {   // <newTree> <oldTree>
-        const bool ok = bconv::MotionStorageCheck(argv[2], argv[3],
+        const bool ok = CB::converter::MotionStorageCheck(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 4 && std::string(argv[1]) == "--motion-fold-gate") {   // <unpackedTree> <out.csv>
-        const bool ok = bconv::MotionFoldGate(argv[2], argv[3],
+        const bool ok = CB::converter::MotionFoldGate(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 5 && std::string(argv[1]) == "--multilayer-roundtrip") {   // <mo2ModsDir> <templatesDir> <work> [<base.hky>]
-        const bool ok = bconv::MultiLayerRoundTripAll(argv[2], argv[3], argv[4],
+        const bool ok = CB::converter::MultiLayerRoundTripAll(argv[2], argv[3], argv[4],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, argc >= 6 ? argv[5] : "");
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 7 && std::string(argv[1]) == "--hky-merge") {   // <base.hky> <meshesDir> <rel.hkx> <outDir> <patchDir>...
         const std::vector<std::string> patches(argv + 6, argv + argc);
-        const bool ok = bconv::HkyMerge(argv[2], argv[3], argv[4], argv[5], patches,
+        const bool ok = CB::converter::HkyMerge(argv[2], argv[3], argv[4], argv[5], patches,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 5 && std::string(argv[1]) == "--patch-roundtrip") {   // <vanillaMeshes> <moddedMeshes> <work> [<base.hky>]
-        const bool ok = bconv::PatchRoundTripAll(argv[2], argv[3], argv[4],
+        const bool ok = CB::converter::PatchRoundTripAll(argv[2], argv[3], argv[4],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, argc >= 6 ? argv[5] : "");
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -144,14 +144,14 @@ int main(int argc, char** argv) {
     if (argc >= 4 && std::string(argv[1]) == "--hky-roundtrip") {   // <meshesDir> <workRoot> [<base.hky>] [--all-kinds]
         std::string base; bool all = false;
         for (int i = 4; i < argc; ++i) { if (std::string(argv[i]) == "--all-kinds") all = true; else base = argv[i]; }
-        const bool ok = bconv::HkyRoundTrip(argv[2], argv[3],
+        const bool ok = CB::converter::HkyRoundTrip(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, base, all);
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     if (argc >= 4 && std::string(argv[1]) == "--zip") {  // headless: --zip <srcDir> <zipPath>
         std::string err;
-        const bool ok = sct::util::ZipDir(argv[2], argv[3], err);
+        const bool ok = CB::converter::platform::ZipDir(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("zipped -> " + std::string(argv[3])).c_str() : ("zip FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -160,13 +160,13 @@ int main(int argc, char** argv) {
     // compress step (CMake/converter); `unpack` is the author's decompress-to-edit.
     if (argc >= 4 && std::string(argv[1]) == "--pack") {    // --pack <dir> <out.hky>
         std::string err;
-        const bool ok = sct::util::ZipDir(argv[2], argv[3], err);
+        const bool ok = CB::converter::platform::ZipDir(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("packed -> " + std::string(argv[3])).c_str() : ("pack FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     if (argc >= 4 && (std::string(argv[1]) == "--unpack" || std::string(argv[1]) == "--unzip")) {  // <in.hky> <destDir>
         std::string err;
-        const bool ok = sct::util::UnzipDir(argv[2], argv[3], err);
+        const bool ok = CB::converter::platform::UnzipDir(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("unpacked -> " + std::string(argv[3])).c_str() : ("unpack FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -178,8 +178,8 @@ int main(int argc, char** argv) {
         std::atomic<bool> cancel{ false };
         std::string templatesDir = (argc >= 5) ? argv[4] : "";
         if (templatesDir.empty()) templatesDir = ExeTemplatesDir();  // bundled templates next to the exe
-        CB::core::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
-        const auto res = bconv::BuildBaseBundle(argv[2], argv[3],
+        CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
+        const auto res = CB::converter::BuildBaseBundle(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel,
             templatesDir);
         if (!res.ok) { std::printf("build-base FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
@@ -209,8 +209,8 @@ int main(int argc, char** argv) {
             return EXIT_FAILURE;
         }
         const std::string templatesDir = (pos.size() >= 3) ? pos[2] : ExeTemplatesDir();
-        CB::core::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
-        const auto res = bconv::RegenerateMaster(pos[0], templatesDir, pos[1], strict,
+        CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
+        const auto res = CB::converter::RegenerateMaster(pos[0], templatesDir, pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
         std::printf("OK: %s -> %s (%d behaviors, %d projects, %d characters, %d skeletons; "

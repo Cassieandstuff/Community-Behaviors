@@ -21,9 +21,9 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::animdata {
+namespace CB::engine::animdata {
 
-namespace linker = CB::core::linker;
+namespace linker = CB::engine::linker;
 
 namespace {
 
@@ -493,4 +493,4 @@ SingleFile AssembleAnimdata(
     return out;
 }
 
-}  // namespace CB::core::animdata
+}  // namespace CB::engine::animdata

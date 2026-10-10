@@ -14,7 +14,7 @@
 // raw directory_iterator gets wrong — lives here, correct once.
 //
 // SINGLE PUBLIC HEADER (CommonLib `Skyrim.h` model): this file is the entire
-// cross-project surface — consumers write `#include <config/SctConfig.h>`
+// cross-project surface — consumers write `#include <config/Config.h>`
 // and nothing else. Nothing besides this file may ever live in
 // include/internal/sct-config/.
 //
@@ -36,7 +36,7 @@
 #include <nlohmann/json.hpp>
 #include <RymlInclude.h>   // rapidyaml through the mandatory c4core C++20 shim
 
-namespace CB::core::config {
+namespace CB::config {
 
 // ── Discovery core (pulls in no parser on its own) ────────────────────────────
 
@@ -122,4 +122,4 @@ using YamlBatch = Batch<YamlDoc>;
 // failure is recorded per-file in .errors rather than thrown.
 YamlBatch LoadYaml(const ScanSpec& spec);
 
-}  // namespace CB::core::config
+}  // namespace CB::config

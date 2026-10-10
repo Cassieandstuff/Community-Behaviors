@@ -34,12 +34,12 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::anim {
+namespace CB::engine::anim {
 namespace fs = std::filesystem;
 
 namespace {
 
-using CB::core::codec::io::SchemaObject;
+using CB::engine::codec::io::SchemaObject;
 
 std::string fstr(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
 
@@ -93,9 +93,9 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
 
     std::shared_ptr<SchemaObject> spline, binding;
     try {
-        CB::core::codec::BinaryReaderEx br(hkx);
-        CB::core::codec::PackFileDeserializer des;
-        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
+        CB::engine::codec::BinaryReaderEx br(hkx);
+        CB::engine::codec::PackFileDeserializer des;
+        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
         auto root = asSO(des.Deserialize(br));
         if (!root) return { false, "not a valid packfile root" };
 
@@ -136,7 +136,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
 
     int   numFrames = 0;
     float fd        = 0.0f;
-    std::vector<CB::core::codec::spline::DecodedPose> poses;
+    std::vector<CB::engine::codec::spline::DecodedPose> poses;
     std::vector<float>       floatVals;
     std::string              warn;
 
@@ -151,7 +151,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         const auto& boRaw   = spline->FieldRef("blockOffsets").raw;
         std::vector<std::uint32_t> blockOffsets(boRaw.size() / 4);
         if (!blockOffsets.empty()) std::memcpy(blockOffsets.data(), boRaw.data(), blockOffsets.size() * 4);
-        const bool ok = CB::core::codec::spline::DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
+        const bool ok = CB::engine::codec::spline::DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
                                      maskAndQuant, blockOffsets.data(), static_cast<int>(blockOffsets.size()),
                                      numTracks, numFloat, poses, &warn, numFloat > 0 ? &floatVals : nullptr);
         if (!ok) return { false, "spline decode failed (bounds/format mismatch)" };
@@ -169,7 +169,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         for (std::size_t i = 0; i < nTrans; ++i) {
             float f12[12];
             std::memcpy(f12, tr.data() + i * 48, 48);
-            CB::core::codec::spline::DecodedPose& dp = poses[i];
+            CB::engine::codec::spline::DecodedPose& dp = poses[i];
             dp.t[0] = f12[0]; dp.t[1] = f12[1]; dp.t[2] = f12[2];                     // translation (drop w)
             dp.q[0] = f12[4]; dp.q[1] = f12[5]; dp.q[2] = f12[6]; dp.q[3] = f12[7];   // rotation x,y,z,w
             dp.s[0] = f12[8]; dp.s[1] = f12[9]; dp.s[2] = f12[10];                    // scale (drop w)
@@ -265,7 +265,7 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                + fstr(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
     }
 
-    std::optional<CB::core::animdata::MotionRecord> amrMotion;
+    std::optional<CB::engine::animdata::MotionRecord> amrMotion;
     // Annotation tracks (AMR root motion / MorphFace payloads) — one lane per entry, verbatim.
     auto& annTracks = spline->FieldRef("annotationTracks").objs;
     if (!annTracks.empty()) {
@@ -296,14 +296,14 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                 allAnns.emplace_back(rdF32(*a, "time"), a->FieldRef("text").str);
             }
         }
-        amrMotion = CB::core::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration));
+        amrMotion = CB::engine::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration));
     }
 
     /// @note The unit's motion form: AMR motion folds onto the root where it round-trips (else stays explicit); a
     ///       moving root with no motion is marked visual-only.
-    CB::core::anim::FinalizeUnitMotion(y, amrMotion);
+    CB::engine::anim::FinalizeUnitMotion(y, amrMotion);
     writeText(dir / "animation.yaml", y);
     return { true, "" };
 }
 
-} // namespace CB::core::anim
+} // namespace CB::engine::anim

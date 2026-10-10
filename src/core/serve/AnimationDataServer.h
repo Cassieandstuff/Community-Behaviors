@@ -11,7 +11,7 @@
 
 namespace CB::core::serve {
 
-    namespace animdata = ::CB::core::animdata;
+    namespace animdata = ::CB::engine::animdata;
 
     struct ServeResult {
         bool                  attempted = false;

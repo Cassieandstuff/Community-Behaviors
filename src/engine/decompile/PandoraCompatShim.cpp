@@ -18,8 +18,8 @@
 #include <string_view>
 #include <vector>
 
-namespace CB::core::compat {
-using namespace CB::core::common;
+namespace CB::engine::compat {
+using namespace CB::engine::common;
 namespace {
 
 // Collapse runs of whitespace/parens to a single space and trim tab/CR/LF/parens at the ends
@@ -187,4 +187,4 @@ void ApplyNemesisTextArrayEdits(std::string& src) {
     src.swap(out);
 }
 
-}  // namespace CB::core::compat
+}  // namespace CB::engine::compat

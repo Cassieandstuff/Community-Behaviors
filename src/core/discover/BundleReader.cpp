@@ -66,7 +66,7 @@ namespace CB {
         }
         // A regular .hky file -> packed archive (decompress once in memory).
         std::string err;
-        auto arc = CB::core::codec::HkyArchive::LoadFromFile(bundle.string(), err);
+        auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
         if (!arc) return std::nullopt;
         BundleReader r;
         r.m_arc = std::move(arc);
@@ -193,7 +193,7 @@ namespace CB {
         return out;
     }
 
-    std::vector<std::string> BundleReader::units(CB::core::codec::HkyArchive::UnitKind kind) const
+    std::vector<std::string> BundleReader::units(CB::engine::codec::HkyArchive::UnitKind kind) const
     {
         std::vector<std::string> out;
         if (m_arc) {
@@ -213,18 +213,18 @@ namespace CB {
             std::error_code se;
             std::ifstream g(it->path() / "graph.yaml", std::ios::binary);
             const std::string text = g ? std::string(std::istreambuf_iterator<char>(g), std::istreambuf_iterator<char>()) : std::string();
-            const auto k = fs::exists(it->path() / "bonelist.yaml", se) ? CB::core::codec::HkyArchive::UnitKind::Skeleton
-                                                                       : CB::core::codec::HkyArchive::KindOfGraphYaml(text);
+            const auto k = fs::exists(it->path() / "bonelist.yaml", se) ? CB::engine::codec::HkyArchive::UnitKind::Skeleton
+                                                                       : CB::engine::codec::HkyArchive::KindOfGraphYaml(text);
             if (k == kind)
                 out.push_back(it->path().lexically_relative(m_dir).generic_string());
         }
         return out;
     }
 
-    std::shared_ptr<const CB::core::common::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
+    std::shared_ptr<const CB::engine::common::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
     {
         if (m_arc) return m_arc->source(Norm(prefix));
-        return std::make_shared<CB::core::common::DiskUnitSource>(m_dir / fs::path(prefix));
+        return std::make_shared<CB::engine::common::DiskUnitSource>(m_dir / fs::path(prefix));
     }
 
 }  // namespace CB

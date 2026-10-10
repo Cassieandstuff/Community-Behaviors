@@ -59,5 +59,5 @@ if(MSVC)
     target_compile_options(engine PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /wd4100 /MP /EHsc>)
 endif()
 
-# The shared vocabulary prelude (CB::core::common + CB::core::codec ambient in every engine TU).
+# The shared vocabulary prelude (CB::engine::common + CB::engine::codec ambient in every engine TU).
 target_precompile_headers(engine PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/common/CorePrelude.h>")

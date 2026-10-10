@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::skeleton {
+namespace CB::engine::skeleton {
 
 /// @brief A character's rig and root behavior, as its string data names them (project-dir relative).
 struct CharacterRig { std::string rig, behavior; };
@@ -49,4 +49,4 @@ private:
     std::set<std::string> m_bound;
 };
 
-}  // namespace CB::core::skeleton
+}  // namespace CB::engine::skeleton

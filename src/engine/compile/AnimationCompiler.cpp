@@ -1,6 +1,6 @@
 #include "compile/AnimationCompiler.h"
 
-#include "codec/spline/SplineCompressor.h"     // CB::core::codec::spline::CompressAnimation (the shared spline codec)
+#include "codec/spline/SplineCompressor.h"     // CB::engine::codec::spline::CompressAnimation (the shared spline codec)
 #include <codec/serialization/packfile/PackFileSerializer.h>    // havok-framing — the ONE serializer (io::SchemaObject)
 #include <interface/linker/Membrane.h>       // BoneMembrane::resolveTrackRef (the one name<->index codec)
 
@@ -14,9 +14,9 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::anim {
-using namespace CB::core::codec;
-using namespace CB::core::common;
+namespace CB::engine::anim {
+using namespace CB::engine::codec;
+using namespace CB::engine::common;
 
 namespace {
 
@@ -35,7 +35,7 @@ std::shared_ptr<io::SchemaObject> mkA(const schema::SchemaRegistry& reg, const c
 std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, int fps,
                                                     const schema::SchemaRegistry& reg,
                                                     const std::vector<std::string>* boneNames) {
-    CB::core::codec::spline::CompressedResult r = CB::core::codec::spline::CompressAnimation(anim, fps);
+    CB::engine::codec::spline::CompressedResult r = CB::engine::codec::spline::CompressAnimation(anim, fps);
     auto i32b = [](std::int32_t v) { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
     auto f32b = [](float v)        { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
     auto u32arr = [](const std::vector<std::uint32_t>& a) { std::vector<std::uint8_t> o; o.reserve(a.size() * 4);
@@ -88,7 +88,7 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
         const auto& bones = boneNames ? *boneNames : kNoBones;
         // Resolve each track's bone by NAME through the one name<->index codec. Bones are matched
         // case-sensitively (Havok is case-sensitive), exactly as the former linear scan did.
-        namespace linker = CB::core::linker;
+        namespace linker = CB::engine::linker;
         const linker::Linker       boneL = linker::Linker::OfOrderedNames(bones);
         const linker::BoneMembrane boneM{ &boneL };
         bool identity = true;
@@ -155,4 +155,4 @@ AnimCompileResult CompileAnimationToFile(const AnimationDef& anim,
     return r;
 }
 
-} // namespace CB::core::anim
+} // namespace CB::engine::anim

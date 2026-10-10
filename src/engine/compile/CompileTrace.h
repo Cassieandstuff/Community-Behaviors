@@ -26,7 +26,7 @@
 #include <string_view>
 #include <vector>
 
-namespace CB::core::compile::trace {
+namespace CB::engine::compile::trace {
 
 using Sink = std::function<void(std::string_view line)>;
 
@@ -70,4 +70,4 @@ struct WatchVar {
 };
 std::vector<WatchVar> LoadRuntimeWatch(const std::string& debugDir, std::string* warn = nullptr);
 
-} // namespace CB::core::compile::trace
+} // namespace CB::engine::compile::trace

@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::linker {
+namespace CB::engine::linker {
 
 using Value = std::int64_t;   // an index or an enum constant
 
@@ -58,4 +58,4 @@ private:
     std::map<Value, std::string>           rev_;   // value -> ORIGINAL name (first value wins; ordered)
 };
 
-}  // namespace CB::core::linker
+}  // namespace CB::engine::linker

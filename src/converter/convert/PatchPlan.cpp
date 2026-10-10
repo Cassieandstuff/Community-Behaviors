@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <fstream>
 
-namespace bconv {
+namespace CB::converter {
 namespace {
 
 std::string toLower(std::string s) {
@@ -51,8 +51,8 @@ const char* originName(GraphOrigin o) {
 
 std::string ActorOfServePath(const std::string& servePathLower) { return actorOf(servePathLower); }
 
-BaseMaps BuildBaseMaps(const CB::core::codec::HkyArchive& baseArc) {
-    using UK = CB::core::codec::HkyArchive::UnitKind;
+BaseMaps BuildBaseMaps(const CB::engine::codec::HkyArchive& baseArc) {
+    using UK = CB::engine::codec::HkyArchive::UnitKind;
     BaseMaps m;
     for (const auto& u : baseArc.units()) {
         const std::string prefix = toLower(u.prefix);  // already normalized, but be defensive
@@ -208,4 +208,4 @@ void DumpPlan(const PatchPlan& plan, const std::string& outFile) {
     }
 }
 
-}  // namespace bconv
+}  // namespace CB::converter

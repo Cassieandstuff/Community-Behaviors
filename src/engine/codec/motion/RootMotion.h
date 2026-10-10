@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::anim {
+namespace CB::engine::anim {
 
 /// @brief One root-motion sample: translation (x, y, z) and rotation quaternion (x, y, z, w).
 struct MotionPose {
@@ -22,7 +22,7 @@ struct MotionPose {
 ///       A channel holding one identity key is dropped at load, exactly as `Adsf_ParseMotionBlock` does.
 class EngineMotionCurve {
 public:
-    explicit EngineMotionCurve(const CB::core::animdata::MotionRecord& m);
+    explicit EngineMotionCurve(const CB::engine::animdata::MotionRecord& m);
     MotionPose Sample(double time) const;
 
 private:
@@ -41,7 +41,7 @@ bool FoldMotionOntoRoot(AnimationDef& def, std::size_t rootTrack, std::string* e
 ///        components the engine's motion carries), one key per frame after frame 0 (the origin is implicit), and strip
 ///        it from the root: root(t) ← M(t)⁻¹ · root(t).
 /// @return the motion record (duration + dense keys), or nullopt when the root does not move (the root is unchanged).
-std::optional<CB::core::animdata::MotionRecord> ExtractRootMotion(AnimationDef& def, std::size_t rootTrack);
+std::optional<CB::engine::animdata::MotionRecord> ExtractRootMotion(AnimationDef& def, std::size_t rootTrack);
 
 /// @brief How far a fold → extract round trip moves a unit, measured through the engine evaluator.
 struct FoldCheck {
@@ -80,11 +80,11 @@ enum class UnitMotionForm {
 ///        key is replaced. Every other byte of the unit is kept.
 /// @note Explicit stays until CB serves the stripped animation: the engine plays the SOURCE binary, whose root still
 ///       carries its visual travel, so extracting that travel into the actor too would double it on screen.
-UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::core::animdata::MotionRecord>& motion,
+UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::engine::animdata::MotionRecord>& motion,
                                   std::string* err = nullptr);
 
 /// @brief The unit's actor motion: its explicit record; nothing for `motion: none`; else extracted from the root,
 ///        which is stripped of it (so a compile of `def` afterwards serves the clean root).
-std::optional<CB::core::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack = 0);
+std::optional<CB::engine::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack = 0);
 
-} // namespace CB::core::anim
+} // namespace CB::engine::anim

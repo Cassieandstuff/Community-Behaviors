@@ -12,7 +12,7 @@
 /// @warning Paths are returned exactly as the archive stores them — Bethesda's packer stores them LOWERCASED
 ///   with backslashes. Original case is not recoverable from a BSA (the Havok case directive's hard limit):
 ///   never re-case them, and never normalize them further.
-namespace CB::core::codec::bsa {
+namespace CB::engine::codec::bsa {
 
     struct Entry {
         std::string   path;           ///< archive-stored form, e.g. "meshes\actors\character\animations\1hm_idle.hkx"
@@ -47,4 +47,4 @@ namespace CB::core::codec::bsa {
         std::vector<Entry>    m_entries;
     };
 
-}  // namespace CB::core::codec::bsa
+}  // namespace CB::engine::codec::bsa

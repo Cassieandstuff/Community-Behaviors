@@ -9,10 +9,10 @@
 #include <set>
 #include <unordered_map>
 
-namespace CB::core::animdata {
+namespace CB::engine::animdata {
 namespace {
 
-using CB::core::codec::io::SchemaObject;
+using CB::engine::codec::io::SchemaObject;
 
 std::string Lower(std::string s) {
     for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -44,7 +44,7 @@ std::string ParentOf(const std::string& path) {
     return s == std::string::npos ? std::string() : path.substr(0, s);
 }
 
-std::shared_ptr<SchemaObject> Make(const CB::core::schema::SchemaRegistry& reg, const char* cls) {
+std::shared_ptr<SchemaObject> Make(const CB::engine::schema::SchemaRegistry& reg, const char* cls) {
     const auto* cs = reg.Find(cls);
     if (!cs) throw std::runtime_error(std::string("metadata class '") + cls + "' not in the schema");
     auto o = std::make_shared<SchemaObject>(&reg, cs);
@@ -60,7 +60,7 @@ struct ProjectBuild {
 
 } // namespace
 
-std::shared_ptr<CB::core::codec::io::SchemaObject> ProjectAnimData(const CB::core::schema::SchemaRegistry& reg,
+std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::engine::schema::SchemaRegistry& reg,
                                                                    const std::vector<ProjectHeader>& headers,
                                                                    const ProjectionSource& src, ProjectionStats* stats,
                                                                    std::string& err) {
@@ -194,4 +194,4 @@ std::shared_ptr<CB::core::codec::io::SchemaObject> ProjectAnimData(const CB::cor
     }
 }
 
-} // namespace CB::core::animdata
+} // namespace CB::engine::animdata

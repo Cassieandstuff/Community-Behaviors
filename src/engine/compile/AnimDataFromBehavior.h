@@ -17,12 +17,12 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::compile {
+namespace CB::engine::compile {
 
     /// @brief One DeriveClipInput per hkbClipGenerator reachable from a merged graph's `root` (the reflective path's
     ///        SchemaObject graph), trigger event ids resolved through the graph's eventNames; in clip-name order.
-    std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(
-        const std::shared_ptr<CB::core::codec::IHavokObject>& root);
+    std::vector<CB::engine::animdata::DeriveClipInput> DeriveClipInputsFromGraph(
+        const std::shared_ptr<CB::engine::codec::IHavokObject>& root);
 
     // An animation's derivation-relevant data: its duration (m_duration — present even when the
     // animation carries no root-motion record) and its annotation-track events (text + time).
@@ -51,8 +51,8 @@ namespace CB::core::compile {
     // triggers are extended in place; `motionDur` (animIndex -> duration, seeded from the master
     // motion table) is updated. Each distinct animation is read+parsed once (cached). The caller
     // supplies the reader (VFS/loose at runtime, filesystem offline) and the roster in order.
-    std::vector<CB::core::animdata::ClipGenerator> DeriveProjectClipList(
-        std::vector<CB::core::animdata::DeriveClipInput>&                       clips,
+    std::vector<CB::engine::animdata::ClipGenerator> DeriveProjectClipList(
+        std::vector<CB::engine::animdata::DeriveClipInput>&                       clips,
         const std::vector<std::string>&                                     roster,
         std::unordered_map<int, double>&                                    motionDur,
         const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
@@ -64,11 +64,11 @@ namespace CB::core::compile {
     // seed the trigger clamp. This is the transform the converter/editor runs at ship time so the
     // bundle carries a ready animationdata delta and the runtime only merges (never derives). The
     // caller supplies the roster + the animation-bytes reader.
-    CB::core::animdata::Project DeriveProjectAnimData(
+    CB::engine::animdata::Project DeriveProjectAnimData(
         const std::string&                                                  projectName,   // e.g. "DefaultMale" (".txt" appended)
-        std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
+        std::vector<CB::engine::animdata::DeriveClipInput>&                      clips,
         const std::vector<std::string>&                                     roster,
-        const std::vector<CB::core::animdata::MotionRecord>&                   motions,
+        const std::vector<CB::engine::animdata::MotionRecord>&                   motions,
         const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim);
 
     // Derive a SYMBOL-FORM ProjectPatch (a mergeable animationdata delta) for a set of ADDED
@@ -86,11 +86,11 @@ namespace CB::core::compile {
     // record (a BR-native animation.yaml `motion:` block, extracted into AnimationDef.motion) gets THAT
     // motion instead of the placeholder — so editor-authored root motion aligns with its clip at derive
     // time (the intended "derive high-band-aligns motion with clips" path, not a runtime override).
-    CB::core::animdata::ProjectPatch DeriveProjectPatch(
+    CB::engine::animdata::ProjectPatch DeriveProjectPatch(
         const std::string&                                                  projectName,
-        std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
+        std::vector<CB::engine::animdata::DeriveClipInput>&                      clips,
         const std::string&                                                  symbolCode,
         const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
-        const std::unordered_map<std::string, CB::core::animdata::MotionRecord>* animMotions = nullptr);
+        const std::unordered_map<std::string, CB::engine::animdata::MotionRecord>* animMotions = nullptr);
 
-}  // namespace CB::core::compile
+}  // namespace CB::engine::compile

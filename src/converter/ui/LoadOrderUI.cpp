@@ -1,6 +1,6 @@
 #include "ui/LoadOrderUI.h"
 
-#include "platform/SctUtilities.h"
+#include "platform/Platform.h"
 #include <codec/serialization/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
 
 #include <imgui.h>
@@ -151,7 +151,7 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
                 // needs no manifest for ordering, and opening it would decompress the whole thing.
                 if (ToLower(b.stem) != "skyrim") {
                     std::string herr;
-                    if (auto arc = CB::core::codec::HkyArchive::LoadFromFile(it->path().string(), herr))
+                    if (auto arc = CB::engine::codec::HkyArchive::LoadFromFile(it->path().string(), herr))
                         if (auto mf = arc->file("manifest.json")) applyManifest(b, *mf);
                 }
             } else {
@@ -241,7 +241,7 @@ void LoadOrderUI::Draw(const std::string& defaultPluginsDir, const std::string& 
     ImGui::SameLine();
     if (ImGui::Button("Browse##plugins")) {
         std::string p;
-        if (sct::ui::PickFolder("Select a community_behaviors/plugins folder", m_pluginsDir.c_str(), p))
+        if (CB::converter::platform::PickFolder("Select a community_behaviors/plugins folder", m_pluginsDir.c_str(), p))
             Rescan(p, loadOrderPath);
     }
     ImGui::SameLine(); ImGui::TextUnformatted("plugins folder");

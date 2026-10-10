@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::common {
+namespace CB::engine::common {
 
     struct BoneNameTable {
         std::vector<std::string> names;   // index -> bone name (order = the skeleton's bone order)
@@ -47,4 +47,4 @@ namespace CB::core::common {
     // adds indices on top.
     void MergeBoneList(BoneNameTable& base, const BoneNameTable& overrideList);
 
-}  // namespace CB::core::common
+}  // namespace CB::engine::common

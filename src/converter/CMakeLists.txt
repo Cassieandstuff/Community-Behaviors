@@ -27,7 +27,7 @@ set_target_properties(behavior-converter PROPERTIES
     OUTPUT_NAME           "BehaviorConverter")
 
 target_include_directories(behavior-converter PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"               # "app/App.h", "ui/ConverterUI.h", "platform/SctUtilities.h", "Converter.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}"               # "app/App.h", "ui/ConverterUI.h", "platform/Platform.h", "Converter.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/convert"       # "NemesisSetDataConvert.h", "Fnis*.h"
     "${CMAKE_SOURCE_DIR}/src")                  # "core/debug/DebugFlags.h" — the shared plugin debug-flag registry
                                                 # (last, so the converter's own headers still win on any name clash;
@@ -93,5 +93,5 @@ cb_regen_bundles(
     DEPENDS          ${_bconv_template_files})
 
 # CB Havok-stack shared vocabulary (see src/engine/common/CorePrelude.h) — the converter includes engine
-# headers that reference CB::core::common / CB::core::codec unqualified; make them ambient in every TU.
+# headers that reference CB::engine::common / CB::engine::codec unqualified; make them ambient in every TU.
 target_precompile_headers(behavior-converter PRIVATE "${CMAKE_SOURCE_DIR}/src/engine/common/CorePrelude.h")

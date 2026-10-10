@@ -10,7 +10,7 @@
 #include <exception>
 #include <filesystem>
 
-namespace bconv {
+namespace CB::converter {
 
 namespace {
 std::string lower(std::string s) {
@@ -19,10 +19,10 @@ std::string lower(std::string s) {
 }
 }  // namespace
 
-BaseUnitCompiler::BaseUnitCompiler(std::shared_ptr<const CB::core::codec::HkyArchive> base) : m_base(std::move(base)) {
-    auto* reg = CB::core::schema::SharedRegistry();
+BaseUnitCompiler::BaseUnitCompiler(std::shared_ptr<const CB::engine::codec::HkyArchive> base) : m_base(std::move(base)) {
+    auto* reg = CB::engine::schema::SharedRegistry();
     if (!m_base || !reg) return;
-    using Kind = CB::core::codec::HkyArchive::UnitKind;
+    using Kind = CB::engine::codec::HkyArchive::UnitKind;
     std::unordered_map<std::string, std::string> charPrefix;   // normalized key -> archive prefix
     for (const auto& u : m_base->units()) {
         if (u.kind == Kind::Skeleton)  m_skeletonUnits.insert(lower(u.prefix));
@@ -32,14 +32,14 @@ BaseUnitCompiler::BaseUnitCompiler(std::shared_ptr<const CB::core::codec::HkyArc
         if (u.kind != Kind::Project) continue;
         const auto src = m_base->source(u.prefix);
         if (!src) continue;
-        m_rigs.AddProject(lower(u.prefix), CB::core::decompile::ReadProjectCharacters(*src, *reg),
-            [&](const std::string& charUnit) -> std::optional<CB::core::skeleton::CharacterRig> {
+        m_rigs.AddProject(lower(u.prefix), CB::engine::decompile::ReadProjectCharacters(*src, *reg),
+            [&](const std::string& charUnit) -> std::optional<CB::engine::skeleton::CharacterRig> {
                 const auto it = charPrefix.find(charUnit);
                 if (it == charPrefix.end()) return std::nullopt;
                 const auto cs = m_base->source(it->second);
-                const auto s  = cs ? CB::core::decompile::ReadCharacterStrings(*cs) : std::nullopt;
+                const auto s  = cs ? CB::engine::decompile::ReadCharacterStrings(*cs) : std::nullopt;
                 if (!s) return std::nullopt;
-                return CB::core::skeleton::CharacterRig{ s->rigName, s->behaviorFilename };
+                return CB::engine::skeleton::CharacterRig{ s->rigName, s->behaviorFilename };
             },
             [&](const std::string& rig) { return m_skeletonUnits.count(rig) != 0; });
     }
@@ -68,25 +68,25 @@ const std::vector<std::string>& BaseUnitCompiler::BonesFor(const std::string& se
             boneFiles.emplace_back(std::filesystem::path(orig[i]).stem().string(), *t);
     }
     if (bl.empty() && boneFiles.empty()) return names;
-    CB::core::skeleton::SkeletonData sk;
+    CB::engine::skeleton::SkeletonData sk;
     std::string err;
-    if (!CB::core::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &err)) return names;
+    if (!CB::engine::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &err)) return names;
     for (const auto& b : sk.bones) names.push_back(b.name);
     return names;
 }
 
-bool BaseUnitCompiler::Parse(const std::string& prefix, CB::core::decompile::ParsedHky& out, std::string& err) {
-    auto* reg = CB::core::schema::SharedRegistry();
+bool BaseUnitCompiler::Parse(const std::string& prefix, CB::engine::decompile::ParsedHky& out, std::string& err) {
+    auto* reg = CB::engine::schema::SharedRegistry();
     if (!m_base || !reg) { err = "no base bundle / schema registry"; return false; }
     const auto src = m_base->source(prefix);
     if (!src) { err = "no base unit " + prefix; return false; }
     const auto& bones = BonesFor(prefix);
-    return CB::core::decompile::ParseHkyReflective(*src, *reg, out, err, bones.empty() ? nullptr : &bones);
+    return CB::engine::decompile::ParseHkyReflective(*src, *reg, out, err, bones.empty() ? nullptr : &bones);
 }
 
 bool BaseUnitCompiler::Compile(const std::string& prefix, std::vector<std::uint8_t>& out, std::string& err) {
-    CB::core::decompile::ParsedHky g;
-    return Parse(prefix, g, err) && CB::core::decompile::SerializeGraph(g, out, err);
+    CB::engine::decompile::ParsedHky g;
+    return Parse(prefix, g, err) && CB::engine::decompile::SerializeGraph(g, out, err);
 }
 
-}  // namespace bconv
+}  // namespace CB::converter

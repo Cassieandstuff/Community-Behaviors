@@ -11,8 +11,8 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::codec {
-using namespace CB::core::common;
+namespace CB::engine::codec {
+using namespace CB::engine::common;
 
 // Faithful C++ port of HKX2E's BinaryWriterEx.cs.
 //
@@ -112,4 +112,4 @@ private:
     std::vector<std::size_t>                      m_steps;
 };
 
-} // namespace CB::core::codec
+} // namespace CB::engine::codec

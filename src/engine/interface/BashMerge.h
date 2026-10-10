@@ -16,8 +16,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace CB::core::merge {
-using namespace CB::core::common;
+namespace CB::engine::merge {
+using namespace CB::engine::common;
 
 // ── generic (representation-agnostic) merge DECISION ────────────────────────────
 enum class ParamMerge { Keep, LastWriter, ReplaceArray, UnionArray, GuardError };
@@ -314,4 +314,4 @@ inline xml::Node bashMerge(const xml::Node& base, const std::vector<const PatchL
     return merged;
 }
 
-}  // namespace CB::core::merge
+}  // namespace CB::engine::merge

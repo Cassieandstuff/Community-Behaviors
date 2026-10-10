@@ -3,8 +3,8 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace CB::core::codec {
-using namespace CB::core::common;
+namespace CB::engine::codec {
+using namespace CB::engine::common;
 
 // ── raw / positioning ───────────────────────────────────────────────────────
 
@@ -137,4 +137,4 @@ std::uint64_t BinaryReaderEx::AssertUInt64(std::initializer_list<std::uint64_t> 
 std::int32_t  BinaryReaderEx::AssertInt32(std::initializer_list<std::int32_t> o)  { return assertValue(ReadInt32(), o, "Int32"); }
 std::uint64_t BinaryReaderEx::AssertUSize(std::initializer_list<std::uint64_t> o) { return assertValue(ReadUSize(), o, USizeLong ? "USize64" : "USize32"); }
 
-} // namespace CB::core::codec
+} // namespace CB::engine::codec

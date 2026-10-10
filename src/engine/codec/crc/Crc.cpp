@@ -1,6 +1,6 @@
 #include "codec/crc/Crc.h"
 
-namespace CB::core::codec::crc {
+namespace CB::engine::codec::crc {
 
     std::uint32_t Crc32(std::string_view s)
     {
@@ -48,4 +48,4 @@ namespace CB::core::codec::crc {
         return std::nullopt;
     }
 
-}  // namespace CB::core::codec::crc
+}  // namespace CB::engine::codec::crc

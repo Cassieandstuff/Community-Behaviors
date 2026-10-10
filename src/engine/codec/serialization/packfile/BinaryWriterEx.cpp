@@ -2,8 +2,8 @@
 
 #include <stdexcept>
 
-namespace CB::core::codec {
-using namespace CB::core::common;
+namespace CB::engine::codec {
+using namespace CB::engine::common;
 
 // ── raw / positioning ───────────────────────────────────────────────────────
 
@@ -149,4 +149,4 @@ void BinaryWriterEx::FillHalf(const std::string& name, Half v)            { Step
 void BinaryWriterEx::FillSingle(const std::string& name, float v)         { StepIn(fill(name, "Single"));  WriteSingle(v);  StepOut(); }
 void BinaryWriterEx::FillDouble(const std::string& name, double v)        { StepIn(fill(name, "Double"));  WriteDouble(v);  StepOut(); }
 
-} // namespace CB::core::codec
+} // namespace CB::engine::codec

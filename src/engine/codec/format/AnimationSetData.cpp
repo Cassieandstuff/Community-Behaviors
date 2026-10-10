@@ -10,7 +10,7 @@
 // Pure std implementation — no SKSE/CommonLib/PCH — so it links into both the plugin and
 // a standalone round-trip test. The format is positional (see AnimationSetData.h); every
 // count is implicit, so each parse step is guarded and errors carry a 1-based line number.
-namespace CB::core::animsetdata {
+namespace CB::engine::animsetdata {
 
     namespace {
 
@@ -419,7 +419,7 @@ namespace CB::core::animsetdata {
     }
 
     // ── CRC / animation registration ─────────────────────────────────────────────
-    // MOVED to CB::core::codec::crc (src/engine/codec/crc) — the searchable codec. asd::Crc32 /
+    // MOVED to CB::engine::codec::crc (src/engine/codec/crc) — the searchable codec. asd::Crc32 /
     // asd::TripleForAnimation are now using-aliases (see AnimationSetData.h). Firesale step.
 
     // ── Merge ────────────────────────────────────────────────────────────────────
@@ -508,4 +508,4 @@ namespace CB::core::animsetdata {
         return st;
     }
 
-}  // namespace CB::core::animsetdata
+}  // namespace CB::engine::animsetdata

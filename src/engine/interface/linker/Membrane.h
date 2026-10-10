@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::linker {
+namespace CB::engine::linker {
 
 // ── the binding context: which tables THIS unit binds against ────────────────────────────────────
 // Assembled by compile/serve for a unit (a behaviour gets roster+events+variables+characterProps+
@@ -83,7 +83,7 @@ struct BoneMembrane {
     // bound or an unresolved name falls back to `ordinal` (identity). So a clip re-resolves against
     // the served skeleton by NAME (added bones shift indices) instead of freezing a raw index, and a
     // null/empty skeleton round-trips to the identity binding vanilla ships. Byte-identical to the
-    // former CB::core::cross::trackBoneRef.
+    // former CB::engine::cross::trackBoneRef.
     int resolveTrackRef(std::string_view ref, int ordinal) const {
         if (ref.size() > 5 && ref.substr(0, 5) == "track") {
             int n = 0; bool allDigits = true;
@@ -107,4 +107,4 @@ struct BoneMembrane {
     bool bound() const noexcept { return skeleton != nullptr; }
 };
 
-}  // namespace CB::core::linker
+}  // namespace CB::engine::linker

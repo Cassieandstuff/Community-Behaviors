@@ -115,13 +115,13 @@ namespace CB::core::serve {
 
         /// @note Animations are parsed once, in parallel (gigabytes of keyframe YAML; the engine's adsf open waits on
         ///       this), each with its actor motion resolved — its record, or extracted from a folded root.
-        std::unordered_map<std::string, std::optional<CB::core::anim::AnimationDef>> anims;
-        const auto load = [&](const std::string& path) -> std::optional<CB::core::anim::AnimationDef> {
+        std::unordered_map<std::string, std::optional<CB::engine::anim::AnimationDef>> anims;
+        const auto load = [&](const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
             for (auto it = bundles.rbegin(); it != bundles.rend(); ++it)
                 if (const auto text = it->second.read(path)) {
                     try {
-                        auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(*text, path);
-                        def.motion = CB::core::anim::ResolveRootMotion(def);
+                        auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*text, path);
+                        def.motion = CB::engine::anim::ResolveRootMotion(def);
                         return def;
                     } catch (const std::exception& e) {
                         LOG_WARN("AnimData: animation '{}' unreadable: {}", path, e.what());
@@ -135,7 +135,7 @@ namespace CB::core::serve {
         src.clips         = adsf.clips;
         src.behaviorUnits = adsf.behaviorUnits;
         src.prefetch      = [&](const std::vector<std::string>& paths) {
-            std::vector<std::optional<CB::core::anim::AnimationDef>> parsed(paths.size());
+            std::vector<std::optional<CB::engine::anim::AnimationDef>> parsed(paths.size());
             std::atomic<std::size_t> next{ 0 };
             std::vector<std::thread> pool;
             for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
@@ -143,13 +143,13 @@ namespace CB::core::serve {
             for (auto& t : pool) t.join();
             for (std::size_t i = 0; i < paths.size(); ++i) anims.emplace(paths[i], std::move(parsed[i]));
         };
-        src.animation = [&](const std::string& path) -> const CB::core::anim::AnimationDef* {
+        src.animation = [&](const std::string& path) -> const CB::engine::anim::AnimationDef* {
             auto it = anims.find(path);
             if (it == anims.end()) it = anims.emplace(path, load(path)).first;
             return it->second ? &*it->second : nullptr;
         };
 
-        const auto* reg = CB::core::schema::SharedRegistry();
+        const auto* reg = CB::engine::schema::SharedRegistry();
         if (!reg) { r.error = "schema registry not armed"; LOG_ERROR("AnimData: {}.", r.error); return r; }
         animdata::ProjectionStats st;
         const auto t0   = std::chrono::steady_clock::now();
@@ -160,7 +160,7 @@ namespace CB::core::serve {
         /// @note The schema writer enforces the descriptors' `framelimit` (the engine reads each project's frame
         ///       counts through a 16-bit truncation): a file it would misread is refused and vanilla stays.
         std::string text;
-        if (!CB::core::codec::io::WriteMetaText(*root, text, err)) {
+        if (!CB::engine::codec::io::WriteMetaText(*root, text, err)) {
             r.error = err;
             LOG_ERROR("AnimData: {} — NOT serving the projected animation data (vanilla stays).", r.error);
             return r;

@@ -29,7 +29,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::animsetdata {
+namespace CB::engine::animsetdata {
 
     // One project's sets -> movesets.yaml text (authoring intent only; CRCs live in crcs.yaml).
     std::string EmitMovesetsYaml(const Project& project);
@@ -95,4 +95,4 @@ namespace CB::core::animsetdata {
     // existing `crcs`) when `animations` is empty (legacy path). Byte-exact against the vanilla CRCs.
     void CompileSetdataCrcs(SetFile& set);
 
-}  // namespace CB::core::animsetdata
+}  // namespace CB::engine::animsetdata

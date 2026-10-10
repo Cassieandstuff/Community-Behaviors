@@ -20,8 +20,8 @@
 // section from offset 0 via virtual fixups (class name -> registry factory ->
 // Read), resolving pointers/arrays/strings through the section fixup maps.
 
-namespace CB::core::codec {
-using namespace CB::core::common;
+namespace CB::engine::codec {
+using namespace CB::engine::common;
 
 class PackFileDeserializer {
 public:
@@ -363,4 +363,4 @@ private:
     std::unordered_map<std::uint32_t, std::vector<std::uint32_t>>    _refsInReadOrder;
 };
 
-} // namespace CB::core::codec
+} // namespace CB::engine::codec

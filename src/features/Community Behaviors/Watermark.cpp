@@ -21,18 +21,18 @@ namespace CB::feature {
 
             bool AppliesTo(const FeatureContext&) const override { return true; }
 
-            FeatureResult Apply(CB::core::decompile::GraphEdit& graph, const FeatureContext& ctx) override
+            FeatureResult Apply(CB::engine::decompile::GraphEdit& graph, const FeatureContext& ctx) override
             {
                 if (!graph.GraphData()) return {};
                 std::string err;
                 const auto added = graph.AddVariable(CB::core::resolve::kWatermarkVar, "VARIABLE_TYPE_INT32",
                                                      CB::core::resolve::kWatermarkValue, err);
-                if (added == CB::core::decompile::GraphEdit::Add::Failed) {
+                if (added == CB::engine::decompile::GraphEdit::Add::Failed) {
                     ctx.log.Warn(std::format("watermark: {}: {}", ctx.graphKey, err));
                     return {};
                 }
                 FeatureResult r;
-                r.applied   = added == CB::core::decompile::GraphEdit::Add::Added;
+                r.applied   = added == CB::engine::decompile::GraphEdit::Add::Added;
                 r.mutations = r.applied ? 1 : 0;
                 return r;
             }

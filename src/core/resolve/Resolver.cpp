@@ -12,10 +12,10 @@
 #include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
-#include <compile/AnimationCompiler.h>         // CB::core::anim::CompileAnimation (native anim -> loose .hkx)
+#include <compile/AnimationCompiler.h>         // CB::engine::anim::CompileAnimation (native anim -> loose .hkx)
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
-#include <interface/MasterTable.h>          // CB::core::codec::formid::BuildMasterTable (ordered master table)
+#include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
 #include <codec/format/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <compile/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
 #include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
@@ -54,17 +54,17 @@ namespace CB {
 
         /// @brief A reflective unit's kind (its graph.yaml's root variant; a patch names its base's). A unit without
         ///        graph.yaml is a patch that leaves the root untouched — Behavior.
-        CB::core::codec::HkyArchive::UnitKind KindOfUnit(const CB::core::common::IUnitSource& src)
+        CB::engine::codec::HkyArchive::UnitKind KindOfUnit(const CB::engine::common::IUnitSource& src)
         {
             const auto g = src.read("graph.yaml");
-            return g ? CB::core::codec::HkyArchive::KindOfGraphYaml(*g) : CB::core::codec::HkyArchive::UnitKind::Behavior;
+            return g ? CB::engine::codec::HkyArchive::KindOfGraphYaml(*g) : CB::engine::codec::HkyArchive::UnitKind::Behavior;
         }
 
         /// @brief True when the unit is complete on its own (not a patch over a master's unit).
-        bool IsCompleteUnit(const CB::core::common::IUnitSource& src)
+        bool IsCompleteUnit(const CB::engine::common::IUnitSource& src)
         {
             const auto g = src.read("graph.yaml");
-            return g && !CB::core::codec::HkyArchive::IsPatchGraphYaml(*g);
+            return g && !CB::engine::codec::HkyArchive::IsPatchGraphYaml(*g);
         }
 
         // The actor identity for a graph serve key: everything between "actors/" and the
@@ -233,7 +233,7 @@ namespace CB {
             // order, last = self) — what a node's FormId masterIndex resolves against. explicitMasters
             // is the DIRECT declared set in manifest order (deduped, self-excluded, lowercase).
             for (const std::string& s : survivors)
-                plan.masterTable[s] = CB::core::codec::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
+                plan.masterTable[s] = CB::engine::codec::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
             for (const std::string& s : survivors) {
                 std::vector<std::string> masters = explicitMasters[s];          // all present (survivors)
                 if (haveSkyrim && s != "skyrim" &&
@@ -333,7 +333,7 @@ namespace CB {
         // archive-backed (ZipUnitSource, a packed .hky) — the merge doesn't care which.
         struct LayerBuild {
             std::string                                      stem;    // owning bundle — its master-DAG rank orders this layer
-            std::shared_ptr<const CB::core::common::IUnitSource> source;
+            std::shared_ptr<const CB::engine::common::IUnitSource> source;
             bool                                             isChar;
         };
         std::unordered_map<std::string, std::vector<LayerBuild>> layers;
@@ -476,15 +476,15 @@ namespace CB {
                     /// @note Skeletons compile through the skeleton path (path-local winners), and the project is
                     ///       synthesized by ProjectRedirect — neither is a merged graph layer. A project unit only
                     ///       contributes its original-case character ref.
-                    auto src = std::make_shared<CB::core::common::DiskUnitSource>(unit);
+                    auto src = std::make_shared<CB::engine::common::DiskUnitSource>(unit);
                     const auto kind = KindOfUnit(*src);
-                    if (kind == CB::core::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(key); continue; }
-                    if (kind == CB::core::codec::HkyArchive::UnitKind::Project) {
+                    if (kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(key); continue; }
+                    if (kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
                         nonGraphKeys.insert(key);
                         if (IsCompleteUnit(*src)) m_projectUnits[key] = std::move(src);
                         continue;
                     }
-                    layers[key].push_back({ plugName, std::move(src), kind == CB::core::codec::HkyArchive::UnitKind::Character });
+                    layers[key].push_back({ plugName, std::move(src), kind == CB::engine::codec::HkyArchive::UnitKind::Character });
                 }
 
                 // AUTHOR-FACING ROSTER DROP: a bundle adds animations to a character by
@@ -526,7 +526,7 @@ namespace CB {
                 // out of the in-memory blob. The archive is held in m_archives for the
                 // process lifetime so those sources stay valid.
                 std::string err;
-                auto arc = CB::core::codec::HkyArchive::LoadFromFile(bundle.string(), err);
+                auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
                 if (!arc) {
                     LOG_WARN("Resolver: cannot read packed .hky '{}': {} — skipped.", bundle.string(), err);
                 } else {
@@ -544,7 +544,7 @@ namespace CB {
                         // The project graph is not a merged layer — ProjectRedirect serves the complete
                         // project unit on demand (into the cache, vanilla identity, its ORIGINAL-CASE
                         // characterFilenames: a lowercased ref A-poses vanilla-only actors).
-                        if (u.kind == CB::core::codec::HkyArchive::UnitKind::Project) {
+                        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
                             nonGraphKeys.insert(NormalizeKey(u.prefix));
                             if (auto src = arc->source(u.prefix))
                                 if (IsCompleteUnit(*src)) m_projectUnits[NormalizeKey(u.prefix)] = std::move(src);
@@ -555,11 +555,11 @@ namespace CB {
                         // ByteServe REDIRECTED every skeleton load into community_behaviors_cache, but no graph compile
                         // ever wrote that file — the redirect hit a missing file and the skeleton failed to
                         // load: universal A-pose + no root motion. Leave unlayered skeletons to vanilla.
-                        if (u.kind == CB::core::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(NormalizeKey(u.prefix)); continue; }
+                        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(NormalizeKey(u.prefix)); continue; }
                         const std::string key = NormalizeKey(u.prefix);   // already lower/'/'-normal
                         if (key.empty() || key[0] == '.') continue;
                         layers[key].push_back({ plugName, arc->source(u.prefix),
-                                                u.kind == CB::core::codec::HkyArchive::UnitKind::Character });
+                                                u.kind == CB::engine::codec::HkyArchive::UnitKind::Character });
                     }
 
                     // Author roster drops inside a packed bundle live at "animationnames/
@@ -652,17 +652,17 @@ namespace CB {
                     if (!endsWith(".hkx/graph.yaml")) continue;
                     const std::string unit = f.substr(0, f.size() - 11);
                     const std::string text = bundles[bi].reader.read(f).value_or("");
-                    if (CB::core::codec::HkyArchive::IsPatchGraphYaml(text)) continue;
-                    switch (CB::core::codec::HkyArchive::KindOfGraphYaml(text)) {
-                        case CB::core::codec::HkyArchive::UnitKind::Project:   projWinner[unit] = bi; break;
-                        case CB::core::codec::HkyArchive::UnitKind::Character: charWinner[unit] = bi; break;
+                    if (CB::engine::codec::HkyArchive::IsPatchGraphYaml(text)) continue;
+                    switch (CB::engine::codec::HkyArchive::KindOfGraphYaml(text)) {
+                        case CB::engine::codec::HkyArchive::UnitKind::Project:   projWinner[unit] = bi; break;
+                        case CB::engine::codec::HkyArchive::UnitKind::Character: charWinner[unit] = bi; break;
                         default: break;
                     }
                 }
 
             /// @note filesUnder (normalized, for read) and filesUnderOrig (original case, for the bone NAME)
             ///       walk the same range, so index i aligns — a lowercased bone would orphan its skin binding.
-            auto readUnit = [&](std::size_t bi, const std::string& unit, CB::core::skeleton::SkeletonData& out) -> bool {
+            auto readUnit = [&](std::size_t bi, const std::string& unit, CB::engine::skeleton::SkeletonData& out) -> bool {
                 const BundleReader& br = bundles[bi].reader;
                 const std::string bl   = br.read(unit + "/bonelist.yaml").value_or("");
                 const auto norm = br.filesUnder(unit + "/bones/", ".yaml");
@@ -673,7 +673,7 @@ namespace CB {
                         boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
                 if (bl.empty() && boneFiles.empty()) return false;
                 std::string err;
-                if (!CB::core::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
+                if (!CB::engine::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
                     LOG_WARN("Resolver: skeleton '{}' ({}) YAML load failed: {}", unit, bundles[bi].stem, err);
                     return false;
                 }
@@ -681,7 +681,7 @@ namespace CB {
             };
             /// @note Loaded HERE, single-threaded, before any fan-out: its one-time load is guarded by a plain,
             ///       unsynchronized `state` int, so two workers racing the first use could both attempt it.
-            auto* schemaReg = CB::core::schema::SharedRegistry();
+            auto* schemaReg = CB::engine::schema::SharedRegistry();
 
             // DIAGNOSTIC opt-out (marker file Data\community_behaviors\noskeletonserve.enable): skip the
             // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton.
@@ -710,9 +710,9 @@ namespace CB {
                         return;
                     }
                 }
-                CB::core::skeleton::SkeletonData sk;
+                CB::engine::skeleton::SkeletonData sk;
                 if (!readUnit(bi, unit, sk)) return;
-                auto cr = CB::core::skeleton::CompileSkeletonFull(sk);
+                auto cr = CB::engine::skeleton::CompileSkeletonFull(sk);
                 if (cr.ok) {
                     const std::size_t nBones = sk.bones.size();
                     { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
@@ -736,14 +736,14 @@ namespace CB {
             for (const auto& [projUnit, pbi] : projWinner) {
                 const auto psrc = bundles[pbi].reader.unitSource(projUnit);
                 if (!psrc || !schemaReg) continue;
-                m_rigIndex.AddProject(projUnit, CB::core::decompile::ReadProjectCharacters(*psrc, *schemaReg),
-                    [&](const std::string& charUnit) -> std::optional<CB::core::skeleton::CharacterRig> {
+                m_rigIndex.AddProject(projUnit, CB::engine::decompile::ReadProjectCharacters(*psrc, *schemaReg),
+                    [&](const std::string& charUnit) -> std::optional<CB::engine::skeleton::CharacterRig> {
                         const auto cit = charWinner.find(charUnit);
                         if (cit == charWinner.end()) return std::nullopt;
                         const auto src = bundles[cit->second].reader.unitSource(charUnit);
-                        const auto cs  = src ? CB::core::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                        const auto cs  = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
                         if (!cs) return std::nullopt;
-                        return CB::core::skeleton::CharacterRig{ cs->rigName, cs->behaviorFilename };
+                        return CB::engine::skeleton::CharacterRig{ cs->rigName, cs->behaviorFilename };
                     },
                     [&](const std::string& rig) { return skelWinner.count(rig) != 0; },
                     [](const std::string& m) { LOG_WARN("Resolver: {}.", m); });
@@ -760,9 +760,9 @@ namespace CB {
                 const std::string* r  = &rig;
                 const std::size_t  bi = skelWinner.at(rig);
                 boneTasks.push_back([&, r, bi] {
-                    CB::core::skeleton::SkeletonData sk;
+                    CB::engine::skeleton::SkeletonData sk;
                     if (!readUnit(bi, *r, sk)) return;
-                    CB::core::common::BoneNameTable tbl;
+                    CB::engine::common::BoneNameTable tbl;
                     for (const auto& b : sk.bones) tbl.names.push_back(b.name);
                     tbl.Reindex();
                     const std::size_t nBones = tbl.names.size();
@@ -797,7 +797,7 @@ namespace CB {
             gs.layers.reserve(ls.size());
             for (auto& l : ls) {
                 // Carry each layer's load-order identity so the merge keys node identity by scope.
-                CB::core::common::LayerSource lsrc;
+                CB::engine::common::LayerSource lsrc;
                 lsrc.source = l.source;
                 lsrc.stem   = l.stem;
                 const auto rit = plan.rank.find(l.stem);
@@ -986,7 +986,7 @@ namespace CB {
         // READS it (a pure pointer return). On the serial path this is a harmless no-op — the cold path's
         // CompileAll already warmed it; the WARM path (ArmCacheFromDisk) does NOT run CompileAll, so this is
         // the call that warms it there. Do it regardless of exec so both paths are covered.
-        (void)CB::core::schema::SharedRegistry();
+        (void)CB::engine::schema::SharedRegistry();
 
         // Compile+write ONE native animation. A pure function of its own (outKey, yamlText) entry and the
         // immutable-after-Init m_skeletons; writes its own distinct file. No shared mutable state, so this
@@ -1001,10 +1001,10 @@ namespace CB {
             // doesn't opt in isn't compiled at all, so there is nothing to clobber.
             const fs::path out = dataRoot / fs::path(outKey);
             try {
-                auto def = CB::core::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
                 /// @note The unit's actor motion (its record, or extracted from a folded root — which also strips the
                 ///       root, so the binary compiled below serves without the travel the adsf now moves the actor by).
-                const auto motion = CB::core::anim::ResolveRootMotion(def);
+                const auto motion = CB::engine::anim::ResolveRootMotion(def);
                 // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
                 // carries an inline `motion:` block, emit it for the adsf finalizer to DRAIN (instead of
                 // the adsf re-reading the YAML — which looked for a `.hkx.yaml` class these `.hkx` units
@@ -1027,7 +1027,7 @@ namespace CB {
                         LOG_WARN("Resolver: animation '{}' binds rigs that disagree on bone order — tracks resolve "
                                  "against '{}'.", outKey, rb.rig);
                 }
-                const auto r   = CB::core::anim::CompileAnimation(def, 30, CB::core::codec::HKXHeader::SkyrimSE(), boneNames);
+                const auto r   = CB::engine::anim::CompileAnimation(def, 30, CB::engine::codec::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
                     failed.fetch_add(1, std::memory_order_relaxed);
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
@@ -1243,11 +1243,11 @@ namespace CB {
     /// @note  Every path KEY is lowercased at scan; this name re-cases the synthesized project's characterFilenames
     ///        back to vanilla, which Havok matches CASE-SENSITIVELY (a miscased ref binds nothing: universal A-pose).
     static std::string ReadCharacterName(
-        const std::vector<CB::core::common::LayerSource>& layers)
+        const std::vector<CB::engine::common::LayerSource>& layers)
     {
         for (const auto& L : layers)
             if (L.source)
-                if (const auto cs = CB::core::decompile::ReadCharacterStrings(*L.source); cs && !cs->name.empty())
+                if (const auto cs = CB::engine::decompile::ReadCharacterStrings(*L.source); cs && !cs->name.empty())
                     return cs->name;
         return {};
     }
@@ -1370,19 +1370,19 @@ namespace CB {
                  dataRoot.string());
     }
 
-    std::vector<CB::core::animdata::DeriveClipInput> Resolver::ClipInputsOf(
-        const std::string& key, const std::vector<CB::core::common::LayerSource>& layers) const
+    std::vector<CB::engine::animdata::DeriveClipInput> Resolver::ClipInputsOf(
+        const std::string& key, const std::vector<CB::engine::common::LayerSource>& layers) const
     {
-        auto* reg = CB::core::schema::SharedRegistry();
+        auto* reg = CB::engine::schema::SharedRegistry();
         if (!reg) return {};
         const RigBones rb = BonesFor(key);
-        CB::core::decompile::ParsedHky graph;
+        CB::engine::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::core::decompile::MergeLayersReflective(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!CB::engine::decompile::MergeLayersReflective(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: clip read of '{}' failed: {}", key, err);
             return {};
         }
-        return CB::core::compile::DeriveClipInputsFromGraph(graph.root);
+        return CB::engine::compile::DeriveClipInputsFromGraph(graph.root);
     }
 
     std::size_t Resolver::FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const
@@ -1396,28 +1396,28 @@ namespace CB {
         return folded;
     }
 
-    std::vector<CB::core::animdata::DeriveClipInput> Resolver::MergedClipInputs(const std::string& key) const
+    std::vector<CB::engine::animdata::DeriveClipInput> Resolver::MergedClipInputs(const std::string& key) const
     {
         const auto it = m_sources.find(NormalizeKey(key));
-        return it == m_sources.end() ? std::vector<CB::core::animdata::DeriveClipInput>{} : ClipInputsOf(it->first, it->second.layers);
+        return it == m_sources.end() ? std::vector<CB::engine::animdata::DeriveClipInput>{} : ClipInputsOf(it->first, it->second.layers);
     }
 
     std::vector<std::string> Resolver::ServedRoster(const std::string& characterKey) const
     {
-        auto* reg = CB::core::schema::SharedRegistry();
+        auto* reg = CB::engine::schema::SharedRegistry();
         const auto it = m_sources.find(NormalizeKey(characterKey));
         if (!reg || it == m_sources.end()) return {};
         const RigBones rb = BonesFor(it->first);
-        CB::core::decompile::ParsedHky graph;
+        CB::engine::decompile::ParsedHky graph;
         std::string err;
-        if (!CB::core::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+        if (!CB::engine::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
             LOG_WARN("Resolver: roster read of '{}' failed: {}", it->first, err);
             return {};
         }
-        CB::core::decompile::GraphEdit edit(graph, *reg);
+        CB::engine::decompile::GraphEdit edit(graph, *reg);
         std::vector<std::string> names;
         bool found = false;
-        edit.ForEach("hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) {
+        edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
             if (!found) { names = so.FieldRef("animationNames").strs; found = true; }
         });
         FoldAuthorRoster(ToLower(fs::path(it->first).stem().string()), names);
@@ -1536,10 +1536,10 @@ namespace CB {
                     std::vector<std::uint8_t> bytes;
                     std::string err;
                     if (const auto pu = m_projectUnits.find(projKey); pu != m_projectUnits.end()) {
-                        CB::core::decompile::ParsedHky project;
-                        auto* reg = CB::core::schema::SharedRegistry();
-                        if (!reg || !CB::core::decompile::ParseHkyReflective(*pu->second, *reg, project, err) ||
-                            !CB::core::decompile::SerializeGraph(project, bytes, err))
+                        CB::engine::decompile::ParsedHky project;
+                        auto* reg = CB::engine::schema::SharedRegistry();
+                        if (!reg || !CB::engine::decompile::ParseHkyReflective(*pu->second, *reg, project, err) ||
+                            !CB::engine::decompile::SerializeGraph(project, bytes, err))
                             bytes.clear();
                     }
                     if (bytes.empty()) {
@@ -1603,10 +1603,10 @@ namespace CB {
         return std::filesystem::exists(m_dataRoot / std::filesystem::path(CacheDiskRel(key)), ec);
     }
 
-    void Resolver::ResolveCharacter(const std::string& key, CB::core::decompile::GraphEdit& edit)
+    void Resolver::ResolveCharacter(const std::string& key, CB::engine::decompile::GraphEdit& edit)
     {
-        CB::core::codec::io::SchemaObject* sd = nullptr;
-        edit.ForEach("hkbCharacterStringData", [&](CB::core::codec::io::SchemaObject& so) { if (!sd) sd = &so; });
+        CB::engine::codec::io::SchemaObject* sd = nullptr;
+        edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) { if (!sd) sd = &so; });
         if (!sd) { LOG_WARN("Resolver: character '{}' has no string data — served as merged.", key); return; }
         const std::string cstem = ToLower(fs::path(key).stem().string());
 
@@ -1649,7 +1649,7 @@ namespace CB {
         std::shared_ptr<const std::vector<std::uint8_t>> result;
         try {
             const auto t0 = std::chrono::steady_clock::now();
-            auto* reg = CB::core::schema::SharedRegistry();
+            auto* reg = CB::engine::schema::SharedRegistry();
             if (!reg) throw std::runtime_error("schema registry unavailable");
 
             /// @note Bone names (weight maps, bone refs, bone-keyed rosters) resolve against the rig of the
@@ -1660,15 +1660,15 @@ namespace CB {
                 LOG_WARN("Resolver: '{}' is shared by characters whose rigs disagree on bone order — "
                          "bone names resolve against '{}'.", key, rb.rig);
 
-            CB::core::decompile::ParsedHky graph;
+            CB::engine::decompile::ParsedHky graph;
             std::string err;
-            if (!CB::core::decompile::MergeLayersReflective(gs.layers, *reg, bones, graph, err)) {
+            if (!CB::engine::decompile::MergeLayersReflective(gs.layers, *reg, bones, graph, err)) {
                 LOG_ERROR("Community Behaviors: merge FAILED for '{}' — SERVING VANILLA (its mod edits are dropped): {}",
                           key, err);
                 m_cache.emplace(key, nullptr);
                 return nullptr;
             }
-            CB::core::decompile::GraphEdit edit(graph, *reg);
+            CB::engine::decompile::GraphEdit edit(graph, *reg);
 
             if (gs.isCharacter) {
                 ResolveCharacter(key, edit);
@@ -1692,7 +1692,7 @@ namespace CB {
                 /// @note adsf-derive is a first-class compile stage (compiler output, not a graph mutation): it
                 ///       reads the clip generators AFTER the features, so a feature that adds clips gets derived.
                 if (m_adsfDerive) {
-                    const auto inputs = CB::core::compile::DeriveClipInputsFromGraph(graph.root);
+                    const auto inputs = CB::engine::compile::DeriveClipInputsFromGraph(graph.root);
                     for (const auto& in : inputs) m_clipSink.EmitClip(key, in);
                     if (!inputs.empty())
                         LOG_INFO("Resolver: adsf-derive — {} clip input(s) from '{}'.", inputs.size(), key);
@@ -1701,7 +1701,7 @@ namespace CB {
                 /// @note Cache-qualify every child behavior reference CB owns, so the recursive above-OAR load pulls
                 ///       CB's compiled sub-behaviors while unowned children resolve to their vanilla files.
                 std::size_t qualified = 0;
-                edit.ForEach("hkbBehaviorReferenceGenerator", [&](CB::core::codec::io::SchemaObject& so) {
+                edit.ForEach("hkbBehaviorReferenceGenerator", [&](CB::engine::codec::io::SchemaObject& so) {
                     std::string& name = so.FieldRef("behaviorName").str;
                     if (const std::string q = QualifyChildRef(key, name); q != name) { name = q; ++qualified; }
                 });
@@ -1722,7 +1722,7 @@ namespace CB {
 
             std::vector<std::uint8_t> bytes;
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-            if (CB::core::decompile::SerializeGraph(graph, bytes, err)) {
+            if (CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
                 result = std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes));
                 LOG_INFO("Resolver: compiled '{}' — {} layer(s) merged, {} bytes in {:.1f} ms.",
                          key, gs.layers.size(), result->size(), ms);
@@ -1749,7 +1749,7 @@ namespace CB {
     bool Resolver::DeriveAnimData(const std::filesystem::path& dataDir)
     {
         if (!m_adsfDerive) return false;
-        namespace ad = CB::core::animdata;
+        namespace ad = CB::engine::animdata;
 
         // ── start from the proven collated file (ServeAnimData ran first) ──
         const fs::path out = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";

@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::common { struct IUnitSource; }
+namespace CB::engine::common { struct IUnitSource; }
 
 namespace CB {
 
@@ -59,15 +59,15 @@ namespace CB {
         ///        "<x>.hkx/" unit of `kind`, classified by its graph.yaml root (HkyArchive::KindOfGraphYaml); a
         ///        bonelist.yaml unit is a Skeleton.
         /// @note  A patch unit that leaves the root untouched has no graph.yaml and lists as a Behavior.
-        std::vector<std::string> units(CB::core::codec::HkyArchive::UnitKind kind) const;
+        std::vector<std::string> units(CB::engine::codec::HkyArchive::UnitKind kind) const;
 
         /// @brief A read-only IUnitSource rooted at a unit `prefix` (from units()): packed bundle -> ZipUnitSource,
         ///        unpacked -> DiskUnitSource, so a unit reads the same way regardless of form.
-        std::shared_ptr<const CB::core::common::IUnitSource> unitSource(const std::string& prefix) const;
+        std::shared_ptr<const CB::engine::common::IUnitSource> unitSource(const std::string& prefix) const;
 
     private:
         std::filesystem::path                     m_dir;   // set when unpacked (m_arc null)
-        std::shared_ptr<CB::core::codec::HkyArchive> m_arc;   // set when packed  (m_dir empty)
+        std::shared_ptr<CB::engine::codec::HkyArchive> m_arc;   // set when packed  (m_dir empty)
     };
 
 }  // namespace CB

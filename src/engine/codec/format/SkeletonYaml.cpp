@@ -15,8 +15,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace CB::core::skeleton {
-using namespace CB::core::common;
+namespace CB::engine::skeleton {
+using namespace CB::engine::common;
 namespace fs = std::filesystem;
 namespace {
 
@@ -511,4 +511,4 @@ bool MergeBoneAdditions(SkeletonData& base, const std::vector<SkeletonBoneAdd>& 
     return true;
 }
 
-} // namespace CB::core::skeleton
+} // namespace CB::engine::skeleton

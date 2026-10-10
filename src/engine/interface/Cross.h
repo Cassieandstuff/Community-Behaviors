@@ -1,6 +1,6 @@
 #pragma once
 // ---------------------------------------------------------------------------
-// CB::core::cross — the cross-kind MEMBRANE.
+// CB::engine::cross — the cross-kind MEMBRANE.
 //
 // The behavior pipeline crosses between a human/name/string representation
 // (.hky YAML) and a raw/index/typed one (binary Havok) in three layers: the
@@ -30,9 +30,9 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::cross {
+namespace CB::engine::cross {
 
-// (hkVector4/Quaternion text parser moved to <common/Vec4Text.h> — CB::core::common::vec4::parseVec4.)
+// (hkVector4/Quaternion text parser moved to <common/Vec4Text.h> — CB::engine::common::vec4::parseVec4.)
 
 // (enum value → name moved to <havok/model/HavokEnums.h> — the whole enum leaf, encode + both
 // decodes, is one authority there now. This header keeps only the contextual name↔index lookups.)
@@ -90,4 +90,4 @@ inline std::string rosterName(int index, const std::vector<std::string>& roster)
     return roster[static_cast<std::size_t>(index)];
 }
 
-}  // namespace CB::core::cross
+}  // namespace CB::engine::cross

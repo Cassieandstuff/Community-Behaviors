@@ -5,8 +5,8 @@
 #include <decompile/PandoraCompatShim.h> // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include <interface/BashMerge.h>        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
-#include <codec/formid/FormId.h>          // CB::core::codec::formid — node identity as a FormId "idx:local"
-#include <common/Vec4Text.h>              // CB::core::common::vec4::parseVec4 (the ONE vec4 text parser)
+#include <codec/formid/FormId.h>          // CB::engine::codec::formid — node identity as a FormId "idx:local"
+#include <common/Vec4Text.h>              // CB::engine::common::vec4::parseVec4 (the ONE vec4 text parser)
 #include <RymlInclude.h>                  // ParseHky — the reflective .hky reader
 #include <codec/serialization/packfile/PackFileSerializer.h>   // RoundTripReflective re-serialize
 
@@ -29,9 +29,9 @@
 #include <unordered_set>
 #include <vector>
 
-namespace CB::core::decompile {
-using namespace CB::core::codec;
-using namespace CB::core::common;
+namespace CB::engine::decompile {
+using namespace CB::engine::codec;
+using namespace CB::engine::common;
 
 std::string CategoryForClass(const std::string& className) {
     // The .hky folder each top-level node class lives in, extracted verbatim from the reference
@@ -103,7 +103,7 @@ Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry&
 
 // ── .hky value rendering (ported from BehaviorDecompiler's helpers) ───────────
 namespace {
-namespace en = CB::core::common::enums;
+namespace en = CB::engine::common::enums;
 using schema::Field;
 using schema::FieldKind;
 using schema::Scalar;
@@ -197,9 +197,9 @@ struct NameResolver {
     std::vector<std::string> events, variables, attributes, charProps;
     // The one name<->index codec, built once per roster (decode = index->name, encode = the dup-guard).
     // Bones/events/vars match EXACTLY (Havok is case-sensitive) — the linker's default (no case-fold).
-    CB::core::linker::Linker eventsL, variablesL, charPropsL;
+    CB::engine::linker::Linker eventsL, variablesL, charPropsL;
     void index() {   // call after the roster vectors are filled
-        namespace linker = CB::core::linker;
+        namespace linker = CB::engine::linker;
         eventsL    = linker::Linker::OfOrderedNames(events);
         variablesL = linker::Linker::OfOrderedNames(variables);
         charPropsL = linker::Linker::OfOrderedNames(charProps);
@@ -212,11 +212,11 @@ struct NameResolver {
     // Merge-safe name: only if `i` is the FIRST index carrying that name (a duplicate would remap on
     // round-trip, so the decompiler falls back to the raw id). encode() returns the first index for a
     // name, so "first occurrence" is exactly encode(name) == i — byte-identical to the old scan.
-    std::string safe(const CB::core::linker::Linker& L, long i) const {
+    std::string safe(const CB::engine::linker::Linker& L, long i) const {
         const auto nm = L.decode(i);
         if (!nm || nm->empty()) return {};
         const auto first = L.encode(*nm);
-        return (first && *first == static_cast<CB::core::linker::Value>(i)) ? *nm : std::string{};
+        return (first && *first == static_cast<CB::engine::linker::Value>(i)) ? *nm : std::string{};
     }
     std::string safeEvent(long i) const    { return safe(eventsL, i); }
     std::string safeVariable(long i) const { return safe(variablesL, i); }
@@ -502,7 +502,7 @@ struct ReflectCtx {
     const schema::SchemaRegistry&   reg;
     const std::vector<std::string>* bones;   ///< the graph's rig, in rig order; null = unknown (indices stay numeric)
     const std::unordered_map<const IHavokObject*, std::string>* cat;   ///< effective category (file nodes + shared/)
-    std::uint16_t                   keyOwner = CB::core::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
+    std::uint16_t                   keyOwner = CB::engine::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
     std::vector<std::pair<std::string, std::string>>* sink = nullptr;   ///< node-level rosters -> (field path, entries)
     std::string                     path;                            ///< dotted field path from the node to this object
 };
@@ -887,9 +887,9 @@ std::pair<std::string, std::string> rosterKind(const Field& f) {
 }
 
 /// @brief The positional sub-record key for list position `k`: the unit's own (self) unless `owner` names a master.
-std::string mintedKey(std::size_t k, std::uint16_t owner = CB::core::codec::formid::SELF_INDEX) {
-    const auto f = CB::core::codec::formid::make(owner, static_cast<std::uint32_t>(k));
-    return f ? CB::core::codec::formid::format(*f) : std::to_string(k);
+std::string mintedKey(std::size_t k, std::uint16_t owner = CB::engine::codec::formid::SELF_INDEX) {
+    const auto f = CB::engine::codec::formid::make(owner, static_cast<std::uint32_t>(k));
+    return f ? CB::engine::codec::formid::format(*f) : std::to_string(k);
 }
 
 /// @brief A `field:`/`bone:` roster element's natural key and the index of the field it comes from (empty key = none).
@@ -1143,7 +1143,7 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
         BinaryReaderEx br(false, true, bytes);
         des.Deserialize(br);
         Identity id = AssignIdentity(des, reg);
-        for (auto& [o, v] : id.ids) v = formIdOf(CB::core::codec::formid::SELF_INDEX, v);
+        for (auto& [o, v] : id.ids) v = formIdOf(CB::engine::codec::formid::SELF_INDEX, v);
         return EmitHkyReflective(id, reg, outDir, err, bones);
     } catch (const std::exception& e) {
         err = std::string("DecompileBehaviorReflective: ") + e.what();
@@ -1177,7 +1177,7 @@ std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& 
 
 // ── generic tagfile-XML PARSE (the inverse codec) ────────────────────────────────────────────────
 namespace {
-namespace en = CB::core::common::enums;
+namespace en = CB::engine::common::enums;
 using schema::Field;
 using schema::FieldKind;
 using schema::Scalar;
@@ -1217,11 +1217,11 @@ float parseF(const std::string& t) { return std::strtof(t.c_str(), nullptr); }
 std::int64_t parseL(const std::string& t) { return std::strtoll(t.c_str(), nullptr, 0); }   // 0 base: dec/0xHEX; int64 (#6)
 
 // A vec4/quaternion field's text -> 16 raw bytes (4 floats), via the shared membrane parser
-// (CB::core::common::vec4::parseVec4) — the ONE vec4 text codec, also used by havok-core BehaviorBuilder::pv4.
+// (CB::engine::common::vec4::parseVec4) — the ONE vec4 text codec, also used by havok-core BehaviorBuilder::pv4.
 // It accepts both the decompiler's "(x y z w)" and the bare/multi-line float form, so BR-28 (a bare
 // axisOfRotation reading as 0 0 0 0) can't recur and the two paths can't diverge (B4 collapsed).
 std::vector<std::uint8_t> parseVec4Raw(const std::string& t) {
-    const auto q = CB::core::common::vec4::parseVec4(t);
+    const auto q = CB::engine::common::vec4::parseVec4(t);
     std::vector<std::uint8_t> r(16); std::memcpy(r.data(), q.data(), 16); return r;
 }
 
@@ -1274,7 +1274,7 @@ std::vector<std::uint8_t> parseScalarRaw(const std::string& cls, const Field& f,
 }
 
 // The <hkparam name="F"> child of an object node (nullptr if absent — a field the patch didn't set).
-const CB::core::common::xml::Node* paramByName(const CB::core::common::xml::Node& obj, const std::string& name) {
+const CB::engine::common::xml::Node* paramByName(const CB::engine::common::xml::Node& obj, const std::string& name) {
     for (const auto& c : obj.children)
         if (c.tag == "hkparam" && c.attr("name") == name) return &c;
     return nullptr;
@@ -1331,7 +1331,7 @@ std::shared_ptr<io::SchemaObject> makeObj(const schema::SchemaRegistry& reg, con
 // Fill an already-created SchemaObject's fields from its tagfile <hkobject> node. `idMap` resolves refs
 // by CANONICAL id (populated in pass 1, so every top-level id — base #NNNN or new-node #code$N — exists).
 // Inline structs recurse.
-void fillObject(io::SchemaObject& so, const CB::core::common::xml::Node& node,
+void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
                 const schema::SchemaRegistry& reg,
                 const std::unordered_map<std::string, std::shared_ptr<io::SchemaObject>>& idMap,
                 const SymTab* syms, std::string& err) {
@@ -1340,7 +1340,7 @@ void fillObject(io::SchemaObject& so, const CB::core::common::xml::Node& node,
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
         if (f.name.empty() || f.ignored) continue;         // vtable/skip/pad + SERIALIZE_IGNORED: no hkparam
-        const CB::core::common::xml::Node* p = paramByName(node, f.name);
+        const CB::engine::common::xml::Node* p = paramByName(node, f.name);
         if (!p) continue;                                  // field absent -> keep prior value (Init default,
                                                            //   or an earlier merge layer's value)
         io::FieldValue& val = so.FieldAt(i);
@@ -1391,7 +1391,7 @@ void fillObject(io::SchemaObject& so, const CB::core::common::xml::Node& node,
                 break;
             }
             case FieldKind::Struct: {
-                if (const CB::core::common::xml::Node* inner = p->child("hkobject")) {
+                if (const CB::engine::common::xml::Node* inner = p->child("hkobject")) {
                     auto sub = makeObj(reg, f.ref);
                     if (!sub) { err = cls + "." + f.name + ": unknown inline struct class '" + f.ref + "'"; return; }
                     fillObject(*sub, *inner, reg, idMap, syms, err); if (!err.empty()) return;
@@ -1416,7 +1416,7 @@ void fillObject(io::SchemaObject& so, const CB::core::common::xml::Node& node,
 
 // Recursively collect every top-level object node (tag "hkobject" with a "#NNNN" name attr). Inline
 // struct hkobjects carry no name and are reached through their owner's field, never here.
-void collectTopLevel(const CB::core::common::xml::Node& n, std::vector<const CB::core::common::xml::Node*>& out) {
+void collectTopLevel(const CB::engine::common::xml::Node& n, std::vector<const CB::engine::common::xml::Node*>& out) {
     if (n.tag == "hkobject") {
         const auto nm = n.attr("name");
         if (!nm.empty() && nm.front() == '#') { out.push_back(&n); return; }   // don't descend into a named obj
@@ -1437,9 +1437,9 @@ void collectTopLevel(const CB::core::common::xml::Node& n, std::vector<const CB:
 ///       'iState_NPCSneaking'). The lines its original and modded views share are its untouched ones; each takes the
 ///       base's line at the same position, verbatim (Havok names are whitespace- and case-sensitive).
 /// @return true with `out` = the expanded layer when any param was anchored; false (out untouched) when none was.
-bool anchorSnippets(const CB::core::common::xml::Node& base, const CB::core::common::xml::Node& layer,
-                    const CB::core::common::xml::Node* orig, CB::core::common::xml::Node& out, std::string& err) {
-    namespace xml = CB::core::common::xml;
+bool anchorSnippets(const CB::engine::common::xml::Node& base, const CB::engine::common::xml::Node& layer,
+                    const CB::engine::common::xml::Node* orig, CB::engine::common::xml::Node& out, std::string& err) {
+    namespace xml = CB::engine::common::xml;
     auto param = [](const xml::Node& n, std::string_view name) -> const xml::Node* {
         for (const auto& c : n.children) if (c.tag == "hkparam" && c.attr("name") == name) return &c;
         return nullptr;
@@ -1467,20 +1467,20 @@ bool anchorSnippets(const CB::core::common::xml::Node& base, const CB::core::com
             const auto& L = lp.children;
             bool same = O.size() == B.size();
             if (!same) continue;
-            for (std::size_t k = 0; same && k < O.size(); ++k) same = CB::core::merge::deepEqual(O[k], B[k]);
+            for (std::size_t k = 0; same && k < O.size(); ++k) same = CB::engine::merge::deepEqual(O[k], B[k]);
             if (same) continue;
             const std::size_t n = O.size(), m = L.size();
             std::vector<std::uint32_t> dp((n + 1) * (m + 1), 0);
             for (std::size_t a = n; a-- > 0;)
                 for (std::size_t b = m; b-- > 0;)
-                    dp[a * (m + 1) + b] = CB::core::merge::deepEqual(O[a], L[b])
+                    dp[a * (m + 1) + b] = CB::engine::merge::deepEqual(O[a], L[b])
                         ? dp[(a + 1) * (m + 1) + b + 1] + 1
                         : std::max(dp[(a + 1) * (m + 1) + b], dp[a * (m + 1) + b + 1]);
             std::vector<xml::Node> fixed = L;
             bool changed = false;
             for (std::size_t a = 0, b = 0; a < n && b < m;) {
-                if (CB::core::merge::deepEqual(O[a], L[b]) && dp[a * (m + 1) + b] == dp[(a + 1) * (m + 1) + b + 1] + 1) {
-                    if (!CB::core::merge::deepEqual(O[a], B[a])) { fixed[b] = B[a]; changed = true; }
+                if (CB::engine::merge::deepEqual(O[a], L[b]) && dp[a * (m + 1) + b] == dp[(a + 1) * (m + 1) + b + 1] + 1) {
+                    if (!CB::engine::merge::deepEqual(O[a], B[a])) { fixed[b] = B[a]; changed = true; }
                     ++a; ++b;
                 } else if (dp[(a + 1) * (m + 1) + b] >= dp[a * (m + 1) + b + 1]) ++a;
                 else ++b;
@@ -1493,7 +1493,7 @@ bool anchorSnippets(const CB::core::common::xml::Node& base, const CB::core::com
         std::size_t at = std::string::npos;
         for (std::size_t k = 0; O.size() <= B.size() && k + O.size() <= B.size(); ++k) {
             bool eq = true;
-            for (std::size_t j = 0; eq && j < O.size(); ++j) eq = CB::core::merge::deepEqual(B[k + j], O[j]);
+            for (std::size_t j = 0; eq && j < O.size(); ++j) eq = CB::engine::merge::deepEqual(B[k + j], O[j]);
             if (eq) at = k;
         }
         if (at == std::string::npos) {
@@ -1522,19 +1522,19 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // Parse every source into a persistent tree (reserve so the vector never reallocates — the node
     // pointers below alias into these trees). Wrap each in a synthetic root: a source is a bare run of
     // sibling <hkobject> and xml::Parse returns only the first element.
-    std::vector<CB::core::common::xml::Node> roots; roots.reserve(sources.size());
-    std::vector<CB::core::common::xml::Node> origRoots; origRoots.reserve(sources.size());   ///< deltas as their mod saw the base
+    std::vector<CB::engine::common::xml::Node> roots; roots.reserve(sources.size());
+    std::vector<CB::engine::common::xml::Node> origRoots; origRoots.reserve(sources.size());   ///< deltas as their mod saw the base
 
     // Per CANONICAL id, the ORDERED layers that define it (base first, then each overriding patch). Each
     // layer records whether it is a delta and, for a delta, the fields it ACTUALLY changed (its MOD_CODE
     // delta, via the shared changedFields). The merge is NO LONGER a field-wise last-writer overlay —
-    // every id's layers go through the SHARED CB::core::merge::bashMerge, so an array field edited by 2+
+    // every id's layers go through the SHARED CB::engine::merge::bashMerge, so an array field edited by 2+
     // mods (variableNames/eventNames rosters, clip triggers, state/transition lists) is UNIONED exactly
     // as the runtime YAML loader does. Field-wise last-writer here silently dropped all-but-the-last
     // mod's array additions — the TDM_Pitch A-pose when one mod's several Nemesis codes are merged into
     // one bundle. New-node ids (#code$N) live in the same map as base #NNNN, so refs resolve either way.
-    struct Layer { const CB::core::common::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed;
-                   const CB::core::common::xml::Node* orig = nullptr; };
+    struct Layer { const CB::engine::common::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed;
+                   const CB::engine::common::xml::Node* orig = nullptr; };
     std::unordered_map<std::string, std::vector<Layer>> layers;
     std::unordered_map<std::string, bool> touchedByDelta;   // id was overridden/added by a patch source
     std::vector<std::string> order;                         // first-seen id order (base first, new ids appended)
@@ -1547,28 +1547,28 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             // changedFields wants the RAW patch (with MOD_CODE markers) for an accurate delta; on
             // already-stripped input it degrades to all-fields, which bashMerge's changer filter still
             // narrows to real edits. StripPatchOriginals is idempotent (no-op on a clean node).
-            changedHold.push_back(std::make_unique<std::unordered_set<std::string>>(CB::core::merge::changedFields(*text)));
+            changedHold.push_back(std::make_unique<std::unordered_set<std::string>>(CB::engine::merge::changedFields(*text)));
             changedPtr = changedHold.back().get();
             // Pandora-compat (CONVERTER-ONLY): reproduce Pandora/Nemesis's occurrence-counted
             // placement for numeric text-array params (boneWeights &c) BEFORE the positional
             // strip, so converted bundles match the ecosystem's output. Element params are left
             // for StripPatchOriginals below. See docs/bugs/CB-3.
-            CB::core::compat::ApplyNemesisTextArrayEdits(parseText);
-            CB::core::common::xml::StripPatchOriginals(parseText);
+            CB::engine::compat::ApplyNemesisTextArrayEdits(parseText);
+            CB::engine::common::xml::StripPatchOriginals(parseText);
         }
-        roots.push_back(CB::core::common::xml::Parse("<r>" + parseText + "</r>"));
-        std::vector<const CB::core::common::xml::Node*> nodes;
+        roots.push_back(CB::engine::common::xml::Parse("<r>" + parseText + "</r>"));
+        std::vector<const CB::engine::common::xml::Node*> nodes;
         collectTopLevel(roots.back(), nodes);
-        std::unordered_map<std::string, const CB::core::common::xml::Node*> origById;
+        std::unordered_map<std::string, const CB::engine::common::xml::Node*> origById;
         if (isDelta) {
             std::string origText = *text;
-            CB::core::common::xml::StripToOriginal(origText);
-            origRoots.push_back(CB::core::common::xml::Parse("<r>" + origText + "</r>"));
-            std::vector<const CB::core::common::xml::Node*> on;
+            CB::engine::common::xml::StripToOriginal(origText);
+            origRoots.push_back(CB::engine::common::xml::Parse("<r>" + origText + "</r>"));
+            std::vector<const CB::engine::common::xml::Node*> on;
             collectTopLevel(origRoots.back(), on);
             for (const auto* o : on) origById[canonId(std::string(o->attr("name")))] = o;
         }
-        for (const CB::core::common::xml::Node* n : nodes) {
+        for (const CB::engine::common::xml::Node* n : nodes) {
             const std::string id = canonId(std::string(n->attr("name")));
             if (layers.find(id) == layers.end()) order.push_back(id);
             const auto oi = origById.find(id);
@@ -1598,29 +1598,29 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // Bashed-merge each id's layers into ONE node via the shared core. Base = the (single) non-delta
     // layer, or — for a new node with no vanilla base — the first layer as the seed. Delta layers whose
     // class differs from the object (source drift) are dropped from the merge, preserving the old skip.
-    std::unordered_map<std::string, CB::core::common::xml::Node> mergedById;
+    std::unordered_map<std::string, CB::engine::common::xml::Node> mergedById;
     mergedById.reserve(order.size());
     for (const std::string& id : order) {
         const std::vector<Layer>& ls = layers[id];
         const std::string objCls(idMap[id]->ClassName());
-        const CB::core::common::xml::Node* baseNode = nullptr;
+        const CB::engine::common::xml::Node* baseNode = nullptr;
         for (const Layer& L : ls) if (!L.isDelta) baseNode = L.node;   // the base node (normally exactly one)
         std::size_t seedSkip = 0;
         if (!baseNode) { baseNode = ls.front().node; seedSkip = 1; }   // new node: first layer seeds the merge
 
-        std::vector<CB::core::merge::PatchLayer> pls; pls.reserve(ls.size());
+        std::vector<CB::engine::merge::PatchLayer> pls; pls.reserve(ls.size());
         std::size_t seen = 0;
         for (const Layer& L : ls) {
             const bool isSeed = (seedSkip == 1 && seen++ == 0);
             if (!L.isDelta || isSeed) continue;
             if (std::string(L.node->attr("class")) != objCls) continue;   // source drift — skip this layer
-            CB::core::common::xml::Node anchored;
+            CB::engine::common::xml::Node anchored;
             std::string aerr;
             const bool expanded = seedSkip == 0 && anchorSnippets(*baseNode, *L.node, L.orig, anchored, aerr);
             if (!aerr.empty()) { err = "parseSourcesMerged: " + aerr; return false; }
             pls.push_back({ expanded ? std::move(anchored) : *L.node, L.changed ? *L.changed : std::unordered_set<std::string>{} });
         }
-        std::vector<const CB::core::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
+        std::vector<const CB::engine::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
         for (const auto& p : pls) ptrs.push_back(&p);
         // compose predicate: read the field's `merge:` tag from the SAME SchemaRegistry the runtime
         // merge reads (SchemaRegistry::MergeTag) — so converter and runtime compose identically.
@@ -1628,7 +1628,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             return reg.MergeTag(c, f) == "compose";
         };
         mergedById.emplace(id, ptrs.empty() ? *baseNode
-                               : CB::core::merge::bashMerge(*baseNode, ptrs, /*guarded*/ {}, composePred));
+                               : CB::engine::merge::bashMerge(*baseNode, ptrs, /*guarded*/ {}, composePred));
     }
 
     // Nemesis symbol roster: variable/event NAME -> merged index, from the MERGED hkbBehaviorGraphStringData
@@ -1637,10 +1637,10 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // string-data wins (the graph's own). Built BEFORE pass 2 so it's ready when a binding field is parsed.
     SymTab syms;
     for (const std::string& id : order) {
-        const CB::core::common::xml::Node& n = mergedById[id];
+        const CB::engine::common::xml::Node& n = mergedById[id];
         if (std::string(n.attr("class")) != "hkbBehaviorGraphStringData") continue;
         auto fill = [&](const char* param, std::unordered_map<std::string, int>& m) {
-            if (const CB::core::common::xml::Node* p = paramByName(n, param)) {
+            if (const CB::engine::common::xml::Node* p = paramByName(n, param)) {
                 int idx = 0;
                 for (const auto& c : p->children) if (c.tag == "hkcstring") { m[c.text] = idx; ++idx; }
             }
@@ -2360,7 +2360,7 @@ bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps
 
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
                         const std::vector<std::string>* bones) {
-    return ParseHkyReflective(CB::core::common::DiskUnitSource(dir), reg, out, err, bones);
+    return ParseHkyReflective(CB::engine::common::DiskUnitSource(dir), reg, out, err, bones);
 }
 
 namespace {
@@ -2369,7 +2369,7 @@ namespace {
 ///        or `<cat>/<id>/<id>.yaml` for a node with sub-records.
 struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false; std::string owner, field; };
 /// @brief Every YAML file of a unit, parsed in place (the text buffer lives beside its tree).
-std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::core::common::IUnitSource& src) {
+std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::engine::common::IUnitSource& src) {
     std::vector<std::unique_ptr<HkyDoc>> docs;
     for (const std::string& rel : src.listYaml("", true)) {
         auto text = src.read(rel);
@@ -2442,7 +2442,7 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
 }
 } // namespace
 
-bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
+bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
                         std::string& err, const std::vector<std::string>* bones) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
     auto docs = loadHkyDocs(src);
@@ -2503,8 +2503,8 @@ std::string formIdOf(std::uint16_t idx, const std::string& decId) {
     char* end = nullptr;
     const unsigned long v = std::strtoul(decId.c_str(), &end, 10);
     if (end && *end == '\0')
-        if (const auto f = CB::core::codec::formid::make(idx, static_cast<std::uint32_t>(v)))
-            return CB::core::codec::formid::format(*f);
+        if (const auto f = CB::engine::codec::formid::make(idx, static_cast<std::uint32_t>(v)))
+            return CB::engine::codec::formid::format(*f);
     return decId;
 }
 
@@ -2827,7 +2827,7 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
                     match = it->second;
             }
             if (match && !taken.count(match)) { taken.insert(match); modId[o] = idB.ids.at(match); }
-            else modId[o] = formIdOf(CB::core::codec::formid::SELF_INDEX, std::to_string(++seq));
+            else modId[o] = formIdOf(CB::engine::codec::formid::SELF_INDEX, std::to_string(++seq));
         }
         for (const auto& [o, id] : modId) idM.ids[o] = id;
         const ReflectCtx cM{ idM, nrM, reg, bones, &effM };
@@ -2876,7 +2876,7 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
 ///        (`masters[idx]:local`); anything else stays verbatim.
 std::function<std::string(const std::string&)> canonFor(const std::vector<std::string>& masters) {
     return [masters](const std::string& id) {
-        if (const auto f = CB::core::codec::formid::parse(id); f && f->masterIndex < masters.size())
+        if (const auto f = CB::engine::codec::formid::parse(id); f && f->masterIndex < masters.size())
             return masters[f->masterIndex] + ":" + std::to_string(f->local);
         return id;
     };
@@ -2941,7 +2941,7 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
     return derivePatch(idB, static_cast<std::uint16_t>(self - patchMasters.begin()), modBytes, reg, patchDir, err, bones, stats);
 }
 
-bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
+bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones, HkyPatchStats* stats) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
@@ -3166,7 +3166,7 @@ std::string GraphEdit::IdOf(const IHavokObject* o) const {
     return it == m_graph.identity.ids.end() || it->second.rfind('~', 0) == 0 ? std::string() : it->second;
 }
 
-std::vector<std::string> ReadProjectCharacters(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg) {
+std::vector<std::string> ReadProjectCharacters(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg) {
     ParsedHky project;
     std::string err;
     std::vector<std::string> out;
@@ -3177,7 +3177,7 @@ std::vector<std::string> ReadProjectCharacters(const CB::core::common::IUnitSour
     return out;
 }
 
-std::optional<CharacterStrings> ReadCharacterStrings(const CB::core::common::IUnitSource& src) {
+std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::IUnitSource& src) {
     auto text = src.read("graph.yaml");
     if (!text) return std::nullopt;
     std::string buf = std::move(*text);
@@ -3201,7 +3201,7 @@ std::optional<CharacterStrings> ReadCharacterStrings(const CB::core::common::IUn
     return std::nullopt;
 }
 
-bool MergeLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err) {
     try {
         if (layers.empty() || !layers.front().source) { err = "MergeLayersReflective: no base layer"; return false; }
@@ -3220,7 +3220,7 @@ bool MergeLayersReflective(const std::vector<CB::core::common::LayerSource>& lay
     }
 }
 
-bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err, const CB::core::codec::HKXHeader& header) {
+bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err, const CB::engine::codec::HKXHeader& header) {
     try {
         PackFileSerializer ser;
         BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
@@ -3233,9 +3233,9 @@ bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std:
     }
 }
 
-bool CompileLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+bool CompileLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                              const std::vector<std::string>* bones, std::vector<std::uint8_t>& out, std::string& err,
-                             const CB::core::codec::HKXHeader& header) {
+                             const CB::engine::codec::HKXHeader& header) {
     ParsedHky graph;
     return MergeLayersReflective(layers, reg, bones, graph, err) && SerializeGraph(graph, out, err, header);
 }
@@ -3253,13 +3253,13 @@ bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector
         desB.Deserialize(brB);
         const HKXHeader header = desB._header;
         Identity idB = AssignIdentity(desB, reg);
-        for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
+        for (auto& [o, id] : idB.ids) id = formIdOf(CB::engine::codec::formid::SELF_INDEX, id);
         if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), err, bones)) return false;
         ParsedHky merged;
         if (!ParseHkyReflective((fs::path(workDir) / "base").string(), reg, merged, err, bones)) return false;
         for (std::size_t k = 0; k < patchDirs.size(); ++k) {
             const std::string self = "mod" + std::to_string(k + 1);
-            if (!MergeHkyPatch(merged, CB::core::common::DiskUnitSource(patchDirs[k]), reg, { "base" }, { self, "base" }, err, bones)) {
+            if (!MergeHkyPatch(merged, CB::engine::common::DiskUnitSource(patchDirs[k]), reg, { "base" }, { self, "base" }, err, bones)) {
                 err = patchDirs[k] + ": " + err;
                 return false;
             }
@@ -3294,13 +3294,13 @@ HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseByte
         desB.ObjectFactory = io::MakeSchemaFactory(reg);
         { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
         Identity idB = AssignIdentity(desB, reg);
-        for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
+        for (auto& [o, id] : idB.ids) id = formIdOf(CB::engine::codec::formid::SELF_INDEX, id);
         if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), r.error, bones)) return r;
         // The mod's PATCH, seen from the mod bundle (self = 0, the base = master 1).
         if (!DeriveHkyPatch(baseBytes, modBytes, reg, (fs::path(workDir) / "patch").string(), r.error, bones, 1, &r.derived)) return r;
         ParsedHky merged;
         if (!ParseHkyReflective((fs::path(workDir) / "base").string(), reg, merged, r.error, bones)) return r;
-        if (!MergeHkyPatch(merged, CB::core::common::DiskUnitSource((fs::path(workDir) / "patch").string()), reg,
+        if (!MergeHkyPatch(merged, CB::engine::common::DiskUnitSource((fs::path(workDir) / "patch").string()), reg,
                            { "base" }, { "mod", "base" }, r.error, bones, &r.merged)) return r;
         PackFileDeserializer desM;
         desM.ObjectFactory = io::MakeSchemaFactory(reg);
@@ -3369,7 +3369,7 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
         desB.ObjectFactory = io::MakeSchemaFactory(reg);
         { BinaryReaderEx br(false, true, baseBytes); desB.Deserialize(br); }
         Identity idB = AssignIdentity(desB, reg);
-        for (auto& [o, id] : idB.ids) id = formIdOf(CB::core::codec::formid::SELF_INDEX, id);
+        for (auto& [o, id] : idB.ids) id = formIdOf(CB::engine::codec::formid::SELF_INDEX, id);
         if (!EmitHkyReflective(idB, reg, (fs::path(workDir) / "base").string(), r.error, bones)) return r;
         ParsedHky merged;
         if (!ParseHkyReflective((fs::path(workDir) / "base").string(), reg, merged, r.error, bones)) return r;
@@ -3384,7 +3384,7 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
                 r.error = m.name + ": " + r.error;
                 return r;
             }
-            if (!MergeHkyPatch(merged, CB::core::common::DiskUnitSource(pd.string()), reg, { "base" }, { m.name, "base" }, r.error, bones)) {
+            if (!MergeHkyPatch(merged, CB::engine::common::DiskUnitSource(pd.string()), reg, { "base" }, { m.name, "base" }, r.error, bones)) {
                 r.error = m.name + ": " + r.error;
                 std::string e2;   // the merged state at failure, for inspection
                 EmitHkyReflective(merged.identity, reg, (fs::path(workDir) / ("failed_after_" + m.name)).string(), e2, bones);
@@ -3560,4 +3560,4 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
     return r;
 }
 
-} // namespace CB::core::decompile
+} // namespace CB::engine::decompile

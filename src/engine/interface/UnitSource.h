@@ -12,7 +12,7 @@
 // A "unit-relative path" is the path of a file inside the unit, forward-slashed, e.g. "graph.yaml",
 // "states/0000x0001.yaml", "states/0000x0001/transitions.yaml".
 
-namespace CB::core::common {
+namespace CB::engine::common {
 
 struct IUnitSource {
     virtual ~IUnitSource() = default;
@@ -47,7 +47,7 @@ struct LayerSource {
     int                                rank = 0;    // base-first load-order rank
     std::vector<std::string>           ancestors;   // transitive master stems (lowercase)
     // The bundle's ORDERED master table (index 0 = base game, 1..k = declared masters, last = self),
-    // built via CB::core::codec::formid::BuildMasterTable. A node's FormId masterIndex resolves against THIS
+    // built via CB::engine::codec::formid::BuildMasterTable. A node's FormId masterIndex resolves against THIS
     // (ResolveOwner) -> the owning bundle stem. Empty for an anonymous/offline layer (no FormId
     // resolution -> the merge falls back to bare-id scope inference).
     std::vector<std::string>           masterTable;
@@ -66,4 +66,4 @@ private:
     std::filesystem::path m_root;
 };
 
-} // namespace CB::core::common
+} // namespace CB::engine::common

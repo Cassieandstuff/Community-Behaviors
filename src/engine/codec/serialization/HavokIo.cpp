@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <unordered_map>
 
-namespace CB::core::codec::io {
+namespace CB::engine::codec::io {
 
 using schema::ClassSchema;
 using schema::Field;
@@ -302,4 +302,4 @@ bool RebuildHkx(const std::vector<std::uint8_t>& in,
     }
 }
 
-} // namespace CB::core::codec::io
+} // namespace CB::engine::codec::io

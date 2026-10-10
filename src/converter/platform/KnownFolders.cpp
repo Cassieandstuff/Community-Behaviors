@@ -1,11 +1,11 @@
-#include "platform/SctUtilities.h"
+#include "platform/Platform.h"
 
 #if defined(_WIN32)
 #include <windows.h>
 #include <shlobj.h>   // SHGetKnownFolderPath, FOLDERID_Downloads
 #endif
 
-namespace sct::util {
+namespace CB::converter::platform {
 
 #if defined(_WIN32)
 
@@ -36,4 +36,4 @@ std::string DocumentsFolder() { return {}; }
 
 #endif
 
-}  // namespace sct::util
+}  // namespace CB::converter::platform

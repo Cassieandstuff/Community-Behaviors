@@ -1,11 +1,11 @@
-#include "platform/SctUtilities.h"
+#include "platform/Platform.h"
 
 #if defined(_WIN32)
 #include <windows.h>
 #include <shobjidl.h>
 #endif
 
-namespace sct::ui {
+namespace CB::converter::platform {
 
 #if defined(_WIN32)
 
@@ -183,4 +183,4 @@ bool PickFile(const char*, const char*, const char*, const char*, std::string&) 
 
 #endif
 
-}  // namespace sct::ui
+}  // namespace CB::converter::platform

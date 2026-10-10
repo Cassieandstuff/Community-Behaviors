@@ -24,8 +24,8 @@
 // but divergent from the Nemesis/Pandora output the whole mod ecosystem was validated on.
 // This shim makes the CONVERTER reproduce that ecosystem placement so bundles match Pandora.
 
-namespace CB::core::compat {
-using namespace CB::core::common;
+namespace CB::engine::compat {
+using namespace CB::engine::common;
 
 // Rewrite every pure-text hkparam in `src` that carries MOD_CODE blocks to the value Pandora
 // would produce, consuming those blocks' comment markers. Params that contain nested elements
@@ -34,4 +34,4 @@ using namespace CB::core::common;
 // immediately BEFORE StripPatchOriginals at a converter patch-application site.
 void ApplyNemesisTextArrayEdits(std::string& src);
 
-}  // namespace CB::core::compat
+}  // namespace CB::engine::compat

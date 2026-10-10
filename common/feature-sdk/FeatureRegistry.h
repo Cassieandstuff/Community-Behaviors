@@ -38,7 +38,7 @@ namespace CB::feature {
         // visible). Returns {id, result} per feature that ran, in run order.
         std::vector<std::pair<std::string, FeatureResult>>
         Run(const std::vector<std::string>& orderedIds,
-            CB::core::decompile::GraphEdit& graph,
+            CB::engine::decompile::GraphEdit& graph,
             const FeatureContext& ctx) const;
 
         FeatureRegistry(const FeatureRegistry&)            = delete;
@@ -67,8 +67,8 @@ namespace CB::feature {
 // Expands to a file-local `static AutoRegister<Type>` whose ctor registers the feature at static
 // init. `Type` may be qualified; the instance name is uniquified by line so multiple registrations
 // in one TU don't collide.
-#define BR_DETAIL_FEATURE_CONCAT2(a, b) a##b
-#define BR_DETAIL_FEATURE_CONCAT(a, b)  BR_DETAIL_FEATURE_CONCAT2(a, b)
+#define CB_DETAIL_FEATURE_CONCAT2(a, b) a##b
+#define CB_DETAIL_FEATURE_CONCAT(a, b)  CB_DETAIL_FEATURE_CONCAT2(a, b)
 #define CB_REGISTER_FEATURE(Type)                              \
     static ::CB::feature::AutoRegister<Type>       \
-        BR_DETAIL_FEATURE_CONCAT(_br_feature_reg_, __LINE__)
+        CB_DETAIL_FEATURE_CONCAT(_cb_feature_reg_, __LINE__)

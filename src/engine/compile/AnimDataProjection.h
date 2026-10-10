@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::animdata {
+namespace CB::engine::animdata {
 
 /// @brief Where the projection reads the load order's merged data. Keys are normalized serve paths
 ///        ("meshes/actors/character/behaviors/0_master.hkx": lowercase, '/').
@@ -23,7 +23,7 @@ struct ProjectionSource {
     /// @brief Load these animations (canonical paths) before `animation` is asked for them — the parallel hook.
     std::function<void(const std::vector<std::string>& canonPaths)> prefetch;
     /// @brief One animation by canonical path, its `motion` already resolved (ResolveRootMotion); nullptr if absent.
-    std::function<const CB::core::anim::AnimationDef*(const std::string& canonPath)> animation;
+    std::function<const CB::engine::anim::AnimationDef*(const std::string& canonPath)> animation;
 };
 
 struct ProjectionStats {
@@ -40,9 +40,9 @@ struct ProjectionStats {
 ///       motion record. A clip binds the roster slot whose FILENAME matches (the engine's LoadClips key) and plays that
 ///       slot's own file — so a shared graph binds each gendered roster to its own file.
 /// @return the root object (class AnimationDataSingleFile), or nullptr with `err` set.
-std::shared_ptr<CB::core::codec::io::SchemaObject> ProjectAnimData(const CB::core::schema::SchemaRegistry& reg,
+std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::engine::schema::SchemaRegistry& reg,
                                                                    const std::vector<ProjectHeader>& headers,
                                                                    const ProjectionSource& src, ProjectionStats* stats,
                                                                    std::string& err);
 
-} // namespace CB::core::animdata
+} // namespace CB::engine::animdata

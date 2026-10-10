@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::animdata {
+namespace CB::engine::animdata {
 
     // One project's motion records -> motion.yaml text. `roster` maps each motion's animIndex to its
     // clip-generator NAME (pass the project's clip labels by index). A named record is keyed ONLY by
@@ -185,4 +185,4 @@ namespace CB::core::animdata {
         const std::map<std::string, std::vector<MotionRecord>>& motionByStem,
         const std::map<std::string, std::vector<std::string>>& rostersByStem);
 
-}  // namespace CB::core::animdata
+}  // namespace CB::engine::animdata

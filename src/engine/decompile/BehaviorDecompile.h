@@ -18,9 +18,9 @@
 #include <unordered_map>
 #include <vector>
 
-namespace CB::core::decompile {
-using namespace CB::core::codec;
-using namespace CB::core::common;
+namespace CB::engine::decompile {
+using namespace CB::engine::codec;
+using namespace CB::engine::common;
 // ── identity/index pass ───────────────────────────────────────────────────────
 // Walk the SchemaObject graph in ENCOUNTER ORDER (matching the reference BehaviorDecompiler's DFS, so
 // the yaml filenames + id refs are byte-stable) and assign each object a canonical id + a category
@@ -111,14 +111,14 @@ private:
 ///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
 ///        name is the stable identity across mods); bone names resolve through `bones` (the graph's rig). Fail-loud:
 ///        an unknown enum name, bone, symbol, class or id is an error, never a silent 0.
-bool ParseHkyReflective(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
+bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
                         std::string& err, const std::vector<std::string>* bones = nullptr);
 /// @brief Convenience: an on-disk unit directory.
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
                         const std::vector<std::string>* bones = nullptr);
 
 /// @brief UNIT READERS — the facts load planning needs from a reflective unit, without compiling it.
-std::vector<std::string> ReadProjectCharacters(const CB::core::common::IUnitSource& src, const schema::SchemaRegistry& reg);
+std::vector<std::string> ReadProjectCharacters(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg);
 /// @brief A character's string data (original case).
 struct CharacterStrings {
     std::string              name, rigName, behaviorFilename;
@@ -127,7 +127,7 @@ struct CharacterStrings {
 /// @note  Read straight from graph.yaml, not parsed: a full parse needs the rig's bone names (the bone-weight presets
 ///        are bone-keyed) — the very thing the rig binding is for. A patch unit yields only what it states; its
 ///        animationNames (a union roster) are its additions.
-std::optional<CharacterStrings> ReadCharacterStrings(const CB::core::common::IUnitSource& src);
+std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::IUnitSource& src);
 
 /// @brief The reflective-format GATE for one behavior binary: deserialize -> re-serialize (`canon`), EmitHkyReflective
 ///        into `workDir` -> ParseHkyReflective -> serialize with the same header, compared byte-for-byte to canon.
@@ -167,22 +167,22 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
 /// @note What mods co-edit has its OWN identity (user decision, 2026-09-29 — Bethesda's model): a roster's entries
 ///       are sub-records, overridden / added / deleted by key, so two mods' entries never collide; everything else is
 ///       a whole value, and the last mod to change it wins. There is no element-wise list merging.
-bool MergeHkyPatch(ParsedHky& base, const CB::core::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
+bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
 /// @brief The RUNTIME compile through the reflective format: `layers[0]` is the graph's base unit (parsed whole), every
 ///        later layer a patch unit merged in load order — each layer's FormIds resolve through its own master table
 ///        (`[self, skyrim, declared…]` by bundle stem), so `0001x…` in a mod and `0000x…` in Skyrim.hky name the same
 ///        node. The merged graph serializes with `header` into `out`.
-bool CompileLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+bool CompileLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                              const std::vector<std::string>* bones, std::vector<std::uint8_t>& out, std::string& err,
-                             const CB::core::codec::HKXHeader& header = CB::core::codec::HKXHeader::SkyrimSE());
+                             const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
 /// @brief The merge half of CompileLayersReflective — the merged graph, for the compile stages that edit or read it
 ///        (features, reference qualification, adsf-derive) before SerializeGraph.
-bool MergeLayersReflective(const std::vector<CB::core::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
+bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err);
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,
-                    const CB::core::codec::HKXHeader& header = CB::core::codec::HKXHeader::SkyrimSE());
+                    const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
 /// @brief Apply hand-written patch units onto a base binary, in load order (unit k's masters: `mod<k>`, then the base
 ///        as master 1 — so `0001x…` names a base node, `0000x…` the unit's own). Writes `<workDir>/base` (the base
 ///        unit), `<workDir>/merged.hkx` and `<workDir>/merged` (the result, re-decompiled).
@@ -274,4 +274,4 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
                                const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                                const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
                                const std::vector<std::string>* bones = nullptr);
-} // namespace CB::core::decompile
+} // namespace CB::engine::decompile

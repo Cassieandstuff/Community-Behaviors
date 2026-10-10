@@ -16,7 +16,7 @@
 #include <string>
 #include <string_view>
 
-namespace CB::core::common::vec4 {
+namespace CB::engine::common::vec4 {
 
 inline std::array<float, 4> parseVec4(std::string_view t) {
     std::string s(t);
@@ -27,4 +27,4 @@ inline std::array<float, 4> parseVec4(std::string_view t) {
     return q;
 }
 
-}  // namespace CB::core::common::vec4
+}  // namespace CB::engine::common::vec4

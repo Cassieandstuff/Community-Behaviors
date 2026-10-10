@@ -5,7 +5,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace CB::core::common {
+namespace CB::engine::common {
 
 namespace fs = std::filesystem;
 
@@ -82,4 +82,4 @@ bool DiskUnitSource::hasDir(const std::string& subdir) const {
     return fs::is_directory(m_root / subdir);
 }
 
-} // namespace CB::core::common
+} // namespace CB::engine::common

@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 
-namespace CB::core::skeleton {
+namespace CB::engine::skeleton {
 
 namespace {
 void bind(std::unordered_map<std::string, std::vector<std::string>>& m, const std::string& k, const std::string& rig) {
@@ -76,4 +76,4 @@ const std::vector<std::string>* RigIndex::RigsFor(const std::string& key) const 
     return nullptr;
 }
 
-}  // namespace CB::core::skeleton
+}  // namespace CB::engine::skeleton

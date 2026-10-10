@@ -58,71 +58,71 @@ namespace cb {
 
 // ── cb::resolve ──────────────────────────────────────────────────────────────
 namespace resolve {
-    using Archive     = CB::core::codec::HkyArchive;         // a packed .hky bundle, decompressed in memory
-    using UnitKind    = CB::core::codec::HkyArchive::UnitKind;
-    using UnitSource  = CB::core::common::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
-    using Layer       = CB::core::common::LayerSource;        // one load-order layer: unit + bundle stem + master table
-    using Graph       = CB::core::decompile::ParsedHky;       // a parsed / merged graph (schema objects + FormIDs)
-    using GraphEdit   = CB::core::decompile::GraphEdit;       // the editing view the compile-time features receive
-    using PatchStats  = CB::core::decompile::HkyPatchStats;
+    using Archive     = CB::engine::codec::HkyArchive;         // a packed .hky bundle, decompressed in memory
+    using UnitKind    = CB::engine::codec::HkyArchive::UnitKind;
+    using UnitSource  = CB::engine::common::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
+    using Layer       = CB::engine::common::LayerSource;        // one load-order layer: unit + bundle stem + master table
+    using Graph       = CB::engine::decompile::ParsedHky;       // a parsed / merged graph (schema objects + FormIDs)
+    using GraphEdit   = CB::engine::decompile::GraphEdit;       // the editing view the compile-time features receive
+    using PatchStats  = CB::engine::decompile::HkyPatchStats;
 
-    using CB::core::decompile::ParseHkyReflective;           // one unit → Graph
-    using CB::core::decompile::MergeLayersReflective;        // layers (base first) → the merged Graph
-    using CB::core::decompile::MergeHkyPatch;                // apply one patch unit onto a Graph
-    using CB::core::decompile::SerializeGraph;               // Graph → packfile bytes
-    using CB::core::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
-    using CB::core::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
+    using CB::engine::decompile::ParseHkyReflective;           // one unit → Graph
+    using CB::engine::decompile::MergeLayersReflective;        // layers (base first) → the merged Graph
+    using CB::engine::decompile::MergeHkyPatch;                // apply one patch unit onto a Graph
+    using CB::engine::decompile::SerializeGraph;               // Graph → packfile bytes
+    using CB::engine::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
+    using CB::engine::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
 }  // namespace resolve
 
 // ── cb::schema ───────────────────────────────────────────────────────────────
 namespace schema {
-    using Registry = CB::core::schema::SchemaRegistry;         // load Havok/ → classify/size/interpret classes
+    using Registry = CB::engine::schema::SchemaRegistry;         // load Havok/ → classify/size/interpret classes
 }  // namespace schema
 
 // ── cb::anim ─────────────────────────────────────────────────────────────────
 namespace anim {
-    using Def             = CB::core::anim::AnimationDef;         // the authoring model (tracks/floats/annotations)
-    using YamlLoader      = CB::core::anim::AnimationYamlLoader;  // animation.yaml ↔ Def
-    using CompileResult   = CB::core::anim::AnimCompileResult;    // compile → packfile bytes
-    using DecompileResult = CB::core::anim::AnimDecompileResult;  // .hkx bytes → animation.yaml
+    using Def             = CB::engine::anim::AnimationDef;         // the authoring model (tracks/floats/annotations)
+    using YamlLoader      = CB::engine::anim::AnimationYamlLoader;  // animation.yaml ↔ Def
+    using CompileResult   = CB::engine::anim::AnimCompileResult;    // compile → packfile bytes
+    using DecompileResult = CB::engine::anim::AnimDecompileResult;  // .hkx bytes → animation.yaml
 
-    using CB::core::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
-    using CB::core::anim::CompileAnimationToFile;  // Def → .hkx file
-    using CB::core::anim::DecompileAnimation;      // .hkx bytes → animation.yaml (the export leg)
+    using CB::engine::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
+    using CB::engine::anim::CompileAnimationToFile;  // Def → .hkx file
+    using CB::engine::anim::DecompileAnimation;      // .hkx bytes → animation.yaml (the export leg)
 }  // namespace anim
 
 // ── cb::animdata ───────────────────────────────────────────────────────────────
 namespace animdata {
-    using MotionRecord = CB::core::animdata::MotionRecord;   // one clip's root-motion record
-    using Project      = CB::core::animdata::Project;         // an actor's animationdata project
-    using CB::core::animdata::EmitMotionSidecar;   // MotionRecord → motion/<clip>.yaml sidecar
-    using CB::core::animdata::ParseMotionSidecar;  // sidecar text → MotionRecord
-    using CB::core::animdata::EmitMotionYaml;      // project + roster → the combined motion.yaml
-    using CB::core::animdata::ParseMotionYaml;     // motion.yaml text → MotionRecord[]
+    using MotionRecord = CB::engine::animdata::MotionRecord;   // one clip's root-motion record
+    using Project      = CB::engine::animdata::Project;         // an actor's animationdata project
+    using CB::engine::animdata::EmitMotionSidecar;   // MotionRecord → motion/<clip>.yaml sidecar
+    using CB::engine::animdata::ParseMotionSidecar;  // sidecar text → MotionRecord
+    using CB::engine::animdata::EmitMotionYaml;      // project + roster → the combined motion.yaml
+    using CB::engine::animdata::ParseMotionYaml;     // motion.yaml text → MotionRecord[]
 }  // namespace animdata
 
 // ── cb::skeleton ───────────────────────────────────────────────────────────────
 namespace skeleton {
-    using Data          = CB::core::skeleton::SkeletonData;          // the plain skeleton model
-    using BoneData      = CB::core::skeleton::SkeletonBoneData;
-    using Physics       = CB::core::skeleton::BonePhysics;           // authored ragdoll knobs on a bone
-    using Bumper        = CB::core::skeleton::SkeletonBumper;
-    using BoneAdd       = CB::core::skeleton::SkeletonBoneAdd;       // one bone-add layer entry
-    using CompileResult = CB::core::skeleton::SkeletonCompileResult;
+    using Data          = CB::engine::skeleton::SkeletonData;          // the plain skeleton model
+    using BoneData      = CB::engine::skeleton::SkeletonBoneData;
+    using Physics       = CB::engine::skeleton::BonePhysics;           // authored ragdoll knobs on a bone
+    using Bumper        = CB::engine::skeleton::SkeletonBumper;
+    using BoneAdd       = CB::engine::skeleton::SkeletonBoneAdd;       // one bone-add layer entry
+    using CompileResult = CB::engine::skeleton::SkeletonCompileResult;
 
-    using CB::core::skeleton::LoadSkeletonsFromHkx;   // skeleton.hkx → SkeletonData (+ ReadSkeletonPhysics)
-    using CB::core::skeleton::ReadSkeletonPhysics;    // attach ragdoll physics onto the anim skeleton
-    using CB::core::skeleton::CompileSkeleton;        // anim skeleton → .hkx
-    using CB::core::skeleton::CompileSkeletonFull;    // + derived ragdoll (6-variant skeleton.hkx)
-    using CB::core::skeleton::CompileSkeletonOverBase;// rebuild anim bones over a base, carry the rest
-    using CB::core::skeleton::CompileSkeletonToFile;
-    using CB::core::skeleton::EmitSkeletonYaml;       // SkeletonData → combined yaml
-    using CB::core::skeleton::EmitSkeletonYamlTree;   // SkeletonData → bonelist.yaml + bones/ unit
-    using CB::core::skeleton::LoadSkeletonYaml;       // dir / combined file → SkeletonData
-    using CB::core::skeleton::LoadSkeletonYamlFromTexts;
-    using CB::core::skeleton::LoadSkeletonLayer;      // bone-add layer dir → additions
-    using CB::core::skeleton::LoadSkeletonLayerFromTexts;
-    using CB::core::skeleton::MergeBoneAdditions;     // append bone-adds onto a base skeleton
+    using CB::engine::skeleton::LoadSkeletonsFromHkx;   // skeleton.hkx → SkeletonData (+ ReadSkeletonPhysics)
+    using CB::engine::skeleton::ReadSkeletonPhysics;    // attach ragdoll physics onto the anim skeleton
+    using CB::engine::skeleton::CompileSkeleton;        // anim skeleton → .hkx
+    using CB::engine::skeleton::CompileSkeletonFull;    // + derived ragdoll (6-variant skeleton.hkx)
+    using CB::engine::skeleton::CompileSkeletonOverBase;// rebuild anim bones over a base, carry the rest
+    using CB::engine::skeleton::CompileSkeletonToFile;
+    using CB::engine::skeleton::EmitSkeletonYaml;       // SkeletonData → combined yaml
+    using CB::engine::skeleton::EmitSkeletonYamlTree;   // SkeletonData → bonelist.yaml + bones/ unit
+    using CB::engine::skeleton::LoadSkeletonYaml;       // dir / combined file → SkeletonData
+    using CB::engine::skeleton::LoadSkeletonYamlFromTexts;
+    using CB::engine::skeleton::LoadSkeletonLayer;      // bone-add layer dir → additions
+    using CB::engine::skeleton::LoadSkeletonLayerFromTexts;
+    using CB::engine::skeleton::MergeBoneAdditions;     // append bone-adds onto a base skeleton
 }  // namespace skeleton
 
 }  // namespace cb

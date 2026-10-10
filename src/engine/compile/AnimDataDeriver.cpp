@@ -11,11 +11,11 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace CB::core::animdata {
-using namespace CB::core::codec;
-using namespace CB::core::common;
+namespace CB::engine::animdata {
+using namespace CB::engine::codec;
+using namespace CB::engine::common;
 
-namespace linker = CB::core::linker;
+namespace linker = CB::engine::linker;
 
 std::string FormatG(double v) {
     // Bethesda's cache uses printf %g (6 significant digits) with the LEGACY Windows
@@ -148,4 +148,4 @@ std::vector<ClipGenerator> DeriveClipList(
     return out;
 }
 
-}  // namespace CB::core::animdata
+}  // namespace CB::engine::animdata

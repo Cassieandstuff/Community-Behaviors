@@ -8,7 +8,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace CB::core::animsetdata {
+namespace CB::engine::animsetdata {
 
 namespace {
 
@@ -360,4 +360,4 @@ void CompileSetdataCrcs(SetFile& set)
     }
 }
 
-}  // namespace CB::core::animsetdata
+}  // namespace CB::engine::animsetdata

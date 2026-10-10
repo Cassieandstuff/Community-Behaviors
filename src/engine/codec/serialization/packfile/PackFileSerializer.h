@@ -23,8 +23,8 @@
 // queues hold shared_ptr so referenced objects stay alive across deferred writes.
 // HkxErWriter.cpp is the byte-verified C++ reference for this same algorithm.
 
-namespace CB::core::codec {
-using namespace CB::core::common;
+namespace CB::engine::codec {
+using namespace CB::engine::common;
 
 class PackFileSerializer {
 public:
@@ -398,4 +398,4 @@ private:
     std::vector<std::queue<std::shared_ptr<IHavokObject>>>     _serializationQueues;
 };
 
-} // namespace CB::core::codec
+} // namespace CB::engine::codec

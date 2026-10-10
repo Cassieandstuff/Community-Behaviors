@@ -11,7 +11,7 @@
 
 namespace fs = std::filesystem;
 
-namespace CB::core::schema {
+namespace CB::engine::schema {
 
 int ScalarWidth(Scalar s) {
     switch (s) {
@@ -327,7 +327,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         // any of them (no `fields:`, would fail the whole load):
         //   metadata/enums/*      -> ParseEnumDef into m_enums (source for .hky name rendering + sig CRC)
         //   metadata/semantics/*  -> collected here, applied to m_byName after the walk (merge policy)
-        //   metadata/debug/*      -> compile-trace probes (CB::core::compile::trace loads them separately)
+        //   metadata/debug/*      -> compile-trace probes (CB::engine::compile::trace loads them separately)
         //   metadata/* (direct)   -> adsf/asdsf cache descriptors (the animdata compiler's own vocab)
         if (underMetadata(p)) {
             const std::string sub = p.parent_path().filename().string();
@@ -483,4 +483,4 @@ int SchemaRegistry::ComputeSize(const std::string& className, std::string* err, 
     return cursor;
 }
 
-} // namespace CB::core::schema
+} // namespace CB::engine::schema

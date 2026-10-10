@@ -10,7 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace CB::core::anim {
+namespace CB::engine::anim {
 namespace {
 
 struct Xf {
@@ -200,7 +200,7 @@ std::vector<Key4> ReduceKeys(const std::vector<Key4>& keys, bool rotation, doubl
 
 } // namespace
 
-EngineMotionCurve::EngineMotionCurve(const CB::core::animdata::MotionRecord& m) {
+EngineMotionCurve::EngineMotionCurve(const CB::engine::animdata::MotionRecord& m) {
     for (const auto& s : m.translations) {
         const auto v = Numbers(s);
         if (v.size() >= 4) m_translation.push_back({ EngineTime(v[0]), { v[1], v[2], v[3], 0 } });
@@ -275,7 +275,7 @@ bool FoldMotionOntoRoot(AnimationDef& def, std::size_t rootTrack, std::string* e
     return true;
 }
 
-std::optional<CB::core::animdata::MotionRecord> ExtractRootMotion(AnimationDef& def, std::size_t rootTrack) {
+std::optional<CB::engine::animdata::MotionRecord> ExtractRootMotion(AnimationDef& def, std::size_t rootTrack) {
     if (rootTrack >= def.tracks.size() || def.numFrames <= 1 || def.frameDuration <= 0) return std::nullopt;
     AnimTrackDef& root = def.tracks[rootTrack];
     const int n = def.numFrames;
@@ -298,7 +298,7 @@ std::optional<CB::core::animdata::MotionRecord> ExtractRootMotion(AnimationDef& 
     }
     if (!moves) return std::nullopt;
 
-    CB::core::animdata::MotionRecord rec;
+    CB::engine::animdata::MotionRecord rec;
     rec.duration = Num(def.duration);
     std::vector<Key4> tKeys, rKeys;
     for (int f = 1; f < n; ++f) {
@@ -346,7 +346,7 @@ std::optional<FoldCheck> CheckFoldRoundTrip(const AnimationDef& def, std::size_t
     AnimationDef work = def;
     if (!FoldMotionOntoRoot(work, rootTrack)) return std::nullopt;
     const auto extracted = ExtractRootMotion(work, rootTrack);
-    const EngineMotionCurve ours(extracted ? *extracted : CB::core::animdata::MotionRecord{});
+    const EngineMotionCurve ours(extracted ? *extracted : CB::engine::animdata::MotionRecord{});
 
     const auto angle = [](const double a[4], const double b[4]) {
         return 2.0 * std::acos(std::min(1.0, std::abs(qdot(a, b)))) * 57.29577951308232;
@@ -413,7 +413,7 @@ void StripMotion(std::string& text) {
     text.erase(at + 1, end == text.size() ? std::string::npos : end - at);
 }
 
-bool IsStill(const CB::core::animdata::MotionRecord& m) {
+bool IsStill(const CB::engine::animdata::MotionRecord& m) {
     for (const auto& s : m.translations) {
         const auto v = Numbers(s);
         if (v.size() >= 4 && (v[1] != 0 || v[2] != 0 || v[3] != 0)) return false;
@@ -426,7 +426,7 @@ bool IsStill(const CB::core::animdata::MotionRecord& m) {
 }
 } // namespace
 
-UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::core::animdata::MotionRecord>& motion,
+UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::engine::animdata::MotionRecord>& motion,
                                   std::string* err) {
     StripMotion(text);
     if (!text.empty() && text.back() != '\n') text += '\n';
@@ -441,7 +441,7 @@ UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::cor
             if (check && FoldRoundTrips(*check) && FoldMotionOntoRoot(def, 0) && ReplaceTrackYaml(text, 0, def.tracks[0]))
                 return UnitMotionForm::Folded;
         }
-        const std::string body = CB::core::animdata::EmitMotionSidecar(*motion);
+        const std::string body = CB::engine::animdata::EmitMotionSidecar(*motion);
         text += "  motion:\n";
         for (std::size_t p = 0; p < body.size();) {
             const std::size_t nl = body.find('\n', p);
@@ -458,10 +458,10 @@ UnitMotionForm FinalizeUnitMotion(std::string& text, const std::optional<CB::cor
     return UnitMotionForm::None;
 }
 
-std::optional<CB::core::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack) {
+std::optional<CB::engine::animdata::MotionRecord> ResolveRootMotion(AnimationDef& def, std::size_t rootTrack) {
     if (def.motion) return def.motion;
     if (def.rootMotionVisual) return std::nullopt;
     return ExtractRootMotion(def, rootTrack);
 }
 
-} // namespace CB::core::anim
+} // namespace CB::engine::anim

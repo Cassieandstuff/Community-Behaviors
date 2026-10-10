@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <string>
 
-namespace CB::core::schema {
+namespace CB::engine::schema {
 
 namespace {
     std::string g_sharedDir;
@@ -71,4 +71,4 @@ SchemaRegistry* SharedRegistry() {
     return state == 1 ? &reg : nullptr;
 }
 
-}  // namespace CB::core::schema
+}  // namespace CB::engine::schema

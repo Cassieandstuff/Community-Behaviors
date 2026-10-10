@@ -6,7 +6,7 @@
 #include <fstream>
 #include <memory>
 
-namespace CB::core::codec::bsa {
+namespace CB::engine::codec::bsa {
 
     namespace {
 
@@ -211,4 +211,4 @@ namespace CB::core::codec::bsa {
         return true;
     }
 
-}  // namespace CB::core::codec::bsa
+}  // namespace CB::engine::codec::bsa

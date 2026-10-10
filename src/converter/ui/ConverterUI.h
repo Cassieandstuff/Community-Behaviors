@@ -64,7 +64,7 @@ private:
     std::string          m_outputDir;             // where the converted set is written (or zipped into)
     bool                 m_autoZip = false;        // zip the output instead of writing the tree directly
     bool                 m_exportLoadOrder = true; // write loadorder.plan.txt alongside the conversion
-    bconv::LoadOrderPlan m_plan;                  // pre-conversion plan (built on profile select)
+    CB::converter::LoadOrderPlan m_plan;                  // pre-conversion plan (built on profile select)
     bool                 m_planPending = false;    // rebuild the plan on the next frame (after a profile change)
     std::string          m_planMsg;               // status line under the profile field
     int                  m_dragRow = -1;           // arranger drag source index (-1 = none)
@@ -79,7 +79,7 @@ private:
     std::atomic<bool> m_running{ false };
     std::atomic<bool> m_cancel{ false };
     std::atomic<bool> m_finished{ false };
-    bconv::Result     m_result;
+    CB::converter::Result     m_result;
 
     std::mutex               m_logMx;
     std::vector<std::string> m_log;   // shared with the worker (guarded by m_logMx)

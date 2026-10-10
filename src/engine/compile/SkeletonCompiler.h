@@ -14,11 +14,11 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::skeleton {
-using namespace CB::core::codec;
-using namespace CB::core::common;
+namespace CB::engine::skeleton {
+using namespace CB::engine::codec;
+using namespace CB::engine::common;
 
-// Result of a skeleton compile. Same shape as CB::core::anim::AnimCompileResult (kept local so the module
+// Result of a skeleton compile. Same shape as CB::engine::anim::AnimCompileResult (kept local so the module
 // carries no havok-core dependency); callers read .ok / .error / .bytes.
 struct SkeletonCompileResult {
     bool                      ok = false;
@@ -52,4 +52,4 @@ SkeletonCompileResult CompileSkeletonFull(const SkeletonData& data,
 SkeletonCompileResult CompileSkeletonOverBase(const SkeletonData&              animBones,
                                               const std::vector<std::uint8_t>& baseBytes);
 
-} // namespace CB::core::skeleton
+} // namespace CB::engine::skeleton

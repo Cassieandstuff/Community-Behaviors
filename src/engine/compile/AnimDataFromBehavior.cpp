@@ -16,9 +16,9 @@
 #include <memory>
 #include <unordered_map>
 
-namespace CB::core::compile {
-using namespace CB::core::codec;
-using namespace CB::core::common;
+namespace CB::engine::compile {
+using namespace CB::engine::codec;
+using namespace CB::engine::common;
 
 namespace {
     // Trim an annotation's text — byte-identical to the offline StripLine (trailing space/tab/
@@ -31,19 +31,19 @@ namespace {
     }
 
     // Schema-object field readers (mirror AnimationDecompiler.cpp — no typed hka* classes).
-    std::shared_ptr<CB::core::codec::io::SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
-        return std::dynamic_pointer_cast<CB::core::codec::io::SchemaObject>(o);
+    std::shared_ptr<CB::engine::codec::io::SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
+        return std::dynamic_pointer_cast<CB::engine::codec::io::SchemaObject>(o);
     }
-    float rdF32(CB::core::codec::io::SchemaObject& o, const char* n) {
+    float rdF32(CB::engine::codec::io::SchemaObject& o, const char* n) {
         const auto& r = o.FieldRef(n).raw; float v = 0.f;
         if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
     }
 }  // namespace
 
-std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const std::shared_ptr<IHavokObject>& root)
+std::vector<CB::engine::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const std::shared_ptr<IHavokObject>& root)
 {
-    using CB::core::codec::io::SchemaObject;
-    std::vector<CB::core::animdata::DeriveClipInput> out;
+    using CB::engine::codec::io::SchemaObject;
+    std::vector<CB::engine::animdata::DeriveClipInput> out;
     auto so = [](const std::shared_ptr<IHavokObject>& o) { return dynamic_cast<SchemaObject*>(o.get()); };
     auto* r = so(root);
     if (!r) return out;
@@ -73,7 +73,7 @@ std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const
     walk(r);
 
     for (SchemaObject* c : clips) {
-        CB::core::animdata::DeriveClipInput dc;
+        CB::engine::animdata::DeriveClipInput dc;
         dc.name          = c->FieldRef("name").str;
         dc.animationName = c->FieldRef("animationName").str;
         dc.playbackSpeed = rdF32(*c, "playbackSpeed");
@@ -89,7 +89,7 @@ std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const
                 const auto& idRaw = ev->FieldRef("id").raw;
                 if (idRaw.size() >= 4) std::memcpy(&id, idRaw.data(), 4);
                 if (!events || id < 0 || static_cast<std::size_t>(id) >= events->size() || (*events)[id].empty()) continue;
-                CB::core::animdata::DeriveClipInput::Trigger tr;
+                CB::engine::animdata::DeriveClipInput::Trigger tr;
                 tr.event               = (*events)[id];
                 tr.localTime           = rdF32(*t, "localTime");
                 const auto& rel        = t->FieldRef("relativeToEndOfClip").raw;
@@ -106,7 +106,7 @@ std::vector<CB::core::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const
 
 AnimClipInfo ExtractAnimClipInfo(const std::vector<std::uint8_t>& bytes)
 {
-    using CB::core::codec::io::SchemaObject;
+    using CB::engine::codec::io::SchemaObject;
     AnimClipInfo out;
     if (bytes.empty()) return out;
 
@@ -122,7 +122,7 @@ AnimClipInfo ExtractAnimClipInfo(const std::vector<std::uint8_t>& bytes)
 
         PackFileDeserializer des;
         BinaryReaderEx       br(bytes);
-        des.ObjectFactory = CB::core::codec::io::MakeSchemaFactory(*reg);
+        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
         auto root = asSO(des.Deserialize(br));
         if (!root) return out;
 
@@ -162,8 +162,8 @@ AnimClipInfo ExtractAnimClipInfo(const std::vector<std::uint8_t>& bytes)
     return out;
 }
 
-std::vector<CB::core::animdata::ClipGenerator> DeriveProjectClipList(
-    std::vector<CB::core::animdata::DeriveClipInput>&                       clips,
+std::vector<CB::engine::animdata::ClipGenerator> DeriveProjectClipList(
+    std::vector<CB::engine::animdata::DeriveClipInput>&                       clips,
     const std::vector<std::string>&                                     roster,
     std::unordered_map<int, double>&                                    motionDur,
     const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
@@ -193,20 +193,20 @@ std::vector<CB::core::animdata::ClipGenerator> DeriveProjectClipList(
                 motionDur[ri->second] = info.duration;
     }
 
-    return CB::core::animdata::DeriveClipList(clips, roster, motionDur, unresolved);
+    return CB::engine::animdata::DeriveClipList(clips, roster, motionDur, unresolved);
 }
 
-CB::core::animdata::Project DeriveProjectAnimData(
+CB::engine::animdata::Project DeriveProjectAnimData(
     const std::string&                                                  projectName,
-    std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
+    std::vector<CB::engine::animdata::DeriveClipInput>&                      clips,
     const std::vector<std::string>&                                     roster,
-    const std::vector<CB::core::animdata::MotionRecord>&                   motions,
+    const std::vector<CB::engine::animdata::MotionRecord>&                   motions,
     const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim)
 {
     std::unordered_map<int, double> motionDur;
     for (const auto& m : motions) motionDur[std::atoi(m.animIndex.c_str())] = std::atof(m.duration.c_str());
 
-    CB::core::animdata::Project proj;
+    CB::engine::animdata::Project proj;
     proj.name        = projectName.size() >= 4 && projectName.compare(projectName.size() - 4, 4, ".txt") == 0
                            ? projectName : projectName + ".txt";
     proj.fieldX      = "1";
@@ -216,12 +216,12 @@ CB::core::animdata::Project DeriveProjectAnimData(
     return proj;
 }
 
-CB::core::animdata::ProjectPatch DeriveProjectPatch(
+CB::engine::animdata::ProjectPatch DeriveProjectPatch(
     const std::string&                                                  projectName,
-    std::vector<CB::core::animdata::DeriveClipInput>&                      clips,
+    std::vector<CB::engine::animdata::DeriveClipInput>&                      clips,
     const std::string&                                                  symbolCode,
     const std::function<std::vector<std::uint8_t>(const std::string&)>& readAnim,
-    const std::unordered_map<std::string, CB::core::animdata::MotionRecord>* animMotions)
+    const std::unordered_map<std::string, CB::engine::animdata::MotionRecord>* animMotions)
 {
     // Synthetic roster = each clip's own animationName, so DeriveProjectClipList resolves every
     // clip to a distinct slot (and reads its anim once for duration + annotation triggers) WITHOUT
@@ -246,7 +246,7 @@ CB::core::animdata::ProjectPatch DeriveProjectPatch(
         return std::string(buf);
     };
 
-    CB::core::animdata::ProjectPatch pp;
+    CB::engine::animdata::ProjectPatch pp;
     pp.projectName = projectName;
     int n = 0;
     for (const auto& cg : records) {
@@ -254,7 +254,7 @@ CB::core::animdata::ProjectPatch DeriveProjectPatch(
         const int         synthIdx = std::atoi(cg.animIndex.c_str());
         const double      dur      = (synthIdx >= 0 && motionDur.count(synthIdx)) ? motionDur[synthIdx] : 0.0;
 
-        CB::core::animdata::PatchAddition add;
+        CB::engine::animdata::PatchAddition add;
         add.symbol         = symbol;
         add.clip           = cg;        // canonical record (name / crop / playback / triggers)
         add.clip.animIndex = symbol;    // defer the real index to MergeProjectPatch's high band
@@ -263,7 +263,7 @@ CB::core::animdata::ProjectPatch DeriveProjectPatch(
         // Real root motion when this clip's animation authored one (BR-native animation.yaml `motion:`),
         // else the FNIS-style in-place placeholder (one zero translation + identity rotation at the
         // clip's duration). Either way the animIndex is the symbol — MergeProjectPatch pairs clip+motion.
-        const CB::core::animdata::MotionRecord* real = nullptr;
+        const CB::engine::animdata::MotionRecord* real = nullptr;
         if (animMotions && synthIdx >= 0 && static_cast<std::size_t>(synthIdx) < synthRoster.size()) {
             const auto it = animMotions->find(normAnim(synthRoster[synthIdx]));
             if (it != animMotions->end()) real = &it->second;
@@ -285,4 +285,4 @@ CB::core::animdata::ProjectPatch DeriveProjectPatch(
     return pp;
 }
 
-}  // namespace CB::core::compile
+}  // namespace CB::engine::compile

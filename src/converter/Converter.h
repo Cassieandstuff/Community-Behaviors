@@ -1,6 +1,6 @@
 #pragma once
 // Converter — turns a Nemesis/Pandora behavior load order into per-mod Community Behaviors
-// .hky bundles, calling CB::core::decompile::ConvertPatch (the same core as havok-core-cli's
+// .hky bundles, calling CB::engine::decompile::ConvertPatch (the same core as havok-core-cli's
 // vanbase / patchdelta). This is the C++ port of tools/br_stage_delta.sh, per Nemesis
 // code: one vanilla BASE bundle + one .hky per mod code, plus a loadorder.txt.
 #include <atomic>
@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace bconv {
+namespace CB::converter {
 
 using LogFn = std::function<void(std::string)>;
 
@@ -247,4 +247,4 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
                              const LogFn& log, const std::atomic<bool>& cancel,
                              const std::string& keepStagingDir = "");
 
-}  // namespace bconv
+}  // namespace CB::converter

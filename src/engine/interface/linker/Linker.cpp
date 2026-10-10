@@ -2,7 +2,7 @@
 
 #include <cctype>
 
-namespace CB::core::linker {
+namespace CB::engine::linker {
 
 std::string Linker::fold(std::string_view s) {
     std::string out(s);
@@ -45,4 +45,4 @@ std::optional<std::string> Linker::decode(Value v) const {
     return it->second;
 }
 
-}  // namespace CB::core::linker
+}  // namespace CB::engine::linker

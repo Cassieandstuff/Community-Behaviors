@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::core::schema {
+namespace CB::engine::schema {
 
 enum class FieldKind {
     Vtable,       // ReadUSize   — the runtime vtable slot (8 B, written 0)
@@ -243,4 +243,4 @@ SchemaRegistry* SharedRegistry();
 // integrity refusal). Empty while healthy. Populated as a side effect of the first SharedRegistry().
 const std::string& SharedRegistryError();
 
-} // namespace CB::core::schema
+} // namespace CB::engine::schema

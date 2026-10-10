@@ -30,8 +30,8 @@ namespace {
 int doHkyPack(const std::string& dir, const std::string& out) {
     if (out.empty()) { std::printf("usage: hky-tool pack <bundleDir> -o <out.hky>\n"); return 2; }
     std::string err;
-    if (!CB::core::codec::HkyArchive::PackDirectory(dir, out, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
-    auto arc = CB::core::codec::HkyArchive::LoadFromFile(out, err);   // round-trip sanity
+    if (!CB::engine::codec::HkyArchive::PackDirectory(dir, out, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    auto arc = CB::engine::codec::HkyArchive::LoadFromFile(out, err);   // round-trip sanity
     if (!arc) { std::printf("FAIL: packed but unreadable: %s\n", err.c_str()); return 1; }
     std::printf("OK: hky pack '%s' -> %s (%zu unit(s)).\n", dir.c_str(), out.c_str(), arc->units().size());
     return 0;
@@ -42,7 +42,7 @@ int doHkyPack(const std::string& dir, const std::string& out) {
 int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
     if (outDir.empty()) { std::printf("usage: hky-tool unpack <in.hky> -o <outDir>\n"); return 2; }
     std::string err;
-    auto arc = CB::core::codec::HkyArchive::LoadFromFile(hkyPath, err);
+    auto arc = CB::engine::codec::HkyArchive::LoadFromFile(hkyPath, err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
 
     // Same ordered range, two views: normalized keys drive file() lookup; original-case paths give the
@@ -77,7 +77,7 @@ bool BsaPrefixMatch(const std::string& path, std::string prefix) {
 
 int doBsaList(const std::string& bsaPath, const std::string& prefix) {
     std::string err;
-    const auto arc = CB::core::codec::bsa::Archive::Open(bsaPath, &err);
+    const auto arc = CB::engine::codec::bsa::Archive::Open(bsaPath, &err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     std::size_t shown = 0;
     for (const auto& e : arc->Entries()) {
@@ -92,7 +92,7 @@ int doBsaList(const std::string& bsaPath, const std::string& prefix) {
 int doBsaExtract(const std::string& bsaPath, const std::string& outDir, const std::string& prefix) {
     if (outDir.empty()) { std::printf("usage: hky-tool bsa-extract <in.bsa> -o <outDir> [prefix]\n"); return 2; }
     std::string err;
-    const auto arc = CB::core::codec::bsa::Archive::Open(bsaPath, &err);
+    const auto arc = CB::engine::codec::bsa::Archive::Open(bsaPath, &err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     namespace fs = std::filesystem;
     std::size_t written = 0, failed = 0;
