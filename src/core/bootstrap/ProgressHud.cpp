@@ -13,7 +13,7 @@
 #include <backends/imgui_impl_dx11.h>
 #include <backends/imgui_impl_win32.h>
 
-#include "Hooks/factory/Install.h"   // CB::core::hooks::InstallCallDetour — trampoline write_call<5>
+#include "core/hooks/factory/Install.h"   // CB::core::hooks::InstallCallDetour — trampoline write_call<5>
 
 // Startup progress bar, modelled on Community Shaders' Menu (src/Menu.cpp Init + src/Hooks.cpp draw):
 //   • ImGui context + backends + font/device objects are built ONCE, EAGERLY, at Install() time —

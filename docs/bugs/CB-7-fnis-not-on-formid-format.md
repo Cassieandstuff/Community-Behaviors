@@ -13,7 +13,7 @@ The consumer switch moved every unit to the reflective FormID format (a unit is 
 `<category>/<id>.yaml`; mods ship patches derived against the base unit). The FNIS leg hand-wrote the retired
 format (`behavior.yaml`, `data/graphdata.yaml`, name-keyed node files, a `0_master` delta with `parents:` and
 `data/additive.yaml`), which nothing reads any more, so its emitters were removed
-(`APP/Behavior Converter/src/convert/FnisConverter.cpp`). List scanning + grouping (`FnisListParser`) remain.
+(`src/converter/convert/FnisConverter.cpp`). List scanning + grouping (`FnisListParser`) remain.
 
 ## Ruled out
 - Hand-writing reflective YAML the same way: every field of every new node must be stated (a schema object

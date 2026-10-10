@@ -12,7 +12,7 @@
 // graphData. Pure-Apply rule: depends only on havok-core + the feature framework (ERGate.h is a
 // header-only CommunityBehaviors constant, no runtime deps).
 
-#include "FeatureRegistry.h"
+#include <feature-sdk/FeatureRegistry.h>
 #include "features/ERGate.h"   // CB::feature::ergate::kGateVar (main hpp/, on the include path)
 
 #include <algorithm>

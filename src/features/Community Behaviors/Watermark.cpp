@@ -1,6 +1,6 @@
 // Community Behaviors — compile-time watermark (graph feature).
 
-#include "FeatureRegistry.h"
+#include <feature-sdk/FeatureRegistry.h>
 #include "core/resolve/Watermark.h"   // kWatermarkVar / kWatermarkValue (header-only constants)
 
 #include <format>

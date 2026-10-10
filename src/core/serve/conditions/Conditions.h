@@ -171,7 +171,7 @@ namespace CB::core::conditions {
     bool GlobalEnabled();
 
     /// @brief Subscribe the producer actor-stash + the matcher-append to the setdata hook points
-    ///        (<Hooks/points/SetData.h>). Idempotent.
+    ///        (<core/hooks/points/SetData.h>). Idempotent.
     /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
     void InstallConditionHooks();
 

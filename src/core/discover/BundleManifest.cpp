@@ -2,7 +2,7 @@
 
 #include "core/discover/BundleManifest.h"
 
-#include <sct-config/SctConfig.h>   // CB::core::config::LoadJson / ReadText
+#include <config/SctConfig.h>   // CB::core::config::LoadJson / ReadText
 
 #include <system_error>
 

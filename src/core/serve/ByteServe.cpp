@@ -5,7 +5,7 @@
 #include "core/resolve/Resolver.h"
 #include "core/discover/ServeKey.h"
 
-#include <Hooks/points/Resource.h>
+#include <core/hooks/points/Resource.h>
 
 #include <atomic>
 #include <cstdint>

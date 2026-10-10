@@ -1,7 +1,7 @@
 #include "PCH.h"
 #include "core/resolve/SymbolInjector.h"
 
-#include <sct-config/SctConfig.h>
+#include <config/SctConfig.h>
 
 #include <bit>
 #include <cctype>

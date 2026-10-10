@@ -12,7 +12,7 @@ namespace CB::core::serve {
     /// @note Safe before or after Install(); a null resolver makes the subscriber a pure passthrough.
     void SetResolver(CB::Resolver* a_resolver);
 
-    /// @brief Subscribe the serve to the ResolveTypedHkx hook point (<Hooks/points/Resource.h>).
+    /// @brief Subscribe the serve to the ResolveTypedHkx hook point (<core/hooks/points/Resource.h>).
     /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
     void Install();
 

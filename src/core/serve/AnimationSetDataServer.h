@@ -46,7 +46,7 @@ namespace CB::core::serve {
                              const std::filesystem::path& loadOrderIni);
 
     /// @brief Subscribe the DETERMINISTIC set-data redirect to the AsdsfOpen hook point
-    ///        (<Hooks/points/Resource.h>): once armed, the loader's single-file open is handed BR's cache
+    ///        (<core/hooks/points/Resource.h>): once armed, the loader's single-file open is handed BR's cache
     ///        path whenever the loader runs — no dependency on WHEN it runs relative to kDataLoaded.
     /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
     void InstallSetDataHook();

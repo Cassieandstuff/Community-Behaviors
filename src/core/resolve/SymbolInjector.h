@@ -19,7 +19,7 @@
 // "Actors" broadcasts to every actor project, "actors\\Character" targets one);
 // type discriminates variable (kInt/kBool/kFloat, with value) from event (kEvent).
 
-#include "IGraphFeature.h"   // CB::feature::ISymbolDecls / SymbolDecl
+#include <feature-sdk/IGraphFeature.h>   // CB::feature::ISymbolDecls / SymbolDecl
 
 #include <cstddef>
 #include <cstdint>

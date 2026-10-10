@@ -1,5 +1,5 @@
 #include "PCH.h"
-#include <Hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
+#include <core/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
 
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"

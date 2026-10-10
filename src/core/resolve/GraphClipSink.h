@@ -10,7 +10,7 @@
 // writes are also serialized by the Resolver mutex (Resolve holds it for its whole body), but the sink
 // guards independently so it stays correct if that ever changes.
 
-#include "IGraphFeature.h"                 // CB::feature::IAnimDataSink (havok-pipeline)
+#include <feature-sdk/IGraphFeature.h>                 // CB::feature::IAnimDataSink
 
 #include <compile/AnimDataDeriver.h>    // CB::core::animdata::DeriveClipInput
 

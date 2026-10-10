@@ -3,7 +3,7 @@
 #include "core/resolve/Resolver.h"
 #include "core/discover/ServeKey.h"
 #include "core/resolve/Watermark.h"
-#include "FeatureRegistry.h"   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
+#include <feature-sdk/FeatureRegistry.h>   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
 
 #include <interface/UnitSource.h>

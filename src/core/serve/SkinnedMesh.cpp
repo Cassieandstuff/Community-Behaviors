@@ -1,5 +1,5 @@
 #include "PCH.h"
-#include <Hooks/hookslib.h>     // CB::core::hooks::geometry (CreateTriShape) + CB::core::hooks::skin (CreateSkinData/Partition)
+#include <core/hooks/hookslib.h>     // CB::core::hooks::geometry (CreateTriShape) + CB::core::hooks::skin (CreateSkinData/Partition)
 #include "core/serve/SkinnedMesh.h"
 
 #include <cstring>

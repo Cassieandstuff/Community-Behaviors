@@ -1,13 +1,13 @@
 /// @file
 /// @brief The condition layer's engine seam: two subscribers on the setdata hook points
-///        (<Hooks/points/SetData.h>). The weapon producer stashes its Actor* in TLS for the matcher call it
+///        (<core/hooks/points/SetData.h>). The weapon producer stashes its Actor* in TLS for the matcher call it
 ///        makes; the matcher subscriber appends our sensor {name, value} pairs to the assignment array via
 ///        save / repoint / restore, then continues the chain.
 /// @note Inert until config loading registers ConditionInstances (Inc 2).
 #include "Conditions.h"
 #include <PluginLogger.h>
 
-#include <Hooks/points/SetData.h>
+#include <core/hooks/points/SetData.h>
 
 #include <atomic>
 #include <cstring>

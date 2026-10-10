@@ -123,58 +123,54 @@ add_subdirectory(lib/commonlibsse-ng "${CMAKE_BINARY_DIR}/CommonLibSSE")
 include(CommonLibSSE)   # add_commonlibsse_plugin() — SHARED lib + generated version-data TU
 include(Deploy)         # cb_deploy() — MO2 deploy
 
-# havok-pipeline (feature SDK), sct-config (config scanner) — top-level only.
-add_subdirectory(src/havok-pipeline)
-add_subdirectory(src/sct-config)
+# common/: what features build against — the feature SDK and the config scanner. Top-level only.
+add_subdirectory(common/feature-sdk)
+add_subdirectory(common/config)
 
 # ── The plugin ─────────────────────────────────────────────────────────────────
 # src/ is the private include root; each Foo.cpp sits beside its Foo.h.
 find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
 find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link)
 
-# The plugin's entry point (Plugin.cpp) sits at src/ root; the compiler pipeline is organized by STAGE
-# under src/core/ (discover -> resolve -> serve, plus bootstrap + debug), and the graph features live
-# under src/features/. Collect the entry point, every pipeline stage, and the features — while the
-# non-recursive root glob keeps the sibling libraries (src/engine/, src/sct-config/, ...) out.
-file(GLOB CB_ROOT_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
+# The plugin is src/core/ (Plugin.cpp + the pipeline stages discover -> resolve -> serve, plus bootstrap,
+# debug, hooks) and the graph features under src/features/, compiled straight into the plugin target.
 sct_collect_sources(CB_CORE_SOURCES    "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/*.cpp")
 sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
 
 # add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) + links CommonLibSSE
 # — Plugin.cpp defines only SKSEPluginLoad.
-add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_ROOT_SOURCES} ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
+add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 
-# src/ is the private include root: pipeline headers resolve stage-prefixed (e.g.
-# "core/resolve/Resolver.h", "features/ERGate.h"), Hooks/ (header-only) from here too. src/pch/
-# holds the force-include-tier shared headers (PCH.h, PluginLogger.h) so their bare quoted includes
-# ("PCH.h" / "PluginLogger.h") still resolve everywhere.
-target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/pch")
+# src/ is the private include root: headers resolve folder-prefixed (e.g. "core/resolve/Resolver.h",
+# <core/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
+# (PCH.h, PluginLogger.h), on the path so their bare quoted includes resolve everywhere.
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/pch")
 
-# Engine symbol registry: src/Hooks/registry/engine.yaml (the single hand-edited source of every engine
+# Engine symbol registry: src/core/hooks/registry/engine.yaml (the single hand-edited source of every engine
 # address CB uses beyond CommonLib) baked into a constexpr header at build time — see
-# cmake/EmbedEngineRegistry.cmake and <Hooks/registry/Registry.h>.
+# cmake/EmbedEngineRegistry.cmake and <core/hooks/registry/Registry.h>.
 set(_cb_gen_dir "${CMAKE_BINARY_DIR}/generated")
-set(_cb_engine_reg "${_cb_gen_dir}/Hooks/registry/EngineRegistry.gen.h")
+set(_cb_engine_reg "${_cb_gen_dir}/core/hooks/registry/EngineRegistry.gen.h")
 add_custom_command(
     OUTPUT  "${_cb_engine_reg}"
     COMMAND "${CMAKE_COMMAND}"
-            "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/Hooks/registry/engine.yaml"
+            "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml"
             "-DOUT_H=${_cb_engine_reg}"
             -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-    DEPENDS "${CMAKE_SOURCE_DIR}/src/Hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-    COMMENT "Generating the engine symbol registry from src/Hooks/registry/engine.yaml"
+    DEPENDS "${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
+    COMMENT "Generating the engine symbol registry from src/core/hooks/registry/engine.yaml"
     VERBATIM)
 target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}")
 target_include_directories(CommunityBehaviors PRIVATE "${_cb_gen_dir}")
 
-# engine = the shared reflection engine; havok-pipeline = the feature-framework SDK
-# (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
+# engine = the shared reflection engine; feature-sdk = the graph-feature SDK
+# (<feature-sdk/FeatureRegistry.h>); config = the config scanner; ryml = YAML front-end;
 # minhook = function-ENTRY hooks (the BSResource stream ctor).
-target_link_libraries(CommunityBehaviors PRIVATE havok-pipeline engine sct-config ryml::ryml minhook::minhook)
+target_link_libraries(CommunityBehaviors PRIVATE feature-sdk engine config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
-target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/pch/PCH.h")
+target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/core/pch/PCH.h")
 
 # ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
 # Drives the cold-compile progress bar: PresentPump renders its own ImGui frames onto the game's
@@ -268,6 +264,5 @@ if(CB_BUILD_CONVERTER)
     target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
     set_target_properties(imgui PROPERTIES CXX_STANDARD 17)
 
-    add_subdirectory(src/sct-utilities)     # folder picker + zip (converter-only)
-    add_subdirectory("APP/Behavior Converter")
+    add_subdirectory(src/converter)
 endif()

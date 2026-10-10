@@ -39,7 +39,7 @@ namespace CB::core::serve {
     ServeResult ServeAnimData(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
                               const AdsfSource& source);
 
-    /// @brief Subscribe the DETERMINISTIC redirect to the AdsfOpen hook point (<Hooks/points/Resource.h>): once
+    /// @brief Subscribe the DETERMINISTIC redirect to the AdsfOpen hook point (<core/hooks/points/Resource.h>): once
     ///        armed, the loader's single-file open is handed BR's cache path, whenever the loader runs.
     /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
     void InstallAnimDataHook();

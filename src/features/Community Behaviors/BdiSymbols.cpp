@@ -1,6 +1,6 @@
 // Community Behaviors — compile-time Behavior Data Injector symbols (graph feature).
 
-#include "FeatureRegistry.h"
+#include <feature-sdk/FeatureRegistry.h>
 
 #include <format>
 #include <string>
