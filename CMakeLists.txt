@@ -49,22 +49,10 @@ endif()
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 # ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
-# The data-driven modules ARE CB's source. cb::CB-API (<CB-API.h>) is the curated public contract a
-# consumer links; it PUBLIC-pulls the engine modules, so linking it is all a consumer needs.
+# src/engine is CB's shared reflection engine (one `engine` target). cb::CB-API (<CB-API.h>) is the curated
+# public contract a consumer links; it PUBLIC-pulls the engine, so linking it is all a consumer needs.
 include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
-add_subdirectory(Havok/core/cpp/common)      # CB::core foundational value types (HkTypes; base tier, no deps)
-add_subdirectory(Havok/core/cpp/interface)   # CB::core model structs (base; depends only on common)
-add_subdirectory(Havok/core/cpp/interface/reflection)  # CB::core descriptor registry (Base/Reflection analogue; ryml provider, firesale phase 2)
-add_subdirectory(src/havok-framing)
-add_subdirectory(src/havok-schema)           # now an INTERFACE shim over reflection (firesale phase 2)
-add_subdirectory(Havok/core/cpp/codec/serialization)   # CB::core foundational codec: packfile spine + HavokIo (firesale phase 1)
-add_subdirectory(src/havok-io)
-add_subdirectory(src/havok-model)
-add_subdirectory(Havok/core/cpp/codec)   # CB::core codecs (spline + format yaml loaders; org-pass firesale step 1)
-add_subdirectory(Havok/core/cpp/compile)     # CB::core one-way derives + Animation/Skeleton compilers (firesale)
-add_subdirectory(Havok/core/cpp/decompile)   # CB::core emit-direction + Animation/Skeleton import (firesale)
-add_subdirectory(Havok/tools/hky)            # hky-tool: standalone .hky pack/unpack over codec/serialization (firesale phase 4a)
-add_subdirectory(Havok/tools/cbdiff)         # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
+add_subdirectory(src/engine)
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # ── Install / export rules for the cb-api surface ────────────────────────────────
@@ -72,18 +60,12 @@ add_subdirectory(API)              # the single public API facade (<CB-API.h>): 
 # actually installs — FetchContent (add_subdirectory) ignores these; vcpkg's vcpkg_cmake_install() runs them.
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api common interface reflection serialization havok-framing havok-schema havok-io havok-model codec compile decompile
+install(TARGETS cb-api engine
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
-# Headers: each module's full include/ tree (havok-model's public headers pull havok-framing's, etc.).
-# Headers + sources are co-located per module now (no include/ vs cpp/ split), so the export ships
-# only the headers (FILES_MATCHING *.h) from each module root — the co-located .cpp are not installed.
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-framing/"  DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-schema/"   DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-io/"       DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"    DESTINATION include FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/core/cpp/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
+# Headers: the engine include root, headers only (sources sit beside them and are not installed).
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/" DESTINATION include FILES_MATCHING PATTERN "*.h")
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
 # The class schema (schema/) is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
@@ -112,10 +94,10 @@ install(FILES
     DESTINATION share/cb-api)
 
 # When consumed as a subproject, the resolution surface is all we expose — stop here so a consumer
-# never configures the plugin / converter / CommonLibSSE / havok-core.
+# never configures the plugin / converter / tools / CommonLibSSE.
 if(NOT CB_STANDALONE)
-    message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-api + engine modules "
-                   "only (plugin, converter, havok-core, CommonLibSSE skipped). Consumer must provide ryml.")
+    message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-api + the engine "
+                   "only (plugin, converter, tools, CommonLibSSE skipped). Consumer must provide ryml.")
     return()
 endif()
 
@@ -144,30 +126,16 @@ include(Deploy)         # cb_deploy() — MO2 deploy
 # havok-pipeline (feature SDK), sct-config (config scanner) — top-level only.
 add_subdirectory(src/havok-pipeline)
 add_subdirectory(src/sct-config)
-# Retirement Home/havok-core (the quarantined typed backbone + havok-core-cli) DELETED in the org-pass
-# firesale final cut: nothing links it any more (plugin + converter both havok-core-free; the schema
-# stack fully replaces the typed compile/decompile, gate-proven). hky-pack/unpack -> Havok/tools/hky
-# (hky-tool); the typed schema-vs-oracle gates retired with their oracle. The base-master regen (and its
-# served-bytes gate) runs through the converter.
-
-# tree-diff — RETIRED in the org-pass firesale. The old cb-tree-diff engine was built before the schema
-# stack + the linker/BoneMembrane and pulled the quarantined typed havok-core (typed DecompileToDir +
-# skeleton import) back into the converter — the last thing blocking the havok-core cut. It is being
-# replaced by a ground-up Pandora-vs-CB diff tool (Pandora layered OVER vanilla, schema-native, no manual
-# skeleton) in its own session. The converter's Diff tab is stubbed (src/ui/TreeDiffAdapters.h) meanwhile.
-# (add_subdirectory("APP/tree-diff") removed; APP/tree-diff deleted.)
 
 # ── The plugin ─────────────────────────────────────────────────────────────────
-# Sources are FLAT: each Foo.cpp beside its Foo.h directly under src/ (src/ IS the private include root).
-# The plugin's OWN sources are the flat .cpp at the src/ ROOT (non-recursive glob, so the sibling engine
-# modules under src/havok-*/ + src/sct-config/ are NOT swept in) PLUS the graph features under features/.
+# src/ is the private include root; each Foo.cpp sits beside its Foo.h.
 find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
 find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link)
 
 # The plugin's entry point (Plugin.cpp) sits at src/ root; the compiler pipeline is organized by STAGE
 # under src/core/ (discover -> resolve -> serve, plus bootstrap + debug), and the graph features live
 # under src/features/. Collect the entry point, every pipeline stage, and the features — while the
-# non-recursive root glob still keeps the sibling engine modules (src/havok-*/, sct-config, ...) out.
+# non-recursive root glob keeps the sibling libraries (src/engine/, src/sct-config/, ...) out.
 file(GLOB CB_ROOT_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/*.cpp")
 sct_collect_sources(CB_CORE_SOURCES    "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/*.cpp")
 sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
@@ -200,10 +168,10 @@ add_custom_command(
 target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}")
 target_include_directories(CommunityBehaviors PRIVATE "${_cb_gen_dir}")
 
-# havok-core = the offline/legacy compiler backbone; havok-pipeline = the feature-framework SDK
+# engine = the shared reflection engine; havok-pipeline = the feature-framework SDK
 # (PUBLIC-exposes "FeatureRegistry.h"); sct-config = the config scanner; ryml = YAML front-end;
 # minhook = function-ENTRY hooks (the BSResource stream ctor).
-target_link_libraries(CommunityBehaviors PRIVATE havok-pipeline compile decompile codec sct-config ryml::ryml minhook::minhook)
+target_link_libraries(CommunityBehaviors PRIVATE havok-pipeline engine sct-config ryml::ryml minhook::minhook)
 
 # Force-included PCH (RE/Skyrim.h before Windows.h; the whole SKSE API for every TU).
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/pch/PCH.h")
@@ -230,6 +198,10 @@ target_include_directories(imgui_dx11 PUBLIC "${imgui_SOURCE_DIR}")
 target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 set_target_properties(imgui_dx11 PROPERTIES CXX_STANDARD 17)
 target_link_libraries(CommunityBehaviors PRIVATE imgui_dx11 d3d11 dxgi)
+
+# ── Dev tools ────────────────────────────────────────────────────────────────────
+add_subdirectory(tools/hky)      # hky-tool: .hky pack/unpack (also unpacks the deployed master for diffing)
+add_subdirectory(tools/cbdiff)   # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
 
 # ── Bundle stage ────────────────────────────────────────────────────────────────
 # Every shipped .hky is a DERIVED bundle the converter regenerates from $CB_REGEN_SOURCE (see

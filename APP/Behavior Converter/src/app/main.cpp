@@ -1,7 +1,7 @@
 #include "app/App.h"
 #include "Converter.h"
 
-#include <havok-schema/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
+#include <interface/reflection/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
 #include <sct-utilities/SctUtilities.h>
 
 #include <atomic>

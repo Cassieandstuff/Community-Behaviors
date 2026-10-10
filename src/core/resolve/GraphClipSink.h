@@ -12,7 +12,7 @@
 
 #include "IGraphFeature.h"                 // CB::feature::IAnimDataSink (havok-pipeline)
 
-#include <havok/anim/AnimDataDeriver.h>    // CB::core::animdata::DeriveClipInput
+#include <compile/AnimDataDeriver.h>    // CB::core::animdata::DeriveClipInput
 
 #include <cstddef>
 #include <map>

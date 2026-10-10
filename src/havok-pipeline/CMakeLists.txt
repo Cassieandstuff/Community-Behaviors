@@ -28,7 +28,7 @@ set_target_properties(havok-pipeline PROPERTIES
 target_include_directories(havok-pipeline PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # The framework edits the merged reflective graph (decompile::GraphEdit).
-target_link_libraries(havok-pipeline PUBLIC decompile)
+target_link_libraries(havok-pipeline PUBLIC engine)
 
 if(MSVC)
     target_compile_options(havok-pipeline PRIVATE /W4 /wd4100 /MP /EHsc)

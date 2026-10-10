@@ -1,7 +1,7 @@
 #include "ui/LoadOrderUI.h"
 
 #include <sct-utilities/SctUtilities.h>
-#include <havok/model/yaml/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
+#include <codec/serialization/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
 
 #include <imgui.h>
 

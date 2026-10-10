@@ -9,8 +9,8 @@ morph/float channels) would read its float data from garbage.
 
 ## Root cause
 The game reads a block's float-track data at `blockOffsets[b] + floatBlockOffsets[b]` (Ghidra FUN_140c33100).
-`CompressedResult` (`Havok/core/cpp/codec/spline/SplineCompressor.h:18`) carries only `blockOffsets`, and
-`Havok/core/cpp/compile/AnimationCompiler.cpp:59` leaves `floatBlockOffsets` empty, so the engine indexes past
+`CompressedResult` (`src/engine/codec/spline/SplineCompressor.h:18`) carries only `blockOffsets`, and
+`src/engine/compile/AnimationCompiler.cpp:59` leaves `floatBlockOffsets` empty, so the engine indexes past
 an empty array. The compressor already writes float tracks inline after each block's transform tracks
 (4-byte aligned, mask 0x12 / 0x03), so the offset just isn't recorded.
 

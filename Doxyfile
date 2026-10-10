@@ -10,7 +10,7 @@ PROJECT_BRIEF          = "Runtime SKSE Havok behavior compiler + Behavior Conver
 OUTPUT_DIRECTORY       = D:/CB-tmp/doxygen
 
 # --- what to read -------------------------------------------------------------
-INPUT                  = src include API Havok/core/cpp Havok/tools
+INPUT                  = src include API tools/hky tools/cbdiff
 RECURSIVE              = YES
 FILE_PATTERNS          = *.h *.hpp *.cpp *.cc *.cxx
 # Keep the vendored submodule, build trees, and scratch out.

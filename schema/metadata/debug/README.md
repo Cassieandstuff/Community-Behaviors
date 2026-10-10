@@ -1,7 +1,7 @@
 # `debug/` — compile-trace probe definitions
 
 Probes are **data**, not code. Each `*.yaml` here declares WHERE / WHEN / HOW the compile-trace
-(`havok::model::trace`, see `src/havok-model/havok/model/CompileTrace.*`) should log compiler activity.
+(`havok::model::trace`, see `src/engine/compile/CompileTrace.*`) should log compiler activity.
 They ride on top of the schema the way `enums/` does — they reference class and field names — but carry
 no `fields:`, so the class-schema loader (`SchemaRegistry::LoadDir`) skips this subtree; the trace loads
 them itself.

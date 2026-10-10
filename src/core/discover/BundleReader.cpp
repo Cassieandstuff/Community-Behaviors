@@ -2,7 +2,7 @@
 
 #include "core/discover/BundleReader.h"
 
-#include <havok/model/yaml/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)
+#include <interface/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)
 
 #include <algorithm>
 #include <cctype>

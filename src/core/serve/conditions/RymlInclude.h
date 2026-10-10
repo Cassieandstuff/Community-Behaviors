@@ -1,6 +1,6 @@
 #pragma once
 // RymlInclude.h — the ONLY way this module should pull in rapidyaml (per-module copy of the repo's
-// standard workaround; see src/havok-schema/external/RymlInclude.h for the full rationale).
+// standard workaround; see src/engine/interface/reflection/external/RymlInclude.h for the full rationale).
 //
 // rapidyaml's bundled c4core defines function-like C4_LIKELY/C4_UNLIKELY that expand to an illegal
 // attribute position under C++20+ (this plugin compiles at C++23 / /std:c++latest). Include

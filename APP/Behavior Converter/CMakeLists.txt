@@ -33,10 +33,9 @@ target_include_directories(behavior-converter PRIVATE
                                                 # (last, so the converter's own headers still win on any name clash;
                                                 #  a dir on the include PATH compiles nothing unless #included)
 
-# imgui transitively supplies glfw + glad + opengl32 (PUBLIC). havok-core = the converter core
-# (PatchConverter / decompilers / oracle); havok-model + havok-schema = the DEFAULT data-driven
-# per-mod delta (ConvertModDelta / SchemaRegistry). sct-utilities = folder picker + zip (+ ole32/shell32).
-target_link_libraries(behavior-converter PRIVATE havok-model havok-schema compile decompile codec imgui sct-utilities)
+# imgui transitively supplies glfw + glad + opengl32 (PUBLIC). engine = the shared reflection engine
+# (decompile, per-mod delta, schema registry). sct-utilities = folder picker + zip (+ ole32/shell32).
+target_link_libraries(behavior-converter PRIVATE engine imgui sct-utilities)
 
 if(MSVC)
     target_compile_options(behavior-converter PRIVATE /W4 /wd4100 /wd4505 /MP)
@@ -93,6 +92,6 @@ cb_regen_bundles(
     UNPACKED_DIR     "${SCT_BASE_MASTER_DIR}"
     DEPENDS          ${_bconv_template_files})
 
-# CB Havok-stack shared vocabulary (see Havok/core/cpp/common/CorePrelude.h) — APP includes core headers
+# CB Havok-stack shared vocabulary (see src/engine/common/CorePrelude.h) — APP includes core headers
 # that reference CB::core::common / CB::core::codec unqualified; make them ambient in every APP TU.
-target_precompile_headers(behavior-converter PRIVATE "${CMAKE_SOURCE_DIR}/Havok/core/cpp/common/CorePrelude.h")
+target_precompile_headers(behavior-converter PRIVATE "${CMAKE_SOURCE_DIR}/src/engine/common/CorePrelude.h")

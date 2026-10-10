@@ -4,11 +4,11 @@
 #include <codec/formid/FormId.h>                        // CB::core::codec::formid::SELF_INDEX / BASE_GAME_INDEX (index convention)
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
-#include <havok/model/yaml/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
+#include <codec/serialization/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
 #include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
 #include <codec/format/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
 #include <interface/AnimationData.h>        // parse vanilla animationdatasinglefile
-#include <havok/anim/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
+#include <codec/format/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
 #include <codec/serialization/packfile/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
 #include <codec/serialization/packfile/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
 #include <compile/AnimationCompiler.h>       // CB::core::anim::CompileAnimation — recompile leg (schema-native)
@@ -24,7 +24,7 @@
 #include <thread>
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <decompile/BehaviorDecompile.h>     // ConvertModDelta / DeriveHkyPatch / the reflective unit codec
-#include <havok-schema/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
+#include <interface/reflection/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
 #include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)

@@ -123,7 +123,7 @@ Nemesis/Pandora-authored mod corpus was validated against.
 The fix is **not** the bone membrane (CB's skeleton order is correct-to-vanilla; the weights are placed
 exactly where the mod's bytes say). It is a **converter-only compatibility shim** that reproduces
 Pandora's occurrence-counted placement so converted bundles match the ecosystem:
-- `src/havok-framing/havok/compat/PandoraCompatShim.{h,cpp}` — `havok::compat::ApplyNemesisTextArrayEdits`,
+- `src/engine/decompile/PandoraCompatShim.{h,cpp}` — `havok::compat::ApplyNemesisTextArrayEdits`,
   a faithful port of `NemesisParser.ParseReplaceEdit` + `PackFileEditor.ReplaceText` (regex-with-`\s*`,
   count in the mutated prefix, replace the Nth non-overlapping match). Unit-verified: reproduces Pandora's
   compiled `weapequip` child1 boneWeights **bit-for-bit** (all 98 elements).

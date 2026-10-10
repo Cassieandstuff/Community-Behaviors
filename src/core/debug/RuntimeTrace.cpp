@@ -2,7 +2,7 @@
 
 #include "core/debug/RuntimeTrace.h"
 
-#include <havok/model/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
+#include <compile/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
 
 #include "SimpleIni.h"                  // [Debug] bRuntimeTrace toggle (mirrors CB::core::debug::kFlags row)
 

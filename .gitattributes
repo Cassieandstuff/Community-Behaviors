@@ -17,4 +17,6 @@ schema/templates/** text=auto eol=crlf
 *.esm  binary
 *.esl  binary
 
-Havok/** -text
+src/engine/** -text
+tools/hky/** -text
+tools/cbdiff/** -text

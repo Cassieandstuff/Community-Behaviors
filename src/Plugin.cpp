@@ -16,7 +16,7 @@
 #include <Hooks/registry/Registry.h>
 
 #include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
-#include <havok-schema/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
+#include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
 #include <atomic>
 #include <chrono>

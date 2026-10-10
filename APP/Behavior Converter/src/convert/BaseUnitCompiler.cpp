@@ -3,7 +3,7 @@
 #include <codec/format/SkeletonYaml.h>
 #include <codec/serialization/HkyArchive.h>
 #include <decompile/BehaviorDecompile.h>
-#include <havok-schema/HavokSchema.h>
+#include <interface/reflection/HavokSchema.h>
 
 #include <algorithm>
 #include <cctype>

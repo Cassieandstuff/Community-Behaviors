@@ -6,8 +6,8 @@
 #include "FeatureRegistry.h"   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
 
-#include <havok/model/yaml/UnitSource.h>
-#include <havok/model/yaml/HkyArchive.h>
+#include <interface/UnitSource.h>
+#include <codec/serialization/HkyArchive.h>
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromGraph — first-class adsf-derive stage
 #include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
@@ -16,9 +16,9 @@
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <interface/MasterTable.h>          // CB::core::codec::formid::BuildMasterTable (ordered master table)
-#include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
-#include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
-#include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
+#include <codec/format/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
+#include <compile/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
+#include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
 #include <atomic>

@@ -1,6 +1,6 @@
 @PACKAGE_INIT@
 
-# cb-api links ryml transitively (havok-schema/model), so a consumer's find_package(cb-api)
+# cb-api links ryml transitively (the engine), so a consumer's find_package(cb-api)
 # must be able to find ryml too. It's impl-only in the public headers but a real link dependency.
 include(CMakeFindDependencyMacro)
 find_dependency(ryml)
@@ -33,14 +33,14 @@ endif()
 # location onto a shipped one (RELEASE if present, else the first). MAP_IMPORTED_CONFIG_<c> is consulted
 # ONLY when config <c> has no IMPORTED_LOCATION, so setting all four is safe — a config that WAS shipped
 # (e.g. Debug + Release under vcpkg) keeps its own location and ignores the map.
-get_property(_cb_cfgs TARGET cb::havok-model PROPERTY IMPORTED_CONFIGURATIONS)
+get_property(_cb_cfgs TARGET cb::engine PROPERTY IMPORTED_CONFIGURATIONS)
 if("RELEASE" IN_LIST _cb_cfgs)
     set(_cb_fallback RELEASE)
 elseif(_cb_cfgs)
     list(GET _cb_cfgs 0 _cb_fallback)
 endif()
 if(_cb_fallback)
-    foreach(_cb_t cb::havok-framing cb::havok-schema cb::havok-io cb::havok-model cb::havok-anim cb::havok-skeleton)
+    foreach(_cb_t cb::engine)
         foreach(_cb_c DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
             set_property(TARGET ${_cb_t} PROPERTY MAP_IMPORTED_CONFIG_${_cb_c} "${_cb_fallback}")
         endforeach()

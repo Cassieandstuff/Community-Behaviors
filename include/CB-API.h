@@ -36,7 +36,7 @@
 #include "decompile/BehaviorDecompile.h"
 
 // schema — the Havok class-schema registry (merge classifier / model interpreter)
-#include "havok-schema/HavokSchema.h"
+#include "interface/reflection/HavokSchema.h"
 
 // anim — decode/compile/export animations (schema-native; the CB pipeline itself)
 #include "interface/AnimationDef.h"

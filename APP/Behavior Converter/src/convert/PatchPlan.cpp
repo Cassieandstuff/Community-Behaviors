@@ -1,6 +1,6 @@
 #include "PatchPlan.h"
 
-#include <havok/model/yaml/HkyArchive.h>
+#include <codec/serialization/HkyArchive.h>
 
 #include <algorithm>
 #include <cctype>

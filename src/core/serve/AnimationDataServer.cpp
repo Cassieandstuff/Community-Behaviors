@@ -9,7 +9,7 @@
 #include <codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
 #include <compile/AnimDataProjection.h>         // ProjectAnimData
-#include <havok-schema/HavokSchema.h>
+#include <interface/reflection/HavokSchema.h>
 
 #include <algorithm>
 #include <atomic>
