@@ -29,72 +29,73 @@ libs.
 ## Layout
 
 ```
-include/                     PUBLIC API ONLY (repo root): CB-API.h — the single facade an external tool
-                             #includes (<CB-API.h>). Nothing private goes here. Backed by the API/ target.
-API/                         the cb::CB-API facade target (INTERFACE lib) + its dogfood drift-gate
-                             (cb-api-check). CB is a first-party consumer of <CB-API.h>. Peer of APP/.
-src/                         CB's source. src/ is the private include root; the runtime plugin is organized by
-                             PIPELINE STAGE under core/, the engine libraries by CONCERN (each a module).
-  Plugin.cpp                 the SKSE entry point (defines SKSEPluginLoad) — stays at src/ root
-  pch/                       force-include-tier shared headers: PCH.h (force-included) + PluginLogger.h
-                             (LOG_* macros). On the include path, so bare "PCH.h"/"PluginLogger.h" resolve.
-  core/                      THE COMPILER PIPELINE, foldered by stage (include stage-prefixed, e.g.
-                             "core/resolve/Resolver.h"):
-    core/discover/           find + read the .hky bundles (BundleReader, BundleManifest, ServeKey)
-    core/resolve/            load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
-                             GraphClipSink, Watermark). Compile itself is delegated to the havok-* libs.
-    core/serve/              deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer,
+src/                         CB's code. src/ is the plugin's private include root.
+  core/                      THE SKSE PLUGIN (CB::core::), foldered by pipeline stage (include
+                             stage-prefixed, e.g. "core/resolve/Resolver.h"):
+    Plugin.cpp               the SKSE entry point (defines SKSEPluginLoad)
+    pch/                     PCH.h (force-included) + PluginLogger.h (LOG_* macros); on the include path,
+                             so bare "PCH.h"/"PluginLogger.h" resolve
+    discover/                find + read the .hky bundles (BundleReader, BundleManifest, ServeKey)
+    resolve/                 load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
+                             GraphClipSink, Watermark). Compile itself is delegated to the engine.
+    serve/                   deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer,
                              CBMemoryStream, SkinnedMesh)
-    core/bootstrap/          startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud)
-    core/debug/              opt-in diagnostics/probes (AnimDataProbe, SyncClipProbe, DebugOverlay, DebugFlags)
-  features/<Owner>/          self-registered compile-time graph features (BR_REGISTER_FEATURE); ERGate.h
-                             (the ER wildcard-gate hook, non-compiler) lives here too
-  Hooks/                     header-only BSResource-ctor hook lib (<Hooks/hookslib.h>)
-  havok-framing|schema|io|model|anim|pipeline/   the data-driven Havok stack (each an add_library module).
-                             Headers + sources are CO-LOCATED (no include/ vs cpp/ split): a component's
-                             Foo.h sits beside Foo.cpp under the module's namespaced path (e.g.
-                             Havok/core/cpp/decompile/BehaviorDecompile.h + HavokModel.cpp); the module
-                             root IS the include root (<decompile/…>, <codec/…>). Exported
-                             modules install only *.h. The public CB-API facade lives at the root include/.
-  sct-config/                config scanner (JSON/YAML/INI); sct-utilities/ folder-picker+zip (converter)
-Havok/core/Schema/           the vanilla class-schema tree (schema-as-core; room for Havok/features/ later)
-Retirement Home/_archive/    ARCHIVED legacy typed backbone (havok-core) — not built, nothing links it;
-                             reference only. Never build on it.
-APP/Behavior Converter/      the GLFW+ImGui converter (BehaviorConverter.exe); src/ flat, ships templates/+Havok/
+    bootstrap/               startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud)
+    debug/                   opt-in diagnostics/probes (AnimDataProbe, SyncClipProbe, DebugOverlay, DebugFlags)
+    hooks/                   the engine symbol registry (registry/engine.yaml → per-runtime Address Library
+                             pins) + the shared hook-point layer features subscribe to (<core/hooks/hookslib.h>)
+  engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
+                             converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
+                             or REL/ include. The folder IS the include root (<common/…> <interface/…>
+                             <interface/reflection/…> <codec/…> <compile/…> <decompile/…>); headers sit beside
+                             their sources.
+  features/<Owner>/          self-registered graph features (CB_REGISTER_FEATURE, CB::feature::), compiled
+                             straight into the plugin; ERGate.h (the ER wildcard-gate hook) lives here too
+  converter/                 the GLFW+ImGui Behavior Converter (BehaviorConverter.exe, CB::converter::);
+                             platform/ = native dialogs, known folders, zip
+common/                      what features build against; common/ is their include root:
+  feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::)
+  config/                    <config/Config.h> — the config scanner (JSON/YAML/INI, CB::config::)
+schema/                      the class schema as DATA, flat — vanilla hk*, Bethesda BS*, CB* custom classes side
+                             by side, told apart by prefix; metadata/ holds enums, merge semantics, debug probes
+                             and the adsf/asdsf descriptors. templates/ = the converter's Nemesis-ingest XML
+                             oracles. Deployed: plugin → Data/Community Behaviors/schema (no templates/),
+                             converter → <exe>/schema.
+tools/                       dev-only, never shipped: hky-tool, cbdiff, x64dbg-autoattach, blender-control-rig
+include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
+                             (cb-api-check). On hold — nothing consumes it yet. Nothing private goes in include/.
 ```
 
-## Namespacing (describes PURPOSE, not location) — directive
+## Namespacing (follows the folder) — directive
 
-A namespace names WHAT code is for; a folder names where it happens to live. They are decoupled on
-purpose — folders churn (the firesale moved everything), a purpose namespace must not. So the namespace
-is NOT derived from the path, and a file moving folders never renames it.
+The top-level folder picks the ROOT; the purpose word names what the code is for. A file that moves to
+another root renames its namespace; a stray top-level namespace is a bug.
 
-- **One root. `CB::core::` for all core functionality; `CB::feature::<Name>` for features (later).**
-  That is the entire reason `core` exists — there is no bare `havok::` / `sct::` / `linker` / `model` /
-  `merge`, no second root. A stray top-level namespace is a bug.
-- **Depth: `CB::core::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
+- **Roots.** `CB::core::` = the plugin (src/core) · `CB::engine::` = the shared engine (src/engine) ·
+  `CB::feature::` = features + the feature SDK · `CB::converter::` = the converter · `CB::config::` = the
+  config scanner. Nothing else at the top — no bare `havok::` / `sct::` / `bconv::`.
+- **Depth: `CB::<root>::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
-  tidy. 5 levels is a smell: the deep levels stop disambiguating anything 3 wouldn't. When tempted, the
-  4th-level thing is usually its own level-3 purpose, or it's a type, not a namespace.
-- **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug`
-  (pipeline) · `compile decompile codec merge schema` (engine) · `skeleton anim animdata linker`
-  (domain) · `hooks config` (infra). The one sanctioned 4th-level family: `CB::core::codec::{spline,crc,
-  formid,io}` + the packfile serialization spine (all genuinely codecs).
-- **`CB::core::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
+  tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
+- **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
+  hooks conditions` (core) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
+  linker` (engine). The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io}` + the
+  packfile serialization spine (all genuinely codecs).
+- **`CB::engine::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
   cross-cutting *types* every layer passes around: the unit/layer vocabulary (`IUnitSource`,
-  `LayerSource`) and the primitives (`Vector4`, `xml`, `vec4`). Not a junk drawer for *operations* — those stay
-  in their purpose namespaces. Because the stack references these types UNqualified throughout, a
-  force-included prelude (`Havok/core/cpp/common/CorePrelude.h`, wired via each lib's PCH + the plugin
-  PCH) forward-declares and makes `CB::core::common` + `CB::core::codec` ambient in every TU. So a file
-  never needs a per-file `using namespace` for the shared vocabulary; add new shared types to `common`.
+  `LayerSource`) and the primitives (`Vector4`, `xml`, `vec4`). Not a junk drawer for *operations* — those
+  stay in their purpose namespaces. Because the engine references these types UNqualified throughout, a
+  force-included prelude (`src/engine/common/CorePrelude.h`, the engine's PCH, also pulled by the plugin
+  PCH and the converter) forward-declares and makes `CB::engine::common` + `CB::engine::codec` ambient in
+  every TU. So a file never needs a per-file `using namespace` for the shared vocabulary.
 - **Depth is free — use the language.** Define with nested syntax `namespace CB::core::resolve { … }`
   (C++17, no brace pyramid); alias at heavy call sites `namespace ccr = CB::core::resolve;`. Verbosity at
   use sites is a `using`-alias problem, never a reason to flatten a real purpose.
-- **Forward-declare a shared type in its OWN namespace.** A fwd-decl inside `CB::core::compile` of a type
-  that lives in `common` creates a phantom `compile::X` that SHADOWS the real one (a fwd-declared name in
-  the current namespace beats a `using`-directive). Always `namespace CB::core::common { struct X; }`.
+- **Forward-declare a shared type in its OWN namespace.** A fwd-decl inside `CB::engine::compile` of a
+  type that lives in `common` creates a phantom `compile::X` that SHADOWS the real one (a fwd-declared name
+  in the current namespace beats a `using`-directive). Always `namespace CB::engine::common { struct X; }`.
 - **`detail` / `en` / anonymous namespaces** stay as the innermost leaf under a purpose
-  (`CB::core::codec::detail`), never top-level.
+  (`CB::engine::codec::detail`), never top-level.
 
 ## Build
 
@@ -118,13 +119,13 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 - `VCPKG_ROOT` — vcpkg clone (toolchain, via the preset). Required.
 - CommonLibSSE-NG is a **git submodule** at `lib/commonlibsse-ng` (alandtse fork, `ng` branch, full SE+AE+VR). No env var — `git submodule update --init --recursive` after clone.
 - `SKYRIM_MODS_FOLDER` — MO2 mods folder; `cb_deploy` ships the mod there (`<mod>/SKSE/Plugins`,
-  `<mod>/Community Behaviors/Havok` schema, `<mod>/community_behaviors/plugins/*.hky` bundles).
-- `SKYRIM_TOOLS_FOLDER` — the converter deploys `BehaviorConverter.exe` (+ templates/ + Havok/) here.
+  `<mod>/Community Behaviors/schema`, `<mod>/community_behaviors/plugins/*.hky` bundles).
+- `SKYRIM_TOOLS_FOLDER` — the converter deploys `BehaviorConverter.exe` (+ schema/, templates inside) here.
 - `CB_REGEN_SOURCE` — root of the derived-bundle regen sources (e.g. `D:\CB Regen Source`): one folder per
   bundle, NAMED for it (`Skyrim.hky\`, `XPMSSE.hky\`), laid out like a Data folder (`meshes\...`). Each one
   runs the SAME `generate-base-master` regen (decompile everything it holds to reflective units, gate
-  every unit's served bytes vs its own binaries, pack) → `<Name>.hky`. A new derived bundle = a new source folder; a regen-owned
-  name is never also packed from `hky/`. Unset → regen skipped, the already-deployed bundles stay.
+  every unit's served bytes vs its own binaries, pack) → `<Name>.hky`. A new derived bundle = a new source folder.
+  Unset → regen skipped, the already-deployed bundles stay.
 - `SCT_BASE_MASTER_DIR` — a **SHORT** D-drive path (e.g. `D:\sct-base-master`) for the unpacked trees (each
   regen keeps `<Name>.hky\` there). See the diff strategy below. Must be short: these trees blow past
   Windows MAX_PATH under a deep root.
@@ -160,7 +161,7 @@ still belongs in the session scratchpad dir.)
   `--patch-roundtrip` (merge(base, derive(base, mod)) == mod), `--multilayer-roundtrip` (every mod's derived
   patch merged in order vs today's merge of all).
 - **Metadata text codec** — `--metatext-roundtrip <file>...`: the adsf/asdsf read through their `kind: metadata`
-  descriptors (`Havok/core/Schema/metadata/`, MetaText) and written back must be byte-identical (vanilla, Pandora output,
+  descriptors (`schema/metadata/`, MetaText) and written back must be byte-identical (vanilla, Pandora output,
   CB's cache), with record counts matching the hand-written parsers.
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
