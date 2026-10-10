@@ -14,7 +14,7 @@
 namespace CB::core::compile::trace {
 
 namespace {
-    // A loaded probe definition (Havok/core/Schema/debug/*.yaml). Empty criterion = "any".
+    // A loaded probe definition (schema/metadata/debug/*.yaml). Empty criterion = "any".
     struct Probe {
         bool                     enabled = true;
         std::vector<std::string> phases;    // trace phases to keep (vars/bind/edge/merge/visit)

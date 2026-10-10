@@ -72,7 +72,7 @@ private:
     // Fixed, next to the exe (never shown):
     std::string m_exeDir;
     std::string m_stagingDir;    // <exe>/staging — cleared + rebuilt every convert, then zipped
-    std::string m_templatesDir;  // <exe>/templates
+    std::string m_templatesDir;  // <exe>/schema/templates
     std::string m_baseDir;       // <exe>/base (pristine vanilla singlefiles)
 
     std::thread       m_worker;

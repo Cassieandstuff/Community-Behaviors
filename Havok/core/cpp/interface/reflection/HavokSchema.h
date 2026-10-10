@@ -113,7 +113,7 @@ struct ClassSchema {
                                                  ///<        field would emit nothing (else the full object form, so lossless).
 };
 
-// ── Enum definitions (Havok/core/Schema/enums/*.yaml) ─────────────────────────────────────────────
+// ── Enum definitions (schema/metadata/enums/*.yaml) ─────────────────────────────────────────────
 // A reflected Havok enum: its type name + ordered (name,value) items. The item NAMES and VALUES are
 // CASE-SENSITIVE Havok data — they render a .hky field's value by name (MODE_SINGLE_PLAY, not 47) AND
 // feed the class-signature CRC. A field references an enum by name via Field::enumName; the enum lives

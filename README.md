@@ -22,8 +22,7 @@ src/                        CB source (flat: each Foo.cpp beside its Foo.h)
   havok-model/               name-keyed .hky model + load-order merge + emit        │
   havok-pipeline/            the graph-feature SDK (IGraphFeature/FeatureRegistry)  ┘
   sct-config/ sct-utilities/ config scanner / desktop plumbing
-Havok/core/Schema/          the vanilla Havok class schema, described once as data
-Retirement Home/havok-core/ QUARANTINED legacy typed backbone (being dissolved; don't build on it)
+schema/                     the Havok class schema, described once as data (+ the converter's templates/)
 APP/Behavior Converter/     the offline GLFW+ImGui converter (BehaviorConverter.exe)
 cmake/                      helpers (CommonLibSSE, Deploy, SctSources, ports, glad)
 ```
@@ -65,11 +64,10 @@ target_link_libraries(your-tool PRIVATE cb::CB-API)
 
 ## How it works (the short version)
 
-A Havok class is described **once as data** (`Havok/core/Schema`), which `havok-schema` loads and
+A Havok class is described **once as data** (`schema/`), which `havok-schema` loads and
 `havok-io` uses to read/write `.hkx` byte-exactly. `havok-model` holds the name-keyed `.hky` document,
 merges deltas across a load order, and emits compiled graphs. The runtime plugin serves those compiled
-bytes to the engine; the converter runs the same core offline. The legacy typed `hkb*`/`hka*` backbone
-in `Retirement Home/havok-core` is being dissolved into this stack and should not be extended.
+bytes to the engine; the converter runs the same core offline.
 
 ## Notes for contributors
 

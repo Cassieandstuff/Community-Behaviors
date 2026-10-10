@@ -65,10 +65,6 @@ add_subdirectory(Havok/core/cpp/compile)     # CB::core one-way derives + Animat
 add_subdirectory(Havok/core/cpp/decompile)   # CB::core emit-direction + Animation/Skeleton import (firesale)
 add_subdirectory(Havok/tools/hky)            # hky-tool: standalone .hky pack/unpack over codec/serialization (firesale phase 4a)
 add_subdirectory(Havok/tools/cbdiff)         # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
-add_subdirectory(NIFFER)           # first-party NIF (NetImmerse/Gamebryo) library. TEMPORARY home at the
-                                   # repo root — graduates to its own repo (both CB + Skyrim Content Tools
-                                   # need it now). Dependency-free leaf: consumers link `niffer` and
-                                   # #include <niffer/Niffer.h>. Its own PUBLIC include/ makes the lift-out clean.
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # ── Install / export rules for the cb-api surface ────────────────────────────────
@@ -90,18 +86,18 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/havok-model/"    DESTINATION 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/core/cpp/"     DESTINATION include FILES_MATCHING PATTERN "*.h")
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
-# The Havok/ class-schema tree is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
+# The class schema (schema/) is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
 # ground truth for class layout + per-field `merge:` policy + the schema_version stamp. Without it a
 # consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the
 # package config and expose its location as CB_API_SCHEMA_DIR (see cb-api-config.cmake.in).
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/Havok/" DESTINATION share/cb-api/Havok)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/schema/" DESTINATION share/cb-api/schema PATTERN templates EXCLUDE)
 install(EXPORT cb-api-targets
         NAMESPACE cb::
         FILE      cb-api-targets.cmake
         DESTINATION share/cb-api)
-# Relocatable path to the shipped Havok/ schema tree, resolved by set_and_check(@PACKAGE_...@) in the
+# Relocatable path to the shipped schema tree, resolved by set_and_check(@PACKAGE_...@) in the
 # config template regardless of where the package is installed/moved.
-set(CB_API_SCHEMA_INSTALL_DIR share/cb-api/Havok)
+set(CB_API_SCHEMA_INSTALL_DIR share/cb-api/schema)
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cb-api-config.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config.cmake"
@@ -235,59 +231,18 @@ target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 set_target_properties(imgui_dx11 PROPERTIES CXX_STANDARD 17)
 target_link_libraries(CommunityBehaviors PRIVATE imgui_dx11 d3d11 dxgi)
 
-# ── Pack the .hky bundle YAML trees at build time ─────────────────────────────
-# Each hky/<Bundle>.hky/ is the uncompressed, git-tracked YAML tree; the build packs every such folder
-# to a single-file .hky under CB_HKY_STAGE, already shaped as the runtime serve path
-# (community_behaviors/plugins/<Bundle>.hky) so the deploy is a straight mirror. Adding a bundle = drop a
-# hky/<Name>.hky/ folder (CONFIGURE_DEPENDS). A bundle the converter REGENERATES (a <Name>.hky source
-# folder under $CB_REGEN_SOURCE — see cmake/GenerateBaseMaster.cmake) is NOT packed here: the regen owns
-# that output, so a same-named hky/ tree would race it for the one staged file.
+# ── Bundle stage ────────────────────────────────────────────────────────────────
+# Every shipped .hky is a DERIVED bundle the converter regenerates from $CB_REGEN_SOURCE (see
+# cmake/GenerateBaseMaster.cmake), packed into this tree already shaped as the runtime serve path
+# (community_behaviors/plugins/<Bundle>.hky), so the deploy is a straight mirror.
 set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
-file(GLOB CB_HKY_BUNDLES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/hky/*.hky")
-set(_cb_regen_owned "")
-if(CB_BUILD_CONVERTER)
-    include(GenerateBaseMaster)
-    cb_regen_sources(_cb_regen_srcs)
-    foreach(_r ${_cb_regen_srcs})
-        get_filename_component(_r "${_r}" NAME)
-        string(TOLOWER "${_r}" _r)   # internal-only match key; the staged file keeps its source's case
-        list(APPEND _cb_regen_owned "${_r}")
-    endforeach()
-endif()
-set(_cb_hky_outputs "")
-foreach(_hky_src ${CB_HKY_BUNDLES})
-    if(NOT IS_DIRECTORY "${_hky_src}")
-        continue()   # a stray packed .hky FILE in the source tree, not a bundle folder
-    endif()
-    get_filename_component(_hky_name "${_hky_src}" NAME)   # "<Bundle>.hky"
-    string(TOLOWER "${_hky_name}" _hky_key)
-    if(_hky_key IN_LIST _cb_regen_owned)
-        message(STATUS "pack-hky-bundles: ${_hky_name} is regen-owned (CB_REGEN_SOURCE) — not packed from hky/")
-        continue()
-    endif()
-    set(_hky_out "${CB_HKY_STAGE}/community_behaviors/plugins/${_hky_name}")
-    file(GLOB_RECURSE _hky_files CONFIGURE_DEPENDS "${_hky_src}/*")
-    add_custom_command(
-        OUTPUT  "${_hky_out}"
-        COMMAND "$<TARGET_FILE:hky-tool>" pack "${_hky_src}" -o "${_hky_out}"
-        DEPENDS hky-tool ${_hky_files}
-        COMMENT "Community Behaviors: packing ${_hky_name} from source YAML tree"
-        VERBATIM)
-    list(APPEND _cb_hky_outputs "${_hky_out}")
-endforeach()
-if(_cb_hky_outputs)
-    add_custom_target(pack-hky-bundles DEPENDS ${_cb_hky_outputs})
-    add_dependencies(CommunityBehaviors pack-hky-bundles)
-endif()
 
-# Deploy: DLL + the class schema tree + the packed bundles (merge, preserving Skyrim.hky).
-# SCHEMA_DIR is the schema DATA root only (Havok/core/Schema — all 231 *.yaml incl. SCHEMA.yaml + enums +
-# metadata). NOT the whole Havok/ root: post-firesale that also holds Havok/core/cpp (source) + Havok/tools,
-# and copy_directory of the root would ship the entire source tree into the mod. The runtime loader
-# recursive-scans this dir for *.yaml, so the flatter deployed layout resolves identically.
+# Deploy: DLL + the class schema + the packed bundles (merge, preserving Skyrim.hky). The plugin never
+# reads the converter's Nemesis-ingest templates, so schema/templates stays out of the mod.
 cb_deploy(CommunityBehaviors "Community Behaviors"
-    SCHEMA_DIR "${CMAKE_SOURCE_DIR}/Havok/core/Schema"
-    HKY_STAGE  "${CB_HKY_STAGE}")
+    SCHEMA_DIR     "${CMAKE_SOURCE_DIR}/schema"
+    SCHEMA_EXCLUDE templates
+    HKY_STAGE      "${CB_HKY_STAGE}")
 
 # ── DEV-ONLY: x64dbg auto-attach SKSE plugin (NEVER shipped) ─────────────────────
 # A standalone SKSE plugin that spawns x64dbg attached to the game at startup, so early

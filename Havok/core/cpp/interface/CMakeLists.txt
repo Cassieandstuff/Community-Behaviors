@@ -12,20 +12,20 @@ sct_collect_sources(CB_INTERFACE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_
 # nor drags ryml into the ryml-free model-structs lib.
 list(FILTER CB_INTERFACE_SOURCES EXCLUDE REGEX "/reflection/")
 
-# Enum tables baked from the schema's enum data tree (Havok/core/Schema/metadata/enums/*.yaml — the
+# Enum tables baked from the schema's enum data tree (schema/metadata/enums/*.yaml — the
 # single source). A build-time `cmake -P` codegen bakes GeneratedEnums.cpp, backing the thin
 # enums::EnumTable accessors in <interface/HavokEnums.h>. Moved here with HavokEnums.h in firesale
 # phase 3c (enum name<->value is model/reflection data, not packfile framing). std-only, no cycle.
 set(_gen_enums "${CMAKE_CURRENT_BINARY_DIR}/GeneratedEnums.cpp")
-file(GLOB _enum_yamls CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/Havok/core/Schema/metadata/enums/*.yaml")
+file(GLOB _enum_yamls CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/schema/metadata/enums/*.yaml")
 add_custom_command(
     OUTPUT  "${_gen_enums}"
     COMMAND "${CMAKE_COMMAND}"
-            "-DENUM_DIR=${CMAKE_SOURCE_DIR}/Havok/core/Schema/metadata/enums"
+            "-DENUM_DIR=${CMAKE_SOURCE_DIR}/schema/metadata/enums"
             "-DOUT_CPP=${_gen_enums}"
             -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEnums.cmake"
     DEPENDS ${_enum_yamls} "${CMAKE_SOURCE_DIR}/cmake/EmbedEnums.cmake"
-    COMMENT "Generating enum tables from Havok/core/Schema/metadata/enums/*.yaml"
+    COMMENT "Generating enum tables from schema/metadata/enums/*.yaml"
     VERBATIM
 )
 

@@ -15,35 +15,24 @@
 #include <vector>
 
 #ifdef _WIN32
-#  include <windows.h>  // GetModuleFileNameW — resolve the bundled templates next to the exe
+#  include <windows.h>  // GetModuleFileNameW — resolve the bundled schema next to the exe
 #endif
 
-// The tagfile templates ship next to the exe (checked in + deployed/zipped by CMake). When
-// no templatesDir is given, default to <exe dir>/templates so the packaged converter and
-// --build-base are self-contained (the templates are what make conversion possible at all).
-static std::string ExeTemplatesDir() {
+/// @brief <exe dir>/schema — the class schema CMake stages beside the exe (cwd-relative "schema" fallback).
+/// @note The shared registry is armed from the EXE dir, never from a passed templatesDir: --regen-master is
+///       handed the repo's schema/templates path, and the packaged converter must be self-contained.
+static std::filesystem::path ExeSchemaDir() {
 #ifdef _WIN32
     wchar_t buf[MAX_PATH]{};
     const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
     if (n > 0 && n < MAX_PATH)
-        return (std::filesystem::path(buf).parent_path() / "templates").string();
+        return std::filesystem::path(buf).parent_path() / "schema";
 #endif
-    return "templates";  // fallback: cwd-relative
+    return "schema";
 }
 
-// The Havok/ schema tree ships next to the exe too (staged/deployed by CMake beside templates/). The
-// schema-native animation pipeline (havok-anim) resolves its registry from here via SharedRegistry —
-// set it from the EXE dir, not the passed templatesDir, since --regen-master is handed the repo
-// templates path whose sibling Havok/ does not exist.
-static std::string ExeHavokDir() {
-#ifdef _WIN32
-    wchar_t buf[MAX_PATH]{};
-    const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    if (n > 0 && n < MAX_PATH)
-        return (std::filesystem::path(buf).parent_path() / "Havok").string();
-#endif
-    return "Havok";  // fallback: cwd-relative
-}
+/// @brief The default templatesDir when none is given: the Nemesis-ingest templates staged inside the schema.
+static std::string ExeTemplatesDir() { return (ExeSchemaDir() / "templates").string(); }
 
 // SCT Behavior Converter — a standalone, MO2-launchable GUI that converts a Nemesis/
 // Pandora behavior load order into per-mod Community Behaviors .hky bundles (each mod -> its
@@ -59,7 +48,7 @@ int main(int argc, char** argv) {
     // only armed on the regen path, the --cli/GUI loose-derive silently falls back to the TYPED order and
     // misaligns against the schema base master (the horsebehavior crash class). SetSharedSchemaDir only
     // records the dir; SharedRegistry() lazily loads once on first use. The regen path re-arms harmlessly.
-    CB::core::schema::SetSharedSchemaDir(ExeHavokDir());
+    CB::core::schema::SetSharedSchemaDir(ExeSchemaDir().string());
 
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
         bconv::Options opt;
@@ -189,7 +178,7 @@ int main(int argc, char** argv) {
         std::atomic<bool> cancel{ false };
         std::string templatesDir = (argc >= 5) ? argv[4] : "";
         if (templatesDir.empty()) templatesDir = ExeTemplatesDir();  // bundled templates next to the exe
-        CB::core::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
+        CB::core::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = bconv::BuildBaseBundle(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel,
             templatesDir);
@@ -220,7 +209,7 @@ int main(int argc, char** argv) {
             return EXIT_FAILURE;
         }
         const std::string templatesDir = (pos.size() >= 3) ? pos[2] : ExeTemplatesDir();
-        CB::core::schema::SetSharedSchemaDir(ExeHavokDir());            // arm the anim pipeline's registry
+        CB::core::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = bconv::RegenerateMaster(pos[0], templatesDir, pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }

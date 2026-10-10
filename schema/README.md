@@ -1,4 +1,4 @@
-# `Havok/` — the class schema (the source of truth for what a Havok class IS)
+# `schema/` — the class schema (the source of truth for what a Havok class IS)
 
 **This tree is DATA, not code.** One descriptor file per Havok class, describing its binary layout in
 the SSE/AE packfile. It is the single source of truth every consumer reads to know a class — the

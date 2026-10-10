@@ -13,10 +13,9 @@ OUTPUT_DIRECTORY       = D:/CB-tmp/doxygen
 INPUT                  = src include API Havok/core/cpp Havok/tools
 RECURSIVE              = YES
 FILE_PATTERNS          = *.h *.hpp *.cpp *.cc *.cxx
-# Keep the vendored submodule, quarantined legacy, build trees, and scratch out.
+# Keep the vendored submodule, build trees, and scratch out.
 EXCLUDE                = lib \
                          build \
-                         "Retirement Home" \
                          .claude \
                          src/sct-config/external
 EXCLUDE_PATTERNS       = */build/* */lib/* */.git/* */external/*

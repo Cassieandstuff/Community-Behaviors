@@ -128,7 +128,7 @@ ConverterUI::ConverterUI() {
     m_dataDir       = (fs::current_path(ec) / "Data").string();
     m_zipDir        = sct::util::DownloadsFolder();   // point at your MO2 downloads folder
     m_zipName       = "Output_Community Behaviors";        // the .zip / MO2 mod name (editable)
-    m_templatesDir  = (exe / "templates").string();
+    m_templatesDir  = (exe / "schema" / "templates").string();
     m_baseDir       = (exe / "base").string();
     m_stagingDir    = (exe / "staging").string();
     LoadSettings();   // override m_dataDir / m_zipDir from sct_converter.ini if present

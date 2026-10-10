@@ -49,7 +49,7 @@ void Rec(std::string_view phase, std::string_view unit, std::string_view cls,
 // with {}. Applies to Rec(); Line() is always emitted (caller-formatted). Ignored once probes are loaded.
 void SetFilter(std::string substr);
 
-// ── Schema-driven probes (Havok/core/Schema/debug/*.yaml) ────────────────────────
+// ── Schema-driven probes (schema/metadata/debug/*.yaml) ────────────────────────
 // Load probe DEFINITIONS from a debug dir — data that declares WHERE/WHEN/HOW to log (see that dir's
 // README). Once any probe is loaded, Rec() emits ONLY records an enabled probe matches (phase ∈ its
 // phases, class ∈ its classes, and a `match` substring in unit/class/name/field/detail — each criterion

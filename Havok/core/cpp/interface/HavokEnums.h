@@ -13,7 +13,7 @@
 // objects directly, so BehaviorBuilder resolves the strings here.
 //
 // The enum TABLES are no longer hardcoded here — they live in the schema data tree
-// (Havok/core/Schema/enums/*.yaml, the single source) and are baked into the binary at build time
+// (schema/metadata/enums/*.yaml, the single source) and are baked into the binary at build time
 // by cmake/EmbedEnums.cmake → GeneratedEnums.cpp, which defines EnumTable(name) below. Each named
 // accessor (PlaybackMode(), EventMode(), …) is a thin lookup into that generated data, so call
 // sites are unchanged. The item names/values are CASE-SENSITIVE Havok data — they render a .hky
@@ -30,7 +30,7 @@ namespace CB::core::common::enums {
 const std::unordered_map<std::string, long>& EnumTable(const std::string& name);
 
 // ── Named accessors (stable API; the ~40 call sites use these) ────────────────────────────────────
-// Each is a thin lookup into the generated tables. To add an enum: drop a Havok/core/Schema/enums/
+// Each is a thin lookup into the generated tables. To add an enum: drop a schema/metadata/enums/
 // <Name>.yaml file; it's baked automatically. Add a one-liner here only if code wants enums::<Name>().
 inline const std::unordered_map<std::string, long>& PlaybackMode()            { return EnumTable("PlaybackMode"); }
 inline const std::unordered_map<std::string, long>& VariableMode()            { return EnumTable("VariableMode"); }

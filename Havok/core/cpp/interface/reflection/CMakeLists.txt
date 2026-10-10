@@ -1,7 +1,7 @@
 # ── interface/reflection ─────────────────────────────────────────────────────
 # CB::core reflection — the descriptor registry: CB's analogue of Havok's own Base/Reflection
 # (hkClass/hkClassMember). The source of truth for what a Havok class IS in the SSE/AE packfile:
-# parses the Havok/core/Schema/*.yaml class descriptors into ClassSchema and computes serialized
+# parses the schema/*.yaml class descriptors into ClassSchema and computes serialized
 # size by walking fields. PASSIVE — knows nothing of read/write/compile; those are consumers.
 #
 # A DISTINCT target under interface/ (not merged into the interface model-structs lib) on purpose:

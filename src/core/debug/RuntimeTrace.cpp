@@ -72,7 +72,7 @@ namespace CB::core::debug {
 
         std::string warn;
         const auto entries = CB::core::compile::trace::LoadRuntimeWatch(
-            "Data/Community Behaviors/Havok/core/Schema/metadata/debug", &warn);
+            "Data/Community Behaviors/schema/metadata/debug", &warn);
         if (!warn.empty()) LOG_WARN("Community Behaviors: runtime-trace watch load: {}", warn);
         if (entries.empty()) {
             LOG_INFO("Community Behaviors: [Debug] bRuntimeTrace ON but no probe defines a `watch:` list — runtime trace idle.");

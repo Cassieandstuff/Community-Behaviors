@@ -38,9 +38,8 @@ public:
     // Pack a directory tree into a single-file .hky (a deflate zip): every regular file under
     // `dir` becomes an entry keyed by its path RELATIVE to `dir` (forward-slashed) — the exact
     // layout LoadFromFile reads back, so PackDirectory then LoadFromFile round-trips. This is
-    // the build-time compressor for MUTABLE bundles: an author's uncompressed YAML tree
-    // (src/.../hky/<Bundle>.hky/) is packed here to ship beside the frozen, checked-in
-    // Skyrim.hky master. Creates the parent dir of `outHkyPath`. Returns false, `err` set, on
+    // `hky-tool pack`: an uncompressed YAML bundle tree in, one .hky out. Creates the parent
+    // dir of `outHkyPath`. Returns false, `err` set, on
     // failure (missing/empty tree, write error). Co-located with LoadFromFile so the .hky
     // format has both directions in one place (per the omnidirectional round-trip rule).
     static bool PackDirectory(const std::string& dir, const std::string& outHkyPath, std::string& err);

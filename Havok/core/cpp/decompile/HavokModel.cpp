@@ -147,7 +147,7 @@ std::string q(const std::string& s) {
 
 // enum type name -> table. Extended as categories need more; the decompiler references these by the
 // same names (en::SelfTransitionMode() etc.).
-/// @note Resolves through the schema-generated tables (en::EnumTable, baked from Havok/core/Schema/metadata/enums),
+/// @note Resolves through the schema-generated tables (en::EnumTable, baked from schema/metadata/enums),
 ///       so any enum yaml renders/parses by annotation alone — no hand-kept list to fall out of date.
 const std::unordered_map<std::string, long>* enumTable(const std::string& n) {
     const auto& t = en::EnumTable(n);

@@ -46,26 +46,26 @@ if(MSVC)
     target_link_options(behavior-converter PRIVATE $<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>)
 endif()
 
-# ── Ship templates/ + Havok/ next to the exe ──────────────────────────────────
-# The converter defaults templatesDir to <exe>/templates and the schema to <exe>/Havok. templates/ is
-# XML-first (the <g>.xml oracle numbering that makes conversion + --regen-master possible) plus two
-# fallback vanilla binaries. Havok/ (repo root schema tree) is the data-driven delta's schema source.
-set(BCONV_TEMPLATES "${CMAKE_CURRENT_SOURCE_DIR}/templates")
-set(BCONV_HAVOK     "${CMAKE_SOURCE_DIR}/Havok")
+# ── Ship schema/ next to the exe ─────────────────────────────────────────────────
+# The converter reads the class schema from <exe>/schema and its Nemesis-ingest templates from
+# <exe>/schema/templates (the <g>.xml oracle numbering that makes conversion + --regen-master possible,
+# plus two fallback vanilla binaries). Data only — no sources ship.
+set(BCONV_SCHEMA    "${CMAKE_SOURCE_DIR}/schema")
+set(BCONV_TEMPLATES "${BCONV_SCHEMA}/templates")
 add_custom_command(TARGET behavior-converter POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_TEMPLATES}" "$<TARGET_FILE_DIR:behavior-converter>/templates"
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_HAVOK}"     "$<TARGET_FILE_DIR:behavior-converter>/Havok"
-    COMMENT "Behavior Converter: staging templates/ + Havok/ beside the exe"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_SCHEMA}" "$<TARGET_FILE_DIR:behavior-converter>/schema"
+    COMMENT "Behavior Converter: staging schema/ beside the exe"
     VERBATIM)
 
-# Optional tools-folder deploy (MO2-launchable), same convention as the plugin deploy.
+# Optional tools-folder deploy (MO2-launchable), same convention as the plugin deploy. The schema is
+# clear-then-copy; the pre-restructure templates/ + Havok/ siblings are cleared too (no longer read).
 if(DEFINED ENV{SKYRIM_TOOLS_FOLDER})
     set(_tools "$ENV{SKYRIM_TOOLS_FOLDER}/Behavior Converter")
     add_custom_command(TARGET behavior-converter POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_tools}"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:behavior-converter>" "${_tools}/"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_TEMPLATES}" "${_tools}/templates"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_HAVOK}"     "${_tools}/Havok"
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_tools}/schema" "${_tools}/templates" "${_tools}/Havok"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_SCHEMA}" "${_tools}/schema"
         COMMENT "Behavior Converter: deploy -> ${_tools}"
         VERBATIM)
 endif()

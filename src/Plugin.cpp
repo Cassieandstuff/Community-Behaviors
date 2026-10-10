@@ -107,8 +107,8 @@ namespace CB {
         return false;
     }
 
-    // Schema compiler toggle (settings.ini, [Compiler] bUseSchema / sSchemaDir). DEFAULT ON. The Havok/
-    // schema tree ships with BR (Data/Community Behaviors/Havok, staged by CMake); sSchemaDir overrides,
+    // Schema compiler toggle (settings.ini, [Compiler] bUseSchema / sSchemaDir). DEFAULT ON. The class
+    // schema ships with CB (Data/Community Behaviors/schema, staged by CMake); sSchemaDir overrides,
     // then env SCT_HAVOK_SCHEMA_DIR, then that shipped default. bUseSchema=false is the kill switch.
     static void ApplySchemaCompilerSetting()
     {
@@ -121,13 +121,13 @@ namespace CB {
             dir     = ini.GetValue("Compiler", "sSchemaDir", "");
         }
         if (dir.empty() && std::getenv("SCT_HAVOK_SCHEMA_DIR") == nullptr)
-            dir = "Data/Community Behaviors/Havok";   // BR-shipped schema tree (MO2 VFS-merged path)
+            dir = "Data/Community Behaviors/schema";   // CB-shipped schema tree (MO2 VFS-merged path)
 
         // Schema-only compiler (firesale — the typed BehaviorBuilder fallback is retired). Arm the shared
         // registry dir. bUseSchema=false leaves
         // the registry UNARMED, so every compile fails and every graph serves VANILLA (CB effectively off) —
         // a clean kill switch, not a typed path. A schema that fails to LOAD (missing/foreign/version-
-        // mismatched Havok/ tree) is the same: all graphs serve vanilla, loudly.
+        // mismatched schema tree) is the same: all graphs serve vanilla, loudly.
         CB::core::schema::SetSharedSchemaDir(enabled ? dir : "");
         CB::core::schema::SchemaRegistry* reg = enabled ? CB::core::schema::SharedRegistry() : nullptr;
         const bool ready = (reg != nullptr);
