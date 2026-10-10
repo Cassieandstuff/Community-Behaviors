@@ -23,6 +23,7 @@
 #include <core/hooks/points/HookPoint.h>         // the shared hook interface: core-owned seams, subscriber chains
 #include <core/hooks/points/Resource.h>          // resource-loading hook points (ResolveTypedHkx, AdsfOpen, AsdsfOpen)
 #include <core/hooks/points/SetData.h>           // setdata gate hook points (matcher, weapon producer)
+#include <core/hooks/points/ClipBinding.h>       // clip-binding hook points (LoadClips, BSSync scene slots)
 
 // Add new binding headers here as findings are centralized:
 //   <core/hooks/factory/AnimGraph.h>   — animationdata / setdata loader sites, clip vtables
