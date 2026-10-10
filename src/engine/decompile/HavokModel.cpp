@@ -322,9 +322,6 @@ static std::string fsId(const std::string& id) {
     return s;
 }
 
-// ── generic tagfile-XML emit (the tagfile codec) ─────────────────────────────────────────────────
-std::string pad4(int n) { char b[8]; std::snprintf(b, sizeof b, "%04d", n); return b; }
-
 // Canonical id key from a raw tagfile token (with or without a leading '#'). A numeric id normalizes to
 // its unpadded decimal form ("0184" -> "184") so base names and refs match regardless of zero-padding; a
 // Nemesis new-node id ("CASSIE$0") is kept verbatim. This is THE merge/emit key.
@@ -334,159 +331,6 @@ bool allDigits(const std::string& s) {
 std::string canonId(const std::string& tok) {
     const std::string s = (!tok.empty() && tok[0] == '#') ? tok.substr(1) : tok;
     return allDigits(s) ? std::to_string(std::strtol(s.c_str(), nullptr, 10)) : s;
-}
-// Render a canonical id back to a tagfile ref token: numeric -> "#" + zero-padded-4 (byte-identical to the
-// old int path); new-node -> "#" + the token verbatim.
-std::string tagRef(const std::string& cid) {
-    return allDigits(cid) ? "#" + pad4(static_cast<int>(std::strtol(cid.c_str(), nullptr, 10))) : "#" + cid;
-}
-
-std::string refTag(const std::shared_ptr<IHavokObject>& p, const Identity& id) {
-    if (!p) return "null";
-    auto it = id.ids.find(p.get());
-    return it == id.ids.end() ? "null" : tagRef(it->second);
-}
-
-// Tagfile float: fixed 6-decimal "%f" (the tagfile's numeric convention — distinct from the .hky
-// YAML's %.9g). Vec4/quaternion render "(x y z w)" from a 16-byte raw slot.
-std::string tff(float f) { char b[48]; std::snprintf(b, sizeof b, "%f", f); return b; }
-// Entity-escape a string VALUE for tagfile element text (& < > — the chars that would desync an XML
-// reader). Matches the real Havok tagfile; the parser's appendDecoded is the exact inverse. Expression
-// conditions ("state < 10") are the ones that carry these in practice.
-std::string xmlEsc(const std::string& s) {
-    std::string o; o.reserve(s.size());
-    for (char c : s) {
-        switch (c) {
-            case '&': o += "&amp;"; break;
-            case '<': o += "&lt;";  break;
-            case '>': o += "&gt;";  break;
-            default:  o += c;       break;
-        }
-    }
-    return o;
-}
-std::string tfVec4(const std::uint8_t* p) {
-    float q[4] = {0,0,0,0}; std::memcpy(q, p, 16);
-    return "(" + tff(q[0]) + " " + tff(q[1]) + " " + tff(q[2]) + " " + tff(q[3]) + ")";
-}
-// Tagfile flags render (hkbRoleAttribute.flags): 0 -> "0"; else the SET known bits in DESCENDING
-// value order, then an always-present "FLAG_NONE", then the leftover (Havok-internal) bits as a
-// "<!-- UNKNOWN BITS -->0xNNNN" comment. (Verified against templates/0_master.xml.)
-std::string tfFlags(long v, const std::unordered_map<std::string, long>& t) {
-    if (v == 0) return "0";
-    std::vector<std::pair<long, std::string>> bits;
-    for (const auto& [n, val] : t) if (val > 0 && (v & val) == val) bits.push_back({ val, n });
-    std::sort(bits.begin(), bits.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-    long known = 0; std::string s;
-    for (const auto& [val, n] : bits) { s += n + "|"; known |= val; }
-    s += "FLAG_NONE|";
-    char h[16]; std::snprintf(h, sizeof h, "0x%x", static_cast<unsigned int>(v & ~known));
-    return s + "<!-- UNKNOWN BITS -->" + h;
-}
-
-// One object's fields -> tagfile hkparams (no <hkobject> wrapper — the caller frames it, so this
-// serves both top-level named objects and inline struct blocks). `ind` is the hkparam indentation.
-void tfBody(std::string& x, const std::string& ind, const io::SchemaObject& so, const Identity& id) {
-    const auto  fields = so.Fields();
-    const auto& vals   = so.Values();
-    const std::string in2 = ind + "\t";
-    for (std::size_t i = 0; i < fields.size(); ++i) {
-        const Field& f = *fields[i];
-        if (f.name.empty()) continue;                 // vtable / skip / pad — not tagfile params
-        if (f.ignored) { x += ind + "<!-- " + f.name + " SERIALIZE_IGNORED -->\n"; continue; }
-        const io::FieldValue& v = vals[i];
-        const std::string open = ind + "<hkparam name=\"" + f.name + "\"";
-        switch (f.kind) {
-            case FieldKind::Scalar: {
-                // The tagfile symbolizes a few enums the schema keeps numeric (variable-info
-                // role/type/flags). Resolve them here (tagfile-only, no schema/.hky change); else fall
-                // back to renderScalar (schema-marked enums + plain numbers).
-                std::string sval;
-                if (f.enumName.empty()) {
-                    const std::string cls = so.ClassName();
-                    const std::unordered_map<std::string, long>* t = nullptr; bool fl = false;
-                    if      (cls == "hkbVariableInfo"  && f.name == "type")  t = &en::VariableType();
-                    else if (cls == "hkbRoleAttribute" && f.name == "role")  t = &en::Role();
-                    else if (cls == "hkbRoleAttribute" && f.name == "flags") { sval = tfFlags(decodeInt(v.raw, f.scalar), en::RoleFlags()); }
-                    if (t) { const long iv = decodeInt(v.raw, f.scalar); sval = fl ? en::FormatFlags(iv, *t) : revNum(*t, iv); }
-                }
-                if (sval.empty()) sval = f.hkyOnlyEnum ? std::to_string(decodeInt(v.raw, f.scalar)) : renderScalar(f, v);
-                x += open + ">" + sval + "</hkparam>\n";
-                break;
-            }
-            case FieldKind::String:
-            case FieldKind::CString: x += open + ">" + xmlEsc(v.str) + "</hkparam>\n"; break;
-            case FieldKind::Ptr:     x += open + ">" + refTag(v.obj, id) + "</hkparam>\n"; break;
-            case FieldKind::Vector4:
-            case FieldKind::Quaternion:
-                x += open + ">" + (v.raw.size() >= 16 ? tfVec4(v.raw.data()) : std::string("(0.000000 0.000000 0.000000 0.000000)")) + "</hkparam>\n";
-                break;
-
-            case FieldKind::Vec4Array: {
-                const std::size_t k = v.raw.size() / 16;
-                x += open + " numelements=\"" + std::to_string(k) + "\">";
-                if (k == 0) { x += "</hkparam>\n"; break; }
-                x += "\n";
-                for (std::size_t e = 0; e < k; ++e) x += in2 + tfVec4(v.raw.data() + e * 16) + "\n";
-                x += ind + "</hkparam>\n";
-                break;
-            }
-            case FieldKind::ScalarArray: {
-                const int w = schema::ScalarWidth(f.scalar);
-                const std::size_t k = w > 0 ? v.raw.size() / static_cast<std::size_t>(w) : 0;
-                x += open + " numelements=\"" + std::to_string(k) + "\">";
-                if (k == 0) { x += "</hkparam>\n"; break; }
-                x += "\n";
-                for (std::size_t e = 0; e < k; ++e) {
-                    if (f.scalar == Scalar::Float) { float fv; std::memcpy(&fv, v.raw.data() + e * 4, 4); x += in2 + tff(fv) + "\n"; }
-                    else { std::vector<std::uint8_t> one(v.raw.begin() + e * w, v.raw.begin() + (e + 1) * w);
-                           x += in2 + std::to_string(decodeInt(one, f.scalar)) + "\n"; }
-                }
-                x += ind + "</hkparam>\n";
-                break;
-            }
-
-            case FieldKind::PtrArray:
-                x += open + " numelements=\"" + std::to_string(v.objs.size()) + "\">";
-                if (v.objs.empty()) { x += "</hkparam>\n"; break; }
-                x += "\n" + in2;
-                for (const auto& e : v.objs) x += refTag(e, id) + " ";
-                x.pop_back();                          // drop the trailing space
-                x += "\n" + ind + "</hkparam>\n";
-                break;
-
-            case FieldKind::StringArray:
-                x += open + " numelements=\"" + std::to_string(v.strs.size()) + "\">";
-                if (v.strs.empty()) { x += "</hkparam>\n"; break; }
-                x += "\n";
-                for (const auto& s : v.strs) x += in2 + "<hkcstring>" + xmlEsc(s) + "</hkcstring>\n";
-                x += ind + "</hkparam>\n";
-                break;
-
-            case FieldKind::Struct:
-                if (v.obj) if (const auto* eo = dynamic_cast<const io::SchemaObject*>(v.obj.get())) {
-                    x += open + ">\n" + in2 + "<hkobject>\n";
-                    tfBody(x, in2 + "\t", *eo, id);
-                    x += in2 + "</hkobject>\n" + ind + "</hkparam>\n";
-                }
-                break;
-
-            case FieldKind::StructArray:
-                x += open + " numelements=\"" + std::to_string(v.objs.size()) + "\">";
-                if (v.objs.empty()) { x += "</hkparam>\n"; break; }
-                x += "\n";
-                for (const auto& e : v.objs) if (const auto* eo = dynamic_cast<const io::SchemaObject*>(e.get())) {
-                    x += in2 + "<hkobject>\n";
-                    tfBody(x, in2 + "\t", *eo, id);
-                    x += in2 + "</hkobject>\n";
-                }
-                x += ind + "</hkparam>\n";
-                break;
-
-            default: break;   // ScalarArray / Vec4Array / QsTransformArray / BoolArray / EmptyArray /
-                              // EmptyPtr — refined against the template gate.
-        }
-    }
 }
 } // namespace
 
@@ -1149,30 +993,6 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
         err = std::string("DecompileBehaviorReflective: ") + e.what();
         return false;
     }
-}
-
-std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& /*reg*/, std::string& /*err*/) {
-    // objects in canonical id order (== tagfile #NNNN document order): numeric base ids ascending by
-    // VALUE (byte-identical to the old int order), then any new-node ($) ids after, sorted lexically.
-    std::vector<std::pair<std::string, const io::SchemaObject*>> ordered;
-    for (const auto& [obj, idn] : identity.ids)
-        if (const auto* so = dynamic_cast<const io::SchemaObject*>(obj)) ordered.push_back({ idn, so });
-    std::sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) {
-        const bool an = allDigits(a.first), bn = allDigits(b.first);
-        if (an && bn) return std::strtol(a.first.c_str(), nullptr, 10) < std::strtol(b.first.c_str(), nullptr, 10);
-        if (an != bn) return an;                 // numeric (base) ids before new-node ids
-        return a.first < b.first;
-    });
-
-    std::string x;
-    for (const auto& [idn, so] : ordered) {
-        char sig[16]; std::snprintf(sig, sizeof sig, "0x%x", so->Signature());
-        x += "\t\t<hkobject name=\"" + tagRef(idn) + "\" class=\"" + std::string(so->ClassName()) +
-             "\" signature=\"" + sig + "\">\n";
-        tfBody(x, "\t\t\t", *so, identity);
-        x += "\t\t</hkobject>\n";
-    }
-    return x;
 }
 
 // ── generic tagfile-XML PARSE (the inverse codec) ────────────────────────────────────────────────

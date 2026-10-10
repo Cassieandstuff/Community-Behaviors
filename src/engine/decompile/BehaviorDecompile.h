@@ -211,29 +211,17 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
                                      const schema::SchemaRegistry& reg, const std::string& workDir,
                                      const std::vector<std::string>* bones = nullptr);
 
-// ── schema-driven tagfile emit (the tagfile codec — base-self-align) ──────────────────────────────
-// Emit the SchemaObject graph as the Havok TAGFILE __data__ section (the `<hkobject name="#NNNN" …>`
-// form the converter's structural oracle + bashed merge consume as `vanById`). A pure, per-field
-// projection driven by the schema — the data-driven replacement for the converter's per-class
-// tagfile populators. Objects are emitted in Identity id order; refs render as `#NNNN`, inline structs
-// nest an unnamed `<hkobject>`, SERIALIZE_IGNORED fields render as comments. With encounter-order ids
-// (AssignIdentity without a tagfile XML), this reproduces Skyrim.hky's canonical numbering — so the
-// base binary IS its own tagfile, and ConvertPatch needs no external template. Gated by re-emitting
-// the vanilla templates/*.xml corpus. Returns the __data__ objects (no packfile/section wrapper).
-std::string EmitTagfile(const Identity& identity, const schema::SchemaRegistry& reg, std::string& err);
-
 // ── schema-driven tagfile PARSE (the inverse codec — model-merge foundation) ───────────────────────
 // Parse a Havok TAGFILE __data__ fragment (a run of `<hkobject name="#NNNN" class="C">` blocks, with or
-// without the packfile/section wrapper) into a SchemaObject graph + its Identity — the exact inverse of
-// EmitTagfile, driven by the SAME schema field walk. Refs (`#NNNN`) wire by id in a second pass; inline
+// without the packfile/section wrapper) into a SchemaObject graph + its Identity, driven by the
+// schema field walk. Refs (`#NNNN`) wire by id in a second pass; inline
 // structs recurse; enums/flags decode via ResolveEnum; SERIALIZE_IGNORED fields (emitted as comments,
 // never hkparams) stay at their Init defaults. This is the reusable primitive under (b) — apply Nemesis
 // patches to the Skyrim.hky model BY #NNNN with no binary deserialize/AlignTagfile — and under runtime
-// tagfile conversion. Gated by round-trip: ParseTagfile(EmitTagfile(g)) re-emits byte-identical.
+// tagfile conversion.
 //
-// NOTE (first cut): the field kinds EmitTagfile does not emit (QsTransform(Array), BoolArray, EmptyArray,
-// EmptyPtr) are likewise not parsed — they keep Init defaults, which round-trips against EmitTagfile but
-// is a known gap for any consumer that needs those fields verbatim.
+// NOTE: QsTransform(Array), BoolArray, EmptyArray and EmptyPtr fields are not parsed — they keep Init
+// defaults, a known gap for any consumer that needs those fields verbatim.
 struct ParsedTagfile {
     std::vector<std::shared_ptr<io::SchemaObject>> objects;   // owns the graph's lifetime
     Identity                                       identity;  // ids + category over `objects`

@@ -503,7 +503,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     SKSE::Init(a_skse);
     PluginLogger::Init("CommunityBehaviors", "Community Behaviors");
     CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
-    LOG_INFO("Community Behaviors v0.3.1.0 loading — runtime behavior compiler.");
+    LOG_INFO("Community Behaviors v{} loading — runtime behavior compiler.",
+             SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."));
     CB::core::hooks::engine::LogAvailability();
 
     // Behavior + character + project DELIVERY is BYTE-SUBSTITUTION (ByteServe): MinHook the

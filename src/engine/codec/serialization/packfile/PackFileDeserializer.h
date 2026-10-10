@@ -1,7 +1,6 @@
 #pragma once
 #include <codec/serialization/packfile/IHavokObject.h>
 #include <codec/serialization/packfile/BinaryReaderEx.h>
-#include <codec/serialization/packfile/HavokRegistry.h>
 #include <common/HkTypes.h>
 #include <codec/serialization/packfile/PackFileTypes.h>
 
@@ -73,9 +72,8 @@ public:
     // physics read enables this (creature ragdoll bodies with exotic, unported collision shapes).
     void SetTolerateUnregistered(bool b) { _tolerateUnregistered = b; }
 
-    // havok-io (Stage 2): override object construction. When set, ConstructVirtualClass asks this
-    // factory (name -> object) instead of the typed HavokRegistry, so the SAME framing walk builds a
-    // generic schema-driven object graph. nullptr from the factory is treated as "unregistered".
+    /// @brief Builds each object by class name (io::MakeSchemaFactory: the generic schema-driven graph).
+    /// @note Unset, or returning nullptr, means "unregistered" (see SetTolerateUnregistered).
     std::function<std::shared_ptr<IHavokObject>(const std::string&)> ObjectFactory;
 
     std::shared_ptr<IHavokObject> Deserialize(BinaryReaderEx& br) {
@@ -142,8 +140,7 @@ public:
         if (cn == _classnames.OffsetClassNamesMap.end())
             throw std::runtime_error("ConstructVirtualClass: no class name at fixup dst");
 
-        std::shared_ptr<IHavokObject> ret = ObjectFactory ? ObjectFactory(cn->second)
-                                                          : HavokRegistry::Create(cn->second);
+        std::shared_ptr<IHavokObject> ret = ObjectFactory ? ObjectFactory(cn->second) : nullptr;
         if (!ret) {
             // Unregistered class. The walk is per-object-seek (StepIn/StepOut below), so returning
             // null here leaves every SIBLING object valid — only the referencing field goes null.

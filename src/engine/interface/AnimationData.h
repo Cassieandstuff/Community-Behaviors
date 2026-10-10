@@ -98,78 +98,11 @@ namespace CB::engine::animdata {
     SingleFile  ParseSingleFile(std::string_view text);
     std::string EmitSingleFile(const SingleFile& sf);
 
-    // ── Per-project (dev) form: DirList.txt + <Project>.txt + BoundAnims\Anims_<Project>.txt ──
-    // The engine's non-collated loader (ShouldLoadCollatedAnimTextData==0) reads these instead of
-    // the single blob. They are the collated per-project blocks with the line-COUNT prefixes
-    // stripped (the per-project reader reads each file whole, so no aLineCount/bLineCount): the
-    // clip file is the A-section (fieldX, assets, hasAnimData, clips), the motion file is the
-    // B-section (motion records) — exactly the layout of vanilla Meshes\AnimationData\.
-
-    std::string EmitDirList(const SingleFile& sf);        // one project name per line
-    std::string EmitProjectClips(const Project& p);       // -> AnimationData\<Project>.txt
-    std::string EmitProjectMotion(const Project& p);      // -> BoundAnims\Anims_<Project>.txt (empty if no motion)
-
-    // ── Nemesis patch form (per-project dirs) ────────────────────────────────────
-    // A mod ships Nemesis_Engine/mod/<code>/animationdatasinglefile/<Project>~<n>/<file>.txt,
-    // one whole record per file, with the integer animIndex replaced by a symbol "<code>$<N>":
-    //   <ClipName>~<code>$<N>.txt  -> a clipGenerator (line 1 repeats the clip name)
-    //   <code>$<N>.txt             -> a motionRecord (stem IS the symbol)
-    // Clip and motion sharing a symbol are one logical addition. triggerCount in clip files is
-    // frequently WRONG, so triggers are read as the actual "Event:time" lines until blank/EOF.
-    struct PatchAddition {
-        std::string  symbol;   // "<code>$<N>" — links the pair
-        ClipGenerator clip;    // animIndex == symbol
-        MotionRecord  motion;  // animIndex == symbol
-        bool         hasClip   = false;
-        bool         hasMotion = false;
-    };
-
-    // One project's worth of additions parsed from a <Project>~<n> patch dir.
-    struct ProjectPatch {
-        std::string                projectName;  // target project WITHOUT ".txt" (e.g. "DefaultMale")
-        std::vector<PatchAddition> additions;    // one per symbol
-    };
-
-    // Assemble a ProjectPatch from a <Project>~<n> patch dir's files, passed as (filename,
-    // content) pairs (the caller does the filesystem walk). The target project is the dir
-    // name up to '~'. A file whose stem contains '~' is a clip generator, otherwise a motion
-    // record; the two pair by the "<code>$<N>" symbol each file carries. Additions keep the
-    // input file order. Throws ParseError on a malformed file.
-    ProjectPatch AssembleProjectPatch(std::string_view projectDirName,
-                                      const std::vector<std::pair<std::string, std::string>>& files);
-
-    // Parse a single clip-generator / motion patch file body (symbol-first). Used by the
-    // patch-dir loader; exposed for testing. Throws ParseError on malformed input.
-    ClipGenerator ParsePatchClip(std::string_view text, std::string& outSymbol);
-    MotionRecord  ParsePatchMotion(std::string_view text, std::string& outSymbol);
-
     // ── Merge (load-order overlay) ───────────────────────────────────────────────
     struct MergeStats {
         std::size_t projectsPatched = 0;
         std::size_t clipsAdded = 0;
         std::size_t motionsAdded = 0;
     };
-
-    // Largest numeric animIndex across EVERY project (clips + motions); -1 if none. Seed the
-    // merge counter with this + 1.
-    long long GlobalMaxIndex(const SingleFile& base);
-
-    // Overlay one project patch onto base (matched by project name, case-insensitive, with or
-    // without ".txt"). Each addition's symbol is assigned the next value of a_nextIndex (post-
-    // incremented), substituted into BOTH the clip and its motion, then appended to that
-    // project's section A / section B.
-    //
-    // The animIndex must sit in the HIGH mod-clip band (just under 2^15), NOT continue from the
-    // project's local vanilla max: at char-setup a clip's animIndex shares an index space with
-    // the character's animation-binding table, so a low index collides with the roster range and
-    // crashes (rep stosq, confirmed in-game 2026-08-11: ~1656+ crash, Pandora's ~32568+ work).
-    // The engine's motion tables are PER-CHARACTER, so the same high band may be reused across
-    // characters (Pandora does — DefaultMale and DefaultFemale ranges overlap). The caller seeds
-    // a_nextIndex high (see ServeAnimData: 32768 - totalAdditions) and threads one counter.
-    //
-    // A patch targeting a header-only project flips hasAnimData and creates section B. Returns
-    // false + leaves base untouched (and a_nextIndex unchanged) if the project isn't found.
-    bool MergeProjectPatch(SingleFile& base, const ProjectPatch& patch, MergeStats& stats,
-                           long long& a_nextIndex);
 
 }  // namespace CB::engine::animdata

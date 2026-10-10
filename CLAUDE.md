@@ -39,7 +39,7 @@ src/                         CB's code. src/ is the plugin's private include roo
     resolve/                 load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
                              GraphClipSink, Watermark). Compile itself is delegated to the engine.
     serve/                   deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer,
-                             CBMemoryStream, SkinnedMesh)
+                             SkinnedMesh)
     bootstrap/               startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud)
     debug/                   opt-in diagnostics/probes (AnimDataProbe, SyncClipProbe, DebugOverlay, DebugFlags)
     hooks/                   the engine symbol registry (registry/engine.yaml → per-runtime Address Library
