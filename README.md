@@ -67,7 +67,7 @@ skeleton codecs, with no SKSE/plugin dependency. The header documents the surfac
 ```cmake
 FetchContent_Declare(community_behaviors
     GIT_REPOSITORY https://github.com/Cassieandstuff/Community-Behaviors.git
-    GIT_TAG        v0.5.0)
+    GIT_TAG        v0.5.1)
 FetchContent_MakeAvailable(community_behaviors)
 target_link_libraries(your-tool PRIVATE cb::CB-API)
 ```
