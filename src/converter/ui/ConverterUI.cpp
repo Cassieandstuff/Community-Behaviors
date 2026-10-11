@@ -399,8 +399,6 @@ void ConverterUI::DrawConverterTab() {
         if (CB::converter::platform::PickFolder("Select the output folder (your MO2 mods folder, as a new mod)",
                                 m_outputDir.c_str(), p)) m_outputDir = p;
     }
-    ImGui::Checkbox("Export loadorder.txt with conversion", &m_exportLoadOrder);
-    ImGui::SameLine(0.0f, 24.0f);
     ImGui::Checkbox("Zip output automatically", &m_autoZip);
     ImGui::EndDisabled();
 

@@ -63,9 +63,6 @@ struct LoadOrderPlan {
 // each mod's patches for foreign #code$N references, and orders masters by load priority.
 LoadOrderPlan BuildLoadOrderPlan(const std::string& profileOrInstance, const LogFn& log);
 
-// Serialize a plan to loadorder.txt content (one mod per line, winner first, with its master table) — the
-// authoritative record exported alongside a conversion so the resolved order is reproducible.
-std::string EmitLoadOrderText(const LoadOrderPlan& plan);
 
 /// @brief One root .bsa of an enabled mod, with the engine's verdict on whether it is ever loaded.
 struct ModArchiveInfo {

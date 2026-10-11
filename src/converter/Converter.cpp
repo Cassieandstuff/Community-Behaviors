@@ -23,6 +23,7 @@
 #include <mutex>
 #include <thread>
 #include <chrono>
+#include <type_traits>
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <decompile/BehaviorDecompile.h>     // ConvertModDelta / DeriveHkyPatch / the reflective unit codec
 #include <interface/reflection/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
@@ -30,7 +31,7 @@
 #include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
-#include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
+#include "BaseMaps.h"                // BuildBaseMaps — where each vanilla graph / character lives
 #include "platform/Platform.h"       // ZipDir — pack the staged master into one Skyrim.hky
 #include <codec/bsa/BsaArchive.h>
 #include <codec/spline/SplineDecompressor.h>   // DecodeSpline — the CB-8 gate's float-section referee
@@ -863,21 +864,6 @@ LoadOrderPlan BuildLoadOrderPlan(const std::string& profileOrInstance, const Log
     return plan;
 }
 
-std::string EmitLoadOrderText(const LoadOrderPlan& plan) {
-    // One mod per line, winner (priority 1) FIRST, with its resolved master table. The authoritative,
-    // reproducible record of the order the conversion used. Lines are "prio\tmod\t[codes]\tmasters:...".
-    std::string out = "# Community Behaviors load order (winner first)\n";
-    out += "# self = FormId index 0; masters listed are indices 1..k (Skyrim first)\n";
-    for (const auto& m : plan.mods) {
-        out += std::to_string(m.priority) + "\t" + m.modName + "\t[";
-        for (std::size_t i = 0; i < m.codes.size(); ++i) { if (i) out += ","; out += m.codes[i]; }
-        out += "]\tmasters:";
-        for (std::size_t i = 0; i < m.masters.size(); ++i) { if (i) out += ","; out += m.masters[i]; }
-        out += "\n";
-    }
-    return out;
-}
-
 namespace {  // file-local helpers resume
 
 // Best-effort auto-derive of the MO2 instance root when the caller gave none. dataDir is usually
@@ -994,6 +980,24 @@ NemesisInfo ReadNemesisInfo(const fs::path& codeDir) {
 
 }  // namespace
 
+/// @brief Run `f(i)` — or `f(i, worker)` — for every i in [0, n) across the hardware threads. `f` must touch only state of
+///        its own index (or read-only shared state); results land in per-index slots so the caller can fold them in
+///        order. `worker` (0..threads-1) names the calling thread, e.g. for a per-worker scratch dir.
+template <class F>
+static void ParallelFor(std::size_t n, F&& f) {
+    std::atomic<std::size_t> next{ 0 };
+    std::vector<std::thread> pool;
+    const unsigned           nThreads = std::max(1u, std::thread::hardware_concurrency());
+    for (unsigned t = 0; t < nThreads; ++t)
+        pool.emplace_back([&, t] {
+            for (std::size_t i; (i = next++) < n;) {
+                if constexpr (std::is_invocable_v<F&, std::size_t, unsigned>) f(i, t);
+                else f(i);
+            }
+        });
+    for (auto& th : pool) th.join();
+}
+
 // Per-mod animation packaging (piece 1). Defined below BuildBaseBundle (needs PeekHkxKind/HkxKind/
 // BakeAnimationUnit); forward-declared here so ConvertLoadOrder can call it.
 static void PackageModAnimations(const Mo2Layout& mo2, const std::filesystem::path& plugins,
@@ -1002,6 +1006,13 @@ static void PackageModAnimations(const Mo2Layout& mo2, const std::filesystem::pa
 Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<bool>& cancel) {
     Result r;
     auto say = [&](const std::string& s) { if (log) log(s); };
+    const auto convStart = std::chrono::steady_clock::now();
+    auto       convT     = convStart;
+    const auto phaseDone = [&](const char* what) {
+        const auto now = std::chrono::steady_clock::now();
+        say("  (" + std::string(what) + ": " + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(now - convT).count()) + "s)");
+        convT = now;
+    };
     const fs::path dataDir = opt.dataDir, templatesDir = opt.templatesDir, outDir = opt.outputDir;
     const fs::path baseDir = opt.baseDir;
 
@@ -1025,8 +1036,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     std::unordered_map<std::string, int>         bundlePriority; // modName -> modlist rank (0 = top/winner)
     std::unordered_set<std::string>              excludedCodes;  // lower(code) — engine (Pandora/Nemesis) codes to skip
     Mo2Layout     mo2;   // hoisted to function scope so the per-mod animation pass (after `plugins` below) can walk enabled mods
-    LoadOrderPlan plan;  // the SAME pre-conversion plan the GUI arranger builds — single source of truth for the
-                         // load order + resolved master tables; logged here and exported as the authoritative record.
     {
         const fs::path inst = DeriveInstanceRoot(dataDir, opt.mo2Instance, log);
         if (inst.empty()) {
@@ -1040,12 +1049,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             } else {
                 say("MO2 instance: " + inst.string() + " (" + std::to_string(mo2.enabledTopFirst.size()) +
                     " enabled mod(s)). Attributing bundles to owning mods.");
-                // Pre-conversion plan: decide the load order + cross-bundle master tables ONCE, up-front,
-                // so they're stable and reproducible. The GUI arranger builds this same object; exported
-                // below as loadorder.plan.txt (the runtime loadorder.txt — bundle order — is written later).
-                plan = BuildLoadOrderPlan(inst.string(), log);
-                if (plan.ok)
-                    say("Plan: " + std::to_string(plan.mods.size()) + " behavior mod(s), master tables resolved (self=0, Skyrim=1).");
                 const auto contribs = DiscoverContributions(mo2, log, excludedCodes);
                 for (const auto& c : contribs) bundlePriority[c.modName] = c.priority;
                 // OWNERSHIP of a shared code = the DEDICATED mod. A code carried by several mods (e.g. `dmco`
@@ -1097,6 +1100,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // hoisted here so the loose-derive / char-file legs above the bundle grouping can use it too.)
 
     if (mo2.ok) PackageModAnimations(mo2, plugins, outDir, log);
+    phaseDone("mod animations");
     fs::create_directories(plugins, ec);
 
     // A graph's REAL meshes-relative serve path (base-map ground truth) — bound after baseMaps loads
@@ -1152,7 +1156,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 
     // Base-derived resolution maps (ground truth = Skyrim.hky). Defined here (before the loose legs +
     // the per-bundle loop + the animationnames post-pass) so every roster leg routes by real actor/
-    // character. See PatchPlan.h — the same maps back the PatchPlan prelude.
+    // character. See BaseMaps.h.
     CB::converter::BaseMaps baseMaps;
     if (baseArc) baseMaps = CB::converter::BuildBaseMaps(*baseArc);
 
@@ -1198,16 +1202,28 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     std::unordered_map<std::string, std::vector<std::string>> masterTableOf;
     /// @brief Convert ONE graph's Nemesis patch dirs into a patch unit at `outUnit`, derived against the graph's base
     ///        unit with the bundle's masters' patch units merged in (load order).
+    /// @brief What one graph conversion did — a delta written, skipped (with its log line), or nothing to emit.
+    struct GraphOutcome { bool delta = false; bool skipped = false; std::string note; };
+    /// @note Thread-safe by construction: it reads only read-only state (the warmed template caches, the master tables,
+    ///       the base compiler — which locks its own cache), writes only `outUnit`, and REPORTS its outcome instead of
+    ///       touching shared counters or the log, so a bundle's graphs can convert in parallel.
+    /// @brief A bundle's master table, or an empty one — a non-inserting lookup (safe from parallel graph converts).
+    const auto tableOf = [&](const std::string& bundleLower) -> const std::vector<std::string>& {
+        static const std::vector<std::string> kEmpty;
+        const auto it = masterTableOf.find(bundleLower);
+        return it == masterTableOf.end() ? kEmpty : it->second;
+    };
     auto convertGraph = [&](const std::string& g, bool firstPerson, const std::string& bname,
                             const std::vector<std::string>& masters, const std::vector<std::string>& masterPatchDirs,
-                            const std::vector<std::string>& patchDirs, const std::string& outUnit) -> bool {
+                            const std::vector<std::string>& patchDirs, const std::string& outUnit) -> GraphOutcome {
         const std::string label = bname + "/" + (firstPerson ? "_1stperson/" : "") + g;
-        const std::string& baseXml = firstPerson ? fpBaseXmlOf(g) : baseXmlOf(g);
-        if (baseXml.empty()) { ++r.skipped; say("  " + label + ": no template — skipped"); return false; }
+        const auto skip = [&](const std::string& why) { return GraphOutcome{ false, true, "  " + label + ": " + why }; };
+        const std::string& baseXml = firstPerson ? fpBaseXmlCache.at(g) : baseXmlCache.at(g);
+        if (baseXml.empty()) return skip("no template — skipped");
         const std::string prefix = ToLower(graphServePathOf(g, firstPerson));
         CB::engine::decompile::ParsedHky base;
         std::string err;
-        if (!baseCompiler.Parse(prefix, base, err)) { ++r.skipped; say("  " + label + ": base unit unreadable — " + err); return false; }
+        if (!baseCompiler.Parse(prefix, base, err)) return skip("base unit unreadable — " + err);
         const auto& bones = baseCompiler.BonesFor(prefix);
         const auto* bp = bones.empty() ? nullptr : &bones;
         for (const auto& m : masters) {
@@ -1215,16 +1231,13 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             std::error_code me;
             if (!fs::is_directory(mu, me)) continue;
             if (!CB::engine::decompile::MergeHkyPatch(base, CB::engine::common::DiskUnitSource(mu.string()), schemaReg,
-                                                    { "skyrim" }, masterTableOf[ToLower(m)], err, bp)) {
-                ++r.skipped; say("  " + label + ": master '" + m + "' patch doesn't merge — " + err); return false;
-            }
+                                                    { "skyrim" }, tableOf(ToLower(m)), err, bp))
+                return skip("master '" + m + "' patch doesn't merge — " + err);
         }
         const auto md = CB::engine::decompile::ConvertModDelta(baseXml, masterPatchDirs, patchDirs, base, { "skyrim" },
-                                                             masterTableOf[ToLower(bname)], schemaReg, outUnit, bp);
-        if (!md.ok) { ++r.skipped; say("  " + label + ": patch FAILED — " + md.error); return false; }
-        if (md.patched == 0 && md.added == 0) return false;
-        ++r.deltas;
-        return true;
+                                                             tableOf(ToLower(bname)), schemaReg, outUnit, bp);
+        if (!md.ok) return skip("patch FAILED — " + md.error);
+        return GraphOutcome{ md.patched != 0 || md.added != 0, false, {} };
     };
 
     // The converter no longer emits its OWN Skyrim.hky base. The full-corpus vanilla master
@@ -1388,42 +1401,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 
     auto codeDirOf = [&](const std::string& c) { return dataDir / "Nemesis_Engine" / "mod" / c; };
 
-    // ── PatchPlan prelude (Phase 0 — behavior-neutral) ──────────────────────────────────────────
-    // Normalize the raw Pandora/Nemesis load order into one authoritative plan (what changed, for
-    // which actor/graph/character, resolved against the base archive). Nothing consumes it yet — this
-    // dumps it to D:\cb-diffs\patchplan.txt so we can validate resolution (esp. horse -> actors/horse
-    // + characters/horse.hkx) before Phase 1 flips the roster/filing legs onto it. See the plan file.
-    if (baseArc) {
-        std::unordered_map<std::string, std::vector<std::string>> precompiledByBundle;  // bundle -> loose-graph prefixes (lower)
-        for (const auto& [prefix, mod] : prefixToMod) precompiledByBundle[mod].push_back(prefix);
-
-        CB::converter::PlanInputs pin;
-        pin.base                = &baseMaps;
-        pin.graphs              = &graphs;
-        pin.fpGraphs            = &fpGraphs;
-        pin.bundleOrder         = &bundleOrder;
-        pin.bundleCodes         = &bundleCodes;
-        pin.precompiledByBundle = &precompiledByBundle;
-        pin.patchDir = [&](const std::string& code, const std::string& g) -> std::string {
-            std::error_code pe;
-            const fs::path p = codeDirOf(code) / g;
-            return fs::is_directory(p, pe) ? p.string() : std::string{};
-        };
-        pin.fpPatchDir = [&](const std::string& code, const std::string& g) -> std::string {
-            std::error_code pe;
-            const fs::path p = codeDirOf(code) / "_1stperson" / g;
-            return fs::is_directory(p, pe) ? p.string() : std::string{};
-        };
-        const CB::converter::PatchPlan plan = CB::converter::BuildPlan(pin);
-        CB::converter::DumpPlan(plan, "D:\\cb-diffs\\patchplan.txt");
-        std::size_t graphCount = 0, rosterCount = 0;
-        for (const auto& b : plan.bundles) { graphCount += b.graphs.size(); rosterCount += b.rosters.size(); }
-        say("PatchPlan (Phase 0): " + std::to_string(plan.bundles.size()) + " bundle(s), " +
-            std::to_string(graphCount) + " graph change(s), " + std::to_string(rosterCount) +
-            " roster target(s), " + std::to_string(plan.warnings.size()) +
-            " warning(s) — dumped to D:\\cb-diffs\\patchplan.txt (not yet consumed).");
-    }
-
     // FormId minting: which Nemesis codes does a set of patch dirs REFERENCE (#<code>$<N> tokens)? Scan
     // the raw patch text — a code appearing here that isn't the bundle's own is a FOREIGN master. Recurse
     // each code dir (all graphs) so a master's index is stable across every graph of the bundle.
@@ -1512,6 +1489,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         }
     }
 
+    // Read every template once, up front: the parallel graph converts below only READ these caches.
+    for (const auto& g : graphs)   baseXmlOf(g);
+    for (const auto& g : fpGraphs) fpBaseXmlOf(g);
+
     for (const auto& bname : bundleOrder) {
         if (cancel) { r.error = "cancelled"; return r; }
         const std::vector<std::string>& codeList = bundleCodes[bname];
@@ -1532,18 +1513,24 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             return dirs;
         };
 
-        // 2a) behavior graph deltas — MERGE every owning code's patch dir for a graph in ONE convert.
-        int n = 0;
+        // 2a) behavior graph deltas — MERGE every owning code's patch dir for a graph in ONE convert; 2a') the same for
+        //     FIRST-PERSON graphs against the first-person base. Each graph is independent (its own unit; masters were
+        //     converted earlier), so the bundle's graphs convert in parallel and their outcomes fold in order.
+        struct GraphJob {
+            std::string              g;
+            bool                     firstPerson = false;
+            std::vector<std::string> masterDirs, patchDirs;
+            std::string              outUnit;
+        };
+        std::vector<GraphJob> jobs;
         for (const auto& g : graphs) {
             std::vector<std::string> patchDirs;
             for (const auto& c : codeList) {
                 const fs::path patch = codeDirOf(c) / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() && convertGraph(g, false, bname, masters, masterDirsOf(g), patchDirs, unitOut(bname, g))) ++n;
+            if (!patchDirs.empty()) jobs.push_back({ g, false, masterDirsOf(g), std::move(patchDirs), unitOut(bname, g) });
         }
-
-        // 2a') FIRST-PERSON behavior graph deltas — same cross-code merge against the first-person base.
         for (const auto& g : fpGraphs) {
             // `firstperson` is the FirstPerson CHARACTER (hkbCharacterData), NOT a behavior graph — its
             // patch (hkbCharacterStringData animationNames) is a ROSTER edit, handled by the set-data path
@@ -1555,8 +1542,18 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 const fs::path patch = codeDirOf(c) / "_1stperson" / g;
                 if (fs::is_directory(patch, ec)) patchDirs.push_back(patch.string());
             }
-            if (!patchDirs.empty() &&
-                convertGraph(g, true, bname, masters, masterDirsOf(fs::path("_1stperson") / g), patchDirs, fpUnitOut(bname, g))) ++n;
+            if (!patchDirs.empty())
+                jobs.push_back({ g, true, masterDirsOf(fs::path("_1stperson") / g), std::move(patchDirs), fpUnitOut(bname, g) });
+        }
+        std::vector<GraphOutcome> outcomes(jobs.size());
+        ParallelFor(jobs.size(), [&](std::size_t i) {
+            const auto& j = jobs[i];
+            outcomes[i] = convertGraph(j.g, j.firstPerson, bname, masters, j.masterDirs, j.patchDirs, j.outUnit);
+        });
+        int n = 0;
+        for (const auto& o : outcomes) {
+            if (o.skipped) { ++r.skipped; say(o.note); }
+            if (o.delta) { ++r.deltas; ++n; }
         }
 
         if (n > 0) { any = true; say("  " + bname + " [" + codeLabel + "]: " + std::to_string(n) + " graph delta(s)."); }
@@ -1888,14 +1885,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (appended) say("  loadorder.txt: preserved existing order, appended " +
                           std::to_string(appended) + " new bundle(s).");
         else say("  loadorder.txt: preserved existing order (no new bundles).");
-
-        // Authoritative pre-conversion record: the resolved order + each mod's master table (self=0,
-        // Skyrim=1, cross-bundle 2+). Reproducible companion to the runtime loadorder.txt above.
-        if (plan.ok) {
-            std::ofstream planOut(loPath.parent_path() / "loadorder.plan.txt", std::ios::binary);
-            planOut << EmitLoadOrderText(plan);
-            say("  loadorder.plan.txt: wrote resolved plan (" + std::to_string(plan.mods.size()) + " mod(s)).");
-        }
     }
 
     // 5) Manifests — one manifest.json per bundle (BundleManifest schema). Every mod bundle
@@ -1904,6 +1893,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     //    manifest, so the converter never writes one (that would recreate a phantom Skyrim.hky
     //    here to collide with the shipped one). Per-mod identity is lifted from the Nemesis
     //    mod's info.ini when it ships one.
+    phaseDone("mod bundles + loose legs + FNIS");
     say("");
     say("== Manifests ==");
     int manifests = 0;
@@ -1937,6 +1927,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     //    VFS merges recursively. Collect first, then pack, so we don't mutate plugins\ mid-iterate.
     //    (Skyrim.hky ships separately with BR and is never present here; only *.hky DIRECTORIES are
     //    packed, so a stray packed file would be skipped.)
+    phaseDone("manifests");
     say("");
     say("== Packing bundles ==");
     {
@@ -1974,6 +1965,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         " with anim-data)" +
         (r.fnisAnims ? ("; FNIS: " + std::to_string(r.fnisAnims) + " anim(s)") : "") +
         (r.skipped ? ("; " + std::to_string(r.skipped) + " skipped") : "") + ".");
+    phaseDone("pack bundles");
+    say("  (total: " + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - convStart).count()) + "s)");
     r.ok = true;
     return r;
 }
@@ -2075,18 +2068,6 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
         reason = "fidelity " + std::to_string(maxDeg) + "deg";
         return AnimBakeOutcome::Skip;
     } catch (const std::exception& e) { reason = std::string("reload: ") + e.what(); return AnimBakeOutcome::Skip; }
-}
-
-/// @brief Run `f(i)` for every i in [0, n) across the hardware threads. `f` must touch only state of its own index (or
-///        read-only shared state); results land in per-index slots so the caller can fold them in order.
-template <class F>
-static void ParallelFor(std::size_t n, F&& f) {
-    std::atomic<std::size_t> next{ 0 };
-    std::vector<std::thread> pool;
-    const unsigned           nThreads = std::max(1u, std::thread::hardware_concurrency());
-    for (unsigned t = 0; t < nThreads; ++t)
-        pool.emplace_back([&] { for (std::size_t i; (i = next++) < n;) f(i); });
-    for (auto& th : pool) th.join();
 }
 
 BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
@@ -2682,7 +2663,6 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
     std::map<std::string, int>      skipReasons;
     std::vector<std::string>        unrecognized;    ///< .hkx under an animations/ folder that did NOT classify as an animation
     int totalOk = 0, totalSkip = 0, totalFail = 0, totalFromArchive = 0, modsWithAnims = 0;
-    std::vector<std::uint8_t> abytes;
 
     for (const std::string& modName : mo2.enabledTopFirst) {
         const fs::path    modRoot    = mo2.modsDir / modName;
@@ -2728,34 +2708,57 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
                 }
         }
 
-        int modOk = 0, modSkip = 0, modFail = 0, modFromArchive = 0;
-        for (const auto& [key, src] : sources) {
+        /// @note Each source bakes independently into its own unit path, so the mod's sources fan across the pool (a
+        ///       scratch dir per worker). An archive's reader shares one stream, so its extracts take its lock. Results
+        ///       land per source and fold in map order — the log and counts match a serial run.
+        enum class Res { None, Ok, Skip, Fail, ExtractFail, Unrecognized };
+        struct Outcome { Res res = Res::None; std::string note; };
+        std::vector<std::pair<const std::string*, const Source*>> order;
+        order.reserve(sources.size());
+        for (const auto& [key, src] : sources) order.emplace_back(&key, &src);
+        std::vector<Outcome>    outcomes(order.size());
+        std::vector<std::mutex> archiveLocks(archives.size());
+        ParallelFor(order.size(), [&](std::size_t i, unsigned worker) {
+            const std::string& key = *order[i].first;
+            const Source&      src = *order[i].second;
+            Outcome&           out = outcomes[i];
+            std::vector<std::uint8_t> bytes;
             std::string err;
             if (src.entry) {
-                if (!archives[src.archive].Extract(*src.entry, abytes, &err)) {
-                    say("  extract failed: " + src.rel + " — " + err);
-                    ++modFail;
-                    continue;
-                }
-                if (PeekHkxKind(abytes) != HkxKind::Animation) {
-                    if (key.find("/animations/") != std::string::npos) unrecognized.push_back(modName + ": " + src.rel);
-                    continue;
+                bool extracted;
+                { std::lock_guard lk(archiveLocks[src.archive]); extracted = archives[src.archive].Extract(*src.entry, bytes, &err); }
+                if (!extracted) { out = { Res::ExtractFail, err }; return; }
+                if (PeekHkxKind(bytes) != HkxKind::Animation) {
+                    if (key.find("/animations/") != std::string::npos) out.res = Res::Unrecognized;
+                    return;
                 }
             } else {
                 if (PeekHkxKind(src.loose) != HkxKind::Animation) {
-                    if (key.find("/animations/") != std::string::npos) unrecognized.push_back(modName + ": " + src.rel);
-                    continue;
+                    if (key.find("/animations/") != std::string::npos) out.res = Res::Unrecognized;
+                    return;
                 }
-                if (!CB::engine::codec::ReadHavokFile(src.loose, abytes, &err)) { ++modFail; continue; }
+                if (!CB::engine::codec::ReadHavokFile(src.loose, bytes, &err)) { out.res = Res::Fail; return; }
             }
             std::string reason;
-            switch (BakeAnimationUnit(abytes, bundle / fs::path(src.rel), stage, reason, /*poseGate=*/false)) {
-                case AnimBakeOutcome::Ok:
-                    ++modOk;
-                    if (src.entry) ++modFromArchive;
-                    break;
-                case AnimBakeOutcome::Skip: ++modSkip; ++skipReasons[reason.substr(0, std::min<std::size_t>(reason.find(':'), 60))]; break;
-                case AnimBakeOutcome::Fail: ++modFail; break;
+            switch (BakeAnimationUnit(bytes, bundle / fs::path(src.rel), stage / ("worker" + std::to_string(worker)), reason,
+                                      /*poseGate=*/false)) {
+                case AnimBakeOutcome::Ok:   out.res = Res::Ok; break;
+                case AnimBakeOutcome::Skip: out = { Res::Skip, reason }; break;
+                case AnimBakeOutcome::Fail: out.res = Res::Fail; break;
+            }
+        });
+
+        int modOk = 0, modSkip = 0, modFail = 0, modFromArchive = 0;
+        for (std::size_t i = 0; i < order.size(); ++i) {
+            const Source& src = *order[i].second;
+            const auto&   o   = outcomes[i];
+            switch (o.res) {
+                case Res::Ok:           ++modOk; if (src.entry) ++modFromArchive; break;
+                case Res::Skip:         ++modSkip; ++skipReasons[o.note.substr(0, std::min<std::size_t>(o.note.find(':'), 60))]; break;
+                case Res::Fail:         ++modFail; break;
+                case Res::ExtractFail:  say("  extract failed: " + src.rel + " — " + o.note); ++modFail; break;
+                case Res::Unrecognized: unrecognized.push_back(modName + ": " + src.rel); break;
+                case Res::None:         break;
             }
         }
         if (modOk || modSkip || modFail) {

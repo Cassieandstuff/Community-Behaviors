@@ -53,7 +53,6 @@ private:
     std::string          m_profile;               // MO2 profile folder (or instance root) — the ONE input
     std::string          m_outputDir;             // where the converted set is written (or zipped into)
     bool                 m_autoZip = false;        // zip the output instead of writing the tree directly
-    bool                 m_exportLoadOrder = true; // write loadorder.plan.txt alongside the conversion
     CB::converter::LoadOrderPlan m_plan;                  // pre-conversion plan (built on profile select)
     bool                 m_planPending = false;    // rebuild the plan on the next frame (after a profile change)
     std::string          m_planMsg;               // status line under the profile field
