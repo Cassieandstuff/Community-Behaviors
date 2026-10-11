@@ -4,17 +4,22 @@ Guidance for Claude Code working in the **Community Behaviors** standalone repo.
 
 ---
 
-## Havok is CASE-SENSITIVE — assume it always (directive)
+## Case PRECISION everywhere (directive)
 
-**Assume at all times that Havok's internals — file/path evaluation, resource resolution, CRC
-computation, name and binding lookups, and ANY data manipulation that touches Havok — are
-CASE-SENSITIVE.** The engine and toolchain silently mismatch on case where the OS/USVFS would not,
-and the failure is invisible: a miscased path/name/CRC binds to *nothing* (A-pose, dead root motion)
-or the *wrong* thing — never an error. **Preserve the ORIGINAL case end-to-end** for every Havok
-path, filename, clip/animation/event/variable name, and anything a CRC is computed over. Lowercasing
-is safe ONLY for a purely INTERNAL key whose every side is controlled and lowercased identically —
-the moment a value crosses back to the engine or vanilla data it must carry vanilla case. Treat any
-new lowercase-normalization on Havok data as a bug until proven internal-only.
+**Every string that names something — file and folder paths, unit and bundle paths, clip / animation /
+event / variable names, roster entries, anything a CRC is computed over — keeps its exact original case
+end-to-end and is compared EXACTLY.** Havok and Linux are case-sensitive: a miscased path or name binds to
+*nothing* (A-pose, dead root motion) or the *wrong* thing — never an error.
+
+**There is no case folding in CB except INSIDE a codec whose external definition folds** — the setdata
+path CRC (`codec/crc`) and the adsf's lowercase animation file names. The fold never escapes the codec.
+Lowercase-everywhere is not an option (Havok names keep vanilla case), and there is no in-between: helpers
+that fold "internal keys" are how mismatches creep in.
+
+**A file's precise name is the spelling the engine REQUESTS it by** (the referencing data) — never its
+on-disk/BSA spelling (vanilla BSAs store every name lowercase; every reference is mixed case). Fix case at
+the SOURCE (compile/regen write precise names); never fold a lookup to paper over it. Treat any new
+ToLower / case-insensitive compare outside a folding codec as a bug.
 
 ---
 
