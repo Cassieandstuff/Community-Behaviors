@@ -21,8 +21,6 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   order with FNIS lists skips them (the converter logs `FNIS: FAILED`).
 - [CB-9](CB-9-setdata-names-lowercased.md) — OPEN: set-data sets/projects a mod ADDS are served with
   lowercased names (converter writes them folded; the server rebuilds names from folded bundle listings).
-- [CB-10](CB-10-roster-fold-exact-case.md) — OPEN: the author roster fold dedups by exact case while LoadClips
-  keys by lowercase filename — a case-only duplicate pads the roster and kills the base slot.
 - [CB-11](CB-11-cache-file-case.md) — INVESTIGATING (fix landed, needs an in-game check): cache files were
   written lowercase but swapped open with the request's raw case; every swap now names the exact file written.
 - [CB-12](CB-12-bom-handling.md) — OPEN: a UTF-8 BOM breaks packed units (ZipUnitSource ignores the strip

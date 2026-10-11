@@ -2,6 +2,7 @@
 
 #include <codec/serialization/HavokFile.h>             // ReadHavokFile
 #include <codec/formid/FormId.h>                        // CB::engine::codec::formid::SELF_INDEX (index convention)
+#include <codec/resource/PathKey.h>                     // PathKey (path identity) / ClipSlotKey (LoadClips slot rule)
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <codec/serialization/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
@@ -227,12 +228,12 @@ struct RosterSink {
 int AddRosterToCharacterUnit(RosterSink& sink, const fs::path& bundleDir, const std::string& characterServePath,
                              const std::vector<std::string>& names) {
     if (names.empty() || characterServePath.empty()) return 0;
-    const std::pair<std::string, std::string> key{ bundleDir.string(), ToLower(characterServePath) };
+    const std::pair<std::string, std::string> key{ bundleDir.string(), CB::engine::codec::resource::PathKey(characterServePath) };
     auto& have = sink.seen[key];
     auto& list = sink.names[key];
     int added = 0;
     for (const auto& a : names)
-        if (!a.empty() && have.insert(ToLower(a)).second) { list.push_back(a); ++added; }
+        if (!a.empty() && have.insert(a).second) { list.push_back(a); ++added; }
     return added;
 }
 
@@ -247,10 +248,8 @@ int AddRosterToCharacterUnit(RosterSink& sink, const fs::path& bundleDir, const 
 int FlushRosters(const RosterSink& sink, CB::converter::BaseUnitCompiler& base, const CB::engine::codec::HkyArchive& arc,
                  const CB::engine::schema::SchemaRegistry& reg, const LogFn& log) {
     const auto say = [&](const std::string& m) { if (log) log(m); };
-    const auto fileKey = [](const std::string& n) {
-        const auto p = n.find_last_of("\\/");
-        return ToLower(p == std::string::npos ? n : n.substr(p + 1));
-    };
+    using CB::engine::codec::resource::ClipSlotKey;
+    using CB::engine::codec::resource::PathKey;
     std::map<std::string, std::string>              groupOf;      // character serve key -> alignment group
     std::map<std::string, std::vector<std::string>> members;      // group -> character serve keys
     std::map<std::string, std::vector<std::string>> baseRoster;   // character serve key -> its base animationNames
@@ -259,11 +258,10 @@ int FlushRosters(const RosterSink& sink, CB::converter::BaseUnitCompiler& base, 
         const auto src = arc.source(u.prefix);
         const auto cs  = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
         if (!cs) continue;
-        const std::string serve = ToLower(u.prefix);
+        const std::string serve = PathKey(u.prefix);
         const auto s1 = serve.find_last_of('/');
         const auto s2 = s1 == std::string::npos || s1 == 0 ? std::string::npos : serve.find_last_of('/', s1 - 1);
-        std::string behavior = ToLower(cs->behaviorFilename);
-        for (char& c : behavior) if (c == '\\') c = '/';
+        const std::string behavior = PathKey(cs->behaviorFilename);
         const std::string group = (s2 == std::string::npos ? serve : serve.substr(0, s2)) + "|" + behavior;
         groupOf[serve] = group;
         members[group].push_back(serve);
@@ -284,9 +282,9 @@ int FlushRosters(const RosterSink& sink, CB::converter::BaseUnitCompiler& base, 
         const auto& [bundleDir, group] = key;
         std::unordered_set<std::string> have;
         for (const auto& m : members[group])
-            for (const auto& n : baseRoster[m]) have.insert(fileKey(n));
+            for (const auto& n : baseRoster[m]) have.insert(ClipSlotKey(n));
         std::vector<std::string> add;
-        for (const auto& n : names) if (!n.empty() && have.insert(fileKey(n)).second) add.push_back(n);
+        for (const auto& n : names) if (!n.empty() && have.insert(ClipSlotKey(n)).second) add.push_back(n);
         if (add.empty()) continue;
         for (const auto& serve : members[group]) {
             CB::engine::decompile::ParsedHky g, fresh;
@@ -1274,11 +1272,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 ++r.skipped; say("  " + rel + ": loose-file is not a readable character"); continue;
             }
             std::unordered_set<std::string> have;
-            if (const auto src = baseArc->source(ToLower("meshes/" + fs::path(rel).generic_string())))
+            if (const auto src = baseArc->source(CB::engine::codec::resource::PathKey("meshes/" + fs::path(rel).generic_string())))
                 if (const auto cs = CB::engine::decompile::ReadCharacterStrings(*src))
-                    for (const auto& a : cs->animationNames) have.insert(ToLower(a));
+                    for (const auto& a : cs->animationNames) have.insert(a);
             std::vector<std::string> adds;
-            for (const auto& a : modded) if (have.insert(ToLower(a)).second) adds.push_back(a);
+            for (const auto& a : modded) if (have.insert(a).second) adds.push_back(a);
             if (adds.empty()) continue;   // replaced file, but same roster — nothing to carry
 
             // Roster patch at the character unit's real serve path (rel mirrors the meshes tree,
@@ -1616,7 +1614,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             auto addToServes = [&](const std::vector<std::string>& serves, const std::string& a) {
                 if (a.empty()) return;
                 for (const auto& s : serves)
-                    if (!s.empty() && seenByServe[s].insert(ToLower(a)).second) byServe[s].push_back(a);
+                    if (!s.empty() && seenByServe[s].insert(a).second) byServe[s].push_back(a);
             };
 
             std::vector<std::string> curServes;   // the current seed graph's character serve path(s)
@@ -2497,12 +2495,9 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                         ///       file. Vanilla's animIndex is NOT always today's roster position: the werewolf's adsf predates
                         ///       5 roster removals, so an index map put TurnRight60's motion on WW_WalkForwardLeft.
                         ///       Records no clip reaches fall back to the index.
-                        const auto fileKey = [&](const std::string& p) {
-                            const auto s = p.find_last_of("/\\");
-                            return lc(s == std::string::npos ? p : p.substr(s + 1));
-                        };
+                        using CB::engine::codec::resource::ClipSlotKey;
                         std::unordered_map<std::string, std::size_t> slotOf;
-                        for (std::size_t i = 0; i < roster.size(); ++i) slotOf.emplace(fileKey(roster[i]), i);
+                        for (std::size_t i = 0; i < roster.size(); ++i) slotOf.emplace(ClipSlotKey(roster[i]), i);
                         std::unordered_map<std::string, std::string> clipAnim;   // clip-generator name -> animationName
                         for (const auto& d : behaviorDirsOf(proj, actorRoot))
                             if (const auto df = dirFiles.find(d); df != dirFiles.end())
@@ -2516,7 +2511,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             const auto mi = motionByIndex.find(c.animIndex);
                             const auto ca = clipAnim.find(c.name);
                             if (mi == motionByIndex.end() || ca == clipAnim.end()) continue;
-                            const auto s = slotOf.find(fileKey(ca->second));
+                            const auto s = slotOf.find(ClipSlotKey(ca->second));
                             if (s == slotOf.end()) continue;
                             assign.emplace_back(s->second, mi->second);
                             viaClip.insert(c.animIndex);

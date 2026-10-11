@@ -23,4 +23,14 @@ inline std::string PathKey(std::string_view p)
     return s;
 }
 
+/// @brief The engine's animation-SLOT key for a roster entry: the lowercased FILENAME, folder ignored.
+/// @note LoadClips keys roster slots this way and a later slot overwrites an earlier one on collision (RE'd), so
+///       `male\MT_X` and `female\MT_X` are the same slot. Use it only to model that rule (slot alignment, collision
+///       warnings) — roster names themselves are copied and compared exactly.
+inline std::string ClipSlotKey(std::string_view rosterEntry)
+{
+    const auto p = rosterEntry.find_last_of("\\/");
+    return PathKey(p == std::string_view::npos ? rosterEntry : rosterEntry.substr(p + 1));
+}
+
 }  // namespace CB::engine::codec::resource

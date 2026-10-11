@@ -16,6 +16,7 @@
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
 #include <compile/AnimDataDeriver.h>      // CB::engine::animdata::DeriveClipInput
+#include <codec/resource/PathKey.h>       // ClipSlotKey — the engine's LoadClips slot rule
 #include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
@@ -1410,9 +1411,20 @@ namespace CB {
         const auto ci = m_characterAnimNames.find(characterStem);
         if (ci == m_characterAnimNames.end()) return 0;
         std::unordered_set<std::string> have(names.begin(), names.end());
+        /// @note Names are unioned EXACTLY, as authored. The engine's LoadClips keys slots by lowercase filename
+        ///       (codec::resource::ClipSlotKey), so an authored name sharing a slot key with an existing entry would
+        ///       overwrite that slot and pad the roster — passed through as written, but warned about.
+        std::unordered_set<std::string> slots;
+        for (const auto& n : names) slots.insert(CB::engine::codec::resource::ClipSlotKey(n));
         std::size_t folded = 0;
-        for (const auto& a : ci->second)
-            if (have.insert(a).second) { names.push_back(a); ++folded; }
+        for (const auto& a : ci->second) {
+            if (!have.insert(a).second) continue;
+            if (!slots.insert(CB::engine::codec::resource::ClipSlotKey(a)).second)
+                LOG_WARN("Resolver: author roster entry '{}' for '{}' shares an animation slot (same file name) with an "
+                         "existing entry — the engine binds only the later one.", a, characterStem);
+            names.push_back(a);
+            ++folded;
+        }
         return folded;
     }
 
