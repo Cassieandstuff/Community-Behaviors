@@ -1,8 +1,8 @@
 #pragma once
 #include <cstdint>
 
-// havok-core's own minimal value types. Deliberately NOT RE::/System.Numerics
-// analogues (plan §1.3) — havok-core is a standalone, dependency-free library.
+// The engine's own minimal value types. Deliberately NOT RE:: analogues — the engine
+// is CommonLib-free (configure fails on any RE/ include).
 
 namespace CB::engine::common {
 

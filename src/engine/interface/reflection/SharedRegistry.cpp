@@ -1,7 +1,6 @@
-// SharedRegistry — the ONE process-wide, lazily-loaded Havok/ schema registry shared by every
-// schema-driven compiler. Relocated out of havok-core's SchemaCompilerState so the version-stamp
-// gate (all schema:: types) lives beside the types it checks, and so havok-anim can reach the same
-// registry without a havok-core dependency. havok-core's SchemaCompilerState now delegates here.
+/// @file
+/// @brief The ONE process-wide, lazily-loaded schema registry (see HavokSchema.h); the version-stamp gate lives
+///        here, beside the schema:: types it checks.
 
 #include <interface/reflection/HavokSchema.h>
 

@@ -1,5 +1,4 @@
-// SkeletonYaml — SkeletonData ↔ YAML/text authoring + merge front end. Ported verbatim from havok-core's
-// sct/SkeletonYaml (it was already havok-core-free) but for the namespace; pure ryml + std.
+// SkeletonYaml — SkeletonData ↔ YAML/text authoring + merge front end; pure ryml + std.
 
 #include "codec/format/SkeletonYaml.h"
 

@@ -65,18 +65,15 @@ namespace CB::engine::animdata {
     // animationsetdatasinglefile.txt/ folder):
     //
     //     meshes/animationdatasinglefile.txt/
-    //       index.yaml           per-PROJECT manifest: name + assets + hasAnimData (ALL 429; the
-    //                            380 header-only projects are fully described here, no body file)
-    //       clips/<stem>.yaml    BAKED residue: the clip generators (49 projects). Baked until the
-    //                            Part-B graph-derivation covers the base; then this shrinks away.
-    //       motion/<stem>.yaml   AUTHORED: root motion (EmitMotionYaml, keyed by clip name)
+    //       index.yaml           per-PROJECT manifest: name + assets + hasAnimData + `character:`
+    //                            (ALL 429 projects) — the only file the base ships
     //
-    // "Author what reverses, bake what doesn't": motion round-trips to editable YAML; the clip list
-    // (and the project header) is baked verbatim for now. `<stem>` is the
+    // Clips and motion are not shipped: the runtime projects them (ProjectAnimData) from the graphs,
+    // rosters and animation units, each animation carrying its own root motion. `<stem>` is the
     // lowercased project name without ".txt" ("DefaultMale.txt" -> "defaultmale").
 
     // One project's structural header (everything in section A except the clip generators). The 380
-    // header-only projects ARE just this; the 49 with hasAnimData carry clips/ + motion/ bodies too.
+    // header-only projects ARE just this.
     struct ProjectHeader {
         std::string              name;              // "DefaultMale.txt" (identity + order)
         std::string              fieldX = "1";      // constant leading "1"; carried only if it differs
@@ -86,7 +83,7 @@ namespace CB::engine::animdata {
                                                      // clip de-hardwire; empty if unresolved/no anim data
     };
 
-    // The lowercased project name without ".txt" — the key clips/ and motion/ are named by.
+    // The lowercased project name without ".txt" — the per-project key (index.yaml `character:` map).
     std::string StemForProjectName(const std::string& projectName);
 
     // One project's resolved character: the meshes-relative character-unit ref (e.g.
@@ -102,9 +99,9 @@ namespace CB::engine::animdata {
     // characters/chickencharater.hkx, beating the name/typo mismatch); (3) "<P>project|data" char;
     // (4) an actor FOLDER named "<P>" (ChaurusFlyer/HMDaedra: char is "chaurusflyercharacter" but lives
     // in .../chaurusflyer/). A project resolving to none (e.g. rosterless canine tagfile chars) is
-    // absent from the map -> its clips keep raw indices. Shared by the converter (decompose over
-    // stageHky) and the havok-core-cli tools; the runtime instead reads the `character:` header the
-    // decompose writes and loads that roster directly.
+    // absent from the map -> its clips keep raw indices. Used by the converter (decompose over
+    // stageHky); the runtime instead reads the `character:` header the decompose writes and loads that
+    // roster directly.
     std::map<std::string, ProjectCharacter> LoadProjectCharacters(
         const std::string& treeMeshesDir,
         const std::function<std::vector<std::string>(const std::filesystem::path& unit)>& rosterOf,

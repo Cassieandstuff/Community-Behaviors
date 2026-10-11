@@ -219,7 +219,7 @@ public:
         return ReadArrayBase<std::string>([this](BinaryReaderEx& b) { return ReadStringPointer(b); }, br);
     }
 
-    // havok-io generic array readers (Stage 2). Same framing as the typed readers above, but the
+    // Generic (schema-driven) array readers. Same framing as the templated readers above, but the
     // element type is data-driven rather than a template parameter.
     //
     // Raw fixed-width scalar array (ScalarArray / Vec4Array / QsTransformArray): reads `count`

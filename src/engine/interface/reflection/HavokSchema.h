@@ -1,10 +1,9 @@
 #pragma once
-// havok-schema — the loader/model for the Havok/ class schema (the source of truth for what a Havok
+// The loader/model for the schema/ class schema (the source of truth for what a Havok
 // class IS in the SSE/AE packfile). PASSIVE: it parses descriptors into an in-memory ClassSchema and
 // computes the serialized size by walking fields. It knows NOTHING of read/write/transpile/convert/
-// compile — those are CONSUMERS of this schema (havok-io serde, the merge engine, codegen). See
-// Havok/README.md for the descriptor format. Single public header (the monorepo new-library rule):
-// consumers write  #include <interface/reflection/HavokSchema.h>  and nothing else.
+// compile — those are CONSUMERS of this schema (the HavokIo serde, the merge engine). See
+// schema/README.md for the descriptor format.
 
 #include <cstdint>
 #include <map>
@@ -212,13 +211,10 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
 bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err);
 
 // ── Shared process-wide registry ───────────────────────────────────────────────
-// The ONE lazily-loaded Havok/ registry every schema-driven compiler shares (behavior / character /
-// project / skeleton via havok-core's SchemaCompilerState, animation via havok-anim directly), so
-// they load the tree ONCE and enforce the editor<->compiler version-stamp contract in a single place.
-// Ownership lives HERE, in havok-schema, because the whole gate is expressed in schema:: types —
-// havok-core's SchemaCompilerState now delegates to these, keeping havok-anim off any havok-core edge.
+// The ONE lazily-loaded schema registry every schema-driven compile / decompile shares, so the tree loads
+// ONCE and the editor<->compiler version-stamp contract is enforced in a single place.
 
-// Configure the directory the shared registry loads from (the deployed Havok/ tree). Overrides the
+// Configure the directory the shared registry loads from (the deployed schema/ tree). Overrides the
 // $SCT_HAVOK_SCHEMA_DIR fallback. Call before the first SharedRegistry() — it does not force a reload.
 void SetSharedSchemaDir(const std::string& dir);
 

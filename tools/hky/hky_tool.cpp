@@ -1,7 +1,5 @@
-// hky-tool — the standalone .hky pack/unpack driver over codec/serialization (org-pass firesale
-// phase 4a). Pulled out of havok-core-cli so the base-master diff-strategy tooling has a home that
-// links only the engine (codec/serialization/HkyArchive). Proves the
-// serialization codec stands alone.
+// hky-tool — the standalone .hky pack/unpack driver over codec/serialization (HkyArchive): the
+// base-master diff-strategy tooling, linking only the engine.
 //
 //   hky-tool pack        <bundleDir> -o <out.hky>        YAML tree  -> single-file .hky (round-trip-checked)
 //   hky-tool unpack      <in.hky>    -o <outDir>          .hky       -> YAML tree on disk (original case kept)

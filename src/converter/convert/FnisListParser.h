@@ -7,8 +7,7 @@
 
 // FnisListParser — parse FNIS_*_List.txt files into structured animation declarations.
 //
-// Pure std (no SKSE/PCH) so it links into standalone CLI tools unchanged.  The format is
-// line-oriented; each non-comment, non-empty line is one of:
+// Pure std (no SKSE/PCH).  The format is line-oriented; each non-comment, non-empty line is one of:
 //
 //   <type> [-<option,option,...>] <AnimEvent> <AnimFile> [<AnimObject> ...]
 //   AnimVar <VarName> [ BOOL | INT32 | REAL ] <numeric_value>
@@ -125,7 +124,7 @@ struct AnimGroup {
 };
 
 // Group parsed animation declarations into AnimGroups (sequences coalesced with
-// their continuations).  Used by both the HKX synthesizer and the YAML converter.
+// their continuations).
 std::vector<AnimGroup> GroupAnimations(const ScanResult& scan);
 
 }  // namespace CommunityBehaviors::fnis

@@ -8,8 +8,7 @@
 //   *FromTexts           : in-memory twins (a packed .hky vends each unit as TEXT, never a disk path).
 //   LoadSkeletonLayer / MergeBoneAdditions : bone-add layers (parent-by-name) appended onto a base.
 //
-// Pure SkeletonData ↔ YAML/text — no packfile, no typed classes. Ported from havok-core's sct/
-// SkeletonYaml unchanged but for the namespace; it was already havok-core-free.
+// Pure SkeletonData ↔ YAML/text — no packfile, no typed classes.
 
 #include "interface/SkeletonData.h"   // SkeletonData
 

@@ -216,7 +216,7 @@ public:
         WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { WriteStringPointer(bw, d[i], 2); });
     }
 
-    // ── havok-io generic array writers (Stage 2) — inverse of the deserializer's generic readers ──
+    // ── generic (schema-driven) array writers — inverse of the deserializer's generic readers ──
     // Raw fixed-width scalar array (ScalarArray / Vec4Array / QsTransformArray): `bytes` is the flat
     // element buffer, `elemWidth` its stride; count = bytes.size()/elemWidth.
     void WriteRawArray(BinaryWriterEx& bw, const std::vector<std::uint8_t>& bytes, int elemWidth) {

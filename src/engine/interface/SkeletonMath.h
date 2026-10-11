@@ -1,8 +1,7 @@
 #pragma once
 // Transform math for the schema-native skeleton physics compile: quaternion algebra, QSTransform
-// composition, FK world poses, and QSTransform → hkTransform columns. Ported verbatim from havok-core's
-// sct/SkeletonMath.h (single source of truth for the derivations), but havok-core-FREE: an hkTransform
-// is just its 4 Vector4 columns (std::array), built straight into the schema hkTransform.data field.
+// composition, FK world poses, and QSTransform → hkTransform columns. An hkTransform is just its
+// 4 Vector4 columns (std::array), built straight into the schema hkTransform.data field.
 // Header-only, TU-local to the skeleton compiler.
 
 #include "common/HkTypes.h"   // Vector4 / Quaternion / QSTransform (portable value types, base tier)

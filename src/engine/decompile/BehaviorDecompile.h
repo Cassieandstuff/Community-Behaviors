@@ -1,5 +1,5 @@
-// BehaviorDecompile.h — the decompile/emit + tagfile + convert half of the former havok-model facade.
-// Split out of <havok-model/HavokModel.h> in org-pass firesale phase 3f. Impl: decompile/HavokModel.cpp.
+// BehaviorDecompile.h — behavior decompile / reflective .hky emit + parse + merge, and the Nemesis
+// tagfile convert. Impl: decompile/HavokModel.cpp.
 #pragma once
 #include <codec/serialization/HavokIo.h>
 #include <interface/UnitSource.h>
@@ -36,10 +36,6 @@ struct Identity {
     /// @brief Minted roster keys (`roster: id|slot`) per (owner object, field index), parallel to that list. Absent
     ///        (or out of step with the list) = keyed by position, the base unit's own sub-record FormIDs.
     std::map<std::pair<const IHavokObject*, std::size_t>, std::vector<std::string>> subKeys;
-    // DIFF-ONLY: when set, refIdOf emits a node ref as the target's `Class:name` instead of its numeric
-    // #NNNN, so a cross-compile tree-diff aligns refs by stable identity (two compiles renumber the same
-    // node differently). Never set on a production emit — it changes ref rendering and is not a valid .hky.
-    bool refsAsNames = false;
 };
 
 // The .hky folder a class's node lives in ("clips", "states", …), or "" if the class is inlined into

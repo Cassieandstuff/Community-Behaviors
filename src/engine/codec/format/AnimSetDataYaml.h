@@ -6,20 +6,18 @@
 //
 //     meshes/animationsetdatasinglefile.txt/
 //       index.yaml            project ORDER + exact header strings (the file's line-1 manifest)
-//       movesets/<stem>.yaml  AUTHORED: each project's sets (gate / equip / attacks)
-//       crcs/<stem>.yaml      BAKED residue: each set's path-CRC registrations (un-reversible)
+//       setdata/<stem>.yaml   the base: one project's sets (gate / equip / attacks + `animations`),
+//                             self-identifying via `project:`
+//       movesets/<stem>.yaml  a mod bundle's authored sets (gate / equip / attacks), merged at serve
 //
-// The split is "author what reverses, bake what doesn't": gate/equip/attacks round-trip to YAML
-// and are hand-editable; the CRC membership block is opaque game data (a path hash the engine
-// matches loaded animations against — 5% don't even reverse to a roster name), so it ships
-// VERBATIM as a baked sibling — a trivial identity round-trip that keeps the whole compose
-// byte-exact. New mod content needs no baked CRCs: the servers derive them from the authored
-// animation paths (TripleForAnimation). `<stem>` is the lowercased basename of the project
+// The per-set CRC membership (a path hash the engine matches loaded animations against) is not
+// shipped as data: the regen reverses it to animation PATHS (ResolveSetdataPaths; a triple that
+// doesn't reverse stays a verbatim "@crc" residue token) and the serve re-hashes them
+// (CompileSetdataCrcs / TripleForAnimation). `<stem>` is the lowercased basename of the project
 // header ("ChickenProjectData\ChickenProject.txt" -> "chickenproject").
 //
-// Assemble(index + movesets + crcs) -> EmitSingleFile reproduces vanilla byte-for-byte; that
-// round-trip is the drift gate (havok-core-cli setdata-tree-roundtrip). Shared by the converter
-// (decompose) and the runtime (ServeSetData composes the base from this folder) — ryml-gated.
+// Shared by the converter (decompose) and the runtime (ServeSetData composes the base from this
+// folder) — ryml-gated.
 
 #include "codec/format/AnimationSetData.h"
 
@@ -43,7 +41,7 @@ namespace CB::engine::animsetdata {
 
     // ── The ".txt/" folder pieces ────────────────────────────────────────────────
     // The lowercased basename-stem of a project header ("ChickenProjectData\ChickenProject.txt"
-    // -> "chickenproject") — the key the movesets/ and crcs/ files are named by.
+    // -> "chickenproject") — the key the setdata/ and movesets/ files are named by.
     std::string StemForHeader(const std::string& header);
 
     // index.yaml: the project ORDER + exact header strings (the .txt's leading count + list).

@@ -8,8 +8,7 @@
 #include <vector>
 
 // AnimationData — a first-party model + parser/emitter for Skyrim's
-// animationdatasinglefile.txt (clip-generator + root-motion metadata), plus a
-// reader for the Nemesis per-project patch form and a load-order merge.
+// animationdatasinglefile.txt (clip-generator + root-motion metadata).
 //
 // This is the 4th animation-system leg (after behavior graphs, the character
 // animationNames roster, and animationsetdata). It is what Nemesis/Pandora

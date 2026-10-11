@@ -4,10 +4,9 @@
 // so per-frame samples ARE the control points); the compressor reclassifies and
 // re-quantizes them on recompile.
 //
-// SCHEMA-NATIVE: the packfile is deserialized through havok-io's generic SchemaObject path
-// (MakeSchemaFactory over the shared registry) — NOT the typed hka* classes — so a real game
-// animation's unported second variant (hkMemoryResourceContainer) deserializes cleanly (it has a
-// schema descriptor) instead of throwing the way the typed graph walk did. Every field is read off
+// SCHEMA-NATIVE: the packfile is deserialized through the generic io::SchemaObject path
+// (MakeSchemaFactory over the shared registry), so a real game animation's second variant
+// (hkMemoryResourceContainer) deserializes cleanly (it has a schema descriptor). Every field is read off
 // the SchemaObject's tagged FieldValue store; the spline blob feeds the shared DecodeSpline codec.
 //
 // ROUND-TRIP FIDELITY (an animation produced by this toolchain, recompiled):

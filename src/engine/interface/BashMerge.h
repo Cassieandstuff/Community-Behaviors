@@ -23,7 +23,7 @@ using namespace CB::engine::common;
 enum class ParamMerge { Keep, LastWriter, ReplaceArray, UnionArray };
 
 // How a single param merges, given: is it an array; and how many layers actually CHANGED
-// it (differ from base). Shared by BOTH adapters so the rule is defined exactly once:
+// it (differ from base):
 //   * 0 changers                 -> Keep       (an untouched vanilla-valued field in a
 //                                               later layer never reverts an earlier edit)
 //   * scalar / pointer field     -> LastWriter (load order wins)
@@ -135,9 +135,7 @@ struct PatchLayer { xml::Node node; std::unordered_set<std::string> changed; };
 // markers: diff the OPEN-applied node against the ORIGINAL-applied node. A field the mod leaves
 // outside MOD_CODE is unchanged even if the mod's stale copy of it differs from true vanilla. A
 // file with NO markers reports all its fields (the legacy full-override path; bashMerge's own
-// changer filter — deepEqual vs base — still recovers the real edits). SHARED by the typed
-// PatchConverter and the schema parseSourcesMerged so both build PatchLayer.changed identically —
-// the one merge-input rule, no drift.
+// changer filter — deepEqual vs base — still recovers the real edits).
 inline std::unordered_set<std::string> changedFields(const std::string& rawSrc) {
     auto params = [](const xml::Node& n) {
         std::vector<std::pair<std::string, const xml::Node*>> v;
@@ -164,9 +162,8 @@ inline std::unordered_set<std::string> changedFields(const std::string& rawSrc) 
     return out;
 }
 
-// A (class, field) -> is-this-a-`merge: compose` array predicate. The loader/converter binds it to
-// SchemaRegistry::MergeTag so BOTH merge adapters read the SAME schema tag; empty = never compose
-// (the legacy/typed path, count-based union exactly as before).
+/// @brief A (class, field) -> is-this-a-`merge: compose` array predicate; the converter binds it to
+///        SchemaRegistry::MergeTag. Empty = never compose (count-based union only).
 using ComposePred = std::function<bool(const std::string& cls, const std::string& field)>;
 
 // Count an array param's <hkobject> item children.
@@ -259,7 +256,7 @@ inline xml::Node bashMerge(const xml::Node& base, const std::vector<const PatchL
         xml::Node* mp = findParam(merged, P);
 
         // compose (schema `merge: compose`): order-sensitive load-order composition — supersedes the
-        // count-based union for tagged arrays (the xml mirror of the runtime). Needs a base array, 2+
+        // count-based union for tagged arrays. Needs a base array, 2+
         // changers, and every changer to COVER the base prefix (shorter = a removal that raw position-
         // alignment can't express); otherwise fall through to the count-based paths below.
         if (compose && !cls.empty() && isArr && changers.size() > 1 && bp && mp && compose(cls, P)) {

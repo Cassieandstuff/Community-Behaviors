@@ -19,7 +19,7 @@
 //
 // This is a RE-EXPORT, not a re-declaration: the types live ONCE in the engine
 // modules; here they are only surfaced under cb:: names. No duplicate declarations,
-// no drift. The whole surface is havok-core-FREE (no typed hkb*/hka*, no legacy).
+// no drift. The whole surface is free of typed hkb*/hka* classes.
 //
 // DELIBERATELY NOT EXPOSED — the Skyrim.hky master regen. It is first-party-only,
 // by design, and this omission IS the enforcement:

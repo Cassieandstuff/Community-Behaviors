@@ -1,6 +1,6 @@
 #include "NemesisSetDataConvert.h"
 
-#include <codec/format/AnimationSetData.h>   // the setdata model now lives in havok-core
+#include <codec/format/AnimationSetData.h>   // the setdata model (CB::engine::animsetdata)
 
 #include <algorithm>
 #include <cctype>
@@ -11,7 +11,7 @@
 #include <unordered_set>
 
 namespace fs = std::filesystem;
-using namespace CB::engine::animsetdata;   // model types (SingleFile/SetFile/… moved to havok-core)
+using namespace CB::engine::animsetdata;   // model types (SingleFile/SetFile/…)
 
 namespace CommunityBehaviors::asd {
 namespace {

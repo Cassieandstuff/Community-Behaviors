@@ -5,7 +5,7 @@ the LOCAL node poses into WORLD transforms (forward kinematics), and scans a loa
 available rigs. The Blender addon (`__init__.py`) imports this and turns the flat world-pose
 list into an armature; everything here is engine-agnostic and unit-testable headlessly.
 
-The `rig.yaml` contract (emitted by `havok-core-cli control-decompile`):
+The `rig.yaml` contract (emitted by a control-decompile step not part of this repo):
   nodes:
     - name: "<node>"
       transform: { translation: [x,y,z], rotation: [x,y,z,w], scale: [x,y,z] }   # LOCAL, or the string `derive`
@@ -196,7 +196,7 @@ def _parse_block(rows, i, parent_indent):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Quaternion / vector math (mirrors havok-core sct::SkeletonMath)
+# Quaternion / vector math (mirrors the engine's src/engine/interface/SkeletonMath.h)
 # quats are [x, y, z, w]; vectors [x, y, z]
 # ─────────────────────────────────────────────────────────────────────────────
 

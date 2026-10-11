@@ -1,7 +1,7 @@
 #include "compile/AnimationCompiler.h"
 
 #include "codec/spline/SplineCompressor.h"     // CB::engine::codec::spline::CompressAnimation (the shared spline codec)
-#include <codec/serialization/packfile/PackFileSerializer.h>    // havok-framing — the ONE serializer (io::SchemaObject)
+#include <codec/serialization/packfile/PackFileSerializer.h>    // the ONE serializer (io::SchemaObject)
 #include <interface/linker/Membrane.h>       // BoneMembrane::resolveTrackRef (the one name<->index codec)
 
 #include <codec/serialization/HavokIo.h>                  // io::SchemaObject

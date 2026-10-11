@@ -1,19 +1,14 @@
 #pragma once
-// havok-io — the generic, schema-driven Havok packfile reader/writer (havok-core v2 rewrite, Stage 2).
+// HavokIo — the generic, schema-driven Havok packfile reader/writer.
 //
-// ONE interpreter replaces the hand-written per-class ClassRead/ClassWrite: a `SchemaObject` (a
-// generic `IHavokObject`) walks its `CB::engine::schema::ClassSchema` field list, driving havok-core's
-// EXISTING packfile framing (sections, fixups, BinaryReaderEx/WriterEx) through the same public
-// primitives the typed classes used. The framing (which object is which class, pointer/array fixups)
-// is layout-independent and salvaged wholesale; only the per-object field walk becomes data-driven.
+// ONE interpreter for every class: a `SchemaObject` (the `IHavokObject` implementation) walks its
+// `CB::engine::schema::ClassSchema` field list, driving the packfile framing (sections, fixups,
+// BinaryReaderEx/WriterEx). The framing (which object is which class, pointer/array fixups) is
+// layout-independent; only the per-object field walk is data-driven.
 //
 // Faithfulness note: fields with no fixup (scalars, inline vec4/quaternion/qstransform, bool arrays,
-// and — critically — `skip`/`pad` regions) are captured as RAW BYTES and written back verbatim. This
-// preserves non-zero SERIALIZE_IGNORED bytes that the typed path's zero-filling `Skip` discarded, so
-// havok-io is strictly MORE byte-faithful than the old serde (it is expected to CLOSE Tier-A gaps).
-//
-// Single public header (monorepo rule): consumers write  #include <codec/serialization/HavokIo.h>  and nothing
-// else.
+// and — critically — `skip`/`pad` regions) are captured as RAW BYTES and written back verbatim, so
+// non-zero SERIALIZE_IGNORED bytes survive a round-trip (a zero-filling skip would discard them).
 
 #include <interface/reflection/HavokSchema.h>
 
@@ -56,7 +51,7 @@ public:
 
     const schema::ClassSchema* Schema() const noexcept { return m_schema; }
 
-    // Field access for consumers (havok-model's .hky emit). `Fields()` is the flattened, parent-first
+    // Field access for consumers (the .hky emit). `Fields()` is the flattened, parent-first
     // field list (schema order); `Values()` is the parallel value store (same indices). Populated by
     // Read; also available after construction for a caller that built the graph via Read.
     std::vector<const schema::Field*> Fields() const;
@@ -83,8 +78,8 @@ private:
 std::function<std::shared_ptr<IHavokObject>(const std::string&)>
 MakeSchemaFactory(const schema::SchemaRegistry& reg);
 
-// Read a packfile fully through havok-io (generic path) and write it back. On success `out` holds the
-// re-serialized bytes; a byte-identical `out == in` is the Stage-2 hkx-roundtrip gate. Returns false
+// Read a packfile fully through the schema path and write it back. On success `out` holds the
+// re-serialized bytes; a byte-identical `out == in` is the hkx round-trip check. Returns false
 // with `err` set on any parse/framing/schema error.
 bool RoundtripHkx(const std::vector<std::uint8_t>& in,
                   const schema::SchemaRegistry&    reg,

@@ -1,8 +1,7 @@
-// SkeletonImport — schema-native skeleton.hkx reader. The exact behavioral mirror of havok-core's
-// typed havok::sct reader, rebuilt on havok-io's generic SchemaObject path (MakeSchemaFactory over the
-// shared registry) so it carries no havok-core dependency. Every field is read off a SchemaObject's
+// SkeletonImport — schema-native skeleton.hkx reader on the generic io::SchemaObject path
+// (MakeSchemaFactory over the shared registry). Every field is read off a SchemaObject's
 // tagged FieldValue store (inline structs → .obj, pointers → .obj/.objs, scalars/vec4/qstransform →
-// raw bytes), driven by the Havok/ class descriptors that the hkx-roundtrip gate already proves faithful.
+// raw bytes), driven by the schema/ class descriptors.
 
 #include "decompile/SkeletonImport.h"
 

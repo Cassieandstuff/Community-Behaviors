@@ -18,8 +18,8 @@ using CB::engine::common::IUnitSource;   // the unit backing-store interface liv
 // IUnitSource with NO disk extraction — immune to Windows MAX_PATH and fast (the deep
 // unit tree lives inside the archive, never on the filesystem).
 //
-// Lives beside the loader (not in BR) so the CLI can exercise it and BR gets it by
-// linking havok-core. Backed by vendored miniz; part of the ryml-gated YAML tier.
+// Lives in the engine so the plugin, the converter and hky-tool share it. Backed by vendored
+// miniz; part of the ryml-gated YAML tier.
 class HkyArchive : public std::enable_shared_from_this<HkyArchive> {
 public:
     enum class UnitKind { Behavior, Character, Project, Skeleton };

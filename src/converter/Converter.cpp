@@ -29,8 +29,8 @@
 #include <interface/reflection/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
 #include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
-#include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData (shared with br-nemesis-to-hky)
-#include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis (shared with br-fnis-to-hky)
+#include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData
+#include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis
 #include "BaseMaps.h"                // BuildBaseMaps — where each vanilla graph / character lives
 #include "platform/Platform.h"       // ZipDir — pack the staged master into one Skyrim.hky
 #include <codec/bsa/BsaArchive.h>
@@ -160,11 +160,8 @@ std::string YamlQuoted(const std::string& line, const char* key) {
     return line.substr(q1 + 1, q2 - q1 - 1);
 }
 
-// A graph <g> is available when its tagfile template <g>.xml exists — that XML is the oracle's
-// alignment source and is always required. The vanilla BINARY is now sourced from the shipped
-// Skyrim.hky base (compiled per graph, gated for fidelity in ConvertLoadOrder); a sibling
-// <g>.hkx is OPTIONAL, kept only as the fallback binary for the handful of graphs whose base
-// unit doesn't recompile tagfile-clean (0_master, 1hm_behavior). So the scan keys on .xml alone.
+/// @brief The convertible graphs: one per tagfile template <g>.xml (the oracle's alignment source, always required).
+/// @note The vanilla binary comes from the shipped Skyrim.hky base unit, never a template .hkx — the scan keys on .xml alone.
 std::vector<std::string> ScanGraphs(const fs::path& templatesDir) {
     std::vector<std::string> graphs;
     std::error_code ec;
@@ -1125,8 +1122,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     // FIRST-PERSON: mods patch _1stperson/<graph> against the FIRST-PERSON base — a DIFFERENT graph than
     // the same-named third-person one (e.g. first-person 0_master has 1903 objects, not 2418), with its own
     // canonical #NNNN template under templates/_1stperson/. Dropping these half-wires the FirstPerson
-    // project and universally A-poses (the SkyParkour first-person case). First-person conversion is
-    // schema-only (there is no typed first-person vanilla-binary path).
+    // project and universally A-poses (the SkyParkour first-person case).
     const auto fpGraphs = ScanGraphs(templatesDir / "_1stperson");
     auto fpXmlOf   = [&](const std::string& g) { return (templatesDir / "_1stperson" / (g + ".xml")).string(); };
     auto fpUnitOut = [&](const std::string& bundle, const std::string& g) {
@@ -1241,15 +1237,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 
     // The converter no longer emits its OWN Skyrim.hky base. The full-corpus vanilla master
     // ships with Community Behaviors (Data/Community Behaviors/community_behaviors/plugins/Skyrim.hky, built
-    // by `--build-base`) and is THE one base every mod .hky layers over at runtime. Keeping the
+    // by `--regen-master`) and is THE one base every mod .hky layers over at runtime. Keeping the
     // converter out of the master business means (a) there is exactly ONE canonical Skyrim.hky —
     // a converter-regenerated one could subtly drift from the shipped one (different decompile
     // path, index base), and (b) no two mods write community_behaviors/plugins/Skyrim.hky into the
-    // MO2 VFS (that collision is a known crash). Mod behavior deltas below still diff against the
-    // vanilla TEMPLATES — the same vanilla the master is built from — and the runtime merge is
-    // NAME-based, so each delta binds to the shipped master's identically-named nodes. Only the
+    // MO2 VFS (that collision is a known crash). Mod behavior deltas align on the vanilla
+    // TEMPLATES and derive against the shipped master's own units (their FormIDs). Only the
     // "Skyrim" references in loadorder.txt + the mod manifests remain (they name the base bundle,
-    // which is installed separately with BR).
+    // which is installed separately with Community Behaviors).
     const auto charTemplates = ScanCharacterTemplates(templatesDir);
 
     // 1c) LOOSE character-file replacements — some mods ship a whole character .hkx
@@ -2067,7 +2062,7 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
 
 BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
-                                const std::string& templatesDir, const std::string& keepStagingDir) {
+                                const std::string& keepStagingDir) {
     namespace fs = std::filesystem;
     const auto say = [&](const std::string& s) { if (log) log(s); };
     BaseBuildResult r;
@@ -2075,11 +2070,6 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
     const fs::path meshes(vanillaMeshesDir);
     if (!fs::is_directory(meshes, ec)) { r.error = "vanilla meshes folder not found: " + vanillaMeshesDir; return r; }
-
-    // The shared schema registry (CB::engine::schema::SharedRegistry) must already be armed by the caller
-    // (main.cpp points it at <exe>/Havok before --build-base / --regen-master) so the schema-native
-    // animation round-trip pass can assemble + decompile. If it is not, the anim pass reports the
-    // registry error per file and counts them as failures — it does not abort the corpus walk.
 
     /// @note Stage in a PRIVATE temp root (per process) so the deep unit tree stays under MAX_PATH and nothing else
     ///       can write into it mid-build; only after packing is the unpacked <Name>.hky/ tree copied to
@@ -2303,19 +2293,9 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         " skipped (non-spline / undecodable).");
     phaseDone("units");
 
-    // NOTE: NEITHER singlefile .txt is copied into the master any more — both decompose into their
-    // "<name>.txt/" FOLDER below (the winning architecture), and the anim-data / set-data servers
-    // COMPOSE the base from those folders (byte-exact, gated by havok-core-cli {anim,set}data-tree-
-    // roundtrip). animationsetdatasinglefile.txt/ = index + movesets(authored) + crcs(baked);
-    // animationdatasinglefile.txt/ = index + clips(baked) + motion(authored).
-
-    // Decompose the vanilla animationsetdata into its "animationsetdatasinglefile.txt/" FOLDER —
-    // the same convention a "<name>.hkx" behavior decomposes into a "<name>.hkx/" folder. Three
-    // pieces (see AnimSetDataYaml.h): index.yaml (project order + exact headers), movesets/<stem>.yaml
-    // (AUTHORED gate/equip/attacks), crcs/<stem>.yaml (BAKED path-CRC residue, opaque). The folder IS
-    // the base — the monolithic .txt no longer ships; the set-data server composes it back byte-exact
-    // (gated: havok-core-cli setdata-tree-roundtrip). Flat per-project (keyed by header stem), so NO
-    // actor-root resolution and NO noActor gap — every one of the 49 projects lands.
+    /// @note NEITHER singlefile .txt is copied into the master — both decompose into their "<name>.txt/" FOLDER
+    ///       below and the anim-data / set-data servers compose the cache from it (layouts: AnimSetDataYaml.h,
+    ///       AnimDataYaml.h), flat per-project (keyed by stem).
     say("== editable caches (per-project YAML) ==");
     {
         std::ifstream sf(meshes / "animationsetdatasinglefile.txt", std::ios::binary);
@@ -2324,7 +2304,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             try {
                 auto           parsed  = CB::engine::animsetdata::ParseSingleFile(setText);
                 const fs::path setRoot  = stageHky / "meshes" / "animationsetdatasinglefile.txt";
-                fs::create_directories(setRoot, ec);   // index.yaml (+ setdata/ fallback); sets live in char units
+                fs::create_directories(setRoot, ec);   // index.yaml + setdata/
 
                 // EXTRACT the per-condition animation MEMBERSHIP to authorable paths: build a
                 // (folder,file)CRC -> path index from the datasource meshes, then reverse each set's
@@ -2378,15 +2358,6 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             }
         }
 
-        // Decompose the vanilla animationdata into its "animationdatasinglefile.txt/" FOLDER — the
-        // sibling of the setdata folder above. Three pieces (see AnimDataYaml.h): index.yaml (the
-        // per-project manifest: name + assets + hasAnimData, ALL 429 projects), clips/<stem>.yaml
-        // (BAKED clip generators, until Part-B graph-derivation covers the base), motion/<stem>.yaml
-        // (AUTHORED root motion, keyed by clip name + axis-labeled). The folder IS the base — the
-        // monolithic .txt no longer ships; the anim-data server composes it back byte-exact (gated:
-        // havok-core-cli animdata-tree-roundtrip). Flat per-project (keyed by project-name stem), so
-        // NO actor-root resolution and NO noActor gap — the 380 header-only projects live entirely in
-        // index.yaml, the 49 with anim data also get clips/ + motion/ bodies.
         std::ifstream af(meshes / "animationdatasinglefile.txt", std::ios::binary);
         std::string   animText((std::istreambuf_iterator<char>(af)), std::istreambuf_iterator<char>());
         if (!animText.empty()) {
@@ -2441,7 +2412,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
                 // FULL DERIVE (release item 4): the clips/ + motion/ folders are NO LONGER SHIPPED.
                 // The runtime rebuilds the entire base cache from the graph + the CB-native animation
-                // units (DeriveBaseAnimData): clip generators from the base behaviours, annotation
+                // units (ProjectAnimData): clip generators from the base behaviours, annotation
                 // triggers + duration + root motion from each animation.hkx (AnimationDef). Only
                 // index.yaml (the project manifest + roster refs) rides in the hky; the adsf CACHE is
                 // pure derived output. Motion is carried onto the animations by the reunion below.
@@ -3352,8 +3323,7 @@ bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, con
     return fails == 0;
 }
 
-RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& templatesDir,
-                             const std::string& outHky, bool strict,
+RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& outHky, bool strict,
                              const LogFn& log, const std::atomic<bool>& cancel,
                              const std::string& keepStagingDir) {
     const auto say = [&](const std::string& s) { if (log) log(s); };
@@ -3369,7 +3339,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     // 1) Build the whole bundle to a TEMP file (never touch outHky until it validates). keepStagingDir
     //    (optional) keeps the unpacked <Name>.hky/ tree there for observation — built regardless of the
     //    validation outcome below (you want to inspect it precisely when it DIDN'T validate).
-    r.build = BuildBaseBundle(vanillaMeshesDir, tempHky.string(), log, cancel, templatesDir, keepStagingDir);
+    r.build = BuildBaseBundle(vanillaMeshesDir, tempHky.string(), log, cancel, keepStagingDir);
     if (!r.build.ok) { r.error = "build-base failed: " + r.build.error; fs::remove_all(work, ec); return r; }
 
     /// @note 2) SERVED-BYTES gate: every reflective unit of the fresh bundle (behavior / character / project) must parse

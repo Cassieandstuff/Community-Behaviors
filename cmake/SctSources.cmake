@@ -17,8 +17,7 @@
 #   work-in-progress, or a single header/TU you want to park. Top-level _-dirs
 #   under src/ are additionally just never add_subdirectory'd by the orchestrators.
 #   (Independent of '.'-prefixed paths, which are a git/tooling concern, not a
-#   build one — see .gitignore.) DeployMod.cmake applies the same '_' skip to
-#   shipped Data/ content.
+#   build one — see .gitignore.)
 #
 #   Filtering on the RELATIVE path (not the absolute one GLOB returns) keeps it
 #   robust to a '_' appearing somewhere in the repo's parent directories.

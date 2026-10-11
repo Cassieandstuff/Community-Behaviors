@@ -8,12 +8,12 @@
 #include "Converter.h"
 #include "ui/LoadOrderUI.h"
 
-// The whole tool UI: two persistent folder fields (Data + Zip destination), a Convert
-// button that runs the conversion on a worker thread, and a live scrolling log. Convert
-// always produces Community Behaviors.zip at the destination — the DynDOLOD-style model:
-// convert into a private staging dir next to the exe (auto-cleared so shrinking
-// conversions stay clean), zip that, and let MO2 install-as-replace do the clean
-// overwrite. Templates ship beside the exe and are hardcoded. Drawn every frame.
+// The whole tool UI, drawn every frame: a Converter tab (an MO2 profile -> the pre-conversion
+// LoadOrderPlan arranger, an output folder, and a Convert button that runs on a worker thread),
+// a Load Order tab (LoadOrderUI over the live Data folder) and a Debug tab. With auto-zip on, the
+// conversion goes to a private staging dir next to the exe (cleared each run so shrinking
+// conversions stay clean) and is zipped into the output folder for MO2 install-as-replace;
+// otherwise it writes the tree straight to the output folder. Templates ship beside the exe.
 class ConverterUI {
 public:
     ConverterUI();

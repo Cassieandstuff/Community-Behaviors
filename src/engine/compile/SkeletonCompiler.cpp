@@ -1,9 +1,8 @@
-// SkeletonCompiler — schema-native skeleton .hkx emit. The de-typed port of havok-core's byte-exact
-// sct/SkeletonCompiler: the derivation math (ragdoll skeleton / rigid bodies / constraints / mappers /
-// resource tree) is ported verbatim into lean value structs (no typed hka*/hkp* holders), then emitted
-// straight into an io::SchemaObject graph via the Havok/ class descriptors and serialized. Every field
-// value and constructor-default constant the typed path relied on is reproduced explicitly, so the
-// output stays byte-identical (gated by havok-core-cli skeleton-full-parity / skeleton-parity).
+// SkeletonCompiler — schema-native skeleton .hkx emit, de-typed from a byte-exact typed compiler:
+// the derivation math (ragdoll skeleton / rigid bodies / constraints / mappers / resource tree) lives
+// in lean value structs (no typed hka*/hkp* holders), then is emitted straight into an io::SchemaObject
+// graph via the schema/ class descriptors and serialized. Every field value and constructor-default
+// constant the typed compiler relied on is reproduced explicitly, so the output stays byte-identical.
 
 #include "compile/SkeletonCompiler.h"
 #include "interface/SkeletonMath.h"
@@ -139,7 +138,7 @@ std::vector<DBody> deriveBodies(const SkeletonData& anim, const RagdollTopo& top
     const auto ragWorld = skmath::worldPoses(rag);
 
     // First bone (ANY bone, not necessarily a physics bone) whose nearest physics-ancestor is animIdx —
-    // its local translation is the default capsule's far endpoint (origin → child). Matches havok-core.
+    // its local translation is the default capsule's far endpoint (origin → child).
     const auto firstPhysChild = [&](int animIdx) -> int {
         for (int c = 0; c < static_cast<int>(anim.bones.size()); ++c)
             if (physicsAncestor(anim, c) == animIdx) return c;
@@ -630,7 +629,7 @@ SkeletonCompileResult CompileSkeletonOverBase(const SkeletonData& animBones, con
         CB::engine::codec::PackFileDeserializer des;
         // Do NOT tolerate unregistered here: over-base rebuilds+reserializes the WHOLE graph, so a
         // dropped object is silent data loss. Fail loudly on a class the schema can't represent (e.g.
-        // hkpMoppBvTreeShape) instead — matches the typed CompileSkeletonOverBase.
+        // hkpMoppBvTreeShape) instead.
         des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
         auto root = std::dynamic_pointer_cast<SchemaObject>(des.Deserialize(br));
         if (!root) { r.error = "base is not a valid packfile root"; return r; }

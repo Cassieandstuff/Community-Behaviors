@@ -3,8 +3,8 @@
   <!--
     Forces the process ANSI code page to UTF-8 (Windows 10 1903+), so
     std::filesystem::path::string() stops throwing on non-Latin mod filenames
-    (Cyrillic / CJK / accented) that Skyrim mods routinely ship. Same reason the
-    Scene Editor carries this manifest — the Data-folder scan walks user mods.
+    (Cyrillic / CJK / accented) that Skyrim mods routinely ship — the Data-folder
+    scan walks user mods.
   -->
   <application>
     <windowsSettings>

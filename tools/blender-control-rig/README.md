@@ -4,9 +4,9 @@ Imports a portable **Community Behaviors control rig** straight from a `control/
 Blender as an armature — no Havok binary, no compiled dependency. Scan a load order, pick an
 actor, get the rig.
 
-This is the Blender end of CB's *portable control rigging* pipeline. The C++ side
-(`havok-core-cli control-decompile`) owns the Havok binary boundary and emits `control/rig.yaml`;
-that YAML is the **language-agnostic interchange format**. This addon only reads YAML and builds
+This is the Blender end of CB's *portable control rigging* pipeline. A C++ control-decompile step
+(not part of this repo) owns the Havok binary boundary and emits `control/rig.yaml`; that YAML is
+the **language-agnostic interchange format**. This addon only reads YAML and builds
 bones, so it links nothing and runs in stock Blender.
 
 ## What `rig.yaml` carries
@@ -22,7 +22,7 @@ nodes:
 ```
 
 Transforms are **local to parent**; the addon forward-kinematics-composes them to world space
-(quaternion math mirroring `havok-core sct::SkeletonMath`). A `transform: derive` node has no
+(quaternion math mirroring the engine's `src/engine/interface/SkeletonMath.h`). A `transform: derive` node has no
 recovered pose, so it's placed on its parent (identity local) and tagged, rather than dropped.
 
 ## Install

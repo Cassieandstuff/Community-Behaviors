@@ -1,11 +1,9 @@
 #pragma once
 // AnimDataDeriver — derive an animationdatasinglefile clip list from the behavior graph.
 //
-// This is part (B) of the Skyrim.hky model (see br-runtime-is-the-feature): the
-// animationdata clip metadata is a PROJECTION of the behavior graph's hkbClipGenerator
-// nodes, not independent authored data. Written ONCE here in havok-core so the SAME code
-// runs offline (the animdata-derive-check oracle, byte-gated against vanilla) and at
-// runtime (ServeAnimData builds the served clip list from the compiled graph).
+// The animationdata clip metadata is a PROJECTION of the behavior graph's hkbClipGenerator
+// nodes, not independent authored data; the runtime's anim-data serve builds the served clip
+// list from the compiled graph through this code.
 //
 // Empirically byte-exact against vanilla DefaultMale (study 2026-08-14): 99.1% of triggers
 // reproduced byte-for-byte from graph + carried motion duration; the rest were name-collision

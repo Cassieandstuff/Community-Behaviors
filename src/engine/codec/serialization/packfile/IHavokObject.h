@@ -8,21 +8,9 @@ class PackFileDeserializer;
 class BinaryReaderEx;
 class BinaryWriterEx;
 
-// Base of every object in the Havok model. Faithful port of HKX2E's
-// IHavokObject. `Signature` is the class CRC (metadata, not a serialized field);
-// `ClassName` feeds the packfile class-name table + the registry.
-//
-// Value conventions used by the ported classes (HKX2E -> C++):
-//   - inline struct  (TYPE_STRUCT)        -> member by value
-//   - pointer        (TYPE_POINTER)       -> std::shared_ptr<T>   (T may be incomplete)
-//   - array of pointers                   -> std::vector<std::shared_ptr<T>>
-//   - array of structs                    -> std::vector<T>
-//   - C-style inline array (arrSize > 0)  -> std::array<T, N>
-//   - string         (TYPE_STRINGPTR)     -> std::string
-//   - void-typed SERIALIZE_IGNORED fields -> omitted (serializer emits empty
-//                                            slots positionally; they carry no value)
-//   - typed   SERIALIZE_IGNORED fields    -> kept (they occupy bytes and a value
-//                                            that must survive a round-trip)
+/// @brief The packfile serializer's object interface; its one implementation is the schema-driven io::SchemaObject.
+/// @note `Signature` is the class CRC (metadata, not a serialized field); `ClassName` feeds the packfile
+///       class-name table + the registry.
 class IHavokObject {
 public:
     virtual ~IHavokObject() = default;

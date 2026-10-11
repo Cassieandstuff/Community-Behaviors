@@ -4,7 +4,7 @@
 # SOURCE: $CB_REGEN_SOURCE is a root of per-bundle source folders, each named for the bundle it
 # regenerates (e.g. `Skyrim.hky\`, `XPMSSE.hky\`) and laid out like a game Data folder (meshes\...).
 # Every source runs the SAME regen (BehaviorConverter --regen-master: decompile whatever the source
-# contains, gate graphdata vs its own binaries where templates apply, pack) into <PACKED_DIR>/<Name>.hky.
+# contains, gate every unit's served bytes vs its own binaries, pack) into <PACKED_DIR>/<Name>.hky.
 # A new derived bundle = a new source folder; nothing here is bundle-specific. Unset / not a directory
 # -> regen SKIPPED with a warning and whatever is already deployed stays.
 #
@@ -12,11 +12,10 @@
 #
 # cb_regen_bundles(
 #   CONVERTER_TARGET <target>      # the BehaviorConverter exe target
-#   TEMPLATES        <dir>         # tagfile-template dir (<g>.xml oracle numbering)
 #   PACKED_DIR       <dir>         # where each packed <Name>.hky lands (deployed/consumed)
 #   UNPACKED_DIR     <dir>         # short root where each unpacked <Name>.hky/ tree is KEPT
 #   [STRICT]                       # fail the build on graphdata drift (default: report)
-#   [DEPENDS <files...>]           # extra inputs that should retrigger regen (templates, schema)
+#   [DEPENDS <files...>]           # extra inputs that should retrigger regen
 # )
 # ---------------------------------------------------------------------------
 function(cb_regen_sources out)
@@ -37,7 +36,7 @@ function(cb_regen_sources out)
 endfunction()
 
 function(cb_regen_bundles)
-    cmake_parse_arguments(RB "STRICT" "CONVERTER_TARGET;TEMPLATES;PACKED_DIR;UNPACKED_DIR" "DEPENDS" ${ARGN})
+    cmake_parse_arguments(RB "STRICT" "CONVERTER_TARGET;PACKED_DIR;UNPACKED_DIR" "DEPENDS" ${ARGN})
 
     if(NOT RB_CONVERTER_TARGET OR NOT RB_PACKED_DIR OR NOT RB_UNPACKED_DIR)
         message(FATAL_ERROR "cb_regen_bundles: CONVERTER_TARGET, PACKED_DIR and UNPACKED_DIR are required")
@@ -71,7 +70,7 @@ function(cb_regen_bundles)
         add_custom_command(
             OUTPUT  "${_out}"
             COMMAND "$<TARGET_FILE:${RB_CONVERTER_TARGET}>" --regen-master
-                    "${_meshes}" "${_out}" "${RB_TEMPLATES}"
+                    "${_meshes}" "${_out}"
                     --keep-unpacked "${RB_UNPACKED_DIR}" ${_strict_arg}
             DEPENDS ${RB_CONVERTER_TARGET} ${RB_DEPENDS}
             COMMENT "Regen: ${_name} from ${_src}"

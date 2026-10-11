@@ -3,7 +3,7 @@
 #include <interface/HavokEnums.h>       // enum tables (value<->name), revNum, FormatFlags, ResolveEnum — reused
 #include <common/Xml.h>                // first-party tagfile XML parser (xml::Node / xml::Parse)
 #include <decompile/PandoraCompatShim.h> // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
-#include <interface/BashMerge.h>        // shared merge core (bashMerge / decideParam / changedFields) — lockstep w/ runtime
+#include <interface/BashMerge.h>        // the Nemesis tagfile merge core (bashMerge / decideParam / changedFields)
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
 #include <codec/formid/FormId.h>          // CB::engine::codec::formid — node identity as a FormId "idx:local"
 #include <common/Vec4Text.h>              // CB::engine::common::vec4::parseVec4 (the ONE vec4 text parser)
@@ -263,21 +263,9 @@ const io::FieldValue* fieldByName(const io::SchemaObject& so, const std::string&
 // ── typed field getters over a SchemaObject ───────────────────────────────────
 long  fInt  (const io::SchemaObject& so, const char* n) { const Field* f=nullptr; auto* v=fieldByName(so,n,&f); return (v&&f)?static_cast<long>(decodeInt(v->raw,f->scalar)):0; }  // fInt stays long (small fields); explicit cast, no #6 truncation concern
 std::string fStr(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v?v->str:std::string(); }
-// id of a referenced node (or "" if null / not identified). In refsAsNames mode (diff only) a named
-// target renders as `Class:name` — the stable cross-compile identity — with the numeric id as the
-// fallback for an unnamed target. Production emits (refsAsNames=false) render the canonical #NNNN.
+/// @return The referenced node's canonical id, or "" if null / not identified.
 std::string refIdOf(const std::shared_ptr<IHavokObject>& p, const Identity& id) {
     if (!p) return {};
-    if (id.refsAsNames) {
-        if (const auto* so = dynamic_cast<const io::SchemaObject*>(p.get())) {
-            const io::FieldValue* nf = fieldByName(*so, "name");
-            if (nf && !nf->str.empty()) return std::string(so->ClassName()) + ":" + nf->str;
-            // Unnamed target: use a secondary identity that is stable across compiles. A clip has no
-            // name but its animationName is unique+stable, so a ref to an unnamed clip still aligns.
-            if (const io::FieldValue* an = fieldByName(*so, "animationName"); an && !an->str.empty())
-                return std::string(so->ClassName()) + ":@" + an->str;
-        }
-    }
     auto it = id.ids.find(p.get());
     return it == id.ids.end() ? std::string() : it->second;
 }
@@ -1004,10 +992,6 @@ std::vector<std::uint8_t> encFloat(float f) {
 float parseF(const std::string& t) { return std::strtof(t.c_str(), nullptr); }
 std::int64_t parseL(const std::string& t) { return std::strtoll(t.c_str(), nullptr, 0); }   // 0 base: dec/0xHEX; int64 (#6)
 
-// A vec4/quaternion field's text -> 16 raw bytes (4 floats), via the shared membrane parser
-// (CB::engine::common::vec4::parseVec4) — the ONE vec4 text codec, also used by havok-core BehaviorBuilder::pv4.
-// It accepts both the decompiler's "(x y z w)" and the bare/multi-line float form, so BR-28 (a bare
-// axisOfRotation reading as 0 0 0 0) can't recur and the two paths can't diverge (B4 collapsed).
 std::vector<std::uint8_t> parseVec4Raw(const std::string& t) {
     const auto q = CB::engine::common::vec4::parseVec4(t);
     std::vector<std::uint8_t> r(16); std::memcpy(r.data(), q.data(), 16); return r;
@@ -1024,23 +1008,18 @@ long parseFlagsText(const std::string& text, const std::unordered_map<std::strin
     return en::ResolveEnum(t, table);
 }
 
-// The enum table a scalar field renders through (schema `enum:` -> enumTable), else the tagfile-only
-// overrides tfBody applies (variable-info type, role-attribute role). Mirrors tfBody's dispatch exactly.
+/// @brief The enum table a scalar field's tagfile text parses through: the schema `enum:`, else the overrides for
+///        fields the schema keeps as plain ints (hkbVariableInfo::type, hkbRoleAttribute::role/flags).
 const std::unordered_map<std::string, long>* scalarEnumTable(const std::string& cls, const Field& f, bool& isFlags) {
     isFlags = f.isFlags;
     if (!f.enumName.empty()) return enumTable(f.enumName);
     if (cls == "hkbVariableInfo"  && f.name == "type") return &en::VariableType();
     if (cls == "hkbRoleAttribute" && f.name == "role") return &en::Role();
     if (cls == "hkbRoleAttribute" && f.name == "flags") { isFlags = true; return &en::RoleFlags(); }
-    // hkbExpressionData::eventMode is an ExpressionEventMode enum stored as a plain int8 in the schema
-    // (kept out of the schema `enum:` to not perturb the class signature CRC). The tagfile authors it as
-    // an enum NAME (e.g. EVENT_MODE_SEND_ON_TRUE); without this the name falls to parseL -> 0 (SEND_ONCE),
-    // silently dropping BFCO's authored per-expression modes (AttackWinStart etc.).
-    if (cls == "hkbExpressionData" && f.name == "eventMode") return &en::ExpressionEventMode();
     return nullptr;
 }
 
-// One scalar field's tagfile text -> raw bytes (inverse of renderScalar + tfBody's enum overrides).
+// One scalar field's tagfile text -> raw bytes (inverse of renderScalar + scalarEnumTable's enum overrides).
 std::vector<std::uint8_t> parseScalarRaw(const std::string& cls, const Field& f, const std::string& text,
                                          const SymTab* syms, std::string& err) {
     if (f.scalar == Scalar::Float) return encFloat(parseF(text));
@@ -1317,8 +1296,8 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // layer records whether it is a delta and, for a delta, the fields it ACTUALLY changed (its MOD_CODE
     // delta, via the shared changedFields). The merge is NO LONGER a field-wise last-writer overlay —
     // every id's layers go through the SHARED CB::engine::merge::bashMerge, so an array field edited by 2+
-    // mods (variableNames/eventNames rosters, clip triggers, state/transition lists) is UNIONED exactly
-    // as the runtime YAML loader does. Field-wise last-writer here silently dropped all-but-the-last
+    // mods (variableNames/eventNames rosters, clip triggers, state/transition lists) is UNIONED.
+    // Field-wise last-writer here silently dropped all-but-the-last
     // mod's array additions — the TDM_Pitch A-pose when one mod's several Nemesis codes are merged into
     // one bundle. New-node ids (#code$N) live in the same map as base #NNNN, so refs resolve either way.
     struct Layer { const CB::engine::common::xml::Node* node; bool isDelta; const std::unordered_set<std::string>* changed;
@@ -1410,8 +1389,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
         }
         std::vector<const CB::engine::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
         for (const auto& p : pls) ptrs.push_back(&p);
-        // compose predicate: read the field's `merge:` tag from the SAME SchemaRegistry the runtime
-        // merge reads (SchemaRegistry::MergeTag) — so converter and runtime compose identically.
+        /// @note Only this tagfile merge reads `compose`; the runtime's reflective merge (MergeLayersReflective -> patchField) reads only `union`.
         auto composePred = [&reg](const std::string& c, const std::string& f) {
             return reg.MergeTag(c, f) == "compose";
         };

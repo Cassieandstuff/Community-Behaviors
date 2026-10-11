@@ -7,13 +7,9 @@
 
 // NemesisSetDataConvert — convert legacy Nemesis patch-form animationsetdata (plus the
 // hkbCharacterStringData animation roster) from one or more mod dirs into a clean
-// split-form .hky bundle, merging across mods in load order (later wins). This is the
-// offline set-data half of the Community Behaviors pipeline, shared by two front-ends so the
-// two can never drift:
-//   • br-nemesis-to-hky        — CLI, merges many mods into one bundle
-//   • SCT Behavior Converter    — GUI, per-mod (pass a single modDir -> that <code>.hky)
-// Depends only on AnimationSetData (pure std) + std::filesystem — no SKSE/PCH — so it
-// links into the standalone GUI tool unchanged.
+// split-form .hky bundle, merging across mods in load order (later wins). The offline
+// set-data half of the converter (ConvertLoadOrder merges every owning code's set-data dir
+// in one call). Depends only on AnimationSetData (pure std) + std::filesystem — no SKSE/PCH.
 namespace CommunityBehaviors::asd {
 
 struct NemesisConvertStats {
