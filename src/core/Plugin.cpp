@@ -108,7 +108,7 @@ namespace CB {
     }
 
     // Schema compiler toggle (settings.ini, [Compiler] bUseSchema / sSchemaDir). DEFAULT ON. The class
-    // schema ships with CB (Data/Community Behaviors/schema, staged by CMake); sSchemaDir overrides,
+    // schema ships with CB (Data/community_behaviors/schema, staged by CMake); sSchemaDir overrides,
     // then env SCT_HAVOK_SCHEMA_DIR, then that shipped default. bUseSchema=false is the kill switch.
     static void ApplySchemaCompilerSetting()
     {
@@ -121,7 +121,7 @@ namespace CB {
             dir     = ini.GetValue("Compiler", "sSchemaDir", "");
         }
         if (dir.empty() && std::getenv("SCT_HAVOK_SCHEMA_DIR") == nullptr)
-            dir = "Data/Community Behaviors/schema";   // CB-shipped schema tree (MO2 VFS-merged path)
+            dir = "Data/community_behaviors/schema";   // CB-shipped schema tree (MO2 VFS-merged path)
 
         // Schema-only compiler (firesale — the typed BehaviorBuilder fallback is retired). Arm the shared
         // registry dir. bUseSchema=false leaves

@@ -59,7 +59,7 @@ common/                      what features build against; common/ is their inclu
 schema/                      the class schema as DATA, flat — vanilla hk*, Bethesda BS*, CB* custom classes side
                              by side, told apart by prefix; metadata/ holds enums, merge semantics, debug probes
                              and the adsf/asdsf descriptors. templates/ = the converter's Nemesis-ingest XML
-                             oracles. Deployed: plugin → Data/Community Behaviors/schema (no templates/),
+                             oracles. Deployed: plugin → Data/community_behaviors/schema (no templates/),
                              converter → <exe>/schema.
 tools/                       dev-only, never shipped: hky-tool, cbdiff, x64dbg-autoattach, blender-control-rig
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
@@ -119,7 +119,7 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 - `VCPKG_ROOT` — vcpkg clone (toolchain, via the preset). Required.
 - CommonLibSSE-NG is a **git submodule** at `lib/commonlibsse-ng` (alandtse fork, `ng` branch, full SE+AE+VR). No env var — `git submodule update --init --recursive` after clone.
 - `SKYRIM_MODS_FOLDER` — MO2 mods folder; `cb_deploy` ships the mod there (`<mod>/SKSE/Plugins`,
-  `<mod>/Community Behaviors/schema`, `<mod>/community_behaviors/plugins/*.hky` bundles).
+  `<mod>/community_behaviors/schema`, `<mod>/community_behaviors/plugins/*.hky` bundles).
 - `SKYRIM_TOOLS_FOLDER` — the converter deploys `BehaviorConverter.exe` (+ schema/, templates inside) here.
 - `CB_REGEN_SOURCE` — root of the derived-bundle regen sources (e.g. `D:\CB Regen Source`): one folder per
   bundle, NAMED for it (`Skyrim.hky\`, `XPMSSE.hky\`), laid out like a Data folder (`meshes\...`). Each one
