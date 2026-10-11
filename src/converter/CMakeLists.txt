@@ -48,12 +48,10 @@ endif()
 # ── Ship schema/ next to the exe ─────────────────────────────────────────────────
 # The converter reads the class schema from <exe>/schema and its Nemesis-ingest templates from
 # <exe>/schema/templates (the <g>.xml tagfiles each Nemesis patch is converted against). Data only —
-# no sources ship.
-set(BCONV_SCHEMA    "${CMAKE_SOURCE_DIR}/schema")
-add_custom_command(TARGET behavior-converter POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_SCHEMA}" "$<TARGET_FILE_DIR:behavior-converter>/schema"
-    COMMENT "Behavior Converter: staging schema/ beside the exe"
-    VERBATIM)
+# no sources ship. Staged with its generated stamp via cb_stage_schema (cmake/Schema.cmake).
+cb_stage_schema(TARGET behavior-converter
+    DEST    "$<TARGET_FILE_DIR:behavior-converter>/schema"
+    COMMENT "Behavior Converter: staging schema/ beside the exe")
 
 # Optional tools-folder deploy (MO2-launchable), same convention as the plugin deploy. The schema is
 # clear-then-copy; the pre-restructure templates/ + Havok/ siblings are cleared too (no longer read).
@@ -62,10 +60,12 @@ if(DEFINED ENV{SKYRIM_TOOLS_FOLDER})
     add_custom_command(TARGET behavior-converter POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_tools}"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:behavior-converter>" "${_tools}/"
-        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_tools}/schema" "${_tools}/templates" "${_tools}/Havok"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_SCHEMA}" "${_tools}/schema"
         COMMENT "Behavior Converter: deploy -> ${_tools}"
         VERBATIM)
+    cb_stage_schema(TARGET behavior-converter
+        DEST    "${_tools}/schema"
+        CLEAN   "${_tools}/templates" "${_tools}/Havok"
+        COMMENT "Behavior Converter: schema -> ${_tools}/schema (clean)")
 endif()
 
 # ── Derived-bundle regeneration (CB_REGEN_SOURCE) ───────────────────────────────

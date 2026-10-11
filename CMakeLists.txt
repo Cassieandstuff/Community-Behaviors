@@ -44,6 +44,21 @@ endif()
 
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
+# ── Schema contract version — the ONE source ─────────────────────────────────────
+# The identity of the schema/ class-layout + merge-policy contract. Generates both the SCHEMA.yaml stamp every
+# shipped tree carries (cmake/Schema.cmake) and the version the engine expects (SchemaVersion.gen.h); it is
+# written nowhere else. Independent of the plugin VERSION above. ONE tree = ONE version — no per-class versions.
+#
+# Bump rules (SemVer over WIRE + MERGE compatibility):
+#   MAJOR - makes old output wrong: field reorder, size:/type/signature: change, field removal, a merge:
+#           strategy rename or semantic change.  (old bytes mis-parse)
+#   MINOR - additive & back-compatible: a new class, a new optional field key.
+#   PATCH - no wire effect: comments, file moves, a rendering-only hint.
+# Candidate-frozen, not frozen: burn -rc.N as the last classes settle, then cut 1.0.0. While either side is
+# a prerelease the gate is exact-match-or-refuse (CheckSchemaCompat).
+set(CB_SCHEMA_VERSION "1.0.0-rc.2")
+include(Schema)   # the SCHEMA.yaml stamp + cb_stage_schema() / cb_install_schema()
+
 # ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
 # src/engine is CB's shared reflection engine (one `engine` target). cb::CB-API (<CB-API.h>) is the curated
 # public contract a consumer links; it PUBLIC-pulls the engine, so linking it is all a consumer needs.
@@ -65,10 +80,10 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/" DESTINATION include 
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
 # The class schema (schema/) is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
-# ground truth for class layout + per-field `merge:` policy + the schema_version stamp. Without it a
+# ground truth for class layout + per-field `merge:` policy, plus the generated SCHEMA.yaml stamp. Without it a
 # consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the
 # package config and expose its location as CB_API_SCHEMA_DIR (see cb-api-config.cmake.in).
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/schema/" DESTINATION share/cb-api/schema PATTERN templates EXCLUDE)
+cb_install_schema(DESTINATION share/cb-api/schema EXCLUDE templates)
 install(EXPORT cb-api-targets
         NAMESPACE cb::
         FILE      cb-api-targets.cmake
@@ -204,7 +219,7 @@ set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
 # Deploy: DLL + the class schema + the packed bundles (merge, preserving Skyrim.hky). The plugin never
 # reads the converter's Nemesis-ingest templates, so schema/templates stays out of the mod.
 cb_deploy(CommunityBehaviors "Community Behaviors"
-    SCHEMA_DIR     "${CMAKE_SOURCE_DIR}/schema"
+    SCHEMA
     SCHEMA_EXCLUDE templates
     HKY_STAGE      "${CB_HKY_STAGE}")
 

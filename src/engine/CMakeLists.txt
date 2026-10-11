@@ -34,6 +34,12 @@ add_custom_command(
     COMMENT "Generating enum tables from schema/metadata/enums/*.yaml"
     VERBATIM)
 
+# The schema version this build speaks (CB_SCHEMA_VERSION, root CMakeLists.txt) baked in for the SharedRegistry
+# gate — the same value cmake/Schema.cmake stamps into every shipped tree's SCHEMA.yaml.
+set(_gen_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file("${PROJECT_SOURCE_DIR}/cmake/SchemaVersion.gen.h.in"
+               "${_gen_dir}/interface/reflection/SchemaVersion.gen.h" @ONLY)
+
 # Vendored miniz (amalgamated C, MIT) backs HkyArchive; compiled here with warnings off.
 set(_miniz_c "${CMAKE_CURRENT_SOURCE_DIR}/common/miniz.c")
 set_source_files_properties("${_miniz_c}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
@@ -45,7 +51,8 @@ add_library(engine STATIC ${CB_ENGINE_SOURCES} "${_gen_enums}" "${_miniz_c}")
 target_include_directories(engine
     PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/interface/reflection/external>   # bare <RymlInclude.h>
-            $<INSTALL_INTERFACE:include>)
+            $<INSTALL_INTERFACE:include>
+    PRIVATE $<BUILD_INTERFACE:${_gen_dir}>)   # <interface/reflection/SchemaVersion.gen.h>, engine-internal
 
 find_package(ryml CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED GLOBAL)

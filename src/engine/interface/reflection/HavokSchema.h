@@ -122,11 +122,10 @@ struct EnumDef {
 // Serialized byte width of a scalar (SSE 64-bit).
 int ScalarWidth(Scalar s);
 
-// ── Schema version — the editor <-> compiler contract stamp ──────────────────────────────────────
-// The ONE identity of the Havok/ class-layout + merge-policy contract (Havok/SCHEMA.yaml carries a
-// single `schema_version:`). A produced .hky echoes it into its manifest; the compiler gates ingest
-// on it. SemVer over WIRE + MERGE compatibility, with an optional `-rc.N` prerelease. See the
-// schema-version-stamp scheme for the full rationale.
+/// @brief The ONE identity of the schema/ class-layout + merge-policy contract: SemVer over WIRE + MERGE
+///        compatibility, with an optional `-rc.N` prerelease.
+/// @note Single source is CB_SCHEMA_VERSION (root CMakeLists.txt, which also holds the bump rules); it is
+///       generated into each shipped tree's SCHEMA.yaml stamp and into kSchemaVersion (SchemaVersion.gen.h).
 struct SchemaVersion {
     int         major = 0;
     int         minor = 0;
@@ -196,9 +195,8 @@ public:
     // Empty until LoadDir has run over a tree that carries an enums/ folder.
     const EnumDef* FindEnum(const std::string& name) const;
 
-    // The raw `schema_version:` string LoadDir read from Havok/SCHEMA.yaml (empty when the tree
-    // carried no stamp — a legacy/unversioned tree). This is what THIS load of the tree speaks:
-    // the compiler's "current" version for the ingest gate. Parse it with SchemaVersion::Parse.
+    /// @brief The raw `schema_version:` LoadDir read from the tree's SCHEMA.yaml stamp; empty when the tree
+    ///        carried none (the unstamped source schema/). SharedRegistry() gates it against kSchemaVersion.
     const std::string& SchemaVersionString() const { return m_schemaVersion; }
 
     // Whether a SCHEMA.yaml stamp FILE was seen at all during LoadDir, regardless of whether a
@@ -236,7 +234,7 @@ private:
     std::map<std::string, ClassSchema> m_byName;
     std::unordered_map<const ClassSchema*, FieldLayout> m_layouts;   ///< see Layout()
     std::map<std::string, EnumDef>     m_enums;               // enums/*.yaml, keyed by enum type name
-    std::string                        m_schemaVersion;      // Havok/SCHEMA.yaml `schema_version:` (raw)
+    std::string                        m_schemaVersion;      // SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen
 };
 
