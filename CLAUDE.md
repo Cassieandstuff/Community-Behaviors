@@ -37,11 +37,13 @@ src/                         CB's code. src/ is the plugin's private include roo
                              so bare "PCH.h"/"PluginLogger.h" resolve
     discover/                find + read the .hky bundles (BundleReader, BundleManifest, ServeKey)
     resolve/                 load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
-                             GraphClipSink, Watermark). Compile itself is delegated to the engine.
-    serve/                   deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer,
-                             SkinnedMesh)
-    bootstrap/               startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud)
-    debug/                   opt-in diagnostics/probes (AnimDataProbe, SyncClipProbe, DebugOverlay, DebugFlags)
+                             GraphClipSink, MotionRecordSink, Watermark). Compile itself is delegated to the engine.
+    serve/                   deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer);
+                             conditions/ = the opt-in condition sensors on the setdata matcher
+    bootstrap/               startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud);
+                             sequencer/ = the warm-up ThreadPool
+    debug/                   opt-in diagnostics (DebugFlags — the flag registry the converter's Debug tab
+                             renders; DebugOverlay; RuntimeTrace — the per-frame graph-variable watch)
     hooks/                   the engine symbol registry (registry/engine.yaml → per-runtime Address Library
                              pins) + the shared hook-point layer features subscribe to (<core/hooks/hookslib.h>)
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
@@ -55,7 +57,7 @@ src/                         CB's code. src/ is the plugin's private include roo
                              platform/ = native dialogs, known folders, zip
 common/                      what features build against; common/ is their include root:
   feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::)
-  config/                    <config/Config.h> — the config scanner (JSON/YAML/INI, CB::config::)
+  config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
 schema/                      the class schema as DATA, flat — vanilla hk*, Bethesda BS*, CB* custom classes side
                              by side, told apart by prefix; metadata/ holds enums, merge semantics, debug probes
                              and the adsf/asdsf descriptors. templates/ = the converter's Nemesis-ingest XML
