@@ -16,10 +16,6 @@ namespace CB::core::serve {
     struct ServeResult {
         bool                  attempted = false;
         bool                  ok = false;          ///< projected + wrote the file
-        std::size_t           bundles = 0;         ///< bundles read (master + mods)
-        std::size_t           baseProjects = 0;
-        std::size_t           mergedProjects = 0;
-        animdata::MergeStats  stats;
         std::string           cachePath;
         std::string           error;               ///< set iff ok == false and attempted == true
     };

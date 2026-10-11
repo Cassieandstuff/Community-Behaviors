@@ -35,16 +35,6 @@ namespace CB::feature {
         virtual ~IFeatureLog() = default;
     };
 
-    // The character animationNames roster for the actor the current graph belongs to — the currency
-    // both clip legs share (animIndex = roster.indexOf(animationName)). A feature that binds clips to
-    // roster indices (Animation Relay's clip-index-binding) queries it; IndexOf returns -1 for a name
-    // not in the roster. Read-only, name-keyed — the host owns the merged roster.
-    struct IRosterService {
-        virtual int         IndexOf(std::string_view animationName) const = 0;
-        virtual std::size_t Size() const = 0;
-        virtual ~IRosterService() = default;
-    };
-
     // The CONTRIBUTION hook for animationdata: a feature that ADDS animations (a DeriveClipInput that
     // doesn't correspond to a graph clip the compiler already sees) pushes it here, into the same sink
     // the host's FIRST-CLASS adsf-derive stage fills from each graph's own hkbClipGenerators. Deriving
@@ -81,7 +71,6 @@ namespace CB::feature {
     struct FeatureContext {
         std::string_view      graphKey;              // the graph currently being compiled (serve key)
         IFeatureLog&          log;
-        const IRosterService* roster   = nullptr;    // the actor's merged animationNames roster, or null
         IAnimDataSink*        animData = nullptr;    // where a derive feature pushes clips, or null
         const ISymbolDecls*   symbols  = nullptr;    // BDI declarations, or null
     };

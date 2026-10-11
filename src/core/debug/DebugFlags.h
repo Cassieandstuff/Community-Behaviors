@@ -48,10 +48,6 @@ namespace CB::core::debug {
           "adsf-derive (first-class stage)",
           "Derive animationdata straight off the compiled graph via the first-class adsf-derive compile "
           "stage — a path parallel to the proven collated merge (validation-only until it drives the emit)." },
-        { "adsf_roster_from_scan", FlagKind::IniBool, "Compiler", "bAdsfRosterFromScan", false,
-          "adsf roster from scan",
-          "Source the adsf per-project asset roster (the paths func3 enumerates) from the hky scan "
-          "instead of an authored index.yaml. Additive/union onto the canonically-cased base." },
         { "er_gate", FlagKind::IniBool, "ERGate", "bEnable", false,
           "Engine Relay wildcard gate",
           "Inject BR_ERWildcardLock and gate every global wildcard on it (for Engine Relay to flip "

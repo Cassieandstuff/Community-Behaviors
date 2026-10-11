@@ -23,8 +23,8 @@ namespace CB::core::hooks {
 
 /// @brief How a hook point attaches to the engine.
 /// @note Entry = MinHook on a function entry (every caller); Call = write_call on ONE call instruction (that
-///       caller only); VFunc = swap one vtable slot (every virtual dispatch through that vtable).
-enum class Seam : std::uint8_t { Entry, Call, VFunc };
+///       caller only).
+enum class Seam : std::uint8_t { Entry, Call };
 
 /// @brief Subscriber order. Lower runs first and is OUTERMOST: it sees the call before later subscribers and
 ///        their result after them.
@@ -54,8 +54,8 @@ namespace detail {
 template <class Self, class Sig>
 class HookPoint;
 
-/// @brief CRTP base for one engine seam. `Self` supplies `name`, `seam`, and either `symbol` (an engine
-///        registry Symbol, for Entry/Call) or `vtable` + `slot` (a CommonLib RE::VTABLE_* id, for VFunc).
+/// @brief CRTP base for one engine seam. `Self` supplies `name`, `seam`, and `symbol` (an engine
+///        registry Symbol).
 /// @note Member functions are declared as free signatures with the object as the first parameter (x64 has a
 ///       single calling convention, so a `this` call and a free call with `this` first are identical).
 template <class Self, class R, class... A>
@@ -117,28 +117,24 @@ private:
                          [](const Sub& l, const Sub& r) { return l.prio < r.prio; });
         using Original = R (*)(A...);
 
-        if constexpr (Self::seam == Seam::VFunc) {
-            s_original = reinterpret_cast<Original>(InstallVFunc(Self::vtable, Self::slot, &Detour, Self::name));
+        if (!engine::Available(Self::symbol)) {
+            LOG_WARN("hooks: {} — {} has no verified pin on this runtime", Self::name, Self::symbol.name);
+            return false;
+        }
+        const std::uintptr_t at = engine::Resolve(Self::symbol);
+        if constexpr (Self::seam == Seam::Call) {
+            static_assert(Self::symbol.kind == engine::Kind::Call, "a Call seam needs a `call` registry symbol");
+            s_original = reinterpret_cast<Original>(InstallCallDetour<5>(at, &Detour, Self::name));
         } else {
-            if (!engine::Available(Self::symbol)) {
-                LOG_WARN("hooks: {} — {} has no verified pin on this runtime", Self::name, Self::symbol.name);
+            static_assert(Self::symbol.kind == engine::Kind::Func, "an Entry seam needs a `func` registry symbol");
+            void* original = nullptr;
+            if (MH_CreateHook(reinterpret_cast<void*>(at), reinterpret_cast<void*>(&Detour), &original) != MH_OK ||
+                MH_EnableHook(reinterpret_cast<void*>(at)) != MH_OK) {
+                LOG_WARN("hooks: {} — MinHook failed at 0x{:X}", Self::name, at);
                 return false;
             }
-            const std::uintptr_t at = engine::Resolve(Self::symbol);
-            if constexpr (Self::seam == Seam::Call) {
-                static_assert(Self::symbol.kind == engine::Kind::Call, "a Call seam needs a `call` registry symbol");
-                s_original = reinterpret_cast<Original>(InstallCallDetour<5>(at, &Detour, Self::name));
-            } else {
-                static_assert(Self::symbol.kind == engine::Kind::Func, "an Entry seam needs a `func` registry symbol");
-                void* original = nullptr;
-                if (MH_CreateHook(reinterpret_cast<void*>(at), reinterpret_cast<void*>(&Detour), &original) != MH_OK ||
-                    MH_EnableHook(reinterpret_cast<void*>(at)) != MH_OK) {
-                    LOG_WARN("hooks: {} — MinHook failed at 0x{:X}", Self::name, at);
-                    return false;
-                }
-                s_original = reinterpret_cast<Original>(original);
-                LOG_INFO("hook: entry detour installed at 0x{:X} ({})", at, Self::name);
-            }
+            s_original = reinterpret_cast<Original>(original);
+            LOG_INFO("hook: entry detour installed at 0x{:X} ({})", at, Self::name);
         }
         return s_original != nullptr;
     }

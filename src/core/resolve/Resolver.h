@@ -233,12 +233,6 @@ namespace CB {
         /// @brief Every served behavior graph (its parent folder is a `behaviors…` folder).
         std::vector<std::string> BehaviorUnitKeys() const;
 
-        // Root-motion the animation compile produced (WriteNativeAnimations emits each native `.hkx`
-        // unit's inline motion here). The adsf finalizer drains this instead of re-reading the YAML, so
-        // the compiler is the single motion producer. Populated during the native-anim compile (which may
-        // run in parallel — the sink is mutex-guarded); read after it completes.
-        const MotionRecordSink& MotionSink() const { return m_motionSink; }
-
         // Finalize the animationdata cache from the COMPILED results (opt-in; requires the adsf-derive
         // feature). Marries the per-graph clips the feature pushed into m_clipSink with the per-character
         // MERGED rosters captured during CompileAll, and writes the collated animationdatasinglefile.txt
@@ -247,41 +241,6 @@ namespace CB {
         // the un-derivable half (root motion + project headers). Call AFTER CompileAll. Returns true iff
         // it wrote the file; a no-op returning false when the feature is off or the master is unreadable.
         bool DeriveAnimData(const std::filesystem::path& dataDir);
-
-        // Registered animations for an actor (key like "actors/character"; any case or
-        // separators). Each value is a path relative to the actor dir, in animationNames
-        // form ("animations\community_behaviors\...\x.hkx"). Empty if none. Lock-free —
-        // m_actorAnimations is immutable after Init(). Feeds the in-memory character
-        // animation append (authors drop .hkx under <actor>\animations\community_behaviors\;
-        // no FNIS/Nemesis registration needed).
-        const std::vector<std::string>& AnimationsForActor(std::string_view actorRoot) const;
-
-        // Registered animations for the character whose actor-RELATIVE main behavior file
-        // is behaviorFilename (e.g. "Behaviors\\0_Master.hkx" — a character carries no
-        // actor prefix). Resolves the actor by finding the animation-owning actor whose
-        // served behavior set contains that file. Empty if none. Lock-free.
-        const std::vector<std::string>& AnimationsForCharacter(std::string_view behaviorFilename) const;
-
-        std::size_t AnimationActorCount() const { return m_actorAnimations.size(); }
-
-        // Character-roster additions ingested from bundles (Data\community_behaviors\plugins\
-        // <Mod>.hky\animationnames\<character>.txt — one animation name per line, produced by
-        // br-nemesis-to-hky from a mod's hkbCharacterStringData patches). Keyed by character
-        // name (case-insensitive; matches hkbCharacterStringData::name, e.g. "DefaultMale").
-        // The character injector dedup-appends these to the character's animationNames so a
-        // mod's set-data crcs resolve against a roster that actually lists those anims — the
-        // consistency the standalone set-data serve was missing. Lock-free (immutable after
-        // Init). Empty if none.
-        const std::vector<std::string>& AnimationNamesForCharacter(std::string_view characterName) const;
-
-        std::size_t CharacterAnimNameCount() const { return m_characterAnimNames.size(); }
-
-        // Parsed manifest for a bundle by its load-order stem (case-insensitive, e.g.
-        // "bfco"), or nullptr if that bundle was never scanned. Immutable after Init();
-        // a bundle with no manifest.json still has a defaulted record here (present=false).
-        const BundleManifest* ManifestFor(std::string_view bundleStem) const;
-
-        std::size_t ManifestCount() const { return m_manifests.size(); }
 
     private:
         /// @brief The bone table a graph / animation binds, found through the characters that run it.
@@ -323,7 +282,7 @@ namespace CB {
         ///        and whether the base is a character (ResolveCharacter) vs a behavior graph. Each source is a disk
         ///        dir (DiskUnitSource) or a packed .hky subtree (ZipUnitSource), transparently.
         struct GraphSources {
-            // Each layer carries its load-order identity ({stem, rank, ancestors}) so the merge can key
+            // Each layer carries its load-order identity ({stem, masterTable}) so the merge can key
             // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
             std::vector<CB::engine::common::LayerSource> layers;
             bool isCharacter = false;
@@ -334,13 +293,6 @@ namespace CB {
         // (into m_sources) that reference back into it, so it must outlive them. Empty
         // when every bundle is an unpacked directory. Immutable after Init().
         std::vector<std::shared_ptr<CB::engine::codec::HkyArchive>> m_archives;
-        // actor root ("actors/character") -> animation paths relative to the actor dir
-        // ("animations\community_behaviors\...\x.hkx"), registered via the opt-in
-        // animations\community_behaviors\ subfolder. Immutable after Init().
-        // NOTE: DEAD since the runtime roster injector was retired (bc4e489a) — the served
-        // compiled character file now carries the merged roster. Kept until a resolver
-        // dead-code pass prunes these feeders + their scan in Init().
-        std::unordered_map<std::string, std::vector<std::string>> m_actorAnimations;
         // character-file stem (lowercase, e.g. "defaultmale") -> animationNames additions,
         // ingested from bundles' animationnames\<stem>.txt. The AUTHOR-FACING roster drop:
         // folded into the character's compiled animationNames at Resolve() (deduped). The
@@ -414,7 +366,7 @@ namespace CB {
         // the finalizer consumes it.
         bool          m_adsfDerive = false;
         GraphClipSink m_clipSink;
-        // Root-motion the native-anim compile produced (see MotionSink). `mutable`: WriteNativeAnimations
+        // Root-motion the native-anim compile produced. `mutable`: WriteNativeAnimations
         // is const (it writes only files + this compile-scratch accumulator, not logical resolver state),
         // and it may fan the emit across worker threads — the sink guards itself.
         mutable MotionRecordSink m_motionSink;

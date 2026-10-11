@@ -16,7 +16,7 @@
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
-#include <codec/format/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
+#include <codec/format/AnimDataYaml.h>         // ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
 #include <compile/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
 #include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
@@ -155,13 +155,9 @@ namespace CB {
         struct LoadPlan {
             std::unordered_map<std::string, int> rank;     // stem -> base-first position (lower = base)
             std::unordered_set<std::string>      dropped;  // stems excluded (missing explicit master)
-            // stem -> its transitive masters (all ancestors in the DAG, incl. implicit skyrim).
-            // Lets the conflict report tell an expected OVERRIDE (a bundle editing a node its
-            // master introduced) from a namespace CLASH (two unrelated bundles editing one node).
-            std::unordered_map<std::string, std::unordered_set<std::string>> ancestors;
             // stem -> its ORDERED master table (index 0 = base game, 1..k = declared masters, last =
             // self). A node's FormId masterIndex resolves against this. Built from the DIRECT declared
-            // masters (positional), so it's ordered where `ancestors` (a transitive set) is not.
+            // masters (positional).
             std::unordered_map<std::string, std::vector<std::string>> masterTable;
         };
 
@@ -220,7 +216,6 @@ namespace CB {
             // bundle holds the implicit skyrim edge -> can't precede it.
             std::unordered_map<std::string, int>                      indeg;
             std::unordered_map<std::string, std::vector<std::string>> children;
-            std::unordered_map<std::string, std::vector<std::string>> parents;   // s -> its direct effective masters
             std::vector<std::string>                                  survivors;
             for (const auto& [stem, mf] : manifests) {
                 (void)mf;
@@ -242,7 +237,6 @@ namespace CB {
                 for (const std::string& m : masters) {
                     if (plan.dropped.count(m) || indeg.find(m) == indeg.end()) continue;  // absent/dropped
                     children[m].push_back(s);
-                    parents[s].push_back(m);
                     ++indeg[s];
                 }
             }
@@ -266,12 +260,6 @@ namespace CB {
                 const std::string s = ready.front();
                 ready.erase(ready.begin());
                 plan.rank[s] = nextRank++;
-                auto& anc = plan.ancestors[s];                                   // masters emit first -> complete
-                for (const std::string& m : parents[s]) {
-                    anc.insert(m);
-                    const auto mit = plan.ancestors.find(m);
-                    if (mit != plan.ancestors.end()) anc.insert(mit->second.begin(), mit->second.end());
-                }
                 std::vector<std::string> freed;
                 for (const std::string& c : children[s])
                     if (--indeg[c] == 0) freed.push_back(c);
@@ -770,7 +758,6 @@ namespace CB {
                     if (!readUnit(bi, *r, sk)) return;
                     CB::engine::common::BoneNameTable tbl;
                     for (const auto& b : sk.bones) tbl.names.push_back(b.name);
-                    tbl.Reindex();
                     const std::size_t nBones = tbl.names.size();
                     { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[*r] = std::move(tbl); }
                     LOG_INFO("Resolver: rig '{}' = {} bone(s) from '{}'.", *r, nBones, bundles[bi].stem);
@@ -806,10 +793,6 @@ namespace CB {
                 CB::engine::common::LayerSource lsrc;
                 lsrc.source = l.source;
                 lsrc.stem   = l.stem;
-                const auto rit = plan.rank.find(l.stem);
-                lsrc.rank   = rit != plan.rank.end() ? rit->second : 0;
-                if (const auto ait = plan.ancestors.find(l.stem); ait != plan.ancestors.end())
-                    lsrc.ancestors.assign(ait->second.begin(), ait->second.end());
                 if (const auto mit = plan.masterTable.find(l.stem); mit != plan.masterTable.end())
                     lsrc.masterTable = mit->second;
                 gs.layers.push_back(std::move(lsrc));
@@ -827,53 +810,6 @@ namespace CB {
         // mod's *_BDI.json into it, so a single scan gathers the whole load order.
         m_symbols.Load({ dataDir / "SKSE" / "Plugins" / "BehaviorDataInjector" });
         LOG_INFO("Resolver: {} mod symbol declaration(s) loaded.", m_symbols.DeclCount());
-
-        // Registered animations: check each actor's <actor>\animations\community_behaviors\
-        // opt-in subfolder. Every .hkx under one is appended (in memory, at character
-        // setup) to that actor's character animationNames — authors just drop the file in
-        // the folder, no FNIS/Nemesis run. Actors sit at depth 1-2 under Meshes\actors\
-        // (e.g. actors\character, actors\dlc02\riekling), so this probes specific paths
-        // rather than walking the whole (huge) meshes tree. The stored value is the
-        // animation path RELATIVE TO THE ACTOR DIR, backslashed — exactly what
-        // animationNames holds. (.yaml compile-in-place is a later stage.)
-        const fs::path meshesActors = dataDir / "meshes" / "actors";
-        int animCount = 0;
-
-        auto scanActorAnims = [&](const fs::path& actorDir) {
-            std::error_code bec;
-            const fs::path brAnim = actorDir / "animations" / "community_behaviors";
-            if (!fs::is_directory(brAnim, bec)) return;
-            const std::string actorKey =
-                NormalizeKey(actorDir.lexically_relative(meshesActors.parent_path()).generic_string());
-            if (actorKey.empty() || actorKey[0] == '.') return;  // e.g. "actors/character"
-            std::error_code cec;
-            for (fs::recursive_directory_iterator fi(brAnim, cec), fend; !cec && fi != fend; fi.increment(cec)) {
-                std::error_code fec;
-                if (!fi->is_regular_file(fec)) continue;
-                if (ToLower(fi->path().extension().string()) != ".hkx") continue;  // .hkx now; .yaml later
-                std::string rel = fi->path().lexically_relative(actorDir).generic_string();  // animations/community_behaviors/.../x.hkx
-                for (char& c : rel) if (c == '/') c = '\\';                                   // animationNames form
-                m_actorAnimations[actorKey].push_back(std::move(rel));
-                ++animCount;
-            }
-        };
-
-        std::error_code aec;
-        if (fs::is_directory(meshesActors, aec)) {
-            for (fs::directory_iterator a1(meshesActors, aec), e1; !aec && a1 != e1; a1.increment(aec)) {
-                std::error_code d1;
-                if (!a1->is_directory(d1)) continue;
-                scanActorAnims(a1->path());                              // depth 1: actors\<actor>
-                std::error_code d2;
-                for (fs::directory_iterator a2(a1->path(), d2), e2; !d2 && a2 != e2; a2.increment(d2)) {
-                    std::error_code dd;
-                    if (a2->is_directory(dd)) scanActorAnims(a2->path());  // depth 2: actors\<group>\<actor>
-                }
-            }
-        }
-        if (animCount)
-            LOG_INFO("Resolver: {} registered animation(s) across {} actor(s) (via animations\\community_behaviors\\).",
-                     animCount, m_actorAnimations.size());
 
         if (!m_characterAnimNames.empty()) {
             std::size_t total = 0;
@@ -894,48 +830,6 @@ namespace CB {
         if (m_ready.load(std::memory_order_acquire)) return;
         std::unique_lock<std::mutex> lk(m_initMutex);
         m_initCv.wait(lk, [this] { return m_ready.load(std::memory_order_acquire); });
-    }
-
-    const std::vector<std::string>& Resolver::AnimationsForActor(std::string_view actorRoot) const
-    {
-        // No lock: m_actorAnimations is immutable after Init().
-        static const std::vector<std::string> kEmpty;
-        const auto it = m_actorAnimations.find(NormalizeKey(actorRoot));
-        return it != m_actorAnimations.end() ? it->second : kEmpty;
-    }
-
-    const std::vector<std::string>& Resolver::AnimationsForCharacter(std::string_view behaviorFilename) const
-    {
-        // No lock: m_actorAnimations + m_sources are immutable after Init().
-        static const std::vector<std::string> kEmpty;
-        if (m_actorAnimations.empty()) return kEmpty;
-        const std::string beh = NormalizeKey(behaviorFilename);  // e.g. "behaviors/0_master.hkx"
-        // The character only knows its behavior file actor-relatively, so map it to an
-        // actor by finding the animation-owning actor whose served behavior set contains
-        // it: "meshes/" + <actorKey> + "/" + beh is a mapped graph. (Requires BR to also
-        // serve that behavior — true for the vanilla-.hky setup; a pure-animation actor
-        // with no BR behavior is a known gap.)
-        for (const auto& [actorKey, anims] : m_actorAnimations) {
-            const std::string candidate = NormalizeKey("meshes/" + actorKey + "/" + beh);
-            if (m_sources.find(candidate) != m_sources.end()) return anims;
-        }
-        return kEmpty;
-    }
-
-    const BundleManifest* Resolver::ManifestFor(std::string_view bundleStem) const
-    {
-        // No lock: m_manifests is immutable after Init(). Keyed by lowercase bundle stem.
-        const auto it = m_manifests.find(ToLower(std::string(bundleStem)));
-        return it != m_manifests.end() ? &it->second : nullptr;
-    }
-
-    const std::vector<std::string>& Resolver::AnimationNamesForCharacter(std::string_view characterName) const
-    {
-        // No lock: m_characterAnimNames is immutable after Init(). Keyed by lowercase name.
-        static const std::vector<std::string> kEmpty;
-        if (m_characterAnimNames.empty() || characterName.empty()) return kEmpty;
-        const auto it = m_characterAnimNames.find(ToLower(std::string(characterName)));
-        return it != m_characterAnimNames.end() ? it->second : kEmpty;
     }
 
     void Resolver::CompileAll(const std::function<void(std::size_t, std::size_t)>& progress)

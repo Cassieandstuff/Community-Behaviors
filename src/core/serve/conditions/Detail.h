@@ -6,8 +6,6 @@
 
 namespace CB::core::conditions::detail {
     PrimitiveFn            PrimFn(PrimId);
-    VType                  PrimReturns(PrimId);
     FunctionFn             FnFn(FnId);
-    VType                  FnReturns(FnId);
     std::span<const VType> FnParams(FnId);
 }

@@ -155,7 +155,6 @@ namespace CB::core::serve {
             LOG_WARN("AnimData: {} — vanilla animation data stays.", r.error);
             return r;
         }
-        r.bundles = bundles.size();
 
         std::string err;
         const auto  index = bundles.front().second.read("meshes/animationdatasinglefile.txt/index.yaml");
@@ -165,7 +164,6 @@ namespace CB::core::serve {
             LOG_WARN("AnimData: {} — vanilla animation data stays.", r.error);
             return r;
         }
-        r.baseProjects = headers.size();
 
         /// @note Animations are parsed once, in parallel (gigabytes of keyframe YAML; the engine's adsf open waits on
         ///       this), each with its actor motion resolved — its record, or extracted from a folded root.
@@ -267,7 +265,6 @@ namespace CB::core::serve {
         }
         r.ok             = true;
         r.cachePath      = cachePath.string();
-        r.mergedProjects = headers.size();
         const auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
         LOG_INFO("AnimData: projected {} anim project(s) — {} clip(s), {} motion(s), {} animation(s) — from {} bundle(s) in "
                  "{} ms; wrote {}.", st.projects, st.clips, st.motions, anims.size(), bundles.size(), ms(t0, t1), r.cachePath);

@@ -31,8 +31,6 @@ namespace CB {
         // packed archive. Returns nullopt only if a packed .hky cannot be read.
         static std::optional<BundleReader> Open(const std::filesystem::path& bundle);
 
-        bool packed() const { return static_cast<bool>(m_arc); }
-
         // Read a whole-tree-relative file (e.g. "meshes/animationsetdatasinglefile.txt").
         // nullopt if absent; an empty-but-present file returns "".
         std::optional<std::string> read(const std::string& rel) const;

@@ -32,7 +32,6 @@
 //   LOG_INFO("thing happened: {}", value);
 //   LOG_WARN("watch out");
 //   LOG_ERROR("oh no");
-//   LOG_DEBUG("verbose detail");
 //
 // Each DLL gets its own logger pointer via the inline variable — no
 // cross-DLL state sharing. Init() must be called before any LOG_* macro.
@@ -120,14 +119,8 @@ namespace PluginLogger {
         g_logger = logger.get();
     }
 
-    // Backward-compatible overload (no log folder — uses plugin name as folder).
-    inline void Init(const char* pluginName) {
-        Init(pluginName, pluginName);
-    }
-
 }
 
 #define LOG_INFO(...)  do { if (PluginLogger::g_logger) PluginLogger::g_logger->info(__VA_ARGS__);  } while(0)
 #define LOG_WARN(...)  do { if (PluginLogger::g_logger) PluginLogger::g_logger->warn(__VA_ARGS__);  } while(0)
 #define LOG_ERROR(...) do { if (PluginLogger::g_logger) PluginLogger::g_logger->error(__VA_ARGS__); } while(0)
-#define LOG_DEBUG(...) do { if (PluginLogger::g_logger) PluginLogger::g_logger->debug(__VA_ARGS__); } while(0)

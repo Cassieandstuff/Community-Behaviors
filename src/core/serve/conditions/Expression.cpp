@@ -148,7 +148,6 @@ namespace CB::core::conditions {
         p.parseExpr(0);
         if (p.ok && p.cur.k != Tok::End) { err = "trailing tokens"; p.ok = false; }
         ce._ok = p.ok && !ce._rpn.empty();
-        ce._resultType = VType::Bool;   // conditions reduce to bool at the gate; grammar coerces
         if (!ce._ok && err.empty()) err = "empty expression";
         return ce;
     }

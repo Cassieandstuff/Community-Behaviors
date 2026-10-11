@@ -94,8 +94,6 @@ namespace CB::core::debug {
                  s_watch.size(), names);
     }
 
-    bool Enabled() noexcept { return s_on.load(std::memory_order_relaxed); }
-
     void Sample() {
         if (!s_on.load(std::memory_order_relaxed)) return;
         std::lock_guard<std::mutex> lk(s_mtx);

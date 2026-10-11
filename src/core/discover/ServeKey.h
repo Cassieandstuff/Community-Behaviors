@@ -127,13 +127,4 @@ namespace CB::core::discover {
         return std::string(kConsolidatedCacheDir) + "/" + s;
     }
 
-    // The folderRoot-relative form of a serve key ("behaviors/mymod/scene1.hkx"), or "" if the
-    // key has no root. This is the shape a hkbBehaviorReferenceGenerator.behaviorName takes.
-    inline std::string RootRelative(const std::string& key)
-    {
-        const std::string root = FolderRootOf(key);
-        if (root.empty()) return {};
-        return key.substr(root.size() + 1);
-    }
-
 }  // namespace CB::core::discover
