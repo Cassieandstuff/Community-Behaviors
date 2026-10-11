@@ -28,12 +28,15 @@ struct DecodedPose {
 // sized numFrames*numFloatTracks, index = frame*numFloatTracks + floatTrack.
 // Static floats (mask 0x03) are exact; spline floats (mask 0x12 in vanilla, e.g.
 // trap/clutter visibility switches) decode as a 1-component BITS8/BITS16 spline.
+/// @param floatBlockStarts if non-null, receives per block where the sequential walk reached the float section,
+///        relative to the block — what the engine reads from floatBlockOffsets (CB-8).
 bool DecodeSpline(const std::uint8_t* data, std::size_t dataLen,
                   int numFrames, int numBlocks, int maxFramesPerBlock,
                   int maskAndQuantizationSize,
                   const std::uint32_t* blockOffsets, int numBlockOffsets,
                   int numTracks, int numFloatTracks,
                   std::vector<DecodedPose>& out, std::string* warn = nullptr,
-                  std::vector<float>* floatOut = nullptr);
+                  std::vector<float>* floatOut = nullptr,
+                  std::vector<std::uint32_t>* floatBlockStarts = nullptr);
 
 } // namespace CB::engine::codec::spline

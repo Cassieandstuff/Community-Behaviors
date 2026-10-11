@@ -378,11 +378,13 @@ void WriteFloatData(ByteBuf& bw, const float* frames, int start, int count, Floa
 }
 
 // ── Block writer ──────────────────────────────────────────────────────────────
-void WriteBlock(ByteBuf& bw,
+/// @return where this block's float section starts, relative to the block — its floatBlockOffsets entry (CB-8).
+std::uint32_t WriteBlock(ByteBuf& bw,
                 const std::vector<std::vector<TransformFrame>>& transFrames,
                 const std::vector<std::vector<float>>& floatFrames,
                 int numTransform, int numFloat, int blockStart, int framesInBlock,
                 const AnimCompressionParams& comp) {
+    const std::size_t blockStartPos = bw.pos();
     std::vector<ChannelType> posMask(numTransform), rotMask(numTransform), scaleMask(numTransform);
     std::vector<FloatChannelType> floatMask(numFloat);
 
@@ -412,12 +414,18 @@ void WriteBlock(ByteBuf& bw,
         bw.alignTo(4);
     }
 
+    /// @note The engine reads a block's float tracks at blockOffsets[b] + floatBlockOffsets[b] (FUN_140c33100), not by
+    ///       walking the transform data — so this start must be recorded. Vanilla records it for every block, float
+    ///       tracks or not (then it is simply the end of the transform data).
+    const auto floatStart = static_cast<std::uint32_t>(bw.pos() - blockStartPos);
+
     /// @note Havok align4's after EVERY float track; only a spline float's BITS16 control points can end
     ///       unaligned, so this is a no-op for static/identity floats (their bytes are unchanged).
     for (int t = 0; t < numFloat; ++t) {
         WriteFloatData(bw, floatFrames[t].data(), blockStart, framesInBlock, floatMask[t]);
         bw.alignTo(4);
     }
+    return floatStart;
 }
 
 } // namespace
@@ -456,6 +464,7 @@ CompressedResult CompressAnimation(const AnimationDef& anim, int fps) {
 
     ByteBuf bw;
     std::vector<std::uint32_t> blockOffsets;
+    std::vector<std::uint32_t> floatBlockOffsets;
 
     for (int b = 0; b < numBlocks; ++b) {
         int blockStart = b * (framesPerBlock - 1);
@@ -463,8 +472,8 @@ CompressedResult CompressAnimation(const AnimationDef& anim, int fps) {
         int framesInBlock = blockEnd - blockStart + 1;
 
         blockOffsets.push_back(std::uint32_t(bw.pos()));
-        WriteBlock(bw, transFrames, floatFrames, numTransform, numFloat,
-                   blockStart, framesInBlock, anim.compression);
+        floatBlockOffsets.push_back(WriteBlock(bw, transFrames, floatFrames, numTransform, numFloat,
+                   blockStart, framesInBlock, anim.compression));
     }
 
     CompressedResult r;
@@ -476,6 +485,7 @@ CompressedResult CompressAnimation(const AnimationDef& anim, int fps) {
     r.frameDuration           = frameDuration;
     r.maskAndQuantizationSize = maskAndQuantSize;
     r.blockOffsets            = std::move(blockOffsets);
+    r.floatBlockOffsets       = std::move(floatBlockOffsets);
     r.data                    = std::move(bw.bytes);
     return r;
 }

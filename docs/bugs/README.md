@@ -25,8 +25,6 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   OAR. Not graph content. (Earlier boneWeights-placement root cause is superseded — see the doc's top section.)
 - [CB-7](CB-7-fnis-not-on-formid-format.md) — OPEN: FNIS conversion isn't on the FormID .hky format yet; a load
   order with FNIS lists skips them (the converter logs `FNIS: FAILED`).
-- [CB-8](CB-8-compiled-anim-float-block-offsets.md) — OPEN (latent): CB-compiled animations leave
-  `floatBlockOffsets` empty; a served compiled clip with float tracks would read its float data from garbage.
 
 ## Per-bug file template
 

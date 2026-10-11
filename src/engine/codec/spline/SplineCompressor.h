@@ -24,6 +24,7 @@ struct CompressedResult {
     float frameDuration           = 0.f;
     int   maskAndQuantizationSize = 0;
     std::vector<std::uint32_t> blockOffsets;   // byte offset of each block in `data`
+    std::vector<std::uint32_t> floatBlockOffsets;   ///< per block: its float-section start, relative to the block (CB-8)
     std::vector<std::uint8_t>  data;
 };
 

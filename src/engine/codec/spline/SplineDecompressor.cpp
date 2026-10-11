@@ -334,7 +334,7 @@ bool DecompBlock(const std::uint8_t* base, std::size_t dataLen, std::uint32_t of
                  int nTracks, int nFloatTracks, int maskQSize,
                  int blockStart, int framesInBlock,
                  std::vector<DecodedPose>& out, int& unsupportedQuant,
-                 std::vector<float>* floatOut) {
+                 std::vector<float>* floatOut, std::uint32_t* floatStart) {
     if (static_cast<std::size_t>(offset) >= dataLen) return false;
     const std::uint8_t* blockBase = base + offset;
     const std::uint8_t* dataEnd = base + dataLen;
@@ -413,6 +413,7 @@ bool DecompBlock(const std::uint8_t* base, std::size_t dataLen, std::uint32_t of
 
     // Float tracks follow all transform tracks; their masks live in the mask
     // section right after the transform masks (nTracks*4 .. +nFloatTracks).
+    if (floatStart) *floatStart = static_cast<std::uint32_t>(rSeq.p - blockBase);
     if (nFloatTracks > 0 && floatOut) {
         const std::uint8_t* fmask = blockBase + nTracks * 4;
         Reader r(rSeq.p, dataEnd);
@@ -438,19 +439,21 @@ bool DecodeSpline(const std::uint8_t* data, std::size_t dataLen,
                   const std::uint32_t* blockOffsets, int numBlockOffsets,
                   int numTracks, int numFloatTracks,
                   std::vector<DecodedPose>& out, std::string* warn,
-                  std::vector<float>* floatOut) {
+                  std::vector<float>* floatOut, std::vector<std::uint32_t>* floatBlockStarts) {
     if (numTracks <= 0 || numFrames <= 0 || numBlocks <= 0 || maxFramesPerBlock <= 1) return false;
     if (numBlockOffsets < numBlocks) return false;
 
     out.assign((std::size_t)numFrames * numTracks, DecodedPose{});
     if (floatOut) floatOut->assign((std::size_t)numFrames * std::max(numFloatTracks, 0), 0.f);
+    if (floatBlockStarts) floatBlockStarts->assign((std::size_t)numBlocks, 0u);
     int unsupportedQuant = -1;
 
     for (int b = 0; b < numBlocks; b++) {
         const int bs = b * (maxFramesPerBlock - 1);
         const int be = std::min(bs + maxFramesPerBlock - 1, numFrames - 1);
         if (!DecompBlock(data, dataLen, blockOffsets[b], numTracks, numFloatTracks,
-                         maskAndQuantizationSize, bs, be - bs + 1, out, unsupportedQuant, floatOut))
+                         maskAndQuantizationSize, bs, be - bs + 1, out, unsupportedQuant, floatOut,
+                         floatBlockStarts ? &(*floatBlockStarts)[b] : nullptr))
             return false;
     }
 

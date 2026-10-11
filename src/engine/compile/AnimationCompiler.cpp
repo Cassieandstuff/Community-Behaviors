@@ -54,9 +54,10 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
     spline->FieldRef("blockInverseDuration").raw    = f32b(r.blockInverseDuration);
     spline->FieldRef("frameDuration").raw           = f32b(r.frameDuration);
     spline->FieldRef("blockOffsets").raw            = u32arr(r.blockOffsets);
+    spline->FieldRef("floatBlockOffsets").raw       = u32arr(r.floatBlockOffsets);
     spline->FieldRef("data").raw                    = std::move(r.data);   // the compressed spline blob (byte array)
     spline->FieldRef("endian").raw                  = i32b(0);
-    // floatBlockOffsets / transformOffsets / floatOffsets intentionally empty; extractedMotion null.
+    // transformOffsets / floatOffsets intentionally empty; extractedMotion null.
     { auto& tracks = spline->FieldRef("annotationTracks").objs;
       for (const auto& at : anim.annotationTracks) {
           auto track = mkA(reg, "hkaAnnotationTrack"); if (!track) return nullptr;

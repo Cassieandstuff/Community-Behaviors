@@ -109,6 +109,12 @@ int main(int argc, char** argv) {
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
+    if (argc >= 4 && std::string(argv[1]) == "--anim-float-offsets") {   // <meshesDir> <workRoot>
+        const bool ok = CB::converter::AnimFloatOffsetsGate(argv[2], argv[3],
+            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });
+        return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
     if (argc >= 4 && std::string(argv[1]) == "--motion-storage-check") {   // <newTree> <oldTree>
         const bool ok = CB::converter::MotionStorageCheck(argv[2], argv[3],
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); });

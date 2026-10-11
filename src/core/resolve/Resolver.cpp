@@ -538,7 +538,13 @@ namespace CB {
                         std::vector<std::string> mfWarn;
                         BundleManifest mf = BundleManifest::Parse(*mtext, bundle.stem().string(), mfWarn);
                         for (const auto& w : mfWarn) LOG_WARN("Resolver: manifest — {}", w);
-                        if (mf.present) { logManifest(mf); m_manifests[plugName] = std::move(mf); }
+                        if (mf.present) {
+                            logManifest(mf);
+                            bundleCompileAnims = mf.compileAnimations;
+                            if (bundleCompileAnims)
+                                LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", plugName);
+                            m_manifests[plugName] = std::move(mf);
+                        }
                     }
                     for (const auto& u : arc->units()) {
                         // The project graph is not a merged layer — ProjectRedirect serves the complete
@@ -969,6 +975,104 @@ namespace CB {
         return written;
     }
 
+    namespace {
+        /// @brief FNV-1a 64 — the animation ledger's content fingerprint.
+        /// @note Internal only: it never crosses to the engine, so it is not a Havok CRC.
+        std::uint64_t Fnv64(const void* data, std::size_t n)
+        {
+            std::uint64_t h = 1469598103934665603ull;
+            const auto*   p = static_cast<const unsigned char*>(data);
+            for (std::size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ull; }
+            return h;
+        }
+
+        /// @return the file's fingerprint, or nullopt when it can't be read (absent / locked).
+        std::optional<std::uint64_t> FileFnv64(const std::filesystem::path& p)
+        {
+            std::ifstream f(p, std::ios::binary);
+            if (!f) return std::nullopt;
+            const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            return Fnv64(bytes.data(), bytes.size());
+        }
+
+        /// @brief One animation CB compiled to Data\meshes: its original-case data path, the fingerprint of the
+        ///        YAML it compiled from, and the fingerprint of the bytes it wrote.
+        struct AnimLedgerEntry {
+            std::string   path;
+            std::uint64_t src = 0;
+            std::uint64_t out = 0;
+        };
+
+        /// @brief The ledger of compiled animations — what CB wrote into the real meshes\ tree, so a removed or
+        ///        opted-out bundle's output can be found again and deleted.
+        /// @note `current` is false when the header's compiler revision or watermark differs from this build's: the entries still
+        ///       identify CB-written files (orphan cleanup), but none may be skipped as up to date.
+        struct AnimLedger {
+            std::unordered_map<std::string, AnimLedgerEntry> byKey;   ///< ToLower(path), internal-only key
+            bool                                              current = false;
+        };
+
+        constexpr const char* kAnimLedgerMagic = "cb-anim-ledger";
+
+        /// @brief Revision of the animation compiler's OUTPUT. Bump it whenever compiled animation bytes change for an
+        ///        unchanged source (e.g. the CB-8 floatBlockOffsets fix), so every ledgered animation recompiles once.
+        constexpr int kAnimCompilerRevision = 2;
+
+        std::string LedgerHeader()
+        {
+            return std::string(kAnimLedgerMagic) + " " + std::to_string(kAnimCompilerRevision) + " " +
+                   std::to_string(CB::core::resolve::kWatermarkValue);
+        }
+
+        AnimLedger LoadAnimLedger(const std::filesystem::path& file)
+        {
+            AnimLedger    led;
+            std::ifstream f(file, std::ios::binary);
+            if (!f) return led;
+            std::string line;
+            if (!std::getline(f, line)) return led;
+            while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+            if (line.rfind(kAnimLedgerMagic, 0) != 0) return led;   // not a ledger — track nothing
+            led.current = (line == LedgerHeader());
+            while (std::getline(f, line)) {
+                while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+                const auto t1 = line.find('\t');
+                const auto t2 = t1 == std::string::npos ? std::string::npos : line.find('\t', t1 + 1);
+                if (t2 == std::string::npos) continue;
+                AnimLedgerEntry e;
+                e.src  = std::strtoull(line.substr(0, t1).c_str(), nullptr, 16);
+                e.out  = std::strtoull(line.substr(t1 + 1, t2 - t1 - 1).c_str(), nullptr, 16);
+                e.path = line.substr(t2 + 1);
+                if (!e.path.empty()) led.byKey[ToLower(e.path)] = std::move(e);
+            }
+            return led;
+        }
+
+        /// @brief Replace the ledger (write-then-rename, so a crash never leaves a half-written one). An empty
+        ///        ledger removes the file.
+        void SaveAnimLedger(const std::filesystem::path& file, const std::vector<AnimLedgerEntry>& entries)
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            if (entries.empty()) { fs::remove(file, ec); return; }
+            fs::create_directories(file.parent_path(), ec);
+            const fs::path tmp = file.string() + ".tmp";
+            {
+                std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+                o << LedgerHeader() << "\n";
+                char hx[2][17];
+                for (const auto& e : entries) {
+                    std::snprintf(hx[0], sizeof hx[0], "%016llx", static_cast<unsigned long long>(e.src));
+                    std::snprintf(hx[1], sizeof hx[1], "%016llx", static_cast<unsigned long long>(e.out));
+                    o << hx[0] << '\t' << hx[1] << '\t' << e.path << "\n";
+                }
+                if (!o.good()) { LOG_WARN("Community Behaviors: could not write the animation ledger '{}'.", tmp.string()); return; }
+            }
+            fs::rename(tmp, file, ec);
+            if (ec) LOG_WARN("Community Behaviors: could not replace the animation ledger '{}': {}", file.string(), ec.message());
+        }
+    }  // namespace
+
     std::size_t Resolver::WriteNativeAnimations(const std::filesystem::path& dataRoot,
                                                 const AnimExecutor* exec,
                                                 const std::function<void()>* onUnit) const
@@ -988,10 +1092,37 @@ namespace CB {
         // the call that warms it there. Do it regardless of exec so both paths are covered.
         (void)CB::engine::schema::SharedRegistry();
 
+        /// @note The ledger (community_behaviors_cache\animations.ledger) records every animation CB wrote into
+        ///       the real meshes\ tree. An entry whose source YAML, output file and compiler watermark are all
+        ///       unchanged is skipped (no recompile every launch); an entry no longer produced — its bundle removed
+        ///       or opted out — is deleted, but only while the file still holds the bytes CB wrote.
+        const fs::path   ledgerPath = dataRoot / CB::core::discover::kConsolidatedCacheDir / "animations.ledger";
+        const AnimLedger prior      = LoadAnimLedger(ledgerPath);
+        const std::size_t n         = m_nativeAnims.size();
+        std::vector<std::uint64_t> srcHash(n, 0), outHash(n, 0);
+        std::vector<char>          produced(n, 0);   ///< slot i written by exactly one task — no lock needed
+        std::size_t                unchanged = 0;
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto& [outKey, yamlText] = m_nativeAnims[i];
+            srcHash[i] = Fnv64(yamlText.data(), yamlText.size());
+            if (!prior.current) continue;
+            const auto it = prior.byKey.find(ToLower(outKey));
+            if (it == prior.byKey.end() || it->second.src != srcHash[i]) continue;
+            if (const auto onDisk = FileFnv64(dataRoot / fs::path(outKey)); onDisk && *onDisk == it->second.out) {
+                outHash[i]  = *onDisk;
+                produced[i] = 2;   // up to date — skipped
+                ++unchanged;
+            }
+        }
+
         // Compile+write ONE native animation. A pure function of its own (outKey, yamlText) entry and the
-        // immutable-after-Init m_skeletons; writes its own distinct file. No shared mutable state, so this
-        // is safe to run concurrently and the parallel result is byte-identical to the serial one.
-        auto compileOne = [&](const std::string& outKey, const std::string& yamlText) {
+        // immutable-after-Init m_skeletons; writes its own distinct file and its own result slot. No shared
+        // mutable state, so this is safe to run concurrently and the parallel result is byte-identical to the
+        // serial one.
+        auto compileOne = [&](std::size_t i) {
+            if (produced[i]) return;
+            const std::string& outKey   = m_nativeAnims[i].first;
+            const std::string& yamlText = m_nativeAnims[i].second;
             std::error_code ec;
             // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). We only reach here
             // for a bundle that OPTED INTO animation compile (manifest compile_animations=true), so writing
@@ -1037,7 +1168,12 @@ namespace CB {
                 std::ofstream f(out, std::ios::binary | std::ios::trunc);
                 f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
                 f.flush();
-                if (f.good()) { written.fetch_add(1, std::memory_order_relaxed); LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string()); }
+                if (f.good()) {
+                    outHash[i]  = Fnv64(r.bytes.data(), r.bytes.size());
+                    produced[i] = 1;
+                    written.fetch_add(1, std::memory_order_relaxed);
+                    LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string());
+                }
                 else          { failed.fetch_add(1, std::memory_order_relaxed);  LOG_ERROR("Community Behaviors: failed writing native animation '{}'.", out.string()); }
             } catch (const std::exception& e) {
                 failed.fetch_add(1, std::memory_order_relaxed);
@@ -1052,25 +1188,54 @@ namespace CB {
 
         if (exec && *exec && m_nativeAnims.size() > 1) {
             // Parallel: one task per entry, fanned across the pool; (*exec) blocks until all complete.
-            // Capture each element by POINTER (m_nativeAnims is immutable after Init, so the address is
-            // stable) — never by the range-for reference, which is rebound each iteration. The tick runs
-            // on the worker thread, so onUnit must be thread-safe (it is — atomic increment + store).
+            // Each task captures its INDEX (m_nativeAnims is immutable after Init; slot i is written only by
+            // task i). The tick runs on the worker thread, so onUnit must be thread-safe (it is — atomic
+            // increment + store).
             std::vector<std::function<void()>> tasks;
-            tasks.reserve(m_nativeAnims.size());
-            for (const auto& e : m_nativeAnims) {
-                const auto* ep = &e;
-                tasks.push_back([&compileOne, &tick, ep] { compileOne(ep->first, ep->second); tick(); });
-            }
+            tasks.reserve(n);
+            for (std::size_t i = 0; i < n; ++i)
+                tasks.push_back([&compileOne, &tick, i] { compileOne(i); tick(); });
             (*exec)(std::move(tasks));
         } else {
-            for (const auto& [outKey, yamlText] : m_nativeAnims) { compileOne(outKey, yamlText); tick(); }
+            for (std::size_t i = 0; i < n; ++i) { compileOne(i); tick(); }
         }
+
+        // Next ledger: everything produced this pass, plus any prior entry whose recompile FAILED this pass
+        // (its old file is still CB's and still on disk — keep tracking it so a later opt-out removes it).
+        std::vector<AnimLedgerEntry> next;
+        std::unordered_set<std::string> nowKeys;
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::string key = ToLower(m_nativeAnims[i].first);
+            nowKeys.insert(key);
+            if (produced[i]) next.push_back({ m_nativeAnims[i].first, srcHash[i], outHash[i] });
+            else if (const auto it = prior.byKey.find(key); it != prior.byKey.end()) next.push_back(it->second);
+        }
+
+        // Orphans: animations CB wrote on an earlier run that nothing produces now. Delete only while the file
+        // still holds exactly the bytes CB wrote — anything replaced since (by the user or another mod) is not
+        // CB's to remove.
+        std::size_t removed = 0;
+        for (const auto& [key, e] : prior.byKey) {
+            if (nowKeys.count(key)) continue;
+            const fs::path p      = dataRoot / fs::path(e.path);
+            const auto     onDisk = FileFnv64(p);
+            if (!onDisk) continue;   // already gone
+            if (*onDisk != e.out) {
+                LOG_WARN("Community Behaviors: '{}' was compiled by CB but has changed since — left in place.", p.string());
+                continue;
+            }
+            std::error_code rec;
+            if (fs::remove(p, rec)) { ++removed; LOG_INFO("Community Behaviors: removed orphaned compiled animation '{}'.", p.string()); }
+            else LOG_WARN("Community Behaviors: could not remove orphaned compiled animation '{}': {}", p.string(), rec.message());
+        }
+        SaveAnimLedger(ledgerPath, next);
 
         const std::size_t w = written.load(std::memory_order_relaxed);
         const std::size_t fl = failed.load(std::memory_order_relaxed);
-        if (w || fl)
-            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (compiled to the real "
-                     "meshes path — opt-in bundles only, manifest compile_animations=true).", w, fl);
+        if (w || fl || unchanged || removed)
+            LOG_INFO("Community Behaviors: native animations — {} compiled, {} unchanged, {} failed, {} orphan(s) removed "
+                     "(compiled to the real meshes path — opt-in bundles only, manifest compile_animations=true).",
+                     w, unchanged, fl, removed);
         // Phase 0 coverage: what the compiler produced for the adsf to drain. Nothing consumes the sink
         // yet (byte-neutral); this confirms the emit fires + the keying before the drain is switched over.
         LOG_INFO("Community Behaviors: motion sink — {} record(s) across {} actor root(s) (compiler-produced).",
@@ -1115,8 +1280,9 @@ namespace CB {
                     const std::string fn = ToLower(di->path().filename().string());
                     if (fn == "animationdatasinglefile.txt" ||
                         fn == "animationsetdatasinglefile.txt" ||
+                        fn == "animations.ledger" ||
                         fn == "cache.ready")
-                        continue;   // preserve the collocated txt caches + sentinel
+                        continue;   // preserve the collocated txt caches, the animation ledger + sentinel
                     std::error_code dec;
                     fs::remove_all(di->path(), dec);
                 }
@@ -1191,16 +1357,17 @@ namespace CB {
         // 2b) Write the opt-in compiled skeletons (Stage D) to the same consolidated cache.
         written += WriteSkeletonServe(dataRoot);
 
-        // 2c) Compile the bundle-authored native animations into LOOSE .hkx under Data\meshes\ (not
-        //     community_behaviors_cache — actor animations resolve by the engine's startup loose scan). Persist
-        //     across cache regens; the clean names are already rostered (folded at Init).
-        WriteNativeAnimations(dataRoot, animExec, animOnUnit);
-
         // 3) Build the above-OAR redirect map (folderRoot -> owned characters) + mark ready.
         //    Shared with the reuse path (ArmCacheFromDisk) — it depends only on m_sources, not
         //    on the bytes just written, so a run that reuses an existing on-disk cache arms the
         //    exact same redirect without recompiling.
         BuildRedirectMap(dataRoot);
+
+        /// @note 3b) The opt-in native animations compile AFTER the graphs are armed: nothing in graph serving
+        ///       waits on them (they're loose .hkx under Data\meshes\, found by the engine's own loose scan, not
+        ///       the cache redirect), so their compile no longer holds graph serving back. Unchanged ones are
+        ///       skipped and orphans removed via the animation ledger.
+        WriteNativeAnimations(dataRoot, animExec, animOnUnit);
 
         // 4) Completion sentinel — written LAST, and ONLY when every graph compiled + wrote
         //    (failedGraphs == 0). Its presence is what CachePresent() trusts to skip the recompile on a
@@ -1360,11 +1527,11 @@ namespace CB {
         // opt-in compiled skeletons ARE (re)written here: they were compiled fresh in Init (cheap),
         // and the graph-cache clear/reuse doesn't cover them, so this guarantees they're on disk.
         WriteSkeletonServe(dataRoot);
-        // Native animations are LOOSE (not in the wiped community_behaviors_cache), so a prior run's files usually
-        // still exist — but rewrite them here too (cheap, few) so a reused cache from a build without
-        // them, or a user who cleared meshes\, still gets them on disk before the scan.
-        WriteNativeAnimations(dataRoot, animExec);
         BuildRedirectMap(dataRoot);
+        /// @note Native animations are LOOSE (not in community_behaviors_cache). The ledger skips every one whose
+        ///       source and on-disk output are unchanged, so a warm start only compiles what is new, edited, or
+        ///       missing (e.g. a user cleared meshes\), and removes what a dropped bundle left behind.
+        WriteNativeAnimations(dataRoot, animExec);
         LOG_INFO("Community Behaviors: reusing existing on-disk behavior cache under '{}\\Meshes' "
                  "(recompile skipped — set [Cache] bForceRegenerate=true or delete the cache to rebuild).",
                  dataRoot.string());

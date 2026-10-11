@@ -32,6 +32,7 @@
 #include "PatchPlan.h"               // BuildBaseMaps / BuildPlan / DumpPlan — the Pandora normalization prelude (Phase 0)
 #include "platform/Platform.h"       // ZipDir — pack the staged master into one Skyrim.hky
 #include <codec/bsa/BsaArchive.h>
+#include <codec/spline/SplineDecompressor.h>   // DecodeSpline — the CB-8 gate's float-section referee
 
 #include <algorithm>
 #include <cctype>
@@ -3324,6 +3325,148 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
         " drifting unit(s) — review the DRIFT / FAIL lines above)"));
     r.ok = true;
     return r;
+}
+
+namespace {
+/// @brief The spline block layout of an animation packfile — what the CB-8 gate compares.
+struct SplineLayout {
+    std::string                cls;   ///< the first animation's class; only hkaSplineCompressedAnimation is compared
+    int                        numTransform = 0, numFloat = 0, numFrames = 0, numBlocks = 0;
+    int                        maxFramesPerBlock = 0, maskAndQuantizationSize = 0;
+    std::vector<std::uint32_t> blockOffsets, floatBlockOffsets;
+    std::vector<std::uint8_t>  data;
+};
+
+std::optional<SplineLayout> ReadSplineLayout(const std::vector<std::uint8_t>& hkx, CB::engine::schema::SchemaRegistry& reg,
+                                             std::string& err) {
+    using CB::engine::codec::io::SchemaObject;
+    auto so  = [](const std::shared_ptr<CB::engine::codec::IHavokObject>& o) { return std::dynamic_pointer_cast<SchemaObject>(o); };
+    auto i32 = [](const std::vector<std::uint8_t>& r) { std::int32_t v = 0; if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v; };
+    auto u32s = [](const std::vector<std::uint8_t>& r) {
+        std::vector<std::uint32_t> v(r.size() / 4);
+        if (!v.empty()) std::memcpy(v.data(), r.data(), v.size() * 4);
+        return v;
+    };
+    try {
+        CB::engine::codec::BinaryReaderEx       br(hkx);
+        CB::engine::codec::PackFileDeserializer des;
+        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(reg);
+        auto root = so(des.Deserialize(br));
+        if (!root) { err = "not a packfile root"; return std::nullopt; }
+        for (auto& nvObj : root->FieldRef("namedVariants").objs) {
+            auto nv = so(nvObj);
+            if (!nv || nv->FieldRef("className").str != "hkaAnimationContainer") continue;
+            auto container = so(nv->FieldRef("variant").obj);
+            if (!container || container->FieldRef("animations").objs.empty()) break;
+            auto a = so(container->FieldRef("animations").objs[0]);
+            if (!a) break;
+            SplineLayout l;
+            l.cls = a->ClassName();
+            if (l.cls != "hkaSplineCompressedAnimation") return l;
+            l.numTransform            = i32(a->FieldRef("numberOfTransformTracks").raw);
+            l.numFloat                = i32(a->FieldRef("numberOfFloatTracks").raw);
+            l.numFrames               = i32(a->FieldRef("numFrames").raw);
+            l.numBlocks               = i32(a->FieldRef("numBlocks").raw);
+            l.maxFramesPerBlock       = i32(a->FieldRef("maxFramesPerBlock").raw);
+            l.maskAndQuantizationSize = i32(a->FieldRef("maskAndQuantizationSize").raw);
+            l.blockOffsets            = u32s(a->FieldRef("blockOffsets").raw);
+            l.floatBlockOffsets       = u32s(a->FieldRef("floatBlockOffsets").raw);
+            l.data                    = a->FieldRef("data").raw;
+            return l;
+        }
+        err = "no hkaAnimationContainer animation";
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    return std::nullopt;
+}
+
+/// @return where the decoder's sequential walk reaches each block's float section (relative), or nullopt if it
+///         can't decode the clip.
+std::optional<std::vector<std::uint32_t>> DecodedFloatStarts(const SplineLayout& l) {
+    std::vector<CB::engine::codec::spline::DecodedPose> poses;
+    std::vector<std::uint32_t>                          starts;
+    if (!CB::engine::codec::spline::DecodeSpline(l.data.data(), l.data.size(), l.numFrames, l.numBlocks,
+                                                 l.maxFramesPerBlock, l.maskAndQuantizationSize, l.blockOffsets.data(),
+                                                 static_cast<int>(l.blockOffsets.size()), l.numTransform, l.numFloat,
+                                                 poses, nullptr, nullptr, &starts))
+        return std::nullopt;
+    return starts;
+}
+
+std::string JoinU32(const std::vector<std::uint32_t>& v) {
+    std::string s;
+    for (std::size_t i = 0; i < v.size() && i < 8; ++i) s += (i ? " " : "") + std::to_string(v[i]);
+    if (v.size() > 8) s += " ...";
+    return s;
+}
+}  // namespace
+
+bool AnimFloatOffsetsGate(const std::string& meshesDir, const std::string& workRoot, const LogFn& log) {
+    namespace fs = std::filesystem;
+    const auto say = [&](const std::string& s) { if (log) log(s); };
+    auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { say("schema registry unavailable: " + CB::engine::schema::SharedRegistryError()); return false; }
+
+    std::size_t scanned = 0, splines = 0, undecodable = 0, withFloat = 0;
+    std::size_t vanAgree = 0, vanDisagree = 0;          ///< vanilla's stored offsets vs the decoder's walk
+    std::size_t oursAgree = 0, oursDisagree = 0, recompileFail = 0, sameLayout = 0, sameLayoutMatch = 0;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(meshesDir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file()) continue;
+        const std::string rel = ToLower(it->path().lexically_relative(meshesDir).generic_string());
+        if (rel.size() < 4 || rel.compare(rel.size() - 4, 4, ".hkx") != 0 || rel.find("animations/") == std::string::npos) continue;
+        ++scanned;
+        std::ifstream f(it->path(), std::ios::binary);
+        const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        std::string err;
+        const auto van = ReadSplineLayout(bytes, *reg, err);
+        if (!van || van->cls != "hkaSplineCompressedAnimation") continue;
+        ++splines;
+        if (van->numFloat > 0) ++withFloat;
+
+        // 1) The decoder must reproduce vanilla's own offsets — that is what proves it measures what the engine reads.
+        const auto vanWalk = DecodedFloatStarts(*van);
+        if (!vanWalk) { ++undecodable; continue; }
+        if (*vanWalk == van->floatBlockOffsets) ++vanAgree;
+        else {
+            if (vanDisagree++ < 5) say("  vanilla/decoder disagree " + rel + ": stored [" + JoinU32(van->floatBlockOffsets) +
+                                       "] walked [" + JoinU32(*vanWalk) + "]");
+            continue;
+        }
+
+        // 2) Recompile; our stored offsets must equal the decoder's walk over OUR bytes.
+        const fs::path work = fs::path(workRoot) / "clip";
+        fs::remove_all(work, ec);
+        fs::create_directories(work, ec);
+        const auto dec = CB::engine::anim::DecompileAnimation(bytes, work);
+        if (!dec.ok) { if (recompileFail++ < 5) say("  recompile skipped " + rel + " — decompile: " + dec.error); continue; }
+        std::ifstream yf(work / "animation.yaml", std::ios::binary);
+        const std::string yaml((std::istreambuf_iterator<char>(yf)), std::istreambuf_iterator<char>());
+        const auto comp = CB::engine::anim::CompileAnimation(CB::engine::anim::AnimationYamlLoader::LoadFromString(yaml, rel));
+        if (!comp.ok) { if (recompileFail++ < 5) say("  recompile skipped " + rel + " — compile: " + comp.error); continue; }
+        const auto ours     = ReadSplineLayout(comp.bytes, *reg, err);
+        const auto oursWalk = ours ? DecodedFloatStarts(*ours) : std::nullopt;
+        if (!oursWalk) { if (recompileFail++ < 5) say("  recompile skipped " + rel + " — our output does not decode"); continue; }
+        if (*oursWalk == ours->floatBlockOffsets) ++oursAgree;
+        else if (oursDisagree++ < 5)
+            say("  FAIL " + rel + ": ours stored [" + JoinU32(ours->floatBlockOffsets) + "] walked [" + JoinU32(*oursWalk) + "]");
+
+        // Where our compressed bytes happen to equal vanilla's, the offsets must equal vanilla's too.
+        if (ours->blockOffsets == van->blockOffsets && ours->data == van->data) {
+            ++sameLayout;
+            if (ours->floatBlockOffsets == van->floatBlockOffsets) ++sameLayoutMatch;
+        }
+    }
+
+    say("anim-float-offsets: " + std::to_string(scanned) + " animation(s) scanned, " + std::to_string(splines) +
+        " spline (" + std::to_string(withFloat) + " with float tracks), " + std::to_string(undecodable) + " undecodable.");
+    say("  vanilla floatBlockOffsets == decoder walk: " + std::to_string(vanAgree) + ", disagree " + std::to_string(vanDisagree));
+    say("  recompiled floatBlockOffsets == decoder walk: " + std::to_string(oursAgree) + ", disagree " +
+        std::to_string(oursDisagree) + ", recompile skipped " + std::to_string(recompileFail));
+    say("  byte-identical to vanilla: " + std::to_string(sameLayout) + " clip(s), offsets equal on " +
+        std::to_string(sameLayoutMatch));
+    return vanDisagree == 0 && oursDisagree == 0 && sameLayoutMatch == sameLayout && oursAgree > 0;
 }
 
 }  // namespace CB::converter

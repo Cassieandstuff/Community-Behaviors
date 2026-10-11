@@ -172,6 +172,10 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
 ///        clips (presence, animIndex, speed, triggers) and each clip's motion through the engine's evaluator.
 bool AdsfProjectionCheck(const std::string& hkyPath, const std::string& vanillaTxt, const LogFn& log);
 bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log);
+/// @brief The CB-8 gate: every vanilla spline animation under `meshesDir` that carries float tracks is decompiled,
+///        recompiled, and its floatBlockOffsets compared against vanilla's. Also reports how vanilla fills the array
+///        for clips without float tracks, and whether its offsets are block-relative.
+bool AnimFloatOffsetsGate(const std::string& meshesDir, const std::string& workRoot, const LogFn& log);
 bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, const LogFn& log);
 bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, const LogFn& log, const std::string& baseHky = "",
                   bool allKinds = false);
