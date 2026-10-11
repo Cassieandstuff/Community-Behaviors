@@ -58,19 +58,20 @@ namespace CB::core::serve {
             return static_cast<bool>(f);
         }
 
-        /// @brief Bundle stem (lowercase) -> priority: loadorder.txt lists winners first.
+        /// @brief Bundle stem (lowercase) -> priority, higher wins.
+        /// @note A later loadorder.txt line wins (the converter writes Skyrim first, the modlist winner last) — the
+        ///       same rule as the Resolver's graph merge and the setdata server, so all three rank mods alike.
         std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
         {
             std::unordered_map<std::string, int> order;
             std::ifstream f(ini);
             std::string   line;
-            int           n = 0;
+            int           idx = 0;
             while (std::getline(f, line)) {
                 line = TrimLine(line);
                 if (line.empty() || line[0] == '#' || line[0] == ';') continue;
-                order.emplace(ToLower(line), n++);
+                order[ToLower(line)] = ++idx;
             }
-            for (auto& [_, v] : order) v = n - v;   // winner first -> highest priority
             return order;
         }
 
