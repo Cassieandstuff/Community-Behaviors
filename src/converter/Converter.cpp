@@ -22,6 +22,7 @@
 #include <process.h>   // _getpid — a private per-process staging root
 #include <mutex>
 #include <thread>
+#include <chrono>
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <decompile/BehaviorDecompile.h>     // ConvertModDelta / DeriveHkyPatch / the reflective unit codec
 #include <interface/reflection/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
@@ -2076,6 +2077,18 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
     } catch (const std::exception& e) { reason = std::string("reload: ") + e.what(); return AnimBakeOutcome::Skip; }
 }
 
+/// @brief Run `f(i)` for every i in [0, n) across the hardware threads. `f` must touch only state of its own index (or
+///        read-only shared state); results land in per-index slots so the caller can fold them in order.
+template <class F>
+static void ParallelFor(std::size_t n, F&& f) {
+    std::atomic<std::size_t> next{ 0 };
+    std::vector<std::thread> pool;
+    const unsigned           nThreads = std::max(1u, std::thread::hardware_concurrency());
+    for (unsigned t = 0; t < nThreads; ++t)
+        pool.emplace_back([&] { for (std::size_t i; (i = next++) < n;) f(i); });
+    for (auto& th : pool) th.join();
+}
+
 BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& templatesDir, const std::string& keepStagingDir) {
@@ -2099,8 +2112,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     ///       a deployed Skyrim.hky came out in the retired format. The bundle's name IS the output's filename.
     const std::string bundle    = fs::path(outHky).filename().string();
     const bool        keepStage = !keepStagingDir.empty();
-    const fs::path    stage     = fs::temp_directory_path(ec) /
-                                  ("cb_base_build_" + fs::path(bundle).stem().string() + "_" + std::to_string(_getpid()));
+    /// @note With a keep root, stage on ITS volume (still a private, per-process folder) so keeping the unpacked tree is
+    ///       a rename — staging in %TEMP% on another drive made it a ~77k-file copy.
+    const fs::path    stage     = (keepStage ? fs::path(keepStagingDir) : fs::temp_directory_path(ec)) /
+                                  ((keepStage ? ".cb_base_build_" : "cb_base_build_") + fs::path(bundle).stem().string() +
+                                   "_" + std::to_string(_getpid()));
     const fs::path    stageHky  = stage / bundle;
     // Baked native ANIMATIONS ride in the bundle itself, reunited with their behaviors/characters/projects,
     // so their ROOT MOTION can feed the adsf; whether they COMPILE/serve is gated per bundle by the manifest
@@ -2119,51 +2135,89 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     /// @note RIG BINDING before any emit: a graph's bone-named fields render through the rig its characters bind
     ///       (project characterFilenames -> character rigName / behaviorFilename), read from the source binaries —
     ///       the same binding the runtime rebuilds from the emitted units (Resolver / BaseUnitCompiler).
+    const auto phaseStart = std::chrono::steady_clock::now();
+    auto       phaseT     = phaseStart;
+    const auto phaseDone  = [&](const char* what) {
+        const auto now = std::chrono::steady_clock::now();
+        say("  (" + std::string(what) + ": " + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(now - phaseT).count()) + "s)");
+        phaseT = now;
+    };
+
+    /// @brief One source .hkx of a behavior-system kind, found by the single tree walk below.
+    struct SourceFile { fs::path path; std::string rel, lower; HkxKind kind; };
+    std::vector<SourceFile> sources;
+
     CB::engine::skeleton::RigIndex                    rigIndex;
     std::map<std::string, std::vector<std::string>> rigBones;   // skeleton serve key -> bone names (original case)
     {
-        std::map<std::string, fs::path> projects, characters;   // serve key -> source file
+        /// @note The walk only LISTS (.hkx by extension, path made relative lexically — fs::relative canonicalizes
+        ///       against the disk, and ran for all ~43k files); the head peeks and the skeleton / project / character
+        ///       reads then fan out, and every map is assembled afterwards in walk order.
+        struct Listed { fs::path path; std::string rel, key; };
+        std::vector<Listed> listed;
         for (fs::recursive_directory_iterator it(meshes, fs::directory_options::skip_permission_denied, ec), end;
              !ec && it != end; it.increment(ec)) {
             std::error_code fe;
             if (!it->is_regular_file(fe) || fe) continue;
-            std::string key = "meshes/" + fs::relative(it->path(), meshes, fe).generic_string();
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (ext != ".hkx") continue;
+            std::string rel = it->path().lexically_relative(meshes).generic_string();
+            std::string key = "meshes/" + rel;
             for (char& c : key) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            if (key.size() < 4 || key.compare(key.size() - 4, 4, ".hkx") != 0) continue;
-            switch (PeekHkxKind(it->path())) {
-                case HkxKind::Project:   projects[key] = it->path(); break;
-                case HkxKind::Character: characters[key] = it->path(); break;
-                case HkxKind::Skeleton: {
-                    std::vector<std::uint8_t> b; std::vector<CB::engine::skeleton::SkeletonData> sk;
-                    if (CB::engine::codec::ReadHavokFile(it->path().string(), b, nullptr) &&
-                        CB::engine::skeleton::LoadSkeletonsFromHkx(b.data(), b.size(), sk, nullptr) && !sk.empty()) {
-                        auto& names = rigBones[key];
-                        for (const auto& bone : sk[0].bones) names.push_back(bone.name);
-                    }
-                    break;
-                }
-                default: break;
-            }
+            listed.push_back({ it->path(), std::move(rel), std::move(key) });
         }
-        for (const auto& [projKey, file] : projects) {
+
+        std::vector<HkxKind>                                listedKind(listed.size(), HkxKind::Other);
+        std::vector<std::optional<std::vector<std::string>>> skelBones(listed.size());
+        ParallelFor(listed.size(), [&](std::size_t i) {
+            listedKind[i] = PeekHkxKind(listed[i].path);
+            if (listedKind[i] != HkxKind::Skeleton) return;
+            std::vector<std::uint8_t> b; std::vector<CB::engine::skeleton::SkeletonData> sk;
+            if (CB::engine::codec::ReadHavokFile(listed[i].path.string(), b, nullptr) &&
+                CB::engine::skeleton::LoadSkeletonsFromHkx(b.data(), b.size(), sk, nullptr) && !sk.empty()) {
+                auto& names = skelBones[i].emplace();
+                for (const auto& bone : sk[0].bones) names.push_back(bone.name);
+            }
+        });
+
+        std::map<std::string, fs::path> projects, characters;   // serve key -> source file
+        for (std::size_t i = 0; i < listed.size(); ++i) {
+            const HkxKind kind = listedKind[i];
+            if (kind != HkxKind::Other) sources.push_back({ listed[i].path, listed[i].rel, listed[i].key.substr(7), kind });
+            if (kind == HkxKind::Project)   projects[listed[i].key] = listed[i].path;
+            if (kind == HkxKind::Character) characters[listed[i].key] = listed[i].path;
+            if (kind == HkxKind::Skeleton && skelBones[i]) rigBones[listed[i].key] = std::move(*skelBones[i]);
+        }
+
+        // Every character's rig and every project's character list, read in parallel; RigIndex is then fed serially.
+        std::vector<std::pair<std::string, fs::path>> charList(characters.begin(), characters.end());
+        std::vector<std::optional<CB::engine::skeleton::CharacterRig>> charRig(charList.size());
+        ParallelFor(charList.size(), [&](std::size_t i) {
+            std::vector<std::uint8_t> cb;
+            if (!CB::engine::codec::ReadHavokFile(charList[i].second.string(), cb, nullptr)) return;
+            WithFirstOfClass(cb, *sreg, "hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
+                charRig[i] = CB::engine::skeleton::CharacterRig{ so.FieldRef("rigName").str, so.FieldRef("behaviorFilename").str };
+            });
+        });
+        std::map<std::string, std::optional<CB::engine::skeleton::CharacterRig>> rigOfChar;
+        for (std::size_t i = 0; i < charList.size(); ++i) rigOfChar.emplace(charList[i].first, std::move(charRig[i]));
+
+        std::vector<std::pair<std::string, fs::path>> projList(projects.begin(), projects.end());
+        std::vector<std::vector<std::string>>         projChars(projList.size());
+        ParallelFor(projList.size(), [&](std::size_t i) {
             std::vector<std::uint8_t> pb;
-            std::vector<std::string>  chars;
-            if (CB::engine::codec::ReadHavokFile(file.string(), pb, nullptr))
+            if (CB::engine::codec::ReadHavokFile(projList[i].second.string(), pb, nullptr))
                 WithFirstOfClass(pb, *sreg, "hkbProjectStringData",
-                                 [&](CB::engine::codec::io::SchemaObject& so) { chars = so.FieldRef("characterFilenames").strs; });
-            rigIndex.AddProject(projKey, chars,
+                                 [&](CB::engine::codec::io::SchemaObject& so) { projChars[i] = so.FieldRef("characterFilenames").strs; });
+        });
+        for (std::size_t i = 0; i < projList.size(); ++i)
+            rigIndex.AddProject(projList[i].first, projChars[i],
                 [&](const std::string& charUnit) -> std::optional<CB::engine::skeleton::CharacterRig> {
-                    const auto c = characters.find(charUnit);
-                    std::vector<std::uint8_t> cb;
-                    if (c == characters.end() || !CB::engine::codec::ReadHavokFile(c->second.string(), cb, nullptr)) return std::nullopt;
-                    std::optional<CB::engine::skeleton::CharacterRig> rig;
-                    WithFirstOfClass(cb, *sreg, "hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
-                        rig = CB::engine::skeleton::CharacterRig{ so.FieldRef("rigName").str, so.FieldRef("behaviorFilename").str };
-                    });
-                    return rig;
+                    const auto c = rigOfChar.find(charUnit);
+                    return c == rigOfChar.end() ? std::nullopt : c->second;
                 },
                 [&](const std::string& rig) { return rigBones.count(rig) != 0; });
-        }
         rigIndex.Finalize();
     }
     const auto bonesFor = [&](const std::string& serveKey) -> const std::vector<std::string>* {
@@ -2173,78 +2227,63 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         return b == rigBones.end() || b->second.empty() ? nullptr : &b->second;
     };
 
+    phaseDone("scan + rig binding");
     say("== Building " + bundle + " (every unit under " + meshes.string() + ") ==");
-    for (fs::recursive_directory_iterator it(meshes, fs::directory_options::skip_permission_denied, ec), end;
-         !ec && it != end; it.increment(ec)) {
-        if (cancel) { r.error = "cancelled"; return r; }
-        std::error_code fe;
-        if (!it->is_regular_file(fe) || fe) continue;
-        const std::string rel = fs::relative(it->path(), meshes, fe).generic_string();
-        if (fe) continue;
-        std::string lower = rel;
-        for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
-        // FORMAT filter (extension only) then TYPE BY CONTENT — no path/name rules. PeekHkxKind reads the
-        // file head's class table; a non-graph .hkx (animation = hkaAnimationContainer) is skipped. This
-        // replaces the old path-matching `isCorpus`, which dropped anything at an unexpected path (e.g. the
-        // first-person skeleton at `characterassets/` — and, the bet, more).
-        if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".hkx") != 0) continue;
-        const HkxKind kind = PeekHkxKind(it->path());
-        if (kind == HkxKind::Other) continue;
-
+    /// @note Every source is independent: it writes only its own unit path, the schema registry and the rig maps are
+    ///       read-only from here on, and each worker bakes animations in its own scratch dir. So the corpus fans across
+    ///       the pool; each file's log lines are buffered and emitted afterwards in walk order (a deterministic log).
+    std::atomic<int> nBehaviors{ 0 }, nProjects{ 0 }, nCharacters{ 0 }, nSkeletons{ 0 }, nFailed{ 0 };
+    std::atomic<int> nAnimOk{ 0 }, nAnimSkip{ 0 }, nAnimFail{ 0 };
+    std::vector<std::string> notes(sources.size());
+    const auto processOne = [&](const SourceFile& s, const fs::path& scratch, std::string& note) {
+        const auto say = [&](const std::string& line) { note += line; note += '\n'; };
+        const std::string& rel   = s.rel;
+        const std::string& lower = s.lower;
         // Everything — behaviors, characters, projects, skeletons AND animations — bakes into the one bundle.
         const fs::path unit = stageHky / "meshes" / fs::path(rel);
 
         // SKELETON: hkaSkeleton -> bonelist.yaml + bones/ unit (SkeletonImport -> EmitSkeletonYamlTree).
         // The runtime builds each rig's bone table from these (Resolver m_skeletons); without one, every
         // bone-named field in that actor's graphs fails to parse.
-        if (kind == HkxKind::Skeleton) {
+        if (s.kind == HkxKind::Skeleton) {
             std::vector<std::uint8_t> sbytes; std::string srerr;
             std::vector<CB::engine::skeleton::SkeletonData> sk; std::string skerr;
-            if (CB::engine::codec::ReadHavokFile(it->path().string(), sbytes, &srerr) &&
+            if (CB::engine::codec::ReadHavokFile(s.path.string(), sbytes, &srerr) &&
                 CB::engine::skeleton::LoadSkeletonsFromHkx(sbytes.data(), sbytes.size(), sk, &skerr) && !sk.empty()) {
                 // Attach per-bone ragdoll physics (mass/radius/capsule/joint) BEFORE emit. Without this the
                 // YAML tree is anim-only, CompileSkeletonFull derives 0 ragdoll bones, and BR's SERVED
                 // skeleton has no ragdoll skeleton (skels[1]) → hkbRagdollDriver can't bind → every humanoid
-                // bind-poses instead of ragdolling on death. Mirrors doSkeletonDecompileTree (the CLI verb);
-                // this master-regen path is a SECOND skeleton HKX->YAML emitter and must round-trip the same.
+                // bind-poses instead of ragdolling on death.
                 std::string perr;
                 if (!CB::engine::skeleton::ReadSkeletonPhysics(sbytes.data(), sbytes.size(), sk[0], &perr))
                     say("  note: skeleton physics read failed for " + rel + " (" + perr + ") — anim-only (no ragdoll derive).");
                 std::string eerr;
-                if (CB::engine::skeleton::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++r.skeletons;
-                else { ++r.failed; say("  skeleton emit FAILED: " + rel + " — " + eerr); }
-            } else { ++r.failed; say("  skeleton read/parse FAILED: " + rel + " — " + (srerr.empty() ? skerr : srerr)); }
-            continue;
+                if (CB::engine::skeleton::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++nSkeletons;
+                else { ++nFailed; say("  skeleton emit FAILED: " + rel + " — " + eerr); }
+            } else { ++nFailed; say("  skeleton read/parse FAILED: " + rel + " — " + (srerr.empty() ? skerr : srerr)); }
+            return;
         }
 
-        // ANIMATION — BAKE the decompiled animation.yaml INTO the master, SELF-GATED on pose fidelity.
-        // Decompile the loose spline animation to animation.yaml in its staged unit dir, then prove the
-        // round-trip: recompile it, re-decompile that, and compare bone rotations frame-by-frame. Only if
-        // the round-trip is faithful (exact frame count + every sample within kBakeMaxRotDeg) does the yaml
-        // stay in the master; otherwise it's removed and the engine falls through to the loose vanilla .hkx.
-        // So only animations CB can reproduce faithfully are served natively — the fidelity gate IS the
-        // bake decision, per-animation, content-based (no path rules). Non-spline / undecodable clips skip.
-        if (kind == HkxKind::Animation) {
-            // A native animation is a SINGLE-FILE unit: the ".hkx" path IS a renamed animation.yaml (NOT a
-            // "<name>.hkx/animation.yaml" tree). The decompile→pose-gate→write logic lives in the shared
-            // BakeAnimationUnit so the master build and per-mod conversion package animations identically;
-            // non-faithful/undecodable => no file written and the engine keeps the loose vanilla .hkx.
+        // ANIMATION — BAKE the decompiled animation.yaml INTO the master, SELF-GATED on pose fidelity: decompile, then
+        // prove the round-trip (recompile, re-decompile, compare bone rotations frame-by-frame). Only a faithful
+        // round-trip stays; otherwise no unit is written and the engine keeps the loose vanilla .hkx.
+        if (s.kind == HkxKind::Animation) {
             std::vector<std::uint8_t> abytes; std::string arerr;
-            if (!CB::engine::codec::ReadHavokFile(it->path().string(), abytes, &arerr)) {
-                ++r.animFail; say("  anim read FAILED: " + rel + " — " + arerr); continue;
+            if (!CB::engine::codec::ReadHavokFile(s.path.string(), abytes, &arerr)) {
+                ++nAnimFail; say("  anim read FAILED: " + rel + " — " + arerr); return;
             }
             std::string reason;
-            switch (BakeAnimationUnit(abytes, unit, stage, reason)) {
-                case AnimBakeOutcome::Ok:   ++r.animOk; break;
+            switch (BakeAnimationUnit(abytes, unit, scratch, reason)) {
+                case AnimBakeOutcome::Ok:   ++nAnimOk; break;
                 case AnimBakeOutcome::Skip:
-                    ++r.animSkip;
+                    ++nAnimSkip;
                     if (reason.find("not spline-compressed") == std::string::npos)   // quiet skip for those
                         say("  anim skip: " + rel + " — " + reason);
                     break;
-                case AnimBakeOutcome::Fail: ++r.animFail; say("  anim FAILED: " + rel + " — " + reason); break;
+                case AnimBakeOutcome::Fail: ++nAnimFail; say("  anim FAILED: " + rel + " — " + reason); break;
             }
-            continue;
+            return;
         }
 
         /// @note BEHAVIOR / CHARACTER / PROJECT — a complete reflective unit (self-owned FormIDs, encounter order), its
@@ -2252,17 +2291,33 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         ///       THIS unit's identity, so no template numbering is involved.
         std::vector<std::uint8_t> bytes;
         std::string rerr;
-        if (!CB::engine::codec::ReadHavokFile(it->path().string(), bytes, &rerr)) { ++r.failed; continue; }
+        if (!CB::engine::codec::ReadHavokFile(s.path.string(), bytes, &rerr)) { ++nFailed; return; }
         std::string derr;
         if (!CB::engine::decompile::DecompileBehaviorReflective(bytes, *sreg, unit.string(), derr, bonesFor("meshes/" + lower))) {
-            ++r.failed;
+            ++nFailed;
             say("  decompile FAILED: " + rel + " — " + derr);
-            continue;
+            return;
         }
-        if      (kind == HkxKind::Behavior)  ++r.behaviors;
-        else if (kind == HkxKind::Character) ++r.characters;
-        else if (kind == HkxKind::Project)   ++r.projects;
+        if      (s.kind == HkxKind::Behavior)  ++nBehaviors;
+        else if (s.kind == HkxKind::Character) ++nCharacters;
+        else if (s.kind == HkxKind::Project)   ++nProjects;
+    };
+    {
+        std::atomic<std::size_t> next{ 0 };
+        std::vector<std::thread> pool;
+        const unsigned           nThreads = std::max(1u, std::thread::hardware_concurrency());
+        for (unsigned t = 0; t < nThreads; ++t)
+            pool.emplace_back([&, t] {
+                const fs::path scratch = stage / ("worker" + std::to_string(t));
+                for (std::size_t i; !cancel && (i = next++) < sources.size();) processOne(sources[i], scratch, notes[i]);
+            });
+        for (auto& th : pool) th.join();
     }
+    if (cancel) { r.error = "cancelled"; return r; }
+    for (const auto& n : notes)
+        if (!n.empty()) say(n.substr(0, n.size() - 1));
+    r.behaviors = nBehaviors; r.projects = nProjects; r.characters = nCharacters; r.skeletons = nSkeletons; r.failed = nFailed;
+    r.animOk = nAnimOk; r.animSkip = nAnimSkip; r.animFail = nAnimFail;
     say("  decompiled: " + std::to_string(r.behaviors) + " behaviors, " +
         std::to_string(r.projects) + " projects, " + std::to_string(r.characters) +
         " characters, " + std::to_string(r.skeletons) + " skeletons (" +
@@ -2270,6 +2325,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     say("  animation round-trip: " + std::to_string(r.animOk) + " ok, " +
         std::to_string(r.animFail) + " failed, " + std::to_string(r.animSkip) +
         " skipped (non-spline / undecodable).");
+    phaseDone("units");
 
     // NOTE: NEITHER singlefile .txt is copied into the master any more — both decompose into their
     // "<name>.txt/" FOLDER below (the winning architecture), and the anim-data / set-data servers
@@ -2430,6 +2486,57 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                     auto lc = [](std::string s){ for (char& c : s) c = (char)std::tolower((unsigned char)c); return s; };
                     std::size_t reunited = 0, unbaked = 0, folded = 0, kept = 0;
                     std::set<std::string> handled;
+
+                    /// @note Each behaviors folder's clip generators are read ONCE (DefaultMale and DefaultFemale share
+                    ///       theirs), every graph in parallel; a project then merges its folders in the original order.
+                    const auto behaviorDirsOf = [&](const auto& proj, const std::string& actorRoot) {
+                        std::set<fs::path> dirs;
+                        for (const auto& asset : proj.assetPaths) {
+                            std::string a = asset;
+                            std::replace(a.begin(), a.end(), '\\', '/');
+                            if (lc(a).rfind("behaviors", 0) == 0) dirs.insert((meshes / actorRoot / a).parent_path());
+                        }
+                        return dirs;
+                    };
+                    const auto actorRootOf = [&](const std::string& ref) {
+                        return fs::path(lc(ref)).parent_path().parent_path().generic_string();
+                    };
+                    std::map<fs::path, std::vector<std::size_t>> dirFiles;   // folder -> its graphs, iteration order
+                    std::vector<fs::path>                        graphFiles;
+                    for (const auto& proj : parsed.projects) {
+                        if (!proj.hasAnimData || proj.motions.empty()) continue;
+                        const auto pit = projChar.find(CB::engine::animdata::StemForProjectName(proj.name));
+                        if (pit == projChar.end()) continue;
+                        for (const auto& d : behaviorDirsOf(proj, actorRootOf(pit->second.ref))) {
+                            if (dirFiles.count(d)) continue;
+                            auto& idx = dirFiles[d];
+                            std::error_code de;
+                            for (fs::directory_iterator di(d, de), dend; !de && di != dend; di.increment(de))
+                                if (lc(di->path().extension().string()) == ".hkx") {
+                                    idx.push_back(graphFiles.size());
+                                    graphFiles.push_back(di->path());
+                                }
+                        }
+                    }
+                    std::vector<std::vector<std::pair<std::string, std::string>>> graphClips(graphFiles.size());
+                    ParallelFor(graphFiles.size(), [&](std::size_t i) {
+                        std::vector<std::uint8_t> bytes;
+                        if (!CB::engine::codec::ReadHavokFile(graphFiles[i].string(), bytes, nullptr)) return;
+                        try {
+                            CB::engine::codec::PackFileDeserializer des;
+                            des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*sreg);
+                            CB::engine::codec::BinaryReaderEx br(false, true, bytes);
+                            des.DeserializePartially(br);
+                            CB::engine::codec::BinaryReaderEx dr(des._header.Endian == 0, des._header.PointerSize == 8, des.DataSectionBytes());
+                            for (const auto& o : des.ConstructAllOfClass(dr, "hkbClipGenerator"))
+                                if (const auto* c = dynamic_cast<const CB::engine::codec::io::SchemaObject*>(o.get()))
+                                    graphClips[i].emplace_back(SoStr(*c, "name"), SoStr(*c, "animationName"));
+                        } catch (...) {}
+                    });
+
+                    /// @brief One animation to receive its motion record (first writer per animation, in project order).
+                    struct ReunionJob { std::string canon; fs::path animYaml; const CB::engine::animdata::MotionRecord* record; };
+                    std::vector<ReunionJob> jobs;
                     for (const auto& proj : parsed.projects) {
                         if (!proj.hasAnimData || proj.motions.empty()) continue;
                         const std::string stem = CB::engine::animdata::StemForProjectName(proj.name);
@@ -2453,31 +2560,10 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                         std::unordered_map<std::string, std::size_t> slotOf;
                         for (std::size_t i = 0; i < roster.size(); ++i) slotOf.emplace(fileKey(roster[i]), i);
                         std::unordered_map<std::string, std::string> clipAnim;   // clip-generator name -> animationName
-                        {
-                            std::set<fs::path> dirs;
-                            for (const auto& asset : proj.assetPaths) {
-                                std::string a = asset;
-                                std::replace(a.begin(), a.end(), '\\', '/');
-                                if (lc(a).rfind("behaviors", 0) == 0) dirs.insert((meshes / actorRoot / a).parent_path());
-                            }
-                            for (const auto& d : dirs)
-                                for (fs::directory_iterator di(d, ec), dend; !ec && di != dend; di.increment(ec)) {
-                                    if (lc(di->path().extension().string()) != ".hkx") continue;
-                                    std::vector<std::uint8_t> bytes;
-                                    if (!CB::engine::codec::ReadHavokFile(di->path().string(), bytes, nullptr)) continue;
-                                    try {
-                                        CB::engine::codec::PackFileDeserializer des;
-                                        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*sreg);
-                                        CB::engine::codec::BinaryReaderEx br(false, true, bytes);
-                                        des.DeserializePartially(br);
-                                        CB::engine::codec::BinaryReaderEx dr(des._header.Endian == 0, des._header.PointerSize == 8, des.DataSectionBytes());
-                                        for (const auto& o : des.ConstructAllOfClass(dr, "hkbClipGenerator"))
-                                            if (const auto* c = dynamic_cast<const CB::engine::codec::io::SchemaObject*>(o.get()))
-                                                clipAnim.emplace(SoStr(*c, "name"), SoStr(*c, "animationName"));
-                                    } catch (...) {}
-                                }
-                            ec.clear();
-                        }
+                        for (const auto& d : behaviorDirsOf(proj, actorRoot))
+                            if (const auto df = dirFiles.find(d); df != dirFiles.end())
+                                for (const std::size_t gi : df->second)
+                                    for (const auto& [name, anim] : graphClips[gi]) clipAnim.emplace(name, anim);
                         std::unordered_map<std::string, const CB::engine::animdata::MotionRecord*> motionByIndex;
                         for (const auto& m : proj.motions) motionByIndex.emplace(m.animIndex, &m);
                         std::vector<std::pair<std::size_t, const CB::engine::animdata::MotionRecord*>> assign;   // roster slot -> record
@@ -2504,18 +2590,28 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                             std::error_code fe;
                             if (!fs::exists(animYaml, fe)) { ++unbaked; continue; }   // not baked -> vanilla loose keeps its adsf motion
                             if (!handled.insert(canon).second) continue;   // the male/female duplicate: identical record
-                            std::ifstream in(animYaml, std::ios::binary);
-                            std::string cur((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-                            in.close();
-                            std::string ferr;
-                            switch (CB::engine::anim::FinalizeUnitMotion(cur, m, &ferr)) {
-                                case CB::engine::anim::UnitMotionForm::Folded:   ++folded; break;
-                                case CB::engine::anim::UnitMotionForm::Explicit: ++kept; break;
-                                default: say("  motion reunion: " + canon + " unreadable — " + ferr); continue;
-                            }
-                            std::ofstream(animYaml, std::ios::binary | std::ios::trunc) << cur;
-                            ++reunited;
+                            jobs.push_back({ canon, animYaml, &m });
                         }
+                    }
+
+                    /// @note The folds are independent (one file each, deduped above), so they run in parallel.
+                    std::vector<int>         form(jobs.size(), 0);   // 1 folded, 2 explicit, 0 unreadable
+                    std::vector<std::string> ferrs(jobs.size());
+                    ParallelFor(jobs.size(), [&](std::size_t i) {
+                        std::ifstream in(jobs[i].animYaml, std::ios::binary);
+                        std::string   cur((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                        in.close();
+                        switch (CB::engine::anim::FinalizeUnitMotion(cur, *jobs[i].record, &ferrs[i])) {
+                            case CB::engine::anim::UnitMotionForm::Folded:   form[i] = 1; break;
+                            case CB::engine::anim::UnitMotionForm::Explicit: form[i] = 2; break;
+                            default: return;
+                        }
+                        std::ofstream(jobs[i].animYaml, std::ios::binary | std::ios::trunc) << cur;
+                    });
+                    for (std::size_t i = 0; i < jobs.size(); ++i) {
+                        if (form[i] == 0) { say("  motion reunion: " + jobs[i].canon + " unreadable — " + ferrs[i]); continue; }
+                        ++(form[i] == 1 ? folded : kept);
+                        ++reunited;
                     }
                     say("  motion reunion: " + std::to_string(reunited) + " animation(s) reunited with their motion record — " +
                         std::to_string(folded) + " folded onto [Root] (fold gate passed), " + std::to_string(kept) +
@@ -2528,9 +2624,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         }
     }
 
+    phaseDone("editable caches + motion reunion");
     say("  packing -> " + outHky + " ...");
     std::string zerr;
     if (!CB::converter::platform::ZipDir(stageHky.string(), outHky, zerr)) { r.error = "pack failed: " + zerr; return r; }
+    phaseDone("pack");
 
     if (keepStage) {
         const fs::path kept = fs::path(keepStagingDir) / bundle;
@@ -2545,8 +2643,10 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         if (ke) say("  WARN: could not keep the unpacked tree at " + kept.string() + " (" + ke.message() + ")");
         else    say("  kept unpacked tree: " + kept.string());
     }
+    if (keepStage) phaseDone("keep unpacked tree");
     fs::remove_all(stage, ec);   // the private staging root never outlives the build
     say("  built: " + outHky);
+    say("  (total: " + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - phaseStart).count()) + "s)");
     r.ok = true;
     return r;
 }
