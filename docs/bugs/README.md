@@ -19,6 +19,16 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   **tagfile** format; a few CreationClub assets ship as tagfiles and are skipped by the master build.
 - [CB-7](CB-7-fnis-not-on-formid-format.md) — OPEN: FNIS conversion isn't on the FormID .hky format yet; a load
   order with FNIS lists skips them (the converter logs `FNIS: FAILED`).
+- [CB-9](CB-9-setdata-names-lowercased.md) — OPEN: set-data sets/projects a mod ADDS are served with
+  lowercased names (converter writes them folded; the server rebuilds names from folded bundle listings).
+- [CB-10](CB-10-roster-fold-exact-case.md) — OPEN: the author roster fold dedups by exact case while LoadClips
+  keys by lowercase filename — a case-only duplicate pads the roster and kills the base slot.
+- [CB-11](CB-11-cache-file-case.md) — INVESTIGATING: compiled cache files are written lowercase but the swap
+  opens them with original case; only works if the VFS lookup is case-insensitive (comments disagree).
+- [CB-12](CB-12-bom-handling.md) — OPEN: a UTF-8 BOM breaks packed units (ZipUnitSource ignores the strip
+  contract) and line-based text files (rosters, loadorder.txt).
+- [CB-13](CB-13-unchecked-writes.md) — OPEN: `.hky` unit emits and converter rewrites don't check writes, so
+  a failed write silently drops nodes or truncates `animation.yaml`.
 
 ## Per-bug file template
 
