@@ -36,7 +36,7 @@ namespace CB::core::debug {
     };
 
     // The registry. Array order == display order in the Debug tab.
-    inline constexpr std::array<Flag, 8> kFlags{ {
+    inline constexpr auto kFlags = std::to_array<Flag>({
         { "force_regenerate", FlagKind::IniBool, "Cache", "bForceRegenerate", false,
           "Force cache regenerate",
           "Recompile the whole behavior cache at launch instead of reusing the on-disk one. "
@@ -60,6 +60,6 @@ namespace CB::core::debug {
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
           "watch: list) per-frame ON CHANGE to a greppable file." },
-    } };
+    });
 
 }  // namespace CB::core::debug
