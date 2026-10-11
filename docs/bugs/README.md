@@ -19,8 +19,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   **tagfile** format; a few CreationClub assets ship as tagfiles and are skipped by the master build.
 - [CB-7](CB-7-fnis-not-on-formid-format.md) — OPEN: FNIS conversion isn't on the FormID .hky format yet; a load
   order with FNIS lists skips them (the converter logs `FNIS: FAILED`).
-- [CB-9](CB-9-setdata-names-lowercased.md) — OPEN: set-data sets/projects a mod ADDS are served with
-  lowercased names (converter writes them folded; the server rebuilds names from folded bundle listings).
+- [CB-9](CB-9-setdata-names-lowercased.md) — INVESTIGATING (fix landed, unexercised): set-data sets/projects a
+  mod ADDS were served lowercased; listings and the converter now keep original case.
 - [CB-11](CB-11-cache-file-case.md) — INVESTIGATING (fix landed, needs an in-game check): cache files were
   written lowercase but swapped open with the request's raw case; every swap now names the exact file written.
 - [CB-12](CB-12-bom-handling.md) — OPEN: a UTF-8 BOM breaks packed units (ZipUnitSource ignores the strip

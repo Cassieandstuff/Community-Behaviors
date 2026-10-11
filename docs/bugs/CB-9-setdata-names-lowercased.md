@@ -1,6 +1,6 @@
 # CB-9: new set-data sets/projects are served with lowercased names
 
-**Status:** OPEN
+**Status:** INVESTIGATING (fix landed; nothing in the current load order exercises it)
 **First seen:** 2026-10-11   **Area:** converter + runtime (setdata serve)
 
 ## Symptom
@@ -26,7 +26,10 @@ Original case is lost twice on the way from Nemesis input to the served file:
   vanilla), not this bug.
 
 ## Disposition
-Unverified whether the engine's lookup of a set/project by name is case-sensitive (the server comment at
-`AnimationSetDataServer.cpp` ~518 says the singleton is keyed by the header's file stem). Per the CLAUDE.md
-case directive, fix regardless: list with original case (`filesUnderOrig` / an original-case
-`subdirs`/`files`), and have the converter write original-case names.
+Fixed per the CLAUDE.md case directive (whether the engine's set/project lookup is case-sensitive was never
+verified): `BundleReader::subdirs` / `files` return ORIGINAL-case names for packed bundles too, the movesets
+listing uses `filesUnderOrig`, and the Nemesis set-data converter writes the project folder and set files under
+their original names. Existing bundles keep their lowercase names until reconverted — harmless for them: every
+set and project the current load order's mods touch already exists in vanilla (checked against the vanilla
+single file's 510 set names), and `MergeInto` keeps the vanilla spelling. Close once a mod that ADDS a set or
+project is reconverted and served with its authored spelling.

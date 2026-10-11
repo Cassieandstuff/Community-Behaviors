@@ -78,14 +78,18 @@ namespace CB {
     {
         std::vector<std::string> out;
         if (m_arc) {
+            /// @note ORIGINAL-case names (a setdata project folder becomes the served header): the listing is by
+            ///       key order, PathKey is length-preserving so the key offsets slice the original paths, and a
+            ///       child seen under two spellings is listed once, as its first.
             const std::string base = DirBase(dirPrefix);
-            std::set<std::string> seen;   // dedup: many files share one child dir
-            for (const auto& full : m_arc->filesUnder(base)) {
-                const std::string rest = full.substr(base.size());   // "child/….txt" or "file.txt"
+            std::set<std::string> seen;
+            for (const auto& full : m_arc->filesUnderOrig(base)) {
+                const std::string rest = full.substr(base.size());   // "Child/….txt" or "File.txt"
                 const auto slash = rest.find('/');
-                if (slash != std::string::npos) seen.insert(rest.substr(0, slash));  // has a subdir
+                if (slash == std::string::npos) continue;
+                std::string child = rest.substr(0, slash);
+                if (seen.insert(PathKey(child)).second) out.push_back(std::move(child));
             }
-            out.assign(seen.begin(), seen.end());
             return out;
         }
         std::error_code ec;
@@ -102,10 +106,10 @@ namespace CB {
         std::vector<std::string> out;
         if (m_arc) {
             const std::string base = DirBase(dir);
-            for (const auto& full : m_arc->filesUnder(base)) {
+            for (const auto& full : m_arc->filesUnderOrig(base)) {   // ORIGINAL-case names (see subdirs)
                 const std::string rest = full.substr(base.size());
                 if (rest.find('/') != std::string::npos) continue;   // deeper, not a direct child file
-                if (!extLower.empty() && !EndsWith(rest, extLower)) continue;  // rest already lowercased
+                if (!extLower.empty() && !EndsWith(PathKey(rest), extLower)) continue;
                 out.push_back(rest);
             }
             return out;

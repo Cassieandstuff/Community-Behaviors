@@ -8,6 +8,7 @@
 #include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml
 #include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
+#include <codec/resource/PathKey.h>
 
 #include <algorithm>
 #include <atomic>
@@ -111,18 +112,17 @@ namespace CB::core::serve {
         // the bundle contributes no set-data. Malformed set files are skipped with a warning
         // appended to `warn` (Nemesis patch-form files carrying <!-- … --> markers land here —
         // they start with "V3" but fail the strict parse). Reads through BundleReader so the
-        // bundle may be an unpacked dir OR a packed .hky (a packed bundle yields lowercase dir/
-        // file names; MergeInto matches case-insensitively, so the merge is unchanged).
+        // bundle may be an unpacked dir OR a packed .hky — both list names in their original case.
         bool LoadBundleDelta(const BundleReader& b, asd::SingleFile& out, std::string& warn)
         {
             constexpr const char* kRoot = "meshes/animationsetdata";
             bool any = false;
             for (const std::string& dirName : b.subdirs(kRoot)) {   // e.g. "defaultmaledata"
-                // Reconstruct the single-file header "<Dir>\<Dir-minus-'data'>.txt". Case is
-                // whatever the bundle stored; MergeInto matches case-insensitively so this
-                // still binds to the correctly-cased vanilla project.
+                /// @note Reconstruct the single-file header "<Dir>\<Dir-minus-'Data'>.txt" from the folder NAME,
+                ///       which the listing returns in its original case — the header is served verbatim, so a
+                ///       project a mod adds keeps its authored spelling (CB-9).
                 std::string stem = dirName;
-                const std::string low = ToLower(dirName);
+                const std::string low = CB::engine::codec::resource::PathKey(dirName);
                 if (low.size() > 4 && low.compare(low.size() - 4, 4, "data") == 0)
                     stem = dirName.substr(0, dirName.size() - 4);
 
@@ -262,7 +262,7 @@ namespace CB::core::serve {
                 // file.txt/movesets/<project>.yaml (the same convention the master ships; the old
                 // per-actor animdata/movesets/ layout is gone). The project = the file stem. CRCs
                 // derive later from the roster.
-                for (const std::string& path : rd->filesUnder("meshes/animationsetdatasinglefile.txt/movesets", ".yaml")) {
+                for (const std::string& path : rd->filesUnderOrig("meshes/animationsetdatasinglefile.txt/movesets", ".yaml")) {
                     const auto y = rd->read(path);
                     if (!y) continue;
                     std::string proj = path.substr(path.find_last_of('/') + 1);   // "<project>.yaml"

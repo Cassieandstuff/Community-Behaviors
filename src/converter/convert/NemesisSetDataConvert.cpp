@@ -176,9 +176,10 @@ NemesisConvertStats ConvertNemesisSetData(const std::vector<std::filesystem::pat
     // Emit the combined set-data delta as split form into the bundle.
     for (const Project& proj : combined.projects) {
         const std::size_t bs = proj.header.find('\\');
-        const std::string projDataDir = ToLower(bs == std::string::npos ? proj.header : proj.header.substr(0, bs));
+        /// @note Original-case names: the runtime rebuilds the served header and set names from these (CB-9).
+        const std::string projDataDir = bs == std::string::npos ? proj.header : proj.header.substr(0, bs);
         for (const SetFile& set : proj.sets) {
-            const fs::path out = bundle / "meshes" / "animationsetdata" / projDataDir / ToLower(set.name);
+            const fs::path out = bundle / "meshes" / "animationsetdata" / projDataDir / set.name;
             if (!WriteAll(out, EmitSetFile(set))) {
                 Say(log, "  FAILED to write '" + out.string() + "'");
                 ++stats.fails;
@@ -203,7 +204,7 @@ NemesisConvertStats ConvertNemesisSetData(const std::vector<std::filesystem::pat
         std::vector<std::string>        uniq;
         std::unordered_set<std::string> seen;
         for (const std::string& n : names)
-            if (seen.insert(ToLower(n)).second) uniq.push_back(n);
+            if (seen.insert(n).second) uniq.push_back(n);
         std::string body;
         for (const std::string& n : uniq) { body += n; body += "\r\n"; }
         // BR-specific delta (not a game-file mirror): one file per character, keyed by the
