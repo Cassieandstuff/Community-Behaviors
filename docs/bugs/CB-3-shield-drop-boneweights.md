@@ -1,6 +1,6 @@
 # CB-3: shield lowers while moving with block held
 
-**Status:** INVESTIGATING — **all compiled content exonerated (2026-09-13); cause is the SERVE/DELIVERY layer**
+**Status:** KNOWN ISSUE for the 0.3.3 release (2026-10-10) — **all compiled content exonerated (2026-09-13); cause is the SERVE/DELIVERY layer**. Retest on the 0.3.3 RC: the serve hooks have since moved onto the hook-point layer.
 **First seen:** 2026-09-11   **Area:** serve (byteserve / project-redirect / above-OAR delivery)
 
 ## ⚠️ 2026-09-13 UPDATE — the boneWeights theory below is SUPERSEDED
