@@ -1372,7 +1372,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             // Pandora-compat (CONVERTER-ONLY): reproduce Pandora/Nemesis's occurrence-counted
             // placement for numeric text-array params (boneWeights &c) BEFORE the positional
             // strip, so converted bundles match the ecosystem's output. Element params are left
-            // for StripPatchOriginals below. See docs/bugs/CB-3.
+            // for StripPatchOriginals below.
             CB::engine::compat::ApplyNemesisTextArrayEdits(parseText);
             CB::engine::common::xml::StripPatchOriginals(parseText);
         }

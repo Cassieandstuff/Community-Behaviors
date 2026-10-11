@@ -17,7 +17,7 @@
 // a whitespace-flexible regex, and Pandora replaces the Nth NON-OVERLAPPING match of it in
 // the base array, where N = how many times ORIGINAL already occurs in the text PRECEDING the
 // block. When the edited window lies inside a longer run of identical values, that match
-// snaps to the run's start, so the edit lands a few elements early (see docs/bugs/CB-3: a
+// snaps to the run's start, so the edit lands a few elements early (e.g. a
 // Weapon Styles boneWeight edit authored at the L-arm twist bones lands 2 bones early on the
 // toes under Pandora). CB's native path (xml::StripPatchOriginals) instead keeps each OPEN
 // block in place positionally — more literally faithful to the mod's authored line offsets,

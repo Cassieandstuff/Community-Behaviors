@@ -3,7 +3,7 @@
 // "the schema names a membrane; the membrane calls the linker." A schema field carries a tag like
 // `IndexMembrane: roster` or `BoneMembrane: positional`; at bind time the compiler resolves the tag's
 // table from the BindingContext and applies the membrane in both directions (encode=compile,
-// decode=decompile) over the SAME field descriptor — one descriptor read two ways (CB-3 drift-proofing).
+// decode=decompile) over the SAME field descriptor — one descriptor read two ways (drift-proofing).
 //
 // Four membranes cover the whole hky format (see the linker/membrane spec):
 //   EnumMembrane   static table (schema metadata)               mode, eventMode
