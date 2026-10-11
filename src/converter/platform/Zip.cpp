@@ -23,16 +23,27 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
     // Land the archive OUTSIDE the tree we're zipping (else we'd try to add the .zip to
     // itself). Make its parent, and remember its canonical path so the walk skips it even
     // if the caller points it inside srcDir.
+    /// @note Written to `<zipPath>.partial` and renamed over `zipPath` only once finalized, so a failed or
+    ///       interrupted pack never leaves a truncated archive (or deletes the previous good one) at `zipPath`.
     fs::create_directories(fs::path(zipPath).parent_path(), ec);
-    fs::remove(zipPath, ec);   // never append to a stale archive
+    const std::string tmpPath = zipPath + ".partial";
+    fs::remove(tmpPath, ec);   // never append to a stale archive
     const fs::path zipCanon = fs::weakly_canonical(zipPath, ec);
+    const fs::path tmpCanon = fs::weakly_canonical(tmpPath, ec);
 
     mz_zip_archive zip;
     std::memset(&zip, 0, sizeof zip);
-    if (!mz_zip_writer_init_file(&zip, zipPath.c_str(), 0)) {
-        err = "cannot create zip: " + zipPath;
+    if (!mz_zip_writer_init_file(&zip, tmpPath.c_str(), 0)) {
+        err = "cannot create zip: " + tmpPath;
         return false;
     }
+    const auto abandon = [&](std::string why) {
+        mz_zip_writer_end(&zip);
+        std::error_code re;
+        fs::remove(tmpPath, re);
+        err = std::move(why);
+        return false;
+    };
 
     // Manual DFS instead of recursive_directory_iterator: a single unreadable entry only
     // skips that subtree — it can NEVER terminate the whole walk and silently truncate the
@@ -52,7 +63,10 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
             std::error_code fe;
             if (di->is_directory(fe) && !fe) { stack.push_back(di->path()); continue; }
             if (!di->is_regular_file(fe) || fe) continue;
-            if (!zipCanon.empty() && fs::weakly_canonical(di->path(), fe) == zipCanon) continue;  // never self-add
+            if (!zipCanon.empty()) {                                                               // never self-add
+                const fs::path canon = fs::weakly_canonical(di->path(), fe);
+                if (canon == zipCanon || canon == tmpCanon) continue;
+            }
 
             std::string arc = fs::relative(di->path(), root, fe).generic_string();
             if (fe || arc.empty()) { ++skipped; continue; }
@@ -99,7 +113,7 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
             });
         for (auto& t : pool) t.join();
 
-        bool failed = false;
+        std::string failed;
         for (std::size_t i = 0; i < n; ++i) {
             Packed& p = batch[i];
             const std::string& arc = files[start + i].second;
@@ -109,18 +123,24 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
                                            MZ_ZIP_FLAG_COMPRESSED_DATA, p.size, p.crc)
                 : mz_zip_writer_add_mem(&zip, arc.c_str(), p.raw.data(), p.raw.size(), MZ_NO_COMPRESSION);
             if (p.deflated) { mz_free(p.deflated); p.deflated = nullptr; }
-            if (!good) { err = "failed adding to zip: " + arc; failed = true; break; }
+            if (!good) { failed = "failed adding to zip: " + arc; break; }
             ++added;
         }
-        if (failed) {
+        if (!failed.empty()) {
             for (auto& p : batch) if (p.deflated) mz_free(p.deflated);
-            mz_zip_writer_end(&zip);
-            return false;
+            return abandon(std::move(failed));
         }
     }
-    if (!mz_zip_writer_finalize_archive(&zip)) { mz_zip_writer_end(&zip); err = "zip finalize failed"; return false; }
+    if (added == 0) return abandon("nothing to zip (run Convert first)");
+    if (!mz_zip_writer_finalize_archive(&zip)) return abandon("zip finalize failed");
     mz_zip_writer_end(&zip);
-    if (added == 0) { err = "nothing to zip (run Convert first)"; return false; }
+    fs::rename(tmpPath, zipPath, ec);
+    if (ec) {
+        std::error_code re;
+        fs::remove(tmpPath, re);
+        err = "cannot replace '" + zipPath + "': " + ec.message();
+        return false;
+    }
     if (skipped > 0) err = "warning: " + std::to_string(skipped) + " unreadable file(s) skipped";  // non-fatal
     return true;
 }

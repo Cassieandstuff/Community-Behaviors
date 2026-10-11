@@ -1935,7 +1935,9 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             const fs::path tmp = plugins / (dir.filename().string() + ".packing");
             std::error_code de;
             std::string     zerr;
-            if (CB::converter::platform::ZipDir(dir.string(), tmp.string(), zerr)) {
+            /// @note A pack that skipped unreadable files is incomplete — keep the unpacked bundle rather than
+            ///       replace it with an archive missing those files.
+            if (CB::converter::platform::ZipDir(dir.string(), tmp.string(), zerr) && zerr.empty()) {
                 fs::remove_all(dir, de);
                 fs::rename(tmp, dir, de);   // <code>.hky is now the packed archive file
                 if (de) { say("  WARN: could not replace '" + dir.filename().string() + "': " + de.message()); ++packFail; }
@@ -2601,7 +2603,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     phaseDone("editable caches + motion reunion");
     say("  packing -> " + outHky + " ...");
     std::string zerr;
-    if (!CB::converter::platform::ZipDir(stageHky.string(), outHky, zerr)) { r.error = "pack failed: " + zerr; return r; }
+    /// @note A skipped (unreadable) file means an incomplete master — fail rather than ship it.
+    if (!CB::converter::platform::ZipDir(stageHky.string(), outHky, zerr) || !zerr.empty()) {
+        r.error = "pack failed: " + zerr;
+        return r;
+    }
     phaseDone("pack");
 
     if (keepStage) {
