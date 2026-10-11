@@ -15,10 +15,8 @@
 #include <feature-sdk/FeatureRegistry.h>
 #include "features/ERGate.h"   // CB::feature::ergate::kGateVar
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <format>
 #include <string>
 #include <string_view>
@@ -33,13 +31,6 @@ namespace CB::feature {
         constexpr std::int64_t kLocalWildcard    = 2048;   ///< FLAG_IS_LOCAL_WILDCARD — spared
         constexpr std::int64_t kDisableCondition = 256;    ///< FLAG_DISABLE_CONDITION
 
-        std::int16_t readI16(const io::FieldValue& v) {
-            std::int16_t x = 0;
-            std::memcpy(&x, v.raw.data(), std::min<std::size_t>(v.raw.size(), 2));
-            return x;
-        }
-        std::string readStr(io::SchemaObject& so, const char* field) { return so.FieldRef(field).str; }
-
         /// @brief Gate every GLOBAL wildcard transition of every state machine on `!gateVar`; returns the count.
         /// @note  Per wildcard: clear FLAG_DISABLE_CONDITION so the condition is evaluated, and give it an
         ///        hkbExpressionCondition of "!<gateVar>" — ANDed into a live expression; a live STRING condition
@@ -53,33 +44,31 @@ namespace CB::feature {
             const std::string gate = "!" + gateVar;
             std::size_t gated = 0;
             graph.ForEach("hkbStateMachine", [&](io::SchemaObject& sm) {
-                auto* array = dynamic_cast<io::SchemaObject*>(sm.FieldRef("wildcardTransitions").obj.get());
+                io::SchemaObject* array = sm.Child("wildcardTransitions");
                 if (!array) return;
                 const std::size_t before = gated;
-                for (const auto& e : array->FieldRef("transitions").objs) {
+                for (const auto& e : array->Children("transitions")) {
                     auto* t = dynamic_cast<io::SchemaObject*>(e.get());
                     if (!t) continue;
-                    io::FieldValue& flagsField = t->FieldRef("flags");
-                    const std::int64_t flags = readI16(flagsField);
+                    const std::int64_t flags = t->GetInt("flags");
                     if (flags & kLocalWildcard) continue;
                     const bool wasDisabled = (flags & kDisableCondition) != 0;
-                    const std::int16_t cleared = static_cast<std::int16_t>(flags & ~kDisableCondition);
-                    flagsField.raw.assign(reinterpret_cast<const std::uint8_t*>(&cleared), reinterpret_cast<const std::uint8_t*>(&cleared) + 2);
+                    t->SetInt("flags", flags & ~kDisableCondition);
 
                     io::FieldValue& condField = t->FieldRef("condition");
                     auto* cond = dynamic_cast<io::SchemaObject*>(condField.obj.get());
                     std::string expr = gate;
                     if (!wasDisabled && cond && std::string_view(cond->ClassName()) == "hkbExpressionCondition" &&
-                        !readStr(*cond, "expression").empty()) {
-                        expr = "(" + readStr(*cond, "expression") + ") && (" + gate + ")";
+                        !cond->Str("expression").empty()) {
+                        expr = "(" + cond->Str("expression") + ") && (" + gate + ")";
                     } else if (!wasDisabled && cond && std::string_view(cond->ClassName()) == "hkbStringCondition" &&
-                               !readStr(*cond, "conditionString").empty()) {
+                               !cond->Str("conditionString").empty()) {
                         log.Warn(std::format("ER gate: wildcard in '{}'/{} has a live string condition — gate replaces it "
-                                             "(block-when-locked wins).", graphKey, readStr(sm, "name")));
+                                             "(block-when-locked wins).", graphKey, sm.Str("name")));
                     }
                     auto gateCond = graph.Make("hkbExpressionCondition");
                     if (!gateCond) { log.Warn("ER gate: hkbExpressionCondition missing from the schema"); return; }
-                    gateCond->FieldRef("expression").str = expr;
+                    gateCond->Str("expression") = expr;
                     condField.obj = gateCond;
                     ++gated;
                 }

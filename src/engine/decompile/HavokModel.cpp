@@ -224,11 +224,7 @@ NameResolver buildResolver(const Identity& identity) {
         if (std::string(obj->ClassName()) != "hkbBehaviorGraphData") continue;
         const auto* gd = dynamic_cast<const io::SchemaObject*>(obj);
         if (!gd) continue;
-        const auto gf = gd->Fields();
-        const auto& gv = gd->Values();
-        for (std::size_t i = 0; i < gf.size(); ++i)
-            if (gf[i]->name == "stringData" && gv[i].obj)
-                target = dynamic_cast<const io::SchemaObject*>(gv[i].obj.get());
+        target = gd->Child("stringData");
         break;
     }
     for (const auto& [obj, cat] : identity.category) {
@@ -236,33 +232,16 @@ NameResolver buildResolver(const Identity& identity) {
         const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
         if (!so) continue;
         if (target && so != target) continue;   // prefer the graph-data's own string-data
-        const auto flds = so->Fields();
-        const auto& vs = so->Values();
-        for (std::size_t i = 0; i < flds.size(); ++i) {
-            const std::string& n = flds[i]->name;
-            if      (n == "eventNames")             nr.events     = vs[i].strs;
-            else if (n == "variableNames")          nr.variables  = vs[i].strs;
-            else if (n == "attributeNames")         nr.attributes = vs[i].strs;
-            else if (n == "characterPropertyNames") nr.charProps  = vs[i].strs;
-        }
+        if (const io::FieldValue* v = so->FindField("eventNames"))             nr.events     = v->strs;
+        if (const io::FieldValue* v = so->FindField("variableNames"))          nr.variables  = v->strs;
+        if (const io::FieldValue* v = so->FindField("attributeNames"))         nr.attributes = v->strs;
+        if (const io::FieldValue* v = so->FindField("characterPropertyNames")) nr.charProps  = v->strs;
         break;   // one string-data table per graph
     }
     nr.index();   // build the name<->index codecs from the parsed rosters
     return nr;
 }
 
-// field lookup on a SchemaObject
-const io::FieldValue* fieldByName(const io::SchemaObject& so, const std::string& name, const Field** outF = nullptr) {
-    const auto flds = so.Fields();
-    const auto& vs = so.Values();
-    for (std::size_t i = 0; i < flds.size(); ++i)
-        if (flds[i]->name == name) { if (outF) *outF = flds[i]; return &vs[i]; }
-    return nullptr;
-}
-
-// ── typed field getters over a SchemaObject ───────────────────────────────────
-long  fInt  (const io::SchemaObject& so, const char* n) { const Field* f=nullptr; auto* v=fieldByName(so,n,&f); return (v&&f)?static_cast<long>(decodeInt(v->raw,f->scalar)):0; }  // fInt stays long (small fields); explicit cast, no #6 truncation concern
-std::string fStr(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v?v->str:std::string(); }
 /// @return The referenced node's canonical id, or "" if null / not identified.
 std::string refIdOf(const std::shared_ptr<IHavokObject>& p, const Identity& id) {
     if (!p) return {};
@@ -465,16 +444,8 @@ std::string flowList(std::size_t n, F&& at) {
 ///       mods add or change entries by name. Lossless under invariants that hold for every vanilla graph (parallel
 ///       lengths, unique names, empty min/max, quad/variant indices running in variable order); an object that
 ///       breaks one keeps the raw field form.
-const io::SchemaObject* ptrObj(const io::SchemaObject& so, const char* field) {
-    const io::FieldValue* v = fieldByName(so, field);
-    return v ? dynamic_cast<const io::SchemaObject*>(v->obj.get()) : nullptr;
-}
-const std::vector<std::shared_ptr<IHavokObject>>* objsOf(const io::SchemaObject& so, const char* field) {
-    const io::FieldValue* v = fieldByName(so, field);
-    return v ? &v->objs : nullptr;
-}
 const std::vector<std::string>* strsOf(const io::SchemaObject* so, const char* field) {
-    const io::FieldValue* v = so ? fieldByName(*so, field) : nullptr;
+    const io::FieldValue* v = so ? so->FindField(field) : nullptr;
     return v ? &v->strs : nullptr;
 }
 /// @brief VECTOR3 / VECTOR4 / QUATERNION variables store their value in the quad array (word = quad index).
@@ -495,26 +466,26 @@ bool isPointerType(long t) { return t == 5; }
 /// @brief The valued roster renders losslessly as records: names / infos / words in lockstep, unique names, and the
 ///        quad / variant indices running in roster order over the whole quad / variant array.
 bool valuedRenderable(const io::SchemaObject& owner, const ValuedRoster& r, bool lenient = false) {
-    const auto* sd = ptrObj(owner, "stringData");
-    const auto* vs = ptrObj(owner, r.values);
+    const auto* sd = owner.Child("stringData");
+    const auto* vs = owner.Child(r.values);
     if (!sd || !vs) return false;
     const auto* names = strsOf(sd, r.names);
-    const auto* infos = objsOf(owner, r.infos);
-    const auto* words = objsOf(*vs, "wordVariableValues");
-    const io::FieldValue* quads = fieldByName(*vs, "quadVariableValues");
-    const auto* variants = objsOf(*vs, "variantVariableValues");
-    if (!names || !infos || !words || !quads || !variants) return false;
-    if (names->size() != infos->size() || names->size() != words->size() || (!lenient && !uniqueNames(*names))) return false;
+    const auto& infos = owner.Children(r.infos);
+    const auto& words = vs->Children("wordVariableValues");
+    const io::FieldValue* quads = vs->FindField("quadVariableValues");
+    const auto& variants = vs->Children("variantVariableValues");
+    if (!names || !quads) return false;
+    if (names->size() != infos.size() || names->size() != words.size() || (!lenient && !uniqueNames(*names))) return false;
     std::size_t q = 0, p = 0;
-    for (std::size_t i = 0; i < infos->size(); ++i) {
-        const auto* info = dynamic_cast<const io::SchemaObject*>((*infos)[i].get());
-        const auto* word = dynamic_cast<const io::SchemaObject*>((*words)[i].get());
+    for (std::size_t i = 0; i < infos.size(); ++i) {
+        const auto* info = dynamic_cast<const io::SchemaObject*>(infos[i].get());
+        const auto* word = dynamic_cast<const io::SchemaObject*>(words[i].get());
         if (!info || !word) return false;
-        const long t = fInt(*info, "type");
-        if (isPointerType(t)) { if (fInt(*word, "value") != static_cast<long>(p)) return false; ++p; }
-        else if (isQuadType(t)) { if (fInt(*word, "value") != static_cast<long>(q)) return false; ++q; }
+        const long t = static_cast<long>(info->GetInt("type"));
+        if (isPointerType(t)) { if (word->GetInt("value") != static_cast<long>(p)) return false; ++p; }
+        else if (isQuadType(t)) { if (word->GetInt("value") != static_cast<long>(q)) return false; ++q; }
     }
-    return q * 16 == quads->raw.size() && p == variants->size();
+    return q * 16 == quads->raw.size() && p == variants.size();
 }
 
 /// @brief `lenient` (derive's MOD side only) allows duplicate names: a mod that renames an entry onto a name the roster
@@ -523,16 +494,16 @@ bool valuedRenderable(const io::SchemaObject& owner, const ValuedRoster& r, bool
 bool vocabRenderable(const io::SchemaObject& so, bool lenient = false) {
     if (so.Schema()->vocab == "character") return valuedRenderable(so, kCharacterProperties, lenient);
     if (so.Schema()->vocab != "graph" || !valuedRenderable(so, kGraphVariables, lenient)) return false;
-    const auto* sd = ptrObj(so, "stringData");
+    const auto* sd = so.Child("stringData");
     const auto* en = strsOf(sd, "eventNames");
     const auto* cn = strsOf(sd, "characterPropertyNames");
     const auto* an = strsOf(sd, "attributeNames");
-    const auto* ei = objsOf(so, "eventInfos");
-    const auto* ci = objsOf(so, "characterPropertyInfos");
-    const io::FieldValue* ad = fieldByName(so, "attributeDefaults");
-    if (!en || !cn || !an || !ei || !ci || !ad) return false;
-    if (en->size() != ei->size() || cn->size() != ci->size() || an->size() * 4 != ad->raw.size()) return false;
-    if (!objsOf(so, "wordMinVariableValues")->empty() || !objsOf(so, "wordMaxVariableValues")->empty()) return false;
+    const auto& ei = so.Children("eventInfos");
+    const auto& ci = so.Children("characterPropertyInfos");
+    const io::FieldValue* ad = so.FindField("attributeDefaults");
+    if (!en || !cn || !an || !ad) return false;
+    if (en->size() != ei.size() || cn->size() != ci.size() || an->size() * 4 != ad->raw.size()) return false;
+    if (!so.Children("wordMinVariableValues").empty() || !so.Children("wordMaxVariableValues").empty()) return false;
     return lenient || (uniqueNames(*en) && uniqueNames(*cn) && uniqueNames(*an));
 }
 
@@ -550,11 +521,11 @@ std::string enumText(const char* table, long v, bool flags) {
 ///       clears one must say so.
 std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* word, const std::uint8_t* quad,
                        const std::shared_ptr<IHavokObject>* variant, bool full, const ReflectCtx& c) {
-    const long t = fInt(info, "type");
+    const long t = static_cast<long>(info.GetInt("type"));
     std::vector<std::pair<std::string, std::string>> kv{ { "type", enumText("VariableType", t, false) } };
-    if (const auto* role = ptrObj(info, "role")) {
-        const long r = fInt(*role, "role");
-        const long fl = static_cast<long>(static_cast<std::uint16_t>(fInt(*role, "flags")));
+    if (const auto* role = info.Child("role")) {
+        const long r = static_cast<long>(role->GetInt("role"));
+        const long fl = static_cast<long>(static_cast<std::uint16_t>(role->GetInt("flags")));
         if (r || full)  kv.push_back({ "role", enumText("Role", r, false) });
         if (fl || full) kv.push_back({ "flags", enumText("RoleFlags", fl, true) });
     }
@@ -569,12 +540,12 @@ std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* wor
         return y + (body.empty() ? std::string("value: {}\n") : "value:\n" + indentLines(body, "  ", "  "));
     }
     if (word) {
-        const io::FieldValue* wv = fieldByName(*word, "value");
+        const io::FieldValue* wv = word->FindField("value");
         std::string val;
         if (quad) val = rvec(std::vector<std::uint8_t>(quad, quad + 16));
         else if (t == 4 && wv) val = rfloat(wv->raw);
         else {
-            const long w = fInt(*word, "value");
+            const long w = static_cast<long>(word->GetInt("value"));
             val = (t == 0 && (w == 0 || w == 1)) ? boolstr(w != 0) : std::to_string(w);
         }
         kv.push_back({ "value", val });
@@ -586,33 +557,33 @@ std::string infoRecord(const io::SchemaObject& info, const io::SchemaObject* wor
 
 /// @brief A valued roster entry's info and (pointer types) its value object, by roster position.
 const io::SchemaObject* valuedInfo(const io::SchemaObject& owner, const ValuedRoster& r, std::size_t pos) {
-    const auto* infos = objsOf(owner, r.infos);
-    return infos && pos < infos->size() ? dynamic_cast<const io::SchemaObject*>((*infos)[pos].get()) : nullptr;
+    const auto& infos = owner.Children(r.infos);
+    return pos < infos.size() ? dynamic_cast<const io::SchemaObject*>(infos[pos].get()) : nullptr;
 }
 std::shared_ptr<IHavokObject> valuedPointer(const io::SchemaObject& owner, const ValuedRoster& r, std::size_t pos) {
     const auto* info = valuedInfo(owner, r, pos);
-    const auto* vs = ptrObj(owner, r.values);
-    if (!info || !vs || !isPointerType(fInt(*info, "type"))) return nullptr;
-    const auto& words = *objsOf(*vs, "wordVariableValues");
-    const auto& variants = *objsOf(*vs, "variantVariableValues");
+    const auto* vs = owner.Child(r.values);
+    if (!info || !vs || !isPointerType(static_cast<long>(info->GetInt("type")))) return nullptr;
+    const auto& words = vs->Children("wordVariableValues");
+    const auto& variants = vs->Children("variantVariableValues");
     const auto* word = pos < words.size() ? dynamic_cast<const io::SchemaObject*>(words[pos].get()) : nullptr;
-    const long vi = word ? fInt(*word, "value") : -1;
+    const long vi = word ? static_cast<long>(word->GetInt("value")) : -1;
     return vi >= 0 && static_cast<std::size_t>(vi) < variants.size() ? variants[static_cast<std::size_t>(vi)] : nullptr;
 }
 
 /// @brief Every record of the vocabulary, per roster, in roster order: (roster key, name, record text).
 void valuedRecords(const io::SchemaObject& owner, const ValuedRoster& r, bool full, const ReflectCtx& c,
                    std::vector<std::tuple<std::string, std::string, std::string>>& out) {
-    const auto* vs = ptrObj(owner, r.values);
-    const auto& names = *strsOf(ptrObj(owner, "stringData"), r.names);
-    const auto& infos = *objsOf(owner, r.infos);
-    const auto& words = *objsOf(*vs, "wordVariableValues");
-    const auto& quads = fieldByName(*vs, "quadVariableValues")->raw;
-    const auto& variants = *objsOf(*vs, "variantVariableValues");
+    const auto* vs = owner.Child(r.values);
+    const auto& names = *strsOf(owner.Child("stringData"), r.names);
+    const auto& infos = owner.Children(r.infos);
+    const auto& words = vs->Children("wordVariableValues");
+    const auto& quads = vs->FindField("quadVariableValues")->raw;
+    const auto& variants = vs->Children("variantVariableValues");
     std::size_t q = 0, p = 0;
     for (std::size_t i = 0; i < names.size(); ++i) {
         const auto& info = *dynamic_cast<const io::SchemaObject*>(infos[i].get());
-        const long t = fInt(info, "type");
+        const long t = static_cast<long>(info.GetInt("type"));
         const std::uint8_t* quad = isQuadType(t) ? quads.data() + 16 * q++ : nullptr;
         const std::shared_ptr<IHavokObject>* variant = isPointerType(t) ? &variants[p++] : nullptr;
         out.emplace_back(r.key, names[i], infoRecord(info, dynamic_cast<const io::SchemaObject*>(words[i].get()), quad, variant, full, c));
@@ -624,19 +595,19 @@ std::vector<std::tuple<std::string, std::string, std::string>> vocabRecords(cons
     std::vector<std::tuple<std::string, std::string, std::string>> out;
     if (gd.Schema()->vocab == "character") { valuedRecords(gd, kCharacterProperties, full, c, out); return out; }
     valuedRecords(gd, kGraphVariables, full, c, out);
-    const auto* sd = ptrObj(gd, "stringData");
+    const auto* sd = gd.Child("stringData");
     const auto& cn = *strsOf(sd, "characterPropertyNames");
-    const auto& ci = *objsOf(gd, "characterPropertyInfos");
+    const auto& ci = gd.Children("characterPropertyInfos");
     for (std::size_t i = 0; i < cn.size(); ++i)
         out.emplace_back("characterProperties", cn[i], infoRecord(*dynamic_cast<const io::SchemaObject*>(ci[i].get()), nullptr, nullptr, nullptr, full, c));
     const auto& enm = *strsOf(sd, "eventNames");
-    const auto& ei = *objsOf(gd, "eventInfos");
+    const auto& ei = gd.Children("eventInfos");
     for (std::size_t i = 0; i < enm.size(); ++i) {
-        const long fl = static_cast<long>(static_cast<std::uint32_t>(fInt(*dynamic_cast<const io::SchemaObject*>(ei[i].get()), "flags")));
+        const long fl = static_cast<long>(static_cast<std::uint32_t>(dynamic_cast<const io::SchemaObject*>(ei[i].get())->GetInt("flags")));
         out.emplace_back("events", enm[i], fl || full ? "{flags: " + enumText("EventInfoFlags", fl, true) + "}" : std::string("{}"));
     }
     const auto& an = *strsOf(sd, "attributeNames");
-    const auto& ad = fieldByName(gd, "attributeDefaults")->raw;
+    const auto& ad = gd.FindField("attributeDefaults")->raw;
     for (std::size_t i = 0; i < an.size(); ++i) out.emplace_back("attributes", an[i], rfloat(ad.data() + 4 * i));
     return out;
 }
@@ -673,7 +644,8 @@ bool vocabField(const io::SchemaObject& so, const std::string& name) {
 bool condTrue(const io::SchemaObject& so, const std::string& cond) {
     const auto eq = cond.find('=');
     if (cond.empty() || eq == std::string::npos) return false;
-    return fInt(so, cond.substr(0, eq).c_str()) == std::strtol(cond.c_str() + eq + 1, nullptr, 10);
+    const std::string field = cond.substr(0, eq);
+    return (so.HasField(field) ? static_cast<long>(so.GetInt(field)) : 0L) == std::strtol(cond.c_str() + eq + 1, nullptr, 10);
 }
 
 /// @brief One field's rendering (possibly empty = absent), exactly as reflectObject writes it — the unit of both the
@@ -839,13 +811,13 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
 
 std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass) {
     std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
-    if (!so.Schema()->vocab.empty() && vocabRenderable(so) && !isFileNode(ptrObj(so, "stringData"), c)) {
+    if (!so.Schema()->vocab.empty() && vocabRenderable(so) && !isFileNode(so.Child("stringData"), c)) {
         if (so.Schema()->vocab == "graph") return y + renderVocab(so, c);
         const auto fields = so.Fields();
         for (std::size_t i = 0; i < fields.size(); ++i) {
             if (vocabField(so, fields[i]->name)) continue;
             if (fields[i]->name != "stringData") { y += renderField(so, i, c); continue; }
-            const auto* sd = ptrObj(so, "stringData");
+            const auto* sd = so.Child("stringData");
             std::string body;
             const auto sf = sd->Fields();
             for (std::size_t j = 0; j < sf.size(); ++j)
@@ -1748,19 +1720,16 @@ bool enumParse(const char* table, const std::string& text, long& out, HkyParse& 
 
 /// @brief The inline object behind pointer field `field`, created (declared class) when absent.
 io::SchemaObject* ensurePtr(io::SchemaObject& so, const char* field, HkyParse& ps) {
-    const auto fs = so.Fields();
-    for (std::size_t j = 0; j < fs.size(); ++j) {
-        if (fs[j]->name != field) continue;
-        io::FieldValue& fv = so.FieldAt(j);
-        if (!fv.obj) {
-            auto o = makeObj(ps.reg, fs[j]->ref);
-            if (!o) return nullptr;
-            ps.all.push_back(o);
-            fv.obj = o;
-        }
-        return dynamic_cast<io::SchemaObject*>(fv.obj.get());
+    const auto j = so.IndexOf(field);
+    if (!j) return nullptr;
+    io::FieldValue& fv = so.FieldAt(*j);
+    if (!fv.obj) {
+        auto o = makeObj(ps.reg, so.Fields()[*j]->ref);
+        if (!o) return nullptr;
+        ps.all.push_back(o);
+        fv.obj = o;
     }
-    return nullptr;
+    return dynamic_cast<io::SchemaObject*>(fv.obj.get());
 }
 
 /// @brief One variable / character-property record onto `info` (+ its word, and its quad for vector types). `fresh`
@@ -1771,25 +1740,25 @@ bool applyInfoRecord(io::SchemaObject& info, const yml::ConstNodeRef& rec, bool 
     auto make = [&](const char* cls) { auto o = makeObj(ps.reg, cls); ps.all.push_back(o); return o; };
     auto storage = [](long t) { return isPointerType(t) ? 2 : isQuadType(t) ? 1 : 0; };
     {
-        long type = fInt(info, "type");
+        long type = static_cast<long>(info.GetInt("type"));
         if (yhas(rec, "type")) {
             long t = 0;
             if (!enumParse("VariableType", ystr(yget(rec, "type")), t, ps, what)) return false;
             if (!fresh && storage(t) != storage(type)) { ps.err = ps.where + ": " + what + ": changing a variable's storage (word / quad / pointer) is not supported"; return false; }
             type = t;
-            info.FieldRef("type").raw = encInt(type, Scalar::Int8);
+            info.SetInt("type", static_cast<std::int8_t>(type));
         } else if (fresh) { ps.err = ps.where + ": " + what + ": a new entry needs `type:`"; return false; }
         io::FieldValue& rf = info.FieldRef("role");
         if (!rf.obj) rf.obj = make("hkbRoleAttribute");
         auto* role = dynamic_cast<io::SchemaObject*>(rf.obj.get());
-        if (yhas(rec, "role"))  { long r = 0;  if (!enumParse("Role", ystr(yget(rec, "role")), r, ps, what)) return false; role->FieldRef("role").raw = encInt(r, Scalar::Int16); }
-        if (yhas(rec, "flags")) { long fl = 0; if (!enumParse("RoleFlags", ystr(yget(rec, "flags")), fl, ps, what)) return false; role->FieldRef("flags").raw = encInt(fl, Scalar::Int16); }
+        if (yhas(rec, "role"))  { long r = 0;  if (!enumParse("Role", ystr(yget(rec, "role")), r, ps, what)) return false; role->SetInt("role", static_cast<std::int16_t>(r)); }
+        if (yhas(rec, "flags")) { long fl = 0; if (!enumParse("RoleFlags", ystr(yget(rec, "flags")), fl, ps, what)) return false; role->SetInt("flags", static_cast<std::int16_t>(fl)); }
         if (!word) return true;
         if (isPointerType(type)) {
             if (!variants) { ps.err = ps.where + ": " + what + ": a pointer value needs a value set"; return false; }
             std::size_t vi = variants->size();
-            if (fresh) { word->FieldRef("value").raw = encInt(static_cast<std::int64_t>(vi), Scalar::Int32); variants->push_back(nullptr); }
-            else vi = static_cast<std::size_t>(fInt(*word, "value"));
+            if (fresh) { word->SetInt("value", static_cast<std::int32_t>(vi)); variants->push_back(nullptr); }
+            else vi = static_cast<std::size_t>(word->GetInt("value"));
             if (yhas(rec, "value") && vi < variants->size()) {
                 /// @note A PATCH record onto an existing inline value of the same class (a bone-weight preset) patches
                 ///       it in place — per bone — so two mods adjusting different bones of `UpperBody` both land.
@@ -1810,8 +1779,8 @@ bool applyInfoRecord(io::SchemaObject& info, const yml::ConstNodeRef& rec, bool 
         }
         if (isQuadType(type)) {
             std::size_t qi = quads.size() / 16;
-            if (fresh) { word->FieldRef("value").raw = encInt(static_cast<std::int64_t>(qi), Scalar::Int32); quads.resize(quads.size() + 16, 0); }
-            else qi = static_cast<std::size_t>(fInt(*word, "value"));
+            if (fresh) { word->SetInt("value", static_cast<std::int32_t>(qi)); quads.resize(quads.size() + 16, 0); }
+            else qi = static_cast<std::size_t>(word->GetInt("value"));
             if (yhas(rec, "value") && qi * 16 + 16 <= quads.size()) {
                 const auto b = vec4Strict(ystr(yget(rec, "value")));
                 std::memcpy(quads.data() + qi * 16, b.data(), 16);
@@ -1821,12 +1790,12 @@ bool applyInfoRecord(io::SchemaObject& info, const yml::ConstNodeRef& rec, bool 
         if (yhas(rec, "value")) {
             const std::string t = ystr(yget(rec, "value"));
             if (type == 4) word->FieldRef("value").raw = floatBytes(t);
-            else if (t == "true" || t == "false") word->FieldRef("value").raw = encInt(t == "true" ? 1 : 0, Scalar::Int32);
+            else if (t == "true" || t == "false") word->SetInt("value", t == "true" ? 1 : 0);
             else {
                 char* end = nullptr;
                 const long long n = std::strtoll(t.c_str(), &end, 0);
                 if (!end || *end) { ps.err = ps.where + ": " + what + ": value '" + t + "' is not a number"; return false; }
-                word->FieldRef("value").raw = encInt(n, Scalar::Int32);
+                word->SetInt("value", static_cast<std::int32_t>(n));
             }
         }
         return true;
@@ -1907,7 +1876,7 @@ bool fillVocab(io::SchemaObject& gd, const yml::ConstNodeRef& map, HkyParse& ps)
             if (yhas(e, "flags")) {
                 long fl = 0;
                 if (!enumParse("EventInfoFlags", ystr(yget(e, "flags")), fl, ps, "event '" + name + "'")) return false;
-                info->FieldRef("flags").raw = encInt(fl, Scalar::UInt32);
+                info->SetInt("flags", static_cast<std::uint32_t>(fl));
             }
         }
     if (yhas(map, "attributes"))
@@ -2331,10 +2300,10 @@ std::optional<std::string> pointerRecordPatch(const io::SchemaObject& b, const i
     const auto* info = valuedInfo(m, r, mpos);
     if (!bo || !mo || !info || isFileNode(bp.get(), cb) || isFileNode(mp.get(), cm) || std::string(bo->ClassName()) != mo->ClassName())
         return std::nullopt;
-    std::string y = "type: " + enumText("VariableType", fInt(*info, "type"), false) + "\n";
-    if (const auto* role = ptrObj(*info, "role")) {
-        y += "role: " + enumText("Role", fInt(*role, "role"), false) + "\n";
-        y += "flags: " + enumText("RoleFlags", static_cast<long>(static_cast<std::uint16_t>(fInt(*role, "flags"))), true) + "\n";
+    std::string y = "type: " + enumText("VariableType", static_cast<long>(info->GetInt("type")), false) + "\n";
+    if (const auto* role = info->Child("role")) {
+        y += "role: " + enumText("Role", static_cast<long>(role->GetInt("role")), false) + "\n";
+        y += "flags: " + enumText("RoleFlags", static_cast<long>(static_cast<std::uint16_t>(role->GetInt("flags"))), true) + "\n";
     }
     const std::string sub = diffObject(*bo, *mo, inlCtx(cb), inlCtx(cm));
     return sub.empty() ? y : y + "value:\n" + indentLines(sub, "  ", "  ");
@@ -2435,7 +2404,7 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
                        const FieldSkip& skip) {
     std::string y;
     if (!skip && !m.Schema()->vocab.empty() && vocabRenderable(b) && vocabRenderable(m, true) &&
-        !isFileNode(ptrObj(b, "stringData"), cb) && !isFileNode(ptrObj(m, "stringData"), cm)) {
+        !isFileNode(b.Child("stringData"), cb) && !isFileNode(m.Child("stringData"), cm)) {
         /// @note A name the mod duplicated (a rename onto an existing name) takes the occurrence at the BASE entry's
         ///       position — the one it didn't rename; a name new to the roster takes its first occurrence.
         using Key = std::pair<std::string, std::string>;
@@ -2468,7 +2437,7 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
         if (m.Schema()->vocab == "graph") return y;
         /// @note A character's other fields diff as usual; its string data diffs without the names the records carry.
         std::string rest = diffObject(b, m, cb, cm, [&](const std::string& n) { return vocabField(m, n) || n == "stringData"; });
-        const std::string sd = diffObject(*ptrObj(b, "stringData"), *ptrObj(m, "stringData"), subCtx(cb, "stringData"),
+        const std::string sd = diffObject(*b.Child("stringData"), *m.Child("stringData"), subCtx(cb, "stringData"),
                                           subCtx(cm, "stringData"), [](const std::string& n) { return n == kCharacterProperties.names; });
         if (!sd.empty()) rest += "stringData:\n" + indentLines(sd, "  ", "  ");
         return rest + y;
@@ -2552,7 +2521,8 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
         auto isRoot = [](const IHavokObject* o) { return std::string(o->ClassName()) == "hkRootLevelContainer"; };
         auto nameOf = [](const IHavokObject* o) {
             const auto* so = dynamic_cast<const io::SchemaObject*>(o);
-            return so ? fStr(*so, "name") : std::string();
+            const io::FieldValue* v = so ? so->FindField("name") : nullptr;
+            return v ? v->str : std::string();
         };
         const ReflectCtx cB{ idB, nrB, reg, bones, &effB, keyOwner };
 
@@ -2811,7 +2781,7 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
             for (const auto& [o, c] : base.identity.category)
                 if (const auto* sd = dynamic_cast<const io::SchemaObject*>(o); sd && std::string(sd->ClassName()) == "hkbBehaviorGraphStringData") {
                     ++stringDatas;
-                    const io::FieldValue* fv = fieldByName(*sd, s.isEvent ? "eventNames" : "variableNames");
+                    const io::FieldValue* fv = sd->FindField(s.isEvent ? "eventNames" : "variableNames");
                     if (fv && std::find(fv->strs.begin(), fv->strs.end(), s.name) != fv->strs.end()) ++holding;
                 }
             err = s.where + ": " + (s.isEvent ? "event" : "variable") + " '" + s.name + "' is not in the merged roster (live roster " +
@@ -2826,15 +2796,12 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
 
 io::SchemaObject* GraphEdit::GraphData() const {
     const auto* root = m_graph.root.get();
-    const io::FieldValue* nv = root ? fieldByName(*root, "namedVariants") : nullptr;
-    if (!nv) return nullptr;
-    for (const auto& e : nv->objs) {
+    if (!root) return nullptr;
+    for (const auto& e : root->Children("namedVariants")) {
         const auto* entry = dynamic_cast<const io::SchemaObject*>(e.get());
-        const io::FieldValue* variant = entry ? fieldByName(*entry, "variant") : nullptr;
-        const auto* graph = variant ? dynamic_cast<io::SchemaObject*>(variant->obj.get()) : nullptr;
+        const auto* graph = entry ? entry->Child("variant") : nullptr;
         if (!graph || std::string(graph->ClassName()) != "hkbBehaviorGraph") continue;
-        const io::FieldValue* d = fieldByName(*graph, "data");
-        return d ? dynamic_cast<io::SchemaObject*>(d->obj.get()) : nullptr;
+        return graph->Child("data");
     }
     return nullptr;
 }
@@ -2854,14 +2821,14 @@ std::optional<std::size_t> indexIn(const std::vector<std::string>& names, std::s
 
 std::optional<std::size_t> GraphEdit::VariableIndex(std::string_view name) const {
     auto* gd = GraphData();
-    const auto* sd = gd ? ptrObj(*gd, "stringData") : nullptr;
+    const auto* sd = gd ? gd->Child("stringData") : nullptr;
     const auto* names = strsOf(sd, "variableNames");
     return names ? indexIn(*names, name) : std::nullopt;
 }
 
 std::optional<std::size_t> GraphEdit::EventIndex(std::string_view name) const {
     auto* gd = GraphData();
-    const auto* sd = gd ? ptrObj(*gd, "stringData") : nullptr;
+    const auto* sd = gd ? gd->Child("stringData") : nullptr;
     const auto* names = strsOf(sd, "eventNames");
     return names ? indexIn(*names, name) : std::nullopt;
 }
@@ -2881,9 +2848,9 @@ GraphEdit::Add GraphEdit::AddVariable(std::string_view name, std::string_view ty
     auto info = makeObj(m_reg, "hkbVariableInfo"), role = makeObj(m_reg, "hkbRoleAttribute"), value = makeObj(m_reg, "hkbVariableValue");
     if (!sd || !vs || !info || !role || !value) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
     for (const auto& o : { info, role, value }) m_graph.objects.push_back(o);
-    info->FieldRef("type").raw = encInt(t->second, Scalar::Int8);
+    info->SetInt("type", static_cast<std::int8_t>(t->second));
     info->FieldRef("role").obj = role;
-    value->FieldRef("value").raw = encInt(word, Scalar::Int32);
+    value->SetInt("value", word);
     sd->FieldRef("variableNames").strs.emplace_back(name);
     gd->FieldRef("variableInfos").objs.push_back(info);
     vs->FieldRef("wordVariableValues").objs.push_back(value);

@@ -8,7 +8,6 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -16,14 +15,6 @@
 namespace CB::engine::compile {
 using namespace CB::engine::codec;
 using namespace CB::engine::common;
-
-namespace {
-    // Schema-object field readers (mirror AnimationDecompiler.cpp — no typed hka* classes).
-    float rdF32(CB::engine::codec::io::SchemaObject& o, const char* n) {
-        const auto& r = o.FieldRef(n).raw; float v = 0.f;
-        if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
-    }
-}  // namespace
 
 std::vector<CB::engine::animdata::DeriveClipInput> DeriveClipInputsFromGraph(const std::shared_ptr<IHavokObject>& root)
 {
@@ -61,24 +52,21 @@ std::vector<CB::engine::animdata::DeriveClipInput> DeriveClipInputsFromGraph(con
         CB::engine::animdata::DeriveClipInput dc;
         dc.name          = c->FieldRef("name").str;
         dc.animationName = c->FieldRef("animationName").str;
-        dc.playbackSpeed = rdF32(*c, "playbackSpeed");
-        dc.cropStart     = rdF32(*c, "cropStartAmountLocalTime");
-        dc.cropEnd       = rdF32(*c, "cropEndAmountLocalTime");
+        dc.playbackSpeed = c->GetFloat("playbackSpeed");
+        dc.cropStart     = c->GetFloat("cropStartAmountLocalTime");
+        dc.cropEnd       = c->GetFloat("cropEndAmountLocalTime");
         dc.graphEvents   = graphEvents;
         if (auto* arr = so(c->FieldRef("triggers").obj))
             for (auto& to : arr->FieldRef("triggers").objs) {
                 auto* t  = so(to);
                 auto* ev = t ? so(t->FieldRef("event").obj) : nullptr;
                 if (!t || !ev) continue;
-                std::int32_t id = -1;
-                const auto& idRaw = ev->FieldRef("id").raw;
-                if (idRaw.size() >= 4) std::memcpy(&id, idRaw.data(), 4);
+                const std::int32_t id = static_cast<std::int32_t>(ev->GetInt("id"));
                 if (!events || id < 0 || static_cast<std::size_t>(id) >= events->size() || (*events)[id].empty()) continue;
                 CB::engine::animdata::DeriveClipInput::Trigger tr;
                 tr.event               = (*events)[id];
-                tr.localTime           = rdF32(*t, "localTime");
-                const auto& rel        = t->FieldRef("relativeToEndOfClip").raw;
-                tr.relativeToEndOfClip = !rel.empty() && rel[0] != 0;
+                tr.localTime           = t->GetFloat("localTime");
+                tr.relativeToEndOfClip = t->GetBool("relativeToEndOfClip");
                 tr.fromAnnotation      = false;
                 dc.triggers.push_back(std::move(tr));
             }

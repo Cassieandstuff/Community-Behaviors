@@ -1638,7 +1638,7 @@ namespace CB {
 
         /// @note Cache-qualify the character's main behavior reference when CB serves that behavior, so the
         ///       redirected load reaches CB's compiled graph instead of the vanilla file.
-        std::string& behavior = sd->FieldRef("behaviorFilename").str;
+        std::string& behavior = sd->Str("behaviorFilename");
         if (const std::string q = QualifyChildRef(key, behavior); q != behavior) {
             LOG_INFO("Resolver: cache-qualified character '{}' behavior ref '{}' -> '{}'.", key, behavior, q);
             behavior = q;
@@ -1707,7 +1707,7 @@ namespace CB {
                 ///       CB's compiled sub-behaviors while unowned children resolve to their vanilla files.
                 std::size_t qualified = 0;
                 edit.ForEach("hkbBehaviorReferenceGenerator", [&](CB::engine::codec::io::SchemaObject& so) {
-                    std::string& name = so.FieldRef("behaviorName").str;
+                    std::string& name = so.Str("behaviorName");
                     if (const std::string q = QualifyChildRef(key, name); q != name) { name = q; ++qualified; }
                 });
                 if (qualified) LOG_INFO("Resolver: cache-qualified {} behavior reference(s) in '{}'.", qualified, key);

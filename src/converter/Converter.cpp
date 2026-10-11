@@ -69,11 +69,8 @@ std::string ToLower(std::string s) {
 
 // Read a string field off a generic SchemaObject by name (empty if absent / not a string field).
 std::string SoStr(const CB::engine::codec::io::SchemaObject& so, const char* name) {
-    const auto flds = so.Fields();
-    const auto& vs = so.Values();
-    for (std::size_t i = 0; i < flds.size() && i < vs.size(); ++i)
-        if (flds[i]->name == name) return vs[i].str;
-    return {};
+    const auto* v = so.FindField(name);
+    return v ? v->str : std::string();
 }
 
 
@@ -2163,7 +2160,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             std::vector<std::uint8_t> cb;
             if (!CB::engine::codec::ReadHavokFile(charList[i].second.string(), cb, nullptr)) return;
             WithFirstOfClass(cb, *sreg, "hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
-                charRig[i] = CB::engine::skeleton::CharacterRig{ so.FieldRef("rigName").str, so.FieldRef("behaviorFilename").str };
+                charRig[i] = CB::engine::skeleton::CharacterRig{ so.Str("rigName"), so.Str("behaviorFilename") };
             });
         });
         std::map<std::string, std::optional<CB::engine::skeleton::CharacterRig>> rigOfChar;
@@ -3098,23 +3095,23 @@ bool AdsfProjectionCheck(const std::string& hkyPath, const std::string& vanillaT
 
     const auto obj = [](const std::shared_ptr<CB::engine::codec::IHavokObject>& o) -> SchemaObject& { return static_cast<SchemaObject&>(*o); };
     std::map<std::string, SchemaObject*> vanProjects;
-    for (const auto& p : van->FieldRef("projects").objs) vanProjects[obj(p).FieldRef("name").str] = &obj(p);
+    for (const auto& p : van->Children("projects")) vanProjects[obj(p).FieldRef("name").str] = &obj(p);
     std::size_t clipsBoth = 0, missing = 0, extra = 0, badIndex = 0, badSpeed = 0, badTriggers = 0, motionChecked = 0, badMotion = 0;
     std::vector<std::string> samples;
     const auto sample = [&](const std::string& s) { if (samples.size() < 16) samples.push_back(s); };
-    for (const auto& po : ours->FieldRef("projects").objs) {
+    for (const auto& po : ours->Children("projects")) {
         SchemaObject& p = obj(po);
         const auto vp = vanProjects.find(p.FieldRef("name").str);
         if (vp == vanProjects.end() || p.FieldRef("hasAnimData").str != "1") continue;
         const std::string pname = p.FieldRef("name").str;
         const auto byName = [&](SchemaObject& proj) {
             std::map<std::string, SchemaObject*> m;
-            for (const auto& c : proj.FieldRef("clips").objs) m.emplace(obj(c).FieldRef("name").str, &obj(c));
+            for (const auto& c : proj.Children("clips")) m.emplace(obj(c).FieldRef("name").str, &obj(c));
             return m;
         };
         const auto motionsOf = [&](SchemaObject& proj) {
             std::map<std::string, SchemaObject*> m;
-            for (const auto& c : proj.FieldRef("motions").objs) m.emplace(obj(c).FieldRef("animIndex").str, &obj(c));
+            for (const auto& c : proj.Children("motions")) m.emplace(obj(c).FieldRef("animIndex").str, &obj(c));
             return m;
         };
         auto oc = byName(p), vc = byName(*vp->second);
@@ -3178,11 +3175,11 @@ bool MetaTextRoundTrip(const std::vector<std::string>& files, const LogFn& log) 
         while (diff < text.size() && diff < out.size() && text[diff] == out[diff]) ++diff;
         const bool same = out == text;
         /// @note Record counts vs the hand-written parsers: the schema reads the same structure, not just the same bytes.
-        std::size_t projects = root->FieldRef("projects").objs.size(), records = 0, handRecords = 0, handProjects = 0;
-        for (const auto& po : root->FieldRef("projects").objs) {
+        std::size_t projects = root->Children("projects").size(), records = 0, handRecords = 0, handProjects = 0;
+        for (const auto& po : root->Children("projects")) {
             auto& p = static_cast<CB::engine::codec::io::SchemaObject&>(*po);
-            if (setData) for (const auto& so : p.FieldRef("sets").objs) { (void)so; ++records; }
-            else records += p.FieldRef("clips").objs.size() + p.FieldRef("motions").objs.size();
+            if (setData) for (const auto& so : p.Children("sets")) { (void)so; ++records; }
+            else records += p.Children("clips").size() + p.Children("motions").size();
         }
         try {
             if (setData) {
@@ -3411,38 +3408,25 @@ struct SplineLayout {
 
 std::optional<SplineLayout> ReadSplineLayout(const std::vector<std::uint8_t>& hkx, CB::engine::schema::SchemaRegistry& reg,
                                              std::string& err) {
-    using CB::engine::codec::io::SchemaObject;
-    auto so  = [](const std::shared_ptr<CB::engine::codec::IHavokObject>& o) { return std::dynamic_pointer_cast<SchemaObject>(o); };
-    auto i32 = [](const std::vector<std::uint8_t>& r) { std::int32_t v = 0; if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v; };
-    auto u32s = [](const std::vector<std::uint8_t>& r) {
-        std::vector<std::uint32_t> v(r.size() / 4);
-        if (!v.empty()) std::memcpy(v.data(), r.data(), v.size() * 4);
-        return v;
-    };
+    namespace io = CB::engine::codec::io;
     try {
-        CB::engine::codec::BinaryReaderEx       br(hkx);
-        CB::engine::codec::PackFileDeserializer des;
-        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(reg);
-        auto root = so(des.Deserialize(br));
+        const auto root = io::DeserializeSchema(hkx, reg);
         if (!root) { err = "not a packfile root"; return std::nullopt; }
-        for (auto& nvObj : root->FieldRef("namedVariants").objs) {
-            auto nv = so(nvObj);
-            if (!nv || nv->FieldRef("className").str != "hkaAnimationContainer") continue;
-            auto container = so(nv->FieldRef("variant").obj);
-            if (!container || container->FieldRef("animations").objs.empty()) break;
-            auto a = so(container->FieldRef("animations").objs[0]);
-            if (!a) break;
+        const auto container = io::FindVariant(*root, "hkaAnimationContainer");
+        const auto a = container && !container->Children("animations").empty()
+                           ? io::AsSchema(container->Children("animations")[0]) : nullptr;
+        if (a) {
             SplineLayout l;
             l.cls = a->ClassName();
             if (l.cls != "hkaSplineCompressedAnimation") return l;
-            l.numTransform            = i32(a->FieldRef("numberOfTransformTracks").raw);
-            l.numFloat                = i32(a->FieldRef("numberOfFloatTracks").raw);
-            l.numFrames               = i32(a->FieldRef("numFrames").raw);
-            l.numBlocks               = i32(a->FieldRef("numBlocks").raw);
-            l.maxFramesPerBlock       = i32(a->FieldRef("maxFramesPerBlock").raw);
-            l.maskAndQuantizationSize = i32(a->FieldRef("maskAndQuantizationSize").raw);
-            l.blockOffsets            = u32s(a->FieldRef("blockOffsets").raw);
-            l.floatBlockOffsets       = u32s(a->FieldRef("floatBlockOffsets").raw);
+            l.numTransform            = static_cast<int>(a->GetInt("numberOfTransformTracks"));
+            l.numFloat                = static_cast<int>(a->GetInt("numberOfFloatTracks"));
+            l.numFrames               = static_cast<int>(a->GetInt("numFrames"));
+            l.numBlocks               = static_cast<int>(a->GetInt("numBlocks"));
+            l.maxFramesPerBlock       = static_cast<int>(a->GetInt("maxFramesPerBlock"));
+            l.maskAndQuantizationSize = static_cast<int>(a->GetInt("maskAndQuantizationSize"));
+            l.blockOffsets            = a->GetArray<std::uint32_t>("blockOffsets");
+            l.floatBlockOffsets       = a->GetArray<std::uint32_t>("floatBlockOffsets");
             l.data                    = a->FieldRef("data").raw;
             return l;
         }

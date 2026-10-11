@@ -5,11 +5,8 @@
 
 #include "decompile/SkeletonImport.h"
 
-#include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
+#include <codec/serialization/HavokIo.h>          // io::SchemaObject + DeserializeSchema
 #include <interface/reflection/HavokSchema.h>  // schema::SharedRegistry
-
-#include <codec/serialization/packfile/BinaryReaderEx.h>
-#include <codec/serialization/packfile/PackFileDeserializer.h>
 
 #include <cmath>
 #include <cstring>
@@ -22,30 +19,26 @@ using namespace CB::engine::common;
 
 namespace {
 
+using CB::engine::codec::io::AsSchema;
+using CB::engine::codec::io::FindVariant;
 using CB::engine::codec::io::SchemaObject;
 
-std::shared_ptr<SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
-    return std::dynamic_pointer_cast<SchemaObject>(o);
-}
-
 // A nested inline-struct or pointed-to object field → its SchemaObject (nullptr if absent/null).
-std::shared_ptr<SchemaObject> childOf(SchemaObject& o, const char* n) {
-    if (!o.HasField(n)) return nullptr;
-    return asSO(o.FieldRef(n).obj);
+SchemaObject* childOf(SchemaObject& o, const char* n) {
+    return o.HasField(n) ? o.Child(n) : nullptr;
 }
 
 float f32(SchemaObject& o, const char* n) {
-    if (!o.HasField(n)) return 0.f;
-    const auto& r = o.FieldRef(n).raw; float v = 0.f;
-    if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
+    return o.HasField(n) ? o.GetFloat(n) : 0.f;
 }
 
 // A vector4-typed field, or the k-th vector4 of a `vector4 count:N` field (e.g. hkMotionState.transform,
 // hkTransform.data — 4 consecutive Vector4). Zero if the field/element is missing.
 Vector4 vec4(SchemaObject& o, const char* n, int k = 0) {
     Vector4 v{};
-    if (!o.HasField(n)) return v;
-    const auto& r = o.FieldRef(n).raw;
+    const auto* fv = o.FindField(n);
+    if (!fv) return v;
+    const auto& r = fv->raw;
     const std::size_t off = static_cast<std::size_t>(k) * 16;
     if (r.size() >= off + 16) std::memcpy(&v, r.data() + off, 16);
     return v;
@@ -60,36 +53,23 @@ QSTransform qst(const std::vector<std::uint8_t>& raw, std::size_t idx) {
 
 std::string className(SchemaObject& o) { return o.ClassName() ? o.ClassName() : ""; }
 
-// The one hkaAnimationContainer variant's SchemaObject, or nullptr.
-std::shared_ptr<SchemaObject> findVariant(SchemaObject& root, const char* cls) {
-    if (!root.HasField("namedVariants")) return nullptr;
-    for (auto& nvObj : root.FieldRef("namedVariants").objs) {
-        auto nv = asSO(nvObj); if (!nv) continue;
-        if (nv->FieldRef("className").str == cls) return asSO(nv->FieldRef("variant").obj);
-    }
-    return nullptr;
-}
-
 SkeletonData readOneSkeleton(SchemaObject& skel) {
     SkeletonData sd;
-    sd.name = skel.FieldRef("name").str;
+    sd.name = skel.Str("name");
 
-    auto& bones = skel.FieldRef("bones").objs;
-    const auto& parRaw = skel.FieldRef("parentIndices").raw;   // int16[]
+    const auto& bones = skel.Children("bones");
+    const auto par = skel.GetArray<std::int16_t>("parentIndices");
     const auto& poseRaw = skel.FieldRef("referencePose").raw;  // QSTransform[] (48B each)
 
     // parentIndices / bones / referencePose are parallel arrays; the wild does not guarantee equal
     // lengths, so index each independently (a short referencePose otherwise reads off the end).
     sd.bones.reserve(bones.size());
     for (std::size_t i = 0; i < bones.size(); ++i) {
-        auto b = asSO(bones[i]); if (!b) continue;
+        auto b = AsSchema(bones[i]); if (!b) continue;
         SkeletonBoneData bd;
-        bd.name = b->FieldRef("name").str;
-        const auto& lt = b->FieldRef("lockTranslation").raw;
-        bd.lockTranslation = !lt.empty() && lt[0] != 0;
-        if ((i + 1) * 2 <= parRaw.size()) {
-            std::int16_t p = 0; std::memcpy(&p, parRaw.data() + i * 2, 2); bd.parentIndex = p;
-        }
+        bd.name = b->Str("name");
+        bd.lockTranslation = b->GetBool("lockTranslation");
+        if (i < par.size()) bd.parentIndex = par[i];
         if ((i + 1) * 48 <= poseRaw.size()) bd.refPose = qst(poseRaw, i);
         sd.bones.push_back(std::move(bd));
     }
@@ -108,21 +88,17 @@ bool LoadSkeletonsFromHkx(const std::uint8_t* data, std::size_t size,
     if (!reg) { if (err) *err = "schema registry unavailable (" + schema::SharedRegistryError() + ")"; return false; }
 
     try {
-        std::vector<std::uint8_t> bytes(data, data + size);
-        CB::engine::codec::BinaryReaderEx br(bytes);
-        CB::engine::codec::PackFileDeserializer des;
-        des.SetTolerateUnregistered(true);   // exotic creature collision shapes may be unported — skip, don't fail
-        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
-        auto root = asSO(des.Deserialize(br));
+        // exotic creature collision shapes may be unported — skip, don't fail
+        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg, /*tolerateUnregistered*/ true);
         if (!root) { if (err) *err = "not a valid packfile root"; return false; }
 
         // The animation container carries the skeleton list in file order: [0]=anim skeleton, [1]=ragdoll.
-        auto container = findVariant(*root, "hkaAnimationContainer");
+        auto container = FindVariant(*root, "hkaAnimationContainer");
         if (!container) return true;   // parsed, but no skeletons
-        auto& skels = container->FieldRef("skeletons").objs;
+        const auto& skels = container->Children("skeletons");
         out.reserve(skels.size());
         for (auto& sObj : skels)
-            if (auto s = asSO(sObj)) out.push_back(readOneSkeleton(*s));
+            if (auto s = AsSchema(sObj)) out.push_back(readOneSkeleton(*s));
         return true;
     } catch (const std::exception& ex) {
         if (err) *err = ex.what();
@@ -140,20 +116,16 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
     if (!reg) { if (err) *err = "schema registry unavailable (" + schema::SharedRegistryError() + ")"; return false; }
 
     try {
-        std::vector<std::uint8_t> bytes(data, data + size);
-        CB::engine::codec::BinaryReaderEx br(bytes);
-        CB::engine::codec::PackFileDeserializer des;
-        des.SetTolerateUnregistered(true);   // creature ragdolls may use exotic, unported collision shapes;
-                                             // skip them (shape → null → default capsule) instead of failing.
-        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
-        auto root = asSO(des.Deserialize(br));
+        // creature ragdolls may use exotic, unported collision shapes;
+        // skip them (shape → null → default capsule) instead of failing.
+        auto root = CB::engine::codec::io::DeserializeSchema(std::span<const std::uint8_t>(data, size), *reg, /*tolerateUnregistered*/ true);
         if (!root) return true;
 
-        auto pd = findVariant(*root, "hkpPhysicsData");
+        auto pd = FindVariant(*root, "hkpPhysicsData");
         if (!pd) return true;
-        auto& systems = pd->FieldRef("systems").objs;
+        const auto& systems = pd->Children("systems");
         if (systems.empty()) return true;
-        auto sys = asSO(systems[0]);
+        auto sys = AsSchema(systems[0]);
         if (!sys) return true;
 
         const auto strip = [](std::string n) {
@@ -172,28 +144,27 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
         // stays as the fallback for anything the mapper doesn't cover (esp. creatures).
         std::unordered_map<std::string, int> ragToAnim;
         if (root->HasField("namedVariants")) {
-            for (auto& nvObj : root->FieldRef("namedVariants").objs) {
-                auto nv = asSO(nvObj); if (!nv) continue;
-                if (nv->FieldRef("className").str != "hkaSkeletonMapper") continue;
-                auto m = asSO(nv->FieldRef("variant").obj); if (!m) continue;
+            for (auto& nvObj : root->Children("namedVariants")) {
+                auto nv = AsSchema(nvObj); if (!nv) continue;
+                if (nv->Str("className") != "hkaSkeletonMapper") continue;
+                auto m = nv->Child("variant"); if (!m) continue;
                 auto mp = childOf(*m, "mapping"); if (!mp) continue;
-                auto skA = asSO(mp->FieldRef("skeletonA").obj);
-                auto skB = asSO(mp->FieldRef("skeletonB").obj);
+                auto skA = mp->Child("skeletonA");
+                auto skB = mp->Child("skeletonB");
                 if (!skA || !skB) continue;
-                auto& bonesA = skA->FieldRef("bones").objs;
-                auto& bonesB = skB->FieldRef("bones").objs;
+                const auto& bonesA = skA->Children("bones");
+                const auto& bonesB = skB->Children("bones");
                 if (static_cast<int>(bonesA.size()) != static_cast<int>(animSkel.bones.size())) continue;
-                for (auto& smObj : mp->FieldRef("simpleMappings").objs) {
-                    auto sm = asSO(smObj); if (!sm) continue;
-                    std::int16_t ba = 0, bb = 0;
-                    { const auto& r = sm->FieldRef("boneA").raw; if (r.size() >= 2) std::memcpy(&ba, r.data(), 2); }
-                    { const auto& r = sm->FieldRef("boneB").raw; if (r.size() >= 2) std::memcpy(&bb, r.data(), 2); }
+                for (auto& smObj : mp->Children("simpleMappings")) {
+                    auto sm = AsSchema(smObj); if (!sm) continue;
+                    const auto ba = static_cast<std::int16_t>(sm->GetInt("boneA"));
+                    const auto bb = static_cast<std::int16_t>(sm->GetInt("boneB"));
                     if (ba < 0 || ba >= static_cast<int>(bonesA.size())) continue;
                     if (bb < 0 || bb >= static_cast<int>(bonesB.size())) continue;
-                    auto aN = asSO(bonesA[ba]); auto bN = asSO(bonesB[bb]);
+                    auto aN = AsSchema(bonesA[ba]); auto bN = AsSchema(bonesB[bb]);
                     if (!aN || !bN) continue;
-                    if (auto ai = boneIdx.find(aN->FieldRef("name").str); ai != boneIdx.end())
-                        ragToAnim[bN->FieldRef("name").str] = ai->second;
+                    if (auto ai = boneIdx.find(aN->Str("name")); ai != boneIdx.end())
+                        ragToAnim[bN->Str("name")] = ai->second;
                 }
                 break;
             }
@@ -205,12 +176,12 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
         };
 
         // Rigid bodies → per-bone mass + radius + capsule (the authored body knobs; the rest derives).
-        for (auto& rbObj : sys->FieldRef("rigidBodies").objs) {
-            auto rb = asSO(rbObj); if (!rb) continue;
-            const std::string rname = rb->FieldRef("name").str;
+        for (auto& rbObj : sys->Children("rigidBodies")) {
+            auto rb = AsSchema(rbObj); if (!rb) continue;
+            const std::string rname = rb->Str("name");
             const int bi = mapName(rname);
 
-            auto shapeSO = [&]() -> std::shared_ptr<SchemaObject> {
+            auto shapeSO = [&]() -> SchemaObject* {
                 auto coll = childOf(*rb, "collidable"); if (!coll) return nullptr;
                 return childOf(*coll, "shape");
             }();
@@ -252,18 +223,18 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
         }
 
         // Constraints → the joint on the CHILD bone (entities[0]=child body, [1]=parent body).
-        for (auto& cObj : sys->FieldRef("constraints").objs) {
-            auto ci = asSO(cObj); if (!ci) continue;
-            auto& ents = ci->FieldRef("entities").objs;
+        for (auto& cObj : sys->Children("constraints")) {
+            auto ci = AsSchema(cObj); if (!ci) continue;
+            const auto& ents = ci->Children("entities");
             if (ents.empty()) continue;
-            auto child = asSO(ents[0]); if (!child) continue;
-            const int bi = mapName(child->FieldRef("name").str);
+            auto child = AsSchema(ents[0]); if (!child) continue;
+            const int bi = mapName(child->Str("name"));
             if (bi < 0 || !animSkel.bones[bi].physics) continue;
 
-            auto cdata = asSO(ci->FieldRef("data").obj); if (!cdata) continue;
+            auto cdata = ci->Child("data"); if (!cdata) continue;
             auto atoms = childOf(*cdata, "atoms"); if (!atoms) continue;
             BoneJoint j;
-            std::shared_ptr<SchemaObject> transforms;
+            SchemaObject* transforms = nullptr;
             const std::string dcls = className(*cdata);
             if (dcls == "hkpRagdollConstraintData") {
                 j.type = BoneJoint::Type::Ragdoll;
@@ -291,15 +262,15 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
         // The ragdoll BIND POSE: the ragdoll skeleton (hkaAnimationContainer.skeletons[1]) carries each
         // ragdoll bone's local refpose (relative to its ragdoll parent). Attach it to the matching physics
         // bone so the ragdoll skeleton / bodies / mappers compile in the ragdoll frame (not anim).
-        if (auto ac = findVariant(*root, "hkaAnimationContainer")) {
-            auto& skels = ac->FieldRef("skeletons").objs;
+        if (auto ac = FindVariant(*root, "hkaAnimationContainer")) {
+            const auto& skels = ac->Children("skeletons");
             if (skels.size() >= 2) {
-                if (auto rag = asSO(skels[1])) {
-                    auto& rbones = rag->FieldRef("bones").objs;
+                if (auto rag = AsSchema(skels[1])) {
+                    const auto& rbones = rag->Children("bones");
                     const auto& rpose = rag->FieldRef("referencePose").raw;
                     for (std::size_t k = 0; k < rbones.size() && (k + 1) * 48 <= rpose.size(); ++k) {
-                        auto rbn = asSO(rbones[k]); if (!rbn) continue;
-                        const int bi = mapName(rbn->FieldRef("name").str);
+                        auto rbn = AsSchema(rbones[k]); if (!rbn) continue;
+                        const int bi = mapName(rbn->Str("name"));
                         if (bi >= 0 && animSkel.bones[bi].physics)
                             animSkel.bones[bi].physics->ragdollLocal = qst(rpose, k);
                     }
