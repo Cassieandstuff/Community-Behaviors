@@ -1,38 +1,33 @@
 #include "BaseUnitCompiler.h"
 
 #include <codec/format/SkeletonYaml.h>
+#include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 #include <decompile/BehaviorDecompile.h>
 #include <interface/reflection/HavokSchema.h>
 
 #include <algorithm>
-#include <cctype>
 #include <exception>
 #include <filesystem>
 
 namespace CB::converter {
 
-namespace {
-std::string lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-}  // namespace
+using CB::engine::codec::resource::PathKey;
 
 BaseUnitCompiler::BaseUnitCompiler(std::shared_ptr<const CB::engine::codec::HkyArchive> base) : m_base(std::move(base)) {
     auto* reg = CB::engine::schema::SharedRegistry();
     if (!m_base || !reg) return;
     using Kind = CB::engine::codec::HkyArchive::UnitKind;
-    std::unordered_map<std::string, std::string> charPrefix;   // normalized key -> archive prefix
+    std::unordered_map<std::string, std::string> charPrefix;   // PathKey -> archive prefix
     for (const auto& u : m_base->units()) {
-        if (u.kind == Kind::Skeleton)  m_skeletonUnits.insert(lower(u.prefix));
-        if (u.kind == Kind::Character) charPrefix.emplace(lower(u.prefix), u.prefix);
+        if (u.kind == Kind::Skeleton)  m_skeletonUnits.insert(PathKey(u.prefix));
+        if (u.kind == Kind::Character) charPrefix.emplace(PathKey(u.prefix), u.prefix);
     }
     for (const auto& u : m_base->units()) {
         if (u.kind != Kind::Project) continue;
         const auto src = m_base->source(u.prefix);
         if (!src) continue;
-        m_rigs.AddProject(lower(u.prefix), CB::engine::decompile::ReadProjectCharacters(*src, *reg),
+        m_rigs.AddProject(PathKey(u.prefix), CB::engine::decompile::ReadProjectCharacters(*src, *reg),
             [&](const std::string& charUnit) -> std::optional<CB::engine::skeleton::CharacterRig> {
                 const auto it = charPrefix.find(charUnit);
                 if (it == charPrefix.end()) return std::nullopt;

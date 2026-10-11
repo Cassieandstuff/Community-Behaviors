@@ -2,34 +2,22 @@
 #include "core/resolve/SymbolInjector.h"
 
 #include <config/Config.h>
+#include <codec/resource/PathKey.h>
 
 #include <bit>
-#include <cctype>
 #include <unordered_set>
 
 namespace CB {
 
     namespace {
 
-        std::string ToLower(std::string s)
-        {
-            for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            return s;
-        }
-
-        // BDI projectPath ("Actors\\Character") -> normalized lowercase '/'-form.
-        std::string NormalizeProject(std::string p)
-        {
-            for (char& c : p) if (c == '\\') c = '/';
-            return ToLower(std::move(p));
-        }
+        using CB::engine::codec::resource::PathKey;
 
         // The project a served graph belongs to:
         //   "meshes/actors/character/behaviors/1hm_behavior.hkx" -> "actors/character"
         std::string ProjectOfKey(std::string_view keyView)
         {
-            std::string k = ToLower(std::string(keyView));
-            for (char& c : k) if (c == '\\') c = '/';
+            std::string k = PathKey(keyView);
             if (k.rfind("data/", 0) == 0)   k.erase(0, 5);
             if (k.rfind("meshes/", 0) == 0) k.erase(0, 7);
             if (const auto pos = k.find("/behaviors"); pos != std::string::npos) k.erase(pos);
@@ -76,7 +64,7 @@ namespace CB {
 
                 const std::string type    = entry.value("type", std::string{});
                 const std::string name    = entry.value("name", std::string{});
-                std::string       project = NormalizeProject(entry.value("projectPath", std::string{}));
+                std::string       project = PathKey(entry.value("projectPath", std::string{}));
                 if (type.empty() || name.empty() || project.empty()) { ++nSkip; continue; }
 
                 Decl d;

@@ -6,6 +6,7 @@
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimationYamlLoader.h>
+#include <codec/resource/PathKey.h>
 #include <codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
 #include <compile/AnimDataProjection.h>         // ProjectAnimData
@@ -34,11 +35,8 @@ namespace CB::core::serve {
 
     namespace {
 
-        std::string ToLower(std::string s)
-        {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
+        using CB::engine::codec::resource::HasExt;
+        using CB::engine::codec::resource::PathKey;
 
         std::string TrimLine(const std::string& line)
         {
@@ -58,7 +56,7 @@ namespace CB::core::serve {
             return static_cast<bool>(f);
         }
 
-        /// @brief Bundle stem (lowercase) -> priority, higher wins.
+        /// @brief Bundle stem (path key) -> priority, higher wins.
         /// @note A later loadorder.txt line wins (the converter writes Skyrim first, the modlist winner last) — the
         ///       same rule as the Resolver's graph merge and the setdata server, so all three rank mods alike.
         std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
@@ -70,14 +68,14 @@ namespace CB::core::serve {
             while (std::getline(f, line)) {
                 line = TrimLine(line);
                 if (line.empty() || line[0] == '#' || line[0] == ';') continue;
-                order[ToLower(line)] = ++idx;
+                order[PathKey(line)] = ++idx;
             }
             return order;
         }
 
         /// @brief A DAR/OAR override copy of an animation: the file OAR plays in its base path's roster slot.
         struct OverrideCopy {
-            std::string key;              ///< the copy's bundle key (lowercase)
+            std::string key;              ///< the copy's bundle key (path key)
             int         priority = 0;     ///< DAR condition number / OAR submod priority — the LOWEST is the default copy
             std::size_t bundle   = 0;     ///< index into the priority-sorted bundle list
         };
@@ -86,7 +84,9 @@ namespace CB::core::serve {
         /// @note DAR `_CustomConditions/<N>/<rest>` → N. OAR `OpenAnimationReplacer/<mod>/<submod>/<rest>` → the submod's
         ///       config.json `priority`, read from the live Data folder (bundles don't carry it); a disabled submod is no
         ///       candidate. DAR's actor-specific `<plugin>/<formid>/` folders are skipped — they don't apply generally.
-        std::optional<std::pair<std::string, int>> OverrideBase(const std::string& key, const fs::path& dataDir,
+        /// @param keyOrig `key` as the bundle spells it: config.json is opened by that real path, never by the key.
+        std::optional<std::pair<std::string, int>> OverrideBase(const std::string& key, const std::string& keyOrig,
+                                                                const fs::path& dataDir,
                                                                 std::unordered_map<std::string, std::optional<int>>& cfgCache)
         {
             const auto a = key.find("/animations/");
@@ -115,7 +115,8 @@ namespace CB::core::serve {
                 auto it = cfgCache.find(dir);
                 if (it == cfgCache.end()) {
                     std::optional<int> prio = 0;
-                    std::ifstream      cf(dataDir / fs::path(dir) / "config.json", std::ios::binary);
+                    const std::string  dirOrig = keyOrig.size() == key.size() ? keyOrig.substr(0, dir.size()) : dir;
+                    std::ifstream      cf(dataDir / fs::path(dirOrig) / "config.json", std::ios::binary);
                     const std::string  cfg((std::istreambuf_iterator<char>(cf)), std::istreambuf_iterator<char>());
                     std::smatch        mt;
                     if (std::regex_search(cfg, mt, std::regex(R"re("priority"\s*:\s*(-?\d+))re"))) prio = std::stoi(mt[1].str());
@@ -143,8 +144,8 @@ namespace CB::core::serve {
         std::vector<std::pair<int, BundleReader>> bundles;
         if (fs::is_directory(pluginsRoot, ec))
             for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec)) {
-                if (ToLower(bi->path().extension().string()) != ".hky") continue;
-                const std::string stem = ToLower(bi->path().stem().string());
+                if (!HasExt(bi->path().filename().string(), ".hky")) continue;
+                const std::string stem = PathKey(bi->path().stem().string());
                 auto rd = BundleReader::Open(bi->path());
                 if (!rd) { LOG_WARN("AnimData: cannot read bundle '{}' — skipped.", bi->path().string()); continue; }
                 const auto oit = order.find(stem);
@@ -188,11 +189,17 @@ namespace CB::core::serve {
         std::unordered_map<std::string, std::vector<OverrideCopy>> overrides;
         {
             std::unordered_map<std::string, std::optional<int>> cfgCache;
-            for (std::size_t b = 1; b < bundles.size(); ++b)   // [0] is the master: no replacer folders
-                for (const auto& key : bundles[b].second.filesUnder("meshes/", ".hkx"))
+            /// @note filesUnder (path keys) and filesUnderOrig (original case) walk the same range, so index i aligns.
+            for (std::size_t b = 1; b < bundles.size(); ++b) {   // [0] is the master: no replacer folders
+                const auto keys = bundles[b].second.filesUnder("meshes/", ".hkx");
+                const auto orig = bundles[b].second.filesUnderOrig("meshes/", ".hkx");
+                for (std::size_t i = 0; i < keys.size() && i < orig.size(); ++i) {
+                    const std::string& key = keys[i];
                     if (key.find("replacer/") != std::string::npos)
-                        if (auto base = OverrideBase(key, dataDir, cfgCache))
+                        if (auto base = OverrideBase(key, orig[i], dataDir, cfgCache))
                             overrides[base->first].push_back({ key, base->second, b });
+                }
+            }
             for (auto& [_, copies] : overrides)
                 std::sort(copies.begin(), copies.end(), [](const OverrideCopy& x, const OverrideCopy& y) {
                     if ((x.priority >= 0) != (y.priority >= 0)) return x.priority >= 0;

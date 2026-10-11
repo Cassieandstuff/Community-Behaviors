@@ -1,7 +1,8 @@
 #include <compile/AnimDataProjection.h>
 
+#include <codec/resource/PathKey.h>   // path identity (PathKey) + the LoadClips slot rule (ClipSlotKey)
+
 #include <algorithm>
-#include <cctype>
 #include <cstdlib>
 #include <map>
 #include <optional>
@@ -13,30 +14,14 @@ namespace CB::engine::animdata {
 namespace {
 
 using CB::engine::codec::io::SchemaObject;
-
-std::string Lower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-std::string SlashLower(std::string s) {
-    s = Lower(std::move(s));
-    for (char& c : s) if (c == '\\') c = '/';
-    return s;
-}
+using CB::engine::codec::resource::ClipSlotKey;
+using CB::engine::codec::resource::PathKey;
 
 std::string Trim(std::string s) {
     while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' ' || s.back() == '\t')) s.pop_back();
     std::size_t b = 0;
     while (b < s.size() && (s[b] == ' ' || s[b] == '\t')) ++b;
     return s.substr(b);
-}
-
-/// @brief The engine's clip↔roster key: the animation's FILENAME, lowercase (LoadClips keys slots by filename; a
-///        shared graph's "Animations\Walk.hkx" plays the female roster's "Animations\female\Walk.hkx").
-std::string SlotKey(const std::string& path) {
-    const auto s = path.find_last_of("/\\");
-    return Lower(s == std::string::npos ? path : path.substr(s + 1));
 }
 
 std::string ParentOf(const std::string& path) {
@@ -70,9 +55,9 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
         struct Pending {
             std::string                  actorRoot;
             std::vector<std::string>     rosterCanon;   ///< each slot's own file (canonical path)
-            std::vector<std::string>     rosterKeys;    ///< each slot's SlotKey
-            std::unordered_map<std::string, int> slot;  ///< SlotKey -> first slot (a duplicate binds its first)
-            std::vector<DeriveClipInput> clips;         ///< animationName rewritten to its SlotKey
+            std::vector<std::string>     rosterKeys;    ///< each slot's ClipSlotKey
+            std::unordered_map<std::string, int> slot;  ///< ClipSlotKey -> first slot (a duplicate binds its first)
+            std::vector<DeriveClipInput> clips;         ///< animationName rewritten to its ClipSlotKey
         };
         std::vector<std::optional<Pending>> pending(headers.size());
         std::set<std::string>               needed;
@@ -85,15 +70,15 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
             if (!hd.hasAnimData || hd.character.empty()) continue;
             /// @note The project's folder comes from its `character:` ref; its CHARACTER is the one its own asset list
             ///       names ("Characters Wolf\Wolf.hkx") — the ref is a co-location guess that picks the dog for the wolf.
-            const std::string actorRoot = ParentOf(ParentOf("meshes/" + SlashLower(hd.character)));
-            std::string charKey = "meshes/" + SlashLower(hd.character);
+            const std::string actorRoot = ParentOf(ParentOf("meshes/" + PathKey(hd.character)));
+            std::string charKey = "meshes/" + PathKey(hd.character);
             for (const auto& asset : hd.assets)
-                if (const std::string a = SlashLower(asset); a.rfind("characters", 0) == 0) { charKey = actorRoot + "/" + a; break; }
+                if (const std::string a = PathKey(asset); a.rfind("characters", 0) == 0) { charKey = actorRoot + "/" + a; break; }
             Pending p;
             p.actorRoot = actorRoot;
             for (const auto& a : src.roster(charKey)) {
                 p.rosterCanon.push_back(CanonicalAnimPath(actorRoot, a));
-                p.rosterKeys.push_back(SlotKey(a));
+                p.rosterKeys.push_back(ClipSlotKey(a));
                 p.slot.emplace(p.rosterKeys.back(), static_cast<int>(p.rosterKeys.size()) - 1);
             }
 
@@ -102,7 +87,7 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
             std::vector<std::string> units;
             std::set<std::string>    seen, folders;
             for (const auto& asset : hd.assets) {
-                const std::string a = SlashLower(asset);
+                const std::string a = PathKey(asset);
                 if (a.rfind("behaviors", 0) != 0 || a.size() < 4 || a.compare(a.size() - 4, 4, ".hkx") != 0) continue;
                 const std::string key = actorRoot + "/" + a;
                 if (seen.insert(key).second) units.push_back(key);
@@ -115,7 +100,7 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
             for (const auto& u : units)
                 for (auto c : src.clips(u)) {
                     if (!c.animationName.empty()) {
-                        c.animationName = SlotKey(c.animationName);
+                        c.animationName = ClipSlotKey(c.animationName);
                         if (const auto s = p.slot.find(c.animationName); s != p.slot.end())
                             needed.insert(p.rosterCanon[static_cast<std::size_t>(s->second)]);
                     }

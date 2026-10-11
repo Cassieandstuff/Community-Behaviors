@@ -5,7 +5,6 @@
 #include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory (schema-native anim read)
 
 #include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -32,11 +31,7 @@ std::vector<CB::engine::animdata::DeriveClipInput> DeriveClipInputsFromGraph(con
                     if (auto* sd = so(data->FieldRef("stringData").obj)) events = &sd->FieldRef("eventNames").strs;
 
     auto graphEvents = std::make_shared<std::unordered_set<std::string>>();
-    if (events)
-        for (std::string e : *events) {
-            for (char& ch : e) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-            graphEvents->insert(std::move(e));
-        }
+    if (events) graphEvents->insert(events->begin(), events->end());
 
     std::vector<SchemaObject*> clips;
     std::unordered_map<const IHavokObject*, bool> seen;

@@ -10,10 +10,10 @@
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
 
 #include <codec/bsa/BsaArchive.h>
+#include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -65,12 +65,10 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
     return 0;
 }
 
-/// @note The prefix matches the archive-stored form (lowercase, backslashes); the user's '/' and case are folded
-///   to that form so "Meshes/Actors" works.
-bool BsaPrefixMatch(const std::string& path, std::string prefix) {
-    std::replace(prefix.begin(), prefix.end(), '/', '\\');
-    std::transform(prefix.begin(), prefix.end(), prefix.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return path.rfind(prefix, 0) == 0;
+/// @note Path identity (PathKey) on both sides, so "Meshes/Actors" matches the archive's "meshes\actors\…".
+bool BsaPrefixMatch(const std::string& path, const std::string& prefix) {
+    using CB::engine::codec::resource::PathKey;
+    return PathKey(path).rfind(PathKey(prefix), 0) == 0;
 }
 
 int doBsaList(const std::string& bsaPath, const std::string& prefix) {

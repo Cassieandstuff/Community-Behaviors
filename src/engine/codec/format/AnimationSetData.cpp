@@ -1,5 +1,7 @@
 #include "codec/format/AnimationSetData.h"
 
+#include <codec/resource/PathKey.h>   // path identity (project headers / set names are file names)
+
 #include <algorithm>
 #include <array>
 #include <charconv>
@@ -402,40 +404,39 @@ namespace CB::engine::animsetdata {
 
     namespace {
 
-        bool IEq(std::string_view a, std::string_view b)
+        /// @brief Project headers ("DefaultMaleData\DefaultMale.txt") and set names ("H2HDual.txt") are FILE names
+        ///        (the asdsf packs the animationsetdata/ folder), so their identity is path identity.
+        bool SameFile(std::string_view a, std::string_view b)
         {
-            if (a.size() != b.size()) return false;
-            for (std::size_t i = 0; i < a.size(); ++i) {
-                char ca = a[i], cb = b[i];
-                if (ca >= 'A' && ca <= 'Z') ca = static_cast<char>(ca + 32);
-                if (cb >= 'A' && cb <= 'Z') cb = static_cast<char>(cb + 32);
-                if (ca != cb) return false;
-            }
-            return true;
+            return a.size() == b.size() && codec::resource::PathKey(a) == codec::resource::PathKey(b);
         }
 
         void MergeSet(SetFile& base, const SetFile& delta, MergeStats& st)
         {
-            // equip events — append any the base lacks (dedup, case-insensitive)
+            /// @note Equip events, condition variables and attack events are Havok NAMES: matched exactly.
             for (const auto& e : delta.equipEvents) {
-                const bool have = std::any_of(base.equipEvents.begin(), base.equipEvents.end(),
-                                              [&](const std::string& x) { return IEq(x, e); });
+                const bool have = std::find(base.equipEvents.begin(), base.equipEvents.end(), e) != base.equipEvents.end();
                 if (!have) { base.equipEvents.push_back(e); ++st.equipEventsAdded; }
             }
 
             // weapon-type conditions — append any whose variable the base lacks
             for (const auto& c : delta.conditions) {
                 const bool have = std::any_of(base.conditions.begin(), base.conditions.end(),
-                                              [&](const TypeCondition& x) { return IEq(x.variable, c.variable); });
+                                              [&](const TypeCondition& x) { return x.variable == c.variable; });
                 if (!have) { base.conditions.push_back(c); ++st.conditionsAdded; }
             }
 
-            // attacks — delta wins on event collision, else append
+            /// @note Attacks: delta wins on an event collision (its flag + clips; the base keeps its event string),
+            ///       else append.
             for (const auto& a : delta.attacks) {
                 auto it = std::find_if(base.attacks.begin(), base.attacks.end(),
-                                       [&](const Attack& x) { return IEq(x.event, a.event); });
+                                       [&](const Attack& x) { return x.event == a.event; });
                 if (it != base.attacks.end()) {
-                    if (it->flag != a.flag || it->clips != a.clips) { *it = a; ++st.attacksAdded; }
+                    if (it->flag != a.flag || it->clips != a.clips) {
+                        it->flag  = a.flag;
+                        it->clips = a.clips;
+                        ++st.attacksAdded;
+                    }
                 } else {
                     base.attacks.push_back(a);
                     ++st.attacksAdded;
@@ -456,7 +457,7 @@ namespace CB::engine::animsetdata {
         {
             for (const auto& ds : delta.sets) {
                 auto it = std::find_if(base.sets.begin(), base.sets.end(),
-                                       [&](const SetFile& x) { return IEq(x.name, ds.name); });
+                                       [&](const SetFile& x) { return SameFile(x.name, ds.name); });
                 if (it != base.sets.end()) {
                     MergeSet(*it, ds, st);
                 } else {
@@ -473,7 +474,7 @@ namespace CB::engine::animsetdata {
         MergeStats st;
         for (const auto& dp : delta.projects) {
             auto it = std::find_if(base.projects.begin(), base.projects.end(),
-                                   [&](const Project& x) { return IEq(x.header, dp.header); });
+                                   [&](const Project& x) { return SameFile(x.header, dp.header); });
             if (it != base.projects.end()) {
                 MergeProject(*it, dp, st);
             } else {

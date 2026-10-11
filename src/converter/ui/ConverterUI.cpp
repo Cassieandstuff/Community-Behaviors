@@ -49,7 +49,10 @@ std::string Trim(std::string s) {
     return s;
 }
 
-bool IEquals(const std::string& a, const std::string& b) {
+/// @brief Whether two INI section / key spellings name the same entry.
+/// @note The INI format's own rule — CSimpleIniA (the plugin's reader of this file) matches section and key names
+///       case-insensitively, as does its bool parse of the VALUE (IniGetBool). A codec-internal fold, nothing else.
+bool IniNameEquals(const std::string& a, const std::string& b) {
     if (a.size() != b.size()) return false;
     for (std::size_t i = 0; i < a.size(); ++i)
         if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
@@ -70,7 +73,7 @@ bool IniGetBool(const fs::path& ini, const std::string& section, const std::stri
         if (t.size() >= 2 && t.front() == '[' && t.back() == ']') { cur = t.substr(1, t.size() - 2); continue; }
         const auto eq = t.find('=');
         if (eq == std::string::npos) continue;
-        if (IEquals(cur, section) && IEquals(Trim(t.substr(0, eq)), key)) {
+        if (IniNameEquals(cur, section) && IniNameEquals(Trim(t.substr(0, eq)), key)) {
             std::string v = Trim(t.substr(eq + 1));
             for (auto& c : v) c = (char)std::tolower((unsigned char)c);
             return v == "1" || v == "true" || v == "yes" || v == "on";
@@ -89,7 +92,7 @@ void IniSetBool(const fs::path& ini, const std::string& section, const std::stri
         std::string t = Trim(lines[i]);
         if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
             if (secStart >= 0) { secEnd = i; break; }                    // first header AFTER our section
-            if (IEquals(t.substr(1, t.size() - 2), section)) secStart = i;
+            if (IniNameEquals(t.substr(1, t.size() - 2), section)) secStart = i;
         }
     }
     if (secStart < 0) {                                                   // section absent — append it
@@ -101,7 +104,7 @@ void IniSetBool(const fs::path& ini, const std::string& section, const std::stri
         for (int i = secStart + 1; i < secEnd; ++i) {
             std::string t = Trim(lines[i]);
             const auto eq = t.find('=');
-            if (eq != std::string::npos && IEquals(Trim(t.substr(0, eq)), key)) { keyLine = i; break; }
+            if (eq != std::string::npos && IniNameEquals(Trim(t.substr(0, eq)), key)) { keyLine = i; break; }
         }
         if (keyLine >= 0) lines[keyLine] = key + "=" + valStr;
         else              lines.insert(lines.begin() + secEnd, key + "=" + valStr);

@@ -1,8 +1,8 @@
 #include <codec/format/AnimSetDataYaml.h>
 
+#include <codec/resource/PathKey.h>   // path identity (PathKey / HasExt)
 #include <RymlInclude.h>
 
-#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -10,13 +10,13 @@
 
 namespace CB::engine::animsetdata {
 
+using CB::engine::codec::resource::HasExt;
+using CB::engine::codec::resource::PathKey;
+
 namespace {
 
-std::string Low(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-bool EndsTxt(const std::string& s) { return s.size() >= 4 && Low(s.substr(s.size() - 4)) == ".txt"; }
+/// @brief A set name / project header is a FILE name ("H2HDual.txt"), so its extension test is path identity.
+bool EndsTxt(const std::string& s) { return HasExt(s, ".txt"); }
 
 // A YAML flow scalar. Vanilla event/clip/equip/variable names are bare identifiers, but quote
 // defensively if a name carries a YAML-significant char so the round-trip stays safe.
@@ -191,7 +191,7 @@ std::string StemForHeader(const std::string& header)
     const auto bs = header.find_last_of("\\/");
     std::string stem = (bs == std::string::npos) ? header : header.substr(bs + 1);
     if (EndsTxt(stem)) stem.erase(stem.size() - 4);
-    return Low(std::move(stem));
+    return PathKey(stem);
 }
 
 std::string EmitSetdataIndexYaml(const SingleFile& sf)
@@ -250,7 +250,7 @@ SingleFile AssembleSetdata(
                 if (!s.animations.empty()) continue;
                 std::string key = s.name;
                 if (EndsTxt(key)) key.erase(key.size() - 4);
-                key = Low(std::move(key));
+                key = PathKey(key);
                 if (const auto k = cit->second.find(key); k != cit->second.end()) s.crcs = k->second;
             }
 

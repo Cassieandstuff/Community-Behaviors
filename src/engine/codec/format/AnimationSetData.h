@@ -142,11 +142,12 @@ namespace CB::engine::animsetdata {
         std::size_t conditionsAdded = 0;
     };
 
-    // Overlay `delta` onto `base` (mutated in place). Identity is by name,
-    // case-insensitive: project by header, set by set name, attack by event; a crc is
-    // identified by its exact (folder,file,ext) triple. New items are APPENDED so every
-    // pre-existing project/set index and order is preserved (the engine cross-references
-    // projects positionally). On an attack-event collision the delta wins (later load
+    // Overlay `delta` onto `base` (mutated in place). A project (by header) and a set (by set
+    // name) are FILES, matched by path identity (codec::resource::PathKey); equip events,
+    // condition variables and attack events are names, matched exactly; a crc is identified by
+    // its exact (folder,file,ext) triple. New items are APPENDED so every pre-existing
+    // project/set index and order is preserved (the engine cross-references projects
+    // positionally). On an attack-event collision the delta's flag + clips win (later load
     // order overrides, matching the behavior-graph merge). Self-merging an unchanged file
     // is a no-op (re-emit stays byte-identical) — the merge invariant the tests assert.
     MergeStats MergeInto(SingleFile& base, const SingleFile& delta);

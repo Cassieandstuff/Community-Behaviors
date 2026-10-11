@@ -1,10 +1,10 @@
 #include <codec/format/AnimDataYaml.h>
 
+#include <codec/resource/PathKey.h>       // path identity (PathKey / HasExt)
 #include <interface/MotionSample.h>      // Label/UnlabelSample (the sample-label codec, now in interface)
 #include <RymlInclude.h>
 
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -18,6 +18,9 @@
 #include <vector>
 
 namespace CB::engine::animdata {
+
+using CB::engine::codec::resource::HasExt;
+using CB::engine::codec::resource::PathKey;
 
 namespace {
 
@@ -142,7 +145,7 @@ std::string CanonicalAnimPath(const std::string& actorRoot, const std::string& r
     if (!combined.empty() && combined.back() != '/' && combined.back() != '\\') combined += '/';
     combined += rosterEntry;
 
-    // Split on '/' or '\', collapsing '.' and '..', lowercasing each segment.
+    // Split on '/' (PathKey folds '\' and case), collapsing '.' and '..'.
     std::vector<std::string> parts;
     std::string              seg;
     auto flush = [&] {
@@ -150,9 +153,9 @@ std::string CanonicalAnimPath(const std::string& actorRoot, const std::string& r
         else if (!seg.empty() && seg != ".") parts.push_back(seg);
         seg.clear();
     };
-    for (char c : combined) {
-        if (c == '/' || c == '\\') { flush(); continue; }
-        seg += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char c : PathKey(combined)) {
+        if (c == '/') { flush(); continue; }
+        seg += c;
     }
     flush();
 
@@ -163,15 +166,12 @@ std::string CanonicalAnimPath(const std::string& actorRoot, const std::string& r
 
 // ── animationdatasinglefile.txt as a decomposed folder ───────────────────────────
 
-namespace {
-std::string LowerNoTxt(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    if (s.size() >= 4 && s.compare(s.size() - 4, 4, ".txt") == 0) s.erase(s.size() - 4);
+std::string StemForProjectName(const std::string& projectName)
+{
+    std::string s = PathKey(projectName);
+    if (HasExt(s, ".txt")) s.erase(s.size() - 4);
     return s;
 }
-}  // namespace
-
-std::string StemForProjectName(const std::string& projectName) { return LowerNoTxt(projectName); }
 
 std::map<std::string, ProjectCharacter> LoadProjectCharacters(
     const std::string& treeMeshesDir,
@@ -179,7 +179,6 @@ std::map<std::string, ProjectCharacter> LoadProjectCharacters(
     const std::function<bool(const std::filesystem::path& unit)>& isProject)
 {
     namespace fs = std::filesystem;
-    auto lc = [](std::string s){ for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return s; };
     std::error_code ec;
     const fs::path base(treeMeshesDir);
     auto rel = [&](const fs::path& p){ return p.lexically_relative(base).generic_string(); };
@@ -191,9 +190,9 @@ std::map<std::string, ProjectCharacter> LoadProjectCharacters(
          !ec && it != end; it.increment(ec)) {
         if (!it->is_directory(ec)) continue;
         const fs::path unit = it->path();
-        if (lc(unit.extension().string()) != ".hkx") continue;   // a decomposed unit folder
-        const std::string parent = lc(unit.parent_path().filename().string());
-        const std::string stem   = lc(unit.stem().string());
+        if (PathKey(unit.extension().string()) != ".hkx") continue;   // a decomposed unit folder
+        const std::string parent = PathKey(unit.parent_path().filename().string());
+        const std::string stem   = PathKey(unit.stem().string());
         if (parent.rfind("characters", 0) == 0) {                // .../characters[ x]/<char>.hkx
             std::vector<std::string> roster = rosterOf(unit);
             if (roster.empty()) continue;
@@ -213,7 +212,7 @@ std::map<std::string, ProjectCharacter> LoadProjectCharacters(
     std::map<std::string, std::string> rootByFolder;             // actor folder name -> actor root
     for (const auto& [root, chars] : charsByRoot) {
         const auto slash = root.find_last_of('/');
-        rootByFolder.emplace(slash == std::string::npos ? root : root.substr(slash + 1), root);
+        rootByFolder.emplace(PathKey(slash == std::string::npos ? root : root.substr(slash + 1)), root);
     }
 
     std::map<std::string, ProjectCharacter> out;

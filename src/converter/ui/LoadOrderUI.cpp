@@ -1,12 +1,12 @@
 #include "ui/LoadOrderUI.h"
 
 #include "platform/Platform.h"
+#include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
 
 #include <imgui.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -17,11 +17,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string ToLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
+using CB::engine::codec::resource::HasExt;
+using CB::engine::codec::resource::PathKey;
 
 std::string Trim(const std::string& s) {
     const auto b = s.find_first_not_of(" \t\r\n");
@@ -103,16 +100,16 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
 
     // 1) Read loadorder.txt: ordered list of bundle stems (bare, later line wins). Comments
     //    ('#' / ';') and blanks skipped. Preserve the file's order as the initial priority.
-    std::vector<std::string> order;                 // lowercased stems, in file order
-    std::unordered_map<std::string, int> orderIdx;  // stem -> position
+    std::vector<std::string> order;                 // stems as the file spells them, in file order
+    std::unordered_map<std::string, int> orderIdx;  // PathKey(stem) -> position
     {
         std::ifstream f(loadOrderPath);
         std::string line;
         while (std::getline(f, line)) {
             const std::string t = Trim(line);
             if (t.empty() || t[0] == '#' || t[0] == ';') continue;
-            const std::string k = ToLower(t);
-            if (!orderIdx.count(k)) { orderIdx[k] = static_cast<int>(order.size()); order.push_back(k); }
+            const std::string k = PathKey(t);
+            if (!orderIdx.count(k)) { orderIdx[k] = static_cast<int>(order.size()); order.push_back(t); }
         }
     }
 
@@ -120,7 +117,7 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
     //    an unpacked DIRECTORY (<Mod>.hky/manifest.json on disk) OR a packed FILE (<Mod>.hky is a
     //    zip — the converter's ship form — with manifest.json inside it). Both are "present";
     //    only handling directories made every packed bundle look MISSING.
-    std::unordered_map<std::string, Bundle> found;  // stem -> bundle
+    std::unordered_map<std::string, Bundle> found;  // PathKey(stem) -> bundle
 
     // Fill a bundle's identity from its manifest.json text (empty = no manifest, keeps the
     // stem-derived defaults). Shared by the unpacked-dir and packed-file scan paths below.
@@ -130,13 +127,13 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
         if (std::string n = JsonStr(mf, "name"); !n.empty()) b.name = n;
         b.version = JsonStr(mf, "version");
         b.author  = JsonStr(mf, "author");
-        for (auto& m : JsonStrArray(mf, "masters")) b.masters.push_back(ToLower(m));
+        for (auto& m : JsonStrArray(mf, "masters")) b.masters.push_back(std::move(m));
     };
 
     std::error_code ec;
     if (fs::is_directory(pluginsDir, ec)) {
         for (fs::directory_iterator it(pluginsDir, ec), end; !ec && it != end; it.increment(ec)) {
-            if (ToLower(it->path().extension().string()) != ".hky") continue;
+            if (!HasExt(it->path().filename().string(), ".hky")) continue;
             std::error_code de;
             Bundle b;
             b.stem = it->path().stem().string();
@@ -149,7 +146,7 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
                 // disk, so it stays present (with stem-only defaults) rather than misreported
                 // missing. Skip the master Skyrim.hky — it holds the full vanilla corpus (~18MB),
                 // needs no manifest for ordering, and opening it would decompress the whole thing.
-                if (ToLower(b.stem) != "skyrim") {
+                if (PathKey(b.stem) != "skyrim") {
                     std::string herr;
                     if (auto arc = CB::engine::codec::HkyArchive::LoadFromFile(it->path().string(), herr))
                         if (auto mf = arc->file("manifest.json")) applyManifest(b, *mf);
@@ -157,22 +154,23 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
             } else {
                 continue;
             }
-            found.emplace(ToLower(b.stem), std::move(b));
+            std::string key = PathKey(b.stem);
+            found.emplace(std::move(key), std::move(b));
         }
     }
 
     // 3) Build the display order: loadorder.txt entries first (in file order), then any
     //    on-disk bundle not yet listed (appended, lowest-to-highest by name). A listed
     //    stem with no folder on disk is shown as "missing".
-    for (const auto& k : order) {
-        auto f = found.find(k);
+    for (const auto& s : order) {
+        auto f = found.find(PathKey(s));
         if (f != found.end()) { m_bundles.push_back(f->second); found.erase(f); }
-        else { Bundle miss; miss.stem = k; miss.name = k; miss.present = false; m_bundles.push_back(std::move(miss)); }
+        else { Bundle miss; miss.stem = s; miss.name = s; miss.present = false; m_bundles.push_back(std::move(miss)); }
     }
     std::vector<Bundle> rest;
     for (auto& [k, b] : found) rest.push_back(std::move(b));
     std::sort(rest.begin(), rest.end(),
-              [](const Bundle& a, const Bundle& b) { return ToLower(a.stem) < ToLower(b.stem); });
+              [](const Bundle& a, const Bundle& b) { return PathKey(a.stem) < PathKey(b.stem); });
     for (auto& b : rest) m_bundles.push_back(std::move(b));
 
     m_pluginsDir = pluginsDir;
@@ -193,7 +191,7 @@ void LoadOrderUI::Revalidate() {
     // Position of each present bundle in the current order (index = priority).
     std::unordered_map<std::string, int> pos;
     for (int i = 0; i < static_cast<int>(m_bundles.size()); ++i)
-        pos[ToLower(m_bundles[i].stem)] = i;
+        pos[PathKey(m_bundles[i].stem)] = i;
 
     for (int i = 0; i < static_cast<int>(m_bundles.size()); ++i) {
         const Bundle& b = m_bundles[i];
@@ -202,8 +200,8 @@ void LoadOrderUI::Revalidate() {
             continue;
         }
         for (const std::string& m : b.masters) {
-            if (ToLower(b.stem) == m) continue;
-            const auto it = pos.find(m);
+            if (PathKey(b.stem) == PathKey(m)) continue;
+            const auto it = pos.find(PathKey(m));
             if (it == pos.end()) {
                 m_warnings.push_back("'" + b.name + "' declares master '" + m +
                                      "' but it is not present (its overrides bind to nothing).");

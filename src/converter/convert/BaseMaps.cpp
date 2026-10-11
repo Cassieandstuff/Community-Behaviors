@@ -1,25 +1,22 @@
 #include "BaseMaps.h"
 
+#include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 
 namespace CB::converter {
 namespace {
 
-std::string toLower(std::string s) {
-    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+using CB::engine::codec::resource::PathKey;
 
 // "meshes/actors/horse/behaviors/horsebehavior.hkx" -> "actors/horse"
 // Handles the space-folder variants ("behaviors wolf", "characters female") and _1stperson.
-std::string actorOf(const std::string& prefixLower) {
-    const auto ap = prefixLower.find("actors/");
+std::string actorOf(const std::string& prefixKey) {
+    const auto ap = prefixKey.find("actors/");
     if (ap == std::string::npos) return {};
-    const std::string rest = prefixLower.substr(ap + 7);  // after "actors/"
+    const std::string rest = prefixKey.substr(ap + 7);  // after "actors/"
     std::size_t cut = std::string::npos;
     for (const char* seg : { "/behaviors", "/characters", "/_1stperson" }) {
         const auto b = rest.find(seg);
@@ -30,9 +27,9 @@ std::string actorOf(const std::string& prefixLower) {
     return "actors/" + actorSeg;
 }
 
-std::string stemOf(const std::string& prefixLower) {
-    const auto slash = prefixLower.rfind('/');
-    std::string fn = (slash == std::string::npos) ? prefixLower : prefixLower.substr(slash + 1);
+std::string stemOf(const std::string& prefixKey) {
+    const auto slash = prefixKey.rfind('/');
+    std::string fn = (slash == std::string::npos) ? prefixKey : prefixKey.substr(slash + 1);
     const auto dot = fn.rfind(".hkx");
     return (dot == std::string::npos) ? fn : fn.substr(0, dot);
 }
@@ -40,17 +37,19 @@ std::string stemOf(const std::string& prefixLower) {
 
 }  // namespace
 
-std::string ActorOfServePath(const std::string& servePathLower) { return actorOf(servePathLower); }
+std::string ActorOfServePath(const std::string& servePath) { return actorOf(PathKey(servePath)); }
 
 BaseMaps BuildBaseMaps(const CB::engine::codec::HkyArchive& baseArc) {
     using UK = CB::engine::codec::HkyArchive::UnitKind;
     BaseMaps m;
     for (const auto& u : baseArc.units()) {
-        const std::string prefix = toLower(u.prefix);  // already normalized, but be defensive
+        /// @note Map KEYS (stem, actor) are path identity; the VALUES keep the unit's own serve path (unitOut writes it).
+        const std::string& prefix = u.prefix;
+        const std::string  key    = PathKey(prefix);
         if (u.kind == UK::Behavior) {
-            const std::string stem  = stemOf(prefix);
-            const std::string actor = actorOf(prefix);
-            const bool isFp = prefix.find("/_1stperson/behaviors/") != std::string::npos;
+            const std::string stem  = stemOf(key);
+            const std::string actor = actorOf(key);
+            const bool isFp = key.find("/_1stperson/behaviors/") != std::string::npos;
             auto& sp = isFp ? m.fpGraphServePath : m.graphServePath;
             auto& ap = isFp ? m.fpGraphActorPath : m.graphActorPath;
             // Templated/Nemesis graphs are the character-family graphs (templates/ mirrors
@@ -65,7 +64,7 @@ BaseMaps BuildBaseMaps(const CB::engine::codec::HkyArchive& baseArc) {
             }
             m.vanillaGraphStems.insert(stem);
         } else if (u.kind == UK::Character) {
-            m.actorCharacters[actorOf(prefix)].push_back(prefix);
+            m.actorCharacters[actorOf(key)].push_back(prefix);
         }
     }
     for (auto& [actor, chars] : m.actorCharacters) {

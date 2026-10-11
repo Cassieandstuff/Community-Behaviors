@@ -1,29 +1,20 @@
 #include <interface/linker/Linker.h>
 
-#include <cctype>
-
 namespace CB::engine::linker {
 
-std::string Linker::fold(std::string_view s) {
-    std::string out(s);
-    for (char& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return out;
-}
-
-Linker Linker::OfOrderedNames(const std::vector<std::string>& names, bool caseFold) {
+Linker Linker::OfOrderedNames(const std::vector<std::string>& names) {
     Linker l;
-    l.caseFold_ = caseFold;
     l.fwd_.reserve(names.size() * 2 + 8);
     for (std::size_t i = 0; i < names.size(); ++i) {
         const Value v = static_cast<Value>(i);
-        l.fwd_.emplace(caseFold ? fold(names[i]) : names[i], v);  // first name wins on the (folded) key
-        l.rev_.emplace(v, names[i]);                              // ORIGINAL name for decode
+        l.fwd_.emplace(names[i], v);   // first name wins
+        l.rev_.emplace(v, names[i]);   // ORIGINAL name for decode
     }
     return l;
 }
 
 std::optional<Value> Linker::encode(std::string_view name) const {
-    const auto it = fwd_.find(caseFold_ ? fold(name) : std::string(name));
+    const auto it = fwd_.find(std::string(name));
     if (it == fwd_.end()) return std::nullopt;
     return it->second;
 }

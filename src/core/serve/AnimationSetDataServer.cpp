@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstdint>
 #include <exception>
 #include <fstream>
@@ -33,12 +32,8 @@ namespace CB::core::serve {
 
     namespace {
 
-        std::string ToLower(std::string s)
-        {
-            std::transform(s.begin(), s.end(), s.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
+        using CB::engine::codec::resource::HasExt;
+        using CB::engine::codec::resource::PathKey;
 
         // Resolve ".." segments in a '\'- or '/'-separated path (a roster entry like
         // "..\SharedKillMoves\..." joined onto the actor root escapes upward). The engine hashes the
@@ -91,7 +86,7 @@ namespace CB::core::serve {
             return static_cast<bool>(f);
         }
 
-        // Load order (optional): .hky plugin name (lowercased) -> priority, higher wins.
+        // Load order (optional): .hky plugin name (path key) -> priority, higher wins.
         // Same file/format the behavior Resolver uses.
         std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
         {
@@ -102,7 +97,7 @@ namespace CB::core::serve {
             while (std::getline(f, line)) {
                 const std::string entry = TrimLine(line);
                 if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
-                order[ToLower(entry)] = ++idx;
+                order[PathKey(entry)] = ++idx;
             }
             return order;
         }
@@ -122,7 +117,7 @@ namespace CB::core::serve {
                 ///       which the listing returns in its original case — the header is served verbatim, so a
                 ///       project a mod adds keeps its authored spelling (CB-9).
                 std::string stem = dirName;
-                const std::string low = CB::engine::codec::resource::PathKey(dirName);
+                const std::string low = PathKey(dirName);
                 if (low.size() > 4 && low.compare(low.size() - 4, 4, "data") == 0)
                     stem = dirName.substr(0, dirName.size() - 4);
 
@@ -152,12 +147,13 @@ namespace CB::core::serve {
 
         // A setdata project name maps to its character stem by dropping a trailing "Project"
         // ("HorseProject" -> "horse", "DragonProject" -> "dragon"); humanoid projects have no
-        // suffix ("DefaultMale" -> "defaultmale"). Used only to source a YAML moveset's CRC
+        // suffix ("DefaultMale" -> "defaultmale"). The result is a PATH key: it finds the character
+        // FILE (rosterPaths / charActorRoot are keyed by file stem). Used only to source a YAML moveset's CRC
         // registration from the mod's roster additions — a miss just yields no derived CRCs
         // (the moveset still merges; a delta onto a vanilla set keeps the vanilla registration).
         std::string ProjectToCharStem(const std::string& project)
         {
-            std::string s = ToLower(project);
+            std::string s = PathKey(project);
             const std::string suf = "project";
             if (s.size() > suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0)
                 s.erase(s.size() - suf.size());
@@ -193,7 +189,7 @@ namespace CB::core::serve {
         // same additions the served compiled character file now bakes into its roster. Used by
         // the coverage guard below so the served cache never registers a CRC the character's
         // roster can't resolve (that mismatch is the char-setup set-data-bind rep-stosq crash).
-        std::unordered_map<std::string, std::vector<std::string>> rosterPaths;  // charName(lower) -> paths
+        std::unordered_map<std::string, std::vector<std::string>> rosterPaths;  // charName (path key) -> paths
 
         // Open every MOD bundle once — a <Mod>.hky is EITHER an unpacked dir OR a packed .hky
         // file, read the same way through BundleReader. The Skyrim.hky MASTER (stem "skyrim")
@@ -208,8 +204,8 @@ namespace CB::core::serve {
         if (fs::is_directory(pluginsRoot, ec)) {
             for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec)) {
                 const fs::path bundle = bi->path();
-                if (ToLower(bundle.extension().string()) != ".hky") continue;
-                const std::string stem = ToLower(bundle.stem().string());  // "bfco" / "skyrim"
+                if (!HasExt(bundle.filename().string(), ".hky")) continue;
+                const std::string stem = PathKey(bundle.stem().string());  // "bfco" / "skyrim"
                 if (stem == "skyrim") { masterBundle = bundle; continue; }  // base + char units, lazily
 
                 auto rd = BundleReader::Open(bundle);
@@ -218,7 +214,7 @@ namespace CB::core::serve {
                 // Roster additions (animationnames/<char>.txt) — collected even if the bundle
                 // ships no set-data (a character's roster is the union across bundles).
                 for (const std::string& fn : rd->files("animationnames", ".txt")) {
-                    const std::string charName = ToLower(fs::path(fn).stem().string());
+                    const std::string charName = PathKey(fs::path(fn).stem().string());
                     if (const auto txt = rd->read(std::string("animationnames/") + fn)) {
                         std::istringstream in(*txt);
                         std::string        line;
@@ -239,7 +235,7 @@ namespace CB::core::serve {
                     auto cs = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
                     if (!cs || cs->animationNames.empty()) continue;
                     const auto s1 = unit.find_last_of('/');
-                    std::string charName = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
+                    std::string charName = PathKey((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
                     if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
                     auto& dst = rosterPaths[charName];
                     dst.insert(dst.end(), std::make_move_iterator(cs->animationNames.begin()),
@@ -294,10 +290,10 @@ namespace CB::core::serve {
         // "meshes\actors\character" — hardcoding the latter mis-CRC'd every creature. Char units sit
         // two components under their actor root (<root>/characters[ x]/<stem>.hkx), so strip the last
         // two. Now sourced from the packed master too (its 344 vanilla characters carry these roots).
-        std::unordered_map<std::string, std::string> charActorRoot;  // charStem(lower) -> "meshes\actors\..."
+        std::unordered_map<std::string, std::string> charActorRoot;  // charStem (path key) -> "meshes\actors\..."
         const auto ingestCharUnits = [&](const BundleReader& rd) {
             for (std::string rel : rd.units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
-                rel = ToLower(rel);                             // "meshes/actors/horse/characters/horse.hkx"
+                rel = PathKey(rel);                             // "meshes/actors/horse/characters/horse.hkx"
                 const auto s1 = rel.find_last_of('/');
                 const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rel.find_last_of('/', s1 - 1);
                 if (s2 == std::string::npos) continue;
@@ -426,13 +422,14 @@ namespace CB::core::serve {
         // Snapshot the VANILLA CRCs per character BEFORE the merge appends deltas: a CRC
         // present in vanilla is in that character's baked animationNames, so it always
         // resolves. `crcKey` packs (folder,file); ext is a constant (.hkx). `charOf` maps a
-        // project header ("DefaultMaleData\\DefaultMale.txt") to its character ("defaultmale").
+        // project header ("DefaultMaleData\\DefaultMale.txt") to its character ("DefaultMale"), exactly
+        // as the header spells it — both the snapshot and the lookup below key off the same headers.
         const auto charOf = [](const std::string& header) {
             const auto bs = header.find_last_of("\\/");
             std::string fn = (bs == std::string::npos) ? header : header.substr(bs + 1);
             const auto dot = fn.rfind('.');
             if (dot != std::string::npos) fn = fn.substr(0, dot);
-            return ToLower(fn);
+            return fn;
         };
         const auto crcKey = [](std::uint32_t folder, std::uint32_t file) {
             return (static_cast<std::uint64_t>(folder) << 32) | file;

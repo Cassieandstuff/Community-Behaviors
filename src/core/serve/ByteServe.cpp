@@ -6,10 +6,12 @@
 #include "core/discover/ServeKey.h"
 
 #include <core/hooks/points/Resource.h>
+#include <codec/resource/PathKey.h>
 
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 // ByteServe — the unified byte-substitution serve layer (replaces the `.br` project rename).
 //
@@ -48,13 +50,6 @@ namespace CB::core::serve {
             } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
         }
 
-        // Case-insensitive ".hkx" suffix test (the resolver also probes ".hkt" — we only swap ".hkx").
-        bool EndsHkx(const char* s, std::size_t n) {
-            if (n < 4) return false;
-            auto lc = [](char c) { return (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c; };
-            return lc(s[n - 4]) == '.' && lc(s[n - 3]) == 'h' && lc(s[n - 2]) == 'k' && lc(s[n - 1]) == 'x';
-        }
-
         std::int64_t OnResolve(ResolveNext next, const char* a_path, void* a_entry, std::uint64_t a_flag, void* a_ctx) {
             // Ready() gate: Init runs on a background thread, so until it completes the resolver's state
             // (m_sources/m_skeletonServe/…) is still being written — read nothing, pass the open through
@@ -62,12 +57,12 @@ namespace CB::core::serve {
             // would. Lock-free acquire; once ready, the resolver is immutable for the process lifetime.
             if (s_resolver && s_resolver->Ready() && a_path) {
                 // Sized well above any real Meshes-relative typed-hkx path (deep authored/VFS trees can
-                // exceed the old 300): a truncated copy would clip the ".hkx" suffix, fail EndsHkx, and
+                // exceed the old 300): a truncated copy would clip the ".hkx" suffix, fail the ".hkx" test, and
                 // silently pass a legitimately-owned graph through to vanilla with no swap.
                 char raw[1024];
                 if (SehCopy(a_path, raw, sizeof raw)) {
                     const std::size_t rn = std::char_traits<char>::length(raw);
-                    if (EndsHkx(raw, rn)) {
+                    if (CB::engine::codec::resource::HasExt(std::string_view(raw, rn), ".hkx")) {
                         // Serve key is meshes-prefixed; the resolver path is Meshes-relative.
                         const std::string serveKey = "meshes/" + CB::core::discover::NormalizeKey(raw);
 

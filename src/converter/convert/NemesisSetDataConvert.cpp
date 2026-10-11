@@ -1,9 +1,8 @@
 #include "NemesisSetDataConvert.h"
 
 #include <codec/format/AnimationSetData.h>   // the setdata model (CB::engine::animsetdata)
+#include <codec/resource/PathKey.h>
 
-#include <algorithm>
-#include <cctype>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -16,15 +15,12 @@ using namespace CB::engine::animsetdata;   // model types (SingleFile/SetFile/â€
 namespace CommunityBehaviors::asd {
 namespace {
 
+using CB::engine::codec::resource::HasExt;
+using CB::engine::codec::resource::PathKey;
 using LogFn = std::function<void(const std::string&)>;
 
 void Say(const LogFn& log, const std::string& s) { if (log) log(s); }
 
-std::string ToLower(std::string s)
-{
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
 std::string ReadAll(const fs::path& p)
 {
     std::ifstream f(p, std::ios::binary);
@@ -56,8 +52,8 @@ SingleFile LoadModDelta(const fs::path& modDir, std::size_t& sets, std::size_t& 
         const std::string projData = (tilde == std::string::npos) ? dirName : dirName.substr(0, tilde);
         std::string stem = projData;
         {
-            const std::string low = ToLower(projData);
-            if (low.size() > 4 && low.compare(low.size() - 4, 4, "data") == 0)
+            const std::string key = PathKey(projData);
+            if (key.size() > 4 && key.compare(key.size() - 4, 4, "data") == 0)
                 stem = projData.substr(0, projData.size() - 4);
         }
         Project proj;
@@ -66,7 +62,7 @@ SingleFile LoadModDelta(const fs::path& modDir, std::size_t& sets, std::size_t& 
         for (fs::directory_iterator fi(pi->path(), ec), fend; !ec && fi != fend; fi.increment(ec)) {
             std::error_code fe;
             if (!fi->is_regular_file(fe)) continue;
-            if (ToLower(fi->path().extension().string()) != ".txt") continue;
+            if (!HasExt(fi->path().filename().string(), ".txt")) continue;
             const std::string text = ReadAll(fi->path());
             if (text.rfind("V3", 0) != 0) continue;
             try {
@@ -111,10 +107,16 @@ std::vector<std::string> ExtractAnimNames(const std::string& text)
     return names;
 }
 
+/// @brief One character's roster additions across mods.
+struct CharRoster {
+    std::string              name;    ///< the character folder's first-seen spelling â€” the file is written under it
+    std::vector<std::string> names;
+};
+
 // Scan a mod for character-roster patches: any dir (other than the set-data dir) whose
 // #*.txt hold an hkbCharacterStringData animationNames block. The dir name is the character
-// (e.g. "defaultmale"). Accumulates names into out[charName] (deduped/emitted by the caller).
-void LoadModAnimNames(const fs::path& modDir, std::map<std::string, std::vector<std::string>>& out)
+// (e.g. "defaultmale"). Accumulates names into out[PathKey(charName)] (deduped/emitted by the caller).
+void LoadModAnimNames(const fs::path& modDir, std::map<std::string, CharRoster>& out)
 {
     std::error_code ec;
     // Scan one graph dir's #*.txt for an hkbCharacterStringData animationNames block; key by charName.
@@ -123,24 +125,25 @@ void LoadModAnimNames(const fs::path& modDir, std::map<std::string, std::vector<
         for (fs::directory_iterator fi(dir, se), fend; !se && fi != fend; fi.increment(se)) {
             std::error_code fe;
             if (!fi->is_regular_file(fe)) continue;
-            if (ToLower(fi->path().extension().string()) != ".txt") continue;
+            if (!HasExt(fi->path().filename().string(), ".txt")) continue;
             const std::string text = ReadAll(fi->path());
             if (text.find("hkbCharacterStringData") == std::string::npos) continue;
             const std::vector<std::string> names = ExtractAnimNames(text);
             if (names.empty()) continue;
-            auto& v = out[ToLower(charName)];
-            v.insert(v.end(), names.begin(), names.end());
+            auto& r = out[PathKey(charName)];
+            if (r.name.empty()) r.name = charName;
+            r.names.insert(r.names.end(), names.begin(), names.end());
         }
     };
     for (fs::directory_iterator di(modDir, ec), dend; !ec && di != dend; di.increment(ec)) {
         std::error_code de;
         if (!di->is_directory(de)) continue;
         const std::string dirName = di->path().filename().string();
-        if (ToLower(dirName) == "animationsetdatasinglefile") continue;
+        if (PathKey(dirName) == "animationsetdatasinglefile") continue;
         // The FirstPerson character's roster patch lives one level deeper, at _1stperson/<char>/#*.txt
         // (SkyParkour's _1stperson/firstperson/). Descend and key by the SUBDIR name (the character),
         // else the first-person roster stays empty and its moveset CRCs get dropped as unrostered.
-        if (ToLower(dirName) == "_1stperson") {
+        if (PathKey(dirName) == "_1stperson") {
             for (fs::directory_iterator sdi(di->path(), ec), send; !ec && sdi != send; sdi.increment(ec)) {
                 std::error_code sde;
                 if (sdi->is_directory(sde)) scanCharDir(sdi->path(), sdi->path().filename().string());
@@ -197,13 +200,15 @@ NemesisConvertStats ConvertNemesisSetData(const std::vector<std::filesystem::pat
     // ships with the behaviors + set-data. The runtime dedup-appends these to the character's
     // animationNames, so the moveset table's crcs resolve against a roster that actually
     // contains them (the missing third leg that otherwise desyncs char-setup).
-    std::map<std::string, std::vector<std::string>> charAnims;
+    std::map<std::string, CharRoster> charAnims;
     for (const fs::path& mod : modDirs) LoadModAnimNames(mod, charAnims);
 
-    for (const auto& [charName, names] : charAnims) {
+    for (const auto& entry : charAnims) {
+        const CharRoster&               roster   = entry.second;
+        const std::string&              charName = roster.name;
         std::vector<std::string>        uniq;
         std::unordered_set<std::string> seen;
-        for (const std::string& n : names)
+        for (const std::string& n : roster.names)
             if (seen.insert(n).second) uniq.push_back(n);
         std::string body;
         for (const std::string& n : uniq) { body += n; body += "\r\n"; }

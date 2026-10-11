@@ -44,7 +44,7 @@ namespace CB {
 
     private:
         struct Decl {
-            std::string             project;   ///< normalized lowercase '/'-form, e.g. "actors/character"
+            std::string             project;   ///< path key (codec::resource::PathKey), e.g. "actors/character"
             CB::feature::SymbolDecl symbol;
         };
         std::vector<Decl> m_decls;

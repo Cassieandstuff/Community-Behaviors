@@ -36,7 +36,7 @@ namespace CB::config {
 struct Source {
     std::filesystem::path path;   // absolute path to the file on disk
     std::string           stem;   // filename without extension — the config/mod handle
-    std::string           key;    // path relative to its scan root, '/'-separated + lowercased;
+    std::string           key;    // path relative to its scan root, as a path key (codec::resource::PathKey);
                                   //   the sort key, and a stable handle for attribution / dedup
 };
 

@@ -23,6 +23,13 @@ inline std::string PathKey(std::string_view p)
     return s;
 }
 
+/// @brief Whether `path` ends in the extension `extLower` (already lowercase, with the dot, e.g. ".hkx") — path
+///        identity, so ".HKX" / ".Hkx" match too.
+inline bool HasExt(std::string_view path, std::string_view extLower)
+{
+    return path.size() >= extLower.size() && PathKey(path.substr(path.size() - extLower.size())) == extLower;
+}
+
 /// @brief The engine's animation-SLOT key for a roster entry: the lowercased FILENAME, folder ignored.
 /// @note LoadClips keys roster slots this way and a later slot overwrites an earlier one on collision (RE'd), so
 ///       `male\MT_X` and `female\MT_X` are the same slot. Use it only to model that rule (slot alignment, collision

@@ -1,7 +1,8 @@
 #include <config/Config.h>
 
+#include <codec/resource/PathKey.h>
+
 #include <algorithm>
-#include <cctype>
 #include <fstream>
 #include <sstream>
 
@@ -10,33 +11,25 @@ namespace fs = std::filesystem;
 namespace CB::config {
 namespace {
 
-std::string ToLower(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-// Relative path -> '/'-separated, lowercased key (stable across platforms and
-// case-insensitive Windows filesystems).
-std::string MakeKey(const fs::path& rel) {
-    return ToLower(rel.generic_string());
-}
+using CB::engine::codec::resource::HasExt;
+using CB::engine::codec::resource::PathKey;
 
 }  // namespace
 
 std::vector<Source> Discover(const ScanSpec& spec) {
-    // Normalize the extension filter once: lowercase, leading dot enforced.
+    // Normalize the extension filter once: path key, leading dot enforced.
     std::vector<std::string> exts;
     exts.reserve(spec.extensions.size());
     for (std::string e : spec.extensions) {
         if (e.empty()) continue;
-        e = ToLower(std::move(e));
+        e = PathKey(e);
         if (e.front() != '.') e.insert(e.begin(), '.');
         exts.push_back(std::move(e));
     }
     const auto matches = [&](const fs::path& p) {
         if (exts.empty()) return true;
-        const std::string pe = ToLower(p.extension().string());
-        return std::find(exts.begin(), exts.end(), pe) != exts.end();
+        const std::string fn = p.filename().string();
+        return std::any_of(exts.begin(), exts.end(), [&](const std::string& e) { return HasExt(fn, e); });
     };
 
     std::vector<Source> out;
@@ -49,7 +42,7 @@ std::vector<Source> Discover(const ScanSpec& spec) {
             std::error_code rec;
             fs::path rel = fs::relative(file, root, rec);
             if (rec || rel.empty()) rel = file.filename();
-            out.push_back(Source{ file, file.stem().string(), MakeKey(rel) });
+            out.push_back(Source{ file, file.stem().string(), PathKey(rel.generic_string()) });
         };
 
         if (spec.recursive) {

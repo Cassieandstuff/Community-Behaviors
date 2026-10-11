@@ -16,7 +16,7 @@
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
 #include <compile/AnimDataDeriver.h>      // CB::engine::animdata::DeriveClipInput
-#include <codec/resource/PathKey.h>       // ClipSlotKey — the engine's LoadClips slot rule
+#include <codec/resource/PathKey.h>       // path identity (PathKey/HasExt) + ClipSlotKey (the LoadClips slot rule)
 #include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
@@ -26,7 +26,6 @@
 #include <set>
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <exception>
 #include <fstream>
@@ -44,12 +43,8 @@ namespace CB {
 
     namespace {
 
-        std::string ToLower(std::string s)
-        {
-            std::transform(s.begin(), s.end(), s.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
+        using CB::engine::codec::resource::HasExt;
+        using CB::engine::codec::resource::PathKey;
 
         /// @brief A reflective unit's kind (its graph.yaml's root variant; a patch names its base's). A unit without
         ///        graph.yaml is a patch that leaves the root untouched — Behavior.
@@ -159,7 +154,7 @@ namespace CB {
             for (const auto& [stem, mf] : manifests) {
                 auto& ems = explicitMasters[stem];
                 for (const auto& m : mf.masters) {
-                    const std::string mk = ToLower(m);
+                    const std::string mk = PathKey(m);
                     if (mk == stem) continue;                                   // self-reference
                     if (std::find(ems.begin(), ems.end(), mk) == ems.end()) ems.push_back(mk);
                 }
@@ -279,7 +274,7 @@ namespace CB {
             while (std::getline(f, line)) {
                 const std::string entry = TrimLine(line);
                 if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
-                order[ToLower(entry)] = ++idx;  // later line wins; unlisted stay at 0
+                order[PathKey(entry)] = ++idx;  // later line wins; unlisted stay at 0
             }
         }
 
@@ -319,18 +314,18 @@ namespace CB {
         // roster entry == animationName byte-aligned (BR-16). Shared by the unpacked + packed branches.
         auto collectNativeAnim = [this](const std::string& relOrig, std::string yamlText) {
             if (yamlText.empty()) return;
-            const std::string lower = ToLower(relOrig);   // '/'-separated already
-            if (lower.size() < 4 || lower.compare(lower.size() - 4, 4, ".hkx") != 0) return;
+            const std::string pathKey = PathKey(relOrig);
+            if (!HasExt(pathKey, ".hkx")) return;
 
             // Must live UNDER an actor's animations dir (meshes/actors/<actor>/animations/...).
             // Belt-and-suspenders now: a ".hkx" FILE gate can no longer match the ADSF clip-generator
             // deltas (those are "<clip>.hkx.yaml", ending in .yaml — the old BR-18 false positive that
             // dumped ~1269 bogus .hkx into animationdatasinglefile.txt\clips\ and crashed char-setup);
             // the guard also rejects any stray binary .hkx that shouldn't be in an .hky at all.
-            const auto ap = lower.find("meshes/actors/");
+            const auto ap = pathKey.find("meshes/actors/");
             if (ap == std::string::npos) return;
             const std::size_t as = ap + 14;
-            const auto an = lower.find("/animations/", as);
+            const auto an = pathKey.find("/animations/", as);
             if (an == std::string::npos) return;
 
             const std::string outKey = relOrig;            // the ".hkx" path IS the output name
@@ -359,7 +354,7 @@ namespace CB {
             std::error_code ec;
             for (fs::directory_iterator bi(pluginsRoot, ec), bEnd; !ec && bi != bEnd; bi.increment(ec)) {
                 const fs::path bundle = bi->path();
-                if (ToLower(bundle.extension().string()) != ".hky") continue;  // a mod bundle
+                if (!HasExt(bundle.filename().string(), ".hky")) continue;  // a mod bundle
                 std::error_code bec;
                 const bool bundleIsDir = bi->is_directory(bec);   // dir = unpacked; file = packed .hky
 
@@ -372,7 +367,7 @@ namespace CB {
                 // The bundle STEM is its load-order handle and its master-DAG node; the
                 // actual ordering is resolved from the master graph after the scan
                 // (PlanLoadOrder), not from a flat loadorder.txt priority here.
-                const std::string plugName = ToLower(bundle.stem().string());
+                const std::string plugName = PathKey(bundle.stem().string());
                 ++plugins;
 
                 // Parse this bundle's manifest.json (identity / version / declared masters).
@@ -404,7 +399,7 @@ namespace CB {
                     logManifest(mf);
                     bundleCompileAnims = mf.compileAnimations;
                     if (bundleCompileAnims)
-                        LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", plugName);
+                        LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", bundle.stem().string());
                     m_manifests.emplace(plugName, std::move(mf));
                 }
 
@@ -421,9 +416,7 @@ namespace CB {
                     // skeleton physics source) so we don't read them; collectNativeAnim re-guards it.
                     if (std::error_code rfe; bundleCompileAnims && ui->is_regular_file(rfe)) {
                         const std::string relOrig = ui->path().lexically_relative(bundle).generic_string();
-                        const std::string relLow  = ToLower(relOrig);
-                        if (relLow.size() >= 4 && relLow.compare(relLow.size() - 4, 4, ".hkx") == 0 &&
-                            relLow.find("/animations/") != std::string::npos) {
+                        if (HasExt(relOrig, ".hkx") && PathKey(relOrig).find("/animations/") != std::string::npos) {
                             std::ifstream  yf(ui->path(), std::ios::binary);
                             std::ostringstream ys; ys << yf.rdbuf();
                             collectNativeAnim(relOrig, ys.str());
@@ -432,7 +425,7 @@ namespace CB {
                     }
                     if (!ui->is_directory(uec)) continue;
                     const fs::path unit = ui->path();
-                    if (ToLower(unit.extension().string()) != ".hkx") continue;
+                    if (!HasExt(unit.filename().string(), ".hkx")) continue;
                     ui.disable_recursion_pending();  // a unit is a leaf — don't descend into it
 
                     // Serve key = the unit's path RELATIVE TO THE BUNDLE (its game data
@@ -459,8 +452,8 @@ namespace CB {
                 // (e.g. animationnames\defaultmale.txt for characters\defaultmale.hkx). One
                 // animation path per line; '#'/';' lines and blanks ignored. No need to mirror
                 // the deep character-unit directory, and no Nemesis — these fold into the
-                // character's compiled animationNames roster at Resolve() time (deduped,
-                // case-insensitive). The converter emits the same files, so converter mods and
+                // character's compiled animationNames roster at Resolve() time (deduped
+                // exactly). The converter emits the same files, so converter mods and
                 // hand-authored bundles share one path. Unioned across bundles; the compile
                 // dedups, so priority/order is immaterial here.
                 std::error_code anec;
@@ -469,8 +462,8 @@ namespace CB {
                     for (fs::directory_iterator ai(animNamesDir, anec), aEnd; !anec && ai != aEnd; ai.increment(anec)) {
                         std::error_code fec;
                         if (!ai->is_regular_file(fec)) continue;
-                        if (ToLower(ai->path().extension().string()) != ".txt") continue;
-                        const std::string charKey = ToLower(ai->path().stem().string());  // "defaultmale"
+                        if (!HasExt(ai->path().filename().string(), ".txt")) continue;
+                        const std::string charKey = PathKey(ai->path().stem().string());  // "defaultmale"
                         std::ifstream     nf(ai->path());
                         std::string       nline;
                         auto&             names = m_characterAnimNames[charKey];
@@ -509,7 +502,7 @@ namespace CB {
                             logManifest(mf);
                             bundleCompileAnims = mf.compileAnimations;
                             if (bundleCompileAnims)
-                                LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", plugName);
+                                LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", bundle.stem().string());
                             m_manifests[plugName] = std::move(mf);
                         }
                     }
@@ -529,7 +522,7 @@ namespace CB {
                         // ever wrote that file — the redirect hit a missing file and the skeleton failed to
                         // load: universal A-pose + no root motion. Leave unlayered skeletons to vanilla.
                         if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(NormalizeKey(u.prefix)); continue; }
-                        const std::string key = NormalizeKey(u.prefix);   // already lower/'/'-normal
+                        const std::string key = NormalizeKey(u.prefix);   // already a path key
                         if (key.empty() || key[0] == '.') continue;
                         layers[key].push_back({ plugName, arc->source(u.prefix),
                                                 u.kind == CB::engine::codec::HkyArchive::UnitKind::Character });
@@ -539,8 +532,8 @@ namespace CB {
                     // <char-stem>.txt" (same convention as the on-disk dir above). The
                     // full-corpus master ships none, but a packed MOD bundle may.
                     for (const auto& full : arc->filesUnder("animationnames/")) {
-                        if (ToLower(fs::path(full).extension().string()) != ".txt") continue;
-                        const std::string charKey = ToLower(fs::path(full).stem().string());
+                        if (!HasExt(full, ".txt")) continue;
+                        const std::string charKey = PathKey(fs::path(full).stem().string());
                         if (auto txt = arc->file(full)) {
                             auto& names = m_characterAnimNames[charKey];
                             std::istringstream ns(*txt);
@@ -596,8 +589,8 @@ namespace CB {
                 std::error_code me;
                 if (fs::is_directory(pluginsRoot, me))
                     for (fs::directory_iterator bi(pluginsRoot, me), bend; !me && bi != bend; bi.increment(me)) {
-                        if (ToLower(bi->path().extension().string()) != ".hky") continue;
-                        const std::string stem = ToLower(bi->path().stem().string());
+                        if (!HasExt(bi->path().filename().string(), ".hky")) continue;
+                        const std::string stem = PathKey(bi->path().stem().string());
                         if (plan.dropped.count(stem)) continue;
                         auto br = BundleReader::Open(bi->path());
                         if (!br) continue;
@@ -881,7 +874,7 @@ namespace CB {
         /// @note `current` is false when the header's compiler revision or watermark differs from this build's: the entries still
         ///       identify CB-written files (orphan cleanup), but none may be skipped as up to date.
         struct AnimLedger {
-            std::unordered_map<std::string, AnimLedgerEntry> byKey;   ///< ToLower(path), internal-only key
+            std::unordered_map<std::string, AnimLedgerEntry> byKey;   ///< PathKey(path), internal-only key
             bool                                              current = false;
         };
 
@@ -916,7 +909,7 @@ namespace CB {
                 e.src  = std::strtoull(line.substr(0, t1).c_str(), nullptr, 16);
                 e.out  = std::strtoull(line.substr(t1 + 1, t2 - t1 - 1).c_str(), nullptr, 16);
                 e.path = line.substr(t2 + 1);
-                if (!e.path.empty()) led.byKey[ToLower(e.path)] = std::move(e);
+                if (!e.path.empty()) led.byKey[PathKey(e.path)] = std::move(e);
             }
             return led;
         }
@@ -975,7 +968,7 @@ namespace CB {
             const auto& [outKey, yamlText] = m_nativeAnims[i];
             srcHash[i] = Fnv64(yamlText.data(), yamlText.size());
             if (!prior.current) continue;
-            const auto it = prior.byKey.find(ToLower(outKey));
+            const auto it = prior.byKey.find(PathKey(outKey));
             if (it == prior.byKey.end() || it->second.src != srcHash[i]) continue;
             if (const auto onDisk = FileFnv64(dataRoot / fs::path(outKey)); onDisk && *onDisk == it->second.out) {
                 outHash[i]  = *onDisk;
@@ -1063,7 +1056,7 @@ namespace CB {
         std::vector<AnimLedgerEntry> next;
         std::unordered_set<std::string> nowKeys;
         for (std::size_t i = 0; i < n; ++i) {
-            const std::string key = ToLower(m_nativeAnims[i].first);
+            const std::string key = PathKey(m_nativeAnims[i].first);
             nowKeys.insert(key);
             if (produced[i]) next.push_back({ m_nativeAnims[i].first, srcHash[i], outHash[i] });
             else if (const auto it = prior.byKey.find(key); it != prior.byKey.end()) next.push_back(it->second);
@@ -1131,7 +1124,7 @@ namespace CB {
             const fs::path cacheRoot = dataRoot / CB::core::discover::kConsolidatedCacheDir;
             if (fs::is_directory(cacheRoot, ec))
                 for (fs::directory_iterator di(cacheRoot, ec), de; !ec && di != de; di.increment(ec)) {
-                    const std::string fn = ToLower(di->path().filename().string());
+                    const std::string fn = PathKey(di->path().filename().string());
                     if (fn == "animationdatasinglefile.txt" ||
                         fn == "animationsetdatasinglefile.txt" ||
                         fn == "animations.ledger" ||
@@ -1164,8 +1157,7 @@ namespace CB {
                 for (fs::directory_iterator di(rootAbs, ec), de; !ec && di != de; di.increment(ec)) {
                     std::error_code fec;
                     if (!di->is_regular_file(fec)) continue;
-                    const std::string fn = ToLower(di->path().filename().string());
-                    if (fn.size() >= 7 && fn.compare(fn.size() - 7, 7, ".br.hkx") == 0)
+                    if (HasExt(di->path().filename().string(), ".br.hkx"))
                         fs::remove(di->path(), fec);
                 }
         }
@@ -1248,36 +1240,11 @@ namespace CB {
         return written;
     }
 
-    // Title-case each space-separated word ("characters female" -> "Characters Female"), matching
-    // vanilla's project character-ref folder convention. Case matters — Havok is case-sensitive.
-    static std::string TitleCaseFolder(std::string s)
-    {
-        bool atStart = true;
-        for (char& c : s) {
-            if (atStart && c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
-            atStart = (c == ' ' || c == '/');
-        }
-        return s;
-    }
-
-    /// @brief The character's proper-case string-data `name`, from the first layer that states it.
-    /// @note  Every path KEY is lowercased at scan; this name re-cases the synthesized project's characterFilenames
-    ///        back to vanilla, which Havok matches CASE-SENSITIVELY (a miscased ref binds nothing: universal A-pose).
-    static std::string ReadCharacterName(
-        const std::vector<CB::engine::common::LayerSource>& layers)
-    {
-        for (const auto& L : layers)
-            if (L.source)
-                if (const auto cs = CB::engine::decompile::ReadCharacterStrings(*L.source); cs && !cs->name.empty())
-                    return cs->name;
-        return {};
-    }
-
     void Resolver::BuildRedirectMap(const std::filesystem::path& dataRoot)
     {
         namespace fs = std::filesystem;
 
-        // folderRoot -> [{charStem, cacheCharRef}] for each owned CHARACTER. The synthesized
+        // folderRoot -> [{charStem}] for each owned CHARACTER. The synthesized
         // project files themselves are written ON DEMAND in ProjectRedirect() — their name uses
         // the vanilla PROJECT stem (needed so the animationdata association still matches), which
         // is only known at runtime from the load descriptor, not here (a character's stem differs
@@ -1307,32 +1274,9 @@ namespace CB {
                 continue;
             }
 
-            const std::string charRel = k.substr(root.size() + 1);  // "characters/defaultmale.hkx"
-            const std::string charStem = fs::path(k).stem().string();  // "defaultmale"
+            const std::string charStem = fs::path(k).stem().string();  // "defaultmale" (k is a path key)
 
-            // The value the synthesized project's characterFilenames[0] holds: the VANILLA character
-            // path (backslashed), e.g. "Characters\DefaultMale.hkx". Havok matches this string
-            // CASE-SENSITIVELY (see the case directive in CLAUDE.md), but the master stores every path
-            // KEY lowercased — so charRel is lowercase, and shipping it verbatim silently breaks the
-            // character↔animation-data association (universal A-pose, BR-31). Re-case it to vanilla:
-            // the proper-cased stem is the character's own `name:` (the one field that survived the
-            // lowercased master), and the folder follows vanilla's fixed title-case convention
-            // ("Characters" / "Characters Female"). The ByteServe hook still lowercases the actual file
-            // OPEN (BR-30), so the proper-cased ref loads from the lowercase on-disk cache while keeping
-            // the vanilla-cased identity. Falls back to the lowercase ref if the name can't be recovered.
-            std::string charRef = charRel;
-            if (const auto slash = charRel.find_last_of('/'); slash != std::string::npos) {
-                if (const std::string properName = ReadCharacterName(gs.layers);
-                    !properName.empty() && ToLower(properName) == charStem)
-                    charRef = TitleCaseFolder(charRel.substr(0, slash)) + "/" + properName + ".hkx";
-            }
-            std::string charRelBs = charRef;
-            for (char& c : charRelBs) if (c == '/') c = '\\';
-            if (charRef != charRel)
-                LOG_INFO("Resolver: re-cased character ref '{}' -> '{}' for the synthesized project "
-                         "(Havok is case-sensitive; BR-31).", charRel, charRef);
-
-            m_projectRedirects[root].push_back({ charStem, charRelBs });
+            m_projectRedirects[root].push_back({ charStem });
             ++characters;
         }
 
@@ -1452,7 +1396,7 @@ namespace CB {
         edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
             if (!found) { names = so.FieldRef("animationNames").strs; found = true; }
         });
-        FoldAuthorRoster(ToLower(fs::path(it->first).stem().string()), names);
+        FoldAuthorRoster(PathKey(fs::path(it->first).stem().string()), names);
         return names;
     }
 
@@ -1591,8 +1535,8 @@ namespace CB {
                         f.flush();
                         ok = f.good();
                         if (ok)
-                            LOG_INFO("Community Behaviors: byte-served project '{}' -> vanilla character '{}' "
-                                     "(cache '{}').", vanillaProjectPath, chosen->cacheCharRef, swap);
+                            LOG_INFO("Community Behaviors: byte-served project '{}' (cache '{}').",
+                                     vanillaProjectPath, swap);
                         else
                             LOG_ERROR("Community Behaviors: failed writing byte-served project '{}'.", out.string());
                     } else {
@@ -1635,7 +1579,7 @@ namespace CB {
         CB::engine::codec::io::SchemaObject* sd = nullptr;
         edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) { if (!sd) sd = &so; });
         if (!sd) { LOG_WARN("Resolver: character '{}' has no string data — served as merged.", key); return; }
-        const std::string cstem = ToLower(fs::path(key).stem().string());
+        const std::string cstem = PathKey(fs::path(key).stem().string());
 
         /// @note The author-facing roster drop (animationnames\<stem>.txt) folds in as an EXACT-case union: Havok binds
         ///       case-sensitively, so a lowercased dedup would drop the exact name a clip binds.

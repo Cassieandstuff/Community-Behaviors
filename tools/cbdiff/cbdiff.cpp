@@ -30,7 +30,6 @@ std::string readFile(const std::string& p) {
     if (!f) { std::fprintf(stderr, "cbdiff: cannot open '%s'\n", p.c_str()); return {}; }
     std::ostringstream ss; ss << f.rdbuf(); return ss.str();
 }
-std::string lower(std::string s) { for (char& c : s) c = static_cast<char>(std::tolower((unsigned char)c)); return s; }
 std::string join(const std::vector<std::string>& v, const char* sep = " | ") {
     std::string o; for (std::size_t i = 0; i < v.size(); ++i) { if (i) o += sep; o += v[i]; } return o;
 }
@@ -41,9 +40,9 @@ int diffAdsf(const std::string& refPath, const std::string& cbPath) {
     const auto cbSF  = CB::engine::animdata::ParseSingleFile(readFile(cbPath));
     std::printf("== adsf: %zu ref project(s) vs %zu cb project(s) ==\n", refSF.projects.size(), cbSF.projects.size());
     std::unordered_map<std::string, const CB::engine::animdata::Project*> cbByName;
-    for (const auto& p : cbSF.projects) cbByName[lower(p.name)] = &p;
+    for (const auto& p : cbSF.projects) cbByName[p.name] = &p;
     for (const auto& rp : refSF.projects) {
-        auto it = cbByName.find(lower(rp.name));
+        auto it = cbByName.find(rp.name);
         if (it == cbByName.end()) { std::printf("PROJECT only-in-ref: %s\n", rp.name.c_str()); ++g_diffs; continue; }
         const auto& cp = *it->second;
         std::unordered_map<std::string, const CB::engine::animdata::ClipGenerator*> cbClips, refClips;
@@ -68,16 +67,16 @@ int diffAsd(const std::string& refPath, const std::string& cbPath) {
     const auto cbSF  = CB::engine::animsetdata::ParseSingleFile(readFile(cbPath));
     std::printf("== asd: %zu ref project(s) vs %zu cb project(s) ==\n", refSF.projects.size(), cbSF.projects.size());
     std::unordered_map<std::string, const CB::engine::animsetdata::Project*> cbByHdr;
-    for (const auto& p : cbSF.projects) cbByHdr[lower(p.header)] = &p;
+    for (const auto& p : cbSF.projects) cbByHdr[p.header] = &p;
     for (const auto& rp : refSF.projects) {
-        auto it = cbByHdr.find(lower(rp.header));
+        auto it = cbByHdr.find(rp.header);
         if (it == cbByHdr.end()) { std::printf("PROJECT only-in-ref: %s\n", rp.header.c_str()); ++g_diffs; continue; }
         const auto& cp = *it->second;
         std::unordered_map<std::string, const CB::engine::animsetdata::SetFile*> cbSets;
-        for (const auto& s : cp.sets) cbSets[lower(s.name)] = &s;
+        for (const auto& s : cp.sets) cbSets[s.name] = &s;
         int pd = 0; auto note = [&](const std::string& s){ if(!pd) std::printf("-- %s --\n", rp.header.c_str()); ++pd; ++g_diffs; std::printf("   %s\n", s.c_str()); };
         for (const auto& rs : rp.sets) {
-            auto si = cbSets.find(lower(rs.name));
+            auto si = cbSets.find(rs.name);
             if (si == cbSets.end()) { note("set only-in-ref: '" + rs.name + "'"); continue; }
             const auto& cs = *si->second;
             if (rs.equipEvents != cs.equipEvents) note("set '" + rs.name + "' equipEvents: ref [" + join(rs.equipEvents) + "] cb [" + join(cs.equipEvents) + "]");
@@ -98,8 +97,8 @@ int dumpAsdCrc(const std::string& refPath, const std::string& cbPath, const std:
     const auto refSF = CB::engine::animsetdata::ParseSingleFile(readFile(refPath));
     const auto cbSF  = CB::engine::animsetdata::ParseSingleFile(readFile(cbPath));
     auto findSet = [&](const CB::engine::animsetdata::SingleFile& sf) -> const CB::engine::animsetdata::SetFile* {
-        for (const auto& p : sf.projects) if (lower(p.header).find(lower(proj)) != std::string::npos)
-            for (const auto& s : p.sets) if (lower(s.name).find(lower(set)) != std::string::npos) return &s;
+        for (const auto& p : sf.projects) if (p.header.find(proj) != std::string::npos)
+            for (const auto& s : p.sets) if (s.name.find(set) != std::string::npos) return &s;
         return nullptr; };
     const auto* rs = findSet(refSF); const auto* cs = findSet(cbSF);
     if (!rs || !cs) { std::printf("set not found\n"); return 1; }

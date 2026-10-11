@@ -54,7 +54,7 @@ struct LoadOrderPlan {
     std::string                                  modsDir;      // resolved mods/
     std::string                                  gameDataDir;  // from the profile (may be empty)
     std::vector<PlanMod>                         mods;         // priority 1 (winner) FIRST
-    std::unordered_map<std::string, std::string> codeOwner;    // code(lower) -> owning mod (top wins)
+    std::unordered_map<std::string, std::string> codeOwner;    // PathKey(code) -> owning mod (top wins)
 };
 
 // Build the plan from an MO2 profile folder OR instance root (auto-resolves the active profile). Read-only

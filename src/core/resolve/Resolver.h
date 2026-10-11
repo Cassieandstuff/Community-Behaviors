@@ -309,12 +309,11 @@ namespace CB {
         // Above-OAR redirect map, built in MaterializeCacheToDisk. Keyed by the actor's
         // behavior-project FOLDER ROOT (meshes-prefixed, normalized — e.g.
         // "meshes/actors/character"); each entry is a character served under that root, by its
-        // file stem ("defaultmale") + the cache ref its synthesized project must point at
-        // ("community_behaviors_cache\characters\defaultmale.hkx"). ProjectRedirect() resolves a
+        // file stem ("defaultmale", a path key). ProjectRedirect() resolves a
         // vanilla project path to its BR project via this map (sole-character or stem-match
         // disambiguation), then synthesizes the project on demand. Populated on the warm-up
         // thread before m_redirectReady flips; immutable after.
-        struct ProjectRedirectEntry { std::string charStem; std::string cacheCharRef; };
+        struct ProjectRedirectEntry { std::string charStem; };
         std::unordered_map<std::string, std::vector<ProjectRedirectEntry>> m_projectRedirects;
         /// @brief projKey (meshes-prefixed, e.g. "meshes/actors/character/defaultmale.hkx") -> that project's complete
         ///        unit (the vanilla project, from the base). ProjectRedirect serves it as the redirected project.

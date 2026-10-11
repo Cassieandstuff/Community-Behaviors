@@ -6,6 +6,7 @@
 #include <interface/BashMerge.h>        // the Nemesis tagfile merge core (bashMerge / decideParam / changedFields)
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
 #include <codec/formid/FormId.h>          // CB::engine::codec::formid — node identity as a FormId "idx:local"
+#include <codec/resource/PathKey.h>       // HasExt — Nemesis `#*.txt` patch files (path identity)
 #include <common/Vec4Text.h>              // CB::engine::common::vec4::parseVec4 (the ONE vec4 text parser)
 #include <RymlInclude.h>                  // ParseHky — the reflective .hky reader
 #include <codec/serialization/packfile/PackFileSerializer.h>   // RoundTripReflective re-serialize
@@ -191,7 +192,7 @@ std::string renderScalar(const Field& f, const io::FieldValue& v) {
 struct NameResolver {
     std::vector<std::string> events, variables, attributes, charProps;
     // The one name<->index codec, built once per roster (decode = index->name, encode = the dup-guard).
-    // Bones/events/vars match EXACTLY (Havok is case-sensitive) — the linker's default (no case-fold).
+    // Bones/events/vars match EXACTLY (Havok is case-sensitive) — the linker never folds.
     CB::engine::linker::Linker eventsL, variablesL, charPropsL;
     void index() {   // call after the roster vectors are filled
         namespace linker = CB::engine::linker;
@@ -3261,7 +3262,7 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
             for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
                 if (!it->is_regular_file()) continue;
                 const std::string fn = it->path().filename().string();
-                if (!fn.empty() && fn[0] == '#' && it->path().extension() == ".txt") files.push_back(it->path());
+                if (!fn.empty() && fn[0] == '#' && codec::resource::HasExt(fn, ".txt")) files.push_back(it->path());
             }
             std::sort(files.begin(), files.end());
             for (const fs::path& f : files) {

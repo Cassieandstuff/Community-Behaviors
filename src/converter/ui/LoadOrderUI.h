@@ -28,7 +28,7 @@ private:
         std::string              name;              // manifest name (defaults to stem)
         std::string              version;
         std::string              author;
-        std::vector<std::string> masters;           // declared master stems (lowercased)
+        std::vector<std::string> masters;           // declared master stems, as the manifest spells them
         bool                     present     = true; // false = in loadorder.txt but no folder on disk
         bool                     hasManifest = false;
     };

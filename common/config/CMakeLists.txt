@@ -13,6 +13,8 @@ target_include_directories(config
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(ryml CONFIG REQUIRED)
 target_link_libraries(config PUBLIC nlohmann_json::nlohmann_json ryml::ryml)
+# Path identity (<codec/resource/PathKey.h>) for config file keys + extension filters.
+target_link_libraries(config PRIVATE engine)
 
 set_target_properties(config PROPERTIES
     CXX_STANDARD 23
