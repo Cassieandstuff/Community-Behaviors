@@ -23,10 +23,10 @@
 
 #include <codec/serialization/HavokIo.h>          // io::SchemaObject + DeserializeSchema
 #include <interface/reflection/HavokSchema.h>  // schema::SharedRegistry
+#include <disk/Disk.h>
+#include <text/Text.h>
 
-#include <cstdio>
 #include <cstring>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,36 +39,6 @@ namespace {
 using CB::engine::codec::io::AsSchema;
 using CB::engine::codec::io::FindVariant;
 using CB::engine::codec::io::SchemaObject;
-
-std::string fstr(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
-
-// Double-quoted YAML scalar with escapes. Annotation text / track names are raw Havok strings that can
-// carry embedded control bytes — some vanilla clips store annotations like "FootBack\r\n". A single-
-// quoted scalar cannot represent a newline on one line (it splits the line -> "bad indentation", or a
-// worse ryml fault), so use the double-quoted form, which escapes \, ", and every control byte and
-// stays on ONE line — preserving the exact bytes so the annotation round-trips faithfully.
-std::string dq(const std::string& s) {
-    std::string out = "\"";
-    for (unsigned char c : s) {
-        switch (c) {
-            case '\\': out += "\\\\"; break;
-            case '"':  out += "\\\""; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\x%02X", c); out += b; }
-                else out += static_cast<char>(c);
-        }
-    }
-    out += "\"";
-    return out;
-}
-
-void writeText(const fs::path& p, const std::string& s) {
-    std::ofstream f(p, std::ios::binary);
-    f.write(s.data(), static_cast<std::streamsize>(s.size()));
-}
 
 } // namespace
 
@@ -184,11 +154,11 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     std::string y;
     y += "animation:\n";
     y += "  name: " + dir.filename().string() + "\n";
-    y += "  duration: " + fstr(duration) + "\n";
+    y += "  duration: " + text::FormatFloat(duration) + "\n";
     // Native frame timing, so a recompile reproduces the source's exact frame count/spacing instead of
     // resampling to a fixed fps (a 60fps clip stays 60fps; a sparse 2-keyframe pose stays 2 frames).
     y += "  numFrames: " + std::to_string(numFrames) + "\n";
-    y += "  frameDuration: " + fstr(fd) + "\n";
+    y += "  frameDuration: " + text::FormatFloat(fd) + "\n";
     y += "  skeleton: " + skeleton + "\n";
     if (!warn.empty()) y += "  # NOTE: " + warn + ".\n";
     y += "  tracks:\n";
@@ -198,14 +168,14 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         y += "      translation:\n";
         for (int f = 0; f < numFrames; ++f) {
             const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-            y += "        - { time: " + fstr(f * fd) + ", value: ["
-               + fstr(p.t[0]) + ", " + fstr(p.t[1]) + ", " + fstr(p.t[2]) + "] }\n";
+            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
+               + text::FormatFloat(p.t[0]) + ", " + text::FormatFloat(p.t[1]) + ", " + text::FormatFloat(p.t[2]) + "] }\n";
         }
         y += "      rotation:\n";
         for (int f = 0; f < numFrames; ++f) {
             const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-            y += "        - { time: " + fstr(f * fd) + ", value: ["
-               + fstr(p.q[0]) + ", " + fstr(p.q[1]) + ", " + fstr(p.q[2]) + ", " + fstr(p.q[3]) + "] }\n";
+            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
+               + text::FormatFloat(p.q[0]) + ", " + text::FormatFloat(p.q[1]) + ", " + text::FormatFloat(p.q[2]) + ", " + text::FormatFloat(p.q[3]) + "] }\n";
         }
         bool anyScale = false;
         for (int f = 0; f < numFrames && !anyScale; ++f) {
@@ -216,8 +186,8 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
             y += "      scale:\n";
             for (int f = 0; f < numFrames; ++f) {
                 const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-                y += "        - { time: " + fstr(f * fd) + ", value: ["
-                   + fstr(p.s[0]) + ", " + fstr(p.s[1]) + ", " + fstr(p.s[2]) + "] }\n";
+                y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
+                   + text::FormatFloat(p.s[0]) + ", " + text::FormatFloat(p.s[1]) + ", " + text::FormatFloat(p.s[2]) + "] }\n";
             }
         }
     }
@@ -232,18 +202,20 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         y += "      keyframes:\n";
         const int last = varying ? numFrames : 1;
         for (int f = 0; f < last; ++f)
-            y += "        - { time: " + fstr(f * fd) + ", value: "
-               + fstr(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
+            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: "
+               + text::FormatFloat(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
     }
 
     std::optional<CB::engine::animdata::MotionRecord> amrMotion;
     // Annotation tracks (AMR root motion / MorphFace payloads) — one lane per entry, verbatim.
+    /// @note Always double-quoted: vanilla annotations carry control bytes (e.g. "FootBack\r\n") a single-quoted
+    ///       scalar can't hold on one line, and the escapes keep the exact bytes round-tripping.
     const auto& annTracks = spline->Children("annotationTracks");
     if (!annTracks.empty()) {
         y += "  annotationTracks:\n";
         for (auto& atObj : annTracks) {
             auto at = AsSchema(atObj); if (!at) continue;
-            y += "    - trackName: " + dq(at->Str("trackName")) + "\n";
+            y += "    - trackName: " + text::QuoteDouble(at->Str("trackName")) + "\n";
             const auto& anns = at->Children("annotations");
             if (anns.empty()) {
                 y += "      annotations: []\n";
@@ -251,8 +223,8 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                 y += "      annotations:\n";
                 for (auto& aObj : anns) {
                     auto a = AsSchema(aObj); if (!a) continue;
-                    y += "        - { time: " + fstr(a->GetFloat("time")) + ", text: "
-                       + dq(a->Str("text")) + " }\n";
+                    y += "        - { time: " + text::FormatFloat(a->GetFloat("time")) + ", text: "
+                       + text::QuoteDouble(a->Str("text")) + " }\n";
                 }
             }
         }
@@ -267,13 +239,14 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
                 allAnns.emplace_back(a->GetFloat("time"), a->Str("text"));
             }
         }
-        amrMotion = CB::engine::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration));
+        amrMotion = CB::engine::animdata::MotionFromAmrAnnotations(allAnns, text::FormatFloat(duration));
     }
 
     /// @note The unit's motion form: AMR motion folds onto the root where it round-trips (else stays explicit); a
     ///       moving root with no motion is marked visual-only.
     CB::engine::anim::FinalizeUnitMotion(y, amrMotion);
-    writeText(dir / "animation.yaml", y);
+    std::string err;
+    if (!disk::WriteFile(dir / "animation.yaml", y, {}, &err)) return { false, err };
     return { true, "" };
 }
 

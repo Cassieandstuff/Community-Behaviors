@@ -9,13 +9,13 @@
 
 #include <interface/AnimationData.h>              // CB::engine::animdata::ParseSingleFile
 #include <codec/format/AnimationSetData.h>        // CB::engine::animsetdata::ParseSingleFile
+#include <disk/Disk.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -26,9 +26,9 @@ namespace {
 int g_diffs = 0;
 
 std::string readFile(const std::string& p) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) { std::fprintf(stderr, "cbdiff: cannot open '%s'\n", p.c_str()); return {}; }
-    std::ostringstream ss; ss << f.rdbuf(); return ss.str();
+    auto text = CB::engine::disk::ReadFile(p);
+    if (!text) { std::fprintf(stderr, "cbdiff: cannot open '%s'\n", p.c_str()); return {}; }
+    return std::move(*text);
 }
 std::string join(const std::vector<std::string>& v, const char* sep = " | ") {
     std::string o; for (std::size_t i = 0; i < v.size(); ++i) { if (i) o += sep; o += v[i]; } return o;

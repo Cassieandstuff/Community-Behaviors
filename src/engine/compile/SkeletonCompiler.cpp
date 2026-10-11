@@ -14,13 +14,13 @@
 #include <codec/serialization/packfile/BinaryWriterEx.h>
 #include <codec/serialization/packfile/PackFileDeserializer.h>
 #include <codec/serialization/packfile/PackFileSerializer.h>
+#include <disk/Disk.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <exception>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -670,10 +670,7 @@ SkeletonCompileResult CompileSkeletonToFile(const SkeletonData& data, const std:
             }
         } catch (const std::exception& e) { r.ok = false; r.error = std::string("skeleton packfile did not validate: ") + e.what(); return r; }
     }
-    std::ofstream f(outPath, std::ios::binary);
-    if (!f) { r.ok = false; r.error = "cannot open output: " + outPath.string(); return r; }
-    f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
-    if (!f) { r.ok = false; r.error = "write failed: " + outPath.string(); }
+    if (!disk::WriteFile(outPath, r.bytes, {}, &r.error)) r.ok = false;
     return r;
 }
 

@@ -6,9 +6,9 @@
 
 #include <codec/serialization/HavokIo.h>                  // io::SchemaObject
 #include <interface/reflection/HavokSchema.h>          // schema::SchemaRegistry + SharedRegistry()
+#include <disk/Disk.h>
 
 #include <exception>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -142,11 +142,7 @@ AnimCompileResult CompileAnimationToFile(const AnimationDef& anim,
                                          const std::vector<std::string>* boneNames) {
     AnimCompileResult r = CompileAnimation(anim, fps, header, boneNames);
     if (!r.ok) return r;
-    std::ofstream f(outPath, std::ios::binary | std::ios::trunc);
-    if (!f) { r.ok = false; r.error = "cannot open for writing: " + outPath.string(); return r; }
-    if (!r.bytes.empty())
-        f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
-    if (!f.good()) { r.ok = false; r.error = "write failed: " + outPath.string(); }
+    if (!disk::WriteFile(outPath, r.bytes, {}, &r.error)) r.ok = false;
     return r;
 }
 

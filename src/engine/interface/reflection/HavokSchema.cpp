@@ -2,10 +2,9 @@
 
 #include <codec/resource/PathKey.h>   // path identity — schema file discovery (extension / stamp stem)
 #include <RymlInclude.h>   // the ONLY sanctioned way to pull in rapidyaml (C++20+ shim)
+#include <disk/Disk.h>
 
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -298,9 +297,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                 // a missing schema_version key, both of which leave m_schemaVersion empty below) is
                 // distinguishable from a truly unstamped tree and can be refused, not trusted.
                 m_schemaStampPresent = true;
-                std::ifstream vf(p, std::ios::binary);
-                std::stringstream vss; vss << vf.rdbuf();
-                std::string vtext = vss.str();
+                std::string vtext = disk::ReadFile(p, { .stripBom = true }).value_or(std::string());
                 try {
                     c4::yml::Tree vt = c4::yml::parse_in_place(c4::to_substr(vtext));
                     m_schemaVersion  = childStr(vt.rootref(), "schema_version");
@@ -317,31 +314,23 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         if (underMetadata(p)) {
             const std::string sub = p.parent_path().filename().string();
             if (sub == "enums") {
-                std::ifstream ef(p, std::ios::binary);
-                std::stringstream ess; ess << ef.rdbuf();
                 EnumDef ed; std::string eerr;
-                if (!ParseEnumDef(ess.str(), ed, eerr)) { err = p.string() + ": " + eerr; return false; }
+                if (!ParseEnumDef(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()), ed, eerr)) { err = p.string() + ": " + eerr; return false; }
                 m_enums[ed.name] = std::move(ed);
             } else if (sub == "semantics") {
-                std::ifstream sf(p, std::ios::binary);
-                std::stringstream sss; sss << sf.rdbuf();
-                semanticsTexts.push_back(sss.str());
+                semanticsTexts.push_back(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()));
             } else if (sub == "metadata") {
                 /// @note The adsf/asdsf record descriptors (`kind: metadata`) load as classes MetaText reads/writes;
                 ///       they carry no signature or size, so no packfile path ever meets them.
-                std::ifstream mf(p, std::ios::binary);
-                std::stringstream mss; mss << mf.rdbuf();
                 ClassSchema mcs; std::string merr;
-                if (!ParseSchema(mss.str(), mcs, merr)) { err = p.string() + ": " + merr; return false; }
+                if (!ParseSchema(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()), mcs, merr)) { err = p.string() + ": " + merr; return false; }
                 if (!mcs.metadata) { err = p.string() + ": a metadata/ descriptor must declare `kind: metadata`"; return false; }
                 m_byName[mcs.name] = std::move(mcs);
             }
             continue;
         }
-        std::ifstream f(p, std::ios::binary);
-        std::stringstream ss; ss << f.rdbuf();
         ClassSchema cs; std::string perr;
-        if (!ParseSchema(ss.str(), cs, perr)) { err = p.string() + ": " + perr; return false; }
+        if (!ParseSchema(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()), cs, perr)) { err = p.string() + ": " + perr; return false; }
         m_byName[cs.name] = std::move(cs);
     }
 

@@ -11,18 +11,18 @@
 #include <codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
 #include <compile/AnimDataProjection.h>         // ProjectAnimData
 #include <interface/reflection/HavokSchema.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <chrono>
 #include <cstdint>
-#include <fstream>
-#include <iterator>
 #include <map>
 #include <optional>
 #include <regex>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <unordered_map>
@@ -37,24 +37,9 @@ namespace CB::core::serve {
 
         using CB::engine::codec::resource::HasExt;
         using CB::engine::codec::resource::PathKey;
-
-        std::string TrimLine(const std::string& line)
-        {
-            std::size_t b = 0, e = line.size();
-            while (b < e && std::isspace(static_cast<unsigned char>(line[b]))) ++b;
-            while (e > b && std::isspace(static_cast<unsigned char>(line[e - 1]))) --e;
-            return line.substr(b, e - b);
-        }
-
-        bool WriteFile(const fs::path& p, const std::string& data)
-        {
-            std::error_code ec;
-            fs::create_directories(p.parent_path(), ec);
-            std::ofstream f(p, std::ios::binary | std::ios::trunc);
-            if (!f) return false;
-            f.write(data.data(), static_cast<std::streamsize>(data.size()));
-            return static_cast<bool>(f);
-        }
+        using CB::engine::text::SplitLines;
+        using CB::engine::text::Trim;
+        namespace disk = CB::engine::disk;
 
         /// @brief Bundle stem (path key) -> priority, higher wins.
         /// @note A later loadorder.txt line wins (the converter writes Skyrim first, the modlist winner last) — the
@@ -62,11 +47,11 @@ namespace CB::core::serve {
         std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
         {
             std::unordered_map<std::string, int> order;
-            std::ifstream f(ini);
-            std::string   line;
-            int           idx = 0;
-            while (std::getline(f, line)) {
-                line = TrimLine(line);
+            const auto file = disk::ReadFile(ini, { .stripBom = true });
+            if (!file) return order;
+            int idx = 0;
+            for (const std::string_view raw : SplitLines(*file)) {
+                const std::string_view line = Trim(raw);
                 if (line.empty() || line[0] == '#' || line[0] == ';') continue;
                 order[PathKey(line)] = ++idx;
             }
@@ -116,8 +101,7 @@ namespace CB::core::serve {
                 if (it == cfgCache.end()) {
                     std::optional<int> prio = 0;
                     const std::string  dirOrig = keyOrig.size() == key.size() ? keyOrig.substr(0, dir.size()) : dir;
-                    std::ifstream      cf(dataDir / fs::path(dirOrig) / "config.json", std::ios::binary);
-                    const std::string  cfg((std::istreambuf_iterator<char>(cf)), std::istreambuf_iterator<char>());
+                    const std::string  cfg = disk::ReadFile(dataDir / fs::path(dirOrig) / "config.json").value_or(std::string());
                     std::smatch        mt;
                     if (std::regex_search(cfg, mt, std::regex(R"re("priority"\s*:\s*(-?\d+))re"))) prio = std::stoi(mt[1].str());
                     if (std::regex_search(cfg, std::regex(R"re("disabled"\s*:\s*true)re"))) prio = std::nullopt;
@@ -266,8 +250,8 @@ namespace CB::core::serve {
             return r;
         }
         const fs::path cachePath = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";
-        if (!WriteFile(cachePath, text)) {
-            r.error = "failed to write " + cachePath.string();
+        if (std::string werr; !disk::WriteFile(cachePath, text, { .atomic = true }, &werr)) {
+            r.error = "failed to write the animation data cache: " + werr;
             LOG_ERROR("AnimData: {}", r.error);
             return r;
         }

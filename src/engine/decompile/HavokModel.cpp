@@ -10,6 +10,8 @@
 #include <common/Vec4Text.h>              // CB::engine::common::vec4::parseVec4 (the ONE vec4 text parser)
 #include <RymlInclude.h>                  // ParseHky — the reflective .hky reader
 #include <codec/serialization/packfile/PackFileSerializer.h>   // RoundTripReflective re-serialize
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <algorithm>
 #include <cctype>
@@ -18,7 +20,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <limits>
 #include <map>
@@ -109,7 +110,6 @@ using schema::Field;
 using schema::FieldKind;
 using schema::Scalar;
 
-std::string fstr(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
 std::string boolstr(bool v) { return v ? "true" : "false"; }
 // enum value -> name, else the raw number (round-trips: numbers parse back). Via the one enum codec
 // (enums::enumName), so this and the decompiler's revNum are one rule — and deterministic on aliases
@@ -117,33 +117,6 @@ std::string boolstr(bool v) { return v ? "true" : "false"; }
 std::string revNum(const std::unordered_map<std::string, long>& t, long v) {
     std::string nm = en::enumName(v, t);
     return nm.empty() ? std::to_string(v) : nm;
-}
-
-// YAML single-quote (double any '); double-quote+escape if control chars present. Byte-identical to
-// the decompiler's q().
-std::string q(const std::string& s) {
-    bool ctrl = false;
-    for (unsigned char c : s) if (c < 0x20) { ctrl = true; break; }
-    if (!ctrl) {
-        std::string o = "'";
-        for (char c : s) { if (c == '\'') o += "''"; else o += c; }
-        return o + "'";
-    }
-    std::string o = "\"";
-    char buf[8];
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"':  o += "\\\""; break;
-            case '\\': o += "\\\\"; break;
-            case '\n': o += "\\n";  break;
-            case '\r': o += "\\r";  break;
-            case '\t': o += "\\t";  break;
-            default:
-                if (c < 0x20) { std::snprintf(buf, sizeof buf, "\\x%02X", c); o += buf; }
-                else o += static_cast<char>(c);
-        }
-    }
-    return o + "\"";
 }
 
 // enum type name -> table. Extended as categories need more; the decompiler references these by the
@@ -178,7 +151,7 @@ float decodeFloat(const std::vector<std::uint8_t>& raw) {
 }
 
 std::string renderScalar(const Field& f, const io::FieldValue& v) {
-    if (f.scalar == Scalar::Float) return fstr(decodeFloat(v.raw));
+    if (f.scalar == Scalar::Float) return text::FormatFloat(decodeFloat(v.raw));
     if (f.scalar == Scalar::Bool)  return boolstr(!v.raw.empty() && v.raw[0] != 0);
     const std::int64_t iv = decodeInt(v.raw, f.scalar);   // int64: renders userData / any 64-bit field (#6)
     if (!f.enumName.empty()) {
@@ -299,7 +272,7 @@ std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const
 std::string rfloat(const std::uint8_t* p) {
     float f; std::memcpy(&f, p, 4);
     if (f != f) { std::uint32_t u; std::memcpy(&u, p, 4); char b[24]; std::snprintf(b, sizeof b, "nan_%08x", u); return b; }
-    return fstr(f);
+    return text::FormatFloat(f);
 }
 std::string rfloat(const std::vector<std::uint8_t>& raw) {
     std::uint8_t b[4] = { 0, 0, 0, 0 };
@@ -365,7 +338,7 @@ std::string scalarText(const Field& f, const std::vector<std::uint8_t>& raw, con
 
 /// @brief A bone index as its rig name; the raw number when the rig is unknown or the index is out of range.
 std::string boneText(std::int64_t idx, const ReflectCtx& c) {
-    if (c.bones && idx >= 0 && idx < static_cast<std::int64_t>(c.bones->size())) return q((*c.bones)[static_cast<std::size_t>(idx)]);
+    if (c.bones && idx >= 0 && idx < static_cast<std::int64_t>(c.bones->size())) return text::Quote((*c.bones)[static_cast<std::size_t>(idx)]);
     return std::to_string(idx);
 }
 
@@ -393,7 +366,7 @@ std::string boneWeightsText(const Field& f, const std::vector<std::uint8_t>& raw
     if (whole || dflt != f.boneWeightDefault) body += "  default: " + dflt + "\n";
     if (whole || n != c.bones->size())        body += "  count: " + std::to_string(n) + "\n";
     for (std::size_t k = 0; k < n; ++k)
-        if (vals[k] != dflt) body += "  " + q((*c.bones)[k]) + ": " + vals[k] + "\n";
+        if (vals[k] != dflt) body += "  " + text::Quote((*c.bones)[k]) + ": " + vals[k] + "\n";
     return body.empty() ? f.name + ": {}\n" : f.name + ":\n" + body;
 }
 
@@ -621,8 +594,8 @@ std::vector<const char*> vocabKeys(const io::SchemaObject& so) {
 
 /// @brief One vocabulary record line(s) at indent 2: flow records inline, block records (pointer values) nested.
 std::string vocabLine(const std::string& name, const std::string& rec) {
-    return rec.find('\n') == std::string::npos ? "  " + q(name) + ": " + rec + "\n"
-                                               : "  " + q(name) + ":\n" + indentLines(rec, "    ", "    ");
+    return rec.find('\n') == std::string::npos ? "  " + text::Quote(name) + ": " + rec + "\n"
+                                               : "  " + text::Quote(name) + ":\n" + indentLines(rec, "    ", "    ");
 }
 
 std::string renderVocab(const io::SchemaObject& gd, const ReflectCtx& c) {
@@ -683,7 +656,7 @@ std::pair<std::string, std::size_t> naturalKey(const io::SchemaObject& e, const 
 ///        a nested block otherwise.
 std::string rosterEntry(const std::string& key, const std::string& v) {
     const bool block = v.find('\n') != std::string::npos;
-    return q(key) + ":" + (v.empty() ? std::string(" {}\n") : block ? "\n" + indentLines(v, "  ", "  ") : " " + v + "\n");
+    return text::Quote(key) + ":" + (v.empty() ? std::string(" {}\n") : block ? "\n" + indentLines(v, "  ", "  ") : " " + v + "\n");
 }
 
 /// @brief A `roster:` array's KEYED entries (`'key': body`, indent 0), in list order. Keys: the child node's id
@@ -746,10 +719,10 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                 } else if (n <= 1) {
                     y += f.name + ": " + scalarText(f, v.raw, c.reg) + "\n";
                     const long iv = static_cast<long>(decodeInt(v.raw, f.scalar));
-                    if (!f.eventRef.empty()) { const std::string s = c.nr.safeEvent(iv);    if (!s.empty()) y += f.eventRef + ": " + q(s) + "\n"; }
+                    if (!f.eventRef.empty()) { const std::string s = c.nr.safeEvent(iv);    if (!s.empty()) y += f.eventRef + ": " + text::Quote(s) + "\n"; }
                     if (!f.varRef.empty()) {
                         const std::string s = condTrue(so, f.charPropIf) ? c.nr.safe(c.nr.charPropsL, iv) : c.nr.safeVariable(iv);
-                        if (!s.empty()) y += f.varRef + ": " + q(s) + "\n";
+                        if (!s.empty()) y += f.varRef + ": " + text::Quote(s) + "\n";
                     }
                 } else {
                     y += f.name + ": " + flowList(n, [&](std::size_t k) { return scalarText(f, slice(v.raw, k, w), c.reg); }) + "\n";
@@ -757,7 +730,7 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                 break;
             }
             case FieldKind::String:
-            case FieldKind::CString:    y += f.name + ": " + q(v.str) + "\n"; break;
+            case FieldKind::CString:    y += f.name + ": " + text::Quote(v.str) + "\n"; break;
             case FieldKind::Vector4:
             case FieldKind::Quaternion: y += f.name + ": " + rvec(v.raw) + "\n"; break;
             case FieldKind::QsTransform:
@@ -777,7 +750,7 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                 break;
             case FieldKind::StringArray:
                 if (v.strs.empty()) break;
-                y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return q(v.strs[k]); }) + "\n";
+                y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return text::Quote(v.strs[k]); }) + "\n";
                 break;
             case FieldKind::ScalarArray: {
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
@@ -883,7 +856,6 @@ std::unordered_map<const IHavokObject*, std::string> EffectiveCategories(const I
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
                        const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
     namespace fs = std::filesystem;
-    std::error_code ec;
     const NameResolver nr = buildResolver(identity);
     const auto effCat = EffectiveCategories(identity);
     for (const auto& [obj, cat] : effCat) {
@@ -899,9 +871,10 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         /// @note A node with sub-records is a FOLDER: its body `<cat>/<id>/<id>.yaml` beside its rosters
         ///       `<cat>/<id>/<field.path>.yaml`; a node without any is the single file `<cat>/<id>.yaml`.
         const fs::path dir = root ? fs::path(outDir) : rosters.empty() ? fs::path(outDir) / cat : fs::path(outDir) / cat / fsId(idStr);
-        fs::create_directories(dir, ec);
-        std::ofstream(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), std::ios::binary) << "id: " << idStr << "\n" << body;
-        for (const auto& [path, entries] : rosters) std::ofstream(dir / (path + ".yaml"), std::ios::binary) << entries;
+        if (!disk::WriteFile(dir / (root ? std::string("graph.yaml") : fsId(idStr) + ".yaml"), "id: " + idStr + "\n" + body, {}, &err))
+            return false;
+        for (const auto& [path, entries] : rosters)
+            if (!disk::WriteFile(dir / (path + ".yaml"), entries, {}, &err)) return false;
     }
     return true;
 }
@@ -2257,7 +2230,7 @@ std::optional<std::string> boneWeightsDiff(const Field& f, const io::FieldValue&
     std::string y;
     for (std::size_t k = 0; k < n; ++k) {
         const std::string wb = rfloat(slice(vb.raw, k, 4)), wm = rfloat(slice(vm.raw, k, 4));
-        if (wb != wm) y += "  " + q((*c.bones)[k]) + ": " + wm + "\n";
+        if (wb != wm) y += "  " + text::Quote((*c.bones)[k]) + ": " + wm + "\n";
     }
     return y;
 }
@@ -2280,9 +2253,9 @@ std::optional<std::string> boneSetDiff(const Field& f, const io::FieldValue& vb,
     if (!b || !m) return std::nullopt;
     std::string y;
     for (const std::int64_t bi : *m)
-        if (std::find(b->begin(), b->end(), bi) == b->end()) y += "  " + q((*c.bones)[static_cast<std::size_t>(bi)]) + ": {}\n";
+        if (std::find(b->begin(), b->end(), bi) == b->end()) y += "  " + text::Quote((*c.bones)[static_cast<std::size_t>(bi)]) + ": {}\n";
     for (const std::int64_t bi : *b)
-        if (std::find(m->begin(), m->end(), bi) == m->end()) y += "  " + q((*c.bones)[static_cast<std::size_t>(bi)]) + ": {deleted: true}\n";
+        if (std::find(m->begin(), m->end(), bi) == m->end()) y += "  " + text::Quote((*c.bones)[static_cast<std::size_t>(bi)]) + ": {deleted: true}\n";
     return y;
 }
 
@@ -2394,7 +2367,7 @@ std::optional<std::string> rosterDiff(const io::SchemaObject& b, const io::Schem
         y += rosterEntry(key, whole(M[mk]));
     }
     for (std::size_t bk = 0; bk < B.size(); ++bk)
-        if (!claimed[bk]) y += q(baseKey(bk)) + ": {deleted: true}\n";
+        if (!claimed[bk]) y += text::Quote(baseKey(bk)) + ": {deleted: true}\n";
     return y;
 }
 
@@ -2495,7 +2468,7 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
         if (f.kind == FieldKind::StringArray && mergeTagOf(cm.reg, m.ClassName(), f.name) == "union") {
             const std::set<std::string> have(vb.strs.begin(), vb.strs.end());
             std::string list;
-            for (const auto& s2 : vm.strs) if (!have.count(s2)) list += (list.empty() ? "" : ", ") + q(s2);
+            for (const auto& s2 : vm.strs) if (!have.count(s2)) list += (list.empty() ? "" : ", ") + text::Quote(s2);
             if (!list.empty()) y += f.name + ": [" + list + "]\n";
             continue;
         }
@@ -2611,12 +2584,13 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
             ///       ships just that roster file in its folder.
             const fs::path dir = isRoot(o) ? fs::path(patchDir) : rosters.empty() ? fs::path(patchDir) / cat
                                                                                   : fs::path(patchDir) / cat / fsId(id);
-            fs::create_directories(dir, ec);
-            if (!body.empty() || !baseById.count(id))
-                std::ofstream(dir / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), std::ios::binary)
-                    << "id: " << id << "\n" << (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string())
-                    << body;
-            for (const auto& [path, entries] : rosters) std::ofstream(dir / (path + ".yaml"), std::ios::binary) << entries;
+            if (!body.empty() || !baseById.count(id)) {
+                const std::string head = "id: " + id + "\n" + (baseById.count(id) ? "class: " + std::string(mo->ClassName()) + "\n" : std::string());
+                if (!disk::WriteFile(dir / (isRoot(o) ? std::string("graph.yaml") : fsId(id) + ".yaml"), head + body, {}, &err))
+                    return false;
+            }
+            for (const auto& [path, entries] : rosters)
+                if (!disk::WriteFile(dir / (path + ".yaml"), entries, {}, &err)) return false;
         }
         return true;
     } catch (const std::exception& e) {
@@ -3011,8 +2985,7 @@ bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector
         BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
         ser.Serialize(merged.root, bw, header);
         const auto out = bw.Data();
-        std::ofstream(fs::path(workDir) / "merged.hkx", std::ios::binary)
-            .write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(out.size()));
+        disk::WriteFile(fs::path(workDir) / "merged.hkx", out);
         PackFileDeserializer desM;
         desM.ObjectFactory = io::MakeSchemaFactory(reg);
         BinaryReaderEx brM(false, true, out);
@@ -3059,8 +3032,8 @@ HkyPatchRoundTripResult PatchRoundTrip(const std::vector<std::uint8_t>& baseByte
         const auto want = serialize(modRoot), got = serialize(merged.root);
         r.identical = (want == got);
         if (!r.identical) {
-            std::ofstream(fs::path(workDir) / "want.bin", std::ios::binary).write(reinterpret_cast<const char*>(want.data()), static_cast<std::streamsize>(want.size()));
-            std::ofstream(fs::path(workDir) / "got.bin",  std::ios::binary).write(reinterpret_cast<const char*>(got.data()),  static_cast<std::streamsize>(got.size()));
+            disk::WriteFile(fs::path(workDir) / "want.bin", want);
+            disk::WriteFile(fs::path(workDir) / "got.bin",  got);
             std::string e2;
             EmitHkyReflective(AssignIdentity(desM, reg), reg, (fs::path(workDir) / "want").string(), e2, bones);
             PackFileDeserializer desG;
@@ -3149,8 +3122,8 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
         const auto got = serialize(merged.root);
         r.identical = (got == want);
         if (!r.identical) {
-            std::ofstream(fs::path(workDir) / "want.bin", std::ios::binary).write(reinterpret_cast<const char*>(want.data()), static_cast<std::streamsize>(want.size()));
-            std::ofstream(fs::path(workDir) / "got.bin",  std::ios::binary).write(reinterpret_cast<const char*>(got.data()),  static_cast<std::streamsize>(got.size()));
+            disk::WriteFile(fs::path(workDir) / "want.bin", want);
+            disk::WriteFile(fs::path(workDir) / "got.bin",  got);
             std::string e2;
             for (const auto& [name, bytes] : { std::pair<const char*, const std::vector<std::uint8_t>*>{ "want", &want }, { "got", &got } }) {
                 PackFileDeserializer d;
@@ -3198,10 +3171,8 @@ HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, c
             while (i < n && back[i] == canon[i]) ++i;
             r.firstDiff = i;
             r.sizeDelta = static_cast<long long>(back.size()) - static_cast<long long>(canon.size());
-            std::ofstream(std::filesystem::path(workDir) / "canon.bin", std::ios::binary)
-                .write(reinterpret_cast<const char*>(canon.data()), static_cast<std::streamsize>(canon.size()));
-            std::ofstream(std::filesystem::path(workDir) / "back.bin", std::ios::binary)
-                .write(reinterpret_cast<const char*>(back.data()), static_cast<std::streamsize>(back.size()));
+            disk::WriteFile(std::filesystem::path(workDir) / "canon.bin", canon);
+            disk::WriteFile(std::filesystem::path(workDir) / "back.bin", back);
             // Diagnose by topology: re-read `back` and compare per-class object counts with the source graph.
             auto histogram = [](PackFileDeserializer& d) {
                 std::map<std::string, int> h;
@@ -3265,11 +3236,8 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
                 if (!fn.empty() && fn[0] == '#' && codec::resource::HasExt(fn, ".txt")) files.push_back(it->path());
             }
             std::sort(files.begin(), files.end());
-            for (const fs::path& f : files) {
-                std::ifstream in(f, std::ios::binary);
-                std::string t((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-                if (!t.empty()) out.push_back(std::move(t));
-            }
+            for (const fs::path& f : files)
+                if (auto t = disk::ReadFile(f); t && !t->empty()) out.push_back(std::move(*t));
         }
     };
     std::vector<std::string> patches;

@@ -2,10 +2,9 @@
 
 
 #include <RymlInclude.h>
+#include <disk/Disk.h>
 
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -23,9 +22,7 @@ std::vector<WatchVar> LoadRuntimeWatch(const std::string& debugDir, std::string*
         const fs::path p = it->path();
         const std::string ext = p.extension().string();
         if (ext != ".yaml" && ext != ".yml") continue;
-        std::ifstream f(p, std::ios::binary);
-        std::stringstream ss; ss << f.rdbuf();
-        std::string text = ss.str();
+        std::string text = disk::ReadFile(p).value_or(std::string());
         try {
             c4::yml::Tree t = c4::yml::parse_in_place(c4::to_substr(text));
             auto root = t.rootref();

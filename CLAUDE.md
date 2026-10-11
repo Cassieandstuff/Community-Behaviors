@@ -54,7 +54,7 @@ src/                         CB's code. src/ is the plugin's private include roo
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
                              converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
                              or REL/ include. The folder IS the include root (<common/…> <interface/…>
-                             <interface/reflection/…> <codec/…> <compile/…> <decompile/…>); headers sit beside
+                             <interface/reflection/…> <codec/…> <compile/…> <decompile/…> <text/…> <disk/…>); headers sit beside
                              their sources.
   features/<Owner>/          self-registered graph features (CB_REGISTER_FEATURE, CB::feature::), compiled
                              straight into the plugin; ERGate.h (the ER wildcard-gate hook) lives here too
@@ -86,7 +86,9 @@ another root renames its namespace; a stray top-level namespace is a bug.
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
   hooks conditions` (core) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
-  linker` (engine). The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io,resource}` + the
+  linker` + `text disk` (engine). `text` = the shared string operations (trim, line split, BOM, float text
+  form, YAML quoting); `disk` = whole-file read/write, checked and optionally atomic. Use them instead of
+  re-rolling a per-file helper. The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io,resource}` + the
   packfile serialization spine (all genuinely codecs).
 - **`CB::engine::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
   cross-cutting *types* every layer passes around: the unit/layer vocabulary (`IUnitSource`,

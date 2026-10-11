@@ -2,6 +2,7 @@
 
 #include <codec/resource/PathKey.h>   // path identity (PathKey / HasExt)
 #include <RymlInclude.h>
+#include <text/Text.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -26,20 +27,7 @@ std::string Scalar(const std::string& s) {
         if (c == ':' || c == '{' || c == '}' || c == '[' || c == ']' || c == ',' || c == '\'' ||
             c == '"' || c == '#' || c == ' ' || c == '\t')
             { needQuote = true; break; }
-    if (!needQuote) return s;
-    std::string o = "'";
-    for (char c : s) { if (c == '\'') o += "''"; else o += c; }
-    o += "'";
-    return o;
-}
-
-// Always single-quote (animation paths carry backslashes; residue tokens carry spaces) — verbatim
-// round-trip, matching how a character's roster stores its paths.
-std::string QuoteSq(const std::string& s) {
-    std::string o = "'";
-    for (char c : s) { if (c == '\'') o += "''"; else o += c; }
-    o += "'";
-    return o;
+    return needQuote ? text::QuoteSingle(s) : s;
 }
 
 }  // namespace
@@ -80,7 +68,7 @@ std::string EmitMovesetsYaml(const Project& project)
         if (!set.animations.empty()) {
             y += "    animations:\n";
             for (const auto& a : set.animations)
-                y += "      - " + QuoteSq(a) + "\n";
+                y += "      - " + text::QuoteSingle(a) + "\n";
         }
     }
     return y;
@@ -157,7 +145,7 @@ SingleFile ParseMovesetsYaml(const std::string& text, const std::string& project
 
 std::string EmitSetdataUnitYaml(const Project& project)
 {
-    std::string y = "project: " + QuoteSq(project.header) + "\n";   // exact asdsf header (has '\')
+    std::string y = "project: " + text::QuoteSingle(project.header) + "\n";   // exact asdsf header (has '\')
     y += EmitMovesetsYaml(project);                                  // sets: gate/equip/attacks/animations
     return y;
 }

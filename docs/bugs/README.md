@@ -23,10 +23,6 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   mod ADDS were served lowercased; listings and the converter now keep original case.
 - [CB-11](CB-11-cache-file-case.md) — INVESTIGATING (fix landed, needs an in-game check): cache files were
   written lowercase but swapped open with the request's raw case; every swap now names the exact file written.
-- [CB-12](CB-12-bom-handling.md) — OPEN: a UTF-8 BOM breaks packed units (ZipUnitSource ignores the strip
-  contract) and line-based text files (rosters, loadorder.txt).
-- [CB-13](CB-13-unchecked-writes.md) — OPEN: `.hky` unit emits and converter rewrites don't check writes, so
-  a failed write silently drops nodes or truncates `animation.yaml`.
 
 ## Per-bug file template
 

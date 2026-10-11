@@ -12,13 +12,12 @@
 #include <codec/bsa/BsaArchive.h>
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
+#include <disk/Disk.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <string>
-#include <system_error>
 #include <vector>
 
 namespace {
@@ -53,11 +52,7 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
         const auto content = arc->file(keys[i]);
         if (!content) continue;   // keys come from the same map — should always resolve
         const fs::path dst = fs::path(outDir) / fs::path(paths[i]);
-        std::error_code ec;
-        fs::create_directories(dst.parent_path(), ec);
-        std::ofstream os(dst, std::ios::binary);
-        if (!os) { std::printf("FAIL: cannot write %s\n", dst.string().c_str()); return 1; }
-        os.write(content->data(), static_cast<std::streamsize>(content->size()));
+        if (std::string werr; !CB::engine::disk::WriteFile(dst, *content, {}, &werr)) { std::printf("FAIL: %s\n", werr.c_str()); return 1; }
         ++written;
     }
     std::printf("OK: hky unpack '%s' -> %s (%zu file(s), %zu unit(s)).\n",
@@ -99,11 +94,7 @@ int doBsaExtract(const std::string& bsaPath, const std::string& outDir, const st
         std::string rel = e.path;
         std::replace(rel.begin(), rel.end(), '\\', '/');
         const fs::path dst = fs::path(outDir) / fs::path(rel);
-        std::error_code ec;
-        fs::create_directories(dst.parent_path(), ec);
-        std::ofstream os(dst, std::ios::binary);
-        if (!os) { std::printf("  FAIL cannot write %s\n", dst.string().c_str()); ++failed; continue; }
-        os.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        if (std::string werr; !CB::engine::disk::WriteFile(dst, bytes, {}, &werr)) { std::printf("  FAIL %s\n", werr.c_str()); ++failed; continue; }
         ++written;
     }
     std::printf("%s: bsa extract '%s' -> %s (%zu written, %zu failed).\n", failed ? "FAIL" : "OK",

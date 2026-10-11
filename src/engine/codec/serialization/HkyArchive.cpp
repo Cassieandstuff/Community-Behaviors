@@ -2,14 +2,13 @@
 
 #include <codec/resource/PathKey.h>
 #include <common/miniz.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -39,7 +38,9 @@ public:
         : m_arc(std::move(arc)), m_root(std::move(prefix) + "/") {}
 
     std::optional<std::string> read(const std::string& rel) const override {
-        return m_arc->file(m_root + PathKey(rel));
+        auto s = m_arc->file(m_root + PathKey(rel));
+        if (s) s->erase(0, s->size() - text::StripBom(*s).size());
+        return s;
     }
 
     std::vector<std::string> listYaml(const std::string& subdir, bool recursive) const override {
@@ -205,7 +206,7 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
 #ifdef _WIN32
     // Long-path (\\?\) prefix so a DEEP unit tree — which overruns MAX_PATH, the very reason
     // the runtime HkyArchive never extracts to disk — can still be walked and read here. The
-    // prefix rides on every yielded path, so both the iterator and the per-file ifstream open
+    // prefix rides on every yielded path, so both the iterator and the per-file read open
     // the long path. It cancels out in lexically_relative(rootPath) (both sides carry it).
     {
         const std::wstring pfx = L"\\\\?\\";
@@ -254,25 +255,17 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
         return false;
     }
     for (const auto& [name, path] : entries) {
-        std::ifstream f(path, std::ios::binary);
-        // A locked / permission-denied source, or a mid-read I/O error, must FAIL — never silently
-        // pack an empty or truncated entry (a "successful" but broken .hky → the unit loads as
-        // nothing → A-pose/base-only compile, with no error anywhere). Open failure and read error
-        // (bad, not the normal EOF failbit) are both fatal here.
-        if (!f) {
+        /// @note A locked / permission-denied source, or a mid-read I/O error, must FAIL — never silently pack an
+        ///       empty or truncated entry (a "successful" but broken .hky → the unit loads as nothing → A-pose/base-only
+        ///       compile, with no error anywhere).
+        const auto bytes = disk::ReadFile(path);
+        if (!bytes) {
             mz_zip_writer_end(&z);
             fs::remove(tmpPath, ec);
-            err = "cannot open source file for packing: " + path.string();
+            err = "cannot read source file for packing: " + path.string();
             return false;
         }
-        std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        if (f.bad()) {
-            mz_zip_writer_end(&z);
-            fs::remove(tmpPath, ec);
-            err = "read error while packing: " + path.string();
-            return false;
-        }
-        if (!mz_zip_writer_add_mem(&z, name.c_str(), bytes.data(), bytes.size(), MZ_BEST_COMPRESSION)) {
+        if (!mz_zip_writer_add_mem(&z, name.c_str(), bytes->data(), bytes->size(), MZ_BEST_COMPRESSION)) {
             mz_zip_writer_end(&z);
             fs::remove(tmpPath, ec);
             err = "zip add failed: " + name;

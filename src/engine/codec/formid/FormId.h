@@ -20,6 +20,8 @@
 // "idx:local" form (a colon), so a reference is self-marking and never ambiguous with a data value. A
 // bundle that spells self bare resolves it to an explicit index before calling parse.
 
+#include <text/Text.h>
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -53,12 +55,6 @@ namespace CB::engine::codec::formid {
     }
 
     namespace detail {
-        inline std::string_view trim(std::string_view s) {
-            const auto ws = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
-            while (!s.empty() && ws(s.front())) s.remove_prefix(1);
-            while (!s.empty() && ws(s.back()))  s.remove_suffix(1);
-            return s;
-        }
         inline int hexNibble(char c) {
             if (c >= '0' && c <= '9') return c - '0';
             if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -90,7 +86,7 @@ namespace CB::engine::codec::formid {
     // "IIIIxLLLL" -> FormId. REQUIRES the exact fixed shape (4 hex, 'x', 4 hex); tolerates surrounding
     // whitespace. nullopt otherwise — so a bare number or a name is NOT mistaken for a FormId.
     inline std::optional<FormId> parse(std::string_view s) {
-        s = detail::trim(s);
+        s = CB::engine::text::Trim(s);
         if (s.size() != 9 || (s[4] != 'x' && s[4] != 'X')) return std::nullopt;
         const auto idx = detail::hex4(s.substr(0, 4));
         const auto loc = detail::hex4(s.substr(5, 4));

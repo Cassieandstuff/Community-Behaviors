@@ -2,9 +2,8 @@
 
 #include <codec/format/AnimationSetData.h>   // the setdata model (CB::engine::animsetdata)
 #include <codec/resource/PathKey.h>
+#include <disk/Disk.h>
 
-#include <fstream>
-#include <iterator>
 #include <map>
 #include <string>
 #include <unordered_set>
@@ -19,21 +18,9 @@ using CB::engine::codec::resource::HasExt;
 using CB::engine::codec::resource::PathKey;
 using LogFn = std::function<void(const std::string&)>;
 
-void Say(const LogFn& log, const std::string& s) { if (log) log(s); }
+namespace disk = CB::engine::disk;
 
-std::string ReadAll(const fs::path& p)
-{
-    std::ifstream f(p, std::ios::binary);
-    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-}
-bool WriteAll(const fs::path& p, const std::string& s)
-{
-    std::error_code ec;
-    fs::create_directories(p.parent_path(), ec);
-    std::ofstream f(p, std::ios::binary | std::ios::trunc);
-    f.write(s.data(), static_cast<std::streamsize>(s.size()));
-    return static_cast<bool>(f);
-}
+void Say(const LogFn& log, const std::string& s) { if (log) log(s); }
 
 // Parse one mod's Nemesis set-data patch tree into a delta SingleFile (only its additions).
 // modDir = a Nemesis mod folder containing animationsetdatasinglefile\<Proj>Data~<Proj>\.
@@ -63,7 +50,8 @@ SingleFile LoadModDelta(const fs::path& modDir, std::size_t& sets, std::size_t& 
             std::error_code fe;
             if (!fi->is_regular_file(fe)) continue;
             if (!HasExt(fi->path().filename().string(), ".txt")) continue;
-            const std::string text = ReadAll(fi->path());
+            /// @note Line-based text a person may have saved: a leading BOM is dropped (it would hide the "V3" header).
+            const std::string text = disk::ReadFile(fi->path(), { .stripBom = true }).value_or(std::string{});
             if (text.rfind("V3", 0) != 0) continue;
             try {
                 SetFile set = ParseNemesisSetFile(text);
@@ -126,7 +114,7 @@ void LoadModAnimNames(const fs::path& modDir, std::map<std::string, CharRoster>&
             std::error_code fe;
             if (!fi->is_regular_file(fe)) continue;
             if (!HasExt(fi->path().filename().string(), ".txt")) continue;
-            const std::string text = ReadAll(fi->path());
+            const std::string text = disk::ReadFile(fi->path()).value_or(std::string{});
             if (text.find("hkbCharacterStringData") == std::string::npos) continue;
             const std::vector<std::string> names = ExtractAnimNames(text);
             if (names.empty()) continue;
@@ -183,8 +171,8 @@ NemesisConvertStats ConvertNemesisSetData(const std::vector<std::filesystem::pat
         const std::string projDataDir = bs == std::string::npos ? proj.header : proj.header.substr(0, bs);
         for (const SetFile& set : proj.sets) {
             const fs::path out = bundle / "meshes" / "animationsetdata" / projDataDir / set.name;
-            if (!WriteAll(out, EmitSetFile(set))) {
-                Say(log, "  FAILED to write '" + out.string() + "'");
+            if (std::string werr; !disk::WriteFile(out, EmitSetFile(set), {}, &werr)) {
+                Say(log, "  FAILED to write '" + out.string() + "': " + werr);
                 ++stats.fails;
                 continue;
             }
@@ -215,8 +203,8 @@ NemesisConvertStats ConvertNemesisSetData(const std::vector<std::filesystem::pat
         // BR-specific delta (not a game-file mirror): one file per character, keyed by the
         // character name (matches hkbCharacterStringData::name at runtime).
         const fs::path out = bundle / "animationnames" / (charName + ".txt");
-        if (WriteAll(out, body)) { ++stats.charFiles; stats.animNames += uniq.size(); }
-        else { Say(log, "  FAILED to write '" + out.string() + "'"); ++stats.fails; }
+        if (std::string werr; disk::WriteFile(out, body, {}, &werr)) { ++stats.charFiles; stats.animNames += uniq.size(); }
+        else { Say(log, "  FAILED to write '" + out.string() + "': " + werr); ++stats.fails; }
     }
 
     return stats;

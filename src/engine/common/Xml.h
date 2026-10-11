@@ -150,6 +150,14 @@ inline Node parseElement(std::string_view s, std::size_t& i) {
 
 }  // namespace detail
 
+/// @brief `s` with the five XML entities a Havok tagfile emits decoded (`&lt; &gt; &amp; &quot; &apos;`).
+inline std::string Unescape(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    detail::appendDecoded(out, s);
+    return out;
+}
+
 // Nemesis/Pandora field edits wrap a change in comment markers:
 //   <!-- MOD_CODE ~tag~ OPEN --> <modded…> <!-- ORIGINAL --> <vanilla…> <!-- CLOSE -->
 // The ORIGINAL block is absent for a pure insertion, and the modded block is

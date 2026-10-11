@@ -19,6 +19,9 @@
 #include <codec/resource/PathKey.h>       // path identity (PathKey/HasExt) + ClipSlotKey (the LoadClips slot rule)
 #include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
+#include <common/Xml.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <atomic>
 #include <map>
@@ -27,13 +30,13 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <exception>
-#include <fstream>
 #include <functional>   // std::function — skeleton-compile tasks fanned across the pool (stage 2)
-#include <iterator>
 #include <memory>
 #include <mutex>        // guard the shard merges into m_skeletonServe / m_skeletons (stage 2)
-#include <sstream>
+#include <string_view>
 #include <system_error>
 #include <unordered_set>
 
@@ -61,46 +64,31 @@ namespace CB {
             return g && !CB::engine::codec::HkyArchive::IsPatchGraphYaml(*g);
         }
 
-        // Decode XML entity references (&amp; &lt; &gt; &quot; &apos;) to their literal
-        // characters. Author-drop
-        // animationnames\<char>.txt rosters can arrive HTML-escaped (a mod's loose character
-        // decompiled through an XML pipeline), so a shared-killmove path like
-        // "..\SharedKillMoves\Human&amp;Boar\..." must fold back to "...Human&Boar\..." BEFORE
-        // it is deduped against the (literal-'&') base roster. Without this, the escaped copy
-        // fails the dedup, is appended as a phantom "addition", and inflates animationNames.
-        // Those phantom paths don't exist on disk so they bind to nothing — but OAR sets its
-        // synchronized-clip index offset to animationNames.size(), so the padding makes OAR's
-        // (uint16) `animationBindingIndex -= offset` UNDERFLOW → out-of-bounds → the rep-stosq
-        // char-setup CTD. Keeping the roster literal keeps count == bindings == OAR's offset.
-        std::string UnescapeXml(const std::string& s)
+        using CB::engine::text::SplitLines;
+        using CB::engine::text::StripBom;
+        using CB::engine::text::Trim;
+        namespace disk = CB::engine::disk;
+
+        /// @brief Append an author roster drop (`animationnames\<char>.txt`) to `names`: one animation path per line,
+        ///        blank and `#`/`;` lines skipped, a leading BOM ignored.
+        /// @note XML entities are decoded. A roster can arrive HTML-escaped (a mod's character decompiled through an
+        ///       XML pipeline), and "..\SharedKillMoves\Human&amp;Boar\..." must fold back to its literal '&' form
+        ///       BEFORE it is deduped against the base roster: the escaped copy would fail the dedup and pad
+        ///       animationNames with phantom paths, and OAR sets its synchronized-clip index offset to
+        ///       animationNames.size() — the padding underflows its uint16 `animationBindingIndex -= offset`
+        ///       (out of bounds → the char-setup CTD).
+        void AppendRosterLines(std::string_view text, std::vector<std::string>& names)
         {
-            std::string o;
-            o.reserve(s.size());
-            for (std::size_t i = 0; i < s.size();) {
-                if (s[i] == '&') {
-                    if (s.compare(i, 5, "&amp;")  == 0) { o += '&';  i += 5; continue; }
-                    if (s.compare(i, 4, "&lt;")   == 0) { o += '<';  i += 4; continue; }
-                    if (s.compare(i, 4, "&gt;")   == 0) { o += '>';  i += 4; continue; }
-                    if (s.compare(i, 6, "&quot;") == 0) { o += '"';  i += 6; continue; }
-                    if (s.compare(i, 6, "&apos;") == 0) { o += '\''; i += 6; continue; }
-                }
-                o += s[i++];
+            for (const std::string_view line : SplitLines(StripBom(text))) {
+                const std::string_view t = Trim(line);
+                if (!t.empty() && t[0] != '#' && t[0] != ';') names.push_back(CB::engine::common::xml::Unescape(t));
             }
-            return o;
         }
 
         using CB::core::discover::NormalizeKey;
         using CB::core::discover::FolderRootOf;
         using CB::core::discover::CacheDiskRel;
         // (serve-key helpers live in core/discover/ServeKey.h)
-
-        std::string TrimLine(const std::string& line)
-        {
-            const auto b = line.find_first_not_of(" \t\r\n");
-            if (b == std::string::npos) return {};
-            const auto e = line.find_last_not_of(" \t\r\n");
-            return line.substr(b, e - b + 1);
-        }
 
         // ── Compile-time graph features now live in features/ ─────────────────────────
         // The ER wildcard gate (and future graph transforms) moved to self-registered
@@ -268,11 +256,10 @@ namespace CB {
     {
         // 1) Load order (optional): .hky plugin name -> priority (higher wins).
         std::unordered_map<std::string, int> order;
-        if (std::ifstream f{ loadOrderIni }) {
-            std::string line;
+        if (const auto file = disk::ReadFile(loadOrderIni, { .stripBom = true })) {
             int idx = 0;
-            while (std::getline(f, line)) {
-                const std::string entry = TrimLine(line);
+            for (const std::string_view line : SplitLines(*file)) {
+                const std::string_view entry = Trim(line);
                 if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
                 order[PathKey(entry)] = ++idx;  // later line wins; unlisted stay at 0
             }
@@ -417,9 +404,7 @@ namespace CB {
                     if (std::error_code rfe; bundleCompileAnims && ui->is_regular_file(rfe)) {
                         const std::string relOrig = ui->path().lexically_relative(bundle).generic_string();
                         if (HasExt(relOrig, ".hkx") && PathKey(relOrig).find("/animations/") != std::string::npos) {
-                            std::ifstream  yf(ui->path(), std::ios::binary);
-                            std::ostringstream ys; ys << yf.rdbuf();
-                            collectNativeAnim(relOrig, ys.str());
+                            if (auto yaml = disk::ReadFile(ui->path())) collectNativeAnim(relOrig, std::move(*yaml));
                         }
                         continue;
                     }
@@ -464,17 +449,8 @@ namespace CB {
                         if (!ai->is_regular_file(fec)) continue;
                         if (!HasExt(ai->path().filename().string(), ".txt")) continue;
                         const std::string charKey = PathKey(ai->path().stem().string());  // "defaultmale"
-                        std::ifstream     nf(ai->path());
-                        std::string       nline;
-                        auto&             names = m_characterAnimNames[charKey];
-                        while (std::getline(nf, nline)) {
-                            const std::string t = TrimLine(nline);
-                            // Un-escape XML entities so escaped killmove paths fold back to
-                            // their literal form and dedup against the base roster (see
-                            // UnescapeXml) — otherwise they pad animationNames and underflow
-                            // OAR's synchronized-clip index offset.
-                            if (!t.empty() && t[0] != '#' && t[0] != ';') names.push_back(UnescapeXml(t));
-                        }
+                        auto& names = m_characterAnimNames[charKey];
+                        if (const auto txt = disk::ReadFile(ai->path())) AppendRosterLines(*txt, names);
                     }
                 }
 
@@ -534,15 +510,7 @@ namespace CB {
                     for (const auto& full : arc->filesUnder("animationnames/")) {
                         if (!HasExt(full, ".txt")) continue;
                         const std::string charKey = PathKey(fs::path(full).stem().string());
-                        if (auto txt = arc->file(full)) {
-                            auto& names = m_characterAnimNames[charKey];
-                            std::istringstream ns(*txt);
-                            std::string        nline;
-                            while (std::getline(ns, nline)) {
-                                const std::string t = TrimLine(nline);
-                                if (!t.empty() && t[0] != '#' && t[0] != ';') names.push_back(UnescapeXml(t));
-                            }
-                        }
+                        if (auto txt = arc->file(full)) AppendRosterLines(*txt, m_characterAnimNames[charKey]);
                     }
 
                     // Native animations authored inside the packed bundle: a bare "<name>.hkx" FILE
@@ -825,18 +793,16 @@ namespace CB {
     {
         namespace fs = std::filesystem;
         std::size_t written = 0;
-        std::error_code ec;
         for (const auto& [key, bytes] : m_skeletonServe) {
             if (bytes.empty()) continue;
             const std::string rel = CB::core::discover::CacheDiskRel(key);
             if (rel.empty()) { LOG_WARN("Community Behaviors: skeleton key '{}' has unexpected shape — skipped.", key); continue; }
             const fs::path out = dataRoot / fs::path(rel);
-            fs::create_directories(out.parent_path(), ec);
-            std::ofstream f(out, std::ios::binary | std::ios::trunc);
-            f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            f.flush();
-            if (f.good()) { ++written; LOG_INFO("Community Behaviors: wrote compiled skeleton -> '{}'.", out.string()); }
-            else LOG_ERROR("Community Behaviors: failed writing compiled skeleton '{}'.", out.string());
+            if (std::string err; disk::WriteFile(out, bytes, { .atomic = true }, &err)) {
+                ++written;
+                LOG_INFO("Community Behaviors: wrote compiled skeleton -> '{}'.", out.string());
+            } else
+                LOG_ERROR("Community Behaviors: failed writing compiled skeleton: {}", err);
         }
         return written;
     }
@@ -855,10 +821,9 @@ namespace CB {
         /// @return the file's fingerprint, or nullopt when it can't be read (absent / locked).
         std::optional<std::uint64_t> FileFnv64(const std::filesystem::path& p)
         {
-            std::ifstream f(p, std::ios::binary);
-            if (!f) return std::nullopt;
-            const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-            return Fnv64(bytes.data(), bytes.size());
+            const auto bytes = disk::ReadFile(p);
+            if (!bytes) return std::nullopt;
+            return Fnv64(bytes->data(), bytes->size());
         }
 
         /// @brief One animation CB compiled to Data\meshes: its original-case data path, the fingerprint of the
@@ -892,22 +857,21 @@ namespace CB {
 
         AnimLedger LoadAnimLedger(const std::filesystem::path& file)
         {
-            AnimLedger    led;
-            std::ifstream f(file, std::ios::binary);
-            if (!f) return led;
-            std::string line;
-            if (!std::getline(f, line)) return led;
-            while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
-            if (line.rfind(kAnimLedgerMagic, 0) != 0) return led;   // not a ledger — track nothing
-            led.current = (line == LedgerHeader());
-            while (std::getline(f, line)) {
-                while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+            AnimLedger led;
+            const auto text = disk::ReadFile(file);
+            if (!text) return led;
+            const auto lines = SplitLines(*text);
+            if (lines.empty()) return led;
+            if (lines[0].rfind(kAnimLedgerMagic, 0) != 0) return led;   // not a ledger — track nothing
+            led.current = (lines[0] == LedgerHeader());
+            for (std::size_t i = 1; i < lines.size(); ++i) {
+                const std::string_view line = lines[i];
                 const auto t1 = line.find('\t');
-                const auto t2 = t1 == std::string::npos ? std::string::npos : line.find('\t', t1 + 1);
-                if (t2 == std::string::npos) continue;
+                const auto t2 = t1 == std::string_view::npos ? std::string_view::npos : line.find('\t', t1 + 1);
+                if (t2 == std::string_view::npos) continue;
                 AnimLedgerEntry e;
-                e.src  = std::strtoull(line.substr(0, t1).c_str(), nullptr, 16);
-                e.out  = std::strtoull(line.substr(t1 + 1, t2 - t1 - 1).c_str(), nullptr, 16);
+                e.src  = std::strtoull(std::string(line.substr(0, t1)).c_str(), nullptr, 16);
+                e.out  = std::strtoull(std::string(line.substr(t1 + 1, t2 - t1 - 1)).c_str(), nullptr, 16);
                 e.path = line.substr(t2 + 1);
                 if (!e.path.empty()) led.byKey[PathKey(e.path)] = std::move(e);
             }
@@ -921,21 +885,15 @@ namespace CB {
             namespace fs = std::filesystem;
             std::error_code ec;
             if (entries.empty()) { fs::remove(file, ec); return; }
-            fs::create_directories(file.parent_path(), ec);
-            const fs::path tmp = file.string() + ".tmp";
-            {
-                std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-                o << LedgerHeader() << "\n";
-                char hx[2][17];
-                for (const auto& e : entries) {
-                    std::snprintf(hx[0], sizeof hx[0], "%016llx", static_cast<unsigned long long>(e.src));
-                    std::snprintf(hx[1], sizeof hx[1], "%016llx", static_cast<unsigned long long>(e.out));
-                    o << hx[0] << '\t' << hx[1] << '\t' << e.path << "\n";
-                }
-                if (!o.good()) { LOG_WARN("Community Behaviors: could not write the animation ledger '{}'.", tmp.string()); return; }
+            std::string out = LedgerHeader() + "\n";
+            char hx[2][17];
+            for (const auto& e : entries) {
+                std::snprintf(hx[0], sizeof hx[0], "%016llx", static_cast<unsigned long long>(e.src));
+                std::snprintf(hx[1], sizeof hx[1], "%016llx", static_cast<unsigned long long>(e.out));
+                out.append(hx[0]).append(1, '\t').append(hx[1]).append(1, '\t').append(e.path).append(1, '\n');
             }
-            fs::rename(tmp, file, ec);
-            if (ec) LOG_WARN("Community Behaviors: could not replace the animation ledger '{}': {}", file.string(), ec.message());
+            if (std::string err; !disk::WriteFile(file, out, { .atomic = true }, &err))
+                LOG_WARN("Community Behaviors: could not write the animation ledger: {}", err);
         }
     }  // namespace
 
@@ -985,7 +943,6 @@ namespace CB {
             if (produced[i]) return;
             const std::string& outKey   = m_nativeAnims[i].first;
             const std::string& yamlText = m_nativeAnims[i].second;
-            std::error_code ec;
             // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). We only reach here
             // for a bundle that OPTED INTO animation compile (manifest compile_animations=true), so writing
             // to the REAL meshes path is the point — the compiled animation serves. The old meshes/CBanims/
@@ -1015,17 +972,15 @@ namespace CB {
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
                     return;
                 }
-                fs::create_directories(out.parent_path(), ec);
-                std::ofstream f(out, std::ios::binary | std::ios::trunc);
-                f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
-                f.flush();
-                if (f.good()) {
+                if (std::string werr; disk::WriteFile(out, r.bytes, {}, &werr)) {
                     outHash[i]  = Fnv64(r.bytes.data(), r.bytes.size());
                     produced[i] = 1;
                     written.fetch_add(1, std::memory_order_relaxed);
                     LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string());
+                } else {
+                    failed.fetch_add(1, std::memory_order_relaxed);
+                    LOG_ERROR("Community Behaviors: failed writing native animation: {}", werr);
                 }
-                else          { failed.fetch_add(1, std::memory_order_relaxed);  LOG_ERROR("Community Behaviors: failed writing native animation '{}'.", out.string()); }
             } catch (const std::exception& e) {
                 failed.fetch_add(1, std::memory_order_relaxed);
                 LOG_ERROR("Community Behaviors: native animation '{}' — {}", outKey, e.what());
@@ -1179,13 +1134,8 @@ namespace CB {
                 const std::string rel = CacheDiskRel(k);
                 if (!rel.empty()) {
                     const fs::path out = dataRoot / fs::path(rel);
-                    fs::create_directories(out.parent_path(), ec);
-                    std::ofstream f(out, std::ios::binary | std::ios::trunc);
-                    f.write(reinterpret_cast<const char*>(bytes->data()),
-                            static_cast<std::streamsize>(bytes->size()));
-                    f.flush();
-                    if (f.good()) ++written;
-                    else { LOG_ERROR("Community Behaviors: failed writing cache file '{}'.", out.string()); ++failedGraphs; }
+                    if (std::string err; disk::WriteFile(out, *bytes, { .atomic = true }, &err)) ++written;
+                    else { LOG_ERROR("Community Behaviors: failed writing cache file: {}", err); ++failedGraphs; }
                 } else {
                     LOG_WARN("Community Behaviors: cannot place '{}' in the split cache (unexpected key shape) — skipped.", k);
                     ++failedGraphs;
@@ -1221,15 +1171,15 @@ namespace CB {
         //    forces the next launch to recompile the missing graphs instead of arming a broken cache.
         //    (Content is a marker today; it becomes the cache fingerprint when real invalidation lands.)
         if (failedGraphs == 0) {
-            std::error_code se;
             const fs::path sentinel = CacheSentinelPath(dataRoot);
-            fs::create_directories(sentinel.parent_path(), se);
             // Stamp the sentinel with the WATERMARK VERSION. CachePresent() requires a match, so a
             // build that bumps kWatermarkValue invalidates an older cache and forces a regen — the
             // cached graphs' injected BR_Watermark then always matches this build (the probe can't
             // read a stale "NO"). A minimal content fingerprint until full invalidation lands.
-            std::ofstream(sentinel, std::ios::binary | std::ios::trunc)
-                << CB::core::resolve::kWatermarkValue << "\n";
+            if (std::string err; !disk::WriteFile(sentinel, std::to_string(CB::core::resolve::kWatermarkValue) + "\n",
+                                                  { .atomic = true }, &err))
+                LOG_ERROR("Community Behaviors: could not stamp the cache complete ({}) — the next launch will "
+                          "recompile.", err);
         } else {
             LOG_WARN("Community Behaviors: cache incomplete ({} graph(s) failed to compile/write) — "
                      "completion sentinel withheld; the next launch will recompile.", failedGraphs);
@@ -1309,12 +1259,10 @@ namespace CB {
         // Present AND stamped with THIS build's watermark version — a version bump (or a legacy
         // marker-string sentinel) mismatches and forces a regen, so the served cache's watermark
         // always matches the running DLL.
-        std::ifstream f(sentinel, std::ios::binary);
-        std::string stamp;
-        std::getline(f, stamp);
-        while (!stamp.empty() && (stamp.back() == '\r' || stamp.back() == '\n' || stamp.back() == ' '))
-            stamp.pop_back();
-        return stamp == std::to_string(CB::core::resolve::kWatermarkValue);
+        const auto text = disk::ReadFile(sentinel);
+        if (!text) return false;
+        const auto lines = SplitLines(*text);
+        return !lines.empty() && Trim(lines[0]) == std::to_string(CB::core::resolve::kWatermarkValue);
     }
 
     void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot, const AnimExecutor* animExec)
@@ -1520,25 +1468,19 @@ namespace CB {
                     if (bytes.empty()) {
                         std::error_code fec;
                         const fs::path vanProj = fs::current_path(fec) / "Data" / "Meshes" / fs::path(std::string(vanillaProjectPath));
-                        std::ifstream vf(vanProj, std::ios::binary);
-                        if (vf) bytes.assign(std::istreambuf_iterator<char>(vf), std::istreambuf_iterator<char>());
+                        if (auto van = disk::ReadBytes(vanProj)) bytes = std::move(*van);
                     }
                     if (!bytes.empty()) {
                         /// @note Written under the exact string the swap names (CacheDiskRel / CacheSwapPath of the
                         ///       same key), so the open is precise on a case-sensitive filesystem.
                         const fs::path out = m_dataRoot / fs::path(CB::core::discover::CacheDiskRel(projKey));
-                        std::error_code ec;
-                        fs::create_directories(out.parent_path(), ec);
-                        std::ofstream f(out, std::ios::binary | std::ios::trunc);
-                        f.write(reinterpret_cast<const char*>(bytes.data()),
-                                static_cast<std::streamsize>(bytes.size()));
-                        f.flush();
-                        ok = f.good();
+                        std::string werr;
+                        ok = disk::WriteFile(out, bytes, { .atomic = true }, &werr);
                         if (ok)
                             LOG_INFO("Community Behaviors: byte-served project '{}' (cache '{}').",
                                      vanillaProjectPath, swap);
                         else
-                            LOG_ERROR("Community Behaviors: failed writing byte-served project '{}'.", out.string());
+                            LOG_ERROR("Community Behaviors: failed writing byte-served project: {}", werr);
                     } else {
                         LOG_ERROR("Community Behaviors: no project to serve for '{}' (no base project unit{}, no loose "
                                   "vanilla file) — not redirected.", vanillaProjectPath, err.empty() ? "" : ": " + err);

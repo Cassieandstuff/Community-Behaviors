@@ -3,11 +3,11 @@
 #include "codec/format/SkeletonYaml.h"
 
 #include <RymlInclude.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
-#include <fstream>
 #include <optional>
 #include <sstream>
 #include <unordered_map>
@@ -26,15 +26,14 @@ std::string dq(const std::string& s) {           // double-quote + escape
     o += '"';
     return o;
 }
-std::string f(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
 std::string vec(const Vector4& v) {
-    return "[" + f(v.x) + ", " + f(v.y) + ", " + f(v.z) + ", " + f(v.w) + "]";
+    return "[" + text::FormatFloat(v.x) + ", " + text::FormatFloat(v.y) + ", " + text::FormatFloat(v.z) + ", " + text::FormatFloat(v.w) + "]";
 }
 std::string vec3(const Vector4& v) {   // capsule endpoints — the w component is unused
-    return "[" + f(v.x) + ", " + f(v.y) + ", " + f(v.z) + "]";
+    return "[" + text::FormatFloat(v.x) + ", " + text::FormatFloat(v.y) + ", " + text::FormatFloat(v.z) + "]";
 }
 std::string quat(const Quaternion& q) {
-    return "[" + f(q.x) + ", " + f(q.y) + ", " + f(q.z) + ", " + f(q.w) + "]";
+    return "[" + text::FormatFloat(q.x) + ", " + text::FormatFloat(q.y) + ", " + text::FormatFloat(q.z) + ", " + text::FormatFloat(q.w) + "]";
 }
 
 // ── parse helpers (ryml) ─────────────────────────────────────────────────────────
@@ -151,12 +150,6 @@ QSTransform readPose(const c4::yml::ConstNodeRef& bone) {
     return p;
 }
 
-std::string readFile(const fs::path& p) {
-    std::ifstream in(p, std::ios::binary);
-    if (!in) return {};
-    std::ostringstream ss; ss << in.rdbuf(); return ss.str();
-}
-
 void collectCombined(c4::yml::ConstNodeRef root, std::string& name,
                      std::vector<std::string>& indexList, std::vector<BoneDef>& bones,
                      std::optional<SkeletonBumper>& bumper) {
@@ -209,10 +202,10 @@ static void emitBoneFields(std::ostream& o, const std::string& ind,
     if (b.physics) {
         const auto& p = *b.physics;
         o << ind << "physics:\n";
-        o << ind << "  mass: "   << f(p.mass)   << "\n";
-        o << ind << "  radius: " << f(p.radius) << "\n";
-        if (p.friction)    o << ind << "  friction: "    << f(*p.friction)    << "\n";
-        if (p.restitution) o << ind << "  restitution: " << f(*p.restitution) << "\n";
+        o << ind << "  mass: "   << text::FormatFloat(p.mass)   << "\n";
+        o << ind << "  radius: " << text::FormatFloat(p.radius) << "\n";
+        if (p.friction)    o << ind << "  friction: "    << text::FormatFloat(*p.friction)    << "\n";
+        if (p.restitution) o << ind << "  restitution: " << text::FormatFloat(*p.restitution) << "\n";
         if (p.capsule)
             o << ind << "  capsule: { a: " << vec3(p.capsule->a) << ", b: " << vec3(p.capsule->b) << " }\n";
         if (p.joint) {
@@ -221,11 +214,11 @@ static void emitBoneFields(std::ostream& o, const std::string& ind,
             if (j.twistAxis) ax += ", twist_axis: " + vec3(*j.twistAxis);
             if (j.planeAxis) ax += ", plane_axis: " + vec3(*j.planeAxis);
             if (j.type == BoneJoint::Type::Hinge)
-                o << ind << "  joint: { type: hinge, ang: [" << f(j.angMin) << ", " << f(j.angMax) << "]" << ax << " }\n";
+                o << ind << "  joint: { type: hinge, ang: [" << text::FormatFloat(j.angMin) << ", " << text::FormatFloat(j.angMax) << "]" << ax << " }\n";
             else
-                o << ind << "  joint: { type: ragdoll, twist: [" << f(j.twistMin) << ", " << f(j.twistMax)
-                  << "], cone: " << f(j.coneMax)
-                  << ", plane: [" << f(j.planeMin) << ", " << f(j.planeMax) << "]" << ax << " }\n";
+                o << ind << "  joint: { type: ragdoll, twist: [" << text::FormatFloat(j.twistMin) << ", " << text::FormatFloat(j.twistMax)
+                  << "], cone: " << text::FormatFloat(j.coneMax)
+                  << ", plane: [" << text::FormatFloat(j.planeMin) << ", " << text::FormatFloat(j.planeMax) << "]" << ax << " }\n";
         }
     }
 }
@@ -235,9 +228,9 @@ static void emitBumper(std::ostream& o, const SkeletonData& d) {
     const auto& b = *d.bumper;
     o << "bumper:\n";
     o << "  pos: "     << vec3(b.pos) << "\n";
-    o << "  radius: "  << f(b.radius) << "\n";
-    o << "  friction: "    << f(b.friction)    << "\n";
-    o << "  restitution: " << f(b.restitution) << "\n";
+    o << "  radius: "  << text::FormatFloat(b.radius) << "\n";
+    o << "  friction: "    << text::FormatFloat(b.friction)    << "\n";
+    o << "  restitution: " << text::FormatFloat(b.restitution) << "\n";
     o << "  capsule: { a: " << vec3(b.capsule.a) << ", b: " << vec3(b.capsule.b) << " }\n";
 }
 
@@ -250,20 +243,12 @@ bool EmitSkeletonYamlTree(const SkeletonData& d, const fs::path& dir, std::strin
         o << "index:\n";
         for (const auto& b : d.bones) o << "  - " << dq(b.name) << "\n";
         emitBumper(o, d);
-        const fs::path fp = dir / "bonelist.yaml";
-        std::ofstream fo(fp, std::ios::binary);
-        if (!fo) { if (err) *err = "cannot write " + fp.string(); return false; }
-        const std::string s = o.str();
-        fo.write(s.data(), static_cast<std::streamsize>(s.size()));
+        if (!disk::WriteFile(dir / "bonelist.yaml", o.str(), {}, err)) return false;
     }
     for (const auto& b : d.bones) {
         std::ostringstream o;
         emitBoneFields(o, "", b, d);
-        const fs::path fp = dir / "bones" / (b.name + ".yaml");
-        std::ofstream fo(fp, std::ios::binary);
-        if (!fo) { if (err) *err = "cannot write " + fp.string(); return false; }
-        const std::string s = o.str();
-        fo.write(s.data(), static_cast<std::streamsize>(s.size()));
+        if (!disk::WriteFile(dir / "bones" / (b.name + ".yaml"), o.str(), {}, err)) return false;
     }
     return true;
 }
@@ -353,7 +338,7 @@ bool LoadSkeletonYaml(const fs::path& path, SkeletonData& out, std::string* err)
         for (const char* fn : { "bonelist.yaml", "skeleton.yaml" }) {
             const fs::path sk = path / fn;
             if (!fs::exists(sk)) continue;
-            std::string txt = readFile(sk);
+            std::string txt = disk::ReadFile(sk, { .stripBom = true }).value_or(std::string());
             auto tree = c4::yml::parse_in_place(c4::to_substr(txt));
             auto root = tree.rootref();
             if (name.empty()) name = strf(root, "name");
@@ -368,9 +353,9 @@ bool LoadSkeletonYaml(const fs::path& path, SkeletonData& out, std::string* err)
             if (e.is_regular_file() && e.path().extension() == ".yaml") files.push_back(e.path());
         std::sort(files.begin(), files.end());
         for (auto& fp : files)
-            bones.push_back(parseBoneText(fp.stem().string(), readFile(fp)));
+            bones.push_back(parseBoneText(fp.stem().string(), disk::ReadFile(fp, { .stripBom = true }).value_or(std::string())));
     } else {
-        std::string txt = readFile(path);
+        std::string txt = disk::ReadFile(path, { .stripBom = true }).value_or(std::string());
         if (txt.empty()) return fail("cannot read " + path.string());
         auto tree = c4::yml::parse_in_place(c4::to_substr(txt));
         collectCombined(tree.rootref(), name, indexList, bones, bumper);
@@ -442,9 +427,9 @@ bool LoadSkeletonLayer(const fs::path& dir, std::vector<SkeletonBoneAdd>& out, s
     for (auto& e : fs::directory_iterator(bd))
         if (e.is_regular_file() && e.path().extension() == ".yaml") files.push_back(e.path());
     std::sort(files.begin(), files.end());
-    for (auto& fp : files) out.push_back(parseBoneAddText(fp.stem().string(), readFile(fp)));
+    for (auto& fp : files) out.push_back(parseBoneAddText(fp.stem().string(), disk::ReadFile(fp, { .stripBom = true }).value_or(std::string())));
     const fs::path blf = dir / "bonelist.yaml";
-    if (fs::is_regular_file(blf)) applyBoneOrder(out, parseOrderIndex(readFile(blf)));
+    if (fs::is_regular_file(blf)) applyBoneOrder(out, parseOrderIndex(disk::ReadFile(blf, { .stripBom = true }).value_or(std::string())));
     return true;
 }
 

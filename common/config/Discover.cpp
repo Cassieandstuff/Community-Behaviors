@@ -1,10 +1,9 @@
 #include <config/Config.h>
 
 #include <codec/resource/PathKey.h>
+#include <disk/Disk.h>
 
 #include <algorithm>
-#include <fstream>
-#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -70,16 +69,7 @@ std::vector<Source> Discover(const ScanSpec& spec) {
 }
 
 std::optional<std::string> ReadText(const fs::path& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return std::nullopt;
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string s = ss.str();
-    // Strip a leading UTF-8 BOM (mirrors the readers this consolidates).
-    if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF &&
-        static_cast<unsigned char>(s[1]) == 0xBB && static_cast<unsigned char>(s[2]) == 0xBF)
-        s.erase(0, 3);
-    return s;
+    return CB::engine::disk::ReadFile(path, { .stripBom = true });
 }
 
 }  // namespace CB::config

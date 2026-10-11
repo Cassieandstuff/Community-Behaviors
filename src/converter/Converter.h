@@ -6,12 +6,19 @@
 #include <atomic>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace CB::converter {
 
 using LogFn = std::function<void(std::string)>;
+
+/// @brief Whether two INI section / key spellings name the same entry.
+/// @note The INI format's own rule: section and key names compare case-insensitively (the engine's and MO2's INI
+///       readers, SimpleIni — the plugin's reader of settings.ini). A codec-internal fold — never applied to the
+///       VALUES read out of the file.
+bool IniNameEquals(std::string_view a, std::string_view b);
 
 struct Options {
     std::string dataDir;       // VFS Data folder (contains Nemesis_Engine/mod/<code>/)
@@ -104,7 +111,8 @@ struct BaseBuildResult {
     // Animation BAKE (decompile hkx -> animation.yaml into the master, self-gated on pose fidelity):
     // animOk = baked (round-trip faithful within tolerance, unit kept in the master); animSkip = not
     // baked (non-spline, decode/recompile failure, or fidelity/shape miss) — falls through to the loose
-    // vanilla .hkx at runtime; animFail = the source .hkx couldn't even be read.
+    // vanilla .hkx at runtime; animFail = the source .hkx couldn't even be read, or the baked unit couldn't be
+    // kept (decompile output missing / unit write failed).
     int animOk = 0, animFail = 0, animSkip = 0;
 };
 

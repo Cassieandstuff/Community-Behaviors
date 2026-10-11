@@ -4,9 +4,8 @@
 
 #include <interface/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)
 #include <codec/resource/PathKey.h>
+#include <disk/Disk.h>
 
-#include <fstream>
-#include <iterator>
 #include <set>
 #include <system_error>
 
@@ -31,13 +30,6 @@ namespace CB {
             while (!b.empty() && b.back() == '/') b.pop_back();
             b += '/';
             return b;
-        }
-
-        std::string SlurpFile(const fs::path& p)
-        {
-            std::ifstream f(p, std::ios::binary);
-            if (!f) return {};
-            return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         }
 
     }  // namespace
@@ -65,7 +57,7 @@ namespace CB {
         const fs::path p = m_dir / fs::path(rel);
         std::error_code ec;
         if (!fs::is_regular_file(p, ec)) return std::nullopt;
-        return SlurpFile(p);
+        return CB::engine::disk::ReadFile(p).value_or(std::string());
     }
 
     std::vector<std::string> BundleReader::subdirs(const std::string& dirPrefix) const
@@ -181,8 +173,7 @@ namespace CB {
             if (!HasExt(it->path().filename().string(), ".hkx")) continue;
             it.disable_recursion_pending();
             std::error_code se;
-            std::ifstream g(it->path() / "graph.yaml", std::ios::binary);
-            const std::string text = g ? std::string(std::istreambuf_iterator<char>(g), std::istreambuf_iterator<char>()) : std::string();
+            const std::string text = CB::engine::disk::ReadFile(it->path() / "graph.yaml").value_or(std::string());
             const auto k = fs::exists(it->path() / "bonelist.yaml", se) ? CB::engine::codec::HkyArchive::UnitKind::Skeleton
                                                                        : CB::engine::codec::HkyArchive::KindOfGraphYaml(text);
             if (k == kind)

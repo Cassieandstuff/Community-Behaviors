@@ -3,14 +3,12 @@
 #include <codec/resource/PathKey.h>       // path identity (PathKey / HasExt)
 #include <interface/MotionSample.h>      // Label/UnlabelSample (the sample-label codec, now in interface)
 #include <RymlInclude.h>
+#include <text/Text.h>
 
 #include <array>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <map>
 #include <set>
 #include <string>
@@ -22,19 +20,8 @@ namespace CB::engine::animdata {
 using CB::engine::codec::resource::HasExt;
 using CB::engine::codec::resource::PathKey;
 
-namespace {
-
-// Single-quoted YAML scalar — the motion value strings carry spaces (translation "t x y z") and
-// backslashes (animationName "Animations\X.HKX"), so always quote to preserve them verbatim.
-std::string Q(const std::string& s) {
-    std::string o = "'";
-    for (char c : s) { if (c == '\'') o += "''"; else o += c; }
-    o += "'";
-    return o;
-}
-
-}  // namespace  (anon holds Q; LabelSample/UnlabelSample now live in <interface/MotionSample.h>)
-
+/// @note Scalars are always single-quoted: motion values carry spaces (translation "t x y z") and backslashes
+///       (animationName "Animations\X.HKX"), and quoting keeps them verbatim.
 std::string EmitMotionYaml(const Project& project, const std::vector<std::string>& roster)
 {
     std::string y = "motions:\n";
@@ -46,17 +33,17 @@ std::string EmitMotionYaml(const Project& project, const std::vector<std::string
         const bool named = idx >= 0 && static_cast<std::size_t>(idx) < roster.size()
                            && !roster[static_cast<std::size_t>(idx)].empty();
         if (named)
-            y += "  - animation: " + Q(roster[static_cast<std::size_t>(idx)]) + "\n";
+            y += "  - animation: " + text::QuoteSingle(roster[static_cast<std::size_t>(idx)]) + "\n";
         else
             y += "  - index: " + m.animIndex + "\n";
-        y += "    duration: " + Q(m.duration) + "\n";
+        y += "    duration: " + text::QuoteSingle(m.duration) + "\n";
         if (!m.translations.empty()) {
             y += "    translation:\n";
-            for (const auto& t : m.translations) y += "      - " + Q(LabelSample(t)) + "\n";
+            for (const auto& t : m.translations) y += "      - " + text::QuoteSingle(LabelSample(t)) + "\n";
         }
         if (!m.rotations.empty()) {
             y += "    rotation:\n";
-            for (const auto& r : m.rotations) y += "      - " + Q(LabelSample(r)) + "\n";
+            for (const auto& r : m.rotations) y += "      - " + text::QuoteSingle(LabelSample(r)) + "\n";
         }
     }
     return y;
@@ -101,14 +88,14 @@ std::vector<MotionRecord> ParseMotionYaml(const std::string& text, std::string& 
 
 std::string EmitMotionSidecar(const MotionRecord& m)
 {
-    std::string y = "duration: " + Q(m.duration) + "\n";
+    std::string y = "duration: " + text::QuoteSingle(m.duration) + "\n";
     if (!m.translations.empty()) {
         y += "translation:\n";
-        for (const auto& t : m.translations) y += "  - " + Q(LabelSample(t)) + "\n";
+        for (const auto& t : m.translations) y += "  - " + text::QuoteSingle(LabelSample(t)) + "\n";
     }
     if (!m.rotations.empty()) {
         y += "rotation:\n";
-        for (const auto& r : m.rotations) y += "  - " + Q(LabelSample(r)) + "\n";
+        for (const auto& r : m.rotations) y += "  - " + text::QuoteSingle(LabelSample(r)) + "\n";
     }
     return y;
 }
@@ -245,18 +232,18 @@ std::string EmitAnimdataIndexYaml(const SingleFile& sf,
     y += "# here; hasAnimData projects also carry clips/<stem>/*.yaml + motion/<stem>/*.yaml bodies.\n";
     y += "projects:\n";
     for (const auto& p : sf.projects) {
-        y += "  - name: " + Q(p.name) + "\n";
-        if (p.fieldX != "1") y += "    fieldX: " + Q(p.fieldX) + "\n";   // constant in vanilla; carry if odd
+        y += "  - name: " + text::QuoteSingle(p.name) + "\n";
+        if (p.fieldX != "1") y += "    fieldX: " + text::QuoteSingle(p.fieldX) + "\n";   // constant in vanilla; carry if odd
         if (!p.assetPaths.empty()) {
             y += "    assets:\n";
-            for (const auto& a : p.assetPaths) y += "      - " + Q(a) + "\n";
+            for (const auto& a : p.assetPaths) y += "      - " + text::QuoteSingle(a) + "\n";
         }
         if (p.hasAnimData) y += "    hasAnimData: true\n";
         // `character:` (roster source) only matters for projects with clips to resolve — skip the
         // header-only ones even if a same-named character exists.
         if (p.hasAnimData)
             if (const auto it = charRefByStem.find(StemForProjectName(p.name)); it != charRefByStem.end() && !it->second.empty())
-                y += "    character: " + Q(it->second) + "\n";
+                y += "    character: " + text::QuoteSingle(it->second) + "\n";
     }
     return y;
 }

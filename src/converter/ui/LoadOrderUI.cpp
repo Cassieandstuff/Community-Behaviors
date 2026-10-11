@@ -3,13 +3,14 @@
 #include "platform/Platform.h"
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <sstream>
 #include <unordered_map>
 
@@ -19,20 +20,18 @@ namespace {
 
 using CB::engine::codec::resource::HasExt;
 using CB::engine::codec::resource::PathKey;
+namespace disk = CB::engine::disk;
+namespace text = CB::engine::text;
 
-std::string Trim(const std::string& s) {
-    const auto b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return {};
-    const auto e = s.find_last_not_of(" \t\r\n");
-    return s.substr(b, e - b + 1);
+/// @brief loadorder.txt's text (BOM dropped); empty when it can't be read.
+std::string ReadLoadOrder(const std::string& path) {
+    return disk::ReadFile(path, { .stripBom = true }).value_or(std::string{});
 }
 
-std::string ReadFile(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
+/// @brief Whether a loadorder.txt line is a comment or blank (kept verbatim, never a bundle).
+bool IsLoadOrderNote(std::string_view line) {
+    const std::string_view t = text::Trim(line);
+    return t.empty() || t[0] == '#' || t[0] == ';';
 }
 
 // Targeted reader for the flat manifest.json — NOT a general JSON parser. Finds "key",
@@ -103,11 +102,10 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
     std::vector<std::string> order;                 // stems as the file spells them, in file order
     std::unordered_map<std::string, int> orderIdx;  // PathKey(stem) -> position
     {
-        std::ifstream f(loadOrderPath);
-        std::string line;
-        while (std::getline(f, line)) {
-            const std::string t = Trim(line);
-            if (t.empty() || t[0] == '#' || t[0] == ';') continue;
+        const std::string lo = ReadLoadOrder(loadOrderPath);
+        for (const std::string_view line : text::SplitLines(lo)) {
+            if (IsLoadOrderNote(line)) continue;
+            const std::string t(text::Trim(line));
             const std::string k = PathKey(t);
             if (!orderIdx.count(k)) { orderIdx[k] = static_cast<int>(order.size()); order.push_back(t); }
         }
@@ -139,7 +137,7 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
             b.stem = it->path().stem().string();
             b.name = b.stem;
             if (it->is_directory(de)) {
-                applyManifest(b, ReadFile(it->path() / "manifest.json"));
+                applyManifest(b, disk::ReadFile(it->path() / "manifest.json").value_or(std::string{}));
             } else if (it->is_regular_file(de)) {
                 // Packed bundle: a .hky is a zip. Read manifest.json out of the archive (no
                 // extraction). Even if the archive can't be opened it is still a real bundle on
@@ -213,14 +211,22 @@ void LoadOrderUI::Revalidate() {
     }
 }
 
+/// @note Comment and blank lines keep their place, as the converter's loadorder writer keeps them: each bundle line of
+///       the file on disk is a slot the display order refills in turn, and bundles past the last slot are appended.
+///       Written atomically — a failed save leaves the previous file intact.
 bool LoadOrderUI::Save(const std::string& loadOrderPath) {
     // Rewrite loadorder.txt in the current display order. Listed-but-missing entries are
     // preserved (user-owned; harmless), matching the converter's preserve-order contract.
-    std::error_code ec;
-    fs::create_directories(fs::path(loadOrderPath).parent_path(), ec);   // Data\community_behaviors\ may be new
-    std::ofstream f(loadOrderPath, std::ios::binary | std::ios::trunc);
-    if (!f) { m_status = "Save FAILED: cannot write " + loadOrderPath; return false; }
-    for (const auto& b : m_bundles) f << b.stem << "\n";
+    const std::string current = ReadLoadOrder(loadOrderPath);
+    std::string       body;
+    std::size_t       next = 0;
+    for (const std::string_view line : text::SplitLines(current)) {
+        if (IsLoadOrderNote(line)) { body.append(line); body += '\n'; }
+        else if (next < m_bundles.size()) { body += m_bundles[next++].stem; body += '\n'; }
+    }
+    for (; next < m_bundles.size(); ++next) { body += m_bundles[next].stem; body += '\n'; }
+    std::string err;
+    if (!disk::WriteFile(loadOrderPath, body, { .atomic = true }, &err)) { m_status = "Save FAILED: " + err; return false; }
     m_status = "Saved loadorder.txt (" + std::to_string(m_bundles.size()) + " entries).";
     return true;
 }

@@ -9,17 +9,18 @@
 #include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
 #include <codec/resource/PathKey.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <exception>
-#include <fstream>
 #include <iterator>
 #include <map>
 #include <optional>
-#include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
@@ -34,6 +35,10 @@ namespace CB::core::serve {
 
         using CB::engine::codec::resource::HasExt;
         using CB::engine::codec::resource::PathKey;
+        using CB::engine::text::SplitLines;
+        using CB::engine::text::StripBom;
+        using CB::engine::text::Trim;
+        namespace disk = CB::engine::disk;
 
         // Resolve ".." segments in a '\'- or '/'-separated path (a roster entry like
         // "..\SharedKillMoves\..." joined onto the actor root escapes upward). The engine hashes the
@@ -61,41 +66,16 @@ namespace CB::core::serve {
             return res;
         }
 
-        std::string TrimLine(const std::string& line)
-        {
-            const auto b = line.find_first_not_of(" \t\r\n");
-            if (b == std::string::npos) return {};
-            const auto e = line.find_last_not_of(" \t\r\n");
-            return line.substr(b, e - b + 1);
-        }
-
-        std::string ReadFile(const fs::path& p)
-        {
-            std::ifstream f(p, std::ios::binary);
-            if (!f) return {};
-            return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        }
-
-        bool WriteFile(const fs::path& p, const std::string& data)
-        {
-            std::error_code ec;
-            fs::create_directories(p.parent_path(), ec);
-            std::ofstream f(p, std::ios::binary | std::ios::trunc);
-            if (!f) return false;
-            f.write(data.data(), static_cast<std::streamsize>(data.size()));
-            return static_cast<bool>(f);
-        }
-
         // Load order (optional): .hky plugin name (path key) -> priority, higher wins.
         // Same file/format the behavior Resolver uses.
         std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
         {
             std::unordered_map<std::string, int> order;
-            std::ifstream f(ini);
-            std::string line;
+            const auto file = disk::ReadFile(ini, { .stripBom = true });
+            if (!file) return order;
             int idx = 0;
-            while (std::getline(f, line)) {
-                const std::string entry = TrimLine(line);
+            for (const std::string_view line : SplitLines(*file)) {
+                const std::string_view entry = Trim(line);
                 if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
                 order[PathKey(entry)] = ++idx;
             }
@@ -216,12 +196,10 @@ namespace CB::core::serve {
                 for (const std::string& fn : rd->files("animationnames", ".txt")) {
                     const std::string charName = PathKey(fs::path(fn).stem().string());
                     if (const auto txt = rd->read(std::string("animationnames/") + fn)) {
-                        std::istringstream in(*txt);
-                        std::string        line;
-                        auto&              dst = rosterPaths[charName];
-                        while (std::getline(in, line)) {
-                            const std::string t = TrimLine(line);
-                            if (!t.empty()) dst.push_back(t);
+                        auto& dst = rosterPaths[charName];
+                        for (const std::string_view line : SplitLines(StripBom(*txt))) {
+                            const std::string_view t = Trim(line);
+                            if (!t.empty()) dst.emplace_back(t);
                         }
                     }
                 }
@@ -396,7 +374,7 @@ namespace CB::core::serve {
                 baseFrom = "Skyrim.hky/meshes/animationsetdatasinglefile.txt (legacy loose)";
             } else {
                 baseFrom = vfsBase.string();
-                baseText = ReadFile(vfsBase);
+                baseText = disk::ReadFile(vfsBase).value_or(std::string());
                 LOG_WARN("SetData: no animationsetdatasinglefile.txt/ folder in master (bundle '{}') — "
                          "falling back to the loose file '{}'. If an upstream tool already merged the mods "
                          "there, this DOUBLE-merges; ship the decomposed Skyrim.hky master.",
@@ -520,8 +498,8 @@ namespace CB::core::serve {
         // Emit + persist to BR's contained cache (see header for the MO2 routing rationale).
         const std::string merged    = asd::EmitSingleFile(base);
         const fs::path    cachePath = dataDir / "community_behaviors_cache" / "animationsetdatasinglefile.txt";
-        if (!WriteFile(cachePath, merged)) {
-            r.error = "failed to write merged cache: " + cachePath.string();
+        if (std::string werr; !disk::WriteFile(cachePath, merged, { .atomic = true }, &werr)) {
+            r.error = "failed to write merged cache: " + werr;
             LOG_ERROR("SetData: {}", r.error);
             return r;
         }

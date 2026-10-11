@@ -1,4 +1,6 @@
 #pragma once
+#include <text/Text.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -36,12 +38,6 @@ inline const std::unordered_map<std::string, long>& Role()                    { 
 inline const std::unordered_map<std::string, long>& RoleFlags()               { return EnumTable("RoleFlags"); }
 
 namespace detail {
-inline std::string trim(std::string_view s) {
-    std::size_t b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string_view::npos) return {};
-    std::size_t e = s.find_last_not_of(" \t\r\n");
-    return std::string(s.substr(b, e - b + 1));
-}
 inline bool tryParseLong(const std::string& s, long& out) {
     if (s.empty()) return false;
     char* end = nullptr;
@@ -66,7 +62,7 @@ inline bool tryParseLong(const std::string& s, long& out) {
 // here we need a number, so 0 is the safe default for an unrecognised token).
 inline long ResolveEnum(const std::string& raw,
                         const std::unordered_map<std::string, long>& table) {
-    std::string s = detail::trim(raw);
+    std::string s(CB::engine::text::Trim(raw));
     if (s.empty()) return 0;
 
     long whole = 0;
@@ -82,7 +78,7 @@ inline long ResolveEnum(const std::string& raw,
     std::stringstream ss(s);
     std::string tok;
     while (std::getline(ss, tok, '|')) {
-        tok = detail::trim(tok);
+        tok = std::string(CB::engine::text::Trim(tok));
         if (tok.empty()) continue;
         long n = 0;
         if (detail::tryParseLong(tok, n)) { acc |= n; continue; }

@@ -1,11 +1,11 @@
 #include "platform/Platform.h"
 
 #include <common/miniz.h>
+#include <disk/Disk.h>
 
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
+#include <string>
 #include <vector>
 #include <algorithm>
 #include <atomic>
@@ -90,7 +90,7 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
         mz_uint32     crc = 0;
         void*         deflated = nullptr;   ///< tdefl heap block (mz_free); null = store uncompressed
         std::size_t   deflatedSize = 0;
-        std::vector<char> raw;              ///< kept only when the file is stored
+        std::string   raw;                  ///< kept only when the file is stored
     };
     const mz_uint   flags     = tdefl_create_comp_flags_from_zip_params(MZ_DEFAULT_LEVEL, -MZ_DEFAULT_WINDOW_BITS, MZ_DEFAULT_STRATEGY);
     const unsigned  nThreads  = std::max(1u, std::thread::hardware_concurrency());
@@ -105,9 +105,9 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
             pool.emplace_back([&] {
                 for (std::size_t i; (i = next++) < n;) {
                     Packed& p = batch[i];
-                    std::ifstream f(files[start + i].first, std::ios::binary);
-                    if (!f) continue;
-                    std::vector<char> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                    auto read = CB::engine::disk::ReadFile(files[start + i].first);
+                    if (!read) continue;
+                    std::string& buf = *read;
                     p.ok   = true;
                     p.size = buf.size();
                     p.crc  = static_cast<mz_uint32>(mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(buf.data()), buf.size()));
