@@ -2612,18 +2612,31 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
         const ReflectCtx cB{ idB, nrB, reg, bones, &effB, keyOwner };
 
         // Base lookups: named nodes by (class, name); unnamed shared leaves by rendered content; the root.
-        std::map<std::pair<std::string, std::string>, const IHavokObject*> baseNamed;
-        std::map<std::string, const IHavokObject*> baseContent;
+        std::map<std::pair<std::string, std::string>, std::vector<const IHavokObject*>> baseNamed;
+        std::map<std::string, std::vector<const IHavokObject*>> baseContent;
         std::unordered_map<std::string, const IHavokObject*> baseById;
         const IHavokObject* baseRoot = nullptr;
+        /// @note Vanilla repeats identical unnamed leaves (mt_behavior has three 'AnimObjectPickAxeWall' payloads), so a key
+        ///       holds EVERY candidate, sorted by FormID, and the mod's nodes (sorted by their own id) take them in order.
+        ///       Both sides number in encounter order, so that pairing is the natural identity — and it no longer depends on
+        ///       effB's POINTER-order iteration, which kept a heap-layout-dependent one and made the rest spurious new nodes.
+        const auto lowerId = [&](const IHavokObject* a, const IHavokObject* b) {
+            const std::string& ia = idB.ids.at(a);
+            const std::string& ib = idB.ids.at(b);
+            const auto fa = CB::engine::codec::formid::parse(ia), fb = CB::engine::codec::formid::parse(ib);
+            if (fa && fb) return std::tie(fa->masterIndex, fa->local) < std::tie(fb->masterIndex, fb->local);
+            return ia < ib;
+        };
         for (const auto& [o, cat] : effB) {
             if (cat.empty() && !isRoot(o)) continue;
             baseById[idB.ids.at(o)] = o;
             if (isRoot(o)) { baseRoot = o; continue; }
-            if (const std::string n = nameOf(o); !n.empty()) baseNamed[{ o->ClassName(), n }] = o;
+            if (const std::string n = nameOf(o); !n.empty()) baseNamed[{ o->ClassName(), n }].push_back(o);
             else if (const auto* so = dynamic_cast<const io::SchemaObject*>(o))
-                baseContent[std::string(o->ClassName()) + "\n" + reflectObject(*so, cB)] = o;
+                baseContent[std::string(o->ClassName()) + "\n" + reflectObject(*so, cB)].push_back(o);
         }
+        for (auto& [_, c] : baseNamed)   std::sort(c.begin(), c.end(), lowerId);
+        for (auto& [_, c] : baseContent) std::sort(c.begin(), c.end(), lowerId);
 
         /// @note Identity by (class, name) — unique per vanilla graph (0 dups / 35,661 nodes); a mod duplicate takes the
         ///       base id first-come in read order, the rest are new. Unnamed shared leaves (conditions, payloads) match by
@@ -2635,16 +2648,20 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
         });
         const ReflectCtx cM0{ idM, nrM, reg, bones, &effM };   // content keys only (leaves carry no refs)
         std::set<const IHavokObject*> taken;
+        const auto firstFree = [&](const std::vector<const IHavokObject*>& candidates) -> const IHavokObject* {
+            for (const auto* b : candidates) if (!taken.count(b)) return b;
+            return nullptr;
+        };
         std::unordered_map<const IHavokObject*, std::string> modId;
         int seq = 0;
         for (const IHavokObject* o : modNodes) {
             const IHavokObject* match = nullptr;
             if (isRoot(o)) match = baseRoot;
             else if (const std::string n = nameOf(o); !n.empty()) {
-                if (auto it = baseNamed.find({ o->ClassName(), n }); it != baseNamed.end()) match = it->second;
+                if (auto it = baseNamed.find({ o->ClassName(), n }); it != baseNamed.end()) match = firstFree(it->second);
             } else if (const auto* so = dynamic_cast<const io::SchemaObject*>(o)) {
                 if (auto it = baseContent.find(std::string(o->ClassName()) + "\n" + reflectObject(*so, cM0)); it != baseContent.end())
-                    match = it->second;
+                    match = firstFree(it->second);
             }
             if (match && !taken.count(match)) { taken.insert(match); modId[o] = idB.ids.at(match); }
             else modId[o] = formIdOf(CB::engine::codec::formid::SELF_INDEX, std::to_string(++seq));
