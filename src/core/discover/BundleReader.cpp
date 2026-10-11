@@ -3,6 +3,7 @@
 #include "core/discover/BundleReader.h"
 
 #include <interface/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)
+#include <codec/resource/PathKey.h>
 
 #include <algorithm>
 #include <cctype>
@@ -17,16 +18,7 @@ namespace CB {
 
     namespace {
 
-        // lowercase + forward-slash — matches HkyArchive's stored keys and folds a caller's
-        // backslashed/mixed-case rel path to the archive's key space.
-        std::string Norm(std::string s)
-        {
-            for (char& c : s) {
-                if (c == '\\') c = '/';
-                else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            }
-            return s;
-        }
+        using CB::engine::codec::resource::PathKey;
 
         // Normalize a directory prefix to HkyArchive's key space with EXACTLY one
         // trailing slash. Callers pass prefixes with OR without a trailing '/'
@@ -36,7 +28,7 @@ namespace CB {
         // → behavior compile fails → A-pose). Strip any trailing slashes, then add one.
         std::string DirBase(const std::string& dirPrefix)
         {
-            std::string b = Norm(dirPrefix);
+            std::string b = PathKey(dirPrefix);
             while (!b.empty() && b.back() == '/') b.pop_back();
             b += '/';
             return b;
@@ -75,7 +67,7 @@ namespace CB {
 
     std::optional<std::string> BundleReader::read(const std::string& rel) const
     {
-        if (m_arc) return m_arc->file(Norm(rel));
+        if (m_arc) return m_arc->file(PathKey(rel));
         const fs::path p = m_dir / fs::path(rel);
         std::error_code ec;
         if (!fs::is_regular_file(p, ec)) return std::nullopt;
@@ -157,7 +149,7 @@ namespace CB {
                 if (ext != extLower) continue;
             }
             // whole-tree-relative (to the bundle root), forward-slashed + lowercased to match packed keys.
-            out.push_back(Norm(it->path().lexically_relative(m_dir).generic_string()));
+            out.push_back(PathKey(it->path().lexically_relative(m_dir).generic_string()));
         }
         return out;
     }
@@ -223,7 +215,7 @@ namespace CB {
 
     std::shared_ptr<const CB::engine::common::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
     {
-        if (m_arc) return m_arc->source(Norm(prefix));
+        if (m_arc) return m_arc->source(PathKey(prefix));
         return std::make_shared<CB::engine::common::DiskUnitSource>(m_dir / fs::path(prefix));
     }
 

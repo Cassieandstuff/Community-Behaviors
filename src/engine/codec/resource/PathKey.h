@@ -1,0 +1,26 @@
+#pragma once
+/// @file
+/// @brief Path IDENTITY — whether two spellings name the same resource. The one place CB folds a path's case.
+/// @note The engine's resource lookup is case-insensitive (BSA lookup hashes the lowercased path; vanilla BSAs
+///       store every name lowercase while references spell paths in mixed case), so path identity folds here and
+///       nowhere else (CLAUDE.md case directive). A key is for COMPARISON: never write one into data, and open a
+///       file by it only when CB wrote that file under it.
+
+#include <string>
+#include <string_view>
+
+namespace CB::engine::codec::resource {
+
+/// @brief ASCII-lowercase + '\\' → '/'.
+/// @invariant Length-preserving: HkyArchive slices original-case paths by offsets taken from their keys.
+inline std::string PathKey(std::string_view p)
+{
+    std::string s(p);
+    for (char& c : s) {
+        if (c == '\\') c = '/';
+        else if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return s;
+}
+
+}  // namespace CB::engine::codec::resource

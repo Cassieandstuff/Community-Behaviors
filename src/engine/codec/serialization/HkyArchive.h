@@ -68,7 +68,7 @@ public:
 
     // Same range, but returns the ORIGINAL-CASE (forward-slashed) paths. Use ONLY where a case-sensitive
     // NAME is derived from the path — the animationdata clip records, whose name the engine matches to the
-    // mixed-case behaviour clip generator (lowercasing it silently kills that clip's root motion). norm()
+    // mixed-case behaviour clip generator (lowercasing it silently kills that clip's root motion). PathKey()
     // never changes length, so substr offsets from the normalized prefix still line up; read-back
     // re-normalizes, so the original case is safe to hand out.
     std::vector<std::string> filesUnderOrig(const std::string& prefix) const;

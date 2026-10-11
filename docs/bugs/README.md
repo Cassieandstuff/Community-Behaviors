@@ -23,8 +23,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   lowercased names (converter writes them folded; the server rebuilds names from folded bundle listings).
 - [CB-10](CB-10-roster-fold-exact-case.md) — OPEN: the author roster fold dedups by exact case while LoadClips
   keys by lowercase filename — a case-only duplicate pads the roster and kills the base slot.
-- [CB-11](CB-11-cache-file-case.md) — INVESTIGATING: compiled cache files are written lowercase but the swap
-  opens them with original case; only works if the VFS lookup is case-insensitive (comments disagree).
+- [CB-11](CB-11-cache-file-case.md) — INVESTIGATING (fix landed, needs an in-game check): cache files were
+  written lowercase but swapped open with the request's raw case; every swap now names the exact file written.
 - [CB-12](CB-12-bom-handling.md) — OPEN: a UTF-8 BOM breaks packed units (ZipUnitSource ignores the strip
   contract) and line-based text files (rosters, loadorder.txt).
 - [CB-13](CB-13-unchecked-writes.md) — OPEN: `.hky` unit emits and converter rewrites don't check writes, so

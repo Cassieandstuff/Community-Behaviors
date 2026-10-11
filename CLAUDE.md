@@ -86,7 +86,7 @@ another root renames its namespace; a stray top-level namespace is a bug.
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
   hooks conditions` (core) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
-  linker` (engine). The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io}` + the
+  linker` (engine). The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io,resource}` + the
   packfile serialization spine (all genuinely codecs).
 - **`CB::engine::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
   cross-cutting *types* every layer passes around: the unit/layer vocabulary (`IUnitSource`,

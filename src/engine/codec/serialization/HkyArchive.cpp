@@ -1,5 +1,6 @@
 #include <codec/serialization/HkyArchive.h>
 
+#include <codec/resource/PathKey.h>
 #include <common/miniz.h>
 
 #include <algorithm>
@@ -18,13 +19,7 @@ using namespace CB::engine::common;   // this layer operates on the interface da
 
 namespace {
 
-std::string norm(std::string s) {   // lowercase + forward-slash — matches loader reads + serve keys
-    for (char& c : s) {
-        if (c == '\\') c = '/';
-        else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return s;
-}
+using resource::PathKey;
 
 std::string slashOnly(std::string s) {   // '\'->'/' but PRESERVE case (the original path for enumeration)
     for (char& c : s) if (c == '\\') c = '/';
@@ -44,7 +39,7 @@ public:
         : m_arc(std::move(arc)), m_root(std::move(prefix) + "/") {}
 
     std::optional<std::string> read(const std::string& rel) const override {
-        return m_arc->file(m_root + norm(rel));
+        return m_arc->file(m_root + PathKey(rel));
     }
 
     std::vector<std::string> listYaml(const std::string& subdir, bool recursive) const override {
@@ -55,11 +50,11 @@ public:
         // graph the engine binds, i.e. the main-menu autoplay). The Stage-2 refactor moved from
         // per-section scans (non-empty subdir, no double slash) to this whole-unit scan; DiskUnitSource
         // handles "" correctly, so the disk-only acceptance gate never caught it.
-        const std::string base = subdir.empty() ? m_root : (m_root + norm(subdir) + "/");
+        const std::string base = subdir.empty() ? m_root : (m_root + PathKey(subdir) + "/");
         std::vector<std::string> out;
         /// @note ORIGINAL-case paths: a reflective roster file is named for the field it holds
         ///       (`wildcardTransitions.transitions.yaml`), and Havok field names are case-sensitive — a lowercased
-        ///       name binds nothing. read() re-normalizes, and norm() never changes length, so offsets line up.
+        ///       name binds nothing. read() re-normalizes, and PathKey() never changes length, so offsets line up.
         for (const auto& full : m_arc->filesUnderOrig(base)) {
             if (!endsWith(full, ".yaml")) continue;
             const std::string afterBase = full.substr(base.size());
@@ -70,7 +65,7 @@ public:
     }
 
     bool hasDir(const std::string& subdir) const override {
-        return !m_arc->filesUnder(subdir.empty() ? m_root : (m_root + norm(subdir) + "/")).empty();
+        return !m_arc->filesUnder(subdir.empty() ? m_root : (m_root + PathKey(subdir) + "/")).empty();
     }
 
 private:
@@ -94,7 +89,7 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
         if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
         mz_zip_archive_file_stat st;
         if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat)"; return nullptr; }
-        ents.push_back({ i, norm(st.m_filename), slashOnly(st.m_filename) });
+        ents.push_back({ i, PathKey(st.m_filename), slashOnly(st.m_filename) });
     }
     mz_zip_reader_end(&z);
     if (ents.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
@@ -330,7 +325,7 @@ std::vector<std::string> HkyArchive::filesUnderOrig(const std::string& prefix) c
 }
 
 std::shared_ptr<const IUnitSource> HkyArchive::source(const std::string& unitPrefix) const {
-    return std::make_shared<ZipUnitSource>(shared_from_this(), norm(unitPrefix));
+    return std::make_shared<ZipUnitSource>(shared_from_this(), PathKey(unitPrefix));
 }
 
 }  // namespace CB::engine::codec

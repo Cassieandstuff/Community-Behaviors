@@ -92,7 +92,7 @@ namespace CB::core::serve {
                             // swapping; otherwise fall through to vanilla (safe degradation).
                             if (s_resolver->RedirectReady() && s_resolver->HasCacheFile(serveKey)) {
                                 thread_local std::string swap;
-                                swap = CB::core::discover::CacheSwapPath(raw);
+                                swap = CB::core::discover::CacheSwapPath(serveKey);
                                 if (s_logBudget.fetch_sub(1) > 0)
                                     LOG_INFO("[byteserve] serving '{}' -> '{}'.", raw, swap);
                                 return next(swap.c_str(), a_entry, a_flag, a_ctx);

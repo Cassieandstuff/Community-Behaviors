@@ -1535,11 +1535,10 @@ namespace CB {
         if (!chosen) return {};
 
         // Byte-substitution serve: the SWAP path the ByteServe hook hands the engine in place of the
-        // vanilla project open — "community_behaviors_cache\<vanilla project path>" (Meshes-relative, original
-        // case). The engine loads BR's synthesized project but interns it under the VANILLA identity
-        // (the caller's descriptor is untouched), so the speed-sampler DB key and the animdata table
-        // both resolve to the stock stem — no ".br", no alias.
-        const std::string swap = CB::core::discover::CacheSwapPath(vanillaProjectPath);
+        // vanilla project open — the cache file written below, under the same key. The engine loads BR's
+        // synthesized project but interns it under the VANILLA identity (the caller's descriptor is
+        // untouched), so the speed-sampler DB key and the animdata table both resolve to the stock stem.
+        const std::string swap = CB::core::discover::CacheSwapPath(projKey);
 
         // Materialize the project once, on demand, into the consolidated cache at
         // Data\Meshes\community_behaviors_cache\<projKey>. It points at the VANILLA character path; the
@@ -1569,12 +1568,9 @@ namespace CB {
                         if (vf) bytes.assign(std::istreambuf_iterator<char>(vf), std::istreambuf_iterator<char>());
                     }
                     if (!bytes.empty()) {
-                        // Write to the ORIGINAL-CASE path the swap resolves to — NOT CacheDiskRel(projKey),
-                        // which lowercases. MO2's USVFS matches case-sensitively, so the engine's Func3-cased
-                        // project open ("...\DefaultMale.hkx") only finds a same-cased file on disk. (This is
-                        // the one path the engine opens under a case we don't control; behaviors/characters
-                        // below use BR's own lowercase refs and are self-consistent.)
-                        const fs::path out = m_dataRoot / fs::path(CB::core::discover::CacheDiskRelRaw(vanillaProjectPath));
+                        /// @note Written under the exact string the swap names (CacheDiskRel / CacheSwapPath of the
+                        ///       same key), so the open is precise on a case-sensitive filesystem.
+                        const fs::path out = m_dataRoot / fs::path(CB::core::discover::CacheDiskRel(projKey));
                         std::error_code ec;
                         fs::create_directories(out.parent_path(), ec);
                         std::ofstream f(out, std::ios::binary | std::ios::trunc);
@@ -1613,10 +1609,9 @@ namespace CB {
     bool Resolver::HasCacheFile(std::string_view servePath) const
     {
         // The on-disk cache file for an owned key is dataRoot / CacheDiskRel(key) — the exact path
-        // MaterializeCacheToDisk / WriteSkeletonServe wrote. Same NormalizeKey() as Owns; the exists()
-        // check is case-robust on the (case-insensitive) Windows FS even though the skeleton write may
-        // use original case. m_dataRoot is set in BuildRedirectMap on both the materialize and reuse
-        // paths before RedirectReady() flips, so a set root here means the cache pass has run.
+        // MaterializeCacheToDisk / WriteSkeletonServe wrote and CacheSwapPath(key) opens. m_dataRoot is set
+        // in BuildRedirectMap on both the materialize and reuse paths before RedirectReady() flips, so a set
+        // root here means the cache pass has run.
         if (m_dataRoot.empty()) return false;   // not armed yet → treat as absent (hook falls through)
         const std::string key = NormalizeKey(servePath);
         std::error_code   ec;
