@@ -20,7 +20,7 @@
 # (find_package(ryml CONFIG) — the engine modules' YAML front-end). Link `cb::CB-API`.
 # ============================================================================
 cmake_minimum_required(VERSION 3.25)
-project(CommunityBehaviors VERSION 0.5.1 LANGUAGES CXX C
+project(CommunityBehaviors VERSION 0.5.2 LANGUAGES CXX C
         DESCRIPTION "Community Behaviors — runtime Havok behavior-graph compiler")
 
 set(CMAKE_CXX_STANDARD 23)

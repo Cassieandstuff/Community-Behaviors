@@ -4,9 +4,9 @@
 # immediately refreshes the in-game plugin AND its runtime data. The MO2 mod folder is the Data root, so:
 #
 #   <mod>/SKSE/Plugins/<dll> + <pdb>         — the plugin + its symbols (always)
-#   <mod>/Community Behaviors/schema/...     — the class schema  (SCHEMA_DIR minus its SCHEMA_EXCLUDE
+#   <mod>/community_behaviors/schema/...     — the class schema  (SCHEMA_DIR minus its SCHEMA_EXCLUDE
 #                                              top-level entries; runtime default
-#                                              "Data/Community Behaviors/schema", loaded recursively)
+#                                              "Data/community_behaviors/schema", loaded recursively)
 #   <mod>/community_behaviors/plugins/*.hky  — the packed bundles (HKY_STAGE)
 #
 # Schema is CLEAR-then-copy: its own schema/ subtree is replaced whole, so a stale tree can't leave
@@ -30,11 +30,11 @@ function(cb_deploy TARGET MOD_NAME)
         COMMENT "cb_deploy: ${TARGET}.dll + .pdb -> ${MOD_NAME}/SKSE/Plugins"
         VERBATIM)
 
-    # 2. The class schema tree (clear-then-copy → <mod>/Community Behaviors/schema), copied entry by entry so
-    #    an excluded top-level folder is never copied at all. Also clears the pre-restructure
-    #    "Community Behaviors/Havok" location, which the runtime no longer reads.
+    # 2. The class schema tree (clear-then-copy → <mod>/community_behaviors/schema, beside the bundles), copied entry
+    #    by entry so an excluded top-level folder is never copied at all. Also clears the old separate
+    #    "Community Behaviors/" folder (schema/ in 0.5.x, Havok/ before it), which the runtime no longer reads.
     if(D_SCHEMA_DIR AND IS_DIRECTORY "${D_SCHEMA_DIR}")
-        set(_schema_dst "${_mod}/Community Behaviors/schema")
+        set(_schema_dst "${_mod}/community_behaviors/schema")
         file(GLOB _schema_entries CONFIGURE_DEPENDS LIST_DIRECTORIES true "${D_SCHEMA_DIR}/*")
         set(_schema_copy "")
         foreach(_e ${_schema_entries})
@@ -49,10 +49,10 @@ function(cb_deploy TARGET MOD_NAME)
             endif()
         endforeach()
         add_custom_command(TARGET ${TARGET} POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_schema_dst}" "${_mod}/Community Behaviors/Havok"
+            COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_schema_dst}" "${_mod}/Community Behaviors"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${_schema_dst}"
             ${_schema_copy}
-            COMMENT "cb_deploy: schema -> ${MOD_NAME}/Community Behaviors/schema (clean)"
+            COMMENT "cb_deploy: schema -> ${MOD_NAME}/community_behaviors/schema (clean)"
             VERBATIM)
     endif()
 
