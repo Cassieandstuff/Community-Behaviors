@@ -6,30 +6,19 @@
 //   cbdiff adsf <ref.txt> <cb.txt>                        animationdatasinglefile.txt — per-clip diff
 //   cbdiff asd  <ref.txt> <cb.txt>                        animationsetdatasinglefile.txt — per-set diff
 //   cbdiff asdcrc <ref.txt> <cb.txt> <proj> <set>         dump a set's CB-only CRCs
-//
-// (Behavior-graph diffs: decompile both sides to reflective units and diff the trees — node files are keyed by
-// FormID, so pair them by (class, name).)
 
 #include <interface/AnimationData.h>              // CB::engine::animdata::ParseSingleFile
 #include <codec/format/AnimationSetData.h>        // CB::engine::animsetdata::ParseSingleFile
-#include <interface/reflection/HavokSchema.h>     // CB::engine::schema::SetSharedSchemaDir (arm the decompiler)
-
-#include <RymlInclude.h>                          // the sanctioned rapidyaml include (C++20+ shim)
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <functional>
-#include <map>
-#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
-namespace ryml = c4::yml;
 namespace fs   = std::filesystem;
 
 namespace {
@@ -41,29 +30,9 @@ std::string readFile(const std::string& p) {
     if (!f) { std::fprintf(stderr, "cbdiff: cannot open '%s'\n", p.c_str()); return {}; }
     std::ostringstream ss; ss << f.rdbuf(); return ss.str();
 }
-std::vector<std::uint8_t> readBytes(const std::string& p) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return {};
-    return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-}
 std::string lower(std::string s) { for (char& c : s) c = static_cast<char>(std::tolower((unsigned char)c)); return s; }
 std::string join(const std::vector<std::string>& v, const char* sep = " | ") {
     std::string o; for (std::size_t i = 0; i < v.size(); ++i) { if (i) o += sep; o += v[i]; } return o;
-}
-std::string sv(c4::csubstr s) { return std::string(s.str, s.len); }
-
-// Top-level `key: value` scalar (value unquoted) — quick extraction without a full parse.
-std::string field(const std::string& text, const std::string& key) {
-    std::istringstream in(text); std::string line; const std::string pfx = key + ":";
-    while (std::getline(in, line)) {
-        if (line.rfind(pfx, 0) != 0) continue;
-        std::string v = line.substr(pfx.size());
-        while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
-        while (!v.empty() && (v.back() == '\r' || v.back() == '\n')) v.pop_back();
-        if (v.size() >= 2 && v.front() == '\'' && v.back() == '\'') v = v.substr(1, v.size() - 2);
-        return v;
-    }
-    return {};
 }
 
 // ── animationdatasinglefile.txt ──────────────────────────────────────────────────────────────────

@@ -39,9 +39,8 @@ static std::string ExeTemplatesDir() { return (ExeSchemaDir() / "templates").str
 // own bundle, merged at runtime by the Community Behaviors SKSE plugin). Wraps the same
 // havok-core converter the havok-core-cli `vanbase`/`patchdelta` verbs use.
 //
-// Headless: `BehaviorConverter --cli <dataDir> <templatesDir> <outDir> [<baseDir>]` runs the
-// conversion with no window (for automation / CI), streaming the log to stdout. <baseDir>
-// (optional) holds the pristine vanilla animation{set,}datasinglefile.txt copied into base/.
+// Headless: `BehaviorConverter --cli <dataDir> <templatesDir> <outDir>` runs the
+// conversion with no window (for automation / CI), streaming the log to stdout.
 int main(int argc, char** argv) {
     // Arm the process-wide schema registry for EVERY mode (GUI + --cli + --build-base + --regen-master).
     // The no-template schema decompile (base build) and the schema loose-derive both key off it; if it is
@@ -56,12 +55,10 @@ int main(int argc, char** argv) {
         opt.templatesDir = argv[3];
         opt.outputDir    = argv[4];
         if (opt.templatesDir.empty()) opt.templatesDir = ExeTemplatesDir();
-        // baseDir is the 5th positional ONLY when it isn't the start of a flag; --mo2 <root>
-        // (optional) points at the MO2 instance so bundles are attributed to owning mods.
+        // --mo2 <root> (optional) points at the MO2 instance so bundles are attributed to owning mods.
         for (int i = 5; i < argc; ++i) {
             const std::string a = argv[i];
             if (a == "--mo2" && i + 1 < argc)      opt.mo2Instance = argv[++i];
-            else if (opt.baseDir.empty() && !a.empty() && a.rfind("--", 0) != 0) opt.baseDir = a;
         }
         std::atomic<bool> cancel{ false };
         const auto res = CB::converter::ConvertLoadOrder(

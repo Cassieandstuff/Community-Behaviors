@@ -116,7 +116,7 @@ void IniSetBool(const fs::path& ini, const std::string& section, const std::stri
 
 ConverterUI::ConverterUI() {
     // MO2 launches the tool from the game dir, so the VFS Data folder is ./Data. Templates,
-    // base, the private staging dir, and the settings ini live beside the exe. The load order
+    // the private staging dir, and the settings ini live beside the exe. The load order
     // the tool manages is NOT beside the exe — it is the ACTIVE one in the Data VFS
     // (<Data>/community_behaviors/loadorder.txt), derived from m_dataDir (see BrLoadOrderPath). The
     // zip destination defaults to Downloads; persisted settings override the Data + zip fields.
@@ -125,9 +125,7 @@ ConverterUI::ConverterUI() {
     const fs::path exe = m_exeDir;
     m_dataDir       = (fs::current_path(ec) / "Data").string();
     m_zipDir        = CB::converter::platform::DownloadsFolder();   // point at your MO2 downloads folder
-    m_zipName       = "Output_Community Behaviors";        // the .zip / MO2 mod name (editable)
     m_templatesDir  = (exe / "schema" / "templates").string();
-    m_baseDir       = (exe / "base").string();
     m_stagingDir    = (exe / "staging").string();
     LoadSettings();   // override m_dataDir / m_zipDir from sct_converter.ini if present
     if (m_outputDir.empty()) m_outputDir = m_zipDir;   // sensible default: the downloads/mods folder
@@ -155,8 +153,6 @@ void ConverterUI::LoadSettings() {
         const std::string val = Trim(line.substr(eq + 1));
         if (key == "data" && !val.empty()) m_dataDir = val;
         else if (key == "zip" && !val.empty()) m_zipDir = val;
-        else if (key == "name" && !val.empty()) m_zipName = val;
-        else if (key == "mo2") m_mo2Instance = val;   // may be empty (optional)
         else if (key == "profile" && !val.empty()) m_profile = val;
         else if (key == "output"  && !val.empty()) m_outputDir = val;
         else if (key == "autozip") m_autoZip = (val == "1" || val == "true" || val == "yes" || val == "on");
@@ -169,8 +165,6 @@ void ConverterUI::SaveSettings() const {
     f << "# SCT Behavior Converter settings\n";
     f << "data=" << m_dataDir  << "\n";
     f << "zip="  << m_zipDir   << "\n";
-    f << "name=" << m_zipName  << "\n";
-    f << "mo2="  << m_mo2Instance << "\n";
     f << "profile=" << m_profile   << "\n";
     f << "output="  << m_outputDir << "\n";
     f << "autozip=" << (m_autoZip ? "true" : "false") << "\n";
@@ -218,7 +212,7 @@ void ConverterUI::StartConvert() {
       if (fs::is_regular_file(fs::path(m_dataDir) / "community_behaviors" / "plugins" / "Skyrim.hky", ec))
           dataDir = m_dataDir; }
 
-    CB::converter::Options opt{ dataDir, m_templatesDir, m_baseDir, convOut, instance };
+    CB::converter::Options opt{ dataDir, m_templatesDir, convOut, instance };
 
     const std::string zipName = "Output_Community Behaviors.zip";
 
@@ -380,7 +374,7 @@ void ConverterUI::DrawConverterTab() {
     if (busy || m_finished.load()) {
         std::lock_guard<std::mutex> lk(m_logMx);
         for (const auto& line : m_log) ImGui::TextUnformatted(line.c_str());
-        if (m_autoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f) ImGui::SetScrollHereY(1.0f);
+        if (busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f) ImGui::SetScrollHereY(1.0f);
     } else {
         DrawLoadOrderArranger();
     }

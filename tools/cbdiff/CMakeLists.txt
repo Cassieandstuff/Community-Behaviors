@@ -1,13 +1,11 @@
 # ── tools/cbdiff ─────────────────────────────────────────────────────────
 # cbdiff — semantic diff of CB's compiled output vs a PROVEN reference (Pandora). A build-time DRIVER over
 # the engine: parses the animationdata / animationsetdata caches on both sides and reports per-record
-# divergences (Pandora is the oracle). Links the engine so the
-# behavior-graph decompile-diff mode can be added without touching this file.
+# divergences (Pandora is the oracle).
 
 add_executable(cbdiff cbdiff.cpp)
 
-find_package(ryml CONFIG REQUIRED)                       # YAML front-end (recursive node-tree diff)
-target_link_libraries(cbdiff PRIVATE engine ryml::ryml)   # engine also carries the <RymlInclude.h> conduit
+target_link_libraries(cbdiff PRIVATE engine)
 
 set_target_properties(cbdiff PROPERTIES
     CXX_STANDARD 23

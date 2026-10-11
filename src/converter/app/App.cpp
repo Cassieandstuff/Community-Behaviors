@@ -63,7 +63,7 @@ bool App::Init(const char* title, int width, int height) {
 
 void App::Run() {
     ConverterUI ui;
-    while (!glfwWindowShouldClose(m_window) && !ui.WantsQuit()) {
+    while (!glfwWindowShouldClose(m_window)) {
         glfwPollEvents();
         BeginFrame();
         ui.Draw();

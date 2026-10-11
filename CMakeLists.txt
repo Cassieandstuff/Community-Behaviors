@@ -34,12 +34,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # Consumption mode. Full standalone build ONLY when CB is the top-level project AND not asked for the
 # API-only surface. Two ways to get API-only: add_subdirectory'd into another build (FetchContent
 # — not top-level), or CB_API_ONLY=ON (vcpkg builds CB as top-level, so the portfile passes this).
-# (CB_RESOLVE_ONLY accepted as the legacy spelling.)
 option(CB_API_ONLY "Build only the cb-api surface (for vcpkg / library consumers)" OFF)
 option(CB_BUILD_CONVERTER "Build the Behavior Converter GUI tool (+ the derived-bundle regen)" ON)
-if(CB_RESOLVE_ONLY)
-    set(CB_API_ONLY ON)
-endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CB_API_ONLY)
     set(CB_STANDALONE ON)
 else()
@@ -226,8 +222,6 @@ endif()
 # Shares CB's whole engine; a GLFW + Dear ImGui desktop app — heavier deps (glfw + imgui via
 # FetchContent), so gated: -DCB_BUILD_CONVERTER=OFF gives a lean plugin-only configure.
 if(CB_BUILD_CONVERTER)
-    include(FetchContent)
-
     # ── GLFW (windowing) ──────────────────────────────────────────────────────
     FetchContent_Declare(glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
@@ -244,17 +238,11 @@ if(CB_BUILD_CONVERTER)
     target_include_directories(glad_gl_45_core PUBLIC "${CMAKE_SOURCE_DIR}/cmake/glad/include")
 
     # ── Dear ImGui (docking branch) ───────────────────────────────────────────
-    FetchContent_Declare(imgui
-        GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG        docking
-        GIT_SHALLOW    TRUE)
-    FetchContent_MakeAvailable(imgui)
     add_library(imgui STATIC
         "${imgui_SOURCE_DIR}/imgui.cpp"
         "${imgui_SOURCE_DIR}/imgui_draw.cpp"
         "${imgui_SOURCE_DIR}/imgui_tables.cpp"
         "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
-        "${imgui_SOURCE_DIR}/imgui_demo.cpp"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp")
     target_include_directories(imgui PUBLIC

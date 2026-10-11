@@ -1,7 +1,7 @@
 #include "Converter.h"
 
-#include <codec/serialization/HavokFile.h>             // ReadHavokFile / WriteHavokFile
-#include <codec/formid/FormId.h>                        // CB::engine::codec::formid::SELF_INDEX / BASE_GAME_INDEX (index convention)
+#include <codec/serialization/HavokFile.h>             // ReadHavokFile
+#include <codec/formid/FormId.h>                        // CB::engine::codec::formid::SELF_INDEX (index convention)
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
 #include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
 #include <codec/serialization/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
@@ -1014,7 +1014,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         convT = now;
     };
     const fs::path dataDir = opt.dataDir, templatesDir = opt.templatesDir, outDir = opt.outputDir;
-    const fs::path baseDir = opt.baseDir;
 
     std::error_code ec;
     if (!fs::is_directory(dataDir, ec))      { r.error = "Data folder not found: " + opt.dataDir; return r; }
@@ -1739,12 +1738,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             ++r.mods;
         }
     }
-
-    // The master singlefiles (pristine vanilla animationdata/set-data, the base
-    // ServeSetData/ServeAnimData name-gate on) are NOT emitted here — they ship inside the
-    // Community Behaviors Skyrim.hky master (baked in by `--build-base`). `baseDir` is now unused
-    // by this path; the mod bundles above carry only each mod's own set/anim-data DELTAS.
-    (void)baseDir;
 
     // The synthetic loose-replacement bundle takes a load-order slot like any mod.
     if (charFilesAny) emitted.push_back("CharacterFiles");

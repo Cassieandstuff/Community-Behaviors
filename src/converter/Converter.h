@@ -19,7 +19,6 @@ struct Options {
                                // characters/ subdir = vanilla character files at their
                                // meshes-relative paths (e.g. characters/actors/character/
                                // characters/defaultmale.hkx)
-    std::string baseDir;       // pristine vanilla singlefiles (animation{set,}datasinglefile.txt)
     std::string outputDir;     // writes <out>/community_behaviors/plugins/... + base/ + loadorder.txt
 
     // MO2 instance root (contains mods/ + profiles/<profile>/modlist.txt). When resolved, the
@@ -84,14 +83,11 @@ bool PackageAllModAnimations(const std::string& mo2Instance, const std::string& 
 struct Result {
     bool        ok = false;
     std::string error;
-    int graphs     = 0;   // vanilla base graphs emitted (-> Skyrim.hky)
-    int charUnits  = 0;   // vanilla character units emitted (-> Skyrim.hky)
     int mods       = 0;   // Nemesis codes that produced any bundle (behavior/setdata/animdata)
     int deltas     = 0;   // per-mod graph deltas emitted
     int charDeltas = 0;   // per-mod character roster deltas emitted
     int setMods    = 0;   // codes that contributed set-data
     int animMods   = 0;   // codes that contributed anim-data
-    int baseFiles  = 0;   // pristine vanilla singlefiles copied to Skyrim.hky/meshes/ (0..2)
     int fnisAnims  = 0;   // FNIS animations merged into FNIS.hky
     int fnisEvents = 0;   // FNIS events merged into FNIS.hky
     int skipped    = 0;   // graph/mod conversions that failed (see log)
