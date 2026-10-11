@@ -2,7 +2,7 @@
 
 #include "core/discover/BundleManifest.h"
 
-#include <sct-config/SctConfig.h>   // sct::config::LoadJson / ReadText
+#include <config/Config.h>   // CB::config::LoadJson / ReadText
 
 #include <system_error>
 
@@ -30,7 +30,7 @@ namespace CB {
         if (!std::filesystem::exists(file, ec))
             return Parse(std::nullopt, bundleStem, warnings);  // no manifest — defaulted + silent
 
-        const auto text = sct::config::ReadText(file);
+        const auto text = CB::config::ReadText(file);
         if (!text) {
             std::vector<std::string> local;
             BundleManifest m = Parse(std::nullopt, bundleStem, local);  // defaulted identity
@@ -71,6 +71,7 @@ namespace CB {
         if (auto it = j.find("author");      it != j.end()) m.author      = AsString(*it);
         if (auto it = j.find("description"); it != j.end()) m.description = AsString(*it);
         if (auto it = j.find("light"); it != j.end() && it->is_boolean()) m.light = it->get<bool>();
+        if (auto it = j.find("compile_animations"); it != j.end() && it->is_boolean()) m.compileAnimations = it->get<bool>();
         if (auto it = j.find("masters"); it != j.end() && it->is_array())
             for (const auto& e : *it)
                 if (std::string s = AsString(e); !s.empty()) m.masters.push_back(std::move(s));

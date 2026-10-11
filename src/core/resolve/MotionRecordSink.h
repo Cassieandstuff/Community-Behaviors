@@ -7,7 +7,7 @@
 // Native animations are `<name>.hkx` single-file units (renamed YAMLs); WriteNativeAnimations parses
 // each one's AnimationDef and, when it carries an inline `motion:` block (AnimationDef.motion), emits
 // the MotionRecord here — keyed by actor root + the animation's actor-root-relative path. The adsf
-// finalizer (adserve::ServeAnimData / DeriveProjectPatch) then DRAINS this instead of re-reading the
+// finalizer (CB::core::serve::ServeAnimData / DeriveProjectPatch) then DRAINS this instead of re-reading the
 // YAML, so motion resolved once at compile time flows forward like every other bound compiler output.
 //
 // KEY DISCIPLINE — must match the drain exactly (AnimationDataServer.cpp):
@@ -22,7 +22,7 @@
 // Writes come from the parallel native-anim compile (WriteNativeAnimations fans across the pool), so
 // EmitMotion is mutex-guarded; reads happen only after that phase completes (no concurrent writers).
 
-#include <havok/anim/AnimationData.h>   // havok::animdata::MotionRecord
+#include <interface/AnimationData.h>   // CB::engine::animdata::MotionRecord
 
 #include <cstddef>
 #include <mutex>
@@ -33,11 +33,11 @@ namespace CB {
 
     class MotionRecordSink {
     public:
-        using RootMotions = std::unordered_map<std::string, havok::animdata::MotionRecord>;  // animRelKey -> record
+        using RootMotions = std::unordered_map<std::string, CB::engine::animdata::MotionRecord>;  // animRelKey -> record
 
         // Emit one animation's inline motion. actorRoot is lowercased internally; animRelKey must already
         // be the lowercased, '/'-sep, actor-root-relative path (matching the drain).
-        void EmitMotion(std::string actorRoot, std::string animRelKey, havok::animdata::MotionRecord rec) {
+        void EmitMotion(std::string actorRoot, std::string animRelKey, CB::engine::animdata::MotionRecord rec) {
             for (char& c : actorRoot) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
             std::lock_guard<std::mutex> lk(m_mtx);
             m_byRoot[std::move(actorRoot)].emplace(std::move(animRelKey), std::move(rec));

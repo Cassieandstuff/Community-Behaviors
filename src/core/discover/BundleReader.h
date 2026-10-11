@@ -1,12 +1,14 @@
 #pragma once
 
+#include <codec/serialization/HkyArchive.h>
+
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
-namespace havok::model { class HkyArchive; struct IUnitSource; }
+namespace CB::engine::common { struct IUnitSource; }
 
 namespace CB {
 
@@ -53,24 +55,19 @@ namespace CB {
         // match — lowercasing it kills that clip's root motion. Read-back re-normalizes, so it's safe.
         std::vector<std::string> filesUnderOrig(const std::string& dirPrefix, const std::string& extLower) const;
 
-        // Tree-relative prefixes of every CHARACTER unit (a dir carrying character.yaml),
-        // forward-slashed, e.g. "meshes/actors/horse/characters/horse.hkx". Feeds set-data's
-        // character -> actor-root map.
-        std::vector<std::string> characterUnits() const;
+        /// @brief Tree-relative prefixes (forward-slashed, e.g. "meshes/actors/horse/characters/horse.hkx") of every
+        ///        "<x>.hkx/" unit of `kind`, classified by its graph.yaml root (HkyArchive::KindOfGraphYaml); a
+        ///        bonelist.yaml unit is a Skeleton.
+        /// @note  A patch unit that leaves the root untouched has no graph.yaml and lists as a Behavior.
+        std::vector<std::string> units(CB::engine::codec::HkyArchive::UnitKind kind) const;
 
-        // Tree-relative prefixes of every BEHAVIOR unit (a dir carrying behavior.yaml),
-        // forward-slashed, e.g. "meshes/actors/character/behaviors/community_behaviors/fnis.hkx".
-        // Feeds the animationdata derive: a bundle's added clips live in its behavior units.
-        std::vector<std::string> behaviorUnits() const;
-
-        // A read-only IUnitSource rooted at a unit `prefix` (from behaviorUnits/characterUnits),
-        // to feed YamlBehaviorLoader::LoadMerged — packed bundle -> ZipUnitSource, unpacked ->
-        // DiskUnitSource, so the caller loads a unit's model the same way regardless of form.
-        std::shared_ptr<const havok::model::IUnitSource> unitSource(const std::string& prefix) const;
+        /// @brief A read-only IUnitSource rooted at a unit `prefix` (from units()): packed bundle -> ZipUnitSource,
+        ///        unpacked -> DiskUnitSource, so a unit reads the same way regardless of form.
+        std::shared_ptr<const CB::engine::common::IUnitSource> unitSource(const std::string& prefix) const;
 
     private:
         std::filesystem::path                     m_dir;   // set when unpacked (m_arc null)
-        std::shared_ptr<havok::model::HkyArchive> m_arc;   // set when packed  (m_dir empty)
+        std::shared_ptr<CB::engine::codec::HkyArchive> m_arc;   // set when packed  (m_dir empty)
     };
 
 }  // namespace CB

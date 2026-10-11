@@ -1,11 +1,13 @@
 #include "PCH.h"
-#include <Hooks/hookslib.h>   // repo RE hook toolkit — InstallCallDetour
+#include <core/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
 
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
-#include <havok/anim/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (moved to havok-core)
+#include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (codec/format, firesale)
+#include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
+#include <codec/serialization/HkyArchive.h>
 
 #include <algorithm>
 #include <atomic>
@@ -26,7 +28,7 @@
 
 namespace fs = std::filesystem;
 
-namespace CB::asdserve {
+namespace CB::core::serve {
 
     namespace {
 
@@ -35,6 +37,32 @@ namespace CB::asdserve {
             std::transform(s.begin(), s.end(), s.begin(),
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             return s;
+        }
+
+        // Resolve ".." segments in a '\'- or '/'-separated path (a roster entry like
+        // "..\SharedKillMoves\..." joined onto the actor root escapes upward). The engine hashes the
+        // RESOLVED folder ("meshes\actors\sharedkillmoves\..."), not the literal "..\" string, so the
+        // CRC derive MUST collapse first (verified vs vanilla: the collapsed form matches, the literal
+        // one gets zero hits). Emits '\'-separated (the CRC form); a leading ".." with nothing to pop
+        // is dropped (can't escape the data root).
+        std::string CollapseDotDot(const std::string& path)
+        {
+            std::vector<std::string> out;
+            std::string seg;
+            auto flush = [&] {
+                if (seg.empty()) return;
+                if (seg == "..") { if (!out.empty()) out.pop_back(); }
+                else out.push_back(seg);
+                seg.clear();
+            };
+            for (const char c : path) {
+                if (c == '\\' || c == '/') flush();
+                else seg += c;
+            }
+            flush();
+            std::string res;
+            for (std::size_t i = 0; i < out.size(); ++i) { if (i) res += '\\'; res += out[i]; }
+            return res;
         }
 
         std::string TrimLine(const std::string& line)
@@ -138,9 +166,9 @@ namespace CB::asdserve {
 
     }  // namespace
 
-    ServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni)
+    SetDataServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni)
     {
-        ServeResult r;
+        SetDataServeResult r;
 
         std::error_code ec;
         const auto      order = LoadOrder(loadOrderIni);
@@ -202,6 +230,22 @@ namespace CB::asdserve {
                     }
                 }
 
+                /// @note Roster additions ALSO live in each character unit's animationNames (a union roster: a patch
+                ///       unit states only the names it adds). WITHOUT these the coverage guard's roster is empty for
+                ///       every mod animation, its set-data CRC is dropped as "unrostered", and that attack / dodge /
+                ///       parkour binds the WRONG animation (SkyParkour / HorsePower / BFCO regressions).
+                for (const std::string& unit : rd->units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
+                    const auto src = rd->unitSource(unit);
+                    auto cs = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                    if (!cs || cs->animationNames.empty()) continue;
+                    const auto s1 = unit.find_last_of('/');
+                    std::string charName = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
+                    if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
+                    auto& dst = rosterPaths[charName];
+                    dst.insert(dst.end(), std::make_move_iterator(cs->animationNames.begin()),
+                               std::make_move_iterator(cs->animationNames.end()));
+                }
+
                 const auto oit  = order.find(stem);  // loadorder lists bare stems ("bfco")
                 const int  prio = (oit != order.end()) ? oit->second : 0;
 
@@ -252,7 +296,7 @@ namespace CB::asdserve {
         // two. Now sourced from the packed master too (its 344 vanilla characters carry these roots).
         std::unordered_map<std::string, std::string> charActorRoot;  // charStem(lower) -> "meshes\actors\..."
         const auto ingestCharUnits = [&](const BundleReader& rd) {
-            for (std::string rel : rd.characterUnits()) {
+            for (std::string rel : rd.units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
                 rel = ToLower(rel);                             // "meshes/actors/horse/characters/horse.hkx"
                 const auto s1 = rel.find_last_of('/');
                 const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rel.find_last_of('/', s1 - 1);
@@ -287,8 +331,9 @@ namespace CB::asdserve {
             if (ri != rosterPaths.end() && ai != charActorRoot.end()) {
                 std::set<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>> seen;
                 for (const auto& rel : ri->second) {
-                    std::string full = ai->second + "\\";
-                    for (const char c : rel) full += (c == '/') ? '\\' : c;
+                    // Collapse ".." so a paired-killmove roster path ("..\SharedKillMoves\...")
+                    // CRCs to its RESOLVED folder (meshes\actors\sharedkillmoves\...), matching vanilla.
+                    const std::string full = CollapseDotDot(ai->second + "\\" + rel);
                     const asd::CrcTriple t = asd::TripleForAnimation(full);
                     if (seen.emplace(t.folder, t.file, t.ext).second) crcs.push_back(t);
                 }
@@ -324,27 +369,26 @@ namespace CB::asdserve {
                 if (!ierr.empty()) LOG_WARN("SetData: base index.yaml parse: {}", ierr);
                 std::map<std::string, asd::SingleFile>                                    movesetsByStem;
                 std::map<std::string, std::map<std::string, std::vector<asd::CrcTriple>>> crcsByStem;
-                const auto stemOf = [](const std::string& path) {
-                    std::string s = path.substr(path.find_last_of('/') + 1);
-                    if (const auto dot = s.rfind('.'); dot != std::string::npos) s.erase(dot);
-                    return s;
+                /// @note One file per project under animationsetdatasinglefile.txt/setdata/, self-identifying via
+                ///       `project:` (a unit folder holds only its graph). Keyed by StemForHeader(header) to match the
+                ///       index order.
+                const auto ingestUnit = [&](const std::string& yamlText) {
+                    std::string   yerr;
+                    asd::Project  proj = asd::ParseSetdataUnitYaml(yamlText, yerr);
+                    if (!yerr.empty()) LOG_WARN("SetData: base setdata unit parse: {}", yerr);
+                    if (proj.header.empty()) return;
+                    const std::string stem = asd::StemForHeader(proj.header);
+                    asd::SingleFile one; one.projects.push_back(std::move(proj));
+                    movesetsByStem[stem] = std::move(one);
                 };
-                for (const std::string& path : masterReader->filesUnder(dir + "/movesets", ".yaml"))
-                    if (const auto y = masterReader->read(path)) {
-                        const std::string stem = stemOf(path);
-                        std::string       yerr;
-                        movesetsByStem[stem] = asd::ParseMovesetsYaml(*y, stem, yerr);
-                        if (!yerr.empty()) LOG_WARN("SetData: base movesets '{}': {}", stem, yerr);
-                    }
-                for (const std::string& path : masterReader->filesUnder(dir + "/crcs", ".yaml"))
-                    if (const auto y = masterReader->read(path)) {
-                        const std::string stem = stemOf(path);
-                        std::string       yerr;
-                        crcsByStem[stem] = asd::ParseSetdataCrcsYaml(*y, yerr);
-                        if (!yerr.empty()) LOG_WARN("SetData: base crcs '{}': {}", stem, yerr);
-                    }
+                for (const std::string& path : masterReader->filesUnder(dir + "/setdata", ".yaml"))
+                    if (const auto y = masterReader->read(path)) ingestUnit(*y);
+
+                // Each unit's sets carry the authored `animations` membership; AssembleSetdata compiles
+                // the CRC list from those paths (re-hash). No derive-from-roster union, no bloat — the
+                // fix for the 48 MB / save-corrupting per-set CRC count. (`crcsByStem` stays empty.)
                 base     = asd::AssembleSetdata(headers, movesetsByStem, crcsByStem);
-                baseFrom = "Skyrim.hky/" + dir + "/ (composed)";
+                baseFrom = "Skyrim.hky setdata/ (composed from authored animations)";
                 composed = true;
             }
         }
@@ -433,8 +477,9 @@ namespace CB::asdserve {
             const auto ar = charActorRoot.find(charName);
             const std::string root = (ar != charActorRoot.end()) ? ar->second : "meshes\\actors\\character";
             for (const auto& p : paths) {
-                std::string full = root + "\\";
-                for (const char c : p) full += (c == '/') ? '\\' : c;
+                // Collapse ".." so paired-killmove paths cover their RESOLVED CRC (matches the derive
+                // above); otherwise the guard would drop the correctly-derived paired registration.
+                const std::string full = CollapseDotDot(root + "\\" + p);
                 const asd::CrcTriple t = asd::TripleForAnimation(full);
                 rosterCovered.insert(crcKey(t.folder, t.file));
             }
@@ -499,20 +544,11 @@ namespace CB::asdserve {
 
     namespace {
 
-        // The engine's set-data file open: FUN_14053b000 calls it as
-        //   open(RCX = path BSFixedString value, RDX = &out, R8 = 0, R9 = 0) -> int (0 ok)
-        // The path is the single pointer a BSFixedString stores (the game loads it via
-        // MOV RCX,[global]); passing our own BSFixedString's stored pointer is ABI-identical.
-        using OpenSetDataFn = std::int32_t (*)(std::uintptr_t a_path, std::uintptr_t a_out,
-                                               std::uint64_t a_r8, std::uint64_t a_r9);
-
-        REL::Relocation<OpenSetDataFn> _openSetData;                 // original (via write_call)
         std::atomic<bool>              s_setDataRedirectActive{ false };
         RE::BSFixedString              s_setDataCachePath;           // interned redirect path
-        bool                           s_setDataHookInstalled = false;
 
-        std::int32_t Hook_OpenSetData(std::uintptr_t a_path, std::uintptr_t a_out,
-                                      std::uint64_t a_r8, std::uint64_t a_r9)
+        std::int32_t OnOpenSetData(CB::core::hooks::AsdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+                                   std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the set-data file drives the compile gate. The gate now KICKS a background
             // arm and returns at once (no longer parks this thread on the whole Init + compile). We block
@@ -530,39 +566,20 @@ namespace CB::asdserve {
                     bool expected = false;
                     if (logged.compare_exchange_strong(expected, true))
                         LOG_INFO("SetData: intercepted the engine's set-data open — serving BR's merged cache.");
-                    return _openSetData(ours, a_out, a_r8, a_r9);
+                    return next(ours, a_out, a_r8, a_r9);
                 }
             }
-            return _openSetData(a_path, a_out, a_r8, a_r9);  // pass through untouched
+            return next(a_path, a_out, a_r8, a_r9);  // pass through untouched
         }
 
     }  // namespace
 
-    bool InstallSetDataHook()
+    void InstallSetDataHook()
     {
-        const bool ae = REL::Module::get().version()[1] >= 6;  // 1.6.x = AE
-        if (!ae) {
-            LOG_WARN("SetData: deterministic redirect hook is AE-only — SE will use the global-write fallback.");
-            return false;
-        }
-
-        // RE (AE, decrypted dump): FUN_14053b000 opens the set-data file via a 5-byte
-        // `CALL 0x140d0a100` at 0x14053b084 (RVA 0x53B084), right after loading the
-        // single-file path global. Detour that call so we can swap the path.
-        constexpr std::uintptr_t kOpenCallSiteRVA = 0x53B084;
-        const std::uintptr_t     site = REL::Module::get().base() + kOpenCallSiteRVA;
-
-        // InstallCallDetour guards the 0xE8 (CALL) opcode; 0 => not a CALL (different
-        // game version) and the caller falls back to the safe data-only global write.
-        const std::uintptr_t orig = hooks::InstallCallDetour<5>(
-            site, Hook_OpenSetData, "SetData open redirect (AE)");
-        if (!orig) return false;
-        _openSetData = orig;
-        s_setDataHookInstalled = true;
-        return true;
+        CB::core::hooks::AsdsfOpen::Subscribe(&OnOpenSetData, CB::core::hooks::Priority::Normal, "SetDataServe");
     }
 
-    void ArmSetDataRedirect(const ServeResult& result)
+    void ArmSetDataRedirect(const SetDataServeResult& result)
     {
         // Serves ONLY .hky-bundled set-data (the runtime Nemesis side-load that caused the
         // 2026-08-10 char-setup crash was removed). A .hky is expected to carry its behaviors
@@ -571,7 +588,7 @@ namespace CB::asdserve {
         // crash (OAR Unk3 -> char-setup hkArray resize) — bundle completeness is the author's
         // contract. Safe when idle: with no .hky set-data present, ServeSetData produces no
         // cache and this leaves the redirect inactive.
-        if (!s_setDataHookInstalled) {
+        if (!CB::core::hooks::AsdsfOpen::Installed()) {
             RedirectSetDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }
@@ -586,34 +603,24 @@ namespace CB::asdserve {
                  result.cachePath);
     }
 
-    void RedirectSetDataGlobal(const ServeResult& result)
+    void RedirectSetDataGlobal(const SetDataServeResult& result)
     {
-        // RE (AE 1.6, decrypted dump): the AnimationClipDataSingleton set-data loader
-        // FUN_14053b000 does `MOV RCX,[0x14315c930]; CALL <open>`, where 0x14315c930 is a
-        // global BSFixedString set by a static initializer to "Meshes/AnimationSetData
-        // SingleFile.txt". RVA = 0x315C930 (VA - 0x140000000). Confirmed via CommonLibSSE
-        // (AnimationFileManagerSingleton::AnimationFileInfo documents the same crc scheme).
-        constexpr std::uintptr_t kSingleFileGlobalRVA = 0x315C930;
         // Redirect target: BR's merged cache, Data-relative with forward slashes (the form
         // BSResource loose-file resolution expects; the original path is likewise Data-rel).
         static constexpr const char* kRedirectPath = "community_behaviors_cache/animationsetdatasinglefile.txt";
 
-        const bool ae = REL::Module::get().version()[1] >= 6;  // 1.6.x = AE
-        if (!ae) {
-            LOG_WARN("SetData: set-data global redirect is AE-only for now — SE offset not mapped; "
-                     "the merged cache was written but the game will not read it on SE.");
+        namespace engine = CB::core::hooks::engine;
+        if (!engine::Available(engine::Asdsf_SingleFilePath)) {
+            LOG_WARN("SetData: the single-file path global has no verified pin on this runtime — the merged "
+                     "cache was written but the game will not read it.");
             return;
         }
+        auto& global = *reinterpret_cast<RE::BSFixedString*>(engine::Resolve(engine::Asdsf_SingleFilePath));
 
-        const std::uintptr_t base = REL::Module::get().base();
-        auto& global = *reinterpret_cast<RE::BSFixedString*>(base + kSingleFileGlobalRVA);
-
-        // Log the CURRENT value first — in-game confirmation that the RVA/RE is correct
-        // (it should read "Meshes/AnimationSetDataSingleFile.txt") and that the global is
-        // populated by the time we run (static init has executed).
+        // Log the CURRENT value first — in-game confirmation that the pin is correct (it should read
+        // "Meshes/AnimationSetDataSingleFile.txt") and that static init has populated it.
         const char* cur = global.c_str();
-        LOG_INFO("SetData: engine single-file path global (rva 0x{:X}) currently = \"{}\".",
-                 kSingleFileGlobalRVA, (cur && *cur) ? cur : "(empty)");
+        LOG_INFO("SetData: engine single-file path global currently = \"{}\".", (cur && *cur) ? cur : "(empty)");
 
         if (!result.ok) {
             LOG_INFO("SetData: no merged cache this launch — leaving the engine path global unchanged.");
@@ -625,4 +632,4 @@ namespace CB::asdserve {
                  kRedirectPath, result.cachePath);
     }
 
-}  // namespace CB::asdserve
+}  // namespace CB::core::serve

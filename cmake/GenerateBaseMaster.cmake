@@ -1,86 +1,85 @@
 # ---------------------------------------------------------------------------
-# sct_generate_base_master — regenerate the Community Behaviors base master
-# (Skyrim.hky) from source at BUILD time, instead of shipping a checked-in
-# 39k-file YAML tree.
+# Regen bundles — regenerate every DERIVED .hky bundle from its dedicated source at BUILD time.
 #
-# WHY: the master is DERIVED (vanilla behavior corpus -> decompiled + validated
-# -> packed .hky), so it should be generated, not stored. Regenerating it on
-# every relevant build means a change to the converter / havok-core / havok-model
-# is exercised against the whole vanilla corpus automatically, and its per-graph
-# graphdata is byte-gated vs vanilla (--regen-master's validation). It also drops
-# the giant checked-in tree from git and hands you a short, observable unpacked
-# layout with no MAX_PATH grind and no manual unpack.
+# SOURCE: $CB_REGEN_SOURCE is a root of per-bundle source folders, each named for the bundle it
+# regenerates (e.g. `Skyrim.hky\`, `XPMSSE.hky\`) and laid out like a game Data folder (meshes\...).
+# Every source runs the SAME regen (BehaviorConverter --regen-master: decompile whatever the source
+# contains, gate graphdata vs its own binaries where templates apply, pack) into <PACKED_DIR>/<Name>.hky.
+# A new derived bundle = a new source folder; nothing here is bundle-specific. Unset / not a directory
+# -> regen SKIPPED with a warning and whatever is already deployed stays.
 #
-# SOURCE: the unpacked vanilla game data (meshes\actors\...\behaviors\*.hkx +
-# characters + projects) — pointed at by the env var SKYRIM_DATASOURCE (the
-# portable convention; see the root README). When it is unset / not a directory,
-# generation is SKIPPED with a warning: whatever Skyrim.hky is already deployed
-# stays, so a checkout with no datasource still configures + builds.
+# cb_regen_sources(<outVar>)       # the <Name>.hky source dirs under $CB_REGEN_SOURCE (may be empty)
 #
-# TOOL: BehaviorConverter (the editor-preset app `sct-behavior-converter`) via
-# its `--regen-master` verb (build-base + validate). This is an EDITOR-preset
-# step; the plugins build (Community Behaviors) consumes the deployed Skyrim.hky.
-#
-# sct_generate_base_master(
+# cb_regen_bundles(
 #   CONVERTER_TARGET <target>      # the BehaviorConverter exe target
 #   TEMPLATES        <dir>         # tagfile-template dir (<g>.xml oracle numbering)
-#   PACKED_OUT       <file>        # the packed Skyrim.hky (deployed/consumed)
-#   UNPACKED_DIR     <dir>         # short path where the unpacked tree is KEPT
+#   PACKED_DIR       <dir>         # where each packed <Name>.hky lands (deployed/consumed)
+#   UNPACKED_DIR     <dir>         # short root where each unpacked <Name>.hky/ tree is KEPT
 #   [STRICT]                       # fail the build on graphdata drift (default: report)
 #   [DEPENDS <files...>]           # extra inputs that should retrigger regen (templates, schema)
 # )
 # ---------------------------------------------------------------------------
-function(sct_generate_base_master)
-    cmake_parse_arguments(GBM "STRICT" "CONVERTER_TARGET;TEMPLATES;PACKED_OUT;UNPACKED_DIR" "DEPENDS" ${ARGN})
+function(cb_regen_sources out)
+    set(_found "")
+    set(_root "$ENV{CB_REGEN_SOURCE}")
+    if(NOT _root STREQUAL "")
+        file(TO_CMAKE_PATH "${_root}" _root)   # normalize backslashes from the Windows env var
+        if(IS_DIRECTORY "${_root}")
+            file(GLOB _cands CONFIGURE_DEPENDS "${_root}/*.hky")
+            foreach(_c ${_cands})
+                if(IS_DIRECTORY "${_c}")
+                    list(APPEND _found "${_c}")
+                endif()
+            endforeach()
+        endif()
+    endif()
+    set(${out} "${_found}" PARENT_SCOPE)
+endfunction()
 
-    if(NOT GBM_CONVERTER_TARGET OR NOT GBM_PACKED_OUT OR NOT GBM_UNPACKED_DIR)
-        message(FATAL_ERROR "sct_generate_base_master: CONVERTER_TARGET, PACKED_OUT and UNPACKED_DIR are required")
+function(cb_regen_bundles)
+    cmake_parse_arguments(RB "STRICT" "CONVERTER_TARGET;TEMPLATES;PACKED_DIR;UNPACKED_DIR" "DEPENDS" ${ARGN})
+
+    if(NOT RB_CONVERTER_TARGET OR NOT RB_PACKED_DIR OR NOT RB_UNPACKED_DIR)
+        message(FATAL_ERROR "cb_regen_bundles: CONVERTER_TARGET, PACKED_DIR and UNPACKED_DIR are required")
     endif()
 
-    # Source of truth = the unpacked vanilla data. No datasource -> skip (keep whatever's deployed).
-    set(_src "$ENV{SKYRIM_DATASOURCE}")
-    if(_src STREQUAL "")
-        message(WARNING "sct_generate_base_master: SKYRIM_DATASOURCE is unset — skipping base-master "
-                        "regeneration. Set it to your unpacked vanilla game data (see README) to enable "
-                        "fresh, validated Skyrim.hky generation. The already-deployed Skyrim.hky (if any) is used.")
+    cb_regen_sources(_sources)
+    if(NOT _sources)
+        message(WARNING "cb_regen_bundles: CB_REGEN_SOURCE is unset, not a directory, or holds no <Name>.hky "
+                        "source folders ('$ENV{CB_REGEN_SOURCE}') — skipping bundle regeneration; the "
+                        "already-deployed bundles (if any) are used.")
         return()
-    endif()
-    file(TO_CMAKE_PATH "${_src}" _src)   # normalize backslashes from the Windows env var
-    if(NOT IS_DIRECTORY "${_src}")
-        message(WARNING "sct_generate_base_master: SKYRIM_DATASOURCE='${_src}' is not a directory — skipping "
-                        "base-master regeneration; the already-deployed Skyrim.hky (if any) is used.")
-        return()
-    endif()
-
-    # SKYRIM_DATASOURCE is the vanilla data ROOT (contains meshes\, like the game's Data folder — the
-    # natural convention). The base build walks the meshes\ behavior tree, so descend into it when
-    # present; tolerate someone pointing directly at a meshes\ dir too.
-    if(IS_DIRECTORY "${_src}/meshes")
-        set(_meshes "${_src}/meshes")
-    else()
-        set(_meshes "${_src}")
     endif()
 
     set(_strict_arg "")
-    if(GBM_STRICT)
+    if(RB_STRICT)
         set(_strict_arg "--strict")
     endif()
 
-    # OUTPUT = the packed .hky (deployed + consumed by the plugins build). DEPENDS on the converter
-    # exe (so a converter/havok-core/havok-model change re-derives + re-validates the base — the
-    # automatic gate) plus any extra inputs the caller lists (templates). The unpacked tree is kept
-    # at UNPACKED_DIR for observation in the same pass (no separate unpack of ~39k files).
-    add_custom_command(
-        OUTPUT  "${GBM_PACKED_OUT}"
-        COMMAND "$<TARGET_FILE:${GBM_CONVERTER_TARGET}>" --regen-master
-                "${_meshes}" "${GBM_PACKED_OUT}" "${GBM_TEMPLATES}"
-                --keep-unpacked "${GBM_UNPACKED_DIR}" ${_strict_arg}
-        DEPENDS ${GBM_CONVERTER_TARGET} ${GBM_DEPENDS}
-        COMMENT "Base master: regenerating + validating Skyrim.hky from SKYRIM_DATASOURCE (${_meshes})"
-        VERBATIM
-        USES_TERMINAL)   # a multi-minute corpus regen — stream progress live
+    # One custom command per source. DEPENDS on the converter exe so a converter/codec change re-derives +
+    # re-validates every derived bundle (the automatic gate). Each regen stages under its own
+    # <UNPACKED_DIR>/<Name>.hky, so the sources never clobber each other.
+    set(_outs "")
+    foreach(_src ${_sources})
+        get_filename_component(_name "${_src}" NAME)   # "<Name>.hky" — original case, it names the bundle
+        if(IS_DIRECTORY "${_src}/meshes")
+            set(_meshes "${_src}/meshes")
+        else()
+            set(_meshes "${_src}")
+        endif()
+        set(_out "${RB_PACKED_DIR}/${_name}")
+        add_custom_command(
+            OUTPUT  "${_out}"
+            COMMAND "$<TARGET_FILE:${RB_CONVERTER_TARGET}>" --regen-master
+                    "${_meshes}" "${_out}" "${RB_TEMPLATES}"
+                    --keep-unpacked "${RB_UNPACKED_DIR}" ${_strict_arg}
+            DEPENDS ${RB_CONVERTER_TARGET} ${RB_DEPENDS}
+            COMMENT "Regen: ${_name} from ${_src}"
+            VERBATIM
+            USES_TERMINAL)   # the Skyrim corpus is a multi-minute regen — stream progress live
+        list(APPEND _outs "${_out}")
+        message(STATUS "cb_regen_bundles: ${_name} regenerates from ${_src} (packed -> ${_out})")
+    endforeach()
 
-    add_custom_target(generate-base-master ALL DEPENDS "${GBM_PACKED_OUT}")
-    message(STATUS "sct_generate_base_master: Skyrim.hky will regenerate from ${_src} "
-                   "(packed -> ${GBM_PACKED_OUT}; unpacked -> ${GBM_UNPACKED_DIR})")
+    add_custom_target(generate-base-master ALL DEPENDS ${_outs})
 endfunction()

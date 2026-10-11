@@ -22,11 +22,11 @@
       "binaryDir": "${sourceDir}/build/debug"
     },
     {
-      "name": "resolve",
+      "name": "api",
       "inherits": "release",
-      "displayName": "Community Behaviors — cb-resolve only (library export)",
-      "binaryDir": "${sourceDir}/build/resolve",
-      "cacheVariables": { "CB_RESOLVE_ONLY": "ON" }
+      "displayName": "Community Behaviors — CB-API only (library export)",
+      "binaryDir": "${sourceDir}/build/api",
+      "cacheVariables": { "CB_API_ONLY": "ON" }
     }
   ],
   "buildPresets": [

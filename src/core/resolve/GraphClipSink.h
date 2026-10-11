@@ -1,18 +1,18 @@
 #pragma once
 
-// GraphClipSink — the host's concrete CB::features::IAnimDataSink for the warm-up compile.
+// GraphClipSink — the host's concrete CB::feature::IAnimDataSink for the warm-up compile.
 //
 // The first-class adsf-derive compile stage pushes one DeriveClipInput per hkbClipGenerator as each
 // graph compiles (Resolver::Resolve); features may contribute additional clips into this same sink via
 // FeatureContext::animData. This accumulates them keyed by graph serve-key. The
-// animdata finalizer (adserve::ServeAnimData) reads Contributions() AFTER CompileAll — a single-writer
+// animdata finalizer (CB::core::serve::ServeAnimData) reads Contributions() AFTER CompileAll — a single-writer
 // / single-reader handoff across the warm-up phase boundary. Reads happen only once compile is done;
 // writes are also serialized by the Resolver mutex (Resolve holds it for its whole body), but the sink
 // guards independently so it stays correct if that ever changes.
 
-#include "IGraphFeature.h"                 // CB::features::IAnimDataSink (havok-pipeline)
+#include <feature-sdk/IGraphFeature.h>                 // CB::feature::IAnimDataSink
 
-#include <havok/anim/AnimDataDeriver.h>    // havok::animdata::DeriveClipInput
+#include <compile/AnimDataDeriver.h>    // CB::engine::animdata::DeriveClipInput
 
 #include <cstddef>
 #include <map>
@@ -23,12 +23,12 @@
 
 namespace CB {
 
-    class GraphClipSink final : public CB::features::IAnimDataSink {
+    class GraphClipSink final : public CB::feature::IAnimDataSink {
     public:
         // graph serve-key (e.g. "meshes/actors/character/behaviors/0_master.hkx") -> its clip inputs.
-        using Contribs = std::map<std::string, std::vector<havok::animdata::DeriveClipInput>>;
+        using Contribs = std::map<std::string, std::vector<CB::engine::animdata::DeriveClipInput>>;
 
-        void EmitClip(std::string_view graphKey, const havok::animdata::DeriveClipInput& in) override {
+        void EmitClip(std::string_view graphKey, const CB::engine::animdata::DeriveClipInput& in) override {
             std::lock_guard<std::mutex> lk(m_mtx);
             m_byGraph[std::string(graphKey)].push_back(in);
         }

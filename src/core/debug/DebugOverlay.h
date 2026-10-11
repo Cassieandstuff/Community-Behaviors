@@ -13,10 +13,10 @@
 // enabled. SMF owns ImGui + the present hook; we resolve its `ig*` C exports ourselves at
 // kDataLoaded (BR loads before SMF alphabetically, so the header's cached module handle is
 // null) — mirrors ProgressOverlay. Silent no-op if SMF isn't installed.
-namespace CB::DebugOverlay {
+namespace CB::core::debug {
 
     // Resolve SMF's exports, register the HUD element + the toggle menu section. Call once at
     // kDataLoaded. No-op if SMF is absent or missing exports.
     void Install();
 
-}  // namespace CB::DebugOverlay
+}  // namespace CB::core::debug

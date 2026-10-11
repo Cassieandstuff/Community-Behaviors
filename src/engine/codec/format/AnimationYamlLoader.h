@@ -1,0 +1,45 @@
+#pragma once
+// AnimationYamlLoader — parse an animation.yaml into an AnimationDef.
+// Mirrors HKBuild's Models/AnimationDef.cs YAML schema:
+//
+//   animation:            # (the "animation:" wrapper is optional)
+//     name: ...
+//     duration: 1.5
+//     skeleton: ...
+//     compression: { rotationTolerance, translationTolerance, scaleTolerance,
+//                    rotationDegree, translationDegree, scaleDegree, maxFramesPerBlock }
+//     tracks:
+//       - bone: NPC Root
+//         translation: [ { time: 0.0, value: [x,y,z] }, ... ]
+//         rotation:    [ { time: 0.0, value: [x,y,z,w] }, ... ]
+//         scale:       [ { time: 0.0, value: [x,y,z] }, ... ]
+//     floatTracks:
+//       - name: ...
+//         keyframes: [ { time: 0.0, value: 0.5 }, ... ]
+//
+// ryml-gated (VS/vcpkg build only).
+
+#include "interface/AnimationDef.h"
+
+#include <filesystem>
+#include <string>
+
+namespace CB::engine::anim {
+
+struct AnimationYamlLoader {
+    // Throws std::runtime_error on read/parse failure.
+    static AnimationDef Load(const std::filesystem::path& yamlFile);
+
+    // Parse from an in-memory YAML string (a packed .hky vends its unit YAML as text, never
+    // a disk path). `sourceName` is used only in error messages. Throws on parse failure.
+    static AnimationDef LoadFromString(const std::string& yamlText, const std::string& sourceName = "<memory>");
+};
+
+/// @brief One track in the decompiler's YAML form (`    - bone:` + translation/rotation/scale, `%.9g`).
+std::string EmitAnimTrackYaml(const AnimTrackDef& track);
+
+/// @brief Replace the `trackIndex`-th track of a unit's YAML text in place, leaving every other byte as is.
+/// @return false when the unit has no such track.
+bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrackDef& track);
+
+} // namespace CB::engine::anim

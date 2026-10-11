@@ -5,7 +5,7 @@
 #include "core/resolve/Resolver.h"
 #include "core/discover/ServeKey.h"
 
-#include <MinHook.h>
+#include <core/hooks/points/Resource.h>
 
 #include <atomic>
 #include <cstdint>
@@ -32,12 +32,11 @@
 // on-demand by Resolver::ProjectRedirect (which also performs the readiness WAIT that keeps an early
 // actor from getting un-merged behaviors) and returns its swap path.
 
-namespace CB::byteserve {
+namespace CB::core::serve {
 
     namespace {
 
-        using ResolveFn = std::int64_t (*)(const char*, void*, std::uint64_t, void*);
-        ResolveFn  s_orig     = nullptr;
+        using ResolveNext = CB::core::hooks::ResolveTypedHkx::Next;
         Resolver*  s_resolver = nullptr;
 
         std::atomic<int> s_logBudget{ 80 };   // cap the "serving" spam in NPC-dense cells
@@ -107,7 +106,7 @@ namespace CB::byteserve {
             return lc(s[n - 4]) == '.' && lc(s[n - 3]) == 'h' && lc(s[n - 2]) == 'k' && lc(s[n - 1]) == 'x';
         }
 
-        std::int64_t Hook_Resolve(const char* a_path, void* a_entry, std::uint64_t a_flag, void* a_ctx) {
+        std::int64_t OnResolve(ResolveNext next, const char* a_path, void* a_entry, std::uint64_t a_flag, void* a_ctx) {
             // Ready() gate: Init runs on a background thread, so until it completes the resolver's state
             // (m_sources/m_skeletonServe/…) is still being written — read nothing, pass the open through
             // to vanilla. Safe: nothing BR owns loads this early in startup, and Init finishes before it
@@ -121,7 +120,7 @@ namespace CB::byteserve {
                     const std::size_t rn = std::char_traits<char>::length(raw);
                     if (EndsHkx(raw, rn)) {
                         // Serve key is meshes-prefixed; the resolver path is Meshes-relative.
-                        const std::string serveKey = "meshes/" + servekey::NormalizeKey(raw);
+                        const std::string serveKey = "meshes/" + CB::core::discover::NormalizeKey(raw);
 
                         const bool projShaped = ProjectShaped(serveKey);
                         // (1) Owned character / behavior graph — swap to the cache the warm-up wrote.
@@ -145,11 +144,11 @@ namespace CB::byteserve {
                             // swapping; otherwise fall through to vanilla (safe degradation).
                             if (s_resolver->RedirectReady() && s_resolver->HasCacheFile(serveKey)) {
                                 thread_local std::string swap;
-                                swap = servekey::CacheSwapPath(raw);
+                                swap = CB::core::discover::CacheSwapPath(raw);
                                 if (s_logBudget.fetch_sub(1) > 0)
                                     LOG_INFO("[byteserve] serving '{}' -> '{}'.", raw, swap);
                                 if (projShaped) Capture(std::string("OWNED-SERVE  ") + raw + "  ->  " + swap + CacheProbe(raw));
-                                return s_orig(swap.c_str(), a_entry, a_flag, a_ctx);
+                                return next(swap.c_str(), a_entry, a_flag, a_ctx);
                             }
                             if (projShaped) Capture(std::string("OWNED-NOTREADY/NOFILE(passthrough)  ") + raw);
                             // not ready yet (pre-warm-up load), or owned-but-uncompiled (no cache file)
@@ -164,14 +163,14 @@ namespace CB::byteserve {
                                 if (s_logBudget.fetch_sub(1) > 0)
                                     LOG_INFO("[byteserve] serving project '{}' -> '{}'.", raw, pswap);
                                 if (projShaped) Capture(std::string("PROJECT-SERVE  ") + raw + "  ->  " + pswap + CacheProbe(raw));
-                                return s_orig(pswap.c_str(), a_entry, a_flag, a_ctx);
+                                return next(pswap.c_str(), a_entry, a_flag, a_ctx);
                             }
                             if (projShaped) Capture(std::string("PROJECT-PASSTHROUGH(vanilla)  ") + raw);
                         }
                     }
                 }
             }
-            return s_orig(a_path, a_entry, a_flag, a_ctx);
+            return next(a_path, a_entry, a_flag, a_ctx);
         }
 
     }  // namespace
@@ -179,23 +178,7 @@ namespace CB::byteserve {
     void SetResolver(Resolver* a_resolver) { s_resolver = a_resolver; }
 
     void Install() {
-        const MH_STATUS init = MH_Initialize();
-        if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) {
-            LOG_WARN("[byteserve] MH_Initialize failed ({}) — byte-serve hook NOT installed.", static_cast<int>(init));
-            return;
-        }
-        // FUN_140ba88b0 = the BSResourceAssetLoader::Func3 typed-hkx resolver (RVA 0xBA88B0; reached
-        // only from Func3, so this is a typed-hkx-only seam).
-        constexpr std::uintptr_t kResolveRVA = 0xBA88B0;
-        void* const target = reinterpret_cast<void*>(REL::Module::get().base() + kResolveRVA);
-        if (MH_CreateHook(target, reinterpret_cast<void*>(&Hook_Resolve),
-                          reinterpret_cast<void**>(&s_orig)) != MH_OK ||
-            MH_EnableHook(target) != MH_OK) {
-            LOG_WARN("[byteserve] failed to install FUN_140ba88b0 hook @ rva 0x{:X}.", kResolveRVA);
-            return;
-        }
-        LOG_INFO("[byteserve] byte-substitution serve hook installed @ rva 0x{:X} "
-                 "(project/character/behavior served from the consolidated community_behaviors_cache).", kResolveRVA);
+        CB::core::hooks::ResolveTypedHkx::Subscribe(&OnResolve, CB::core::hooks::Priority::Normal, "ByteServe");
     }
 
-}  // namespace CB::byteserve
+}  // namespace CB::core::serve

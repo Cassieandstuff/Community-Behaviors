@@ -13,17 +13,31 @@ namespace {
     // Odr-use each re-exported name so a missing/renamed underlying type or function is a compile
     // error here, not a silent gap a downstream tool discovers. Never executed.
     [[maybe_unused]] void cb_api_contract() {
-        // cb::resolve — read a bundle + merge a load order → the resolved model
+        // cb::resolve — read a bundle + merge a load order → the merged graph
         std::string err;
         std::shared_ptr<cb::resolve::Archive> arc = cb::resolve::Archive::LoadFromFile("", err);
         (void)arc;
-        cb::resolve::ResolvedGraph g = cb::resolve::LoadOrder::LoadMerged(std::vector<std::string>{});
-        (void)g;
         cb::resolve::UnitKind k = cb::resolve::UnitKind::Behavior; (void)k;
         const cb::resolve::UnitSource* src = nullptr; (void)src;
 
         // cb::schema — the registry
         cb::schema::Registry reg; (void)reg;
+
+        cb::resolve::Graph g;
+        bool gok = cb::resolve::MergeLayersReflective(std::vector<cb::resolve::Layer>{}, reg, nullptr, g, err); (void)gok;
+        cb::resolve::GraphEdit edit(g, reg); (void)edit;
+        std::vector<std::uint8_t> bytes;
+        bool sok = cb::resolve::SerializeGraph(g, bytes, err); (void)sok;
+        auto* parse  = static_cast<bool (*)(const cb::resolve::UnitSource&, const cb::schema::Registry&, cb::resolve::Graph&,
+                                            std::string&, const std::vector<std::string>*)>(&cb::resolve::ParseHkyReflective);
+        (void)parse;
+        auto* patch  = &cb::resolve::MergeHkyPatch;               (void)patch;
+        auto* derive = static_cast<bool (*)(const cb::resolve::Graph&, const std::vector<std::string>&,
+                                            const std::vector<std::string>&, const std::vector<std::uint8_t>&,
+                                            const cb::schema::Registry&, const std::string&, std::string&,
+                                            const std::vector<std::string>*, cb::resolve::PatchStats*)>(&cb::resolve::DeriveHkyPatch);
+        (void)derive;
+        auto* decomp = &cb::resolve::DecompileBehaviorReflective; (void)decomp;
 
         // cb::anim — decode / compile / export
         cb::anim::Def def; (void)def;

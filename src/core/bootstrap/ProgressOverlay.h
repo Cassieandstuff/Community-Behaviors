@@ -9,7 +9,7 @@
 // game's own IDXGISwapChain::Present (the way CommunityShaders/OAR do) and draws the bar while the
 // SPLIT-path background compile runs and the menu presents. This header is just the thread-safe
 // hand-off of progress from the compile thread to that renderer.
-namespace CB::ProgressOverlay {
+namespace CB::core::bootstrap {
 
     // Publish progress (compile thread). running=false marks the compile finished.
     void SetProgress(std::size_t done, std::size_t total, bool running);
@@ -17,4 +17,4 @@ namespace CB::ProgressOverlay {
     // Read the latest progress (render/pump thread). Returns whether the compile is still running.
     bool ReadProgress(std::size_t& done, std::size_t& total);
 
-}  // namespace CB::ProgressOverlay
+}  // namespace CB::core::bootstrap

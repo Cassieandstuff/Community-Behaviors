@@ -22,8 +22,8 @@
 //
 // The name must match on both sides; ER references this same string.
 
-namespace CB::ergate {
+namespace CB::feature::ergate {
 
     inline constexpr const char* kGateVar = "BR_ERWildcardLock";
 
-}  // namespace CB::ergate
+}  // namespace CB::feature::ergate

@@ -18,7 +18,7 @@
 #include <array>
 #include <string_view>
 
-namespace CB::debug {
+namespace CB::core::debug {
 
     enum class FlagKind {
         IniBool,     // a [section] key=true/false in Data/SKSE/Plugins/Community Behaviors/settings.ini
@@ -60,14 +60,10 @@ namespace CB::debug {
           "Disable skeleton serve",
           "Skip serving CB's compiled skeleton.hkx (skeleton opens fall through to vanilla) — a "
           "diagnostic opt-out." },
-        { "compile_trace", FlagKind::IniBool, "Debug", "bCompileTrace", false,
-          "Compile trace (schema-driven probes)",
-          "Emit a name-annotated, greppable trace of the behavior compile to the log, gated by the "
-          "probe definitions in the deployed Havok/core/Schema/debug/*.yaml (edit those to steer it)." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
-          "watch: list) per-frame ON CHANGE to a greppable file — the in-game counterpart of compile trace." },
+          "watch: list) per-frame ON CHANGE to a greppable file." },
     } };
 
-}  // namespace CB::debug
+}  // namespace CB::core::debug

@@ -1,24 +1,19 @@
 #pragma once
 
-// ByteServe — unified byte-substitution serve layer for typed-hkx assets (project / character /
-// behavior graph), the replacement for the `.br` project rename. See ByteServe.cpp for the full
-// rationale. Currently an instrumentation pass (logs the resolver paths); the byte-substitution swap
-// is wired in once the runtime path formats + routing are confirmed.
+/// @file
+/// @brief Byte-substitution serve for typed-hkx assets (project / character / behavior graph): CB's compiled
+///        bytes load under the vanilla path and descriptor. Rationale in ByteServe.cpp.
 
-namespace CB {
+namespace CB { class Resolver; }   // Resolver lives directly under CB (resolve stage)
 
-    class Resolver;
+namespace CB::core::serve {
 
-    namespace byteserve {
+    /// @brief Give the serve subscriber the resolver it asks for owned-asset swaps + on-demand project synth.
+    /// @note Safe before or after Install(); a null resolver makes the subscriber a pure passthrough.
+    void SetResolver(CB::Resolver* a_resolver);
 
-        // Give the serve hook the resolver it asks for owned-asset swaps + on-demand project synth.
-        // Safe before or after Install(); a null resolver disables serving (pure passthrough).
-        void SetResolver(Resolver* a_resolver);
+    /// @brief Subscribe the serve to the ResolveTypedHkx hook point (<core/hooks/points/Resource.h>).
+    /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
+    void Install();
 
-        // Install the FUN_140ba88b0 (BSResourceAssetLoader::Func3 resolver) hook. Call once at plugin
-        // load, before actors spawn. AE-only addresses (guarded inside).
-        void Install();
-
-    }  // namespace byteserve
-
-}  // namespace CB
+}  // namespace CB::core::serve

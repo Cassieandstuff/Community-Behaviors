@@ -1,0 +1,148 @@
+# Engine symbol registry — every engine address CB touches that CommonLibSSE-NG does not already provide.
+#
+# The single hand-edited source: cmake/EmbedEngineRegistry.cmake bakes it into a generated header of
+# constexpr symbols (a misspelled symbol is a compile error), resolved at runtime by <core/hooks/registry/Registry.h>.
+#
+# Fields per symbol (one line each — the codegen parses this fixed shape):
+#   name   C++ identifier (CB::core::hooks::engine::<name>)
+#   kind   func | call | data
+#            func = a function entry; call = a CALL rel32 INSIDE a function (written <id>+0x<offset>,
+#            offsets differ per runtime); data = a global / string / static object.
+#   se     Address Library ID for SE 1.5.97          (0 = no verified SE equivalent → unavailable on SE)
+#   ae     Address Library ID for AE (1.6.1170 AND 1.7.104 — AE ids carry across AE versions; every entry
+#          was verified in both builds: hash-identical, relocation-only, or benign same-function changes)
+#   vr     Address Library ID for VR (0 = not yet verified → unavailable on VR). Never inferred from se:
+#          CommonLib's 2-argument RelocationID silently reuses the SE id on VR; the registry always passes 3.
+#
+# Provenance: matched in Ghidra (RE-LAB, all three builds labeled) — vtable slot, unique string, call-graph
+# position or global role; fuzzy hashes only proposed candidates. Cross-checked against CommonLib where they
+# overlap (VTABLE_hkbClipGenerator 278766/226785, VTABLE_AnimationFileManagerSingleton 282545/232940 — agree).
+# Struct offsets are NOT here: use CommonLib's RE types (RE::hkbClipGenerator, RE::BSSynchronizedClipGenerator,
+# RE::Actor, …), which already carry per-runtime layouts. Vtables CommonLib exports (RE::VTABLE_*) are not
+# duplicated either.
+
+symbols:
+  # --- Animation data (AnimationDataSingleFile) ---
+  - { name: AnimationClipDataSingleton_LoadAdsf, kind: func, se: 31797, ae: 32571, vr: 0 }  # ctor that opens + parses AnimationDataSingleFile.txt
+  - { name: Adsf_OpenCall, kind: call, se: 31797+0xd1, ae: 32571+0xce, vr: 0 }  # CALL that opens the adsf stream (CB serve seam)
+  - { name: Adsf_ParseMotionBlockCall, kind: call, se: 31797+0x369, ae: 32571+0x383, vr: 0 }  # CALL Adsf_ParseMotionBlock; the 16-bit MOVZX ESI,AX line count precedes it
+  - { name: Adsf_LookupClipAndMotion, kind: func, se: 31799, ae: 32573, vr: 0 }
+  - { name: AdsfMotion_SampleTranslation, kind: func, se: 31812, ae: 32582, vr: 0 }  # lerp; SE community name MotionDataContainer::ProcessTranslationData
+  - { name: AdsfMotion_SampleRotation, kind: func, se: 31813, ae: 32583, vr: 0 }  # fast slerp; SE community name MotionDataContainer::ProcessRotationData
+  - { name: Adsf_PackMotionRecords, kind: func, se: 0, ae: 32584, vr: 0 }  # SE splits this into translation/rotation packers (0x1404dd640 / 0x1404dd760) — no 1:1 SE id
+  - { name: Adsf_RemapClipAnimIndexToMotionSlot, kind: func, se: 31814, ae: 32585, vr: 0 }
+  - { name: Adsf_ParseMotionBlock, kind: func, se: 31850, ae: 32614, vr: 0 }
+  - { name: Adsf_ParseProjectClips, kind: func, se: 31851, ae: 32615, vr: 0 }
+  - { name: Adsf_SingleFilePath, kind: data, se: 516403, ae: 402574, vr: 0 }  # global BSFixedString "Meshes/AnimationDataSingleFile.txt"
+  - { name: MotionDriven_SampleActiveClipsMotionDelta, kind: func, se: 31949, ae: 32703, vr: 0 }  # root-motion sampler over the active clips
+  - { name: AnimationClipDataSingleton_Instance, kind: data, se: 515414, ae: 401553, vr: 0 }  # the adsf singleton passed to Adsf_LookupClipAndMotion
+
+  # --- Animation set data (AnimationSetDataSingleFile) + the setdata gate ---
+  - { name: Asdsf_OpenCall, kind: call, se: 31863+0x89, ae: 32624+0x84, vr: 0 }  # CALL that opens the asdsf stream (CB serve seam)
+  - { name: Asdsf_SingleFilePath, kind: data, se: 516406, ae: 402577, vr: 0 }  # global BSFixedString asdsf path
+  - { name: AnimationSetData_Singleton, kind: data, se: 515415, ae: 401554, vr: 0 }
+  - { name: SetDataGate_ProducerWeapon, kind: func, se: 42468, ae: 43625, vr: 0 }  # the condition producer (Actor*); weapon special id 0x16c SE / 0x16e AE
+  - { name: SetDataGate_Matcher, kind: func, se: 31867, ae: 32628, vr: 0 }
+  - { name: SetDataGate_Query, kind: func, se: 31868, ae: 32629, vr: 0 }  # used by the attack-map builder
+  - { name: SetDataGate_Evaluator, kind: func, se: 31875, ae: 32633, vr: 0 }
+  - { name: SetDataGate_EventKey, kind: func, se: 31909, ae: 32665, vr: 0 }
+  - { name: AttackAnimationArrayMap_Build, kind: func, se: 24864, ae: 25387, vr: 0 }  # iterates weapon-type combos 0..12
+  - { name: AnimationStreamLoadGame_ReadSetDataTriples, kind: func, se: 63090, ae: 64010, vr: 0 }  # save stream reader (unbounded count — the CRC-bloat ceiling)
+
+  # --- Clip binding: LoadClips, roster indices, the animation resource DB, file manager ---
+  - { name: BShkbAnimationGraph_LoadGraph, kind: func, se: 62923, ae: 63846, vr: 0 }  # graph load: NullAssetLoader + LoadClips + BSSync scene slots
+  - { name: LoadClips_CallSite, kind: call, se: 63028+0x8d, ae: 63846+0x101, vr: 0 }  # OAR's write_call seam; in SE it lives in a separate helper (0x140b06670)
+  - { name: LoadClips, kind: func, se: 63032, ae: 63950, vr: 0 }  # roster -> clip index stamp (truncated int16)
+  - { name: LoadClips_RosterKeyLowercaseFilename, kind: func, se: 59442, ae: 60117, vr: 0 }  # lowercases the roster filename IN PLACE
+  - { name: LoadClips_KeyToIndexMap_Insert, kind: func, se: 0, ae: 63885, vr: 0 }  # inlined into SE LoadClips — no SE id
+  - { name: LoadClips_KeyToLoadPathMap_Insert, kind: func, se: 0, ae: 63886, vr: 0 }  # inlined into SE LoadClips — no SE id
+  - { name: ClipGen_MergeAnnotationTriggers, kind: func, se: 63016, ae: 63941, vr: 0 }  # annotation -> trigger merge for clips attached outside the index path
+  - { name: hkbCharacter_LinkGraph_AssignRosterIndices, kind: func, se: 59411, ae: 60086, vr: 0 }  # calls ClipGen_AssignRosterIndex (stamps EVERY clip)
+  - { name: ClipGen_BindOrAssignRosterIndex, kind: func, se: 59430, ae: 60105, vr: 0 }  # skips clips with an attached control
+  - { name: ClipGen_AssignRosterIndex, kind: func, se: 59432, ae: 60107, vr: 0 }  # stamps every clip, int16-truncated
+  - { name: ClipGen_BindIfUnbound, kind: func, se: 59426, ae: 60101, vr: 0 }  # binds clips whose index is -1
+  - { name: hkbProject_SetupCharacter, kind: func, se: 63031, ae: 63949, vr: 0 }
+  - { name: ActorAnim_BindingIndexToCrcTriple, kind: func, se: 62655, ae: 63600, vr: 0 }  # SE community name GetHashedAnimFromAnimIndex
+  - { name: ActorAnim_DefaultCrcTriple, kind: data, se: 523005, ae: 409527, vr: 0 }  # static default for idx<0; SE: guarded function-local static
+  - { name: ActorAnim_ResolveLoadByIndex, kind: func, se: 63075, ae: 63987, vr: 0 }  # load resolver: index -> CRC triple -> EntryDB
+  - { name: AnimEntryDB_FindLoadedByCrcTriple, kind: func, se: 63107, ae: 64039, vr: 0 }  # SIGNATURE DIFFERS: SE (EntryDB+0x110, triple) -> entry; AE (EntryDB, triple, out**)
+  - { name: AnimEntryDB_Singleton, kind: data, se: 516410, ae: 402581, vr: 0 }  # BSResource animation EntryDB
+  - { name: BShkbAnimationGraph_InstallBindingAtIndex, kind: func, se: 62618, ae: 63559, vr: 0 }
+  - { name: AnimationFileManager_Ctor, kind: func, se: 63054, ae: 63966, vr: 0 }
+  - { name: AnimationFileManager_OnFileReady, kind: func, se: 63069, ae: 63981, vr: 0 }  # vtable slot 1; index-driven
+  - { name: AnimationFileManager_Singleton, kind: data, se: 515440, ae: 401579, vr: 0 }
+  - { name: BSResourceAssetLoader_ResolveTypedHkx, kind: func, se: 62522, ae: 63463, vr: 0 }  # typed-hkx resolver (CB byte-serve seam)
+  - { name: BShkbHkxDB_LoadPackfileInPlace, kind: func, se: 62505, ae: 63445, vr: 0 }  # every project/character/behavior .hkx loads here (no signature check)
+
+  # --- hkbClipGenerator ---
+  - { name: hkbClipGenerator_Ctor, kind: func, se: 58597, ae: 59247, vr: 0 }
+  - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0 }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
+  - { name: hkbClipGenerator_Activate, kind: func, se: 58602, ae: 59252, vr: 0 }  # vtable slot 4
+  - { name: hkbClipGenerator_Update, kind: func, se: 58603, ae: 59253, vr: 0 }  # vtable slot 5
+  - { name: hkbClipGenerator_Deactivate, kind: func, se: 58604, ae: 59254, vr: 0 }  # vtable slot 7
+  - { name: hkbClipGenerator_IsValid, kind: func, se: 58605, ae: 59255, vr: 0 }  # vtable slot 10
+  - { name: hkbClipGenerator_Generate, kind: func, se: 58607, ae: 59257, vr: 0 }  # vtable slot 23
+  - { name: hkbClipGenerator_SetAnimationControl, kind: func, se: 58612, ae: 59262, vr: 0 }  # attaches +0x88 (refptr)
+  - { name: hkbClipGenerator_RebindFromSetByIndex, kind: func, se: 58616, ae: 59267, vr: 0 }  # reads bindings[+0x70] without a -1 guard
+  - { name: hkbClipGenerator_GetExtractedMotionDelta, kind: func, se: 58623, ae: 59274, vr: 0 }
+  - { name: hkbClipGenerator_SampleAnimation, kind: func, se: 58627, ae: 59278, vr: 0 }
+  - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0 }  # hkClass object
+
+  # --- Bethesda generators: paired (BSSynchronizedClipGenerator), offset, tweener ---
+  - { name: BSSynchronizedClipGenerator_FinishCtor, kind: func, se: 62108, ae: 63044, vr: 0 }
+  - { name: BSSync_AppendSceneBindingSlots, kind: func, se: 63017, ae: 63942, vr: 0 }  # appends one binding slot per BSSync; stores its int16 index at +0x128
+  - { name: BSSync_FillSceneBindingSlot, kind: func, se: 62391, ae: 63332, vr: 0 }
+  - { name: BSSync_ActivateChildWithSceneIndex, kind: func, se: 62125, ae: 63061, vr: 0 }  # swaps +0x128 into the child's +0x70, activates, restores
+  - { name: BSSync_ResolveSceneRole, kind: func, se: 62122, ae: 63058, vr: 0 }  # reads the child clip's +0x70
+  - { name: BSSynchronizedClipGenerator_StaticClass, kind: data, se: 522834, ae: 409352, vr: 0 }
+  - { name: BSSynchronizedClipGenerator_TypeInfo, kind: data, se: 522835, ae: 409353, vr: 0 }
+  - { name: BSOffsetAnimationGenerator_Activate, kind: func, se: 62209, ae: 63148, vr: 0 }  # exact-class check on its offset clip
+  - { name: BSTweenerModifier_Modify, kind: func, se: 62384, ae: 63325, vr: 0 }  # writes worldFromModel
+
+  # --- Behavior-graph traversal, update and root motion ---
+  - { name: ActiveNodeVisitor_Walk, kind: func, se: 64198, ae: 65232, vr: 0 }  # weighted active-clip walker (root motion and others)
+  - { name: ActiveNodeVisitor_Dispatch, kind: func, se: 64204, ae: 65237, vr: 0 }  # dispatches on EXACT class
+  - { name: ClipAddingFunctor_Walk, kind: func, se: 62935, ae: 63858, vr: 0 }
+  - { name: BShkbAnimationGraph_ClipTimeWalk, kind: func, se: 62649, ae: 63594, vr: 0 }
+  - { name: BSAnimationGraphManager_ActiveClipQuery, kind: func, se: 62431, ae: 63373, vr: 0 }  # manager is 8 bytes smaller in SE
+  - { name: BShkbAnimationGraph_ActiveClipTimeForUpdateLOD, kind: func, se: 62941, ae: 63864, vr: 0 }  # exact-class check
+  - { name: BShkbAnimationGraph_FinalizePose, kind: func, se: 62636, ae: 63581, vr: 0 }
+  - { name: BShkbAnimationGraph_SetWorldFromModel, kind: func, se: 62628, ae: 63569, vr: 0 }  # sends the BSTransformDeltaEvent
+  - { name: BShkbAnimationGraph_SendTransformDeltaEvent, kind: func, se: 62847, ae: 63783, vr: 0 }
+  - { name: hkbCharacter_GraphExportFill, kind: func, se: 64119, ae: 65148, vr: 0 }  # two exact-class sites; purpose not fully mapped
+  - { name: hkbBehaviorGraph_CollectInternalState, kind: func, se: 57799, ae: 58372, vr: 0 }
+  - { name: hkbBehaviorGraph_CollectUsedBindingIndices, kind: func, se: 57800, ae: 58373, vr: 0 }  # sets a bit at each clip's +0x70
+  - { name: hkbBehaviorGraph_UsedBindingIndicesCaller, kind: func, se: 57881, ae: 58454, vr: 0 }
+  - { name: hkbBehaviorGraph_CloneFixups, kind: func, se: 59440, ae: 60115, vr: 0 }  # per-character clone; finds clone nodes by offset
+  - { name: hkbVariableBindingSet_CopyVariableOrMember, kind: func, se: 59343, ae: 60016, vr: 0 }
+  - { name: hkbExpressionCompiler_Compile, kind: func, se: 59354, ae: 60027, vr: 0 }  # native expression language
+  - { name: hkaDefaultAnimatedReferenceFrame_Ctor, kind: func, se: 64511, ae: 65604, vr: 0 }  # motion extraction
+
+  # --- Actor movement ---
+  - { name: Actor_ApplyFrameMovement, kind: func, se: 36365, ae: 37356, vr: 0 }  # uses animationDelta only when graph bIsSynced
+  - { name: Actor_ProcessTransformDeltaEvent, kind: func, se: 36971, ae: 37996, vr: 0 }  # sink at Actor+0xC8 SE / +0xD0 AE
+  - { name: IMovementTweenerAgent_Func2, kind: func, se: 41160, ae: 42246, vr: 0 }
+  - { name: String_bIsSynced, kind: data, se: 232640, ae: 188574, vr: 0 }
+
+  # --- Havok type system + packfile loading ---
+  - { name: hkDefaultBuiltinTypeRegistry_AddType, kind: func, se: 59462, ae: 60137, vr: 0 }  # the ONE call that registers a custom class at runtime
+  - { name: hkDefaultBuiltinTypeRegistry_Reinitialize, kind: func, se: 59458, ae: 60133, vr: 0 }  # rebuilds the registries from the static lists (would drop runtime adds)
+  - { name: hkBuiltinTypeRegistry_Instance, kind: data, se: 521918, ae: 408436, vr: 0 }
+  - { name: hkTypeInfoRegistry_Global, kind: data, se: 523166, ae: 409702, vr: 0 }
+  - { name: hkVtableClassRegistry_Global, kind: data, se: 523167, ae: 409703, vr: 0 }
+  - { name: hkClassNameRegistry_Global, kind: data, se: 523168, ae: 409704, vr: 0 }
+  - { name: hkBuiltinTypeRegistry_StaticLinkedTypeInfos, kind: data, se: 289776, ae: 239390, vr: 0 }
+  - { name: hkBuiltinTypeRegistry_StaticLinkedClasses, kind: data, se: 289777, ae: 239939, vr: 0 }
+  - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0 }
+  - { name: hkClass_IsSuperClass, kind: func, se: 57166, ae: 57626, vr: 0 }  # parent-chain strcmp
+  - { name: hkNativePackfileUtils_ApplyVirtualFixups, kind: func, se: 64110, ae: 65139, vr: 0 }  # finishes objects by case-sensitive class NAME
+  - { name: hkSerializeUtil_ClassSignaturesUpToDate, kind: func, se: 63862, ae: 64867, vr: 0 }
+  - { name: hkDefaultBuiltinTypeRegistry_RegisterStaticLists, kind: func, se: 59477, ae: 60152, vr: 0 }  # walks the static lists into the registries
+
+  # --- Math helpers ---
+  - { name: NiQuaternion_FastSlerp, kind: func, se: 69459, ae: 70836, vr: 0 }
+  - { name: FloatToHalf, kind: func, se: 18405, ae: 76217, vr: 0 }  # SE: callers mostly go through a jump thunk
+  - { name: HalfToFloat, kind: func, se: 50149, ae: 76218, vr: 0 }  # SE: callers mostly go through a jump thunk
+
+  # --- Misc ---
+  - { name: LoadPluginBSA, kind: func, se: 13673, ae: 13786, vr: 0 }

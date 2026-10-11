@@ -24,7 +24,7 @@ The affected files (all CreationClub `bgssse001`):
 
 These are Havok **tagfiles**, not **packfiles**. Their first 8 bytes are `1e0d b0ca cefa 11d0` =
 `0xCAB00D1E 0xD011FACE` (the tagfile magic); the reader asserts the packfile magic `0x57E0E057` at
-`src/havok-framing/include/havok/core/PackFileTypes.h:69` and correctly rejects them. The payload is
+`src/engine/codec/serialization/packfile/PackFileTypes.h` and correctly rejects them. The payload is
 still ordinary Havok (`hkRootLevelContainer` / `namedVariants` follow the header) — same object model,
 different binary container. CB's `PackFileDeserializer` only implements the packfile container.
 

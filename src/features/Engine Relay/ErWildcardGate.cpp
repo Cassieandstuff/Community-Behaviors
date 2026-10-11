@@ -1,6 +1,6 @@
 // Engine Relay — global wildcard gate (compile-time graph feature).
 //
-// Injects a BOOL graph variable (CB::ergate::kGateVar) into the graph and gates EVERY global wildcard
+// Injects a BOOL graph variable (CB::feature::ergate::kGateVar) into the graph and gates EVERY global wildcard
 // transition on `!kGateVar`, so Engine Relay can pin the actor by flipping the bit (see ERGate.h
 // for the full contract). Default bit = false → byte-behaviour identical to vanilla (inert). LOCAL
 // wildcards (FLAG_IS_LOCAL_WILDCARD=2048) are deliberately spared — the escape hatch that keeps a
@@ -12,63 +12,79 @@
 // graphData. Pure-Apply rule: depends only on havok-core + the feature framework (ERGate.h is a
 // header-only CommunityBehaviors constant, no runtime deps).
 
-#include "FeatureRegistry.h"
-#include "features/ERGate.h"   // CB::ergate::kGateVar (main hpp/, on the include path)
-
-#include <havok/model/BehaviorData.h>
-#include <havok/model/HavokEnums.h>   // ResolveEnum / TransitionFlags
+#include <feature-sdk/FeatureRegistry.h>
+#include "features/ERGate.h"   // CB::feature::ergate::kGateVar (main hpp/, on the include path)
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <format>
 #include <string>
 #include <string_view>
 #include <vector>
 
-namespace CB::features {
+namespace CB::feature {
 
     namespace {
 
-        // Gate every GLOBAL wildcard transition in every state machine of `data` on `!gateVar`.
-        // Returns the count gated. (Moved verbatim from Resolver.cpp GateWildcards.)
-        //
-        // Mechanism per wildcard: clear FLAG_DISABLE_CONDITION (256) so the condition is evaluated,
-        // then set/AND an hkbExpressionCondition of "!<gateVar>". A live expression condition is
-        // ANDed; a live STRING condition (rare in wildcards) can't be ANDed into an expression, so
-        // the gate replaces it (block wins) with a warning; an ignored (disabled) condition is
-        // dropped rather than resurrected.
-        std::size_t GateWildcards(havok::model::BehaviorData& data, const std::string& gateVar,
-                                  std::string_view graphKey, IFeatureLog& log,
-                                  std::vector<std::string>& touched)
-        {
-            namespace en = havok::model::enums;
-            const std::string gate = "!" + gateVar;   // fire only when unlocked
-            std::size_t gated = 0;
-            for (auto& [smName, sm] : data.stateMachines) {
-                if (!sm.parsedWildcardTransitions) continue;
-                const std::size_t gatedInSm = gated;
-                for (auto& t : *sm.parsedWildcardTransitions) {
-                    const long flags = en::ResolveEnum(t.flags, en::TransitionFlags());
-                    if ((flags & 2048L) != 0) continue;             // FLAG_IS_LOCAL_WILDCARD — spare it
-                    const bool wasDisabled = (flags & 256L) != 0;   // FLAG_DISABLE_CONDITION
-                    t.flags = std::to_string(flags & ~256L);        // clear it (numeric form)
+        namespace io = CB::engine::codec::io;
 
-                    if (!wasDisabled && t.condition && !t.condition->empty()) {
-                        t.condition = "(" + *t.condition + ") && (" + gate + ")";   // AND into live expr
-                    } else if (!wasDisabled && t.conditionString && !t.conditionString->empty()) {
-                        log.Warn(std::format(
-                            "ER gate: wildcard in '{}'/{} has a live string condition — gate "
-                            "replaces it (block-when-locked wins).", graphKey, smName));
-                        t.conditionString.reset();
-                        t.condition = gate;
-                    } else {
-                        t.conditionString.reset();   // drop any ignored/absent condition
-                        t.condition = gate;          // gate only
+        constexpr std::int64_t kLocalWildcard    = 2048;   ///< FLAG_IS_LOCAL_WILDCARD — spared
+        constexpr std::int64_t kDisableCondition = 256;    ///< FLAG_DISABLE_CONDITION
+
+        std::int16_t readI16(const io::FieldValue& v) {
+            std::int16_t x = 0;
+            std::memcpy(&x, v.raw.data(), std::min<std::size_t>(v.raw.size(), 2));
+            return x;
+        }
+        std::string readStr(io::SchemaObject& so, const char* field) { return so.FieldRef(field).str; }
+
+        /// @brief Gate every GLOBAL wildcard transition of every state machine on `!gateVar`; returns the count.
+        /// @note  Per wildcard: clear FLAG_DISABLE_CONDITION so the condition is evaluated, and give it an
+        ///        hkbExpressionCondition of "!<gateVar>" — ANDed into a live expression; a live STRING condition
+        ///        can't be ANDed into an expression, so the gate replaces it (block wins) with a warning; an ignored
+        ///        (disabled) condition is dropped, not resurrected. The condition is always a NEW object: vanilla
+        ///        shares condition objects between transitions, and editing one in place would gate (or double-wrap)
+        ///        every sharer.
+        std::size_t GateWildcards(CB::engine::decompile::GraphEdit& graph, const std::string& gateVar,
+                                  std::string_view graphKey, IFeatureLog& log, std::vector<std::string>& touched)
+        {
+            const std::string gate = "!" + gateVar;
+            std::size_t gated = 0;
+            graph.ForEach("hkbStateMachine", [&](io::SchemaObject& sm) {
+                auto* array = dynamic_cast<io::SchemaObject*>(sm.FieldRef("wildcardTransitions").obj.get());
+                if (!array) return;
+                const std::size_t before = gated;
+                for (const auto& e : array->FieldRef("transitions").objs) {
+                    auto* t = dynamic_cast<io::SchemaObject*>(e.get());
+                    if (!t) continue;
+                    io::FieldValue& flagsField = t->FieldRef("flags");
+                    const std::int64_t flags = readI16(flagsField);
+                    if (flags & kLocalWildcard) continue;
+                    const bool wasDisabled = (flags & kDisableCondition) != 0;
+                    const std::int16_t cleared = static_cast<std::int16_t>(flags & ~kDisableCondition);
+                    flagsField.raw.assign(reinterpret_cast<const std::uint8_t*>(&cleared), reinterpret_cast<const std::uint8_t*>(&cleared) + 2);
+
+                    io::FieldValue& condField = t->FieldRef("condition");
+                    auto* cond = dynamic_cast<io::SchemaObject*>(condField.obj.get());
+                    std::string expr = gate;
+                    if (!wasDisabled && cond && std::string_view(cond->ClassName()) == "hkbExpressionCondition" &&
+                        !readStr(*cond, "expression").empty()) {
+                        expr = "(" + readStr(*cond, "expression") + ") && (" + gate + ")";
+                    } else if (!wasDisabled && cond && std::string_view(cond->ClassName()) == "hkbStringCondition" &&
+                               !readStr(*cond, "conditionString").empty()) {
+                        log.Warn(std::format("ER gate: wildcard in '{}'/{} has a live string condition — gate replaces it "
+                                             "(block-when-locked wins).", graphKey, readStr(sm, "name")));
                     }
+                    auto gateCond = graph.Make("hkbExpressionCondition");
+                    if (!gateCond) { log.Warn("ER gate: hkbExpressionCondition missing from the schema"); return; }
+                    gateCond->FieldRef("expression").str = expr;
+                    condField.obj = gateCond;
                     ++gated;
                 }
-                if (gated != gatedInSm) touched.push_back(smName);   // wrote wildcards in this SM
-            }
+                if (gated != before) touched.push_back(graph.IdOf(&sm));
+            });
             return gated;
         }
 
@@ -78,27 +94,20 @@ namespace CB::features {
 
             bool AppliesTo(const FeatureContext&) const override { return true; }
 
-            FeatureResult Apply(havok::model::BehaviorData& data, const FeatureContext& ctx) override
+            FeatureResult Apply(CB::engine::decompile::GraphEdit& graph, const FeatureContext& ctx) override
             {
-                if (!data.graphData) return {};   // no variables table → nothing to inject/gate
+                if (!graph.GraphData()) return {};
 
-                // 1. Inject the lock BOOL (default false = unlocked), append-only so it never shifts
-                //    an existing variable index.
-                auto& vars = data.graphData->variables;
-                const bool present = std::any_of(vars.begin(), vars.end(),
-                    [](const havok::model::VariableInfoDef& v) { return v.name == CB::ergate::kGateVar; });
-                if (!present) {
-                    havok::model::VariableInfoDef g;
-                    g.name  = CB::ergate::kGateVar;
-                    g.type  = "VARIABLE_TYPE_BOOL";
-                    g.value = 0;   // unlocked
-                    vars.push_back(std::move(g));
+                std::string err;
+                if (graph.AddVariable(CB::feature::ergate::kGateVar, "VARIABLE_TYPE_BOOL", 0, err) ==
+                    CB::engine::decompile::GraphEdit::Add::Failed) {
+                    ctx.log.Warn(std::format("ER gate: {}: {}", ctx.graphKey, err));
+                    return {};
                 }
 
-                // 2. Gate every global wildcard on !it.
                 FeatureResult r;
                 r.applied   = true;
-                r.mutations = GateWildcards(data, CB::ergate::kGateVar, ctx.graphKey, ctx.log, r.touched);
+                r.mutations = GateWildcards(graph, CB::feature::ergate::kGateVar, ctx.graphKey, ctx.log, r.touched);
                 return r;
             }
         };
@@ -107,4 +116,4 @@ namespace CB::features {
 
     }  // namespace
 
-}  // namespace CB::features
+}  // namespace CB::feature

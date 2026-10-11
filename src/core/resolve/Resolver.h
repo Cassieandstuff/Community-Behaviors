@@ -5,7 +5,10 @@
 #include "core/resolve/MotionRecordSink.h" // MotionRecordSink — the compile-side root-motion accumulator
 #include "core/resolve/SymbolInjector.h"
 
-#include <havok/sct/BoneNames.h>   // BoneNameTable — per-actor skeleton bone list (bone-index -> name)
+#include <interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
+#include <codec/format/RigIndex.h> // RigIndex — which rig each graph / animation binds
+#include <interface/UnitSource.h>  // LayerSource — merge layer + load-order identity (by value in GraphSources)
+#include <decompile/BehaviorDecompile.h>   // GraphEdit — the merged graph the compile stages edit
 
 #include <atomic>
 #include <condition_variable>
@@ -20,11 +23,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace havok::model {
-    struct IUnitSource;   // abstract per-unit backing store (disk dir OR in-memory .hky)
-    class  HkyArchive;    // a packed single-file .hky decompressed in memory
-    struct CharacterData; // compiled-character model (defs/CharacterDefs.h) — held by shared_ptr below
-}
+namespace CB::engine::common { struct IUnitSource; struct CharacterData; }
+namespace CB::engine::codec     { class HkyArchive; }
 
 namespace CB {
 
@@ -47,13 +47,12 @@ namespace CB {
     // meshes can't accidentally swallow its .hky). No config locator: the tree IS it.
     //
     // Merge: all bundles providing a given serve path contribute layers, merged base-first
-    // by load order (LoadMerged overlays them into one graph); the record-level additive
-    // merge lives in Resolve()'s gather+merge step.
+    // by load order (each layer's FormID patch applies over the merge so far) in Resolve().
     class Resolver {
     public:
         // Optional parallel executor for the per-unit native-animation compile: given a batch of
         // independent tasks, run them ALL and BLOCK until every one has finished (exactly the
-        // CB::seq::ThreadPool::parallel_for contract). nullptr => serial (the proven default). Kept as
+        // CB::core::bootstrap::ThreadPool::parallel_for contract). nullptr => serial (the proven default). Kept as
         // a plain std::function so the Resolver carries NO dependency on the sequencer's ThreadPool
         // type; Plugin.cpp wires a real pool in behind the sequencer.enable marker. Each native-anim
         // compile is a pure function of its own def + the immutable served skeleton and writes its own
@@ -72,11 +71,11 @@ namespace CB {
         // the redundant every-launch main-thread skeleton compile (the plugin-load / main-menu stall).
         // When false (cold / forced regen), skeletons compile fresh as before.
         // skelExec (optional): the same task-fanning executor contract as AnimExecutor. When set, the
-        // skeleton SERVE compile (CompileSkeletonFull per variant) and the per-actor bone-name table
-        // build are fanned across the pool instead of run serially. Each task compiles one actor's
-        // skeletons / one actor's bone table — a pure function of the read-only master YAML + immutable
-        // layer texts, writing its own distinct m_skeletonServe / m_skeletons key under a mutex — so the
-        // parallel result is byte-identical to serial (stage 2). nullptr => serial (proven default).
+        // skeleton SERVE compile (parse + serialize per served unit) and the per-rig bone-name table
+        // build are fanned across the pool instead of run serially. Each task handles one skeleton unit /
+        // one rig — a pure function of the read-only bundles, writing its own distinct m_skeletonServe /
+        // m_skeletons key under a mutex — so the parallel result is byte-identical to serial.
+        // nullptr => serial (proven default).
         void Init(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni,
                   bool warmReuse = false, const AnimExecutor* skelExec = nullptr);
 
@@ -220,6 +219,20 @@ namespace CB {
         bool                 AdsfDerive() const { return m_adsfDerive; }
         const GraphClipSink& ClipSink() const { return m_clipSink; }
 
+        /// @brief The clip generators of `layers` (base first) merged the way Resolve merges them, bone names bound
+        ///        through the rig of the characters that run `key`. Empty when the merge fails (logged).
+        /// @pre   Init() done (the rig tables are built there).
+        std::vector<CB::engine::animdata::DeriveClipInput> ClipInputsOf(
+            const std::string& key, const std::vector<CB::engine::common::LayerSource>& layers) const;
+
+        /// @brief The clip generators of the served graph `key`, merged across EVERY layer of the load order.
+        std::vector<CB::engine::animdata::DeriveClipInput> MergedClipInputs(const std::string& key) const;
+        /// @brief The character's SERVED roster: its merged animationNames with the author roster drops folded in —
+        ///        exactly the positions the served character file carries (ResolveCharacter applies the same fold).
+        std::vector<std::string> ServedRoster(const std::string& characterKey) const;
+        /// @brief Every served behavior graph (its parent folder is a `behaviors…` folder).
+        std::vector<std::string> BehaviorUnitKeys() const;
+
         // Root-motion the animation compile produced (WriteNativeAnimations emits each native `.hkx`
         // unit's inline motion here). The adsf finalizer drains this instead of re-reading the YAML, so
         // the compiler is the single motion producer. Populated during the native-anim compile (which may
@@ -229,7 +242,7 @@ namespace CB {
         // Finalize the animationdata cache from the COMPILED results (opt-in; requires the adsf-derive
         // feature). Marries the per-graph clips the feature pushed into m_clipSink with the per-character
         // MERGED rosters captured during CompileAll, and writes the collated animationdatasinglefile.txt
-        // to <dataDir>/community_behaviors_cache/. Clips come straight from the merged graphs — LoadMerged already
+        // to <dataDir>/community_behaviors_cache/. Clips come straight from the merged graphs — the merge already
         // resolved the load order, so there are NO deltas to merge; the Skyrim.hky master supplies only
         // the un-derivable half (root motion + project headers). Call AFTER CompileAll. Returns true iff
         // it wrote the file; a no-op returning false when the feature is off or the master is unreadable.
@@ -270,31 +283,32 @@ namespace CB {
 
         std::size_t ManifestCount() const { return m_manifests.size(); }
 
-        // ── Node-granular load-order conflicts ─────────────────────────────────────
-        // Built in Init(): every node that more than one bundle contributes to the SAME
-        // served graph, classified as an expected OVERRIDE (a bundle edits a node one of its
-        // declared masters introduced — load order arbitrates the winner) or a namespace
-        // CLASH (two bundles with no master relationship both touch the node — a bug, the
-        // behavior-domain analog of two ESPs editing one record with neither mastering the
-        // other). Immutable after Init(); metadata only — never gates the serve path. The MO2
-        // manager reads this to surface conflicts at behavior-node resolution.
-        struct NodeConflict {
-            std::string              servePath;      // the graph (normalized serve key)
-            std::string              cls;            // node class (folder-agnostic identity, with `key`)
-            std::string              key;            // node id-else-name
-            std::vector<std::string> bundles;        // contributing bundle stems, base-first
-            bool                     clash = false;  // true = namespace clash (bug); false = expected override
-        };
-        const std::vector<NodeConflict>& Conflicts() const { return m_conflicts; }
-        std::size_t ConflictCount() const { return m_conflicts.size(); }
-
     private:
+        /// @brief The bone table a graph / animation binds, found through the characters that run it.
+        struct RigBones {
+            const CB::engine::common::BoneNameTable* table = nullptr;   ///< null = no character binds this key
+            std::string                            rig;               ///< the rig unit `table` came from
+            bool ambiguous = false;   ///< the binding characters' rigs disagree on bone order
+        };
+        /// @brief Bone table for a serve key via m_rigIndex.RigsFor. Several rigs in one match = a shared
+        ///        graph; the first (sorted) supplies the names.
+        /// @note  Vanilla ships shared graphs over rigs of DIFFERENT bone order (dlc01 crossbow: plain vs
+        ///        dwarven), so disagreement is reported via `ambiguous`, never fatal.
+        RigBones BonesFor(const std::string& key) const;
+
         // If BR serves the child a graph references (childRef is folderRoot-relative, e.g.
         // "Behaviors\1HM_Behavior.hkx"; graphKey is the referencing graph's serve key),
         // return childRef with the "community_behaviors_cache\" prefix; otherwise return childRef
         // unchanged. Lock-free read of m_sources (immutable after Init). Used by Resolve() to
         // steer above-OAR cascade loads into BR's cache for owned children only.
         std::string QualifyChildRef(const std::string& graphKey, const std::string& childRef) const;
+
+        /// @brief A merged CHARACTER's compile stage: fold the author roster additions into animationNames, capture
+        ///        the roster / actor path for the animdata derive, and cache-qualify its behavior reference.
+        void ResolveCharacter(const std::string& key, CB::engine::decompile::GraphEdit& edit);
+        /// @brief Fold the author roster drops (animationnames\<stem>.txt) onto `names` — an EXACT-case union.
+        /// @return how many were added.
+        std::size_t FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const;
 
         // Build the above-OAR redirect map (folderRoot -> owned characters) from m_sources and
         // publish it (m_redirectReady). Shared by MaterializeCacheToDisk (after it writes the
@@ -305,14 +319,13 @@ namespace CB {
         // Path of the cache-completion sentinel under the data root (Community Behaviors/cache.ready).
         static std::filesystem::path CacheSentinelPath(const std::filesystem::path& cacheRoot);
 
-        // The merge layers for ONE served graph: its unit sources ordered base-first
-        // then deltas by load order, plus whether the base is a character (carries
-        // character.yaml → the CharacterYamlLoader/CompileCharacter path) vs a behavior
-        // graph. Each source is backed by a disk dir (DiskUnitSource) or a packed .hky
-        // subtree (ZipUnitSource) transparently. LoadMerged overlays the layers (later
-        // overrides earlier by node name) into one graph — the record-level merge.
+        /// @brief The merge layers for ONE served graph: its unit sources, base first then patches by load order,
+        ///        and whether the base is a character (ResolveCharacter) vs a behavior graph. Each source is a disk
+        ///        dir (DiskUnitSource) or a packed .hky subtree (ZipUnitSource), transparently.
         struct GraphSources {
-            std::vector<std::shared_ptr<const havok::model::IUnitSource>> layers;
+            // Each layer carries its load-order identity ({stem, rank, ancestors}) so the merge can key
+            // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
+            std::vector<CB::engine::common::LayerSource> layers;
             bool isCharacter = false;
         };
         // normalized serve path -> its merge layers.
@@ -320,7 +333,7 @@ namespace CB {
         // Packed .hky archives held for the process lifetime — each vends ZipUnitSources
         // (into m_sources) that reference back into it, so it must outlive them. Empty
         // when every bundle is an unpacked directory. Immutable after Init().
-        std::vector<std::shared_ptr<havok::model::HkyArchive>> m_archives;
+        std::vector<std::shared_ptr<CB::engine::codec::HkyArchive>> m_archives;
         // actor root ("actors/character") -> animation paths relative to the actor dir
         // ("animations\community_behaviors\...\x.hkx"), registered via the opt-in
         // animations\community_behaviors\ subfolder. Immutable after Init().
@@ -334,18 +347,17 @@ namespace CB {
         // converter emits the same files, so authored + converted bundles share one path.
         // Immutable after Init().
         std::unordered_map<std::string, std::vector<std::string>> m_characterAnimNames;
-        // Per-actor skeleton bone lists, read at Init from the ACTUAL loaded skeleton.hkx (the load
-        // order's result — XPMSSE included) via SkeletonImport. Skeletons already merge at the file
-        // level, so BR reads the game's one skeleton rather than compiling its own. Keyed by ACTOR
-        // ("character"). Feeds data.boneNames at behavior compile so bone-index fields resolve their
-        // NAMES. Immutable after Init().
-        std::unordered_map<std::string, havok::sct::BoneNameTable> m_skeletons;
-        // Skeleton SERVE (Stage D): the compiled skeleton.hkx bytes BR serves per actor, keyed by the
-        // skeleton's normalized SERVE PATH ("meshes/actors/<actor>/character assets/skeleton.hkx").
-        // Built in Init by compile-over-base (rebuild the anim skeleton from the merged bone-add layers,
-        // carry the game skeleton's physics) — but ONLY when a bundle contributes bone-add layers for the
-        // actor, so setups that add no bones stay empty (and inert). Owns() serves these like a compiled
-        // graph; WriteSkeletonServe() writes them to the cache. Immutable after Init().
+        /// @brief Bone-name tables keyed by RIG unit (normalized serve path, e.g.
+        ///        "meshes/actors/character/character assets/skeleton.hkx"), read from the load-order winner of
+        ///        that unit. Feeds data.boneNames so name-keyed bone fields resolve. Immutable after Init().
+        std::unordered_map<std::string, CB::engine::common::BoneNameTable> m_skeletons;
+        /// @brief Which rig each graph / animation binds (project -> character rig/behavior). Consulted by
+        ///        BonesFor. Immutable after Init().
+        CB::engine::skeleton::RigIndex m_rigIndex;
+        /// @brief Compiled skeleton.hkx bytes BR serves, keyed by the unit's normalized serve path. A skeleton
+        ///        unit is path-local in every bundle; one is served only when a bundle OTHER than Skyrim.hky
+        ///        wins its path (vanilla-won units stay with the engine). Owns() serves these like a compiled
+        ///        graph; WriteSkeletonServe() writes them to the cache. Immutable after Init().
         std::unordered_map<std::string, std::vector<std::uint8_t>> m_skeletonServe;
         // Native BR animations authored as YAML inside a .hky. Each entry: { meshes-relative OUTPUT key
         // ("meshes/actors/<actor>/animations/community_behaviors/<mod>/<name>.hkx"), yaml text }. The key IS
@@ -359,9 +371,6 @@ namespace CB {
         // version, declared masters). Every scanned .hky has an entry (defaulted when
         // no manifest ships). Immutable after Init(); metadata only — never gates serve.
         std::unordered_map<std::string, BundleManifest> m_manifests;
-        // Node-granular load-order conflicts (see Conflicts()). Built in Init from each
-        // multi-bundle graph's layers + the master DAG; immutable after Init().
-        std::vector<NodeConflict> m_conflicts;
         // normalized serve path -> compiled bytes (nullptr = resolved-but-not-ours/failed)
         std::unordered_map<std::string, std::shared_ptr<const std::vector<std::uint8_t>>> m_cache;
         // Above-OAR redirect map, built in MaterializeCacheToDisk. Keyed by the actor's
@@ -374,12 +383,12 @@ namespace CB {
         // thread before m_redirectReady flips; immutable after.
         struct ProjectRedirectEntry { std::string charStem; std::string cacheCharRef; };
         std::unordered_map<std::string, std::vector<ProjectRedirectEntry>> m_projectRedirects;
-        // projKey (meshes-prefixed, e.g. "meshes/actors/character/defaultmale.hkx") -> the project's
-        // ORIGINAL-CASE characterFilenames ref (e.g. "Characters\DefaultMale.hkx"), captured from the base
-        // project unit's project.yaml at Init. ProjectRedirect re-emits the vanilla identity from this,
-        // so it never needs the (BSA-packed, unreadable-as-loose) vanilla project — the case-sensitive
-        // char->setdata/animdata bind stays intact for vanilla-only actors (the A-pose fix).
-        std::unordered_map<std::string, std::string> m_projectOrigCharRef;
+        /// @brief projKey (meshes-prefixed, e.g. "meshes/actors/character/defaultmale.hkx") -> that project's complete
+        ///        unit (the vanilla project, from the base). ProjectRedirect serves it as the redirected project.
+        /// @note  Its characterFilenames keep the ORIGINAL case ("Characters\DefaultMale.hkx") — the engine binds the
+        ///        character to its setdata / animdata by that string case-sensitively (a lowercased ref A-poses
+        ///        vanilla-only actors) — and it never needs the BSA-packed, unreadable-as-loose vanilla project.
+        std::unordered_map<std::string, std::shared_ptr<const CB::engine::common::IUnitSource>> m_projectUnits;
         std::atomic<bool>                                                  m_redirectReady{ false };
         // Init-complete signal (see Ready/WaitReady). Set with release at the very end of Init(); serve
         // hooks acquire it before touching any Init-built state. Init runs off the main thread.

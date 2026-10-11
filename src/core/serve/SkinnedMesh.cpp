@@ -1,11 +1,11 @@
 #include "PCH.h"
-#include <Hooks/hookslib.h>     // hooks::geometry (CreateTriShape) + hooks::skin (CreateSkinData/Partition)
+#include <core/hooks/hookslib.h>     // CB::core::hooks::geometry (CreateTriShape) + CB::core::hooks::skin (CreateSkinData/Partition)
 #include "core/serve/SkinnedMesh.h"
 
 #include <cstring>
 #include <vector>
 
-namespace CB::creature {
+namespace CB::core::serve {
 namespace {
 
 using VA = RE::BSGraphics::Vertex;
@@ -78,18 +78,18 @@ bool SkinnedCreatureMesh::Build(const CreatureMeshData& mesh, RE::NiNode* actorR
     }
 
     // ── geometry (static; the engine skins it) ──────────────────────────────────────────
-    auto* rd = hooks::geometry::CreateRendererTriShape(vb.data(), nv * stride, descRaw,
+    auto* rd = CB::core::hooks::geometry::CreateRendererTriShape(vb.data(), nv * stride, descRaw,
                                                        mesh.indices.data(), ni);
     if (!rd) return fail("CreateRendererTriShape returned null");
-    RE::BSTriShape* shape = hooks::geometry::CreateTriShape();
+    RE::BSTriShape* shape = CB::core::hooks::geometry::CreateTriShape();
     if (!shape) return fail("CreateTriShape returned null");
-    shape->rendererData = rd;
-    std::memcpy(&shape->vertexDesc, &descRaw, sizeof(std::uint64_t));
-    shape->vertexCount   = static_cast<std::uint16_t>(nv);
-    shape->triangleCount = static_cast<std::uint16_t>(ni / 3);
+    shape->GetGeometryRuntimeData().rendererData = rd;
+    std::memcpy(&shape->GetGeometryRuntimeData().vertexDesc, &descRaw, sizeof(std::uint64_t));
+    shape->GetTrishapeRuntimeData().vertexCount   = static_cast<std::uint16_t>(nv);
+    shape->GetTrishapeRuntimeData().triangleCount = static_cast<std::uint16_t>(ni / 3);
 
     // ── NiSkinData: per-bone skin-to-bone (inverse bind) transforms ─────────────────────
-    RE::NiSkinData* sd = hooks::skin::CreateSkinData();
+    RE::NiSkinData* sd = CB::core::hooks::skin::CreateSkinData();
     if (!sd) return fail("NiSkinData::Create returned null");
     auto* boneData = NiAllocArr<RE::NiSkinData::BoneData>(nb);
     if (!boneData) return fail("boneData alloc failed");
@@ -99,11 +99,11 @@ bool SkinnedCreatureMesh::Build(const CreatureMeshData& mesh, RE::NiNode* actorR
         boneData[i].boneVertData = nullptr;
         boneData[i].verts        = 0;
     }
-    sd->boneData = boneData;
-    sd->bones    = nb;   // rootParentToSkin stays identity (set by the factory)
+    REL::RelocateMember<RE::NiSkinData::BoneData*>(sd, 0x50, 0x50) = boneData;
+    REL::RelocateMember<std::uint32_t>(sd, 0x58, 0x58)             = nb;   // rootParentToSkin stays identity (set by the factory)
 
     // ── NiSkinPartition: one partition covering the whole mesh ──────────────────────────
-    RE::NiSkinPartition* sp = hooks::skin::CreateSkinPartition();
+    RE::NiSkinPartition* sp = CB::core::hooks::skin::CreateSkinPartition();
     if (!sp) return fail("NiSkinPartition::Create returned null");
     sp->numPartitions = 1;
     sp->vertexCount   = nv;
@@ -154,8 +154,8 @@ bool SkinnedCreatureMesh::Build(const CreatureMeshData& mesh, RE::NiNode* actorR
     for (std::uint32_t i = 0; i < nb; ++i) boneArr[i] = boneNodes[i];
     si->bones = boneArr;
 
-    shape->skinInstance = RE::NiPointer<RE::NiSkinInstance>(si);
-    if (shader) shape->shaderProperty.reset(shader);
+    shape->GetGeometryRuntimeData().skinInstance = RE::NiPointer<RE::NiSkinInstance>(si);
+    if (shader) shape->GetGeometryRuntimeData().shaderProperty.reset(shader);
 
     _shape.reset(shape);
     _root.reset(actorRoot);
@@ -170,4 +170,4 @@ void SkinnedCreatureMesh::Detach() {
     _root.reset();
 }
 
-} // namespace CB::creature
+} // namespace CB::core::serve

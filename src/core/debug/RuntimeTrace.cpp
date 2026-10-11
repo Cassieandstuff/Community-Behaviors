@@ -2,9 +2,9 @@
 
 #include "core/debug/RuntimeTrace.h"
 
-#include <havok/model/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
+#include <compile/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
 
-#include "SimpleIni.h"                  // [Debug] bRuntimeTrace toggle (mirrors CB::debug::kFlags row)
+#include "SimpleIni.h"                  // [Debug] bRuntimeTrace toggle (mirrors CB::core::debug::kFlags row)
 
 #include <atomic>
 #include <chrono>
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace CB::RuntimeTrace {
+namespace CB::core::debug {
 
     namespace {
 
@@ -61,7 +61,7 @@ namespace CB::RuntimeTrace {
 
     }  // namespace
 
-    void Install() {
+    void InstallTrace() {
         bool on = false;
         {
             CSimpleIniA ini;
@@ -71,8 +71,8 @@ namespace CB::RuntimeTrace {
         if (!on) return;
 
         std::string warn;
-        const auto entries = havok::model::trace::LoadRuntimeWatch(
-            "Data/Community Behaviors/Havok/core/Schema/metadata/debug", &warn);
+        const auto entries = CB::engine::compile::trace::LoadRuntimeWatch(
+            "Data/Community Behaviors/schema/metadata/debug", &warn);
         if (!warn.empty()) LOG_WARN("Community Behaviors: runtime-trace watch load: {}", warn);
         if (entries.empty()) {
             LOG_INFO("Community Behaviors: [Debug] bRuntimeTrace ON but no probe defines a `watch:` list — runtime trace idle.");
@@ -121,4 +121,4 @@ namespace CB::RuntimeTrace {
         s_log.flush();
     }
 
-}  // namespace CB::RuntimeTrace
+}  // namespace CB::core::debug

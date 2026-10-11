@@ -1,0 +1,7 @@
+name:      hkbBoneWeightArray
+parent:    hkbBindable
+signature: 0xcd902b77
+size:      64
+unwrap:    boneWeights   # .hky: a blend mask is written as its weight map directly
+fields:
+  - { name: boneWeights, type: scalararray, scalar: float, boneweights: 0 }   # ReadSingleArray

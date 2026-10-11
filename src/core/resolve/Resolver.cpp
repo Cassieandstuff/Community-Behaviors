@@ -1,32 +1,24 @@
 #include "PCH.h"
 
 #include "core/resolve/Resolver.h"
-#include "features/ERGate.h"
 #include "core/discover/ServeKey.h"
 #include "core/resolve/Watermark.h"
-#include "FeatureRegistry.h"   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
+#include <feature-sdk/FeatureRegistry.h>   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
-#include <havok/model/HavokEnums.h>   // TransitionFlags / ResolveEnum (wildcard-gate flag clear)
 
-#include <havok/model/yaml/YamlBehaviorLoader.h>
-#include <havok/model/yaml/CharacterYamlLoader.h>
-#include <havok/model/CompileTrace.h>   // schema-driven compile-trace (opt-in via [Debug] bCompileTrace)
-#include "SimpleIni.h"                  // [Debug] bCompileTrace toggle (mirrors CB::debug::kFlags row)
-#include <havok/model/yaml/UnitSource.h>
-#include <havok/model/yaml/HkyArchive.h>
-#include <havok/sct/BehaviorCompiler.h>
-#include <havok/sct/CharacterCompiler.h>
-#include <havok/sct/ProjectCompiler.h>
-#include <havok/sct/AnimDataFromBehavior.h>   // DeriveClipInputsFromBehavior — first-class adsf-derive stage
-#include <havok/skeleton/SkeletonImport.h>   // SkeletonData — schema-native skeleton codec (havok-skeleton)
-#include <havok/skeleton/SkeletonYaml.h>     // LoadSkeletonLayer / MergeBoneAdditions (bone-add layers)
-#include <havok/skeleton/SkeletonCompiler.h> // CompileSkeletonFull (Stage D serve)
-#include <havok/anim/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
-#include <havok/anim/AnimationCompiler.h>    // havok::anim::CompileAnimation (native anim -> loose .hkx)
-#include <havok/anim/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
-#include <havok/anim/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
-#include <havok/anim/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
-#include <havok-schema/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
+#include <interface/UnitSource.h>
+#include <codec/serialization/HkyArchive.h>
+#include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromGraph — first-class adsf-derive stage
+#include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
+#include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
+#include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
+#include <compile/AnimationCompiler.h>         // CB::engine::anim::CompileAnimation (native anim -> loose .hkx)
+#include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
+#include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
+#include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
+#include <codec/format/AnimDataYaml.h>         // AssembleAnimdata / ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
+#include <compile/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
+#include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
 #include <atomic>
@@ -60,42 +52,19 @@ namespace CB {
             return s;
         }
 
-        // The first `characterFilenames:` list entry from a project.yaml, VERBATIM (original case, e.g.
-        // "Characters\DefaultMale.hkx"). The decompiled project preserves the exact string the engine
-        // binds the character to setdata/animdata by (case-sensitively). Minimal parse — no YAML lib.
-        std::string FirstCharFilename(const std::string& projectYaml)
+        /// @brief A reflective unit's kind (its graph.yaml's root variant; a patch names its base's). A unit without
+        ///        graph.yaml is a patch that leaves the root untouched — Behavior.
+        CB::engine::codec::HkyArchive::UnitKind KindOfUnit(const CB::engine::common::IUnitSource& src)
         {
-            const auto key = projectYaml.find("characterFilenames:");
-            if (key == std::string::npos) return {};
-            // Bound the "- " search to characterFilenames:' OWN block — the contiguous run of following
-            // lines that are blank or list items. Stop at the first line whose first non-space char is
-            // neither '-' nor a line break: that's the next key. An empty or flow-style ("[...]") list
-            // has no "- " in its block, and an unbounded find would walk into a later key's list and
-            // return an unrelated string — an invisible character->setdata/animdata mis-bind.
-            std::size_t boundary = std::string::npos;   // start of the next sibling key, or npos
-            std::size_t lineStart = projectYaml.find('\n', key);
-            while (lineStart != std::string::npos) {
-                lineStart += 1;                          // first char of the next line
-                std::size_t p = lineStart;
-                while (p < projectYaml.size() && (projectYaml[p] == ' ' || projectYaml[p] == '\t')) ++p;
-                if (p >= projectYaml.size()) break;
-                const char ch = projectYaml[p];
-                if (ch == '\n' || ch == '\r' || ch == '-') {   // blank line or list item: still the block
-                    lineStart = projectYaml.find('\n', p);
-                    continue;
-                }
-                boundary = lineStart;                    // a non-list line = the next key
-                break;
-            }
-            const auto dash = projectYaml.find("- ", key);
-            if (dash == std::string::npos || (boundary != std::string::npos && dash >= boundary)) return {};
-            auto end = projectYaml.find('\n', dash);
-            std::string v = projectYaml.substr(dash + 2, (end == std::string::npos ? projectYaml.size() : end) - (dash + 2));
-            while (!v.empty() && (v.back() == '\r' || v.back() == ' ' || v.back() == '\t')) v.pop_back();
-            while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
-            // strip optional surrounding quotes
-            if (v.size() >= 2 && (v.front() == '\'' || v.front() == '"') && v.back() == v.front()) v = v.substr(1, v.size() - 2);
-            return v;
+            const auto g = src.read("graph.yaml");
+            return g ? CB::engine::codec::HkyArchive::KindOfGraphYaml(*g) : CB::engine::codec::HkyArchive::UnitKind::Behavior;
+        }
+
+        /// @brief True when the unit is complete on its own (not a patch over a master's unit).
+        bool IsCompleteUnit(const CB::engine::common::IUnitSource& src)
+        {
+            const auto g = src.read("graph.yaml");
+            return g && !CB::engine::codec::HkyArchive::IsPatchGraphYaml(*g);
         }
 
         // The actor identity for a graph serve key: everything between "actors/" and the
@@ -119,7 +88,7 @@ namespace CB {
         }
 
         // Decode XML entity references (&amp; &lt; &gt; &quot; &apos;) to their literal
-        // characters — mirrors havok::model CharacterYamlLoader::xmlUnescape. Author-drop
+        // characters. Author-drop
         // animationnames\<char>.txt rosters can arrive HTML-escaped (a mod's loose character
         // decompiled through an XML pipeline), so a shared-killmove path like
         // "..\SharedKillMoves\Human&amp;Boar\..." must fold back to "...Human&Boar\..." BEFORE
@@ -146,9 +115,9 @@ namespace CB {
             return o;
         }
 
-        using servekey::NormalizeKey;
-        using servekey::FolderRootOf;
-        using servekey::CacheDiskRel;
+        using CB::core::discover::NormalizeKey;
+        using CB::core::discover::FolderRootOf;
+        using CB::core::discover::CacheDiskRel;
         // (serve-key helpers live in hpp/ServeKey.h — shared with br-servekey-test)
 
         std::string TrimLine(const std::string& line)
@@ -162,11 +131,11 @@ namespace CB {
         // ── Compile-time graph features now live in features/ ─────────────────────────
         // The ER wildcard gate (and future graph transforms) moved to self-registered
         // IGraphFeatures under features/<Owner>/ (see CLAUDE.md "Compiler features —
-        // CB::features (SOP)"). The transform runs from the compile loop via the
+        // CB::feature (SOP)"). The transform runs from the compile loop via the
         // FeatureRegistry (below). This host-side adapter bridges a feature's logging to the
         // plugin logger — features never touch LOG_* directly (the pure-Apply rule keeps them
         // offline-reproducible).
-        struct ResolverFeatureLog final : CB::features::IFeatureLog {
+        struct ResolverFeatureLog final : CB::feature::IFeatureLog {
             void Info(std::string_view m) override { LOG_INFO("{}", m); }
             void Warn(std::string_view m) override { LOG_WARN("{}", m); }
         };
@@ -190,6 +159,10 @@ namespace CB {
             // Lets the conflict report tell an expected OVERRIDE (a bundle editing a node its
             // master introduced) from a namespace CLASH (two unrelated bundles editing one node).
             std::unordered_map<std::string, std::unordered_set<std::string>> ancestors;
+            // stem -> its ORDERED master table (index 0 = base game, 1..k = declared masters, last =
+            // self). A node's FormId masterIndex resolves against this. Built from the DIRECT declared
+            // masters (positional), so it's ordered where `ancestors` (a transitive set) is not.
+            std::unordered_map<std::string, std::vector<std::string>> masterTable;
         };
 
         // `manifests`: every scanned bundle stem -> its manifest (masters declared here).
@@ -255,6 +228,12 @@ namespace CB {
                 survivors.push_back(stem);
                 indeg.emplace(stem, 0);
             }
+
+            // Ordered master table per survivor (index 0 = base game, 1..k = declared masters in file
+            // order, last = self) — what a node's FormId masterIndex resolves against. explicitMasters
+            // is the DIRECT declared set in manifest order (deduped, self-excluded, lowercase).
+            for (const std::string& s : survivors)
+                plan.masterTable[s] = CB::engine::codec::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
             for (const std::string& s : survivors) {
                 std::vector<std::string> masters = explicitMasters[s];          // all present (survivors)
                 if (haveSkyrim && s != "skyrim" &&
@@ -325,27 +304,6 @@ namespace CB {
     void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni, bool warmReuse,
                         const AnimExecutor* skelExec)
     {
-        // Route havok-core's merge diagnostics into the BR log (havok-core has no logger of its own;
-        // opt-in, and once is enough — persists for every later Resolve/LoadMerged). Two severities
-        // share this one string sink:
-        //   • "no handler for node class X" — a node was DROPPED because no dispatch handler claimed
-        //     its class. That is a correctness break: the graph is missing a node and will very likely
-        //     char-setup-crash or A-pose (it is exactly what nodeless'd AutoplayBehavior when
-        //     BGSGamebryoSequenceGenerator had no reachable handler). Route to ERROR so a single orphan
-        //     can't hide among thousands of WARNs across a full load order.
-        //   • everything else — benign non-fatal notices (same-slot positional-array collisions where
-        //     load-order last-writer drops a mod's differing edit): WARN.
-        // Dedup identical messages: the same base-node collision / notice recurs across every graph
-        // that loads those base nodes (a full load order can repeat one message tens of thousands of
-        // times), and synchronous logging of that flood can crawl the compile to an apparent freeze.
-        // Log each unique message once; the first occurrence carries all the information.
-        havok::model::YamlBehaviorLoader::SetDiagnosticSink(
-            [seen = std::make_shared<std::unordered_set<std::string>>()](const std::string& m) {
-                if (!seen->insert(m).second) return;                       // already logged this exact line
-                if (m.find("no handler for node class") != std::string::npos) LOG_ERROR("{}", m);
-                else                                                          LOG_WARN("{}", m);
-            });
-
         // 1) Load order (optional): .hky plugin name -> priority (higher wins).
         std::unordered_map<std::string, int> order;
         if (std::ifstream f{ loadOrderIni }) {
@@ -375,10 +333,13 @@ namespace CB {
         // archive-backed (ZipUnitSource, a packed .hky) — the merge doesn't care which.
         struct LayerBuild {
             std::string                                      stem;    // owning bundle — its master-DAG rank orders this layer
-            std::shared_ptr<const havok::model::IUnitSource> source;
+            std::shared_ptr<const CB::engine::common::IUnitSource> source;
             bool                                             isChar;
         };
         std::unordered_map<std::string, std::vector<LayerBuild>> layers;
+        /// @note Keys whose base is a project or skeleton: not merged graphs. A mod's patch unit that leaves the root
+        ///       untouched carries no graph.yaml, so on its own it would read as a behavior layer.
+        std::unordered_set<std::string> nonGraphKeys;
         int plugins = 0;
 
         // Collector for bundle-authored NATIVE ANIMATIONS. The .hky compile-target model: inside an
@@ -409,7 +370,7 @@ namespace CB {
 
             // COLLECT FOR RECOMPILE ONLY — do NOT auto-roster. A .hkx file's presence under an
             // actor's animations\ dir is NOT membership in that actor's animationName roster. The
-            // authoritative roster is the vanilla animations.txt (unioned by CharacterYamlLoader) plus
+            // authoritative roster is the character's animationNames (a union roster across layers) plus
             // any explicit animationnames\<char>.txt drop and the rosterref clip membrane. Force-adding
             // every file here was over-inclusive: a full master carries ~5900 anims under
             // meshes\actors\character\animations\, but only ~1656 belong to defaultmale — the rest are
@@ -417,9 +378,9 @@ namespace CB {
             // DAR/behavior-only clips. Folding all of them into defaultmale/defaultfemale inflated the
             // roster ~3.5x; char-setup binds against roster.size() (== the OAR synchronized offset), so
             // the surplus entries overran the binding/offset math → the AutoplayBehavior char-setup CTD.
-            // (These recompiled natives are also STAGED to the dead-end meshes\CBanims\ — not served —
-            // so rostering them bound nothing anyway.) When the real in-memory serve lands, binding will
-            // be driven from the authoritative roster, not from raw file discovery.
+            // (Reached only for a compile-opted-in bundle now; still don't auto-roster from raw file
+            // discovery.) When the real in-memory serve lands, binding will be driven from the
+            // authoritative roster, not from raw file discovery.
             m_nativeAnims.emplace_back(outKey, std::move(yamlText));
         };
 
@@ -439,7 +400,7 @@ namespace CB {
                 // filename ("vanilla.hky"): loadorder.txt lists bare bundle names. Using the
                 // .hky filename here made every lookup miss -> every bundle priority 0 -> the
                 // base-first sort became arbitrary (alphabetical), so the vanilla base was not
-                // ordered first and the merge tried to use a delta bundle (no behavior.yaml) as
+                // ordered first and the merge tried to use a patch bundle as
                 // the base. (Masked until the stale full-bundle VFS collision was cleaned up.)
                 // The bundle STEM is its load-order handle and its master-DAG node; the
                 // actual ordering is resolved from the master graph after the scan
@@ -462,11 +423,21 @@ namespace CB {
                              mf.author.empty()  ? std::string("?") : mf.author,
                              masters.empty() ? std::string() : (" — masters: " + masters));
                 };
+                // OPT-IN animation compile: only bundles whose manifest sets compile_animations=true get
+                // their native animations collected for compile (default false — Skyrim.hky + conversions
+                // skip it; those animations exist only to feed adsf root motion, reunited at build time).
+                // An opted-in bundle compiles its animations straight to the real meshes path (they serve);
+                // a non-compile bundle skips the compile entirely (nothing to clobber). Retires the old
+                // hardcoded gate + the CBanims/ staging harness.
+                bool bundleCompileAnims = false;
                 {
                     std::vector<std::string> mfWarn;
                     BundleManifest mf = BundleManifest::Load(bundle, bundle.stem().string(), mfWarn);
                     for (const auto& w : mfWarn) LOG_WARN("Resolver: manifest — {}", w);
                     logManifest(mf);
+                    bundleCompileAnims = mf.compileAnimations;
+                    if (bundleCompileAnims)
+                        LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", plugName);
                     m_manifests.emplace(plugName, std::move(mf));
                 }
 
@@ -481,7 +452,7 @@ namespace CB {
                     // "<name>.hkx" DIR is a unit (handled below); is_regular_file distinguishes them.
                     // The "/animations/" pre-check skips binary .hkx elsewhere in the tree (e.g. the
                     // skeleton physics source) so we don't read them; collectNativeAnim re-guards it.
-                    if (std::error_code rfe; ui->is_regular_file(rfe)) {
+                    if (std::error_code rfe; bundleCompileAnims && ui->is_regular_file(rfe)) {
                         const std::string relOrig = ui->path().lexically_relative(bundle).generic_string();
                         const std::string relLow  = ToLower(relOrig);
                         if (relLow.size() >= 4 && relLow.compare(relLow.size() - 4, 4, ".hkx") == 0 &&
@@ -496,30 +467,24 @@ namespace CB {
                     const fs::path unit = ui->path();
                     if (ToLower(unit.extension().string()) != ".hkx") continue;
                     ui.disable_recursion_pending();  // a unit is a leaf — don't descend into it
-                    // A skeleton tree (bonelist.yaml) is NOT a behavior graph — it serves via the
-                    // skeleton path. Skip it here, else the has-subdir fallback below accepts it
-                    // (it has bones/), the compile fails on it, and byteserve claims its .hkx open.
-                    if (fs::exists(unit / "bonelist.yaml", uec)) continue;
-                    // The vanilla base carries behavior.yaml (or character.yaml); a mod
-                    // delta usually does not (just changed/new node subfolders — or, for
-                    // a character roster delta, a bare data/animations.yaml). Accept any —
-                    // LoadMerged requires the yaml only on the base (lowest) layer.
-                    bool valid = fs::exists(unit / "behavior.yaml", uec) ||
-                                 fs::exists(unit / "character.yaml", uec) ||
-                                 fs::exists(unit / "data" / "animations.yaml", uec);
-                    if (!valid)
-                        for (fs::directory_iterator si(unit, uec), sEnd; !uec && si != sEnd; si.increment(uec))
-                            if (si->is_directory(uec)) { valid = true; break; }
-                    if (!valid) continue;
 
                     // Serve key = the unit's path RELATIVE TO THE BUNDLE (its game data
                     // path + graph), e.g. "meshes/actors/character/behaviors/0_master.hkx".
                     const std::string key = NormalizeKey(unit.lexically_relative(bundle).generic_string());
                     if (key.empty() || key[0] == '.') continue;
 
-                    layers[key].push_back({ plugName,
-                                            std::make_shared<havok::model::DiskUnitSource>(unit),
-                                            fs::exists(unit / "character.yaml", uec) });
+                    /// @note Skeletons compile through the skeleton path (path-local winners), and the project is
+                    ///       synthesized by ProjectRedirect — neither is a merged graph layer. A project unit only
+                    ///       contributes its original-case character ref.
+                    auto src = std::make_shared<CB::engine::common::DiskUnitSource>(unit);
+                    const auto kind = KindOfUnit(*src);
+                    if (kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(key); continue; }
+                    if (kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
+                        nonGraphKeys.insert(key);
+                        if (IsCompleteUnit(*src)) m_projectUnits[key] = std::move(src);
+                        continue;
+                    }
+                    layers[key].push_back({ plugName, std::move(src), kind == CB::engine::codec::HkyArchive::UnitKind::Character });
                 }
 
                 // AUTHOR-FACING ROSTER DROP: a bundle adds animations to a character by
@@ -561,7 +526,7 @@ namespace CB {
                 // out of the in-memory blob. The archive is held in m_archives for the
                 // process lifetime so those sources stay valid.
                 std::string err;
-                auto arc = havok::model::HkyArchive::LoadFromFile(bundle.string(), err);
+                auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
                 if (!arc) {
                     LOG_WARN("Resolver: cannot read packed .hky '{}': {} — skipped.", bundle.string(), err);
                 } else {
@@ -573,32 +538,34 @@ namespace CB {
                         std::vector<std::string> mfWarn;
                         BundleManifest mf = BundleManifest::Parse(*mtext, bundle.stem().string(), mfWarn);
                         for (const auto& w : mfWarn) LOG_WARN("Resolver: manifest — {}", w);
-                        if (mf.present) { logManifest(mf); m_manifests[plugName] = std::move(mf); }
+                        if (mf.present) {
+                            logManifest(mf);
+                            bundleCompileAnims = mf.compileAnimations;
+                            if (bundleCompileAnims)
+                                LOG_INFO("Resolver: bundle '{}' opts INTO animation compile (manifest compile_animations=true).", plugName);
+                            m_manifests[plugName] = std::move(mf);
+                        }
                     }
                     for (const auto& u : arc->units()) {
-                        // The project graph itself is not served from the bundle — ProjectRedirect
-                        // synthesizes the served project on demand (into the cache, vanilla identity);
-                        // a bundle project graph would only compete with that. Behaviors + characters
-                        // serve. But FIRST capture the project's ORIGINAL-CASE characterFilenames ref from project.yaml —
-                        // ProjectRedirect re-emits the vanilla identity from it (the case-sensitive bind
-                        // the engine does on that string; a lowercased ref A-poses vanilla-only actors).
-                        if (u.kind == havok::model::HkyArchive::UnitKind::Project) {
+                        // The project graph is not a merged layer — ProjectRedirect serves the complete
+                        // project unit on demand (into the cache, vanilla identity, its ORIGINAL-CASE
+                        // characterFilenames: a lowercased ref A-poses vanilla-only actors).
+                        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
+                            nonGraphKeys.insert(NormalizeKey(u.prefix));
                             if (auto src = arc->source(u.prefix))
-                                if (auto py = src->read("project.yaml"))
-                                    if (std::string ref = FirstCharFilename(*py); !ref.empty())
-                                        m_projectOrigCharRef[NormalizeKey(u.prefix)] = std::move(ref);
+                                if (IsCompleteUnit(*src)) m_projectUnits[NormalizeKey(u.prefix)] = std::move(src);
                             continue;
                         }
                         // Skeletons are NOT a behavior/character graph — they compile through the dedicated
-                        // skeleton path (m_skeletonServe, layer-driven). Adding them here made Owns() true so
+                        // skeleton path (m_skeletonServe, path-local winners). Adding them here made Owns() true so
                         // ByteServe REDIRECTED every skeleton load into community_behaviors_cache, but no graph compile
                         // ever wrote that file — the redirect hit a missing file and the skeleton failed to
                         // load: universal A-pose + no root motion. Leave unlayered skeletons to vanilla.
-                        if (u.kind == havok::model::HkyArchive::UnitKind::Skeleton) continue;
+                        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(NormalizeKey(u.prefix)); continue; }
                         const std::string key = NormalizeKey(u.prefix);   // already lower/'/'-normal
                         if (key.empty() || key[0] == '.') continue;
                         layers[key].push_back({ plugName, arc->source(u.prefix),
-                                                u.kind == havok::model::HkyArchive::UnitKind::Character });
+                                                u.kind == CB::engine::codec::HkyArchive::UnitKind::Character });
                     }
 
                     // Author roster drops inside a packed bundle live at "animationnames/
@@ -624,7 +591,7 @@ namespace CB {
                     // a single-file compile target). filesUnder (normalized) + filesUnderOrig (original
                     // case) walk the SAME ordered range, so index i aligns — read by the normalized key,
                     // name by the original; collectNativeAnim guards the meshes/actors/.../animations/ path.
-                    {
+                    if (bundleCompileAnims) {
                         const auto norm = arc->filesUnder("meshes/");
                         const auto orig = arc->filesUnderOrig("meshes/");
                         for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i) {
@@ -639,215 +606,6 @@ namespace CB {
             }
         }
 
-        // Skeleton SERVE (Stage D) + bone-name tables. BR ships EVERY vanilla skeleton as a YAML tree
-        // in Skyrim.hky (bonelist.yaml + bones/<name>.yaml); a bundle's skeleton/<actorpath>/bones/
-        // layer (e.g. XPMSSE) EXTENDS it. For each actor with a layer we compile base-YAML + adds via
-        // CompileSkeletonFull (anim + ragdoll + constraints + mappers) and serve at the unit path. The
-        // whole thing is PATH-DRIVEN off the .hky's Data-mirrored tree — nested creatures
-        // (dlc01/chaurusflyer, canine dog/wolf) and every skeleton VARIANT of an actor just work. No
-        // layer ⇒ no serve, so add-no-bones setups are untouched. (Replaces the old read-binary +
-        // CompileSkeletonOverBase path — the binaries are gone; BR owns the skeleton fully from YAML.)
-        {
-            const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
-            std::optional<BundleReader> master;          // Skyrim.hky — the base-skeleton authority
-            std::vector<BundleReader>   allBundles;      // every bundle — scanned for skeleton/ layers
-            {
-                std::error_code me;
-                if (fs::is_directory(pluginsRoot, me))
-                    for (fs::directory_iterator bi(pluginsRoot, me), bend; !me && bi != bend; bi.increment(me)) {
-                        if (ToLower(bi->path().stem().string()) == "skyrim") master = BundleReader::Open(bi->path());
-                        if (auto br = BundleReader::Open(bi->path())) allBundles.push_back(std::move(*br));
-                    }
-            }
-
-            // Read a base skeleton YAML unit (meshes/actors/.../skeleton*.hkx) from the master into a
-            // SkeletonData. filesUnder (normalized, for read()) + filesUnderOrig (original case, for the
-            // bone NAME) walk the same range — index i aligns — so bone names keep their exact case (the
-            // clip/skin/roster name identity; a lowercased bone would orphan its skin binding, BR-16).
-            auto readBaseUnit = [&](const std::string& unit, havok::skeleton::SkeletonData& out) -> bool {
-                if (!master) return false;
-                const std::string bl = master->read(unit + "/bonelist.yaml").value_or("");
-                const auto norm = master->filesUnder(unit + "/bones/", ".yaml");
-                const auto orig = master->filesUnderOrig(unit + "/bones/", ".yaml");
-                std::vector<std::pair<std::string, std::string>> boneFiles;
-                for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i)
-                    if (auto t = master->read(norm[i]))
-                        boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
-                if (bl.empty() && boneFiles.empty()) return false;
-                std::string err;
-                if (!havok::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
-                    LOG_WARN("Resolver: base skeleton '{}' YAML load failed: {}", unit, err);
-                    return false;
-                }
-                return true;
-            };
-
-            // 1) Collect bone-add layers across bundles, keyed by actorpath (nested). A layer file lives
-            //    at "skeleton/<actorpath>/bones/<name>.yaml"; original-case stem = the bone name.
-            std::map<std::string, std::vector<std::pair<std::string, std::string>>> layerTexts;
-            std::map<std::string, std::string> layerBonelist;   // actorpath -> bonelist.yaml text (added-bone order)
-            for (auto& br : allBundles) {
-                const auto norm = br.filesUnder("skeleton/", ".yaml");
-                const auto orig = br.filesUnderOrig("skeleton/", ".yaml");
-                for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i) {
-                    const std::string& n  = norm[i];
-                    if (n.rfind("skeleton/", 0) != 0) continue;
-                    // A layer's bonelist.yaml (skeleton/<actorpath>/bonelist.yaml) records the SOURCE bone
-                    // order — load-bearing so HKX-target animations bind added bones to the right indices.
-                    // bl/bp > 8 rejects a rootless drop ("skeleton/bonelist.yaml", "skeleton/bones/x.yaml"):
-                    // there the delimiter sits at index 8, so `bl - 9`/`bp - 9` would underflow (size_t wraps
-                    // to SIZE_MAX and substr clamps to a bogus non-empty tail, defeating the empty guards).
-                    if (const auto bl = n.rfind("/bonelist.yaml"); bl != std::string::npos && bl > 8 && bl + 14 == n.size()) {
-                        const std::string actorpath = n.substr(9, bl - 9);   // after "skeleton/", before "/bonelist.yaml"
-                        if (!actorpath.empty()) if (auto t = br.read(n)) layerBonelist[actorpath] = std::move(*t);
-                        continue;
-                    }
-                    const auto bp = n.find("/bones/");
-                    if (bp == std::string::npos || bp <= 8) continue;
-                    const std::string actorpath = n.substr(9, bp - 9);   // after "skeleton/", before "/bones/"
-                    if (actorpath.empty()) continue;
-                    if (auto t = br.read(n)) layerTexts[actorpath].emplace_back(fs::path(orig[i]).stem().string(), *t);
-                }
-            }
-            const auto bonelistFor = [&](const std::string& ap) -> const std::string& {
-                static const std::string kEmpty;
-                auto it = layerBonelist.find(ap);
-                return it == layerBonelist.end() ? kEmpty : it->second;
-            };
-
-            // 2) SERVE: for each actor with a layer, compile every skeleton variant (base-YAML + adds).
-            // DIAGNOSTIC opt-out (marker file Data\community_behaviors\noskeletonserve.enable): skip the
-            // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton
-            // (e.g. the installed XPMSSE skeleton.hkx, which carries the full 3ds-Max export-helper
-            // resource tree BR's derived physics-only container omits). If the A-pose clears with this
-            // set, the runtime DOES rely on that export tree and BR must reproduce it. The bone-name
-            // table below is still built (behaviors need it), so only the served skeleton changes.
-            const bool skipSkelServe = std::filesystem::exists("Data/community_behaviors/noskeletonserve.enable");
-            if (skipSkelServe)
-                LOG_WARN("Resolver: SKELETON SERVE DISABLED (noskeletonserve.enable) — skeleton opens fall "
-                         "through to loose files. Diagnostic only.");
-
-            // Pre-warm the shared schema registry ON THIS (single) thread before any fan-out: its one-time
-            // load is guarded by a plain, UNsynchronized `state` int, so two workers racing the first
-            // CompileSkeletonFull could both attempt it. After this call every worker only READS it. (The
-            // same pre-warm WriteNativeAnimations does — cheap no-op if already warm.)
-            (void)havok::schema::SharedRegistry();
-
-            // Compile one actor's served skeleton variants. Pure function of the read-only master YAML +
-            // this actor's immutable layer texts; writes only its own distinct m_skeletonServe keys (under
-            // serveMu), so fanning across actors is byte-identical to serial. `ap`/`texts` are pointers into
-            // the stable std::map layerTexts (element addresses don't move), captured to dodge the pre-C++20
-            // structured-binding-capture limitation.
-            std::mutex serveMu;
-            auto serveActor = [&](const std::string& ap,
-                                  const std::vector<std::pair<std::string, std::string>>& texts) {
-                std::vector<havok::skeleton::SkeletonBoneAdd> adds;
-                havok::skeleton::LoadSkeletonLayerFromTexts(texts, adds, bonelistFor(ap), nullptr);
-                if (adds.empty() || !master) return;
-                std::set<std::string> units;   // "meshes/actors/<actorpath>/<variant>/skeleton*.hkx"
-                for (const std::string& f : master->filesUnder("meshes/actors/" + ap + "/", ".yaml"))
-                    if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size())
-                        units.insert(f.substr(0, b));
-                for (const std::string& unit : units) {
-                    const std::string key = NormalizeKey(unit);
-                    // WARM REUSE: this skeleton was compiled on a prior run and its bytes are already in
-                    // the consolidated cache on disk. ByteServe serves that file via a path swap and
-                    // Owns() needs only the key present — so register the key and SKIP the expensive
-                    // CompileSkeletonFull recompile. This removes the redundant every-launch skeleton
-                    // compile that ran on the main thread at plugin load (the main-menu stall). Guarded on
-                    // warmReuse (== gate's !force && CachePresent) AND the cache file actually existing, so
-                    // a forced regen or a missing file falls through and compiles fresh — we never serve a
-                    // skeleton the cold path is about to wipe. WriteSkeletonServe skips empty-byte entries,
-                    // so the key-only registration doesn't rewrite the already-present file.
-                    if (warmReuse) {
-                        const std::string rel = servekey::CacheDiskRel(key);
-                        if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
-                            { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe.emplace(key, std::vector<std::uint8_t>{}); }
-                            LOG_INFO("Resolver: skeleton '{}' — warm cache hit, serve key registered (recompile skipped).", unit);
-                            continue;
-                        }
-                    }
-                    havok::skeleton::SkeletonData sk;
-                    if (!readBaseUnit(unit, sk)) continue;
-                    std::string merr;
-                    if (!havok::skeleton::MergeBoneAdditions(sk, adds, &merr))
-                        LOG_WARN("Resolver: skeleton '{}' bone-add merge: {} — base unchanged.", unit, merr);
-                    auto cr = havok::skeleton::CompileSkeletonFull(sk);
-                    if (cr.ok) {
-                        const std::size_t nBones = sk.bones.size();
-                        { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
-                        LOG_INFO("Resolver: SERVING skeleton '{}' (+{} added, {} total).", unit, adds.size(), nBones);
-                    } else
-                        LOG_WARN("Resolver: skeleton '{}' compile failed: {} — not served.", unit, cr.error);
-                }
-            };
-            if (!skipSkelServe) {
-                std::vector<std::function<void()>> serveTasks;
-                serveTasks.reserve(layerTexts.size());
-                for (auto it = layerTexts.begin(); it != layerTexts.end(); ++it) {
-                    const std::string* ap = &it->first;
-                    const auto*        tx = &it->second;
-                    serveTasks.push_back([&serveActor, ap, tx] { serveActor(*ap, *tx); });
-                }
-                if (skelExec && *skelExec && serveTasks.size() > 1) (*skelExec)(std::move(serveTasks));
-                else for (auto& t : serveTasks) t();
-            }
-
-            // 3) BONE-NAME TABLE (behavior bone-index resolution): for each behavior actor, read its
-            //    primary skeleton from the master YAML (+ this actor's adds, if any). Keyed by the
-            //    ACTOR PATH (segments between actors/ and /behaviors/, so nested creatures stay
-            //    distinct — dlc02/netch vs dlc02/riekling). The skeleton unit is found by searching
-            //    the actor's whole subtree for a bonelist.yaml — nested creatures and variant
-            //    folders ("character assets", "characterassets", "character assets dog") all resolve.
-            std::set<std::string> behActors;
-            for (const auto& [key, ls] : layers)
-                if (std::string ap = ActorPathOf(key); !ap.empty())
-                    behActors.insert(std::move(ap));
-
-            // Build one actor's bone-name table. Pure function of the read-only master YAML + this actor's
-            // immutable layer texts; builds a LOCAL table then moves it into its own distinct m_skeletons
-            // key under tblMu — so fanning across actors is byte-identical to serial. This loop runs on
-            // EVERY launch (warm included, unlike the SERVE compile above), so it's the piece the pool
-            // actually shortens on a warm cache. `actor` is copied by value (a std::set element).
-            std::mutex tblMu;
-            auto buildBoneTable = [&](const std::string& actor) {
-                if (!master) return;
-                // First skeleton unit under this actor's subtree (deterministic: filesUnder is sorted).
-                std::string unit;
-                for (const std::string& f : master->filesUnder("meshes/actors/" + actor + "/", ".yaml"))
-                    if (const auto b = f.rfind("/bonelist.yaml"); b != std::string::npos && b + 14 == f.size()) {
-                        unit = f.substr(0, b); break;
-                    }
-                if (unit.empty()) return;
-
-                havok::skeleton::SkeletonData sk;
-                if (!readBaseUnit(unit, sk)) return;
-
-                std::size_t nAdds = 0;
-                if (auto it = layerTexts.find(actor); it != layerTexts.end()) {
-                    std::vector<havok::skeleton::SkeletonBoneAdd> adds;
-                    havok::skeleton::LoadSkeletonLayerFromTexts(it->second, adds, bonelistFor(actor), nullptr);
-                    nAdds = adds.size();
-                    std::string merr; havok::skeleton::MergeBoneAdditions(sk, adds, &merr);
-                }
-                havok::sct::BoneNameTable tbl;
-                for (const auto& b : sk.bones) tbl.names.push_back(b.name);
-                tbl.Reindex();
-                const std::size_t nBones = tbl.names.size();
-                { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[actor] = std::move(tbl); }
-                LOG_INFO("Resolver: skeleton '{}' = {} bone(s){}.", actor, nBones,
-                         nAdds ? (" incl. " + std::to_string(nAdds) + " added") : std::string{});
-            };
-            {
-                std::vector<std::function<void()>> boneTasks;
-                boneTasks.reserve(behActors.size());
-                for (const std::string& actor : behActors)
-                    boneTasks.push_back([&buildBoneTable, actor] { buildBoneTable(actor); });
-                if (skelExec && *skelExec && boneTasks.size() > 1) (*skelExec)(std::move(boneTasks));
-                else for (auto& t : boneTasks) t();
-            }
-        }
-
         // Resolve the master DAG into a base-first rank per bundle (masters drive order;
         // loadorder.txt breaks peer ties only) and the set of bundles skipped because a
         // declared master is absent. This REPLACES the old flat loadorder.txt priority —
@@ -855,11 +613,180 @@ namespace CB {
         // are now enforced: a master always sorts base-first, a dependent with no base drops.
         const LoadPlan plan = PlanLoadOrder(m_manifests, order);
 
+        /// @note Skeletons are PATH-LOCAL units in every bundle ("meshes/actors/<actor>/<variant>/<x>.hkx/"
+        ///       bonelist.yaml + bones/ — the skeleton compiler's own format, not a reflective graph: the schema
+        ///       codec can't yet read their ragdoll physics), and the load-order winner of a unit path IS that
+        ///       skeleton — a later
+        ///       bundle replaces it whole (XPMSSE ships its full skeletons; an identical one is a no-op
+        ///       replacement). Bone tables bind through the characters' `rig:` (see BonesFor), never
+        ///       "the first skeleton under the actor folder" — that picked _1stperson/skeletonfirst for the
+        ///       3rd-person character ('_' sorts before 'c').
+        {
+            const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
+            struct RankedBundle { std::string stem; int rank = 0; BundleReader reader; };
+            std::vector<RankedBundle> bundles;
+            {
+                std::error_code me;
+                if (fs::is_directory(pluginsRoot, me))
+                    for (fs::directory_iterator bi(pluginsRoot, me), bend; !me && bi != bend; bi.increment(me)) {
+                        if (ToLower(bi->path().extension().string()) != ".hky") continue;
+                        const std::string stem = ToLower(bi->path().stem().string());
+                        if (plan.dropped.count(stem)) continue;
+                        auto br = BundleReader::Open(bi->path());
+                        if (!br) continue;
+                        const auto rit = plan.rank.find(stem);
+                        bundles.push_back({ stem, rit != plan.rank.end() ? rit->second : 0, std::move(*br) });
+                    }
+            }
+            std::sort(bundles.begin(), bundles.end(), [](const RankedBundle& a, const RankedBundle& b) {
+                return a.rank != b.rank ? a.rank < b.rank : a.stem < b.stem;
+            });
+
+            /// @note Unit identity is the NORMALIZED path: the engine opens these files case-insensitively,
+            ///       and XPMSSE ships "actors/Chaurus/…" / "skeever/…/Skeleton.hkx" over vanilla's lowercase
+            ///       paths. Internal-only key; bone NAMES are read original-case (readUnit).
+            /// @note The load-order winner of a unit path is the last bundle whose unit there is COMPLETE: a skeleton
+            ///       (bonelist.yaml), or a project / character graph.yaml owned by the unit itself — a mod's patch unit
+            ///       never replaces one.
+            std::unordered_map<std::string, std::size_t> skelWinner, projWinner, charWinner;
+            for (std::size_t bi = 0; bi < bundles.size(); ++bi)
+                for (const std::string& f : bundles[bi].reader.filesUnder("meshes/", ".yaml")) {
+                    const auto endsWith = [&f](std::string_view t) {
+                        return f.size() > t.size() && f.compare(f.size() - t.size(), t.size(), t) == 0;
+                    };
+                    if (endsWith("/bonelist.yaml")) { skelWinner[f.substr(0, f.size() - 14)] = bi; continue; }
+                    if (!endsWith(".hkx/graph.yaml")) continue;
+                    const std::string unit = f.substr(0, f.size() - 11);
+                    const std::string text = bundles[bi].reader.read(f).value_or("");
+                    if (CB::engine::codec::HkyArchive::IsPatchGraphYaml(text)) continue;
+                    switch (CB::engine::codec::HkyArchive::KindOfGraphYaml(text)) {
+                        case CB::engine::codec::HkyArchive::UnitKind::Project:   projWinner[unit] = bi; break;
+                        case CB::engine::codec::HkyArchive::UnitKind::Character: charWinner[unit] = bi; break;
+                        default: break;
+                    }
+                }
+
+            /// @note filesUnder (normalized, for read) and filesUnderOrig (original case, for the bone NAME)
+            ///       walk the same range, so index i aligns — a lowercased bone would orphan its skin binding.
+            auto readUnit = [&](std::size_t bi, const std::string& unit, CB::engine::skeleton::SkeletonData& out) -> bool {
+                const BundleReader& br = bundles[bi].reader;
+                const std::string bl   = br.read(unit + "/bonelist.yaml").value_or("");
+                const auto norm = br.filesUnder(unit + "/bones/", ".yaml");
+                const auto orig = br.filesUnderOrig(unit + "/bones/", ".yaml");
+                std::vector<std::pair<std::string, std::string>> boneFiles;
+                for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i)
+                    if (auto t = br.read(norm[i]))
+                        boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
+                if (bl.empty() && boneFiles.empty()) return false;
+                std::string err;
+                if (!CB::engine::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
+                    LOG_WARN("Resolver: skeleton '{}' ({}) YAML load failed: {}", unit, bundles[bi].stem, err);
+                    return false;
+                }
+                return true;
+            };
+            /// @note Loaded HERE, single-threaded, before any fan-out: its one-time load is guarded by a plain,
+            ///       unsynchronized `state` int, so two workers racing the first use could both attempt it.
+            auto* schemaReg = CB::engine::schema::SharedRegistry();
+
+            // DIAGNOSTIC opt-out (marker file Data\community_behaviors\noskeletonserve.enable): skip the
+            // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton.
+            // The bone-name tables below are still built (behaviors need them); only the serve changes.
+            const bool skipSkelServe = std::filesystem::exists("Data/community_behaviors/noskeletonserve.enable");
+            if (skipSkelServe)
+                LOG_WARN("Resolver: SKELETON SERVE DISABLED (noskeletonserve.enable) — skeleton opens fall "
+                         "through to loose files. Diagnostic only.");
+
+            // SERVE: every unit a non-master bundle wins. Each task writes only its own m_skeletonServe key
+            // (under serveMu), so fanning across units is byte-identical to serial.
+            std::mutex serveMu;
+            auto serveUnit = [&](const std::string& unit, std::size_t bi) {
+                const std::string key = NormalizeKey(unit);
+                // WARM REUSE: the compiled bytes from a prior run are already in the consolidated cache;
+                // ByteServe serves that file via a path swap and Owns() needs only the key, so register it
+                // and skip the recompile. Guarded on warmReuse (== the gate's !force && CachePresent) AND the
+                // file existing, so a forced regen or a missing file compiles fresh. WriteSkeletonServe skips
+                // empty-byte entries, so the key-only registration doesn't rewrite the present file.
+                if (warmReuse) {
+                    const std::string rel = CB::core::discover::CacheDiskRel(key);
+                    if (!rel.empty() && std::filesystem::exists(dataDir / fs::path(rel))) {
+                        { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe.emplace(key, std::vector<std::uint8_t>{}); }
+                        LOG_INFO("Resolver: skeleton '{}' ({}) — warm cache hit, serve key registered (recompile skipped).",
+                                 unit, bundles[bi].stem);
+                        return;
+                    }
+                }
+                CB::engine::skeleton::SkeletonData sk;
+                if (!readUnit(bi, unit, sk)) return;
+                auto cr = CB::engine::skeleton::CompileSkeletonFull(sk);
+                if (cr.ok) {
+                    const std::size_t nBones = sk.bones.size();
+                    { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
+                    LOG_INFO("Resolver: SERVING skeleton '{}' from '{}' ({} bones).", unit, bundles[bi].stem, nBones);
+                } else
+                    LOG_WARN("Resolver: skeleton '{}' ({}) compile failed: {} — not served.", unit, bundles[bi].stem, cr.error);
+            };
+            if (!skipSkelServe) {
+                std::vector<std::function<void()>> serveTasks;
+                for (const auto& [unit, bi] : skelWinner) {
+                    if (bundles[bi].stem == "skyrim") continue;
+                    const std::string* u = &unit;
+                    const std::size_t  b = bi;
+                    serveTasks.push_back([&serveUnit, u, b] { serveUnit(*u, b); });
+                }
+                if (skelExec && *skelExec && serveTasks.size() > 1) (*skelExec)(std::move(serveTasks));
+                else for (auto& t : serveTasks) t();
+            }
+
+            // RIG BINDING (shared with the converter): project characterFilenames -> character rig/behavior.
+            for (const auto& [projUnit, pbi] : projWinner) {
+                const auto psrc = bundles[pbi].reader.unitSource(projUnit);
+                if (!psrc || !schemaReg) continue;
+                m_rigIndex.AddProject(projUnit, CB::engine::decompile::ReadProjectCharacters(*psrc, *schemaReg),
+                    [&](const std::string& charUnit) -> std::optional<CB::engine::skeleton::CharacterRig> {
+                        const auto cit = charWinner.find(charUnit);
+                        if (cit == charWinner.end()) return std::nullopt;
+                        const auto src = bundles[cit->second].reader.unitSource(charUnit);
+                        const auto cs  = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                        if (!cs) return std::nullopt;
+                        return CB::engine::skeleton::CharacterRig{ cs->rigName, cs->behaviorFilename };
+                    },
+                    [&](const std::string& rig) { return skelWinner.count(rig) != 0; },
+                    [](const std::string& m) { LOG_WARN("Resolver: {}.", m); });
+            }
+            m_rigIndex.Finalize();
+            const std::set<std::string>& boundRigs = m_rigIndex.BoundRigs();
+
+            // BONE TABLES, one per bound rig, from that rig unit's winner. Each task builds a LOCAL table
+            // and moves it into its own distinct m_skeletons key under tblMu (serial-equivalent).
+            std::mutex tblMu;
+            std::vector<std::function<void()>> boneTasks;
+            boneTasks.reserve(boundRigs.size());
+            for (const std::string& rig : boundRigs) {
+                const std::string* r  = &rig;
+                const std::size_t  bi = skelWinner.at(rig);
+                boneTasks.push_back([&, r, bi] {
+                    CB::engine::skeleton::SkeletonData sk;
+                    if (!readUnit(bi, *r, sk)) return;
+                    CB::engine::common::BoneNameTable tbl;
+                    for (const auto& b : sk.bones) tbl.names.push_back(b.name);
+                    tbl.Reindex();
+                    const std::size_t nBones = tbl.names.size();
+                    { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[*r] = std::move(tbl); }
+                    LOG_INFO("Resolver: rig '{}' = {} bone(s) from '{}'.", *r, nBones, bundles[bi].stem);
+                });
+            }
+            if (skelExec && *skelExec && boneTasks.size() > 1) (*skelExec)(std::move(boneTasks));
+            else for (auto& t : boneTasks) t();
+            LOG_INFO("Resolver: {} skeleton unit(s) across {} bundle(s); {} served; {} rig(s) bound.",
+                     skelWinner.size(), bundles.size(), m_skeletonServe.size(), m_skeletons.size());
+        }
+
         // Record each graph's layers, base-first by the master-DAG rank, for the merge to
         // overlay. The base (front) layer's isChar flag decides the compile path (character
-        // vs behavior graph). Layers from a skipped bundle are dropped. Sources are COPIED
-        // (cheap shared_ptr) rather than moved so `layers` survives for the conflict scan.
+        // vs behavior graph). Layers from a skipped bundle are dropped.
         for (auto& [key, ls] : layers) {
+            if (nonGraphKeys.count(key)) continue;
             ls.erase(std::remove_if(ls.begin(), ls.end(),
                          [&](const LayerBuild& l) { return plan.dropped.count(l.stem) != 0; }),
                      ls.end());
@@ -874,7 +801,19 @@ namespace CB {
                       });
             GraphSources gs;
             gs.layers.reserve(ls.size());
-            for (auto& l : ls) gs.layers.push_back(l.source);
+            for (auto& l : ls) {
+                // Carry each layer's load-order identity so the merge keys node identity by scope.
+                CB::engine::common::LayerSource lsrc;
+                lsrc.source = l.source;
+                lsrc.stem   = l.stem;
+                const auto rit = plan.rank.find(l.stem);
+                lsrc.rank   = rit != plan.rank.end() ? rit->second : 0;
+                if (const auto ait = plan.ancestors.find(l.stem); ait != plan.ancestors.end())
+                    lsrc.ancestors.assign(ait->second.begin(), ait->second.end());
+                if (const auto mit = plan.masterTable.find(l.stem); mit != plan.masterTable.end())
+                    lsrc.masterTable = mit->second;
+                gs.layers.push_back(std::move(lsrc));
+            }
             gs.isCharacter = !ls.empty() && ls.front().isChar;
             const std::size_t n = gs.layers.size();
             m_sources.emplace(key, std::move(gs));
@@ -882,52 +821,6 @@ namespace CB {
         }
         LOG_INFO("Resolver: {} .hky plugin(s), {} graph(s) mapped ({} packed archive(s)).",
                  plugins, m_sources.size(), m_archives.size());
-
-        // Node-granular conflict report: which bundles edit the SAME node in the same graph.
-        // Reuses havok-core's NodeContributions (the EXACT merge grouping) so a reported
-        // overlap is precisely a node the merge combines. Classify each via the master DAG:
-        // the lowest-ranked contributor is where the node first appears (base-first order); a
-        // later contributor that MASTERS that base is a legitimate OVERRIDE (load order decides
-        // the winner — e.g. two combat mods both editing a vanilla state, both mastering
-        // Skyrim). A contributor that does NOT master the base independently introduced the same
-        // identity — a namespace CLASH (the bug: two unrelated mods' node #2 collide). Every
-        // overlap is recorded (with the flag) for the MO2 manager; only clashes warn.
-        {
-            std::size_t clashes = 0;
-            for (const auto& [key, ls] : layers) {
-                if (ls.size() < 2) continue;                        // single bundle -> no overlap
-                std::vector<std::shared_ptr<const havok::model::IUnitSource>> srcs;
-                srcs.reserve(ls.size());
-                for (const auto& l : ls) srcs.push_back(l.source);
-                for (auto& nc : havok::model::YamlBehaviorLoader::NodeContributions(srcs)) {
-                    NodeConflict c;
-                    c.servePath = key;
-                    c.cls       = std::move(nc.cls);
-                    c.key       = std::move(nc.key);
-                    c.bundles.reserve(nc.layers.size());
-                    for (std::size_t idx : nc.layers) c.bundles.push_back(ls[idx].stem);
-                    const std::string& base = c.bundles.front();    // lowest rank = first to introduce it
-                    for (std::size_t i = 1; i < c.bundles.size(); ++i) {
-                        const std::string& later = c.bundles[i];
-                        if (later == base) continue;
-                        const auto it = plan.ancestors.find(later);
-                        const bool mastersBase = it != plan.ancestors.end() && it->second.count(base);
-                        if (!mastersBase) { c.clash = true; break; }  // introduced base's node independently
-                    }
-                    if (c.clash) {
-                        ++clashes;
-                        std::string names;
-                        for (const auto& b : c.bundles) { if (!names.empty()) names += ", "; names += b; }
-                        LOG_WARN("Resolver: node CLASH — graph '{}' node '{}' ({}) touched by unrelated bundles "
-                                 "[{}]; none masters the introducer (declare a master to make it an intended "
-                                 "override, or rename to avoid the collision).", key, c.key, c.cls, names);
-                    }
-                    m_conflicts.push_back(std::move(c));
-                }
-            }
-            LOG_INFO("Resolver: node-conflict scan — {} cross-bundle overlap(s), {} clash(es).",
-                     m_conflicts.size(), clashes);
-        }
 
         // Mod-declared symbols (events/variables) in BDI format — unioned into each
         // graph's data at compile time. One shared config dir; MO2 merges every
@@ -1054,41 +947,11 @@ namespace CB {
         keys.reserve(m_sources.size());
         for (const auto& [k, _] : m_sources) keys.push_back(k);
 
-        // Compile-trace (opt-in [Debug] bCompileTrace in settings.ini — renders in the converter's
-        // Debug tab, see CB::debug::kFlags): route the schema-driven probe trace of every behavior
-        // compile to a greppable log file. Zero cost when off (no sink -> trace::Enabled() is a null
-        // pointer test at the tap). Probes ride on the deployed schema tree (Havok/core/Schema/debug/
-        // *.yaml) — edit them to steer.
-        std::shared_ptr<std::ofstream> traceLog;
-        bool traceOn = false;
-        {
-            CSimpleIniA ini;
-            if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-                traceOn = ini.GetBoolValue("Debug", "bCompileTrace", false);
-        }
-        if (traceOn) {
-            traceLog = std::make_shared<std::ofstream>("Data/community_behaviors/compile_trace.log", std::ios::binary);
-            havok::model::trace::SetSink([traceLog](std::string_view l) {
-                traceLog->write(l.data(), static_cast<std::streamsize>(l.size())); traceLog->put('\n');
-            });
-            std::string pw;
-            const std::size_t np = havok::model::trace::LoadProbes("Data/Community Behaviors/Havok/core/Schema/metadata/debug", &pw);
-            if (!pw.empty()) LOG_WARN("Community Behaviors: compile-trace probe load: {}", pw);
-            LOG_INFO("Community Behaviors: COMPILE-TRACE ON ({} probe file(s)) -> Data\\community_behaviors\\compile_trace.log", np);
-        }
-
         const std::size_t total = keys.size();
         std::size_t       done  = 0;
         for (const auto& k : keys) {
             Resolve(k);
             if (progress) progress(++done, total);
-        }
-
-        if (traceOn) {
-            traceLog->flush();
-            havok::model::trace::SetSink({});
-            havok::model::trace::ClearProbes();
-            LOG_INFO("Community Behaviors: compile-trace written.");
         }
     }
 
@@ -1099,7 +962,7 @@ namespace CB {
         std::error_code ec;
         for (const auto& [key, bytes] : m_skeletonServe) {
             if (bytes.empty()) continue;
-            const std::string rel = servekey::CacheDiskRel(key);
+            const std::string rel = CB::core::discover::CacheDiskRel(key);
             if (rel.empty()) { LOG_WARN("Community Behaviors: skeleton key '{}' has unexpected shape — skipped.", key); continue; }
             const fs::path out = dataRoot / fs::path(rel);
             fs::create_directories(out.parent_path(), ec);
@@ -1111,6 +974,104 @@ namespace CB {
         }
         return written;
     }
+
+    namespace {
+        /// @brief FNV-1a 64 — the animation ledger's content fingerprint.
+        /// @note Internal only: it never crosses to the engine, so it is not a Havok CRC.
+        std::uint64_t Fnv64(const void* data, std::size_t n)
+        {
+            std::uint64_t h = 1469598103934665603ull;
+            const auto*   p = static_cast<const unsigned char*>(data);
+            for (std::size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ull; }
+            return h;
+        }
+
+        /// @return the file's fingerprint, or nullopt when it can't be read (absent / locked).
+        std::optional<std::uint64_t> FileFnv64(const std::filesystem::path& p)
+        {
+            std::ifstream f(p, std::ios::binary);
+            if (!f) return std::nullopt;
+            const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            return Fnv64(bytes.data(), bytes.size());
+        }
+
+        /// @brief One animation CB compiled to Data\meshes: its original-case data path, the fingerprint of the
+        ///        YAML it compiled from, and the fingerprint of the bytes it wrote.
+        struct AnimLedgerEntry {
+            std::string   path;
+            std::uint64_t src = 0;
+            std::uint64_t out = 0;
+        };
+
+        /// @brief The ledger of compiled animations — what CB wrote into the real meshes\ tree, so a removed or
+        ///        opted-out bundle's output can be found again and deleted.
+        /// @note `current` is false when the header's compiler revision or watermark differs from this build's: the entries still
+        ///       identify CB-written files (orphan cleanup), but none may be skipped as up to date.
+        struct AnimLedger {
+            std::unordered_map<std::string, AnimLedgerEntry> byKey;   ///< ToLower(path), internal-only key
+            bool                                              current = false;
+        };
+
+        constexpr const char* kAnimLedgerMagic = "cb-anim-ledger";
+
+        /// @brief Revision of the animation compiler's OUTPUT. Bump it whenever compiled animation bytes change for an
+        ///        unchanged source (e.g. the CB-8 floatBlockOffsets fix), so every ledgered animation recompiles once.
+        constexpr int kAnimCompilerRevision = 2;
+
+        std::string LedgerHeader()
+        {
+            return std::string(kAnimLedgerMagic) + " " + std::to_string(kAnimCompilerRevision) + " " +
+                   std::to_string(CB::core::resolve::kWatermarkValue);
+        }
+
+        AnimLedger LoadAnimLedger(const std::filesystem::path& file)
+        {
+            AnimLedger    led;
+            std::ifstream f(file, std::ios::binary);
+            if (!f) return led;
+            std::string line;
+            if (!std::getline(f, line)) return led;
+            while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+            if (line.rfind(kAnimLedgerMagic, 0) != 0) return led;   // not a ledger — track nothing
+            led.current = (line == LedgerHeader());
+            while (std::getline(f, line)) {
+                while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+                const auto t1 = line.find('\t');
+                const auto t2 = t1 == std::string::npos ? std::string::npos : line.find('\t', t1 + 1);
+                if (t2 == std::string::npos) continue;
+                AnimLedgerEntry e;
+                e.src  = std::strtoull(line.substr(0, t1).c_str(), nullptr, 16);
+                e.out  = std::strtoull(line.substr(t1 + 1, t2 - t1 - 1).c_str(), nullptr, 16);
+                e.path = line.substr(t2 + 1);
+                if (!e.path.empty()) led.byKey[ToLower(e.path)] = std::move(e);
+            }
+            return led;
+        }
+
+        /// @brief Replace the ledger (write-then-rename, so a crash never leaves a half-written one). An empty
+        ///        ledger removes the file.
+        void SaveAnimLedger(const std::filesystem::path& file, const std::vector<AnimLedgerEntry>& entries)
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            if (entries.empty()) { fs::remove(file, ec); return; }
+            fs::create_directories(file.parent_path(), ec);
+            const fs::path tmp = file.string() + ".tmp";
+            {
+                std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+                o << LedgerHeader() << "\n";
+                char hx[2][17];
+                for (const auto& e : entries) {
+                    std::snprintf(hx[0], sizeof hx[0], "%016llx", static_cast<unsigned long long>(e.src));
+                    std::snprintf(hx[1], sizeof hx[1], "%016llx", static_cast<unsigned long long>(e.out));
+                    o << hx[0] << '\t' << hx[1] << '\t' << e.path << "\n";
+                }
+                if (!o.good()) { LOG_WARN("Community Behaviors: could not write the animation ledger '{}'.", tmp.string()); return; }
+            }
+            fs::rename(tmp, file, ec);
+            if (ec) LOG_WARN("Community Behaviors: could not replace the animation ledger '{}': {}", file.string(), ec.message());
+        }
+    }  // namespace
 
     std::size_t Resolver::WriteNativeAnimations(const std::filesystem::path& dataRoot,
                                                 const AnimExecutor* exec,
@@ -1129,25 +1090,52 @@ namespace CB {
         // READS it (a pure pointer return). On the serial path this is a harmless no-op — the cold path's
         // CompileAll already warmed it; the WARM path (ArmCacheFromDisk) does NOT run CompileAll, so this is
         // the call that warms it there. Do it regardless of exec so both paths are covered.
-        (void)havok::schema::SharedRegistry();
+        (void)CB::engine::schema::SharedRegistry();
+
+        /// @note The ledger (community_behaviors_cache\animations.ledger) records every animation CB wrote into
+        ///       the real meshes\ tree. An entry whose source YAML, output file and compiler watermark are all
+        ///       unchanged is skipped (no recompile every launch); an entry no longer produced — its bundle removed
+        ///       or opted out — is deleted, but only while the file still holds the bytes CB wrote.
+        const fs::path   ledgerPath = dataRoot / CB::core::discover::kConsolidatedCacheDir / "animations.ledger";
+        const AnimLedger prior      = LoadAnimLedger(ledgerPath);
+        const std::size_t n         = m_nativeAnims.size();
+        std::vector<std::uint64_t> srcHash(n, 0), outHash(n, 0);
+        std::vector<char>          produced(n, 0);   ///< slot i written by exactly one task — no lock needed
+        std::size_t                unchanged = 0;
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto& [outKey, yamlText] = m_nativeAnims[i];
+            srcHash[i] = Fnv64(yamlText.data(), yamlText.size());
+            if (!prior.current) continue;
+            const auto it = prior.byKey.find(ToLower(outKey));
+            if (it == prior.byKey.end() || it->second.src != srcHash[i]) continue;
+            if (const auto onDisk = FileFnv64(dataRoot / fs::path(outKey)); onDisk && *onDisk == it->second.out) {
+                outHash[i]  = *onDisk;
+                produced[i] = 2;   // up to date — skipped
+                ++unchanged;
+            }
+        }
 
         // Compile+write ONE native animation. A pure function of its own (outKey, yamlText) entry and the
-        // immutable-after-Init m_skeletons; writes its own distinct file. No shared mutable state, so this
-        // is safe to run concurrently and the parallel result is byte-identical to the serial one.
-        auto compileOne = [&](const std::string& outKey, const std::string& yamlText) {
+        // immutable-after-Init m_skeletons; writes its own distinct file and its own result slot. No shared
+        // mutable state, so this is safe to run concurrently and the parallel result is byte-identical to the
+        // serial one.
+        auto compileOne = [&](std::size_t i) {
+            if (produced[i]) return;
+            const std::string& outKey   = m_nativeAnims[i].first;
+            const std::string& yamlText = m_nativeAnims[i].second;
             std::error_code ec;
-            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). STOP-GAP OUTPUT:
-            // write under meshes/CBanims/ instead of the real actor path, so the recompiled natives do NOT
-            // clobber the vanilla loose/BSA animations while we validate — the engine won't auto-load them
-            // from here (wrong path), so a relocate is a deliberate manual step, and it also lets us watch
-            // for an OAR fight without risk. (This mirrors how behaviors were served pre-byteserve; the real
-            // serve — behavior_cache / in-memory crc — is a later feature.) Insert "CBanims" after "meshes/".
-            std::string stagedRel = outKey;
-            if (stagedRel.rfind("meshes/", 0) == 0) stagedRel = "meshes/CBanims/" + stagedRel.substr(7);
-            else                                    stagedRel = "meshes/CBanims/" + stagedRel;
-            const fs::path out = dataRoot / fs::path(stagedRel);
+            // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). We only reach here
+            // for a bundle that OPTED INTO animation compile (manifest compile_animations=true), so writing
+            // to the REAL meshes path is the point — the compiled animation serves. The old meshes/CBanims/
+            // redirect was a harness so the (then-always-on) recompile couldn't clobber vanilla loose/BSA
+            // animations during validation; the per-bundle compile gate makes it unnecessary — a bundle that
+            // doesn't opt in isn't compiled at all, so there is nothing to clobber.
+            const fs::path out = dataRoot / fs::path(outKey);
             try {
-                const auto def = havok::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                /// @note The unit's actor motion (its record, or extracted from a folded root — which also strips the
+                ///       root, so the binary compiled below serves without the travel the adsf now moves the actor by).
+                const auto motion = CB::engine::anim::ResolveRootMotion(def);
                 // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
                 // carries an inline `motion:` block, emit it for the adsf finalizer to DRAIN (instead of
                 // the adsf re-reading the YAML — which looked for a `.hkx.yaml` class these `.hkx` units
@@ -1155,19 +1143,22 @@ namespace CB {
                 // path up to "/animations/"; innerKey = the remainder, lowercased '/'-sep (== the form
                 // motionsForRoot produced and DeriveProjectPatch's normAnim(animationName) looks up). Motion
                 // is authored data (not compile-dependent), so emit on a successful PARSE, before compile.
-                if (def.motion) {
+                if (motion) {
                     const std::string low = ToLower(outKey);   // outKey is '/'-sep already
                     if (const auto ap = low.find("/animations/"); ap != std::string::npos)
-                        m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *def.motion);
+                        m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *motion);
                 }
-                // INVERSE MEMBRANE: resolve this clip's per-track bone references through the SERVED
-                // skeleton (the same actor-path -> m_skeletons lookup the graph compile uses), so its
+                // INVERSE MEMBRANE: resolve this clip's per-track bone references through the rig of the
+                // characters that play it (BonesFor — the same lookup the graph compile uses), so its
                 // hkaAnimationBinding.transformTrackToBoneIndices follows the actor's bones by name.
                 const std::vector<std::string>* boneNames = nullptr;
-                if (const std::string actor = ActorPathOf(outKey); !actor.empty())
-                    if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
-                        boneNames = &it->second.names;
-                const auto r   = havok::anim::CompileAnimation(def, 30, havok::HKXHeader::SkyrimSE(), boneNames);
+                if (const RigBones rb = BonesFor(outKey); rb.table) {
+                    boneNames = &rb.table->names;
+                    if (rb.ambiguous)
+                        LOG_WARN("Resolver: animation '{}' binds rigs that disagree on bone order — tracks resolve "
+                                 "against '{}'.", outKey, rb.rig);
+                }
+                const auto r   = CB::engine::anim::CompileAnimation(def, 30, CB::engine::codec::HKXHeader::SkyrimSE(), boneNames);
                 if (!r.ok) {
                     failed.fetch_add(1, std::memory_order_relaxed);
                     LOG_ERROR("Community Behaviors: native animation compile FAILED '{}': {}", outKey, r.error);
@@ -1177,7 +1168,12 @@ namespace CB {
                 std::ofstream f(out, std::ios::binary | std::ios::trunc);
                 f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
                 f.flush();
-                if (f.good()) { written.fetch_add(1, std::memory_order_relaxed); LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string()); }
+                if (f.good()) {
+                    outHash[i]  = Fnv64(r.bytes.data(), r.bytes.size());
+                    produced[i] = 1;
+                    written.fetch_add(1, std::memory_order_relaxed);
+                    LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string());
+                }
                 else          { failed.fetch_add(1, std::memory_order_relaxed);  LOG_ERROR("Community Behaviors: failed writing native animation '{}'.", out.string()); }
             } catch (const std::exception& e) {
                 failed.fetch_add(1, std::memory_order_relaxed);
@@ -1192,25 +1188,54 @@ namespace CB {
 
         if (exec && *exec && m_nativeAnims.size() > 1) {
             // Parallel: one task per entry, fanned across the pool; (*exec) blocks until all complete.
-            // Capture each element by POINTER (m_nativeAnims is immutable after Init, so the address is
-            // stable) — never by the range-for reference, which is rebound each iteration. The tick runs
-            // on the worker thread, so onUnit must be thread-safe (it is — atomic increment + store).
+            // Each task captures its INDEX (m_nativeAnims is immutable after Init; slot i is written only by
+            // task i). The tick runs on the worker thread, so onUnit must be thread-safe (it is — atomic
+            // increment + store).
             std::vector<std::function<void()>> tasks;
-            tasks.reserve(m_nativeAnims.size());
-            for (const auto& e : m_nativeAnims) {
-                const auto* ep = &e;
-                tasks.push_back([&compileOne, &tick, ep] { compileOne(ep->first, ep->second); tick(); });
-            }
+            tasks.reserve(n);
+            for (std::size_t i = 0; i < n; ++i)
+                tasks.push_back([&compileOne, &tick, i] { compileOne(i); tick(); });
             (*exec)(std::move(tasks));
         } else {
-            for (const auto& [outKey, yamlText] : m_nativeAnims) { compileOne(outKey, yamlText); tick(); }
+            for (std::size_t i = 0; i < n; ++i) { compileOne(i); tick(); }
         }
+
+        // Next ledger: everything produced this pass, plus any prior entry whose recompile FAILED this pass
+        // (its old file is still CB's and still on disk — keep tracking it so a later opt-out removes it).
+        std::vector<AnimLedgerEntry> next;
+        std::unordered_set<std::string> nowKeys;
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::string key = ToLower(m_nativeAnims[i].first);
+            nowKeys.insert(key);
+            if (produced[i]) next.push_back({ m_nativeAnims[i].first, srcHash[i], outHash[i] });
+            else if (const auto it = prior.byKey.find(key); it != prior.byKey.end()) next.push_back(it->second);
+        }
+
+        // Orphans: animations CB wrote on an earlier run that nothing produces now. Delete only while the file
+        // still holds exactly the bytes CB wrote — anything replaced since (by the user or another mod) is not
+        // CB's to remove.
+        std::size_t removed = 0;
+        for (const auto& [key, e] : prior.byKey) {
+            if (nowKeys.count(key)) continue;
+            const fs::path p      = dataRoot / fs::path(e.path);
+            const auto     onDisk = FileFnv64(p);
+            if (!onDisk) continue;   // already gone
+            if (*onDisk != e.out) {
+                LOG_WARN("Community Behaviors: '{}' was compiled by CB but has changed since — left in place.", p.string());
+                continue;
+            }
+            std::error_code rec;
+            if (fs::remove(p, rec)) { ++removed; LOG_INFO("Community Behaviors: removed orphaned compiled animation '{}'.", p.string()); }
+            else LOG_WARN("Community Behaviors: could not remove orphaned compiled animation '{}': {}", p.string(), rec.message());
+        }
+        SaveAnimLedger(ledgerPath, next);
 
         const std::size_t w = written.load(std::memory_order_relaxed);
         const std::size_t fl = failed.load(std::memory_order_relaxed);
-        if (w || fl)
-            LOG_INFO("Community Behaviors: native animations — {} compiled, {} failed (STAGED under "
-                     "Data\\meshes\\CBanims\\ — relocate manually to serve).", w, fl);
+        if (w || fl || unchanged || removed)
+            LOG_INFO("Community Behaviors: native animations — {} compiled, {} unchanged, {} failed, {} orphan(s) removed "
+                     "(compiled to the real meshes path — opt-in bundles only, manifest compile_animations=true).",
+                     w, unchanged, fl, removed);
         // Phase 0 coverage: what the compiler produced for the adsf to drain. Nothing consumes the sink
         // yet (byte-neutral); this confirms the emit fires + the keying before the drain is switched over.
         LOG_INFO("Community Behaviors: motion sink — {} record(s) across {} actor root(s) (compiler-produced).",
@@ -1249,14 +1274,15 @@ namespace CB {
         //    live in per-root subdirectories (actors\..., weapons\..., ...), so this removes them
         //    while leaving the root-level .txt files intact.
         {
-            const fs::path cacheRoot = dataRoot / servekey::kConsolidatedCacheDir;
+            const fs::path cacheRoot = dataRoot / CB::core::discover::kConsolidatedCacheDir;
             if (fs::is_directory(cacheRoot, ec))
                 for (fs::directory_iterator di(cacheRoot, ec), de; !ec && di != de; di.increment(ec)) {
                     const std::string fn = ToLower(di->path().filename().string());
                     if (fn == "animationdatasinglefile.txt" ||
                         fn == "animationsetdatasinglefile.txt" ||
+                        fn == "animations.ledger" ||
                         fn == "cache.ready")
-                        continue;   // preserve the collocated txt caches + sentinel
+                        continue;   // preserve the collocated txt caches, the animation ledger + sentinel
                     std::error_code dec;
                     fs::remove_all(di->path(), dec);
                 }
@@ -1267,7 +1293,7 @@ namespace CB {
         //     Meshes\community_behaviors_cache\, the animdata/setdata caches under community_behaviors\cache\, and
         //     the legacy sentinel community_behaviors\community_behaviors_cache.ready. (community_behaviors\plugins\ — the
         //     INPUT bundles — is NOT touched.)
-        fs::remove_all(dataRoot / "Meshes" / servekey::kConsolidatedCacheDir, ec);
+        fs::remove_all(dataRoot / "Meshes" / CB::core::discover::kConsolidatedCacheDir, ec);
         fs::remove_all(dataRoot / "community_behaviors" / "cache", ec);
         fs::remove(dataRoot / "community_behaviors" / "community_behaviors_cache.ready", ec);
 
@@ -1331,16 +1357,17 @@ namespace CB {
         // 2b) Write the opt-in compiled skeletons (Stage D) to the same consolidated cache.
         written += WriteSkeletonServe(dataRoot);
 
-        // 2c) Compile the bundle-authored native animations into LOOSE .hkx under Data\meshes\ (not
-        //     community_behaviors_cache — actor animations resolve by the engine's startup loose scan). Persist
-        //     across cache regens; the clean names are already rostered (folded at Init).
-        WriteNativeAnimations(dataRoot, animExec, animOnUnit);
-
         // 3) Build the above-OAR redirect map (folderRoot -> owned characters) + mark ready.
         //    Shared with the reuse path (ArmCacheFromDisk) — it depends only on m_sources, not
         //    on the bytes just written, so a run that reuses an existing on-disk cache arms the
         //    exact same redirect without recompiling.
         BuildRedirectMap(dataRoot);
+
+        /// @note 3b) The opt-in native animations compile AFTER the graphs are armed: nothing in graph serving
+        ///       waits on them (they're loose .hkx under Data\meshes\, found by the engine's own loose scan, not
+        ///       the cache redirect), so their compile no longer holds graph serving back. Unchanged ones are
+        ///       skipped and orphans removed via the animation ledger.
+        WriteNativeAnimations(dataRoot, animExec, animOnUnit);
 
         // 4) Completion sentinel — written LAST, and ONLY when every graph compiled + wrote
         //    (failedGraphs == 0). Its presence is what CachePresent() trusts to skip the recompile on a
@@ -1356,14 +1383,14 @@ namespace CB {
             // cached graphs' injected BR_Watermark then always matches this build (the probe can't
             // read a stale "NO"). A minimal content fingerprint until full invalidation lands.
             std::ofstream(sentinel, std::ios::binary | std::ios::trunc)
-                << watermark::kWatermarkValue << "\n";
+                << CB::core::resolve::kWatermarkValue << "\n";
         } else {
             LOG_WARN("Community Behaviors: cache incomplete ({} graph(s) failed to compile/write) — "
                      "completion sentinel withheld; the next launch will recompile.", failedGraphs);
         }
 
         LOG_INFO("Community Behaviors: materialized {}/{} graph cache file(s) under '{}\\{}'.",
-                 written, total, dataRoot.string(), servekey::kConsolidatedCacheDir);
+                 written, total, dataRoot.string(), CB::core::discover::kConsolidatedCacheDir);
         return written;
     }
 
@@ -1379,30 +1406,16 @@ namespace CB {
         return s;
     }
 
-    // The character's proper-case `name:` — the ONE cased field that survived the lowercased master
-    // (every path KEY is lowercased at scan, and the packed .hky stores lowercase). Read from the
-    // first layer whose character.yaml carries it (a light text scan, not a full merge). Used to
-    // re-case the synthesized project's characterFilenames back to vanilla, which Havok matches
-    // CASE-SENSITIVELY (a miscased ref silently binds nothing → universal A-pose; see the case
-    // directive in CLAUDE.md).
+    /// @brief The character's proper-case string-data `name`, from the first layer that states it.
+    /// @note  Every path KEY is lowercased at scan; this name re-cases the synthesized project's characterFilenames
+    ///        back to vanilla, which Havok matches CASE-SENSITIVELY (a miscased ref binds nothing: universal A-pose).
     static std::string ReadCharacterName(
-        const std::vector<std::shared_ptr<const havok::model::IUnitSource>>& layers)
+        const std::vector<CB::engine::common::LayerSource>& layers)
     {
-        for (const auto& L : layers) {
-            if (!L) continue;
-            const auto txt = L->read("character.yaml");
-            if (!txt) continue;
-            const std::string& t = *txt;
-            const auto cp = t.find("character:");
-            const auto np = t.find("name:", cp == std::string::npos ? std::size_t{0} : cp);
-            if (np == std::string::npos) continue;
-            const auto q1 = t.find_first_of("'\"", np);
-            if (q1 == std::string::npos) continue;
-            const char quote = t[q1];
-            const auto q2 = t.find(quote, q1 + 1);
-            if (q2 == std::string::npos) continue;
-            if (auto name = t.substr(q1 + 1, q2 - q1 - 1); !name.empty()) return name;
-        }
+        for (const auto& L : layers)
+            if (L.source)
+                if (const auto cs = CB::engine::decompile::ReadCharacterStrings(*L.source); cs && !cs->name.empty())
+                    return cs->name;
         return {};
     }
 
@@ -1487,7 +1500,7 @@ namespace CB {
         // regenerates into the consolidated Data-root store instead of reusing incompatible stale
         // bytes. Safe against the step-1/step-2 cache wipe because it is removed first and (re)written
         // LAST, only on success (a mid-regen crash leaves no sentinel → next run rebuilds).
-        return dataRoot / servekey::kConsolidatedCacheDir / "cache.ready";
+        return dataRoot / CB::core::discover::kConsolidatedCacheDir / "cache.ready";
     }
 
     bool Resolver::CachePresent(const std::filesystem::path& dataRoot) const
@@ -1503,7 +1516,7 @@ namespace CB {
         std::getline(f, stamp);
         while (!stamp.empty() && (stamp.back() == '\r' || stamp.back() == '\n' || stamp.back() == ' '))
             stamp.pop_back();
-        return stamp == std::to_string(watermark::kWatermarkValue);
+        return stamp == std::to_string(CB::core::resolve::kWatermarkValue);
     }
 
     void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot, const AnimExecutor* animExec)
@@ -1514,14 +1527,94 @@ namespace CB {
         // opt-in compiled skeletons ARE (re)written here: they were compiled fresh in Init (cheap),
         // and the graph-cache clear/reuse doesn't cover them, so this guarantees they're on disk.
         WriteSkeletonServe(dataRoot);
-        // Native animations are LOOSE (not in the wiped community_behaviors_cache), so a prior run's files usually
-        // still exist — but rewrite them here too (cheap, few) so a reused cache from a build without
-        // them, or a user who cleared meshes\, still gets them on disk before the scan.
-        WriteNativeAnimations(dataRoot, animExec);
         BuildRedirectMap(dataRoot);
+        /// @note Native animations are LOOSE (not in community_behaviors_cache). The ledger skips every one whose
+        ///       source and on-disk output are unchanged, so a warm start only compiles what is new, edited, or
+        ///       missing (e.g. a user cleared meshes\), and removes what a dropped bundle left behind.
+        WriteNativeAnimations(dataRoot, animExec);
         LOG_INFO("Community Behaviors: reusing existing on-disk behavior cache under '{}\\Meshes' "
                  "(recompile skipped — set [Cache] bForceRegenerate=true or delete the cache to rebuild).",
                  dataRoot.string());
+    }
+
+    std::vector<CB::engine::animdata::DeriveClipInput> Resolver::ClipInputsOf(
+        const std::string& key, const std::vector<CB::engine::common::LayerSource>& layers) const
+    {
+        auto* reg = CB::engine::schema::SharedRegistry();
+        if (!reg) return {};
+        const RigBones rb = BonesFor(key);
+        CB::engine::decompile::ParsedHky graph;
+        std::string err;
+        if (!CB::engine::decompile::MergeLayersReflective(layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+            LOG_WARN("Resolver: clip read of '{}' failed: {}", key, err);
+            return {};
+        }
+        return CB::engine::compile::DeriveClipInputsFromGraph(graph.root);
+    }
+
+    std::size_t Resolver::FoldAuthorRoster(const std::string& characterStem, std::vector<std::string>& names) const
+    {
+        const auto ci = m_characterAnimNames.find(characterStem);
+        if (ci == m_characterAnimNames.end()) return 0;
+        std::unordered_set<std::string> have(names.begin(), names.end());
+        std::size_t folded = 0;
+        for (const auto& a : ci->second)
+            if (have.insert(a).second) { names.push_back(a); ++folded; }
+        return folded;
+    }
+
+    std::vector<CB::engine::animdata::DeriveClipInput> Resolver::MergedClipInputs(const std::string& key) const
+    {
+        const auto it = m_sources.find(NormalizeKey(key));
+        return it == m_sources.end() ? std::vector<CB::engine::animdata::DeriveClipInput>{} : ClipInputsOf(it->first, it->second.layers);
+    }
+
+    std::vector<std::string> Resolver::ServedRoster(const std::string& characterKey) const
+    {
+        auto* reg = CB::engine::schema::SharedRegistry();
+        const auto it = m_sources.find(NormalizeKey(characterKey));
+        if (!reg || it == m_sources.end()) return {};
+        const RigBones rb = BonesFor(it->first);
+        CB::engine::decompile::ParsedHky graph;
+        std::string err;
+        if (!CB::engine::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, graph, err)) {
+            LOG_WARN("Resolver: roster read of '{}' failed: {}", it->first, err);
+            return {};
+        }
+        CB::engine::decompile::GraphEdit edit(graph, *reg);
+        std::vector<std::string> names;
+        bool found = false;
+        edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
+            if (!found) { names = so.FieldRef("animationNames").strs; found = true; }
+        });
+        FoldAuthorRoster(ToLower(fs::path(it->first).stem().string()), names);
+        return names;
+    }
+
+    std::vector<std::string> Resolver::BehaviorUnitKeys() const
+    {
+        std::vector<std::string> out;
+        for (const auto& [key, gs] : m_sources) {
+            if (gs.isCharacter) continue;
+            const fs::path p(key);
+            if (p.parent_path().filename().string().rfind("behaviors", 0) == 0) out.push_back(key);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+
+    Resolver::RigBones Resolver::BonesFor(const std::string& key) const
+    {
+        const std::vector<std::string>* rigs = m_rigIndex.RigsFor(NormalizeKey(key));
+        RigBones out;
+        if (!rigs) return out;
+        for (const std::string& r : *rigs) {
+            const auto t = m_skeletons.find(r);
+            if (t == m_skeletons.end()) continue;
+            if (!out.table) { out.table = &t->second; out.rig = r; }
+            else if (t->second.names != out.table->names) out.ambiguous = true;
+        }
+        return out;
     }
 
     std::string Resolver::QualifyChildRef(const std::string& /*graphKey*/, const std::string& childRef) const
@@ -1593,64 +1686,47 @@ namespace CB {
         // case). The engine loads BR's synthesized project but interns it under the VANILLA identity
         // (the caller's descriptor is untouched), so the speed-sampler DB key and the animdata table
         // both resolve to the stock stem — no ".br", no alias.
-        const std::string swap = servekey::CacheSwapPath(vanillaProjectPath);
+        const std::string swap = CB::core::discover::CacheSwapPath(vanillaProjectPath);
 
-        // Synthesize the project once, on demand, into the consolidated cache at
-        // Data\Meshes\community_behaviors_cache\<projKey>. It points at the VANILLA character path (chosen
-        // charStem/ref); the ByteServe hook redirects that character open — and every behavior open
-        // below it — into the same cache. Tiny packfile (~KB, no graph compile), safe on the
-        // actor-load thread. Memoized + guarded.
+        // Materialize the project once, on demand, into the consolidated cache at
+        // Data\Meshes\community_behaviors_cache\<projKey>. It points at the VANILLA character path; the
+        // ByteServe hook redirects that character open — and every behavior open below it — into the
+        // same cache. Tiny packfile (~KB, no graph compile), safe on the actor-load thread. Memoized + guarded.
         {
             std::lock_guard<std::mutex> lock(m_synthMutex);
             if (!m_synthesizedProjects[swap]) {
                 bool ok = false;
                 try {
-                    // KEEP THE VANILLA IDENTITY, ORIGINAL CASE. The project's characterFilenames string is
-                    // the descriptor the engine binds the character to its setdata/animdata by — compared
-                    // CASE-SENSITIVELY in engine code (havok packfiles/systems are case-sensitive
-                    // everywhere except the USVFS file lookup). A lowercased ref ("characters\defaultmale.hkx"
-                    // vs vanilla "Characters\DefaultMale.hkx") loads the file but breaks that bind -> A-pose.
-                    // BR lost the case (bundle + keys are lowercased). PRIMARY: recover the ref from the BASE
-                    // PROJECT UNIT's project.yaml (captured at Init, m_projectOrigCharRef) — original case,
-                    // and it works for BSA-only setups because the base ships the project. SECONDARY: read
-                    // the loose vanilla project if present. Lowercased fallback only if neither is available.
-                    havok::sct::ProjectSpec spec;                       // constants universal (field study)
-                    bool gotVanillaIdentity = false;
-                    if (auto oc = m_projectOrigCharRef.find(projKey); oc != m_projectOrigCharRef.end() && !oc->second.empty()) {
-                        spec.characterFilenames = { oc->second };       // base project unit, ORIGINAL case
-                        gotVanillaIdentity = true;
+                    /// @note KEEP THE VANILLA IDENTITY, ORIGINAL CASE: the served project is the vanilla one — its
+                    ///       characterFilenames string binds the character to its setdata / animdata case-sensitively.
+                    ///       From the base project unit; else the loose vanilla file verbatim; else no redirect.
+                    std::vector<std::uint8_t> bytes;
+                    std::string err;
+                    if (const auto pu = m_projectUnits.find(projKey); pu != m_projectUnits.end()) {
+                        CB::engine::decompile::ParsedHky project;
+                        auto* reg = CB::engine::schema::SharedRegistry();
+                        if (!reg || !CB::engine::decompile::ParseHkyReflective(*pu->second, *reg, project, err) ||
+                            !CB::engine::decompile::SerializeGraph(project, bytes, err))
+                            bytes.clear();
                     }
-                    if (!gotVanillaIdentity) {
+                    if (bytes.empty()) {
                         std::error_code fec;
                         const fs::path vanProj = fs::current_path(fec) / "Data" / "Meshes" / fs::path(std::string(vanillaProjectPath));
                         std::ifstream vf(vanProj, std::ios::binary);
-                        if (vf) {
-                            std::vector<std::uint8_t> vb((std::istreambuf_iterator<char>(vf)), std::istreambuf_iterator<char>());
-                            if (!vb.empty()) {
-                                const auto pr2 = havok::sct::ReadProject(vb);
-                                if (pr2.ok && !pr2.spec.characterFilenames.empty()) { spec = pr2.spec; gotVanillaIdentity = true; }
-                            }
-                        }
+                        if (vf) bytes.assign(std::istreambuf_iterator<char>(vf), std::istreambuf_iterator<char>());
                     }
-                    if (!gotVanillaIdentity) {
-                        spec.characterFilenames = { chosen->cacheCharRef };  // lowercased fallback (BSA-only setups)
-                        LOG_WARN("Community Behaviors: could not read vanilla project '{}' for original-case identity — "
-                                 "using lowercased char ref (setdata/animdata bind may fail on a case-sensitive engine path).",
-                                 vanillaProjectPath);
-                    }
-                    const auto pr = havok::sct::BuildProject(spec);
-                    if (pr.ok) {
+                    if (!bytes.empty()) {
                         // Write to the ORIGINAL-CASE path the swap resolves to — NOT CacheDiskRel(projKey),
                         // which lowercases. MO2's USVFS matches case-sensitively, so the engine's Func3-cased
                         // project open ("...\DefaultMale.hkx") only finds a same-cased file on disk. (This is
                         // the one path the engine opens under a case we don't control; behaviors/characters
                         // below use BR's own lowercase refs and are self-consistent.)
-                        const fs::path out = m_dataRoot / fs::path(servekey::CacheDiskRelRaw(vanillaProjectPath));
+                        const fs::path out = m_dataRoot / fs::path(CB::core::discover::CacheDiskRelRaw(vanillaProjectPath));
                         std::error_code ec;
                         fs::create_directories(out.parent_path(), ec);
                         std::ofstream f(out, std::ios::binary | std::ios::trunc);
-                        f.write(reinterpret_cast<const char*>(pr.bytes.data()),
-                                static_cast<std::streamsize>(pr.bytes.size()));
+                        f.write(reinterpret_cast<const char*>(bytes.data()),
+                                static_cast<std::streamsize>(bytes.size()));
                         f.flush();
                         ok = f.good();
                         if (ok)
@@ -1659,7 +1735,8 @@ namespace CB {
                         else
                             LOG_ERROR("Community Behaviors: failed writing byte-served project '{}'.", out.string());
                     } else {
-                        LOG_ERROR("Community Behaviors: project synth FAILED for '{}': {}", vanillaProjectPath, pr.error);
+                        LOG_ERROR("Community Behaviors: no project to serve for '{}' (no base project unit{}, no loose "
+                                  "vanilla file) — not redirected.", vanillaProjectPath, err.empty() ? "" : ": " + err);
                     }
                 } catch (const std::exception& e) {
                     LOG_ERROR("Community Behaviors: project synth threw for '{}': {}", vanillaProjectPath, e.what());
@@ -1693,6 +1770,30 @@ namespace CB {
         return std::filesystem::exists(m_dataRoot / std::filesystem::path(CacheDiskRel(key)), ec);
     }
 
+    void Resolver::ResolveCharacter(const std::string& key, CB::engine::decompile::GraphEdit& edit)
+    {
+        CB::engine::codec::io::SchemaObject* sd = nullptr;
+        edit.ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) { if (!sd) sd = &so; });
+        if (!sd) { LOG_WARN("Resolver: character '{}' has no string data — served as merged.", key); return; }
+        const std::string cstem = ToLower(fs::path(key).stem().string());
+
+        /// @note The author-facing roster drop (animationnames\<stem>.txt) folds in as an EXACT-case union: Havok binds
+        ///       case-sensitively, so a lowercased dedup would drop the exact name a clip binds.
+        std::vector<std::string>& names = sd->FieldRef("animationNames").strs;
+        if (const std::size_t folded = FoldAuthorRoster(cstem, names))
+            LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
+        if (m_adsfDerive) m_characterRosters[cstem] = names;
+        m_characterActor[cstem] = ActorPathOf(key);
+
+        /// @note Cache-qualify the character's main behavior reference when CB serves that behavior, so the
+        ///       redirected load reaches CB's compiled graph instead of the vanilla file.
+        std::string& behavior = sd->FieldRef("behaviorFilename").str;
+        if (const std::string q = QualifyChildRef(key, behavior); q != behavior) {
+            LOG_INFO("Resolver: cache-qualified character '{}' behavior ref '{}' -> '{}'.", key, behavior, q);
+            behavior = q;
+        }
+    }
+
     std::shared_ptr<const std::vector<std::uint8_t>> Resolver::Resolve(std::string_view servePath)
     {
         const std::string key = NormalizeKey(servePath);
@@ -1707,212 +1808,94 @@ namespace CB {
             return nullptr;
         }
 
-        // Base + deltas for this graph, base first — LoadMerged overlays them into one
-        // graph (a later layer's same-named node overrides an earlier). Each layer is a
-        // disk dir OR a packed-.hky subtree behind the same IUnitSource, so the merge is
-        // identical whether the bundle shipped unpacked or as a single compressed .hky.
+        /// @note Base + patches, base first: each layer's FormID patch applies over the merge so far (a later
+        ///       layer's write to the same record wins). A layer is a disk dir or a packed-.hky subtree behind the
+        ///       same IUnitSource, so the merge is identical either way.
         const GraphSources& gs = srcIt->second;
 
         std::shared_ptr<const std::vector<std::uint8_t>> result;
         try {
             const auto t0 = std::chrono::steady_clock::now();
+            auto* reg = CB::engine::schema::SharedRegistry();
+            if (!reg) throw std::runtime_error("schema registry unavailable");
 
-            // Character files (characters/*.hkx = hkbCharacterData) compile via a
-            // different path than behavior graphs — flagged at Init by the base unit
-            // carrying character.yaml. LoadMerged overlays every layer: the base gives the
-            // full character, each mod delta UNIONS its animationNames additions, so the
-            // served character carries the complete merged roster the set-data needs —
-            // no runtime animationNames injection required.
+            /// @note Bone names (weight maps, bone refs, bone-keyed rosters) resolve against the rig of the
+            ///       characters that run this graph.
+            const RigBones rb = BonesFor(key);
+            const std::vector<std::string>* bones = rb.table ? &rb.table->names : nullptr;
+            if (rb.table && rb.ambiguous)
+                LOG_WARN("Resolver: '{}' is shared by characters whose rigs disagree on bone order — "
+                         "bone names resolve against '{}'.", key, rb.rig);
+
+            CB::engine::decompile::ParsedHky graph;
+            std::string err;
+            if (!CB::engine::decompile::MergeLayersReflective(gs.layers, *reg, bones, graph, err)) {
+                LOG_ERROR("Community Behaviors: merge FAILED for '{}' — SERVING VANILLA (its mod edits are dropped): {}",
+                          key, err);
+                m_cache.emplace(key, nullptr);
+                return nullptr;
+            }
+            CB::engine::decompile::GraphEdit edit(graph, *reg);
+
             if (gs.isCharacter) {
-                auto cdata = havok::model::CharacterYamlLoader::LoadMerged(gs.layers);
+                ResolveCharacter(key, edit);
+            } else {
+                ResolverFeatureLog fLog;
+                /// @note animData (the contribution hook) is supplied only while adsf-derive collects, so a feature
+                ///       can push extra clips into the same sink the first-class derive stage fills below.
+                CB::feature::FeatureContext fctx{ .graphKey = key, .log = fLog,
+                                                  .animData = (m_adsfDerive ? &m_clipSink : nullptr),
+                                                  .symbols  = &m_symbols };
+                /// @note The ENABLED set is data (WHICH run); ResolveRunOrder derives the ORDER from each feature's
+                ///       RunsAfter/RunsBefore. The ER gate stays opt-in ([ERGate] bEnable): a fault there rewrites
+                ///       every wildcard and would T-pose every actor.
+                std::vector<std::string> enabledIds{ "cb.watermark", "cb.bdi-symbols" };
+                if (m_erGateEnabled) enabledIds.emplace_back("engine-relay.wildcard-gate");
+                auto& features = CB::feature::FeatureRegistry::Instance();
+                for (const auto& [id, r] : features.Run(features.ResolveRunOrder(enabledIds, fLog), edit, fctx))
+                    if (r.applied && r.mutations)
+                        LOG_INFO("Resolver: feature {} → {} mutation(s) in '{}'.", id, r.mutations, key);
 
-                // Author-facing roster drop: fold in any animationnames\<stem>.txt additions
-                // for this character (keyed by the serve-path file stem, e.g. "defaultmale"
-                // for .../characters/defaultmale.hkx). This is the flat, no-deep-path way for
-                // a bundle to extend a character's animationNames — the same union LoadMerged
-                // does for unit-path data/animations.yaml, deduped EXACT-case (Havok binds
-                // case-sensitively — a lowercased dedup would drop the exact name a clip binds).
-                if (const auto ci = m_characterAnimNames.find(ToLower(fs::path(key).stem().string()));
-                    ci != m_characterAnimNames.end() && !ci->second.empty()) {
-                    std::unordered_set<std::string> have;
-                    have.reserve(cdata.animations.size() * 2 + 16);
-                    for (const auto& a : cdata.animations) have.insert(a);
-                    std::size_t folded = 0;
-                    for (const auto& a : ci->second)
-                        if (have.insert(a).second) { cdata.animations.push_back(a); ++folded; }
-                    if (folded)
-                        LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
-                }
-
-                // Capture the FINAL merged roster + actor path for DeriveAnimData (opt-in). The roster is
-                // the animationNames space every clip of this character binds into; the actor path (from
-                // this character's serve key) is how DeriveAnimData gathers the project's clips from the
-                // sink. Keyed by character stem ("defaultmale"). Runs under m_mutex (held for Resolve's
-                // body); read after CompileAll with no writers.
+                /// @note adsf-derive is a first-class compile stage (compiler output, not a graph mutation): it
+                ///       reads the clip generators AFTER the features, so a feature that adds clips gets derived.
                 if (m_adsfDerive) {
-                    const std::string cstem = ToLower(fs::path(key).stem().string());
-                    m_characterRosters[cstem] = cdata.animations;
-                    m_characterActor[cstem]   = ActorPathOf(key);
+                    const auto inputs = CB::engine::compile::DeriveClipInputsFromGraph(graph.root);
+                    for (const auto& in : inputs) m_clipSink.EmitClip(key, in);
+                    if (!inputs.empty())
+                        LOG_INFO("Resolver: adsf-derive — {} clip input(s) from '{}'.", inputs.size(), key);
                 }
 
-                // Cache-qualify the character's main behavior reference (e.g.
-                // "Behaviors\0_Master.hkx") when BR serves that behavior, so the redirected
-                // above-OAR load reaches BR's compiled 0_master under community_behaviors_cache\
-                // instead of the vanilla file. Left vanilla if we don't own it. (Runtime-only:
-                // the offline byte-gate calls havok-core directly and never sees this.)
-                if (const std::string q = QualifyChildRef(key, cdata.character.behavior);
-                    q != cdata.character.behavior) {
-                    LOG_INFO("Resolver: cache-qualified character '{}' behavior ref '{}' -> '{}'.",
-                             key, cdata.character.behavior, q);
-                    cdata.character.behavior = q;
-                }
-
-                // Capture this character's actor path (feeds DeriveAnimData's opt-in adsf serve).
-                // The roster is already complete here — LoadMerged unioned every layer's
-                // data/animations.yaml — so there is no deferred roster-completion pass to feed.
-                m_characterActor[ToLower(fs::path(key).stem().string())] = ActorPathOf(key);
-
-                const auto   r  = havok::sct::CompileCharacter(cdata);
-                const double ms = std::chrono::duration<double, std::milli>(
-                                      std::chrono::steady_clock::now() - t0).count();
-                if (r.ok) {
-                    result = std::make_shared<const std::vector<std::uint8_t>>(std::move(r.bytes));
-                    LOG_INFO("Resolver: compiled character '{}' — {} layer(s), {} anim(s), {} bytes in {:.1f} ms.",
-                             key, gs.layers.size(), cdata.animations.size(), result->size(), ms);
-                } else {
-                    LOG_ERROR("Resolver: character compile FAILED for '{}': {}", key, r.error);
-                }
-                m_cache.emplace(key, result);
-                return result;
-            }
-
-            auto data = havok::model::YamlBehaviorLoader::LoadMerged(gs.layers);
-
-            // Compile-trace tap: name-annotated variable-table / binding / topology records for this
-            // merged graph (guarded — trace::Enabled() is a null pointer test, so off = free).
-            if (havok::model::trace::Enabled()) havok::model::TraceGraph(data, key);
-
-            // Skeleton for bone-name resolution: if the unit didn't carry one, use this actor's
-            // merged bone list (base + skeleton-extender appends, folded in Init). Actor key =
-            // ActorPathOf(serve path) — the SAME derivation Init used to build the table, so nested
-            // creatures (dlc02/netch, ambient/chicken) match instead of collapsing onto a namespace
-            // segment. Bone-index fields authored as NAMES then resolve; numeric ones are unaffected.
-            if (data.boneNames.empty() && !m_skeletons.empty()) {
-                if (const std::string actor = ActorPathOf(key); !actor.empty())
-                    if (const auto it = m_skeletons.find(actor); it != m_skeletons.end())
-                        data.boneNames = it->second.names;
-            }
-
-            // NOTE: the character's animationNames roster is now built OFFLINE — the converter
-            // scans clip generators into each unit's data/animations.yaml, and LoadMerged unions
-            // every layer's yaml at compile time. The old runtime clip-scan-and-recompile pass
-            // (m_actorClipAnims + CompleteCharacterRosters) was deferred, graph-resolution-order
-            // dependent, and case-lossy (ToLower dedup) — the very properties that desynced a
-            // clip's animationBindingIndex from the roster slot and shifted OAR's synchronized
-            // offset. Retired: the roster is complete and deterministic before the single compile.
-
-            // Union mod-declared symbols into this graph's data before compiling —
-            // the compile-time equivalent of BDI's runtime append (spec §6). New
-            // events/variables land in the string data with fresh indices; names the
-            // graph already declares are left alone.
-            if (data.graphData) {
-                if (const std::size_t added = m_symbols.InjectInto(*data.graphData, key))
-                    LOG_INFO("Resolver: injected {} mod symbol(s) into '{}'.", added, key);
-
-                // Watermark: stamp an INT32 "BR_Watermark" variable (= plugin version) into every
-                // compiled graph. A runtime GetGraphVariableInt on the actor's root graph proves BR
-                // served it (vanilla graphs lack the variable); the value flags a stale cache. Append
-                // only if absent, so it never shifts an existing variable index.
-                {
-                    auto& vars = data.graphData->variables;
-                    const bool present = std::any_of(vars.begin(), vars.end(),
-                        [](const havok::model::VariableInfoDef& v) { return v.name == watermark::kWatermarkVar; });
-                    if (!present) {
-                        havok::model::VariableInfoDef wm;
-                        wm.name  = watermark::kWatermarkVar;
-                        wm.type  = "VARIABLE_TYPE_INT32";
-                        wm.value = watermark::kWatermarkValue;
-                        vars.push_back(std::move(wm));
-                    }
-                }
-
-                // Compile-time graph features (data-driven, ordered). Each self-registered
-                // IGraphFeature under features/ mutates this graph; the enabled set + order are
-                // DATA. See CLAUDE.md "Compiler features — CB::features (SOP)".
-                {
-                    ResolverFeatureLog          fLog;
-                    // animData (the contribution hook) is supplied only when adsf-derive is collecting, so
-                    // a feature can push extra clips into the same sink the first-class derive stage fills
-                    // below; null otherwise (no sink to contribute to).
-                    CB::features::FeatureContext    fctx{ .graphKey = key, .log = fLog,
-                                                      .animData = (m_adsfDerive ? &m_clipSink : nullptr) };
-
-                    // ENABLED set (from settings) — WHICH features run. The ORDER is no longer written
-                    // here: ResolveRunOrder topo-sorts by each feature's declared RunsAfter/RunsBefore,
-                    // so a new feature composes in by declaring its dependencies (e.g. a future
-                    // "animation-relay.clip-index-binding" runs-after "true-cinematics.reference-wiring"
-                    // and runs-before "engine-relay.wildcard-gate") without editing this list. The ER
-                    // wildcard gate stays OPT-IN ([ERGate] bEnable, default OFF until proven in-engine)
-                    // — a fault there rewrites every wildcard and would T-pose every actor.
-                    std::vector<std::string> enabledIds;
-                    if (m_erGateEnabled) enabledIds.emplace_back("engine-relay.wildcard-gate");
-
-                    auto& reg    = CB::features::FeatureRegistry::Instance();
-                    auto  runIds = reg.ResolveRunOrder(enabledIds, fLog);
-                    for (const auto& [id, r] : reg.Run(runIds, data, fctx))
-                        if (r.applied && r.mutations)
-                            LOG_INFO("Resolver: feature {} → {} mutation(s) in '{}'.", id, r.mutations, key);
-
-                    // adsf-derive — FIRST-CLASS compile stage (not a feature). The adsf is derivable
-                    // straight from the compiled graph: each hkbClipGenerator carries
-                    // name+animationName+speed+crop+own-triggers = a DeriveClipInput. The compiler reads
-                    // them into the animdata collector HERE (compiler output, NOT a graph mutation — which
-                    // is why it never belonged in the IGraphFeature run above). Runs AFTER the features, so
-                    // a feature that ADDS clips to the graph gets derived too; a feature that contributes
-                    // adsf entries WITHOUT a graph clip pushes them directly via fctx.animData (the same
-                    // m_clipSink) during the run above. Both feed one collector. Gated (validation-only —
-                    // does not yet drive the emitted file) until the derive is byte-exact vs the collated
-                    // merge and takes over. Roster resolution stays out of here (a finalizer concern): a
-                    // resolved animIndex baked into the clip's binding would byte-diverge from vanilla.
-                    if (m_adsfDerive) {
-                        const auto inputs = havok::sct::DeriveClipInputsFromBehavior(data);
-                        for (const auto& in : inputs)
-                            m_clipSink.EmitClip(key, in);
-                        if (!inputs.empty())
-                            LOG_INFO("Resolver: adsf-derive — {} clip input(s) from '{}'.", inputs.size(), key);
-                    }
-                }
-            }
-
-            // Cache-qualify every hkbBehaviorReferenceGenerator child reference BR owns, so
-            // the recursive above-OAR load pulls BR's compiled sub-behaviors (under
-            // community_behaviors_cache\) while unowned children (e.g. crossbow_direction_behavior)
-            // resolve to their vanilla files. This is what carries the redirect down the whole
-            // graph tree without any deep hook. Runtime-only — the offline byte-gate is
-            // unaffected (it compiles via havok-core directly, not through the Resolver).
-            {
+                /// @note Cache-qualify every child behavior reference CB owns, so the recursive above-OAR load pulls
+                ///       CB's compiled sub-behaviors while unowned children resolve to their vanilla files.
                 std::size_t qualified = 0;
-                for (auto& [nodeName, ref] : data.behaviorReferences) {
-                    if (const std::string q = QualifyChildRef(key, ref.behaviorName);
-                        q != ref.behaviorName) {
-                        ref.behaviorName = q;
-                        ++qualified;
-                    }
+                edit.ForEach("hkbBehaviorReferenceGenerator", [&](CB::engine::codec::io::SchemaObject& so) {
+                    std::string& name = so.FieldRef("behaviorName").str;
+                    if (const std::string q = QualifyChildRef(key, name); q != name) { name = q; ++qualified; }
+                });
+                if (qualified) LOG_INFO("Resolver: cache-qualified {} behavior reference(s) in '{}'.", qualified, key);
+
+                /// @warning hkbBehaviorGraph::nextUniqueID (the runtime node-id minter) is a SIGNED 16-bit counter
+                ///          (RE'd): a graph at/over 32767 hkbNodes mints negative ids into Havok's -1 "none" space,
+                ///          corrupting the graph and (via the baked set-data count) SAVES. Refuse, serve vanilla.
+                constexpr std::size_t kMaxGraphNodes = 0x7FFF;
+                if (const std::size_t n = edit.CountDerived("hkbNode"); n >= kMaxGraphNodes) {
+                    LOG_ERROR("Community Behaviors: '{}' merges to {} nodes, at/over the engine's {}-node ceiling — "
+                              "SERVING VANILLA (a larger graph mints negative node ids and corrupts saves). Trim the "
+                              "mods contributing to this graph.", key, n, kMaxGraphNodes);
+                    m_cache.emplace(key, nullptr);
+                    return nullptr;
                 }
-                if (qualified)
-                    LOG_INFO("Resolver: cache-qualified {} behavior reference(s) in '{}'.", qualified, key);
             }
 
-            const auto r    = havok::sct::CompileBehavior(data);
-            const auto t1   = std::chrono::steady_clock::now();
-            const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-
-            if (r.ok) {
-                result = std::make_shared<const std::vector<std::uint8_t>>(std::move(r.bytes));
+            std::vector<std::uint8_t> bytes;
+            const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            if (CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
+                result = std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes));
                 LOG_INFO("Resolver: compiled '{}' — {} layer(s) merged, {} bytes in {:.1f} ms.",
                          key, gs.layers.size(), result->size(), ms);
             } else {
-                LOG_ERROR("Resolver: compile FAILED for '{}': {}", key, r.error);
+                LOG_ERROR("Community Behaviors: serialize FAILED for '{}' — SERVING VANILLA (its mod edits are dropped): {}",
+                          key, err);
             }
         } catch (const std::exception& e) {
             LOG_ERROR("Resolver: exception resolving '{}': {}", key, e.what());
@@ -1933,7 +1916,7 @@ namespace CB {
     bool Resolver::DeriveAnimData(const std::filesystem::path& dataDir)
     {
         if (!m_adsfDerive) return false;
-        namespace ad = havok::animdata;
+        namespace ad = CB::engine::animdata;
 
         // ── start from the proven collated file (ServeAnimData ran first) ──
         const fs::path out = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";
