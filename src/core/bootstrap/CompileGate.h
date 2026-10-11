@@ -17,8 +17,8 @@
 //   • byteserve's owned-graph backstop calls WaitForCompile() — those opens are on loader threads, so
 //     parking them until materialize is fine and a graph is never served half-compiled.
 //
-// The first open happens during game-data load — AFTER kDataLoaded — so SMF's present hook and the
-// render thread are live; the ArmThread's SetProgress drives the on-screen bar over the (now live) menu.
+// The first open happens during game-data load — AFTER kDataLoaded — so ProgressHud's present-call
+// hook and the render thread are live; the ArmThread's SetProgress drives the on-screen bar over the (now live) menu.
 namespace CB {
 
     // One-shot, thread-safe, NON-blocking KICK. First caller arms the bar and spawns the background

@@ -5,7 +5,7 @@
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
-#include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (codec/format, firesale)
+#include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml
 #include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
 
@@ -175,7 +175,7 @@ namespace CB::core::serve {
 
         // Gather (priority, delta) from BR .hky bundles ONLY — the primary format, each
         // bundle carrying a mod's behaviors AND its set-data together so the two stay
-        // consistent. Legacy Nemesis mods are consumed OFFLINE (br-nemesis-to-hky) into
+        // consistent. Legacy Nemesis mods are consumed OFFLINE (the Behavior Converter) into
         // .hky bundles, NOT side-loaded at runtime: a runtime set-data side-load adds a
         // mod's moveset table without its behaviors and desyncs it from the behavior graph
         // (the 2026-08-10 char-setup crash). Runtime Nemesis side-loading stays off the
@@ -355,8 +355,7 @@ namespace CB::core::serve {
         //
         // The master no longer ships the monolithic .txt — it ships the decomposed
         // animationsetdatasinglefile.txt/ FOLDER (index.yaml + movesets/ authored + crcs/ baked).
-        // COMPOSE the base from that folder: it reproduces vanilla byte-for-byte (gated offline via
-        // havok-core-cli setdata-tree-roundtrip). Falls back to a legacy loose .txt (older master or
+        // COMPOSE the base from that folder: it reproduces vanilla byte-for-byte. Falls back to a legacy loose .txt (older master or
         // the VFS-winning file) only if the folder is absent, with a warning.
         asd::SingleFile base;
         std::string     baseFrom;

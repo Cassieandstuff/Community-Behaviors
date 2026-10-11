@@ -11,7 +11,7 @@
 // inherently DOES something at runtime — that per-flag logic lives with the code it gates and
 // can't be generated). The converter's Debug tab picks up the toggle with no further edits.
 //
-// The plugin's own readers (Plugin.cpp ReadAdsfDerive/…, Resolver's noskeletonserve check) are
+// The plugin's own readers (Plugin.cpp ReadERGateEnabled/…, Resolver's noskeletonserve check) are
 // the behavior side; keep their section/key strings in sync with the rows here (or migrate them to
 // reference these rows — see the registry note).
 
@@ -41,13 +41,6 @@ namespace CB::core::debug {
           "Force cache regenerate",
           "Recompile the whole behavior cache at launch instead of reusing the on-disk one. "
           "Build default differs (debug on / release off); an explicit key overrides either way." },
-        { "use_schema", FlagKind::IniBool, "Compiler", "bUseSchema", true,
-          "Data-driven schema compiler",
-          "Use the schema-driven compiler (default on). Off falls back to the typed backbone." },
-        { "adsf_derive", FlagKind::IniBool, "Compiler", "bAdsfDerive", false,
-          "adsf-derive (first-class stage)",
-          "Derive animationdata straight off the compiled graph via the first-class adsf-derive compile "
-          "stage — a path parallel to the proven collated merge (validation-only until it drives the emit)." },
         { "er_gate", FlagKind::IniBool, "ERGate", "bEnable", false,
           "Engine Relay wildcard gate",
           "Inject BR_ERWildcardLock and gate every global wildcard on it (for Engine Relay to flip "

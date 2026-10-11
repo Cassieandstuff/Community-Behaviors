@@ -9,11 +9,11 @@
 // Extracted verbatim from Resolver.cpp's inline GateWildcards + lock-var injection (feature
 // framework, cut #1). Enablement (settings [ERGate] bEnable) is the HOST's job: it only puts this
 // feature's id in the run-list when enabled, so AppliesTo here is unconditional and Apply guards on
-// graphData. Pure-Apply rule: depends only on havok-core + the feature framework (ERGate.h is a
-// header-only CommunityBehaviors constant, no runtime deps).
+// graphData. Pure-Apply rule: depends only on the engine's graph API + the feature framework (ERGate.h
+// is a header-only CommunityBehaviors constant, no runtime deps).
 
 #include <feature-sdk/FeatureRegistry.h>
-#include "features/ERGate.h"   // CB::feature::ergate::kGateVar (main hpp/, on the include path)
+#include "features/ERGate.h"   // CB::feature::ergate::kGateVar
 
 #include <algorithm>
 #include <cstddef>

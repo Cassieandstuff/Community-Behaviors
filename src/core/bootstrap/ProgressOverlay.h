@@ -5,10 +5,9 @@
 // Community Behaviors's cold-compile progress STATE — three atomics written by the background
 // compile (WarmUpThread) and read by the ProgressHud present hook that draws the bar.
 //
-// This used to draw through SKSE Menu Framework. It now hands off to ProgressHud, which rides the
-// game's own IDXGISwapChain::Present (the way CommunityShaders/OAR do) and draws the bar while the
-// SPLIT-path background compile runs and the menu presents. This header is just the thread-safe
-// hand-off of progress from the compile thread to that renderer.
+// ProgressHud draws the bar from the game's own present call (OAR's hook point) while the background
+// compile runs and the menu presents. This header is just the thread-safe hand-off of progress from
+// the compile thread to that renderer.
 namespace CB::core::bootstrap {
 
     // Publish progress (compile thread). running=false marks the compile finished.

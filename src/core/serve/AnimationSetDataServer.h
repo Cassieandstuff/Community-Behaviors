@@ -1,6 +1,6 @@
 #pragma once
 
-#include <codec/format/AnimationSetData.h>   // the setdata model now lives in havok-core
+#include <codec/format/AnimationSetData.h>   // the setdata model (CB::engine::animsetdata)
 
 #include <filesystem>
 #include <string>
@@ -21,9 +21,7 @@
 // Pointing the game at the merged cache is a separate delivery step (a read redirect).
 namespace CB::core::serve {
 
-    // The setdata model moved to havok-core (CB::engine::animsetdata); this alias keeps the
-    // server's `asd::` code unchanged. Declared inside asdserve so it shadows any outer
-    // CB::asd (the Nemesis-convert tool namespace) within this server.
+    // Short alias for the engine's setdata model, used throughout this server.
     namespace asd = CB::engine::animsetdata;
 
     struct SetDataServeResult {

@@ -1,6 +1,6 @@
 #pragma once
 
-// ── sct-config — the public API ───────────────────────────────────────────────
+// ── CB::config — the public API ───────────────────────────────────────────────
 // Shared config discovery + loading for the SKSE plugin family: one
 // deterministically-ordered directory scanner plus a JSON adapter,
 // consolidating the config readers each plugin was
@@ -15,8 +15,7 @@
 //
 // SINGLE PUBLIC HEADER (CommonLib `Skyrim.h` model): this file is the entire
 // cross-project surface — consumers write `#include <config/Config.h>`
-// and nothing else. Nothing besides this file may ever live in
-// include/internal/sct-config/.
+// and nothing else.
 //
 // DEP NOTE: JsonDoc holds nlohmann::json by value, so the parser type is part
 // of the API and cannot be hidden.

@@ -21,11 +21,8 @@
 //     all of that lazily inside the FIRST hooked Present (a heavy render-thread hitch — font-atlas GPU
 //     upload — landing mid-frame on a live menu, which stalled presentation and ghosted/minimized the
 //     borderless window). Building it up front makes the first real bar frame cheap.
-//   • Each frame draws to a FRESH render-target view off the CURRENT backbuffer (created + released per
-//     present), so a swapchain resize/transition can never leave us pointing at a stale target — the CS
-//     "always use the live framebuffer" principle, adapted (CS uses the game's kFRAMEBUFFER RTV; we
-//     recreate one from the swapchain, which needs no game-render-target plumbing and is only paid while
-//     the compile is running).
+//   • Each frame draws to the render target the engine already has bound after its present call (see
+//     DrawBar) — never one of our own, which drew off-screen under Community Shaders.
 //   • Install() is called EARLY (kDataLoaded, before the menu), not at the late compile gate, so the bar
 //     is live from the first frame and the eager init is nowhere near the live-present critical path.
 namespace CB::core::bootstrap {
@@ -45,7 +42,7 @@ namespace CB::core::bootstrap {
         std::atomic<bool>    s_installed{ false };
 
         // EAGER ImGui init — context + platform/renderer backends + device objects (font atlas), built
-        // ON THE CALLING THREAD at Install time, before the Present hook is enabled. Everything the first
+        // ON THE CALLING THREAD at Install time, before the present-call detour is installed. Everything the first
         // live present used to build lazily is done here instead. Returns false if the swapchain/device
         // isn't ready yet (caller retries later). Runs once; single-threaded (no draw can race it because
         // the hook isn't enabled until this returns).
@@ -86,8 +83,8 @@ namespace CB::core::bootstrap {
             return true;
         }
 
-        // Draw the bar ON TOP of the frame the game just rendered (no clear — the game's frame stays), to a
-        // FRESH RTV off the current backbuffer. Only while the compile is running.
+        // Draw the bar ON TOP of the frame the game just rendered (no clear — the game's frame stays), to the
+        // already-bound target. Only while the compile is running.
         void DrawBar()
         {
             std::size_t done = 0, total = 0;

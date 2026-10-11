@@ -8,16 +8,14 @@
 
 #include <interface/UnitSource.h>
 #include <codec/serialization/HkyArchive.h>
-#include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromGraph — first-class adsf-derive stage
+#include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromGraph (ClipInputsOf)
 #include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <compile/AnimationCompiler.h>         // CB::engine::anim::CompileAnimation (native anim -> loose .hkx)
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
-#include <interface/AnimationData.h>        // animdata::SingleFile / EmitSingleFile (DeriveAnimData)
 #include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
-#include <codec/format/AnimDataYaml.h>         // ParseAnimdataIndexYaml / ParseMotionSidecar / StemForProjectName
-#include <compile/AnimDataDeriver.h>      // DeriveClipList (sink clip inputs + roster -> ClipGenerators)
+#include <compile/AnimDataDeriver.h>      // CB::engine::animdata::DeriveClipInput
 #include <interface/reflection/HavokSchema.h>        // schema::SharedRegistry — pre-warm before parallel anim compile
 #include "core/discover/BundleReader.h"               // read the shipped vanilla skeleton base from Skyrim.hky
 
@@ -67,26 +65,6 @@ namespace CB {
             return g && !CB::engine::codec::HkyArchive::IsPatchGraphYaml(*g);
         }
 
-        // The actor identity for a graph serve key: everything between "actors/" and the
-        // "/behaviors/" (or "/characters/") boundary. Top-level actors are one segment
-        // ("bear"); NESTED creatures keep their namespace ("dlc02/netch", "ambient/chicken").
-        // Both the bone-name-table PRODUCER (Init) and the behavior CONSUMER (compile) key the
-        // per-actor bone table through this, so they agree for nested actors. The old flat
-        // first-segment key ("dlc02") collapsed every dlc02/* creature onto one table AND
-        // never found their skeleton (no "actors/dlc02/character assets/…"), so their
-        // bone-index-by-name arrays failed to compile → broken graph → hkbRagdollDriver CTD
-        // on load (BR-20). Returns lowercased '/'-normalized path; empty if not under actors/.
-        std::string ActorPathOf(const std::string& serveKey)
-        {
-            const std::string k = ToLower(serveKey);
-            const auto ap = k.find("actors/");
-            if (ap == std::string::npos) return {};
-            const std::string rest = k.substr(ap + 7);
-            for (const char* seg : { "/behaviors/", "/characters/" })
-                if (const auto b = rest.find(seg); b != std::string::npos) return rest.substr(0, b);
-            return rest.substr(0, rest.find('/'));   // fallback: first segment
-        }
-
         // Decode XML entity references (&amp; &lt; &gt; &quot; &apos;) to their literal
         // characters. Author-drop
         // animationnames\<char>.txt rosters can arrive HTML-escaped (a mod's loose character
@@ -118,7 +96,7 @@ namespace CB {
         using CB::core::discover::NormalizeKey;
         using CB::core::discover::FolderRootOf;
         using CB::core::discover::CacheDiskRel;
-        // (serve-key helpers live in hpp/ServeKey.h — shared with br-servekey-test)
+        // (serve-key helpers live in core/discover/ServeKey.h)
 
         std::string TrimLine(const std::string& line)
         {
@@ -974,10 +952,6 @@ namespace CB {
         namespace fs = std::filesystem;
         std::atomic<std::size_t> written{ 0 }, failed{ 0 };
 
-        // Fresh motion accumulation for this compile pass (compiler = single motion producer; drained by
-        // the adsf finalizer). Cleared up front so a re-run never carries stale records.
-        m_motionSink.Clear();
-
         // Pre-warm the shared schema registry ON THIS (single) THREAD before any fan-out. SharedRegistry()'s
         // one-time load is guarded by a plain `state` int, NOT synchronized — two worker threads racing the
         // first call could both attempt the load. After this call state is settled and every worker only
@@ -1027,21 +1001,10 @@ namespace CB {
             const fs::path out = dataRoot / fs::path(outKey);
             try {
                 auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
-                /// @note The unit's actor motion (its record, or extracted from a folded root — which also strips the
-                ///       root, so the binary compiled below serves without the travel the adsf now moves the actor by).
-                const auto motion = CB::engine::anim::ResolveRootMotion(def);
-                // PRODUCE MOTION: the compiler is the single producer of root motion. If this native unit
-                // carries an inline `motion:` block, emit it for the adsf finalizer to DRAIN (instead of
-                // the adsf re-reading the YAML — which looked for a `.hkx.yaml` class these `.hkx` units
-                // don't use, so it read nothing). Keyed to match the drain exactly: actorRoot = the serve
-                // path up to "/animations/"; innerKey = the remainder, lowercased '/'-sep (== the form
-                // motionsForRoot produced and DeriveProjectPatch's normAnim(animationName) looks up). Motion
-                // is authored data (not compile-dependent), so emit on a successful PARSE, before compile.
-                if (motion) {
-                    const std::string low = ToLower(outKey);   // outKey is '/'-sep already
-                    if (const auto ap = low.find("/animations/"); ap != std::string::npos)
-                        m_motionSink.EmitMotion(outKey.substr(0, ap), low.substr(ap + 1), *motion);
-                }
+                /// @note Called for its side effect: a folded root has its actor motion extracted and STRIPPED, so the
+                ///       binary compiled below serves without the travel the adsf moves the actor by. The motion
+                ///       itself reaches the adsf through the projection (AnimationDataServer), not from here.
+                (void)CB::engine::anim::ResolveRootMotion(def);
                 // INVERSE MEMBRANE: resolve this clip's per-track bone references through the rig of the
                 // characters that play it (BonesFor — the same lookup the graph compile uses), so its
                 // hkaAnimationBinding.transformTrackToBoneIndices follows the actor's bones by name.
@@ -1130,10 +1093,6 @@ namespace CB {
             LOG_INFO("Community Behaviors: native animations — {} compiled, {} unchanged, {} failed, {} orphan(s) removed "
                      "(compiled to the real meshes path — opt-in bundles only, manifest compile_animations=true).",
                      w, unchanged, fl, removed);
-        // Phase 0 coverage: what the compiler produced for the adsf to drain. Nothing consumes the sink
-        // yet (byte-neutral); this confirms the emit fires + the keying before the drain is switched over.
-        LOG_INFO("Community Behaviors: motion sink — {} record(s) across {} actor root(s) (compiler-produced).",
-                 m_motionSink.RecordCount(), m_motionSink.RootCount());
         return w;
     }
 
@@ -1676,8 +1635,6 @@ namespace CB {
         std::vector<std::string>& names = sd->FieldRef("animationNames").strs;
         if (const std::size_t folded = FoldAuthorRoster(cstem, names))
             LOG_INFO("Resolver: folded {} author roster addition(s) into character '{}'.", folded, key);
-        if (m_adsfDerive) m_characterRosters[cstem] = names;
-        m_characterActor[cstem] = ActorPathOf(key);
 
         /// @note Cache-qualify the character's main behavior reference when CB serves that behavior, so the
         ///       redirected load reaches CB's compiled graph instead of the vanilla file.
@@ -1735,11 +1692,7 @@ namespace CB {
                 ResolveCharacter(key, edit);
             } else {
                 ResolverFeatureLog fLog;
-                /// @note animData (the contribution hook) is supplied only while adsf-derive collects, so a feature
-                ///       can push extra clips into the same sink the first-class derive stage fills below.
-                CB::feature::FeatureContext fctx{ .graphKey = key, .log = fLog,
-                                                  .animData = (m_adsfDerive ? &m_clipSink : nullptr),
-                                                  .symbols  = &m_symbols };
+                CB::feature::FeatureContext fctx{ .graphKey = key, .log = fLog, .symbols = &m_symbols };
                 /// @note The ENABLED set is data (WHICH run); ResolveRunOrder derives the ORDER from each feature's
                 ///       RunsAfter/RunsBefore. The ER gate stays opt-in ([ERGate] bEnable): a fault there rewrites
                 ///       every wildcard and would T-pose every actor.
@@ -1749,15 +1702,6 @@ namespace CB {
                 for (const auto& [id, r] : features.Run(features.ResolveRunOrder(enabledIds, fLog), edit, fctx))
                     if (r.applied && r.mutations)
                         LOG_INFO("Resolver: feature {} → {} mutation(s) in '{}'.", id, r.mutations, key);
-
-                /// @note adsf-derive is a first-class compile stage (compiler output, not a graph mutation): it
-                ///       reads the clip generators AFTER the features, so a feature that adds clips gets derived.
-                if (m_adsfDerive) {
-                    const auto inputs = CB::engine::compile::DeriveClipInputsFromGraph(graph.root);
-                    for (const auto& in : inputs) m_clipSink.EmitClip(key, in);
-                    if (!inputs.empty())
-                        LOG_INFO("Resolver: adsf-derive — {} clip input(s) from '{}'.", inputs.size(), key);
-                }
 
                 /// @note Cache-qualify every child behavior reference CB owns, so the recursive above-OAR load pulls
                 ///       CB's compiled sub-behaviors while unowned children resolve to their vanilla files.
@@ -1797,93 +1741,6 @@ namespace CB {
 
         m_cache.emplace(key, result);
         return result;
-    }
-
-    // ── the animationdata finalize (opt-in) ──────────────────────────────────────────
-    // Starts from the PROVEN collated file ServeAnimData just wrote (every project already correct —
-    // vanilla base + bundle deltas + motion) and OVERRIDES only the clip list of projects the sink
-    // fully covers (a compiled character with a captured merged roster). An uncovered project keeps
-    // its proven clips — never emptied, since an empty hasAnimData block desyncs the positional parser
-    // and hangs the engine. For a covered project the clips come straight off the merged graph (load
-    // order already resolved), resolved against the character's MERGED roster — so mod clips get their
-    // real roster index instead of the collated path's synthetic high-band index.
-    bool Resolver::DeriveAnimData(const std::filesystem::path& dataDir)
-    {
-        if (!m_adsfDerive) return false;
-        namespace ad = CB::engine::animdata;
-
-        // ── start from the proven collated file (ServeAnimData ran first) ──
-        const fs::path out = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";
-        std::string baseText;
-        { std::ifstream f(out, std::ios::binary);
-          if (f) baseText.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()); }
-        if (baseText.empty()) {
-            LOG_WARN("Resolver: DeriveAnimData — no collated base at '{}' (did ServeAnimData run?).", out.string());
-            return false;
-        }
-        ad::SingleFile sf;
-        try { sf = ad::ParseSingleFile(baseText); }
-        catch (const std::exception& e) {
-            LOG_WARN("Resolver: DeriveAnimData — base parse failed ({}); leaving the collated file.", e.what());
-            return false;
-        }
-
-        // ── project stem -> character stem (index.yaml), so a project whose name differs from its
-        //    character file (ChickenProject.txt <- chicken.hkx) still finds its captured roster ──
-        std::unordered_map<std::string, std::string> projToChar;
-        if (auto rd = BundleReader::Open(dataDir / "community_behaviors" / "plugins" / "Skyrim.hky")) {
-            if (const auto idxTxt = rd->read("meshes/animationdatasinglefile.txt/index.yaml")) {
-                std::string ierr;
-                for (const auto& h : ad::ParseAnimdataIndexYaml(*idxTxt, ierr)) {
-                    if (h.character.empty()) continue;
-                    std::string cs = h.character;
-                    for (char& c : cs) if (c == '\\') c = '/';
-                    const auto sl = cs.find_last_of('/');
-                    std::string charStem = ToLower(sl == std::string::npos ? cs : cs.substr(sl + 1));
-                    if (const auto dot = charStem.rfind('.'); dot != std::string::npos) charStem.erase(dot);
-                    projToChar[ad::StemForProjectName(h.name)] = charStem;
-                }
-            }
-        }
-
-        // ── clips from the sink: group every graph's contributions by actor path ──
-        std::map<std::string, std::vector<ad::DeriveClipInput>> byActor;
-        for (const auto& [graphKey, clips] : m_clipSink.Contributions()) {
-            const std::string actor = ActorPathOf(graphKey);
-            if (actor.empty()) continue;
-            auto& v = byActor[actor];
-            v.insert(v.end(), clips.begin(), clips.end());
-        }
-
-        // ── override covered projects' clips (leave the rest — and their motion — proven) ──
-        std::size_t overridden = 0;
-        for (auto& p : sf.projects) {
-            if (!p.hasAnimData) continue;
-            const std::string projStem = ad::StemForProjectName(p.name);
-            std::string charStem = projStem;
-            if (const auto pc = projToChar.find(projStem); pc != projToChar.end()) charStem = pc->second;
-            const auto ri = m_characterRosters.find(charStem);
-            const auto ai = m_characterActor.find(charStem);
-            if (ri == m_characterRosters.end() || ai == m_characterActor.end()) continue;  // no captured roster
-            const auto ci = byActor.find(ai->second);
-            if (ci == byActor.end()) continue;                                             // no graphs for this actor
-            p.clips = ad::DeriveClipList(ci->second, ri->second, /*motionDurByIndex*/ {});
-            ++overridden;
-        }
-
-        const std::string text = ad::EmitSingleFile(sf);
-        std::error_code ec;
-        std::filesystem::create_directories(out.parent_path(), ec);
-        std::ofstream f(out, std::ios::binary | std::ios::trunc);
-        if (!f) {
-            LOG_ERROR("Resolver: DeriveAnimData — cannot write '{}'.", out.string());
-            return false;
-        }
-        f.write(text.data(), static_cast<std::streamsize>(text.size()));
-        LOG_INFO("Resolver: DeriveAnimData — overrode {} of {} project(s) with sink-derived clips "
-                 "({} graph(s), {} clip input(s)) -> '{}'.",
-                 overridden, sf.projects.size(), m_clipSink.GraphCount(), m_clipSink.ClipCount(), out.string());
-        return true;
     }
 
 }  // namespace CB

@@ -37,7 +37,7 @@ src/                         CB's code. src/ is the plugin's private include roo
                              so bare "PCH.h"/"PluginLogger.h" resolve
     discover/                find + read the .hky bundles (BundleReader, BundleManifest, ServeKey)
     resolve/                 load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
-                             GraphClipSink, MotionRecordSink, Watermark). Compile itself is delegated to the engine.
+                             Watermark). Compile itself is delegated to the engine.
     serve/                   deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer);
                              conditions/ = the opt-in condition sensors on the setdata matcher
     bootstrap/               startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud);
