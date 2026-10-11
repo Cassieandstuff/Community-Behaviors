@@ -6,8 +6,11 @@
 // schema/README.md for the descriptor format.
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace CB::engine::schema {
@@ -150,13 +153,43 @@ enum class SchemaCompat { Ok, Refuse };
 SchemaCompat CheckSchemaCompat(const SchemaVersion& authored, const SchemaVersion& current,
                                std::string& why);
 
+/// @brief A class's flattened serialized field list (parent fields first, schema order) + a name → index map.
+/// @invariant `index` maps each name to its FIRST occurrence in `fields` (a parent's field shadows a same-named
+///            child field — the order the per-name lookups have always resolved).
+struct FieldLayout {
+    struct Hash {
+        using is_transparent = void;
+        std::size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
+    };
+    std::vector<const Field*>                                                    fields;
+    std::unordered_map<std::string, std::size_t, Hash, std::equal_to<>>         index;
+};
+
 class SchemaRegistry {
 public:
+    SchemaRegistry() = default;
+    /// @note Non-copyable: the cached layouts point into this registry's own ClassSchemas. A move keeps the
+    ///       std::map nodes (and so every pointer) valid.
+    SchemaRegistry(const SchemaRegistry&)            = delete;
+    SchemaRegistry& operator=(const SchemaRegistry&) = delete;
+    SchemaRegistry(SchemaRegistry&&)                 = default;
+    SchemaRegistry& operator=(SchemaRegistry&&)      = default;
+
     // Load every *.yaml/*.yml under `root` (recursively) as a ClassSchema. On a parse error returns
     // false with `err` set. Non-yaml files (README, etc.) are ignored.
     bool LoadDir(const std::string& root, std::string& err);
 
     const ClassSchema* Find(const std::string& name) const;
+
+    /// @brief The class's flattened field list, parent-first.
+    /// @warning Throws std::runtime_error on an unresolved or cyclic `parent:` chain.
+    std::vector<const Field*> Flatten(const ClassSchema* cs) const;
+
+    /// @brief The cached layout of a class this registry loaded, or nullptr (not ours, or its parent chain
+    ///        doesn't resolve — Flatten then throws the reason).
+    /// @note Built once at the end of a successful LoadDir; the registry is immutable afterwards, so lookups
+    ///       are lock-free and safe from any thread.
+    const FieldLayout* Layout(const ClassSchema* cs) const;
     const std::map<std::string, ClassSchema>& All() const { return m_byName; }
 
     // Enum definitions loaded from the enums/ subtree. Find one by its type name (e.g. "PlaybackMode").
@@ -198,7 +231,10 @@ public:
     int ComputeSize(const std::string& className, std::string* err = nullptr, int depth = 0) const;
 
 private:
+    void BuildLayouts();
+
     std::map<std::string, ClassSchema> m_byName;
+    std::unordered_map<const ClassSchema*, FieldLayout> m_layouts;   ///< see Layout()
     std::map<std::string, EnumDef>     m_enums;               // enums/*.yaml, keyed by enum type name
     std::string                        m_schemaVersion;      // Havok/SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen

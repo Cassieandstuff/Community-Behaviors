@@ -373,12 +373,50 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             return false;
         }
     }
+    BuildLayouts();
     return true;
 }
 
 const ClassSchema* SchemaRegistry::Find(const std::string& name) const {
     auto it = m_byName.find(name);
     return it == m_byName.end() ? nullptr : &it->second;
+}
+
+namespace {
+/// @note `depth` bounds the parent chain so a cyclic `parent:` (A->B->A) throws instead of overflowing.
+void flattenInto(const SchemaRegistry& reg, const ClassSchema* cs, std::vector<const Field*>& out, int depth) {
+    if (!cs) return;
+    if (depth > 256) throw std::runtime_error("havok-io: schema parent chain too deep (cycle?) at '" + cs->name + "'");
+    if (!cs->parent.empty()) {
+        const ClassSchema* p = reg.Find(cs->parent);
+        if (!p) throw std::runtime_error("havok-io: unresolved parent '" + cs->parent + "' of '" + cs->name + "'");
+        flattenInto(reg, p, out, depth + 1);
+    }
+    for (const Field& f : cs->fields) out.push_back(&f);
+}
+}  // namespace
+
+std::vector<const Field*> SchemaRegistry::Flatten(const ClassSchema* cs) const {
+    std::vector<const Field*> out;
+    flattenInto(*this, cs, out, 0);
+    return out;
+}
+
+const FieldLayout* SchemaRegistry::Layout(const ClassSchema* cs) const {
+    const auto it = m_layouts.find(cs);
+    return it == m_layouts.end() ? nullptr : &it->second;
+}
+
+void SchemaRegistry::BuildLayouts() {
+    m_layouts.clear();
+    for (const auto& [name, cs] : m_byName) {
+        FieldLayout l;
+        try { l.fields = Flatten(&cs); }
+        catch (const std::exception&) { continue; }   // left uncached: Flatten reports it at the use site
+        l.index.reserve(l.fields.size());
+        for (std::size_t i = 0; i < l.fields.size(); ++i) l.index.emplace(l.fields[i]->name, i);
+        m_layouts.emplace(&cs, std::move(l));
+    }
 }
 
 const EnumDef* SchemaRegistry::FindEnum(const std::string& name) const {
