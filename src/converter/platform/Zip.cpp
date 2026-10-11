@@ -57,12 +57,19 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
         const fs::path dir = std::move(stack.back());
         stack.pop_back();
         std::error_code de;
-        for (fs::directory_iterator di(dir, fs::directory_options::skip_permission_denied, de), dEnd;
-             di != dEnd; di.increment(de)) {
-            if (de) { de.clear(); break; }   // this dir went bad — skip the rest of it, keep the walk
+        /// @note A walk error (unreadable/denied dir, failed stat) skips the rest of that dir but COUNTS as
+        ///       skipped, so callers that require a complete archive see it — never a silently short pack.
+        fs::directory_iterator di(dir, de), dEnd;
+        if (de) { ++skipped; continue; }
+        for (; di != dEnd; di.increment(de)) {
+            if (de) { ++skipped; break; }
             std::error_code fe;
-            if (di->is_directory(fe) && !fe) { stack.push_back(di->path()); continue; }
-            if (!di->is_regular_file(fe) || fe) continue;
+            const bool isDir = di->is_directory(fe);
+            if (fe) { ++skipped; continue; }
+            if (isDir) { stack.push_back(di->path()); continue; }
+            const bool isFile = di->is_regular_file(fe);
+            if (fe) { ++skipped; continue; }
+            if (!isFile) continue;
             if (!zipCanon.empty()) {                                                               // never self-add
                 const fs::path canon = fs::weakly_canonical(di->path(), fe);
                 if (canon == zipCanon || canon == tmpCanon) continue;
@@ -141,7 +148,7 @@ bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& 
         err = "cannot replace '" + zipPath + "': " + ec.message();
         return false;
     }
-    if (skipped > 0) err = "warning: " + std::to_string(skipped) + " unreadable file(s) skipped";  // non-fatal
+    if (skipped > 0) err = "warning: " + std::to_string(skipped) + " unreadable file(s)/folder(s) skipped";  // non-fatal
     return true;
 }
 
