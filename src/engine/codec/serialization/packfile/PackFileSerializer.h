@@ -5,7 +5,6 @@
 #include <codec/serialization/packfile/PackFileTypes.h>
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -146,61 +145,6 @@ public:
         data.WriteData(bw);
     }
 
-    // Serialize ONE object's own struct fields to bytes (for field-level diffing of two
-    // packfiles). Pointers become deterministic placeholders and array element data is
-    // queued, not flushed — the result is scalars + array sizes + inline structs, laid
-    // out identically for any two objects of the same class, so they byte-compare
-    // field-for-field. Reads fields the decompiler never emits (that is the point).
-    std::vector<std::uint8_t> SerializeStruct(const std::shared_ptr<IHavokObject>& obj, const HKXHeader& header) {
-        _header = header;
-        _localFixups.clear(); _globalFixups.clear(); _virtualFixups.clear();
-        _globalLookup.clear(); _virtualLookup.clear();
-        _localWriteQueues.clear(); _serializationQueues.clear();
-        _pendingGlobals.clear(); _pendingVirtuals.clear(); _serializedObjects.clear();
-        _localWriteQueues.emplace_back();
-        _serializationQueues.emplace_back();
-        _currentLocalWriteQueue = 0; _currentSerializationQueue = 0;
-        BinaryWriterEx bw(_header.Endian == 0, _header.PointerSize == 8);
-        obj->Write(*this, bw);
-        return bw.Data();
-    }
-
-    // Like SerializeStruct, but ALSO flushes the local write queue so the returned
-    // blob includes queued local data — string contents, primitive-array contents,
-    // and embedded class-array element structs (transitions, bindings, triggers,
-    // events). Pointers to OTHER objects stay 0 (serialization queue is not flushed),
-    // so the blob is a canonical, pointer-target-independent fingerprint of an
-    // object's full self-contained content. Used by the field-differ to compare
-    // array ELEMENT contents, not just counts.
-    std::vector<std::uint8_t> SerializeStructDeep(const std::shared_ptr<IHavokObject>& obj, const HKXHeader& header) {
-        _header = header;
-        _localFixups.clear(); _globalFixups.clear(); _virtualFixups.clear();
-        _globalLookup.clear(); _virtualLookup.clear();
-        _localWriteQueues.clear(); _serializationQueues.clear();
-        _pendingGlobals.clear(); _pendingVirtuals.clear(); _serializedObjects.clear();
-        _localWriteQueues.emplace_back();
-        _serializationQueues.emplace_back();
-        _currentLocalWriteQueue = 0; _currentSerializationQueue = 0;
-        BinaryWriterEx bw(_header.Endian == 0, _header.PointerSize == 8);
-        obj->Write(*this, bw);
-        bw.Pad(16);
-        while (_localWriteQueues.size() > 1 || !_localWriteQueues[0].empty()) {
-            while (_localWriteQueues.back().empty() && _localWriteQueues.size() > 1) {
-                _localWriteQueues.pop_back();
-                bw.Pad(16);
-            }
-            if (_localWriteQueues.back().empty()) {
-                _currentLocalWriteQueue = static_cast<int>(_localWriteQueues.size()) - 1;
-                continue;
-            }
-            std::function<void()> act = std::move(_localWriteQueues.back().front());
-            _localWriteQueues.back().pop();
-            _currentLocalWriteQueue = static_cast<int>(_localWriteQueues.size()) - 1;
-            act();
-        }
-        return bw.Data();
-    }
-
     // ── Write helpers invoked by each class's Write(s, bw) ─────────────────────
 
     void WriteVoidPointer(BinaryWriterEx& bw) {
@@ -248,17 +192,6 @@ public:
         });
     }
 
-    void WriteVector4(BinaryWriterEx& bw, const Vector4& d) { bw.WriteVector4(d); }
-
-    // Quaternion: 4 floats x,y,z,w — byte-identical to WriteVector4 (mirrors C#
-    // PackFileSerializer.WriteQuaternion -> bw.WriteSingle X/Y/Z/W).
-    void WriteQuaternion(BinaryWriterEx& bw, const Quaternion& d) {
-        bw.WriteSingle(d.x);
-        bw.WriteSingle(d.y);
-        bw.WriteSingle(d.z);
-        bw.WriteSingle(d.w);
-    }
-
     // C-string pointer. Same packfile shape as WriteStringPointer EXCEPT: an
     // empty string emits the null pointer with NO local fixup (mirrors C#
     // PackFileSerializer.WriteCString, which skips the fixup for "" / null /
@@ -278,54 +211,9 @@ public:
         });
     }
 
-    void WriteQSTransform(BinaryWriterEx& bw, const QSTransform& d) {
-        // 12 floats: translation, rotation (quaternion), scale.
-        bw.WriteSingle(d.translation.x); bw.WriteSingle(d.translation.y);
-        bw.WriteSingle(d.translation.z); bw.WriteSingle(d.translation.w);
-        bw.WriteSingle(d.rotation.x);    bw.WriteSingle(d.rotation.y);
-        bw.WriteSingle(d.rotation.z);    bw.WriteSingle(d.rotation.w);
-        bw.WriteSingle(d.scale.x);       bw.WriteSingle(d.scale.y);
-        bw.WriteSingle(d.scale.z);       bw.WriteSingle(d.scale.w);
-    }
-
-    template <std::size_t N>
-    void WriteBooleanCStyleArray(BinaryWriterEx& bw, const std::array<bool, N>& d) {
-        for (bool b : d) bw.WriteBoolean(b);
-    }
-
     // ── array writers ─────────────────────────────────────────────────────────
-    template <class T>
-    void WriteClassPointerArray(BinaryWriterEx& bw, const std::vector<std::shared_ptr<T>>& d) {
-        WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { WriteClassPointer(bw, d[i]); });
-    }
-    template <class T>
-    void WriteClassArray(BinaryWriterEx& bw, const std::vector<T>& d) {
-        WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { d[i].Write(*this, bw); }, /*pad*/ true);
-    }
     void WriteStringPointerArray(BinaryWriterEx& bw, const std::vector<std::string>& d) {
         WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { WriteStringPointer(bw, d[i], 2); });
-    }
-    void WriteSingleArray(BinaryWriterEx& bw, const std::vector<float>& d) {
-        WriteArrayBase(bw, d.size(), [&bw, &d](std::size_t i) { bw.WriteSingle(d[i]); });
-    }
-    void WriteInt16Array(BinaryWriterEx& bw, const std::vector<std::int16_t>& d) {
-        WriteArrayBase(bw, d.size(), [&bw, &d](std::size_t i) { bw.WriteInt16(d[i]); });
-    }
-    void WriteInt32Array(BinaryWriterEx& bw, const std::vector<std::int32_t>& d) {
-        WriteArrayBase(bw, d.size(), [&bw, &d](std::size_t i) { bw.WriteInt32(d[i]); });
-    }
-    void WriteUInt32Array(BinaryWriterEx& bw, const std::vector<std::uint32_t>& d) {
-        WriteArrayBase(bw, d.size(), [&bw, &d](std::size_t i) { bw.WriteUInt32(d[i]); });
-    }
-    void WriteByteArray(BinaryWriterEx& bw, const std::vector<std::uint8_t>& d) {
-        WriteArrayBase(bw, d.size(), [&bw, &d](std::size_t i) { bw.WriteByte(d[i]); });
-    }
-    void WriteQSTransformArray(BinaryWriterEx& bw, const std::vector<QSTransform>& d) {
-        // 48-byte elements, already 16-byte aligned — same shape as Vector4Array.
-        WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { WriteQSTransform(bw, d[i]); });
-    }
-    void WriteVector4Array(BinaryWriterEx& bw, const std::vector<Vector4>& d) {
-        WriteArrayBase(bw, d.size(), [&bw, &d](std::size_t i) { bw.WriteVector4(d[i]); });
     }
 
     // ── havok-io generic array writers (Stage 2) — inverse of the deserializer's generic readers ──

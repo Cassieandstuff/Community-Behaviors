@@ -1,7 +1,6 @@
 #include <codec/serialization/HavokIo.h>
 
 #include <stdexcept>
-#include <unordered_map>
 
 namespace CB::engine::codec::io {
 
@@ -242,58 +241,6 @@ bool RoundtripHkx(const std::vector<std::uint8_t>& in,
         PackFileSerializer ser;
         BinaryWriterEx bw(des._header.Endian == 0, des._header.PointerSize == 8);
         ser.Serialize(root, bw, des._header);
-        out = bw.Data();
-        return true;
-    } catch (const std::exception& e) {
-        err = e.what();
-        return false;
-    }
-}
-
-namespace {
-// Deep-copy a SchemaObject graph using ONLY the construction API (Init + FieldRef/FieldAt) — no Read.
-// Proves the from-scratch build path is byte-faithful: a rebuilt graph must re-serialize identically.
-// memo handles sharing + cycles (an object referenced N times is rebuilt once).
-std::shared_ptr<IHavokObject> rebuildObj(
-    const std::shared_ptr<IHavokObject>& src, const SchemaRegistry& reg,
-    std::unordered_map<const IHavokObject*, std::shared_ptr<IHavokObject>>& memo) {
-    if (!src) return nullptr;
-    if (auto it = memo.find(src.get()); it != memo.end()) return it->second;
-    const auto* so = dynamic_cast<const SchemaObject*>(src.get());
-    if (!so) return src;   // non-schema object (shouldn't occur on the generic path) — share as-is
-    auto fresh = std::make_shared<SchemaObject>(&reg, so->Schema());
-    fresh->Init();
-    memo[src.get()] = fresh;
-    const auto& vals = so->Values();
-    for (std::size_t i = 0; i < vals.size(); ++i) {
-        FieldValue&       d = fresh->FieldAt(i);
-        const FieldValue& s = vals[i];
-        d.raw = s.raw; d.vtable = s.vtable; d.str = s.str; d.strs = s.strs;
-        if (s.obj) d.obj = rebuildObj(s.obj, reg, memo);
-        d.objs.reserve(s.objs.size());
-        for (const auto& c : s.objs) d.objs.push_back(rebuildObj(c, reg, memo));
-    }
-    return fresh;
-}
-} // namespace
-
-bool RebuildHkx(const std::vector<std::uint8_t>& in,
-                const SchemaRegistry&            reg,
-                std::vector<std::uint8_t>&       out,
-                std::string&                     err) {
-    try {
-        BinaryReaderEx br(in);
-        PackFileDeserializer des;
-        des.ObjectFactory = MakeSchemaFactory(reg);
-        std::shared_ptr<IHavokObject> root = des.Deserialize(br);
-        if (!root) { err = "havok-io: null root object"; return false; }
-
-        std::unordered_map<const IHavokObject*, std::shared_ptr<IHavokObject>> memo;
-        std::shared_ptr<IHavokObject> rebuilt = rebuildObj(root, reg, memo);
-
-        PackFileSerializer ser;
-        BinaryWriterEx bw(des._header.Endian == 0, des._header.PointerSize == 8);
-        ser.Serialize(rebuilt, bw, des._header);
         out = bw.Data();
         return true;
     } catch (const std::exception& e) {

@@ -158,13 +158,8 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         out.unwrap = childStr(root, "unwrap");
         out.vocab  = childStr(root, "vocab");
         out.metadata        = childStr(root, "kind") == "metadata";
-        out.file            = childStr(root, "file");
         out.blankTerminated = childStr(root, "terminator") == "blank";
         { const std::string s = childStr(root, "framelimit"); if (!s.empty()) out.frameLimit = std::stoi(s); }
-
-        if (hasKey(root, "runtime"))
-            out.runtime = (childStr(root[c4::to_csubstr("runtime")], "source") == "self")
-                              ? RuntimeSource::Self : RuntimeSource::Game;
 
         if (hasKey(root, "fields")) {
             for (auto fn : root[c4::to_csubstr("fields")]) {
@@ -210,7 +205,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.ignored  = (childStr(fn, "ignored") == "true");
                     f.merge    = childStr(fn, "merge");
                     f.enumName = childStr(fn, "enum");   // Scalar enum type for .hky name rendering
-                    if (const std::string h = childStr(fn, "hkyenum"); !h.empty()) { f.enumName = h; f.hkyOnlyEnum = true; }
+                    if (const std::string h = childStr(fn, "hkyenum"); !h.empty()) f.enumName = h;
                     f.boneRef  = (childStr(fn, "boneref")  == "true");
                     f.boneList = (childStr(fn, "bonelist") == "true");
                     f.boneSet  = (childStr(fn, "boneset")  == "true");
@@ -225,10 +220,6 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.when         = childStr(fn, "when");
                     f.frame        = childStr(fn, "frame");
                     f.frameCounted = childStr(fn, "count") == "frame";
-                    f.rosterRef = childStr(fn, "rosterref");          // string is a member of a character roster
-                                                                     // (names the target roster field, e.g.
-                                                                     // "animationNames"); the cross membrane
-                                                                     // COLLECTS these into that roster at resolve.
                     // fixed inline repeat count (std::array<T,N>) for scalar/ptr/vector4 — boolarray set its own above
                     if (f.kind != FieldKind::BoolArray && !f.frameCounted) {
                         const std::string c = childStr(fn, "count");

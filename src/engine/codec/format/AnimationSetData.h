@@ -127,14 +127,9 @@ namespace CB::engine::animsetdata {
     // wraps whole items) — never mid-item.
     SetFile ParseNemesisSetFile(std::string_view text);
 
-    // Parse/emit a split-form project index ("<set>.txt" per line, no count prefix).
-    std::vector<std::string> ParseProjectIndex(std::string_view text);
-    std::string EmitProjectIndex(const std::vector<std::string>& setNames);
-
     // ── CRC / animation registration ─────────────────────────────────────────────
-    // The path CRC now lives in CB::engine::codec::crc (the searchable codec — encode + solve). Aliased here so
-    // asd::Crc32 / asd::TripleForAnimation call sites are unchanged during the firesale.
-    using CB::engine::codec::crc::Crc32;
+    // The path CRC now lives in CB::engine::codec::crc. Aliased here so
+    // asd::TripleForAnimation call sites are unchanged during the firesale.
     using CB::engine::codec::crc::TripleForAnimation;
 
     // ── Merge (load-order overlay) ───────────────────────────────────────────────

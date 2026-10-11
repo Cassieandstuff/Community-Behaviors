@@ -61,7 +61,6 @@ public:
     // Read; also available after construction for a caller that built the graph via Read.
     std::vector<const schema::Field*> Fields() const;
     const std::vector<FieldValue>&    Values() const noexcept { return m_fields; }
-    const schema::SchemaRegistry*     Reg() const noexcept { return m_reg; }
 
     // ── Construction (build a graph WITHOUT reading bytes — the compile direction) ──
     // Read fills m_fields; a from-scratch builder calls Init() to size the value store to the flattened
@@ -91,14 +90,5 @@ bool RoundtripHkx(const std::vector<std::uint8_t>& in,
                   const schema::SchemaRegistry&    reg,
                   std::vector<std::uint8_t>&       out,
                   std::string&                     err);
-
-// Like RoundtripHkx, but deep-REBUILDS the object graph via the construction API (Init +
-// FieldRef/FieldAt, no Read) before serializing — the migration-foundation gate. A byte-identical
-// `out == in` proves from-scratch SchemaObject construction is byte-faithful, so a builder that
-// emits SchemaObjects (replacing the typed hk* builders) can be trusted to the same standard.
-bool RebuildHkx(const std::vector<std::uint8_t>& in,
-                const schema::SchemaRegistry&    reg,
-                std::vector<std::uint8_t>&       out,
-                std::string&                     err);
 
 } // namespace CB::engine::codec::io

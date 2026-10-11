@@ -15,7 +15,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 namespace CB::engine::linker {
@@ -35,10 +34,6 @@ public:
     // the ORIGINAL-case name, and the resolved value is a number, so nothing miscased reaches the engine
     // (safe per the CLAUDE.md case-sensitivity rule: a purely internal key folded identically both ways).
     static Linker OfOrderedNames(const std::vector<std::string>& names, bool caseFold = false);
-
-    // An explicit name<->value set: enums (MODE_SINGLE_PLAY -> 47), or a chain table built from another
-    // field's resolved binds (clip name -> its animIndex). First pair wins on a duplicate name/value.
-    static Linker OfPairs(std::vector<std::pair<std::string, Value>> pairs, bool caseFold = false);
 
     // name -> value. nullopt when the name is not in this space (a dangling reference — the caller/
     // membrane turns that into a diagnostic rather than a silent fallback).

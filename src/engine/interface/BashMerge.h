@@ -20,13 +20,10 @@ namespace CB::engine::merge {
 using namespace CB::engine::common;
 
 // ── generic (representation-agnostic) merge DECISION ────────────────────────────
-enum class ParamMerge { Keep, LastWriter, ReplaceArray, UnionArray, GuardError };
+enum class ParamMerge { Keep, LastWriter, ReplaceArray, UnionArray };
 
-// How a single param merges, given: is it an array; how many layers actually CHANGED
-// it (differ from base); and whether it is a GUARDED positional node array (blender
-// children / selector generators / modifier lists — order is load-bearing, so a
-// multi-mod collision cannot be safely auto-unioned). Shared by BOTH adapters so the
-// rule is defined exactly once:
+// How a single param merges, given: is it an array; and how many layers actually CHANGED
+// it (differ from base). Shared by BOTH adapters so the rule is defined exactly once:
 //   * 0 changers                 -> Keep       (an untouched vanilla-valued field in a
 //                                               later layer never reverts an earlier edit)
 //   * scalar / pointer field     -> LastWriter (load order wins)
@@ -34,12 +31,11 @@ enum class ParamMerge { Keep, LastWriter, ReplaceArray, UnionArray, GuardError }
 //                                                  intended value; don't re-union vanilla)
 //   * array changed by 2+ mods   -> UnionArray (each mod's vanilla-relative additions
 //                                               accumulate — event/var tables, clip triggers)
-//   * guarded array, 2+ mods     -> GuardError (refuse loudly; never silently drop)
-inline ParamMerge decideParam(bool isArray, int changerCount, bool guarded) {
+inline ParamMerge decideParam(bool isArray, int changerCount) {
     if (changerCount == 0) return ParamMerge::Keep;
     if (!isArray)          return ParamMerge::LastWriter;
     if (changerCount == 1) return ParamMerge::ReplaceArray;
-    return guarded ? ParamMerge::GuardError : ParamMerge::UnionArray;
+    return ParamMerge::UnionArray;
 }
 
 // ── xml::Node adapter (a patch <hkobject>'s <hkparam> children) ─────────────────
@@ -168,13 +164,6 @@ inline std::unordered_set<std::string> changedFields(const std::string& rawSrc) 
     return out;
 }
 
-// A param-name -> is-guarded-positional-array predicate (empty = never guard, which is
-// the converter's policy: union every multi-mod array exactly as before). The loader
-// passes a real predicate so a positional-node-array collision reports instead of
-// silently unioning.
-using GuardPred = std::function<bool(const std::string&)>;
-struct MergeReport { std::vector<std::string> guardErrors; };  // params refused by the guard
-
 // A (class, field) -> is-this-a-`merge: compose` array predicate. The loader/converter binds it to
 // SchemaRegistry::MergeTag so BOTH merge adapters read the SAME schema tag; empty = never compose
 // (the legacy/typed path, count-based union exactly as before).
@@ -237,8 +226,7 @@ inline void composeArrayInto(xml::Node& dst, const std::vector<const xml::Node*>
 // Bashed merge: start from `base` (vanilla), apply each layer's real deltas via the
 // shared `decideParam` rule. See decideParam for the per-param policy.
 inline xml::Node bashMerge(const xml::Node& base, const std::vector<const PatchLayer*>& layers,
-                           const GuardPred& guarded = {}, const ComposePred& compose = {},
-                           MergeReport* report = nullptr) {
+                           const ComposePred& compose = {}) {
     xml::Node merged = base;
     const std::string cls(base.attr("class"));   // node class → schema `merge:` tag lookup (compose)
 
@@ -291,15 +279,11 @@ inline xml::Node bashMerge(const xml::Node& base, const std::vector<const PatchL
             }
         }
 
-        const bool g = guarded && guarded(P);
-        switch (decideParam(isArr, static_cast<int>(changers.size()), g)) {
+        switch (decideParam(isArr, static_cast<int>(changers.size()))) {
             case ParamMerge::UnionArray:
                 if (!mp) { merged.children.push_back(*changers.front()); }
                 else for (const xml::Node* ch : changers) mergeArrayInto(*mp, *ch, bp);   // bp = vanilla base (tail-append infos)
                 break;
-            case ParamMerge::GuardError:
-                if (report) report->guardErrors.push_back(P);
-                break;   // refuse: leave base value untouched, never silently drop a mod's array
             case ParamMerge::ReplaceArray:
             case ParamMerge::LastWriter: {
                 const xml::Node* win = changers.back();

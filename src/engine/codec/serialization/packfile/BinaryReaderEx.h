@@ -32,7 +32,6 @@ public:
     // ── stream state ────────────────────────────────────────────────────────
     std::size_t Position() const noexcept { return m_pos; }
     void        SetPosition(std::size_t p) noexcept { m_pos = p; }
-    void        Skip(std::size_t n) noexcept { m_pos += n; }
     std::size_t Length() const noexcept { return m_buf.size(); }
 
     // ── raw / positioning ───────────────────────────────────────────────────
@@ -42,20 +41,12 @@ public:
     void Pad(int align);
 
     // ── primitives ──────────────────────────────────────────────────────────
-    bool          ReadBoolean();
-    std::int8_t   ReadSByte();
     std::uint8_t  ReadByte();
     std::int16_t  ReadInt16();
-    std::uint16_t ReadUInt16();
     std::int32_t  ReadInt32();
     std::uint32_t ReadUInt32();
-    std::int64_t  ReadInt64();
     std::uint64_t ReadUInt64();
-    Half          ReadHalf();
-    float         ReadSingle();
-    double        ReadDouble();
     std::uint64_t ReadUSize();
-    Vector4       ReadVector4();
 
     // ── strings ─────────────────────────────────────────────────────────────
     std::string ReadASCII();                  // null-terminated
@@ -64,9 +55,7 @@ public:
 
     // ── assertions (used by the deserializer) ────────────────────────────────
     std::uint8_t  AssertByte(std::initializer_list<std::uint8_t> options);
-    std::uint16_t AssertUInt16(std::initializer_list<std::uint16_t> options);
     std::uint32_t AssertUInt32(std::initializer_list<std::uint32_t> options);
-    std::uint64_t AssertUInt64(std::initializer_list<std::uint64_t> options);
     std::int32_t  AssertInt32(std::initializer_list<std::int32_t> options);
     std::uint64_t AssertUSize(std::initializer_list<std::uint64_t> options);
 

@@ -16,7 +16,6 @@
 #include <functional>
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,16 +29,9 @@ namespace CB::engine::animdata {
     std::string EmitMotionYaml(const Project& project, const std::vector<std::string>& roster);
 
     // motion.yaml -> the motion records (verbatim), for the round-trip gate + the runtime merge. Named
-    // records carry `animation` with animIndex empty (resolve via ResolveMotionIndices); unnamed carry
+    // records carry `animation` with animIndex empty; unnamed carry
     // animIndex. Never throws — malformed input leaves `err` set and returns what parsed.
     std::vector<MotionRecord> ParseMotionYaml(const std::string& text, std::string& err);
-
-    // Resolve each motion's animIndex from its `animation` (clip NAME) against `clips` (the project's
-    // clip generators, name -> animIndex). A record with no name (unnamed block) or an already-set
-    // index is left untouched. Returns the count whose name was NOT found in `clips` (an authored
-    // motion for a clip that doesn't exist — a real error the caller should surface). This is the
-    // de-hardwire join: the name is the stable key, the index is derived here so it can't drift.
-    std::size_t ResolveMotionIndices(std::vector<MotionRecord>& motions, const std::vector<ClipGenerator>& clips);
 
     // ── Per-animation motion sidecars ────────────────────────────────────────────
     // Motion is a property of the animation FILE (proven project-invariant), so the clean form is
@@ -80,8 +72,7 @@ namespace CB::engine::animdata {
     //       motion/<stem>.yaml   AUTHORED: root motion (EmitMotionYaml, keyed by clip name)
     //
     // "Author what reverses, bake what doesn't": motion round-trips to editable YAML; the clip list
-    // (and the project header) is baked verbatim for now. Assemble(index+clips+motion) -> EmitSingleFile
-    // reproduces vanilla byte-for-byte (gate: havok-core-cli animdata-tree-roundtrip). `<stem>` is the
+    // (and the project header) is baked verbatim for now. `<stem>` is the
     // lowercased project name without ".txt" ("DefaultMale.txt" -> "defaultmale").
 
     // One project's structural header (everything in section A except the clip generators). The 380
@@ -122,67 +113,9 @@ namespace CB::engine::animdata {
     // index.yaml: the per-project manifest — name + assets + hasAnimData + `character:` (the roster the
     // project's clip indices key into, meshes-relative). `charRefByStem` supplies the character ref per
     // project stem (from LoadProjectCharacters); a stem absent from it emits no `character:` (its clips
-    // then keep raw indices). Order is inert (SortAnimdata) but preserved here for free.
+    // then keep raw indices). Order is preserved.
     std::string                EmitAnimdataIndexYaml(const SingleFile& sf,
                                                      const std::map<std::string, std::string>& charRefByStem);
     std::vector<ProjectHeader> ParseAnimdataIndexYaml(const std::string& text, std::string& err);
-
-    // ── Per-CLIP files (clips/<project>/<clipname>.yaml) ─────────────────────────
-    // Each clip generator is ONE file, keyed by its name (the FILENAME — unique within a project,
-    // filesystem-legal), so an edit touches one clip. The body carries animation|index / speed / crop /
-    // triggers; the clip's NAME is the filename (not repeated in the body), and its animIndex is
-    // resolved from the roster at compose. Motion decomposes the same way (motion/<project>/<key>.yaml)
-    // via the existing EmitMotionSidecar/ParseMotionSidecar. Cache order is inert, so no order manifest.
-
-    // One clip generator -> its file body. Keyed by animation name (roster[animIndex]); falls back to
-    // `index:` when the index has no unique roster entry. `roster` may be empty (all -> index). Set
-    // `writeName` to also emit `name:` in the body — needed when the clip's filename had to be
-    // disambiguated (two clip names collide on a case-insensitive filesystem, e.g. "Crossbow_IdleHeld"
-    // vs "CrossBow_IdleHeld"), so the true name survives regardless of the filename.
-    std::string   EmitClipYaml(const ClipGenerator& clip, const std::vector<std::string>& roster,
-                               bool writeName = false);
-
-    // One clip file body -> a ClipGenerator. `name` is filled ONLY if the body carries `name:` (the
-    // disambiguated case); otherwise it's left empty for the caller to set from the filename. animIndex
-    // is resolved later via ResolveClipIndices. Never throws; malformed leaves `err` set.
-    ClipGenerator ParseClipYaml(const std::string& text, std::string& err);
-
-    // A collision-free filename stem for `base` given the stems already used in a directory. Normalizes
-    // case-insensitively (+ strips trailing '.'/' ' the way Windows would) so distinct names that would
-    // clash on a case-insensitive filesystem (e.g. "Crossbow_IdleHeld" vs "CrossBow_IdleHeld") get
-    // distinct files; on clash appends "__2", "__3", …. Inserts the result's normalized key into `used`.
-    // Returns `base` unchanged in the common (no-clash) case, so the caller can detect disambiguation
-    // (result != base) and persist the true name in-body.
-    std::string UniqueFileName(const std::string& base, std::set<std::string>& used);
-
-    // Resolve each clip's animIndex from its `animation` (roster path) against `roster` (the character's
-    // animationNames): animIndex = first index of `animation` in `roster`. A clip with no `animation`
-    // (raw-index fallback) or already-set index is left untouched. Returns the count whose animation
-    // was NOT found in the roster (a real error the caller should surface). The de-hardwire join for
-    // clips — the name is the stable key, the index derives here so it can't drift.
-    std::size_t ResolveClipIndices(std::vector<ClipGenerator>& clips, const std::vector<std::string>& roster);
-
-    // Reorder a SingleFile into a canonical, order-INDEPENDENT form: projects by name, and within each
-    // Sorts clips by name + motions by numeric animIndex WITHIN each project (both inert — clips bind by
-    // name, motions by explicit animIndex value, never by list position). PROJECT order is NOT inert:
-    // an in-game test proved it (composing the cache in alphabetical project order A-posed every actor
-    // + garbled root motion — the engine binds an actor's animationdata block by project INDEX). The old
-    // "429 vs 49 rules out positional cross-reference" argument only disproves animdata<->setdata
-    // parallelism, not animdata SELF-indexing. So `sortProjects` defaults true only for the CLI's
-    // order-independent multiset GATE; the compose path passes false to KEEP the source index.yaml
-    // (vanilla) project order.
-    void SortAnimdata(SingleFile& sf, bool sortProjects = true);
-
-    // Stitch the decomposed folder back into a SingleFile. `headers` gives the full project manifest;
-    // `clipsByStem`/`motionByStem` supply the bodies for the hasAnimData projects;
-    // `rostersByStem` supplies each project's character roster (animationNames). Clip animIndices are
-    // resolved against the roster (ResolveClipIndices), THEN motion animIndices against the resolved
-    // clips (ResolveMotionIndices) — the two de-hardwire joins. EmitSingleFile on the result
-    // reproduces vanilla byte-for-byte.
-    SingleFile AssembleAnimdata(
-        const std::vector<ProjectHeader>& headers,
-        const std::map<std::string, std::vector<ClipGenerator>>& clipsByStem,
-        const std::map<std::string, std::vector<MotionRecord>>& motionByStem,
-        const std::map<std::string, std::vector<std::string>>& rostersByStem);
 
 }  // namespace CB::engine::animdata

@@ -146,7 +146,7 @@ std::string q(const std::string& s) {
 }
 
 // enum type name -> table. Extended as categories need more; the decompiler references these by the
-// same names (en::SelfTransitionMode() etc.).
+// same names (en::Role() etc.).
 /// @note Resolves through the schema-generated tables (en::EnumTable, baked from schema/metadata/enums),
 ///       so any enum yaml renders/parses by annotation alone — no hand-kept list to fall out of date.
 const std::unordered_map<std::string, long>* enumTable(const std::string& n) {
@@ -176,11 +176,6 @@ float decodeFloat(const std::vector<std::uint8_t>& raw) {
     return f;
 }
 
-// Base fields handled by the node header / bindings block rather than the generic field loop.
-bool isHeaderField(const std::string& name) {
-    return name == "name" || name == "userData" || name == "enable" || name == "variableBindingSet";
-}
-
 std::string renderScalar(const Field& f, const io::FieldValue& v) {
     if (f.scalar == Scalar::Float) return fstr(decodeFloat(v.raw));
     if (f.scalar == Scalar::Bool)  return boolstr(!v.raw.empty() && v.raw[0] != 0);
@@ -206,9 +201,7 @@ struct NameResolver {
     }
     // index -> name (decode). "" out of range (caller keeps the raw number) — byte-identical to the
     // former bounds-checked vector read (decode(i) == roster[i]).
-    std::string event(long i) const    { return eventsL.decode(i).value_or(std::string{}); }
     std::string variable(long i) const { return variablesL.decode(i).value_or(std::string{}); }
-    std::string charProp(long i) const { return charPropsL.decode(i).value_or(std::string{}); }
     // Merge-safe name: only if `i` is the FIRST index carrying that name (a duplicate would remap on
     // round-trip, so the decompiler falls back to the raw id). encode() returns the first index for a
     // name, so "first occurrence" is exactly encode(name) == i — byte-identical to the old scan.
@@ -267,34 +260,9 @@ const io::FieldValue* fieldByName(const io::SchemaObject& so, const std::string&
     return nullptr;
 }
 
-// hkbStringEventPayload.data (the only payload kind we carry), else "".
-std::string payloadStr(const std::shared_ptr<IHavokObject>& p) {
-    if (!p) return {};
-    const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
-    if (!so || std::string(so->ClassName()) != "hkbStringEventPayload") return {};
-    const io::FieldValue* d = fieldByName(*so, "data");
-    return d ? d->str : std::string();
-}
-
-// hkbEventProperty inline: `event: '<name>'` (+ `payload:`) — NOT its raw id/payload fields.
-// Recurring special (triggers, notify events, modifier events). `indent` is the key indent.
-std::string renderEventProperty(const io::SchemaObject& ev, const NameResolver& nr, const std::string& indent) {
-    std::string out;
-    const io::FieldValue* idv = fieldByName(ev, "id");
-    const io::FieldValue* pl  = fieldByName(ev, "payload");
-    long id = idv ? decodeInt(idv->raw, Scalar::Int32) : -1;
-    const std::string en = nr.event(id);
-    if (!en.empty()) out += indent + "event: " + q(en) + "\n";
-    if (pl && pl->obj) { const std::string ps = payloadStr(pl->obj); out += indent + "payload: " + q(ps) + "\n"; }
-    return out;
-}
-
 // ── typed field getters over a SchemaObject ───────────────────────────────────
 long  fInt  (const io::SchemaObject& so, const char* n) { const Field* f=nullptr; auto* v=fieldByName(so,n,&f); return (v&&f)?static_cast<long>(decodeInt(v->raw,f->scalar)):0; }  // fInt stays long (small fields); explicit cast, no #6 truncation concern
-float fFloat(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v?decodeFloat(v->raw):0.f; }
-bool  fBool (const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v&&!v->raw.empty()&&v->raw[0]!=0; }
 std::string fStr(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v?v->str:std::string(); }
-std::shared_ptr<IHavokObject> fPtr(const io::SchemaObject& so, const char* n) { auto* v=fieldByName(so,n); return v?v->obj:nullptr; }
 // id of a referenced node (or "" if null / not identified). In refsAsNames mode (diff only) a named
 // target renders as `Class:name` — the stable cross-compile identity — with the numeric id as the
 // fallback for an unnamed target. Production emits (refsAsNames=false) render the canonical #NNNN.
@@ -1448,7 +1416,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             return reg.MergeTag(c, f) == "compose";
         };
         mergedById.emplace(id, ptrs.empty() ? *baseNode
-                               : CB::engine::merge::bashMerge(*baseNode, ptrs, /*guarded*/ {}, composePred));
+                               : CB::engine::merge::bashMerge(*baseNode, ptrs, composePred));
     }
 
     // Nemesis symbol roster: variable/event NAME -> merged index, from the MERGED hkbBehaviorGraphStringData
@@ -1536,7 +1504,6 @@ std::vector<std::uint8_t> floatBytes(const std::string& t) {
     std::memcpy(r.data(), &f, 4);
     return r;
 }
-float parseFloatStrict(const std::string& t) { float f; const auto b = floatBytes(t); std::memcpy(&f, b.data(), 4); return f; }
 std::vector<std::uint8_t> vec4Strict(const std::string& text) {
     std::string s = text;
     for (char& c : s) if (c == '(' || c == ')' || c == ',' || c == '\'') c = ' ';
@@ -3068,13 +3035,6 @@ bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std:
         err = std::string("SerializeGraph: ") + e.what();
         return false;
     }
-}
-
-bool CompileLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
-                             const std::vector<std::string>* bones, std::vector<std::uint8_t>& out, std::string& err,
-                             const CB::engine::codec::HKXHeader& header) {
-    ParsedHky graph;
-    return MergeLayersReflective(layers, reg, bones, graph, err) && SerializeGraph(graph, out, err, header);
 }
 
 bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::string>& patchDirs,

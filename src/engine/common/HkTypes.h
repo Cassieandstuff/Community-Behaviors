@@ -30,9 +30,4 @@ struct QSTransform {
     friend bool operator==(const QSTransform&, const QSTransform&) = default;
 };
 
-// IEEE-754 binary16 stored as raw 16 bits. havok-core round-trips the bits; it
-// does not (yet) interpret/convert them. Promote to a real float16 type only if
-// a downstream consumer needs arithmetic on Half values.
-using Half = std::uint16_t;
-
 } // namespace CB::engine::common

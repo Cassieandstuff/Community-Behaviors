@@ -22,17 +22,6 @@ Linker Linker::OfOrderedNames(const std::vector<std::string>& names, bool caseFo
     return l;
 }
 
-Linker Linker::OfPairs(std::vector<std::pair<std::string, Value>> pairs, bool caseFold) {
-    Linker l;
-    l.caseFold_ = caseFold;
-    l.fwd_.reserve(pairs.size() * 2 + 8);
-    for (auto& [name, v] : pairs) {
-        l.fwd_.emplace(caseFold ? fold(name) : name, v);   // first name wins
-        l.rev_.emplace(v, std::move(name));                // first value wins (ordered map keeps first); ORIGINAL name
-    }
-    return l;
-}
-
 std::optional<Value> Linker::encode(std::string_view name) const {
     const auto it = fwd_.find(caseFold_ ? fold(name) : std::string(name));
     if (it == fwd_.end()) return std::nullopt;

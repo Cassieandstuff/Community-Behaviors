@@ -41,11 +41,4 @@ namespace CB::engine::codec::crc {
         return t;
     }
 
-    std::optional<std::string> solve(const CrcTriple& t, const std::vector<std::string>& candidates)
-    {
-        for (const std::string& path : candidates)
-            if (TripleForAnimation(path) == t) return path;
-        return std::nullopt;
-    }
-
 }  // namespace CB::engine::codec::crc

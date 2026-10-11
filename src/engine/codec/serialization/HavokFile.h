@@ -12,18 +12,6 @@
 namespace CB::engine::codec {
 using namespace CB::engine::common;   // this layer operates on the interface data model
 
-inline bool WriteHavokFile(const std::filesystem::path& path,
-                           const std::vector<std::uint8_t>& bytes,
-                           std::string* outError = nullptr) {
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f) { if (outError) *outError = "cannot open for writing: " + path.string(); return false; }
-    if (!bytes.empty())
-        f.write(reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-    if (!f.good()) { if (outError) *outError = "write failed: " + path.string(); return false; }
-    return true;
-}
-
 inline bool ReadHavokFile(const std::filesystem::path& path,
                           std::vector<std::uint8_t>& outBytes,
                           std::string* outError = nullptr) {

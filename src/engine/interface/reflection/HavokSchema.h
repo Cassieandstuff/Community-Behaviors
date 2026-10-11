@@ -18,17 +18,17 @@ enum class FieldKind {
     Scalar,       // a scalar (see Scalar)
     String,       // hkStringPtr (8 B)
     CString,      // char* CString (8 B) — ReadCString
-    Quaternion,   // inline hkQuaternion (16 B) — ReadQuaternion
+    Quaternion,   // inline hkQuaternion (16 B)
     Ptr,          // class pointer (8 B); `ref` = target class
     StructArray,  // hkArray<T>  (16 B); `ref` = element class
     PtrArray,     // hkArray<T*> (16 B); `ref` = element class
     Vec4Array,    // hkArray<Vector4> (16 B)
-    QsTransformArray, // hkArray<hkQsTransform> (16 B) — ReadQSTransformArray
+    QsTransformArray, // hkArray<hkQsTransform> (16 B)
     StringArray,  // hkArray<hkStringPtr> (16 B) — ReadStringPointerArray
     ScalarArray,  // hkArray<scalar> (16 B); `scalar` = element type (float/int16/byte/…)
     Struct,       // inline value member; `ref` = its class (size added recursively)
-    Vector4,      // inline hkVector4 (16 B)      — ReadVector4
-    QsTransform,  // inline hkQsTransform (48 B)  — ReadQSTransform
+    Vector4,      // inline hkVector4 (16 B)
+    QsTransform,  // inline hkQsTransform (48 B)
     BoolArray,    // C-style bool[N] (N B); `count` = N
     EmptyArray,   // void-typed SERIALIZE_IGNORED hkArray slot (16 B, no value)
     EmptyPtr,     // void-typed SERIALIZE_IGNORED pointer slot (8 B, no value)
@@ -39,8 +39,6 @@ enum class FieldKind {
 };
 
 enum class Scalar { Int8, Byte, UInt16, Int16, UInt32, Int32, UInt64, Int64, Float, Half, Bool };
-
-enum class RuntimeSource { Game, Self };   // game = engine vtable (Address Library); self = our reimplementation
 
 struct Field {
     FieldKind   kind    = FieldKind::Skip;
@@ -55,8 +53,6 @@ struct Field {
                                          // the value by name (MODE_SINGLE_PLAY); no serde/size effect.
     bool        isFlags = false;         // enum is an OR-able bitfield → .hky renders via FormatFlags
                                          // (A|B) rather than a single name. (.hky-only; no serde effect.)
-    bool        hkyOnlyEnum = false;     ///< @brief `hkyenum:` — enumName is a .hky rendering convenience only; Havok's
-                                         ///<        reflection has no enum here, so the tagfile keeps the number.
     bool        boneRef = false;         ///< @brief `boneref: true` — a scalar bone index into the graph's rig; the .hky
                                          ///<        names the bone (-1 = none, omitted).
     bool        boneList = false;        ///< @brief `bonelist: true` — a scalar array of bone indices; the .hky lists names.
@@ -83,28 +79,21 @@ struct Field {
                                          ///<        covering all their lines (the adsf section A / B framing).
     bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
                                          ///<        run to the end of the field's frame.
-    std::string rosterRef;               // string field is a member of a character ROSTER; the value names
-                                         // the target roster field (e.g. "animationNames"). The cross
-                                         // membrane COLLECTS every such value across an actor's served
-                                         // graphs into that roster on the character — the inverse of the
-                                         // name→index resolution eventRef/varRef do. (Resolve-time only.)
 };
 
 struct ClassSchema {
     std::string        name;
     std::string        parent;               // empty for a root class
-    std::uint32_t      signature = 0;        // the class CRC (HK_CLASS_ID sig)
+    std::uint32_t      signature = 0;        // the class CRC
     int                size      = 0;        // OPTIONAL declared serialized size (bytes, SSE 64-bit). The
                                              // authority is ComputeSize (derived from the field layout,
                                              // used by the serializer); this is a cross-check — LoadDir
                                              // asserts ComputeSize == size when present (0 = omit/derive).
     std::vector<Field> fields;               // this class's OWN fields, in serialized order (parent's come first, from its schema)
-    RuntimeSource      runtime   = RuntimeSource::Game;
     std::string        vocab;                    ///< @brief `vocab: graph|character` — the .hky renders this object's name
                                                  ///<        rosters as name-keyed records (see renderVocab), not parallel arrays.
     bool               metadata  = false;        ///< @brief `kind: metadata` — a Bethesda text-file record (adsf/asdsf), not
                                                  ///<        a Havok class: no signature/size; read/written by MetaText.
-    std::string        file;                     ///< @brief metadata: the game file this root class describes.
     bool               blankTerminated = false;  ///< @brief metadata `terminator: blank` — a blank line ends each record.
     int                frameLimit = 0;           ///< @brief metadata `framelimit: N` — a frame's line count may not exceed N
                                                  ///<        (the engine reads it through a 16-bit truncation: 65535).
@@ -171,10 +160,9 @@ public:
     const ClassSchema* Find(const std::string& name) const;
     const std::map<std::string, ClassSchema>& All() const { return m_byName; }
 
-    // Enum definitions loaded from the enums/ subtree. Find one by its type name (e.g. "PlaybackMode"),
-    // or enumerate them all. Empty until LoadDir has run over a tree that carries an enums/ folder.
+    // Enum definitions loaded from the enums/ subtree. Find one by its type name (e.g. "PlaybackMode").
+    // Empty until LoadDir has run over a tree that carries an enums/ folder.
     const EnumDef* FindEnum(const std::string& name) const;
-    const std::map<std::string, EnumDef>& AllEnums() const { return m_enums; }
 
     // The raw `schema_version:` string LoadDir read from Havok/SCHEMA.yaml (empty when the tree
     // carried no stamp — a legacy/unversioned tree). This is what THIS load of the tree speaks:

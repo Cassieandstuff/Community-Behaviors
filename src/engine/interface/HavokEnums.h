@@ -15,7 +15,7 @@
 // The enum TABLES are no longer hardcoded here — they live in the schema data tree
 // (schema/metadata/enums/*.yaml, the single source) and are baked into the binary at build time
 // by cmake/EmbedEnums.cmake → GeneratedEnums.cpp, which defines EnumTable(name) below. Each named
-// accessor (PlaybackMode(), EventMode(), …) is a thin lookup into that generated data, so call
+// accessor (VariableType(), Role(), …) is a thin lookup into that generated data, so call
 // sites are unchanged. The item names/values are CASE-SENSITIVE Havok data — they render a .hky
 // field by name (MODE_SINGLE_PLAY, not 47) AND feed the class-signature CRC.
 //
@@ -29,30 +29,13 @@ namespace CB::engine::common::enums {
 // baked data lives in one TU; callers link havok-framing.
 const std::unordered_map<std::string, long>& EnumTable(const std::string& name);
 
-// ── Named accessors (stable API; the ~40 call sites use these) ────────────────────────────────────
+// ── Named accessors ────────────────────────────────────
 // Each is a thin lookup into the generated tables. To add an enum: drop a schema/metadata/enums/
 // <Name>.yaml file; it's baked automatically. Add a one-liner here only if code wants enums::<Name>().
-inline const std::unordered_map<std::string, long>& PlaybackMode()            { return EnumTable("PlaybackMode"); }
-inline const std::unordered_map<std::string, long>& VariableMode()            { return EnumTable("VariableMode"); }
-inline const std::unordered_map<std::string, long>& StartStateMode()          { return EnumTable("StartStateMode"); }
-inline const std::unordered_map<std::string, long>& SmSelfTransitionMode()    { return EnumTable("SmSelfTransitionMode"); }
-inline const std::unordered_map<std::string, long>& SelfTransitionMode()      { return EnumTable("SelfTransitionMode"); }
-inline const std::unordered_map<std::string, long>& EventMode()               { return EnumTable("EventMode"); }
 inline const std::unordered_map<std::string, long>& ExpressionEventMode()     { return EnumTable("ExpressionEventMode"); }
-inline const std::unordered_map<std::string, long>& EndMode()                 { return EnumTable("EndMode"); }
-inline const std::unordered_map<std::string, long>& BlendCurve()              { return EnumTable("BlendCurve"); }
-inline const std::unordered_map<std::string, long>& BlendModeFunction()       { return EnumTable("BlendModeFunction"); }
 inline const std::unordered_map<std::string, long>& VariableType()            { return EnumTable("VariableType"); }
 inline const std::unordered_map<std::string, long>& Role()                    { return EnumTable("Role"); }
 inline const std::unordered_map<std::string, long>& RoleFlags()               { return EnumTable("RoleFlags"); }
-inline const std::unordered_map<std::string, long>& TransitionFlags()         { return EnumTable("TransitionFlags"); }
-inline const std::unordered_map<std::string, long>& FlagBits()                { return EnumTable("FlagBits"); }
-inline const std::unordered_map<std::string, long>& BlenderFlags()            { return EnumTable("BlenderFlags"); }
-inline const std::unordered_map<std::string, long>& ClipGeneratorFlags()      { return EnumTable("ClipGeneratorFlags"); }
-inline const std::unordered_map<std::string, long>& SetAngleMethod()          { return EnumTable("SetAngleMethod"); }
-inline const std::unordered_map<std::string, long>& RotationAxisCoordinates() { return EnumTable("RotationAxisCoordinates"); }
-inline const std::unordered_map<std::string, long>& BindingType()             { return EnumTable("BindingType"); }
-inline const std::unordered_map<std::string, long>& EventInfoFlags()          { return EnumTable("EventInfoFlags"); }
 
 namespace detail {
 inline std::string trim(std::string_view s) {

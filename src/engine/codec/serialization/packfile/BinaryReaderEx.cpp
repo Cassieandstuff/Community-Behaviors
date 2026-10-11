@@ -48,47 +48,13 @@ std::uint8_t BinaryReaderEx::ReadByte() {
     return v;
 }
 
-bool BinaryReaderEx::ReadBoolean() {
-    const std::uint8_t b = ReadByte();
-    if (b == 0) return false;
-    if (b == 1) return true;
-    std::ostringstream os;
-    os << "BinaryReaderEx::ReadBoolean encountered non-boolean value: 0x"
-       << std::hex << static_cast<int>(b);
-    throw std::runtime_error(os.str());
-}
-
-std::int8_t   BinaryReaderEx::ReadSByte()  { return static_cast<std::int8_t>(ReadByte()); }
 std::int16_t  BinaryReaderEx::ReadInt16()  { return readScalar<std::int16_t>(); }
-std::uint16_t BinaryReaderEx::ReadUInt16() { return readScalar<std::uint16_t>(); }
 std::int32_t  BinaryReaderEx::ReadInt32()  { return readScalar<std::int32_t>(); }
 std::uint32_t BinaryReaderEx::ReadUInt32() { return readScalar<std::uint32_t>(); }
-std::int64_t  BinaryReaderEx::ReadInt64()  { return readScalar<std::int64_t>(); }
 std::uint64_t BinaryReaderEx::ReadUInt64() { return readScalar<std::uint64_t>(); }
-Half          BinaryReaderEx::ReadHalf()   { return readScalar<Half>(); }
-double        BinaryReaderEx::ReadDouble() { return readScalar<double>(); }
-
-float BinaryReaderEx::ReadSingle() {
-    // NOTE (M3 parity): HKX2E's reader normalizes floats — NaN -> 0 and
-    // Math.Round(value, 6, MidpointRounding.ToEven). havok-core reads the raw
-    // bits here so binary IO round-trips EXACTLY (the M0 contract). That
-    // normalization is a deserializer-parity concern and will be applied at M3,
-    // verified against the documented HKX2E baselines — not baked into the raw
-    // primitive (where it would corrupt exact round-trips).
-    return readScalar<float>();
-}
 
 std::uint64_t BinaryReaderEx::ReadUSize() {
     return USizeLong ? ReadUInt64() : static_cast<std::uint64_t>(ReadUInt32());
-}
-
-Vector4 BinaryReaderEx::ReadVector4() {
-    Vector4 v;
-    v.x = ReadSingle();
-    v.y = ReadSingle();
-    v.z = ReadSingle();
-    v.w = ReadSingle();
-    return v;
 }
 
 // ── strings ─────────────────────────────────────────────────────────────────
@@ -131,9 +97,7 @@ T BinaryReaderEx::assertValue(T value, std::initializer_list<T> options, const c
 }
 
 std::uint8_t  BinaryReaderEx::AssertByte(std::initializer_list<std::uint8_t> o)   { return assertValue(ReadByte(), o, "Byte"); }
-std::uint16_t BinaryReaderEx::AssertUInt16(std::initializer_list<std::uint16_t> o){ return assertValue(ReadUInt16(), o, "UInt16"); }
 std::uint32_t BinaryReaderEx::AssertUInt32(std::initializer_list<std::uint32_t> o){ return assertValue(ReadUInt32(), o, "UInt32"); }
-std::uint64_t BinaryReaderEx::AssertUInt64(std::initializer_list<std::uint64_t> o){ return assertValue(ReadUInt64(), o, "UInt64"); }
 std::int32_t  BinaryReaderEx::AssertInt32(std::initializer_list<std::int32_t> o)  { return assertValue(ReadInt32(), o, "Int32"); }
 std::uint64_t BinaryReaderEx::AssertUSize(std::initializer_list<std::uint64_t> o) { return assertValue(ReadUSize(), o, USizeLong ? "USize64" : "USize32"); }
 

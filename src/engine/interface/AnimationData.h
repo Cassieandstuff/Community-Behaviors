@@ -56,7 +56,7 @@ namespace CB::engine::animdata {
         std::vector<std::string> triggers;       // "Event:time" lines, verbatim
         // The animation this clip plays (== roster[animIndex], e.g. "Animations\\X.hkx"). The editable
         // clips.yaml keys on this NAME, not the hardwired animIndex — the index is resolved from the
-        // name against the character's roster (animationNames) at compile (ResolveClipIndices), so it
+        // name against the character's roster (animationNames) at compile, so it
         // can't drift when the roster shifts. Empty when animIndex has no unique roster entry (a rare
         // duplicate path or an out-of-range index), which keeps its raw animIndex. Not in the .txt — a
         // YAML-authoring field only.
@@ -70,7 +70,7 @@ namespace CB::engine::animdata {
         std::vector<std::string> rotations;      // "t x y z w" lines (5 floats), verbatim
         // The clip-generator NAME this motion belongs to (== the clip at animIndex). The editable
         // motion.yaml keys on this NAME, not the hardwired animIndex — the index is resolved from the
-        // name against the project's clips at compile (ResolveMotionIndices), so it can't drift when
+        // name against the project's clips at compile, so it can't drift when
         // the roster shifts. Empty for the rare unnamed hybrid blocks (mounted combat), which keep
         // their animIndex as the only key. Not part of the .txt — a YAML-authoring field only.
         std::string              animation;
@@ -97,12 +97,5 @@ namespace CB::engine::animdata {
     // CRLF layout byte-for-byte (counts recomputed from structure; content lines verbatim).
     SingleFile  ParseSingleFile(std::string_view text);
     std::string EmitSingleFile(const SingleFile& sf);
-
-    // ── Merge (load-order overlay) ───────────────────────────────────────────────
-    struct MergeStats {
-        std::size_t projectsPatched = 0;
-        std::size_t clipsAdded = 0;
-        std::size_t motionsAdded = 0;
-    };
 
 }  // namespace CB::engine::animdata

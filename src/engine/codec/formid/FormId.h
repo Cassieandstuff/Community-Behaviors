@@ -3,13 +3,10 @@
 // nodes." A node's identity is (masterIndex, local): the high half names a bundle RELATIVE to the
 // storing bundle's master table, the low half is the node's local id.
 //
-// REVERSIBLE codec (reverse = decode), per the org-pass codec taxonomy. Four equivalent views of one
+// REVERSIBLE codec (reverse = decode), per the org-pass codec taxonomy. Two equivalent views of one
 // identity, all bijective:
 //   - struct FormId {masterIndex, local}            — the resolved fields
-//   - packed uint32 = (masterIndex << 16) | local   — the compiler/merge KEY (fast, hashable)
 //   - text "idx:local" (decimal)                    — the AUTHORING form in YAML (e.g. "0:184", "1:5")
-//   - hex "IIIILLLL" (8 chars)                       — the canonical compact form (e.g. "000000B8")
-//   - tagfile local id = low 16 bits                — the #NNNN a tagfile round-trip reads/writes
 //
 // LAYOUT (32-bit, 8 hex chars — ESP parity):
 //   [ masterIndex : 16 ][ local : 16 ]
@@ -45,23 +42,6 @@ namespace CB::engine::codec::formid {
     // otherwise special. Further declared/cross-bundle masters append at 2, 3, … Adding a master appends;
     // nothing existing shifts. (For Skyrim.hky itself, self == base, so its own nodes are index 0.)
     inline constexpr std::uint16_t SELF_INDEX      = 0;   // the storing bundle's own nodes
-    inline constexpr std::uint16_t BASE_GAME_INDEX = 1;   // Skyrim.hky = first master for everyone (not reserved-special)
-
-    // ── packed uint32 (the canonical compiler key) ──────────────────────────────────────────────
-    inline constexpr std::uint32_t pack(FormId f) {
-        return (static_cast<std::uint32_t>(f.masterIndex) << 16) | f.local;
-    }
-    inline constexpr FormId unpack(std::uint32_t v) {
-        return FormId{ static_cast<std::uint16_t>(v >> 16), static_cast<std::uint16_t>(v & 0xFFFFu) };
-    }
-
-    // ── tagfile round-trip (reused BOTH directions by the converter) ────────────────────────────
-    // The low 16 bits ARE the tagfile id — strip the namespace to get #NNNN; re-attach an index to
-    // build a FormId from a tagfile id + the owning master's index.
-    inline constexpr std::uint16_t tagfileId(FormId f) { return f.local; }
-    inline constexpr FormId fromTag(std::uint16_t masterIndex, std::uint16_t tagLocal) {
-        return FormId{ masterIndex, tagLocal };
-    }
 
     // ── overflow-guarded construction ───────────────────────────────────────────────────────────
     // A local or index beyond 16 bits is EXACTLY the invisible mis-binding this model exists to prevent
@@ -117,38 +97,5 @@ namespace CB::engine::codec::formid {
         if (!idx || !loc) return std::nullopt;
         return FormId{ *idx, *loc };
     }
-
-    // ── hex "IIIILLLL" (8 chars, canonical compact) ─────────────────────────────────────────────
-    inline std::string formatHex(FormId f) {
-        static constexpr char H[] = "0123456789abcdef";
-        const std::uint32_t v = pack(f);
-        std::string out(8, '0');
-        for (int i = 7; i >= 0; --i) { out[static_cast<std::size_t>(i)] = H[v >> ((7 - i) * 4) & 0xF]; }
-        return out;
-    }
-    inline std::optional<FormId> parseHex(std::string_view s) {
-        s = detail::trim(s);
-        if (!s.empty() && (s[0] == '#')) s.remove_prefix(1);        // tolerate a leading '#'
-        if (s.size() != 8) return std::nullopt;
-        std::uint32_t v = 0;
-        for (char c : s) {
-            std::uint32_t d;
-            if (c >= '0' && c <= '9') d = static_cast<std::uint32_t>(c - '0');
-            else if (c >= 'a' && c <= 'f') d = static_cast<std::uint32_t>(c - 'a' + 10);
-            else if (c >= 'A' && c <= 'F') d = static_cast<std::uint32_t>(c - 'A' + 10);
-            else return std::nullopt;
-            v = (v << 4) | d;
-        }
-        return unpack(v);
-    }
-
-    // ── layout invariants (compile-time; the 16/16 split can never silently rot) ────────────────
-    static_assert(pack(FormId{0, 184}) == 0x000000B8u, "local occupies the low 16 bits");
-    static_assert(pack(FormId{1, 5})   == 0x00010005u, "masterIndex occupies the high 16 bits");
-    static_assert(pack(FormId{0xFFFF, 0xFFFF}) == 0xFFFFFFFFu, "16/16 fills the 32-bit key");
-    static_assert(unpack(0x00030009u) == FormId{3, 9}, "unpack is pack's inverse");
-    static_assert(tagfileId(FormId{7, 6000}) == 6000, "tagfile id is the local half, verbatim");
-    static_assert(fromTag(2, 999) == FormId{2, 999}, "fromTag re-attaches an index to a tagfile id");
-    static_assert(pack(unpack(0xABCD1234u)) == 0xABCD1234u, "key round-trips");
 
 }  // namespace CB::engine::codec::formid

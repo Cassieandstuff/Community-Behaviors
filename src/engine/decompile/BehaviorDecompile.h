@@ -48,7 +48,7 @@ struct Identity {
 std::string CategoryForClass(const std::string& className);
 
 // Assign canonical ids + categories over a fully-deserialized graph. `des` must have completed a full
-// Deserialize (root walk) so ListObjects/RefsInReadOrder/DeserializedObjects are populated. Ids are
+// Deserialize (root walk) so ListObjects/DeserializedObjects are populated. Ids are
 // encounter order; category is a pure function of class.
 Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry& reg);
 
@@ -170,15 +170,11 @@ bool DeriveHkyPatch(const ParsedHky& base, const std::vector<std::string>& baseM
 bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch, const schema::SchemaRegistry& reg,
                    const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                    std::string& err, const std::vector<std::string>* bones = nullptr, HkyPatchStats* stats = nullptr);
-/// @brief The RUNTIME compile through the reflective format: `layers[0]` is the graph's base unit (parsed whole), every
+/// @brief The RUNTIME merge through the reflective format: `layers[0]` is the graph's base unit (parsed whole), every
 ///        later layer a patch unit merged in load order — each layer's FormIds resolve through its own master table
 ///        (`[self, skyrim, declared…]` by bundle stem), so `0001x…` in a mod and `0000x…` in Skyrim.hky name the same
-///        node. The merged graph serializes with `header` into `out`.
-bool CompileLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
-                             const std::vector<std::string>* bones, std::vector<std::uint8_t>& out, std::string& err,
-                             const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
-/// @brief The merge half of CompileLayersReflective — the merged graph, for the compile stages that edit or read it
-///        (features, reference qualification, adsf-derive) before SerializeGraph.
+///        node. The merged graph feeds the compile stages that edit or read it (features, reference qualification,
+///        adsf-derive) before SerializeGraph.
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err);
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,

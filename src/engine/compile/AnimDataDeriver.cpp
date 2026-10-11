@@ -46,7 +46,7 @@ std::vector<ClipGenerator> DeriveClipList(
     const std::unordered_map<int, double>& motionDurByIndex,
     std::vector<std::string>*              unresolved)
 {
-    // The SAME roster IndexMembrane ResolveClipIndices uses (case-folded key). animIndex is the roster
+    // The roster IndexMembrane (case-folded key). animIndex is the roster
     // position. One join, one normalization — the offline and runtime clip binds can't diverge.
     const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster, /*caseFold*/true);
     const linker::IndexMembrane rosterMembrane{&rosterBind};

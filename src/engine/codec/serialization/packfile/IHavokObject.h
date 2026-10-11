@@ -3,9 +3,6 @@
 
 namespace CB::engine::codec {
 
-// Forward declarations for the (de)serializer. Read/Write join this interface
-// at M2 alongside the PackFileSerializer; for M1 the class model is pure data
-// (fields + identity), which is all Tier-B's builder and the editor need.
 class PackFileSerializer;
 class PackFileDeserializer;
 class BinaryReaderEx;
@@ -31,22 +28,8 @@ public:
     virtual ~IHavokObject() = default;
     virtual std::uint32_t Signature() const noexcept = 0;
     virtual const char*   ClassName() const noexcept = 0;
-    // Serialize this object's fields into `bw` via the serializer `s` (defined
-    // per class in ClassWrite.cpp); read them back via `des` (ClassRead.cpp).
     virtual void Write(PackFileSerializer& s, BinaryWriterEx& bw) const = 0;
     virtual void Read(PackFileDeserializer& des, BinaryReaderEx& br) = 0;
 };
 
 } // namespace CB::engine::codec
-
-// Emit the Signature()/ClassName()/Write/Read overrides' DECLARATIONS for a
-// ported class. Write bodies live in ClassWrite.cpp, Read in ClassRead.cpp.
-// Defined here so every class header needs only IHavokObject.h (the serializer
-// and deserializer are forward-declared).
-#define HK_CLASS_ID(sig, name)                                              \
-    std::uint32_t Signature() const noexcept override { return (sig); }     \
-    const char*   ClassName() const noexcept override { return (name); }    \
-    void Write(::CB::engine::codec::PackFileSerializer& s,                              \
-               ::CB::engine::codec::BinaryWriterEx& bw) const override;                 \
-    void Read(::CB::engine::codec::PackFileDeserializer& des,                          \
-              ::CB::engine::codec::BinaryReaderEx& br) override;

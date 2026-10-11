@@ -36,8 +36,6 @@ namespace CB::engine::animsetdata {
                 }
             }
 
-            bool eof() const { return m_pos >= m_lines.size(); }
-
             // 1-based number of the most recently consumed line (for error messages).
             std::size_t lineNo() const { return m_pos; }
 
@@ -254,13 +252,6 @@ namespace CB::engine::animsetdata {
             Mode        mode() const { return m_mode; }
             std::size_t lineNo() const { return m_pos; }
 
-            // True once every line is consumed AND no data line remains to peek.
-            bool atEnd()
-            {
-                SkipMarkers();
-                return m_pos >= m_lines.size();
-            }
-
             // Peek the next DATA line (consuming/handling any markers first), or false at EOF.
             bool peekData(std::string_view& out)
             {
@@ -403,24 +394,9 @@ namespace CB::engine::animsetdata {
         return w.take();
     }
 
-    std::vector<std::string> ParseProjectIndex(std::string_view text)
-    {
-        LineReader r(text);
-        std::vector<std::string> names;
-        while (!r.eof()) names.emplace_back(r.next());
-        return names;
-    }
-
-    std::string EmitProjectIndex(const std::vector<std::string>& setNames)
-    {
-        LineWriter w;
-        for (const auto& n : setNames) w.line(n);
-        return w.take();
-    }
-
     // ── CRC / animation registration ─────────────────────────────────────────────
-    // MOVED to CB::engine::codec::crc (src/engine/codec/crc) — the searchable codec. asd::Crc32 /
-    // asd::TripleForAnimation are now using-aliases (see AnimationSetData.h). Firesale step.
+    // MOVED to CB::engine::codec::crc (src/engine/codec/crc). asd::TripleForAnimation is now a
+    // using-alias (see AnimationSetData.h). Firesale step.
 
     // ── Merge ────────────────────────────────────────────────────────────────────
 
