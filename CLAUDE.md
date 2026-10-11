@@ -4,22 +4,22 @@ Guidance for Claude Code working in the **Community Behaviors** standalone repo.
 
 ---
 
-## Case PRECISION everywhere (directive)
+## Case: CB never changes the case of anything (directive)
 
-**Every string that names something — file and folder paths, unit and bundle paths, clip / animation /
-event / variable names, roster entries, anything a CRC is computed over — keeps its exact original case
-end-to-end and is compared EXACTLY.** Havok and Linux are case-sensitive: a miscased path or name binds to
-*nothing* (A-pose, dead root motion) or the *wrong* thing — never an error.
+**Names are copied byte-exact and compared EXACTLY** — event / variable / character-property / attribute
+names, clip and annotation text, setdata project and set names, every string inside a unit. The engine binds
+them case-sensitively: a miscased name binds to *nothing* (A-pose, dead root motion) or the *wrong* thing —
+never an error. Reflection carries them verbatim; nothing may fold them.
 
-**There is no case folding in CB except INSIDE a codec whose external definition folds** — the setdata
-path CRC (`codec/crc`) and the adsf's lowercase animation file names. The fold never escapes the codec.
-Lowercase-everywhere is not an option (Havok names keep vanilla case), and there is no in-between: helpers
-that fold "internal keys" are how mismatches creep in.
+**Folding exists only INSIDE a codec whose external definition folds** — the setdata path CRC (`codec/crc`),
+the adsf's lowercase animation file names, and PATH IDENTITY (does an engine request name this unit/file?),
+which the engine's own resource lookup resolves case-insensitively (BSA lookup hashes the lowercased path —
+vanilla BSAs store every name lowercase, while references spell paths in mixed case). The fold never escapes
+its codec: no ad-hoc ToLower helpers.
 
-**A file's precise name is the spelling the engine REQUESTS it by** (the referencing data) — never its
-on-disk/BSA spelling (vanilla BSAs store every name lowercase; every reference is mixed case). Fix case at
-the SOURCE (compile/regen write precise names); never fold a lookup to paper over it. Treat any new
-ToLower / case-insensitive compare outside a folding codec as a bug.
+**A file CB writes is opened by the exact string CB wrote it under** (cache / swap paths), so it is precise on
+any filesystem, Linux included. Unit names keep their source's spelling (vanilla's is lowercase). Treat any
+new ToLower / case-insensitive compare outside those codecs as a bug.
 
 ---
 
