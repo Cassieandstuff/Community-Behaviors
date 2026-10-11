@@ -5,10 +5,23 @@ SKSE plugin. It compiles behavior graphs over a mod load order **at runtime** an
 the live engine — replacing the offline Nemesis/Pandora patch step — plus an offline **Behavior
 Converter** that ingests existing Nemesis/Pandora load orders into Community Behaviors `.hky` bundles.
 
-> **License: All Rights Reserved (temporary).** This repository is source-visible but **not** open
-> source — no usage, copy, modification, or redistribution rights are granted. See [LICENSE](LICENSE).
-> It is intended to be released under GPL-3.0 (+ a linking exception) in the future; until then the
-> LICENSE terms govern.
+## License
+
+[GPL-3.0-or-later](LICENSE) WITH [Modding Exception AND GPL-3.0 Linking Exception (with Corresponding
+Source)](EXCEPTIONS).
+
+The exceptions are the ones the SKSE / CommonLib plugin ecosystem uses:
+
+- **Modding Exception.** Community Behaviors links with the game it modifies without placing that
+  game under the GPL. The *Modded Code* is Skyrim (Special Edition, Anniversary Edition and VR).
+- **GPL-3.0 Linking Exception (with Corresponding Source).** Community Behaviors may be combined with
+  *Modding Libraries* whose licenses aren't GPL-compatible, as long as the source of the parts used
+  ships with the combination. The *Modding Libraries* are SKSE and CommonLibSSE-NG.
+
+Third-party code keeps its own license: vendored sources carry theirs beside them (e.g.
+`src/engine/common/miniz.LICENSE`), and dependencies pulled through vcpkg / FetchContent ship under
+their upstream terms. The `schema/templates/` XML is derived from Skyrim's own behavior files, for use
+with the game.
 
 ## Layout
 
@@ -54,7 +67,7 @@ skeleton codecs, with no SKSE/plugin dependency. The header documents the surfac
 ```cmake
 FetchContent_Declare(community_behaviors
     GIT_REPOSITORY https://github.com/Cassieandstuff/Community-Behaviors.git
-    GIT_TAG        v0.5.0)
+    GIT_TAG        v0.5.1)
 FetchContent_MakeAvailable(community_behaviors)
 target_link_libraries(your-tool PRIVATE cb::CB-API)
 ```
