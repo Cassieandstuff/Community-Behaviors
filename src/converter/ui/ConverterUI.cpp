@@ -132,7 +132,6 @@ ConverterUI::ConverterUI() {
     m_baseDir       = (exe / "base").string();
     m_stagingDir    = (exe / "staging").string();
     LoadSettings();   // override m_dataDir / m_zipDir from sct_converter.ini if present
-    LoadPandoraOrderFile();   // <exe>/pandora_order.txt -> m_pandoraModOrder (Pandora Order tab override)
     if (m_outputDir.empty()) m_outputDir = m_zipDir;   // sensible default: the downloads/mods folder
     m_planPending = true;   // build the plan on the first frame if a profile was restored from settings
 }
@@ -160,7 +159,6 @@ void ConverterUI::LoadSettings() {
         else if (key == "zip" && !val.empty()) m_zipDir = val;
         else if (key == "name" && !val.empty()) m_zipName = val;
         else if (key == "mo2") m_mo2Instance = val;   // may be empty (optional)
-        else if (key == "pandora") m_singleBundle = (val == "1" || val == "true" || val == "yes" || val == "on");
         else if (key == "profile" && !val.empty()) m_profile = val;
         else if (key == "output"  && !val.empty()) m_outputDir = val;
         else if (key == "autozip") m_autoZip = (val == "1" || val == "true" || val == "yes" || val == "on");
@@ -175,7 +173,6 @@ void ConverterUI::SaveSettings() const {
     f << "zip="  << m_zipDir   << "\n";
     f << "name=" << m_zipName  << "\n";
     f << "mo2="  << m_mo2Instance << "\n";
-    f << "pandora=" << (m_singleBundle ? "true" : "false") << "\n";
     f << "profile=" << m_profile   << "\n";
     f << "output="  << m_outputDir << "\n";
     f << "autozip=" << (m_autoZip ? "true" : "false") << "\n";
@@ -184,7 +181,6 @@ void ConverterUI::SaveSettings() const {
 ConverterUI::~ConverterUI() {
     m_cancel = true;
     if (m_worker.joinable()) m_worker.join();
-    if (m_diffWorker.joinable()) m_diffWorker.join();   // the Diff tab's own worker
     SaveSettings();   // persist Data + zip dirs even if the user set them and closed without converting
 }
 
@@ -224,8 +220,7 @@ void ConverterUI::StartConvert() {
       if (fs::is_regular_file(fs::path(m_dataDir) / "community_behaviors" / "plugins" / "Skyrim.hky", ec))
           dataDir = m_dataDir; }
 
-    // per-mod bundles (singleBundle=false) — the mockup's "N behavior bundles" model.
-    CB::converter::Options opt{ dataDir, m_templatesDir, m_baseDir, convOut, instance, /*singleBundle*/ false };
+    CB::converter::Options opt{ dataDir, m_templatesDir, m_baseDir, convOut, instance };
 
     const std::string zipName = "Output_Community Behaviors.zip";
 
@@ -268,10 +263,6 @@ void ConverterUI::Draw() {
             DrawConverterTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Pandora Order")) {
-            DrawPandoraTab();
-            ImGui::EndTabItem();
-        }
         if (ImGui::BeginTabItem("Load Order")) {
             // Manage the ACTIVE load order in the MO2 VFS Data folder — the bundles actually
             // installed under <Data>/community_behaviors/plugins and the loadorder.txt the runtime
@@ -280,14 +271,12 @@ void ConverterUI::Draw() {
             m_loadOrder.Draw(BrPluginsDir(), BrLoadOrderPath());
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Diff")) {
-            DrawDiffTab();
-            ImGui::EndTabItem();
-        }
+#ifndef NDEBUG   // the Debug tab ships in Debug builds only
         if (ImGui::BeginTabItem("Debug")) {
             DrawDebugTab();
             ImGui::EndTabItem();
         }
+#endif
         ImGui::EndTabBar();
     }
 
@@ -440,271 +429,6 @@ void ConverterUI::DrawConverterTab() {
         std::lock_guard<std::mutex> lk(m_logMx);
         if (!m_zipMsg.empty()) ImGui::TextDisabled("%s", m_zipMsg.c_str());
     }
-}
-
-// ── Pandora Order tab ─────────────────────────────────────────────────────────────────────────
-
-void ConverterUI::LoadPandoraOrderFile() {
-    m_pandoraModOrder.clear();
-    std::ifstream f(fs::path(m_exeDir) / "pandora_order.txt");
-    if (!f) return;
-    std::string line;
-    while (std::getline(f, line)) {
-        const std::string t = Trim(line);
-        if (!t.empty() && t[0] != '#') m_pandoraModOrder.push_back(t);
-    }
-}
-
-void ConverterUI::SavePandoraOrderFile() {
-    std::ofstream f(fs::path(m_exeDir) / "pandora_order.txt", std::ios::trunc);
-    if (!f) { m_pandoraMsg = "Save failed: cannot write pandora_order.txt"; return; }
-    f << "# Pandora Order — TOP = winner (Pandora priority 1). Edited in the Behavior Converter;\n";
-    f << "# overrides Pandora's ActiveMods.json on the next MO2-profile convert. Delete to reset.\n";
-    for (const auto& m : m_pandoraModOrder) f << m << "\n";
-    m_pandoraMsg = "Saved " + std::to_string(m_pandoraModOrder.size()) + " mod(s) to pandora_order.txt";
-}
-
-void ConverterUI::RefreshPandora() {
-    const CB::converter::PandoraAnalysis a = CB::converter::AnalyzePandoraOrder(m_dataDir, Trim(m_mo2Instance));
-    m_pandoraFromPandora    = a.fromPandora;
-    m_pandoraConflictGraphs = (int)a.conflicts.size();
-    m_pandoraLoaded         = true;
-
-    std::map<std::string, std::vector<std::string>> codeConf;   // code -> ["graph (win X)", …]
-    std::set<std::string>                           conflictCodes;
-    for (const auto& c : a.conflicts)
-        for (const auto& cd : c.codes) {
-            conflictCodes.insert(cd);
-            codeConf[cd].push_back(c.graph + " (win " + c.winner + ")");
-        }
-
-    // Group codes by owning mod, in display order (first occurrence fixes the mod's position).
-    std::vector<PandoraModRow> rows;
-    std::map<std::string, int> rowIndex;
-    for (const auto& ci : a.codes) {
-        const std::string mod = ci.owningMod.empty() ? ci.code : ci.owningMod;
-        auto it = rowIndex.find(mod);
-        if (it == rowIndex.end()) { rowIndex[mod] = (int)rows.size(); rows.push_back(PandoraModRow{ mod, {}, false, {} }); }
-        PandoraModRow& row = rows[rowIndex[mod]];
-        row.codes.push_back(ci.code);
-        if (conflictCodes.count(ci.code)) row.conflict = true;
-    }
-    for (auto& r : rows) {
-        std::set<std::string> g;
-        for (const auto& c : r.codes) for (const auto& gc : codeConf[c]) g.insert(gc);
-        std::string tip;
-        for (const auto& s : g) { if (!tip.empty()) tip += "\n"; tip += s; }
-        r.tip = tip;
-    }
-
-    // Apply the persisted override: mods in saved order first (stable), unknown mods keep display order.
-    if (!m_pandoraModOrder.empty()) {
-        std::map<std::string, int> want;
-        for (int i = 0; i < (int)m_pandoraModOrder.size(); ++i) want[m_pandoraModOrder[i]] = i;
-        std::stable_sort(rows.begin(), rows.end(), [&](const PandoraModRow& x, const PandoraModRow& y) {
-            const int rx = want.count(x.mod) ? want[x.mod] : 1000000;
-            const int ry = want.count(y.mod) ? want[y.mod] : 1000000;
-            return rx < ry;
-        });
-    }
-    m_pandoraRows = std::move(rows);
-    m_pandoraMsg  = (m_pandoraFromPandora ? "Order seeded from Pandora ActiveMods.json"
-                                          : "No ActiveMods.json — scan order") +
-                    std::string("; ") + std::to_string(m_pandoraRows.size()) + " mod(s), " +
-                    std::to_string(m_pandoraConflictGraphs) + " conflicting graph(s).";
-}
-
-void ConverterUI::DrawPandoraTab() {
-    ImGui::TextUnformatted("Behavior load order for the merged Pandora.hky (MO2-profile mode).");
-    ImGui::TextDisabled("Seeded from Pandora's own order (Pandora_Engine/ActiveMods.json). Reorder mods "
-                        "(TOP = winner); Save persists it and overrides Pandora on the next convert.");
-    ImGui::Separator();
-
-    if (!m_pandoraLoaded) RefreshPandora();
-
-    if (ImGui::Button("Refresh")) RefreshPandora();
-    ImGui::SameLine();
-    if (ImGui::Button("Save order")) {
-        m_pandoraModOrder.clear();
-        for (const auto& r : m_pandoraRows) m_pandoraModOrder.push_back(r.mod);
-        SavePandoraOrderFile();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Reset to Pandora")) {
-        m_pandoraModOrder.clear();
-        SavePandoraOrderFile();
-        RefreshPandora();
-        m_pandoraMsg = "Reset to Pandora's order.";
-    }
-    if (!m_pandoraMsg.empty()) ImGui::TextDisabled("%s", m_pandoraMsg.c_str());
-    if (!m_singleBundle)
-        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f),
-                           "Applies only in MO2-profile mode (enable it on the Converter tab).");
-
-    ImGui::Separator();
-    ImGui::TextDisabled("TOP = highest priority (wins conflicts). (!) = touches a graph another mod also edits.");
-
-    ImGui::BeginChild("pandora_list", ImVec2(0, 0), true);
-    int swapA = -1, swapB = -1;   // apply after the loop so we don't mutate mid-iteration
-    for (int i = 0; i < (int)m_pandoraRows.size(); ++i) {
-        PandoraModRow& r = m_pandoraRows[i];
-        ImGui::PushID(i);
-        ImGui::BeginDisabled(i == 0);
-        if (ImGui::ArrowButton("up", ImGuiDir_Up)) { swapA = i; swapB = i - 1; }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::BeginDisabled(i == (int)m_pandoraRows.size() - 1);
-        if (ImGui::ArrowButton("down", ImGuiDir_Down)) { swapA = i; swapB = i + 1; }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-
-        const std::string label = std::to_string(i + 1) + ". " + r.mod + "  (" +
-                                  std::to_string(r.codes.size()) + (r.codes.size() == 1 ? " code" : " codes") +
-                                  ")###" + r.mod;
-        const bool open = ImGui::TreeNode(label.c_str());
-        if (r.conflict) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f), "(!)");
-            if (ImGui::IsItemHovered() && !r.tip.empty()) ImGui::SetTooltip("%s", r.tip.c_str());
-        }
-        if (open) {
-            for (const auto& c : r.codes) ImGui::BulletText("%s", c.c_str());
-            ImGui::TreePop();
-        }
-        ImGui::PopID();
-    }
-    if (swapA >= 0 && swapB >= 0 && swapB < (int)m_pandoraRows.size())
-        std::swap(m_pandoraRows[swapA], m_pandoraRows[swapB]);
-    ImGui::EndChild();
-}
-
-// The domain choices for the Diff tab combo. Index 0 ("auto") lets RunTreeDiff detect from A.
-static const char* kDiffDomains[] = { "auto", "behavior", "setdata", "animdata", "skeleton", "character" };
-
-void ConverterUI::StartDiff() {
-    if (m_diffRunning) return;
-    if (m_diffWorker.joinable()) m_diffWorker.join();
-    { std::lock_guard<std::mutex> lk(m_diffLogMx); m_diffLog.clear(); }
-    m_diffRunning = true; m_diffFinished = false;
-
-    // Snapshot the UI fields into locals so the worker never races them.
-    havok::diff::TreeDiffOptions opts;
-    opts.a        = Trim(m_diffA);
-    opts.b        = Trim(m_diffB);
-    opts.deltaDir = Trim(m_diffOutDir);
-    opts.domain   = kDiffDomains[(m_diffDomainIdx >= 0 && m_diffDomainIdx < (int)std::size(kDiffDomains))
-                                 ? m_diffDomainIdx : 0];
-    opts.skeleton = Trim(m_diffSkeleton);
-
-    m_diffWorker = std::thread([this, opts]() {
-        auto logLambda = [this](const std::string& line) {
-            std::lock_guard<std::mutex> lk(m_diffLogMx);
-            m_diffLog.push_back(line);
-        };
-        m_diffOutcome = havok::diff::RunTreeDiff(opts, logLambda);
-        m_diffRunning  = false;
-        m_diffFinished = true;
-    });
-}
-
-void ConverterUI::DrawDiffTab() {
-    ImGui::TextUnformatted(
-        "Record-keyed semantic diff of two Havok artifacts (immune to node reordering / id reassignment).");
-    ImGui::TextDisabled("Both sides are decompiled from binary and matched by their Class:name editorID, "
-                        "then diffed to the field. A delta-only folder + summary.yaml is written.");
-    ImGui::Separator();
-
-    const bool busy = m_diffRunning.load();
-
-    ImGui::BeginDisabled(busy);
-    ImGui::PushItemWidth(-260.0f);
-
-    InputPath("##diffA", m_diffA);
-    ImGui::SameLine();
-    if (ImGui::Button("Browse##diffA")) {
-        std::string p;
-        if (CB::converter::platform::PickFile("Select input A (.hkx or singlefile .txt)", m_diffA.c_str(),
-                              "Havok/Text", "*.hkx;*.txt", p)) m_diffA = p;
-    }
-    ImGui::SameLine(); ImGui::TextUnformatted("Input A");
-
-    InputPath("##diffB", m_diffB);
-    ImGui::SameLine();
-    if (ImGui::Button("Browse##diffB")) {
-        std::string p;
-        if (CB::converter::platform::PickFile("Select input B (.hkx or singlefile .txt)", m_diffB.c_str(),
-                              "Havok/Text", "*.hkx;*.txt", p)) m_diffB = p;
-    }
-    ImGui::SameLine(); ImGui::TextUnformatted("Input B");
-
-    InputPath("##diffOut", m_diffOutDir);
-    ImGui::SameLine();
-    if (ImGui::Button("Browse##diffOut")) {
-        std::string p;
-        if (CB::converter::platform::PickFolder("Select the delta-folder destination", m_diffOutDir.c_str(), p))
-            m_diffOutDir = p;
-    }
-    ImGui::SameLine(); ImGui::TextUnformatted("Output delta folder");
-
-    InputPath("##diffSkel", m_diffSkeleton);
-    ImGui::SameLine();
-    if (ImGui::Button("Browse##diffSkel")) {
-        std::string p;
-        if (CB::converter::platform::PickFile("Select an optional skeleton (.hkx or bones .txt)", m_diffSkeleton.c_str(),
-                              "Skeleton/Bones", "*.hkx;*.txt", p)) m_diffSkeleton = p;
-    }
-    ImGui::SameLine(); ImGui::TextUnformatted("Skeleton (optional)");
-
-    ImGui::Combo("Domain", &m_diffDomainIdx, kDiffDomains, (int)std::size(kDiffDomains));
-    ImGui::PopItemWidth();
-    ImGui::EndDisabled();
-
-    ImGui::Spacing();
-    if (!busy) {
-        ImGui::BeginDisabled(Trim(m_diffA).empty() || Trim(m_diffB).empty() || Trim(m_diffOutDir).empty());
-        if (ImGui::Button("Run", ImVec2(150, 34))) StartDiff();
-        ImGui::EndDisabled();
-    } else {
-        // No cooperative cancel in RunTreeDiff; the button is a disabled placeholder while busy.
-        ImGui::BeginDisabled(true);
-        ImGui::Button("Running...", ImVec2(150, 34));
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Diffing...");
-    }
-
-    if (m_diffFinished.load()) {
-        ImGui::SameLine();
-        ImGui::AlignTextToFramePadding();
-        if (!m_diffOutcome.ok)
-            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.5f, 1.0f), "ERROR: %s", m_diffOutcome.error.c_str());
-        else if (m_diffOutcome.anyDifference)
-            ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.45f, 1.0f),
-                               "DIFFERENCES — compared %d, only-A %d, only-B %d, differing %d",
-                               m_diffOutcome.comparedRecords, m_diffOutcome.onlyA,
-                               m_diffOutcome.onlyB, m_diffOutcome.differing);
-        else
-            ImGui::TextColored(ImVec4(0.55f, 0.90f, 0.55f, 1.0f),
-                               "identical — compared %d records, no semantic difference",
-                               m_diffOutcome.comparedRecords);
-    }
-    if (m_diffFinished.load() && m_diffOutcome.ok && !m_diffOutcome.summaryPath.empty()) {
-        ImGui::SameLine();
-        if (ImGui::Button("Open delta folder")) OpenInExplorer(m_diffOutDir);
-    }
-
-    ImGui::Separator();
-    ImGui::Checkbox("Auto-scroll##diff", &m_diffAutoscroll);
-
-    ImGui::BeginChild("difflog", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
-    {
-        std::lock_guard<std::mutex> lk(m_diffLogMx);
-        for (const auto& line : m_diffLog) ImGui::TextUnformatted(line.c_str());
-    }
-    if (m_diffAutoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f)
-        ImGui::SetScrollHereY(1.0f);
-    ImGui::EndChild();
 }
 
 void ConverterUI::DrawDebugTab() {

@@ -328,118 +328,6 @@ std::vector<std::string> ScanCodes(const fs::path& dataDir) {
     return codes;
 }
 
-// Pandora's OWN behavior load order, from <dataDir>/Pandora_Engine/ActiveMods.json (written by
-// Pandora Behaviour Engine on its last run; under MO2's VFS the active Pandora output shadows it in).
-// It is the authoritative order for the merged Pandora.hky — the same priority the user sets in
-// Pandora's UI. Format: a flat JSON array of { "code": "bfco", "active": true, "priority": 1 } where
-// priority 1 = HIGHEST (the winner). Hand-parsed (the converter stays dependency-lean — no nlohmann).
-struct PandoraModEntry { std::string code; bool active = true; int priority = 0; };
-std::vector<PandoraModEntry> LoadPandoraOrder(const fs::path& dataDir) {
-    std::vector<PandoraModEntry> out;
-    std::ifstream f(dataDir / "Pandora_Engine" / "ActiveMods.json", std::ios::binary);
-    if (!f) return out;
-    const std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    const auto npos = std::string::npos;
-    // Split into per-object chunks on '{' … '}' (the entries are flat, no nesting), then pull the
-    // three known keys out of each chunk by name so key ORDER inside an object doesn't matter.
-    std::size_t pos = 0;
-    while (true) {
-        const std::size_t ob = s.find('{', pos);
-        if (ob == npos) break;
-        const std::size_t cb = s.find('}', ob);
-        if (cb == npos) break;
-        const std::string chunk = s.substr(ob, cb - ob);
-        pos = cb + 1;
-        auto strVal = [&](const char* key) -> std::string {
-            const std::size_t k = chunk.find(std::string("\"") + key + "\"");
-            if (k == npos) return {};
-            const std::size_t c = chunk.find(':', k);              if (c == npos) return {};
-            const std::size_t q1 = chunk.find('"', c);            if (q1 == npos) return {};
-            const std::size_t q2 = chunk.find('"', q1 + 1);       if (q2 == npos) return {};
-            return chunk.substr(q1 + 1, q2 - q1 - 1);
-        };
-        auto rawVal = [&](const char* key) -> std::string {
-            const std::size_t k = chunk.find(std::string("\"") + key + "\"");
-            if (k == npos) return {};
-            std::size_t e = chunk.find(':', k);                   if (e == npos) return {};
-            ++e;
-            while (e < chunk.size() && std::isspace((unsigned char)chunk[e])) ++e;
-            const std::size_t st = e;
-            while (e < chunk.size() && chunk[e] != ',' && chunk[e] != '\n' && chunk[e] != '\r') ++e;
-            return chunk.substr(st, e - st);
-        };
-        PandoraModEntry pe;
-        pe.code = strVal("code");
-        if (pe.code.empty()) continue;
-        pe.active   = rawVal("active").find("true") != npos;
-        const std::string pr = rawVal("priority");
-        pe.priority = pr.empty() ? 0 : std::atoi(pr.c_str());
-        out.push_back(std::move(pe));
-    }
-    return out;
-}
-
-// Conflict pre-scan (shared by the conversion + the Pandora Order UI so they never drift). Given the
-// resolved merge order (WINNER LAST), walk each code's behavior-graph patch dirs and report where order
-// matters: per graph, the codes touching it and the base nodes (#NNNN, not #code$N new nodes) that 2+
-// codes override — the order-sensitive collisions. `winner` = the collider latest in the merge order.
-std::vector<PandoraGraphConflict> ScanGraphConflicts(const fs::path& dataDir,
-                                                     const std::vector<std::string>& mergeOrder) {
-    std::unordered_map<std::string, int> rank;
-    for (int i = 0; i < (int)mergeOrder.size(); ++i) rank[mergeOrder[i]] = i;
-
-    std::map<std::string, std::map<std::string, std::vector<std::string>>> nodeHits;  // graph->node->codes
-    std::map<std::string, std::vector<std::string>>                        codesByGraph;
-
-    auto scanGraphDir = [&](const std::string& code, const fs::path& gdir, const std::string& gname) {
-        std::error_code se;
-        bool touched = false;
-        for (fs::directory_iterator it(gdir, se), end; !se && it != end; it.increment(se)) {
-            if (!it->is_regular_file()) continue;
-            const std::string fn = it->path().filename().string();
-            if (fn.size() < 6 || fn[0] != '#' || it->path().extension() != ".txt") continue;
-            touched = true;
-            const std::string id = fn.substr(1, fn.size() - 5);   // strip '#' and ".txt"
-            if (!id.empty() && id.find('$') == std::string::npos &&
-                std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isdigit(c); }))
-                nodeHits[gname][id].push_back(code);
-        }
-        if (touched) codesByGraph[gname].push_back(code);
-    };
-
-    for (const auto& code : mergeOrder) {
-        const fs::path cd = dataDir / "Nemesis_Engine" / "mod" / code;
-        std::error_code se;
-        for (fs::directory_iterator it(cd, se), end; !se && it != end; it.increment(se)) {
-            if (!it->is_directory()) continue;
-            const std::string sub  = it->path().filename().string();
-            const std::string subl = ToLower(sub);
-            if (subl == "animationsetdatasinglefile" || subl == "animationdatasinglefile") continue;
-            if (subl == "_1stperson") {
-                for (fs::directory_iterator jt(it->path(), se), jend; !se && jt != jend; jt.increment(se))
-                    if (jt->is_directory())
-                        scanGraphDir(code, jt->path(), "_1stperson/" + jt->path().filename().string());
-            } else {
-                scanGraphDir(code, it->path(), sub);
-            }
-        }
-    }
-
-    std::vector<PandoraGraphConflict> out;
-    for (const auto& [g, codesV] : codesByGraph) {
-        if (codesV.size() < 2) continue;
-        PandoraGraphConflict gc; gc.graph = g; gc.codes = codesV;
-        int best = -1;
-        for (const auto& [node, hits] : nodeHits[g]) {
-            if (hits.size() < 2) continue;
-            ++gc.nodeCollisions;
-            for (const auto& c : hits) { const int r = rank.count(c) ? rank[c] : -1; if (r > best) { best = r; gc.winner = c; } }
-        }
-        if (gc.winner.empty()) gc.winner = codesV.back();
-        out.push_back(std::move(gc));
-    }
-    return out;
-}
 
 // ---------------------------------------------------------------------------------------------
 // MO2-attributed discovery — find, per INSTALLED mod, both loose-behavior legs:
@@ -1104,78 +992,10 @@ NemesisInfo ReadNemesisInfo(const fs::path& codeDir) {
 
 }  // namespace
 
-// Read-only analysis of the active Pandora load order (for the Pandora Order tab). Uses the SAME
-// helpers as the conversion (ScanCodes / LoadPandoraOrder / ScanGraphConflicts) so the tab's order +
-// conflicts match what a convert will actually do. Owning-mod grouping + engine exclusion come from the
-// MO2 instance when given (cosmetic — never affects order); without it, codes are ungrouped.
-PandoraAnalysis AnalyzePandoraOrder(const std::string& dataDirS, const std::string& mo2InstanceS) {
-    PandoraAnalysis out;
-    const fs::path dataDir = dataDirS;
-    const std::vector<std::string> codes = ScanCodes(dataDir);
-
-    const std::vector<PandoraModEntry> pandora = LoadPandoraOrder(dataDir);
-    out.fromPandora = !pandora.empty();
-    std::unordered_map<std::string, int> pri;          // code(lower) -> priority (1 = winner)
-    std::unordered_set<std::string>      inactive;
-    for (const auto& pe : pandora) {
-        if (pe.active) pri[ToLower(pe.code)] = pe.priority;
-        else           inactive.insert(ToLower(pe.code));
-    }
-
-    // code -> owning mod + engine codes, from the MO2 instance's mods/ (optional, cosmetic).
-    std::unordered_map<std::string, std::string> codeMod;
-    std::unordered_set<std::string>              engineCodes;
-    if (!mo2InstanceS.empty()) {
-        std::error_code se;
-        const fs::path mods = fs::path(mo2InstanceS) / "mods";
-        if (fs::is_directory(mods, se))
-            for (fs::directory_iterator it(mods, se), end; !se && it != end; it.increment(se)) {
-                if (!it->is_directory()) continue;
-                const fs::path nem = it->path() / "Nemesis_Engine" / "mod";
-                std::error_code e2;
-                if (!fs::is_directory(nem, e2)) continue;
-                const bool eng = IsEngineMod(it->path());
-                for (fs::directory_iterator ct(nem, e2), cend; !e2 && ct != cend; ct.increment(e2))
-                    if (ct->is_directory()) {
-                        const std::string c = ToLower(ct->path().filename().string());
-                        codeMod.emplace(c, it->path().filename().string());
-                        if (eng) engineCodes.insert(c);
-                    }
-            }
-    }
-
-    // Display order = winner (priority 1) FIRST; unranked codes last (scan order). Skip inactive + engine.
-    std::vector<std::string> disp;
-    for (const auto& c : codes) {
-        const std::string cl = ToLower(c);
-        if (inactive.count(cl) || engineCodes.count(cl)) continue;
-        disp.push_back(c);
-    }
-    constexpr int kAbsent = 1 << 30;
-    auto priOf = [&](const std::string& c) { const auto it = pri.find(ToLower(c)); return it == pri.end() ? kAbsent : it->second; };
-    std::stable_sort(disp.begin(), disp.end(), [&](const std::string& a, const std::string& b) { return priOf(a) < priOf(b); });
-    for (const auto& c : disp) {
-        PandoraCodeInfo pc;
-        pc.code = c;
-        const auto m = codeMod.find(ToLower(c));
-        pc.owningMod = (m != codeMod.end()) ? m->second : "";
-        const int p = priOf(c);
-        pc.priority = (p == kAbsent) ? 0 : p;
-        pc.active = true;
-        out.codes.push_back(std::move(pc));
-    }
-
-    // Conflicts against the merge order (winner LAST = reverse of display).
-    std::vector<std::string> mergeOrder(disp.rbegin(), disp.rend());
-    out.conflicts = ScanGraphConflicts(dataDir, mergeOrder);
-    return out;
-}
-
 // Per-mod animation packaging (piece 1). Defined below BuildBaseBundle (needs PeekHkxKind/HkxKind/
 // BakeAnimationUnit); forward-declared here so ConvertLoadOrder can call it.
 static void PackageModAnimations(const Mo2Layout& mo2, const std::filesystem::path& plugins,
-                                 const std::filesystem::path& stageRoot, const LogFn& log,
-                                 const std::string& targetBundle);
+                                 const std::filesystem::path& stageRoot, const LogFn& log);
 
 Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<bool>& cancel) {
     Result r;
@@ -1273,9 +1093,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     const fs::path plugins = outDir / "community_behaviors" / "plugins";
     // MO2-PROFILE (single-bundle) mode ships one merged bundle; every leg routes into it. (Definition
     // hoisted here so the loose-derive / char-file legs above the bundle grouping can use it too.)
-    const std::string kPandora = "Pandora";
 
-    if (mo2.ok) PackageModAnimations(mo2, plugins, outDir, log, opt.singleBundle ? kPandora : std::string());
+    if (mo2.ok) PackageModAnimations(mo2, plugins, outDir, log);
     fs::create_directories(plugins, ec);
 
     // A graph's REAL meshes-relative serve path (base-map ground truth) — bound after baseMaps loads
@@ -1429,7 +1248,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     //     this, serving a compiled character would DROP the replacing mod's roster.
     bool charFilesAny = false;
     if (!charTemplates.empty()) {
-        const fs::path cfBundle = plugins / ((opt.singleBundle ? kPandora : std::string("CharacterFiles")) + ".hky");
+        const fs::path cfBundle = plugins / "CharacterFiles.hky";
         for (const auto& rel : charTemplates) {
             std::error_code we;
             const fs::path winner = dataDir / "meshes" / fs::path(rel);
@@ -1493,7 +1312,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 // Owning mod for this precompiled prefix (top-priority shipper), else anonymous.
                 const auto pm = prefixToMod.find(ToLower(fs::path(u.prefix).generic_string()));
                 const bool        attributed = pm != prefixToMod.end();
-                const std::string bname      = opt.singleBundle ? kPandora : (attributed ? pm->second : std::string("BehaviorFiles"));
+                const std::string bname      = attributed ? pm->second : std::string("BehaviorFiles");
                 const fs::path    outBundle  = plugins / (bname + ".hky");
 
                 /// @note Derived against the base UNIT (its own FormIDs), so matched overrides land on the served
@@ -1563,88 +1382,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         auto it = bundleCodes.find(bn);
         if (it == bundleCodes.end()) { bundleOrder.push_back(bn); bundleCodes.emplace(bn, std::vector<std::string>{ code }); }
         else it->second.push_back(code);
-    }
-
-        // MO2-PROFILE mode: collapse EVERY code into one "Pandora" bundle, ordered by PANDORA'S OWN behavior
-    // load order (Pandora_Engine/ActiveMods.json — the priority the user set in Pandora's UI), NOT MO2.
-    // We are replicating Pandora for the pandora.hky. ConvertModDelta applies patches in LIST order,
-    // later overriding earlier, so the WINNER (Pandora priority 1) must merge LAST → sort by priority
-    // DESCENDING. Codes absent from ActiveMods sort FIRST (lowest precedence, scan order among them).
-    // Fallback when no ActiveMods.json: ScanCodes order (already sorted) — no MO2 dependency. Inactive
-    // codes (active:false) are excluded, mirroring Pandora. This turns the per-bundle loop below into a
-    // single unified delta per graph; loose-derive / char-file / FNIS legs also route into Pandora.hky.
-    if (opt.singleBundle) {
-        const std::vector<PandoraModEntry> pandora = LoadPandoraOrder(dataDir);
-        std::unordered_map<std::string, int> pandoraPri;   // code(lower) -> priority (1 = winner)
-        std::unordered_set<std::string>      pandoraInactive;
-        for (const auto& pe : pandora) {
-            if (pe.active) pandoraPri[ToLower(pe.code)] = pe.priority;
-            else           pandoraInactive.insert(ToLower(pe.code));
-        }
-        std::vector<std::string> all;
-        int skippedInactive = 0;
-        for (const auto& code : codes) {
-            if (excludedCodes.count(ToLower(code))) continue;                 // engine scaffolding
-            if (pandoraInactive.count(ToLower(code))) { ++skippedInactive; continue; }  // Pandora-disabled
-            all.push_back(code);
-        }
-        if (!pandoraPri.empty()) {
-            constexpr int kAbsent = 1 << 30;   // not in ActiveMods -> lowest precedence (merges first)
-            auto priOf = [&](const std::string& c) -> int {
-                const auto it = pandoraPri.find(ToLower(c));
-                return it == pandoraPri.end() ? kAbsent : it->second;
-            };
-            std::stable_sort(all.begin(), all.end(),
-                             [&](const std::string& a, const std::string& b) { return priOf(a) > priOf(b); });
-            say("Pandora mode: order from Pandora_Engine/ActiveMods.json (" +
-                std::to_string(pandoraPri.size()) + " ranked code(s)" +
-                (skippedInactive ? ", " + std::to_string(skippedInactive) + " inactive skipped" : "") +
-                ", winner last).");
-        } else {
-            say("Pandora mode: no ActiveMods.json — using scan order (winner last). Tune it in the UI.");
-        }
-
-        // User override (Pandora Order tab): reorder by the tuned MOD order (top = winner). Group each
-        // code under its owning mod and sort the groups so the winning mod merges LAST; codes keep their
-        // Pandora order WITHIN a mod (stable). Codes whose mod isn't in the list (or is unattributed)
-        // sort first (lowest precedence). Needs MO2 attribution (codeToMod); no-op without it.
-        if (!opt.pandoraModOrder.empty() && !codeToMod.empty()) {
-            std::unordered_map<std::string, int> modRank;   // mod(lower) -> user rank (0 = top = winner)
-            for (int i = 0; i < (int)opt.pandoraModOrder.size(); ++i)
-                modRank[ToLower(opt.pandoraModOrder[i])] = i;
-            constexpr int kUnranked = 1 << 30;              // mod not in the user list -> merges first
-            auto modRankOf = [&](const std::string& c) -> int {
-                const auto m = codeToMod.find(ToLower(c));
-                if (m == codeToMod.end()) return kUnranked;
-                const auto r = modRank.find(ToLower(m->second));
-                return r == modRank.end() ? kUnranked : r->second;
-            };
-            // winner (rank 0) merges LAST -> sort by rank DESCENDING; stable keeps within-mod Pandora order.
-            std::stable_sort(all.begin(), all.end(),
-                             [&](const std::string& a, const std::string& b) { return modRankOf(a) > modRankOf(b); });
-            say("Pandora mode: applied user mod order (" + std::to_string(opt.pandoraModOrder.size()) +
-                " mod(s) from the Pandora Order tab, winner last).");
-        }
-
-        bundleOrder = { kPandora };
-        bundleCodes.clear();
-        bundleCodes[kPandora] = std::move(all);
-        say("Pandora mode: merging " + std::to_string(bundleCodes[kPandora].size()) +
-            " code(s) into one Pandora.hky.");
-        { std::string seq; for (const auto& c : bundleCodes[kPandora]) { if (!seq.empty()) seq += " "; seq += c; }
-          say("Pandora mode: merge order (first loses, LAST wins): " + seq); }
-
-        // Conflict pre-scan (Increment 2) — where merge order matters. Shared helper (also the UI's).
-        const auto conflicts = ScanGraphConflicts(dataDir, bundleCodes[kPandora]);
-        int nodeCollisions = 0; for (const auto& c : conflicts) nodeCollisions += c.nodeCollisions;
-        say("Conflict scan: " + std::to_string(conflicts.size()) + " graph(s) touched by 2+ codes, " +
-            std::to_string(nodeCollisions) + " base-node override collision(s) (order-sensitive).");
-        for (const auto& c : conflicts) {
-            std::string cs; for (const auto& x : c.codes) { if (!cs.empty()) cs += ", "; cs += x; }
-            say("  " + c.graph + ": " + std::to_string(c.codes.size()) + " codes [" + cs + "]" +
-                (c.nodeCollisions ? " — " + std::to_string(c.nodeCollisions) + " overridden node(s), winner '" +
-                 c.winner + "'" : " — no node-override overlap"));
-        }
     }
 
     auto codeDirOf = [&](const std::string& c) { return dataDir / "Nemesis_Engine" / "mod" / c; };
@@ -2029,14 +1766,14 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         if (fs::is_directory(animDir, ec)) {
             say("");
             say("== FNIS ==");
-            const fs::path fnisBundle = plugins / ((opt.singleBundle ? kPandora : std::string("FNIS")) + ".hky");
+            const fs::path fnisBundle = plugins / "FNIS.hky";
             auto fnisResult = CommunityBehaviors::fnis::ConvertFnis(
                 { animDir }, "character", { "defaultmale", "defaultfemale" }, fnisBundle,
                 [&](const std::string& s) { say("  " + s); });
             if (fnisResult.ok && fnisResult.animCount > 0) {
                 r.fnisAnims  = static_cast<int>(fnisResult.animCount);
                 r.fnisEvents = static_cast<int>(fnisResult.eventCount);
-                if (!opt.singleBundle) emitted.push_back("FNIS");
+                emitted.push_back("FNIS");
                 say("  FNIS.hky: " + std::to_string(fnisResult.animCount) + " anim(s), " +
                     std::to_string(fnisResult.eventCount) + " event(s), " +
                     std::to_string(fnisResult.varCount) + " var(s).");
@@ -2048,13 +1785,6 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         }
     }
 
-    // MO2-PROFILE: every leg routed into Pandora.hky, so the load order / manifests are just that one
-    // bundle. Override the per-mod `emitted` list (which may have collected CharacterFiles/BehaviorFiles/
-    // precompiled names) with the single Pandora bundle iff it actually got content.
-    if (opt.singleBundle) {
-        emitted.clear();
-        if (fs::is_directory(plugins / (kPandora + ".hky"), ec)) emitted.push_back(kPandora);
-    }
 
     // 3b) animationnames/ -> character roster patches — the set-data leg (2b) still emits bundle-root
     //     animationnames/<stem>.txt roster drops. Re-file every one into its character's roster, keyed by
@@ -2175,11 +1905,11 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     say("");
     say("== Manifests ==");
     int manifests = 0;
-    if (charFilesAny && !opt.singleBundle) {
+    if (charFilesAny) {
         WriteManifest(plugins / "CharacterFiles.hky", "CharacterFiles", "", "", { "Skyrim" });
         ++manifests;
     }
-    if (behFilesAny && !opt.singleBundle) {
+    if (behFilesAny) {
         WriteManifest(plugins / "BehaviorFiles.hky", "BehaviorFiles", "", "", { "Skyrim" });
         ++manifests;
     }
@@ -2820,22 +2550,18 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     return r;
 }
 
-/// @brief Package EVERY animation each enabled mod contributes into its <modName>.hky (or the one shared
-///   `targetBundle` in Pandora mode) as attributed single-file units — the per-mod sibling of BuildBaseBundle's
+/// @brief Package EVERY animation each enabled mod contributes into its <modName>.hky as attributed single-file units — the per-mod sibling of BuildBaseBundle's
 ///   animation leg.
 /// @note Sources = the mod's LOOSE meshes\ files + the archives the ENGINE loads for it via the plugin rule
 ///   (ResolveModArchivesFor). Loose beats any archive and a later-loaded archive beats an earlier one — the
 ///   engine's precedence inside one mod. INI-listed/built-in archives are base-game content: they belong to the
 ///   master, never a mod bundle (hence also the reserved bundle name "Skyrim").
-/// @note Shared-bundle (Pandora) mode walks mods highest-priority first, so the FIRST mod to write a path owns it;
-///   a lower-priority mod never overwrites it (it did before: last-writer-wins inverted MO2 priority).
 /// @note FAIL-SAFE: a skip/fail writes no unit and the engine keeps the original file, so this can never break the
 ///   behavior/skeleton bundles built alongside.
 /// @warning Archive-sourced units carry the archive's LOWERCASED path (BSA case is unrecoverable); loose-sourced
 ///   units keep their on-disk case.
 static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
-                                 const fs::path& stageRoot, const LogFn& log,
-                                 const std::string& targetBundle) {
+                                 const fs::path& stageRoot, const LogFn& log) {
     namespace bsa = CB::engine::codec::bsa;
     const auto say = [&](const std::string& s) { if (log) log(s); };
     std::error_code ec;
@@ -2852,7 +2578,6 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
         const bsa::Entry* entry = nullptr;
         std::string       rel;               ///< "meshes/actors/.../x.hkx" — the unit path inside the bundle
     };
-    std::unordered_set<std::string> sharedClaimed;   ///< lower(rel) already written into the shared bundle
     std::map<std::string, int>      skipReasons;
     std::vector<std::string>        unrecognized;    ///< .hkx under an animations/ folder that did NOT classify as an animation
     int totalOk = 0, totalSkip = 0, totalFail = 0, totalFromArchive = 0, modsWithAnims = 0;
@@ -2860,7 +2585,7 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
 
     for (const std::string& modName : mo2.enabledTopFirst) {
         const fs::path    modRoot    = mo2.modsDir / modName;
-        const std::string bundleName = targetBundle.empty() ? modName : targetBundle;
+        const std::string bundleName = modName;
         const auto        archIt     = pluginArchivesByMod.find(modName);
         const bool        hasLoose   = fs::is_directory(modRoot / "meshes", ec);
         if (!hasLoose && archIt == pluginArchivesByMod.end()) continue;
@@ -2904,7 +2629,6 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
 
         int modOk = 0, modSkip = 0, modFail = 0, modFromArchive = 0;
         for (const auto& [key, src] : sources) {
-            if (!targetBundle.empty() && sharedClaimed.count(key)) continue;
             std::string err;
             if (src.entry) {
                 if (!archives[src.archive].Extract(*src.entry, abytes, &err)) {
@@ -2928,7 +2652,6 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
                 case AnimBakeOutcome::Ok:
                     ++modOk;
                     if (src.entry) ++modFromArchive;
-                    if (!targetBundle.empty()) sharedClaimed.insert(key);
                     break;
                 case AnimBakeOutcome::Skip: ++modSkip; ++skipReasons[reason.substr(0, std::min<std::size_t>(reason.find(':'), 60))]; break;
                 case AnimBakeOutcome::Fail: ++modFail; break;
@@ -2962,7 +2685,7 @@ bool PackageAllModAnimations(const std::string& mo2Instance, const std::string& 
     }
     std::error_code ec;
     fs::create_directories(pluginsDir, ec);
-    PackageModAnimations(mo2, pluginsDir, pluginsDir, log, std::string());
+    PackageModAnimations(mo2, pluginsDir, pluginsDir, log);
     return true;
 }
 
