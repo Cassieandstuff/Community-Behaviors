@@ -20,6 +20,7 @@
 #include <iterator>
 #include <map>
 #include <optional>
+#include <regex>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -73,6 +74,59 @@ namespace CB::core::serve {
             return order;
         }
 
+        /// @brief A DAR/OAR override copy of an animation: the file OAR plays in its base path's roster slot.
+        struct OverrideCopy {
+            std::string key;              ///< the copy's bundle key (lowercase)
+            int         priority = 0;     ///< DAR condition number / OAR submod priority — the LOWEST is the default copy
+            std::size_t bundle   = 0;     ///< index into the priority-sorted bundle list
+        };
+
+        /// @brief The base animation an override key stands in for, and its replacer priority.
+        /// @note DAR `_CustomConditions/<N>/<rest>` → N. OAR `OpenAnimationReplacer/<mod>/<submod>/<rest>` → the submod's
+        ///       config.json `priority`, read from the live Data folder (bundles don't carry it); a disabled submod is no
+        ///       candidate. DAR's actor-specific `<plugin>/<formid>/` folders are skipped — they don't apply generally.
+        std::optional<std::pair<std::string, int>> OverrideBase(const std::string& key, const fs::path& dataDir,
+                                                                std::unordered_map<std::string, std::optional<int>>& cfgCache)
+        {
+            const auto a = key.find("/animations/");
+            if (a == std::string::npos) return std::nullopt;
+            const std::string root = key.substr(0, a + 12);
+            const std::string rest = key.substr(a + 12);
+            const auto seg = [&](std::size_t from, std::string& out) -> std::size_t {
+                const auto s = rest.find('/', from);
+                if (s == std::string::npos) return std::string::npos;
+                out = rest.substr(from, s - from);
+                return s + 1;
+            };
+            constexpr std::string_view kDar = "dynamicanimationreplacer/_customconditions/";
+            constexpr std::string_view kOar = "openanimationreplacer/";
+            std::string a1, a2;
+            if (rest.compare(0, kDar.size(), kDar) == 0) {
+                const auto t = seg(kDar.size(), a1);
+                if (t == std::string::npos || a1.empty() || a1.find_first_not_of("0123456789") != std::string::npos) return std::nullopt;
+                return std::make_pair(root + rest.substr(t), std::atoi(a1.c_str()));
+            }
+            if (rest.compare(0, kOar.size(), kOar) == 0) {
+                const auto m = seg(kOar.size(), a1);
+                const auto t = m == std::string::npos ? m : seg(m, a2);
+                if (t == std::string::npos) return std::nullopt;
+                const std::string dir = root + rest.substr(0, t);   // ".../openanimationreplacer/<mod>/<submod>/"
+                auto it = cfgCache.find(dir);
+                if (it == cfgCache.end()) {
+                    std::optional<int> prio = 0;
+                    std::ifstream      cf(dataDir / fs::path(dir) / "config.json", std::ios::binary);
+                    const std::string  cfg((std::istreambuf_iterator<char>(cf)), std::istreambuf_iterator<char>());
+                    std::smatch        mt;
+                    if (std::regex_search(cfg, mt, std::regex(R"re("priority"\s*:\s*(-?\d+))re"))) prio = std::stoi(mt[1].str());
+                    if (std::regex_search(cfg, std::regex(R"re("disabled"\s*:\s*true)re"))) prio = std::nullopt;
+                    it = cfgCache.emplace(dir, prio).first;
+                }
+                if (!it->second) return std::nullopt;
+                return std::make_pair(root + rest.substr(t), *it->second);
+            }
+            return std::nullopt;
+        }
+
     }  // namespace
 
     ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni, const AdsfSource& adsf)
@@ -116,19 +170,59 @@ namespace CB::core::serve {
         /// @note Animations are parsed once, in parallel (gigabytes of keyframe YAML; the engine's adsf open waits on
         ///       this), each with its actor motion resolved — its record, or extracted from a folded root.
         std::unordered_map<std::string, std::optional<CB::engine::anim::AnimationDef>> anims;
+        const auto parse = [](const std::string& text, const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
+            try {
+                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
+                def.motion = CB::engine::anim::ResolveRootMotion(def);
+                return def;
+            } catch (const std::exception& e) {
+                LOG_WARN("AnimData: animation '{}' unreadable: {}", path, e.what());
+                return std::nullopt;
+            }
+        };
+
+        /// @note DAR/OAR-only animations: a mod that ships an animation ONLY as a replacer copy (BFCO, Dodge MCO-DXP)
+        ///       leaves its clips' base path empty, yet the clip binds that base slot (OAR swaps the file it plays, never
+        ///       the slot or the adsf). Without a motion record the slot's root motion never activates, so the slot takes
+        ///       its motion from an override copy. The adsf holds ONE record per slot, so of several copies (BFCO's per-weapon
+        ///       submods) the DEFAULT one stands for all: the lowest non-negative priority that carries motion.
+        std::unordered_map<std::string, std::vector<OverrideCopy>> overrides;
+        {
+            std::unordered_map<std::string, std::optional<int>> cfgCache;
+            for (std::size_t b = 1; b < bundles.size(); ++b)   // [0] is the master: no replacer folders
+                for (const auto& key : bundles[b].second.filesUnder("meshes/", ".hkx"))
+                    if (key.find("replacer/") != std::string::npos)
+                        if (auto base = OverrideBase(key, dataDir, cfgCache))
+                            overrides[base->first].push_back({ key, base->second, b });
+            for (auto& [_, copies] : overrides)
+                std::sort(copies.begin(), copies.end(), [](const OverrideCopy& x, const OverrideCopy& y) {
+                    if ((x.priority >= 0) != (y.priority >= 0)) return x.priority >= 0;
+                    if (x.priority != y.priority) return x.priority < y.priority;
+                    if (x.bundle != y.bundle) return x.bundle > y.bundle;
+                    return x.key < y.key;
+                });
+        }
+        std::atomic<std::size_t> fromOverride{ 0 }, severalCopies{ 0 };
+
         const auto load = [&](const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
             for (auto it = bundles.rbegin(); it != bundles.rend(); ++it)
-                if (const auto text = it->second.read(path)) {
-                    try {
-                        auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*text, path);
-                        def.motion = CB::engine::anim::ResolveRootMotion(def);
-                        return def;
-                    } catch (const std::exception& e) {
-                        LOG_WARN("AnimData: animation '{}' unreadable: {}", path, e.what());
-                        return std::nullopt;
-                    }
-                }
-            return std::nullopt;
+                if (const auto text = it->second.read(path)) return parse(*text, path);
+            const auto o = overrides.find(path);
+            if (o == overrides.end()) return std::nullopt;
+            std::optional<CB::engine::anim::AnimationDef> first;
+            for (const auto& c : o->second) {
+                const auto text = bundles[c.bundle].second.read(c.key);
+                if (!text) continue;
+                auto def = parse(*text, c.key);
+                if (!def) continue;
+                if (def->motion) { first = std::move(def); break; }
+                if (!first) first = std::move(def);
+            }
+            if (first) {
+                fromOverride.fetch_add(1, std::memory_order_relaxed);
+                if (o->second.size() > 1) severalCopies.fetch_add(1, std::memory_order_relaxed);
+            }
+            return first;
         };
         animdata::ProjectionSource src;
         src.roster        = adsf.roster;
@@ -177,6 +271,9 @@ namespace CB::core::serve {
         const auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
         LOG_INFO("AnimData: projected {} anim project(s) — {} clip(s), {} motion(s), {} animation(s) — from {} bundle(s) in "
                  "{} ms; wrote {}.", st.projects, st.clips, st.motions, anims.size(), bundles.size(), ms(t0, t1), r.cachePath);
+        if (const auto n = fromOverride.load(); n > 0)
+            LOG_INFO("AnimData: {} animation(s) exist only as DAR/OAR replacer copies — their slots take the default copy's "
+                     "motion ({} had several copies; the lowest-priority one stands for all).", n, severalCopies.load());
         if (st.unresolved)
             LOG_INFO("AnimData: {} clip(s) play an animation their character's roster lacks (no motion; e.g. {}).", st.unresolved,
                      st.unresolvedSample.empty() ? std::string() : st.unresolvedSample.front());
