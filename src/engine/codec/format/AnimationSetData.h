@@ -127,14 +127,9 @@ namespace CB::engine::animsetdata {
     // wraps whole items) — never mid-item.
     SetFile ParseNemesisSetFile(std::string_view text);
 
-    // Parse/emit a split-form project index ("<set>.txt" per line, no count prefix).
-    std::vector<std::string> ParseProjectIndex(std::string_view text);
-    std::string EmitProjectIndex(const std::vector<std::string>& setNames);
-
     // ── CRC / animation registration ─────────────────────────────────────────────
-    // The path CRC now lives in CB::engine::codec::crc (the searchable codec — encode + solve). Aliased here so
-    // asd::Crc32 / asd::TripleForAnimation call sites are unchanged during the firesale.
-    using CB::engine::codec::crc::Crc32;
+    // The path CRC now lives in CB::engine::codec::crc. Aliased here so
+    // asd::TripleForAnimation call sites are unchanged during the firesale.
     using CB::engine::codec::crc::TripleForAnimation;
 
     // ── Merge (load-order overlay) ───────────────────────────────────────────────
@@ -147,11 +142,12 @@ namespace CB::engine::animsetdata {
         std::size_t conditionsAdded = 0;
     };
 
-    // Overlay `delta` onto `base` (mutated in place). Identity is by name,
-    // case-insensitive: project by header, set by set name, attack by event; a crc is
-    // identified by its exact (folder,file,ext) triple. New items are APPENDED so every
-    // pre-existing project/set index and order is preserved (the engine cross-references
-    // projects positionally). On an attack-event collision the delta wins (later load
+    // Overlay `delta` onto `base` (mutated in place). A project (by header) and a set (by set
+    // name) are FILES, matched by path identity (codec::resource::PathKey); equip events,
+    // condition variables and attack events are names, matched exactly; a crc is identified by
+    // its exact (folder,file,ext) triple. New items are APPENDED so every pre-existing
+    // project/set index and order is preserved (the engine cross-references projects
+    // positionally). On an attack-event collision the delta's flag + clips win (later load
     // order overrides, matching the behavior-graph merge). Self-merging an unchanged file
     // is a no-op (re-emit stays byte-identical) — the merge invariant the tests assert.
     MergeStats MergeInto(SingleFile& base, const SingleFile& delta);

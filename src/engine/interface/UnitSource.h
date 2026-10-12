@@ -37,18 +37,14 @@ struct IUnitSource {
 // One merge layer plus its load-order identity, so the merge can key node identity by SCOPE
 // (which bundle's id-space a node belongs to) instead of by a bare id. `stem` is the owning
 // bundle (lowercase; empty = anonymous, e.g. an offline/CLI source with no load-order context).
-// `rank` is the base-first load-order rank (lower = earlier; the master-DAG topo-sort assigns it).
-// `ancestors` is the bundle's transitive master stems. When `stem`/`ancestors` are empty for every
-// layer (the offline path), scope resolution degenerates to bare-id grouping — identical to a merge
-// with no load-order context.
+// When `stem` is empty for every layer (the offline path), scope resolution degenerates to bare-id
+// grouping — identical to a merge with no load-order context.
 struct LayerSource {
     std::shared_ptr<const IUnitSource> source;
     std::string                        stem;        // owning bundle (lowercase); empty = anonymous
-    int                                rank = 0;    // base-first load-order rank
-    std::vector<std::string>           ancestors;   // transitive master stems (lowercase)
     // The bundle's ORDERED master table (index 0 = base game, 1..k = declared masters, last = self),
     // built via CB::engine::codec::formid::BuildMasterTable. A node's FormId masterIndex resolves against THIS
-    // (ResolveOwner) -> the owning bundle stem. Empty for an anonymous/offline layer (no FormId
+    // -> the owning bundle stem. Empty for an anonymous/offline layer (no FormId
     // resolution -> the merge falls back to bare-id scope inference).
     std::vector<std::string>           masterTable;
 };

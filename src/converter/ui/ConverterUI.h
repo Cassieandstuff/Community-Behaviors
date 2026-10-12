@@ -8,19 +8,18 @@
 #include "Converter.h"
 #include "ui/LoadOrderUI.h"
 
-// The whole tool UI: two persistent folder fields (Data + Zip destination), a Convert
-// button that runs the conversion on a worker thread, and a live scrolling log. Convert
-// always produces Community Behaviors.zip at the destination — the DynDOLOD-style model:
-// convert into a private staging dir next to the exe (auto-cleared so shrinking
-// conversions stay clean), zip that, and let MO2 install-as-replace do the clean
-// overwrite. Templates + base ship beside the exe and are hardcoded. Drawn every frame.
+// The whole tool UI, drawn every frame: a Converter tab (an MO2 profile -> the pre-conversion
+// LoadOrderPlan arranger, an output folder, and a Convert button that runs on a worker thread),
+// a Load Order tab (LoadOrderUI over the live Data folder) and a Debug tab. With auto-zip on, the
+// conversion goes to a private staging dir next to the exe (cleared each run so shrinking
+// conversions stay clean) and is zipped into the output folder for MO2 install-as-replace;
+// otherwise it writes the tree straight to the output folder. Templates ship beside the exe.
 class ConverterUI {
 public:
     ConverterUI();
     ~ConverterUI();
 
     void Draw();
-    bool WantsQuit() const { return false; }
 
 private:
     void DrawConverterTab();           // the conversion UI (the "Converter" tab body)
@@ -44,10 +43,6 @@ private:
     // Persistent (sct_converter.ini):
     std::string m_dataDir;   // MO2 VFS Data folder
     std::string m_zipDir;    // where the .zip lands (point at your MO2 downloads)
-    std::string m_zipName;   // the .zip file name (== the MO2 mod name); ".zip" appended if missing
-    std::string m_mo2Instance; // OPTIONAL MO2 instance root (mods/ + profiles/) — when set, bundles
-                               // are attributed to owning mods (<modName>.hky, both loose legs grouped)
-                               // and the delta load order follows modlist priority; empty = auto/off
 
     // ── Redesigned Converter tab (MO2-profile-only) state ─────────────────────────────────────
     std::string          m_profile;               // MO2 profile folder (or instance root) — the ONE input
@@ -56,13 +51,11 @@ private:
     CB::converter::LoadOrderPlan m_plan;                  // pre-conversion plan (built on profile select)
     bool                 m_planPending = false;    // rebuild the plan on the next frame (after a profile change)
     std::string          m_planMsg;               // status line under the profile field
-    int                  m_dragRow = -1;           // arranger drag source index (-1 = none)
 
     // Fixed, next to the exe (never shown):
     std::string m_exeDir;
     std::string m_stagingDir;    // <exe>/staging — cleared + rebuilt every convert, then zipped
     std::string m_templatesDir;  // <exe>/schema/templates
-    std::string m_baseDir;       // <exe>/base (pristine vanilla singlefiles)
 
     std::thread       m_worker;
     std::atomic<bool> m_running{ false };
@@ -72,7 +65,6 @@ private:
 
     std::mutex               m_logMx;
     std::vector<std::string> m_log;   // shared with the worker (guarded by m_logMx)
-    bool                     m_autoscroll = true;
     std::string              m_zipMsg;   // result of the last package step
 
     LoadOrderUI              m_loadOrder;   // the "Load Order" tab (manages loadorder.txt)

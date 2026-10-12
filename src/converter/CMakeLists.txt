@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Behavior Converter — standalone, MO2-launchable tool (BehaviorConverter.exe).
 # Converts a Nemesis/Pandora behavior load order into per-mod Community Behaviors
-# .hky bundles via the havok converter core (PatchConverter / ConvertModDelta).
+# .hky bundles via the shared engine (CB::engine::decompile::ConvertModDelta).
 # GLFW + Dear ImGui + OpenGL. An end-user + author tool that shares CB's whole
 # engine, so it lives in this repo rather than splitting into cross-repo coupling.
 #
@@ -47,14 +47,11 @@ endif()
 
 # ── Ship schema/ next to the exe ─────────────────────────────────────────────────
 # The converter reads the class schema from <exe>/schema and its Nemesis-ingest templates from
-# <exe>/schema/templates (the <g>.xml oracle numbering that makes conversion + --regen-master possible,
-# plus two fallback vanilla binaries). Data only — no sources ship.
-set(BCONV_SCHEMA    "${CMAKE_SOURCE_DIR}/schema")
-set(BCONV_TEMPLATES "${BCONV_SCHEMA}/templates")
-add_custom_command(TARGET behavior-converter POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_SCHEMA}" "$<TARGET_FILE_DIR:behavior-converter>/schema"
-    COMMENT "Behavior Converter: staging schema/ beside the exe"
-    VERBATIM)
+# <exe>/schema/templates (the <g>.xml tagfiles each Nemesis patch is converted against). Data only —
+# no sources ship. Staged with its generated stamp via cb_stage_schema (cmake/Schema.cmake).
+cb_stage_schema(TARGET behavior-converter
+    DEST    "$<TARGET_FILE_DIR:behavior-converter>/schema"
+    COMMENT "Behavior Converter: staging schema/ beside the exe")
 
 # Optional tools-folder deploy (MO2-launchable), same convention as the plugin deploy. The schema is
 # clear-then-copy; the pre-restructure templates/ + Havok/ siblings are cleared too (no longer read).
@@ -63,10 +60,12 @@ if(DEFINED ENV{SKYRIM_TOOLS_FOLDER})
     add_custom_command(TARGET behavior-converter POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_tools}"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:behavior-converter>" "${_tools}/"
-        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${_tools}/schema" "${_tools}/templates" "${_tools}/Havok"
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BCONV_SCHEMA}" "${_tools}/schema"
         COMMENT "Behavior Converter: deploy -> ${_tools}"
         VERBATIM)
+    cb_stage_schema(TARGET behavior-converter
+        DEST    "${_tools}/schema"
+        CLEAN   "${_tools}/templates" "${_tools}/Havok"
+        COMMENT "Behavior Converter: schema -> ${_tools}/schema (clean)")
 endif()
 
 # ── Derived-bundle regeneration (CB_REGEN_SOURCE) ───────────────────────────────
@@ -83,14 +82,11 @@ else()
 endif()
 set(SCT_BASE_MASTER_DIR "${_base_master_default}" CACHE PATH
     "Short-path root where each regenerated bundle's unpacked <Name>.hky/ tree is kept (env SCT_BASE_MASTER_DIR)")
-file(GLOB_RECURSE _bconv_template_files CONFIGURE_DEPENDS "${BCONV_TEMPLATES}/*")
 include(GenerateBaseMaster)
 cb_regen_bundles(
     CONVERTER_TARGET behavior-converter
-    TEMPLATES        "${BCONV_TEMPLATES}"
     PACKED_DIR       "${CB_HKY_STAGE}/community_behaviors/plugins"
-    UNPACKED_DIR     "${SCT_BASE_MASTER_DIR}"
-    DEPENDS          ${_bconv_template_files})
+    UNPACKED_DIR     "${SCT_BASE_MASTER_DIR}")
 
 # CB Havok-stack shared vocabulary (see src/engine/common/CorePrelude.h) — the converter includes engine
 # headers that reference CB::engine::common / CB::engine::codec unqualified; make them ambient in every TU.

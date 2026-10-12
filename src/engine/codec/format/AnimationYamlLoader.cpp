@@ -3,11 +3,10 @@
 #include "interface/MotionSample.h"   // animdata::UnlabelSample (byte-identical motion-sample parse)
 
 #include <RymlInclude.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
 
-#include <cstdio>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -49,17 +48,6 @@ void ensureRymlThrows() {
     (void)once;
 }
 
-std::string readFile(const std::filesystem::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return {};
-    std::ostringstream ss; ss << f.rdbuf();
-    std::string s = ss.str();
-    if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF &&
-        static_cast<unsigned char>(s[1]) == 0xBB && static_cast<unsigned char>(s[2]) == 0xBF)
-        s.erase(0, 3);
-    return s;
-}
-
 bool hasChild(const c4::yml::ConstNodeRef& n, const char* k) {
     return n.readable() && n.is_map() && n.has_child(c4::to_csubstr(k));
 }
@@ -94,11 +82,8 @@ std::vector<float> floatSeq(const c4::yml::ConstNodeRef& parent, const char* key
 } // namespace
 
 AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, const std::string& sourceName) {
-    std::string text = yamlText;   // parse_in_place mutates the buffer; the tree references it, so this
-                                   // local must outlive the build below (it does — same scope).
-    if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
-        static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
-        text.erase(0, 3);
+    std::string text(CB::engine::text::StripBom(yamlText));   // parse_in_place mutates the buffer; the tree references
+                                                              // it, so this local must outlive the build below (it does).
     if (text.empty())
         throw std::runtime_error("AnimationYamlLoader: empty animation source '" + sourceName + "'");
 
@@ -214,25 +199,22 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
     return def;
 }
 
-namespace {
-std::string Fmt(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
-} // namespace
-
 std::string EmitAnimTrackYaml(const AnimTrackDef& tr) {
+    using text::FormatFloat;
     std::string y = "    - bone: " + tr.bone + "\n";
     const auto vec3 = [&](const char* key, const std::vector<Vec3Keyframe>& keys) {
         if (keys.empty()) return;
         y += std::string("      ") + key + ":\n";
         for (const auto& k : keys)
-            y += "        - { time: " + Fmt(k.time) + ", value: [" + Fmt(k.value[0]) + ", " + Fmt(k.value[1]) + ", " +
-                 Fmt(k.value[2]) + "] }\n";
+            y += "        - { time: " + FormatFloat(k.time) + ", value: [" + FormatFloat(k.value[0]) + ", " +
+                 FormatFloat(k.value[1]) + ", " + FormatFloat(k.value[2]) + "] }\n";
     };
     vec3("translation", tr.translation);
     if (!tr.rotation.empty()) {
         y += "      rotation:\n";
         for (const auto& k : tr.rotation)
-            y += "        - { time: " + Fmt(k.time) + ", value: [" + Fmt(k.value[0]) + ", " + Fmt(k.value[1]) + ", " +
-                 Fmt(k.value[2]) + ", " + Fmt(k.value[3]) + "] }\n";
+            y += "        - { time: " + FormatFloat(k.time) + ", value: [" + FormatFloat(k.value[0]) + ", " +
+                 FormatFloat(k.value[1]) + ", " + FormatFloat(k.value[2]) + ", " + FormatFloat(k.value[3]) + "] }\n";
     }
     vec3("scale", tr.scale);
     return y;
@@ -257,7 +239,7 @@ bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrack
 }
 
 AnimationDef AnimationYamlLoader::Load(const std::filesystem::path& yamlFile) {
-    std::string text = readFile(yamlFile);
+    std::string text = disk::ReadFile(yamlFile, { .stripBom = true }).value_or(std::string());
     if (text.empty())
         throw std::runtime_error("AnimationYamlLoader: cannot read " + yamlFile.string());
     return LoadFromString(text, yamlFile.string());

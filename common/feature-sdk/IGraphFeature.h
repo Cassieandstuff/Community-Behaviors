@@ -1,6 +1,6 @@
 #pragma once
 
-// Compiler-feature framework — see CLAUDE.md "Compiler features — CB::feature (SOP)".
+// Compiler-feature framework.
 //
 // A feature is a self-registered COMPILE-TIME GRAPH MANIPULATION the compile pipeline applies to the merged graph
 // (the ER wildcard gate, the BDI symbol injection, the watermark, …).
@@ -20,10 +20,6 @@
 #include <string_view>
 #include <vector>
 
-// Forward-declared so this header stays light + pure: a feature body that emits animdata includes
-// the full <havok/anim/AnimDataDeriver.h>; the interface only needs the incomplete type by const-ref.
-namespace CB::engine::animdata { struct DeriveClipInput; }
-
 namespace CB::feature {
 
     // Logging sink. The host (BR runtime) forwards to the plugin logger; an offline harness can
@@ -33,29 +29,6 @@ namespace CB::feature {
         virtual void Info(std::string_view) = 0;
         virtual void Warn(std::string_view) = 0;
         virtual ~IFeatureLog() = default;
-    };
-
-    // The character animationNames roster for the actor the current graph belongs to — the currency
-    // both clip legs share (animIndex = roster.indexOf(animationName)). A feature that binds clips to
-    // roster indices (Animation Relay's clip-index-binding) queries it; IndexOf returns -1 for a name
-    // not in the roster. Read-only, name-keyed — the host owns the merged roster.
-    struct IRosterService {
-        virtual int         IndexOf(std::string_view animationName) const = 0;
-        virtual std::size_t Size() const = 0;
-        virtual ~IRosterService() = default;
-    };
-
-    // The CONTRIBUTION hook for animationdata: a feature that ADDS animations (a DeriveClipInput that
-    // doesn't correspond to a graph clip the compiler already sees) pushes it here, into the same sink
-    // the host's FIRST-CLASS adsf-derive stage fills from each graph's own hkbClipGenerators. Deriving
-    // the base adsf is compiler output, not a feature — it is NOT done through this interface; this is
-    // purely how a feature feeds EXTRA clips into that first-class collector. Pushing is per-graph — the
-    // host keys contributions by graphKey and runs the project-level finalize (annotation-trigger merge,
-    // animIndex resolution against the roster, high-band alloc, collated emit) once every graph of a
-    // project has contributed.
-    struct IAnimDataSink {
-        virtual void EmitClip(std::string_view graphKey, const CB::engine::animdata::DeriveClipInput&) = 0;
-        virtual ~IAnimDataSink() = default;
     };
 
     /// @brief One compile-time symbol declaration (a BDI config entry): an event, or a WORD variable with its raw
@@ -81,8 +54,6 @@ namespace CB::feature {
     struct FeatureContext {
         std::string_view      graphKey;              // the graph currently being compiled (serve key)
         IFeatureLog&          log;
-        const IRosterService* roster   = nullptr;    // the actor's merged animationNames roster, or null
-        IAnimDataSink*        animData = nullptr;    // where a derive feature pushes clips, or null
         const ISymbolDecls*   symbols  = nullptr;    // BDI declarations, or null
     };
 

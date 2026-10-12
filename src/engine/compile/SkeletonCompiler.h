@@ -1,13 +1,13 @@
 #pragma once
 // SkeletonCompiler — SkeletonData → validated skeleton .hkx, SCHEMA-NATIVE. The write half of the
 // skeleton codec and the mirror of SkeletonImport: scatter the neutral per-bone data (and derive the
-// full ragdoll from the authored physics knobs) into an io::SchemaObject graph via the Havok/ class
-// descriptors, then serialize with the shared PackFileSerializer. No typed hka*/hkp* classes, no
-// havok-core — the derivation math (SkeletonMath) and the field values are ported from havok-core's
-// byte-exact compiler, so the emit stays byte-identical (gated by havok-core-cli skeleton-full-parity).
+// full ragdoll from the authored physics knobs) into an io::SchemaObject graph via the schema/ class
+// descriptors, then serialize with the shared PackFileSerializer. The derivation math (SkeletonMath)
+// and the field values are ported from a byte-exact typed compiler, so the emit stays byte-identical
+// to it.
 
 #include "interface/SkeletonData.h"
-#include <codec/serialization/packfile/PackFileTypes.h>   // HKXHeader (havok-framing)
+#include <codec/serialization/packfile/PackFileTypes.h>   // HKXHeader
 
 #include <cstdint>
 #include <filesystem>
@@ -18,8 +18,8 @@ namespace CB::engine::skeleton {
 using namespace CB::engine::codec;
 using namespace CB::engine::common;
 
-// Result of a skeleton compile. Same shape as CB::engine::anim::AnimCompileResult (kept local so the module
-// carries no havok-core dependency); callers read .ok / .error / .bytes.
+// Result of a skeleton compile. Same shape as CB::engine::anim::AnimCompileResult; callers read
+// .ok / .error / .bytes.
 struct SkeletonCompileResult {
     bool                      ok = false;
     std::string               error;   // populated when !ok

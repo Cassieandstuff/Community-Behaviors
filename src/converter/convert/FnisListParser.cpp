@@ -1,10 +1,12 @@
 #include "FnisListParser.h"
 
+#include <codec/resource/PathKey.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
-#include <fstream>
-#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -13,19 +15,16 @@ namespace fs = std::filesystem;
 namespace CommunityBehaviors::fnis {
 namespace {
 
-std::string ToLower(std::string s)
+namespace text = CB::engine::text;
+
+/// @brief A list-file KEYWORD token in its comparison form (type codes, option flags, `Version`, `AnimVar`).
+/// @note The FNIS list format's own rule: its keywords are case-insensitive. A codec-internal fold — event names,
+///       animation files and AnimVar names are copied exactly.
+std::string FnisKeyword(std::string s)
 {
     std::transform(s.begin(), s.end(), s.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
-}
-
-std::string TrimLine(const std::string& line)
-{
-    const auto b = line.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return {};
-    const auto e = line.find_last_not_of(" \t\r\n");
-    return line.substr(b, e - b + 1);
 }
 
 bool IsComment(const std::string& line)
@@ -50,7 +49,7 @@ std::vector<std::string> Tokenize(const std::string& line)
 // Try to parse a type code from a token.  Returns true on match.
 bool ParseType(const std::string& tok, AnimType& out)
 {
-    const std::string low = ToLower(tok);
+    const std::string low = FnisKeyword(tok);
     if (low == "b")   { out = AnimType::Basic;              return true; }
     if (low == "o")   { out = AnimType::AnimObject;         return true; }
     if (low == "s")   { out = AnimType::Sequence;           return true; }
@@ -87,7 +86,7 @@ void ParseOptions(const std::string& opts, AnimDecl& decl)
         pos = comma + 1;
 
         if (opt.empty()) continue;
-        const std::string low = ToLower(opt);
+        const std::string low = FnisKeyword(opt);
 
         if (low == "a")                  { decl.acyclic        = true; continue; }
         if (low == "h")                  { decl.headtracking   = true; continue; }
@@ -130,33 +129,32 @@ void ParseOptions(const std::string& opts, AnimDecl& decl)
 
 }  // namespace
 
-ListFile ParseListFile(std::string_view         text,
+ListFile ParseListFile(std::string_view         listText,
                        const std::string&        modName,
                        std::vector<std::string>* warnings)
 {
     ListFile result;
     result.modName = modName;
 
-    std::istringstream stream{ std::string(text) };
-    std::string        rawLine;
-    int                lineNo = 0;
+    int lineNo = 0;
 
-    while (std::getline(stream, rawLine)) {
+    /// @note A leading BOM (a list saved by a Windows editor) is ignored — it would otherwise glue onto line 1's first token.
+    for (const std::string_view rawLine : text::SplitLines(text::StripBom(listText))) {
         ++lineNo;
-        const std::string line = TrimLine(rawLine);
+        const std::string line(text::Trim(rawLine));
         if (IsComment(line)) continue;
 
         const auto tokens = Tokenize(line);
         if (tokens.empty()) continue;
 
         // Version line
-        if (ToLower(tokens[0]) == "version") {
+        if (FnisKeyword(tokens[0]) == "version") {
             if (tokens.size() >= 2) result.version = tokens[1];
             continue;
         }
 
         // AnimVar line:  AnimVar <name> <type> <value>
-        if (ToLower(tokens[0]) == "animvar") {
+        if (FnisKeyword(tokens[0]) == "animvar") {
             if (tokens.size() >= 4) {
                 AnimVarDecl v;
                 v.name  = tokens[1];
@@ -244,7 +242,7 @@ ScanResult ScanForLists(const fs::path&           animationsDir,
             if (!fi->is_regular_file(fe)) continue;
 
             const std::string filename = fi->path().filename().string();
-            const std::string low      = ToLower(filename);
+            const std::string low      = CB::engine::codec::resource::PathKey(filename);
 
             // Match FNIS_*_List.txt (case-insensitive)
             if (low.size() < 15) continue;  // "fnis_x_list.txt" = 15 chars minimum
@@ -256,13 +254,10 @@ ScanResult ScanForLists(const fs::path&           animationsDir,
             const std::string modName = filename.substr(5, filename.size() - 5 - 9);
             if (modName.empty()) continue;
 
-            // Read and parse
-            std::ifstream     f(fi->path(), std::ios::binary);
-            const std::string text((std::istreambuf_iterator<char>(f)),
-                                    std::istreambuf_iterator<char>());
-            if (text.empty()) continue;
+            const auto listText = CB::engine::disk::ReadFile(fi->path());
+            if (!listText || listText->empty()) continue;
 
-            ListFile lf = ParseListFile(text, modName, warnings);
+            ListFile lf = ParseListFile(*listText, modName, warnings);
             if (lf.anims.empty() && lf.vars.empty()) continue;
 
             // Prefix each animFile with the mod folder name so paths are relative to the

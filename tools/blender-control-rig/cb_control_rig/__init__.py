@@ -1,7 +1,7 @@
 """Community Behaviors — Control Rig Importer (Blender addon).
 
-Imports a portable CB control rig straight from a `control/rig.yaml` (emitted by
-`havok-core-cli control-decompile`, and — once wired — carried in the deployed load order).
+Imports a portable CB control rig straight from a `control/rig.yaml` (emitted by a
+control-decompile step that is not part of this repo).
 Scans a root folder for rigs, offers an actor picker, and builds a Blender armature with each
 control node placed at its recovered WORLD pose and tagged by pose source.
 

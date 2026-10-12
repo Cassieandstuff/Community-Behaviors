@@ -1,19 +1,14 @@
 #pragma once
-// havok-io — the generic, schema-driven Havok packfile reader/writer (havok-core v2 rewrite, Stage 2).
+// HavokIo — the generic, schema-driven Havok packfile reader/writer.
 //
-// ONE interpreter replaces the hand-written per-class ClassRead/ClassWrite: a `SchemaObject` (a
-// generic `IHavokObject`) walks its `CB::engine::schema::ClassSchema` field list, driving havok-core's
-// EXISTING packfile framing (sections, fixups, BinaryReaderEx/WriterEx) through the same public
-// primitives the typed classes used. The framing (which object is which class, pointer/array fixups)
-// is layout-independent and salvaged wholesale; only the per-object field walk becomes data-driven.
+// ONE interpreter for every class: a `SchemaObject` (the `IHavokObject` implementation) walks its
+// `CB::engine::schema::ClassSchema` field list, driving the packfile framing (sections, fixups,
+// BinaryReaderEx/WriterEx). The framing (which object is which class, pointer/array fixups) is
+// layout-independent; only the per-object field walk is data-driven.
 //
 // Faithfulness note: fields with no fixup (scalars, inline vec4/quaternion/qstransform, bool arrays,
-// and — critically — `skip`/`pad` regions) are captured as RAW BYTES and written back verbatim. This
-// preserves non-zero SERIALIZE_IGNORED bytes that the typed path's zero-filling `Skip` discarded, so
-// havok-io is strictly MORE byte-faithful than the old serde (it is expected to CLOSE Tier-A gaps).
-//
-// Single public header (monorepo rule): consumers write  #include <codec/serialization/HavokIo.h>  and nothing
-// else.
+// and — critically — `skip`/`pad` regions) are captured as RAW BYTES and written back verbatim, so
+// non-zero SERIALIZE_IGNORED bytes survive a round-trip (a zero-filling skip would discard them).
 
 #include <interface/reflection/HavokSchema.h>
 
@@ -24,9 +19,15 @@
 #include <codec/serialization/packfile/PackFileSerializer.h>
 
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace CB::engine::codec::io {
@@ -46,8 +47,7 @@ struct FieldValue {
 // A generic Havok object: identity + field values come from a ClassSchema, not a C++ type.
 class SchemaObject : public IHavokObject {
 public:
-    SchemaObject(const schema::SchemaRegistry* reg, const schema::ClassSchema* cs)
-        : m_reg(reg), m_schema(cs) {}
+    SchemaObject(const schema::SchemaRegistry* reg, const schema::ClassSchema* cs);
 
     std::uint32_t Signature() const noexcept override { return m_schema->signature; }
     const char*   ClassName() const noexcept override { return m_schema->name.c_str(); }
@@ -56,12 +56,11 @@ public:
 
     const schema::ClassSchema* Schema() const noexcept { return m_schema; }
 
-    // Field access for consumers (havok-model's .hky emit). `Fields()` is the flattened, parent-first
+    // Field access for consumers (the .hky emit). `Fields()` is the flattened, parent-first
     // field list (schema order); `Values()` is the parallel value store (same indices). Populated by
     // Read; also available after construction for a caller that built the graph via Read.
-    std::vector<const schema::Field*> Fields() const;
-    const std::vector<FieldValue>&    Values() const noexcept { return m_fields; }
-    const schema::SchemaRegistry*     Reg() const noexcept { return m_reg; }
+    const std::vector<const schema::Field*>& Fields() const { return Layout().fields; }
+    const std::vector<FieldValue>&           Values() const noexcept { return m_fields; }
 
     // ── Construction (build a graph WITHOUT reading bytes — the compile direction) ──
     // Read fills m_fields; a from-scratch builder calls Init() to size the value store to the flattened
@@ -69,36 +68,98 @@ public:
     // serializes through the same Write() path, so the compile output is byte-for-byte the serializer's
     // (no typed hk* classes involved). Field(name) throws if the name isn't in this class's flattened set.
     void        Init();
-    FieldValue& FieldRef(const std::string& name);
+    FieldValue& FieldRef(std::string_view name);
     FieldValue& FieldAt(std::size_t i) { return m_fields.at(i); }
-    bool        HasField(const std::string& name) const;
+    bool        HasField(std::string_view name) const;
+    /// @brief Index of `name` in Fields()/Values(), or nullopt.
+    std::optional<std::size_t> IndexOf(std::string_view name) const;
+    /// @brief Read-only field value, or nullptr when the class has no such field or the store isn't populated.
+    const FieldValue* FindField(std::string_view name) const;
+
+    // ── Typed access, driven by the field's schema type ──
+    /// @brief The width, signedness and kind come from the schema, never the caller; a kind mismatch, a
+    ///        missing field or an out-of-range `k` (the inline repeat index) throws std::runtime_error.
+    /// @note  Raw bytes stay available (FieldRef(name).raw) for what must pass through untouched: NaN payload
+    ///        bits beyond Get/SetFloatBits, Half truncation, skip/pad regions, bulk blobs.
+    std::int64_t GetInt(std::string_view name, int k = 0) const;          ///< integer Scalar, sign/zero-extended
+    void         SetInt(std::string_view name, std::int64_t v, int k = 0);///< @warning throws if `v` doesn't fit the width
+    float        GetFloat(std::string_view name, int k = 0) const;        ///< Float, or Half (upper 16 bits of a float)
+    void         SetFloat(std::string_view name, float v, int k = 0);     ///< Half truncates to the upper 16 bits
+    std::uint32_t GetFloatBits(std::string_view name, int k = 0) const;   ///< Float only: the exact bit pattern
+    void          SetFloatBits(std::string_view name, std::uint32_t bits, int k = 0);
+    bool         GetBool(std::string_view name, int k = 0) const;
+    void         SetBool(std::string_view name, bool v, int k = 0);
+    /// @brief A ScalarArray's elements. @pre sizeof(T) == the schema scalar width (checked).
+    template <class T> std::vector<T> GetArray(std::string_view name) const;
+    template <class T> void           SetArray(std::string_view name, const std::vector<T>& v);
+    /// @brief String / CString value.
+    const std::string& Str(std::string_view name) const;
+    std::string&       Str(std::string_view name);
+    /// @brief The SchemaObject behind a Ptr / inline Struct field (nullptr when unset).
+    SchemaObject*      Child(std::string_view name) const;
+    /// @brief The objects of a PtrArray / StructArray (or a fixed inline Ptr array).
+    const std::vector<std::shared_ptr<IHavokObject>>& Children(std::string_view name) const;
 
 private:
-    const schema::SchemaRegistry* m_reg;
-    const schema::ClassSchema*    m_schema;
-    std::vector<FieldValue>       m_fields;   // in serialized order (parent fields first)
+    const schema::FieldLayout& Layout() const;
+    /// @brief The schema field + its populated value for a typed accessor, kind-checked.
+    std::pair<const schema::Field*, const FieldValue*> typed(std::string_view name, const char* what) const;
+    void checkArrayWidth(const schema::Field& f, std::size_t elem, std::string_view name) const;
+
+    const schema::SchemaRegistry*              m_reg;
+    const schema::ClassSchema*                 m_schema;
+    const schema::FieldLayout*                 m_layout = nullptr;   ///< the registry's cache, or m_ownLayout
+    std::shared_ptr<const schema::FieldLayout> m_ownLayout;          ///< only for a class the registry didn't cache
+    std::vector<FieldValue>                    m_fields;   // in serialized order (parent fields first)
 };
+
+template <class T>
+std::vector<T> SchemaObject::GetArray(std::string_view name) const {
+    const auto [f, v] = typed(name, "ScalarArray");
+    checkArrayWidth(*f, sizeof(T), name);
+    if (!v) throw std::runtime_error("havok-io: " + m_schema->name + "." + std::string(name) + ": value not populated");
+    std::vector<T> out(v->raw.size() / sizeof(T));
+    if (!out.empty()) std::memcpy(out.data(), v->raw.data(), out.size() * sizeof(T));
+    return out;
+}
+
+template <class T>
+void SchemaObject::SetArray(std::string_view name, const std::vector<T>& v) {
+    const auto [f, cur] = typed(name, "ScalarArray");
+    (void)cur;
+    checkArrayWidth(*f, sizeof(T), name);
+    auto& raw = FieldRef(name).raw;
+    raw.resize(v.size() * sizeof(T));
+    if (!v.empty()) std::memcpy(raw.data(), v.data(), raw.size());
+}
 
 // A factory that builds a SchemaObject for any class the registry knows, else nullptr (which the
 // deserializer treats as "unregistered"). Install via `des.ObjectFactory = MakeSchemaFactory(reg);`.
 std::function<std::shared_ptr<IHavokObject>(const std::string&)>
 MakeSchemaFactory(const schema::SchemaRegistry& reg);
 
-// Read a packfile fully through havok-io (generic path) and write it back. On success `out` holds the
-// re-serialized bytes; a byte-identical `out == in` is the Stage-2 hkx-roundtrip gate. Returns false
+/// @brief The SchemaObject behind a graph pointer, or nullptr.
+inline std::shared_ptr<SchemaObject> AsSchema(const std::shared_ptr<IHavokObject>& o) {
+    return std::dynamic_pointer_cast<SchemaObject>(o);
+}
+
+/// @brief Deserialize a whole packfile through the schema path.
+/// @return The root object (nullptr when the root isn't a SchemaObject).
+/// @param tolerateUnregistered An object of a class the registry lacks reads as null instead of throwing.
+/// @warning Throws std::runtime_error on a framing or schema error.
+std::shared_ptr<SchemaObject> DeserializeSchema(std::span<const std::uint8_t> bytes, const schema::SchemaRegistry& reg,
+                                                bool tolerateUnregistered = false);
+
+/// @brief The `variant` object of the hkRootLevelContainer named variant whose `className` is `cls`
+///        (e.g. "hkaAnimationContainer"), or nullptr.
+std::shared_ptr<SchemaObject> FindVariant(const SchemaObject& root, std::string_view cls);
+
+// Read a packfile fully through the schema path and write it back. On success `out` holds the
+// re-serialized bytes; a byte-identical `out == in` is the hkx round-trip check. Returns false
 // with `err` set on any parse/framing/schema error.
 bool RoundtripHkx(const std::vector<std::uint8_t>& in,
                   const schema::SchemaRegistry&    reg,
                   std::vector<std::uint8_t>&       out,
                   std::string&                     err);
-
-// Like RoundtripHkx, but deep-REBUILDS the object graph via the construction API (Init +
-// FieldRef/FieldAt, no Read) before serializing — the migration-foundation gate. A byte-identical
-// `out == in` proves from-scratch SchemaObject construction is byte-faithful, so a builder that
-// emits SchemaObjects (replacing the typed hk* builders) can be trusted to the same standard.
-bool RebuildHkx(const std::vector<std::uint8_t>& in,
-                const schema::SchemaRegistry&    reg,
-                std::vector<std::uint8_t>&       out,
-                std::string&                     err);
 
 } // namespace CB::engine::codec::io

@@ -1,4 +1,6 @@
 #pragma once
+#include <text/Text.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -8,14 +10,13 @@
 #include <unordered_map>
 #include <vector>
 
-// Enum string ↔ integer resolution for Tier B. HKBuild emitted enum *strings* into XML (e.g.
-// mode: MODE_LOOPING) and let the Havok XML→binary compiler map them; havok-core builds binary
-// objects directly, so BehaviorBuilder resolves the strings here.
+// Enum string ↔ integer resolution: a .hky / tagfile authors an enum field by NAME (e.g.
+// mode: MODE_LOOPING) and the binary stores the value.
 //
-// The enum TABLES are no longer hardcoded here — they live in the schema data tree
+// The enum TABLES are not hardcoded here — they live in the schema data tree
 // (schema/metadata/enums/*.yaml, the single source) and are baked into the binary at build time
 // by cmake/EmbedEnums.cmake → GeneratedEnums.cpp, which defines EnumTable(name) below. Each named
-// accessor (PlaybackMode(), EventMode(), …) is a thin lookup into that generated data, so call
+// accessor (VariableType(), Role(), …) is a thin lookup into that generated data, so call
 // sites are unchanged. The item names/values are CASE-SENSITIVE Havok data — they render a .hky
 // field by name (MODE_SINGLE_PLAY, not 47) AND feed the class-signature CRC.
 //
@@ -26,41 +27,17 @@ namespace CB::engine::common::enums {
 
 // The generated backing store (GeneratedEnums.cpp). Returns the name→value table for the enum type
 // `name` (the enum's `name:` in its yaml), or an empty table if unknown. Defined out-of-line so the
-// baked data lives in one TU; callers link havok-framing.
+// baked data lives in one TU.
 const std::unordered_map<std::string, long>& EnumTable(const std::string& name);
 
-// ── Named accessors (stable API; the ~40 call sites use these) ────────────────────────────────────
+// ── Named accessors ────────────────────────────────────
 // Each is a thin lookup into the generated tables. To add an enum: drop a schema/metadata/enums/
 // <Name>.yaml file; it's baked automatically. Add a one-liner here only if code wants enums::<Name>().
-inline const std::unordered_map<std::string, long>& PlaybackMode()            { return EnumTable("PlaybackMode"); }
-inline const std::unordered_map<std::string, long>& VariableMode()            { return EnumTable("VariableMode"); }
-inline const std::unordered_map<std::string, long>& StartStateMode()          { return EnumTable("StartStateMode"); }
-inline const std::unordered_map<std::string, long>& SmSelfTransitionMode()    { return EnumTable("SmSelfTransitionMode"); }
-inline const std::unordered_map<std::string, long>& SelfTransitionMode()      { return EnumTable("SelfTransitionMode"); }
-inline const std::unordered_map<std::string, long>& EventMode()               { return EnumTable("EventMode"); }
-inline const std::unordered_map<std::string, long>& ExpressionEventMode()     { return EnumTable("ExpressionEventMode"); }
-inline const std::unordered_map<std::string, long>& EndMode()                 { return EnumTable("EndMode"); }
-inline const std::unordered_map<std::string, long>& BlendCurve()              { return EnumTable("BlendCurve"); }
-inline const std::unordered_map<std::string, long>& BlendModeFunction()       { return EnumTable("BlendModeFunction"); }
 inline const std::unordered_map<std::string, long>& VariableType()            { return EnumTable("VariableType"); }
 inline const std::unordered_map<std::string, long>& Role()                    { return EnumTable("Role"); }
 inline const std::unordered_map<std::string, long>& RoleFlags()               { return EnumTable("RoleFlags"); }
-inline const std::unordered_map<std::string, long>& TransitionFlags()         { return EnumTable("TransitionFlags"); }
-inline const std::unordered_map<std::string, long>& FlagBits()                { return EnumTable("FlagBits"); }
-inline const std::unordered_map<std::string, long>& BlenderFlags()            { return EnumTable("BlenderFlags"); }
-inline const std::unordered_map<std::string, long>& ClipGeneratorFlags()      { return EnumTable("ClipGeneratorFlags"); }
-inline const std::unordered_map<std::string, long>& SetAngleMethod()          { return EnumTable("SetAngleMethod"); }
-inline const std::unordered_map<std::string, long>& RotationAxisCoordinates() { return EnumTable("RotationAxisCoordinates"); }
-inline const std::unordered_map<std::string, long>& BindingType()             { return EnumTable("BindingType"); }
-inline const std::unordered_map<std::string, long>& EventInfoFlags()          { return EnumTable("EventInfoFlags"); }
 
 namespace detail {
-inline std::string trim(std::string_view s) {
-    std::size_t b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string_view::npos) return {};
-    std::size_t e = s.find_last_not_of(" \t\r\n");
-    return std::string(s.substr(b, e - b + 1));
-}
 inline bool tryParseLong(const std::string& s, long& out) {
     if (s.empty()) return false;
     char* end = nullptr;
@@ -85,7 +62,7 @@ inline bool tryParseLong(const std::string& s, long& out) {
 // here we need a number, so 0 is the safe default for an unrecognised token).
 inline long ResolveEnum(const std::string& raw,
                         const std::unordered_map<std::string, long>& table) {
-    std::string s = detail::trim(raw);
+    std::string s(CB::engine::text::Trim(raw));
     if (s.empty()) return 0;
 
     long whole = 0;
@@ -101,7 +78,7 @@ inline long ResolveEnum(const std::string& raw,
     std::stringstream ss(s);
     std::string tok;
     while (std::getline(ss, tok, '|')) {
-        tok = detail::trim(tok);
+        tok = std::string(CB::engine::text::Trim(tok));
         if (tok.empty()) continue;
         long n = 0;
         if (detail::tryParseLong(tok, n)) { acc |= n; continue; }

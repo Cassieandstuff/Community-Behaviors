@@ -7,7 +7,7 @@
 //   EXPRESSION — an author-written condition string in Havok's grammar + our registered callables,
 //                compiled once, evaluated JIT at the setdata matcher hook.
 //
-// Inc 1 (this): registry + compiler/evaluator + the matcher/producer hook skeleton + global toggle.
+// Inc 1 (this): registry + compiler/evaluator + the matcher/producer hook skeleton.
 // The built-in primitive/function ROSTER is a separate seam (Builtins.cpp) filled on its own branch.
 //
 // Plugin-world only (RE / SKSE / REL). Namespace CB::core::conditions.
@@ -20,7 +20,7 @@
 #include <string_view>
 #include <vector>
 
-namespace RE { class Actor; class TESForm; class BGSKeyword; class hkbClipGenerator; }
+namespace RE { class Actor; class TESForm; class BGSKeyword; }
 
 namespace CB::core::conditions {
 
@@ -69,10 +69,6 @@ namespace CB::core::conditions {
         bool  AsBool()  const;
         float AsFloat() const;
         std::int32_t AsInt() const;
-        bool  IsArray() const {
-            return type == VType::IntArray || type == VType::FloatArray ||
-                   type == VType::FormArray || type == VType::KeywordArray;
-        }
     };
 
     inline const Value* ValueSpan::end() const { return ptr + n; }   // Value now complete
@@ -86,20 +82,15 @@ namespace CB::core::conditions {
     class EvalContext {
     public:
         RE::Actor*            actor = nullptr;   // = the producer's param_1 (verified Actor*)
-        RE::hkbClipGenerator* clip  = nullptr;   // may be null
         std::uint32_t         currentConfigId = 0;   // the config whose expression is being evaluated NOW
 
         // Compute-or-return-cached: a primitive runs at most once per (id, args) per pass.
         Value Primitive(PrimId id, std::span<const Value> args = {}) const;
 
-        // Stable seed for Random(): hash(actor formID, currentConfigId) — stable per (actor, config)
-        // so a roll doesn't strobe per animation queue (spec §5a). 0 actor → configId only.
-        std::uint64_t RandomSeed() const;
-
         // Per-pass arena for array-valued primitive outputs (spans in Value borrow from here).
         std::vector<Value>& ArenaBlock() const;   // returns a fresh, stable block for this pass
 
-        void Reset(RE::Actor* a, RE::hkbClipGenerator* c);   // clear memo/arena, set actor for a new pass
+        void Reset(RE::Actor* a);   // clear memo/arena, set actor for a new pass
 
     private:
         struct MemoEntry { PrimId id; std::uint64_t argHash; Value value; };
@@ -133,14 +124,12 @@ namespace CB::core::conditions {
     class CompiledExpr {
     public:
         bool  Valid() const { return _ok; }
-        VType ResultType() const { return _resultType; }
         Value Evaluate(const EvalContext& ctx) const;   // walks the RPN; leaves are fn/prim calls
 
     private:
         friend CompiledExpr Compile(std::string_view, std::string&);
         std::vector<ExprNode> _rpn;
         std::vector<Value>    _consts;
-        VType _resultType = VType::None;
         bool  _ok = false;
     };
 
@@ -166,10 +155,7 @@ namespace CB::core::conditions {
     void RegisterConditionInstance(ConditionInstance inst);
     void ClearConditionInstances();
 
-    // ── Global toggle + hook install ──────────────────────────────────────────────────────────────
-    void SetGlobalEnabled(bool on);   // false → the whole layer short-circuits (zero cost, native behaviour)
-    bool GlobalEnabled();
-
+    // ── Hook install ──────────────────────────────────────────────────────────────────────────────
     /// @brief Subscribe the producer actor-stash + the matcher-append to the setdata hook points
     ///        (<core/hooks/points/SetData.h>). Idempotent.
     /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().

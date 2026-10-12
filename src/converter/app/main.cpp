@@ -2,6 +2,7 @@
 #include "Converter.h"
 
 #include <interface/reflection/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
+#include <codec/serialization/HkyArchive.h>
 #include "platform/Platform.h"
 
 #include <atomic>
@@ -19,8 +20,8 @@
 #endif
 
 /// @brief <exe dir>/schema — the class schema CMake stages beside the exe (cwd-relative "schema" fallback).
-/// @note The shared registry is armed from the EXE dir, never from a passed templatesDir: --regen-master is
-///       handed the repo's schema/templates path, and the packaged converter must be self-contained.
+/// @note The shared registry is armed from the EXE dir, never from a passed templatesDir (--cli may be handed
+///       any templates path), so the packaged converter stays self-contained.
 static std::filesystem::path ExeSchemaDir() {
 #ifdef _WIN32
     wchar_t buf[MAX_PATH]{};
@@ -36,18 +37,14 @@ static std::string ExeTemplatesDir() { return (ExeSchemaDir() / "templates").str
 
 // SCT Behavior Converter — a standalone, MO2-launchable GUI that converts a Nemesis/
 // Pandora behavior load order into per-mod Community Behaviors .hky bundles (each mod -> its
-// own bundle, merged at runtime by the Community Behaviors SKSE plugin). Wraps the same
-// havok-core converter the havok-core-cli `vanbase`/`patchdelta` verbs use.
+// own bundle, merged at runtime by the Community Behaviors SKSE plugin).
 //
-// Headless: `BehaviorConverter --cli <dataDir> <templatesDir> <outDir> [<baseDir>]` runs the
-// conversion with no window (for automation / CI), streaming the log to stdout. <baseDir>
-// (optional) holds the pristine vanilla animation{set,}datasinglefile.txt copied into base/.
+// Headless: `BehaviorConverter --cli <dataDir> <templatesDir> <outDir>` runs the
+// conversion with no window (for automation / CI), streaming the log to stdout.
 int main(int argc, char** argv) {
-    // Arm the process-wide schema registry for EVERY mode (GUI + --cli + --build-base + --regen-master).
-    // The no-template schema decompile (base build) and the schema loose-derive both key off it; if it is
-    // only armed on the regen path, the --cli/GUI loose-derive silently falls back to the TYPED order and
-    // misaligns against the schema base master (the horsebehavior crash class). SetSharedSchemaDir only
-    // records the dir; SharedRegistry() lazily loads once on first use. The regen path re-arms harmlessly.
+    /// @note Arm the process-wide schema registry for EVERY mode (GUI, --cli, the gates, the base build): every
+    ///       decompile / derive / gate reads it. SetSharedSchemaDir only records the dir; SharedRegistry() lazily
+    ///       loads once on first use, so the per-verb re-arms below are harmless.
     CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());
 
     if (argc >= 5 && std::string(argv[1]) == "--cli") {
@@ -56,12 +53,10 @@ int main(int argc, char** argv) {
         opt.templatesDir = argv[3];
         opt.outputDir    = argv[4];
         if (opt.templatesDir.empty()) opt.templatesDir = ExeTemplatesDir();
-        // baseDir is the 5th positional ONLY when it isn't the start of a flag; --mo2 <root>
-        // (optional) points at the MO2 instance so bundles are attributed to owning mods.
+        // --mo2 <root> (optional) points at the MO2 instance so bundles are attributed to owning mods.
         for (int i = 5; i < argc; ++i) {
             const std::string a = argv[i];
             if (a == "--mo2" && i + 1 < argc)      opt.mo2Instance = argv[++i];
-            else if (opt.baseDir.empty() && !a.empty() && a.rfind("--", 0) != 0) opt.baseDir = a;
         }
         std::atomic<bool> cancel{ false };
         const auto res = CB::converter::ConvertLoadOrder(
@@ -156,7 +151,7 @@ int main(int argc, char** argv) {
 
     if (argc >= 4 && std::string(argv[1]) == "--zip") {  // headless: --zip <srcDir> <zipPath>
         std::string err;
-        const bool ok = CB::converter::platform::ZipDir(argv[2], argv[3], err);
+        const bool ok = CB::engine::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("zipped -> " + std::string(argv[3])).c_str() : ("zip FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -165,7 +160,7 @@ int main(int argc, char** argv) {
     // compress step (CMake/converter); `unpack` is the author's decompress-to-edit.
     if (argc >= 4 && std::string(argv[1]) == "--pack") {    // --pack <dir> <out.hky>
         std::string err;
-        const bool ok = CB::converter::platform::ZipDir(argv[2], argv[3], err);
+        const bool ok = CB::engine::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("packed -> " + std::string(argv[3])).c_str() : ("pack FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -176,17 +171,13 @@ int main(int argc, char** argv) {
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
-    // Build the shippable Skyrim.hky master from the vanilla meshes tree.
-    // Optional 4th arg = a tagfile-template dir (<behavior>.xml); behaviors with a template
-    // are numbered by the #NNNN oracle so they merge against the per-mod deltas.
-    if (argc >= 4 && std::string(argv[1]) == "--build-base") {  // <vanillaMeshesDir> <out.hky> [<templatesDir>]
+    // Build the shippable Skyrim.hky master from the vanilla meshes tree (unvalidated; prefer --regen-master).
+    if (argc >= 4 && std::string(argv[1]) == "--build-base") {  // <vanillaMeshesDir> <out.hky>
+        if (argc > 4) { std::printf("usage: --build-base <vanillaMeshesDir> <out.hky>\n"); return EXIT_FAILURE; }
         std::atomic<bool> cancel{ false };
-        std::string templatesDir = (argc >= 5) ? argv[4] : "";
-        if (templatesDir.empty()) templatesDir = ExeTemplatesDir();  // bundled templates next to the exe
         CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = CB::converter::BuildBaseBundle(argv[2], argv[3],
-            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel,
-            templatesDir);
+            [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel);
         if (!res.ok) { std::printf("build-base FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
         std::printf("OK: Skyrim.hky master -> %s (%d behaviors, %d projects, %d characters, %d skeletons, %d skipped)\n",
                     argv[3], res.behaviors, res.projects, res.characters, res.skeletons, res.failed);
@@ -195,7 +186,7 @@ int main(int argc, char** argv) {
 
     // Regenerate + VALIDATE one derived bundle (<outHky>'s filename names it) in one call (see RegenerateMaster):
     // build-base to a temp, gate every unit's served bytes against its source, then promote.
-    //   --regen-master <vanillaMeshesDir> <outHky> [<templatesDir>] [--strict] [--keep-unpacked <dir>]
+    //   --regen-master <vanillaMeshesDir> <outHky> [--strict] [--keep-unpacked <dir>]
     // --strict makes any drift fatal (master not written); default writes + reports drift.
     // --keep-unpacked <dir> keeps the unpacked <Name>.hky/ tree under <dir> (short path) for observation.
     if (argc >= 4 && std::string(argv[1]) == "--regen-master") {
@@ -209,13 +200,12 @@ int main(int argc, char** argv) {
             else if (a == "--keep-unpacked" && i + 1 < argc) keepUnpacked = argv[++i];
             else pos.push_back(a);
         }
-        if (pos.size() < 2) {
-            std::printf("usage: --regen-master <vanillaMeshesDir> <outHky> [<templatesDir>] [--strict] [--keep-unpacked <dir>]\n");
+        if (pos.size() != 2) {
+            std::printf("usage: --regen-master <vanillaMeshesDir> <outHky> [--strict] [--keep-unpacked <dir>]\n");
             return EXIT_FAILURE;
         }
-        const std::string templatesDir = (pos.size() >= 3) ? pos[2] : ExeTemplatesDir();
         CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
-        const auto res = CB::converter::RegenerateMaster(pos[0], templatesDir, pos[1], strict,
+        const auto res = CB::converter::RegenerateMaster(pos[0], pos[1], strict,
             [](std::string s) { std::printf("%s\n", s.c_str()); std::fflush(stdout); }, cancel, keepUnpacked);
         if (!res.ok) { std::printf("regen-master FAILED: %s\n", res.error.c_str()); return EXIT_FAILURE; }
         std::printf("OK: %s -> %s (%d behaviors, %d projects, %d characters, %d skeletons; "

@@ -3,7 +3,6 @@
 #include <interface/linker/Membrane.h>   // the roster IndexMembrane (one clip<->roster join)
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -46,9 +45,9 @@ std::vector<ClipGenerator> DeriveClipList(
     const std::unordered_map<int, double>& motionDurByIndex,
     std::vector<std::string>*              unresolved)
 {
-    // The SAME roster IndexMembrane ResolveClipIndices uses (case-folded key). animIndex is the roster
-    // position. One join, one normalization — the offline and runtime clip binds can't diverge.
-    const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster, /*caseFold*/true);
+    /// @note The roster IndexMembrane; animIndex is the roster position. The match is EXACT: the caller hands
+    ///       roster and animationName both as codec::resource::ClipSlotKey (the engine's LoadClips slot rule).
+    const linker::Linker        rosterBind = linker::Linker::OfOrderedNames(roster);
     const linker::IndexMembrane rosterMembrane{&rosterBind};
 
     std::vector<ClipGenerator> out;
@@ -105,12 +104,10 @@ std::vector<ClipGenerator> DeriveClipList(
                 ///       event, else it is cut back to "Event" (the payload is consumed at runtime): "SoundPlay.NPCGoatChew"
                 ///       is a goat graph event and stays; "CameraShake.0.75" becomes "CameraShake". Measured on vanilla: all
                 ///       1074 whole SoundPlay.X triggers name a graph event (slaughterfish declares them, chaurus doesn't —
-                ///       the old "conditional strip" mystery).
-                if (const auto dot = ev.find('.'); dot != std::string::npos) {
-                    std::string low = ev;
-                    for (char& ch : low) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-                    if (!c.graphEvents || !c.graphEvents->count(low)) ev.resize(dot);
-                }
+                ///       the old "conditional strip" mystery). The match is EXACT: vanilla cuts frostbite spider
+                ///       Attack_BiteHigh's "SoundPlay.NPCSpiderFrostbiteAttackb" (graph declares "...AttackB") to "SoundPlay".
+                if (const auto dot = ev.find('.'); dot != std::string::npos)
+                    if (!c.graphEvents || !c.graphEvents->count(ev)) ev.resize(dot);
             }
             if (ev.empty()) continue;   // never emit an empty-named trigger
             double tt = t.relativeToEndOfClip ? (hasDur ? eff + t.localTime : t.localTime)

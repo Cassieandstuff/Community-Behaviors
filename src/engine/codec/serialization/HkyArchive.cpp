@@ -1,16 +1,16 @@
 #include <codec/serialization/HkyArchive.h>
 
+#include <codec/resource/PathKey.h>
 #include <common/miniz.h>
+#include <disk/Disk.h>
+#include <exec/Parallel.h>
+#include <text/Text.h>
 
 #include <algorithm>
-#include <atomic>
-#include <cctype>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <mutex>
-#include <thread>
+#include <memory>
+#include <stdexcept>
 #include <utility>
 
 namespace CB::engine::codec {
@@ -18,12 +18,16 @@ using namespace CB::engine::common;   // this layer operates on the interface da
 
 namespace {
 
-std::string norm(std::string s) {   // lowercase + forward-slash — matches loader reads + serve keys
-    for (char& c : s) {
-        if (c == '\\') c = '/';
-        else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return s;
+using resource::PathKey;
+
+struct MzFree {
+    void operator()(void* p) const noexcept { mz_free(p); }
+};
+
+/// @brief `p` as miniz opens it: UTF-8 (miniz widens it for _wfopen on Windows).
+std::string MzPath(const std::filesystem::path& p) {
+    const std::u8string u = disk::LongPath(p).u8string();
+    return std::string(u.begin(), u.end());
 }
 
 std::string slashOnly(std::string s) {   // '\'->'/' but PRESERVE case (the original path for enumeration)
@@ -44,7 +48,9 @@ public:
         : m_arc(std::move(arc)), m_root(std::move(prefix) + "/") {}
 
     std::optional<std::string> read(const std::string& rel) const override {
-        return m_arc->file(m_root + norm(rel));
+        auto s = m_arc->file(m_root + PathKey(rel));
+        if (s) s->erase(0, s->size() - text::StripBom(*s).size());
+        return s;
     }
 
     std::vector<std::string> listYaml(const std::string& subdir, bool recursive) const override {
@@ -55,11 +61,11 @@ public:
         // graph the engine binds, i.e. the main-menu autoplay). The Stage-2 refactor moved from
         // per-section scans (non-empty subdir, no double slash) to this whole-unit scan; DiskUnitSource
         // handles "" correctly, so the disk-only acceptance gate never caught it.
-        const std::string base = subdir.empty() ? m_root : (m_root + norm(subdir) + "/");
+        const std::string base = subdir.empty() ? m_root : (m_root + PathKey(subdir) + "/");
         std::vector<std::string> out;
         /// @note ORIGINAL-case paths: a reflective roster file is named for the field it holds
         ///       (`wildcardTransitions.transitions.yaml`), and Havok field names are case-sensitive — a lowercased
-        ///       name binds nothing. read() re-normalizes, and norm() never changes length, so offsets line up.
+        ///       name binds nothing. read() re-normalizes, and PathKey() never changes length, so offsets line up.
         for (const auto& full : m_arc->filesUnderOrig(base)) {
             if (!endsWith(full, ".yaml")) continue;
             const std::string afterBase = full.substr(base.size());
@@ -70,7 +76,7 @@ public:
     }
 
     bool hasDir(const std::string& subdir) const override {
-        return !m_arc->filesUnder(subdir.empty() ? m_root : (m_root + norm(subdir) + "/")).empty();
+        return !m_arc->filesUnder(subdir.empty() ? m_root : (m_root + PathKey(subdir) + "/")).empty();
     }
 
 private:
@@ -83,9 +89,10 @@ private:
 std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath, std::string& err) {
     // Pass 1 (serial, cheap): enumerate every non-dir entry's index + name. Statting does NOT
     // decompress, so this is fast; the heavy inflate is pass 2.
-    mz_zip_archive z;
+    const std::string mzPath = MzPath(std::filesystem::path(hkyPath));
+    mz_zip_archive    z;
     std::memset(&z, 0, sizeof z);
-    if (!mz_zip_reader_init_file(&z, hkyPath.c_str(), 0)) { err = "cannot open .hky: " + hkyPath; return nullptr; }
+    if (!mz_zip_reader_init_file(&z, mzPath.c_str(), 0)) { err = "cannot open .hky: " + hkyPath; return nullptr; }
     const mz_uint n = mz_zip_reader_get_num_files(&z);
     struct EntRef { mz_uint idx; std::string key; std::string orig; };
     std::vector<EntRef> ents;
@@ -94,72 +101,43 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
         if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
         mz_zip_archive_file_stat st;
         if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat)"; return nullptr; }
-        ents.push_back({ i, norm(st.m_filename), slashOnly(st.m_filename) });
+        ents.push_back({ i, PathKey(st.m_filename), slashOnly(st.m_filename) });
     }
     mz_zip_reader_end(&z);
     if (ents.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
 
     auto arc = std::shared_ptr<HkyArchive>(new HkyArchive());
 
-    // Pass 2: inflate each entry. A shard opens its OWN reader on the read-only file (miniz is NOT
-    // thread-safe on one handle), inflates its index range into a shard-local vector, then shards are
-    // merged into m_files SERIALLY — so the ordered map is only ever written single-threaded and the
-    // result is byte-for-byte independent of thread count. Every reader is ended + every heap block
-    // freed on all paths.
-    using Slot = std::pair<std::string, Entry>;
-    std::atomic<bool> ok{ true };
-    std::mutex        errMx;
-    std::string       firstErr;
-
-    auto inflateShard = [&](std::size_t lo, std::size_t hi, std::vector<Slot>& out) {
-        mz_zip_archive zz;
-        std::memset(&zz, 0, sizeof zz);
-        if (!mz_zip_reader_init_file(&zz, hkyPath.c_str(), 0)) {
-            ok.store(false, std::memory_order_relaxed);
-            std::lock_guard<std::mutex> lk(errMx);
-            if (firstErr.empty()) firstErr = "cannot re-open .hky for shard: " + hkyPath;
-            return;
-        }
-        out.reserve(hi - lo);
-        for (std::size_t j = lo; j < hi && ok.load(std::memory_order_relaxed); ++j) {
-            std::size_t sz = 0;
-            void* p = mz_zip_reader_extract_to_heap(&zz, ents[j].idx, &sz, 0);
-            if (!p) {
-                ok.store(false, std::memory_order_relaxed);
-                std::lock_guard<std::mutex> lk(errMx);
-                if (firstErr.empty()) firstErr = "extract failed: " + ents[j].orig;
-                break;
+    /// @note Pass 2 inflates in parallel, one reader per WORKER (miniz is not thread-safe on one handle), each entry
+    ///       into its own slot; m_files is then filled serially in entry order, so the result is independent of thread
+    ///       count. Below a small floor a single worker does it all.
+    constexpr std::size_t       kParallelFloor = 256;
+    const exec::ParallelOptions popt{ .threads = ents.size() < kParallelFloor ? 1u : 0u };
+    std::vector<mz_zip_archive> readers(exec::WorkerCount(ents.size(), popt));
+    std::vector<char>           opened(readers.size(), 0);
+    std::vector<std::string>    contents(ents.size());
+    std::string                 fail;
+    try {
+        exec::ParallelFor(ents.size(), [&](std::size_t i, unsigned w) {
+            if (!opened[w]) {
+                std::memset(&readers[w], 0, sizeof readers[w]);
+                if (!mz_zip_reader_init_file(&readers[w], mzPath.c_str(), 0))
+                    throw std::runtime_error("cannot re-open .hky: " + hkyPath);
+                opened[w] = 1;
             }
-            out.emplace_back(ents[j].key, Entry{ ents[j].orig, std::string(static_cast<const char*>(p), sz) });
-            mz_free(p);
-        }
-        mz_zip_reader_end(&zz);
-    };
-
-    // Fan the inflate across worker threads (own reader per shard); merge serially afterward. Below a
-    // small floor it's not worth spawning — go single-shard.
-    constexpr std::size_t kParallelFloor = 256;
-    unsigned K = std::thread::hardware_concurrency();
-    if (K == 0) K = 4;
-    if (ents.size() < kParallelFloor)  K = 1;
-    if (K > ents.size())               K = static_cast<unsigned>(ents.size());
-
-    std::vector<std::vector<Slot>> shards(K);
-    if (K <= 1) {
-        inflateShard(0, ents.size(), shards[0]);
-    } else {
-        std::vector<std::thread> workers;
-        workers.reserve(K);
-        for (unsigned k = 0; k < K; ++k) {
-            const std::size_t lo = ents.size() * k / K;
-            const std::size_t hi = ents.size() * (k + 1) / K;
-            workers.emplace_back([&inflateShard, &shards, lo, hi, k] { inflateShard(lo, hi, shards[k]); });
-        }
-        for (auto& t : workers) t.join();
+            std::size_t                   sz = 0;
+            std::unique_ptr<void, MzFree> p(mz_zip_reader_extract_to_heap(&readers[w], ents[i].idx, &sz, 0));
+            if (!p) throw std::runtime_error("extract failed: " + ents[i].orig);
+            contents[i].assign(static_cast<const char*>(p.get()), sz);
+        }, popt);
+    } catch (const std::exception& e) {
+        fail = e.what();
     }
-    if (!ok.load()) { err = firstErr; return nullptr; }
-    for (auto& sh : shards)
-        for (auto& kv : sh) arc->m_files.emplace(std::move(kv.first), std::move(kv.second));
+    for (std::size_t w = 0; w < readers.size(); ++w)
+        if (opened[w]) mz_zip_reader_end(&readers[w]);
+    if (!fail.empty()) { err = std::move(fail); return nullptr; }
+    for (std::size_t i = 0; i < ents.size(); ++i)
+        arc->m_files.emplace(std::move(ents[i].key), Entry{ std::move(ents[i].orig), std::move(contents[i]) });
 
     /// @note EVERY "<prefix>.hkx/..." subtree is a unit (a mod's patch unit may hold only changed nodes / rosters and
     ///       is still a real layer). m_files is sorted, so all files under one root are consecutive. A skeleton is
@@ -203,103 +181,118 @@ bool HkyArchive::IsPatchGraphYaml(std::string_view graphYaml) {
 bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHkyPath, std::string& err) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    if (!fs::is_directory(dir, ec)) { err = "not a directory: " + dir; return false; }
+    const fs::path root = fs::absolute(fs::path(dir), ec);
+    if (ec || !fs::is_directory(disk::LongPath(root), ec)) { err = "not a directory: " + dir; return false; }
+    const fs::path out     = fs::absolute(fs::path(outHkyPath), ec);
+    const fs::path partial = fs::path(out.native() + fs::path(".partial").native());
 
-    fs::path rootPath = fs::absolute(fs::path(dir), ec);
-    if (ec) { err = "cannot resolve: " + dir; return false; }
-#ifdef _WIN32
-    // Long-path (\\?\) prefix so a DEEP unit tree — which overruns MAX_PATH, the very reason
-    // the runtime HkyArchive never extracts to disk — can still be walked and read here. The
-    // prefix rides on every yielded path, so both the iterator and the per-file ifstream open
-    // the long path. It cancels out in lexically_relative(rootPath) (both sides carry it).
+    /// @note Never self-add: when the output lands inside the tree, its (and its .partial's) archive name is skipped.
+    ///       Compared by path identity — the filesystem's, not Havok data.
+    std::vector<std::string> selfKeys;
     {
-        const std::wstring pfx = L"\\\\?\\";
-        std::wstring       w   = rootPath.native();
-        if (w.compare(0, pfx.size(), pfx) != 0) rootPath = fs::path(pfx + w);
-    }
-#endif
-
-    // Collect regular files as (archive-relative name, disk path). Sort for a deterministic
-    // archive (byte-stable output across builds — matters for a checked-in/diffable artifact).
-    // NB: iteration errors must FAIL, never silently truncate — a partial .hky would ship as a
-    // "successful" but broken bundle (this bit us: a MAX_PATH stop packed 93 of 39040 files).
-    std::vector<std::pair<std::string, fs::path>> entries;
-    fs::recursive_directory_iterator it(rootPath, fs::directory_options::skip_permission_denied, ec);
-    if (ec) { err = "cannot iterate: " + dir + " (" + ec.message() + ")"; return false; }
-    for (const fs::recursive_directory_iterator end; it != end; ) {
-        std::error_code fec;
-        if (it->is_regular_file(fec)) {
-            std::string rel = it->path().lexically_relative(rootPath).generic_string();
-            if (!rel.empty() && rel[0] != '.')   // skip dotfiles / anything above the root
-                entries.emplace_back(std::move(rel), it->path());
+        const fs::path canonRoot = fs::weakly_canonical(root, ec);
+        for (const fs::path& p : { out, partial }) {
+            std::error_code ce;
+            const fs::path rel = fs::weakly_canonical(p, ce).lexically_relative(canonRoot);
+            if (!ce && !rel.empty() && *rel.begin() != "..") selfKeys.push_back(PathKey(rel.generic_string()));
         }
-        it.increment(ec);
-        if (ec) { err = "iteration error under " + dir + ": " + ec.message(); return false; }
     }
-    if (entries.empty()) { err = "empty tree: " + dir; return false; }
-    std::sort(entries.begin(), entries.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
 
-    fs::create_directories(fs::path(outHkyPath).parent_path(), ec);   // ensure plugins/ exists
+    /// @note Every walk or stat error FAILS the pack: an incomplete archive must never pass as success (a MAX_PATH stop
+    ///       once packed 93 of 39040 files; a skipped unit loads as nothing → A-pose, with no error anywhere).
+    std::vector<std::pair<std::string, fs::path>> files;   ///< (archive name, disk path)
+    for (std::vector<fs::path> stack{ root }; !stack.empty();) {
+        const fs::path d = std::move(stack.back());
+        stack.pop_back();
+        std::error_code we;
+        for (fs::directory_iterator it(disk::LongPath(d), we), end; !we && it != end; it.increment(we)) {
+            fs::path   child = d / it->path().filename();
+            const bool isDir = it->is_directory(we);
+            if (we) break;
+            if (isDir) { stack.push_back(std::move(child)); continue; }
+            const bool isFile = it->is_regular_file(we);
+            if (we) break;
+            if (!isFile) continue;
+            std::string name = child.lexically_relative(root).generic_string();
+            if (!selfKeys.empty() && std::find(selfKeys.begin(), selfKeys.end(), PathKey(name)) != selfKeys.end()) continue;
+            files.emplace_back(std::move(name), std::move(child));
+        }
+        if (we) { err = "cannot walk '" + d.string() + "': " + we.message(); return false; }
+    }
+    if (files.empty()) { err = "empty tree: " + dir; return false; }
+    /// @note Sorted: the entry order is deterministic, independent of the filesystem's enumeration order.
+    std::sort(files.begin(), files.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
 
-    // Write to a sibling temp file and atomically rename on success — NEVER write outHkyPath in place.
-    // A pack of the ~59k-file vanilla master is slow; if the process is killed mid-write (a build
-    // timeout did exactly this), an in-place writer leaves a truncated-but-newer .hky that the build
-    // treats as up-to-date and ships — an unreadable master → every graph loses its base unit → A-pose.
-    // With temp+rename, an interrupted pack leaves only the throwaway .tmp; outHkyPath is untouched
-    // (keeps the last-good bundle, or stays absent so the build re-packs). Same volume → the rename is
-    // atomic; the finished bytes appear at outHkyPath all at once or not at all.
-    const std::string tmpPath = outHkyPath + ".tmp";
-    fs::remove(tmpPath, ec);   // clear any leftover from a prior interrupted pack
-
+    /// @note Written to `<out>.partial` and renamed over `out` only once finalized: a killed or failed pack leaves the
+    ///       previous archive (or none) at `out`, never a truncated-but-newer one a build would ship.
+    fs::create_directories(disk::LongPath(out.parent_path()), ec);
+    fs::remove(disk::LongPath(partial), ec);
     mz_zip_archive z;
     std::memset(&z, 0, sizeof z);
-    if (!mz_zip_writer_init_file(&z, tmpPath.c_str(), 0)) {
-        err = "cannot create .hky (temp): " + tmpPath;
-        return false;
-    }
-    for (const auto& [name, path] : entries) {
-        std::ifstream f(path, std::ios::binary);
-        // A locked / permission-denied source, or a mid-read I/O error, must FAIL — never silently
-        // pack an empty or truncated entry (a "successful" but broken .hky → the unit loads as
-        // nothing → A-pose/base-only compile, with no error anywhere). Open failure and read error
-        // (bad, not the normal EOF failbit) are both fatal here.
-        if (!f) {
-            mz_zip_writer_end(&z);
-            fs::remove(tmpPath, ec);
-            err = "cannot open source file for packing: " + path.string();
-            return false;
-        }
-        std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        if (f.bad()) {
-            mz_zip_writer_end(&z);
-            fs::remove(tmpPath, ec);
-            err = "read error while packing: " + path.string();
-            return false;
-        }
-        if (!mz_zip_writer_add_mem(&z, name.c_str(), bytes.data(), bytes.size(), MZ_BEST_COMPRESSION)) {
-            mz_zip_writer_end(&z);
-            fs::remove(tmpPath, ec);
-            err = "zip add failed: " + name;
-            return false;
-        }
-    }
-    if (!mz_zip_writer_finalize_archive(&z)) {
+    if (!mz_zip_writer_init_file(&z, MzPath(partial).c_str(), 0)) { err = "cannot create: " + partial.string(); return false; }
+    const auto abandon = [&](std::string why) {
         mz_zip_writer_end(&z);
-        fs::remove(tmpPath, ec);
-        err = "zip finalize failed: " + tmpPath;
+        std::error_code re;
+        fs::remove(disk::LongPath(partial), re);
+        err = std::move(why);
+        return false;
+    };
+
+    /// @note Deflate runs in parallel a batch at a time (bounded memory) into raw-deflate buffers; entries are then
+    ///       written serially, in sorted order, as pre-compressed data. Default level: on YAML, level 9 costs several
+    ///       times the CPU for a few percent of size, and a packed .hky is never byte-compared (diff the unpacked trees).
+    struct Deflated {
+        bool                          read = false;
+        std::size_t                   size = 0;
+        mz_uint32                     crc  = 0;
+        std::unique_ptr<void, MzFree> data;   ///< raw deflate; null = stored
+        std::size_t                   dataSize = 0;
+        std::string                   raw;    ///< the bytes, when stored
+    };
+    const int             flags  = static_cast<int>(tdefl_create_comp_flags_from_zip_params(MZ_DEFAULT_LEVEL, -MZ_DEFAULT_WINDOW_BITS, MZ_DEFAULT_STRATEGY));
+    constexpr std::size_t kBatch = 2048;
+    std::vector<Deflated> batch;
+    try {
+        for (std::size_t start = 0; start < files.size(); start += kBatch) {
+            const std::size_t n = std::min(kBatch, files.size() - start);
+            batch.clear();
+            batch.resize(n);
+            exec::ParallelFor(n, [&](std::size_t i) {
+                auto bytes = disk::ReadFile(files[start + i].second);
+                if (!bytes) return;
+                Deflated& d = batch[i];
+                d.read = true;
+                d.size = bytes->size();
+                d.crc  = static_cast<mz_uint32>(mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(bytes->data()), bytes->size()));
+                if (!bytes->empty()) d.data.reset(tdefl_compress_mem_to_heap(bytes->data(), bytes->size(), &d.dataSize, flags));
+                if (!d.data || d.dataSize >= d.size) {
+                    d.data.reset();
+                    d.raw = std::move(*bytes);
+                }
+            });
+            for (std::size_t i = 0; i < n; ++i) {
+                const Deflated&    d    = batch[i];
+                const std::string& name = files[start + i].first;
+                if (!d.read) return abandon("cannot read source file for packing: " + files[start + i].second.string());
+                const bool good = d.data
+                    ? mz_zip_writer_add_mem_ex(&z, name.c_str(), d.data.get(), d.dataSize, nullptr, 0, MZ_ZIP_FLAG_COMPRESSED_DATA, d.size, d.crc)
+                    : mz_zip_writer_add_mem(&z, name.c_str(), d.raw.data(), d.raw.size(), MZ_NO_COMPRESSION);
+                if (!good) return abandon("zip add failed: " + name);
+            }
+        }
+    } catch (const std::exception& e) {
+        return abandon(std::string("pack failed: ") + e.what());
+    }
+    if (!mz_zip_writer_finalize_archive(&z)) return abandon("zip finalize failed: " + partial.string());
+    if (!mz_zip_writer_end(&z)) {
+        fs::remove(disk::LongPath(partial), ec);
+        err = "zip close failed: " + partial.string();
         return false;
     }
-    mz_zip_writer_end(&z);
-
-    // Promote temp -> final. Remove the old bundle first (Windows fs::rename won't overwrite), then
-    // rename; the gap is a single already-finalized file move, not a multi-minute rewrite.
-    fs::remove(outHkyPath, ec);
-    std::error_code rec;
-    fs::rename(tmpPath, outHkyPath, rec);
-    if (rec) {
-        fs::remove(tmpPath, ec);
-        err = "cannot promote packed .hky to " + outHkyPath + " (" + rec.message() + ")";
+    fs::rename(disk::LongPath(partial), disk::LongPath(out), ec);
+    if (ec) {
+        err = "cannot replace '" + out.string() + "': " + ec.message();
+        fs::remove(disk::LongPath(partial), ec);
         return false;
     }
     return true;
@@ -330,7 +323,7 @@ std::vector<std::string> HkyArchive::filesUnderOrig(const std::string& prefix) c
 }
 
 std::shared_ptr<const IUnitSource> HkyArchive::source(const std::string& unitPrefix) const {
-    return std::make_shared<ZipUnitSource>(shared_from_this(), norm(unitPrefix));
+    return std::make_shared<ZipUnitSource>(shared_from_this(), PathKey(unitPrefix));
 }
 
 }  // namespace CB::engine::codec

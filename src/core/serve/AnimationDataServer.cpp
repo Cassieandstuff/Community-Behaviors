@@ -6,22 +6,23 @@
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimationYamlLoader.h>
+#include <codec/format/LoadOrderText.h>        // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
+#include <codec/resource/PathKey.h>
 #include <codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
 #include <compile/AnimDataProjection.h>         // ProjectAnimData
 #include <interface/reflection/HavokSchema.h>
+#include <disk/Disk.h>
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <chrono>
 #include <cstdint>
-#include <fstream>
-#include <iterator>
 #include <map>
 #include <optional>
 #include <regex>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <unordered_map>
@@ -34,49 +35,13 @@ namespace CB::core::serve {
 
     namespace {
 
-        std::string ToLower(std::string s)
-        {
-            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
-
-        std::string TrimLine(const std::string& line)
-        {
-            std::size_t b = 0, e = line.size();
-            while (b < e && std::isspace(static_cast<unsigned char>(line[b]))) ++b;
-            while (e > b && std::isspace(static_cast<unsigned char>(line[e - 1]))) --e;
-            return line.substr(b, e - b);
-        }
-
-        bool WriteFile(const fs::path& p, const std::string& data)
-        {
-            std::error_code ec;
-            fs::create_directories(p.parent_path(), ec);
-            std::ofstream f(p, std::ios::binary | std::ios::trunc);
-            if (!f) return false;
-            f.write(data.data(), static_cast<std::streamsize>(data.size()));
-            return static_cast<bool>(f);
-        }
-
-        /// @brief Bundle stem (lowercase) -> priority: loadorder.txt lists winners first.
-        std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
-        {
-            std::unordered_map<std::string, int> order;
-            std::ifstream f(ini);
-            std::string   line;
-            int           n = 0;
-            while (std::getline(f, line)) {
-                line = TrimLine(line);
-                if (line.empty() || line[0] == '#' || line[0] == ';') continue;
-                order.emplace(ToLower(line), n++);
-            }
-            for (auto& [_, v] : order) v = n - v;   // winner first -> highest priority
-            return order;
-        }
+        using CB::engine::codec::resource::HasExt;
+        using CB::engine::codec::resource::PathKey;
+        namespace disk = CB::engine::disk;
 
         /// @brief A DAR/OAR override copy of an animation: the file OAR plays in its base path's roster slot.
         struct OverrideCopy {
-            std::string key;              ///< the copy's bundle key (lowercase)
+            std::string key;              ///< the copy's bundle key (path key)
             int         priority = 0;     ///< DAR condition number / OAR submod priority — the LOWEST is the default copy
             std::size_t bundle   = 0;     ///< index into the priority-sorted bundle list
         };
@@ -85,7 +50,9 @@ namespace CB::core::serve {
         /// @note DAR `_CustomConditions/<N>/<rest>` → N. OAR `OpenAnimationReplacer/<mod>/<submod>/<rest>` → the submod's
         ///       config.json `priority`, read from the live Data folder (bundles don't carry it); a disabled submod is no
         ///       candidate. DAR's actor-specific `<plugin>/<formid>/` folders are skipped — they don't apply generally.
-        std::optional<std::pair<std::string, int>> OverrideBase(const std::string& key, const fs::path& dataDir,
+        /// @param keyOrig `key` as the bundle spells it: config.json is opened by that real path, never by the key.
+        std::optional<std::pair<std::string, int>> OverrideBase(const std::string& key, const std::string& keyOrig,
+                                                                const fs::path& dataDir,
                                                                 std::unordered_map<std::string, std::optional<int>>& cfgCache)
         {
             const auto a = key.find("/animations/");
@@ -114,8 +81,8 @@ namespace CB::core::serve {
                 auto it = cfgCache.find(dir);
                 if (it == cfgCache.end()) {
                     std::optional<int> prio = 0;
-                    std::ifstream      cf(dataDir / fs::path(dir) / "config.json", std::ios::binary);
-                    const std::string  cfg((std::istreambuf_iterator<char>(cf)), std::istreambuf_iterator<char>());
+                    const std::string  dirOrig = keyOrig.size() == key.size() ? keyOrig.substr(0, dir.size()) : dir;
+                    const std::string  cfg = disk::ReadFile(dataDir / fs::path(dirOrig) / "config.json").value_or(std::string());
                     std::smatch        mt;
                     if (std::regex_search(cfg, mt, std::regex(R"re("priority"\s*:\s*(-?\d+))re"))) prio = std::stoi(mt[1].str());
                     if (std::regex_search(cfg, std::regex(R"re("disabled"\s*:\s*true)re"))) prio = std::nullopt;
@@ -129,25 +96,25 @@ namespace CB::core::serve {
 
     }  // namespace
 
-    ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni, const AdsfSource& adsf)
+    ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni, const AdsfSource& adsf,
+                              const Executor* exec)
     {
         ServeResult r;
         r.attempted = true;
         std::error_code ec;
         const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
-        const auto     order       = LoadOrder(loadOrderIni);
+        const auto     order       = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
 
         /// @note Every bundle, lowest priority first (the master, then mods by load order): an animation is read from
         ///       the HIGHEST bundle that carries it.
         std::vector<std::pair<int, BundleReader>> bundles;
         if (fs::is_directory(pluginsRoot, ec))
             for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec)) {
-                if (ToLower(bi->path().extension().string()) != ".hky") continue;
-                const std::string stem = ToLower(bi->path().stem().string());
+                if (!HasExt(bi->path().filename().string(), ".hky")) continue;
+                const std::string stem = PathKey(bi->path().stem().string());
                 auto rd = BundleReader::Open(bi->path());
                 if (!rd) { LOG_WARN("AnimData: cannot read bundle '{}' — skipped.", bi->path().string()); continue; }
-                const auto oit = order.find(stem);
-                bundles.emplace_back(stem == "skyrim" ? -1 : (oit != order.end() ? oit->second : 0), std::move(*rd));
+                bundles.emplace_back(stem == "skyrim" ? -1 : order.Rank(stem), std::move(*rd));
             }
         std::stable_sort(bundles.begin(), bundles.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         if (bundles.empty() || bundles.front().first != -1) {
@@ -155,7 +122,6 @@ namespace CB::core::serve {
             LOG_WARN("AnimData: {} — vanilla animation data stays.", r.error);
             return r;
         }
-        r.bundles = bundles.size();
 
         std::string err;
         const auto  index = bundles.front().second.read("meshes/animationdatasinglefile.txt/index.yaml");
@@ -165,7 +131,6 @@ namespace CB::core::serve {
             LOG_WARN("AnimData: {} — vanilla animation data stays.", r.error);
             return r;
         }
-        r.baseProjects = headers.size();
 
         /// @note Animations are parsed once, in parallel (gigabytes of keyframe YAML; the engine's adsf open waits on
         ///       this), each with its actor motion resolved — its record, or extracted from a folded root.
@@ -189,11 +154,17 @@ namespace CB::core::serve {
         std::unordered_map<std::string, std::vector<OverrideCopy>> overrides;
         {
             std::unordered_map<std::string, std::optional<int>> cfgCache;
-            for (std::size_t b = 1; b < bundles.size(); ++b)   // [0] is the master: no replacer folders
-                for (const auto& key : bundles[b].second.filesUnder("meshes/", ".hkx"))
+            /// @note filesUnder (path keys) and filesUnderOrig (original case) walk the same range, so index i aligns.
+            for (std::size_t b = 1; b < bundles.size(); ++b) {   // [0] is the master: no replacer folders
+                const auto keys = bundles[b].second.filesUnder("meshes/", ".hkx");
+                const auto orig = bundles[b].second.filesUnderOrig("meshes/", ".hkx");
+                for (std::size_t i = 0; i < keys.size() && i < orig.size(); ++i) {
+                    const std::string& key = keys[i];
                     if (key.find("replacer/") != std::string::npos)
-                        if (auto base = OverrideBase(key, dataDir, cfgCache))
+                        if (auto base = OverrideBase(key, orig[i], dataDir, cfgCache))
                             overrides[base->first].push_back({ key, base->second, b });
+                }
+            }
             for (auto& [_, copies] : overrides)
                 std::sort(copies.begin(), copies.end(), [](const OverrideCopy& x, const OverrideCopy& y) {
                     if ((x.priority >= 0) != (y.priority >= 0)) return x.priority >= 0;
@@ -231,10 +202,14 @@ namespace CB::core::serve {
         src.prefetch      = [&](const std::vector<std::string>& paths) {
             std::vector<std::optional<CB::engine::anim::AnimationDef>> parsed(paths.size());
             std::atomic<std::size_t> next{ 0 };
-            std::vector<std::thread> pool;
-            for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
-                pool.emplace_back([&] { for (std::size_t i; (i = next++) < paths.size();) parsed[i] = load(paths[i]); });
-            for (auto& t : pool) t.join();
+            const auto drain = [&] { for (std::size_t i; (i = next.fetch_add(1)) < paths.size();) parsed[i] = load(paths[i]); };
+            if (exec && paths.size() > 1) {
+                /// @note One draining task per hardware thread, not one per path: thousands of paths would each pay a
+                ///       queue round-trip. Each result lands in its own slot, so the output matches a serial run.
+                const std::size_t nTasks = std::min<std::size_t>(paths.size(), std::max(1u, std::thread::hardware_concurrency()));
+                (*exec)(std::vector<std::function<void()>>(nTasks, drain));
+            }
+            drain();
             for (std::size_t i = 0; i < paths.size(); ++i) anims.emplace(paths[i], std::move(parsed[i]));
         };
         src.animation = [&](const std::string& path) -> const CB::engine::anim::AnimationDef* {
@@ -260,14 +235,13 @@ namespace CB::core::serve {
             return r;
         }
         const fs::path cachePath = dataDir / "community_behaviors_cache" / "animationdatasinglefile.txt";
-        if (!WriteFile(cachePath, text)) {
-            r.error = "failed to write " + cachePath.string();
+        if (std::string werr; !disk::WriteFile(cachePath, text, { .atomic = true }, &werr)) {
+            r.error = "failed to write the animation data cache: " + werr;
             LOG_ERROR("AnimData: {}", r.error);
             return r;
         }
         r.ok             = true;
         r.cachePath      = cachePath.string();
-        r.mergedProjects = headers.size();
         const auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
         LOG_INFO("AnimData: projected {} anim project(s) — {} clip(s), {} motion(s), {} animation(s) — from {} bundle(s) in "
                  "{} ms; wrote {}.", st.projects, st.clips, st.motions, anims.size(), bundles.size(), ms(t0, t1), r.cachePath);

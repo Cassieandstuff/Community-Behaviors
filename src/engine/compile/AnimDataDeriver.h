@@ -1,11 +1,9 @@
 #pragma once
 // AnimDataDeriver — derive an animationdatasinglefile clip list from the behavior graph.
 //
-// This is part (B) of the Skyrim.hky model (see br-runtime-is-the-feature): the
-// animationdata clip metadata is a PROJECTION of the behavior graph's hkbClipGenerator
-// nodes, not independent authored data. Written ONCE here in havok-core so the SAME code
-// runs offline (the animdata-derive-check oracle, byte-gated against vanilla) and at
-// runtime (ServeAnimData builds the served clip list from the compiled graph).
+// The animationdata clip metadata is a PROJECTION of the behavior graph's hkbClipGenerator
+// nodes, not independent authored data; the runtime's anim-data serve builds the served clip
+// list from the compiled graph through this code.
 //
 // Empirically byte-exact against vanilla DefaultMale (study 2026-08-14): 99.1% of triggers
 // reproduced byte-for-byte from graph + carried motion duration; the rest were name-collision
@@ -53,8 +51,8 @@ namespace CB::engine::animdata {
             bool        fromAnnotation      = false;
         };
         std::vector<Trigger> triggers;
-        /// @brief The clip's own behavior graph's event names (lowercase): an annotation "SoundPlay.X" stays whole
-        ///        when its graph declares "SoundPlay.X" as an event, else it is cut back to "SoundPlay".
+        /// @brief The clip's own behavior graph's event names (exact case): an annotation "SoundPlay.X" stays whole
+        ///        when its graph declares exactly "SoundPlay.X" as an event, else it is cut back to "SoundPlay".
         std::shared_ptr<const std::unordered_set<std::string>> graphEvents;
     };
 
@@ -67,8 +65,9 @@ namespace CB::engine::animdata {
     double SnapDuration30(double d);
 
     // Derive one project's animationdata clip list from its graph clip generators.
-    //   roster            : the character's animationNames IN ORDER (animIndex = its index;
-    //                       matched case-insensitively, as the runtime roster resolve does).
+    //   roster            : the character's roster IN ORDER (animIndex = its index), matched EXACTLY
+    //                       against each clip's animationName — pass both as ClipSlotKey to model
+    //                       the engine's LoadClips slot rule.
     //   motionDurByIndex  : animIndex -> carried motion duration (parsed from the master's
     //                       %g string); used only for the effective-duration trigger clamp.
     // A clip whose animationName is not in the roster gets animIndex "-1" and is recorded in

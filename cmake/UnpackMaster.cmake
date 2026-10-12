@@ -6,7 +6,7 @@
 # diff meaningfully). Keeps the PREVIOUS tree at <OUT>/previous and the current at <OUT>/current, so a
 # two-point diff (previous vs current) needs no manual bookkeeping.
 #
-# Args: -DCLI=<havok-core-cli> -DMASTER=<deployed Skyrim.hky> -DOUT=<root dir>
+# Args: -DCLI=<hky-tool> -DMASTER=<deployed Skyrim.hky> -DOUT=<root dir>
 # Tolerant: if MASTER doesn't exist yet (fresh checkout, no deploy), it skips without failing the build.
 
 if(NOT EXISTS "${MASTER}")
@@ -25,7 +25,7 @@ execute_process(
     COMMAND "${CLI}" unpack "${MASTER}" -o "${OUT}/current"
     RESULT_VARIABLE _rc)
 if(NOT _rc EQUAL 0)
-    message(WARNING "unpack-master: hky-unpack failed (rc=${_rc}) for '${MASTER}'.")
+    message(WARNING "unpack-master: hky-tool unpack failed (rc=${_rc}) for '${MASTER}'.")
 else()
     message(STATUS "unpack-master: '${MASTER}' -> ${OUT}/current (diff vs ${OUT}/previous).")
 endif()

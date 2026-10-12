@@ -4,17 +4,22 @@ Guidance for Claude Code working in the **Community Behaviors** standalone repo.
 
 ---
 
-## Havok is CASE-SENSITIVE — assume it always (directive)
+## Case: CB never changes the case of anything (directive)
 
-**Assume at all times that Havok's internals — file/path evaluation, resource resolution, CRC
-computation, name and binding lookups, and ANY data manipulation that touches Havok — are
-CASE-SENSITIVE.** The engine and toolchain silently mismatch on case where the OS/USVFS would not,
-and the failure is invisible: a miscased path/name/CRC binds to *nothing* (A-pose, dead root motion)
-or the *wrong* thing — never an error. **Preserve the ORIGINAL case end-to-end** for every Havok
-path, filename, clip/animation/event/variable name, and anything a CRC is computed over. Lowercasing
-is safe ONLY for a purely INTERNAL key whose every side is controlled and lowercased identically —
-the moment a value crosses back to the engine or vanilla data it must carry vanilla case. Treat any
-new lowercase-normalization on Havok data as a bug until proven internal-only.
+**Names are copied byte-exact and compared EXACTLY** — event / variable / character-property / attribute
+names, clip and annotation text, setdata project and set names, every string inside a unit. The engine binds
+them case-sensitively: a miscased name binds to *nothing* (A-pose, dead root motion) or the *wrong* thing —
+never an error. Reflection carries them verbatim; nothing may fold them.
+
+**Folding exists only INSIDE a codec whose external definition folds** — the setdata path CRC (`codec/crc`),
+the adsf's lowercase animation file names, and PATH IDENTITY (does an engine request name this unit/file?),
+which the engine's own resource lookup resolves case-insensitively (BSA lookup hashes the lowercased path —
+vanilla BSAs store every name lowercase, while references spell paths in mixed case). The fold never escapes
+its codec: no ad-hoc ToLower helpers.
+
+**A file CB writes is opened by the exact string CB wrote it under** (cache / swap paths), so it is precise on
+any filesystem, Linux included. Unit names keep their source's spelling (vanilla's is lowercase). Treat any
+new ToLower / case-insensitive compare outside those codecs as a bug.
 
 ---
 
@@ -37,17 +42,20 @@ src/                         CB's code. src/ is the plugin's private include roo
                              so bare "PCH.h"/"PluginLogger.h" resolve
     discover/                find + read the .hky bundles (BundleReader, BundleManifest, ServeKey)
     resolve/                 load order → merged/compiled graphs + membranes (Resolver, SymbolInjector,
-                             GraphClipSink, Watermark). Compile itself is delegated to the engine.
-    serve/                   deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer,
-                             SkinnedMesh)
-    bootstrap/               startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud)
-    debug/                   opt-in diagnostics/probes (AnimDataProbe, SyncClipProbe, DebugOverlay, DebugFlags)
+                             Watermark). Compile itself is delegated to the engine.
+    serve/                   deliver binaries to the live engine (ByteServe, Animation{,Set}DataServer);
+                             conditions/ = the opt-in condition sensors on the setdata matcher
+    bootstrap/               startup + warm-up + progress (CompileGate, ProgressOverlay, ProgressHud);
+                             sequencer/ = the warm-up ThreadPool
+    debug/                   opt-in diagnostics (DebugFlags — the flag registry the converter's Debug tab
+                             renders; Settings — settings.ini loaded once, read via FlagOn(id); DebugOverlay;
+                             RuntimeTrace — the per-frame graph-variable watch)
     hooks/                   the engine symbol registry (registry/engine.yaml → per-runtime Address Library
                              pins) + the shared hook-point layer features subscribe to (<core/hooks/hookslib.h>)
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
                              converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
                              or REL/ include. The folder IS the include root (<common/…> <interface/…>
-                             <interface/reflection/…> <codec/…> <compile/…> <decompile/…>); headers sit beside
+                             <interface/reflection/…> <codec/…> <compile/…> <decompile/…> <text/…> <disk/…> <exec/…>); headers sit beside
                              their sources.
   features/<Owner>/          self-registered graph features (CB_REGISTER_FEATURE, CB::feature::), compiled
                              straight into the plugin; ERGate.h (the ER wildcard-gate hook) lives here too
@@ -55,7 +63,7 @@ src/                         CB's code. src/ is the plugin's private include roo
                              platform/ = native dialogs, known folders, zip
 common/                      what features build against; common/ is their include root:
   feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::)
-  config/                    <config/Config.h> — the config scanner (JSON/YAML/INI, CB::config::)
+  config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
 schema/                      the class schema as DATA, flat — vanilla hk*, Bethesda BS*, CB* custom classes side
                              by side, told apart by prefix; metadata/ holds enums, merge semantics, debug probes
                              and the adsf/asdsf descriptors. templates/ = the converter's Nemesis-ingest XML
@@ -79,7 +87,10 @@ another root renames its namespace; a stray top-level namespace is a bug.
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
   hooks conditions` (core) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
-  linker` (engine). The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io}` + the
+  linker` + `text disk exec` (engine). `text` = the shared string operations (trim, line split, BOM, float
+  text form, YAML quoting); `disk` = whole-file read/write, checked and optionally atomic; `exec` = ParallelFor
+  (offline tools — in-game work runs on the plugin's injected BELOW_NORMAL pool). Use them instead of
+  re-rolling a per-file helper. The one sanctioned 4th-level family: `CB::engine::codec::{spline,crc,formid,io,resource}` + the
   packfile serialization spine (all genuinely codecs).
 - **`CB::engine::common` is the shared VOCABULARY — the base tier everything may depend on.** It holds the
   cross-cutting *types* every layer passes around: the unit/layer vocabulary (`IUnitSource`,

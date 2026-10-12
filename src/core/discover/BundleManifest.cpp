@@ -76,7 +76,7 @@ namespace CB {
             for (const auto& e : *it)
                 if (std::string s = AsString(e); !s.empty()) m.masters.push_back(std::move(s));
 
-        // The schema-version stamp + producer chain. schema_version is the gate input; authored_by is
+        // The schema-version stamp + producer chain (read, not yet gated on). authored_by is
         // a chain (origin first) but a bare string is tolerated for a single-producer bundle.
         if (auto it = j.find("schema_version"); it != j.end()) m.schemaVersion = AsString(*it);
         if (auto it = j.find("authored_by"); it != j.end()) {

@@ -1,9 +1,9 @@
 #pragma once
 // AnimationDecompiler — the import leg: a compiled animation .hkx -> animation.yaml that
-// AnimationYamlLoader reads back. Schema-native: the packfile is deserialized through havok-io's
-// generic SchemaObject path (MakeSchemaFactory over the shared registry), NOT the typed hka* classes,
-// so a real game animation's unported second variant (hkMemoryResourceContainer) round-trips instead
-// of throwing. Only hkaSplineCompressedAnimation is decompiled (see the .cpp for round-trip fidelity).
+// AnimationYamlLoader reads back. Schema-native: the packfile is deserialized through the generic
+// io::SchemaObject path (MakeSchemaFactory over the shared registry), so a real game animation's
+// second variant (hkMemoryResourceContainer) round-trips. Only hkaSplineCompressedAnimation is
+// decompiled (see the .cpp for round-trip fidelity).
 
 #include <cstdint>
 #include <filesystem>

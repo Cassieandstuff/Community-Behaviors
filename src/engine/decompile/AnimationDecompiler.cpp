@@ -4,10 +4,9 @@
 // so per-frame samples ARE the control points); the compressor reclassifies and
 // re-quantizes them on recompile.
 //
-// SCHEMA-NATIVE: the packfile is deserialized through havok-io's generic SchemaObject path
-// (MakeSchemaFactory over the shared registry) — NOT the typed hka* classes — so a real game
-// animation's unported second variant (hkMemoryResourceContainer) deserializes cleanly (it has a
-// schema descriptor) instead of throwing the way the typed graph walk did. Every field is read off
+// SCHEMA-NATIVE: the packfile is deserialized through the generic io::SchemaObject path
+// (MakeSchemaFactory over the shared registry), so a real game animation's second variant
+// (hkMemoryResourceContainer) deserializes cleanly (it has a schema descriptor). Every field is read off
 // the SchemaObject's tagged FieldValue store; the spline blob feeds the shared DecodeSpline codec.
 //
 // ROUND-TRIP FIDELITY (an animation produced by this toolchain, recompiled):
@@ -21,15 +20,13 @@
 #include <codec/format/AnimDataYaml.h>      // MotionFromAmrAnnotations / EmitMotionSidecar (AMR -> motion field)
 #include "codec/spline/SplineDecompressor.h"
 #include <codec/motion/RootMotion.h>
-#include <codec/serialization/packfile/BinaryReaderEx.h>
-#include <codec/serialization/packfile/PackFileDeserializer.h>
 
-#include <codec/serialization/HavokIo.h>          // io::SchemaObject + MakeSchemaFactory
+#include <codec/serialization/HavokIo.h>          // io::SchemaObject + DeserializeSchema
 #include <interface/reflection/HavokSchema.h>  // schema::SharedRegistry
+#include <disk/Disk.h>
+#include <text/Text.h>
 
-#include <cstdio>
 #include <cstring>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,50 +36,9 @@ namespace fs = std::filesystem;
 
 namespace {
 
+using CB::engine::codec::io::AsSchema;
+using CB::engine::codec::io::FindVariant;
 using CB::engine::codec::io::SchemaObject;
-
-std::string fstr(float v) { char b[32]; std::snprintf(b, sizeof b, "%.9g", v); return b; }
-
-// Double-quoted YAML scalar with escapes. Annotation text / track names are raw Havok strings that can
-// carry embedded control bytes — some vanilla clips store annotations like "FootBack\r\n". A single-
-// quoted scalar cannot represent a newline on one line (it splits the line -> "bad indentation", or a
-// worse ryml fault), so use the double-quoted form, which escapes \, ", and every control byte and
-// stays on ONE line — preserving the exact bytes so the annotation round-trips faithfully.
-std::string dq(const std::string& s) {
-    std::string out = "\"";
-    for (unsigned char c : s) {
-        switch (c) {
-            case '\\': out += "\\\\"; break;
-            case '"':  out += "\\\""; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\x%02X", c); out += b; }
-                else out += static_cast<char>(c);
-        }
-    }
-    out += "\"";
-    return out;
-}
-
-void writeText(const fs::path& p, const std::string& s) {
-    std::ofstream f(p, std::ios::binary);
-    f.write(s.data(), static_cast<std::streamsize>(s.size()));
-}
-
-std::int32_t rdI32(SchemaObject& o, const char* n) {
-    const auto& r = o.FieldRef(n).raw; std::int32_t v = 0;
-    if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
-}
-float rdF32(SchemaObject& o, const char* n) {
-    const auto& r = o.FieldRef(n).raw; float v = 0.f;
-    if (r.size() >= 4) std::memcpy(&v, r.data(), 4); return v;
-}
-
-std::shared_ptr<SchemaObject> asSO(const std::shared_ptr<IHavokObject>& o) {
-    return std::dynamic_pointer_cast<SchemaObject>(o);
-}
 
 } // namespace
 
@@ -93,31 +49,21 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
 
     std::shared_ptr<SchemaObject> spline, binding;
     try {
-        CB::engine::codec::BinaryReaderEx br(hkx);
-        CB::engine::codec::PackFileDeserializer des;
-        des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
-        auto root = asSO(des.Deserialize(br));
+        auto root = CB::engine::codec::io::DeserializeSchema(hkx, *reg);
         if (!root) return { false, "not a valid packfile root" };
 
         // Walk hkRootLevelContainer.namedVariants for the hkaAnimationContainer, then pull its first
         // animation (the spline) + first binding (skeleton name / track->bone map).
-        std::shared_ptr<SchemaObject> container;
-        for (auto& nvObj : root->FieldRef("namedVariants").objs) {
-            auto nv = asSO(nvObj); if (!nv) continue;
-            if (nv->FieldRef("className").str == "hkaAnimationContainer") {
-                container = asSO(nv->FieldRef("variant").obj);
-                break;
-            }
-        }
+        auto container = FindVariant(*root, "hkaAnimationContainer");
         if (!container) return { false, "no hkaAnimationContainer variant" };
 
-        auto& anims = container->FieldRef("animations").objs;
+        const auto& anims = container->Children("animations");
         if (anims.empty()) return { false, "animation container has no animations" };
-        spline = asSO(anims[0]);
+        spline = AsSchema(anims[0]);
         if (!spline) return { false, "first animation object is not a SchemaObject" };
 
-        auto& binds = container->FieldRef("bindings").objs;
-        if (!binds.empty()) binding = asSO(binds[0]);
+        const auto& binds = container->Children("bindings");
+        if (!binds.empty()) binding = AsSchema(binds[0]);
     } catch (const std::exception& e) {
         return { false, std::string("deserialize failed: ") + e.what() };
     }
@@ -129,9 +75,9 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     // `floatVals`; the YAML emit below is shared. Other classes (delta/quantized/reference-pose) remain
     // out of scope — the caller falls back to the loose vanilla .hkx.
     const std::string animClass = spline->ClassName();
-    const int   numTracks = rdI32(*spline, "numberOfTransformTracks");
-    const int   numFloat  = rdI32(*spline, "numberOfFloatTracks");
-    const float duration  = rdF32(*spline, "duration");
+    const int   numTracks = static_cast<int>(spline->GetInt("numberOfTransformTracks"));
+    const int   numFloat  = static_cast<int>(spline->GetInt("numberOfFloatTracks"));
+    const float duration  = spline->GetFloat("duration");
     if (numTracks <= 0) return { false, "animation has no transform tracks" };
 
     int   numFrames = 0;
@@ -141,16 +87,14 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     std::string              warn;
 
     if (animClass == "hkaSplineCompressedAnimation") {
-        numFrames = rdI32(*spline, "numFrames");
-        fd        = rdF32(*spline, "frameDuration");
+        numFrames = static_cast<int>(spline->GetInt("numFrames"));
+        fd        = spline->GetFloat("frameDuration");
         if (numFrames <= 0) return { false, "animation has no frames" };
-        const int   numBlocks         = rdI32(*spline, "numBlocks");
-        const int   maxFramesPerBlock = rdI32(*spline, "maxFramesPerBlock");
-        const int   maskAndQuant      = rdI32(*spline, "maskAndQuantizationSize");
+        const int   numBlocks         = static_cast<int>(spline->GetInt("numBlocks"));
+        const int   maxFramesPerBlock = static_cast<int>(spline->GetInt("maxFramesPerBlock"));
+        const int   maskAndQuant      = static_cast<int>(spline->GetInt("maskAndQuantizationSize"));
         const auto& dataRaw = spline->FieldRef("data").raw;
-        const auto& boRaw   = spline->FieldRef("blockOffsets").raw;
-        std::vector<std::uint32_t> blockOffsets(boRaw.size() / 4);
-        if (!blockOffsets.empty()) std::memcpy(blockOffsets.data(), boRaw.data(), blockOffsets.size() * 4);
+        const std::vector<std::uint32_t> blockOffsets = spline->GetArray<std::uint32_t>("blockOffsets");
         const bool ok = CB::engine::codec::spline::DecodeSpline(dataRaw.data(), dataRaw.size(), numFrames, numBlocks, maxFramesPerBlock,
                                      maskAndQuant, blockOffsets.data(), static_cast<int>(blockOffsets.size()),
                                      numTracks, numFloat, poses, &warn, numFloat > 0 ? &floatVals : nullptr);
@@ -184,18 +128,15 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     }
 
     std::string skeleton;
-    if (binding) skeleton = binding->FieldRef("originalSkeletonName").str;
+    if (binding) skeleton = binding->Str("originalSkeletonName");
 
     // Phase 2 (inverse membrane): read hkaAnimationBinding.transformTrackToBoneIndices and, when a
     // skeleton bone roster is supplied, resolve each track to its bone NAME via the cross membrane.
     // Until then, tracks decompile to track<N> placeholders (identity binding).
     std::vector<int> trackToBone;
     if (binding) {
-        const auto& ttbRaw = binding->FieldRef("transformTrackToBoneIndices").raw;   // int16[]
-        trackToBone.resize(ttbRaw.size() / 2);
-        for (std::size_t i = 0; i < trackToBone.size(); ++i) {
-            std::int16_t v = 0; std::memcpy(&v, ttbRaw.data() + i * 2, 2); trackToBone[i] = v;
-        }
+        const auto ttb = binding->GetArray<std::int16_t>("transformTrackToBoneIndices");
+        trackToBone.assign(ttb.begin(), ttb.end());
     }
     auto trackName = [&](int t) -> std::string {
         if (boneNames) {
@@ -213,11 +154,11 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     std::string y;
     y += "animation:\n";
     y += "  name: " + dir.filename().string() + "\n";
-    y += "  duration: " + fstr(duration) + "\n";
+    y += "  duration: " + text::FormatFloat(duration) + "\n";
     // Native frame timing, so a recompile reproduces the source's exact frame count/spacing instead of
     // resampling to a fixed fps (a 60fps clip stays 60fps; a sparse 2-keyframe pose stays 2 frames).
     y += "  numFrames: " + std::to_string(numFrames) + "\n";
-    y += "  frameDuration: " + fstr(fd) + "\n";
+    y += "  frameDuration: " + text::FormatFloat(fd) + "\n";
     y += "  skeleton: " + skeleton + "\n";
     if (!warn.empty()) y += "  # NOTE: " + warn + ".\n";
     y += "  tracks:\n";
@@ -227,14 +168,14 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         y += "      translation:\n";
         for (int f = 0; f < numFrames; ++f) {
             const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-            y += "        - { time: " + fstr(f * fd) + ", value: ["
-               + fstr(p.t[0]) + ", " + fstr(p.t[1]) + ", " + fstr(p.t[2]) + "] }\n";
+            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
+               + text::FormatFloat(p.t[0]) + ", " + text::FormatFloat(p.t[1]) + ", " + text::FormatFloat(p.t[2]) + "] }\n";
         }
         y += "      rotation:\n";
         for (int f = 0; f < numFrames; ++f) {
             const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-            y += "        - { time: " + fstr(f * fd) + ", value: ["
-               + fstr(p.q[0]) + ", " + fstr(p.q[1]) + ", " + fstr(p.q[2]) + ", " + fstr(p.q[3]) + "] }\n";
+            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
+               + text::FormatFloat(p.q[0]) + ", " + text::FormatFloat(p.q[1]) + ", " + text::FormatFloat(p.q[2]) + ", " + text::FormatFloat(p.q[3]) + "] }\n";
         }
         bool anyScale = false;
         for (int f = 0; f < numFrames && !anyScale; ++f) {
@@ -245,8 +186,8 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
             y += "      scale:\n";
             for (int f = 0; f < numFrames; ++f) {
                 const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];
-                y += "        - { time: " + fstr(f * fd) + ", value: ["
-                   + fstr(p.s[0]) + ", " + fstr(p.s[1]) + ", " + fstr(p.s[2]) + "] }\n";
+                y += "        - { time: " + text::FormatFloat(f * fd) + ", value: ["
+                   + text::FormatFloat(p.s[0]) + ", " + text::FormatFloat(p.s[1]) + ", " + text::FormatFloat(p.s[2]) + "] }\n";
             }
         }
     }
@@ -261,27 +202,29 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         y += "      keyframes:\n";
         const int last = varying ? numFrames : 1;
         for (int f = 0; f < last; ++f)
-            y += "        - { time: " + fstr(f * fd) + ", value: "
-               + fstr(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
+            y += "        - { time: " + text::FormatFloat(f * fd) + ", value: "
+               + text::FormatFloat(floatVals[static_cast<std::size_t>(f) * numFloat + ft]) + " }\n";
     }
 
     std::optional<CB::engine::animdata::MotionRecord> amrMotion;
     // Annotation tracks (AMR root motion / MorphFace payloads) — one lane per entry, verbatim.
-    auto& annTracks = spline->FieldRef("annotationTracks").objs;
+    /// @note Always double-quoted: vanilla annotations carry control bytes (e.g. "FootBack\r\n") a single-quoted
+    ///       scalar can't hold on one line, and the escapes keep the exact bytes round-tripping.
+    const auto& annTracks = spline->Children("annotationTracks");
     if (!annTracks.empty()) {
         y += "  annotationTracks:\n";
         for (auto& atObj : annTracks) {
-            auto at = asSO(atObj); if (!at) continue;
-            y += "    - trackName: " + dq(at->FieldRef("trackName").str) + "\n";
-            auto& anns = at->FieldRef("annotations").objs;
+            auto at = AsSchema(atObj); if (!at) continue;
+            y += "    - trackName: " + text::QuoteDouble(at->Str("trackName")) + "\n";
+            const auto& anns = at->Children("annotations");
             if (anns.empty()) {
                 y += "      annotations: []\n";
             } else {
                 y += "      annotations:\n";
                 for (auto& aObj : anns) {
-                    auto a = asSO(aObj); if (!a) continue;
-                    y += "        - { time: " + fstr(rdF32(*a, "time")) + ", text: "
-                       + dq(a->FieldRef("text").str) + " }\n";
+                    auto a = AsSchema(aObj); if (!a) continue;
+                    y += "        - { time: " + text::FormatFloat(a->GetFloat("time")) + ", text: "
+                       + text::QuoteDouble(a->Str("text")) + " }\n";
                 }
             }
         }
@@ -290,19 +233,20 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
         ///       base reunion supplies theirs).
         std::vector<std::pair<float, std::string>> allAnns;
         for (auto& atObj : annTracks) {
-            auto at = asSO(atObj); if (!at) continue;
-            for (auto& aObj : at->FieldRef("annotations").objs) {
-                auto a = asSO(aObj); if (!a) continue;
-                allAnns.emplace_back(rdF32(*a, "time"), a->FieldRef("text").str);
+            auto at = AsSchema(atObj); if (!at) continue;
+            for (auto& aObj : at->Children("annotations")) {
+                auto a = AsSchema(aObj); if (!a) continue;
+                allAnns.emplace_back(a->GetFloat("time"), a->Str("text"));
             }
         }
-        amrMotion = CB::engine::animdata::MotionFromAmrAnnotations(allAnns, fstr(duration));
+        amrMotion = CB::engine::animdata::MotionFromAmrAnnotations(allAnns, text::FormatFloat(duration));
     }
 
     /// @note The unit's motion form: AMR motion folds onto the root where it round-trips (else stays explicit); a
     ///       moving root with no motion is marked visual-only.
     CB::engine::anim::FinalizeUnitMotion(y, amrMotion);
-    writeText(dir / "animation.yaml", y);
+    std::string err;
+    if (!disk::WriteFile(dir / "animation.yaml", y, {}, &err)) return { false, err };
     return { true, "" };
 }
 

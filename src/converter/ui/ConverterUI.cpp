@@ -7,20 +7,24 @@
 
 #include "platform/Platform.h"
 
+#include <codec/serialization/HkyArchive.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
+
 #include <imgui.h>
 
-#include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <map>
+#include <optional>
 #include <set>
 
 namespace fs = std::filesystem;
 
 namespace {
+
+namespace disk = CB::engine::disk;
+namespace text = CB::engine::text;
 
 std::string ExeDir() {
     wchar_t buf[MAX_PATH];
@@ -42,81 +46,88 @@ bool InputPath(const char* id, std::string& s) {
     return false;
 }
 
-std::string Trim(std::string s) {
-    const auto notws = [](unsigned char c) { return !std::isspace(c); };
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notws));
-    s.erase(std::find_if(s.rbegin(), s.rend(), notws).base(), s.end());
-    return s;
+/// @brief A settings file's lines (BOM dropped); none when it can't be read.
+std::vector<std::string> ReadLines(const fs::path& p) {
+    const std::string        body = disk::ReadFile(p, { .stripBom = true }).value_or(std::string{});
+    std::vector<std::string> lines;
+    for (const std::string_view l : text::SplitLines(body)) lines.emplace_back(l);
+    return lines;
 }
 
-bool IEquals(const std::string& a, const std::string& b) {
-    if (a.size() != b.size()) return false;
-    for (std::size_t i = 0; i < a.size(); ++i)
-        if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) return false;
-    return true;
+/// @brief `lines` joined with CRLF — the line ending these files have always been written with (text-mode streams).
+std::string JoinCrlf(const std::vector<std::string>& lines) {
+    std::string out;
+    for (const auto& l : lines) { out += l; out += "\r\n"; }
+    return out;
 }
 
 // ── Minimal INI bool get/upsert for the plugin's settings.ini ────────────────────────────────
-// The Debug tab reads/writes the SAME file the plugin's CSimpleIniA readers use ([section] key=bool).
+// The Debug tab reads/writes the SAME file the plugin's CSimpleIniA reader (core/debug/Settings) uses ([section] key=bool).
 // A targeted hand-roll (not a full INI lib) so the converter adds no new dependency; it preserves
 // every other line and only touches the one key.
-bool IniGetBool(const fs::path& ini, const std::string& section, const std::string& key, bool def) {
-    std::ifstream f(ini);
-    if (!f) return def;
-    std::string line, cur;
-    while (std::getline(f, line)) {
-        std::string t = Trim(line);
+/// @brief `[section] key` read the way the plugin's CSimpleIniA::GetBoolValue reads it: a first char of t/y/1 is
+///        true, f/n/0 false, "on"/"off" by their first two chars; nullopt — the reader's default applies — when the
+///        key is absent, empty or unrecognized.
+/// @note Section and key names match by CB::converter::IniNameEquals (CSimpleIniA's rule); a repeated key reads its
+///       LAST value, as CSimpleIniA's (non-multikey) load keeps.
+std::optional<bool> IniGetBool(const fs::path& ini, const std::string& section, const std::string& key) {
+    std::string cur, v;
+    for (const std::string& line : ReadLines(ini)) {
+        const std::string_view t = text::Trim(line);
         if (t.empty() || t[0] == '#' || t[0] == ';') continue;
-        if (t.size() >= 2 && t.front() == '[' && t.back() == ']') { cur = t.substr(1, t.size() - 2); continue; }
+        if (t.size() >= 2 && t.front() == '[' && t.back() == ']') { cur = text::Trim(t.substr(1, t.size() - 2)); continue; }
         const auto eq = t.find('=');
-        if (eq == std::string::npos) continue;
-        if (IEquals(cur, section) && IEquals(Trim(t.substr(0, eq)), key)) {
-            std::string v = Trim(t.substr(eq + 1));
-            for (auto& c : v) c = (char)std::tolower((unsigned char)c);
-            return v == "1" || v == "true" || v == "yes" || v == "on";
-        }
+        if (eq == std::string_view::npos) continue;
+        if (CB::converter::IniNameEquals(cur, section) && CB::converter::IniNameEquals(text::Trim(t.substr(0, eq)), key))
+            v = text::Trim(t.substr(eq + 1));
     }
-    return def;
+    if (v.empty()) return std::nullopt;
+    switch (v[0]) {
+        case 't': case 'T': case 'y': case 'Y': case '1': return true;
+        case 'f': case 'F': case 'n': case 'N': case '0': return false;
+        case 'o': case 'O':
+            if (v.size() > 1 && (v[1] == 'n' || v[1] == 'N')) return true;
+            if (v.size() > 1 && (v[1] == 'f' || v[1] == 'F')) return false;
+            break;
+    }
+    return std::nullopt;
 }
 
+/// @note Rewritten atomically — a failed write leaves the previous settings.ini intact.
 void IniSetBool(const fs::path& ini, const std::string& section, const std::string& key, bool val) {
-    std::vector<std::string> lines;
-    { std::ifstream f(ini); std::string l; while (std::getline(f, l)) lines.push_back(l); }
+    std::vector<std::string> lines = ReadLines(ini);
     const std::string valStr = val ? "true" : "false";
 
     int secStart = -1, secEnd = (int)lines.size();
     for (int i = 0; i < (int)lines.size(); ++i) {
-        std::string t = Trim(lines[i]);
+        const std::string_view t = text::Trim(lines[i]);
         if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
             if (secStart >= 0) { secEnd = i; break; }                    // first header AFTER our section
-            if (IEquals(t.substr(1, t.size() - 2), section)) secStart = i;
+            if (CB::converter::IniNameEquals(t.substr(1, t.size() - 2), section)) secStart = i;
         }
     }
     if (secStart < 0) {                                                   // section absent — append it
-        if (!lines.empty() && !Trim(lines.back()).empty()) lines.push_back("");
+        if (!lines.empty() && !text::Trim(lines.back()).empty()) lines.push_back("");
         lines.push_back("[" + section + "]");
         lines.push_back(key + "=" + valStr);
     } else {
         int keyLine = -1;
         for (int i = secStart + 1; i < secEnd; ++i) {
-            std::string t = Trim(lines[i]);
-            const auto eq = t.find('=');
-            if (eq != std::string::npos && IEquals(Trim(t.substr(0, eq)), key)) { keyLine = i; break; }
+            const std::string_view t  = text::Trim(lines[i]);
+            const auto             eq = t.find('=');
+            if (eq != std::string_view::npos && CB::converter::IniNameEquals(text::Trim(t.substr(0, eq)), key)) { keyLine = i; break; }
         }
         if (keyLine >= 0) lines[keyLine] = key + "=" + valStr;
         else              lines.insert(lines.begin() + secEnd, key + "=" + valStr);
     }
-    std::error_code ec;
-    fs::create_directories(ini.parent_path(), ec);
-    std::ofstream o(ini, std::ios::trunc);
-    for (const auto& l : lines) o << l << "\n";
+    disk::WriteFile(ini, JoinCrlf(lines), { .atomic = true });
 }
 
 }  // namespace
 
 ConverterUI::ConverterUI() {
     // MO2 launches the tool from the game dir, so the VFS Data folder is ./Data. Templates,
-    // base, the private staging dir, and the settings ini live beside the exe. The load order
+    // the private staging dir, and the settings ini live beside the exe. The load order
     // the tool manages is NOT beside the exe — it is the ACTIVE one in the Data VFS
     // (<Data>/community_behaviors/loadorder.txt), derived from m_dataDir (see BrLoadOrderPath). The
     // zip destination defaults to Downloads; persisted settings override the Data + zip fields.
@@ -125,9 +136,7 @@ ConverterUI::ConverterUI() {
     const fs::path exe = m_exeDir;
     m_dataDir       = (fs::current_path(ec) / "Data").string();
     m_zipDir        = CB::converter::platform::DownloadsFolder();   // point at your MO2 downloads folder
-    m_zipName       = "Output_Community Behaviors";        // the .zip / MO2 mod name (editable)
     m_templatesDir  = (exe / "schema" / "templates").string();
-    m_baseDir       = (exe / "base").string();
     m_stagingDir    = (exe / "staging").string();
     LoadSettings();   // override m_dataDir / m_zipDir from sct_converter.ini if present
     if (m_outputDir.empty()) m_outputDir = m_zipDir;   // sensible default: the downloads/mods folder
@@ -143,37 +152,31 @@ std::string ConverterUI::BrPluginsDir() const {
 }
 
 void ConverterUI::LoadSettings() {
-    std::ifstream f(fs::path(m_exeDir) / "sct_converter.ini");
-    if (!f) return;
-    std::string line;
-    while (std::getline(f, line)) {
-        line = Trim(line);
+    for (const std::string& raw : ReadLines(fs::path(m_exeDir) / "sct_converter.ini")) {
+        const std::string_view line = text::Trim(raw);
         if (line.empty() || line[0] == '#' || line[0] == ';') continue;
         const auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        const std::string key = Trim(line.substr(0, eq));
-        const std::string val = Trim(line.substr(eq + 1));
+        if (eq == std::string_view::npos) continue;
+        const std::string_view key = text::Trim(line.substr(0, eq));
+        const std::string_view val = text::Trim(line.substr(eq + 1));
         if (key == "data" && !val.empty()) m_dataDir = val;
         else if (key == "zip" && !val.empty()) m_zipDir = val;
-        else if (key == "name" && !val.empty()) m_zipName = val;
-        else if (key == "mo2") m_mo2Instance = val;   // may be empty (optional)
         else if (key == "profile" && !val.empty()) m_profile = val;
         else if (key == "output"  && !val.empty()) m_outputDir = val;
         else if (key == "autozip") m_autoZip = (val == "1" || val == "true" || val == "yes" || val == "on");
     }
 }
 
+/// @note Rewritten atomically — a failed write leaves the previous settings intact.
 void ConverterUI::SaveSettings() const {
-    std::ofstream f(fs::path(m_exeDir) / "sct_converter.ini", std::ios::trunc);
-    if (!f) return;
-    f << "# SCT Behavior Converter settings\n";
-    f << "data=" << m_dataDir  << "\n";
-    f << "zip="  << m_zipDir   << "\n";
-    f << "name=" << m_zipName  << "\n";
-    f << "mo2="  << m_mo2Instance << "\n";
-    f << "profile=" << m_profile   << "\n";
-    f << "output="  << m_outputDir << "\n";
-    f << "autozip=" << (m_autoZip ? "true" : "false") << "\n";
+    disk::WriteFile(fs::path(m_exeDir) / "sct_converter.ini",
+                    JoinCrlf({ "# SCT Behavior Converter settings",
+                               "data=" + m_dataDir,
+                               "zip=" + m_zipDir,
+                               "profile=" + m_profile,
+                               "output=" + m_outputDir,
+                               std::string("autozip=") + (m_autoZip ? "true" : "false") }),
+                    { .atomic = true });
 }
 
 ConverterUI::~ConverterUI() {
@@ -201,14 +204,14 @@ void ConverterUI::StartConvert() {
 
     // MO2-profile only: derive the instance root from the profile (a profile dir carries modlist.txt;
     // otherwise the field already IS an instance root). dataDir = the game Data from the profile ini.
-    const std::string prof = Trim(m_profile);
+    const std::string prof(text::Trim(m_profile));
     std::string instance = prof;
     { std::error_code ec;
       if (fs::is_regular_file(fs::path(prof) / "modlist.txt", ec))
           instance = fs::path(prof).parent_path().parent_path().string(); }
 
     const bool        autoZip = m_autoZip;
-    const std::string outDir  = Trim(m_outputDir);
+    const std::string outDir(text::Trim(m_outputDir));
     const std::string convOut = autoZip ? m_stagingDir : outDir;      // the converter writes its tree here
     // dataDir = where the base Skyrim.hky + existing bundles are read. Prefer the VFS ./Data (has the full
     // mod overlay) when the tool is launched THROUGH MO2 and it actually contains the base; otherwise use
@@ -218,7 +221,7 @@ void ConverterUI::StartConvert() {
       if (fs::is_regular_file(fs::path(m_dataDir) / "community_behaviors" / "plugins" / "Skyrim.hky", ec))
           dataDir = m_dataDir; }
 
-    CB::converter::Options opt{ dataDir, m_templatesDir, m_baseDir, convOut, instance };
+    CB::converter::Options opt{ dataDir, m_templatesDir, convOut, instance };
 
     const std::string zipName = "Output_Community Behaviors.zip";
 
@@ -235,7 +238,7 @@ void ConverterUI::StartConvert() {
             else {
                 const std::string zip = (fs::path(outDir) / zipName).string();
                 std::string err;
-                const bool ok = CB::converter::platform::ZipDir(convOut, zip, err);
+                const bool ok = CB::engine::codec::HkyArchive::PackDirectory(convOut, zip, err);
                 SetZipMsg(ok ? ("Packaged -> " + zip) : ("Package failed: " + err));
                 AppendLog(ok ? ("Packaged -> " + zip) : ("Package FAILED: " + err));
             }
@@ -283,7 +286,7 @@ void ConverterUI::Draw() {
 
 void ConverterUI::RefreshPlan() {
     m_planMsg.clear();
-    const std::string prof = Trim(m_profile);
+    const std::string prof(text::Trim(m_profile));
     if (prof.empty()) { m_plan = {}; m_planMsg = "Select an MO2 profile (or instance root) above."; return; }
     m_plan = CB::converter::BuildLoadOrderPlan(prof, [](std::string) {});
     if (!m_plan.ok) { m_planMsg = "Plan: " + m_plan.error; return; }
@@ -380,7 +383,7 @@ void ConverterUI::DrawConverterTab() {
     if (busy || m_finished.load()) {
         std::lock_guard<std::mutex> lk(m_logMx);
         for (const auto& line : m_log) ImGui::TextUnformatted(line.c_str());
-        if (m_autoscroll && busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f) ImGui::SetScrollHereY(1.0f);
+        if (busy && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 12.0f) ImGui::SetScrollHereY(1.0f);
     } else {
         DrawLoadOrderArranger();
     }
@@ -404,10 +407,10 @@ void ConverterUI::DrawConverterTab() {
 
     ImGui::Spacing();
     if (!busy) {
-        const bool ready = m_plan.ok && !Trim(m_outputDir).empty();
+        const bool ready = m_plan.ok && !text::Trim(m_outputDir).empty();
         ImGui::BeginDisabled(!ready);
         const char* label = !m_plan.ok ? "Convert  (select an MO2 profile first)"
-                          : Trim(m_outputDir).empty() ? "Convert  (choose an output folder)"
+                          : text::Trim(m_outputDir).empty() ? "Convert  (choose an output folder)"
                           : "Convert load order  →  .hky bundles";
         if (ImGui::Button(label, ImVec2(-1, 40))) StartConvert();
         ImGui::EndDisabled();
@@ -450,13 +453,14 @@ void ConverterUI::DrawDebugTab() {
         const std::string section(fl.section), key(fl.key), id(fl.id);
         const bool        marker = fl.kind == CB::core::debug::FlagKind::MarkerFile;
 
-        const bool on  = marker ? fs::exists(markerDir / key) : IniGetBool(iniPath, section, key, fl.defOn);
+        const std::optional<bool> set = marker ? std::nullopt : IniGetBool(iniPath, section, key);
+        const bool                on  = marker ? fs::exists(markerDir / key) : set.value_or(fl.defOn);
         bool       cur = on;
         const std::string cbLabel = std::string(fl.label) + "##" + id;
         if (ImGui::Checkbox(cbLabel.c_str(), &cur) && cur != on) {
             if (marker) {
                 std::error_code ec;
-                if (cur) { fs::create_directories(markerDir, ec); std::ofstream(markerDir / key); }
+                if (cur) disk::WriteFile(markerDir / key, std::string_view{});
                 else       fs::remove(markerDir / key, ec);
             } else {
                 IniSetBool(iniPath, section, key, cur);
@@ -465,7 +469,15 @@ void ConverterUI::DrawDebugTab() {
         if (!fl.help.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", std::string(fl.help).c_str());
         ImGui::SameLine();
         if (marker) ImGui::TextDisabled("[marker: %s]", key.c_str());
-        else        ImGui::TextDisabled("[%s / %s%s]", section.c_str(), key.c_str(), fl.defOn ? ", default on" : "");
+        else {
+            /// @note A build-dependent default can't be resolved here (the installed plugin's build is unknown), so
+            ///       the unset checkbox shows the release default and the label names both.
+            const bool  byBuild = fl.defOn != fl.defOnDebug;
+            const char* def     = !byBuild    ? (fl.defOn ? ", default on" : "")
+                                  : fl.defOn  ? ", default on (release) / off (debug build)"
+                                              : ", default off (release) / on (debug build)";
+            ImGui::TextDisabled("[%s / %s%s%s]", section.c_str(), key.c_str(), def, byBuild && !set ? ", unset" : "");
+        }
     }
 
     ImGui::Separator();

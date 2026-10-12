@@ -18,8 +18,8 @@ using CB::engine::common::IUnitSource;   // the unit backing-store interface liv
 // IUnitSource with NO disk extraction — immune to Windows MAX_PATH and fast (the deep
 // unit tree lives inside the archive, never on the filesystem).
 //
-// Lives beside the loader (not in BR) so the CLI can exercise it and BR gets it by
-// linking havok-core. Backed by vendored miniz; part of the ryml-gated YAML tier.
+// Lives in the engine so the plugin, the converter and hky-tool share it. Backed by vendored
+// miniz; part of the ryml-gated YAML tier.
 class HkyArchive : public std::enable_shared_from_this<HkyArchive> {
 public:
     enum class UnitKind { Behavior, Character, Project, Skeleton };
@@ -28,20 +28,20 @@ public:
         UnitKind    kind;
     };
 
-    // Load & fully decompress a .hky file. Returns nullptr with `err` set on failure. The per-entry
-    // decompress is fanned across worker threads internally (the master alone is ~68k entries — the
-    // ~50s startup cost when serial); each shard opens its OWN mz_zip reader on the read-only file
-    // (miniz isn't thread-safe on one handle), collects shard-local, then merges into m_files serially
-    // so the result is byte-for-byte independent of thread count. Still a FULL upfront unpack.
+    /// @brief Load and fully decompress a .hky (a FULL upfront unpack); nullptr with `err` set on failure.
+    /// @note The inflate fans across exec::ParallelFor workers (the master alone is ~68k entries — ~50 s serial); the
+    ///       result is independent of thread count.
+    /// @warning Those workers are default-priority std::threads, in the game process too.
     static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err);
 
-    // Pack a directory tree into a single-file .hky (a deflate zip): every regular file under
-    // `dir` becomes an entry keyed by its path RELATIVE to `dir` (forward-slashed) — the exact
-    // layout LoadFromFile reads back, so PackDirectory then LoadFromFile round-trips. This is
-    // `hky-tool pack`: an uncompressed YAML bundle tree in, one .hky out. Creates the parent
-    // dir of `outHkyPath`. Returns false, `err` set, on
-    // failure (missing/empty tree, write error). Co-located with LoadFromFile so the .hky
-    // format has both directions in one place (per the omnidirectional round-trip rule).
+    /// @brief Pack every regular file under `dir` into `outHkyPath` (a deflate zip), each entry named by its path
+    ///        relative to `dir`, forward-slashed and case kept — the layout LoadFromFile reads back. THE .hky / zip
+    ///        packer: hky-tool, the master regen, every converter bundle and the GUI's packaged zip.
+    /// @return false with `err` set on ANY failure — a walk, stat or read error included: an incomplete archive is
+    ///         never a success.
+    /// @note Entries are sorted (deterministic order). Deflate is parallel, at the default level. The archive is
+    ///       written to `<outHkyPath>.partial` and renamed over `outHkyPath` once finalized; an output inside `dir`
+    ///       is never added to itself. Paths past MAX_PATH are handled.
     static bool PackDirectory(const std::string& dir, const std::string& outHkyPath, std::string& err);
 
     /// @brief A reflective unit's kind from its graph.yaml: the root's named variant class (hkbCharacterData,
@@ -68,7 +68,7 @@ public:
 
     // Same range, but returns the ORIGINAL-CASE (forward-slashed) paths. Use ONLY where a case-sensitive
     // NAME is derived from the path — the animationdata clip records, whose name the engine matches to the
-    // mixed-case behaviour clip generator (lowercasing it silently kills that clip's root motion). norm()
+    // mixed-case behaviour clip generator (lowercasing it silently kills that clip's root motion). PathKey()
     // never changes length, so substr offsets from the normalized prefix still line up; read-back
     // re-normalizes, so the original case is safe to hand out.
     std::vector<std::string> filesUnderOrig(const std::string& prefix) const;

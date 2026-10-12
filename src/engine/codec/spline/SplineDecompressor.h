@@ -1,10 +1,9 @@
 #pragma once
 // SplineDecompressor — decodes an hkaSplineCompressedAnimation blob into
-// per-frame per-track local transforms. glm-free (havok-core carries no glm);
-// faithful port of the verified decoder in sct-pipeline (de Boor NURBS for
-// translation/scale, THREECOMP40/48 + UNCOMPRESSED rotation, BITS8/16). This is
-// the decode half of the codec, colocated with the encoder so havok-core owns
-// the full spline round-trip; the pose-evaluation layer stays in sct-pipeline.
+// per-frame per-track local transforms. glm-free; faithful port of the verified
+// decoder in sct-pipeline (de Boor NURBS for translation/scale, THREECOMP40/48 +
+// UNCOMPRESSED rotation, BITS8/16). The decode half of the codec, colocated with
+// the encoder so the engine owns the full spline round-trip.
 
 #include <cstdint>
 #include <string>

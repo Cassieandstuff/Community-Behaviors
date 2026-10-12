@@ -19,30 +19,26 @@ namespace CB {
     // animationdata/…, animationnames/…, meshes/animationsetdatasinglefile.txt), so this
     // hides dir-vs-packed the way IUnitSource hides it per-unit for the Resolver.
     //
-    // A packed bundle is decompressed once in memory (HkyArchive, MAX_PATH-immune); its
-    // path keys are lowercased, so every accessor here folds `rel` to lowercase/forward-
-    // slash and returned dir/file names from a packed bundle are lowercase. File CONTENT
-    // is returned verbatim (the singlefile-base bytes keep their original case). The
-    // consumers already match case-insensitively, so a packed and an unpacked bundle
-    // merge to the same result.
+    // A packed bundle is decompressed once in memory (HkyArchive, MAX_PATH-immune). Lookups go
+    // by path identity (codec::resource::PathKey), so `rel` may be spelled in any case; every
+    // NAME handed back (subdirs, files, filesUnderOrig) keeps its original case, packed or
+    // loose, and file CONTENT is verbatim. filesUnder() alone returns identity keys.
     class BundleReader {
     public:
         // Open a bundle. A directory opens directly; a regular .hky file is loaded as a
         // packed archive. Returns nullopt only if a packed .hky cannot be read.
         static std::optional<BundleReader> Open(const std::filesystem::path& bundle);
 
-        bool packed() const { return static_cast<bool>(m_arc); }
-
         // Read a whole-tree-relative file (e.g. "meshes/animationsetdatasinglefile.txt").
         // nullopt if absent; an empty-but-present file returns "".
         std::optional<std::string> read(const std::string& rel) const;
 
-        // Immediate child directory NAMES under `dirPrefix` (e.g. "meshes/animationsetdata"
-        // -> {"defaultmaledata", …}). Empty if the prefix is absent.
+        // Immediate child directory NAMES under `dirPrefix`, ORIGINAL case (e.g. "meshes/animationsetdata"
+        // -> {"DefaultMaleData", …}), packed or loose alike. Empty if the prefix is absent.
         std::vector<std::string> subdirs(const std::string& dirPrefix) const;
 
-        // File BASENAMES directly under `dir` whose extension equals `extLower` (already
-        // lowercased, incl. the dot, e.g. ".txt"; "" matches any). Empty if absent.
+        // File BASENAMES, ORIGINAL case, directly under `dir` whose extension equals `extLower` (already
+        // lowercased, incl. the dot, e.g. ".txt"; "" matches any; the extension test is path identity). Empty if absent.
         std::vector<std::string> files(const std::string& dir, const std::string& extLower) const;
 
         // Tree-relative paths (forward-slashed, lowercased) of every file RECURSIVELY under
@@ -50,9 +46,8 @@ namespace CB {
         // Feeds the per-actor animdata read (motion/movesets yamls scattered under the actor tree).
         std::vector<std::string> filesUnder(const std::string& dirPrefix, const std::string& extLower) const;
 
-        // Like filesUnder, but ORIGINAL-CASE paths. Use ONLY for the animationdata clip/motion reads,
-        // whose record NAME (derived from the filename) is case-sensitive to the engine's behaviour-clip
-        // match — lowercasing it kills that clip's root motion. Read-back re-normalizes, so it's safe.
+        // Like filesUnder, but ORIGINAL-CASE paths — use it whenever a NAME is derived from the path (a
+        // clip or project name the engine matches exactly). Read-back goes by path identity, so it's safe.
         std::vector<std::string> filesUnderOrig(const std::string& dirPrefix, const std::string& extLower) const;
 
         /// @brief Tree-relative prefixes (forward-slashed, e.g. "meshes/actors/horse/characters/horse.hkx") of every

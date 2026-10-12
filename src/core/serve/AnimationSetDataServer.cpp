@@ -5,21 +5,23 @@
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
-#include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml (codec/format, firesale)
+#include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml
+#include <codec/format/LoadOrderText.h>     // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
 #include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
+#include <codec/resource/PathKey.h>
+#include <disk/Disk.h>
+#include <text/Text.h>
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstdint>
 #include <exception>
-#include <fstream>
 #include <iterator>
 #include <map>
 #include <optional>
-#include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
@@ -32,12 +34,12 @@ namespace CB::core::serve {
 
     namespace {
 
-        std::string ToLower(std::string s)
-        {
-            std::transform(s.begin(), s.end(), s.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return s;
-        }
+        using CB::engine::codec::resource::HasExt;
+        using CB::engine::codec::resource::PathKey;
+        using CB::engine::text::SplitLines;
+        using CB::engine::text::StripBom;
+        using CB::engine::text::Trim;
+        namespace disk = CB::engine::disk;
 
         // Resolve ".." segments in a '\'- or '/'-separated path (a roster entry like
         // "..\SharedKillMoves\..." joined onto the actor root escapes upward). The engine hashes the
@@ -65,64 +67,22 @@ namespace CB::core::serve {
             return res;
         }
 
-        std::string TrimLine(const std::string& line)
-        {
-            const auto b = line.find_first_not_of(" \t\r\n");
-            if (b == std::string::npos) return {};
-            const auto e = line.find_last_not_of(" \t\r\n");
-            return line.substr(b, e - b + 1);
-        }
-
-        std::string ReadFile(const fs::path& p)
-        {
-            std::ifstream f(p, std::ios::binary);
-            if (!f) return {};
-            return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        }
-
-        bool WriteFile(const fs::path& p, const std::string& data)
-        {
-            std::error_code ec;
-            fs::create_directories(p.parent_path(), ec);
-            std::ofstream f(p, std::ios::binary | std::ios::trunc);
-            if (!f) return false;
-            f.write(data.data(), static_cast<std::streamsize>(data.size()));
-            return static_cast<bool>(f);
-        }
-
-        // Load order (optional): .hky plugin name (lowercased) -> priority, higher wins.
-        // Same file/format the behavior Resolver uses.
-        std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
-        {
-            std::unordered_map<std::string, int> order;
-            std::ifstream f(ini);
-            std::string line;
-            int idx = 0;
-            while (std::getline(f, line)) {
-                const std::string entry = TrimLine(line);
-                if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
-                order[ToLower(entry)] = ++idx;
-            }
-            return order;
-        }
-
         // Build a delta SingleFile from one bundle's meshes/animationsetdata/ tree (split
         // form: <project>data/<set>.txt, each a "V3" set-content record). Returns false if
         // the bundle contributes no set-data. Malformed set files are skipped with a warning
         // appended to `warn` (Nemesis patch-form files carrying <!-- … --> markers land here —
         // they start with "V3" but fail the strict parse). Reads through BundleReader so the
-        // bundle may be an unpacked dir OR a packed .hky (a packed bundle yields lowercase dir/
-        // file names; MergeInto matches case-insensitively, so the merge is unchanged).
+        // bundle may be an unpacked dir OR a packed .hky — both list names in their original case.
         bool LoadBundleDelta(const BundleReader& b, asd::SingleFile& out, std::string& warn)
         {
             constexpr const char* kRoot = "meshes/animationsetdata";
             bool any = false;
             for (const std::string& dirName : b.subdirs(kRoot)) {   // e.g. "defaultmaledata"
-                // Reconstruct the single-file header "<Dir>\<Dir-minus-'data'>.txt". Case is
-                // whatever the bundle stored; MergeInto matches case-insensitively so this
-                // still binds to the correctly-cased vanilla project.
+                /// @note Reconstruct the single-file header "<Dir>\<Dir-minus-'Data'>.txt" from the folder NAME,
+                ///       which the listing returns in its original case — the header is served verbatim, so a
+                ///       project a mod adds keeps its authored spelling (CB-9).
                 std::string stem = dirName;
-                const std::string low = ToLower(dirName);
+                const std::string low = PathKey(dirName);
                 if (low.size() > 4 && low.compare(low.size() - 4, 4, "data") == 0)
                     stem = dirName.substr(0, dirName.size() - 4);
 
@@ -152,12 +112,13 @@ namespace CB::core::serve {
 
         // A setdata project name maps to its character stem by dropping a trailing "Project"
         // ("HorseProject" -> "horse", "DragonProject" -> "dragon"); humanoid projects have no
-        // suffix ("DefaultMale" -> "defaultmale"). Used only to source a YAML moveset's CRC
+        // suffix ("DefaultMale" -> "defaultmale"). The result is a PATH key: it finds the character
+        // FILE (rosterPaths / charActorRoot are keyed by file stem). Used only to source a YAML moveset's CRC
         // registration from the mod's roster additions — a miss just yields no derived CRCs
         // (the moveset still merges; a delta onto a vanilla set keeps the vanilla registration).
         std::string ProjectToCharStem(const std::string& project)
         {
-            std::string s = ToLower(project);
+            std::string s = PathKey(project);
             const std::string suf = "project";
             if (s.size() > suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0)
                 s.erase(s.size() - suf.size());
@@ -171,11 +132,11 @@ namespace CB::core::serve {
         SetDataServeResult r;
 
         std::error_code ec;
-        const auto      order = LoadOrder(loadOrderIni);
+        const auto      order = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
 
         // Gather (priority, delta) from BR .hky bundles ONLY — the primary format, each
         // bundle carrying a mod's behaviors AND its set-data together so the two stay
-        // consistent. Legacy Nemesis mods are consumed OFFLINE (br-nemesis-to-hky) into
+        // consistent. Legacy Nemesis mods are consumed OFFLINE (the Behavior Converter) into
         // .hky bundles, NOT side-loaded at runtime: a runtime set-data side-load adds a
         // mod's moveset table without its behaviors and desyncs it from the behavior graph
         // (the 2026-08-10 char-setup crash). Runtime Nemesis side-loading stays off the
@@ -193,7 +154,7 @@ namespace CB::core::serve {
         // same additions the served compiled character file now bakes into its roster. Used by
         // the coverage guard below so the served cache never registers a CRC the character's
         // roster can't resolve (that mismatch is the char-setup set-data-bind rep-stosq crash).
-        std::unordered_map<std::string, std::vector<std::string>> rosterPaths;  // charName(lower) -> paths
+        std::unordered_map<std::string, std::vector<std::string>> rosterPaths;  // charName (path key) -> paths
 
         // Open every MOD bundle once — a <Mod>.hky is EITHER an unpacked dir OR a packed .hky
         // file, read the same way through BundleReader. The Skyrim.hky MASTER (stem "skyrim")
@@ -208,8 +169,8 @@ namespace CB::core::serve {
         if (fs::is_directory(pluginsRoot, ec)) {
             for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec)) {
                 const fs::path bundle = bi->path();
-                if (ToLower(bundle.extension().string()) != ".hky") continue;
-                const std::string stem = ToLower(bundle.stem().string());  // "bfco" / "skyrim"
+                if (!HasExt(bundle.filename().string(), ".hky")) continue;
+                const std::string stem = PathKey(bundle.stem().string());  // "bfco" / "skyrim"
                 if (stem == "skyrim") { masterBundle = bundle; continue; }  // base + char units, lazily
 
                 auto rd = BundleReader::Open(bundle);
@@ -218,14 +179,12 @@ namespace CB::core::serve {
                 // Roster additions (animationnames/<char>.txt) — collected even if the bundle
                 // ships no set-data (a character's roster is the union across bundles).
                 for (const std::string& fn : rd->files("animationnames", ".txt")) {
-                    const std::string charName = ToLower(fs::path(fn).stem().string());
+                    const std::string charName = PathKey(fs::path(fn).stem().string());
                     if (const auto txt = rd->read(std::string("animationnames/") + fn)) {
-                        std::istringstream in(*txt);
-                        std::string        line;
-                        auto&              dst = rosterPaths[charName];
-                        while (std::getline(in, line)) {
-                            const std::string t = TrimLine(line);
-                            if (!t.empty()) dst.push_back(t);
+                        auto& dst = rosterPaths[charName];
+                        for (const std::string_view line : SplitLines(StripBom(*txt))) {
+                            const std::string_view t = Trim(line);
+                            if (!t.empty()) dst.emplace_back(t);
                         }
                     }
                 }
@@ -239,15 +198,14 @@ namespace CB::core::serve {
                     auto cs = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
                     if (!cs || cs->animationNames.empty()) continue;
                     const auto s1 = unit.find_last_of('/');
-                    std::string charName = ToLower((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
+                    std::string charName = PathKey((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
                     if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
                     auto& dst = rosterPaths[charName];
                     dst.insert(dst.end(), std::make_move_iterator(cs->animationNames.begin()),
                                std::make_move_iterator(cs->animationNames.end()));
                 }
 
-                const auto oit  = order.find(stem);  // loadorder lists bare stems ("bfco")
-                const int  prio = (oit != order.end()) ? oit->second : 0;
+                const int prio = order.Rank(stem);  // loadorder lists bare stems ("bfco")
 
                 asd::SingleFile delta;
                 std::string     warn;
@@ -262,7 +220,7 @@ namespace CB::core::serve {
                 // file.txt/movesets/<project>.yaml (the same convention the master ships; the old
                 // per-actor animdata/movesets/ layout is gone). The project = the file stem. CRCs
                 // derive later from the roster.
-                for (const std::string& path : rd->filesUnder("meshes/animationsetdatasinglefile.txt/movesets", ".yaml")) {
+                for (const std::string& path : rd->filesUnderOrig("meshes/animationsetdatasinglefile.txt/movesets", ".yaml")) {
                     const auto y = rd->read(path);
                     if (!y) continue;
                     std::string proj = path.substr(path.find_last_of('/') + 1);   // "<project>.yaml"
@@ -294,10 +252,10 @@ namespace CB::core::serve {
         // "meshes\actors\character" — hardcoding the latter mis-CRC'd every creature. Char units sit
         // two components under their actor root (<root>/characters[ x]/<stem>.hkx), so strip the last
         // two. Now sourced from the packed master too (its 344 vanilla characters carry these roots).
-        std::unordered_map<std::string, std::string> charActorRoot;  // charStem(lower) -> "meshes\actors\..."
+        std::unordered_map<std::string, std::string> charActorRoot;  // charStem (path key) -> "meshes\actors\..."
         const auto ingestCharUnits = [&](const BundleReader& rd) {
             for (std::string rel : rd.units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
-                rel = ToLower(rel);                             // "meshes/actors/horse/characters/horse.hkx"
+                rel = PathKey(rel);                             // "meshes/actors/horse/characters/horse.hkx"
                 const auto s1 = rel.find_last_of('/');
                 const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rel.find_last_of('/', s1 - 1);
                 if (s2 == std::string::npos) continue;
@@ -355,8 +313,7 @@ namespace CB::core::serve {
         //
         // The master no longer ships the monolithic .txt — it ships the decomposed
         // animationsetdatasinglefile.txt/ FOLDER (index.yaml + movesets/ authored + crcs/ baked).
-        // COMPOSE the base from that folder: it reproduces vanilla byte-for-byte (gated offline via
-        // havok-core-cli setdata-tree-roundtrip). Falls back to a legacy loose .txt (older master or
+        // COMPOSE the base from that folder: it reproduces vanilla byte-for-byte. Falls back to a legacy loose .txt (older master or
         // the VFS-winning file) only if the folder is absent, with a warning.
         asd::SingleFile base;
         std::string     baseFrom;
@@ -401,7 +358,7 @@ namespace CB::core::serve {
                 baseFrom = "Skyrim.hky/meshes/animationsetdatasinglefile.txt (legacy loose)";
             } else {
                 baseFrom = vfsBase.string();
-                baseText = ReadFile(vfsBase);
+                baseText = disk::ReadFile(vfsBase).value_or(std::string());
                 LOG_WARN("SetData: no animationsetdatasinglefile.txt/ folder in master (bundle '{}') — "
                          "falling back to the loose file '{}'. If an upstream tool already merged the mods "
                          "there, this DOUBLE-merges; ship the decomposed Skyrim.hky master.",
@@ -427,13 +384,14 @@ namespace CB::core::serve {
         // Snapshot the VANILLA CRCs per character BEFORE the merge appends deltas: a CRC
         // present in vanilla is in that character's baked animationNames, so it always
         // resolves. `crcKey` packs (folder,file); ext is a constant (.hkx). `charOf` maps a
-        // project header ("DefaultMaleData\\DefaultMale.txt") to its character ("defaultmale").
+        // project header ("DefaultMaleData\\DefaultMale.txt") to its character ("DefaultMale"), exactly
+        // as the header spells it — both the snapshot and the lookup below key off the same headers.
         const auto charOf = [](const std::string& header) {
             const auto bs = header.find_last_of("\\/");
             std::string fn = (bs == std::string::npos) ? header : header.substr(bs + 1);
             const auto dot = fn.rfind('.');
             if (dot != std::string::npos) fn = fn.substr(0, dot);
-            return ToLower(fn);
+            return fn;
         };
         const auto crcKey = [](std::uint32_t folder, std::uint32_t file) {
             return (static_cast<std::uint64_t>(folder) << 32) | file;
@@ -524,8 +482,8 @@ namespace CB::core::serve {
         // Emit + persist to BR's contained cache (see header for the MO2 routing rationale).
         const std::string merged    = asd::EmitSingleFile(base);
         const fs::path    cachePath = dataDir / "community_behaviors_cache" / "animationsetdatasinglefile.txt";
-        if (!WriteFile(cachePath, merged)) {
-            r.error = "failed to write merged cache: " + cachePath.string();
+        if (std::string werr; !disk::WriteFile(cachePath, merged, { .atomic = true }, &werr)) {
+            r.error = "failed to write merged cache: " + werr;
             LOG_ERROR("SetData: {}", r.error);
             return r;
         }

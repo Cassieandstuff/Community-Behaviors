@@ -23,7 +23,6 @@ namespace CB::core::conditions {
         struct AsgEntry { const void* name; std::int32_t value; std::uint32_t pad; };
         static_assert(sizeof(AsgEntry) == 0x10, "assignment entry must be 16 bytes");
 
-        std::atomic<bool> s_enabled{ true };
         std::atomic<bool> s_installed{ false };
 
         thread_local RE::Actor* t_actor = nullptr;
@@ -35,7 +34,7 @@ namespace CB::core::conditions {
         // pass so primitives memoize across every condition on this actor.
         std::size_t EvalSensors(RE::Actor* actor, std::vector<AsgEntry>& out) {
             static thread_local EvalContext ctx;
-            ctx.Reset(actor, nullptr);
+            ctx.Reset(actor);
             out.clear();
             for (const ConditionInstance& inst : Instances()) {
                 if (inst.enabled && !*inst.enabled) continue;              // per-config toggle
@@ -50,7 +49,7 @@ namespace CB::core::conditions {
         // ── matcher hook: splice sensor pairs into the assignment array, then delegate ─────────────
         std::uint8_t OnMatch(MatchNext next, void* table, void* event, void* project, std::uintptr_t asgn, void* out) {
             RE::Actor* actor = t_actor;
-            if (!s_enabled.load(std::memory_order_relaxed) || !actor || Instances().empty())
+            if (!actor || Instances().empty())
                 return next(table, event, project, asgn, out);
 
             static thread_local std::vector<AsgEntry> extra;
@@ -86,9 +85,6 @@ namespace CB::core::conditions {
     }  // namespace
 
     // ── public control ──────────────────────────────────────────────────────────────────────────
-    void SetGlobalEnabled(bool on) { s_enabled.store(on, std::memory_order_relaxed); }
-    bool GlobalEnabled()           { return s_enabled.load(std::memory_order_relaxed); }
-
     void RegisterConditionInstance(ConditionInstance inst) { Instances().push_back(std::move(inst)); }
     void ClearConditionInstances()                         { Instances().clear(); }
 

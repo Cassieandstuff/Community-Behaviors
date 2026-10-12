@@ -1,7 +1,8 @@
 #include <codec/format/RigIndex.h>
 
+#include <codec/resource/PathKey.h>   // path identity (PathKey)
+
 #include <algorithm>
-#include <cctype>
 
 namespace CB::engine::skeleton {
 
@@ -19,8 +20,8 @@ std::string RigIndex::DirOf(const std::string& key) {
 
 std::string RigIndex::JoinRel(const std::string& dir, const std::string& rel) {
     std::vector<std::string> parts;
-    auto push = [&parts](std::string path) {
-        for (char& c : path) c = (c == '\\') ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    auto push = [&parts](const std::string& raw) {
+        const std::string path = codec::resource::PathKey(raw);
         std::size_t s = 0;
         while (s <= path.size()) {
             const std::size_t e   = std::min(path.find('/', s), path.size());
@@ -67,8 +68,7 @@ void RigIndex::Finalize() {
 }
 
 const std::vector<std::string>* RigIndex::RigsFor(const std::string& key) const {
-    std::string k = key;
-    for (char& c : k) c = (c == '\\') ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const std::string k = codec::resource::PathKey(key);
     if (const auto it = m_byBehavior.find(k); it != m_byBehavior.end()) return &it->second;
     if (const auto it = m_byBehaviorDir.find(DirOf(k)); it != m_byBehaviorDir.end()) return &it->second;
     for (std::string d = DirOf(k); !d.empty(); d = DirOf(d))

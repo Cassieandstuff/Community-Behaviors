@@ -40,10 +40,9 @@ namespace CB {
         // build-time constant (retires Converter's kGatePerModAnimations).
         bool                     compileAnimations = false;
 
-        // The editor <-> compiler contract stamp (see Havok/SCHEMA.yaml + the schema-version-stamp
-        // scheme). Whoever produced this bundle (BR's own compiler, or a third-party editor) copies
-        // these in; the compiler gates ingest on schemaVersion.
-        std::string              schemaVersion;   // "schema_version": the Havok/ contract this bundle
+        /// @brief The schema contract version (CB_SCHEMA_VERSION) + producer chain a bundle's producer may stamp.
+        /// @note Read only: no producer writes these yet and nothing gates ingest on schemaVersion.
+        std::string              schemaVersion;   // "schema_version": the schema/ contract this bundle
                                                   // was authored against (empty = legacy/unstamped)
         std::vector<std::string> authoredBy;      // "authored_by": producer CHAIN, origin first,
                                                   // last-toucher last. DIAGNOSTIC-ONLY — never gate on it.

@@ -1,9 +1,8 @@
-// SkeletonCompiler — schema-native skeleton .hkx emit. The de-typed port of havok-core's byte-exact
-// sct/SkeletonCompiler: the derivation math (ragdoll skeleton / rigid bodies / constraints / mappers /
-// resource tree) is ported verbatim into lean value structs (no typed hka*/hkp* holders), then emitted
-// straight into an io::SchemaObject graph via the Havok/ class descriptors and serialized. Every field
-// value and constructor-default constant the typed path relied on is reproduced explicitly, so the
-// output stays byte-identical (gated by havok-core-cli skeleton-full-parity / skeleton-parity).
+// SkeletonCompiler — schema-native skeleton .hkx emit, de-typed from a byte-exact typed compiler:
+// the derivation math (ragdoll skeleton / rigid bodies / constraints / mappers / resource tree) lives
+// in lean value structs (no typed hka*/hkp* holders), then is emitted straight into an io::SchemaObject
+// graph via the schema/ class descriptors and serialized. Every field value and constructor-default
+// constant the typed compiler relied on is reproduced explicitly, so the output stays byte-identical.
 
 #include "compile/SkeletonCompiler.h"
 #include "interface/SkeletonMath.h"
@@ -15,13 +14,13 @@
 #include <codec/serialization/packfile/BinaryWriterEx.h>
 #include <codec/serialization/packfile/PackFileDeserializer.h>
 #include <codec/serialization/packfile/PackFileSerializer.h>
+#include <disk/Disk.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <exception>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -45,10 +44,7 @@ void apQt(std::vector<std::uint8_t>& v, const QSTransform& t) {
     apF(v, t.rotation.x); apF(v, t.rotation.y); apF(v, t.rotation.z); apF(v, t.rotation.w);
     apV4(v, t.scale);
 }
-std::vector<std::uint8_t> e8 (std::uint8_t x)  { return { x }; }
 std::vector<std::uint8_t> e16(std::uint16_t x) { return { static_cast<std::uint8_t>(x & 0xff), static_cast<std::uint8_t>(x >> 8) }; }
-std::vector<std::uint8_t> e32(std::uint32_t x) { std::vector<std::uint8_t> v(4); std::memcpy(v.data(), &x, 4); return v; }
-std::vector<std::uint8_t> ef (float f)         { std::vector<std::uint8_t> v; apF(v, f); return v; }
 std::vector<std::uint8_t> eV4(const Vector4& q){ std::vector<std::uint8_t> v; apV4(v, q); return v; }
 // Raw 16-byte Vector4 copy (preserves every bit incl. -0.0 padding).
 std::vector<std::uint8_t> rawV4(const Vector4& q){ std::vector<std::uint8_t> v(16); std::memcpy(v.data(), &q, 16); return v; }
@@ -139,7 +135,7 @@ std::vector<DBody> deriveBodies(const SkeletonData& anim, const RagdollTopo& top
     const auto ragWorld = skmath::worldPoses(rag);
 
     // First bone (ANY bone, not necessarily a physics bone) whose nearest physics-ancestor is animIdx —
-    // its local translation is the default capsule's far endpoint (origin → child). Matches havok-core.
+    // its local translation is the default capsule's far endpoint (origin → child).
     const auto firstPhysChild = [&](int animIdx) -> int {
         for (int c = 0; c < static_cast<int>(anim.bones.size()); ++c)
             if (physicsAncestor(anim, c) == animIdx) return c;
@@ -303,19 +299,20 @@ std::shared_ptr<SchemaObject> emitHkTransform(const schema::SchemaRegistry& reg,
 std::shared_ptr<SchemaObject> emitSkel(const schema::SchemaRegistry& reg, const SkeletonData& sk) {
     auto o = mkS(reg, "hkaSkeleton"); if (!o) return nullptr;
     o->FieldRef("name").str = sk.name.empty() ? "Skeleton" : sk.name;
-    { auto& pi = o->FieldRef("parentIndices").raw;
-      for (const auto& b : sk.bones) { std::int16_t p = static_cast<std::int16_t>(b.parentIndex); std::uint8_t bb[2]; std::memcpy(bb, &p, 2); pi.insert(pi.end(), bb, bb + 2); } }
+    { std::vector<std::int16_t> pi;
+      for (const auto& b : sk.bones) pi.push_back(static_cast<std::int16_t>(b.parentIndex));
+      o->SetArray("parentIndices", pi); }
     { auto& bones = o->FieldRef("bones").objs;
       for (const auto& b : sk.bones) { auto bo = mkS(reg, "hkaBone"); if (!bo) return nullptr;
           bo->FieldRef("name").str = b.name;
-          bo->FieldRef("lockTranslation").raw = e8(b.lockTranslation ? 1 : 0); bones.push_back(bo); } }
+          bo->SetBool("lockTranslation", b.lockTranslation); bones.push_back(bo); } }
     { auto& rp = o->FieldRef("referencePose").raw; for (const auto& b : sk.bones) apQt(rp, b.refPose); }
     return o;
 }
 
 std::shared_ptr<SchemaObject> emitCapsule(const schema::SchemaRegistry& reg, const DBody& b) {
     auto o = mkS(reg, "hkpCapsuleShape"); if (!o) return nullptr;
-    o->FieldRef("radius").raw  = ef(b.radius);
+    o->SetFloat("radius", b.radius);
     o->FieldRef("vertexA").raw = rawV4(b.vertexA);
     o->FieldRef("vertexB").raw = rawV4(b.vertexB);
     return o;
@@ -329,40 +326,40 @@ std::shared_ptr<SchemaObject> emitBody(const schema::SchemaRegistry& reg, const 
     auto cap = emitCapsule(reg, b); if (!cap) return nullptr; shapeOut = cap;
     auto coll = mkS(reg, "hkpLinkedCollidable"); if (!coll) return nullptr;
     coll->FieldRef("shape").obj = cap;
-    coll->FieldRef("allowedPenetrationDepth").raw = ef(0.1f);
+    coll->SetFloat("allowedPenetrationDepth", 0.1f);
     auto bph = mkS(reg, "hkpTypedBroadPhaseHandle"); if (!bph) return nullptr;
-    bph->FieldRef("type").raw                = e8(1);
-    bph->FieldRef("objectQualityType").raw   = e8(4);
-    bph->FieldRef("collisionFilterInfo").raw = e32(b.filterInfo);
+    bph->SetInt("type", 1);
+    bph->SetInt("objectQualityType", 4);
+    bph->SetInt("collisionFilterInfo", b.filterInfo);
     coll->FieldRef("broadPhaseHandle").obj = bph;
     o->FieldRef("collidable").obj = coll;
     auto mat = mkS(reg, "hkpMaterial"); if (!mat) return nullptr;
-    mat->FieldRef("responseType").raw = e8(1);
-    mat->FieldRef("friction").raw     = ef(b.friction);
-    mat->FieldRef("restitution").raw  = ef(b.restitution);
+    mat->SetInt("responseType", 1);
+    mat->SetFloat("friction", b.friction);
+    mat->SetFloat("restitution", b.restitution);
     o->FieldRef("material").obj = mat;
-    o->FieldRef("damageMultiplier").raw = ef(1.0f);
-    o->FieldRef("uid").raw = e32(0xFFFFFFFFu);
+    o->SetFloat("damageMultiplier", 1.0f);
+    o->SetInt("uid", 0xFFFFFFFFu);
     auto spu = mkS(reg, "hkpEntitySpuCollisionCallback"); if (!spu) return nullptr;
-    spu->FieldRef("eventFilter").raw = e8(3);
-    spu->FieldRef("userFilter").raw  = e8(1);
+    spu->SetInt("eventFilter", 3);
+    spu->SetInt("userFilter", 1);
     o->FieldRef("spuCollisionCallback").obj = spu;
     auto mo = mkS(reg, "hkpMaxSizeMotion"); if (!mo) return nullptr;
-    mo->FieldRef("type").raw                         = e8(b.motionType);
-    mo->FieldRef("deactivationIntegrateCounter").raw = e8(15);
+    mo->SetInt("type", b.motionType);
+    mo->SetInt("deactivationIntegrateCounter", 15);
     mo->FieldRef("inertiaAndMassInv").raw            = eV4(b.inertiaAndMassInv);
     mo->FieldRef("gravityFactor").raw                = e16(toHalf(1.0f));
     auto ms = mkS(reg, "hkMotionState"); if (!ms) return nullptr;
     { auto& tf = ms->FieldRef("transform").raw;      tf.clear(); apCols(tf, b.transform); }
     { auto& sw = ms->FieldRef("sweptTransform").raw; sw.clear(); for (const auto& v : b.swept) apV4(sw, v); }
     ms->FieldRef("deltaAngle").raw        = eV4(Vector4{0,0,0,0});   // typed default: all +0.0
-    ms->FieldRef("objectRadius").raw      = ef(b.objectRadius);
+    ms->SetFloat("objectRadius", b.objectRadius);
     ms->FieldRef("linearDamping").raw     = e16(toHalf(0.0f));
     ms->FieldRef("angularDamping").raw    = e16(toHalf(0.05f));
     ms->FieldRef("timeFactor").raw        = e16(toHalf(1.0f));
-    ms->FieldRef("maxLinearVelocity").raw  = e8(127);
-    ms->FieldRef("maxAngularVelocity").raw = e8(127);
-    ms->FieldRef("deactivationClass").raw  = e8(2);
+    ms->SetInt("maxLinearVelocity", 127);
+    ms->SetInt("maxAngularVelocity", 127);
+    ms->SetInt("deactivationClass", 2);
     mo->FieldRef("motionState").obj = ms;
     o->FieldRef("motion").obj = mo;
     return o;
@@ -372,57 +369,57 @@ std::shared_ptr<SchemaObject> emitConstraint(const schema::SchemaRegistry& reg, 
                                              const std::vector<std::shared_ptr<SchemaObject>>& bodySOs) {
     auto o = mkS(reg, "hkpConstraintInstance"); if (!o) return nullptr;
     o->FieldRef("name").str = c.name;
-    o->FieldRef("priority").raw    = e8(1);
-    o->FieldRef("wantRuntime").raw = e8(1);
+    o->SetInt("priority", 1);
+    o->SetBool("wantRuntime", true);
     { auto& ents = o->FieldRef("entities").objs;
       ents.push_back(c.childBody  >= 0 ? bodySOs[static_cast<std::size_t>(c.childBody)]  : nullptr);
       ents.push_back(c.parentBody >= 0 ? bodySOs[static_cast<std::size_t>(c.parentBody)] : nullptr); }
 
     const auto setTr = [&](SchemaObject& atoms) {
         auto a = mkS(reg, "hkpSetLocalTransformsConstraintAtom");
-        a->FieldRef("type").raw = e16(2);
+        a->SetInt("type", 2);
         a->FieldRef("transformA").obj = emitHkTransform(reg, c.fA);
         a->FieldRef("transformB").obj = emitHkTransform(reg, c.fB);
         atoms.FieldRef("transforms").obj = a;
     };
     const auto setStab = [&](SchemaObject& atoms) {
         auto a = mkS(reg, "hkpSetupStabilizationAtom");
-        a->FieldRef("type").raw = e16(23); a->FieldRef("enabled").raw = e8(0);
-        a->FieldRef("maxAngle").raw = ef(1.8446744e19f); atoms.FieldRef("setupStabilization").obj = a;
+        a->SetInt("type", 23); a->SetBool("enabled", false);
+        a->SetFloat("maxAngle", 1.8446744e19f); atoms.FieldRef("setupStabilization").obj = a;
     };
     const auto setBall = [&](SchemaObject& atoms) {
         auto a = mkS(reg, "hkpBallSocketConstraintAtom");
-        a->FieldRef("type").raw = e16(5); a->FieldRef("solvingMethod").raw = e8(1);
-        a->FieldRef("bodiesToNotify").raw = e8(0);
-        a->FieldRef("velocityStabilizationFactor").raw = e8(48);
-        a->FieldRef("maxImpulse").raw = ef(kFltMax); a->FieldRef("inertiaStabilizationFactor").raw = ef(0.f);
+        a->SetInt("type", 5); a->SetInt("solvingMethod", 1);
+        a->SetInt("bodiesToNotify", 0);
+        a->SetInt("velocityStabilizationFactor", 48);
+        a->SetFloat("maxImpulse", kFltMax); a->SetFloat("inertiaStabilizationFactor", 0.f);
         atoms.FieldRef("ballSocket").obj = a;
     };
     const auto setAngFric = [&](SchemaObject& atoms) {
         auto a = mkS(reg, "hkpAngFrictionConstraintAtom");
-        a->FieldRef("type").raw = e16(17); a->FieldRef("isEnabled").raw = e8(1);
-        a->FieldRef("firstFrictionAxis").raw = e8(0); a->FieldRef("numFrictionAxes").raw = e8(0);
-        a->FieldRef("maxFrictionTorque").raw = ef(0.f); atoms.FieldRef("angFriction").obj = a;
+        a->SetInt("type", 17); a->SetInt("isEnabled", 1);
+        a->SetInt("firstFrictionAxis", 0); a->SetInt("numFrictionAxes", 0);
+        a->SetFloat("maxFrictionTorque", 0.f); atoms.FieldRef("angFriction").obj = a;
     };
 
     if (!c.hinge) {
         auto data = mkS(reg, "hkpRagdollConstraintData"); if (!data) return nullptr;
         auto atoms = mkS(reg, "hkpRagdollConstraintDataAtoms"); if (!atoms) return nullptr;
         setTr(*atoms); setStab(*atoms); setBall(*atoms); setAngFric(*atoms);
-        { auto a = mkS(reg, "hkpRagdollMotorConstraintAtom"); a->FieldRef("type").raw = e16(19);
-          a->FieldRef("isEnabled").raw = e8(0); atoms->FieldRef("ragdollMotors").obj = a; }
-        { auto a = mkS(reg, "hkpTwistLimitConstraintAtom"); a->FieldRef("type").raw = e16(15);
-          a->FieldRef("isEnabled").raw = e8(0); a->FieldRef("twistAxis").raw = e8(0); a->FieldRef("refAxis").raw = e8(1);
-          a->FieldRef("minAngle").raw = ef(c.twistMin); a->FieldRef("maxAngle").raw = ef(c.twistMax);
-          a->FieldRef("angularLimitsTauFactor").raw = ef(0.8f); atoms->FieldRef("twistLimit").obj = a; }
+        { auto a = mkS(reg, "hkpRagdollMotorConstraintAtom"); a->SetInt("type", 19);
+          a->SetBool("isEnabled", false); atoms->FieldRef("ragdollMotors").obj = a; }
+        { auto a = mkS(reg, "hkpTwistLimitConstraintAtom"); a->SetInt("type", 15);
+          a->SetInt("isEnabled", 0); a->SetInt("twistAxis", 0); a->SetInt("refAxis", 1);
+          a->SetFloat("minAngle", c.twistMin); a->SetFloat("maxAngle", c.twistMax);
+          a->SetFloat("angularLimitsTauFactor", 0.8f); atoms->FieldRef("twistLimit").obj = a; }
         const auto cone = [&](const char* field, std::uint8_t refAxisInB, std::uint8_t angleMode,
                               std::uint8_t memOff, float mn, float mx) {
-            auto a = mkS(reg, "hkpConeLimitConstraintAtom"); a->FieldRef("type").raw = e16(16);
-            a->FieldRef("isEnabled").raw = e8(0); a->FieldRef("twistAxisInA").raw = e8(0);
-            a->FieldRef("refAxisInB").raw = e8(refAxisInB); a->FieldRef("angleMeasurementMode").raw = e8(angleMode);
-            a->FieldRef("memOffsetToAngleOffset").raw = e8(memOff);
-            a->FieldRef("minAngle").raw = ef(mn); a->FieldRef("maxAngle").raw = ef(mx);
-            a->FieldRef("angularLimitsTauFactor").raw = ef(0.8f); atoms->FieldRef(field).obj = a;
+            auto a = mkS(reg, "hkpConeLimitConstraintAtom"); a->SetInt("type", 16);
+            a->SetInt("isEnabled", 0); a->SetInt("twistAxisInA", 0);
+            a->SetInt("refAxisInB", refAxisInB); a->SetInt("angleMeasurementMode", angleMode);
+            a->SetInt("memOffsetToAngleOffset", memOff);
+            a->SetFloat("minAngle", mn); a->SetFloat("maxAngle", mx);
+            a->SetFloat("angularLimitsTauFactor", 0.8f); atoms->FieldRef(field).obj = a;
         };
         cone("coneLimit",   0, 0, 56, kConeMin,    c.coneMax);
         cone("planesLimit", 1, 1, 0,  c.planeMin,  c.planeMax);
@@ -431,14 +428,14 @@ std::shared_ptr<SchemaObject> emitConstraint(const schema::SchemaRegistry& reg, 
         auto data = mkS(reg, "hkpLimitedHingeConstraintData"); if (!data) return nullptr;
         auto atoms = mkS(reg, "hkpLimitedHingeConstraintDataAtoms"); if (!atoms) return nullptr;
         setTr(*atoms); setStab(*atoms); setBall(*atoms); setAngFric(*atoms);
-        { auto a = mkS(reg, "hkpAngMotorConstraintAtom"); a->FieldRef("type").raw = e16(18);
-          a->FieldRef("isEnabled").raw = e8(0); a->FieldRef("motorAxis").raw = e8(0); atoms->FieldRef("angMotor").obj = a; }
-        { auto a = mkS(reg, "hkpAngLimitConstraintAtom"); a->FieldRef("type").raw = e16(14);
-          a->FieldRef("isEnabled").raw = e8(0); a->FieldRef("limitAxis").raw = e8(0);
-          a->FieldRef("minAngle").raw = ef(c.angMin); a->FieldRef("maxAngle").raw = ef(c.angMax);
-          a->FieldRef("angularLimitsTauFactor").raw = ef(1.f); atoms->FieldRef("angLimit").obj = a; }
-        { auto a = mkS(reg, "hkp2dAngConstraintAtom"); a->FieldRef("type").raw = e16(12);
-          a->FieldRef("freeRotationAxis").raw = e8(0); atoms->FieldRef("2dAng").obj = a; }
+        { auto a = mkS(reg, "hkpAngMotorConstraintAtom"); a->SetInt("type", 18);
+          a->SetBool("isEnabled", false); a->SetInt("motorAxis", 0); atoms->FieldRef("angMotor").obj = a; }
+        { auto a = mkS(reg, "hkpAngLimitConstraintAtom"); a->SetInt("type", 14);
+          a->SetInt("isEnabled", 0); a->SetInt("limitAxis", 0);
+          a->SetFloat("minAngle", c.angMin); a->SetFloat("maxAngle", c.angMax);
+          a->SetFloat("angularLimitsTauFactor", 1.f); atoms->FieldRef("angLimit").obj = a; }
+        { auto a = mkS(reg, "hkp2dAngConstraintAtom"); a->SetInt("type", 12);
+          a->SetInt("freeRotationAxis", 0); atoms->FieldRef("2dAng").obj = a; }
         data->FieldRef("atoms").obj = atoms; o->FieldRef("data").obj = data;
     }
     return o;
@@ -455,17 +452,16 @@ std::shared_ptr<SchemaObject> emitMapper(const schema::SchemaRegistry& reg,
     md->FieldRef("skeletonB").obj = skB;
     { auto& sm = md->FieldRef("simpleMappings").objs;
       for (auto [ia, ib] : pairsAB) { auto so = mkS(reg, "hkaSkeletonMapperDataSimpleMapping"); if (!so) return nullptr;
-          so->FieldRef("boneA").raw = e16(static_cast<std::uint16_t>(ia));
-          so->FieldRef("boneB").raw = e16(static_cast<std::uint16_t>(ib));
+          so->SetInt("boneA", static_cast<std::int16_t>(ia));
+          so->SetInt("boneB", static_cast<std::int16_t>(ib));
           const QSTransform aFromB = skmath::compose(skmath::inverse(worldA[static_cast<std::size_t>(ia)]),
                                                      worldB[static_cast<std::size_t>(ib)]);
           { auto& t = so->FieldRef("aFromBTransform").raw; t.clear(); apQt(t, aFromB); } sm.push_back(so); } }
-    { auto& ub = md->FieldRef("unmappedBones").raw;
-      for (std::int16_t b : unmapped) { std::uint8_t bb[2]; std::memcpy(bb, &b, 2); ub.insert(ub.end(), bb, bb + 2); } }
+    md->SetArray("unmappedBones", unmapped);
     { auto& em = md->FieldRef("extractedMotionMapping").raw; em.clear();
       apQt(em, QSTransform{ Vector4{0,0,0,0}, Quaternion{0,0,0,1}, Vector4{1,1,1,1} }); }
-    md->FieldRef("keepUnmappedLocal").raw = e8(1);
-    md->FieldRef("mappingType").raw = e32(0);
+    md->SetBool("keepUnmappedLocal", true);
+    md->SetInt("mappingType", 0);
     o->FieldRef("mapping").obj = md;
     return o;
 }
@@ -473,8 +469,8 @@ std::shared_ptr<SchemaObject> emitMapper(const schema::SchemaRegistry& reg,
 std::shared_ptr<SchemaObject> emitShapeInfo(const schema::SchemaRegistry& reg, const std::shared_ptr<SchemaObject>& shape) {
     auto o = mkS(reg, "hkpShapeInfo"); if (!o) return nullptr;
     o->FieldRef("shape").obj = shape;
-    o->FieldRef("isHierarchicalCompound").raw = e8(0);
-    o->FieldRef("hkdShapesCollected").raw     = e8(0);
+    o->SetBool("isHierarchicalCompound", false);
+    o->SetBool("hkdShapesCollected", false);
     o->FieldRef("transform").obj = emitHkTransform(reg, Cols4{ Vector4{1,0,0,0}, Vector4{0,1,0,0}, Vector4{0,0,1,0}, Vector4{0,0,0,0} });
     return o;
 }
@@ -534,14 +530,14 @@ std::shared_ptr<SchemaObject> assembleFull(const SkeletonData& data, const schem
     auto sys = mkS(reg, "hkpPhysicsSystem"); if (!sys) return nullptr;
     { auto& rbs = sys->FieldRef("rigidBodies").objs; if (bumperBody) rbs.push_back(bumperBody); for (auto& b : bodySOs) rbs.push_back(b); }
     { auto& cs = sys->FieldRef("constraints").objs; for (const auto& c : cons) { auto sc = emitConstraint(reg, c, bodySOs); if (!sc) return nullptr; cs.push_back(sc); } }
-    sys->FieldRef("name").str = "Ragdoll"; sys->FieldRef("active").raw = e8(1);
+    sys->FieldRef("name").str = "Ragdoll"; sys->SetBool("active", true);
     auto phys = mkS(reg, "hkpPhysicsData"); if (!phys) return nullptr; phys->FieldRef("systems").objs = { sys };
 
     // hkaRagdollInstance (bodies only; its OWN separate constraint set; identity boneToRigidBodyMap)
     auto ragInst = mkS(reg, "hkaRagdollInstance"); if (!ragInst) return nullptr;
     { auto& rbs = ragInst->FieldRef("rigidBodies").objs; for (auto& b : bodySOs) rbs.push_back(b); }
     { auto& cs = ragInst->FieldRef("constraints").objs; for (const auto& c : cons) { auto sc = emitConstraint(reg, c, bodySOs); if (!sc) return nullptr; cs.push_back(sc); } }
-    { auto& bm = ragInst->FieldRef("boneToRigidBodyMap").raw; for (int i = 0; i < static_cast<int>(bodies.size()); ++i) { auto b = e32(static_cast<std::uint32_t>(i)); bm.insert(bm.end(), b.begin(), b.end()); } }
+    { std::vector<std::int32_t> bm; for (int i = 0; i < static_cast<int>(bodies.size()); ++i) bm.push_back(i); ragInst->SetArray("boneToRigidBodyMap", bm); }
     ragInst->FieldRef("skeleton").obj = sRag;
 
     // the two mappers (anim↔ragdoll), pairing by stripped name
@@ -630,30 +626,26 @@ SkeletonCompileResult CompileSkeletonOverBase(const SkeletonData& animBones, con
         CB::engine::codec::PackFileDeserializer des;
         // Do NOT tolerate unregistered here: over-base rebuilds+reserializes the WHOLE graph, so a
         // dropped object is silent data loss. Fail loudly on a class the schema can't represent (e.g.
-        // hkpMoppBvTreeShape) instead — matches the typed CompileSkeletonOverBase.
+        // hkpMoppBvTreeShape) instead.
         des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
         auto root = std::dynamic_pointer_cast<SchemaObject>(des.Deserialize(br));
         if (!root) { r.error = "base is not a valid packfile root"; return r; }
 
         // find the animation skeleton (first hkaAnimationContainer's skeletons[0])
         std::shared_ptr<SchemaObject> anim;
-        for (auto& nvObj : root->FieldRef("namedVariants").objs) {
-            auto nv = std::dynamic_pointer_cast<SchemaObject>(nvObj); if (!nv) continue;
-            if (nv->FieldRef("className").str == "hkaAnimationContainer") {
-                auto ac = std::dynamic_pointer_cast<SchemaObject>(nv->FieldRef("variant").obj);
-                if (ac) { auto& sk = ac->FieldRef("skeletons").objs; if (!sk.empty()) anim = std::dynamic_pointer_cast<SchemaObject>(sk[0]); }
-                break;
-            }
+        if (auto ac = CB::engine::codec::io::FindVariant(*root, "hkaAnimationContainer")) {
+            const auto& sk = ac->Children("skeletons"); if (!sk.empty()) anim = CB::engine::codec::io::AsSchema(sk[0]);
         }
         if (!anim) { r.error = "base has no animation skeleton"; return r; }
 
         // rebuild the three parallel bone arrays; leave name / referenceFloats / floatSlots / localFrames
         // and every other variant untouched.
-        { auto& pi = anim->FieldRef("parentIndices").raw; pi.clear();
-          for (const auto& b : animBones.bones) { std::int16_t p = static_cast<std::int16_t>(b.parentIndex); std::uint8_t bb[2]; std::memcpy(bb, &p, 2); pi.insert(pi.end(), bb, bb + 2); } }
+        { std::vector<std::int16_t> pi;
+          for (const auto& b : animBones.bones) pi.push_back(static_cast<std::int16_t>(b.parentIndex));
+          anim->SetArray("parentIndices", pi); }
         { auto& bones = anim->FieldRef("bones").objs; bones.clear();
           for (const auto& b : animBones.bones) { auto bo = mkS(*reg, "hkaBone"); if (!bo) { r.error = "hkaBone unregistered"; return r; }
-              bo->FieldRef("name").str = b.name; bo->FieldRef("lockTranslation").raw = e8(b.lockTranslation ? 1 : 0); bones.push_back(bo); } }
+              bo->FieldRef("name").str = b.name; bo->SetBool("lockTranslation", b.lockTranslation); bones.push_back(bo); } }
         { auto& rp = anim->FieldRef("referencePose").raw; rp.clear(); for (const auto& b : animBones.bones) apQt(rp, b.refPose); }
 
         CB::engine::codec::PackFileSerializer ser;
@@ -672,19 +664,13 @@ SkeletonCompileResult CompileSkeletonToFile(const SkeletonData& data, const std:
     if (validate) {
         try {
             schema::SchemaRegistry* reg = schema::SharedRegistry();
-            CB::engine::codec::BinaryReaderEx br(r.bytes);
-            CB::engine::codec::PackFileDeserializer des; des.SetTolerateUnregistered(true);
-            if (reg) des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*reg);
-            auto root = std::dynamic_pointer_cast<SchemaObject>(des.Deserialize(br));
-            if (!root || root->FieldRef("namedVariants").objs.empty()) {
+            auto root = reg ? CB::engine::codec::io::DeserializeSchema(r.bytes, *reg, /*tolerateUnregistered*/ true) : nullptr;
+            if (!root || root->Children("namedVariants").empty()) {
                 r.ok = false; r.error = "skeleton packfile did not validate"; return r;
             }
         } catch (const std::exception& e) { r.ok = false; r.error = std::string("skeleton packfile did not validate: ") + e.what(); return r; }
     }
-    std::ofstream f(outPath, std::ios::binary);
-    if (!f) { r.ok = false; r.error = "cannot open output: " + outPath.string(); return r; }
-    f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
-    if (!f) { r.ok = false; r.error = "write failed: " + outPath.string(); }
+    if (!disk::WriteFile(outPath, r.bytes, {}, &r.error)) r.ok = false;
     return r;
 }
 

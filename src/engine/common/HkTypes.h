@@ -1,8 +1,8 @@
 #pragma once
 #include <cstdint>
 
-// havok-core's own minimal value types. Deliberately NOT RE::/System.Numerics
-// analogues (plan §1.3) — havok-core is a standalone, dependency-free library.
+// The engine's own minimal value types. Deliberately NOT RE:: analogues — the engine
+// is CommonLib-free (configure fails on any RE/ include).
 
 namespace CB::engine::common {
 
@@ -29,10 +29,5 @@ struct QSTransform {
     Vector4    scale{};
     friend bool operator==(const QSTransform&, const QSTransform&) = default;
 };
-
-// IEEE-754 binary16 stored as raw 16 bits. havok-core round-trips the bits; it
-// does not (yet) interpret/convert them. Promote to a real float16 type only if
-// a downstream consumer needs arithmetic on Half values.
-using Half = std::uint16_t;
 
 } // namespace CB::engine::common

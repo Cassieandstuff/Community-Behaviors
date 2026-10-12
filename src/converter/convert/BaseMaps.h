@@ -28,6 +28,7 @@ BaseMaps BuildBaseMaps(const CB::engine::codec::HkyArchive& baseArc);
 
 /// @brief "meshes/actors/horse/behaviors/horsebehavior.hkx" -> "actors/horse" (handles the space-folder variants and
 ///        _1stperson).
-std::string ActorOfServePath(const std::string& servePathLower);
+/// @return the actor path as a PathKey — an identity key into BaseMaps::actorCharacters, any input spelling.
+std::string ActorOfServePath(const std::string& servePath);
 
 }  // namespace CB::converter

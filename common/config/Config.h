@@ -1,9 +1,9 @@
 #pragma once
 
-// ── sct-config — the public API ───────────────────────────────────────────────
+// ── CB::config — the public API ───────────────────────────────────────────────
 // Shared config discovery + loading for the SKSE plugin family: one
-// deterministically-ordered directory scanner plus per-format adapters
-// (JSON / YAML / INI), consolidating the config readers each plugin was
+// deterministically-ordered directory scanner plus a JSON adapter,
+// consolidating the config readers each plugin was
 // re-cutting (Engine Relay's YAML ConfigLoader, Dialogue Camera / True Flight
 // SimpleIni, True Cinematics' SceneLoader, Behavior Relay's resolver).
 //
@@ -15,26 +15,18 @@
 //
 // SINGLE PUBLIC HEADER (CommonLib `Skyrim.h` model): this file is the entire
 // cross-project surface — consumers write `#include <config/Config.h>`
-// and nothing else. Nothing besides this file may ever live in
-// include/internal/sct-config/.
+// and nothing else.
 //
-// DEP NOTE: because each adapter's Doc holds the parser's own type by value
-// (nlohmann::json / CSimpleIniA / c4::yml::Tree), the parser types are part of
-// the API and cannot be hidden. Including this umbrella therefore pulls in all
-// three parsers (nlohmann/json, SimpleIni, rapidyaml). That is the accepted
-// cost of the one-header rule; a TU that only reads one format still compiles
-// the other two.
+// DEP NOTE: JsonDoc holds nlohmann::json by value, so the parser type is part
+// of the API and cannot be hidden.
 // ------------------------------------------------------------------------------
 
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
-#include <SimpleIni.h>
 #include <nlohmann/json.hpp>
-#include <RymlInclude.h>   // rapidyaml through the mandatory c4core C++20 shim
 
 namespace CB::config {
 
@@ -44,7 +36,7 @@ namespace CB::config {
 struct Source {
     std::filesystem::path path;   // absolute path to the file on disk
     std::string           stem;   // filename without extension — the config/mod handle
-    std::string           key;    // path relative to its scan root, '/'-separated + lowercased;
+    std::string           key;    // path relative to its scan root, as a path key (codec::resource::PathKey);
                                   //   the sort key, and a stable handle for attribution / dedup
 };
 
@@ -79,21 +71,6 @@ std::vector<Source> Discover(const ScanSpec& spec);
 // open/read failure — the caller decides whether that is fatal.
 std::optional<std::string> ReadText(const std::filesystem::path& path);
 
-// ── INI adapter (SimpleIni) ───────────────────────────────────────────────────
-// CSimpleIniA is non-copyable / non-movable, so docs hold it by shared_ptr.
-
-struct IniDoc {
-    Source                       source;
-    std::shared_ptr<CSimpleIniA> ini;
-};
-
-using IniBatch = Batch<IniDoc>;
-
-// Discover (defaults to *.ini) + load each via SimpleIni in Unicode mode (which
-// handles the BOM). A load failure is recorded per-file in .errors rather than
-// thrown.
-IniBatch LoadIni(const ScanSpec& spec);
-
 // ── JSON adapter (nlohmann/json) — the BDI-compatible path ────────────────────
 // JSON with // and /* */ comments is accepted (JSONC, common in mod configs).
 
@@ -108,18 +85,5 @@ using JsonBatch = Batch<JsonDoc>;
 // file. Comments are ignored; a read/parse failure is recorded per-file in
 // .errors rather than thrown.
 JsonBatch LoadJson(const ScanSpec& spec);
-
-// ── YAML adapter (rapidyaml) ──────────────────────────────────────────────────
-
-struct YamlDoc {
-    Source        source;
-    c4::yml::Tree tree;   // parsed into ryml's own arena — self-contained + movable
-};
-
-using YamlBatch = Batch<YamlDoc>;
-
-// Discover (defaults to *.yaml / *.yml) + read + parse each file. A read/parse
-// failure is recorded per-file in .errors rather than thrown.
-YamlBatch LoadYaml(const ScanSpec& spec);
 
 }  // namespace CB::config

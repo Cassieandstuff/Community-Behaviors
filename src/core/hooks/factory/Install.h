@@ -1,7 +1,7 @@
 #pragma once
 // core/hooks/factory/Install.h — the install MECHANISM for the repo's RE hook toolkit.
 //
-// Header-only. Wraps CommonLib's trampoline / vtable writes with a call-opcode
+// Header-only. Wraps CommonLib's trampoline writes with a call-opcode
 // sanity check and uniform logging, so every RE hook in the repo installs the same
 // way. Hook BODIES stay in their plugin (they carry project logic); this is the
 // shared plumbing they call. See <core/hooks/hookslib.h> for the umbrella.
@@ -15,19 +15,6 @@
 #include <cstdint>
 
 namespace CB::core::hooks {
-
-// Swap virtual function `index` in the vtable identified by `vtblId` (e.g.
-// RE::VTABLE_LookHandler[0], or a REL id), returning the previous entry's ADDRESS.
-// `label` is logged on install. Store the result in a REL::Relocation<Fn> directly,
-// or reinterpret_cast it to a raw function pointer — same contract as write_vfunc.
-template <class VtblID, class F>
-[[nodiscard]] std::uintptr_t InstallVFunc(VtblID vtblId, std::size_t index, F detour,
-                                          const char* label = nullptr) {
-    REL::Relocation<std::uintptr_t> vtbl{ vtblId };
-    std::uintptr_t original = vtbl.write_vfunc(index, detour);
-    if (label) LOG_INFO("hook: vfunc[{}] swapped ({})", index, label);
-    return original;
-}
 
 // write_call<N> detour on a call site, guarded by a 0xE8 (CALL rel32) opcode check.
 // Returns the original call target's ADDRESS, or 0 if `site` is not a CALL (hook not

@@ -89,17 +89,9 @@ namespace CB::core::conditions {
             const auto n = static_cast<std::uint32_t>(id);
             return n < Prims().size() ? Prims()[n].fn : nullptr;
         }
-        VType PrimReturns(PrimId id) {
-            const auto n = static_cast<std::uint32_t>(id);
-            return n < Prims().size() ? Prims()[n].returns : VType::None;
-        }
         FunctionFn FnFn(FnId id) {
             const auto n = static_cast<std::uint32_t>(id);
             return n < Fns().size() ? Fns()[n].fn : nullptr;
-        }
-        VType FnReturns(FnId id) {
-            const auto n = static_cast<std::uint32_t>(id);
-            return n < Fns().size() ? Fns()[n].returns : VType::None;
         }
         std::span<const VType> FnParams(FnId id) {
             const auto n = static_cast<std::uint32_t>(id);

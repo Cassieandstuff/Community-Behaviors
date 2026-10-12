@@ -9,13 +9,10 @@
 // SkeletonData — the plain, engine-free skeleton model: names, parent indices,
 // bind-pose transforms, and the AUTHORED ragdoll-physics knobs. It is the neutral
 // currency between the schema-native skeleton READER (SkeletonImport) and WRITER
-// (SkeletonCompiler), and the surface a tool (the Scene Editor) authors against.
+// (SkeletonCompiler), and the surface a tool authors against (via the CB-API facade).
 //
 // Deliberately NOT hkaSkeleton / hkp* — consumers get plain data; the Havok class
-// model stays an implementation detail of the codec. This model was lifted out of
-// the quarantined havok-core (havok::sct) unchanged EXCEPT for the namespace: a
-// skeleton .hkx is a generic Havok packfile, so the codec is a first-class member
-// of the data-driven Havok stack (CB::engine::skeleton), not a tool-scoped import.
+// model stays an implementation detail of the codec.
 
 namespace CB::engine::skeleton {
 using namespace CB::engine::common;

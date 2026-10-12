@@ -1,15 +1,16 @@
 #include "ui/LoadOrderUI.h"
 
 #include "platform/Platform.h"
+#include <codec/format/LoadOrderText.h>
+#include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>   // read manifest.json out of a PACKED (.hky file) bundle
+#include <disk/Disk.h>
 
 #include <imgui.h>
 
 #include <algorithm>
-#include <cctype>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <sstream>
 #include <unordered_map>
 
@@ -17,25 +18,14 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string ToLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
+using CB::engine::codec::resource::HasExt;
+using CB::engine::codec::resource::PathKey;
+using CB::engine::codec::LoadOrder;
+namespace disk = CB::engine::disk;
 
-std::string Trim(const std::string& s) {
-    const auto b = s.find_first_not_of(" \t\r\n");
-    if (b == std::string::npos) return {};
-    const auto e = s.find_last_not_of(" \t\r\n");
-    return s.substr(b, e - b + 1);
-}
-
-std::string ReadFile(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
+/// @brief The load order at `path`; empty when it can't be read.
+LoadOrder ReadOrder(const std::string& path) {
+    return CB::engine::codec::ReadLoadOrder(path).value_or(LoadOrder{});
 }
 
 // Targeted reader for the flat manifest.json — NOT a general JSON parser. Finds "key",
@@ -101,26 +91,15 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
     m_warnings.clear();
     m_dragged = -1;
 
-    // 1) Read loadorder.txt: ordered list of bundle stems (bare, later line wins). Comments
-    //    ('#' / ';') and blanks skipped. Preserve the file's order as the initial priority.
-    std::vector<std::string> order;                 // lowercased stems, in file order
-    std::unordered_map<std::string, int> orderIdx;  // stem -> position
-    {
-        std::ifstream f(loadOrderPath);
-        std::string line;
-        while (std::getline(f, line)) {
-            const std::string t = Trim(line);
-            if (t.empty() || t[0] == '#' || t[0] == ';') continue;
-            const std::string k = ToLower(t);
-            if (!orderIdx.count(k)) { orderIdx[k] = static_cast<int>(order.size()); order.push_back(k); }
-        }
-    }
+    // 1) Read loadorder.txt: its bundle stems in winning order (a duplicate sits at its LAST
+    //    line, as the runtime ranks it) — the initial priority.
+    const std::vector<std::string> order = ReadOrder(loadOrderPath).entries;
 
     // 2) Scan the plugins dir for *.hky bundles and read each manifest.json. A bundle is EITHER
     //    an unpacked DIRECTORY (<Mod>.hky/manifest.json on disk) OR a packed FILE (<Mod>.hky is a
     //    zip — the converter's ship form — with manifest.json inside it). Both are "present";
     //    only handling directories made every packed bundle look MISSING.
-    std::unordered_map<std::string, Bundle> found;  // stem -> bundle
+    std::unordered_map<std::string, Bundle> found;  // PathKey(stem) -> bundle
 
     // Fill a bundle's identity from its manifest.json text (empty = no manifest, keeps the
     // stem-derived defaults). Shared by the unpacked-dir and packed-file scan paths below.
@@ -130,26 +109,26 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
         if (std::string n = JsonStr(mf, "name"); !n.empty()) b.name = n;
         b.version = JsonStr(mf, "version");
         b.author  = JsonStr(mf, "author");
-        for (auto& m : JsonStrArray(mf, "masters")) b.masters.push_back(ToLower(m));
+        for (auto& m : JsonStrArray(mf, "masters")) b.masters.push_back(std::move(m));
     };
 
     std::error_code ec;
     if (fs::is_directory(pluginsDir, ec)) {
         for (fs::directory_iterator it(pluginsDir, ec), end; !ec && it != end; it.increment(ec)) {
-            if (ToLower(it->path().extension().string()) != ".hky") continue;
+            if (!HasExt(it->path().filename().string(), ".hky")) continue;
             std::error_code de;
             Bundle b;
             b.stem = it->path().stem().string();
             b.name = b.stem;
             if (it->is_directory(de)) {
-                applyManifest(b, ReadFile(it->path() / "manifest.json"));
+                applyManifest(b, disk::ReadFile(it->path() / "manifest.json").value_or(std::string{}));
             } else if (it->is_regular_file(de)) {
                 // Packed bundle: a .hky is a zip. Read manifest.json out of the archive (no
                 // extraction). Even if the archive can't be opened it is still a real bundle on
                 // disk, so it stays present (with stem-only defaults) rather than misreported
                 // missing. Skip the master Skyrim.hky — it holds the full vanilla corpus (~18MB),
                 // needs no manifest for ordering, and opening it would decompress the whole thing.
-                if (ToLower(b.stem) != "skyrim") {
+                if (PathKey(b.stem) != "skyrim") {
                     std::string herr;
                     if (auto arc = CB::engine::codec::HkyArchive::LoadFromFile(it->path().string(), herr))
                         if (auto mf = arc->file("manifest.json")) applyManifest(b, *mf);
@@ -157,22 +136,23 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
             } else {
                 continue;
             }
-            found.emplace(ToLower(b.stem), std::move(b));
+            std::string key = PathKey(b.stem);
+            found.emplace(std::move(key), std::move(b));
         }
     }
 
     // 3) Build the display order: loadorder.txt entries first (in file order), then any
     //    on-disk bundle not yet listed (appended, lowest-to-highest by name). A listed
     //    stem with no folder on disk is shown as "missing".
-    for (const auto& k : order) {
-        auto f = found.find(k);
+    for (const auto& s : order) {
+        auto f = found.find(PathKey(s));
         if (f != found.end()) { m_bundles.push_back(f->second); found.erase(f); }
-        else { Bundle miss; miss.stem = k; miss.name = k; miss.present = false; m_bundles.push_back(std::move(miss)); }
+        else { Bundle miss; miss.stem = s; miss.name = s; miss.present = false; m_bundles.push_back(std::move(miss)); }
     }
     std::vector<Bundle> rest;
     for (auto& [k, b] : found) rest.push_back(std::move(b));
     std::sort(rest.begin(), rest.end(),
-              [](const Bundle& a, const Bundle& b) { return ToLower(a.stem) < ToLower(b.stem); });
+              [](const Bundle& a, const Bundle& b) { return PathKey(a.stem) < PathKey(b.stem); });
     for (auto& b : rest) m_bundles.push_back(std::move(b));
 
     m_pluginsDir = pluginsDir;
@@ -193,7 +173,7 @@ void LoadOrderUI::Revalidate() {
     // Position of each present bundle in the current order (index = priority).
     std::unordered_map<std::string, int> pos;
     for (int i = 0; i < static_cast<int>(m_bundles.size()); ++i)
-        pos[ToLower(m_bundles[i].stem)] = i;
+        pos[PathKey(m_bundles[i].stem)] = i;
 
     for (int i = 0; i < static_cast<int>(m_bundles.size()); ++i) {
         const Bundle& b = m_bundles[i];
@@ -202,8 +182,8 @@ void LoadOrderUI::Revalidate() {
             continue;
         }
         for (const std::string& m : b.masters) {
-            if (ToLower(b.stem) == m) continue;
-            const auto it = pos.find(m);
+            if (PathKey(b.stem) == PathKey(m)) continue;
+            const auto it = pos.find(PathKey(m));
             if (it == pos.end()) {
                 m_warnings.push_back("'" + b.name + "' declares master '" + m +
                                      "' but it is not present (its overrides bind to nothing).");
@@ -215,14 +195,22 @@ void LoadOrderUI::Revalidate() {
     }
 }
 
+/// @note Comment and blank lines keep their place, as the converter's loadorder writer keeps them: each bundle line of
+///       the file on disk is a slot the display order refills in turn, and bundles past the last slot are appended.
+///       Written atomically — a failed save leaves the previous file intact.
 bool LoadOrderUI::Save(const std::string& loadOrderPath) {
     // Rewrite loadorder.txt in the current display order. Listed-but-missing entries are
     // preserved (user-owned; harmless), matching the converter's preserve-order contract.
-    std::error_code ec;
-    fs::create_directories(fs::path(loadOrderPath).parent_path(), ec);   // Data\community_behaviors\ may be new
-    std::ofstream f(loadOrderPath, std::ios::binary | std::ios::trunc);
-    if (!f) { m_status = "Save FAILED: cannot write " + loadOrderPath; return false; }
-    for (const auto& b : m_bundles) f << b.stem << "\n";
+    LoadOrder                current = ReadOrder(loadOrderPath);
+    std::vector<std::string> lines;
+    std::size_t              next = 0;
+    for (std::string& line : current.lines) {
+        if (!CB::engine::codec::IsLoadOrderEntry(line)) lines.push_back(std::move(line));
+        else if (next < m_bundles.size()) lines.push_back(m_bundles[next++].stem);
+    }
+    for (; next < m_bundles.size(); ++next) lines.push_back(m_bundles[next].stem);
+    std::string err;
+    if (!CB::engine::codec::WriteLoadOrder(loadOrderPath, lines, &err)) { m_status = "Save FAILED: " + err; return false; }
     m_status = "Saved loadorder.txt (" + std::to_string(m_bundles.size()) + " entries).";
     return true;
 }

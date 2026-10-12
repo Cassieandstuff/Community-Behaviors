@@ -1,30 +1,21 @@
 #pragma once
 
-// Pure serve-key helpers shared by the Resolver (runtime) and the br-servekey-test gate.
-// Header-only, std-only — no SKSE/PCH — so the same functions the runtime uses are the ones
-// the offline test exercises (no drift between "what we test" and "what serves").
+// Pure serve-key helpers (header-only, std + engine codec only — no SKSE/PCH).
+
+#include <codec/resource/PathKey.h>
 
 #include <algorithm>
-#include <cctype>
 #include <string>
 #include <string_view>
 
 namespace CB::core::discover {
 
-    inline std::string ToLower(std::string s)
-    {
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return s;
-    }
-
-    // Canonical serve-path key: lowercase, forward slashes, no leading "./" or "data/".
-    // Both the scan (relative to Data) and the game's open path fold to the same form,
-    // e.g. "meshes/actors/character/behaviors/0_master.hkx".
+    /// @brief The serve key: path identity (codec::resource::PathKey) plus serve-path cleanup — no repeated
+    ///        slashes, no leading "./" or "data/". Both the scan (relative to Data) and the game's open path
+    ///        reach the same form, e.g. "meshes/actors/character/behaviors/0_master.hkx".
     inline std::string NormalizeKey(std::string_view in)
     {
-        std::string s = ToLower(std::string(in));
-        for (char& c : s) if (c == '\\') c = '/';
+        std::string s = CB::engine::codec::resource::PathKey(in);
         // Collapse repeated slashes ("a//b" -> "a/b"). The game opens character files with a
         // trailing-'\' folderRoot ("Actors\Character\") plus a subfoldered file
         // ("Characters\DefaultMale.hkx"), which our "root/file" join turns into a '//'. Both
@@ -96,44 +87,18 @@ namespace CB::core::discover {
         return std::string(kConsolidatedCacheDir) + "/" + key;
     }
 
-    // The byte-substitution SWAP path for a raw Meshes-relative open path (what the Func3 resolver
-    // receives — e.g. "Actors\Character\Behaviors\0_Master.hkx", backslashed, original case). The
-    // engine PREPENDS the "meshes\" resource root to whatever we return, but community_behaviors_cache\ sits at
-    // the DATA ROOT (one level above meshes\) — so we climb out with "..\": the engine builds
-    // "meshes\..\community_behaviors_cache\<raw>", which the OS normalizes to "community_behaviors_cache\<raw>"
-    // (Data-relative) → Data\community_behaviors_cache\<raw>.
-    //
-    // CASE (load-bearing): the swap keeps the raw's ORIGINAL case, because MO2's USVFS matches virtual
-    // paths CASE-SENSITIVELY — a swap to "...\DefaultMale.hkx" will NOT find an on-disk
-    // "...\defaultmale.hkx". So the file this swap resolves to must be WRITTEN at the same original case
-    // (see CacheDiskRelRaw) — NOT at CacheDiskRel's lowercased key. (Confirmed in-game: only the engine-
-    // opened PROJECT file mismatched — its case comes from Func3; character/behavior opens use BR's own
-    // refs and are self-consistent.)
-    inline std::string CacheSwapPath(std::string_view rawMeshesRel)
+    /// @brief The byte-substitution SWAP path for a serve key: the exact cache file CacheDiskRel(key) names, as the
+    ///        Meshes-relative path the engine opens instead of the vanilla one.
+    /// @note The engine prepends its "meshes\" resource root, and community_behaviors_cache\ sits one level above
+    ///       it at the Data root — hence the leading "..\" ("meshes\..\community_behaviors_cache\<rest>").
+    /// @note CASE: the swap names the cache file by the EXACT string CB wrote it under (CacheDiskRel of the same
+    ///       key), so the open is precise on a case-sensitive filesystem no matter how the engine spelled its
+    ///       request. Swapping the engine's raw spelling instead only worked where the lookup folds.
+    inline std::string CacheSwapPath(const std::string& key)
     {
-        return std::string("..\\") + kConsolidatedCacheDir + "\\" + std::string(rawMeshesRel);
-    }
-
-    // Original-CASE Data-relative disk path the byte-substitution swap resolves to, for a raw
-    // Meshes-relative open path (what Func3 gave us). This is the CASE-PRESERVING counterpart to
-    // CacheDiskRel: use it whenever the file will be opened by the engine under a case we do NOT
-    // control (the project file), so the written file and CacheSwapPath agree byte-for-byte on a
-    // case-sensitive VFS. "Actors\Character\DefaultMale.hkx" → "community_behaviors_cache/Actors/Character/DefaultMale.hkx".
-    inline std::string CacheDiskRelRaw(std::string_view rawMeshesRel)
-    {
-        std::string s(rawMeshesRel);
-        for (char& c : s) if (c == '\\') c = '/';
-        if (s.rfind("./", 0) == 0) s.erase(0, 2);
-        return std::string(kConsolidatedCacheDir) + "/" + s;
-    }
-
-    // The folderRoot-relative form of a serve key ("behaviors/mymod/scene1.hkx"), or "" if the
-    // key has no root. This is the shape a hkbBehaviorReferenceGenerator.behaviorName takes.
-    inline std::string RootRelative(const std::string& key)
-    {
-        const std::string root = FolderRootOf(key);
-        if (root.empty()) return {};
-        return key.substr(root.size() + 1);
+        std::string s = "..\\" + CacheDiskRel(key);
+        for (char& c : s) if (c == '/') c = '\\';
+        return s;
     }
 
 }  // namespace CB::core::discover

@@ -1,14 +1,16 @@
 #pragma once
-// havok-schema — the loader/model for the Havok/ class schema (the source of truth for what a Havok
+// The loader/model for the schema/ class schema (the source of truth for what a Havok
 // class IS in the SSE/AE packfile). PASSIVE: it parses descriptors into an in-memory ClassSchema and
 // computes the serialized size by walking fields. It knows NOTHING of read/write/transpile/convert/
-// compile — those are CONSUMERS of this schema (havok-io serde, the merge engine, codegen). See
-// Havok/README.md for the descriptor format. Single public header (the monorepo new-library rule):
-// consumers write  #include <interface/reflection/HavokSchema.h>  and nothing else.
+// compile — those are CONSUMERS of this schema (the HavokIo serde, the merge engine). See
+// schema/README.md for the descriptor format.
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace CB::engine::schema {
@@ -18,17 +20,17 @@ enum class FieldKind {
     Scalar,       // a scalar (see Scalar)
     String,       // hkStringPtr (8 B)
     CString,      // char* CString (8 B) — ReadCString
-    Quaternion,   // inline hkQuaternion (16 B) — ReadQuaternion
+    Quaternion,   // inline hkQuaternion (16 B)
     Ptr,          // class pointer (8 B); `ref` = target class
     StructArray,  // hkArray<T>  (16 B); `ref` = element class
     PtrArray,     // hkArray<T*> (16 B); `ref` = element class
     Vec4Array,    // hkArray<Vector4> (16 B)
-    QsTransformArray, // hkArray<hkQsTransform> (16 B) — ReadQSTransformArray
+    QsTransformArray, // hkArray<hkQsTransform> (16 B)
     StringArray,  // hkArray<hkStringPtr> (16 B) — ReadStringPointerArray
     ScalarArray,  // hkArray<scalar> (16 B); `scalar` = element type (float/int16/byte/…)
     Struct,       // inline value member; `ref` = its class (size added recursively)
-    Vector4,      // inline hkVector4 (16 B)      — ReadVector4
-    QsTransform,  // inline hkQsTransform (48 B)  — ReadQSTransform
+    Vector4,      // inline hkVector4 (16 B)
+    QsTransform,  // inline hkQsTransform (48 B)
     BoolArray,    // C-style bool[N] (N B); `count` = N
     EmptyArray,   // void-typed SERIALIZE_IGNORED hkArray slot (16 B, no value)
     EmptyPtr,     // void-typed SERIALIZE_IGNORED pointer slot (8 B, no value)
@@ -39,8 +41,6 @@ enum class FieldKind {
 };
 
 enum class Scalar { Int8, Byte, UInt16, Int16, UInt32, Int32, UInt64, Int64, Float, Half, Bool };
-
-enum class RuntimeSource { Game, Self };   // game = engine vtable (Address Library); self = our reimplementation
 
 struct Field {
     FieldKind   kind    = FieldKind::Skip;
@@ -55,8 +55,6 @@ struct Field {
                                          // the value by name (MODE_SINGLE_PLAY); no serde/size effect.
     bool        isFlags = false;         // enum is an OR-able bitfield → .hky renders via FormatFlags
                                          // (A|B) rather than a single name. (.hky-only; no serde effect.)
-    bool        hkyOnlyEnum = false;     ///< @brief `hkyenum:` — enumName is a .hky rendering convenience only; Havok's
-                                         ///<        reflection has no enum here, so the tagfile keeps the number.
     bool        boneRef = false;         ///< @brief `boneref: true` — a scalar bone index into the graph's rig; the .hky
                                          ///<        names the bone (-1 = none, omitted).
     bool        boneList = false;        ///< @brief `bonelist: true` — a scalar array of bone indices; the .hky lists names.
@@ -83,28 +81,21 @@ struct Field {
                                          ///<        covering all their lines (the adsf section A / B framing).
     bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
                                          ///<        run to the end of the field's frame.
-    std::string rosterRef;               // string field is a member of a character ROSTER; the value names
-                                         // the target roster field (e.g. "animationNames"). The cross
-                                         // membrane COLLECTS every such value across an actor's served
-                                         // graphs into that roster on the character — the inverse of the
-                                         // name→index resolution eventRef/varRef do. (Resolve-time only.)
 };
 
 struct ClassSchema {
     std::string        name;
     std::string        parent;               // empty for a root class
-    std::uint32_t      signature = 0;        // the class CRC (HK_CLASS_ID sig)
+    std::uint32_t      signature = 0;        // the class CRC
     int                size      = 0;        // OPTIONAL declared serialized size (bytes, SSE 64-bit). The
                                              // authority is ComputeSize (derived from the field layout,
                                              // used by the serializer); this is a cross-check — LoadDir
                                              // asserts ComputeSize == size when present (0 = omit/derive).
     std::vector<Field> fields;               // this class's OWN fields, in serialized order (parent's come first, from its schema)
-    RuntimeSource      runtime   = RuntimeSource::Game;
     std::string        vocab;                    ///< @brief `vocab: graph|character` — the .hky renders this object's name
                                                  ///<        rosters as name-keyed records (see renderVocab), not parallel arrays.
     bool               metadata  = false;        ///< @brief `kind: metadata` — a Bethesda text-file record (adsf/asdsf), not
                                                  ///<        a Havok class: no signature/size; read/written by MetaText.
-    std::string        file;                     ///< @brief metadata: the game file this root class describes.
     bool               blankTerminated = false;  ///< @brief metadata `terminator: blank` — a blank line ends each record.
     int                frameLimit = 0;           ///< @brief metadata `framelimit: N` — a frame's line count may not exceed N
                                                  ///<        (the engine reads it through a 16-bit truncation: 65535).
@@ -131,11 +122,10 @@ struct EnumDef {
 // Serialized byte width of a scalar (SSE 64-bit).
 int ScalarWidth(Scalar s);
 
-// ── Schema version — the editor <-> compiler contract stamp ──────────────────────────────────────
-// The ONE identity of the Havok/ class-layout + merge-policy contract (Havok/SCHEMA.yaml carries a
-// single `schema_version:`). A produced .hky echoes it into its manifest; the compiler gates ingest
-// on it. SemVer over WIRE + MERGE compatibility, with an optional `-rc.N` prerelease. See the
-// schema-version-stamp scheme for the full rationale.
+/// @brief The ONE identity of the schema/ class-layout + merge-policy contract: SemVer over WIRE + MERGE
+///        compatibility, with an optional `-rc.N` prerelease.
+/// @note Single source is CB_SCHEMA_VERSION (root CMakeLists.txt, which also holds the bump rules); it is
+///       generated into each shipped tree's SCHEMA.yaml stamp and into kSchemaVersion (SchemaVersion.gen.h).
 struct SchemaVersion {
     int         major = 0;
     int         minor = 0;
@@ -162,23 +152,51 @@ enum class SchemaCompat { Ok, Refuse };
 SchemaCompat CheckSchemaCompat(const SchemaVersion& authored, const SchemaVersion& current,
                                std::string& why);
 
+/// @brief A class's flattened serialized field list (parent fields first, schema order) + a name → index map.
+/// @invariant `index` maps each name to its FIRST occurrence in `fields` (a parent's field shadows a same-named
+///            child field — the order the per-name lookups have always resolved).
+struct FieldLayout {
+    struct Hash {
+        using is_transparent = void;
+        std::size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
+    };
+    std::vector<const Field*>                                                    fields;
+    std::unordered_map<std::string, std::size_t, Hash, std::equal_to<>>         index;
+};
+
 class SchemaRegistry {
 public:
+    SchemaRegistry() = default;
+    /// @note Non-copyable: the cached layouts point into this registry's own ClassSchemas. A move keeps the
+    ///       std::map nodes (and so every pointer) valid.
+    SchemaRegistry(const SchemaRegistry&)            = delete;
+    SchemaRegistry& operator=(const SchemaRegistry&) = delete;
+    SchemaRegistry(SchemaRegistry&&)                 = default;
+    SchemaRegistry& operator=(SchemaRegistry&&)      = default;
+
     // Load every *.yaml/*.yml under `root` (recursively) as a ClassSchema. On a parse error returns
     // false with `err` set. Non-yaml files (README, etc.) are ignored.
     bool LoadDir(const std::string& root, std::string& err);
 
     const ClassSchema* Find(const std::string& name) const;
+
+    /// @brief The class's flattened field list, parent-first.
+    /// @warning Throws std::runtime_error on an unresolved or cyclic `parent:` chain.
+    std::vector<const Field*> Flatten(const ClassSchema* cs) const;
+
+    /// @brief The cached layout of a class this registry loaded, or nullptr (not ours, or its parent chain
+    ///        doesn't resolve — Flatten then throws the reason).
+    /// @note Built once at the end of a successful LoadDir; the registry is immutable afterwards, so lookups
+    ///       are lock-free and safe from any thread.
+    const FieldLayout* Layout(const ClassSchema* cs) const;
     const std::map<std::string, ClassSchema>& All() const { return m_byName; }
 
-    // Enum definitions loaded from the enums/ subtree. Find one by its type name (e.g. "PlaybackMode"),
-    // or enumerate them all. Empty until LoadDir has run over a tree that carries an enums/ folder.
+    // Enum definitions loaded from the enums/ subtree. Find one by its type name (e.g. "PlaybackMode").
+    // Empty until LoadDir has run over a tree that carries an enums/ folder.
     const EnumDef* FindEnum(const std::string& name) const;
-    const std::map<std::string, EnumDef>& AllEnums() const { return m_enums; }
 
-    // The raw `schema_version:` string LoadDir read from Havok/SCHEMA.yaml (empty when the tree
-    // carried no stamp — a legacy/unversioned tree). This is what THIS load of the tree speaks:
-    // the compiler's "current" version for the ingest gate. Parse it with SchemaVersion::Parse.
+    /// @brief The raw `schema_version:` LoadDir read from the tree's SCHEMA.yaml stamp; empty when the tree
+    ///        carried none (the unstamped source schema/). SharedRegistry() gates it against kSchemaVersion.
     const std::string& SchemaVersionString() const { return m_schemaVersion; }
 
     // Whether a SCHEMA.yaml stamp FILE was seen at all during LoadDir, regardless of whether a
@@ -211,9 +229,12 @@ public:
     int ComputeSize(const std::string& className, std::string* err = nullptr, int depth = 0) const;
 
 private:
+    void BuildLayouts();
+
     std::map<std::string, ClassSchema> m_byName;
+    std::unordered_map<const ClassSchema*, FieldLayout> m_layouts;   ///< see Layout()
     std::map<std::string, EnumDef>     m_enums;               // enums/*.yaml, keyed by enum type name
-    std::string                        m_schemaVersion;      // Havok/SCHEMA.yaml `schema_version:` (raw)
+    std::string                        m_schemaVersion;      // SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen
 };
 
@@ -224,13 +245,10 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
 bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err);
 
 // ── Shared process-wide registry ───────────────────────────────────────────────
-// The ONE lazily-loaded Havok/ registry every schema-driven compiler shares (behavior / character /
-// project / skeleton via havok-core's SchemaCompilerState, animation via havok-anim directly), so
-// they load the tree ONCE and enforce the editor<->compiler version-stamp contract in a single place.
-// Ownership lives HERE, in havok-schema, because the whole gate is expressed in schema:: types —
-// havok-core's SchemaCompilerState now delegates to these, keeping havok-anim off any havok-core edge.
+// The ONE lazily-loaded schema registry every schema-driven compile / decompile shares, so the tree loads
+// ONCE and the editor<->compiler version-stamp contract is enforced in a single place.
 
-// Configure the directory the shared registry loads from (the deployed Havok/ tree). Overrides the
+// Configure the directory the shared registry loads from (the deployed schema/ tree). Overrides the
 // $SCT_HAVOK_SCHEMA_DIR fallback. Call before the first SharedRegistry() — it does not force a reload.
 void SetSharedSchemaDir(const std::string& dir);
 

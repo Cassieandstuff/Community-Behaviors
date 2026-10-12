@@ -1,5 +1,7 @@
 #include <codec/serialization/MetaText.h>
 
+#include <text/Text.h>
+
 #include <charconv>
 #include <stdexcept>
 #include <vector>
@@ -32,21 +34,6 @@ struct Cursor {
         return v;
     }
 };
-
-std::vector<std::string_view> SplitLines(std::string_view text) {
-    std::vector<std::string_view> out;
-    std::size_t start = 0;
-    while (start < text.size()) {
-        std::size_t nl = text.find('\n', start);
-        std::size_t end = nl == std::string_view::npos ? text.size() : nl;
-        std::size_t stop = end;
-        if (stop > start && text[stop - 1] == '\r') --stop;
-        out.push_back(text.substr(start, stop - start));
-        if (nl == std::string_view::npos) break;
-        start = nl + 1;
-    }
-    return out;
-}
 
 /// @brief The value a `when:` field gates on ("1" = present).
 bool Gate(const SchemaObject& obj, const std::vector<const Field*>& fields, const std::string& when) {
@@ -189,7 +176,7 @@ private:
 std::shared_ptr<SchemaObject> ReadMetaText(const schema::SchemaRegistry& reg, const std::string& rootClass,
                                            std::string_view text, std::string& err) {
     try {
-        Cursor cur{ SplitLines(text) };
+        Cursor cur{ CB::engine::text::SplitLines(text) };
         Reader r(reg, cur);
         auto root = r.Object(rootClass, nullptr, {});
         if (cur.p != cur.lines.size())

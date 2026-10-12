@@ -2,9 +2,7 @@
 // Vec4Text — the ONE hkVector4 / Quaternion TEXT parser (text -> 4 floats).
 //
 // Accepts BOTH the decompiler's "(x y z w)" and a vanilla/Nemesis bare, possibly multi-line
-// "x\n y\n z\n w" (no parens). Single source that every caller shares (havok-model parseVec4Raw ->
-// 16 bytes, havok-core BehaviorBuilder::pv4 -> Vector4), killing the divergent-twin hazard (B4/BR-28,
-// where a paren-only parser silently zeroed a bare vec4).
+// "x\n y\n z\n w" (no parens): a paren-only parser silently zeroed a bare vec4 (B4/BR-28).
 //
 // NOTE on the reverse: there is deliberately NO single formatVec4 here. floats -> text is
 // CONTEXT-SPECIFIC — the tagfile XML emitter, the .hky YAML emitter, and the adsf emitter each format

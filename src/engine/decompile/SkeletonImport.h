@@ -6,10 +6,8 @@
 #include <vector>
 
 // Skeleton IMPORT — binary skeleton.hkx → plain SkeletonData. SCHEMA-NATIVE: the packfile is read
-// through havok-io's generic SchemaObject path (MakeSchemaFactory over the shared registry), NOT the
-// typed hka*/hkp* classes — so the reader carries no havok-core dependency and the same function serves
-// every consumer (the compiler resolving bones for the membrane, the converter, and a tool like the
-// Scene Editor via CB-API). Its typed havok-core ancestor stays only as the offline correctness oracle.
+// through the generic io::SchemaObject path (MakeSchemaFactory over the shared registry), so the same
+// function serves every consumer (the converter, the CB-API facade).
 //
 // The output is deliberately NOT hkaSkeleton: plain names, parent indices, transforms, and the authored
 // ragdoll knobs, so callers need no Havok headers.
@@ -19,8 +17,7 @@ namespace CB::engine::skeleton {
 // Reads every hkaSkeleton in `bytes`, in file order.
 //
 // A Skyrim skeleton.hkx commonly holds MORE THAN ONE: the animation skeleton first, then a ragdoll
-// skeleton with a reduced bone set. Callers that want "the" skeleton should take out[0], which matches
-// the file order the old typed path relied on (it took the first hkaSkeleton).
+// skeleton with a reduced bone set. Callers that want "the" skeleton should take out[0].
 //
 // Returns false and fills `err` on a malformed file. An empty result with a true return means the file
 // parsed but contained no skeleton.

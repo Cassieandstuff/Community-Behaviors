@@ -33,7 +33,7 @@ namespace CB {
     /// @brief Loads the BDI declarations and serves the ones scoped to a graph to the `cb.bdi-symbols` feature.
     class SymbolInjector final : public CB::feature::ISymbolDecls {
     public:
-        // Scan the given config dirs (via sct-config) and parse every declaration.
+        // Scan the given config dirs (via the CB::config scanner) and parse every declaration.
         // Idempotent — replaces any prior load.
         void Load(const std::vector<std::filesystem::path>& configDirs);
 
@@ -44,7 +44,7 @@ namespace CB {
 
     private:
         struct Decl {
-            std::string             project;   ///< normalized lowercase '/'-form, e.g. "actors/character"
+            std::string             project;   ///< path key (codec::resource::PathKey), e.g. "actors/character"
             CB::feature::SymbolDecl symbol;
         };
         std::vector<Decl> m_decls;

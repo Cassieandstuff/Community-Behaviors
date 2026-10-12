@@ -3,12 +3,9 @@
 #include <string>
 
 // PandoraCompatShim — CONVERTER-ONLY. Call ONLY from the offline ingest (the converter's
-// Nemesis patch-application sites), NEVER from the runtime compile path. It lives in
-// havok-framing beside xml::StripPatchOriginals (the sibling Nemesis MOD_CODE handler) so
-// both converter cores — havok-core (PatchConverter) and havok-model (parseSourcesMerged) —
-// can reach it; its mere presence in the linked binary changes nothing at runtime because
-// the live Resolver/BehaviorCompiler consumes pre-baked .hky bundles and never applies raw
-// Nemesis text.
+// Nemesis patch-application site, parseSourcesMerged), NEVER from the runtime compile path. Its
+// mere presence in the linked binary changes nothing at runtime: the Resolver consumes pre-baked
+// .hky bundles and never applies raw Nemesis text.
 //
 // WHY IT EXISTS
 // A Nemesis `#NNNN.txt` edit to a *numeric text-array* hkparam (e.g. hkbBoneWeightArray's

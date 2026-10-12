@@ -3,11 +3,9 @@
 #include "core/discover/BundleReader.h"
 
 #include <interface/UnitSource.h>   // DiskUnitSource (unpacked-bundle unit backing)
+#include <codec/resource/PathKey.h>
+#include <disk/Disk.h>
 
-#include <algorithm>
-#include <cctype>
-#include <fstream>
-#include <iterator>
 #include <set>
 #include <system_error>
 
@@ -17,16 +15,8 @@ namespace CB {
 
     namespace {
 
-        // lowercase + forward-slash — matches HkyArchive's stored keys and folds a caller's
-        // backslashed/mixed-case rel path to the archive's key space.
-        std::string Norm(std::string s)
-        {
-            for (char& c : s) {
-                if (c == '\\') c = '/';
-                else c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            }
-            return s;
-        }
+        using CB::engine::codec::resource::HasExt;
+        using CB::engine::codec::resource::PathKey;
 
         // Normalize a directory prefix to HkyArchive's key space with EXACTLY one
         // trailing slash. Callers pass prefixes with OR without a trailing '/'
@@ -36,22 +26,10 @@ namespace CB {
         // → behavior compile fails → A-pose). Strip any trailing slashes, then add one.
         std::string DirBase(const std::string& dirPrefix)
         {
-            std::string b = Norm(dirPrefix);
+            std::string b = PathKey(dirPrefix);
             while (!b.empty() && b.back() == '/') b.pop_back();
             b += '/';
             return b;
-        }
-
-        std::string SlurpFile(const fs::path& p)
-        {
-            std::ifstream f(p, std::ios::binary);
-            if (!f) return {};
-            return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        }
-
-        bool EndsWith(const std::string& s, const std::string& suf)
-        {
-            return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
         }
 
     }  // namespace
@@ -75,25 +53,29 @@ namespace CB {
 
     std::optional<std::string> BundleReader::read(const std::string& rel) const
     {
-        if (m_arc) return m_arc->file(Norm(rel));
+        if (m_arc) return m_arc->file(PathKey(rel));
         const fs::path p = m_dir / fs::path(rel);
         std::error_code ec;
         if (!fs::is_regular_file(p, ec)) return std::nullopt;
-        return SlurpFile(p);
+        return CB::engine::disk::ReadFile(p).value_or(std::string());
     }
 
     std::vector<std::string> BundleReader::subdirs(const std::string& dirPrefix) const
     {
         std::vector<std::string> out;
         if (m_arc) {
+            /// @note ORIGINAL-case names (a setdata project folder becomes the served header): the listing is by
+            ///       key order, PathKey is length-preserving so the key offsets slice the original paths, and a
+            ///       child seen under two spellings is listed once, as its first.
             const std::string base = DirBase(dirPrefix);
-            std::set<std::string> seen;   // dedup: many files share one child dir
-            for (const auto& full : m_arc->filesUnder(base)) {
-                const std::string rest = full.substr(base.size());   // "child/….txt" or "file.txt"
+            std::set<std::string> seen;
+            for (const auto& full : m_arc->filesUnderOrig(base)) {
+                const std::string rest = full.substr(base.size());   // "Child/….txt" or "File.txt"
                 const auto slash = rest.find('/');
-                if (slash != std::string::npos) seen.insert(rest.substr(0, slash));  // has a subdir
+                if (slash == std::string::npos) continue;
+                std::string child = rest.substr(0, slash);
+                if (seen.insert(PathKey(child)).second) out.push_back(std::move(child));
             }
-            out.assign(seen.begin(), seen.end());
             return out;
         }
         std::error_code ec;
@@ -110,10 +92,10 @@ namespace CB {
         std::vector<std::string> out;
         if (m_arc) {
             const std::string base = DirBase(dir);
-            for (const auto& full : m_arc->filesUnder(base)) {
+            for (const auto& full : m_arc->filesUnderOrig(base)) {   // ORIGINAL-case names (see subdirs)
                 const std::string rest = full.substr(base.size());
                 if (rest.find('/') != std::string::npos) continue;   // deeper, not a direct child file
-                if (!extLower.empty() && !EndsWith(rest, extLower)) continue;  // rest already lowercased
+                if (!extLower.empty() && !HasExt(rest, extLower)) continue;
                 out.push_back(rest);
             }
             return out;
@@ -124,12 +106,7 @@ namespace CB {
             std::error_code fe;
             if (!it->is_regular_file(fe)) continue;
             std::string name = it->path().filename().string();
-            if (!extLower.empty()) {
-                std::string ext = it->path().extension().string();
-                std::transform(ext.begin(), ext.end(), ext.begin(),
-                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                if (ext != extLower) continue;
-            }
+            if (!extLower.empty() && !HasExt(name, extLower)) continue;
             out.push_back(std::move(name));
         }
         return out;
@@ -141,7 +118,7 @@ namespace CB {
         if (m_arc) {
             const std::string base = DirBase(dirPrefix);
             for (const auto& full : m_arc->filesUnder(base)) {   // full = whole-tree-relative, lowercased
-                if (extLower.empty() || EndsWith(full, extLower)) out.push_back(full);
+                if (extLower.empty() || HasExt(full, extLower)) out.push_back(full);
             }
             return out;
         }
@@ -150,14 +127,9 @@ namespace CB {
         for (fs::recursive_directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) {
             std::error_code fe;
             if (!it->is_regular_file(fe)) continue;
-            if (!extLower.empty()) {
-                std::string ext = it->path().extension().string();
-                std::transform(ext.begin(), ext.end(), ext.begin(),
-                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                if (ext != extLower) continue;
-            }
+            if (!extLower.empty() && !HasExt(it->path().filename().string(), extLower)) continue;
             // whole-tree-relative (to the bundle root), forward-slashed + lowercased to match packed keys.
-            out.push_back(Norm(it->path().lexically_relative(m_dir).generic_string()));
+            out.push_back(PathKey(it->path().lexically_relative(m_dir).generic_string()));
         }
         return out;
     }
@@ -171,9 +143,7 @@ namespace CB {
         if (m_arc) {
             const std::string base = DirBase(dirPrefix);
             for (const auto& full : m_arc->filesUnderOrig(base)) {
-                std::string low = full;
-                std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-                if (extLower.empty() || EndsWith(low, extLower)) out.push_back(full);   // ext-check case-insensitive
+                if (extLower.empty() || HasExt(full, extLower)) out.push_back(full);
             }
             return out;
         }
@@ -182,12 +152,7 @@ namespace CB {
         for (fs::recursive_directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) {
             std::error_code fe;
             if (!it->is_regular_file(fe)) continue;
-            if (!extLower.empty()) {
-                std::string ext = it->path().extension().string();
-                std::transform(ext.begin(), ext.end(), ext.begin(),
-                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-                if (ext != extLower) continue;
-            }
+            if (!extLower.empty() && !HasExt(it->path().filename().string(), extLower)) continue;
             out.push_back(it->path().lexically_relative(m_dir).generic_string());   // case PRESERVED (no Norm)
         }
         return out;
@@ -205,14 +170,10 @@ namespace CB {
         for (fs::recursive_directory_iterator it(m_dir, ec), end; !ec && it != end; it.increment(ec)) {
             std::error_code de;
             if (!it->is_directory(de)) continue;
-            std::string ext = it->path().extension().string();
-            std::transform(ext.begin(), ext.end(), ext.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (ext != ".hkx") continue;
+            if (!HasExt(it->path().filename().string(), ".hkx")) continue;
             it.disable_recursion_pending();
             std::error_code se;
-            std::ifstream g(it->path() / "graph.yaml", std::ios::binary);
-            const std::string text = g ? std::string(std::istreambuf_iterator<char>(g), std::istreambuf_iterator<char>()) : std::string();
+            const std::string text = CB::engine::disk::ReadFile(it->path() / "graph.yaml").value_or(std::string());
             const auto k = fs::exists(it->path() / "bonelist.yaml", se) ? CB::engine::codec::HkyArchive::UnitKind::Skeleton
                                                                        : CB::engine::codec::HkyArchive::KindOfGraphYaml(text);
             if (k == kind)
@@ -223,7 +184,7 @@ namespace CB {
 
     std::shared_ptr<const CB::engine::common::IUnitSource> BundleReader::unitSource(const std::string& prefix) const
     {
-        if (m_arc) return m_arc->source(Norm(prefix));
+        if (m_arc) return m_arc->source(PathKey(prefix));
         return std::make_shared<CB::engine::common::DiskUnitSource>(m_dir / fs::path(prefix));
     }
 

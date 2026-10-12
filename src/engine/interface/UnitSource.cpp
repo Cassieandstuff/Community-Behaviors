@@ -2,29 +2,13 @@
 
 #include <interface/UnitSource.h>
 
-#include <fstream>
-#include <sstream>
+#include <disk/Disk.h>
 
 namespace CB::engine::common {
 
 namespace fs = std::filesystem;
 
 namespace {
-
-// Binary slurp + UTF-8 BOM strip: returns "" when the stream can't be opened OR the file is empty — the caller
-// (read, below) distinguishes absence via fs::exists so it can map absent ->
-// nullopt while keeping an empty-but-present file as "".
-std::string slurp(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string s = ss.str();
-    if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF &&
-        static_cast<unsigned char>(s[1]) == 0xBB && static_cast<unsigned char>(s[2]) == 0xBF)
-        s.erase(0, 3);
-    return s;
-}
 
 // The shared skeleton asset. Vanilla project layouts place it at an ANCESTOR of
 // the behavior unit dir (project/character assets/skeleton.yaml, unit dirs nested
@@ -43,23 +27,16 @@ std::optional<std::string> DiskUnitSource::read(const std::string& rel) const {
         fs::path dir = m_root;
         for (int depth = 0; depth < 12 && !dir.empty(); ++depth) {
             fs::path cand = dir / "character assets" / "skeleton.yaml";
-            if (fs::exists(cand)) return slurp(cand);
+            /// @note Found but unreadable reads as "" (not nullopt): the walk already proved the skeleton exists.
+            if (fs::exists(cand)) return disk::ReadFile(cand, { .stripBom = true }).value_or(std::string());
             if (!dir.has_parent_path() || dir.parent_path() == dir) break;
             dir = dir.parent_path();
         }
         return std::nullopt;
     }
 
-    const fs::path p = m_root / rel;
-    std::ifstream f(p, std::ios::binary);
-    if (!f) return std::nullopt;   // absent -> nullopt (an empty-but-present file returns "")
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string s = ss.str();
-    if (s.size() >= 3 && static_cast<unsigned char>(s[0]) == 0xEF &&
-        static_cast<unsigned char>(s[1]) == 0xBB && static_cast<unsigned char>(s[2]) == 0xBF)
-        s.erase(0, 3);
-    return s;
+    /// @note Absent -> nullopt; an empty-but-present file -> "".
+    return disk::ReadFile(m_root / rel, { .stripBom = true });
 }
 
 std::vector<std::string> DiskUnitSource::listYaml(const std::string& subdir, bool recursive) const {

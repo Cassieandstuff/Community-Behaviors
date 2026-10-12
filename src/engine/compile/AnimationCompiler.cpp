@@ -1,15 +1,14 @@
 #include "compile/AnimationCompiler.h"
 
 #include "codec/spline/SplineCompressor.h"     // CB::engine::codec::spline::CompressAnimation (the shared spline codec)
-#include <codec/serialization/packfile/PackFileSerializer.h>    // havok-framing — the ONE serializer (io::SchemaObject)
+#include <codec/serialization/packfile/PackFileSerializer.h>    // the ONE serializer (io::SchemaObject)
 #include <interface/linker/Membrane.h>       // BoneMembrane::resolveTrackRef (the one name<->index codec)
 
 #include <codec/serialization/HavokIo.h>                  // io::SchemaObject
 #include <interface/reflection/HavokSchema.h>          // schema::SchemaRegistry + SharedRegistry()
+#include <disk/Disk.h>
 
-#include <cstring>
 #include <exception>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,27 +35,23 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
                                                     const schema::SchemaRegistry& reg,
                                                     const std::vector<std::string>* boneNames) {
     CB::engine::codec::spline::CompressedResult r = CB::engine::codec::spline::CompressAnimation(anim, fps);
-    auto i32b = [](std::int32_t v) { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
-    auto f32b = [](float v)        { std::uint8_t b[4]; std::memcpy(b, &v, 4); return std::vector<std::uint8_t>(b, b + 4); };
-    auto u32arr = [](const std::vector<std::uint32_t>& a) { std::vector<std::uint8_t> o; o.reserve(a.size() * 4);
-        for (std::uint32_t v : a) { std::uint8_t b[4]; std::memcpy(b, &v, 4); o.insert(o.end(), b, b + 4); } return o; };
 
     auto spline = mkA(reg, "hkaSplineCompressedAnimation"); if (!spline) return nullptr;
-    spline->FieldRef("type").raw                    = i32b(5);   // HK_SPLINE_COMPRESSED_ANIMATION (hkaAnimation base)
-    spline->FieldRef("duration").raw                = f32b(anim.duration);
-    spline->FieldRef("numberOfTransformTracks").raw = i32b(static_cast<std::int32_t>(anim.tracks.size()));
-    spline->FieldRef("numberOfFloatTracks").raw     = i32b(static_cast<std::int32_t>(anim.floatTracks.size()));
-    spline->FieldRef("numFrames").raw               = i32b(r.numFrames);
-    spline->FieldRef("numBlocks").raw               = i32b(r.numBlocks);
-    spline->FieldRef("maxFramesPerBlock").raw       = i32b(r.maxFramesPerBlock);
-    spline->FieldRef("maskAndQuantizationSize").raw = i32b(r.maskAndQuantizationSize);
-    spline->FieldRef("blockDuration").raw           = f32b(r.blockDuration);
-    spline->FieldRef("blockInverseDuration").raw    = f32b(r.blockInverseDuration);
-    spline->FieldRef("frameDuration").raw           = f32b(r.frameDuration);
-    spline->FieldRef("blockOffsets").raw            = u32arr(r.blockOffsets);
-    spline->FieldRef("floatBlockOffsets").raw       = u32arr(r.floatBlockOffsets);
-    spline->FieldRef("data").raw                    = std::move(r.data);   // the compressed spline blob (byte array)
-    spline->FieldRef("endian").raw                  = i32b(0);
+    spline->SetInt("type", 5);   // HK_SPLINE_COMPRESSED_ANIMATION (hkaAnimation base)
+    spline->SetFloat("duration", anim.duration);
+    spline->SetInt("numberOfTransformTracks", static_cast<std::int32_t>(anim.tracks.size()));
+    spline->SetInt("numberOfFloatTracks", static_cast<std::int32_t>(anim.floatTracks.size()));
+    spline->SetInt("numFrames", r.numFrames);
+    spline->SetInt("numBlocks", r.numBlocks);
+    spline->SetInt("maxFramesPerBlock", r.maxFramesPerBlock);
+    spline->SetInt("maskAndQuantizationSize", r.maskAndQuantizationSize);
+    spline->SetFloat("blockDuration", r.blockDuration);
+    spline->SetFloat("blockInverseDuration", r.blockInverseDuration);
+    spline->SetFloat("frameDuration", r.frameDuration);
+    spline->SetArray("blockOffsets", r.blockOffsets);
+    spline->SetArray("floatBlockOffsets", r.floatBlockOffsets);
+    spline->FieldRef("data").raw = std::move(r.data);   // the compressed spline blob (byte array)
+    spline->SetInt("endian", 0);
     // transformOffsets / floatOffsets intentionally empty; extractedMotion null.
     { auto& tracks = spline->FieldRef("annotationTracks").objs;
       for (const auto& at : anim.annotationTracks) {
@@ -65,7 +60,7 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
           auto& anns = track->FieldRef("annotations").objs;
           for (const auto& a : at.annotations) {
               auto ann = mkA(reg, "hkaAnnotationTrackAnnotation"); if (!ann) return nullptr;
-              ann->FieldRef("time").raw = f32b(a.time);
+              ann->SetFloat("time", a.time);
               ann->FieldRef("text").str = a.text;
               anns.push_back(ann);
           }
@@ -76,7 +71,7 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
     auto binding = mkA(reg, "hkaAnimationBinding"); if (!binding) return nullptr;
     binding->FieldRef("originalSkeletonName").str = anim.skeleton;
     binding->FieldRef("animation").obj            = spline;
-    binding->FieldRef("blendHint").raw            = { 0 };
+    binding->SetInt("blendHint", 0);
 
     // transformTrackToBoneIndices — the INVERSE membrane. Resolve every track's authored bone
     // reference to a skeleton bone index (BoneMembrane::resolveTrackRef: a "track<N>" placeholder ->
@@ -93,14 +88,13 @@ std::shared_ptr<io::SchemaObject> AssembleAnimation(const AnimationDef& anim, in
         const linker::Linker       boneL = linker::Linker::OfOrderedNames(bones);
         const linker::BoneMembrane boneM{ &boneL };
         bool identity = true;
-        std::vector<std::uint8_t> ttb; ttb.reserve(anim.tracks.size() * 2);
+        std::vector<std::int16_t> ttb; ttb.reserve(anim.tracks.size());
         for (std::size_t t = 0; t < anim.tracks.size(); ++t) {
             const int bi = boneM.resolveTrackRef(anim.tracks[t].bone, static_cast<int>(t));
             if (bi != static_cast<int>(t)) identity = false;
-            const std::int16_t v = static_cast<std::int16_t>(bi);
-            std::uint8_t b[2]; std::memcpy(b, &v, 2); ttb.insert(ttb.end(), b, b + 2);
+            ttb.push_back(static_cast<std::int16_t>(bi));
         }
-        if (!identity) binding->FieldRef("transformTrackToBoneIndices").raw = std::move(ttb);
+        if (!identity) binding->SetArray("transformTrackToBoneIndices", ttb);
     }
 
     auto container = mkA(reg, "hkaAnimationContainer"); if (!container) return nullptr;
@@ -148,11 +142,7 @@ AnimCompileResult CompileAnimationToFile(const AnimationDef& anim,
                                          const std::vector<std::string>* boneNames) {
     AnimCompileResult r = CompileAnimation(anim, fps, header, boneNames);
     if (!r.ok) return r;
-    std::ofstream f(outPath, std::ios::binary | std::ios::trunc);
-    if (!f) { r.ok = false; r.error = "cannot open for writing: " + outPath.string(); return r; }
-    if (!r.bytes.empty())
-        f.write(reinterpret_cast<const char*>(r.bytes.data()), static_cast<std::streamsize>(r.bytes.size()));
-    if (!f.good()) { r.ok = false; r.error = "write failed: " + outPath.string(); }
+    if (!disk::WriteFile(outPath, r.bytes, {}, &r.error)) r.ok = false;
     return r;
 }
 

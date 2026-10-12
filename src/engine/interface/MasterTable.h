@@ -14,7 +14,6 @@
 // master DAG) and the codec merge (which RESOLVES an id's index against it) can share one rule.
 
 #include <algorithm>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,14 +44,6 @@ namespace CB::engine::codec::formid {
             if (!has(m)) table.push_back(m);                        // further masters, file order (2+)
         }
         return table;
-    }
-
-    // Resolve a FormId's masterIndex against a bundle's table -> the owning bundle stem, or nullopt if
-    // the index is out of range (a malformed / cross-versioned id — surface it, never bind blindly).
-    inline std::optional<std::string_view> ResolveOwner(const std::vector<std::string>& table,
-                                                        unsigned masterIndex) {
-        if (masterIndex >= table.size()) return std::nullopt;
-        return std::string_view(table[masterIndex]);
     }
 
 }  // namespace CB::engine::codec::formid

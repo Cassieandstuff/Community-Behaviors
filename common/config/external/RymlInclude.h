@@ -1,6 +1,6 @@
 #pragma once
 // ============================================================================
-// RymlInclude.h — the ONLY way SCT plugin code should pull in rapidyaml.
+// RymlInclude.h — the ONLY way CB code should pull in rapidyaml.
 //
 // Why this exists
 // ---------------

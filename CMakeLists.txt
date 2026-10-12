@@ -34,12 +34,8 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # Consumption mode. Full standalone build ONLY when CB is the top-level project AND not asked for the
 # API-only surface. Two ways to get API-only: add_subdirectory'd into another build (FetchContent
 # — not top-level), or CB_API_ONLY=ON (vcpkg builds CB as top-level, so the portfile passes this).
-# (CB_RESOLVE_ONLY accepted as the legacy spelling.)
 option(CB_API_ONLY "Build only the cb-api surface (for vcpkg / library consumers)" OFF)
 option(CB_BUILD_CONVERTER "Build the Behavior Converter GUI tool (+ the derived-bundle regen)" ON)
-if(CB_RESOLVE_ONLY)
-    set(CB_API_ONLY ON)
-endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT CB_API_ONLY)
     set(CB_STANDALONE ON)
 else()
@@ -47,6 +43,21 @@ else()
 endif()
 
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+
+# ── Schema contract version — the ONE source ─────────────────────────────────────
+# The identity of the schema/ class-layout + merge-policy contract. Generates both the SCHEMA.yaml stamp every
+# shipped tree carries (cmake/Schema.cmake) and the version the engine expects (SchemaVersion.gen.h); it is
+# written nowhere else. Independent of the plugin VERSION above. ONE tree = ONE version — no per-class versions.
+#
+# Bump rules (SemVer over WIRE + MERGE compatibility):
+#   MAJOR - makes old output wrong: field reorder, size:/type/signature: change, field removal, a merge:
+#           strategy rename or semantic change.  (old bytes mis-parse)
+#   MINOR - additive & back-compatible: a new class, a new optional field key.
+#   PATCH - no wire effect: comments, file moves, a rendering-only hint.
+# Candidate-frozen, not frozen: burn -rc.N as the last classes settle, then cut 1.0.0. While either side is
+# a prerelease the gate is exact-match-or-refuse (CheckSchemaCompat).
+set(CB_SCHEMA_VERSION "1.0.0-rc.2")
+include(Schema)   # the SCHEMA.yaml stamp + cb_stage_schema() / cb_install_schema()
 
 # ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
 # src/engine is CB's shared reflection engine (one `engine` target). cb::CB-API (<CB-API.h>) is the curated
@@ -69,10 +80,10 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/" DESTINATION include 
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
 # The class schema (schema/) is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
-# ground truth for class layout + per-field `merge:` policy + the schema_version stamp. Without it a
+# ground truth for class layout + per-field `merge:` policy, plus the generated SCHEMA.yaml stamp. Without it a
 # consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the
 # package config and expose its location as CB_API_SCHEMA_DIR (see cb-api-config.cmake.in).
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/schema/" DESTINATION share/cb-api/schema PATTERN templates EXCLUDE)
+cb_install_schema(DESTINATION share/cb-api/schema EXCLUDE templates)
 install(EXPORT cb-api-targets
         NAMESPACE cb::
         FILE      cb-api-targets.cmake
@@ -173,8 +184,8 @@ target_link_libraries(CommunityBehaviors PRIVATE feature-sdk engine config ryml:
 target_precompile_headers(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src/core/pch/PCH.h")
 
 # ── Dear ImGui + D3D11 backend, compiled INTO the plugin (no SKSE Menu Framework dependency) ──
-# Drives the cold-compile progress bar: PresentPump renders its own ImGui frames onto the game's
-# swapchain during the compile (see PresentPump.cpp). Fetched unconditionally (small; the converter's
+# Drives the cold-compile progress bar: ProgressHud draws ImGui frames after the game's hooked
+# present call during the compile (see ProgressHud.cpp). Fetched unconditionally (small; the converter's
 # separate glfw/opengl3 `imgui` lib, below, reuses the same populated source). d3d11/dxgi for the
 # swapchain + device the game hands us.
 include(FetchContent)
@@ -208,7 +219,7 @@ set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
 # Deploy: DLL + the class schema + the packed bundles (merge, preserving Skyrim.hky). The plugin never
 # reads the converter's Nemesis-ingest templates, so schema/templates stays out of the mod.
 cb_deploy(CommunityBehaviors "Community Behaviors"
-    SCHEMA_DIR     "${CMAKE_SOURCE_DIR}/schema"
+    SCHEMA
     SCHEMA_EXCLUDE templates
     HKY_STAGE      "${CB_HKY_STAGE}")
 
@@ -226,8 +237,6 @@ endif()
 # Shares CB's whole engine; a GLFW + Dear ImGui desktop app — heavier deps (glfw + imgui via
 # FetchContent), so gated: -DCB_BUILD_CONVERTER=OFF gives a lean plugin-only configure.
 if(CB_BUILD_CONVERTER)
-    include(FetchContent)
-
     # ── GLFW (windowing) ──────────────────────────────────────────────────────
     FetchContent_Declare(glfw
         GIT_REPOSITORY https://github.com/glfw/glfw.git
@@ -244,17 +253,11 @@ if(CB_BUILD_CONVERTER)
     target_include_directories(glad_gl_45_core PUBLIC "${CMAKE_SOURCE_DIR}/cmake/glad/include")
 
     # ── Dear ImGui (docking branch) ───────────────────────────────────────────
-    FetchContent_Declare(imgui
-        GIT_REPOSITORY https://github.com/ocornut/imgui.git
-        GIT_TAG        docking
-        GIT_SHALLOW    TRUE)
-    FetchContent_MakeAvailable(imgui)
     add_library(imgui STATIC
         "${imgui_SOURCE_DIR}/imgui.cpp"
         "${imgui_SOURCE_DIR}/imgui_draw.cpp"
         "${imgui_SOURCE_DIR}/imgui_tables.cpp"
         "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
-        "${imgui_SOURCE_DIR}/imgui_demo.cpp"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp"
         "${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp")
     target_include_directories(imgui PUBLIC

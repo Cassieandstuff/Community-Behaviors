@@ -1,9 +1,9 @@
 #pragma once
 
 #include "core/discover/BundleManifest.h"
-#include "core/resolve/GraphClipSink.h"   // GraphClipSink — the adsf-derive stage's clip accumulator
-#include "core/resolve/MotionRecordSink.h" // MotionRecordSink — the compile-side root-motion accumulator
 #include "core/resolve/SymbolInjector.h"
+
+#include <compile/AnimDataDeriver.h>   // CB::engine::animdata::DeriveClipInput
 
 #include <interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
 #include <codec/format/RigIndex.h> // RigIndex — which rig each graph / animation binds
@@ -54,7 +54,7 @@ namespace CB {
         // independent tasks, run them ALL and BLOCK until every one has finished (exactly the
         // CB::core::bootstrap::ThreadPool::parallel_for contract). nullptr => serial (the proven default). Kept as
         // a plain std::function so the Resolver carries NO dependency on the sequencer's ThreadPool
-        // type; Plugin.cpp wires a real pool in behind the sequencer.enable marker. Each native-anim
+        // type; Plugin.cpp wires a real pool in unless the sequencer.disable marker is present. Each native-anim
         // compile is a pure function of its own def + the immutable served skeleton and writes its own
         // distinct output file, so parallel output is byte-identical to serial by construction.
         using AnimExecutor = std::function<void(std::vector<std::function<void()>>)>;
@@ -209,16 +209,6 @@ namespace CB {
         // while unproven. Set from Plugin.cpp before the warm-up compile runs.
         void SetERGateEnabled(bool enabled) { m_erGateEnabled = enabled; }
 
-        // adsf-derive toggle (default OFF; [Compiler] bAdsfDerive). When on, the FIRST-CLASS adsf-derive
-        // stage runs during CompileAll (a compiler stage, no longer an IGraphFeature) and fills m_clipSink
-        // with each graph's clip inputs; features may also contribute clips into that same sink. The
-        // animdata finalizer reads ClipSink() afterwards. It is a NEW, unvalidated derive path parallel to
-        // the proven collated merge, so it is OPT-IN and does NOT drive the emitted adsf until proven
-        // byte-exact in-engine. Set from Plugin.cpp before the warm-up.
-        void                 SetAdsfDerive(bool enabled) { m_adsfDerive = enabled; }
-        bool                 AdsfDerive() const { return m_adsfDerive; }
-        const GraphClipSink& ClipSink() const { return m_clipSink; }
-
         /// @brief The clip generators of `layers` (base first) merged the way Resolve merges them, bone names bound
         ///        through the rig of the characters that run `key`. Empty when the merge fails (logged).
         /// @pre   Init() done (the rig tables are built there).
@@ -232,56 +222,6 @@ namespace CB {
         std::vector<std::string> ServedRoster(const std::string& characterKey) const;
         /// @brief Every served behavior graph (its parent folder is a `behaviors…` folder).
         std::vector<std::string> BehaviorUnitKeys() const;
-
-        // Root-motion the animation compile produced (WriteNativeAnimations emits each native `.hkx`
-        // unit's inline motion here). The adsf finalizer drains this instead of re-reading the YAML, so
-        // the compiler is the single motion producer. Populated during the native-anim compile (which may
-        // run in parallel — the sink is mutex-guarded); read after it completes.
-        const MotionRecordSink& MotionSink() const { return m_motionSink; }
-
-        // Finalize the animationdata cache from the COMPILED results (opt-in; requires the adsf-derive
-        // feature). Marries the per-graph clips the feature pushed into m_clipSink with the per-character
-        // MERGED rosters captured during CompileAll, and writes the collated animationdatasinglefile.txt
-        // to <dataDir>/community_behaviors_cache/. Clips come straight from the merged graphs — the merge already
-        // resolved the load order, so there are NO deltas to merge; the Skyrim.hky master supplies only
-        // the un-derivable half (root motion + project headers). Call AFTER CompileAll. Returns true iff
-        // it wrote the file; a no-op returning false when the feature is off or the master is unreadable.
-        bool DeriveAnimData(const std::filesystem::path& dataDir);
-
-        // Registered animations for an actor (key like "actors/character"; any case or
-        // separators). Each value is a path relative to the actor dir, in animationNames
-        // form ("animations\community_behaviors\...\x.hkx"). Empty if none. Lock-free —
-        // m_actorAnimations is immutable after Init(). Feeds the in-memory character
-        // animation append (authors drop .hkx under <actor>\animations\community_behaviors\;
-        // no FNIS/Nemesis registration needed).
-        const std::vector<std::string>& AnimationsForActor(std::string_view actorRoot) const;
-
-        // Registered animations for the character whose actor-RELATIVE main behavior file
-        // is behaviorFilename (e.g. "Behaviors\\0_Master.hkx" — a character carries no
-        // actor prefix). Resolves the actor by finding the animation-owning actor whose
-        // served behavior set contains that file. Empty if none. Lock-free.
-        const std::vector<std::string>& AnimationsForCharacter(std::string_view behaviorFilename) const;
-
-        std::size_t AnimationActorCount() const { return m_actorAnimations.size(); }
-
-        // Character-roster additions ingested from bundles (Data\community_behaviors\plugins\
-        // <Mod>.hky\animationnames\<character>.txt — one animation name per line, produced by
-        // br-nemesis-to-hky from a mod's hkbCharacterStringData patches). Keyed by character
-        // name (case-insensitive; matches hkbCharacterStringData::name, e.g. "DefaultMale").
-        // The character injector dedup-appends these to the character's animationNames so a
-        // mod's set-data crcs resolve against a roster that actually lists those anims — the
-        // consistency the standalone set-data serve was missing. Lock-free (immutable after
-        // Init). Empty if none.
-        const std::vector<std::string>& AnimationNamesForCharacter(std::string_view characterName) const;
-
-        std::size_t CharacterAnimNameCount() const { return m_characterAnimNames.size(); }
-
-        // Parsed manifest for a bundle by its load-order stem (case-insensitive, e.g.
-        // "bfco"), or nullptr if that bundle was never scanned. Immutable after Init();
-        // a bundle with no manifest.json still has a defaulted record here (present=false).
-        const BundleManifest* ManifestFor(std::string_view bundleStem) const;
-
-        std::size_t ManifestCount() const { return m_manifests.size(); }
 
     private:
         /// @brief The bone table a graph / animation binds, found through the characters that run it.
@@ -303,8 +243,8 @@ namespace CB {
         // steer above-OAR cascade loads into BR's cache for owned children only.
         std::string QualifyChildRef(const std::string& graphKey, const std::string& childRef) const;
 
-        /// @brief A merged CHARACTER's compile stage: fold the author roster additions into animationNames, capture
-        ///        the roster / actor path for the animdata derive, and cache-qualify its behavior reference.
+        /// @brief A merged CHARACTER's compile stage: fold the author roster additions into animationNames and
+        ///        cache-qualify its behavior reference.
         void ResolveCharacter(const std::string& key, CB::engine::decompile::GraphEdit& edit);
         /// @brief Fold the author roster drops (animationnames\<stem>.txt) onto `names` — an EXACT-case union.
         /// @return how many were added.
@@ -323,7 +263,7 @@ namespace CB {
         ///        and whether the base is a character (ResolveCharacter) vs a behavior graph. Each source is a disk
         ///        dir (DiskUnitSource) or a packed .hky subtree (ZipUnitSource), transparently.
         struct GraphSources {
-            // Each layer carries its load-order identity ({stem, rank, ancestors}) so the merge can key
+            // Each layer carries its load-order identity ({stem, masterTable}) so the merge can key
             // node identity by SCOPE (id-space owner) instead of a bare id — see LayerSource.
             std::vector<CB::engine::common::LayerSource> layers;
             bool isCharacter = false;
@@ -334,13 +274,6 @@ namespace CB {
         // (into m_sources) that reference back into it, so it must outlive them. Empty
         // when every bundle is an unpacked directory. Immutable after Init().
         std::vector<std::shared_ptr<CB::engine::codec::HkyArchive>> m_archives;
-        // actor root ("actors/character") -> animation paths relative to the actor dir
-        // ("animations\community_behaviors\...\x.hkx"), registered via the opt-in
-        // animations\community_behaviors\ subfolder. Immutable after Init().
-        // NOTE: DEAD since the runtime roster injector was retired (bc4e489a) — the served
-        // compiled character file now carries the merged roster. Kept until a resolver
-        // dead-code pass prunes these feeders + their scan in Init().
-        std::unordered_map<std::string, std::vector<std::string>> m_actorAnimations;
         // character-file stem (lowercase, e.g. "defaultmale") -> animationNames additions,
         // ingested from bundles' animationnames\<stem>.txt. The AUTHOR-FACING roster drop:
         // folded into the character's compiled animationNames at Resolve() (deduped). The
@@ -376,12 +309,11 @@ namespace CB {
         // Above-OAR redirect map, built in MaterializeCacheToDisk. Keyed by the actor's
         // behavior-project FOLDER ROOT (meshes-prefixed, normalized — e.g.
         // "meshes/actors/character"); each entry is a character served under that root, by its
-        // file stem ("defaultmale") + the cache ref its synthesized project must point at
-        // ("community_behaviors_cache\characters\defaultmale.hkx"). ProjectRedirect() resolves a
+        // file stem ("defaultmale", a path key). ProjectRedirect() resolves a
         // vanilla project path to its BR project via this map (sole-character or stem-match
         // disambiguation), then synthesizes the project on demand. Populated on the warm-up
         // thread before m_redirectReady flips; immutable after.
-        struct ProjectRedirectEntry { std::string charStem; std::string cacheCharRef; };
+        struct ProjectRedirectEntry { std::string charStem; };
         std::unordered_map<std::string, std::vector<ProjectRedirectEntry>> m_projectRedirects;
         /// @brief projKey (meshes-prefixed, e.g. "meshes/actors/character/defaultmale.hkx") -> that project's complete
         ///        unit (the vanilla project, from the base). ProjectRedirect serves it as the redirected project.
@@ -409,22 +341,6 @@ namespace CB {
         // ER wildcard gate on/off (default OFF; see SetERGateEnabled). Read from settings.ini
         // ([ERGate] bEnable) in Plugin.cpp and set before the warm-up compile.
         bool m_erGateEnabled = false;
-        // adsf-derive on/off (default OFF; see SetAdsfDerive). When on, CompileAll's first-class
-        // adsf-derive stage populates m_clipSink (graph-derived clips + any feature contributions) and
-        // the finalizer consumes it.
-        bool          m_adsfDerive = false;
-        GraphClipSink m_clipSink;
-        // Root-motion the native-anim compile produced (see MotionSink). `mutable`: WriteNativeAnimations
-        // is const (it writes only files + this compile-scratch accumulator, not logical resolver state),
-        // and it may fan the emit across worker threads — the sink guards itself.
-        mutable MotionRecordSink m_motionSink;
-        // Per-character MERGED roster (animationNames) + actor path, captured in the isCharacter compile
-        // when m_adsfDerive is on. Both keyed by character stem ("defaultmale"). DeriveAnimData
-        // resolves each sink clip's animIndex against the roster (the space the clip binds into) and uses
-        // the actor path (from the character's own serve key — always well-formed) to gather that project's
-        // clips out of the sink, instead of trusting the base header's `character` string shape.
-        std::unordered_map<std::string, std::vector<std::string>> m_characterRosters;
-        std::unordered_map<std::string, std::string>              m_characterActor;
 
         // Mod-declared events/variables (BDI-format), unioned into each graph's data
         // at compile time. Loaded once in Init().

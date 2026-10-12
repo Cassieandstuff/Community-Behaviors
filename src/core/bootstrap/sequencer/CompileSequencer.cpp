@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/bootstrap/sequencer/CompileSequencer.h"
 
-#include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cstdint>
-#include <stdexcept>
-#include <unordered_set>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -97,100 +93,6 @@ void ThreadPool::parallel_for(std::vector<std::function<void()>> jobs) {
     dcv.wait(lk, [&] { return remaining.load(std::memory_order_acquire) == 0; });
     // `remaining`, `dm`, `dcv` are locals but outlive every job: we only return once
     // remaining == 0, i.e. after the last job has finished touching them.
-}
-
-// ── Sequencer (wave scheduler) ──────────────────────────────────────────────
-void Sequencer::run(ThreadPool& pool) {
-    std::unordered_set<PhaseId> done;
-    while (done.size() < phases_.size()) {
-        // This wave = every not-done phase whose deps are ALL done.
-        std::vector<const Phase*> wave;
-        for (const Phase& p : phases_) {
-            if (done.count(p.id)) continue;
-            const bool ready = std::all_of(p.dependsOn.begin(), p.dependsOn.end(),
-                                           [&](const PhaseId& d) { return done.count(d) != 0; });
-            if (ready) wave.push_back(&p);
-        }
-        if (wave.empty())
-            throw std::runtime_error("CompileSequencer: unmet dependency or cycle — no phase ready");
-
-        // Flatten the whole wave into ONE batch so independent phases overlap.
-        // SERIAL phase jobs go FIRST: a serial phase (e.g. behaviors) must grab a worker
-        // immediately and run ALONGSIDE the parallel tasks, not queue behind all of them —
-        // otherwise on an N-worker pool a lone serial job lands last and runs AFTER the
-        // whole parallel set, defeating the overlap (behaviors hiding behind animations).
-        std::vector<std::function<void()>> batch;
-        for (const Phase* p : wave)
-            if (p->mode == Mode::Serial && p->run) batch.push_back(p->run);
-        for (const Phase* p : wave)
-            if (p->mode == Mode::Parallel && p->tasks) {
-                std::vector<std::function<void()>> ts = p->tasks();   // produced on the orchestrator
-                for (auto& t : ts) batch.push_back(std::move(t));
-            }
-        pool.parallel_for(std::move(batch));    // orchestrator blocks until the wave finishes
-        for (const Phase* p : wave) done.insert(p->id);
-    }
-}
-
-// ── SelfTest (no game, no Resolver) ─────────────────────────────────────────
-bool SelfTest() {
-    using namespace std::chrono_literals;
-
-    std::atomic<bool> skelDone{ false };
-    std::atomic<bool> behActive{ false };
-    std::atomic<int>  animOverlapObservations{ 0 };
-    std::atomic<int>  animTasksRun{ 0 };
-    std::atomic<bool> barrierViolation{ false };
-
-    ThreadPool pool(4);
-    Sequencer  seq;
-
-    seq.add(Phase{ "skeletons", Mode::Serial, /*deps*/ {},
-        /*run*/ [&] { std::this_thread::sleep_for(10ms); skelDone.store(true); },
-        /*tasks*/ nullptr });
-
-    seq.add(Phase{ "animations", Mode::Parallel, /*deps*/ { "skeletons" },
-        /*run*/ nullptr,
-        /*tasks*/ [&]() -> std::vector<std::function<void()>> {
-            if (!skelDone.load()) barrierViolation.store(true);       // produced too early?
-            std::vector<std::function<void()>> ts;
-            for (int i = 0; i < 8; ++i)
-                ts.push_back([&] {
-                    if (!skelDone.load()) barrierViolation.store(true);   // ran before its dep?
-                    // Sample across the task's lifetime (not just at start): behaviors is the
-                    // last job in the batch, so an early task would miss a start-only check.
-                    for (int k = 0; k < 20; ++k) {
-                        if (behActive.load()) animOverlapObservations.fetch_add(1);
-                        std::this_thread::sleep_for(1ms);
-                    }
-                    animTasksRun.fetch_add(1);
-                });
-            return ts;
-        } });
-
-    seq.add(Phase{ "behaviors", Mode::Serial, /*deps*/ { "skeletons" },   // NOT deps animations → overlaps
-        /*run*/ [&] {
-            if (!skelDone.load()) barrierViolation.store(true);
-            behActive.store(true);
-            std::this_thread::sleep_for(40ms);   // generous window so overlap is deterministic
-            behActive.store(false);
-        },
-        /*tasks*/ nullptr });
-
-    seq.add(Phase{ "adsf", Mode::Serial, /*deps*/ { "animations", "behaviors" },
-        /*run*/ [&] {
-            if (!skelDone.load() || behActive.load() || animTasksRun.load() != 8)
-                barrierViolation.store(true);   // join must see everything upstream complete
-        },
-        /*tasks*/ nullptr });
-
-    seq.run(pool);
-
-    // PASS iff: no barrier was crossed early, all 8 animation tasks ran, and at least
-    // one animation task observed behaviors active at the same time (proves overlap).
-    return !barrierViolation.load()
-        && animTasksRun.load() == 8
-        && animOverlapObservations.load() > 0;
 }
 
 }  // namespace CB::core::bootstrap
