@@ -19,7 +19,7 @@ namespace CB {
     // animationdata/…, animationnames/…, meshes/animationsetdatasinglefile.txt), so this
     // hides dir-vs-packed the way IUnitSource hides it per-unit for the Resolver.
     //
-    // A packed bundle is decompressed once in memory (HkyArchive, MAX_PATH-immune). Lookups go
+    // A packed bundle is read through its index (HkyArchive, MAX_PATH-immune). Lookups go
     // by path identity (codec::resource::PathKey), so `rel` may be spelled in any case; every
     // NAME handed back (subdirs, files, filesUnderOrig) keeps its original case, packed or
     // loose, and file CONTENT is verbatim. filesUnder() alone returns identity keys.

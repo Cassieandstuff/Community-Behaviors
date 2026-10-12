@@ -200,7 +200,13 @@ namespace CB {
     /// @param exec The BELOW_NORMAL pool the adsf projection parses animations on; nullptr = serial.
     static void ArmAdsfSetDataServe(const Resolver::AnimExecutor* exec)
     {
-        const auto sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt");
+        /// @note A bundle that can't be read back intact throws (HkyArchive::file); that file then stays vanilla.
+        CB::core::serve::SetDataServeResult sd;
+        try {
+            sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt");
+        } catch (const std::exception& e) {
+            sd.attempted = true; sd.error = e.what();
+        }
         if (sd.attempted && !sd.ok)
             LOG_WARN("Community Behaviors: animationsetdata merge did not complete: {}", sd.error);
         CB::core::serve::ArmSetDataRedirect(sd);
@@ -209,7 +215,12 @@ namespace CB {
         adsf.roster        = [](const std::string& key) { return g_resolver.ServedRoster(key); };
         adsf.clips         = [](const std::string& key) { return g_resolver.MergedClipInputs(key); };
         adsf.behaviorUnits = [] { return g_resolver.BehaviorUnitKeys(); };
-        const auto ad = CB::core::serve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt", adsf, exec);
+        CB::core::serve::ServeResult ad;
+        try {
+            ad = CB::core::serve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt", adsf, exec);
+        } catch (const std::exception& e) {
+            ad.attempted = true; ad.error = e.what();
+        }
         if (!ad.ok)
             LOG_WARN("Community Behaviors: animationdata projection did not complete: {}", ad.error);
         CB::core::serve::ArmAnimDataRedirect(ad);
@@ -264,6 +275,16 @@ namespace CB {
     // animationdata open unblocks in milliseconds, THEN waits Init and arms the graphs from cache. On a
     // COLD cache adsf must be derived from the scan (needs Init), so it waits Init, arms adsf, signals,
     // then compiles the graphs in the background with the bar riding the live menu.
+    /// @brief The arm's exit after a failed Init: release the adsf/setdata wait (unarmed → vanilla), retire the bar.
+    /// @note  Nothing is compiled or written, so the on-disk cache a transient failure met is left as it was.
+    static unsigned StandDown()
+    {
+        SignalAdsfArmed();
+        CB::core::bootstrap::SetProgress(0, 0, false);
+        t_compileGateInProgress = false;
+        return 0;
+    }
+
     static unsigned __stdcall ArmThread(void*)
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
@@ -281,6 +302,7 @@ namespace CB {
             if (adsfFromCache) SignalAdsfArmed();
 
             g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
+            if (g_resolver.Failed()) return StandDown();
 
             // Native anims are loose (not in the reused graph cache) so ArmCacheFromDisk recompiles them;
             // give it the same optional parallel executor. Sets m_redirectReady when done (materialize).
@@ -290,6 +312,7 @@ namespace CB {
             CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
             g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
+            if (g_resolver.Failed()) return StandDown();
 
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
@@ -359,10 +382,9 @@ namespace CB {
         if (h && ::GetThreadId(h) != ::GetCurrentThreadId()) WaitForSingleObject(h, INFINITE);
     }
 
-    // Resolver bring-up, run OFF the main thread. Init fully UNPACKS the .hky bundles (decompresses each
-    // whole archive into memory), scans the load order, reads every actor skeleton, and compiles the
-    // served skeletons — ~50s of work that used to run synchronously in SKSEPluginLoad ON THE MAIN
-    // THREAD, blocking the window's message pump during bring-up (the load-minimize + trapped cursor).
+    // Resolver bring-up, run OFF the main thread. Init opens the .hky bundles, scans the load order, reads
+    // every actor skeleton, and compiles the served skeletons — work that used to run synchronously in
+    // SKSEPluginLoad ON THE MAIN THREAD, blocking the window's message pump during bring-up (the load-minimize + trapped cursor).
     // All resolver config lives here so it's published together via Init's ready-store (Resolver::Ready);
     // the serve hooks pass through to vanilla until then, and the compile gate blocks on WaitReady().
     // 64MB stack — the skeleton compile. Finishes during the intro, before the first owned open.
@@ -478,7 +500,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         // that fires before Init finishes passes through to vanilla instead of reading half-built state).
         CB::core::serve::SetResolver(&CB::g_resolver);
 
-        // Run the whole resolver bring-up (unpack + scan + skeleton compile — ~50s) on a BACKGROUND
+        // Run the whole resolver bring-up (bundle open + scan + skeleton compile) on a BACKGROUND
         // thread, so SKSEPluginLoad returns immediately and the main thread is free to bring the window
         // up. It used to run synchronously here on the main thread, blocking the message pump the entire
         // time → the game launched minimized with the cursor trapped. Init finishes during the intro,

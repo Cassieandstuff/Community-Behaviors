@@ -87,76 +87,84 @@ private:
 }  // namespace
 
 std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath, std::string& err) {
-    // Pass 1 (serial, cheap): enumerate every non-dir entry's index + name. Statting does NOT
-    // decompress, so this is fast; the heavy inflate is pass 2.
-    const std::string mzPath = MzPath(std::filesystem::path(hkyPath));
-    mz_zip_archive    z;
+    auto arc    = std::shared_ptr<HkyArchive>(new HkyArchive());
+    arc->m_path = hkyPath;
+    arc->m_file = disk::ReadOnlyFile::Open(std::filesystem::path(hkyPath), &err);
+    if (!arc->m_file) return nullptr;
+
+    /// @note miniz parses the central directory through our reader; nothing is inflated here.
+    mz_zip_archive z;
     std::memset(&z, 0, sizeof z);
-    if (!mz_zip_reader_init_file(&z, mzPath.c_str(), 0)) { err = "cannot open .hky: " + hkyPath; return nullptr; }
+    z.m_pRead       = [](void* f, mz_uint64 ofs, void* buf, std::size_t n) -> std::size_t {
+        return static_cast<const disk::ReadOnlyFile*>(f)->ReadAt(ofs, buf, n) ? n : 0;
+    };
+    z.m_pIO_opaque = arc->m_file.get();
+    if (!mz_zip_reader_init(&z, arc->m_file->Size(), 0)) { err = "not a readable .hky (zip): " + hkyPath; return nullptr; }
     const mz_uint n = mz_zip_reader_get_num_files(&z);
-    struct EntRef { mz_uint idx; std::string key; std::string orig; };
-    std::vector<EntRef> ents;
-    ents.reserve(n);
     for (mz_uint i = 0; i < n; ++i) {
         if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
         mz_zip_archive_file_stat st;
-        if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat)"; return nullptr; }
-        ents.push_back({ i, PathKey(st.m_filename), slashOnly(st.m_filename) });
+        if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat): " + hkyPath; return nullptr; }
+        if (st.m_is_encrypted || !st.m_is_supported || (st.m_method != 0 && st.m_method != MZ_DEFLATED)) {
+            mz_zip_reader_end(&z);
+            err = "unsupported entry '" + std::string(st.m_filename) + "' in " + hkyPath;
+            return nullptr;
+        }
+        arc->m_files.emplace(PathKey(st.m_filename),
+                             Entry{ slashOnly(st.m_filename), st.m_local_header_ofs, st.m_comp_size, st.m_uncomp_size,
+                                    st.m_crc32, st.m_method == MZ_DEFLATED });
     }
     mz_zip_reader_end(&z);
-    if (ents.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
-
-    auto arc = std::shared_ptr<HkyArchive>(new HkyArchive());
-
-    /// @note Pass 2 inflates in parallel, one reader per WORKER (miniz is not thread-safe on one handle), each entry
-    ///       into its own slot; m_files is then filled serially in entry order, so the result is independent of thread
-    ///       count. Below a small floor a single worker does it all.
-    constexpr std::size_t       kParallelFloor = 256;
-    const exec::ParallelOptions popt{ .threads = ents.size() < kParallelFloor ? 1u : 0u };
-    std::vector<mz_zip_archive> readers(exec::WorkerCount(ents.size(), popt));
-    std::vector<char>           opened(readers.size(), 0);
-    std::vector<std::string>    contents(ents.size());
-    std::string                 fail;
-    try {
-        exec::ParallelFor(ents.size(), [&](std::size_t i, unsigned w) {
-            if (!opened[w]) {
-                std::memset(&readers[w], 0, sizeof readers[w]);
-                if (!mz_zip_reader_init_file(&readers[w], mzPath.c_str(), 0))
-                    throw std::runtime_error("cannot re-open .hky: " + hkyPath);
-                opened[w] = 1;
-            }
-            std::size_t                   sz = 0;
-            std::unique_ptr<void, MzFree> p(mz_zip_reader_extract_to_heap(&readers[w], ents[i].idx, &sz, 0));
-            if (!p) throw std::runtime_error("extract failed: " + ents[i].orig);
-            contents[i].assign(static_cast<const char*>(p.get()), sz);
-        }, popt);
-    } catch (const std::exception& e) {
-        fail = e.what();
-    }
-    for (std::size_t w = 0; w < readers.size(); ++w)
-        if (opened[w]) mz_zip_reader_end(&readers[w]);
-    if (!fail.empty()) { err = std::move(fail); return nullptr; }
-    for (std::size_t i = 0; i < ents.size(); ++i)
-        arc->m_files.emplace(std::move(ents[i].key), Entry{ std::move(ents[i].orig), std::move(contents[i]) });
+    if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
 
     /// @note EVERY "<prefix>.hkx/..." subtree is a unit (a mod's patch unit may hold only changed nodes / rosters and
     ///       is still a real layer). m_files is sorted, so all files under one root are consecutive. A skeleton is
     ///       its own format (bonelist.yaml + bones/, the skeleton compiler's), not a reflective graph.
-    std::string lastRoot;
-    for (const auto& [k, _] : arc->m_files) {
-        const auto pos = k.find(".hkx/");
-        if (pos == std::string::npos) continue;
-        std::string root = k.substr(0, pos + 4);
-        if (root == lastRoot) continue;
-        lastRoot = root;
-        const auto g = arc->m_files.find(root + "/graph.yaml");
-        const UnitKind kind = arc->m_files.count(root + "/bonelist.yaml") ? UnitKind::Skeleton
-                            : g == arc->m_files.end()                    ? UnitKind::Behavior
-                                                                          : KindOfGraphYaml(g->second.content);
-        arc->m_units.push_back({ std::move(root), kind });
+    try {
+        std::string lastRoot;
+        for (const auto& [k, _] : arc->m_files) {
+            const auto pos = k.find(".hkx/");
+            if (pos == std::string::npos) continue;
+            std::string root = k.substr(0, pos + 4);
+            if (root == lastRoot) continue;
+            lastRoot = root;
+            const auto g = arc->m_files.find(root + "/graph.yaml");
+            const UnitKind kind = arc->m_files.count(root + "/bonelist.yaml") ? UnitKind::Skeleton
+                                : g == arc->m_files.end()                    ? UnitKind::Behavior
+                                                                              : KindOfGraphYaml(arc->read(g->second));
+            arc->m_units.push_back({ std::move(root), kind });
+        }
+    } catch (const std::exception& e) {
+        err = e.what();
+        return nullptr;
     }
-    if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
     return arc;
+}
+
+HkyArchive::~HkyArchive() = default;
+
+std::string HkyArchive::read(const Entry& e) const {
+    const auto fault = [&](const char* what) { return std::runtime_error(m_path + ": '" + e.orig + "' " + what); };
+    /// @note The data starts after the LOCAL header's name + extra fields, whose lengths may differ from the central
+    ///       directory's — so the local header is read for them.
+    unsigned char lh[30];
+    if (!m_file->ReadAt(e.headerOffset, lh, sizeof lh)) throw fault("cannot be read");
+    const auto le16 = [&](int at) { return static_cast<std::uint64_t>(lh[at] | (lh[at + 1] << 8)); };
+    if (le16(0) != 0x4b50 || le16(2) != 0x0403) throw fault("has no local header");
+    const std::uint64_t dataOffset = e.headerOffset + sizeof lh + le16(26) + le16(28);
+
+    std::string out(static_cast<std::size_t>(e.size), '\0');
+    if (!e.deflated) {
+        if (e.packedSize != e.size || !m_file->ReadAt(dataOffset, out.data(), out.size())) throw fault("cannot be read");
+    } else if (e.size > 0) {
+        std::string packed(static_cast<std::size_t>(e.packedSize), '\0');
+        if (!m_file->ReadAt(dataOffset, packed.data(), packed.size())) throw fault("cannot be read");
+        if (tinfl_decompress_mem_to_mem(out.data(), out.size(), packed.data(), packed.size(), 0) != out.size())
+            throw fault("does not inflate");
+    }
+    if (mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(out.data()), out.size()) != e.crc)
+        throw fault("fails its CRC check");
+    return out;
 }
 
 HkyArchive::UnitKind HkyArchive::KindOfGraphYaml(std::string_view graphYaml) {
@@ -301,7 +309,7 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
 std::optional<std::string> HkyArchive::file(const std::string& path) const {
     const auto it = m_files.find(path);   // caller passes an already-normalized key
     if (it == m_files.end()) return std::nullopt;
-    return it->second.content;
+    return read(it->second);
 }
 
 std::vector<std::string> HkyArchive::filesUnder(const std::string& prefix) const {

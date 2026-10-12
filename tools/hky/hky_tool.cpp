@@ -13,10 +13,13 @@
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 #include <disk/Disk.h>
+#include <exec/Parallel.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -47,16 +50,22 @@ int doHkyUnpack(const std::string& hkyPath, const std::string& outDir) {
     const auto keys  = arc->filesUnder("");
     const auto paths = arc->filesUnderOrig("");
     namespace fs = std::filesystem;
-    std::size_t written = 0;
-    for (std::size_t i = 0; i < keys.size(); ++i) {
-        const auto content = arc->file(keys[i]);
-        if (!content) continue;   // keys come from the same map — should always resolve
-        const fs::path dst = fs::path(outDir) / fs::path(paths[i]);
-        if (std::string werr; !CB::engine::disk::WriteFile(dst, *content, {}, &werr)) { std::printf("FAIL: %s\n", werr.c_str()); return 1; }
-        ++written;
+    std::atomic<std::size_t> written{ 0 };
+    try {
+        /// @note Each file is read + inflated on the worker that writes it (HkyArchive reads are thread-safe).
+        CB::engine::exec::ParallelFor(keys.size(), [&](std::size_t i) {
+            const auto content = arc->file(keys[i]);
+            if (!content) return;   // keys come from the same map — should always resolve
+            const fs::path dst = fs::path(outDir) / fs::path(paths[i]);
+            if (std::string werr; !CB::engine::disk::WriteFile(dst, *content, {}, &werr)) throw std::runtime_error(werr);
+            ++written;
+        });
+    } catch (const std::exception& e) {
+        std::printf("FAIL: %s\n", e.what());
+        return 1;
     }
     std::printf("OK: hky unpack '%s' -> %s (%zu file(s), %zu unit(s)).\n",
-                hkyPath.c_str(), outDir.c_str(), written, arc->units().size());
+                hkyPath.c_str(), outDir.c_str(), written.load(), arc->units().size());
     return 0;
 }
 
