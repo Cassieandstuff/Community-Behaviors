@@ -84,37 +84,57 @@ private:
     std::string                       m_root;   // "<prefix>/"
 };
 
+/// @brief Every file entry of the zip's central directory, in archive order; nothing is inflated.
+/// @return false with `err` set when the index can't be read, or an entry isn't stored/deflate (or is encrypted).
+template <class OnEntry>
+bool WalkIndex(const disk::ReadOnlyFile& file, const std::string& hkyPath, std::string& err, OnEntry&& onEntry) {
+    mz_zip_archive z;
+    std::memset(&z, 0, sizeof z);
+    z.m_pRead      = [](void* f, mz_uint64 ofs, void* buf, std::size_t n) -> std::size_t {
+        return static_cast<const disk::ReadOnlyFile*>(f)->ReadAt(ofs, buf, n) ? n : 0;
+    };
+    z.m_pIO_opaque = const_cast<disk::ReadOnlyFile*>(&file);
+    if (!mz_zip_reader_init(&z, file.Size(), 0)) { err = "not a readable .hky (zip): " + hkyPath; return false; }
+    const mz_uint n = mz_zip_reader_get_num_files(&z);
+    for (mz_uint i = 0; i < n; ++i) {
+        if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
+        mz_zip_archive_file_stat st;
+        if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat): " + hkyPath; return false; }
+        if (st.m_is_encrypted || !st.m_is_supported || (st.m_method != 0 && st.m_method != MZ_DEFLATED)) {
+            mz_zip_reader_end(&z);
+            err = "unsupported entry '" + std::string(st.m_filename) + "' in " + hkyPath;
+            return false;
+        }
+        onEntry(st);
+    }
+    mz_zip_reader_end(&z);
+    return true;
+}
+
 }  // namespace
+
+std::optional<std::vector<HkyArchive::IndexEntry>> HkyArchive::ReadIndex(const std::string& hkyPath, std::string& err) {
+    const auto file = disk::ReadOnlyFile::Open(std::filesystem::path(hkyPath), &err);
+    if (!file) return std::nullopt;
+    std::vector<IndexEntry> out;
+    if (!WalkIndex(*file, hkyPath, err, [&](const mz_zip_archive_file_stat& st) {
+            out.push_back({ slashOnly(st.m_filename), st.m_uncomp_size, st.m_crc32 });
+        }))
+        return std::nullopt;
+    return out;
+}
 
 std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath, std::string& err) {
     auto arc    = std::shared_ptr<HkyArchive>(new HkyArchive());
     arc->m_path = hkyPath;
     arc->m_file = disk::ReadOnlyFile::Open(std::filesystem::path(hkyPath), &err);
     if (!arc->m_file) return nullptr;
-
-    /// @note miniz parses the central directory through our reader; nothing is inflated here.
-    mz_zip_archive z;
-    std::memset(&z, 0, sizeof z);
-    z.m_pRead       = [](void* f, mz_uint64 ofs, void* buf, std::size_t n) -> std::size_t {
-        return static_cast<const disk::ReadOnlyFile*>(f)->ReadAt(ofs, buf, n) ? n : 0;
-    };
-    z.m_pIO_opaque = arc->m_file.get();
-    if (!mz_zip_reader_init(&z, arc->m_file->Size(), 0)) { err = "not a readable .hky (zip): " + hkyPath; return nullptr; }
-    const mz_uint n = mz_zip_reader_get_num_files(&z);
-    for (mz_uint i = 0; i < n; ++i) {
-        if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
-        mz_zip_archive_file_stat st;
-        if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat): " + hkyPath; return nullptr; }
-        if (st.m_is_encrypted || !st.m_is_supported || (st.m_method != 0 && st.m_method != MZ_DEFLATED)) {
-            mz_zip_reader_end(&z);
-            err = "unsupported entry '" + std::string(st.m_filename) + "' in " + hkyPath;
-            return nullptr;
-        }
+    const bool indexed = WalkIndex(*arc->m_file, hkyPath, err, [&](const mz_zip_archive_file_stat& st) {
         arc->m_files.emplace(PathKey(st.m_filename),
                              Entry{ slashOnly(st.m_filename), st.m_local_header_ofs, st.m_comp_size, st.m_uncomp_size,
                                     st.m_crc32, st.m_method == MZ_DEFLATED });
-    }
-    mz_zip_reader_end(&z);
+    });
+    if (!indexed) return nullptr;
     if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
 
     /// @note EVERY "<prefix>.hkx/..." subtree is a unit (a mod's patch unit may hold only changed nodes / rosters and

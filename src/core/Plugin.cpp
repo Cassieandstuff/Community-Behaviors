@@ -391,8 +391,10 @@ namespace CB {
     static unsigned __stdcall InitThread(void*)
     {
         ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
-        const bool warmReuse = !CB::core::debug::FlagOn("force_regenerate") &&
-                               g_resolver.CachePresent(std::filesystem::current_path() / "Data");
+        /// @note CachePresent runs even when a regen is forced: its first call fixes this launch's cache key (the inputs
+        ///       as found now, before anything compiles).
+        const bool cachePresent = g_resolver.CachePresent(std::filesystem::current_path() / "Data");
+        const bool warmReuse    = !CB::core::debug::FlagOn("force_regenerate") && cachePresent;
         g_resolver.SetERGateEnabled(CB::core::debug::FlagOn("er_gate"));
 
         // Parallel skeleton compile (stage 2) — same opt-out marker as the anim compile. A pool of

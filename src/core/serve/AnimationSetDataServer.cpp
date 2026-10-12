@@ -2,6 +2,7 @@
 #include <core/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
 
 #include "core/serve/AnimationSetDataServer.h"
+#include "core/resolve/CacheKey.h"   // ReadCacheInput — the loose fallback base is an input of the cached asdsf
 #include "core/discover/BundleReader.h"
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
@@ -358,7 +359,7 @@ namespace CB::core::serve {
                 baseFrom = "Skyrim.hky/meshes/animationsetdatasinglefile.txt (legacy loose)";
             } else {
                 baseFrom = vfsBase.string();
-                baseText = disk::ReadFile(vfsBase).value_or(std::string());
+                baseText = CB::core::resolve::ReadCacheInput(vfsBase).value_or(std::string());
                 LOG_WARN("SetData: no animationsetdatasinglefile.txt/ folder in master (bundle '{}') — "
                          "falling back to the loose file '{}'. If an upstream tool already merged the mods "
                          "there, this DOUBLE-merges; ship the decomposed Skyrim.hky master.",

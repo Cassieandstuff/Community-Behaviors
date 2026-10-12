@@ -17,14 +17,19 @@ namespace {
 
 void SetSharedSchemaDir(const std::string& dir) { g_sharedDir = dir; }
 
+std::string SharedSchemaDir() {
+    if (!g_sharedDir.empty()) return g_sharedDir;
+    const char* e = std::getenv("SCT_HAVOK_SCHEMA_DIR");
+    return e ? e : "";
+}
+
 const std::string& SharedRegistryError() { return g_sharedError; }
 
 SchemaRegistry* SharedRegistry() {
     static SchemaRegistry reg;
     static int state = 0;   // 0=unloaded, 1=ok, 2=fail  (load attempted at most once)
     if (state == 0) {
-        std::string dir = g_sharedDir;
-        if (dir.empty()) { if (const char* e = std::getenv("SCT_HAVOK_SCHEMA_DIR")) dir = e; }
+        const std::string dir = SharedSchemaDir();
         std::string err;
         if (dir.empty() || !reg.LoadDir(dir, err)) {
             g_sharedError = dir.empty() ? "no schema directory configured"

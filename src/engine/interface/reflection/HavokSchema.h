@@ -252,6 +252,10 @@ bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err);
 // $SCT_HAVOK_SCHEMA_DIR fallback. Call before the first SharedRegistry() — it does not force a reload.
 void SetSharedSchemaDir(const std::string& dir);
 
+/// @brief The directory the shared registry loads (or loaded) from: SetSharedSchemaDir's, else $SCT_HAVOK_SCHEMA_DIR;
+///        empty when neither is set.
+std::string SharedSchemaDir();
+
 // The shared registry, lazily loaded ONCE on first call (from SetSharedSchemaDir's dir, else
 // $SCT_HAVOK_SCHEMA_DIR). Returns nullptr when unconfigured or when the load/version-stamp gate
 // failed — the reason is in SharedRegistryError(). Load is attempted at most once.

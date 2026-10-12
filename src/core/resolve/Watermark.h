@@ -8,14 +8,9 @@
 // into every behavior graph it compiles (see Resolver::Resolve). At runtime a probe reads it back
 // off the actor's root graph with GetGraphVariableInt: a vanilla (un-served) graph simply doesn't
 // have the variable, so a `true` return is proof BR's compiled bytes are loaded. The value carries
-// the plugin version so a mismatch (variable present but value != kWatermarkValue) flags a STALE
-// on-disk cache from an older build — the cheap stand-in until real fingerprint invalidation lands.
-//
-// kWatermarkValue is a CACHE/BUILD FINGERPRINT — bump it on ANY change that alters compiled graph
-// output (a new compile pass or injected variable, not only a plugin-version bump), so CachePresent()
-// forces a regen and the served cache always matches the running DLL. Base it on the plugin version
-// (major*10000 + minor*100 + patch -> 0.3.0.0 = 30000) and add a build rev when compiled output
-// changes between version bumps. A fresh cache regen restamps every graph.
+// the plugin version (major*10000 + minor*100 + patch -> 0.3.0.0 = 30000), shown by the debug overlay.
+// It no longer decides cache reuse: the cache key (CacheKey.h) hashes the DLL itself, so any rebuild
+// recompiles and the served graphs always carry this build's value.
 
 namespace CB::core::resolve {
 

@@ -144,13 +144,12 @@ namespace CB {
         // disk across runs. When bForceRegenerate is off and a completed cache is present, BR
         // can serve straight from it — no recompile.
         //   CachePresent()   — true iff MaterializeCacheToDisk's completion sentinel exists
-        //                      (written only after a fully successful materialize).
+        //                      (written only after a fully successful materialize) AND the cache
+        //                      key it holds still matches every input (CacheKey.h); logs why not.
         //   ArmCacheFromDisk() — rebuild ONLY the above-OAR redirect map (from m_sources; no
         //                      compile, no disk write) and mark the redirect ready, so
         //                      ProjectRedirect() serves the existing on-disk cache.
-        // NAIVE today: presence, not validity. A stale cache from a DIFFERENT load order would
-        // be reused (that's why debug builds default bForceRegenerate on). A content fingerprint
-        // that also detects a changed bundle set is the planned next step (real invalidation).
+        // All or nothing: any changed input recompiles everything.
         bool CachePresent(const std::filesystem::path& cacheRoot) const;
         void ArmCacheFromDisk(const std::filesystem::path& cacheRoot, const AnimExecutor* animExec = nullptr);
 

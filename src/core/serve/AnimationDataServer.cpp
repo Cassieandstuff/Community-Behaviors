@@ -3,6 +3,7 @@
 
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
+#include "core/resolve/CacheKey.h"          // ReadCacheInput — OAR config.json is an input of the cached adsf
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimationYamlLoader.h>
@@ -82,7 +83,8 @@ namespace CB::core::serve {
                 if (it == cfgCache.end()) {
                     std::optional<int> prio = 0;
                     const std::string  dirOrig = keyOrig.size() == key.size() ? keyOrig.substr(0, dir.size()) : dir;
-                    const std::string  cfg = disk::ReadFile(dataDir / fs::path(dirOrig) / "config.json").value_or(std::string());
+                    const std::string  cfg = CB::core::resolve::ReadCacheInput(dataDir / fs::path(dirOrig) / "config.json")
+                                                .value_or(std::string());
                     std::smatch        mt;
                     if (std::regex_search(cfg, mt, std::regex(R"re("priority"\s*:\s*(-?\d+))re"))) prio = std::stoi(mt[1].str());
                     if (std::regex_search(cfg, std::regex(R"re("disabled"\s*:\s*true)re"))) prio = std::nullopt;

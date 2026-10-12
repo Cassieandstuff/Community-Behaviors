@@ -3,6 +3,7 @@
 #include "core/resolve/Resolver.h"
 #include "core/discover/ServeKey.h"
 #include "core/resolve/Watermark.h"
+#include "core/resolve/CacheKey.h"
 #include "core/debug/Settings.h"
 #include <feature-sdk/FeatureRegistry.h>   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
@@ -815,14 +816,11 @@ namespace CB {
     }
 
     namespace {
-        /// @brief FNV-1a 64 — the animation ledger's content fingerprint.
-        /// @note Internal only: it never crosses to the engine, so it is not a Havok CRC.
-        std::uint64_t Fnv64(const void* data, std::size_t n)
+        using CB::core::resolve::Fnv64;
+
+        std::uint64_t Fnv64(const std::vector<std::uint8_t>& bytes)
         {
-            std::uint64_t h = 1469598103934665603ull;
-            const auto*   p = static_cast<const unsigned char*>(data);
-            for (std::size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ull; }
-            return h;
+            return Fnv64(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
         }
 
         /// @return the file's fingerprint, or nullopt when it can't be read (absent / locked).
@@ -830,7 +828,7 @@ namespace CB {
         {
             const auto bytes = disk::ReadFile(p);
             if (!bytes) return std::nullopt;
-            return Fnv64(bytes->data(), bytes->size());
+            return Fnv64(*bytes);
         }
 
         /// @brief One animation CB compiled to Data\meshes: its original-case data path, the fingerprint of the
@@ -931,7 +929,7 @@ namespace CB {
         std::size_t                unchanged = 0;
         for (std::size_t i = 0; i < n; ++i) {
             const auto& [outKey, yamlText] = m_nativeAnims[i];
-            srcHash[i] = Fnv64(yamlText.data(), yamlText.size());
+            srcHash[i] = Fnv64(yamlText);
             if (!prior.current) continue;
             const auto it = prior.byKey.find(PathKey(outKey));
             if (it == prior.byKey.end() || it->second.src != srcHash[i]) continue;
@@ -980,7 +978,7 @@ namespace CB {
                     return;
                 }
                 if (std::string werr; disk::WriteFile(out, r.bytes, {}, &werr)) {
-                    outHash[i]  = Fnv64(r.bytes.data(), r.bytes.size());
+                    outHash[i]  = Fnv64(r.bytes);
                     produced[i] = 1;
                     written.fetch_add(1, std::memory_order_relaxed);
                     LOG_INFO("Community Behaviors: compiled native animation -> '{}'.", out.string());
@@ -1176,14 +1174,11 @@ namespace CB {
         //    (failedGraphs == 0). Its presence is what CachePresent() trusts to skip the recompile on a
         //    later run, so a PARTIAL cache must never be stamped complete: leaving it un-sentinelled
         //    forces the next launch to recompile the missing graphs instead of arming a broken cache.
-        //    (Content is a marker today; it becomes the cache fingerprint when real invalidation lands.)
         if (failedGraphs == 0) {
             const fs::path sentinel = CacheSentinelPath(dataRoot);
-            // Stamp the sentinel with the WATERMARK VERSION. CachePresent() requires a match, so a
-            // build that bumps kWatermarkValue invalidates an older cache and forces a regen — the
-            // cached graphs' injected BR_Watermark then always matches this build (the probe can't
-            // read a stale "NO"). A minimal content fingerprint until full invalidation lands.
-            if (std::string err; !disk::WriteFile(sentinel, std::to_string(CB::core::resolve::kWatermarkValue) + "\n",
+            /// @note The sentinel holds the CACHE KEY (CacheKey.h): every input this launch compiled from, plus the
+            ///       outside files the adsf/setdata builds read. CachePresent() reuses the cache only while it matches.
+            if (std::string err; !disk::WriteFile(sentinel, CB::core::resolve::CacheKeyText(dataRoot),
                                                   { .atomic = true }, &err))
                 LOG_ERROR("Community Behaviors: could not stamp the cache complete ({}) — the next launch will "
                           "recompile.", err);
@@ -1263,13 +1258,17 @@ namespace CB {
         std::error_code ec;
         const fs::path sentinel = CacheSentinelPath(dataRoot);
         if (!std::filesystem::is_regular_file(sentinel, ec)) return false;
-        // Present AND stamped with THIS build's watermark version — a version bump (or a legacy
-        // marker-string sentinel) mismatches and forces a regen, so the served cache's watermark
-        // always matches the running DLL.
         const auto text = disk::ReadFile(sentinel);
         if (!text) return false;
-        const auto lines = SplitLines(*text);
-        return !lines.empty() && Trim(lines[0]) == std::to_string(CB::core::resolve::kWatermarkValue);
+        /// @note Present AND its cache key still matches every input — a changed bundle, load order, setting, schema,
+        ///       BDI declaration, recorded outside file or a rebuilt DLL each miss.
+        const std::string why = CB::core::resolve::CacheKeyMismatch(*text, dataRoot);
+        if (!why.empty()) {
+            static std::atomic<bool> logged{ false };
+            if (!logged.exchange(true)) LOG_INFO("Community Behaviors: behavior cache is stale — {} — recompiling.", why);
+            return false;
+        }
+        return true;
     }
 
     void Resolver::ArmCacheFromDisk(const std::filesystem::path& dataRoot, const AnimExecutor* animExec)
