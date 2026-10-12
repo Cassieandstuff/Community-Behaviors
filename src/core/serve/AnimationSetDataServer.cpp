@@ -127,7 +127,8 @@ namespace CB::core::serve {
 
     }  // namespace
 
-    SetDataServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni)
+    SetDataServeResult ServeSetData(const fs::path& dataDir, const fs::path& loadOrderIni,
+                                    const CB::engine::exec::TaskRunner* exec)
     {
         SetDataServeResult r;
 
@@ -173,7 +174,7 @@ namespace CB::core::serve {
                 const std::string stem = PathKey(bundle.stem().string());  // "bfco" / "skyrim"
                 if (stem == "skyrim") { masterBundle = bundle; continue; }  // base + char units, lazily
 
-                auto rd = BundleReader::Open(bundle);
+                auto rd = BundleReader::Open(bundle, exec);
                 if (!rd) { LOG_WARN("SetData: cannot read bundle '{}' — skipped.", bundle.string()); continue; }
 
                 // Roster additions (animationnames/<char>.txt) — collected even if the bundle
@@ -270,7 +271,7 @@ namespace CB::core::serve {
         // Open the master now (lazily) — reused for the base read below. dir or packed .hky.
         std::optional<BundleReader> masterReader;
         if (!masterBundle.empty()) {
-            masterReader = BundleReader::Open(masterBundle);
+            masterReader = BundleReader::Open(masterBundle, exec);
             if (masterReader) ingestCharUnits(*masterReader);
             else LOG_WARN("SetData: cannot read master bundle '{}'.", masterBundle.string());
         }

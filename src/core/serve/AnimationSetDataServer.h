@@ -1,6 +1,7 @@
 #pragma once
 
 #include <codec/format/AnimationSetData.h>   // the setdata model (CB::engine::animsetdata)
+#include <exec/Parallel.h>                   // TaskRunner
 
 #include <filesystem>
 #include <string>
@@ -40,8 +41,10 @@ namespace CB::core::serve {
     // Data\meshes\animationsetdatasinglefile.txt, and write the merged single file to
     // Data\community_behaviors_cache\animationsetdatasinglefile.txt. Safe + idempotent to call
     // once per launch. Never throws — failures land in SetDataServeResult::error.
+    /// @param exec The plugin's BELOW_NORMAL pool, for inflating packed bundles (nullptr: default-priority threads).
     SetDataServeResult ServeSetData(const std::filesystem::path& dataDir,
-                             const std::filesystem::path& loadOrderIni);
+                             const std::filesystem::path& loadOrderIni,
+                             const CB::engine::exec::TaskRunner* exec = nullptr);
 
     /// @brief Subscribe the DETERMINISTIC set-data redirect to the AsdsfOpen hook point
     ///        (<core/hooks/points/Resource.h>): once armed, the loader's single-file open is handed BR's cache

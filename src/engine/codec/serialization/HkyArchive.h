@@ -1,6 +1,7 @@
 #pragma once
 
 #include <interface/UnitSource.h>
+#include <exec/Parallel.h>
 
 #include <map>
 #include <memory>
@@ -31,8 +32,10 @@ public:
     /// @brief Load and fully decompress a .hky (a FULL upfront unpack); nullptr with `err` set on failure.
     /// @note The inflate fans across exec::ParallelFor workers (the master alone is ~68k entries — ~50 s serial); the
     ///       result is independent of thread count.
-    /// @warning Those workers are default-priority std::threads, in the game process too.
-    static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err);
+    /// @param runner Inside the game process, pass the plugin's BELOW_NORMAL pool so the inflate never out-competes
+    ///        the game's threads; nullptr (offline tools) runs default-priority std::threads.
+    static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err,
+                                                    const exec::TaskRunner* runner = nullptr);
 
     /// @brief Pack every regular file under `dir` into `outHkyPath` (a deflate zip), each entry named by its path
     ///        relative to `dir`, forward-slashed and case kept — the layout LoadFromFile reads back. THE .hky / zip

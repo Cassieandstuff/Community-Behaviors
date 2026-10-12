@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstddef>
 #include <exception>
+#include <functional>
 #include <mutex>
 #include <system_error>
 #include <thread>
@@ -16,9 +17,17 @@
 
 namespace CB::engine::exec {
 
+/// @brief A caller-owned executor: runs every task (possibly concurrently) and returns once all have finished — the
+///        plugin's BELOW_NORMAL ThreadPool::parallel_for contract.
+/// @warning Must not be invoked from one of its own tasks (a nested wait on the same pool can deadlock it).
+using TaskRunner = std::function<void(std::vector<std::function<void()>>)>;
+
 struct ParallelOptions {
     unsigned                 threads = 0;         ///< worker count; 0 = hardware_concurrency
     const std::atomic<bool>* cancel  = nullptr;   ///< once true, no further index is handed out
+    /// @brief When set, the workers run as tasks on this executor instead of on fresh std::threads — how code inside
+    ///        the game process keeps a loop on the plugin's BELOW_NORMAL pool.
+    const TaskRunner*        runner  = nullptr;
 };
 
 /// @brief The number of workers ParallelFor(n, …, opt) runs: opt.threads (0 = hardware_concurrency), at least 1, at
@@ -67,6 +76,15 @@ void ParallelFor(std::size_t n, F&& f, ParallelOptions opt = {})
             failed.store(true, std::memory_order_relaxed);
         }
     };
+
+    if (opt.runner && *opt.runner) {
+        std::vector<std::function<void()>> tasks;
+        tasks.reserve(nWorkers);
+        for (unsigned w = 0; w < nWorkers; ++w) tasks.emplace_back([&run, w] { run(w); });
+        (*opt.runner)(std::move(tasks));
+        if (first) std::rethrow_exception(first);
+        return;
+    }
 
     std::vector<std::thread> pool;
     pool.reserve(nWorkers - 1);

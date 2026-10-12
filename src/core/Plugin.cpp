@@ -197,10 +197,11 @@ namespace CB {
     // adsf + setdata serve/arm.
     /// @note Independent of the graph compile: the adsf projection re-merges each unit's rosters / clip inputs
     ///       itself (Resolver::ServedRoster / MergedClipInputs), so the cold path can arm it BEFORE compiling.
-    /// @param exec The BELOW_NORMAL pool the adsf projection parses animations on; nullptr = serial.
+    /// @param exec The BELOW_NORMAL pool the adsf projection parses animations on and both servers inflate packed
+    ///        bundles on; nullptr = serial parse / default-priority inflate.
     static void ArmAdsfSetDataServe(const Resolver::AnimExecutor* exec)
     {
-        const auto sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt");
+        const auto sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt", exec);
         if (sd.attempted && !sd.ok)
             LOG_WARN("Community Behaviors: animationsetdata merge did not complete: {}", sd.error);
         CB::core::serve::ArmSetDataRedirect(sd);

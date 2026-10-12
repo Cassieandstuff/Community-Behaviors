@@ -112,7 +112,7 @@ namespace CB::core::serve {
             for (fs::directory_iterator bi(pluginsRoot, ec), bend; !ec && bi != bend; bi.increment(ec)) {
                 if (!HasExt(bi->path().filename().string(), ".hky")) continue;
                 const std::string stem = PathKey(bi->path().stem().string());
-                auto rd = BundleReader::Open(bi->path());
+                auto rd = BundleReader::Open(bi->path(), exec);
                 if (!rd) { LOG_WARN("AnimData: cannot read bundle '{}' — skipped.", bi->path().string()); continue; }
                 bundles.emplace_back(stem == "skyrim" ? -1 : order.Rank(stem), std::move(*rd));
             }

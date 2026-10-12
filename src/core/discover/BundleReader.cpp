@@ -34,7 +34,7 @@ namespace CB {
 
     }  // namespace
 
-    std::optional<BundleReader> BundleReader::Open(const fs::path& bundle)
+    std::optional<BundleReader> BundleReader::Open(const fs::path& bundle, const CB::engine::exec::TaskRunner* runner)
     {
         std::error_code ec;
         if (fs::is_directory(bundle, ec)) {
@@ -44,7 +44,7 @@ namespace CB {
         }
         // A regular .hky file -> packed archive (decompress once in memory).
         std::string err;
-        auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
+        auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err, runner);
         if (!arc) return std::nullopt;
         BundleReader r;
         r.m_arc = std::move(arc);

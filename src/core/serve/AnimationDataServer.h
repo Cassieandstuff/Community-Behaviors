@@ -3,6 +3,7 @@
 #include <interface/AnimationData.h>
 #include <codec/format/AnimDataYaml.h>   // ProjectHeader, ParseAnimdataIndexYaml
 #include <compile/AnimDataDeriver.h>     // DeriveClipInput
+#include <exec/Parallel.h>               // TaskRunner
 
 #include <filesystem>
 #include <functional>
@@ -28,9 +29,7 @@ namespace CB::core::serve {
         std::function<std::vector<std::string>()>                                         behaviorUnits;
     };
 
-    /// @brief Runs a batch of independent tasks and returns once all have finished — the
-    ///        bootstrap::ThreadPool::parallel_for contract (the same type as Resolver::AnimExecutor).
-    using Executor = std::function<void(std::vector<std::function<void()>>)>;
+    using Executor = CB::engine::exec::TaskRunner;
 
     /// @brief Project Data\community_behaviors_cachenimationdatasinglefile.txt from the load order (ProjectAnimData:
     ///        the master's project index, every project's merged behavior graphs, its served roster, and the bundles'

@@ -452,7 +452,7 @@ namespace CB {
                 // out of the in-memory blob. The archive is held in m_archives for the
                 // process lifetime so those sources stay valid.
                 std::string err;
-                auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
+                auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err, skelExec);
                 if (!arc) {
                     LOG_WARN("Resolver: cannot read packed .hky '{}': {} — skipped.", bundle.string(), err);
                 } else {
@@ -550,7 +550,7 @@ namespace CB {
                         if (!HasExt(bi->path().filename().string(), ".hky")) continue;
                         const std::string stem = PathKey(bi->path().stem().string());
                         if (plan.dropped.count(stem)) continue;
-                        auto br = BundleReader::Open(bi->path());
+                        auto br = BundleReader::Open(bi->path(), skelExec);
                         if (!br) continue;
                         const auto rit = plan.rank.find(stem);
                         bundles.push_back({ stem, rit != plan.rank.end() ? rit->second : 0, std::move(*br) });

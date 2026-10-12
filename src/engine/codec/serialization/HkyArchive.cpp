@@ -86,7 +86,8 @@ private:
 
 }  // namespace
 
-std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath, std::string& err) {
+std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath, std::string& err,
+                                                     const exec::TaskRunner* runner) {
     // Pass 1 (serial, cheap): enumerate every non-dir entry's index + name. Statting does NOT
     // decompress, so this is fast; the heavy inflate is pass 2.
     const std::string mzPath = MzPath(std::filesystem::path(hkyPath));
@@ -112,7 +113,8 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
     ///       into its own slot; m_files is then filled serially in entry order, so the result is independent of thread
     ///       count. Below a small floor a single worker does it all.
     constexpr std::size_t       kParallelFloor = 256;
-    const exec::ParallelOptions popt{ .threads = ents.size() < kParallelFloor ? 1u : 0u };
+    const exec::ParallelOptions popt{ .threads = ents.size() < kParallelFloor ? 1u : 0u,
+                                      .runner  = ents.size() < kParallelFloor ? nullptr : runner };
     std::vector<mz_zip_archive> readers(exec::WorkerCount(ents.size(), popt));
     std::vector<char>           opened(readers.size(), 0);
     std::vector<std::string>    contents(ents.size());

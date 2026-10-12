@@ -4,6 +4,7 @@
 #include "core/resolve/SymbolInjector.h"
 
 #include <compile/AnimDataDeriver.h>   // CB::engine::animdata::DeriveClipInput
+#include <exec/Parallel.h>             // TaskRunner (the executors the plugin hands in)
 
 #include <interface/BoneNames.h>   // BoneNameTable — per-rig skeleton bone list (bone-index -> name)
 #include <codec/format/RigIndex.h> // RigIndex — which rig each graph / animation binds
@@ -57,7 +58,7 @@ namespace CB {
         // type; Plugin.cpp wires a real pool in unless the sequencer.disable marker is present. Each native-anim
         // compile is a pure function of its own def + the immutable served skeleton and writes its own
         // distinct output file, so parallel output is byte-identical to serial by construction.
-        using AnimExecutor = std::function<void(std::vector<std::function<void()>>)>;
+        using AnimExecutor = CB::engine::exec::TaskRunner;
 
         // Scan dataDir/community_behaviors/plugins for .hky graph sets (their path under
         // plugins/ IS the serve path), ordered by loadOrderIni (optional). Safe with an

@@ -27,7 +27,9 @@ namespace CB {
     public:
         // Open a bundle. A directory opens directly; a regular .hky file is loaded as a
         // packed archive. Returns nullopt only if a packed .hky cannot be read.
-        static std::optional<BundleReader> Open(const std::filesystem::path& bundle);
+        /// @param runner The plugin's BELOW_NORMAL pool for a packed bundle's inflate (HkyArchive::LoadFromFile).
+        static std::optional<BundleReader> Open(const std::filesystem::path& bundle,
+                                                const CB::engine::exec::TaskRunner* runner = nullptr);
 
         // Read a whole-tree-relative file (e.g. "meshes/animationsetdatasinglefile.txt").
         // nullopt if absent; an empty-but-present file returns "".
