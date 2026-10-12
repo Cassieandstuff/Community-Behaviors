@@ -2,24 +2,25 @@
 
 #include <interface/UnitSource.h>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+namespace CB::engine::disk { class ReadOnlyFile; }
+
 namespace CB::engine::codec {
 
 using CB::engine::common::IUnitSource;   // the unit backing-store interface lives in the interface layer
 
-// A .hky loaded as an in-memory archive: the whole zip decompressed once into a
-// path -> bytes map (keys lowercased + forward-slashed, so lookups match the loader's
-// unit-relative reads and the Resolver's normalized serve keys). Units are read via
-// IUnitSource with NO disk extraction — immune to Windows MAX_PATH and fast (the deep
-// unit tree lives inside the archive, never on the filesystem).
-//
-// Lives in the engine so the plugin, the converter and hky-tool share it. Backed by vendored
-// miniz; part of the ryml-gated YAML tier.
+/// @brief A .hky (a zip of the bundle's YAML tree) opened as an INDEX: loading reads only the zip's central directory;
+///        each file is read and inflated when asked for. Keys are path keys (codec::resource::PathKey), so lookups
+///        match the loader's unit-relative reads and the Resolver's serve keys.
+/// @note  Streaming, not a one-time unpack: memory holds the index (the master's 76k entries are a few MB), never the
+///        6 GB the YAML inflates to. The file stays open for the archive's lifetime; reads from any number of threads
+///        are safe, and each inflate runs on the thread that asked for the file.
 class HkyArchive : public std::enable_shared_from_this<HkyArchive> {
 public:
     enum class UnitKind { Behavior, Character, Project, Skeleton };
@@ -28,11 +29,10 @@ public:
         UnitKind    kind;
     };
 
-    /// @brief Load and fully decompress a .hky (a FULL upfront unpack); nullptr with `err` set on failure.
-    /// @note The inflate fans across exec::ParallelFor workers (the master alone is ~68k entries — ~50 s serial); the
-    ///       result is independent of thread count.
-    /// @warning Those workers are default-priority std::threads, in the game process too.
+    /// @brief Open a .hky: read its index and classify its units (each unit's graph.yaml is read for that); nullptr
+    ///        with `err` set on failure.
     static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err);
+    ~HkyArchive();
 
     /// @brief Pack every regular file under `dir` into `outHkyPath` (a deflate zip), each entry named by its path
     ///        relative to `dir`, forward-slashed and case kept — the layout LoadFromFile reads back. THE .hky / zip
@@ -59,7 +59,9 @@ public:
     /// @brief A read-only IUnitSource rooted at `unitPrefix` (a merge layer: ParseHkyReflective / MergeHkyPatch).
     std::shared_ptr<const IUnitSource> source(const std::string& unitPrefix) const;
 
-    // Raw lookup by full archive path (lowercase, forward-slash — the normalized key). nullopt if absent.
+    /// @brief A file's bytes by its path key, read and inflated now; nullopt when the archive has no such file.
+    /// @throws std::runtime_error when the entry can't be read back intact (I/O error, bad header, inflate failure, CRC
+    ///         mismatch) — a damaged file is never passed off as an absent one.
     std::optional<std::string> file(const std::string& path) const;
 
     // Every file path under a prefix (normalized lowercase/forward-slash), returned NORMALIZED. This is
@@ -75,12 +77,21 @@ public:
 
 private:
     HkyArchive() = default;   // built only via LoadFromFile (needs shared ownership)
+    /// @brief Where one file lives in the zip, from its central-directory record.
     struct Entry {
-        std::string orig;      // original-case, forward-slashed path (case preserved)
-        std::string content;
+        std::string   orig;          ///< original-case, forward-slashed path (case preserved)
+        std::uint64_t headerOffset;  ///< the entry's local header; its data follows the header's name + extra fields
+        std::uint64_t packedSize;
+        std::uint64_t size;
+        std::uint32_t crc;
+        bool          deflated;      ///< deflate, else stored
     };
-    std::map<std::string, Entry> m_files;   // normalized key -> {original path, bytes}; ordered -> deterministic
-    std::vector<Unit>            m_units;
+    std::string read(const Entry& e) const;
+
+    std::string                         m_path;
+    std::unique_ptr<disk::ReadOnlyFile> m_file;
+    std::map<std::string, Entry>        m_files;   ///< path key -> entry; ordered -> deterministic
+    std::vector<Unit>                   m_units;
 };
 
 } // namespace CB::engine::codec

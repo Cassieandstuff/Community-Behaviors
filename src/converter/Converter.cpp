@@ -1833,7 +1833,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
 
     // 6) Pack each per-mod bundle DIRECTORY into a single .hky FILE — mirroring how the master is
     //    packed by --build-base (HkyArchive::PackDirectory). A packed .hky is one archive the runtime reads via
-    //    HkyArchive (MAX_PATH-immune, decompressed in memory), not a deep unpacked tree that MO2's
+    //    HkyArchive (MAX_PATH-immune, read through its index), not a deep unpacked tree that MO2's
     //    VFS merges recursively. Collect first, then pack, so we don't mutate plugins\ mid-iterate.
     //    (Skyrim.hky ships separately with BR and is never present here; only *.hky DIRECTORIES are
     //    packed, so a stray packed file would be skipped.)

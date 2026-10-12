@@ -87,6 +87,11 @@ namespace CB {
         // instead (safe: nothing BR owns loads that early in startup). Lock-free acquire.
         bool Ready() const { return m_ready.load(std::memory_order_acquire); }
 
+        /// @brief True when Init could not read the load order back (a bundle failed to read intact). The resolver is
+        ///        then Ready but EMPTY: it owns nothing, so every open falls through to vanilla.
+        /// @pre   Ready().
+        bool Failed() const { return m_failed; }
+
         // Block the caller until Ready(). The compile gate calls this before it uses the resolver, so it
         // never compiles against a half-built Init. Returns immediately once Init has completed.
         void WaitReady() const;
@@ -224,6 +229,11 @@ namespace CB {
         std::vector<std::string> BehaviorUnitKeys() const;
 
     private:
+        /// @brief Init's work: scan the bundles and build every Init-owned table.
+        /// @throws std::runtime_error when a packed bundle's file can't be read back intact (HkyArchive::file).
+        void Scan(const std::filesystem::path& dataDir, const std::filesystem::path& loadOrderIni, bool warmReuse,
+                  const AnimExecutor* skelExec);
+
         /// @brief The bone table a graph / animation binds, found through the characters that run it.
         struct RigBones {
             const CB::engine::common::BoneNameTable* table = nullptr;   ///< null = no character binds this key
@@ -325,6 +335,7 @@ namespace CB {
         // Init-complete signal (see Ready/WaitReady). Set with release at the very end of Init(); serve
         // hooks acquire it before touching any Init-built state. Init runs off the main thread.
         std::atomic<bool>                                                  m_ready{ false };
+        bool                                                               m_failed = false;   ///< written before m_ready's release
         mutable std::mutex                                                 m_initMutex;
         mutable std::condition_variable                                    m_initCv;
         // Lets an owned actor that loads BEFORE warm-up finishes WAIT for the cache instead of

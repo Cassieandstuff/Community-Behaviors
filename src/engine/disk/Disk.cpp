@@ -2,9 +2,24 @@
 
 #include <text/Text.h>
 
+#include <algorithm>
 #include <fstream>
 #include <iterator>
 #include <system_error>
+
+#ifdef _WIN32
+#    ifndef WIN32_LEAN_AND_MEAN
+#        define WIN32_LEAN_AND_MEAN
+#    endif
+#    ifndef NOMINMAX
+#        define NOMINMAX
+#    endif
+#    include <windows.h>
+#else
+#    include <fcntl.h>
+#    include <sys/stat.h>
+#    include <unistd.h>
+#endif
 
 namespace CB::engine::disk {
 
@@ -117,6 +132,70 @@ bool WriteFile(const fs::path& p, std::string_view data, WriteOptions opt, std::
 bool WriteFile(const fs::path& p, std::span<const std::uint8_t> data, WriteOptions opt, std::string* err)
 {
     return WriteFile(p, std::string_view(reinterpret_cast<const char*>(data.data()), data.size()), opt, err);
+}
+
+std::unique_ptr<ReadOnlyFile> ReadOnlyFile::Open(const fs::path& p, std::string* err)
+{
+    std::unique_ptr<ReadOnlyFile> f(new ReadOnlyFile());
+#ifdef _WIN32
+    /// @note FILE_SHARE_DELETE lets a newer bundle be renamed over this one while it is open; no FILE_SHARE_WRITE, so
+    ///       nothing rewrites the bytes underneath a reader.
+    const HANDLE h = ::CreateFileW(LongPath(p).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+                                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        const std::error_code ec(static_cast<int>(::GetLastError()), std::system_category());
+        fail(err, "cannot open '" + p.string() + "': " + ec.message());
+        return nullptr;
+    }
+    f->m_handle = h;
+    LARGE_INTEGER size{};
+    if (!::GetFileSizeEx(h, &size)) { fail(err, "cannot size '" + p.string() + "'"); return nullptr; }
+    f->m_size = static_cast<std::uint64_t>(size.QuadPart);
+#else
+    const int fd = ::open(p.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) { fail(err, "cannot open '" + p.string() + "'"); return nullptr; }
+    f->m_handle = reinterpret_cast<void*>(static_cast<std::intptr_t>(fd));
+    struct stat st {};
+    if (::fstat(fd, &st) != 0) { fail(err, "cannot size '" + p.string() + "'"); return nullptr; }
+    f->m_size = static_cast<std::uint64_t>(st.st_size);
+#endif
+    return f;
+}
+
+ReadOnlyFile::~ReadOnlyFile()
+{
+    if (!m_handle) return;
+#ifdef _WIN32
+    ::CloseHandle(static_cast<HANDLE>(m_handle));
+#else
+    ::close(static_cast<int>(reinterpret_cast<std::intptr_t>(m_handle)));
+#endif
+}
+
+bool ReadOnlyFile::ReadAt(std::uint64_t offset, void* dst, std::size_t n) const
+{
+    if (offset > m_size || n > m_size - offset) return false;
+    auto* out = static_cast<char*>(dst);
+    while (n > 0) {
+#ifdef _WIN32
+        /// @note Each call carries its own offset (OVERLAPPED on a synchronous handle), so concurrent readers never
+        ///       share a file position.
+        const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(n, std::size_t{ 1 } << 30));
+        OVERLAPPED  ov{};
+        ov.Offset     = static_cast<DWORD>(offset);
+        ov.OffsetHigh = static_cast<DWORD>(offset >> 32);
+        DWORD got     = 0;
+        if (!::ReadFile(static_cast<HANDLE>(m_handle), out, chunk, &got, &ov) || got == 0) return false;
+#else
+        const ssize_t got = ::pread(static_cast<int>(reinterpret_cast<std::intptr_t>(m_handle)), out, n,
+                                    static_cast<off_t>(offset));
+        if (got <= 0) return false;
+#endif
+        out += got;
+        offset += static_cast<std::uint64_t>(got);
+        n -= static_cast<std::size_t>(got);
+    }
+    return true;
 }
 
 }  // namespace CB::engine::disk

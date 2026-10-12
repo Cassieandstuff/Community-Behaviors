@@ -252,6 +252,29 @@ namespace CB {
     void Resolver::Init(const fs::path& dataDir, const fs::path& loadOrderIni, bool warmReuse,
                         const AnimExecutor* skelExec)
     {
+        try {
+            Scan(dataDir, loadOrderIni, warmReuse, skelExec);
+        } catch (const std::exception& e) {
+            /// @note A half-built resolver must never serve: drop what serving reads, so CB owns nothing this launch.
+            /// @warning On a warm start the cached adsf/asdsf were armed before Init finished and stay served.
+            LOG_ERROR("Community Behaviors: reading the load order FAILED — {} — CB serves nothing this launch (vanilla "
+                      "behaviors).", e.what());
+            m_failed = true;
+            m_sources.clear();
+            m_skeletonServe.clear();
+            m_projectUnits.clear();
+            m_nativeAnims.clear();
+        }
+        // Publish the ready signal LAST (release), so any serve hook that acquires it sees every field completely
+        // written. Init runs on a background thread; hooks pass through to vanilla until this fires, and the compile
+        // gate blocks on WaitReady().
+        { std::lock_guard<std::mutex> lk(m_initMutex); m_ready.store(true, std::memory_order_release); }
+        m_initCv.notify_all();
+    }
+
+    void Resolver::Scan(const fs::path& dataDir, const fs::path& loadOrderIni, bool warmReuse,
+                        const AnimExecutor* skelExec)
+    {
         // 1) Load order (optional): .hky plugin name -> priority (higher wins).
         const auto order = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
 
@@ -445,12 +468,12 @@ namespace CB {
                 }
 
               } else {
-                // ── Packed bundle (shipped form) — decompress the whole .hky in memory. ──
-                // A single-file .hky is a zip of the same game-tree unit layout. Read it
-                // once via HkyArchive (immune to Windows MAX_PATH — the deep unit tree never
-                // touches disk); each indexed unit vends a ZipUnitSource that reads straight
-                // out of the in-memory blob. The archive is held in m_archives for the
-                // process lifetime so those sources stay valid.
+                // ── Packed bundle (shipped form) — opened through its zip index. ──
+                // A single-file .hky is a zip of the same game-tree unit layout, read via
+                // HkyArchive (immune to Windows MAX_PATH — the deep unit tree never touches
+                // disk); each indexed unit vends a ZipUnitSource whose reads inflate the
+                // file on demand. The archive is held in m_archives for the process lifetime
+                // so those sources stay valid.
                 std::string err;
                 auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
                 if (!arc) {
@@ -747,12 +770,6 @@ namespace CB {
             LOG_INFO("Resolver: {} character-roster addition list(s) ingested ({} name(s) total) via animationnames\\.",
                      m_characterAnimNames.size(), total);
         }
-
-        // FULLY built — publish the ready signal LAST (release), so any serve hook that acquires it sees
-        // every field above completely written. Init runs on a background thread; hooks pass through to
-        // vanilla until this fires, and the compile gate blocks on WaitReady().
-        { std::lock_guard<std::mutex> lk(m_initMutex); m_ready.store(true, std::memory_order_release); }
-        m_initCv.notify_all();
     }
 
     void Resolver::WaitReady() const

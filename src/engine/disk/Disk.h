@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -40,6 +41,27 @@ struct WriteOptions {
 bool WriteFile(const std::filesystem::path& p, std::string_view data, WriteOptions opt = {}, std::string* err = nullptr);
 bool WriteFile(const std::filesystem::path& p, std::span<const std::uint8_t> data, WriteOptions opt = {},
                std::string* err = nullptr);
+
+/// @brief A file held open for reads at an offset, from any number of threads at once.
+/// @note  Other processes may read, rename or delete the file meanwhile (an updated bundle replaces it by rename); a
+///        handle keeps reading the bytes it opened. Writing it in place is refused while it is open.
+class ReadOnlyFile {
+public:
+    /// @return nullptr (with `err` set when given) when the file can't be opened.
+    static std::unique_ptr<ReadOnlyFile> Open(const std::filesystem::path& p, std::string* err = nullptr);
+    ~ReadOnlyFile();
+    ReadOnlyFile(const ReadOnlyFile&)            = delete;
+    ReadOnlyFile& operator=(const ReadOnlyFile&) = delete;
+
+    std::uint64_t Size() const noexcept { return m_size; }
+    /// @return true when exactly `n` bytes at `offset` were read into `dst`.
+    bool ReadAt(std::uint64_t offset, void* dst, std::size_t n) const;
+
+private:
+    ReadOnlyFile() = default;
+    void*         m_handle = nullptr;   ///< HANDLE on Windows, an fd (cast) elsewhere
+    std::uint64_t m_size   = 0;
+};
 
 /// @brief `p` as Windows needs it to reach past MAX_PATH (the `\\?\` prefix on a long absolute path, normalized);
 ///        unchanged elsewhere. For opening/walking only — never compare or store the result.

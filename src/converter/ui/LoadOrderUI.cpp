@@ -126,12 +126,12 @@ void LoadOrderUI::Rescan(const std::string& pluginsDir, const std::string& loadO
                 // Packed bundle: a .hky is a zip. Read manifest.json out of the archive (no
                 // extraction). Even if the archive can't be opened it is still a real bundle on
                 // disk, so it stays present (with stem-only defaults) rather than misreported
-                // missing. Skip the master Skyrim.hky — it holds the full vanilla corpus (~18MB),
-                // needs no manifest for ordering, and opening it would decompress the whole thing.
-                if (PathKey(b.stem) != "skyrim") {
-                    std::string herr;
-                    if (auto arc = CB::engine::codec::HkyArchive::LoadFromFile(it->path().string(), herr))
+                // missing — a damaged manifest entry included.
+                std::string herr;
+                if (auto arc = CB::engine::codec::HkyArchive::LoadFromFile(it->path().string(), herr)) {
+                    try {
                         if (auto mf = arc->file("manifest.json")) applyManifest(b, *mf);
+                    } catch (const std::exception&) {}
                 }
             } else {
                 continue;

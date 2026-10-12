@@ -42,7 +42,7 @@ namespace CB {
             r.m_dir = bundle;
             return r;
         }
-        // A regular .hky file -> packed archive (decompress once in memory).
+        // A regular .hky file -> packed archive (its index; files inflate as they're read).
         std::string err;
         auto arc = CB::engine::codec::HkyArchive::LoadFromFile(bundle.string(), err);
         if (!arc) return std::nullopt;
