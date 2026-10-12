@@ -13,8 +13,10 @@ namespace fs = std::filesystem;
 fs::path LongPath(const fs::path& p)
 {
 #ifdef _WIN32
+    /// @note 248, not MAX_PATH (260): a DIRECTORY is limited sooner — CreateDirectoryW caps it at 248, and a directory
+    ///       iterator searches `<dir>\*`.
     const std::wstring w = p.wstring();
-    if (w.size() < 260 || !p.is_absolute() || w.rfind(L"\\\\?\\", 0) == 0) return p;
+    if (w.size() < 248 || !p.is_absolute() || w.rfind(L"\\\\?\\", 0) == 0) return p;
     if (w.rfind(L"\\\\", 0) == 0) return fs::path(L"\\\\?\\UNC\\" + w.substr(2));
     return fs::path(L"\\\\?\\" + p.lexically_normal().make_preferred().wstring());
 #else
@@ -64,6 +66,17 @@ std::optional<std::vector<std::uint8_t>> ReadBytes(const fs::path& p)
     std::vector<std::uint8_t> b;
     if (!readAll(f, b)) return std::nullopt;
     return b;
+}
+
+std::optional<std::string> ReadHead(const fs::path& p, std::size_t maxBytes)
+{
+    std::ifstream f(LongPath(p), std::ios::binary);
+    if (!f) return std::nullopt;
+    std::string s(maxBytes, '\0');
+    if (maxBytes > 0) f.read(s.data(), static_cast<std::streamsize>(maxBytes));
+    if (f.bad()) return std::nullopt;
+    s.resize(static_cast<std::size_t>(f.gcount()));
+    return s;
 }
 
 namespace {

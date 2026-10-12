@@ -1,6 +1,6 @@
 #pragma once
-/// @brief The converter's desktop plumbing: native folder dialogs, Windows known-folder lookups, and a
-///        directory<->zip writer.
+/// @brief The converter's desktop plumbing: native folder dialogs, Windows known-folder lookups, and a zip extractor.
+///        (Packing a directory is codec::HkyArchive::PackDirectory — the one packer.)
 /// @note The whole surface of platform/ — the .cpp files keep their impl details (miniz, COM) private.
 #include <string>
 
@@ -27,16 +27,11 @@ std::string DownloadsFolder();
 ///   "My Games" INIs (and thus the archive lists) actually live.
 std::string DocumentsFolder();
 
-// Zip every regular file under `srcDir` into `zipPath` (archive paths are relative
-// to srcDir, forward-slash). Overwrites any existing archive at zipPath. Returns
-// false with `err` set on failure (missing source, empty tree, or I/O error).
-bool ZipDir(const std::string& srcDir, const std::string& zipPath, std::string& err);
-
-// Extract every file entry of `zipPath` into `destDir`, preserving the archive's
-// relative paths (forward-slash -> native). Creates destDir + intermediate dirs.
-// Returns false with `err` set on failure (missing/corrupt archive, I/O error).
-// NOTE: extracts to real files, so `destDir` must be short enough that the deepest
-// entry stays under the OS path limit — unpack to a SHORT working dir for editing.
+/// @brief Extract every file entry of `zipPath` into `destDir` at its archive path (case kept), streaming one entry at
+///        a time; creates the directories.
+/// @return false with `err` set on any failure — missing/corrupt archive, an entry naming a path outside `destDir`,
+///         or an I/O error.
+/// @note Paths past MAX_PATH are handled, but other tools may not open them: unpack to a SHORT dir for editing.
 bool UnzipDir(const std::string& zipPath, const std::string& destDir, std::string& err);
 
 }  // namespace CB::converter::platform

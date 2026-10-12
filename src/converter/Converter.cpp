@@ -10,6 +10,7 @@
 #include <codec/format/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
 #include <interface/AnimationData.h>        // parse vanilla animationdatasinglefile
 #include <codec/format/AnimDataYaml.h>         // EmitMotionYaml (motion decompose)
+#include <codec/format/LoadOrderText.h>        // loadorder.txt read/rewrite (comments kept, later line wins)
 #include <codec/serialization/packfile/PackFileDeserializer.h> // object-count gate for template matching + ConstructAllOfClass (pass 2d)
 #include <codec/serialization/packfile/BinaryReaderEx.h>       // BinaryReaderEx — drives ConstructAllOfClass
 #include <compile/AnimationCompiler.h>       // CB::engine::anim::CompileAnimation — recompile leg (schema-native)
@@ -22,9 +23,7 @@
 #include <atomic>
 #include <process.h>   // _getpid — a private per-process staging root
 #include <mutex>
-#include <thread>
 #include <chrono>
-#include <type_traits>
 #include <codec/format/AnimationYamlLoader.h> // AnimationYamlLoader::Load — animation.yaml -> AnimationDef
 #include <decompile/BehaviorDecompile.h>     // ConvertModDelta / DeriveHkyPatch / the reflective unit codec
 #include <interface/reflection/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
@@ -33,11 +32,12 @@
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis
 #include "BaseMaps.h"                // BuildBaseMaps — where each vanilla graph / character lives
-#include "platform/Platform.h"       // ZipDir — pack the staged master into one Skyrim.hky
+#include "platform/Platform.h"       // DocumentsFolder
 #include <codec/bsa/BsaArchive.h>
 #include <codec/spline/SplineDecompressor.h>   // DecodeSpline — the CB-8 gate's float-section referee
 #include <common/Xml.h>
 #include <disk/Disk.h>
+#include <exec/Parallel.h>
 #include <text/Text.h>
 
 #include <algorithm>
@@ -46,7 +46,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <map>
 #include <set>
@@ -63,6 +62,7 @@ namespace CB::converter {
 
 using CB::engine::codec::resource::HasExt;
 using CB::engine::codec::resource::PathKey;
+using CB::engine::exec::ParallelFor;
 namespace disk = CB::engine::disk;
 namespace text = CB::engine::text;
 
@@ -930,24 +930,6 @@ NemesisInfo ReadNemesisInfo(const fs::path& codeDir) {
 
 }  // namespace
 
-/// @brief Run `f(i)` — or `f(i, worker)` — for every i in [0, n) across the hardware threads. `f` must touch only state of
-///        its own index (or read-only shared state); results land in per-index slots so the caller can fold them in
-///        order. `worker` (0..threads-1) names the calling thread, e.g. for a per-worker scratch dir.
-template <class F>
-static void ParallelFor(std::size_t n, F&& f) {
-    std::atomic<std::size_t> next{ 0 };
-    std::vector<std::thread> pool;
-    const unsigned           nThreads = std::max(1u, std::thread::hardware_concurrency());
-    for (unsigned t = 0; t < nThreads; ++t)
-        pool.emplace_back([&, t] {
-            for (std::size_t i; (i = next++) < n;) {
-                if constexpr (std::is_invocable_v<F&, std::size_t, unsigned>) f(i, t);
-                else f(i);
-            }
-        });
-    for (auto& th : pool) th.join();
-}
-
 // Per-mod animation packaging (piece 1). Defined below BuildBaseBundle (needs PeekHkxKind/HkxKind/
 // BakeAnimationUnit); forward-declared here so ConvertLoadOrder can call it.
 static void PackageModAnimations(const Mo2Layout& mo2, const std::filesystem::path& plugins,
@@ -1788,14 +1770,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     //    reordered (the hand-tuned-order invariant).
     {
         const fs::path loPath = outDir / "community_behaviors" / "loadorder.txt";
-        std::vector<std::string> lines;
+        const auto existing = CB::engine::codec::ReadLoadOrder(loPath).value_or(CB::engine::codec::LoadOrder{});
+        std::vector<std::string>        lines = existing.lines;
         std::unordered_set<std::string> have;   // PathKey(bundle stem) of every listed entry; the lines keep their spelling
-        const std::string existing = ReadTextFile(loPath);
-        for (const std::string_view line : text::SplitLines(existing)) {
-            lines.emplace_back(line);
-            const std::string_view t = text::Trim(line);
-            if (!t.empty() && t[0] != '#' && t[0] != ';') have.insert(PathKey(t));
-        }
+        for (const auto& e : existing.entries) have.insert(PathKey(e));
         if (lines.empty()) lines.push_back("Skyrim"), have.insert("skyrim");
         else if (!have.count("skyrim")) { lines.insert(lines.begin(), "Skyrim"); have.insert("skyrim"); }
         // Gather genuinely-new bundles, then order them: un-attributed (scan order) first, then
@@ -1812,10 +1790,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         std::size_t appended = 0;
         for (const auto& b : newUnknown) { lines.push_back(b); ++appended; }
         for (const auto& b : newKnown)   { lines.push_back(b); ++appended; }
-        std::string body;
-        for (const auto& l : lines) { body += l; body += '\n'; }
         std::string werr;
-        if (!disk::WriteFile(loPath, body, { .atomic = true }, &werr))
+        if (!CB::engine::codec::WriteLoadOrder(loPath, lines, &werr))
             say("  WARN: loadorder.txt NOT written — " + werr);
         else if (appended)
             say("  loadorder.txt: preserved existing order, appended " + std::to_string(appended) + " new bundle(s).");
@@ -1856,7 +1832,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
         (manifestFails ? ", " + std::to_string(manifestFails) + " failed." : "."));
 
     // 6) Pack each per-mod bundle DIRECTORY into a single .hky FILE — mirroring how the master is
-    //    packed by --build-base (ZipDir). A packed .hky is one archive the runtime reads via
+    //    packed by --build-base (HkyArchive::PackDirectory). A packed .hky is one archive the runtime reads via
     //    HkyArchive (MAX_PATH-immune, decompressed in memory), not a deep unpacked tree that MO2's
     //    VFS merges recursively. Collect first, then pack, so we don't mutate plugins\ mid-iterate.
     //    (Skyrim.hky ships separately with BR and is never present here; only *.hky DIRECTORIES are
@@ -1876,9 +1852,8 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
             const fs::path tmp = plugins / (dir.filename().string() + ".packing");
             std::error_code de;
             std::string     zerr;
-            /// @note A pack that skipped unreadable files is incomplete — keep the unpacked bundle rather than
-            ///       replace it with an archive missing those files.
-            if (CB::converter::platform::ZipDir(dir.string(), tmp.string(), zerr) && zerr.empty()) {
+            /// @note A failed pack (any unreadable file included) keeps the unpacked bundle rather than replacing it.
+            if (CB::engine::codec::HkyArchive::PackDirectory(dir.string(), tmp.string(), zerr)) {
                 fs::remove_all(dir, de);
                 fs::rename(tmp, dir, de);   // <code>.hky is now the packed archive file
                 if (de) { say("  WARN: could not replace '" + dir.filename().string() + "': " + de.message()); ++packFail; }
@@ -1927,12 +1902,8 @@ HkxKind PeekHkxKindHead(std::string_view head) {
     return HkxKind::Other;
 }
 HkxKind PeekHkxKind(const std::filesystem::path& file) {
-    std::ifstream f(file, std::ios::binary);
-    if (!f) return HkxKind::Other;
-    std::string head(1u << 16, '\0');
-    f.read(head.data(), static_cast<std::streamsize>(head.size()));
-    head.resize(static_cast<std::size_t>(f.gcount()));
-    return PeekHkxKindHead(head);
+    const auto head = disk::ReadHead(file, 1u << 16);
+    return head ? PeekHkxKindHead(*head) : HkxKind::Other;
 }
 HkxKind PeekHkxKind(const std::vector<std::uint8_t>& bytes) {
     return PeekHkxKindHead(std::string_view(reinterpret_cast<const char*>(bytes.data()),
@@ -2205,17 +2176,9 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         else if (s.kind == HkxKind::Character) ++nCharacters;
         else if (s.kind == HkxKind::Project)   ++nProjects;
     };
-    {
-        std::atomic<std::size_t> next{ 0 };
-        std::vector<std::thread> pool;
-        const unsigned           nThreads = std::max(1u, std::thread::hardware_concurrency());
-        for (unsigned t = 0; t < nThreads; ++t)
-            pool.emplace_back([&, t] {
-                const fs::path scratch = stage / ("worker" + std::to_string(t));
-                for (std::size_t i; !cancel && (i = next++) < sources.size();) processOne(sources[i], scratch, notes[i]);
-            });
-        for (auto& th : pool) th.join();
-    }
+    ParallelFor(sources.size(), [&](std::size_t i, unsigned worker) {
+        processOne(sources[i], stage / ("worker" + std::to_string(worker)), notes[i]);
+    }, { .cancel = &cancel });
     if (cancel) { r.error = "cancelled"; return r; }
     for (const auto& n : notes)
         if (!n.empty()) say(n.substr(0, n.size() - 1));
@@ -2507,8 +2470,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     phaseDone("editable caches + motion reunion");
     say("  packing -> " + outHky + " ...");
     std::string zerr;
-    /// @note A skipped (unreadable) file means an incomplete master — fail rather than ship it.
-    if (!CB::converter::platform::ZipDir(stageHky.string(), outHky, zerr) || !zerr.empty()) {
+    if (!CB::engine::codec::HkyArchive::PackDirectory(stageHky.string(), outHky, zerr)) {
         r.error = "pack failed: " + zerr;
         return r;
     }
@@ -2871,21 +2833,17 @@ bool MotionFoldGate(const std::string& treeDir, const std::string& outCsv, const
     }
     struct Row { std::string rel; CB::engine::anim::FoldCheck c; std::string skeleton; };
     std::vector<std::optional<Row>> rows(files.size());
-    std::atomic<std::size_t> next{ 0 }, failed{ 0 };
-    auto work = [&] {
-        for (std::size_t i; (i = next++) < files.size();) {
-            const std::string text = disk::ReadFile(files[i]).value_or(std::string{});
-            if (text.find("\n  motion:") == std::string::npos) continue;
-            try {
-                const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, files[i].string());
-                if (const auto c = CB::engine::anim::CheckFoldRoundTrip(def, 0))
-                    rows[i] = Row{ fs::relative(files[i], treeDir, ec).generic_string(), *c, def.skeleton };
-            } catch (...) { ++failed; }
-        }
-    };
-    std::vector<std::thread> pool;
-    for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) pool.emplace_back(work);
-    for (auto& t : pool) t.join();
+    std::atomic<std::size_t> failed{ 0 };
+    ParallelFor(files.size(), [&](std::size_t i) {
+        const std::string text = disk::ReadFile(files[i]).value_or(std::string{});
+        if (text.find("\n  motion:") == std::string::npos) return;
+        try {
+            const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, files[i].string());
+            std::error_code rec;
+            if (const auto c = CB::engine::anim::CheckFoldRoundTrip(def, 0))
+                rows[i] = Row{ fs::relative(files[i], treeDir, rec).generic_string(), *c, def.skeleton };
+        } catch (...) { ++failed; }
+    });
 
     /// @note "Clean" = Bethesda extracted all of the root's travel (the fold must round-trip); the rest keep visual root
     ///       motion that wholesale extraction turns into physical motion.
@@ -2980,20 +2938,15 @@ bool AdsfProjectionCheck(const std::string& hkyPath, const std::string& vanillaT
     };
     src.prefetch = [&](const std::vector<std::string>& paths) {
         std::vector<std::optional<CB::engine::anim::AnimationDef>> parsed(paths.size());
-        std::atomic<std::size_t> next{ 0 };
-        std::vector<std::thread> pool;
-        for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
-            pool.emplace_back([&] {
-                for (std::size_t i; (i = next++) < paths.size();)
-                    if (const auto text = arc->file(paths[i])) {
-                        try {
-                            auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*text, paths[i]);
-                            def.motion = CB::engine::anim::ResolveRootMotion(def);
-                            parsed[i] = std::move(def);
-                        } catch (...) {}
-                    }
-            });
-        for (auto& t : pool) t.join();
+        ParallelFor(paths.size(), [&](std::size_t i) {
+            if (const auto text = arc->file(paths[i])) {
+                try {
+                    auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*text, paths[i]);
+                    def.motion = CB::engine::anim::ResolveRootMotion(def);
+                    parsed[i] = std::move(def);
+                } catch (...) {}
+            }
+        });
         for (std::size_t i = 0; i < paths.size(); ++i) anims[paths[i]] = std::move(parsed[i]);
     };
     src.animation = [&](const std::string& path) -> const CB::engine::anim::AnimationDef* {
@@ -3135,58 +3088,54 @@ bool MotionStorageCheck(const std::string& newTree, const std::string& oldTree, 
         if (it->is_regular_file(ec) && HasExt(it->path().filename().string(), ".hkx") &&
             PathKey(it->path().generic_string()).find("/animations/") != std::string::npos)
             files.push_back(it->path());
-    std::atomic<std::size_t> next{ 0 }, checked{ 0 }, folded{ 0 }, bad{ 0 }, missing{ 0 }, keysOld{ 0 }, keysNew{ 0 }, keysMax{ 0 };
+    std::atomic<std::size_t> checked{ 0 }, folded{ 0 }, bad{ 0 }, missing{ 0 }, keysOld{ 0 }, keysNew{ 0 }, keysMax{ 0 };
     std::mutex mx;
     std::vector<std::string> worst;
-    auto work = [&] {
-        for (std::size_t i; (i = next++) < files.size();) {
-            const std::string oldText = disk::ReadFile(files[i]).value_or(std::string{});
-            if (oldText.find("\n  motion:\n") == std::string::npos) continue;
-            const fs::path rel     = fs::relative(files[i], oldTree, ec);
-            const auto     newText = disk::ReadFile(fs::path(newTree) / rel);
-            if (!newText) { ++missing; continue; }
-            try {
-                const auto oldDef = CB::engine::anim::AnimationYamlLoader::LoadFromString(oldText, rel.string());
-                auto newDef = CB::engine::anim::AnimationYamlLoader::LoadFromString(*newText, rel.string());
-                if (!newDef.motion && !newDef.rootMotionVisual) ++folded;
-                const auto got = CB::engine::anim::ResolveRootMotion(newDef);
-                const CB::engine::anim::EngineMotionCurve want(*oldDef.motion), have(got ? *got : CB::engine::animdata::MotionRecord{});
-                keysOld += oldDef.motion->translations.size() + oldDef.motion->rotations.size();
-                if (got) {
-                    const std::size_t k = got->translations.size() + got->rotations.size();
-                    keysNew += k;
-                    for (std::size_t prevMax = keysMax; k > prevMax && !keysMax.compare_exchange_weak(prevMax, k);) {}
+    ParallelFor(files.size(), [&](std::size_t i) {
+        const std::string oldText = disk::ReadFile(files[i]).value_or(std::string{});
+        if (oldText.find("\n  motion:\n") == std::string::npos) return;
+        std::error_code rec;
+        const fs::path rel     = fs::relative(files[i], oldTree, rec);
+        const auto     newText = disk::ReadFile(fs::path(newTree) / rel);
+        if (!newText) { ++missing; return; }
+        try {
+            const auto oldDef = CB::engine::anim::AnimationYamlLoader::LoadFromString(oldText, rel.string());
+            auto newDef = CB::engine::anim::AnimationYamlLoader::LoadFromString(*newText, rel.string());
+            if (!newDef.motion && !newDef.rootMotionVisual) ++folded;
+            const auto got = CB::engine::anim::ResolveRootMotion(newDef);
+            const CB::engine::anim::EngineMotionCurve want(*oldDef.motion), have(got ? *got : CB::engine::animdata::MotionRecord{});
+            keysOld += oldDef.motion->translations.size() + oldDef.motion->rotations.size();
+            if (got) {
+                const std::size_t k = got->translations.size() + got->rotations.size();
+                keysNew += k;
+                for (std::size_t prevMax = keysMax; k > prevMax && !keysMax.compare_exchange_weak(prevMax, k);) {}
+            }
+            double err = 0, speed = 0;
+            CB::engine::anim::MotionPose prev = want.Sample(0);
+            for (int f = 0; f < oldDef.numFrames; ++f) {
+                const double t = f * static_cast<double>(oldDef.frameDuration);
+                for (const double s : { t, t + 0.5 * oldDef.frameDuration }) {
+                    if (s > oldDef.duration + 1e-6) continue;
+                    const auto a = want.Sample(s), b = have.Sample(s);
+                    err = std::max(err, std::sqrt((a.t[0]-b.t[0])*(a.t[0]-b.t[0]) + (a.t[1]-b.t[1])*(a.t[1]-b.t[1]) + (a.t[2]-b.t[2])*(a.t[2]-b.t[2])));
                 }
-                double err = 0, speed = 0;
-                CB::engine::anim::MotionPose prev = want.Sample(0);
-                for (int f = 0; f < oldDef.numFrames; ++f) {
-                    const double t = f * static_cast<double>(oldDef.frameDuration);
-                    for (const double s : { t, t + 0.5 * oldDef.frameDuration }) {
-                        if (s > oldDef.duration + 1e-6) continue;
-                        const auto a = want.Sample(s), b = have.Sample(s);
-                        err = std::max(err, std::sqrt((a.t[0]-b.t[0])*(a.t[0]-b.t[0]) + (a.t[1]-b.t[1])*(a.t[1]-b.t[1]) + (a.t[2]-b.t[2])*(a.t[2]-b.t[2])));
-                    }
-                    const auto p = want.Sample(t);
-                    if (f) speed = std::max(speed, std::sqrt((p.t[0]-prev.t[0])*(p.t[0]-prev.t[0]) + (p.t[1]-prev.t[1])*(p.t[1]-prev.t[1]) + (p.t[2]-prev.t[2])*(p.t[2]-prev.t[2])) / oldDef.frameDuration);
-                    prev = p;
-                }
-                ++checked;
-                /// @note Same tolerance as the fold gate: 0.01 + speed x the engine's key-time step past 16 s (1/64 s).
-                if (err > 0.01 + speed * (oldDef.duration >= 16 ? 1.0 / 64 : oldDef.duration >= 8 ? 1.0 / 128 : oldDef.duration >= 4 ? 1.0 / 256 : 1.0 / 512)) {
-                    ++bad;
-                    std::lock_guard<std::mutex> lk(mx);
-                    if (worst.size() < 12) worst.push_back(rel.generic_string() + "  " + std::to_string(err) + "u (speed " + std::to_string(speed) + ")");
-                }
-            } catch (const std::exception& e) {
+                const auto p = want.Sample(t);
+                if (f) speed = std::max(speed, std::sqrt((p.t[0]-prev.t[0])*(p.t[0]-prev.t[0]) + (p.t[1]-prev.t[1])*(p.t[1]-prev.t[1]) + (p.t[2]-prev.t[2])*(p.t[2]-prev.t[2])) / oldDef.frameDuration);
+                prev = p;
+            }
+            ++checked;
+            /// @note Same tolerance as the fold gate: 0.01 + speed x the engine's key-time step past 16 s (1/64 s).
+            if (err > 0.01 + speed * (oldDef.duration >= 16 ? 1.0 / 64 : oldDef.duration >= 8 ? 1.0 / 128 : oldDef.duration >= 4 ? 1.0 / 256 : 1.0 / 512)) {
                 ++bad;
                 std::lock_guard<std::mutex> lk(mx);
-                if (worst.size() < 12) worst.push_back(rel.generic_string() + "  unreadable: " + e.what());
+                if (worst.size() < 12) worst.push_back(rel.generic_string() + "  " + std::to_string(err) + "u (speed " + std::to_string(speed) + ")");
             }
+        } catch (const std::exception& e) {
+            ++bad;
+            std::lock_guard<std::mutex> lk(mx);
+            if (worst.size() < 12) worst.push_back(rel.generic_string() + "  unreadable: " + e.what());
         }
-    };
-    std::vector<std::thread> pool;
-    for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t) pool.emplace_back(work);
-    for (auto& t : pool) t.join();
+    });
     say("motion-storage check: " + std::to_string(checked - bad) + "/" + std::to_string(checked) + " unit(s) resolve to their vanilla motion (" +
         std::to_string(folded) + " from a folded root); " + std::to_string(missing) + " missing from the new tree; key lines " +
         std::to_string(keysNew) + " vs vanilla " + std::to_string(keysOld) + " (max " + std::to_string(keysMax) + " per record).");

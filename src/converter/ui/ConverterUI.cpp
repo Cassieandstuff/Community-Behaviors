@@ -7,15 +7,16 @@
 
 #include "platform/Platform.h"
 
+#include <codec/serialization/HkyArchive.h>
 #include <disk/Disk.h>
 #include <text/Text.h>
 
 #include <imgui.h>
 
-#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <set>
 
 namespace fs = std::filesystem;
@@ -61,26 +62,35 @@ std::string JoinCrlf(const std::vector<std::string>& lines) {
 }
 
 // ── Minimal INI bool get/upsert for the plugin's settings.ini ────────────────────────────────
-// The Debug tab reads/writes the SAME file the plugin's CSimpleIniA readers use ([section] key=bool).
+// The Debug tab reads/writes the SAME file the plugin's CSimpleIniA reader (core/debug/Settings) uses ([section] key=bool).
 // A targeted hand-roll (not a full INI lib) so the converter adds no new dependency; it preserves
 // every other line and only touches the one key.
-/// @note Section and key names match by CB::converter::IniNameEquals (CSimpleIniA's rule); the bool VALUE parse is
-///       case-insensitive too, as CSimpleIniA's is.
-bool IniGetBool(const fs::path& ini, const std::string& section, const std::string& key, bool def) {
-    std::string cur;
+/// @brief `[section] key` read the way the plugin's CSimpleIniA::GetBoolValue reads it: a first char of t/y/1 is
+///        true, f/n/0 false, "on"/"off" by their first two chars; nullopt — the reader's default applies — when the
+///        key is absent, empty or unrecognized.
+/// @note Section and key names match by CB::converter::IniNameEquals (CSimpleIniA's rule); a repeated key reads its
+///       LAST value, as CSimpleIniA's (non-multikey) load keeps.
+std::optional<bool> IniGetBool(const fs::path& ini, const std::string& section, const std::string& key) {
+    std::string cur, v;
     for (const std::string& line : ReadLines(ini)) {
         const std::string_view t = text::Trim(line);
         if (t.empty() || t[0] == '#' || t[0] == ';') continue;
-        if (t.size() >= 2 && t.front() == '[' && t.back() == ']') { cur = t.substr(1, t.size() - 2); continue; }
+        if (t.size() >= 2 && t.front() == '[' && t.back() == ']') { cur = text::Trim(t.substr(1, t.size() - 2)); continue; }
         const auto eq = t.find('=');
         if (eq == std::string_view::npos) continue;
-        if (CB::converter::IniNameEquals(cur, section) && CB::converter::IniNameEquals(text::Trim(t.substr(0, eq)), key)) {
-            std::string v(text::Trim(t.substr(eq + 1)));
-            for (auto& c : v) c = (char)std::tolower((unsigned char)c);
-            return v == "1" || v == "true" || v == "yes" || v == "on";
-        }
+        if (CB::converter::IniNameEquals(cur, section) && CB::converter::IniNameEquals(text::Trim(t.substr(0, eq)), key))
+            v = text::Trim(t.substr(eq + 1));
     }
-    return def;
+    if (v.empty()) return std::nullopt;
+    switch (v[0]) {
+        case 't': case 'T': case 'y': case 'Y': case '1': return true;
+        case 'f': case 'F': case 'n': case 'N': case '0': return false;
+        case 'o': case 'O':
+            if (v.size() > 1 && (v[1] == 'n' || v[1] == 'N')) return true;
+            if (v.size() > 1 && (v[1] == 'f' || v[1] == 'F')) return false;
+            break;
+    }
+    return std::nullopt;
 }
 
 /// @note Rewritten atomically — a failed write leaves the previous settings.ini intact.
@@ -228,7 +238,7 @@ void ConverterUI::StartConvert() {
             else {
                 const std::string zip = (fs::path(outDir) / zipName).string();
                 std::string err;
-                const bool ok = CB::converter::platform::ZipDir(convOut, zip, err);
+                const bool ok = CB::engine::codec::HkyArchive::PackDirectory(convOut, zip, err);
                 SetZipMsg(ok ? ("Packaged -> " + zip) : ("Package failed: " + err));
                 AppendLog(ok ? ("Packaged -> " + zip) : ("Package FAILED: " + err));
             }
@@ -443,7 +453,8 @@ void ConverterUI::DrawDebugTab() {
         const std::string section(fl.section), key(fl.key), id(fl.id);
         const bool        marker = fl.kind == CB::core::debug::FlagKind::MarkerFile;
 
-        const bool on  = marker ? fs::exists(markerDir / key) : IniGetBool(iniPath, section, key, fl.defOn);
+        const std::optional<bool> set = marker ? std::nullopt : IniGetBool(iniPath, section, key);
+        const bool                on  = marker ? fs::exists(markerDir / key) : set.value_or(fl.defOn);
         bool       cur = on;
         const std::string cbLabel = std::string(fl.label) + "##" + id;
         if (ImGui::Checkbox(cbLabel.c_str(), &cur) && cur != on) {
@@ -458,7 +469,15 @@ void ConverterUI::DrawDebugTab() {
         if (!fl.help.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", std::string(fl.help).c_str());
         ImGui::SameLine();
         if (marker) ImGui::TextDisabled("[marker: %s]", key.c_str());
-        else        ImGui::TextDisabled("[%s / %s%s]", section.c_str(), key.c_str(), fl.defOn ? ", default on" : "");
+        else {
+            /// @note A build-dependent default can't be resolved here (the installed plugin's build is unknown), so
+            ///       the unset checkbox shows the release default and the label names both.
+            const bool  byBuild = fl.defOn != fl.defOnDebug;
+            const char* def     = !byBuild    ? (fl.defOn ? ", default on" : "")
+                                  : fl.defOn  ? ", default on (release) / off (debug build)"
+                                              : ", default off (release) / on (debug build)";
+            ImGui::TextDisabled("[%s / %s%s%s]", section.c_str(), key.c_str(), def, byBuild && !set ? ", unset" : "");
+        }
     }
 
     ImGui::Separator();

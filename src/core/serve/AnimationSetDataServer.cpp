@@ -6,6 +6,7 @@
 #include "core/bootstrap/CompileGate.h"   // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimSetDataYaml.h>   // asd::ParseMovesetsYaml
+#include <codec/format/LoadOrderText.h>     // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
 #include <decompile/BehaviorDecompile.h>   // ReadCharacterStrings
 #include <codec/serialization/HkyArchive.h>
 #include <codec/resource/PathKey.h>
@@ -64,22 +65,6 @@ namespace CB::core::serve {
             std::string res;
             for (std::size_t i = 0; i < out.size(); ++i) { if (i) res += '\\'; res += out[i]; }
             return res;
-        }
-
-        // Load order (optional): .hky plugin name (path key) -> priority, higher wins.
-        // Same file/format the behavior Resolver uses.
-        std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
-        {
-            std::unordered_map<std::string, int> order;
-            const auto file = disk::ReadFile(ini, { .stripBom = true });
-            if (!file) return order;
-            int idx = 0;
-            for (const std::string_view line : SplitLines(*file)) {
-                const std::string_view entry = Trim(line);
-                if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
-                order[PathKey(entry)] = ++idx;
-            }
-            return order;
         }
 
         // Build a delta SingleFile from one bundle's meshes/animationsetdata/ tree (split
@@ -147,7 +132,7 @@ namespace CB::core::serve {
         SetDataServeResult r;
 
         std::error_code ec;
-        const auto      order = LoadOrder(loadOrderIni);
+        const auto      order = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
 
         // Gather (priority, delta) from BR .hky bundles ONLY — the primary format, each
         // bundle carrying a mod's behaviors AND its set-data together so the two stay
@@ -220,8 +205,7 @@ namespace CB::core::serve {
                                std::make_move_iterator(cs->animationNames.end()));
                 }
 
-                const auto oit  = order.find(stem);  // loadorder lists bare stems ("bfco")
-                const int  prio = (oit != order.end()) ? oit->second : 0;
+                const int prio = order.Rank(stem);  // loadorder lists bare stems ("bfco")
 
                 asd::SingleFile delta;
                 std::string     warn;

@@ -3,6 +3,7 @@
 #include "core/resolve/Resolver.h"
 #include "core/discover/ServeKey.h"
 #include "core/resolve/Watermark.h"
+#include "core/debug/Settings.h"
 #include <feature-sdk/FeatureRegistry.h>   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
 
@@ -12,6 +13,7 @@
 #include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
+#include <codec/format/LoadOrderText.h>
 #include <compile/AnimationCompiler.h>         // CB::engine::anim::CompileAnimation (native anim -> loose .hkx)
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
@@ -124,13 +126,13 @@ namespace CB {
         };
 
         // `manifests`: every scanned bundle stem -> its manifest (masters declared here).
-        // `order`: loadorder.txt line index per listed stem (later line = higher; unlisted = 0),
+        // `order`: loadorder.txt (LoadOrder::Rank — later line = higher; unlisted = 0),
         //          used ONLY as the peer tie-break. Returns the rank each surviving stem sorts by,
         //          plus the set dropped because a DECLARED master is absent (transitively) — a
         //          dependent whose base isn't installed would bind its overrides to nothing, so
         //          per the "skip the dependent, load the rest" rule it contributes no layers.
         LoadPlan PlanLoadOrder(const std::unordered_map<std::string, BundleManifest>& manifests,
-                               const std::unordered_map<std::string, int>&            order)
+                               const CB::engine::codec::LoadOrder&                    order)
         {
             LoadPlan plan;
             const bool haveSkyrim = manifests.find("skyrim") != manifests.end();
@@ -203,12 +205,8 @@ namespace CB {
                 }
             }
 
-            auto loadVal = [&](const std::string& s) -> int {                   // peer tie-break key
-                const auto it = order.find(s);
-                return it != order.end() ? it->second : 0;                      // unlisted = earliest
-            };
             auto readyLess = [&](const std::string& a, const std::string& b) {
-                const int la = loadVal(a), lb = loadVal(b);
+                const int la = order.Rank(a), lb = order.Rank(b);               // unlisted = 0 = earliest
                 return la != lb ? la < lb : a < b;
             };
 
@@ -255,15 +253,7 @@ namespace CB {
                         const AnimExecutor* skelExec)
     {
         // 1) Load order (optional): .hky plugin name -> priority (higher wins).
-        std::unordered_map<std::string, int> order;
-        if (const auto file = disk::ReadFile(loadOrderIni, { .stripBom = true })) {
-            int idx = 0;
-            for (const std::string_view line : SplitLines(*file)) {
-                const std::string_view entry = Trim(line);
-                if (entry.empty() || entry[0] == '#' || entry[0] == ';') continue;
-                order[PathKey(entry)] = ++idx;  // later line wins; unlisted stay at 0
-            }
-        }
+        const auto order = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
 
         // 2) Scan the plugins tree. Each top-level *.hky is a MOD BUNDLE that mirrors the
         //    game data tree inside itself, so a unit's path WITHIN its bundle IS its serve
@@ -620,7 +610,7 @@ namespace CB {
             // DIAGNOSTIC opt-out (marker file Data\community_behaviors\noskeletonserve.enable): skip the
             // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton.
             // The bone-name tables below are still built (behaviors need them); only the serve changes.
-            const bool skipSkelServe = std::filesystem::exists("Data/community_behaviors/noskeletonserve.enable");
+            const bool skipSkelServe = CB::core::debug::FlagOn("noskeletonserve");
             if (skipSkelServe)
                 LOG_WARN("Resolver: SKELETON SERVE DISABLED (noskeletonserve.enable) — skeleton opens fall "
                          "through to loose files. Diagnostic only.");

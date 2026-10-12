@@ -7,6 +7,7 @@
 #include "core/bootstrap/CompileGate.h"
 #include "core/debug/DebugOverlay.h"
 #include "core/debug/RuntimeTrace.h"
+#include "core/debug/Settings.h"
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
@@ -15,7 +16,6 @@
 #include <core/hooks/points/HookPoint.h>
 #include <core/hooks/registry/Registry.h>
 
-#include "SimpleIni.h"   // [Cache] bForceRegenerate toggle
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
 #include <atomic>
@@ -45,55 +45,6 @@ namespace CB {
     // won't re-enter, but this keeps that a guarantee, not an assumption.
     static thread_local bool t_compileGateInProgress = false;
 
-    // Cache force-regenerate toggle (Data\SKSE\Plugins\Community Behaviors\settings.ini,
-    // [Cache] bForceRegenerate). The warm-up recompile is a pure optimization whose output
-    // persists on disk between runs, so BR can skip it and reuse the existing cache. This flag
-    // forces a fresh recompile instead. Its DEFAULT is build-dependent: DEBUG builds always
-    // regenerate (the cache can't drift while iterating on the converter/bundles); release
-    // builds reuse (fast start). The ini key, WHEN PRESENT, overrides the build default in
-    // either direction — so a release user can force a rebuild, and the shipped settings.ini
-    // leaves the key commented so the build default applies until someone opts in.
-    static bool ReadForceRegenerate()
-    {
-#ifdef NDEBUG
-        constexpr bool kDefault = false;   // release: reuse an existing cache
-#else
-        constexpr bool kDefault = true;    // debug: always regenerate
-#endif
-        CSimpleIniA ini;
-        ini.SetUnicode();
-        if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-            return ini.GetBoolValue("Cache", "bForceRegenerate", kDefault);
-        return kDefault;   // no settings.ini shipped/edited -> build default
-    }
-
-    // ER wildcard gate on/off (settings.ini, [ERGate] bEnable). DEFAULT OFF in EVERY build: the gate
-    // rewrites every fire-on-event wildcard into a conditional one across every graph and is not yet
-    // verified in-engine — a fault would block all wildcards and T-pose every actor — so it is strictly
-    // opt-in until proven, at which point this default flips. Unrelated to the watermark (always on).
-    static bool ReadERGateEnabled()
-    {
-        CSimpleIniA ini;
-        ini.SetUnicode();
-        if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-            return ini.GetBoolValue("ERGate", "bEnable", false);
-        return false;
-    }
-
-    // OAR-parity conditional-setdata framework on/off (settings.ini, [Conditions] bEnable). DEFAULT OFF
-    // for release: Inc 1/2a ships the condition registry + the producer/matcher MinHooks, but the
-    // conditional-replacement actuator (Inc 2b) is unbuilt and the hooks are unproven in a shipped build,
-    // so the whole condition layer is strictly opt-in. OFF = zero engine hooks installed; only the vanilla
-    // setdata serve runs. Flip this default once the framework is proven end-to-end in-engine.
-    static bool ReadConditionsEnabled()
-    {
-        CSimpleIniA ini;
-        ini.SetUnicode();
-        if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-            return ini.GetBoolValue("Conditions", "bEnable", false);
-        return false;
-    }
-
     // Schema registry dir (settings.ini, [Compiler] sSchemaDir). The class schema ships with CB
     // (Data/community_behaviors/schema, staged by CMake); sSchemaDir overrides, then env
     // SCT_HAVOK_SCHEMA_DIR, then that shipped default.
@@ -101,11 +52,7 @@ namespace CB {
     ///       every compile then fails and every graph serves VANILLA, loudly — never a half-armed compiler.
     static void ApplySchemaCompilerSetting()
     {
-        std::string dir;
-        CSimpleIniA ini;
-        ini.SetUnicode();
-        if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-            dir = ini.GetValue("Compiler", "sSchemaDir", "");
+        std::string dir = CB::core::debug::Value("Compiler", "sSchemaDir");
         if (dir.empty() && std::getenv("SCT_HAVOK_SCHEMA_DIR") == nullptr)
             dir = "Data/community_behaviors/schema";   // CB-shipped schema tree (MO2 VFS-merged path)
 
@@ -140,11 +87,11 @@ namespace CB {
     // serial for now.)
     static bool ParallelAnimCompileEnabled()
     {
-        return !std::filesystem::exists("Data/community_behaviors/sequencer.disable");
+        return !CB::core::debug::FlagOn("sequencer_disable");
     }
 
-    // Holds the worker pool ALIVE for the duration of a parallel native-anim compile and hands the Resolver
-    // an executor bound to it. Empty (serial) only when the opt-out marker forces it off. Workers get a
+    // Holds the worker pool ALIVE for the duration of a parallel phase (the native-anim compile, the adsf
+    // projection's animation parse) and hands out an executor bound to it. Empty (serial) only when the opt-out marker forces it off. Workers get a
     // 64MB reserved stack — the same guard WarmUpThread uses — so a native-anim compile can never overflow a
     // default worker stack. Non-copyable (the optional<ThreadPool> makes it so); use it as a local only.
     struct AnimParallel
@@ -152,15 +99,16 @@ namespace CB {
         std::optional<CB::core::bootstrap::ThreadPool> pool;
         Resolver::AnimExecutor         exec;
 
-        AnimParallel()
+        /// @param what The work the pool runs, for the log line.
+        explicit AnimParallel(const char* what = "native animations compile")
         {
             if (!ParallelAnimCompileEnabled()) return;
             // 0 => hardware_concurrency; 64MB reserved stack/worker; BELOW_NORMAL so the anim compile
             // never out-competes the game's render/main threads while the window is coming up (minimize).
             pool.emplace(0u, 64u * 1024u * 1024u, THREAD_PRIORITY_BELOW_NORMAL);
             exec = [this](std::vector<std::function<void()>> tasks) { pool->parallel_for(std::move(tasks)); };
-            LOG_INFO("Community Behaviors: native animations compile in PARALLEL on {} pool thread(s) "
-                     "(drop Data\\community_behaviors\\sequencer.disable to force serial).", pool->size());
+            LOG_INFO("Community Behaviors: {} in PARALLEL on {} pool thread(s) "
+                     "(drop Data\\community_behaviors\\sequencer.disable to force serial).", what, pool->size());
         }
 
         // nullptr when disabled (empty std::function) => Resolver takes the serial path.
@@ -249,7 +197,8 @@ namespace CB {
     // adsf + setdata serve/arm.
     /// @note Independent of the graph compile: the adsf projection re-merges each unit's rosters / clip inputs
     ///       itself (Resolver::ServedRoster / MergedClipInputs), so the cold path can arm it BEFORE compiling.
-    static void ArmAdsfSetDataServe()
+    /// @param exec The BELOW_NORMAL pool the adsf projection parses animations on; nullptr = serial.
+    static void ArmAdsfSetDataServe(const Resolver::AnimExecutor* exec)
     {
         const auto sd = CB::core::serve::ServeSetData("Data", "Data/community_behaviors/loadorder.txt");
         if (sd.attempted && !sd.ok)
@@ -260,7 +209,7 @@ namespace CB {
         adsf.roster        = [](const std::string& key) { return g_resolver.ServedRoster(key); };
         adsf.clips         = [](const std::string& key) { return g_resolver.MergedClipInputs(key); };
         adsf.behaviorUnits = [] { return g_resolver.BehaviorUnitKeys(); };
-        const auto ad = CB::core::serve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt", adsf);
+        const auto ad = CB::core::serve::ServeAnimData("Data", "Data/community_behaviors/loadorder.txt", adsf, exec);
         if (!ad.ok)
             LOG_WARN("Community Behaviors: animationdata projection did not complete: {}", ad.error);
         CB::core::serve::ArmAnimDataRedirect(ad);
@@ -321,7 +270,7 @@ namespace CB {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);   // never starve the game's threads
 
         const std::filesystem::path dataAbs = std::filesystem::current_path() / "Data";
-        const bool                  warm    = !ReadForceRegenerate() && g_resolver.CachePresent(dataAbs);
+        const bool                  warm    = !CB::core::debug::FlagOn("force_regenerate") && g_resolver.CachePresent(dataAbs);
 
         if (warm) {
             // adsf/setdata FIRST: serve the cached adsf/asdsf verbatim (coherent with the reused graphs).
@@ -337,7 +286,7 @@ namespace CB {
             // give it the same optional parallel executor. Sets m_redirectReady when done (materialize).
             AnimParallel animPar;
             g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());
-            if (!adsfFromCache) { ArmAdsfSetDataServe(); SignalAdsfArmed(); }
+            if (!adsfFromCache) { ArmAdsfSetDataServe(animPar.ptr()); SignalAdsfArmed(); }
             CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
             g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
@@ -349,7 +298,10 @@ namespace CB {
 
             // adsf is independent of the graph compile → arm + signal NOW so the adsf open unblocks, then
             // compile the graphs in the background (bar rides the live menu).
-            ArmAdsfSetDataServe();
+            {
+                AnimParallel adsfPar("the adsf projection parses animations");
+                ArmAdsfSetDataServe(adsfPar.ptr());
+            }
             SignalAdsfArmed();
             LOG_INFO("Community Behaviors: COLD compile — adsf/setdata armed, compiling {} graph(s) + "
                      "{} animation(s) in the background (bar riding the compile).", graphCount, animCount);
@@ -417,9 +369,9 @@ namespace CB {
     static unsigned __stdcall InitThread(void*)
     {
         ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
-        const bool warmReuse = !ReadForceRegenerate() &&
+        const bool warmReuse = !CB::core::debug::FlagOn("force_regenerate") &&
                                g_resolver.CachePresent(std::filesystem::current_path() / "Data");
-        g_resolver.SetERGateEnabled(ReadERGateEnabled());
+        g_resolver.SetERGateEnabled(CB::core::debug::FlagOn("er_gate"));
 
         // Parallel skeleton compile (stage 2) — same opt-out marker as the anim compile. A pool of
         // 64MB-reserved-stack workers (skeleton compile recurses through Havok graph assembly, like the
@@ -487,10 +439,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
 
     // OAR-parity conditional setdata (Inc 1): register the built-in condition roster + install the
-    // producer/matcher hooks. DEFAULT OFF ([Conditions] bEnable) for the minimal release — see
-    // ReadConditionsEnabled. When off, no engine hooks are installed and only the vanilla setdata serve
-    // runs; when on, still inert until config compose registers ConditionInstances (Inc 2).
-    if (CB::ReadConditionsEnabled()) {
+    // producer/matcher hooks. DEFAULT OFF ([Conditions] bEnable) for the minimal release: the
+    // conditional-replacement actuator (Inc 2b) is unbuilt and the hooks are unproven in a shipped build.
+    // When off, no engine hooks are installed and only the vanilla setdata serve runs; when on, still
+    // inert until config compose registers ConditionInstances (Inc 2). Flip the kFlags default once the
+    // framework is proven end-to-end in-engine.
+    if (CB::core::debug::FlagOn("conditions")) {
         CB::core::conditions::RegisterBuiltins();
         CB::core::conditions::InstallConditionHooks();
     }

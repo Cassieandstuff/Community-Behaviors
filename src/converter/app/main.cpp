@@ -2,6 +2,7 @@
 #include "Converter.h"
 
 #include <interface/reflection/HavokSchema.h>   // schema::SetSharedSchemaDir — arm the anim pipeline's registry
+#include <codec/serialization/HkyArchive.h>
 #include "platform/Platform.h"
 
 #include <atomic>
@@ -150,7 +151,7 @@ int main(int argc, char** argv) {
 
     if (argc >= 4 && std::string(argv[1]) == "--zip") {  // headless: --zip <srcDir> <zipPath>
         std::string err;
-        const bool ok = CB::converter::platform::ZipDir(argv[2], argv[3], err);
+        const bool ok = CB::engine::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("zipped -> " + std::string(argv[3])).c_str() : ("zip FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }
@@ -159,7 +160,7 @@ int main(int argc, char** argv) {
     // compress step (CMake/converter); `unpack` is the author's decompress-to-edit.
     if (argc >= 4 && std::string(argv[1]) == "--pack") {    // --pack <dir> <out.hky>
         std::string err;
-        const bool ok = CB::converter::platform::ZipDir(argv[2], argv[3], err);
+        const bool ok = CB::engine::codec::HkyArchive::PackDirectory(argv[2], argv[3], err);
         std::printf("%s\n", ok ? ("packed -> " + std::string(argv[3])).c_str() : ("pack FAILED: " + err).c_str());
         return ok ? EXIT_SUCCESS : EXIT_FAILURE;
     }

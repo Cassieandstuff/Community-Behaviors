@@ -6,13 +6,13 @@
 #include "core/bootstrap/CompileGate.h"     // CB::EnsureCompiledAndArmed — lazy compile driven by the first open
 
 #include <codec/format/AnimationYamlLoader.h>
+#include <codec/format/LoadOrderText.h>        // ReadLoadOrder — bundle priority (a later line wins, as everywhere)
 #include <codec/resource/PathKey.h>
 #include <codec/motion/RootMotion.h>            // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <codec/serialization/MetaText.h>       // WriteMetaText — the schema-driven adsf writer
 #include <compile/AnimDataProjection.h>         // ProjectAnimData
 #include <interface/reflection/HavokSchema.h>
 #include <disk/Disk.h>
-#include <text/Text.h>
 
 #include <algorithm>
 #include <atomic>
@@ -37,26 +37,7 @@ namespace CB::core::serve {
 
         using CB::engine::codec::resource::HasExt;
         using CB::engine::codec::resource::PathKey;
-        using CB::engine::text::SplitLines;
-        using CB::engine::text::Trim;
         namespace disk = CB::engine::disk;
-
-        /// @brief Bundle stem (path key) -> priority, higher wins.
-        /// @note A later loadorder.txt line wins (the converter writes Skyrim first, the modlist winner last) — the
-        ///       same rule as the Resolver's graph merge and the setdata server, so all three rank mods alike.
-        std::unordered_map<std::string, int> LoadOrder(const fs::path& ini)
-        {
-            std::unordered_map<std::string, int> order;
-            const auto file = disk::ReadFile(ini, { .stripBom = true });
-            if (!file) return order;
-            int idx = 0;
-            for (const std::string_view raw : SplitLines(*file)) {
-                const std::string_view line = Trim(raw);
-                if (line.empty() || line[0] == '#' || line[0] == ';') continue;
-                order[PathKey(line)] = ++idx;
-            }
-            return order;
-        }
 
         /// @brief A DAR/OAR override copy of an animation: the file OAR plays in its base path's roster slot.
         struct OverrideCopy {
@@ -115,13 +96,14 @@ namespace CB::core::serve {
 
     }  // namespace
 
-    ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni, const AdsfSource& adsf)
+    ServeResult ServeAnimData(const fs::path& dataDir, const fs::path& loadOrderIni, const AdsfSource& adsf,
+                              const Executor* exec)
     {
         ServeResult r;
         r.attempted = true;
         std::error_code ec;
         const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
-        const auto     order       = LoadOrder(loadOrderIni);
+        const auto     order       = CB::engine::codec::ReadLoadOrder(loadOrderIni).value_or(CB::engine::codec::LoadOrder{});
 
         /// @note Every bundle, lowest priority first (the master, then mods by load order): an animation is read from
         ///       the HIGHEST bundle that carries it.
@@ -132,8 +114,7 @@ namespace CB::core::serve {
                 const std::string stem = PathKey(bi->path().stem().string());
                 auto rd = BundleReader::Open(bi->path());
                 if (!rd) { LOG_WARN("AnimData: cannot read bundle '{}' — skipped.", bi->path().string()); continue; }
-                const auto oit = order.find(stem);
-                bundles.emplace_back(stem == "skyrim" ? -1 : (oit != order.end() ? oit->second : 0), std::move(*rd));
+                bundles.emplace_back(stem == "skyrim" ? -1 : order.Rank(stem), std::move(*rd));
             }
         std::stable_sort(bundles.begin(), bundles.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         if (bundles.empty() || bundles.front().first != -1) {
@@ -221,10 +202,14 @@ namespace CB::core::serve {
         src.prefetch      = [&](const std::vector<std::string>& paths) {
             std::vector<std::optional<CB::engine::anim::AnimationDef>> parsed(paths.size());
             std::atomic<std::size_t> next{ 0 };
-            std::vector<std::thread> pool;
-            for (unsigned t = 0; t < std::max(1u, std::thread::hardware_concurrency()); ++t)
-                pool.emplace_back([&] { for (std::size_t i; (i = next++) < paths.size();) parsed[i] = load(paths[i]); });
-            for (auto& t : pool) t.join();
+            const auto drain = [&] { for (std::size_t i; (i = next.fetch_add(1)) < paths.size();) parsed[i] = load(paths[i]); };
+            if (exec && paths.size() > 1) {
+                /// @note One draining task per hardware thread, not one per path: thousands of paths would each pay a
+                ///       queue round-trip. Each result lands in its own slot, so the output matches a serial run.
+                const std::size_t nTasks = std::min<std::size_t>(paths.size(), std::max(1u, std::thread::hardware_concurrency()));
+                (*exec)(std::vector<std::function<void()>>(nTasks, drain));
+            }
+            drain();
             for (std::size_t i = 0; i < paths.size(); ++i) anims.emplace(paths[i], std::move(parsed[i]));
         };
         src.animation = [&](const std::string& path) -> const CB::engine::anim::AnimationDef* {

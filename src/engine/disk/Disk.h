@@ -24,6 +24,10 @@ std::optional<std::string> ReadFile(const std::filesystem::path& p, ReadOptions 
 /// @brief The whole file as bytes, or nullopt when it can't be opened or read.
 std::optional<std::vector<std::uint8_t>> ReadBytes(const std::filesystem::path& p);
 
+/// @brief At most the first `maxBytes` bytes of the file (all of it when shorter), or nullopt when it can't be opened
+///        or read.
+std::optional<std::string> ReadHead(const std::filesystem::path& p, std::size_t maxBytes);
+
 struct WriteOptions {
     /// @brief Write `<p>.tmp` and rename it over `p` only once complete — for files a later stage or the game depends
     ///        on, so a failure never leaves a truncated file (or loses the previous one).
@@ -37,8 +41,8 @@ bool WriteFile(const std::filesystem::path& p, std::string_view data, WriteOptio
 bool WriteFile(const std::filesystem::path& p, std::span<const std::uint8_t> data, WriteOptions opt = {},
                std::string* err = nullptr);
 
-/// @brief `p` as Windows needs it to reach past MAX_PATH (the `\\?\` prefix on a long absolute path); unchanged
-///        elsewhere.
+/// @brief `p` as Windows needs it to reach past MAX_PATH (the `\\?\` prefix on a long absolute path, normalized);
+///        unchanged elsewhere. For opening/walking only — never compare or store the result.
 std::filesystem::path LongPath(const std::filesystem::path& p);
 
 }  // namespace CB::engine::disk

@@ -2,9 +2,9 @@
 
 #include "core/debug/RuntimeTrace.h"
 
-#include <compile/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
+#include "core/debug/Settings.h"
 
-#include "SimpleIni.h"                  // [Debug] bRuntimeTrace toggle (mirrors CB::core::debug::kFlags row)
+#include <compile/CompileTrace.h>   // trace::LoadRuntimeWatch / WatchVar (the `watch:` probe list)
 
 #include <atomic>
 #include <chrono>
@@ -62,13 +62,7 @@ namespace CB::core::debug {
     }  // namespace
 
     void InstallTrace() {
-        bool on = false;
-        {
-            CSimpleIniA ini;
-            if (ini.LoadFile("Data/SKSE/Plugins/Community Behaviors/settings.ini") >= 0)
-                on = ini.GetBoolValue("Debug", "bRuntimeTrace", false);
-        }
-        if (!on) return;
+        if (!FlagOn("runtime_trace")) return;
 
         std::string warn;
         const auto entries = CB::engine::compile::trace::LoadRuntimeWatch(
