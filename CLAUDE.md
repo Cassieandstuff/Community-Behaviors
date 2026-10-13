@@ -176,8 +176,8 @@ still belongs in the session scratchpad dir.)
   CB's cache), with record counts matching the hand-written parsers.
 - **Animation float offsets** — `--anim-float-offsets <meshesDir> <work>`: the spline decoder's walk must land
   on vanilla's stored `floatBlockOffsets` for every vanilla clip (5937/5937), and every clip recompiled by CB must
-  store exactly where the decoder finds its float section. Run it after any spline compressor change, and bump
-  `kAnimCompilerRevision` (Resolver.cpp) whenever compiled animation bytes change.
+  store exactly where the decoder finds its float section. Run it after any spline compressor change. (Nothing to
+  bump: compiled animations are keyed on the plugin DLL's hash, so every rebuild recompiles them once.)
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
 

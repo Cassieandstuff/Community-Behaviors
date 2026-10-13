@@ -2,7 +2,6 @@
 
 #include "core/resolve/Resolver.h"
 #include "core/discover/ServeKey.h"
-#include "core/resolve/Watermark.h"
 #include "core/resolve/CacheKey.h"
 #include "core/debug/Settings.h"
 #include <feature-sdk/FeatureRegistry.h>   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
@@ -313,9 +312,10 @@ namespace CB {
         // internals end in .yaml/.txt, never .hkx, so the file-vs-tree split is unambiguous). Output
         // key == the ".hkx" path itself (== the author's clip animationName), keeping output file ==
         // roster entry == animationName byte-aligned (BR-16). Shared by the unpacked + packed branches.
-        auto collectNativeAnim = [this](const std::string& relOrig, std::string yamlText) {
-            if (yamlText.empty()) return;
-            const std::string pathKey = PathKey(relOrig);
+        auto collectNativeAnim = [this](NativeAnim a) {
+            if (a.size == 0) return;
+            const std::string& relOrig = a.outKey;   // the ".hkx" path IS the output name
+            const std::string  pathKey = PathKey(relOrig);
             if (!HasExt(pathKey, ".hkx")) return;
 
             // Must live UNDER an actor's animations dir (meshes/actors/<actor>/animations/...).
@@ -328,8 +328,6 @@ namespace CB {
             const std::size_t as = ap + 14;
             const auto an = pathKey.find("/animations/", as);
             if (an == std::string::npos) return;
-
-            const std::string outKey = relOrig;            // the ".hkx" path IS the output name
 
             // COLLECT FOR RECOMPILE ONLY — do NOT auto-roster. A .hkx file's presence under an
             // actor's animations\ dir is NOT membership in that actor's animationName roster. The
@@ -344,7 +342,7 @@ namespace CB {
             // (Reached only for a compile-opted-in bundle now; still don't auto-roster from raw file
             // discovery.) When the real in-memory serve lands, binding will be driven from the
             // authoritative roster, not from raw file discovery.
-            m_nativeAnims.emplace_back(outKey, std::move(yamlText));
+            m_nativeAnims.push_back(std::move(a));
         };
 
 
@@ -418,7 +416,12 @@ namespace CB {
                     if (std::error_code rfe; bundleCompileAnims && ui->is_regular_file(rfe)) {
                         const std::string relOrig = ui->path().lexically_relative(bundle).generic_string();
                         if (HasExt(relOrig, ".hkx") && PathKey(relOrig).find("/animations/") != std::string::npos) {
-                            if (auto yaml = disk::ReadFile(ui->path())) collectNativeAnim(relOrig, std::move(*yaml));
+                            std::error_code sz, mt;
+                            const auto size  = ui->file_size(sz);
+                            const auto mtime = ui->last_write_time(mt);
+                            if (!sz && !mt)
+                                collectNativeAnim({ relOrig, nullptr, ui->path(), size,
+                                                    static_cast<std::uint64_t>(mtime.time_since_epoch().count()) });
                         }
                         continue;
                     }
@@ -530,17 +533,12 @@ namespace CB {
                     // Native animations authored inside the packed bundle: a bare "<name>.hkx" FILE
                     // key under meshes\ (the .hky compile-target model — unit-tree keys are
                     // "<name>.hkx/<subfile>" ending in .yaml/.txt, so a key ENDING in ".hkx" is always
-                    // a single-file compile target). filesUnder (normalized) + filesUnderOrig (original
-                    // case) walk the SAME ordered range, so index i aligns — read by the normalized key,
-                    // name by the original; collectNativeAnim guards the meshes/actors/.../animations/ path.
-                    if (bundleCompileAnims) {
-                        const auto norm = arc->filesUnder("meshes/");
-                        const auto orig = arc->filesUnderOrig("meshes/");
-                        for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i) {
-                            if (norm[i].size() < 4 || norm[i].compare(norm[i].size() - 4, 4, ".hkx") != 0) continue;
-                            if (auto txt = arc->file(norm[i])) collectNativeAnim(orig[i], *txt);
-                        }
-                    }
+                    // a single-file compile target). Only the index entry is taken (original-case path,
+                    // size, CRC); the YAML is read when it compiles. collectNativeAnim guards the
+                    // meshes/actors/.../animations/ path.
+                    if (bundleCompileAnims)
+                        for (const auto& e : arc->entriesUnder("meshes/"))
+                            if (HasExt(e.path, ".hkx")) collectNativeAnim({ e.path, arc, {}, e.size, e.crc });
 
                     m_archives.push_back(std::move(arc));
                 }
@@ -852,6 +850,99 @@ namespace CB {
         return m_reuse.size();
     }
 
+    namespace {
+        /// @brief Everything the adsf projection takes from one behavior's clip generators, folded into one value.
+        std::uint64_t ClipHash(const std::vector<CB::engine::animdata::DeriveClipInput>& clips)
+        {
+            std::string s;
+            const auto num = [&s](double v) { s.append(reinterpret_cast<const char*>(&v), sizeof v); };
+            for (const auto& c : clips) {
+                s += c.name + '\t' + c.animationName + '\t';
+                num(c.playbackSpeed); num(c.cropStart); num(c.cropEnd);
+                for (const auto& t : c.triggers) {
+                    s += t.event + '\t';
+                    num(t.localTime);
+                    s += t.relativeToEndOfClip ? '1' : '0';
+                    s += t.fromAnnotation ? '1' : '0';
+                }
+                s += '\n';
+                if (c.graphEvents) {
+                    std::vector<std::string> ev(c.graphEvents->begin(), c.graphEvents->end());
+                    std::sort(ev.begin(), ev.end());
+                    for (const auto& e : ev) s += e + '\t';
+                }
+                s += '\n';
+            }
+            return CB::core::resolve::Fnv64(s);
+        }
+    }  // namespace
+
+    void Resolver::TraceClips(const std::string& key, const std::vector<CB::engine::animdata::DeriveClipInput>& clips)
+    {
+        const std::uint64_t h = ClipHash(clips);
+        std::lock_guard<std::mutex> lk(m_clipTraceMutex);
+        m_clipTrace[NormalizeKey(key)] = h;
+    }
+
+    std::uint64_t Resolver::AnimDataKey(const std::filesystem::path& dataRoot)
+    {
+        if (m_animDataKey) return *m_animDataKey;
+        /// @note The adsf / asdsf read every bundle file directly (animations, setdata, rosters, character units, the
+        ///       index) EXCEPT the behavior graphs, which reach them only as clip inputs (the clip trace).
+        std::uint64_t h = CB::core::resolve::BundleFilesInput(dataRoot, [this](const std::string& unitKey) {
+            const auto it = m_sources.find(unitKey);
+            return it != m_sources.end() && !it->second.isCharacter;
+        });
+        auto units = BehaviorUnitKeys();
+        std::sort(units.begin(), units.end());
+        for (const auto& u : units) h = CB::core::resolve::Fnv64(u + '\n', h);
+        m_animDataKey = h;
+        return h;
+    }
+
+    bool Resolver::AnimDataReusable(const std::filesystem::path& dataRoot)
+    {
+        const auto t0  = std::chrono::steady_clock::now();
+        const auto why = [&]() -> std::string {
+            const auto text = disk::ReadFile(CacheSentinelPath(dataRoot));
+            if (!text) return "no previous cache";
+            const auto stored = CB::core::resolve::StoredOutputKeys(*text, "animdata");
+            const auto it     = stored.find("adsf+asdsf");
+            if (it == stored.end()) return "no previous animation-data key";
+            if (it->second != CB::core::resolve::KeyHex(AnimDataKey(dataRoot))) return "a bundle file they read changed";
+
+            /// @note Early cutoff: a traced behavior whose graph is unchanged keeps its clip hash; a changed one is
+            ///       re-merged, and only clips that DIFFER redo the adsf.
+            std::unordered_map<std::string, std::uint64_t> trace;
+            for (const auto& [key, value] : CB::core::resolve::StoredOutputKeys(*text, "clips")) {
+                const auto slash = value.find('/');
+                const auto src   = m_sources.find(key);
+                const auto gk    = m_graphKeys.find(key);
+                if (slash == std::string::npos || src == m_sources.end() || src->second.isCharacter || gk == m_graphKeys.end())
+                    return "behavior '" + key + "' is gone";
+                const std::uint64_t clip = std::strtoull(value.c_str() + slash + 1, nullptr, 16);
+                if (value.substr(0, slash) == CB::core::resolve::KeyHex(gk->second)) { trace[key] = clip; continue; }
+                const std::uint64_t now = ClipHash(MergedClipInputs(key));
+                if (now != clip) return "the clips of '" + key + "' changed";
+                trace[key] = now;
+            }
+            std::error_code ec;
+            if (!fs::exists(dataRoot / CB::core::discover::kConsolidatedCacheDir / "animationdatasinglefile.txt", ec))
+                return "the cached animationdatasinglefile.txt is missing";
+            CB::core::resolve::CarryReads(*text);
+            std::lock_guard<std::mutex> lk(m_clipTraceMutex);
+            m_clipTrace = std::move(trace);
+            return {};
+        }();
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        if (!why.empty()) {
+            LOG_INFO("Community Behaviors: animation data rebuilt — {} ({:.0f} ms to check).", why, ms);
+            return false;
+        }
+        LOG_INFO("Community Behaviors: animation data unchanged — cached adsf/asdsf kept ({:.0f} ms to check).", ms);
+        return true;
+    }
+
     std::size_t Resolver::WriteSkeletonServe(const std::filesystem::path& dataRoot) const
     {
         namespace fs = std::filesystem;
@@ -886,8 +977,8 @@ namespace CB {
             return Fnv64(*bytes);
         }
 
-        /// @brief One animation CB compiled to Data\meshes: its original-case data path, the fingerprint of the
-        ///        YAML it compiled from, and the fingerprint of the bytes it wrote.
+        /// @brief One animation CB compiled to Data\meshes: its original-case data path, the key of what it compiled
+        ///        from (its source file's stamp + the rig bones its tracks bind), and the fingerprint of the bytes it wrote.
         struct AnimLedgerEntry {
             std::string   path;
             std::uint64_t src = 0;
@@ -896,7 +987,7 @@ namespace CB {
 
         /// @brief The ledger of compiled animations — what CB wrote into the real meshes\ tree, so a removed or
         ///        opted-out bundle's output can be found again and deleted.
-        /// @note `current` is false when the header's compiler revision or watermark differs from this build's: the entries still
+        /// @note `current` is false when the header's compiler identity differs from this build's: the entries still
         ///       identify CB-written files (orphan cleanup), but none may be skipped as up to date.
         struct AnimLedger {
             std::unordered_map<std::string, AnimLedgerEntry> byKey;   ///< PathKey(path), internal-only key
@@ -905,17 +996,14 @@ namespace CB {
 
         constexpr const char* kAnimLedgerMagic = "cb-anim-ledger";
 
-        /// @brief Revision of the animation compiler's OUTPUT. Bump it whenever compiled animation bytes change for an
-        ///        unchanged source (e.g. the CB-8 floatBlockOffsets fix), so every ledgered animation recompiles once.
-        constexpr int kAnimCompilerRevision = 2;
-
-        std::string LedgerHeader()
+        /// @brief The ledger's first line: its format and the compiler that wrote it (CacheKey's CompilerIdentity — the
+        ///        DLL + schema), so any rebuild recompiles every ledgered animation once.
+        std::string LedgerHeader(const std::string& compiler)
         {
-            return std::string(kAnimLedgerMagic) + " " + std::to_string(kAnimCompilerRevision) + " " +
-                   std::to_string(CB::core::resolve::kWatermarkValue);
+            return std::string(kAnimLedgerMagic) + " 3 " + compiler;
         }
 
-        AnimLedger LoadAnimLedger(const std::filesystem::path& file)
+        AnimLedger LoadAnimLedger(const std::filesystem::path& file, const std::string& header)
         {
             AnimLedger led;
             const auto text = disk::ReadFile(file);
@@ -923,7 +1011,7 @@ namespace CB {
             const auto lines = SplitLines(*text);
             if (lines.empty()) return led;
             if (lines[0].rfind(kAnimLedgerMagic, 0) != 0) return led;   // not a ledger — track nothing
-            led.current = (lines[0] == LedgerHeader());
+            led.current = (lines[0] == header);
             for (std::size_t i = 1; i < lines.size(); ++i) {
                 const std::string_view line = lines[i];
                 const auto t1 = line.find('\t');
@@ -940,12 +1028,13 @@ namespace CB {
 
         /// @brief Replace the ledger (write-then-rename, so a crash never leaves a half-written one). An empty
         ///        ledger removes the file.
-        void SaveAnimLedger(const std::filesystem::path& file, const std::vector<AnimLedgerEntry>& entries)
+        void SaveAnimLedger(const std::filesystem::path& file, const std::string& header,
+                            const std::vector<AnimLedgerEntry>& entries)
         {
             namespace fs = std::filesystem;
             std::error_code ec;
             if (entries.empty()) { fs::remove(file, ec); return; }
-            std::string out = LedgerHeader() + "\n";
+            std::string out = header + "\n";
             char hx[2][17];
             for (const auto& e : entries) {
                 std::snprintf(hx[0], sizeof hx[0], "%016llx", static_cast<unsigned long long>(e.src));
@@ -973,18 +1062,26 @@ namespace CB {
         (void)CB::engine::schema::SharedRegistry();
 
         /// @note The ledger (community_behaviors_cache\animations.ledger) records every animation CB wrote into
-        ///       the real meshes\ tree. An entry whose source YAML, output file and compiler watermark are all
-        ///       unchanged is skipped (no recompile every launch); an entry no longer produced — its bundle removed
-        ///       or opted out — is deleted, but only while the file still holds the bytes CB wrote.
-        const fs::path   ledgerPath = dataRoot / CB::core::discover::kConsolidatedCacheDir / "animations.ledger";
-        const AnimLedger prior      = LoadAnimLedger(ledgerPath);
-        const std::size_t n         = m_nativeAnims.size();
+        ///       the real meshes\ tree. An entry whose source (its file's stamp in the bundle index, and the rig bones
+        ///       its tracks bind), output file and compiler are all unchanged is skipped — no recompile, and its YAML is
+        ///       never read; an entry no longer produced — its bundle removed or opted out — is deleted, but only while
+        ///       the file still holds the bytes CB wrote.
+        const fs::path    ledgerPath = dataRoot / CB::core::discover::kConsolidatedCacheDir / "animations.ledger";
+        const std::string header     = LedgerHeader(CB::core::resolve::CompilerIdentity(dataRoot));
+        const AnimLedger  prior      = LoadAnimLedger(ledgerPath, header);
+        const std::size_t n          = m_nativeAnims.size();
         std::vector<std::uint64_t> srcHash(n, 0), outHash(n, 0);
         std::vector<char>          produced(n, 0);   ///< slot i written by exactly one task — no lock needed
         std::size_t                unchanged = 0;
         for (std::size_t i = 0; i < n; ++i) {
-            const auto& [outKey, yamlText] = m_nativeAnims[i];
-            srcHash[i] = Fnv64(yamlText);
+            const NativeAnim& a      = m_nativeAnims[i];
+            const std::string& outKey = a.outKey;
+            std::string        in     = std::to_string(a.size) + '\t' + std::to_string(a.stamp) + '\n';
+            if (const RigBones rb = BonesFor(outKey); rb.table) {
+                in += "rig\t" + rb.rig + '\n';
+                for (const auto& b : rb.table->names) in += b + '\n';
+            }
+            srcHash[i] = Fnv64(in);
             if (!prior.current) continue;
             const auto it = prior.byKey.find(PathKey(outKey));
             if (it == prior.byKey.end() || it->second.src != srcHash[i]) continue;
@@ -995,14 +1092,14 @@ namespace CB {
             }
         }
 
-        // Compile+write ONE native animation. A pure function of its own (outKey, yamlText) entry and the
+        // Compile+write ONE native animation. A pure function of its own source file and the
         // immutable-after-Init m_skeletons; writes its own distinct file and its own result slot. No shared
-        // mutable state, so this is safe to run concurrently and the parallel result is byte-identical to the
-        // serial one.
+        // mutable state (archive reads are thread-safe), so this is safe to run concurrently and the parallel
+        // result is byte-identical to the serial one.
         auto compileOne = [&](std::size_t i) {
             if (produced[i]) return;
-            const std::string& outKey   = m_nativeAnims[i].first;
-            const std::string& yamlText = m_nativeAnims[i].second;
+            const NativeAnim&  a      = m_nativeAnims[i];
+            const std::string& outKey = a.outKey;
             // outKey: "meshes/actors/<actor>/animations/.../<name>.hkx" (original case). We only reach here
             // for a bundle that OPTED INTO animation compile (manifest compile_animations=true), so writing
             // to the REAL meshes path is the point — the compiled animation serves. The old meshes/CBanims/
@@ -1011,7 +1108,13 @@ namespace CB {
             // doesn't opt in isn't compiled at all, so there is nothing to clobber.
             const fs::path out = dataRoot / fs::path(outKey);
             try {
-                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(yamlText, outKey);
+                const auto yamlText = a.arc ? a.arc->file(PathKey(outKey)) : disk::ReadFile(a.file);
+                if (!yamlText) {
+                    failed.fetch_add(1, std::memory_order_relaxed);
+                    LOG_ERROR("Community Behaviors: native animation '{}' could not be read.", outKey);
+                    return;
+                }
+                auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(*yamlText, outKey);
                 /// @note Called for its side effect: a folded root has its actor motion extracted and STRIPPED, so the
                 ///       binary compiled below serves without the travel the adsf moves the actor by. The motion
                 ///       itself reaches the adsf through the projection (AnimationDataServer), not from here.
@@ -1071,9 +1174,9 @@ namespace CB {
         std::vector<AnimLedgerEntry> next;
         std::unordered_set<std::string> nowKeys;
         for (std::size_t i = 0; i < n; ++i) {
-            const std::string key = PathKey(m_nativeAnims[i].first);
+            const std::string key = PathKey(m_nativeAnims[i].outKey);
             nowKeys.insert(key);
-            if (produced[i]) next.push_back({ m_nativeAnims[i].first, srcHash[i], outHash[i] });
+            if (produced[i]) next.push_back({ m_nativeAnims[i].outKey, srcHash[i], outHash[i] });
             else if (const auto it = prior.byKey.find(key); it != prior.byKey.end()) next.push_back(it->second);
         }
 
@@ -1094,7 +1197,7 @@ namespace CB {
             if (fs::remove(p, rec)) { ++removed; LOG_INFO("Community Behaviors: removed orphaned compiled animation '{}'.", p.string()); }
             else LOG_WARN("Community Behaviors: could not remove orphaned compiled animation '{}': {}", p.string(), rec.message());
         }
-        SaveAnimLedger(ledgerPath, next);
+        SaveAnimLedger(ledgerPath, header, next);
 
         const std::size_t w = written.load(std::memory_order_relaxed);
         const std::size_t fl = failed.load(std::memory_order_relaxed);
@@ -1258,6 +1361,25 @@ namespace CB {
             std::vector<std::string> graphLines;
             graphLines.reserve(m_graphKeys.size());
             for (const auto& [k, key] : m_graphKeys) graphLines.push_back("graph\t" + k + '\t' + CB::core::resolve::KeyHex(key) + '\n');
+            /// @note The adsf / asdsf key and the clip trace are recorded only when both files are complete this launch
+            ///       (kept, or rebuilt without error) — otherwise the next recompile rebuilds them.
+            if (m_animDataComplete) {
+                std::vector<std::string> traceLines;
+                bool                     whole = true;   ///< every traced clip read is tied to a graph key
+                {
+                    std::lock_guard<std::mutex> lk(m_clipTraceMutex);
+                    for (const auto& [k, clip] : m_clipTrace) {
+                        const auto gk = m_graphKeys.find(k);
+                        if (gk == m_graphKeys.end()) { whole = false; break; }
+                        traceLines.push_back("clips\t" + k + '\t' + CB::core::resolve::KeyHex(gk->second) + '/' +
+                                             CB::core::resolve::KeyHex(clip) + '\n');
+                    }
+                }
+                if (whole) {
+                    graphLines.insert(graphLines.end(), traceLines.begin(), traceLines.end());
+                    graphLines.push_back("animdata\tadsf+asdsf\t" + CB::core::resolve::KeyHex(AnimDataKey(dataRoot)) + '\n');
+                }
+            }
             std::sort(graphLines.begin(), graphLines.end());
             std::string outputs;
             for (const auto& l : graphLines) outputs += l;

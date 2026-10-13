@@ -87,6 +87,8 @@ public:
 
     /// @brief The index entries under a path-key prefix (original-case paths, sizes, CRCs) — no content read.
     std::vector<IndexEntry> entriesUnder(const std::string& prefix) const;
+    /// @brief One file's index entry by its path key; nullopt when absent.
+    std::optional<IndexEntry> entry(const std::string& path) const;
 
 private:
     HkyArchive() = default;   // built only via LoadFromFile (needs shared ownership)

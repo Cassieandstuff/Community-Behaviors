@@ -353,6 +353,12 @@ std::vector<HkyArchive::IndexEntry> HkyArchive::entriesUnder(const std::string& 
     return out;
 }
 
+std::optional<HkyArchive::IndexEntry> HkyArchive::entry(const std::string& path) const {
+    const auto it = m_files.find(path);
+    if (it == m_files.end()) return std::nullopt;
+    return IndexEntry{ it->second.orig, it->second.size, it->second.crc };
+}
+
 std::vector<std::string> HkyArchive::filesUnderOrig(const std::string& prefix) const {
     // Same range (scan by the normalized prefix over normalized keys) but return the ORIGINAL-CASE
     // paths. Only for callers that derive a case-sensitive NAME from the path — the animationdata clip

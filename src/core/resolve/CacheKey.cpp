@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <map>
 #include <mutex>
+#include <random>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -161,8 +162,9 @@ namespace CB::core::resolve {
             return lines;
         }
 
-        /// @brief The per-output kind: a graph's own key (Resolver), not an input.
-        constexpr std::string_view kGraphKind = "graph";
+        /// @brief Per-output kinds (the Resolver's own keys), not inputs: a graph's key, the adsf/asdsf key, and the
+        ///        clip inputs the adsf projection read.
+        bool IsOutputKind(std::string_view kind) { return kind == "graph" || kind == "animdata" || kind == "clips"; }
 
         /// @brief One sentinel row "kind\tname\tvalue"; nullopt for anything else.
         std::optional<Line> ParseRow(std::string_view raw)
@@ -173,6 +175,27 @@ namespace CB::core::resolve {
             if (t2 == std::string_view::npos || t2 == t1) return std::nullopt;
             return Line{ std::string(row.substr(0, t1)), std::string(row.substr(t1 + 1, t2 - t1 - 1)),
                          std::string(row.substr(t2 + 1)) };
+        }
+
+        /// @brief A random value fixed for this launch: folded in for an input that can't be read, so a key built from
+        ///        it never matches one stored by an earlier launch.
+        std::uint64_t LaunchNonce()
+        {
+            static const std::uint64_t nonce = (std::uint64_t{ std::random_device{}() } << 32) ^ std::random_device{}();
+            return nonce;
+        }
+
+        /// @brief The static lines of `kinds`, folded into one value.
+        /// @note  An unreadable input folds in a per-launch random value, so the result never matches a stored key.
+        std::uint64_t FoldLines(const fs::path& dataDir, std::initializer_list<std::string_view> kinds)
+        {
+            std::uint64_t h = Fnv64("");
+            for (const auto& l : StaticLines(dataDir)) {
+                if (std::find(kinds.begin(), kinds.end(), l.kind) == kinds.end()) continue;
+                h = Fnv64(l.Id() + '\t' + l.value + '\n', h);
+                if (l.value == kUnreadable) h = Mix(h, LaunchNonce());
+            }
+            return h;
         }
 
         std::mutex                         g_readsMutex;
@@ -211,13 +234,62 @@ namespace CB::core::resolve {
         return out;
     }
 
+    std::string CompilerIdentity(const fs::path& dataDir)
+    {
+        return Hex(FoldLines(dataDir, { "compiler", "schema" }));
+    }
+
     std::uint64_t SharedGraphInputs(const fs::path& dataDir)
     {
-        std::uint64_t h = Fnv64("");
-        for (const auto& l : StaticLines(dataDir))
-            if (l.kind == "compiler" || l.kind == "schema" || l.kind == "setting" || l.kind == "bdi")
-                h = Fnv64(l.Id() + '\t' + l.value + '\n', h);
+        return FoldLines(dataDir, { "compiler", "schema", "setting", "bdi" });
+    }
+
+    std::uint64_t BundleFilesInput(const fs::path& dataDir, const std::function<bool(const std::string& unitKey)>& skipUnit)
+    {
+        using CB::engine::codec::resource::PathKey;
+        std::uint64_t h = SharedGraphInputs(dataDir);
+        h = Fnv64(FileValue(dataDir / "community_behaviors" / "loadorder.txt"), h);
+        const auto skipped = [&](const std::string& rel) {
+            const std::string k   = PathKey(rel);
+            const auto        pos = k.find(".hkx/");
+            return pos != std::string::npos && skipUnit(k.substr(0, pos + 4));
+        };
+        const fs::path        plugins = dataDir / "community_behaviors" / "plugins";
+        std::vector<fs::path> bundles;
+        std::error_code       ec;
+        if (fs::is_directory(plugins, ec))
+            for (fs::directory_iterator it(plugins, ec), end; !ec && it != end; it.increment(ec))
+                if (HasExt(it->path().filename().string(), ".hky")) bundles.push_back(it->path());
+        std::sort(bundles.begin(), bundles.end());
+        for (const auto& b : bundles) {
+            h = Fnv64(b.filename().string() + '\n', h);
+            if (fs::is_directory(b, ec)) {
+                for (const auto& [rel, abs] : FilesUnder(b, true)) {
+                    if (skipped(rel)) continue;
+                    std::error_code fe;
+                    const auto size  = fs::file_size(CB::engine::disk::LongPath(abs), fe);
+                    const auto mtime = fs::last_write_time(CB::engine::disk::LongPath(abs), fe);
+                    h = Mix(Mix(Fnv64(rel, h), size), static_cast<std::uint64_t>(mtime.time_since_epoch().count()));
+                }
+                continue;
+            }
+            std::string err;
+            const auto  index = CB::engine::codec::HkyArchive::ReadIndex(b.string(), err);
+            if (!index) { h = Mix(h, LaunchNonce()); continue; }
+            for (const auto& e : *index)
+                if (!skipped(e.path)) h = Mix(Mix(Fnv64(e.path, h), e.size), e.crc);
+        }
         return h;
+    }
+
+    void CarryReads(std::string_view stored)
+    {
+        for (const auto row : CB::engine::text::SplitLines(stored))
+            if (const auto r = ParseRow(row); r && r->kind == "read") {
+                const std::string value = FileValue(r->name);
+                std::lock_guard<std::mutex> lk(g_readsMutex);
+                g_reads.emplace(r->name, value);
+            }
     }
 
     std::unordered_map<std::string, std::string> StoredOutputKeys(std::string_view stored, std::string_view kind)
@@ -240,7 +312,7 @@ namespace CB::core::resolve {
         std::map<std::string, std::string> then;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto r = ParseRow(rows[i]);
-            if (!r || r->kind == kGraphKind) continue;
+            if (!r || IsOutputKind(r->kind)) continue;
             if (r->kind == "read") {
                 if (const std::string cur = FileValue(r->name); cur != r->value || cur == kUnreadable)
                     return "'" + r->name + "' changed";
