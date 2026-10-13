@@ -1,0 +1,15 @@
+name:   SpeedDataSingleFile
+kind:   metadata                       # Bethesda cache, not a Havok class (no signature/size)
+file:   Meshes/SpeedDataSingleFile.txt
+# The speed-sampler database: per behavior project, per iState, per heading, the curve relating the
+# locomotion ladder's blend parameter to the root-motion speed it delivers. The engine reads it ONCE, in
+# BSSpeedSamplerDBManager's ctor (AnimationCacheSingletons_Init, the same routine that loads the adsf), into a
+# map keyed by project name; BSSpeedSamplerModifier queries it every frame (state/direction/goalSpeed ->
+# speedOut). A project absent here is loaded lazily per graph from MESHES/SPEEDDATA/<Proj>DATA/<Proj>.SPD —
+# the same binary body as one SpeedDataProject. Any lookup miss answers goalSpeed unchanged.
+#
+# Mixed text + binary: the leading list is CRLF text (count, then N "<Proj>Data\<Proj>.spd" paths); the N
+# bodies follow IN PATH ORDER as raw little-endian binary with no length prefix or index (`header: path` =
+# the split layout, same as adsf/asdsf; the bodies are `encoding: binary`).
+fields:
+  - { name: projects, type: recordarray, ref: SpeedDataProject, header: path }

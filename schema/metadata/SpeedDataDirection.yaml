@@ -1,0 +1,10 @@
+name:     SpeedDataDirection
+kind:     metadata
+encoding: binary
+# One heading's curve. `direction` is the graph's Direction (fraction of a turn, clockwise: 0 ahead, 0.25
+# right, 0.5 behind, 0.75 left). Vanilla stores 0..0.90 as the float ACCUMULATION of +0.05f — bit-different
+# from 0.05f*i from i = 7 — and the engine finds the first direction >= the query, wrapping past the last to
+# the first, with no blend across headings. A writer must reproduce the accumulated values bit-exactly.
+fields:
+  - { name: direction, type: float }
+  - { name: points,    type: recordarray, ref: SpeedDataPoint }

@@ -1,0 +1,12 @@
+name:     SpeedDataPoint
+kind:     metadata
+encoding: binary
+# One sample of the ladder's curve: at blend parameter `blendParam` the locomotion blend delivers root-motion
+# speed `speed`. The loader stores them in disk order (no swap — verified at 0x140c28189..0x140c281ec); the
+# query (BSSpeedSamplerDBManager__LookupSpeedOut) lower-bounds goalSpeed on `speed` and returns `blendParam`
+# lerped from the previous point ((0,0) before the first) — it INVERTS the curve: the parameter that delivers
+# the requested speed. goalSpeed above the last `speed` answers goalSpeed unchanged.
+# Vanilla: blendParam on a 0.5 grid, non-decreasing; the last point is often written twice (not a marker).
+fields:
+  - { name: blendParam, type: float }  # disk[0]: what the engine returns (SpeedSampled)
+  - { name: speed,      type: float }  # disk[1]: what the engine searches (delivered speed)
