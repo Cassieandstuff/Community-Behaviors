@@ -161,6 +161,20 @@ namespace CB::core::resolve {
             return lines;
         }
 
+        /// @brief The per-output kind: a graph's own key (Resolver), not an input.
+        constexpr std::string_view kGraphKind = "graph";
+
+        /// @brief One sentinel row "kind\tname\tvalue"; nullopt for anything else.
+        std::optional<Line> ParseRow(std::string_view raw)
+        {
+            const std::string_view row = CB::engine::text::Trim(raw);
+            const auto t1 = row.find('\t');
+            const auto t2 = t1 == std::string_view::npos ? t1 : row.rfind('\t');
+            if (t2 == std::string_view::npos || t2 == t1) return std::nullopt;
+            return Line{ std::string(row.substr(0, t1)), std::string(row.substr(t1 + 1, t2 - t1 - 1)),
+                         std::string(row.substr(t2 + 1)) };
+        }
+
         std::mutex                         g_readsMutex;
         std::map<std::string, std::string> g_reads;   ///< path as read -> value
     }  // namespace
@@ -182,13 +196,37 @@ namespace CB::core::resolve {
         return bytes;
     }
 
-    std::string CacheKeyText(const fs::path& dataDir)
+    std::string KeyHex(std::uint64_t h) { return Hex(h); }
+
+    std::string CacheKeyText(const fs::path& dataDir, std::string_view outputLines)
     {
         std::string out(kHeader);
         out += '\n';
         for (const auto& l : StaticLines(dataDir)) out += l.kind + '\t' + l.name + '\t' + l.value + '\n';
-        std::lock_guard<std::mutex> lk(g_readsMutex);
-        for (const auto& [path, value] : g_reads) out += "read\t" + path + '\t' + value + '\n';
+        {
+            std::lock_guard<std::mutex> lk(g_readsMutex);
+            for (const auto& [path, value] : g_reads) out += "read\t" + path + '\t' + value + '\n';
+        }
+        out += outputLines;
+        return out;
+    }
+
+    std::uint64_t SharedGraphInputs(const fs::path& dataDir)
+    {
+        std::uint64_t h = Fnv64("");
+        for (const auto& l : StaticLines(dataDir))
+            if (l.kind == "compiler" || l.kind == "schema" || l.kind == "setting" || l.kind == "bdi")
+                h = Fnv64(l.Id() + '\t' + l.value + '\n', h);
+        return h;
+    }
+
+    std::unordered_map<std::string, std::string> StoredOutputKeys(std::string_view stored, std::string_view kind)
+    {
+        std::unordered_map<std::string, std::string> out;
+        const auto rows = CB::engine::text::SplitLines(stored);
+        if (rows.empty() || CB::engine::text::Trim(rows[0]) != kHeader) return out;
+        for (std::size_t i = 1; i < rows.size(); ++i)
+            if (const auto r = ParseRow(rows[i]); r && r->kind == kind) out[r->name] = r->value;
         return out;
     }
 
@@ -201,17 +239,14 @@ namespace CB::core::resolve {
         for (const auto& l : StaticLines(dataDir)) now[l.Id()] = l.value;
         std::map<std::string, std::string> then;
         for (std::size_t i = 1; i < rows.size(); ++i) {
-            const std::string_view row = CB::engine::text::Trim(rows[i]);
-            const auto t1 = row.find('\t');
-            const auto t2 = t1 == std::string_view::npos ? t1 : row.rfind('\t');
-            if (t2 == std::string_view::npos || t2 == t1) continue;
-            const std::string kind(row.substr(0, t1)), name(row.substr(t1 + 1, t2 - t1 - 1)), value(row.substr(t2 + 1));
-            if (kind == "read") {
-                if (const std::string cur = FileValue(name); cur != value || cur == kUnreadable)
-                    return "'" + name + "' changed";
+            const auto r = ParseRow(rows[i]);
+            if (!r || r->kind == kGraphKind) continue;
+            if (r->kind == "read") {
+                if (const std::string cur = FileValue(r->name); cur != r->value || cur == kUnreadable)
+                    return "'" + r->name + "' changed";
                 continue;
             }
-            then[kind + '\t' + name] = value;
+            then[r->Id()] = r->value;
         }
         const auto label = [](const std::string& id) {
             const auto t = id.find('\t');

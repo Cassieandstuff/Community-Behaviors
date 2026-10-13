@@ -792,9 +792,64 @@ namespace CB {
         const std::size_t total = keys.size();
         std::size_t       done  = 0;
         for (const auto& k : keys) {
-            Resolve(k);
+            if (!m_reuse.count(k)) Resolve(k);   // a reused graph's cached file stays as it is
             if (progress) progress(++done, total);
         }
+    }
+
+    void Resolver::ComputeGraphKeys(const std::filesystem::path& dataRoot)
+    {
+        using CB::core::resolve::Fnv64;
+        m_graphKeys.clear();
+        /// @note Inputs shared by every graph: the compiler / schema / settings / BDI seed, and the OWNED-GRAPH SET —
+        ///       QualifyChildRef rewrites a child reference only when CB serves that child.
+        std::vector<std::string> owned;
+        owned.reserve(m_sources.size());
+        for (const auto& [k, gs] : m_sources) owned.push_back(k + (gs.isCharacter ? "\tC" : "\tB"));
+        std::sort(owned.begin(), owned.end());
+        std::uint64_t seed = CB::core::resolve::SharedGraphInputs(dataRoot);
+        for (const auto& o : owned) seed = Fnv64(o + '\n', seed);
+
+        for (const auto& [key, gs] : m_sources) {
+            std::string in;
+            for (const auto& layer : gs.layers) {
+                in += "layer\t" + layer.stem + '\n';
+                for (const auto& m : layer.masterTable) in += "master\t" + m + '\n';
+                for (const auto& s : layer.source->stamps())
+                    in += s.rel + '\t' + std::to_string(s.size) + '\t' + std::to_string(s.stamp) + '\n';
+            }
+            if (const RigBones rb = BonesFor(key); rb.table) {
+                in += "rig\t" + rb.rig + (rb.ambiguous ? "\t1\n" : "\t0\n");
+                for (const auto& n : rb.table->names) in += n + '\n';
+            }
+            if (gs.isCharacter)
+                if (const auto it = m_characterAnimNames.find(PathKey(fs::path(key).stem().string())); it != m_characterAnimNames.end())
+                    for (const auto& n : it->second) in += "roster\t" + n + '\n';
+            m_graphKeys[key] = Fnv64(in, Fnv64(key, seed));
+        }
+    }
+
+    std::size_t Resolver::PlanIncremental(const std::filesystem::path& dataRoot)
+    {
+        const auto t0 = std::chrono::steady_clock::now();
+        ComputeGraphKeys(dataRoot);
+        m_reuse.clear();
+        /// @note The prior sentinel's per-graph keys. A sentinel exists only after a COMPLETE materialize, and is removed
+        ///       before any cache file is rewritten, so a stored key always describes the file on disk.
+        const auto text = disk::ReadFile(CacheSentinelPath(dataRoot));
+        const auto prior = text ? CB::core::resolve::StoredOutputKeys(*text, "graph")
+                                : std::unordered_map<std::string, std::string>{};
+        for (const auto& [key, k] : m_graphKeys) {
+            const auto it = prior.find(key);
+            if (it == prior.end() || it->second != CB::core::resolve::KeyHex(k)) continue;
+            std::error_code ec;
+            if (const std::string rel = CacheDiskRel(key); !rel.empty() && fs::exists(dataRoot / fs::path(rel), ec))
+                m_reuse.insert(key);
+        }
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        LOG_INFO("Community Behaviors: incremental compile — {} of {} graph(s) unchanged and reused, {} to compile "
+                 "(keys in {:.0f} ms).", m_reuse.size(), m_graphKeys.size(), m_graphKeys.size() - m_reuse.size(), ms);
+        return m_reuse.size();
     }
 
     std::size_t Resolver::WriteSkeletonServe(const std::filesystem::path& dataRoot) const
@@ -1072,27 +1127,43 @@ namespace CB {
         //    rebuilds rather than reusing a half-cleared/half-written cache.
         fs::remove(CacheSentinelPath(dataRoot), ec);
 
-        // 1) Clear the prior session's COMPILED-GRAPH tree from the consolidated cache
+        // 1) Clear the prior session's COMPILED-GRAPH files from the consolidated cache
         //    (Data\community_behaviors_cache\). The byte hook trusts anything on disk, so stale graph bytes must
-        //    never survive a load-order change. SURGICAL, not a wholesale remove_all: the animdata/
-        //    setdata .txt caches were written to this same community_behaviors_cache\ root EARLIER (at plugin
-        //    load, before this kDataLoaded warm-up) and MUST survive — so wipe every entry under
-        //    community_behaviors_cache\ EXCEPT those collocated text caches (+ the sentinel). The graph HKX all
-        //    live in per-root subdirectories (actors\..., weapons\..., ...), so this removes them
-        //    while leaving the root-level .txt files intact.
+        //    never survive a load-order change. SURGICAL: the animdata/setdata .txt caches were written to this
+        //    same root EARLIER (before this warm-up) and MUST survive, as do the animation ledger and the
+        //    sentinel — and every graph PlanIncremental REUSES keeps its file. Everything else goes: graphs
+        //    being recompiled, graphs no longer owned, skeletons (rewritten below) and synthesized projects
+        //    (rewritten on demand).
+        if (m_graphKeys.empty()) ComputeGraphKeys(dataRoot);
         {
             const fs::path cacheRoot = dataRoot / CB::core::discover::kConsolidatedCacheDir;
+            /// @note Compared by PATH IDENTITY (PathKey): the cache files are opened through the engine's
+            ///       case-insensitive resource lookup, and a file an older build wrote in another case is the same file.
+            std::unordered_set<std::string> keep;
+            for (const auto& k : m_reuse)
+                keep.insert(PathKey(fs::path(CacheDiskRel(k)).lexically_normal().generic_string()));
+            std::vector<fs::path> doomed;
             if (fs::is_directory(cacheRoot, ec))
-                for (fs::directory_iterator di(cacheRoot, ec), de; !ec && di != de; di.increment(ec)) {
-                    const std::string fn = PathKey(di->path().filename().string());
-                    if (fn == "animationdatasinglefile.txt" ||
-                        fn == "animationsetdatasinglefile.txt" ||
-                        fn == "animations.ledger" ||
-                        fn == "cache.ready")
-                        continue;   // preserve the collocated txt caches, the animation ledger + sentinel
-                    std::error_code dec;
-                    fs::remove_all(di->path(), dec);
+                for (fs::recursive_directory_iterator di(cacheRoot, ec), de; !ec && di != de; di.increment(ec)) {
+                    std::error_code fec;
+                    if (!di->is_regular_file(fec)) continue;
+                    if (di.depth() == 0) {
+                        const std::string fn = PathKey(di->path().filename().string());
+                        if (fn == "animationdatasinglefile.txt" || fn == "animationsetdatasinglefile.txt" ||
+                            fn == "animations.ledger" || fn == "cache.ready")
+                            continue;
+                    }
+                    if (!keep.count(PathKey(di->path().lexically_relative(dataRoot).lexically_normal().generic_string())))
+                        doomed.push_back(di->path());
                 }
+            std::size_t removed = 0;
+            for (const auto& p : doomed) {
+                std::error_code rec;
+                if (fs::remove(p, rec)) ++removed;
+            }
+            if (removed || !m_reuse.empty())
+                LOG_INFO("Community Behaviors: cache — kept {} unchanged graph file(s), removed {} file(s).",
+                         m_reuse.size(), removed);
         }
 
         // 1a) One-time MIGRATION sweep of the OLD SPLIT cache layout, so a machine upgrading from a
@@ -1134,6 +1205,10 @@ namespace CB {
         // and later runs would ArmCacheFromDisk (no recompile) with the missing graphs still broken —
         // and the serve hook would redirect those owned-but-missing opens to nonexistent files.
         for (const auto& k : keys) {
+            if (m_reuse.count(k)) {   // unchanged since its file was written — kept as it is
+                if (progress) progress(++done, total);
+                continue;
+            }
             auto bytes = Resolve(k);   // Resolve = cached after CompileAll
             if (bytes && !bytes->empty()) {
                 const std::string rel = CacheDiskRel(k);
@@ -1177,8 +1252,16 @@ namespace CB {
         if (failedGraphs == 0) {
             const fs::path sentinel = CacheSentinelPath(dataRoot);
             /// @note The sentinel holds the CACHE KEY (CacheKey.h): every input this launch compiled from, plus the
-            ///       outside files the adsf/setdata builds read. CachePresent() reuses the cache only while it matches.
-            if (std::string err; !disk::WriteFile(sentinel, CB::core::resolve::CacheKeyText(dataRoot),
+            ///       outside files the adsf/setdata builds read — CachePresent() reuses the whole cache only while it
+            ///       matches — and each graph's OWN key, which the next recompile's PlanIncremental compares to keep
+            ///       the graphs whose inputs didn't change.
+            std::vector<std::string> graphLines;
+            graphLines.reserve(m_graphKeys.size());
+            for (const auto& [k, key] : m_graphKeys) graphLines.push_back("graph\t" + k + '\t' + CB::core::resolve::KeyHex(key) + '\n');
+            std::sort(graphLines.begin(), graphLines.end());
+            std::string outputs;
+            for (const auto& l : graphLines) outputs += l;
+            if (std::string err; !disk::WriteFile(sentinel, CB::core::resolve::CacheKeyText(dataRoot, outputs),
                                                   { .atomic = true }, &err))
                 LOG_ERROR("Community Behaviors: could not stamp the cache complete ({}) — the next launch will "
                           "recompile.", err);

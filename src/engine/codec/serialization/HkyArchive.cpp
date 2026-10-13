@@ -47,6 +47,13 @@ public:
     ZipUnitSource(std::shared_ptr<const HkyArchive> arc, std::string prefix)
         : m_arc(std::move(arc)), m_root(std::move(prefix) + "/") {}
 
+    std::vector<FileStamp> stamps() const override {
+        std::vector<FileStamp> out;
+        for (auto& e : m_arc->entriesUnder(m_root))
+            out.push_back({ e.path.substr(m_root.size()), e.size, e.crc });   // m_files is ordered -> stable
+        return out;
+    }
+
     std::optional<std::string> read(const std::string& rel) const override {
         auto s = m_arc->file(m_root + PathKey(rel));
         if (s) s->erase(0, s->size() - text::StripBom(*s).size());
@@ -336,6 +343,13 @@ std::vector<std::string> HkyArchive::filesUnder(const std::string& prefix) const
     std::vector<std::string> out;
     for (auto it = m_files.lower_bound(prefix); it != m_files.end() && it->first.rfind(prefix, 0) == 0; ++it)
         out.push_back(it->first);   // normalized (lowercase) — the default; unit keys + serve keys want this
+    return out;
+}
+
+std::vector<HkyArchive::IndexEntry> HkyArchive::entriesUnder(const std::string& prefix) const {
+    std::vector<IndexEntry> out;
+    for (auto it = m_files.lower_bound(prefix); it != m_files.end() && it->first.rfind(prefix, 0) == 0; ++it)
+        out.push_back({ it->second.orig, it->second.size, it->second.crc });
     return out;
 }
 

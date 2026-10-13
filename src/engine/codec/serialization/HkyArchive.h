@@ -85,6 +85,9 @@ public:
     // re-normalizes, so the original case is safe to hand out.
     std::vector<std::string> filesUnderOrig(const std::string& prefix) const;
 
+    /// @brief The index entries under a path-key prefix (original-case paths, sizes, CRCs) — no content read.
+    std::vector<IndexEntry> entriesUnder(const std::string& prefix) const;
+
 private:
     HkyArchive() = default;   // built only via LoadFromFile (needs shared ownership)
     /// @brief Where one file lives in the zip, from its central-directory record.

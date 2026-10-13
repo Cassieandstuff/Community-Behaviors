@@ -108,10 +108,18 @@ namespace CB {
         // startup while (rare, early) live loads fall through to the same cache.
         void CompileAll(const std::function<void(std::size_t done, std::size_t total)>& progress);
 
+        /// @brief Decide which cached graphs a recompile keeps. Each graph's own key (its inputs: every layer's unit
+        ///        files, its rig's bones, its roster drops, the owned-graph set and the inputs every graph shares) is
+        ///        compared with the key the sentinel stored for it; a match whose file is on disk is REUSED — CompileAll
+        ///        and MaterializeCacheToDisk skip it.
+        /// @pre   Ready(). Call once, before CompileAll.
+        /// @return how many graphs are reused.
+        std::size_t PlanIncremental(const std::filesystem::path& dataRoot);
+
         // Compile (if needed) and WRITE every mapped graph to cacheRoot/<serve-path>, so a
-        // compile-free file hook can just redirect opens to the on-disk bytes. Clears
-        // cacheRoot first — stale bytes from a prior session (different load order) must
-        // never be served. MUST run on the warm-up thread (big stack): compiling a master
+        // compile-free file hook can just redirect opens to the on-disk bytes. Clears every
+        // cache file first except the graphs PlanIncremental reuses — stale bytes from a prior
+        // session (different load order) must never be served. MUST run on the warm-up thread (big stack): compiling a master
         // graph on an engine resource/Havok-worker thread overflows its stack. Returns the
         // number of files written.
         std::size_t MaterializeCacheToDisk(const std::filesystem::path& cacheRoot,
@@ -149,7 +157,8 @@ namespace CB {
         //   ArmCacheFromDisk() — rebuild ONLY the above-OAR redirect map (from m_sources; no
         //                      compile, no disk write) and mark the redirect ready, so
         //                      ProjectRedirect() serves the existing on-disk cache.
-        // All or nothing: any changed input recompiles everything.
+        // Any changed input sends the launch down the recompile path, which still keeps every graph
+        // whose own inputs are unchanged (PlanIncremental).
         bool CachePresent(const std::filesystem::path& cacheRoot) const;
         void ArmCacheFromDisk(const std::filesystem::path& cacheRoot, const AnimExecutor* animExec = nullptr);
 
@@ -267,6 +276,13 @@ namespace CB {
 
         // Path of the cache-completion sentinel under the data root (Community Behaviors/cache.ready).
         static std::filesystem::path CacheSentinelPath(const std::filesystem::path& cacheRoot);
+
+        /// @brief Every mapped graph's own cache key into m_graphKeys (see PlanIncremental).
+        void ComputeGraphKeys(const std::filesystem::path& dataRoot);
+        /// @brief Graph key -> its cache key, and the graphs whose cached file is kept (PlanIncremental). Written on the
+        ///        warm-up thread before CompileAll; read only there after.
+        std::unordered_map<std::string, std::uint64_t> m_graphKeys;
+        std::unordered_set<std::string>                m_reuse;
 
         /// @brief The merge layers for ONE served graph: its unit sources, base first then patches by load order,
         ///        and whether the base is a character (ResolveCharacter) vs a behavior graph. Each source is a disk

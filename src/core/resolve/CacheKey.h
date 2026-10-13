@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace CB::core::resolve {
 
@@ -25,12 +26,25 @@ namespace CB::core::resolve {
     ///        (or creating it) misses the cache.
     std::optional<std::string> ReadCacheInput(const std::filesystem::path& p);
 
-    /// @brief This launch's cache key, as the sentinel's text.
-    /// @note  The per-input lines are computed ONCE, at the first call of this or CacheKeyMismatch, so the key written
-    ///        after a compile describes the inputs as that launch found them. ReadCacheInput lines are appended as of now.
-    std::string CacheKeyText(const std::filesystem::path& dataDir);
+    /// @brief This launch's cache key, as the sentinel's text, followed by `outputLines` — the per-output keys
+    ///        ("graph\t<serve key>\t<hex>" lines) the sentinel also carries.
+    /// @note  The per-input lines are computed ONCE, at the first call of this, CacheKeyMismatch or SharedGraphInputs,
+    ///        so the key written after a compile describes the inputs as that launch found them. ReadCacheInput lines
+    ///        are appended as of now.
+    std::string CacheKeyText(const std::filesystem::path& dataDir, std::string_view outputLines = {});
 
     /// @return empty when `stored` (a sentinel's text) still matches the inputs; otherwise what changed, for the log.
+    /// @note  Per-output lines are not inputs and are ignored here.
     std::string CacheKeyMismatch(std::string_view stored, const std::filesystem::path& dataDir);
+
+    /// @brief The inputs EVERY compiled graph depends on — compiler, schema, output-changing settings, the BDI
+    ///        declarations — folded into one value: the seed of each graph's own key.
+    std::uint64_t SharedGraphInputs(const std::filesystem::path& dataDir);
+
+    /// @brief The per-output keys of `kind` a sentinel's text carries: name -> key (hex).
+    std::unordered_map<std::string, std::string> StoredOutputKeys(std::string_view stored, std::string_view kind);
+
+    /// @brief A 64-bit key as the sentinel writes it.
+    std::string KeyHex(std::uint64_t h);
 
 }  // namespace CB::core::resolve

@@ -128,6 +128,9 @@ namespace CB {
         const std::size_t grandTotal = reinterpret_cast<std::size_t>(param);
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
+        /// @note Keep every graph whose own inputs are unchanged since the last complete cache; a forced regen keeps none.
+        if (!CB::core::debug::FlagOn("force_regenerate"))
+            g_resolver.PlanIncremental(std::filesystem::current_path() / "Data");
         g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
             CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
         });
