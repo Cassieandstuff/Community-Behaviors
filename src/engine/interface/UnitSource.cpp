@@ -10,18 +10,6 @@ namespace CB::engine::common {
 
 namespace fs = std::filesystem;
 
-namespace {
-
-// The shared skeleton asset. Vanilla project layouts place it at an ANCESTOR of
-// the behavior unit dir (project/character assets/skeleton.yaml, unit dirs nested
-// below), so the disk backend resolves it by walking up the tree — byte-for-byte
-// the pre-refactor findAndLoadSkeleton search (up to 12 levels, first hit wins).
-// An in-memory backend simply packages skeleton.yaml unit-relative, so its plain
-// read() suffices; the upward walk is a filesystem-only concern that lives here.
-constexpr const char* kSkeletonRel = "character assets/skeleton.yaml";
-
-} // namespace
-
 DiskUnitSource::DiskUnitSource(fs::path root) : m_root(std::move(root)) {}
 
 std::vector<FileStamp> DiskUnitSource::stamps() const {
@@ -41,18 +29,6 @@ std::vector<FileStamp> DiskUnitSource::stamps() const {
 }
 
 std::optional<std::string> DiskUnitSource::read(const std::string& rel) const {
-    if (rel == kSkeletonRel) {
-        fs::path dir = m_root;
-        for (int depth = 0; depth < 12 && !dir.empty(); ++depth) {
-            fs::path cand = dir / "character assets" / "skeleton.yaml";
-            /// @note Found but unreadable reads as "" (not nullopt): the walk already proved the skeleton exists.
-            if (fs::exists(cand)) return disk::ReadFile(cand, { .stripBom = true }).value_or(std::string());
-            if (!dir.has_parent_path() || dir.parent_path() == dir) break;
-            dir = dir.parent_path();
-        }
-        return std::nullopt;
-    }
-
     /// @note Absent -> nullopt; an empty-but-present file -> "".
     return disk::ReadFile(m_root / rel, { .stripBom = true });
 }
