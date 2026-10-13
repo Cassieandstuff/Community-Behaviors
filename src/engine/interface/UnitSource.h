@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -14,8 +15,18 @@
 
 namespace CB::engine::common {
 
+/// @brief One file of a unit as a cache key sees it: a value that changes whenever the file's content may have.
+struct FileStamp {
+    std::string   rel;     ///< unit-relative path, forward-slashed, case kept
+    std::uint64_t size  = 0;
+    std::uint64_t stamp = 0;   ///< packed: the file's CRC-32 from the zip index; on disk: its modification time
+};
+
 struct IUnitSource {
     virtual ~IUnitSource() = default;
+
+    /// @brief Every file in the unit, stamped, in a stable order — read without opening any file's content.
+    virtual std::vector<FileStamp> stamps() const = 0;
 
     // Read the file at unit-relative path `rel`. Returns std::nullopt if it does
     // not exist; an existing-but-empty file returns "" (an engaged empty string).
@@ -54,6 +65,7 @@ class DiskUnitSource : public IUnitSource {
 public:
     explicit DiskUnitSource(std::filesystem::path root);
 
+    std::vector<FileStamp> stamps() const override;
     std::optional<std::string> read(const std::string& rel) const override;
     std::vector<std::string> listYaml(const std::string& subdir, bool recursive) const override;
     bool hasDir(const std::string& subdir) const override;

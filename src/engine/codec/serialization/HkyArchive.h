@@ -34,6 +34,16 @@ public:
     static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err);
     ~HkyArchive();
 
+    /// @brief One file as the zip's central directory records it.
+    struct IndexEntry {
+        std::string   path;   ///< original-case, forward-slashed
+        std::uint64_t size;
+        std::uint32_t crc;
+    };
+    /// @brief A .hky's file list from its central directory alone — nothing inflated, no unit classification: the cheap
+    ///        view of a bundle's content (CRC per file) that a cache key is built from.
+    static std::optional<std::vector<IndexEntry>> ReadIndex(const std::string& hkyPath, std::string& err);
+
     /// @brief Pack every regular file under `dir` into `outHkyPath` (a deflate zip), each entry named by its path
     ///        relative to `dir`, forward-slashed and case kept — the layout LoadFromFile reads back. THE .hky / zip
     ///        packer: hky-tool, the master regen, every converter bundle and the GUI's packaged zip.
@@ -74,6 +84,9 @@ public:
     // never changes length, so substr offsets from the normalized prefix still line up; read-back
     // re-normalizes, so the original case is safe to hand out.
     std::vector<std::string> filesUnderOrig(const std::string& prefix) const;
+
+    /// @brief The index entries under a path-key prefix (original-case paths, sizes, CRCs) — no content read.
+    std::vector<IndexEntry> entriesUnder(const std::string& prefix) const;
 
 private:
     HkyArchive() = default;   // built only via LoadFromFile (needs shared ownership)

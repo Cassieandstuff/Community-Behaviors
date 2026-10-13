@@ -4,6 +4,8 @@
 
 #include <disk/Disk.h>
 
+#include <algorithm>
+
 namespace CB::engine::common {
 
 namespace fs = std::filesystem;
@@ -21,6 +23,22 @@ constexpr const char* kSkeletonRel = "character assets/skeleton.yaml";
 } // namespace
 
 DiskUnitSource::DiskUnitSource(fs::path root) : m_root(std::move(root)) {}
+
+std::vector<FileStamp> DiskUnitSource::stamps() const {
+    std::vector<FileStamp> out;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(disk::LongPath(m_root), ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code fe;
+        if (!it->is_regular_file(fe)) continue;
+        FileStamp s;
+        s.rel   = it->path().lexically_relative(disk::LongPath(m_root)).generic_string();
+        s.size  = it->file_size(fe);
+        s.stamp = static_cast<std::uint64_t>(it->last_write_time(fe).time_since_epoch().count());
+        out.push_back(std::move(s));
+    }
+    std::sort(out.begin(), out.end(), [](const FileStamp& a, const FileStamp& b) { return a.rel < b.rel; });
+    return out;
+}
 
 std::optional<std::string> DiskUnitSource::read(const std::string& rel) const {
     if (rel == kSkeletonRel) {

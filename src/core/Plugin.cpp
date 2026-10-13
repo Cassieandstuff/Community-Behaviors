@@ -128,6 +128,9 @@ namespace CB {
         const std::size_t grandTotal = reinterpret_cast<std::size_t>(param);
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
+        /// @note Keep every graph whose own inputs are unchanged since the last complete cache; a forced regen keeps none.
+        if (!CB::core::debug::FlagOn("force_regenerate"))
+            g_resolver.PlanIncremental(std::filesystem::current_path() / "Data");
         g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
             CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
         });
@@ -391,8 +394,10 @@ namespace CB {
     static unsigned __stdcall InitThread(void*)
     {
         ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
-        const bool warmReuse = !CB::core::debug::FlagOn("force_regenerate") &&
-                               g_resolver.CachePresent(std::filesystem::current_path() / "Data");
+        /// @note CachePresent runs even when a regen is forced: its first call fixes this launch's cache key (the inputs
+        ///       as found now, before anything compiles).
+        const bool cachePresent = g_resolver.CachePresent(std::filesystem::current_path() / "Data");
+        const bool warmReuse    = !CB::core::debug::FlagOn("force_regenerate") && cachePresent;
         g_resolver.SetERGateEnabled(CB::core::debug::FlagOn("er_gate"));
 
         // Parallel skeleton compile (stage 2) — same opt-out marker as the anim compile. A pool of

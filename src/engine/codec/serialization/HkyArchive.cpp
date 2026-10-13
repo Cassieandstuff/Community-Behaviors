@@ -47,6 +47,13 @@ public:
     ZipUnitSource(std::shared_ptr<const HkyArchive> arc, std::string prefix)
         : m_arc(std::move(arc)), m_root(std::move(prefix) + "/") {}
 
+    std::vector<FileStamp> stamps() const override {
+        std::vector<FileStamp> out;
+        for (auto& e : m_arc->entriesUnder(m_root))
+            out.push_back({ e.path.substr(m_root.size()), e.size, e.crc });   // m_files is ordered -> stable
+        return out;
+    }
+
     std::optional<std::string> read(const std::string& rel) const override {
         auto s = m_arc->file(m_root + PathKey(rel));
         if (s) s->erase(0, s->size() - text::StripBom(*s).size());
@@ -84,37 +91,57 @@ private:
     std::string                       m_root;   // "<prefix>/"
 };
 
+/// @brief Every file entry of the zip's central directory, in archive order; nothing is inflated.
+/// @return false with `err` set when the index can't be read, or an entry isn't stored/deflate (or is encrypted).
+template <class OnEntry>
+bool WalkIndex(const disk::ReadOnlyFile& file, const std::string& hkyPath, std::string& err, OnEntry&& onEntry) {
+    mz_zip_archive z;
+    std::memset(&z, 0, sizeof z);
+    z.m_pRead      = [](void* f, mz_uint64 ofs, void* buf, std::size_t n) -> std::size_t {
+        return static_cast<const disk::ReadOnlyFile*>(f)->ReadAt(ofs, buf, n) ? n : 0;
+    };
+    z.m_pIO_opaque = const_cast<disk::ReadOnlyFile*>(&file);
+    if (!mz_zip_reader_init(&z, file.Size(), 0)) { err = "not a readable .hky (zip): " + hkyPath; return false; }
+    const mz_uint n = mz_zip_reader_get_num_files(&z);
+    for (mz_uint i = 0; i < n; ++i) {
+        if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
+        mz_zip_archive_file_stat st;
+        if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat): " + hkyPath; return false; }
+        if (st.m_is_encrypted || !st.m_is_supported || (st.m_method != 0 && st.m_method != MZ_DEFLATED)) {
+            mz_zip_reader_end(&z);
+            err = "unsupported entry '" + std::string(st.m_filename) + "' in " + hkyPath;
+            return false;
+        }
+        onEntry(st);
+    }
+    mz_zip_reader_end(&z);
+    return true;
+}
+
 }  // namespace
+
+std::optional<std::vector<HkyArchive::IndexEntry>> HkyArchive::ReadIndex(const std::string& hkyPath, std::string& err) {
+    const auto file = disk::ReadOnlyFile::Open(std::filesystem::path(hkyPath), &err);
+    if (!file) return std::nullopt;
+    std::vector<IndexEntry> out;
+    if (!WalkIndex(*file, hkyPath, err, [&](const mz_zip_archive_file_stat& st) {
+            out.push_back({ slashOnly(st.m_filename), st.m_uncomp_size, st.m_crc32 });
+        }))
+        return std::nullopt;
+    return out;
+}
 
 std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath, std::string& err) {
     auto arc    = std::shared_ptr<HkyArchive>(new HkyArchive());
     arc->m_path = hkyPath;
     arc->m_file = disk::ReadOnlyFile::Open(std::filesystem::path(hkyPath), &err);
     if (!arc->m_file) return nullptr;
-
-    /// @note miniz parses the central directory through our reader; nothing is inflated here.
-    mz_zip_archive z;
-    std::memset(&z, 0, sizeof z);
-    z.m_pRead       = [](void* f, mz_uint64 ofs, void* buf, std::size_t n) -> std::size_t {
-        return static_cast<const disk::ReadOnlyFile*>(f)->ReadAt(ofs, buf, n) ? n : 0;
-    };
-    z.m_pIO_opaque = arc->m_file.get();
-    if (!mz_zip_reader_init(&z, arc->m_file->Size(), 0)) { err = "not a readable .hky (zip): " + hkyPath; return nullptr; }
-    const mz_uint n = mz_zip_reader_get_num_files(&z);
-    for (mz_uint i = 0; i < n; ++i) {
-        if (mz_zip_reader_is_file_a_directory(&z, i)) continue;
-        mz_zip_archive_file_stat st;
-        if (!mz_zip_reader_file_stat(&z, i, &st)) { mz_zip_reader_end(&z); err = "corrupt .hky (stat): " + hkyPath; return nullptr; }
-        if (st.m_is_encrypted || !st.m_is_supported || (st.m_method != 0 && st.m_method != MZ_DEFLATED)) {
-            mz_zip_reader_end(&z);
-            err = "unsupported entry '" + std::string(st.m_filename) + "' in " + hkyPath;
-            return nullptr;
-        }
+    const bool indexed = WalkIndex(*arc->m_file, hkyPath, err, [&](const mz_zip_archive_file_stat& st) {
         arc->m_files.emplace(PathKey(st.m_filename),
                              Entry{ slashOnly(st.m_filename), st.m_local_header_ofs, st.m_comp_size, st.m_uncomp_size,
                                     st.m_crc32, st.m_method == MZ_DEFLATED });
-    }
-    mz_zip_reader_end(&z);
+    });
+    if (!indexed) return nullptr;
     if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
 
     /// @note EVERY "<prefix>.hkx/..." subtree is a unit (a mod's patch unit may hold only changed nodes / rosters and
@@ -316,6 +343,13 @@ std::vector<std::string> HkyArchive::filesUnder(const std::string& prefix) const
     std::vector<std::string> out;
     for (auto it = m_files.lower_bound(prefix); it != m_files.end() && it->first.rfind(prefix, 0) == 0; ++it)
         out.push_back(it->first);   // normalized (lowercase) — the default; unit keys + serve keys want this
+    return out;
+}
+
+std::vector<HkyArchive::IndexEntry> HkyArchive::entriesUnder(const std::string& prefix) const {
+    std::vector<IndexEntry> out;
+    for (auto it = m_files.lower_bound(prefix); it != m_files.end() && it->first.rfind(prefix, 0) == 0; ++it)
+        out.push_back({ it->second.orig, it->second.size, it->second.crc });
     return out;
 }
 
