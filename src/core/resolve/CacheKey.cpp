@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <map>
 #include <mutex>
+#include <random>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -176,6 +177,27 @@ namespace CB::core::resolve {
                          std::string(row.substr(t2 + 1)) };
         }
 
+        /// @brief A random value fixed for this launch: folded in for an input that can't be read, so a key built from
+        ///        it never matches one stored by an earlier launch.
+        std::uint64_t LaunchNonce()
+        {
+            static const std::uint64_t nonce = (std::uint64_t{ std::random_device{}() } << 32) ^ std::random_device{}();
+            return nonce;
+        }
+
+        /// @brief The static lines of `kinds`, folded into one value.
+        /// @note  An unreadable input folds in a per-launch random value, so the result never matches a stored key.
+        std::uint64_t FoldLines(const fs::path& dataDir, std::initializer_list<std::string_view> kinds)
+        {
+            std::uint64_t h = Fnv64("");
+            for (const auto& l : StaticLines(dataDir)) {
+                if (std::find(kinds.begin(), kinds.end(), l.kind) == kinds.end()) continue;
+                h = Fnv64(l.Id() + '\t' + l.value + '\n', h);
+                if (l.value == kUnreadable) h = Mix(h, LaunchNonce());
+            }
+            return h;
+        }
+
         std::mutex                         g_readsMutex;
         std::map<std::string, std::string> g_reads;   ///< path as read -> value
     }  // namespace
@@ -212,13 +234,14 @@ namespace CB::core::resolve {
         return out;
     }
 
+    std::string CompilerIdentity(const fs::path& dataDir)
+    {
+        return Hex(FoldLines(dataDir, { "compiler", "schema" }));
+    }
+
     std::uint64_t SharedGraphInputs(const fs::path& dataDir)
     {
-        std::uint64_t h = Fnv64("");
-        for (const auto& l : StaticLines(dataDir))
-            if (l.kind == "compiler" || l.kind == "schema" || l.kind == "setting" || l.kind == "bdi")
-                h = Fnv64(l.Id() + '\t' + l.value + '\n', h);
-        return h;
+        return FoldLines(dataDir, { "compiler", "schema", "setting", "bdi" });
     }
 
     std::uint64_t BundleFilesInput(const fs::path& dataDir, const std::function<bool(const std::string& unitKey)>& skipUnit)
@@ -252,7 +275,7 @@ namespace CB::core::resolve {
             }
             std::string err;
             const auto  index = CB::engine::codec::HkyArchive::ReadIndex(b.string(), err);
-            if (!index) { h = Fnv64(kUnreadable, h); continue; }
+            if (!index) { h = Mix(h, LaunchNonce()); continue; }
             for (const auto& e : *index)
                 if (!skipped(e.path)) h = Mix(Mix(Fnv64(e.path, h), e.size), e.crc);
         }

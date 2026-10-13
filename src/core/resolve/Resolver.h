@@ -337,14 +337,19 @@ namespace CB {
         ///        wins its path (vanilla-won units stay with the engine). Owns() serves these like a compiled
         ///        graph; WriteSkeletonServe() writes them to the cache. Immutable after Init().
         std::unordered_map<std::string, std::vector<std::uint8_t>> m_skeletonServe;
-        // Native BR animations authored as YAML inside a .hky. Each entry: { meshes-relative OUTPUT key
-        // ("meshes/actors/<actor>/animations/community_behaviors/<mod>/<name>.hkx"), yaml text }. The key IS
-        // the ".hkx" source path (compile-target model: the file is YAML, the ".hkx" name is the binary
-        // to emit — source path == output path). Collected in Init from every bare "<name>.hkx" FILE
-        // under an actor's animations\ dir; WriteNativeAnimations() compiles each to a loose .hkx there.
-        // Their clean char-relative names are auto-folded into m_characterAnimNames at Init so a clip
-        // binds. Immutable after Init().
-        std::vector<std::pair<std::string, std::string>> m_nativeAnims;
+        /// @brief A native animation authored as YAML inside a .hky: a bare "<name>.hkx" FILE under an actor's
+        ///        animations\ dir (compile-target model: the file is YAML, its ".hkx" name is the binary to emit, so
+        ///        source path == output path). WriteNativeAnimations() compiles each to a loose .hkx there.
+        /// @note  Only WHERE the YAML is and its stamp are kept — the text is read when it compiles, never held.
+        struct NativeAnim {
+            std::string                                           outKey;   ///< original-case meshes-relative path
+            std::shared_ptr<const CB::engine::codec::HkyArchive> arc;      ///< packed source; null = `file` on disk
+            std::filesystem::path                                 file;
+            std::uint64_t                                         size  = 0;
+            std::uint64_t                                         stamp = 0;   ///< packed: CRC-32; on disk: mtime
+        };
+        /// @brief Collected in Init from opted-in bundles (manifest compile_animations=true). Immutable after Init().
+        std::vector<NativeAnim> m_nativeAnims;
         // bundle stem (lowercase, e.g. "bfco") -> its parsed manifest.json (identity,
         // version, declared masters). Every scanned .hky has an entry (defaulted when
         // no manifest ships). Immutable after Init(); metadata only — never gates serve.

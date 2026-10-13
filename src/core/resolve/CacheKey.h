@@ -38,6 +38,10 @@ namespace CB::core::resolve {
     /// @note  Per-output lines are not inputs and are ignored here.
     std::string CacheKeyMismatch(std::string_view stored, const std::filesystem::path& dataDir);
 
+    /// @brief The compiler's identity — the plugin DLL and the schema tree — as one hex value: what the animation ledger
+    ///        stamps, so a rebuild recompiles every animation once.
+    std::string CompilerIdentity(const std::filesystem::path& dataDir);
+
     /// @brief The inputs EVERY compiled graph depends on — compiler, schema, output-changing settings, the BDI
     ///        declarations — folded into one value: the seed of each graph's own key.
     std::uint64_t SharedGraphInputs(const std::filesystem::path& dataDir);
