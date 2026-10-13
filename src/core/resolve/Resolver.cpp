@@ -852,6 +852,99 @@ namespace CB {
         return m_reuse.size();
     }
 
+    namespace {
+        /// @brief Everything the adsf projection takes from one behavior's clip generators, folded into one value.
+        std::uint64_t ClipHash(const std::vector<CB::engine::animdata::DeriveClipInput>& clips)
+        {
+            std::string s;
+            const auto num = [&s](double v) { s.append(reinterpret_cast<const char*>(&v), sizeof v); };
+            for (const auto& c : clips) {
+                s += c.name + '\t' + c.animationName + '\t';
+                num(c.playbackSpeed); num(c.cropStart); num(c.cropEnd);
+                for (const auto& t : c.triggers) {
+                    s += t.event + '\t';
+                    num(t.localTime);
+                    s += t.relativeToEndOfClip ? '1' : '0';
+                    s += t.fromAnnotation ? '1' : '0';
+                }
+                s += '\n';
+                if (c.graphEvents) {
+                    std::vector<std::string> ev(c.graphEvents->begin(), c.graphEvents->end());
+                    std::sort(ev.begin(), ev.end());
+                    for (const auto& e : ev) s += e + '\t';
+                }
+                s += '\n';
+            }
+            return CB::core::resolve::Fnv64(s);
+        }
+    }  // namespace
+
+    void Resolver::TraceClips(const std::string& key, const std::vector<CB::engine::animdata::DeriveClipInput>& clips)
+    {
+        const std::uint64_t h = ClipHash(clips);
+        std::lock_guard<std::mutex> lk(m_clipTraceMutex);
+        m_clipTrace[NormalizeKey(key)] = h;
+    }
+
+    std::uint64_t Resolver::AnimDataKey(const std::filesystem::path& dataRoot)
+    {
+        if (m_animDataKey) return *m_animDataKey;
+        /// @note The adsf / asdsf read every bundle file directly (animations, setdata, rosters, character units, the
+        ///       index) EXCEPT the behavior graphs, which reach them only as clip inputs (the clip trace).
+        std::uint64_t h = CB::core::resolve::BundleFilesInput(dataRoot, [this](const std::string& unitKey) {
+            const auto it = m_sources.find(unitKey);
+            return it != m_sources.end() && !it->second.isCharacter;
+        });
+        auto units = BehaviorUnitKeys();
+        std::sort(units.begin(), units.end());
+        for (const auto& u : units) h = CB::core::resolve::Fnv64(u + '\n', h);
+        m_animDataKey = h;
+        return h;
+    }
+
+    bool Resolver::AnimDataReusable(const std::filesystem::path& dataRoot)
+    {
+        const auto t0  = std::chrono::steady_clock::now();
+        const auto why = [&]() -> std::string {
+            const auto text = disk::ReadFile(CacheSentinelPath(dataRoot));
+            if (!text) return "no previous cache";
+            const auto stored = CB::core::resolve::StoredOutputKeys(*text, "animdata");
+            const auto it     = stored.find("adsf+asdsf");
+            if (it == stored.end()) return "no previous animation-data key";
+            if (it->second != CB::core::resolve::KeyHex(AnimDataKey(dataRoot))) return "a bundle file they read changed";
+
+            /// @note Early cutoff: a traced behavior whose graph is unchanged keeps its clip hash; a changed one is
+            ///       re-merged, and only clips that DIFFER redo the adsf.
+            std::unordered_map<std::string, std::uint64_t> trace;
+            for (const auto& [key, value] : CB::core::resolve::StoredOutputKeys(*text, "clips")) {
+                const auto slash = value.find('/');
+                const auto src   = m_sources.find(key);
+                const auto gk    = m_graphKeys.find(key);
+                if (slash == std::string::npos || src == m_sources.end() || src->second.isCharacter || gk == m_graphKeys.end())
+                    return "behavior '" + key + "' is gone";
+                const std::uint64_t clip = std::strtoull(value.c_str() + slash + 1, nullptr, 16);
+                if (value.substr(0, slash) == CB::core::resolve::KeyHex(gk->second)) { trace[key] = clip; continue; }
+                const std::uint64_t now = ClipHash(MergedClipInputs(key));
+                if (now != clip) return "the clips of '" + key + "' changed";
+                trace[key] = now;
+            }
+            std::error_code ec;
+            if (!fs::exists(dataRoot / CB::core::discover::kConsolidatedCacheDir / "animationdatasinglefile.txt", ec))
+                return "the cached animationdatasinglefile.txt is missing";
+            CB::core::resolve::CarryReads(*text);
+            std::lock_guard<std::mutex> lk(m_clipTraceMutex);
+            m_clipTrace = std::move(trace);
+            return {};
+        }();
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        if (!why.empty()) {
+            LOG_INFO("Community Behaviors: animation data rebuilt — {} ({:.0f} ms to check).", why, ms);
+            return false;
+        }
+        LOG_INFO("Community Behaviors: animation data unchanged — cached adsf/asdsf kept ({:.0f} ms to check).", ms);
+        return true;
+    }
+
     std::size_t Resolver::WriteSkeletonServe(const std::filesystem::path& dataRoot) const
     {
         namespace fs = std::filesystem;
@@ -1258,6 +1351,25 @@ namespace CB {
             std::vector<std::string> graphLines;
             graphLines.reserve(m_graphKeys.size());
             for (const auto& [k, key] : m_graphKeys) graphLines.push_back("graph\t" + k + '\t' + CB::core::resolve::KeyHex(key) + '\n');
+            /// @note The adsf / asdsf key and the clip trace are recorded only when both files are complete this launch
+            ///       (kept, or rebuilt without error) — otherwise the next recompile rebuilds them.
+            if (m_animDataComplete) {
+                std::vector<std::string> traceLines;
+                bool                     whole = true;   ///< every traced clip read is tied to a graph key
+                {
+                    std::lock_guard<std::mutex> lk(m_clipTraceMutex);
+                    for (const auto& [k, clip] : m_clipTrace) {
+                        const auto gk = m_graphKeys.find(k);
+                        if (gk == m_graphKeys.end()) { whole = false; break; }
+                        traceLines.push_back("clips\t" + k + '\t' + CB::core::resolve::KeyHex(gk->second) + '/' +
+                                             CB::core::resolve::KeyHex(clip) + '\n');
+                    }
+                }
+                if (whole) {
+                    graphLines.insert(graphLines.end(), traceLines.begin(), traceLines.end());
+                    graphLines.push_back("animdata\tadsf+asdsf\t" + CB::core::resolve::KeyHex(AnimDataKey(dataRoot)) + '\n');
+                }
+            }
             std::sort(graphLines.begin(), graphLines.end());
             std::string outputs;
             for (const auto& l : graphLines) outputs += l;

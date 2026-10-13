@@ -161,8 +161,9 @@ namespace CB::core::resolve {
             return lines;
         }
 
-        /// @brief The per-output kind: a graph's own key (Resolver), not an input.
-        constexpr std::string_view kGraphKind = "graph";
+        /// @brief Per-output kinds (the Resolver's own keys), not inputs: a graph's key, the adsf/asdsf key, and the
+        ///        clip inputs the adsf projection read.
+        bool IsOutputKind(std::string_view kind) { return kind == "graph" || kind == "animdata" || kind == "clips"; }
 
         /// @brief One sentinel row "kind\tname\tvalue"; nullopt for anything else.
         std::optional<Line> ParseRow(std::string_view raw)
@@ -220,6 +221,54 @@ namespace CB::core::resolve {
         return h;
     }
 
+    std::uint64_t BundleFilesInput(const fs::path& dataDir, const std::function<bool(const std::string& unitKey)>& skipUnit)
+    {
+        using CB::engine::codec::resource::PathKey;
+        std::uint64_t h = SharedGraphInputs(dataDir);
+        h = Fnv64(FileValue(dataDir / "community_behaviors" / "loadorder.txt"), h);
+        const auto skipped = [&](const std::string& rel) {
+            const std::string k   = PathKey(rel);
+            const auto        pos = k.find(".hkx/");
+            return pos != std::string::npos && skipUnit(k.substr(0, pos + 4));
+        };
+        const fs::path        plugins = dataDir / "community_behaviors" / "plugins";
+        std::vector<fs::path> bundles;
+        std::error_code       ec;
+        if (fs::is_directory(plugins, ec))
+            for (fs::directory_iterator it(plugins, ec), end; !ec && it != end; it.increment(ec))
+                if (HasExt(it->path().filename().string(), ".hky")) bundles.push_back(it->path());
+        std::sort(bundles.begin(), bundles.end());
+        for (const auto& b : bundles) {
+            h = Fnv64(b.filename().string() + '\n', h);
+            if (fs::is_directory(b, ec)) {
+                for (const auto& [rel, abs] : FilesUnder(b, true)) {
+                    if (skipped(rel)) continue;
+                    std::error_code fe;
+                    const auto size  = fs::file_size(CB::engine::disk::LongPath(abs), fe);
+                    const auto mtime = fs::last_write_time(CB::engine::disk::LongPath(abs), fe);
+                    h = Mix(Mix(Fnv64(rel, h), size), static_cast<std::uint64_t>(mtime.time_since_epoch().count()));
+                }
+                continue;
+            }
+            std::string err;
+            const auto  index = CB::engine::codec::HkyArchive::ReadIndex(b.string(), err);
+            if (!index) { h = Fnv64(kUnreadable, h); continue; }
+            for (const auto& e : *index)
+                if (!skipped(e.path)) h = Mix(Mix(Fnv64(e.path, h), e.size), e.crc);
+        }
+        return h;
+    }
+
+    void CarryReads(std::string_view stored)
+    {
+        for (const auto row : CB::engine::text::SplitLines(stored))
+            if (const auto r = ParseRow(row); r && r->kind == "read") {
+                const std::string value = FileValue(r->name);
+                std::lock_guard<std::mutex> lk(g_readsMutex);
+                g_reads.emplace(r->name, value);
+            }
+    }
+
     std::unordered_map<std::string, std::string> StoredOutputKeys(std::string_view stored, std::string_view kind)
     {
         std::unordered_map<std::string, std::string> out;
@@ -240,7 +289,7 @@ namespace CB::core::resolve {
         std::map<std::string, std::string> then;
         for (std::size_t i = 1; i < rows.size(); ++i) {
             const auto r = ParseRow(rows[i]);
-            if (!r || r->kind == kGraphKind) continue;
+            if (!r || IsOutputKind(r->kind)) continue;
             if (r->kind == "read") {
                 if (const std::string cur = FileValue(r->name); cur != r->value || cur == kUnreadable)
                     return "'" + r->name + "' changed";

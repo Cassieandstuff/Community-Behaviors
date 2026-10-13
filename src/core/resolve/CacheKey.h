@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -40,6 +41,18 @@ namespace CB::core::resolve {
     /// @brief The inputs EVERY compiled graph depends on — compiler, schema, output-changing settings, the BDI
     ///        declarations — folded into one value: the seed of each graph's own key.
     std::uint64_t SharedGraphInputs(const std::filesystem::path& dataDir);
+
+    /// @brief The inputs the adsf / asdsf read straight from the bundles: every file of every bundle (packed: path, size,
+    ///        CRC; unpacked: path, size, mtime) EXCEPT those inside a unit `skipUnit` names, plus loadorder.txt and the
+    ///        shared inputs — folded into one value.
+    /// @param skipUnit Called with a unit's path key ("meshes/…/x.hkx"); true leaves that unit's files out (the
+    ///        Resolver skips behavior graphs, which the adsf sees only through their clip generators).
+    std::uint64_t BundleFilesInput(const std::filesystem::path& dataDir,
+                                   const std::function<bool(const std::string& unitKey)>& skipUnit);
+
+    /// @brief Re-record every outside-file read a stored sentinel lists, with the file's value now — for an output kept
+    ///        without re-running the build that read them, so the next key still watches those files.
+    void CarryReads(std::string_view stored);
 
     /// @brief The per-output keys of `kind` a sentinel's text carries: name -> key (hex).
     std::unordered_map<std::string, std::string> StoredOutputKeys(std::string_view stored, std::string_view kind);

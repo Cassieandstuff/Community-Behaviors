@@ -128,9 +128,7 @@ namespace CB {
         const std::size_t grandTotal = reinterpret_cast<std::size_t>(param);
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
-        /// @note Keep every graph whose own inputs are unchanged since the last complete cache; a forced regen keeps none.
-        if (!CB::core::debug::FlagOn("force_regenerate"))
-            g_resolver.PlanIncremental(std::filesystem::current_path() / "Data");
+        /// @note The graphs PlanIncremental kept (ArmThread, before the adsf) are skipped here and in the materialize.
         g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
             CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
         });
@@ -216,7 +214,12 @@ namespace CB {
 
         CB::core::serve::AdsfSource adsf;
         adsf.roster        = [](const std::string& key) { return g_resolver.ServedRoster(key); };
-        adsf.clips         = [](const std::string& key) { return g_resolver.MergedClipInputs(key); };
+        /// @note Every clip read is traced: the next recompile keeps the adsf while these clips are unchanged.
+        adsf.clips         = [](const std::string& key) {
+            auto clips = g_resolver.MergedClipInputs(key);
+            g_resolver.TraceClips(key, clips);
+            return clips;
+        };
         adsf.behaviorUnits = [] { return g_resolver.BehaviorUnitKeys(); };
         CB::core::serve::ServeResult ad;
         try {
@@ -227,9 +230,18 @@ namespace CB {
         if (!ad.ok)
             LOG_WARN("Community Behaviors: animationdata projection did not complete: {}", ad.error);
         CB::core::serve::ArmAnimDataRedirect(ad);
+
+        /// @note A file this pass did not produce must not survive in the cache: a later launch arms whatever it finds
+        ///       there (ArmAdsfSetDataFromCache), so a stale one would be served against graphs it doesn't match.
+        const std::filesystem::path cacheDir = std::filesystem::current_path() / "Data" / "community_behaviors_cache";
+        std::error_code             ec;
+        if (!sd.ok) std::filesystem::remove(cacheDir / "animationsetdatasinglefile.txt", ec);
+        if (!ad.ok) std::filesystem::remove(cacheDir / "animationdatasinglefile.txt", ec);
+        g_resolver.SetAnimDataComplete(ad.ok && (sd.ok || !sd.attempted));
     }
 
-    // REUSE (warm start): serve the CACHED adsf/asdsf verbatim instead of re-deriving them.
+    // REUSE (warm start, or a recompile whose adsf/asdsf inputs are unchanged — Resolver::AnimDataReusable):
+    // serve the CACHED adsf/asdsf verbatim instead of re-deriving them.
     //
     // The adsf/asdsf are COMPILE OUTPUTS, not independent merges: their clip -> animIndex assignment
     // (and the roster-dependent set-data CRC guard) is coherent ONLY with the character/behavior cache
@@ -322,9 +334,16 @@ namespace CB {
             const std::size_t total      = graphCount + animCount;
             CB::core::bootstrap::SetProgress(0, total, true); CB::core::bootstrap::Install();
 
+            /// @note Keep every graph whose own inputs are unchanged since the last complete cache, and the cached
+            ///       adsf/asdsf when none of THEIR inputs changed; a forced regen keeps nothing.
+            const bool keep = !CB::core::debug::FlagOn("force_regenerate");
+            if (keep) g_resolver.PlanIncremental(dataAbs);
+
             // adsf is independent of the graph compile → arm + signal NOW so the adsf open unblocks, then
             // compile the graphs in the background (bar rides the live menu).
-            {
+            if (keep && g_resolver.AnimDataReusable(dataAbs) && ArmAdsfSetDataFromCache()) {
+                g_resolver.SetAnimDataComplete(true);
+            } else {
                 AnimParallel adsfPar("the adsf projection parses animations");
                 ArmAdsfSetDataServe(adsfPar.ptr());
             }

@@ -17,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -115,6 +116,18 @@ namespace CB {
         /// @pre   Ready(). Call once, before CompileAll.
         /// @return how many graphs are reused.
         std::size_t PlanIncremental(const std::filesystem::path& dataRoot);
+
+        /// @brief Whether a recompile may keep the cached adsf / asdsf. Their key covers every bundle file EXCEPT behavior
+        ///        graphs, which the projection sees only through the clip inputs it read; each of those is kept with its
+        ///        graph's key and recomputed only when that graph changed — so a graph edit that leaves its clips alone
+        ///        doesn't redo the adsf (early cutoff).
+        /// @pre   PlanIncremental. @return true when both files may be served as they are (the caller arms them).
+        bool AnimDataReusable(const std::filesystem::path& dataRoot);
+        /// @brief Record one behavior's clip inputs as the adsf projection read them (its trace for the next launch).
+        void TraceClips(const std::string& key, const std::vector<CB::engine::animdata::DeriveClipInput>& clips);
+        /// @brief Whether this launch's adsf / asdsf are complete — kept, or rebuilt without error. Only then does the
+        ///        sentinel record their key; otherwise the next recompile rebuilds them.
+        void SetAnimDataComplete(bool ok) { m_animDataComplete = ok; }
 
         // Compile (if needed) and WRITE every mapped graph to cacheRoot/<serve-path>, so a
         // compile-free file hook can just redirect opens to the on-disk bytes. Clears every
@@ -283,6 +296,13 @@ namespace CB {
         ///        warm-up thread before CompileAll; read only there after.
         std::unordered_map<std::string, std::uint64_t> m_graphKeys;
         std::unordered_set<std::string>                m_reuse;
+        /// @brief The adsf / asdsf key (AnimDataReusable), computed once per launch.
+        std::uint64_t AnimDataKey(const std::filesystem::path& dataRoot);
+        std::optional<std::uint64_t>                   m_animDataKey;
+        /// @brief Behavior key -> hash of the clip inputs the adsf projection read for it (TraceClips / a kept trace).
+        std::unordered_map<std::string, std::uint64_t> m_clipTrace;
+        std::mutex                                     m_clipTraceMutex;
+        bool                                           m_animDataComplete = false;
 
         /// @brief The merge layers for ONE served graph: its unit sources, base first then patches by load order,
         ///        and whether the base is a character (ResolveCharacter) vs a behavior graph. Each source is a disk
