@@ -1,0 +1,10 @@
+name:     SpeedDataProject
+kind:     metadata
+encoding: binary                       # little-endian scalars; a recordarray is a u32 count + its records
+# One project's speed table — byte-for-byte the content of a loose <Proj>.SPD (BSSpeedSamplerDB__ReadSpd
+# reads both). `path` is hoisted into the file's leading text list ("DefaultMaleData\DefaultMale.spd"); the
+# engine keys the table by the project-name stem of that path, matched against the loaded project's name.
+fields:
+  - { name: path,    type: string }                                   # hoisted (the file's path list)
+  - { name: version, type: uint32 }                                   # 1; read and discarded by the engine
+  - { name: states,  type: recordarray, ref: SpeedDataState }

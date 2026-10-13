@@ -1,0 +1,11 @@
+name:     SpeedDataState
+kind:     metadata
+encoding: binary
+# One locomotion state's curves, keyed by the value the graph holds in `iState` (an OUTPUT the graph writes —
+# initial value, BSiStateTaggingGenerator, BSIStateManagerModifier, or an expression; never a switch).
+# The engine binary-searches iState EXACTLY over the states as SIGNED ints, so they must be sorted ascending.
+# Vanilla FalmerProject carries two corrupt states (0x80000000 and 0x626E7572 "runb") with zero directions:
+# a reader must accept them; a writer must not produce them.
+fields:
+  - { name: iState,     type: int32 }
+  - { name: directions, type: recordarray, ref: SpeedDataDirection }  # 19 in every well-formed state
