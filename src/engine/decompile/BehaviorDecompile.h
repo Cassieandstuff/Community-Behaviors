@@ -86,6 +86,10 @@ public:
     ///        4-byte value — a REAL's float bits). Exists = the name is already declared (left untouched: the graph's
     ///        own declaration is authoritative). Failed (+ `err`) for a vector / pointer type or no graph data.
     Add AddVariable(std::string_view name, std::string_view type, std::int32_t word, std::string& err);
+    /// @brief Append a QUAD-typed variable (VARIABLE_TYPE_VECTOR3 / VECTOR4 / QUATERNION) with initial value `quad`
+    ///        (x, y, z, w). Its word slot holds its index into quadVariableValues, as Havok requires.
+    ///        Exists / Failed as AddVariable; Failed for a non-quad type.
+    Add AddQuadVariable(std::string_view name, std::string_view type, const float (&quad)[4], std::string& err);
     Add AddEvent(std::string_view name, std::string& err);
 
     /// @brief Every object of class `cls` reachable from the root (nodes and inline objects), once each.

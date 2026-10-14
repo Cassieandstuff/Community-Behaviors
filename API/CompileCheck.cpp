@@ -50,6 +50,9 @@ namespace {
         std::string sdir = cb::schema::SharedSchemaDir(); (void)sdir;
         cb::schema::Registry* shared = cb::schema::SharedRegistry(); (void)shared;
         const std::string& serr = cb::schema::SharedRegistryError(); (void)serr;
+        long mode = cb::schema::EnumTable("PlaybackMode").at("MODE_LOOPING"); (void)mode;
+        const float quad[4] = {0.f, 0.f, 0.f, 0.f};
+        auto addedQuad = edit.AddQuadVariable("v", "VARIABLE_TYPE_VECTOR4", quad, err); (void)addedQuad;
 
         // cb::anim — decode / compile / export
         cb::anim::Def def; (void)def;

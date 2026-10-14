@@ -38,6 +38,7 @@
 
 // schema — the Havok class-schema registry (merge classifier / model interpreter)
 #include "interface/reflection/HavokSchema.h"
+#include "interface/HavokEnums.h"
 
 // anim — decode/compile/export animations (schema-native; the CB pipeline itself)
 #include "interface/AnimationDef.h"
@@ -92,6 +93,10 @@ namespace schema {
     using CB::engine::schema::SharedSchemaDir;
     using CB::engine::schema::SharedRegistry;
     using CB::engine::schema::SharedRegistryError;
+
+    // Enum value tables by enum name (a field's schema `enum:`), e.g. EnumTable("PlaybackMode").at("MODE_LOOPING").
+    // Case-sensitive Havok data; unknown enum names return an empty table.
+    using CB::engine::common::enums::EnumTable;
 }  // namespace schema
 
 // ── cb::anim ─────────────────────────────────────────────────────────────────
