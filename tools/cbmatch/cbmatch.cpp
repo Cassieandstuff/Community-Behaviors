@@ -612,9 +612,24 @@ bool sameShape(const Insn& x, const Insn& y)
     return true;
 }
 
+/// @brief 0 = different instructions; 1 = same shape; 2 = same shape and the same immediates and displacements too.
+/// @note Weighting exact pairs higher keeps two independent instructions that a build emitted in the other order
+///       (shufps 0xc9 / 0xd2) paired with their own counterparts instead of each other.
+unsigned matchScore(const Insn& x, const Insn& y)
+{
+    if (!sameShape(x, y)) return 0;
+    for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
+        const auto& ox = x.ops[o];
+        const auto& oy = y.ops[o];
+        if (ox.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && !ox.imm.is_relative && ox.imm.value.u != oy.imm.value.u) return 1;
+        if (ox.type == ZYDIS_OPERAND_TYPE_MEMORY && ox.mem.disp.value != oy.mem.disp.value) return 1;
+    }
+    return 2;
+}
+
 /// @brief Pairs of (ours, vanilla) instruction indices; -1 on one side marks an instruction the other side lacks.
-/// @note LCS over instruction shapes, so one inserted instruction doesn't misalign the rest of the listing.
-///       Falls back to index pairing when the table would be too large.
+/// @note Weighted LCS over instruction shapes (matchScore), so one inserted instruction doesn't misalign the rest of
+///       the listing. Falls back to index pairing when the table would be too large.
 std::vector<std::pair<long, long>> alignInstructions(const std::vector<Insn>& a, const std::vector<Insn>& b)
 {
     std::vector<std::pair<long, long>> rows;
@@ -623,14 +638,18 @@ std::vector<std::pair<long, long>> alignInstructions(const std::vector<Insn>& a,
         for (std::size_t k = 0; k < std::max(n, m); ++k) rows.emplace_back(k < n ? long(k) : -1, k < m ? long(k) : -1);
         return rows;
     }
-    std::vector<std::uint16_t> lcs((n + 1) * (m + 1), 0);
-    auto at = [&](std::size_t i, std::size_t j) -> std::uint16_t& { return lcs[i * (m + 1) + j]; };
+    std::vector<std::uint32_t> lcs((n + 1) * (m + 1), 0);
+    auto at = [&](std::size_t i, std::size_t j) -> std::uint32_t& { return lcs[i * (m + 1) + j]; };
     for (std::size_t i = n; i-- > 0;)
-        for (std::size_t j = m; j-- > 0;)
-            at(i, j) = sameShape(a[i], b[j]) ? std::uint16_t(at(i + 1, j + 1) + 1) : std::max(at(i + 1, j), at(i, j + 1));
+        for (std::size_t j = m; j-- > 0;) {
+            const unsigned s    = matchScore(a[i], b[j]);
+            const auto     skip = std::max(at(i + 1, j), at(i, j + 1));
+            at(i, j)            = s ? std::max<std::uint32_t>(at(i + 1, j + 1) + s, skip) : skip;
+        }
     std::size_t i = 0, j = 0;
     while (i < n || j < m) {
-        if (i < n && j < m && sameShape(a[i], b[j]) && at(i, j) == at(i + 1, j + 1) + 1) rows.emplace_back(long(i++), long(j++));
+        const unsigned s = (i < n && j < m) ? matchScore(a[i], b[j]) : 0;
+        if (s && at(i, j) == at(i + 1, j + 1) + s) rows.emplace_back(long(i++), long(j++));
         else if (j < m && (i == n || at(i, j + 1) >= at(i + 1, j))) rows.emplace_back(-1, long(j++));
         else rows.emplace_back(long(i++), -1);
     }
@@ -718,6 +737,23 @@ std::vector<bool> provablyDead(const std::vector<Insn>& insns)
     return dead;
 }
 
+/// @brief Floating-point/SIMD arithmetic. Scheduling and branch layout move these but never change how many a function
+///        performs, so unpaired ones must balance per mnemonic (add → sub is a real change).
+bool isFloatArithmetic(ZydisMnemonic m)
+{
+    switch (m) {
+        case ZYDIS_MNEMONIC_ADDPS: case ZYDIS_MNEMONIC_ADDSS: case ZYDIS_MNEMONIC_SUBPS: case ZYDIS_MNEMONIC_SUBSS:
+        case ZYDIS_MNEMONIC_MULPS: case ZYDIS_MNEMONIC_MULSS: case ZYDIS_MNEMONIC_DIVPS: case ZYDIS_MNEMONIC_DIVSS:
+        case ZYDIS_MNEMONIC_SQRTPS: case ZYDIS_MNEMONIC_SQRTSS: case ZYDIS_MNEMONIC_RSQRTPS: case ZYDIS_MNEMONIC_RSQRTSS:
+        case ZYDIS_MNEMONIC_RCPPS: case ZYDIS_MNEMONIC_RCPSS: case ZYDIS_MNEMONIC_MINPS: case ZYDIS_MNEMONIC_MINSS:
+        case ZYDIS_MNEMONIC_MAXPS: case ZYDIS_MNEMONIC_MAXSS: case ZYDIS_MNEMONIC_ADDSD: case ZYDIS_MNEMONIC_SUBSD:
+        case ZYDIS_MNEMONIC_MULSD: case ZYDIS_MNEMONIC_DIVSD:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool isMasked(const CoffFunction& f, const Insn& i)
 {
     for (std::uint32_t o = i.off; o < i.off + i.ins.length; ++o)
@@ -784,6 +820,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
     /// Unpaired condition family → (count in ours, count in vanilla). Counts may differ (tail duplication copies a
     /// branch); a family unpaired on one side only means a tested condition changed.
     std::map<std::string, std::pair<int, int>> conditions;
+    std::map<int, int>                         floatOps;   ///< unpaired FP mnemonic → ours minus vanilla
     std::size_t                                aligned = 0, glue = 0, segment = 0, deadCount = 0;
 
     // Provably dead code is left out on both sides before aligning: one compiler build deletes it, another keeps it.
@@ -836,11 +873,20 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
         } else if (ia >= 0) {
             const Insn& x = liveA[std::size_t(ia)];
             if (const char* fam = conditionFamily(x.ins.mnemonic)) ++conditions[fam].first;
+            if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
             if (hasEffect(x) && x.off >= prologueA) effectsA.push_back({ &x, segment }); else ++glue;
         } else {
             const Insn& y = liveB[std::size_t(ib)];
             if (const char* fam = conditionFamily(y.ins.mnemonic)) ++conditions[fam].second;
+            if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
             if (hasEffect(y) && y.off >= prologueB) effectsB.push_back({ &y, segment }); else ++glue;
+        }
+    }
+    for (const auto& [mnemonic, balance] : floatOps) {
+        if (balance != 0) {
+            why = std::string("unpaired ") + ZydisMnemonicGetString(ZydisMnemonic(mnemonic)) + " don't balance (ours " +
+                  (balance > 0 ? "+" : "") + std::to_string(balance) + ") - the arithmetic changed, not just its schedule";
+            return false;
         }
     }
     for (const auto& [fam, counts] : conditions) {
