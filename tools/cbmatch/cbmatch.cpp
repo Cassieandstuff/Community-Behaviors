@@ -544,13 +544,14 @@ bool operandsMatch(const ZydisDecodedOperand& a, const ZydisDecodedOperand& b, b
     }
 }
 
-enum class Status { Exact, Regalloc, Structural, Missing, CompileError };
+enum class Status { Exact, Regalloc, Variant, Structural, Missing, CompileError };
 
 const char* statusName(Status s)
 {
     switch (s) {
         case Status::Exact:        return "EXACT";
         case Status::Regalloc:     return "REGALLOC";
+        case Status::Variant:      return "VARIANT";
         case Status::Structural:   return "STRUCTURAL";
         case Status::Missing:      return "MISSING";
         case Status::CompileError: return "COMPILE-ERROR";
@@ -558,7 +559,16 @@ const char* statusName(Status s)
     return "?";
 }
 
-int statusRank(Status s) { return s == Status::Exact ? 0 : s == Status::Regalloc ? 1 : s == Status::Structural ? 2 : 3; }
+int statusRank(Status s)
+{
+    switch (s) {
+        case Status::Exact:      return 0;
+        case Status::Regalloc:   return 1;
+        case Status::Variant:    return 2;
+        case Status::Structural: return 3;
+        default:                 return 4;
+    }
+}
 
 struct Match {
     Status      status = Status::Missing;
@@ -592,25 +602,200 @@ std::string vanillaTargetNote(const Insn& i, std::uint64_t va, std::size_t len)
     return {};
 }
 
+/// @brief What an instruction IS, ignoring which registers and displacements it uses: aligning on this pairs
+///        instructions that differ only in register choice.
+bool sameShape(const Insn& x, const Insn& y)
+{
+    if (x.ins.mnemonic != y.ins.mnemonic || x.ins.operand_count_visible != y.ins.operand_count_visible) return false;
+    for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o)
+        if (x.ops[o].type != y.ops[o].type || x.ops[o].size != y.ops[o].size) return false;
+    return true;
+}
+
+/// @brief Pairs of (ours, vanilla) instruction indices; -1 on one side marks an instruction the other side lacks.
+/// @note LCS over instruction shapes, so one inserted instruction doesn't misalign the rest of the listing.
+///       Falls back to index pairing when the table would be too large.
+std::vector<std::pair<long, long>> alignInstructions(const std::vector<Insn>& a, const std::vector<Insn>& b)
+{
+    std::vector<std::pair<long, long>> rows;
+    const std::size_t n = a.size(), m = b.size();
+    if (n * m > 40'000'000) {
+        for (std::size_t k = 0; k < std::max(n, m); ++k) rows.emplace_back(k < n ? long(k) : -1, k < m ? long(k) : -1);
+        return rows;
+    }
+    std::vector<std::uint16_t> lcs((n + 1) * (m + 1), 0);
+    auto at = [&](std::size_t i, std::size_t j) -> std::uint16_t& { return lcs[i * (m + 1) + j]; };
+    for (std::size_t i = n; i-- > 0;)
+        for (std::size_t j = m; j-- > 0;)
+            at(i, j) = sameShape(a[i], b[j]) ? std::uint16_t(at(i + 1, j + 1) + 1) : std::max(at(i + 1, j), at(i, j + 1));
+    std::size_t i = 0, j = 0;
+    while (i < n || j < m) {
+        if (i < n && j < m && sameShape(a[i], b[j]) && at(i, j) == at(i + 1, j + 1) + 1) rows.emplace_back(long(i++), long(j++));
+        else if (j < m && (i == n || at(i, j + 1) >= at(i + 1, j))) rows.emplace_back(-1, long(j++));
+        else rows.emplace_back(long(i++), -1);
+    }
+    return rows;
+}
+
+/// @brief Side-by-side listing. Markers: ' ' identical bytes, '~' same instruction with other registers or
+///        displacements, '<' only in ours, '>' only in vanilla.
 void buildListing(Match& m, const CoffFunction& ours, const std::vector<Insn>& a, const Bytes& vanilla, const std::vector<Insn>& b, std::uint64_t va)
 {
-    const std::size_t n = std::max(a.size(), b.size());
-    for (std::size_t k = 0; k < n; ++k) {
+    for (const auto& [ia, ib] : alignInstructions(a, b)) {
         std::string left, right;
-        bool        differs = k >= a.size() || k >= b.size();
-        if (k < a.size()) left = a[k].text + targetNote(ours, a[k]);
-        if (k < b.size()) right = b[k].text + vanillaTargetNote(b[k], va, vanilla.size());
-        if (!differs) {
-            const auto& x = a[k];
-            const auto& y = b[k];
-            differs = x.off != y.off || x.ins.length != y.ins.length;
-            for (std::uint32_t o = x.off; !differs && o < x.off + x.ins.length; ++o)
-                differs = !ours.mask[o] && ours.bytes[o] != vanilla[o];
+        char        mark = ' ';
+        if (ia >= 0) left = a[std::size_t(ia)].text + targetNote(ours, a[std::size_t(ia)]);
+        if (ib >= 0) right = b[std::size_t(ib)].text + vanillaTargetNote(b[std::size_t(ib)], va, vanilla.size());
+        if (ia < 0) mark = '>';
+        else if (ib < 0) mark = '<';
+        else {
+            const auto& x = a[std::size_t(ia)];
+            const auto& y = b[std::size_t(ib)];
+            bool same = x.ins.length == y.ins.length;
+            for (std::uint32_t k = 0; same && k < x.ins.length; ++k) same = ours.mask[x.off + k] || ours.bytes[x.off + k] == vanilla[y.off + k];
+            if (!same) mark = '~';
         }
-        char line[512];
-        std::snprintf(line, sizeof line, "%c %04x  %-52s | %s", differs ? '!' : ' ', k < a.size() ? a[k].off : b[k].off, left.c_str(), right.c_str());
+        char offs[24];
+        if (ia >= 0 && ib >= 0) std::snprintf(offs, sizeof offs, "%04x %04x", a[std::size_t(ia)].off, b[std::size_t(ib)].off);
+        else if (ia >= 0)       std::snprintf(offs, sizeof offs, "%04x     ", a[std::size_t(ia)].off);
+        else                    std::snprintf(offs, sizeof offs, "     %04x", b[std::size_t(ib)].off);
+        char line[600];
+        std::snprintf(line, sizeof line, "%c %s  %-52s | %s", mark, offs, left.c_str(), right.c_str());
         m.listing.push_back(line);
     }
+}
+
+/// @brief The condition a jcc/cmovcc/setcc tests, folded with its inverse (jz and jnz → "z"); nullptr for anything else.
+/// @note Branch layout only inverts conditions; changing which flag is tested (jb → jbe) changes the family.
+const char* conditionFamily(ZydisMnemonic m)
+{
+    switch (m) {
+        case ZYDIS_MNEMONIC_JB:  case ZYDIS_MNEMONIC_JNB:  case ZYDIS_MNEMONIC_CMOVB:  case ZYDIS_MNEMONIC_CMOVNB:  case ZYDIS_MNEMONIC_SETB:  case ZYDIS_MNEMONIC_SETNB:  return "b";
+        case ZYDIS_MNEMONIC_JBE: case ZYDIS_MNEMONIC_JNBE: case ZYDIS_MNEMONIC_CMOVBE: case ZYDIS_MNEMONIC_CMOVNBE: case ZYDIS_MNEMONIC_SETBE: case ZYDIS_MNEMONIC_SETNBE: return "be";
+        case ZYDIS_MNEMONIC_JZ:  case ZYDIS_MNEMONIC_JNZ:  case ZYDIS_MNEMONIC_CMOVZ:  case ZYDIS_MNEMONIC_CMOVNZ:  case ZYDIS_MNEMONIC_SETZ:  case ZYDIS_MNEMONIC_SETNZ:  return "z";
+        case ZYDIS_MNEMONIC_JS:  case ZYDIS_MNEMONIC_JNS:  case ZYDIS_MNEMONIC_CMOVS:  case ZYDIS_MNEMONIC_CMOVNS:  case ZYDIS_MNEMONIC_SETS:  case ZYDIS_MNEMONIC_SETNS:  return "s";
+        case ZYDIS_MNEMONIC_JL:  case ZYDIS_MNEMONIC_JNL:  case ZYDIS_MNEMONIC_CMOVL:  case ZYDIS_MNEMONIC_CMOVNL:  case ZYDIS_MNEMONIC_SETL:  case ZYDIS_MNEMONIC_SETNL:  return "l";
+        case ZYDIS_MNEMONIC_JLE: case ZYDIS_MNEMONIC_JNLE: case ZYDIS_MNEMONIC_CMOVLE: case ZYDIS_MNEMONIC_CMOVNLE: case ZYDIS_MNEMONIC_SETLE: case ZYDIS_MNEMONIC_SETNLE: return "le";
+        case ZYDIS_MNEMONIC_JO:  case ZYDIS_MNEMONIC_JNO:  case ZYDIS_MNEMONIC_CMOVO:  case ZYDIS_MNEMONIC_CMOVNO:  case ZYDIS_MNEMONIC_SETO:  case ZYDIS_MNEMONIC_SETNO:  return "o";
+        case ZYDIS_MNEMONIC_JP:  case ZYDIS_MNEMONIC_JNP:  case ZYDIS_MNEMONIC_CMOVP:  case ZYDIS_MNEMONIC_CMOVNP:  case ZYDIS_MNEMONIC_SETP:  case ZYDIS_MNEMONIC_SETNP:  return "p";
+        default: return nullptr;
+    }
+}
+
+bool isMasked(const CoffFunction& f, const Insn& i)
+{
+    for (std::uint32_t o = i.off; o < i.off + i.ins.length; ++o)
+        if (f.mask[o]) return true;
+    return false;
+}
+
+/// @brief The memory operand an instruction writes (nullptr when it writes none).
+const ZydisDecodedOperand* writtenMemory(const Insn& i)
+{
+    for (std::uint8_t k = 0; k < i.ins.operand_count_visible; ++k) {
+        const auto& op = i.ops[k];
+        if (op.type == ZYDIS_OPERAND_TYPE_MEMORY && op.mem.type == ZYDIS_MEMOP_TYPE_MEM && (op.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE))
+            return &op;
+    }
+    return nullptr;
+}
+
+/// @brief An instruction whose effect is visible outside the function's registers: a call, a return, a stack
+///        push/pop, or a memory write.
+bool hasEffect(const Insn& i)
+{
+    switch (i.ins.mnemonic) {
+        case ZYDIS_MNEMONIC_CALL:
+        case ZYDIS_MNEMONIC_RET:
+        case ZYDIS_MNEMONIC_PUSH:
+        case ZYDIS_MNEMONIC_POP:
+            return true;
+        default:
+            return writtenMemory(i) != nullptr;
+    }
+}
+
+/// @brief Two unaligned effects that are the same effect: the same operation on the same memory operand. Only the
+///        source may differ (an immediate 0 against a zeroed register).
+bool sameEffect(const Insn& x, const Insn& y, bool masked)
+{
+    if (x.ins.mnemonic != y.ins.mnemonic) return false;
+    const auto* mx = writtenMemory(x);
+    const auto* my = writtenMemory(y);
+    if (mx && my) return operandsMatch(*mx, *my, masked);
+    if (mx || my || x.ins.operand_count_visible != y.ins.operand_count_visible) return false;
+    if (x.ins.operand_count_visible == 0) return true;
+    const bool relative = x.ops[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && x.ops[0].imm.is_relative;
+    return operandsMatch(x.ops[0], y.ops[0], masked || relative);
+}
+
+/// @brief VARIANT: the same calls, returns, stack traffic and memory writes in the same order, at the same data
+///        offsets; only register choice, branch layout (tail merging/duplication, cmov vs branch) and side-effect-free
+///        instructions (loads, compares, register moves) may differ. The signature of a different build of the same
+///        compiler compiling the same source.
+/// @warning Weaker than EXACT/REGALLOC. A changed condition is caught only when its family (z, b, be, l, …) is unpaired on
+///          one side alone; a different value loaded into a register, or a condition change hidden by a duplicated
+///          branch of the same family, is not. Checked against deliberately broken copies of hkbClipGenerator::activate
+///          (wrong field, dropped call, wrong argument, wrong constant, >= → >, extra store): all STRUCTURAL.
+bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, const std::vector<Insn>& b, std::string& why)
+{
+    // Unpaired effects are matched as a set within each stretch between two aligned calls: a compiler may reorder
+    // independent stores, never across a call.
+    struct Effect { const Insn* insn; std::size_t segment; bool used = false; };
+    std::vector<Effect>        effectsA, effectsB;
+    /// Unpaired condition family → (count in ours, count in vanilla). Counts may differ (tail duplication copies a
+    /// branch); a family unpaired on one side only means a tested condition changed.
+    std::map<std::string, std::pair<int, int>> conditions;
+    std::size_t                                aligned = 0, glue = 0, segment = 0;
+    for (const auto& [ia, ib] : alignInstructions(a, b)) {
+        if (ia >= 0 && ib >= 0) {
+            const auto& x = a[std::size_t(ia)];
+            const auto& y = b[std::size_t(ib)];
+            const bool  masked = isMasked(ours, x);
+            for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
+                const bool relative = x.ops[o].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && x.ops[o].imm.is_relative;
+                if (!operandsMatch(x.ops[o], y.ops[o], masked || relative)) {
+                    why = "operands differ beyond registers at ours +0x" + hex(x.off) + " / vanilla +0x" + hex(y.off);
+                    return false;
+                }
+            }
+            ++aligned;
+            if (x.ins.mnemonic == ZYDIS_MNEMONIC_CALL) ++segment;
+        } else if (ia >= 0) {
+            const Insn& x = a[std::size_t(ia)];
+            if (const char* fam = conditionFamily(x.ins.mnemonic)) ++conditions[fam].first;
+            if (hasEffect(x)) effectsA.push_back({ &x, segment }); else ++glue;
+        } else {
+            const Insn& y = b[std::size_t(ib)];
+            if (const char* fam = conditionFamily(y.ins.mnemonic)) ++conditions[fam].second;
+            if (hasEffect(y)) effectsB.push_back({ &y, segment }); else ++glue;
+        }
+    }
+    for (const auto& [fam, counts] : conditions) {
+        if ((counts.first > 0) != (counts.second > 0)) {
+            why = "an unpaired '" + fam + "' condition appears only in " + (counts.first > 0 ? "ours" : "vanilla") +
+                  " - a tested condition changed, not just branch layout";
+            return false;
+        }
+    }
+    if (effectsA.size() != effectsB.size()) {
+        why = std::to_string(effectsA.size()) + " vs " + std::to_string(effectsB.size()) + " unpaired calls/stores";
+        return false;
+    }
+    for (auto& ea : effectsA) {
+        const bool masked = isMasked(ours, *ea.insn);
+        auto       hit    = std::find_if(effectsB.begin(), effectsB.end(), [&](const Effect& eb) {
+            return !eb.used && eb.segment == ea.segment && sameEffect(*ea.insn, *eb.insn, masked);
+        });
+        if (hit == effectsB.end()) {
+            why = "no matching call/store in vanilla for ours +0x" + hex(ea.insn->off);
+            return false;
+        }
+        hit->used = true;
+    }
+    why = std::to_string(aligned) + " aligned, " + std::to_string(glue) + " unpaired side-effect-free, " +
+          std::to_string(effectsA.size()) + " store(s) with a different source";
+    return true;
 }
 
 Match compare(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing)
@@ -634,18 +819,27 @@ Match compare(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, 
     if (m.firstDiff < 0) { m.status = Status::Exact; return m; }
     m.status = Status::Structural;
     if (!a || !b) { m.detail = "undecodable bytes"; return m; }
-    if (a->size() != b->size()) { m.detail = std::to_string(a->size()) + " vs " + std::to_string(b->size()) + " instructions"; return m; }
-    for (std::size_t k = 0; k < a->size(); ++k) {
-        const auto& x = (*a)[k];
-        const auto& y = (*b)[k];
-        bool masked = false;
-        for (std::uint32_t o = x.off; o < x.off + x.ins.length; ++o) masked = masked || ours.mask[o];
-        bool ok = x.ins.mnemonic == y.ins.mnemonic && x.ins.length == y.ins.length &&
-                  x.ins.operand_count_visible == y.ins.operand_count_visible;
-        for (std::uint8_t o = 0; ok && o < x.ins.operand_count_visible; ++o) ok = operandsMatch(x.ops[o], y.ops[o], masked);
-        if (!ok) { m.detail = "first structural difference at +0x" + hex(x.off); return m; }
+    std::string regallocWhy;
+    if (a->size() != b->size()) {
+        regallocWhy = std::to_string(a->size()) + " vs " + std::to_string(b->size()) + " instructions";
+    } else {
+        for (std::size_t k = 0; k < a->size() && regallocWhy.empty(); ++k) {
+            const auto& x  = (*a)[k];
+            const auto& y  = (*b)[k];
+            bool        ok = x.ins.mnemonic == y.ins.mnemonic && x.ins.length == y.ins.length &&
+                      x.ins.operand_count_visible == y.ins.operand_count_visible;
+            for (std::uint8_t o = 0; ok && o < x.ins.operand_count_visible; ++o) ok = operandsMatch(x.ops[o], y.ops[o], isMasked(ours, x));
+            if (!ok) regallocWhy = "first structural difference at +0x" + hex(x.off);
+        }
+        if (regallocWhy.empty()) { m.status = Status::Regalloc; return m; }
     }
-    m.status = Status::Regalloc;
+    std::string variantWhy;
+    if (variantEquivalent(ours, *a, *b, variantWhy)) {
+        m.status = Status::Variant;
+        m.detail = regallocWhy + "; " + variantWhy;
+    } else {
+        m.detail = regallocWhy + "; not VARIANT: " + variantWhy;
+    }
     return m;
 }
 
@@ -662,10 +856,12 @@ void usage()
         "  --only <text>        only functions whose name contains <text>\n"
         "  --show               print a side-by-side disassembly of every non-exact function\n"
         "  --show-all           print it for every function\n"
+        "  --changes            like --show, but only the lines that differ\n"
         "  --report <file>      write the results as JSON\n"
         "  --work <dir>         where objects and listings go (default: %TEMP%/cbmatch/<manifest name>)\n"
         "  --jobs <n>           parallel compiles (default: hardware threads)\n"
         "  --allow-regalloc     exit 0 when every function is EXACT or REGALLOC\n"
+        "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT\n"
         "\n"
         "manifest:\n"
         "  runtimes:   { ae: ${CB_MATCH_EXE_AE} }        # name -> exe; ${VAR} reads the environment\n"
@@ -679,13 +875,16 @@ void usage()
         "        - { name: \"hkbTimerModifier::update\", va: { ae: 0x140afebd0 } }\n"
         "\n"
         "Statuses: EXACT (identical with relocated fields masked), REGALLOC (identical but for register choice),\n"
-        "STRUCTURAL, MISSING (symbol or address not found), COMPILE-ERROR. Exit code 0 only when every function is EXACT.");
+        "VARIANT (the same calls and memory writes in the same order at the same offsets and the same tested conditions;\n"
+        "register choice, branch layout and side-effect-free instructions differ - what a different build of the same\n"
+        "compiler produces; it does NOT catch a different value loaded into a register), STRUCTURAL, MISSING (symbol or\n"
+        "address not found), COMPILE-ERROR. Exit code 0 only when every function is EXACT.");
 }
 
 struct Options {
     fs::path    manifest, exe, work, report;
     std::string runtime, only;
-    bool        show = false, showAll = false, allowRegalloc = false;
+    bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false;
     unsigned    jobs = 0;
 };
 
@@ -773,7 +972,9 @@ int run(const Options& opt)
                                     row.best.toolchain.empty();
                 if (better) row.best = mt;
             }
-            const bool pass = row.best.status == Status::Exact || (opt.allowRegalloc && row.best.status == Status::Regalloc);
+            const bool pass = row.best.status == Status::Exact ||
+                              ((opt.allowRegalloc || opt.allowVariant) && row.best.status == Status::Regalloc) ||
+                              (opt.allowVariant && row.best.status == Status::Variant);
             gatePassed      = gatePassed && pass;
             rows.push_back(std::move(row));
         }
@@ -795,8 +996,9 @@ int run(const Options& opt)
             for (const auto line : CB::engine::text::SplitLines(b.detail)) std::printf("    %.*s\n", int(line.size()), line.data());
         }
         if ((opt.showAll || (opt.show && b.status != Status::Exact)) && !b.listing.empty()) {
-            std::printf("    %-58s | vanilla 0x%s\n", ("ours (" + b.toolchain + ")").c_str(), hex(r.va).c_str());
-            for (const auto& line : b.listing) std::printf("    %s\n", line.c_str());
+            std::printf("    %-63s | vanilla 0x%s\n", ("ours (" + b.toolchain + ")").c_str(), hex(r.va).c_str());
+            for (const auto& line : b.listing)
+                if (!opt.changesOnly || line[0] != ' ') std::printf("    %s\n", line.c_str());
             std::printf("\n");
         }
     }
@@ -841,10 +1043,12 @@ int main(int argc, char** argv)
         else if (a == "--only") opt.only = next();
         else if (a == "--show") opt.show = true;
         else if (a == "--show-all") opt.showAll = true;
+        else if (a == "--changes") { opt.show = true; opt.changesOnly = true; }
         else if (a == "--report") opt.report = next();
         else if (a == "--work") opt.work = next();
         else if (a == "--jobs") opt.jobs = static_cast<unsigned>(std::stoul(next()));
         else if (a == "--allow-regalloc") opt.allowRegalloc = true;
+        else if (a == "--allow-variant") opt.allowVariant = true;
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }
