@@ -733,10 +733,12 @@ bool sameEffect(const Insn& x, const Insn& y, bool masked)
 ///        offsets; only register choice, branch layout (tail merging/duplication, cmov vs branch) and side-effect-free
 ///        instructions (loads, compares, register moves) may differ. The signature of a different build of the same
 ///        compiler compiling the same source.
-/// @warning Weaker than EXACT/REGALLOC. A changed condition is caught only when its family (z, b, be, l, …) is unpaired on
-///          one side alone; a different value loaded into a register, or a condition change hidden by a duplicated
-///          branch of the same family, is not. Checked against deliberately broken copies of hkbClipGenerator::activate
-///          (wrong field, dropped call, wrong argument, wrong constant, >= → >, extra store): all STRUCTURAL.
+/// @warning Weaker than EXACT/REGALLOC: it checks effects (calls, stores) and tested conditions, not register dataflow.
+///          NOT caught: a changed or dropped register computation (e.g. a loop's `i--` removed — verified to pass), a
+///          different value loaded into a register, a condition change hidden by a duplicated branch of the same family.
+///          Caught (deliberately broken copies, D:\CB-tmp\matching-probe\mut): wrong field read or written, dropped or
+///          extra call, dropped or extra store, wrong argument, wrong constant, >= → >. A VARIANT function still needs
+///          behavioural verification.
 bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, const std::vector<Insn>& b, std::string& why)
 {
     // Unpaired effects are matched as a set within each stretch between two aligned calls: a compiler may reorder
@@ -752,9 +754,19 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
             const auto& x = a[std::size_t(ia)];
             const auto& y = b[std::size_t(ib)];
             const bool  masked = isMasked(ours, x);
+            if (x.ins.mnemonic == ZYDIS_MNEMONIC_NOP) { ++aligned; continue; }   // alignment padding: its encoding is filler
             for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
-                const bool relative = x.ops[o].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && x.ops[o].imm.is_relative;
-                if (!operandsMatch(x.ops[o], y.ops[o], masked || relative)) {
+                const auto& ox = x.ops[o];
+                const auto& oy = y.ops[o];
+                // A read-only memory operand may take another address form after strength reduction ([r9+rcx] for
+                // [rcx]); its displacement still has to match, which is what pins the field being read.
+                if (ox.type == ZYDIS_OPERAND_TYPE_MEMORY && oy.type == ZYDIS_OPERAND_TYPE_MEMORY && ox.mem.type == ZYDIS_MEMOP_TYPE_MEM &&
+                    !(ox.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) && !(oy.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) &&
+                    ox.size == oy.size && (ox.mem.base == ZYDIS_REGISTER_RIP) == (oy.mem.base == ZYDIS_REGISTER_RIP) &&
+                    (masked || ox.mem.disp.value == oy.mem.disp.value))
+                    continue;
+                const bool relative = ox.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ox.imm.is_relative;
+                if (!operandsMatch(ox, oy, masked || relative)) {
                     why = "operands differ beyond registers at ours +0x" + hex(x.off) + " / vanilla +0x" + hex(y.off);
                     return false;
                 }
@@ -877,8 +889,9 @@ void usage()
         "Statuses: EXACT (identical with relocated fields masked), REGALLOC (identical but for register choice),\n"
         "VARIANT (the same calls and memory writes in the same order at the same offsets and the same tested conditions;\n"
         "register choice, branch layout and side-effect-free instructions differ - what a different build of the same\n"
-        "compiler produces; it does NOT catch a different value loaded into a register), STRUCTURAL, MISSING (symbol or\n"
-        "address not found), COMPILE-ERROR. Exit code 0 only when every function is EXACT.");
+        "compiler produces; it does NOT check register dataflow, so a dropped or changed register computation such as a\n"
+        "loop counter step passes), STRUCTURAL, MISSING (symbol or address not found), COMPILE-ERROR.\n"
+        "Exit code 0 only when every function is EXACT.");
 }
 
 struct Options {
