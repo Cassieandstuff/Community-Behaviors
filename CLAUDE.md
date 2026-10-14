@@ -71,7 +71,8 @@ schema/                      the class schema as DATA, flat — vanilla hk*, Bet
                              converter → <exe>/schema.
 tools/                       dev-only, never shipped: hky-tool, cbdiff, x64dbg-autoattach, blender-control-rig
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
-                             (cb-api-check). On hold — nothing consumes it yet. Nothing private goes in include/.
+                             (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by
+                             commit) — a change there bumps its pin. Nothing private goes in include/.
 ```
 
 ## Namespacing (follows the folder) — directive
