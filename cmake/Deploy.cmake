@@ -42,9 +42,12 @@ function(cb_deploy TARGET MOD_NAME)
     endif()
 
     # 3. The packed .hky bundles (merge-copy → <mod>/community_behaviors/plugins, preserving Skyrim.hky).
-    #    HKY_STAGE is a build tree already shaped as community_behaviors/plugins/*.hky.
+    #    HKY_STAGE is a build tree already shaped as community_behaviors/plugins/*.hky. Only the regen
+    #    (generate-base-master) fills it, so a plugin-only build has none: make_directory first so the copy of
+    #    an absent/empty stage is a no-op and the deployed bundles stay.
     if(D_HKY_STAGE)
         add_custom_command(TARGET ${TARGET} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${D_HKY_STAGE}"
             COMMAND "${CMAKE_COMMAND}" -E copy_directory "${D_HKY_STAGE}" "${_mod}"
             COMMENT "cb_deploy: packed .hky bundles -> ${MOD_NAME}/community_behaviors/plugins"
             VERBATIM)
