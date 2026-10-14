@@ -11,7 +11,7 @@ add_library(cb-api INTERFACE)
 # The public header lives at the REPO ROOT include/ (not under src/) — the one place a
 # consumer's -I points at, and where the portfile ships from.
 target_include_directories(cb-api INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
 
 # One link name in both modes: FetchContent (this alias) and find_package (exported cb:: namespace).
