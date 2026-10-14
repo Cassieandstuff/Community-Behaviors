@@ -682,6 +682,42 @@ const char* conditionFamily(ZydisMnemonic m)
     }
 }
 
+/// @brief Instructions that can never execute, marked true: a forward `jge`/`jns` right after `and r32, <mask with the
+///        sign bit clear>` is always taken (the and leaves SF = OF = 0), so the block it jumps over is dead — unless
+///        another branch lands inside it. The guarding and/jcc are marked too: together they are an unconditional jump.
+/// @note  One compiler build deletes such a block (hkArray::reserve(0) behind setSize(0)); another keeps it.
+std::vector<bool> provablyDead(const std::vector<Insn>& insns)
+{
+    std::vector<bool> dead(insns.size(), false);
+    auto branchTarget = [](const Insn& i) -> long long {
+        for (std::uint8_t k = 0; k < i.ins.operand_count_visible; ++k)
+            if (i.ops[k].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && i.ops[k].imm.is_relative)
+                return static_cast<long long>(i.off) + i.ins.length + i.ops[k].imm.value.s;
+        return -1;
+    };
+    for (std::size_t k = 0; k + 1 < insns.size(); ++k) {
+        const Insn& a = insns[k];
+        const Insn& j = insns[k + 1];
+        if (a.ins.mnemonic != ZYDIS_MNEMONIC_AND || a.ins.operand_count_visible != 2 || a.ops[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||
+            a.ops[0].size != 32 || a.ops[1].type != ZYDIS_OPERAND_TYPE_IMMEDIATE || (a.ops[1].imm.value.u & 0x80000000u) != 0)
+            continue;
+        if (j.ins.mnemonic != ZYDIS_MNEMONIC_JNL && j.ins.mnemonic != ZYDIS_MNEMONIC_JNS) continue;
+        const long long target = branchTarget(j);
+        if (target <= static_cast<long long>(j.off)) continue;
+        std::size_t end = k + 2;
+        while (end < insns.size() && insns[end].off < target) ++end;
+        bool enteredElsewhere = false;
+        for (std::size_t m = 0; m < insns.size() && !enteredElsewhere; ++m) {
+            if (m == k + 1) continue;
+            const long long t = branchTarget(insns[m]);
+            enteredElsewhere = t > static_cast<long long>(j.off) && t < target && insns[m].ins.mnemonic != ZYDIS_MNEMONIC_CALL;
+        }
+        if (enteredElsewhere) continue;
+        for (std::size_t m = k; m < end; ++m) dead[m] = true;
+    }
+    return dead;
+}
+
 bool isMasked(const CoffFunction& f, const Insn& i)
 {
     for (std::uint32_t o = i.off; o < i.off + i.ins.length; ++o)
@@ -748,11 +784,35 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
     /// Unpaired condition family → (count in ours, count in vanilla). Counts may differ (tail duplication copies a
     /// branch); a family unpaired on one side only means a tested condition changed.
     std::map<std::string, std::pair<int, int>> conditions;
-    std::size_t                                aligned = 0, glue = 0, segment = 0;
-    for (const auto& [ia, ib] : alignInstructions(a, b)) {
+    std::size_t                                aligned = 0, glue = 0, segment = 0, deadCount = 0;
+
+    // Provably dead code is left out on both sides before aligning: one compiler build deletes it, another keeps it.
+    auto live = [&](const std::vector<Insn>& all) {
+        const auto        dead = provablyDead(all);
+        std::vector<Insn> out;
+        for (std::size_t k = 0; k < all.size(); ++k) {
+            if (dead[k]) ++deadCount;
+            else out.push_back(all[k]);
+        }
+        return out;
+    };
+    // Callee-saved register spills happen before the frame is allocated (`sub rsp, N`); how many registers a build
+    // needs is register allocation, not an effect.
+    auto prologueEnd = [](const std::vector<Insn>& all) {
+        for (std::size_t k = 0; k < all.size(); ++k)
+            if (all[k].ins.mnemonic == ZYDIS_MNEMONIC_SUB && all[k].ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                all[k].ops[0].reg.value == ZYDIS_REGISTER_RSP)
+                return all[k].off;
+        return 0u;
+    };
+    const std::vector<Insn> liveA = live(a);
+    const std::vector<Insn> liveB = live(b);
+    const std::uint32_t     prologueA = prologueEnd(a);
+    const std::uint32_t     prologueB = prologueEnd(b);
+    for (const auto& [ia, ib] : alignInstructions(liveA, liveB)) {
         if (ia >= 0 && ib >= 0) {
-            const auto& x = a[std::size_t(ia)];
-            const auto& y = b[std::size_t(ib)];
+            const auto& x = liveA[std::size_t(ia)];
+            const auto& y = liveB[std::size_t(ib)];
             const bool  masked = isMasked(ours, x);
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_NOP) { ++aligned; continue; }   // alignment padding: its encoding is filler
             for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
@@ -774,13 +834,13 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
             ++aligned;
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_CALL) ++segment;
         } else if (ia >= 0) {
-            const Insn& x = a[std::size_t(ia)];
+            const Insn& x = liveA[std::size_t(ia)];
             if (const char* fam = conditionFamily(x.ins.mnemonic)) ++conditions[fam].first;
-            if (hasEffect(x)) effectsA.push_back({ &x, segment }); else ++glue;
+            if (hasEffect(x) && x.off >= prologueA) effectsA.push_back({ &x, segment }); else ++glue;
         } else {
-            const Insn& y = b[std::size_t(ib)];
+            const Insn& y = liveB[std::size_t(ib)];
             if (const char* fam = conditionFamily(y.ins.mnemonic)) ++conditions[fam].second;
-            if (hasEffect(y)) effectsB.push_back({ &y, segment }); else ++glue;
+            if (hasEffect(y) && y.off >= prologueB) effectsB.push_back({ &y, segment }); else ++glue;
         }
     }
     for (const auto& [fam, counts] : conditions) {
@@ -807,6 +867,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
     }
     why = std::to_string(aligned) + " aligned, " + std::to_string(glue) + " unpaired side-effect-free, " +
           std::to_string(effectsA.size()) + " store(s) with a different source";
+    if (deadCount) why += ", " + std::to_string(deadCount) + " provably dead";
     return true;
 }
 
