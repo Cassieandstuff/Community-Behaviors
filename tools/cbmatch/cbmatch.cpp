@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -75,9 +76,17 @@ struct UnitSpec {
     std::vector<FunctionSpec> functions;
 };
 
+struct RuntimeSpec {
+    std::string name;
+    fs::path    exe;
+    fs::path    addressLibrary;   ///< the runtime's Address Library .bin; empty = no reference checking
+    std::string pins;             ///< which engine.yaml pin column this runtime uses (se | ae | vr); defaults to `name`
+};
+
 struct Manifest {
     fs::path                                     dir;
-    std::vector<std::pair<std::string, fs::path>> runtimes;     ///< in file order; the first is the default
+    std::vector<RuntimeSpec>                     runtimes;     ///< in file order; the first is the default
+    fs::path                                     registry;     ///< engine.yaml; empty = no reference checking
     std::vector<std::pair<std::string, fs::path>> toolchains;   ///< name → cl.exe, in file order
     std::vector<std::string>                     flags;
     std::vector<fs::path>                        includes;
@@ -175,8 +184,24 @@ Manifest loadManifest(const fs::path& path)
     const auto          root = tree.crootref();
 
     Manifest m;
-    m.dir        = fs::absolute(path).parent_path();
-    m.runtimes   = namedPaths(root, "runtimes", m.dir);
+    m.dir = fs::absolute(path).parent_path();
+    auto resolve = [&](const std::string& p) { const fs::path q = expandEnv(p); return q.is_absolute() ? q : m.dir / q; };
+    if (has(root, "runtimes")) {
+        for (const auto r : root["runtimes"].children()) {
+            RuntimeSpec rt;
+            rt.name = str(r.key());
+            rt.pins = rt.name;
+            if (r.is_map()) {
+                rt.exe = resolve(val(r["exe"]));
+                if (has(r, "addresslib")) rt.addressLibrary = resolve(val(r["addresslib"]));
+                if (has(r, "pins")) rt.pins = val(r["pins"]);
+            } else {
+                rt.exe = resolve(val(r));
+            }
+            m.runtimes.push_back(std::move(rt));
+        }
+    }
+    if (has(root, "registry")) m.registry = resolve(val(root["registry"]));
     m.toolchains = namedPaths(root, "toolchains", m.dir);
     m.flags      = strSeq(root, "flags");
     for (const auto& inc : strSeq(root, "includes")) m.includes.push_back(fs::path(inc).is_absolute() ? fs::path(inc) : m.dir / inc);
@@ -198,7 +223,7 @@ Manifest loadManifest(const fs::path& path)
                 for (const auto r : va.children()) fn.va[str(r.key())] = parseAddress(val(r));
             } else {
                 if (m.runtimes.empty()) throw std::runtime_error("a scalar va needs at least one runtime");
-                fn.va[m.runtimes.front().first] = parseAddress(val(va));
+                fn.va[m.runtimes.front().name] = parseAddress(val(va));
             }
             unit.functions.push_back(std::move(fn));
         }
@@ -213,10 +238,11 @@ Manifest loadManifest(const fs::path& path)
 struct PeImage {
     struct Section { std::uint32_t va, vsize, raw, rawSize; };
 
-    Bytes                bytes;
-    std::uint64_t        imageBase = 0;
-    std::vector<Section> sections;
-    std::uint32_t        pdataRva = 0, pdataSize = 0;
+    Bytes                                   bytes;
+    std::uint64_t                           imageBase = 0;
+    std::vector<Section>                    sections;
+    std::uint32_t                           pdataRva = 0, pdataSize = 0;
+    std::map<std::uint64_t, std::string>    importsBySlot;   ///< IAT slot address → imported function name
 
     std::optional<std::size_t> fileOffset(std::uint32_t rva, std::size_t n) const
     {
@@ -281,7 +307,130 @@ PeImage loadPe(const fs::path& path)
     }
     for (std::size_t i = 0, sh = opt + optSize; i < nSections; ++i, sh += 40)
         pe.sections.push_back({ rd<std::uint32_t>(b, sh + 12), rd<std::uint32_t>(b, sh + 8), rd<std::uint32_t>(b, sh + 20), rd<std::uint32_t>(b, sh + 16) });
+
+    // Import table: every IAT slot named by its import, so `call [__imp_X]` can be checked by name.
+    if (nDirs > IMAGE_DIRECTORY_ENTRY_IMPORT) {
+        const auto impRva = rd<std::uint32_t>(b, opt + 112 + IMAGE_DIRECTORY_ENTRY_IMPORT * 8);
+        auto cstr = [&](std::uint32_t rva) -> std::string {
+            const auto o = pe.fileOffset(rva, 1);
+            if (!o) return {};
+            const char* p = reinterpret_cast<const char*>(b.data() + *o);
+            return std::string(p, strnlen(p, b.size() - *o));
+        };
+        for (std::uint32_t d = impRva; impRva != 0; d += 20) {
+            const auto o = pe.fileOffset(d, 20);
+            if (!o) break;
+            const auto names = rd<std::uint32_t>(b, *o);
+            const auto iat   = rd<std::uint32_t>(b, *o + 16);
+            if (names == 0 && iat == 0) break;
+            for (std::uint32_t k = 0;; ++k) {
+                const auto t = pe.fileOffset((names ? names : iat) + k * 8, 8);
+                if (!t) break;
+                const auto thunk = rd<std::uint64_t>(b, *t);
+                if (thunk == 0) break;
+                if (!(thunk >> 63)) pe.importsBySlot[pe.imageBase + iat + k * 8] = cstr(static_cast<std::uint32_t>(thunk) + 2);
+            }
+        }
+    }
     return pe;
+}
+
+// ── engine symbols: the Address Library + src/core/hooks/registry/engine.yaml ────────────────────────────────────
+
+/// @brief Address Library id → image offset, decoded as CommonLibSSE-NG's REL::IDDB does (formats 1, 2 and the dense 5).
+std::map<std::uint64_t, std::uint64_t> loadAddressLibrary(const fs::path& path)
+{
+    auto bytes = CB::engine::disk::ReadBytes(path);
+    if (!bytes) throw std::runtime_error("cannot read Address Library " + path.string());
+    const Bytes& b = *bytes;
+    std::size_t  p = 0;
+    auto take = [&](auto v) { using T = decltype(v); T out = rd<T>(b, p); p += sizeof(T); return out; };
+
+    std::map<std::uint64_t, std::uint64_t> out;
+    const auto format = take(std::int32_t{});
+    if (format == 5) {
+        p += 4 * 4 + 64;
+        take(std::int32_t{});
+        take(std::int32_t{});
+        const auto count = take(std::int32_t{});
+        for (std::int32_t i = 0; i < count; ++i)
+            if (const auto o = take(std::uint32_t{})) out[std::uint64_t(i)] = o;
+        return out;
+    }
+    if (format != 1 && format != 2) throw std::runtime_error(path.string() + ": Address Library format " + std::to_string(format) + " unsupported");
+    p += 4 * 4;
+    p += std::size_t(take(std::int32_t{}));   // module name
+    const auto pointerSize = std::uint64_t(take(std::int32_t{}));
+    const auto count       = take(std::int32_t{});
+    std::uint64_t prevId = 0, prevOffset = 0;
+    for (std::int32_t n = 0; n < count; ++n) {
+        const auto type = take(std::uint8_t{});
+        const int  lo = type & 0xF, hi = type >> 4;
+        std::uint64_t id = 0;
+        switch (lo) {
+            case 0: id = take(std::uint64_t{}); break;
+            case 1: id = prevId + 1; break;
+            case 2: id = prevId + take(std::uint8_t{}); break;
+            case 3: id = prevId - take(std::uint8_t{}); break;
+            case 4: id = prevId + take(std::uint16_t{}); break;
+            case 5: id = prevId - take(std::uint16_t{}); break;
+            case 6: id = take(std::uint16_t{}); break;
+            case 7: id = take(std::uint32_t{}); break;
+            default: throw std::runtime_error(path.string() + ": bad id encoding");
+        }
+        const std::uint64_t base = (hi & 8) ? prevOffset / pointerSize : prevOffset;
+        std::uint64_t offset = 0;
+        switch (hi & 7) {
+            case 0: offset = take(std::uint64_t{}); break;
+            case 1: offset = base + 1; break;
+            case 2: offset = base + take(std::uint8_t{}); break;
+            case 3: offset = base - take(std::uint8_t{}); break;
+            case 4: offset = base + take(std::uint16_t{}); break;
+            case 5: offset = base - take(std::uint16_t{}); break;
+            case 6: offset = take(std::uint16_t{}); break;
+            case 7: offset = take(std::uint32_t{}); break;
+        }
+        if (hi & 8) offset *= pointerSize;
+        out[id] = offset;
+        prevId = id;
+        prevOffset = offset;
+    }
+    return out;
+}
+
+/// @brief Where each engine symbol that reimplemented code references lives in this runtime's exe.
+struct EngineSymbols {
+    std::map<std::string, std::uint64_t>    byCpp;        ///< engine.yaml `cpp` name → absolute address
+    std::map<std::string, std::string>      registryName; ///< `cpp` name → engine.yaml name
+    std::map<std::uint64_t, std::uint64_t>  idByOffset;   ///< image offset → Address Library id (for --suggest)
+};
+
+EngineSymbols loadEngineSymbols(const fs::path& registry, const fs::path& addressLibrary, const std::string& pins, std::uint64_t imageBase)
+{
+    EngineSymbols out;
+    const auto library = loadAddressLibrary(addressLibrary);
+    for (const auto& [id, offset] : library) out.idByOffset.emplace(offset, id);
+
+    auto text = CB::engine::disk::ReadFile(registry, { .stripBom = true });
+    if (!text) throw std::runtime_error("cannot read registry " + registry.string());
+    ensureRymlThrows();
+    const c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(*text));
+    const auto          root = tree.crootref();
+    if (!has(root, "symbols")) throw std::runtime_error(registry.string() + " has no symbols:");
+    for (const auto s : root["symbols"].children()) {
+        if (!has(s, "cpp") || !has(s, pins.c_str())) continue;
+        const std::string cpp = val(s["cpp"]);
+        const std::string pin = val(s[c4::to_csubstr(pins.c_str())]);
+        const auto        plus = pin.find('+');
+        const auto        id = std::stoull(pin.substr(0, plus));
+        const auto        off = plus == std::string::npos ? 0ull : std::stoull(pin.substr(plus + 1), nullptr, 16);
+        if (id == 0) continue;
+        const auto it = library.find(id);
+        if (it == library.end()) throw std::runtime_error("engine.yaml " + val(s["name"]) + ": id " + std::to_string(id) + " is not in " + addressLibrary.string());
+        out.byCpp[cpp]        = imageBase + it->second + off;
+        out.registryName[cpp] = val(s["name"]);
+    }
+    return out;
 }
 
 // ── compiled objects ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -290,7 +439,8 @@ struct CoffFunction {
     std::string                            mangled, name;
     Bytes                                  bytes;
     std::vector<bool>                      mask;     ///< bytes a relocation fills in at link time
-    std::map<std::uint32_t, std::string>   targets;  ///< reloc offset → the symbol it refers to
+    struct Target { std::string mangled, name; };
+    std::map<std::uint32_t, Target>        targets;  ///< reloc offset → the symbol it refers to
 };
 
 std::mutex g_dbghelp;   // dbghelp is single-threaded
@@ -379,7 +529,7 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
                 const auto        width = relocWidth(rd<std::uint16_t>(b, ro + 8));
                 if (at < begin || at >= end) continue;
                 for (std::uint32_t w = 0; w < width && at - begin + w < f.mask.size(); ++w) f.mask[at - begin + w] = true;
-                if (sym < names.size()) f.targets[at - begin] = undecorate(names[sym]);
+                if (sym < names.size()) f.targets[at - begin] = { names[sym], undecorate(names[sym]) };
             }
             out.push_back(std::move(f));
         }
@@ -570,6 +720,13 @@ int statusRank(Status s)
     }
 }
 
+/// @brief A reference our code makes that engine.yaml can't place yet.
+struct UnmappedRef {
+    std::string   name, mangled;
+    std::uint64_t vanillaTarget = 0;   ///< where vanilla's matching instruction points
+    bool          code = false;        ///< reached by call/jmp (a function), else data
+};
+
 struct Match {
     Status      status = Status::Missing;
     std::string toolchain;
@@ -578,12 +735,17 @@ struct Match {
     long long   firstDiff = -1;
     std::string detail;
     std::vector<std::string> listing;
+
+    bool                     refsChecked = false;
+    std::size_t              refsVerified = 0, refsUnverifiable = 0;
+    std::vector<std::string> refsWrong;
+    std::vector<UnmappedRef> refsUnmapped;
 };
 
 std::string targetNote(const CoffFunction& f, const Insn& i)
 {
     for (std::uint32_t o = i.off; o < i.off + i.ins.length; ++o)
-        if (auto it = f.targets.find(o); it != f.targets.end()) return "  -> " + it->second;
+        if (auto it = f.targets.find(o); it != f.targets.end()) return "  -> " + it->second.name;
     return {};
 }
 
@@ -917,7 +1079,108 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
     return true;
 }
 
-Match compare(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing)
+/// @brief The absolute address an instruction's relative branch or RIP-relative operand points at.
+std::optional<std::uint64_t> absoluteTarget(const Insn& i, std::uint64_t runtimeAddress)
+{
+    for (std::uint8_t k = 0; k < i.ins.operand_count_visible; ++k) {
+        const auto& op = i.ops[k];
+        const bool  rel = (op.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && op.imm.is_relative) ||
+                         (op.type == ZYDIS_OPERAND_TYPE_MEMORY && op.mem.base == ZYDIS_REGISTER_RIP);
+        ZyanU64 abs = 0;
+        if (rel && ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&i.ins, &op, runtimeAddress, &abs))) return abs;
+    }
+    return std::nullopt;
+}
+
+/// @brief Checks every relocation in our function against where vanilla's matching instruction points, using
+///        engine.yaml's `cpp` names: masked bytes say nothing about WHAT is referenced, so without this a call to the
+///        wrong engine function (or a load of the wrong constant) would still match.
+/// @brief Checks a reference that carries its own meaning: a compiler constant (`__real@3f800000`, `__xmm@<32 hex>`,
+///        named for its bytes) against vanilla's bytes at the target, an import (`__imp_X`) against the exe's import
+///        table. nullopt = not such a reference.
+std::optional<std::string> selfCheck(const std::string& name, std::uint64_t target, const PeImage& pe)
+{
+    for (const char* prefix : { "__real@", "__xmm@" }) {
+        if (name.rfind(prefix, 0) != 0) continue;
+        const std::string hexBytes = name.substr(std::strlen(prefix));
+        const std::size_t n        = hexBytes.size() / 2;
+        const auto        off      = pe.fileOffset(static_cast<std::uint32_t>(target - pe.imageBase), n);
+        if (!off) return "constant " + name + ": vanilla target 0x" + hex(target) + " is not in the file image";
+        for (std::size_t k = 0; k < n; ++k) {   // the name spells the value most-significant byte first
+            const auto expect = static_cast<std::uint8_t>(std::stoul(hexBytes.substr((n - 1 - k) * 2, 2), nullptr, 16));
+            if (pe.bytes[*off + k] != expect) return "constant " + name + " differs from vanilla's bytes at 0x" + hex(target);
+        }
+        return std::string();
+    }
+    if (name.rfind("__imp_", 0) == 0) {
+        const auto it = pe.importsBySlot.find(target);
+        if (it == pe.importsBySlot.end()) return "import " + name + ": vanilla 0x" + hex(target) + " is not an import slot";
+        if (it->second != name.substr(6)) return "import " + name + ": vanilla calls " + it->second;
+        return std::string();
+    }
+    return std::nullopt;
+}
+
+void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn>& a, const std::vector<Insn>& b, std::uint64_t va,
+                      const EngineSymbols& syms, const PeImage& pe)
+{
+    m.refsChecked = true;
+    for (const auto& [ia, ib] : alignInstructions(a, b)) {
+        if (ia < 0) continue;
+        const Insn& x = a[std::size_t(ia)];
+        for (std::uint32_t o = x.off; o < x.off + x.ins.length; ++o) {
+            const auto t = ours.targets.find(o);
+            if (t == ours.targets.end()) continue;
+            if (t->second.mangled.rfind("??_C@", 0) == 0 || t->second.name == "`string'") continue;   // string literals
+            if (ib < 0) { ++m.refsUnverifiable; continue; }
+            const Insn& y      = b[std::size_t(ib)];
+            const auto  actual = absoluteTarget(y, va + y.off);
+            if (actual) {
+                if (const auto self = selfCheck(t->second.mangled, *actual, pe)) {
+                    if (self->empty()) ++m.refsVerified;
+                    else m.refsWrong.push_back(*self);
+                    continue;
+                }
+            }
+            auto it = syms.byCpp.find(t->second.name);
+            if (it == syms.byCpp.end()) it = syms.byCpp.find(t->second.mangled);
+            if (it != syms.byCpp.end()) {
+                if (actual && *actual == it->second) {
+                    ++m.refsVerified;
+                } else {
+                    m.refsWrong.push_back(t->second.name + " should be 0x" + hex(it->second) + " (" + syms.registryName.at(it->first) +
+                                          ") but vanilla +0x" + hex(y.off) + " references " + (actual ? "0x" + hex(*actual) : std::string("nothing")));
+                }
+            } else if (actual) {
+                const bool code = x.ins.mnemonic == ZYDIS_MNEMONIC_CALL || x.ins.mnemonic == ZYDIS_MNEMONIC_JMP;
+                m.refsUnmapped.push_back({ t->second.name, t->second.mangled, *actual, code });
+            } else {
+                ++m.refsUnverifiable;
+            }
+        }
+    }
+    if (!m.refsWrong.empty()) {
+        std::string why = "wrong reference(s): ";
+        for (std::size_t k = 0; k < m.refsWrong.size(); ++k) why += (k ? "; " : "") + m.refsWrong[k];
+        m.detail = why + (m.detail.empty() ? "" : "\n" + m.detail);
+        m.status = Status::Structural;
+    }
+}
+
+Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing);
+
+Match compare(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing, const EngineSymbols* syms, const PeImage& pe)
+{
+    Match m = classify(ours, vanilla, va, wantListing);
+    if (syms) {
+        const auto a = disassemble(ours.bytes);
+        const auto b = disassemble(vanilla);
+        if (a && b) verifyReferences(m, ours, *a, *b, va, *syms, pe);
+    }
+    return m;
+}
+
+Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing)
 {
     Match m;
     m.oursLen    = ours.bytes.size();
@@ -981,9 +1244,11 @@ void usage()
         "  --jobs <n>           parallel compiles (default: hardware threads)\n"
         "  --allow-regalloc     exit 0 when every function is EXACT or REGALLOC\n"
         "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT\n"
+        "  --suggest            print engine.yaml lines (with Address Library ids) for unmapped references\n"
         "\n"
         "manifest:\n"
-        "  runtimes:   { ae: ${CB_MATCH_EXE_AE} }        # name -> exe; ${VAR} reads the environment\n"
+        "  runtimes:   { ae: { exe: <exe>, addresslib: <versionlib-*.bin>, pins: ae } }   # or name: <exe>; ${VAR} = env\n"
+        "  registry:   <engine.yaml>   # then every relocation is checked against the cpp: names there\n"
         "  toolchains: { vs2015: <cl.exe>, vs2017: <cl.exe> }   # every toolchain is tried; the best result wins\n"
         "  flags:      [/O2, /GS-, /fp:fast]\n"
         "  includes:   [dir, ...]                       # relative to the manifest\n"
@@ -998,13 +1263,14 @@ void usage()
         "register choice, branch layout and side-effect-free instructions differ - what a different build of the same\n"
         "compiler produces; it does NOT check register dataflow, so a dropped or changed register computation such as a\n"
         "loop counter step passes), STRUCTURAL, MISSING (symbol or address not found), COMPILE-ERROR.\n"
-        "Exit code 0 only when every function is EXACT.");
+        "With a registry, a relocation that points somewhere other than its engine.yaml address makes the function\n"
+        "STRUCTURAL whatever its bytes say. Exit code 0 only when every function is EXACT.");
 }
 
 struct Options {
     fs::path    manifest, exe, work, report;
     std::string runtime, only;
-    bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false;
+    bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false, suggest = false;
     unsigned    jobs = 0;
 };
 
@@ -1013,14 +1279,19 @@ int run(const Options& opt)
     const Manifest m = loadManifest(opt.manifest);
     if (m.runtimes.empty() && opt.exe.empty()) throw std::runtime_error("no runtime: add runtimes: to the manifest or pass --exe");
 
-    std::string runtime = opt.runtime.empty() ? (m.runtimes.empty() ? std::string("default") : m.runtimes.front().first) : opt.runtime;
-    fs::path    exePath = opt.exe;
+    std::string        runtime = opt.runtime.empty() ? (m.runtimes.empty() ? std::string("default") : m.runtimes.front().name) : opt.runtime;
+    const RuntimeSpec* rt      = nullptr;
+    for (const auto& r : m.runtimes) if (r.name == runtime) rt = &r;
+    fs::path exePath = opt.exe;
     if (exePath.empty()) {
-        const auto it = std::find_if(m.runtimes.begin(), m.runtimes.end(), [&](const auto& r) { return r.first == runtime; });
-        if (it == m.runtimes.end()) throw std::runtime_error("manifest has no runtime '" + runtime + "'");
-        exePath = it->second;
+        if (!rt) throw std::runtime_error("manifest has no runtime '" + runtime + "'");
+        exePath = rt->exe;
     }
     const PeImage pe = loadPe(exePath);
+
+    std::optional<EngineSymbols> syms;
+    if (!m.registry.empty() && rt && !rt->addressLibrary.empty())
+        syms = loadEngineSymbols(m.registry, rt->addressLibrary, rt->pins, pe.imageBase);
 
     const fs::path work = opt.work.empty() ? fs::temp_directory_path() / "cbmatch" / m.dir.filename() / opt.manifest.stem() : opt.work;
 
@@ -1078,7 +1349,7 @@ int run(const Options& opt)
                             mt.detail = "address 0x" + hex(row.va) + " is not in the exe's file image";
                         } else {
                             Bytes vanilla(pe.bytes.begin() + *off, pe.bytes.begin() + *off + len);
-                            mt = compare(ours, vanilla, row.va, opt.show || opt.showAll);
+                            mt = compare(ours, vanilla, row.va, opt.show || opt.showAll, syms ? &*syms : nullptr, pe);
                             mt.toolchain = tc;
                             if (!end) mt.detail += (mt.detail.empty() ? "" : "; ") + std::string("no .pdata entry, length assumed from ours");
                         }
@@ -1115,11 +1386,44 @@ int run(const Options& opt)
         if (!b.detail.empty() && b.status != Status::Exact) {
             for (const auto line : CB::engine::text::SplitLines(b.detail)) std::printf("    %.*s\n", int(line.size()), line.data());
         }
+        if (b.refsChecked) {
+            std::printf("    references: %zu verified, %zu unmapped, %zu unverifiable", b.refsVerified, b.refsUnmapped.size(), b.refsUnverifiable);
+            if (!b.refsUnmapped.empty()) {
+                std::printf(" (");
+                std::size_t shown = 0;
+                for (const auto& u : b.refsUnmapped) {
+                    if (shown++ == 4) { std::printf(", ..."); break; }
+                    std::printf("%s%s", shown > 1 ? ", " : "", u.name.c_str());
+                }
+                std::printf(")");
+            }
+            std::printf("\n");
+        }
         if ((opt.showAll || (opt.show && b.status != Status::Exact)) && !b.listing.empty()) {
             std::printf("    %-63s | vanilla 0x%s\n", ("ours (" + b.toolchain + ")").c_str(), hex(r.va).c_str());
             for (const auto& line : b.listing)
                 if (!opt.changesOnly || line[0] != ' ') std::printf("    %s\n", line.c_str());
             std::printf("\n");
+        }
+    }
+
+    if (opt.suggest && syms) {
+        std::map<std::string, const UnmappedRef*> unique;
+        for (const auto& r : rows)
+            for (const auto& u : r.best.refsUnmapped) unique.emplace(u.name, &u);
+        std::printf("\n# engine.yaml lines for the unmapped references (%s pins; other runtimes 0 until verified):\n", rt->pins.c_str());
+        for (const auto& [name, u] : unique) {
+            const auto        id    = syms->idByOffset.find(u->vanillaTarget - pe.imageBase);
+            const std::string ident = [&] {
+                std::string s;
+                for (char c : name) s += (std::isalnum(static_cast<unsigned char>(c)) || c == '_') ? c : '_';
+                while (s.find("__") != std::string::npos) s.erase(s.find("__"), 1);
+                return s;
+            }();
+            const std::string pin = id == syms->idByOffset.end() ? std::string("?") : std::to_string(id->second);
+            std::printf("  - { name: %s, kind: %s, se: 0, ae: %s, vr: 0, cpp: \"%s\" }  # vanilla 0x%s%s\n", ident.c_str(),
+                        u->code ? "func" : "data", rt->pins == "ae" ? pin.c_str() : "0", name.c_str(), hex(u->vanillaTarget).c_str(),
+                        id == syms->idByOffset.end() ? " - no exact Address Library id (mid-object?)" : "");
         }
     }
 
@@ -1169,6 +1473,7 @@ int main(int argc, char** argv)
         else if (a == "--jobs") opt.jobs = static_cast<unsigned>(std::stoul(next()));
         else if (a == "--allow-regalloc") opt.allowRegalloc = true;
         else if (a == "--allow-variant") opt.allowVariant = true;
+        else if (a == "--suggest") opt.suggest = true;
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }
