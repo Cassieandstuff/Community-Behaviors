@@ -529,3 +529,15 @@ symbols:
   - { name: hkOstream_Dtor, kind: func, se: 0, ae: 57513, vr: 0, cpp: "CB::schema::hkOstream::~hkOstream" }
   - { name: hkMath_Acos, kind: func, se: 0, ae: 60037, vr: 0, cpp: "CB::schema::hkMath::acos" }  # out-of-line copy: 0 at >= 1, pi at <= -1, else acosf
   - { name: CRT_acosf, kind: func, se: 0, ae: 109723, vr: 0, cpp: "acosf" }  # the CRT acosf
+  - { name: hkbTransitionEffect_DefaultCtor, kind: func, se: 0, ae: 59487, vr: 0, cpp: "??0hkbTransitionEffect@schema@CB@@QEAA@XZ" }  # out of line; the effects' default constructors call it
+  - { name: hkbTransitionEffect_CloneCtor, kind: func, se: 0, ae: 59488, vr: 0, cpp: "??0hkbTransitionEffect@schema@CB@@QEAA@AEBV012@@Z" }  # out of line; the effects' clone copies call it
+  - { name: hkbTransitionEffect_ApplySelfTransitionMode, kind: func, se: 0, ae: 59490, vr: 0, cpp: "CB::schema::hkbTransitionEffect::applySelfTransitionMode" }  # name provisional; restarts an already-active to-generator per m_selfTransitionMode
+  - { name: hkbTransitionEffect_GetEventMode, kind: func, se: 0, ae: 59491, vr: 0, cpp: "CB::schema::hkbTransitionEffect::getEventMode" }  # m_eventMode, else m_defaultEventMode
+  - { name: hkbBehaviorGraph_SetLocalTime, kind: func, se: 0, ae: 58357, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setLocalTime" }  # name provisional; (node, localTime): sets node's sync local time, re-syncs the active generators below and calls their setElapsedTime (slot 26)
+  - { name: hkbGeneratorOutputUtils_BlendGeneratorOutputs, kind: func, se: 0, ae: 59303, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::blendGeneratorOutputs" }  # name provisional; (a, b, weight, out): out = a blended toward b by weight
+  - { name: hkbGeneratorTransitionEffect_Vtable, kind: data, se: 0, ae: 226748, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffect::`vftable'" }
+  - { name: hkbGeneratorTransitionEffect_CloneCtor, kind: func, se: 0, ae: 59974, vr: 0, cpp: "??0hkbGeneratorTransitionEffect@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbGeneratorTransitionEffect_UpdateToGeneratorState, kind: func, se: 0, ae: 59991, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffect::updateToGeneratorState" }  # name provisional
+  - { name: hkbGeneratorTransitionEffectInternalState_Vtable, kind: data, se: 0, ae: 226752, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffectInternalState::`vftable'" }
+  - { name: hkbGeneratorTransitionEffectUtils_GenerateInternal, kind: func, se: 0, ae: 60077, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffectUtils::generateInternal" }  # name provisional; generate tail-jumps to it
+  - { name: hkbGeneratorTransitionEffectUtils_ComputeBlendDurations, kind: func, se: 0, ae: 60078, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffectUtils::computeBlendDurations" }  # name provisional; the blend durations scaled to fit the transition generator's cycle

@@ -86,23 +86,24 @@ namespace CB { namespace schema
         typedef int GetChildrenFlags;
 
         /// @brief One child getChildren reports.
-        /// @note 0x10 bytes. +0x8 is unidentified. Plain old data (`bool`, not hkBool): hkArray::setSize must not run a
-        ///       construct loop over it.
+        /// @note 0x10 bytes. Declared POD to hkArray (hkIsPodType, below): setSize must not run a construct loop over it.
+        ///       The flags the transition effects copy between ChildrenInfo and ChildInfo are hkBool (vanilla copies the
+        ///       raw byte); m_isActive stays `bool` as its other writers were matched with it.
         struct ChildInfo
         {
             hkbNode* m_node;
             /// @note Name provisional: the transition effects set it on the child their event mode
             ///       (EVENT_MODE_IGNORE_FROM/TO_GENERATOR) keeps events from.
-            bool     m_ignoreEvents;   ///< +0x8
+            hkBool   m_ignoreEvents;   ///< +0x8
             /// @note Name provisional: the transition effects set it on an already-active to-generator under
             ///       SELF_TRANSITION_MODE_RESET.
-            bool     m_reactivate;     ///< +0x9
+            hkBool   m_reactivate;     ///< +0x9
             /// @note Name provisional: set for a child reported under FLAG_ACTIVE_ONLY (the blender, the behavior
             ///       reference generator); hkbBlendingTransitionEffect sets it on both children under its FLAG_SYNC.
             bool     m_isActive;   ///< +0xa
             /// @note Name provisional: hkbGeneratorTransitionEffect sets it on the to-generator it reports while the
             ///       transition generator still plays (stages 0 and 1), when its generate reads no output of it.
-            bool     m_skipGenerate;   ///< +0xb
+            hkBool   m_skipGenerate;   ///< +0xb
             hkUint8  m_padC[4];
         };
         /// @brief Where getChildren reports to.
@@ -110,13 +111,13 @@ namespace CB { namespace schema
         {
             hkArray<ChildInfo>& m_childInfos;
             /// @note Name provisional: raised with a child's m_ignoreEvents (the transition effects).
-            bool                m_anyIgnoreEvents;   ///< +0x8
+            hkBool              m_anyIgnoreEvents;   ///< +0x8
             /// @note Name provisional: raised with a child's m_reactivate (the transition effects).
-            bool                m_anyReactivate;     ///< +0x9
+            hkBool              m_anyReactivate;     ///< +0x9
             /// @note Name provisional: set alongside a reported child's m_isActive (the behavior reference generator).
             bool                m_anyActive;   ///< +0xa
             /// @note Name provisional: raised with a child's m_skipGenerate (hkbGeneratorTransitionEffect).
-            bool                m_anySkipGenerate;   ///< +0xb
+            hkBool              m_anySkipGenerate;   ///< +0xb
         };
 
         hkUlong     m_userData;     ///< +0x30 — Bethesda keys clip loading off it (the clip tests 0 and 8)
@@ -167,4 +168,6 @@ namespace CB { namespace schema
         virtual bool vfn21();                                                  ///< slot 21
         virtual void vfn22();                                                  ///< slot 22
     };
+
+    template <> struct hkIsPodType<hkbNode::ChildInfo> { enum { result = 1 }; };
 } }

@@ -56,6 +56,23 @@ namespace CB { namespace schema
         HK_FORCE_INLINE operator bool() const { return m_bool != 0; }
     };
 
+    /// @brief Havok's enum stored in a narrower integer.
+    /// @note A class, not the bare integer: an hkEnum local whose value passes through hkMath::max2 lives in a stack
+    ///       slot whose address is taken (hkbGeneratorTransitionEffect's stage), as vanilla's does.
+    template <typename ENUM, typename STORAGE>
+    class hkEnum
+    {
+    public:
+        HK_FORCE_INLINE hkEnum() {}
+        HK_FORCE_INLINE hkEnum(ENUM e) { m_storage = static_cast<STORAGE>(e); }
+        HK_FORCE_INLINE operator ENUM() const { return static_cast<ENUM>(m_storage); }
+        HK_FORCE_INLINE void operator=(ENUM e) { m_storage = static_cast<STORAGE>(e); }
+        HK_FORCE_INLINE bool operator==(ENUM e) const { return m_storage == static_cast<STORAGE>(e); }
+        HK_FORCE_INLINE bool operator!=(ENUM e) const { return m_storage != static_cast<STORAGE>(e); }
+
+        STORAGE m_storage;
+    };
+
     /// @brief The tag a packfile load passes to every finish-loaded constructor.
     struct hkFinishLoadedObjectFlag
     {

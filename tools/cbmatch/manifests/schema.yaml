@@ -685,3 +685,30 @@ units:
       - { name: "CB::schema::BSComputeGainForTimeStep", va: 0x140ba2060 }
       # - { name: "CB::schema::BSLookAtModifierUtils::modifyInternal", va: 0x140ba2090 }  # parked: one dead broadcast shufps vanilla keeps (see parked.yaml)
       # - { name: "CB::schema::BSLookAtModifierUtils::modifyBone", va: 0x140ba2ba0 }  # parked: constants hoisted into different xmm registers (see parked.yaml)
+  - source: ../../../schema/Havok/Behavior/TransitionEffect/Generator/hkbGeneratorTransitionEffect.cpp
+    functions:
+      - { name: "??0hkbGeneratorTransitionEffect@schema@CB@@QEAA@XZ", va: 0x140b02310 }
+      - { name: "??0hkbGeneratorTransitionEffect@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b02400 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::activate", va: 0x140b024d0 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::update", va: 0x140b025e0 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::deactivate", va: 0x140b026f0 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::getMaxNumChildren", va: 0x140b02700 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::getChildren", va: 0x140b02710 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::isValid", va: 0x140b02950 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::cloneNode", va: 0x140b02990 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::generate", va: 0x140b029e0 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::updateSync", va: 0x140b02a00 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::isDone", va: 0x140b02c20 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::setFromGenerator", va: 0x140b02c50 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::setToGenerator", va: 0x140b02c60 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::getFromGeneratorBlendOutTime", va: 0x140b02c70 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::getToGeneratorBlendInTime", va: 0x140b02c80 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::updateToGeneratorState", va: 0x140b02cb0 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::createInternalState", va: 0x140b02d20 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::getInternalState", va: 0x140b02d60 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffect::setInternalState", va: 0x140b02dd0 }
+      - { name: "??_GhkbGeneratorTransitionEffect@schema@CB@@UEAAPEAXI@Z", va: 0x140ac94c0 }
+  - source: ../../../schema/Havok/Behavior/TransitionEffect/Generator/hkbGeneratorTransitionEffectUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbGeneratorTransitionEffectUtils::generateInternal", va: 0x140b0fa30 }
+      - { name: "CB::schema::hkbGeneratorTransitionEffectUtils::computeBlendDurations", va: 0x140b0fb20 }

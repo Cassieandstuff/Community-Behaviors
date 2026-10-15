@@ -30,5 +30,10 @@ namespace CB { namespace schema
         /// @brief Sets every partition bit after the output's pose (all bones set), the pose untouched.
         /// @note 0x140abe0e0; the IK modifiers call it after writing their whole pose back.
         static void markPoseDense(hkbGeneratorOutput& output);
+        /// @brief `out` = `a` blended toward `b` by `weight` (0 = a, 1 = b): the extracted motion and world-from-model,
+        ///        the float tracks, then the pose.
+        /// @note Out of line in vanilla (0x140ad2e30); hkbGeneratorTransitionEffect's generate blends its stage's two
+        ///       children with it.
+        static void blendGeneratorOutputs(const hkbGeneratorOutput& a, const hkbGeneratorOutput& b, hkReal weight, hkbGeneratorOutput& out);
     };
 } }
