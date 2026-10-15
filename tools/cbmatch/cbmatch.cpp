@@ -943,21 +943,66 @@ bool isPlainMove(ZydisMnemonic m)
            m == ZYDIS_MNEMONIC_MOVDQU;
 }
 
-bool isRspSlot(const ZydisDecodedOperand& op)
+/// @brief How far rsp sits below its entry value at each instruction, so stack slots compare across address forms.
+/// @note r11 is a frame base only when the function opens with `mov r11, rsp` and never writes r11 again. After an
+///       unconditional exit (ret / tail jmp) the depth resets to the body's: the following code still has the frame.
+struct Frame {
+    std::map<std::uint32_t, std::int64_t> depth;
+    bool                                  r11IsEntry = false;
+};
+
+Frame frameOf(const std::vector<Insn>& all)
 {
-    return op.type == ZYDIS_OPERAND_TYPE_MEMORY && op.mem.type == ZYDIS_MEMOP_TYPE_MEM && op.mem.base == ZYDIS_REGISTER_RSP &&
-           op.mem.index == ZYDIS_REGISTER_NONE;
+    Frame        f;
+    std::int64_t depth = 0, body = 0;
+    bool         inPrologue = true;
+    if (!all.empty() && all[0].ins.mnemonic == ZYDIS_MNEMONIC_MOV && all[0].ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+        all[0].ops[0].reg.value == ZYDIS_REGISTER_R11 && all[0].ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+        all[0].ops[1].reg.value == ZYDIS_REGISTER_RSP) {
+        f.r11IsEntry = true;
+        for (std::size_t k = 1; k < all.size() && f.r11IsEntry; ++k)
+            for (std::uint8_t o = 0; o < all[k].ins.operand_count; ++o)
+                if (all[k].ops[o].type == ZYDIS_OPERAND_TYPE_REGISTER && enclosing(all[k].ops[o].reg.value) == ZYDIS_REGISTER_R11 &&
+                    (all[k].ops[o].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE))
+                    f.r11IsEntry = false;
+    }
+    for (const auto& i : all) {
+        f.depth[i.off] = depth;
+        const auto& op0  = i.ops[0];
+        const bool  rsp0 = op0.type == ZYDIS_OPERAND_TYPE_REGISTER && op0.reg.value == ZYDIS_REGISTER_RSP;
+        const auto  imm  = i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE ? std::int64_t(i.ops[1].imm.value.s) : 0;
+        switch (i.ins.mnemonic) {
+            case ZYDIS_MNEMONIC_PUSH: depth += 8; break;
+            case ZYDIS_MNEMONIC_POP:  depth -= 8; break;
+            case ZYDIS_MNEMONIC_SUB:  if (rsp0) { depth += imm; if (inPrologue) { body = depth; inPrologue = false; } } break;
+            case ZYDIS_MNEMONIC_ADD:  if (rsp0) depth -= imm; break;
+            case ZYDIS_MNEMONIC_RET:  depth = body; break;
+            case ZYDIS_MNEMONIC_JMP:  if (!inPrologue && depth != body) depth = body; break;
+            default: break;
+        }
+    }
+    return f;
 }
 
-SaveSlots findSaves(const std::vector<Insn>& all)
+/// @brief A stack slot as an offset from the entry rsp (nullopt: not a plain rsp/frame-relative slot).
+std::optional<std::int64_t> slotOf(const ZydisDecodedOperand& op, const Insn& i, const Frame& f)
+{
+    if (op.type != ZYDIS_OPERAND_TYPE_MEMORY || op.mem.type != ZYDIS_MEMOP_TYPE_MEM || op.mem.index != ZYDIS_REGISTER_NONE)
+        return std::nullopt;
+    if (op.mem.base == ZYDIS_REGISTER_RSP) return op.mem.disp.value - f.depth.at(i.off);
+    if (op.mem.base == ZYDIS_REGISTER_R11 && f.r11IsEntry) return op.mem.disp.value;
+    return std::nullopt;
+}
+
+SaveSlots findSaves(const std::vector<Insn>& all, const Frame& f)
 {
     SaveSlots                saves;
     std::set<ZydisRegister> seen;
     for (const auto& i : all) {
-        if (isPlainMove(i.ins.mnemonic) && i.ins.operand_count_visible == 2 && isRspSlot(i.ops[0]) &&
-            i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+        const auto slot = slotOf(i.ops[0], i, f);
+        if (isPlainMove(i.ins.mnemonic) && i.ins.operand_count_visible == 2 && slot && i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER) {
             const ZydisRegister r = i.ops[1].reg.value;
-            if (isCalleeSaved(r) && !seen.count(enclosing(r)) && !saves.count(r)) saves[r] = i.ops[0].mem.disp.value;
+            if (isCalleeSaved(r) && !seen.count(enclosing(r)) && !saves.count(r)) saves[r] = *slot;
         }
         for (std::uint8_t k = 0; k < i.ins.operand_count; ++k) {
             const auto& op = i.ops[k];
@@ -972,18 +1017,18 @@ SaveSlots findSaves(const std::vector<Insn>& all)
 }
 
 /// @brief The save of a callee-saved register, or its restore from that same slot: register allocation, not an effect.
-bool isSaveOrRestore(const Insn& i, const SaveSlots& saves)
+bool isSaveOrRestore(const Insn& i, const SaveSlots& saves, const Frame& f)
 {
     if (!isPlainMove(i.ins.mnemonic) || i.ins.operand_count_visible != 2) return false;
     const auto& d = i.ops[0];
     const auto& s = i.ops[1];
-    if (isRspSlot(d) && s.type == ZYDIS_OPERAND_TYPE_REGISTER) {
+    if (const auto slot = slotOf(d, i, f); slot && s.type == ZYDIS_OPERAND_TYPE_REGISTER) {
         const auto it = saves.find(s.reg.value);
-        return it != saves.end() && it->second == d.mem.disp.value;
+        return it != saves.end() && it->second == *slot;
     }
-    if (d.type == ZYDIS_OPERAND_TYPE_REGISTER && isRspSlot(s)) {
+    if (const auto slot = slotOf(s, i, f); slot && d.type == ZYDIS_OPERAND_TYPE_REGISTER) {
         const auto it = saves.find(d.reg.value);
-        return it != saves.end() && it->second == s.mem.disp.value;
+        return it != saves.end() && it->second == *slot;
     }
     return false;
 }
@@ -1118,8 +1163,31 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     const std::vector<Insn> liveB = live(b);
     const std::uint32_t     prologueA = prologueEnd(a);
     const std::uint32_t     prologueB = prologueEnd(b);
-    const SaveSlots         savesA    = findSaves(a);
-    const SaveSlots         savesB    = findSaves(b);
+    const Frame             frameA    = frameOf(a);
+    const Frame             frameB    = frameOf(b);
+    const SaveSlots         savesA    = findSaves(a, frameA);
+    const SaveSlots         savesB    = findSaves(b, frameB);
+    // Two independent loads a build emitted in the other order get aligned crosswise when keeping them straight would
+    // cost a whole reordered block. Such a pair is accepted only with evidence: the other side has an unpaired read of
+    // each slot (same mnemonic and width), so the reads balance; a wrong field read finds no partner.
+    struct Read { ZydisMnemonic mnemonic; std::uint16_t size; std::int64_t slot; bool stack; bool used = false; };
+    std::vector<Read>                  spareA, spareB;
+    std::vector<std::pair<Read, Read>> crossed;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> crossedAt;   ///< (ours, vanilla) offsets of each crossed pair
+    auto readOf = [](const Insn& i, const Frame& f) -> std::optional<Read> {
+        if (hasEffect(i)) return std::nullopt;
+        for (std::uint8_t k = 0; k < i.ins.operand_count_visible; ++k) {
+            const auto& op = i.ops[k];
+            if (op.type != ZYDIS_OPERAND_TYPE_MEMORY || op.mem.type != ZYDIS_MEMOP_TYPE_MEM || op.mem.base == ZYDIS_REGISTER_RIP) continue;
+            const auto slot = slotOf(op, i, f);
+            return Read{ i.ins.mnemonic, op.size, slot ? *slot : op.mem.disp.value, slot.has_value() };
+        }
+        return std::nullopt;
+    };
+    auto sameRead = [](const Read& p, const Read& q) {
+        return p.mnemonic == q.mnemonic && p.size == q.size && p.slot == q.slot && p.stack == q.stack;
+    };
+
     for (const auto& [ia, ib] : alignInstructions(liveA, liveB)) {
         if (ia >= 0 && ib >= 0) {
             const auto& x = liveA[std::size_t(ia)];
@@ -1127,22 +1195,30 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             const bool  masked = isMasked(ours, x);
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_NOP) { ++aligned; continue; }   // alignment padding: its encoding is filler
             // Which callee-saved register a value lives in picks the slot it is saved to and restored from.
-            if (isSaveOrRestore(x, savesA) && isSaveOrRestore(y, savesB)) { ++aligned; continue; }
+            if (isSaveOrRestore(x, savesA, frameA) && isSaveOrRestore(y, savesB, frameB)) { ++aligned; continue; }
+            bool readsDiffer = false;
             for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
                 const auto& ox = x.ops[o];
                 const auto& oy = y.ops[o];
                 // A read-only memory operand may take another address form after strength reduction ([r9+rcx] for
                 // [rcx]); its displacement still has to match, which is what pins the field being read.
-                if (ox.type == ZYDIS_OPERAND_TYPE_MEMORY && oy.type == ZYDIS_OPERAND_TYPE_MEMORY && ox.mem.type == ZYDIS_MEMOP_TYPE_MEM &&
-                    !(ox.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) && !(oy.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) &&
-                    ox.size == oy.size && (ox.mem.base == ZYDIS_REGISTER_RIP) == (oy.mem.base == ZYDIS_REGISTER_RIP) &&
-                    (masked || ox.mem.disp.value == oy.mem.disp.value))
-                    continue;
+                const bool readOnly = ox.type == ZYDIS_OPERAND_TYPE_MEMORY && oy.type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                                      ox.mem.type == ZYDIS_MEMOP_TYPE_MEM && !(ox.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) &&
+                                      !(oy.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) && ox.size == oy.size &&
+                                      (ox.mem.base == ZYDIS_REGISTER_RIP) == (oy.mem.base == ZYDIS_REGISTER_RIP);
+                if (readOnly && (masked || ox.mem.disp.value == oy.mem.disp.value)) continue;
+                if (readOnly && ox.mem.base != ZYDIS_REGISTER_RIP && !hasEffect(x) && !hasEffect(y)) { readsDiffer = true; continue; }
                 const bool relative = ox.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ox.imm.is_relative;
                 if (!operandsMatch(ox, oy, masked || relative)) {
                     why = "operands differ beyond registers at ours +0x" + hex(x.off) + " / vanilla +0x" + hex(y.off);
                     return false;
                 }
+            }
+            if (readsDiffer) {
+                crossed.emplace_back(*readOf(x, frameA), *readOf(y, frameB));
+                crossedAt.emplace_back(x.off, y.off);
+                ++glue;
+                continue;
             }
             ++aligned;
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_CALL) ++segment;
@@ -1150,12 +1226,28 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             const Insn& x = liveA[std::size_t(ia)];
             if (const char* fam = conditionFamily(x.ins.mnemonic)) ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
-            if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA)) effectsA.push_back({ &x, segment }); else ++glue;
+            if (const auto r = readOf(x, frameA)) spareA.push_back(*r);
+            if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA)) effectsA.push_back({ &x, segment }); else ++glue;
         } else {
             const Insn& y = liveB[std::size_t(ib)];
             if (const char* fam = conditionFamily(y.ins.mnemonic)) ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
-            if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB)) effectsB.push_back({ &y, segment }); else ++glue;
+            if (const auto r = readOf(y, frameB)) spareB.push_back(*r);
+            if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB)) effectsB.push_back({ &y, segment }); else ++glue;
+        }
+    }
+    for (std::size_t k = 0; k < crossed.size(); ++k) {
+        const auto& [rx, ry] = crossed[k];
+        auto take = [&](std::vector<Read>& spare, const Read& want) {
+            const auto it = std::find_if(spare.begin(), spare.end(), [&](const Read& s) { return !s.used && sameRead(s, want); });
+            if (it == spare.end()) return false;
+            it->used = true;
+            return true;
+        };
+        if (!take(spareB, rx) || !take(spareA, ry)) {
+            why = "ours +0x" + hex(crossedAt[k].first) + " reads another field than vanilla +0x" + hex(crossedAt[k].second) +
+                  ", and no unpaired read on the other side makes it a reordering";
+            return false;
         }
     }
     for (const auto& [mnemonic, balance] : floatOps) {
