@@ -752,6 +752,8 @@ units:
       - { name: "CB::schema::hkbBlenderGeneratorUtils::computeSyncedLocalTime", va: 0x140b0ca10 }
   - source: ../../../schema/Havok/Behavior/Character/hkbCharacter.cpp
     functions:
+      - { name: "??1hkbCharacter@schema@CB@@UEAA@XZ", va: 0x140abd130 }
+      - { name: "CB::schema::hkbCharacter::getNearbyRigidBodies", va: 0x140abd290 }
       - { name: "CB::schema::hkbCharacter::getNearbyCharacters", va: 0x140abd540 }
       - { name: "CB::schema::hkbCharacter::activate", va: 0x140abd630 }
       - { name: "CB::schema::hkbCharacter::activateWithInternalState", va: 0x140abd6b0 }
@@ -777,6 +779,7 @@ units:
       - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@PEAVhkbGenerator@12@PEAUhkbBehaviorGraphData@12@@Z", va: 0x140ab1000 }
       - { name: "??1hkbBehaviorGraph@schema@CB@@UEAA@XZ", va: 0x140ab11d0 }
       - { name: "CB::schema::hkbBehaviorGraph::getClassType", va: 0x140ab1770 }
+      - { name: "CB::schema::hkbBehaviorGraph::calcContentStatistics", va: 0x140ab2210 }
       - { name: "CB::schema::hkbBehaviorGraph::activate", va: 0x140ab1780 }
       - { name: "CB::schema::hkbBehaviorGraph::update", va: 0x140ab1890 }
       - { name: "CB::schema::hkbBehaviorGraph::handleEvent", va: 0x140ab1f30 }
@@ -808,3 +811,6 @@ units:
       - { name: "CB::schema::hkbModifier::updateModifier", va: 0x140ad4da0 }
       - { name: "CB::schema::hkbModifier::activateModifier", va: 0x140ad4ff0 }
       - { name: "CB::schema::hkbModifier::deactivateModifier", va: 0x140ad5050 }
+  - source: ../../../schema/Havok/Behavior/Driver/Ragdoll/hkbRagdollDriver.cpp
+    functions:
+      # - { name: "CB::schema::hkbRagdollDriver::reset", va: 0x140aaea40 }  # parked: 100% bytes, reference check ignores the symbol+offset addend

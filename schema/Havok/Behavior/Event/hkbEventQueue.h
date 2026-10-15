@@ -13,6 +13,10 @@ namespace CB { namespace schema
         /// @note An hkBool: hkbSequence::update saves it into a bool with `cmp byte,0; setnz` (a plain bool copies the byte).
         hkBool          m_directMap;     ///< +0x20 — name provisional: true = index the internal→external array
 
+        /// @brief The class allocator (a character owns its queue by pointer).
+        HK_FORCE_INLINE void* operator new(hkUlong nbytes) throw() { return hkMemoryRouter::getInstance().heap().blockAlloc(static_cast<int>(nbytes)); }
+        HK_FORCE_INLINE void  operator delete(void* p, hkUlong nbytes) { hkMemoryRouter::getInstance().heap().blockFree(p, static_cast<int>(nbytes)); }
+
         HK_FORCE_INLINE hkbEventQueue() : m_symbolIdMap(HK_NULL), m_directMap(false) {}
         /// @note Clears the map before the queue storage goes (vanilla stores both before calling ~hkQueue).
         HK_FORCE_INLINE ~hkbEventQueue()

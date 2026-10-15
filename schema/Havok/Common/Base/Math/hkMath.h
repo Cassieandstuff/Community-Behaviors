@@ -267,11 +267,16 @@ namespace CB { namespace schema
         m_quad = _mm_and_ps(refined, _mm_castsi128_ps(_mm_setr_epi32(-1, -1, -1, 0)));
     }
 
+    /// @brief The identity transform hkQsTransform::getIdentity() reads (writable data, filled at startup).
+    extern const hkQuadReal hkQsTransform_identityStorage[3];
+
     struct hkQsTransform
     {
         hkVector4    m_translation;
         hkQuaternion m_rotation;
         hkVector4    m_scale;
+
+        static HK_FORCE_INLINE const hkQsTransform& getIdentity() { return reinterpret_cast<const hkQsTransform&>(hkQsTransform_identityStorage); }
 
         enum IdentityInitializer { IDENTITY };
         HK_FORCE_INLINE hkQsTransform() {}

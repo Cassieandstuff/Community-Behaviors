@@ -594,3 +594,10 @@ symbols:
   - { name: hkbBehaviorGraph_DeletePartitionMemory, kind: func, se: 0, ae: 58386, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::deletePartitionMemory" }  # name provisional
   - { name: hkbBehaviorGraphUtils_CollectNodes, kind: func, se: 0, ae: 59317, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::collectNodes" }  # name provisional; (root, rootBehavior, flags, nodesOut, ?)
   - { name: hkbBehaviorGraphUtils_FreeCloneBlock, kind: func, se: 0, ae: 60122, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::freeCloneBlock" }  # name provisional
+  - { name: hkQsTransform_IdentityStorage, kind: data, se: 0, ae: 407391, vr: 0, cpp: "CB::schema::hkQsTransform_identityStorage" }  # hkQsTransform::getIdentity()
+  - { name: hkbRagdollDriver_SetRagdoll, kind: func, se: 0, ae: 58285, vr: 0, cpp: "CB::schema::hkbRagdollDriver::setRagdoll" }  # (ragdoll) referenced; tears down the old one's state
+  - { name: hkbRagdollDriver_FreeRagdollPoseWS, kind: func, se: 0, ae: 58309, vr: 0, cpp: "CB::schema::hkbRagdollDriver::freeRagdollPoseWS" }  # name provisional; easyFree of +0x90
+  - { name: hkPointerMap_GetMemSize, kind: func, se: 0, ae: 57191, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getMemSize" }  # name provisional; bytes of storage
+  - { name: hkbPhysicsUtils_GetClosestPoints, kind: func, se: 0, ae: 59430, vr: 0, cpp: "CB::schema::hkbPhysicsUtils::getClosestPoints" }  # name provisional; (world, filterInfo, position, tolerance, radius, collector)
+  - { name: hkpAllCdPointCollector_Vtable, kind: data, se: 0, ae: 196331, vr: 0, cpp: "CB::schema::hkpAllCdPointCollector::`vftable'" }
+  - { name: hkbCharacter_SetWorldFromModel, kind: func, se: 0, ae: 58461, vr: 0, cpp: "CB::schema::hkbCharacter::setWorldFromModel" }  # (worldFromModel, deleteWorldFromModel)

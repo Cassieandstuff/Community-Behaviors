@@ -227,4 +227,16 @@ namespace CB { namespace schema
         hkArrayUtil::constructWithArray(m_data + m_size, numElemsToAppend, a, hkArrayIsPod<hkIsPodType<T>::result != 0>());
         m_size = newSize;
     }
+    /// @brief An array with room for N elements in place (no allocation until it outgrows them).
+    template <class T, unsigned N> struct hkInplaceArray : hkArray<T>
+    {
+        T m_storage[N];
+
+        HK_FORCE_INLINE hkInplaceArray()
+        {
+            this->m_data             = m_storage;
+            this->m_size             = 0;
+            this->m_capacityAndFlags = int(N) | hkArray<T>::DONT_DEALLOCATE_FLAG;
+        }
+    };
 } }

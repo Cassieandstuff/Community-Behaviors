@@ -126,13 +126,15 @@ namespace CB { namespace schema
         hkbBehaviorGraph();
         /// @brief A graph over `rootGenerator` and `data` (both referenced).
         hkbBehaviorGraph(hkbGenerator* rootGenerator, hkbBehaviorGraphData* data);
-        /// @note Out of line in vanilla (called by the scalar deleting destructor); not reimplemented yet.
+        /// @note The id maps, data and transition data release through their setters; a graph that cloned its nodes destroys
+        ///       the clones in place and frees their block.
         virtual ~hkbBehaviorGraph();                                                                     ///< slot 0
 
         /// @note Out of line among the type-registration getters (0x140ac2a20); getClassType tail-jumps to it.
         static const hkClass& staticClass();
 
         virtual const void* getClassType() const;                                                      ///< slot 1
+        virtual void        calcContentStatistics(hkStatisticsCollector* collector, const hkClass* cls) const;   ///< slot 2
         /// @brief Builds the active-node tables and activates the active nodes — only as a root (no behavior in the
         ///        context yet).
         virtual void        activate(const hkbContext& context);                                       ///< slot 4

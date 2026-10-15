@@ -5,13 +5,50 @@
 #include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Context/hkbContext.h>
 #include <Behavior/Driver/CharacterController/hkbCharacterControllerDriver.h>
+#include <Behavior/Event/hkbEventQueue.h>
 #include <Behavior/Driver/FootIk/hkbFootIkDriver.h>
 #include <Behavior/Driver/HandIk/hkbHandIkDriver.h>
 #include <Behavior/Driver/Ragdoll/hkbRagdollDriver.h>
 #include <Behavior/World/hkbWorld.h>
+#include <Physics/Collide/Agent/Query/hkpCdPointCollector.h>
+#include <Physics/Dynamics/Entity/hkpRigidBody.h>
+#include <Physics/Dynamics/World/hkpWorld.h>
 
 namespace CB { namespace schema
 {
+    /// @note Owns its event queue; the referenced members release in reverse declaration order after the body.
+    hkbCharacter::~hkbCharacter()
+    {
+        deletePoseLocal();
+        setWorldFromModel(HK_NULL, false);
+        delete m_eventQueue;
+    }
+
+    /// @note The character a rigid body belongs to sits in the body's property 0x1400 (Skyrim's key; name provisional).
+    void hkbCharacter::getNearbyRigidBodies(const hkVector4& position, hkReal radius, hkpWorld* world, hkArray<hkpRigidBody*>& rigidBodiesOut,
+                                            hkUint32 collisionFilterInfo, bool excludeThisCharacter, bool onlyOtherCharacters)
+    {
+        HK_TIMER_BEGIN("get nearby bodies");
+        hkpAllCdPointCollector collector;
+        world->lock();
+        const hkReal tolerance = 0.001f;
+        hkbPhysicsUtils::getClosestPoints(world, collisionFilterInfo, position, tolerance, radius - tolerance, &collector);
+        for (const hkRootCdPoint* hit = collector.m_hits.m_data; hit != collector.m_hits.m_data + collector.m_hits.getSize(); hit++) {
+            const hkpCollidable* collidable = hit->m_rootCollidableB;
+            if (collidable->getType() == hkpCollidable::BROAD_PHASE_ENTITY) {
+                hkpRigidBody* body = static_cast<hkpRigidBody*>(collidable->getOwner());
+                if (excludeThisCharacter || onlyOtherCharacters) {
+                    const hkbCharacter* owner = reinterpret_cast<const hkbCharacter*>(body->getProperty(PROPERTY_CHARACTER));
+                    if (excludeThisCharacter && owner == this) continue;
+                    if (onlyOtherCharacters && owner == HK_NULL) continue;
+                }
+                rigidBodiesOut.pushBack(body);
+            }
+        }
+        world->unlock();
+        HK_TIMER_END();
+    }
+
     void hkbCharacter::getNearbyCharacters(hkReal radius, hkArray<hkbCharacter*>& charactersOut)
     {
         const int        numNearby = m_nearbyCharacters.getSize();
@@ -113,9 +150,7 @@ namespace CB { namespace schema
     void hkbCharacter::setBehavior(hkbBehaviorGraph* behavior)
     {
         hkbBehaviorGraph* oldBehavior = m_behaviorGraph;
-        if (behavior) behavior->addReference();
-        if (m_behaviorGraph) m_behaviorGraph->removeReference();
-        m_behaviorGraph = behavior;
+        m_behaviorGraph               = behavior;
         if (m_world) {
             for (int i = 0; i < m_world->getListeners().getSize(); i++) {
                 m_world->getListeners()[i]->characterBehaviorChangedCallback(this, oldBehavior);
@@ -157,7 +192,9 @@ namespace CB { namespace schema
         m_ragdollDriver(flag),
         m_characterControllerDriver(flag),
         m_footIkDriver(flag),
-        m_setup(flag)
+        m_setup(flag),
+        m_behaviorGraph(flag),
+        m_projectData(flag)
     {
     }
 } }

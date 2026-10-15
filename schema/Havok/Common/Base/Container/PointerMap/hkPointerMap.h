@@ -34,6 +34,9 @@ namespace CB { namespace schema
         /// @brief Empties the map, keeping its storage.
         /// @note Out of line in vanilla (0x140a8c2b0).
         void     clear();
+        /// @brief The bytes the map's storage holds.
+        /// @note Name provisional; out of line in vanilla (0x140a8c4f0).
+        int      getMemSize() const;
 
         /// @brief Iteration over the occupied slots: an iterator is a slot index (sign-extended into a pointer-sized
         ///        handle, as Havok's hkMap::Iterator), valid while <= m_hashMod.

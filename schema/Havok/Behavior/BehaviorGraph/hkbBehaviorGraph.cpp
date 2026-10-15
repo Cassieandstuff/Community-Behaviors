@@ -7,6 +7,7 @@
 #include <Behavior/Generator/hkbGeneratorOutputUtils.h>
 #include <Behavior/Modifier/hkbModifier.h>
 #include <Common/Base/Memory/hkMemory.h>
+#include <Common/Base/Memory/Util/Stats/hkStatisticsCollector.h>
 
 namespace CB { namespace schema
 {
@@ -144,6 +145,29 @@ namespace CB { namespace schema
     const void* hkbBehaviorGraph::getClassType() const
     {
         return &staticClass();
+    }
+
+    /// @note The per-record chunks are addressed as `&m_activeNodes[i]` on the array POINTER (16-byte strides through
+    ///       the hkArray headers, sized as records), as vanilla does; m_characterPropertyIdMap is not reported.
+    void hkbBehaviorGraph::calcContentStatistics(hkStatisticsCollector* collector, const hkClass* cls) const
+    {
+        hkStatisticsCollectorUtil::addDeclaredMembers(this, &hkbBehaviorGraphClass, collector);
+        if (m_activeNodes) {
+            collector->addArray("activeNodes", *m_activeNodes, hkStatisticsCollector::MEMORY_RUNTIME);
+            for (int i = 0; i < m_activeNodes->getSize(); i++) {
+                collector->addNormalChunk("activeNodes", &m_activeNodes[i], sizeof(hkbNodeInfo), 0);
+            }
+            const hkPointerMapStorage& map  = m_activeNodeTemplateToIndexMap->m_map;
+            const int                  size = map.getMemSize();
+            collector->addChunk(hkStatisticsCollector::MEMORY_NORMAL, "activeNodeTemplateToIndexMap", map.m_elem, size,
+                                hkStatisticsCollector::getAllocatedSize(map.m_elem, size));
+            collector->addArray("activeNodesChildrenIndices", *m_activeNodesChildrenIndices, hkStatisticsCollector::MEMORY_RUNTIME);
+        }
+        collector->addReferencedObject("eventIdMap", m_eventIDMap);
+        collector->addReferencedObject("attributeIdMap", m_attributeIdMap);
+        collector->addReferencedObject("variableIdMap", m_variableIdMap);
+        if (m_variableValueSet) collector->addReferencedObject("variableValueSet", m_variableValueSet);
+        hkbGenerator::calcContentStatistics(collector, &hkbGeneratorClass);
     }
 
     /// @note Writes the context's behavior back to null through the const reference (the caller's context is reused).

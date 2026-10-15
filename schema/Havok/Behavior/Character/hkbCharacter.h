@@ -47,15 +47,19 @@ namespace CB { namespace schema
     };
 
     /// @note Vanilla's scalar deleting destructor (0x140abddb0) sits in hkbCharacter's TU, emitted there by
-    ///       hkbCharacter::accessAnimationBindingSet's `new`; it calls the out-of-line destructor.
+    ///       hkbCharacter::accessAnimationBindingSet's `new`; it calls the out-of-line destructor. No user-provided default
+    ///       constructor: that `new hkbAnimationBindingSet()` value-initializes, zeroing the block first.
     struct hkbAnimationBindingSet : hkReferencedObject
     {
         hkArray<hkbAnimationBindingWithTriggers*> m_bindings;   ///< +0x10, indexed by hkbClipGenerator::m_animationBindingIndex
 
-        /// @note No user-provided default constructor: vanilla's `new hkbAnimationBindingSet()` value-initializes, zeroing
-        ///       the block before the members are constructed.
         /// @note Out of line in vanilla (0x140adf660); not reimplemented.
         virtual ~hkbAnimationBindingSet();   ///< slot 0
+    };
+
+    struct hkbProjectData : hkReferencedObject
+    {
+        hkVector4 m_worldUpWS;   ///< +0x10
     };
 
     struct hkbCharacterStringData : hkReferencedObject
@@ -90,8 +94,25 @@ namespace CB { namespace schema
         hkaMirroredSkeleton* getMirroredSkeleton();
     };
 
+    class hkpCdPointCollector;
+
+    /// @brief Physics queries the behavior runtime makes.
+    struct hkbPhysicsUtils
+    {
+        /// @brief Every body within `radius` of `position` (with `tolerance`) that collides with `collisionFilterInfo`, into
+        ///        `collector`.
+        /// @note Name, owner and parameter names provisional; out of line in vanilla (0x140ae1ae0). hkbCharacter passes
+        ///       tolerance 0.001 and radius minus it.
+        static void getClosestPoints(hkpWorld* world, hkUint32 collisionFilterInfo, const hkVector4& position, hkReal tolerance, hkReal radius,
+                                     hkpCdPointCollector* collector);
+    };
+
     struct hkbCharacter : hkReferencedObject
     {
+        /// @brief The rigid-body property key holding the owning hkbCharacter.
+        /// @note Name provisional (Skyrim's 0x1400).
+        enum { PROPERTY_CHARACTER = 0x1400 };
+
         hkArray<hkbCharacter*>                 m_nearbyCharacters;            ///< +0x10
         hkInt16                                m_currentLod;                  ///< +0x20
         hkInt16                                m_numTracksInLod;              ///< +0x22, -1 = no limit
@@ -102,10 +123,9 @@ namespace CB { namespace schema
         hkRefPtr<hkbFootIkDriver>              m_footIkDriver;                ///< +0x40
         hkRefPtr<hkbHandIkDriver>              m_handIkDriver;                ///< +0x48
         hkRefPtr<hkbCharacterSetup>            m_setup;                       ///< +0x50
-        /// @note Referenced (setBehavior swaps it as a hkRefPtr would) but declared raw: code across the tree reads it
-        ///       as a plain pointer.
-        hkbBehaviorGraph*                      m_behaviorGraph;               ///< +0x58
-        hkbProjectData*                        m_projectData;                 ///< +0x60
+        /// @note Callers read it as a plain pointer (hkRefPtr converts); hkbBehaviorGraph may be incomplete where they do.
+        hkRefPtr<hkbBehaviorGraph>             m_behaviorGraph;               ///< +0x58
+        hkRefPtr<hkbProjectData>               m_projectData;                 ///< +0x60
         hkRefPtr<hkbAnimationBindingSet>       m_animationBindingSet;         ///< +0x68
         hkbRaycastInterface*                   m_raycastInterface;            ///< +0x70
         hkbWorld*                              m_world;                       ///< +0x78
@@ -120,7 +140,6 @@ namespace CB { namespace schema
 
         /// @note Leaves m_handIkDriver and m_animationBindingSet null, as vanilla's does (both runtime-only).
         hkbCharacter(hkFinishLoadedObjectFlag flag);
-        /// @note Out of line in vanilla (called by the scalar deleting destructor); not reimplemented yet.
         virtual ~hkbCharacter();                                                                    ///< slot 0
 
         /// @brief The rigid bodies near `position` (within `radius`) that collide with `collisionFilterInfo`.
