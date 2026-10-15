@@ -2557,7 +2557,7 @@ private:
         stackWritten_.clear();
         gprWidth_.fill(0);
         xmmDefined_.fill(false);
-        seed_ = seed; start_ = start; end_ = end;
+        seed_ = seed; start_ = start; end_ = end; entered_ = false;
         stopReason_.clear(); faultAt_.clear();
         recent_.clear();
         outRegions_.clear();
@@ -2709,9 +2709,13 @@ private:
         writeReg(UC_X86_REG_RIP, ret);
     }
 
+    /// @note A second arrival at the entry is a call back into the function (recursion, or a pointer that happens to
+    ///       equal it): a stub on both sides, since a synthetic call target may land on ours' load address, where
+    ///       vanilla's run sees an outside stub.
     void code(std::uint64_t pc, std::uint32_t size)
     {
-        if (pc >= start_ && pc < end_) inside(pc, size);
+        if (pc == start_ && entered_) stub(pc);
+        else if (pc >= start_ && pc < end_) { entered_ = true; inside(pc, size); }
         else if (pc != kSentinel) stub(pc);
     }
 
@@ -2810,6 +2814,7 @@ private:
     std::map<std::uint64_t, Decoded>        decoded_;
 
     std::uint64_t                           seed_ = 0, start_ = 0, end_ = 0, entryRsp_ = 0, tsc_ = 0;
+    bool                                    entered_ = false;   ///< the run has passed the function's entry once
     RunResult                               result_;
     std::set<std::uint64_t>                 writtenAddrs_, stackWritten_, dirtyImage_;
     std::vector<std::uint64_t>              heapPages_;
