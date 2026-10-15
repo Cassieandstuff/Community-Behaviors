@@ -81,7 +81,7 @@ symbols:
 
   # --- hkbClipGenerator ---
   - { name: hkbClipGenerator_Ctor, kind: func, se: 58597, ae: 59247, vr: 0 }
-  - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0 }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
+  - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0, cpp: "hkbClipGenerator::staticClass" }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
   - { name: hkbClipGenerator_Activate, kind: func, se: 58602, ae: 59252, vr: 0 }  # vtable slot 4
   - { name: hkbClipGenerator_Update, kind: func, se: 58603, ae: 59253, vr: 0 }  # vtable slot 5
   - { name: hkbClipGenerator_Deactivate, kind: func, se: 58604, ae: 59254, vr: 0 }  # vtable slot 7
@@ -171,6 +171,7 @@ symbols:
   - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "hkString::strCmp" }
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "hkPointerMapStorage::getWithDefault" }  # name provisional
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@@QEAA@UhkFinishLoadedObjectFlag@@@Z" }
+  - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@@QEAAAEAV0@PEBD@Z" }  # operator=(const char*)
   - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "hkStringBuf::printf" }
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "hkContainerHeapAllocator::s_alloc" }
