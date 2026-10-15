@@ -53,12 +53,15 @@ namespace CB { namespace schema
         ///       state 2, which fits CLONE_STATE_CLONE (a clone the owner made).
         enum CloneState { CLONE_STATE_DEFAULT = 0, CLONE_STATE_TEMPLATE = 1, CLONE_STATE_CLONE = 2, CLONE_STATE_SHARABLE = 3 };
         /// @note Bit 1 = active children only: the blender then reports its active count and skips weightless children.
-        ///       The other bits are the Havok SDK's, unverified here.
-        enum GetChildrenFlagBits { FLAG_ACTIVE_ONLY = 1, FLAG_GENERATORS_ONLY = 4, FLAG_IGNORE_REFERENCED_BEHAVIORS = 8 };
+        ///       Bit 2 = generators only: every modifier wrapper (hkbModifierList, hkbModifierWrapper and its subclasses,
+        ///       hkbModifierGenerator's modifier) leaves its modifiers out under it — so this build's value is 2, not the
+        ///       Havok SDK's 4. FLAG_IGNORE_REFERENCED_BEHAVIORS is the SDK's, unverified here.
+        enum GetChildrenFlagBits { FLAG_ACTIVE_ONLY = 1, FLAG_GENERATORS_ONLY = 2, FLAG_IGNORE_REFERENCED_BEHAVIORS = 8 };
         typedef int GetChildrenFlags;
 
         /// @brief One child getChildren reports.
-        /// @note 0x10 bytes; the blender sets a bool at +0xa (whether that child is active) — the rest is unidentified.
+        /// @note 0x10 bytes. +0x8 is unidentified. Plain old data (`bool`, not hkBool): hkArray::setSize must not run a
+        ///       construct loop over it.
         struct ChildInfo
         {
             hkbNode* m_node;
@@ -69,7 +72,6 @@ namespace CB { namespace schema
             hkUint8  m_padB[5];
         };
         /// @brief Where getChildren reports to.
-        /// @note The blender also sets a bool at +0xa of it; unidentified.
         struct ChildrenInfo
         {
             hkArray<ChildInfo>& m_childInfos;
@@ -108,7 +110,9 @@ namespace CB { namespace schema
         virtual void vfn15();                                                  ///< slot 15
         virtual void setInternalState(const hkReferencedObject& internalState);   ///< slot 16
         virtual void vfn17();                                                  ///< slot 17
-        virtual void vfn18();                                                  ///< slot 18
+        /// @brief Adds the event ids the node reacts to into `activeEvents` (id → true).
+        /// @note Name after the Havok SDK's hkbNode::getActiveEvents; hkbEventDrivenModifier's adds its two event ids.
+        virtual void getActiveEvents(hkPointerMap<int, bool>& activeEvents) const;   ///< slot 18
         virtual void vfn19();                                                  ///< slot 19
         virtual void vfn20();                                                  ///< slot 20
         /// @note hkbNode's returns false, hkbGenerator's true.

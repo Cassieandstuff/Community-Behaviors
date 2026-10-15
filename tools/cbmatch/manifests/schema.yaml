@@ -360,3 +360,73 @@ units:
       - { name: "CB::schema::BSIStateManagerModifier::onStateEntered", va: 0x140b96340 }
       - { name: "??0BSIStateManagerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b96400 }
       - { name: "??_GBSIStateManagerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b96530 }
+  - source: ../../../schema/Havok/Behavior/Modifier/hkbModifierWrapper.cpp
+    functions:
+      - { name: "??0hkbModifierWrapper@schema@CB@@QEAA@XZ", va: 0x140aecf30 }
+      - { name: "??0hkbModifierWrapper@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aecfb0 }
+      # STRUCTURAL, parked: setSize(constant) compares the capacity signed in vanilla, unsigned under 24247 (see tools/cbmatch/parked.yaml).
+      # - { name: "CB::schema::hkbModifierWrapper::getChildren", va: 0x140aed010 }
+      - { name: "CB::schema::hkbModifierWrapper::isValid", va: 0x140aed090 }
+      - { name: "CB::schema::hkbModifierWrapper::cloneNode", va: 0x140aed0d0 }
+      - { name: "CB::schema::hkbModifierWrapper::setModifier", va: 0x140aed0e0 }
+      - { name: "??_GhkbModifierWrapper@schema@CB@@UEAAPEAXI@Z", va: 0x140aca270 }
+  - source: ../../../schema/Havok/Behavior/Modifier/ModifierList/hkbModifierList.cpp
+    functions:
+      - { name: "??0hkbModifierList@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af9030 }
+      - { name: "??1hkbModifierList@schema@CB@@UEAA@XZ", va: 0x140af9150 }
+      - { name: "??_GhkbModifierList@schema@CB@@UEAAPEAXI@Z", va: 0x140aca1f0 }
+      - { name: "CB::schema::hkbModifierList::staticClass", va: 0x140ac4790 }
+      - { name: "CB::schema::hkbModifierList::getClassType", va: 0x140af9250 }
+      - { name: "CB::schema::hkbModifierList::getMaxNumChildren", va: 0x140af9260 }
+      - { name: "CB::schema::hkbModifierList::getChildren", va: 0x140af9280 }
+      - { name: "CB::schema::hkbModifierList::isValid", va: 0x140af9330 }
+      - { name: "CB::schema::hkbModifierList::cloneNode", va: 0x140af9380 }
+      - { name: "CB::schema::hkbModifierList::modify", va: 0x140af93f0 }
+      - { name: "CB::schema::hkbModifierList::updateSync", va: 0x140af9460 }
+  - source: ../../../schema/Havok/Behavior/Generator/ModifierGenerator/hkbModifierGenerator.cpp
+    functions:
+      - { name: "??0hkbModifierGenerator@schema@CB@@QEAA@PEAVhkbModifier@12@PEAVhkbGenerator@12@@Z", va: 0x140ae96b0 }
+      - { name: "??0hkbModifierGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ae9760 }
+      - { name: "CB::schema::hkbModifierGenerator::getClassType", va: 0x140ae97d0 }
+      # STRUCTURAL, parked: setSize(constant) compares the capacity signed in vanilla, unsigned under 24247 (see tools/cbmatch/parked.yaml).
+      # - { name: "CB::schema::hkbModifierGenerator::getChildren", va: 0x140ae97e0 }
+      - { name: "CB::schema::hkbModifierGenerator::isValid", va: 0x140ae98e0 }
+      - { name: "CB::schema::hkbModifierGenerator::cloneNode", va: 0x140ae9920 }
+      - { name: "CB::schema::hkbModifierGenerator::generate", va: 0x140ae9970 }
+      - { name: "CB::schema::hkbModifierGenerator::updateSync", va: 0x140ae9b30 }
+      - { name: "CB::schema::hkbModifierGenerator::canRecycleOutput", va: 0x140ae9c60 }
+      - { name: "??_GhkbModifierGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140aca130 }
+  - source: ../../../schema/Havok/Behavior/Modifier/Delayed/hkbDelayedModifier.cpp
+    functions:
+      - { name: "??0hkbDelayedModifier@schema@CB@@QEAA@XZ", va: 0x140aed120 }
+      - { name: "??0hkbDelayedModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aed160 }
+      - { name: "CB::schema::hkbDelayedModifier::activate", va: 0x140aed1b0 }
+      - { name: "CB::schema::hkbDelayedModifier::update", va: 0x140aed1e0 }
+      # STRUCTURAL, parked: setSize(constant) compares the capacity signed in vanilla, unsigned under 24247 (see tools/cbmatch/parked.yaml).
+      # - { name: "CB::schema::hkbDelayedModifier::getChildren", va: 0x140aed250 }
+      - { name: "CB::schema::hkbDelayedModifier::cloneNode", va: 0x140aed2e0 }
+      - { name: "CB::schema::hkbDelayedModifier::modify", va: 0x140aed330 }
+      - { name: "CB::schema::hkbDelayedModifier::updateSync", va: 0x140aed350 }
+      - { name: "CB::schema::hkbDelayedModifier::isDelayElapsed", va: 0x140aed3a0 }
+      - { name: "CB::schema::hkbDelayedModifier::createInternalState", va: 0x140aed3e0 }
+      - { name: "CB::schema::hkbDelayedModifier::getInternalState", va: 0x140aed420 }
+      - { name: "CB::schema::hkbDelayedModifier::setInternalState", va: 0x140aed440 }
+      - { name: "??_GhkbDelayedModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8810 }
+  - source: ../../../schema/Havok/Behavior/Modifier/EventDriven/hkbEventDrivenModifier.cpp
+    functions:
+      - { name: "??0hkbEventDrivenModifier@schema@CB@@QEAA@XZ", va: 0x140aef650 }
+      - { name: "??0hkbEventDrivenModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aef690 }
+      - { name: "CB::schema::hkbEventDrivenModifier::getClassType", va: 0x140aef6e0 }
+      - { name: "CB::schema::hkbEventDrivenModifier::activate", va: 0x140aef6f0 }
+      # STRUCTURAL, parked: setSize(constant) compares the capacity signed in vanilla, unsigned under 24247 (see tools/cbmatch/parked.yaml).
+      # - { name: "CB::schema::hkbEventDrivenModifier::getChildren", va: 0x140aef700 }
+      # STRUCTURAL, parked: vanilla keeps `(flag != 0) | 1` that 24247 folds to a store of 1 (see tools/cbmatch/parked.yaml).
+      # - { name: "CB::schema::hkbEventDrivenModifier::handleEvent", va: 0x140aef790 }
+      - { name: "CB::schema::hkbEventDrivenModifier::cloneNode", va: 0x140aef800 }
+      - { name: "CB::schema::hkbEventDrivenModifier::getActiveEvents", va: 0x140aef850 }
+      - { name: "CB::schema::hkbEventDrivenModifier::modify", va: 0x140aef8c0 }
+      - { name: "CB::schema::hkbEventDrivenModifier::updateSync", va: 0x140aef8e0 }
+      - { name: "CB::schema::hkbEventDrivenModifier::createInternalState", va: 0x140aef930 }
+      - { name: "CB::schema::hkbEventDrivenModifier::getInternalState", va: 0x140aef970 }
+      - { name: "CB::schema::hkbEventDrivenModifier::setInternalState", va: 0x140aef980 }
+      - { name: "??_GhkbEventDrivenModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8c60 }

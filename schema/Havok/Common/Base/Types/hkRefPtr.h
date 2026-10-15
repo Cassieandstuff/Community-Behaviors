@@ -12,6 +12,11 @@ namespace CB { namespace schema
 
         HK_FORCE_INLINE hkRefPtr() : m_pntr(HK_NULL) {}
         HK_FORCE_INLINE hkRefPtr(hkFinishLoadedObjectFlag) {}
+        HK_FORCE_INLINE hkRefPtr(T* e)
+        {
+            if (e) e->addReference();
+            m_pntr = e;
+        }
         /// @note Re-reads the source after addReference, as vanilla does (the call may change it).
         HK_FORCE_INLINE hkRefPtr(const hkRefPtr& rp)
         {

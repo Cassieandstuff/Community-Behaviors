@@ -297,6 +297,20 @@ symbols:
   - { name: hkbClosestLocalFrameCollector_SetRigidBody, kind: func, se: 0, ae: 60060, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setRigidBody" }  # name provisional
   - { name: hkpGroupFilter_IsCollisionEnabled, kind: func, se: 0, ae: 60401, vr: 0, cpp: "?isCollisionEnabled@hkpGroupFilter@schema@CB@@QEBA?AUhkBool@23@II@Z" }  # (infoA, infoB) -> hkBool through memory
   - { name: hkbBehaviorGraph_GetVariableValueSet, kind: func, se: 0, ae: 63851, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getVariableValueSet" }  # name provisional
+  - { name: hkbModifier_CallModify, kind: func, se: 0, ae: 59309, vr: 0, cpp: "CB::schema::hkbModifier::callModify" }  # name provisional; (context, modifier, inOut) runs a child modifier through its active clone
+  - { name: hkbGeneratorOutputUtils_CopyGeneratorOutput, kind: func, se: 0, ae: 59295, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copyGeneratorOutput" }  # name provisional; (src, dst); a one-jmp thunk to 0x140ad1390
+  - { name: hkbModifierWrapper_Ctor, kind: func, se: 0, ae: 59654, vr: 0, cpp: "??0hkbModifierWrapper@schema@CB@@QEAA@XZ" }  # out of line; the subclasses' default constructors call it
+  - { name: hkbModifierWrapper_CloneCtor, kind: func, se: 0, ae: 59655, vr: 0, cpp: "??0hkbModifierWrapper@schema@CB@@QEAA@AEBV012@@Z" }  # the subclasses' clone copies call it
+  - { name: hkbModifierList_CloneCtor, kind: func, se: 0, ae: 59793, vr: 0, cpp: "??0hkbModifierList@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbModifierList_Dtor, kind: func, se: 0, ae: 59794, vr: 0, cpp: "??1hkbModifierList@schema@CB@@UEAA@XZ" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbModifierList_GetStaticClass, kind: func, se: 0, ae: 58801, vr: 0, cpp: "CB::schema::hkbModifierList::staticClass" }  # getClassType tail-jumps to it; hkbModifierGenerator::updateSync calls it
+  - { name: hkbModifierGenerator_CloneCtor, kind: func, se: 0, ae: 59561, vr: 0, cpp: "??0hkbModifierGenerator@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbModifierGenerator_GetStaticClass, kind: func, se: 0, ae: 58672, vr: 0, cpp: "CB::schema::hkbModifierGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbDelayedModifier_CloneCtor, kind: func, se: 0, ae: 59661, vr: 0, cpp: "??0hkbDelayedModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbDelayedModifier_IsDelayElapsed, kind: func, se: 0, ae: 59668, vr: 0, cpp: "CB::schema::hkbDelayedModifier::isDelayElapsed" }  # name provisional
+  - { name: hkbEventDrivenModifier_CloneCtor, kind: func, se: 0, ae: 59709, vr: 0, cpp: "??0hkbEventDrivenModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbEventDrivenModifier_GetStaticClass, kind: func, se: 0, ae: 58750, vr: 0, cpp: "CB::schema::hkbEventDrivenModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbModifierList_StaticClass, kind: data, se: 0, ae: 408075, vr: 0, cpp: "CB::schema::hkbModifierListClass" }  # hkClass object
   - { name: BSCRC32_Pointer, kind: func, se: 0, ae: 68221, vr: 0, cpp: "BSCRC32_Pointer" }  # name provisional; CRC of a pointer value (BSTScatterTable hash)
   # Bethesda behavior classes
   - { name: BSSynchronizedClipGeneratorUtils_GenerateClip, kind: func, se: 0, ae: 63336, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::generateClip" }  # name provisional; the clip's generate, or the reference pose while it loads
@@ -360,7 +374,6 @@ symbols:
   - { name: hkbBehaviorReferenceGenerator_GetStaticClass, kind: func, se: 0, ae: 58636, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::staticClass" }  # getClassType tail-jumps to it
   - { name: hkbBehaviorReferenceGenerator_Dtor, kind: func, se: 0, ae: 59235, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::~hkbBehaviorReferenceGenerator" }  # out of line; the scalar deleting destructor calls it
   - { name: hkbBehaviorReferenceGenerator_StaticClass, kind: data, se: 0, ae: 407705, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGeneratorClass" }  # hkClass object
-  - { name: hkbGeneratorOutputUtils_CopyGeneratorOutput, kind: func, se: 0, ae: 59295, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copyGeneratorOutput" }  # name provisional; (in, out) copies the tracks that are on; a jump stub to 0x140ad1390
   - { name: hkbGenerator_UpdateSync, kind: func, se: 0, ae: 58538, vr: 0, cpp: "CB::schema::hkbGenerator::updateSync" }  # vtable slot 25 (no sync points); overrides without a child tail-call it
   - { name: BSiStateTaggingGenerator_Vtable, kind: data, se: 282032, ae: 232663, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::`vftable'" }
   - { name: BSiStateTaggingGenerator_GetStaticClass, kind: func, se: 0, ae: 62953, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::staticClass" }  # getClassType tail-jumps to it
@@ -371,3 +384,10 @@ symbols:
   - { name: hkbManualSelectorGenerator_CloneCtor, kind: func, se: 0, ae: 59542, vr: 0, cpp: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbManualSelectorGenerator_Dtor, kind: func, se: 0, ae: 59543, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::~hkbManualSelectorGenerator" }  # out of line; the scalar deleting destructor calls it
   - { name: hkbManualSelectorGenerator_ComputeCurrentGeneratorIndex, kind: func, se: 0, ae: 59555, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::computeCurrentGeneratorIndex" }  # name provisional; the selected index clamped into [0, last child] (activate, update)
+  - { name: hkbModifierWrapper_Vtable, kind: data, se: 278455, ae: 226410, vr: 0, cpp: "CB::schema::hkbModifierWrapper::`vftable'" }
+  - { name: hkbModifierList_Vtable, kind: data, se: 278554, ae: 226532, vr: 0, cpp: "CB::schema::hkbModifierList::`vftable'" }
+  - { name: hkbModifierGenerator_Vtable, kind: data, se: 278386, ae: 226323, vr: 0, cpp: "CB::schema::hkbModifierGenerator::`vftable'" }
+  - { name: hkbDelayedModifier_Vtable, kind: data, se: 278456, ae: 226412, vr: 0, cpp: "CB::schema::hkbDelayedModifier::`vftable'" }
+  - { name: hkbDelayedModifierInternalState_Vtable, kind: data, se: 278459, ae: 226416, vr: 0, cpp: "CB::schema::hkbDelayedModifierInternalState::`vftable'" }
+  - { name: hkbEventDrivenModifier_Vtable, kind: data, se: 278488, ae: 226452, vr: 0, cpp: "CB::schema::hkbEventDrivenModifier::`vftable'" }
+  - { name: hkbEventDrivenModifierInternalState_Vtable, kind: data, se: 278491, ae: 226456, vr: 0, cpp: "CB::schema::hkbEventDrivenModifierInternalState::`vftable'" }

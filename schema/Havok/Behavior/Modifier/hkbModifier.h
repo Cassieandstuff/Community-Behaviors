@@ -22,12 +22,18 @@ namespace CB { namespace schema
         /// @note Inline, and its vtable store survives in the clone copies: the m_enable read could alias it.
         HK_FORCE_INLINE hkbModifier(const hkbModifier& mod) : hkbNode(mod), m_enable(mod.m_enable) {}
 
+        /// @brief Runs `modifier` (a template, or a clone) on `inOut` the way the graph does: through its clone in the
+        ///        root graph, only while that clone is active, notifying the context's output listener.
+        /// @note Name provisional; 0x140ad4bb0, among the graph's own functions. Every node that runs a child modifier
+        ///       (hkbModifierList, hkbModifierGenerator, the modifier wrappers) calls it, and nothing else does.
+        static void callModify(const hkbContext& context, hkbModifier* modifier, hkbGeneratorOutput& inOut);
+
         /// @brief Modifies the child's output in place.
         virtual void modify(const hkbContext& context, hkbGeneratorOutput& inOut);   ///< slot 23
-        /// @brief Takes the sync info of the generator this modifier wraps.
-        /// @note Name provisional. hkbModifier's is empty; hkbModifierGenerator's updateSync (0x140ae9b30) and
-        ///       hkbModifierList's (0x140af9460) forward their node info to it, and only for a BSTweenerModifier
-        ///       (whose override reads m_syncInfo.m_baseFrequency).
-        virtual void updateSync(const hkbContext& context, hkbNodeInfo& info);      ///< slot 24
+        /// @brief Lets the modifier adjust the sync info its generator reports (`info` is that generator's node info).
+        /// @note Name provisional. hkbModifier's is empty; hkbModifierGenerator::updateSync calls it on its modifier's
+        ///       clone when that is an hkbModifierList or a BSTweenerModifier, and the list and the wrappers forward it to
+        ///       their children. Not Havok's predictiveModify: the second argument is an hkbNodeInfo.
+        virtual void updateSync(const hkbContext& context, hkbNodeInfo& info);       ///< slot 24
     };
 } }
