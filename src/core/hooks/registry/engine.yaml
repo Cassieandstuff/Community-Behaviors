@@ -404,7 +404,6 @@ symbols:
   - { name: hkbManualSelectorGenerator_CloneCtor, kind: func, se: 0, ae: 59542, vr: 0, cpp: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbManualSelectorGenerator_Dtor, kind: func, se: 0, ae: 59543, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::~hkbManualSelectorGenerator" }  # out of line; the scalar deleting destructor calls it
   - { name: hkbManualSelectorGenerator_ComputeCurrentGeneratorIndex, kind: func, se: 0, ae: 59555, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::computeCurrentGeneratorIndex" }  # name provisional; the selected index clamped into [0, last child] (activate, update)
-  - { name: hkbBindable_Vtable, kind: data, se: 0, ae: 220249, vr: 0, cpp: "CB::schema::hkbBindable::`vftable'" }  # the bindable copy constructor's store (blender child clone)
   - { name: hkbBlenderGenerator_Vtable, kind: data, se: 0, ae: 226277, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::`vftable'" }
   - { name: hkbBlenderGeneratorChild_Vtable, kind: data, se: 0, ae: 226275, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorChild::`vftable'" }
   - { name: hkbBlenderGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226285, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorInternalState::`vftable'" }
@@ -437,7 +436,6 @@ symbols:
   - { name: hkbBehaviorGraph_StartEcho, kind: func, se: 0, ae: 58358, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::startEcho" }  # name provisional; (echoDuration, node): startEcho (slot 27) on every active generator from node down (transition effects' self transitions)
   - { name: hkbContext_IsNodeActive, kind: func, se: 0, ae: 58319, vr: 0, cpp: "CB::schema::hkbContext::isNodeActive" }  # name provisional; the context's node-to-index map, else the root graph's active-node map
   - { name: hkbBindable_Vtable, kind: data, se: 275296, ae: 220249, vr: 0, cpp: "CB::schema::hkbBindable::`vftable'" }  # the inline hkbBindable copy stamps it
-  - { name: hkbBoneWeightArray_CopyCtor, kind: func, se: 0, ae: 59516, vr: 0, cpp: "??0hkbBoneWeightArray@schema@CB@@QEAA@AEBV012@@Z" }  # out of line; BSBoneSwitchGeneratorBoneData's copy calls it for a bound weight array
   - { name: BSBoneSwitchGenerator_Vtable, kind: data, se: 282006, ae: 232633, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::`vftable'" }
   - { name: BSBoneSwitchGenerator_GetStaticClass, kind: func, se: 0, ae: 62942, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::staticClass" }  # getClassType tail-jumps to it
   - { name: BSBoneSwitchGenerator_CloneCtor, kind: func, se: 0, ae: 63120, vr: 0, cpp: "??0BSBoneSwitchGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
@@ -458,7 +456,6 @@ symbols:
   - { name: BSCyclicBlendTransitionGenerator_CloneCtor, kind: func, se: 0, ae: 63143, vr: 0, cpp: "??0BSCyclicBlendTransitionGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
   - { name: BSCyclicBlendTransitionGenerator_GetBlenderClone, kind: func, se: 0, ae: 63141, vr: 0, cpp: "CB::schema::BSCyclicBlendTransitionGenerator::getBlenderClone" }  # name provisional; the graph's clone of a generator that is exactly an hkbBlenderGenerator
   - { name: BSCyclicBlendTransitionGenerator_ComputeNumChildren, kind: func, se: 0, ae: 63142, vr: 0, cpp: "CB::schema::BSCyclicBlendTransitionGenerator::computeNumChildren" }  # name provisional; getMaxNumChildren tail-calls it, getChildren calls it
-  - { name: hkbBlenderGenerator_GetStaticClass, kind: func, se: 0, ae: 58639, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::staticClass" }  # the exact-class test BSCyclicBlendTransitionGenerator makes
   - { name: hkbBlendingTransitionEffect_Ctor, kind: func, se: 0, ae: 59943, vr: 0, cpp: "??0hkbBlendingTransitionEffect@schema@CB@@QEAA@XZ" }  # out of line; BSCyclicBlendTransitionGenerator::activate news one
   - { name: hkbBlendingTransitionEffect_UpdateInternal, kind: func, se: 0, ae: 59961, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::updateInternal" }  # name provisional; (context, timestep, syncNode) - update (slot 5) passes the effect itself
   - { name: hkbBlendingTransitionEffect_UpdateSyncInternal, kind: func, se: 0, ae: 59960, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::updateSyncInternal" }  # name provisional; (context, syncNode) - updateSync (slot 25) passes the effect itself
