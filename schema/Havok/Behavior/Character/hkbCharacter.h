@@ -6,6 +6,7 @@
 #include <Animation/Mapper/hkaSkeletonMapper.h>
 #include <Animation/Rig/hkaSkeleton.h>
 #include <Behavior/Event/hkbEvent.h>
+#include <Behavior/Project/hkbProjectData.h>
 
 namespace CB { namespace schema
 {
@@ -55,11 +56,6 @@ namespace CB { namespace schema
 
         /// @note Out of line in vanilla (0x140adf660); not reimplemented.
         virtual ~hkbAnimationBindingSet();   ///< slot 0
-    };
-
-    struct hkbProjectData : hkReferencedObject
-    {
-        hkVector4 m_worldUpWS;   ///< +0x10
     };
 
     struct hkbCharacterStringData : hkReferencedObject

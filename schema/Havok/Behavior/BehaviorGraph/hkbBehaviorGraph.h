@@ -15,12 +15,6 @@ namespace CB { namespace schema
 {
     extern const hkClass hkbBehaviorGraphClass;
 
-    /// @note 0x10 bytes (reflected); contents not declared yet.
-    struct hkbVariableInfo
-    {
-        hkUint8 m_opaque[0x10];
-    };
-
     struct hkbBehaviorGraphStringData : hkReferencedObject
     {
         hkArray<hkStringPtr> m_eventNames;               ///< +0x10
