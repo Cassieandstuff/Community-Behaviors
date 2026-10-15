@@ -10,6 +10,19 @@
 
 namespace CB { namespace schema
 {
+    namespace
+    {
+        /// @brief Where a trigger sits in a clip of `duration`: an acyclic trigger's own time, otherwise its time (from
+        ///        the end when relativeToEndOfClip) clamped into [0, duration].
+        /// @note Name provisional.
+        HK_FORCE_INLINE hkReal resolveTriggerTime(const hkbClipTrigger& trig, hkReal duration)
+        {
+            if (trig.m_acyclic.m_bool) return trig.m_localTime;
+            const hkReal t = trig.m_relativeToEndOfClip.m_bool ? duration + trig.m_localTime : trig.m_localTime;
+            return hkMath::min2(hkMath::max2(t, 0.0f), duration);
+        }
+    }
+
     /// @note The two warnings pass vanilla's own file string and line numbers (0x10d, 0x122).
     void hkbClipGenerator::activate(const hkbContext& context)
     {
@@ -456,6 +469,38 @@ namespace CB { namespace schema
         sortTriggers();
     }
 
+    /// @note `times[j] > times[j + 1]` — `times[j + 1] < times[j]` swaps the comparison's operands against vanilla.
+    /// @note Not yet matched (tools/cbmatch/parked.yaml): 24247 reuses the buffer's rounded byte count at the free
+    ///       where vanilla recomputes it from the count, which moves the spill slots.
+    void hkbClipGenerator::sortTriggers()
+    {
+        if (m_triggers) {
+            const int numTriggers = m_triggers->m_triggers.getSize();
+            if (numTriggers > 1) {
+                const hkReal duration = (m_enforcedDuration > 0.0f) ? m_enforcedDuration : computeUsableDuration();
+
+                hkLocalBuffer<hkReal> times(numTriggers);
+                for (int i = 0; i < numTriggers; i++) times[i] = resolveTriggerTime(m_triggers->m_triggers[i], duration);
+
+                bool swapped = true;
+                for (int i = 0; i < numTriggers - 1 && swapped; i++) {
+                    swapped = false;
+                    for (int j = 0; j < numTriggers - 1 - i; j++) {
+                        if (times[j] > times[j + 1]) {
+                            hkbClipTrigger tmp           = m_triggers->m_triggers[j];
+                            m_triggers->m_triggers[j]     = m_triggers->m_triggers[j + 1];
+                            m_triggers->m_triggers[j + 1] = tmp;
+                            const hkReal t                = times[j];
+                            times[j]                      = times[j + 1];
+                            times[j + 1]                  = t;
+                            swapped                       = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// @note A call result used inside a larger expression goes in its own statement (`duration`), or the following
     ///       m_animationControl load is hoisted above the call. Each clamp branch repeats its own `atEnd`/`loops`
     ///       stores; a shared tail with `else return` lays the blocks out differently.
@@ -580,13 +625,7 @@ namespace CB { namespace schema
             const hkbClipTrigger& trig = m_triggers->m_triggers[i];
             if (graphData && graphData->isEventSilent(trig.m_event.getId())) continue;
 
-            hkReal t;
-            if (trig.m_acyclic.m_bool) {
-                t = trig.m_localTime;
-            } else {
-                t = trig.m_relativeToEndOfClip.m_bool ? duration + trig.m_localTime : trig.m_localTime;
-                t = hkMath::min2(hkMath::max2(t, 0.0f), duration);
-            }
+            const hkReal t        = resolveTriggerTime(trig, duration);
             const hkReal clipTime = (m_cropStartAmountLocalTime + t) - m_cropStartAmountLocalTime;
 
             if (!trig.m_acyclic.m_bool && from <= clipTime && ((atEnd && clipTime <= to) || (!atEnd && clipTime < to))) {

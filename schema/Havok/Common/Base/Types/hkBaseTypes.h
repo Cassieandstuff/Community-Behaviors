@@ -19,6 +19,7 @@ extern "C" double __cdecl fabs(double);
 
 #define HK_NULL 0
 #define HK_FORCE_INLINE __forceinline
+#define HK_NEXT_MULTIPLE_OF(ALIGNMENT, VALUE) (((VALUE) + ((ALIGNMENT)-1)) & (~((ALIGNMENT)-1)))
 
 /// @brief Global placement new, as `<new>` declares it.
 /// @note MSVC null-checks its result, which vanilla's hkArray::pushBack carries. hkReferencedObject declares its own,

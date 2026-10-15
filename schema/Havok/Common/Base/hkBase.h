@@ -9,6 +9,7 @@
 #include <Common/Base/Types/hkRefPtr.h>
 #include <Common/Base/Container/Array/hkArray.h>
 #include <Common/Base/Container/BitField/hkBitField.h>
+#include <Common/Base/Container/LocalArray/hkLocalBuffer.h>
 #include <Common/Base/Container/Queue/hkQueue.h>
 #include <Common/Base/Container/PointerMap/hkPointerMap.h>
 #include <Common/Base/Container/String/hkString.h>

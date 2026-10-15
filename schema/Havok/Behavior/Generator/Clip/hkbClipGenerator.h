@@ -134,7 +134,8 @@ namespace CB { namespace schema
         /// @brief Pushes the crops to the control, positions the local time and resets the motion and per-pass state.
         /// @note Name provisional; runs at the end of activate and from update when the clip is at an end.
         void resetAtEnd();
-        /// @brief Bubble-sorts m_triggers by resolved local time.
+        /// @brief Bubble-sorts m_triggers (stable, early-out) by resolved time — acyclic triggers by their own time, the
+        ///        rest end-relative-resolved and clamped into the enforced duration, else the usable one.
         /// @note Name provisional.
         void sortTriggers();
         /// @brief Clears m_ignoreStartTime.

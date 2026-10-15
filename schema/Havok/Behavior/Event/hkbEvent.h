@@ -34,6 +34,8 @@ namespace CB { namespace schema
 
     /// @brief An event as a node stores it: id + ref-counted payload, no sender.
     /// @note Copies default the payload to null and then assign it — vanilla's store-null / addRef / removeRef / store.
+    ///       The source payload is read once, before the addReference: vanilla holds it across the call (a
+    ///       hkRefPtr-to-hkRefPtr assign would re-read it).
     struct hkbEventProperty
     {
         int                       m_id;
@@ -41,6 +43,12 @@ namespace CB { namespace schema
 
         HK_FORCE_INLINE hkbEventProperty(const hkbEventBase& e) : m_id(e.m_id) { m_payload = e.m_payload; }
         HK_FORCE_INLINE hkbEventProperty(const hkbEventProperty& e) : m_id(e.m_id) { m_payload = e.getPayload(); }
+        HK_FORCE_INLINE hkbEventProperty& operator=(const hkbEventProperty& e)
+        {
+            m_id      = e.m_id;
+            m_payload = e.getPayload();
+            return *this;
+        }
 
         HK_FORCE_INLINE int              getId() const { return m_id; }
         HK_FORCE_INLINE hkbEventPayload* getPayload() const { return m_payload; }

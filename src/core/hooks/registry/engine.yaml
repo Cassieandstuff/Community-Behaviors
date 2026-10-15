@@ -187,6 +187,8 @@ symbols:
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
   - { name: GlobalSizedDelete, kind: func, se: 0, ae: 82484, vr: 0, cpp: "__global_delete" }  # operator delete(void*, size_t) — the ::delete path of every deleting destructor
+  - { name: hkLifoAllocator_AllocateFromNewSlab, kind: func, se: 0, ae: 57039, vr: 0, cpp: "CB::schema::hkLifoAllocator::allocateFromNewSlab" }  # (numBytes): fastBlockAlloc's slow path
+  - { name: hkLifoAllocator_SlowBlockFree, kind: func, se: 0, ae: 57041, vr: 0, cpp: "CB::schema::hkLifoAllocator::slowBlockFree" }  # (p, numBytes): fastBlockFree's slow path
   - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "CB::schema::hkMemoryRouter_s_memoryRouter" }
   - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "CB::schema::hkError::s_instance" }
   - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "CB::schema::hkMonitorStream_s_tls" }
