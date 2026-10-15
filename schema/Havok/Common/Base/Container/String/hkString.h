@@ -16,6 +16,7 @@ namespace CB { namespace schema
         hkStringPtr(hkFinishLoadedObjectFlag flag);
         /// @note The flag's meaning is unknown; the node clone copies pass false.
         hkStringPtr(const hkStringPtr& other, bool flag);
+        ~hkStringPtr();
         hkStringPtr& operator=(const char* s);
 
         HK_FORCE_INLINE const char* cString() const { return reinterpret_cast<const char*>(reinterpret_cast<hkUlong>(m_stringAndFlag) & ~hkUlong(1)); }

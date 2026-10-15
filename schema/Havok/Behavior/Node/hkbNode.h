@@ -19,6 +19,8 @@ namespace CB { namespace schema
 
         HK_FORCE_INLINE hkbBindable(hkFinishLoadedObjectFlag flag)
         :   hkReferencedObject(flag), m_variableBindingSet(flag), m_areBindablesCached(false) {}
+        /// @note Out of line in vanilla: every node destructor ends in a tail call to it.
+        ~hkbBindable();
 
         virtual void collectBindables(void* collector);   ///< slot 3
     };

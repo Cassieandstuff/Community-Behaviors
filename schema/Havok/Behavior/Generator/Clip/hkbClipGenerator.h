@@ -46,6 +46,13 @@ namespace CB { namespace schema
         };
         enum { MODE_SINGLE_PLAY = 0, MODE_LOOPING = 1, MODE_USER_CONTROLLED = 2, MODE_PING_PONG = 3 };
 
+        /// @brief An entry of m_animDatas.
+        /// @note 0xe0 bytes; contents not identified yet (the schema has the array as serialize-ignored, untyped).
+        struct AnimData
+        {
+            hkUint8 m_opaque[0xe0];
+        };
+
         /// @note 0x10 bytes.
         struct Echo
         {
@@ -67,7 +74,7 @@ namespace CB { namespace schema
         hkInt8                                m_mode;                                 ///< +0x72
         hkInt8                                m_flags;                                ///< +0x73
         hkUint32                              m_pad74;                                ///< +0x74
-        hkArray<void*>                        m_animDatas;                            ///< +0x78
+        hkArray<AnimData>                     m_animDatas;                            ///< +0x78
         hkRefPtr<hkaDefaultAnimationControl>  m_animationControl;                     ///< +0x88
         hkRefPtr<hkbClipTriggerArray>         m_originalTriggers;                     ///< +0x90
         hkaDefaultAnimationControlMapperData* m_mapperData;                           ///< +0x98
@@ -86,6 +93,8 @@ namespace CB { namespace schema
 
         /// @brief The cloneNode copy: settings and triggers from `gen`, fresh runtime state, a new animation control.
         hkbClipGenerator(const hkbClipGenerator& gen);
+        /// @brief Releases m_mirroredAnimation (a raw reference); the members release the rest.
+        virtual ~hkbClipGenerator();                                         ///< slot 0
 
         static const struct hkClass& staticClass();
 

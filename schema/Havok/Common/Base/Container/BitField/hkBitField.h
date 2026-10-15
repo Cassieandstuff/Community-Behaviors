@@ -21,13 +21,5 @@ namespace CB { namespace schema
             m_words.m_capacityAndFlags = numWords | hkArray<hkUint32>::DONT_DEALLOCATE_FLAG;
             for (int i = 0; i < m_words.getSize(); i++) m_words[i] = 0;
         }
-        HK_FORCE_INLINE ~hkBitField()
-        {
-            m_words.m_size = 0;
-            if (m_words.m_capacityAndFlags >= 0) {
-                hkMemoryAllocator& a = hkContainerHeapAllocator::s_alloc;
-                a.bufFree(m_words.m_data, (m_words.m_capacityAndFlags & hkArray<hkUint32>::CAPACITY_MASK) * int(sizeof(hkUint32)));
-            }
-        }
     };
 } }

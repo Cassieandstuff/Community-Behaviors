@@ -82,6 +82,7 @@ symbols:
   # --- hkbClipGenerator ---
   - { name: hkbClipGenerator_Ctor, kind: func, se: 58597, ae: 59247, vr: 0 }
   - { name: hkbClipGenerator_CloneCtor, kind: func, se: 0, ae: 59249, vr: 0, cpp: "??0hkbClipGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # hkbClipGenerator(const hkbClipGenerator&) — cloneNode's shallow copy
+  - { name: hkbClipGenerator_Dtor, kind: func, se: 0, ae: 59250, vr: 0, cpp: "CB::schema::hkbClipGenerator::~hkbClipGenerator" }  # the scalar deleting destructor (vtable slot 0, 140ad1310) calls it
   - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0, cpp: "CB::schema::hkbClipGenerator::staticClass" }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
   - { name: hkbClipGenerator_Activate, kind: func, se: 58602, ae: 59252, vr: 0 }  # vtable slot 4
   - { name: hkbClipGenerator_Update, kind: func, se: 58603, ae: 59253, vr: 0 }  # vtable slot 5
@@ -178,11 +179,13 @@ symbols:
   - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "CB::schema::hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getWithDefault" }  # name provisional
   - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
+  - { name: hkStringPtr_Dtor, kind: func, se: 0, ae: 57230, vr: 0, cpp: "CB::schema::hkStringPtr::~hkStringPtr" }
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
   - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
   - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "CB::schema::hkStringBuf::printf" }
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
+  - { name: GlobalSizedDelete, kind: func, se: 0, ae: 82484, vr: 0, cpp: "__global_delete" }  # operator delete(void*, size_t) — the ::delete path of every deleting destructor
   - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "CB::schema::hkMemoryRouter_s_memoryRouter" }
   - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "CB::schema::hkError::s_instance" }
   - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "CB::schema::hkMonitorStream_s_tls" }
@@ -199,6 +202,7 @@ symbols:
   - { name: hkaMirroredSkeleton_MirrorExtractedMotion, kind: func, se: 0, ae: 64361, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorExtractedMotion" }  # (motion&)
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
+  - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # out of line: node destructors end in a tail call to it
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional

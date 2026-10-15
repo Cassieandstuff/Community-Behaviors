@@ -273,6 +273,11 @@ namespace CB { namespace schema
         return true;
     }
 
+    hkbClipGenerator::~hkbClipGenerator()
+    {
+        if (m_mirroredAnimation) m_mirroredAnimation->removeReference();
+    }
+
     hkbNode* hkbClipGenerator::cloneNode(hkbBehaviorGraph& rootBehavior) const
     {
         return new hkbClipGenerator(*this);

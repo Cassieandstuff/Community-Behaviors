@@ -40,8 +40,16 @@ namespace CB { namespace schema
             __assume(p != 0);
             return p;
         }
-        HK_FORCE_INLINE void  operator delete(void*, void*) {}
-        HK_FORCE_INLINE void  operator delete(void* p, hkUlong nbytes) { hkMemoryRouter::getInstance().heap().blockFree(p, static_cast<int>(nbytes)); }
+        HK_FORCE_INLINE void operator delete(void*, void*) {}
+        /// @brief Returns the block with the size it recorded; 0xffff (not heap-allocated by size) falls back to the
+        ///        static size.
+        /// @note The size is settled before the router is fetched, as in vanilla's deleting destructors.
+        HK_FORCE_INLINE void operator delete(void* p, hkUlong nbytes)
+        {
+            const hkUint16 recorded = static_cast<hkReferencedObject*>(p)->m_memSizeAndFlags;
+            const int      size     = (recorded == 0xffff) ? static_cast<int>(nbytes) : recorded;
+            hkMemoryRouter::getInstance().heap().blockFree(p, size);
+        }
 
         void addReference() const;
         void removeReference() const;

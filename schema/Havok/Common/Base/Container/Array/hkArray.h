@@ -22,6 +22,18 @@ namespace CB { namespace schema
         int m_capacityAndFlags;
 
         HK_FORCE_INLINE hkArray() : m_data(HK_NULL), m_size(0), m_capacityAndFlags(DONT_DEALLOCATE_FLAG) {}
+        /// @brief Frees owned storage and leaves the array empty and non-owning.
+        /// @warning Elements are not destroyed: correct only for trivially destructible element types so far.
+        HK_FORCE_INLINE ~hkArray()
+        {
+            m_size = 0;
+            if (m_capacityAndFlags >= 0) {
+                hkMemoryAllocator& a = hkContainerHeapAllocator::s_alloc;
+                a.bufFree(m_data, getCapacity() * int(sizeof(T)));
+            }
+            m_data             = HK_NULL;
+            m_capacityAndFlags = DONT_DEALLOCATE_FLAG;
+        }
 
         HK_FORCE_INLINE int      getSize() const { return m_size; }
         HK_FORCE_INLINE int      getCapacity() const { return m_capacityAndFlags & CAPACITY_MASK; }

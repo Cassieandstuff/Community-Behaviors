@@ -18,9 +18,11 @@ namespace CB { namespace schema
             if (rp.m_pntr) rp.m_pntr->addReference();
             m_pntr = rp.m_pntr;
         }
+        /// @note Nulls itself after releasing, as vanilla's member destructors do.
         HK_FORCE_INLINE ~hkRefPtr()
         {
             if (m_pntr) m_pntr->removeReference();
+            m_pntr = HK_NULL;
         }
 
         HK_FORCE_INLINE hkRefPtr& operator=(T* e)
