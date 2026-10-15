@@ -274,3 +274,17 @@ units:
       - { name: "CB::schema::hkbBehaviorReferenceGenerator::updateSync", va: 0x140acce90 }
       - { name: "CB::schema::hkbBehaviorReferenceGenerator::calcContentStatistics", va: 0x140accf10 }
       - { name: "??_GhkbBehaviorReferenceGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7860 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSiStateTaggingGenerator/BSiStateTaggingGenerator.cpp
+    functions:
+      - { name: "??0BSiStateTaggingGenerator@schema@CB@@QEAA@XZ", va: 0x140b98b30 }
+      - { name: "??0BSiStateTaggingGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b98bb0 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::getClassType", va: 0x140b98c10 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::cloneNode", va: 0x140b98c20 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::getMaxNumChildren", va: 0x140b98c70 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::getChildren", va: 0x140b98c80 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::isValid", va: 0x140b98d10 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::generate", va: 0x140b98d50 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::canRecycleOutput", va: 0x140b98e00 }
+      - { name: "CB::schema::BSiStateTaggingGenerator::updateSync", va: 0x140b98e10 }
+      - { name: "??0BSiStateTaggingGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b98eb0 }
+      - { name: "??_GBSiStateTaggingGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b98f00 }

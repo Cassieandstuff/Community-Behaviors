@@ -23,6 +23,8 @@ namespace CB { namespace schema
         hkStringPtr& operator=(const char* s);
         /// @brief Formats into a temporary buffer, then assigns it.
         void printf(const char* fmt, ...);
+        /// @note Out of line in vanilla (0x140a8d480): 0 for the null string, else hkString::strLen.
+        int  getLength() const;
 
         HK_FORCE_INLINE const char* cString() const { return reinterpret_cast<const char*>(reinterpret_cast<hkUlong>(m_stringAndFlag) & ~hkUlong(1)); }
     };
