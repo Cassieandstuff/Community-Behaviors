@@ -69,8 +69,15 @@ namespace CB { namespace schema
         hkbVariableValueSet*            m_variableValueSet;         ///< +0x20
     };
 
-    /// @note Only referenced so far.
-    struct hkbGlobalTransitionData : hkReferencedObject {};
+    class hkbStateMachine;
+
+    /// @note Only what the reimplemented code reads is declared.
+    struct hkbGlobalTransitionData : hkReferencedObject
+    {
+        hkUint8                             m_pad10[0x50 - 0x10];
+        /// @brief Each state machine id's template (a wildcard transition names its state machine by id).
+        hkPointerMap<int, hkbStateMachine*> m_stateMachineIdToTemplateMap;   ///< +0x50
+    };
 
     /// @note The member names after +0x88 are the Havok SDK's reflected (serialize-ignored) runtime members, matched to
     ///       the schema's 14 ignored pointers by position.

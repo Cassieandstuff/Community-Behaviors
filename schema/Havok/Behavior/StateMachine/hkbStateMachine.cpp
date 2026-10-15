@@ -16,18 +16,10 @@
 
 namespace CB { namespace schema
 {
-    /// @brief What hkbBehaviorGraph::m_globalTransitionData points to, as far as the state machine reads it.
-    /// @note Name provisional; only the map from state machine id to template is declared.
-    struct hkbBehaviorGraphGlobalTransitionData
-    {
-        hkUint8                             m_pad00[0x50];
-        hkPointerMap<int, hkbStateMachine*> m_stateMachineIdToTemplateMap;   ///< +0x50
-    };
-
     HK_FORCE_INLINE hkbStateMachine::TransitionInfo* hkbStateMachine::getTransitionInfo(hkbBehaviorGraph* rootBehavior, const TransitionInfoReference& ref)
     {
         if (ref.m_fromStateIndex == -1) {
-            const hkbBehaviorGraphGlobalTransitionData* data = static_cast<const hkbBehaviorGraphGlobalTransitionData*>(rootBehavior->m_globalTransitionData);
+            const hkbGlobalTransitionData* data = rootBehavior->m_globalTransitionData;
             hkbStateMachine* sm = (ref.m_stateMachineId == -1) ? this : data->m_stateMachineIdToTemplateMap.getWithDefault(ref.m_stateMachineId, HK_NULL);
             return &sm->m_wildcardTransitions->m_transitions[ref.m_transitionIndex];
         }
@@ -410,10 +402,9 @@ namespace CB { namespace schema
     {
         const hkbStateMachineInternalState& internalState  = static_cast<const hkbStateMachineInternalState&>(_internalState);
         const int                           numTransitions = m_activeTransitions.getSize();
-        hkbBehaviorGraph*                   rootBehavior   = context.m_character->m_behaviorGraph;
         for (int i = 0; i < numTransitions; i++) {
             ActiveTransitionInfo& active = m_activeTransitions[i];
-            const TransitionInfo* t      = getTransitionInfo(rootBehavior, active.m_transitionInfoReferenceForTE);
+            const TransitionInfo* t      = getTransitionInfo(context.m_character->m_behaviorGraph, active.m_transitionInfoReferenceForTE);
             hkbTransitionEffect*  effect = static_cast<hkbTransitionEffect*>(t->m_transition->cloneNode(*context.m_character->m_behaviorGraph));
             effect->m_id                 = context.m_character->m_behaviorGraph->getUniqueId();
             active.m_transitionEffect    = effect;
