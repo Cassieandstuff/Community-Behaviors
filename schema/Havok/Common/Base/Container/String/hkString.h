@@ -17,6 +17,8 @@ namespace CB { namespace schema
         hkStringPtr(hkFinishLoadedObjectFlag flag);
         /// @note The flag's meaning is unknown; the node clone copies pass false.
         hkStringPtr(const hkStringPtr& other, bool flag);
+        /// @brief The plain copy (hkbSenseHandleModifier's clone copy calls it).
+        hkStringPtr(const hkStringPtr& other);
         ~hkStringPtr();
         hkStringPtr& operator=(const char* s);
         /// @brief Formats into a temporary buffer, then assigns it.

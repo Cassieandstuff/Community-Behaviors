@@ -209,6 +209,7 @@ symbols:
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getWithDefault" }  # name provisional
   - { name: hkStringPtr_DefaultCtor, kind: func, se: 0, ae: 57224, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@XZ" }  # the null string; default node constructors call it
   - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
+  - { name: hkStringPtr_Copy, kind: func, se: 0, ae: 57227, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@@Z" }  # hkStringPtr(const hkStringPtr&) — the plain copy
   - { name: hkStringPtr_Dtor, kind: func, se: 0, ae: 57230, vr: 0, cpp: "CB::schema::hkStringPtr::~hkStringPtr" }
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
   - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
@@ -246,6 +247,8 @@ symbols:
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # the implicit destructor's out-of-line copy: most node destructors end in a tail call to it (hkbSequence's inlines it)
+  - { name: hkbSenseHandleModifier_CloneCtor, kind: func, se: 0, ae: 59877, vr: 0, cpp: "??0hkbSenseHandleModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbSenseHandleModifier_Dtor, kind: func, se: 0, ae: 58986, vr: 0, cpp: "??1hkbSenseHandleModifier@schema@CB@@UEAA@XZ" }  # COMDAT in the type-registration block; the deleting destructor calls it
   - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
   - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbTransformVectorModifier_CloneCtor, kind: func, se: 0, ae: 59905, vr: 0, cpp: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
@@ -276,6 +279,9 @@ symbols:
   - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "CB::schema::hkbClipGenerator::`vftable'" }
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
   - { name: hkbModifier_Vtable, kind: data, se: 278385, ae: 226321, vr: 0, cpp: "CB::schema::hkbModifier::`vftable'" }
+  - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # what an embedded hkReferencedObject member's destructor leaves
+  - { name: hkbHandle_Vtable, kind: data, se: 278245, ae: 226152, vr: 0, cpp: "CB::schema::hkbHandle::`vftable'" }
+  - { name: hkbSenseHandleModifier_Vtable, kind: data, se: 278615, ae: 226606, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::`vftable'" }
   - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
   - { name: hkbTwistModifier_Vtable, kind: data, se: 278639, ae: 226636, vr: 0, cpp: "CB::schema::hkbTwistModifier::`vftable'" }
   - { name: hkbClipGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226305, vr: 0, cpp: "CB::schema::hkbClipGeneratorInternalState::`vftable'" }

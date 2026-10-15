@@ -179,3 +179,15 @@ units:
       - { name: "CB::schema::hkbSequence::createInternalState", va: 0x140b00190 }
       - { name: "CB::schema::hkbSequence::getInternalState", va: 0x140b00210 }
       - { name: "CB::schema::hkbSequence::setInternalState", va: 0x140b004d0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
+    functions:
+      - { name: "??0hkbSenseHandleModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afd1b0 }
+      - { name: "CB::schema::hkbSenseHandleModifier::activate", va: 0x140afd450 }
+      - { name: "CB::schema::hkbSenseHandleModifier::update", va: 0x140afd490 }
+      - { name: "CB::schema::hkbSenseHandleModifier::deactivate", va: 0x140afd5b0 }
+      - { name: "CB::schema::hkbSenseHandleModifier::isValid", va: 0x140afd620 }
+      - { name: "CB::schema::hkbSenseHandleModifier::cloneNode", va: 0x140afd750 }
+      - { name: "CB::schema::hkbSenseHandleModifier::computeMinMaxDistances", va: 0x140afda80 }
+      - { name: "CB::schema::hkbSenseHandleModifier::processSensedHandle", va: 0x140afe7b0 }
+      - { name: "??1hkbSenseHandleModifier@schema@CB@@UEAA@XZ", va: 0x140ac6e70 }
+      - { name: "??_GhkbSenseHandleModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acade0 }
