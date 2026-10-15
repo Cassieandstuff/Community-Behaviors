@@ -8,11 +8,19 @@ namespace CB { namespace schema
 {
     struct hkaAnimatedReferenceFrame : hkReferencedObject {};
 
-    /// @note 0x18 bytes; the annotations themselves are not read yet.
+    /// @brief One annotated track of an animation: its name and its timed text annotations.
+    /// @note 0x18 bytes.
     struct hkaAnnotationTrack
     {
-        hkStringPtr     m_trackName;     ///< +0x00
-        hkArray<void*>  m_annotations;   ///< +0x08 — element type not modelled
+        /// @note 0x10 bytes.
+        struct Annotation
+        {
+            hkReal      m_time;
+            hkStringPtr m_text;
+        };
+
+        hkStringPtr         m_trackName;     ///< +0x00
+        hkArray<Annotation> m_annotations;   ///< +0x08
     };
 
     struct hkaAnimation : hkReferencedObject

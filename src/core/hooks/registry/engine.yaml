@@ -110,6 +110,7 @@ symbols:
   - { name: hkbClipGenerator_CopySampledPose, kind: func, se: 0, ae: 60005, vr: 0, cpp: "CB::schema::hkbClipGenerator::copySampledPose" }  # name provisional; sampleAnimation's track→bone copy (second clip unit)
   - { name: hkbClipGenerator_CopySampledFloats, kind: func, se: 0, ae: 60006, vr: 0, cpp: "CB::schema::hkbClipGenerator::copySampledFloats" }  # name provisional; sampleAnimation's float track→slot copy
   - { name: hkbClipGenerator_BlendSampledFloats, kind: func, se: 0, ae: 60007, vr: 0, cpp: "CB::schema::hkbClipGenerator::blendSampledFloats" }  # name provisional; sampleAnimation's weighted float track accumulate (echo path)
+  - { name: hkbClipGenerator_GetLocalTime, kind: func, se: 0, ae: 59269, vr: 0, cpp: "CB::schema::hkbClipGenerator::getLocalTime" }  # name provisional; BSSynchronizedClipGenerator::deactivate calls it
   - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z" }
   - { name: hkbMirrorPose, kind: func, se: 0, ae: 59301, vr: 0, cpp: "CB::schema::hkbMirrorPose" }  # name provisional; (output, referencePose) under FLAG_MIRROR
   - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0, cpp: "CB::schema::hkbClipGeneratorClass" }  # hkClass object
@@ -119,8 +120,15 @@ symbols:
   - { name: BSSynchronizedClipGenerator_FinishCtor, kind: func, se: 62108, ae: 63044, vr: 0 }
   - { name: BSSync_AppendSceneBindingSlots, kind: func, se: 63017, ae: 63942, vr: 0 }  # appends one binding slot per BSSync; stores its int16 index at +0x128
   - { name: BSSync_FillSceneBindingSlot, kind: func, se: 62391, ae: 63332, vr: 0 }
-  - { name: BSSync_ActivateChildWithSceneIndex, kind: func, se: 62125, ae: 63061, vr: 0 }  # swaps +0x128 into the child's +0x70, activates, restores
-  - { name: BSSync_ResolveSceneRole, kind: func, se: 62122, ae: 63058, vr: 0 }  # reads the child clip's +0x70
+  - { name: BSSync_ActivateChildWithSceneIndex, kind: func, se: 62125, ae: 63061, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::activateClipGenerator" }  # name provisional; swaps +0x128 into the child's +0x70, activates, restores
+  - { name: BSSync_ResolveSceneRole, kind: func, se: 62122, ae: 63058, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::sampleSyncMark" }  # name provisional; reads the child clip's +0x70; samples the role's annotation track into the start mark
+  - { name: BSSynchronizedClipGenerator_CloneCtor, kind: func, se: 0, ae: 63045, vr: 0, cpp: "??0BSSynchronizedClipGenerator@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z" }  # (other, rootBehavior) — cloneNode tail-jumps to it
+  - { name: BSSynchronizedClipGenerator_Dtor, kind: func, se: 0, ae: 63046, vr: 0, cpp: "??1BSSynchronizedClipGenerator@schema@CB@@UEAA@XZ" }  # the scalar deleting destructor (vtable slot 0, 140b94fe0) calls it
+  - { name: BSSynchronizedClipGenerator_GetStaticClass, kind: func, se: 0, ae: 62959, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSSync_BuildEventMap, kind: func, se: 0, ae: 63059, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::buildEventMap" }  # name provisional; activate: prefixed event id -> unprefixed into +0x120
+  - { name: BSSync_RemapEvents, kind: func, se: 0, ae: 63060, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::remapEvents" }  # name provisional; update: (firstEvent, queue) re-raises the clip's prefixed events unprefixed
+  - { name: BSSync_CreateLocalSyncBinding, kind: func, se: 0, ae: 63334, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::createLocalSyncBinding" }  # name provisional; (skeleton, binding, prefix) -> new hkaAnimationBinding into +0x118
+  - { name: BSSync_GenerateSynchronized, kind: func, se: 0, ae: 63335, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::generate" }  # name provisional; generate's body (context, skeleton, activeChildrenOutput, output, timeOffset)
   - { name: BSSynchronizedClipGenerator_StaticClass, kind: data, se: 522834, ae: 409352, vr: 0 }
   - { name: BSSynchronizedClipGenerator_TypeInfo, kind: data, se: 522835, ae: 409353, vr: 0 }
   - { name: BSOffsetAnimationGenerator_Activate, kind: func, se: 62209, ae: 63148, vr: 0 }  # exact-class check on its offset clip
@@ -154,14 +162,14 @@ symbols:
   # --- Havok type system + packfile loading ---
   - { name: hkDefaultBuiltinTypeRegistry_AddType, kind: func, se: 59462, ae: 60137, vr: 0 }  # the ONE call that registers a custom class at runtime
   - { name: hkDefaultBuiltinTypeRegistry_Reinitialize, kind: func, se: 59458, ae: 60133, vr: 0 }  # rebuilds the registries from the static lists (would drop runtime adds)
-  - { name: hkBuiltinTypeRegistry_Instance, kind: data, se: 521918, ae: 408436, vr: 0 }
+  - { name: hkBuiltinTypeRegistry_Instance, kind: data, se: 521918, ae: 408436, vr: 0, cpp: "CB::schema::hkBuiltinTypeRegistry::s_instance" }
   - { name: hkTypeInfoRegistry_Global, kind: data, se: 523166, ae: 409702, vr: 0 }
   - { name: hkVtableClassRegistry_Global, kind: data, se: 523167, ae: 409703, vr: 0 }
   - { name: hkClassNameRegistry_Global, kind: data, se: 523168, ae: 409704, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedTypeInfos, kind: data, se: 289776, ae: 239390, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedClasses, kind: data, se: 289777, ae: 239939, vr: 0 }
   - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0, cpp: "CB::schema::hkbGeneratorClass" }
-  - { name: hkClass_IsSuperClass, kind: func, se: 57166, ae: 57626, vr: 0 }  # parent-chain strcmp
+  - { name: hkClass_IsSuperClass, kind: func, se: 57166, ae: 57626, vr: 0, cpp: "CB::schema::hkClass::isSuperClass" }  # parent-chain strcmp
   - { name: hkNativePackfileUtils_ApplyVirtualFixups, kind: func, se: 64110, ae: 65139, vr: 0 }  # finishes objects by case-sensitive class NAME
   - { name: hkSerializeUtil_ClassSignaturesUpToDate, kind: func, se: 63862, ae: 64867, vr: 0 }
   - { name: hkDefaultBuiltinTypeRegistry_RegisterStaticLists, kind: func, se: 59477, ae: 60152, vr: 0 }  # walks the static lists into the registries
@@ -202,6 +210,10 @@ symbols:
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
   - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
   - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "CB::schema::hkStringBuf::printf" }
+  - { name: hkStringBuf_CtorStringPtr, kind: func, se: 0, ae: 57459, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@AEBVhkStringPtr@12@@Z" }  # hkStringBuf(const hkStringPtr&)
+  - { name: hkStringPtr_Printf, kind: func, se: 0, ae: 57234, vr: 0, cpp: "CB::schema::hkStringPtr::printf" }  # (fmt, ...) formats into a buffer, then assigns
+  - { name: hkString_BeginsWith, kind: func, se: 0, ae: 57131, vr: 0, cpp: "CB::schema::hkString::beginsWith" }  # (str, prefix) -> hkBool, returned through memory
+  - { name: hkQsTransform_IsApproximatelyEqual, kind: func, se: 0, ae: 57252, vr: 0, cpp: "CB::schema::hkQsTransform::isApproximatelyEqual" }  # (other, epsilon) -> hkBool
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
   - { name: GlobalSizedDelete, kind: func, se: 0, ae: 82484, vr: 0, cpp: "__global_delete" }  # operator delete(void*, size_t) — the ::delete path of every deleting destructor
@@ -249,3 +261,4 @@ symbols:
   - { name: hkbClipGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226305, vr: 0, cpp: "CB::schema::hkbClipGeneratorInternalState::`vftable'" }
   - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "CB::schema::hkbTimerModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
+  - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene

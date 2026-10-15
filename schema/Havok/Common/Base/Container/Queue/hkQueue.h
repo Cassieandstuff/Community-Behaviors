@@ -16,6 +16,8 @@ namespace CB { namespace schema
 
         void setCapacity(int n);
 
+        HK_FORCE_INLINE int getSize() const { return m_elementsInUse; }
+
         HK_FORCE_INLINE void increaseCapacity()
         {
             if (m_capacity == 0) setCapacity(8);

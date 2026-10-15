@@ -14,7 +14,7 @@ namespace CB { namespace schema
         void generate(BSSynchronizedClipGenerator* gen, const hkbContext& context, const hkaSkeleton* skeleton,
                       const hkbGeneratorOutput** activeChildrenOutput, hkbGeneratorOutput& output, hkReal timeOffset)
         {
-            if (gen->m_synchronizedScene && gen->m_bAllCharactersInScene) {
+            if (gen->m_pSyncScene && gen->m_bAllCharactersInScene) {
                 if (!gen->m_bAtMark) {
                     generateClip(gen, context, activeChildrenOutput, output, 0.0f);
                     hkQsTransform worldFromModel;
@@ -34,8 +34,8 @@ namespace CB { namespace schema
                 }
                 hkReal clipTimeOffset = 0.0f;
                 if (gen->m_bAllCharactersAtMarks) {
-                    gen->m_synchronizedScene->setLocalTimeOffset(timeOffset);
-                    clipTimeOffset = gen->m_synchronizedScene->getSynchronizedTimeOffset();
+                    gen->m_pSyncScene->setTime(timeOffset);
+                    clipTimeOffset = gen->m_pSyncScene->getTime();
                 }
                 generateClip(gen, context, activeChildrenOutput, output, clipTimeOffset);
             } else {

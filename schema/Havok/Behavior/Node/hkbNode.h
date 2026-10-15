@@ -26,9 +26,34 @@ namespace CB { namespace schema
     };
 
     /// @note A `class`, as in Havok: the class-key is part of the mangled name of the constructors that take one.
+    /// @note The virtuals are declared in vanilla's vtable order (AE 1.6.1170) so derived classes override the right
+    ///       slots and calls through a base pointer index the right one. vfnN are slots whose name and signature are not
+    ///       identified yet; nothing calls or overrides them so far.
     class hkbNode : public hkbBindable
     {
     public:
+        /// @note Values per the Havok SDK, unverified here. The clip's owner releases m_pClipGenerator only when it is in
+        ///       state 2, which fits CLONE_STATE_CLONE (a clone the owner made).
+        enum CloneState { CLONE_STATE_DEFAULT = 0, CLONE_STATE_TEMPLATE = 1, CLONE_STATE_CLONE = 2, CLONE_STATE_SHARABLE = 3 };
+        /// @note Bit 1 = active children only: the blender then reports its active count and skips weightless children.
+        ///       The other bits are the Havok SDK's, unverified here.
+        enum GetChildrenFlagBits { FLAG_ACTIVE_ONLY = 1, FLAG_GENERATORS_ONLY = 4, FLAG_IGNORE_REFERENCED_BEHAVIORS = 8 };
+        typedef int GetChildrenFlags;
+
+        /// @brief One child getChildren reports.
+        /// @note 0x10 bytes; the blender sets a bool at +0xa (whether that child is active) — the rest is unidentified.
+        struct ChildInfo
+        {
+            hkbNode* m_node;
+            hkUint8  m_opaque[8];
+        };
+        /// @brief Where getChildren reports to.
+        /// @note The blender also sets a bool at +0xa of it; unidentified.
+        struct ChildrenInfo
+        {
+            hkArray<ChildInfo>& m_childInfos;
+        };
+
         hkUlong     m_userData;     ///< +0x30 — Bethesda keys clip loading off it (the clip tests 0 and 8)
         hkStringPtr m_name;         ///< +0x38
         hkInt16     m_id;           ///< +0x40
@@ -42,21 +67,22 @@ namespace CB { namespace schema
         virtual void update(const hkbContext& context, hkReal timestep);       ///< slot 5
         virtual void handleEvent(const hkbContext& context, const void* e);    ///< slot 6
         virtual void deactivate(const hkbContext& context);                    ///< slot 7
-        virtual int      getMaxNumChildren(int flags);                         ///< slot 8
-        virtual void     getChildren(int flags, void* childrenInfo);           ///< slot 9
-        virtual bool     isValid(hkStringPtr& errorString) const;              ///< slot 10
-        /// @note Slots 11, 15 and 17–22 are placeholders: declared so the slots after them land where vanilla's do.
-        virtual void     v11();
+        /// @note Name provisional (the overrides return their child count). hkbNode's own returns 2 — unexplained.
+        virtual int  getMaxNumChildren(GetChildrenFlags flags);                ///< slot 8
+        virtual void getChildren(GetChildrenFlags flags, ChildrenInfo& childrenInfo);   ///< slot 9
+        virtual bool isValid(hkStringPtr& errorString) const;                  ///< slot 10
+        virtual void vfn11();                                                  ///< slot 11
         virtual hkbNode* cloneNode(hkbBehaviorGraph& rootBehavior) const;      ///< slot 12
-        virtual hkReferencedObject* createInternalState();                            ///< slot 13
-        virtual void     getInternalState(hkReferencedObject& internalState) const;   ///< slot 14
-        virtual void     v15();
-        virtual void     setInternalState(const hkReferencedObject& internalState);   ///< slot 16
-        virtual void     v17();
-        virtual void     v18();
-        virtual void     v19();
-        virtual void     v20();
-        virtual void     v21();
-        virtual void     v22();
+        virtual hkReferencedObject* createInternalState();                     ///< slot 13
+        virtual void getInternalState(hkReferencedObject& internalState) const;   ///< slot 14
+        virtual void vfn15();                                                  ///< slot 15
+        virtual void setInternalState(const hkReferencedObject& internalState);   ///< slot 16
+        virtual void vfn17();                                                  ///< slot 17
+        virtual void vfn18();                                                  ///< slot 18
+        virtual void vfn19();                                                  ///< slot 19
+        virtual void vfn20();                                                  ///< slot 20
+        /// @note hkbNode's returns false, hkbGenerator's true.
+        virtual bool vfn21();                                                  ///< slot 21
+        virtual void vfn22();                                                  ///< slot 22
     };
 } }

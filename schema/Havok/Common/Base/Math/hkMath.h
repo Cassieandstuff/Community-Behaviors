@@ -106,6 +106,15 @@ namespace CB { namespace schema
         }
 
         HK_FORCE_INLINE void setRotatedDir(const hkQuaternion& quat, const hkVector4& direction);
+
+        /// @brief Whether x, y and z each lie within `epsilon` of `v`'s.
+        HK_FORCE_INLINE bool equals3(const hkVector4& v, hkReal epsilon) const
+        {
+            const hkQuadReal absMask = _mm_castsi128_ps(_mm_set1_epi32(0x7fffffff));
+            const hkQuadReal diff    = _mm_and_ps(_mm_sub_ps(m_quad, v.m_quad), absMask);
+            const hkQuadReal eps     = _mm_set1_ps(epsilon);
+            return (_mm_movemask_ps(_mm_cmple_ps(diff, eps)) & 7) == 7;
+        }
     };
 
     extern const hkVector4 g_vectorConstant0001;        ///< (0,0,0,1) — Havok's vector-constant table
@@ -204,6 +213,8 @@ namespace CB { namespace schema
             rot.m_vec.normalize4();
             m_rotation = rot;
         }
+        /// @note Out of line in vanilla.
+        hkBool isApproximatelyEqual(const hkQsTransform& other, hkReal epsilon) const;
 
         /// @note Built in a local (`rotated`), as vanilla does.
         HK_FORCE_INLINE void setMul(const hkQsTransform& t1, const hkQsTransform& t2)

@@ -44,6 +44,18 @@ units:
       - { name: "CB::schema::BSSynchronizedClipGenerator::buildEventMap", va: 0x140b94bc0 }
       - { name: "CB::schema::BSSynchronizedClipGenerator::remapEvents", va: 0x140b94d30 }
       - { name: "CB::schema::BSSynchronizedClipGenerator::activateClipGenerator", va: 0x140b94f60 }
+      - { name: "??_GBSSynchronizedClipGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b94fe0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::getClassType", va: 0x140b93ee0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::activate", va: 0x140b93ef0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::update", va: 0x140b94260 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::deactivate", va: 0x140b94170 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::getMaxNumChildren", va: 0x140b94710 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::getChildren", va: 0x140b94730 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::isValid", va: 0x140b94460 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::cloneNode", va: 0x140b946b0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::generate", va: 0x140b947d0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::canRecycleOutput", va: 0x140b948a0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::updateSync", va: 0x140b948c0 }
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGeneratorUtils.cpp
     functions:
       - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::generateClip", va: 0x140ba02a0 }

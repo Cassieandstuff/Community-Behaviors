@@ -18,6 +18,8 @@ namespace CB { namespace schema
         hkStringPtr(const hkStringPtr& other, bool flag);
         ~hkStringPtr();
         hkStringPtr& operator=(const char* s);
+        /// @brief Formats into a temporary buffer, then assigns it.
+        void printf(const char* fmt, ...);
 
         HK_FORCE_INLINE const char* cString() const { return reinterpret_cast<const char*>(reinterpret_cast<hkUlong>(m_stringAndFlag) & ~hkUlong(1)); }
     };
@@ -38,6 +40,9 @@ namespace CB { namespace schema
         }
         /// @note Out of line in vanilla; a null `s` gives the empty string.
         hkStringBuf(const char* s);
+        hkStringBuf(const hkStringPtr& s);
+        /// @note Resets to empty and non-owning after the free, like hkArray's destructor (vanilla keeps those stores
+        ///       when the buffer dies inside a loop).
         HK_FORCE_INLINE ~hkStringBuf()
         {
             m_size = 0;
@@ -45,6 +50,8 @@ namespace CB { namespace schema
                 hkMemoryAllocator& a = hkContainerTempAllocator::s_alloc;
                 a.bufFree(m_data, m_capacityAndFlags & 0x3fffffff);
             }
+            m_data             = HK_NULL;
+            m_capacityAndFlags = int(0x80000000);
         }
 
         void printf(const char* fmt, ...);
