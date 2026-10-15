@@ -81,6 +81,7 @@ symbols:
 
   # --- hkbClipGenerator ---
   - { name: hkbClipGenerator_Ctor, kind: func, se: 58597, ae: 59247, vr: 0 }
+  - { name: hkbClipGenerator_CloneCtor, kind: func, se: 0, ae: 59249, vr: 0, cpp: "??0hkbClipGenerator@@QEAA@AEBV0@@Z" }  # hkbClipGenerator(const hkbClipGenerator&) — cloneNode's shallow copy
   - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0, cpp: "hkbClipGenerator::staticClass" }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
   - { name: hkbClipGenerator_Activate, kind: func, se: 58602, ae: 59252, vr: 0 }  # vtable slot 4
   - { name: hkbClipGenerator_Update, kind: func, se: 58603, ae: 59253, vr: 0 }  # vtable slot 5
