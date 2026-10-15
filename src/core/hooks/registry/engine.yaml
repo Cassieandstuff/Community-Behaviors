@@ -132,7 +132,7 @@ symbols:
   - { name: BSSynchronizedClipGenerator_StaticClass, kind: data, se: 522834, ae: 409352, vr: 0 }
   - { name: BSSynchronizedClipGenerator_TypeInfo, kind: data, se: 522835, ae: 409353, vr: 0 }
   - { name: BSOffsetAnimationGenerator_Activate, kind: func, se: 62209, ae: 63148, vr: 0 }  # exact-class check on its offset clip
-  - { name: BSTweenerModifier_Modify, kind: func, se: 62384, ae: 63325, vr: 0 }  # writes worldFromModel
+  - { name: BSTweenerModifier_Modify, kind: func, se: 62384, ae: 63325, vr: 0, cpp: "CB::schema::BSTweenerModifier::modify" }  # writes worldFromModel
 
   # --- Behavior-graph traversal, update and root motion ---
   - { name: ActiveNodeVisitor_Walk, kind: func, se: 64198, ae: 65232, vr: 0 }  # weighted active-clip walker (root motion and others)
@@ -314,6 +314,9 @@ symbols:
   - { name: BSPassByTargetTriggerModifier_GetStaticClass, kind: func, se: 0, ae: 62995, vr: 0, cpp: "CB::schema::BSPassByTargetTriggerModifier::staticClass" }  # getClassType tail-jumps to it
   - { name: BSPassByTargetTriggerModifier_CloneCtor, kind: func, se: 0, ae: 63301, vr: 0, cpp: "??0BSPassByTargetTriggerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: BSIPassByTargetTriggerModifierSingleton_Singleton, kind: data, se: 0, ae: 409507, vr: 0, cpp: "CB::schema::BSIPassByTargetTriggerModifierSingleton::ms_pSingleton" }  # name provisional; the game installs BSPassByTargetTriggerModifierInterface at startup
+  - { name: BSTweenerModifier_GetStaticClass, kind: func, se: 0, ae: 63006, vr: 0, cpp: "CB::schema::BSTweenerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSTweenerModifier_CloneCtor, kind: func, se: 0, ae: 63327, vr: 0, cpp: "??0BSTweenerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSTweenerModifier_InterpolateRotation, kind: func, se: 0, ae: 63326, vr: 0, cpp: "CB::schema::BSTweenerModifier::interpolateRotation" }  # name provisional; modify calls it
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
@@ -340,6 +343,7 @@ symbols:
   - { name: BSEventEveryNEventsModifier_Vtable, kind: data, se: 282042, ae: 232678, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::`vftable'" }
   - { name: BSEventOnFalseToTrueModifier_Vtable, kind: data, se: 282050, ae: 232688, vr: 0, cpp: "CB::schema::BSEventOnFalseToTrueModifier::`vftable'" }
   - { name: BSPassByTargetTriggerModifier_Vtable, kind: data, se: 282069, ae: 232714, vr: 0, cpp: "CB::schema::BSPassByTargetTriggerModifier::`vftable'" }
+  - { name: BSTweenerModifier_Vtable, kind: data, se: 282074, ae: 232722, vr: 0, cpp: "CB::schema::BSTweenerModifier::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene
   - { name: hkbReferencePoseGenerator_Vtable, kind: data, se: 278396, ae: 226336, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::`vftable'" }
   - { name: hkbReferencePoseGenerator_GetStaticClass, kind: func, se: 0, ae: 58681, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::staticClass" }  # getClassType tail-jumps to it

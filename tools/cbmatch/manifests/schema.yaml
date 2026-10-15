@@ -333,3 +333,17 @@ units:
       - { name: "CB::schema::BSPassByTargetTriggerModifier::modify", va: 0x140b9e9d0 }
       - { name: "??0BSPassByTargetTriggerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9ed60 }
       - { name: "??_GBSPassByTargetTriggerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9ee20 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSTweenerModifier/BSTweenerModifier.cpp
+    functions:
+      - { name: "??0BSTweenerModifier@schema@CB@@QEAA@XZ", va: 0x140b9f580 }
+      - { name: "??0BSTweenerModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9f630 }
+      - { name: "CB::schema::BSTweenerModifier::getClassType", va: 0x140b9f680 }
+      - { name: "CB::schema::BSTweenerModifier::isValid", va: 0x140b9f690 }
+      - { name: "CB::schema::BSTweenerModifier::cloneNode", va: 0x140b9f6a0 }
+      - { name: "CB::schema::BSTweenerModifier::activate", va: 0x140b9f6f0 }
+      - { name: "CB::schema::BSTweenerModifier::update", va: 0x140b9f730 }
+      - { name: "CB::schema::BSTweenerModifier::updateSync", va: 0x140b9f750 }
+      - { name: "CB::schema::BSTweenerModifier::modify", va: 0x140b9f790 }
+      - { name: "CB::schema::BSTweenerModifier::interpolateRotation", va: 0x140b9f8c0 }
+      - { name: "??0BSTweenerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9f9f0 }
+      - { name: "??_GBSTweenerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9faa0 }

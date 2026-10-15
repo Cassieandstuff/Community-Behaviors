@@ -7,6 +7,7 @@
 namespace CB { namespace schema
 {
     struct hkbGeneratorOutput;
+    struct hkbNodeInfo;
     extern const hkClass hkbModifierClass;
 
     /// @note Sized 0x50: derived members start after the base's tail padding. The vtable is hkbNode's 0–22 plus 23–24
@@ -23,7 +24,10 @@ namespace CB { namespace schema
 
         /// @brief Modifies the child's output in place.
         virtual void modify(const hkbContext& context, hkbGeneratorOutput& inOut);   ///< slot 23
-        /// @note Placeholder until a class's override identifies it (Havok's is predictiveModify).
-        virtual void vfn24();                                                        ///< slot 24
+        /// @brief Takes the sync info of the generator this modifier wraps.
+        /// @note Name provisional. hkbModifier's is empty; hkbModifierGenerator's updateSync (0x140ae9b30) and
+        ///       hkbModifierList's (0x140af9460) forward their node info to it, and only for a BSTweenerModifier
+        ///       (whose override reads m_syncInfo.m_baseFrequency).
+        virtual void updateSync(const hkbContext& context, hkbNodeInfo& info);      ///< slot 24
     };
 } }
