@@ -278,6 +278,34 @@ namespace CB { namespace schema
         if (m_mirroredAnimation) m_mirroredAnimation->removeReference();
     }
 
+    /// @note The clamp is a ternary: `if (t <= 0) t = 0` compiles to maxss, vanilla branches. VS2015 24247 sinks the
+    ///       `|speed| × elapsed` product below the computeStartTime call (vanilla computes it before), which costs a
+    ///       third saved register — build variance, VARIANT.
+    void hkbClipGenerator::setElapsedTime(hkReal elapsed)
+    {
+        m_animationControl->setCropStartAmountLocalTime(m_cropStartAmountLocalTime);
+        m_animationControl->setCropEndAmountLocalTime(m_cropEndAmountLocalTime);
+
+        hkReal t = hkMath::fabs(computeEffectivePlaybackSpeed()) * elapsed;
+        t += computeStartTime();
+        const bool halfCycle = m_mode == MODE_PING_PONG && !(m_flags & FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE);
+        m_pingPongBackward   = false;
+
+        hkReal cycle = computeUsableDuration();
+        if (halfCycle) cycle *= 2.0f;
+        if (t > cycle) t -= hkMath::floor(t / cycle) * cycle;
+        t = (t > 0.0f) ? t : 0.0f;
+        if (halfCycle && t > cycle * 0.5f) {
+            m_pingPongBackward = true;
+            t                  = cycle - t;
+        }
+        if (m_playbackSpeed < 0.0f) t = cycle - t;
+
+        m_localTime                     = t + m_animationControl->m_cropStartAmountLocalTime;
+        m_animationControl->m_localTime = m_localTime;
+        m_ignoreStartTime               = true;
+    }
+
     hkbNode* hkbClipGenerator::cloneNode(hkbBehaviorGraph& rootBehavior) const
     {
         return new hkbClipGenerator(*this);

@@ -1,14 +1,14 @@
 /// @file
 /// @brief Havok's scalar types and macros, plus the few platform declarations the runtime needs.
-/// @note The schema runtime compiles against the real `<xmmintrin.h>` and nothing else from the SDK or the CRT;
-///       every engine symbol it touches is declared in this tree. `_INC_MALLOC` keeps xmmintrin's `<malloc.h>` (UCRT)
+/// @note The schema runtime compiles against the real `<emmintrin.h>` and nothing else from the SDK or the CRT;
+///       every engine symbol it touches is declared in this tree. `_INC_MALLOC` keeps the intrinsics' `<malloc.h>` (UCRT)
 ///       out, so a bare VS2015 `cl` with only `VC\include` builds it.
 /// @note The tree opens `namespace CB { namespace schema {` rather than C++17's `namespace CB::schema`: it is compiled
 ///       with VS2015, which predates nested namespace definitions.
 #pragma once
 
 #define _INC_MALLOC
-#include <xmmintrin.h>
+#include <emmintrin.h>
 
 typedef unsigned long DWORD;
 extern "C" __declspec(dllimport) void* __stdcall TlsGetValue(DWORD dwTlsIndex);

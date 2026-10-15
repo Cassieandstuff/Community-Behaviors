@@ -1274,6 +1274,13 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_NOP) { ++aligned; continue; }   // alignment padding: its encoding is filler
             // Which callee-saved register a value lives in picks the slot it is saved to and restored from.
             if (isSaveOrRestore(x, savesA, frameA) && isSaveOrRestore(y, savesB, frameB)) { ++aligned; continue; }
+            // The frame size follows from how many callee-saved registers and spill slots a build needed.
+            auto frameAdjust = [](const Insn& i) {
+                return (i.ins.mnemonic == ZYDIS_MNEMONIC_SUB || i.ins.mnemonic == ZYDIS_MNEMONIC_ADD) && i.ins.operand_count_visible == 2 &&
+                       i.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && i.ops[0].reg.value == ZYDIS_REGISTER_RSP &&
+                       i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE;
+            };
+            if (frameAdjust(x) && frameAdjust(y) && x.ins.mnemonic == y.ins.mnemonic) { ++aligned; continue; }
             // Two stores aligned crosswise (a build wrote the fields in the other order): match them as a set within
             // the stretch between calls, like any unpaired store, instead of failing on the pair.
             if (const auto* wx = writtenMemory(x), *wy = writtenMemory(y);

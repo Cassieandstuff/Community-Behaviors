@@ -7,7 +7,7 @@
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
-# home-area scratch). A mutant of a header is compiled against a shadowing copy of that header (unit /I first).
+# home-area scratch), s setElapsedTime (frame size). A mutant of a header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir>}
 work=${2:?usage: mutants.sh <cbmatch.exe> <workDir>}
@@ -32,6 +32,7 @@ mutant() {
         t*) fn=processTriggers va=0x140acf790 ;;    p*) fn=processTriggersInRange va=0x140acfb40 ;;
         c*) fn=processAcyclicTriggers va=0x140acf960 ;;
         e*) fn=getExtractedMotionDelta va=0x140acfff0 ;;
+        s*) fn=setElapsedTime va=0x140acecd0 ;;
     esac
     if [ "$file" = "$clip" ]; then
         out="$work/mut/$name.cpp"
@@ -84,6 +85,9 @@ mutant e1_no_local_copy        "$clip" 's/m_mapperData->m_mapper->mapExtractedMo
 mutant e2_wrong_mirror_bit     "$clip" 's/if (m_flags \& FLAG_MIRROR) context/if (m_flags \& FLAG_MIRROR_POSE) context/'
 mutant e3_scaled_wrong_field   "$clip" 's/out\.m_translation\.mul4(hkSimdReal(context/out.m_scale.mul4(hkSimdReal(context/'
 mutant e4_dropped_ignore_test  "$clip" 's/if (animation \&\& !(m_flags \& FLAG_IGNORE_MOTION) \&\& /if (animation \&\& /'
+mutant s1_wrong_half_cycle_bit "$clip" 's/!(m_flags \& FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE)/!(m_flags \& FLAG_MIRROR)/'
+mutant s2_dropped_ignore_store "$clip" 's/^        m_ignoreStartTime  *= true;$/        \/\/ m_ignoreStartTime store dropped/'
+mutant s3_wrong_half           "$clip" 's/t > cycle \* 0\.5f/t > cycle * 0.25f/'
 
 cat > "$work/mutants.yaml" <<EOF
 runtimes:

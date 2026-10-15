@@ -149,5 +149,17 @@ namespace CB { namespace schema
         /// @note Clamps written through these give maxss/minss; the same ternaries as separate statements branch.
         template <class T> static HK_FORCE_INLINE T max2(T a, T b) { return (a > b) ? a : b; }
         template <class T> static HK_FORCE_INLINE T min2(T a, T b) { return (a < b) ? a : b; }
+
+        /// @brief Rounds toward negative infinity: truncate, then step down for a negative non-integer.
+        /// @note Out-of-range input (truncation gives 0x80000000) and integers come back unchanged.
+        static HK_FORCE_INLINE float floor(float r)
+        {
+            const __m128 v = _mm_set_ss(r);
+            const int    i = _mm_cvtt_ss2si(v);
+            if (i == int(0x80000000)) return r;
+            if (_mm_cvtss_f32(_mm_cvtepi32_ps(_mm_cvtsi32_si128(i))) == r) return r;
+            const int negative = _mm_movemask_ps(_mm_unpacklo_ps(v, v)) & 1;
+            return _mm_cvtss_f32(_mm_cvtepi32_ps(_mm_cvtsi32_si128(i - negative)));
+        }
     };
 } }

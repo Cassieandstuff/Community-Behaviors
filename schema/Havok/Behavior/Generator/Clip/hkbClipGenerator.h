@@ -39,6 +39,7 @@ namespace CB { namespace schema
         enum
         {
             FLAG_CONTINUE_MOTION_AT_END = 0x1,
+            FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE = 0x2,
             FLAG_MIRROR                 = 0x4,
             FLAG_MIRROR_POSE            = 0x8,
             FLAG_DONT_MERGE_ANNOTATIONS = 0x10,
@@ -104,6 +105,11 @@ namespace CB { namespace schema
         virtual void        deactivate(const hkbContext& context);               ///< slot 7
         virtual bool        isValid(hkStringPtr& errorString) const;             ///< slot 10
         virtual hkbNode*    cloneNode(hkbBehaviorGraph& rootBehavior) const;     ///< slot 12
+        /// @brief Seeks to `elapsed` seconds of playback: scaled by the effective speed from the start time, wrapped into
+        ///        one cycle (two durations for a full ping-pong cycle), mirrored for a negative speed. Sets
+        ///        m_ignoreStartTime so the next reset keeps it.
+        /// @note Name provisional.
+        virtual void        setElapsedTime(hkReal elapsed);                       ///< slot 26
         virtual void        generate(const hkbContext& context, const hkbGeneratorOutput** activeChildrenOutput, hkbGeneratorOutput& output,
                                      hkReal timeOffset);                         ///< slot 23
 
