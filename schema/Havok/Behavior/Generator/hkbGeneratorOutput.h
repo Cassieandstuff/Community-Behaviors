@@ -43,5 +43,6 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void*          getTrackData(int track) { return reinterpret_cast<char*>(m_tracks) + m_tracks->m_trackHeaders[track].m_dataOffset; }
         HK_FORCE_INLINE int            getNumPoseLocal() const { return isValid(TRACK_POSE) ? m_tracks->m_trackHeaders[TRACK_POSE].m_numData : 0; }
         HK_FORCE_INLINE hkQsTransform* accessPoseLocal() { return static_cast<hkQsTransform*>(getTrackData(TRACK_POSE)); }
+        HK_FORCE_INLINE hkQsTransform& accessWorldFromModel() { return *static_cast<hkQsTransform*>(getTrackData(TRACK_WORLD_FROM_MODEL)); }
     };
 } }

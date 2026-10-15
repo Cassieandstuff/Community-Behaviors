@@ -37,6 +37,8 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkVector4(const hkVector4& v) : m_quad(v.m_quad) {}
         HK_FORCE_INLINE void operator=(const hkVector4& v) { m_quad = v.m_quad; }
         HK_FORCE_INLINE void setZero4() { m_quad = _mm_setzero_ps(); }
+        /// @note A load from g_vectorConstantZero, where setZero4 is an xorps (the node default constructors read it).
+        static HK_FORCE_INLINE const hkVector4& getZero();
         HK_FORCE_INLINE void setAll(float a) { m_quad = _mm_set1_ps(a); }
 
         HK_FORCE_INLINE hkSimdReal getSimdAt3() const { return hkSimdReal(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(3, 3, 3, 3))); }
@@ -126,6 +128,12 @@ namespace CB { namespace schema
     /// @note Name provisional (which of the two zeros Havok calls what is unknown); hkQsTransform::blendAddMul and
     ///       setInterpolate4 negate through it.
     extern const hkVector4 g_quadRealZero;
+    /// @brief (0,0,0,1) from g_vectorConstantZero's table (-1, 0, 1, 2, …, 1000, 0100, 0010, 0001, MAX).
+    /// @note Name provisional. Not g_vectorConstant0001 (the g_quadRealZero table's): the node default constructors
+    ///       read this one (hkQuaternion::getIdentity), hkQsTransform::setIdentity the other.
+    extern const hkVector4 g_vectorConstants0001;
+
+    HK_FORCE_INLINE const hkVector4& hkVector4::getZero() { return g_vectorConstantZero; }
 
     /// @note Subtracts from g_quadRealZero (not g_vectorConstantZero) and re-broadcasts lane 0, as vanilla does.
     HK_FORCE_INLINE hkSimdReal operator-(hkSimdReal a)
@@ -141,6 +149,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void  operator=(const hkQuaternion& q) { m_vec = q.m_vec; }
         HK_FORCE_INLINE float getReal() const { return m_vec.getW(); }
         HK_FORCE_INLINE void  setIdentity() { m_vec = g_vectorConstant0001; }
+        static HK_FORCE_INLINE const hkQuaternion& getIdentity() { return reinterpret_cast<const hkQuaternion&>(g_vectorConstants0001); }
 
         HK_FORCE_INLINE void setMul(const hkQuaternion& q0, const hkQuaternion& q1)
         {

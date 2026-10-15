@@ -208,6 +208,7 @@ symbols:
   - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
   - { name: hkStringPtr_Dtor, kind: func, se: 0, ae: 57230, vr: 0, cpp: "CB::schema::hkStringPtr::~hkStringPtr" }
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
+  - { name: hkStringPtr_DefaultCtor, kind: func, se: 0, ae: 57224, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@XZ" }  # stores null; the node default constructors call it
   - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
   - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "CB::schema::hkStringBuf::printf" }
   - { name: hkStringBuf_CtorStringPtr, kind: func, se: 0, ae: 57459, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@AEBVhkStringPtr@12@@Z" }  # hkStringBuf(const hkStringPtr&)
@@ -226,6 +227,7 @@ symbols:
   - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "CB::schema::g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
   - { name: hkVectorConstant_One, kind: data, se: 0, ae: 219027, vr: 0, cpp: "CB::schema::g_vectorConstantOne" }  # 1 x4, beside hkVectorConstant_Zero
   - { name: hkQuadReal_Zero, kind: data, se: 0, ae: 219013, vr: 0, cpp: "CB::schema::g_quadRealZero" }  # 0 x4 in the table hkVectorConstant_0001 sits in (not hkVectorConstant_Zero); name provisional
+  - { name: hkVectorConstants_0001, kind: data, se: 0, ae: 219033, vr: 0, cpp: "CB::schema::g_vectorConstants0001" }  # (0,0,0,1) in hkVectorConstant_Zero's table (not hkVectorConstant_0001's); name provisional
   # Havok animation
   - { name: hkaSkeletonUtils_ScalePose, kind: func, se: 0, ae: 64092, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::scalePose" }  # name provisional; (scale, pose, count)
   - { name: hkaDefaultAnimationControl_Ctor, kind: func, se: 0, ae: 64170, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::hkaDefaultAnimationControl" }  # (binding, ease, maxCycles)
@@ -241,6 +243,9 @@ symbols:
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # out of line: node destructors end in a tail call to it
   - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
+  - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbTransformVectorModifier_CloneCtor, kind: func, se: 0, ae: 59905, vr: 0, cpp: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbTransformVectorModifier_ComputeVectorOut, kind: func, se: 0, ae: 60074, vr: 0, cpp: "CB::schema::hkbTransformVectorModifier::computeVectorOut" }  # name provisional; activate/modify tail-jump to it; body (0x140b0f2e0) outside the class's TU
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
@@ -260,5 +265,8 @@ symbols:
   - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
   - { name: hkbClipGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226305, vr: 0, cpp: "CB::schema::hkbClipGeneratorInternalState::`vftable'" }
   - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "CB::schema::hkbTimerModifierInternalState::`vftable'" }
+  - { name: hkbSetWorldFromModelModifier_Vtable, kind: data, se: 278624, ae: 226616, vr: 0, cpp: "CB::schema::hkbSetWorldFromModelModifier::`vftable'" }
+  - { name: hkbTransformVectorModifier_Vtable, kind: data, se: 278633, ae: 226628, vr: 0, cpp: "CB::schema::hkbTransformVectorModifier::`vftable'" }
+  - { name: hkbTransformVectorModifierInternalState_Vtable, kind: data, se: 278636, ae: 226632, vr: 0, cpp: "CB::schema::hkbTransformVectorModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene

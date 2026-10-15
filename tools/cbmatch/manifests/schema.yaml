@@ -35,6 +35,24 @@ units:
       - { name: "CB::schema::hkbTimerModifier::getInternalState", va: 0x140afed90 }
       - { name: "CB::schema::hkbTimerModifier::setInternalState", va: 0x140afeda0 }
       - { name: "??_GhkbTimerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb330 }
+  - source: ../../../schema/Havok/Behavior/Modifier/SetWorldFromModel/hkbSetWorldFromModelModifier.cpp
+    functions:
+      - { name: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@XZ", va: 0x140afe940 }
+      - { name: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afe9d0 }
+      - { name: "CB::schema::hkbSetWorldFromModelModifier::cloneNode", va: 0x140afea30 }
+      - { name: "CB::schema::hkbSetWorldFromModelModifier::modify", va: 0x140afea80 }
+      - { name: "??_GhkbSetWorldFromModelModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb070 }
+  - source: ../../../schema/Havok/Behavior/Modifier/TransformVector/hkbTransformVectorModifier.cpp
+    functions:
+      - { name: "??0hkbTransformVectorModifier@schema@CB@@QEAA@XZ", va: 0x140afedb0 }
+      - { name: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afee50 }
+      - { name: "CB::schema::hkbTransformVectorModifier::activate", va: 0x140afeec0 }
+      - { name: "CB::schema::hkbTransformVectorModifier::cloneNode", va: 0x140afeee0 }
+      - { name: "CB::schema::hkbTransformVectorModifier::modify", va: 0x140afef30 }
+      - { name: "CB::schema::hkbTransformVectorModifier::createInternalState", va: 0x140afef40 }
+      - { name: "CB::schema::hkbTransformVectorModifier::getInternalState", va: 0x140afef80 }
+      - { name: "CB::schema::hkbTransformVectorModifier::setInternalState", va: 0x140afefa0 }
+      - { name: "??_GhkbTransformVectorModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb460 }
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.cpp
     functions:
       - { name: "CB::schema::finishLoadedObjectBSSynchronizedClipGenerator", va: 0x140b93c10 }

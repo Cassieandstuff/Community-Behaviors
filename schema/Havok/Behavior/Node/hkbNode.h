@@ -17,6 +17,7 @@ namespace CB { namespace schema
         hkArray<hkbBindable*>           m_cachedBindables;      ///< +0x18
         hkBool                          m_areBindablesCached;   ///< +0x28
 
+        HK_FORCE_INLINE hkbBindable() : m_areBindablesCached(false) {}
         HK_FORCE_INLINE hkbBindable(hkFinishLoadedObjectFlag flag)
         :   hkReferencedObject(flag), m_variableBindingSet(flag), m_areBindablesCached(false) {}
         /// @note Out of line in vanilla: every node destructor ends in a tail call to it.
@@ -59,6 +60,9 @@ namespace CB { namespace schema
         hkInt16     m_id;           ///< +0x40
         hkInt8      m_cloneState;   ///< +0x42
 
+        /// @note Inlined into the node classes' default constructors, where its vtable store survives (the out-of-line
+        ///       hkStringPtr constructor could read it); the earlier bases' stores die.
+        HK_FORCE_INLINE hkbNode() : m_userData(0), m_id(-1), m_cloneState(CLONE_STATE_DEFAULT) {}
         HK_FORCE_INLINE hkbNode(hkFinishLoadedObjectFlag flag) : hkbBindable(flag), m_name(flag) { m_id = -1; }
         /// @brief The clone copy (cloneNode); marks the SOURCE node as cloned.
         hkbNode(const hkbNode& node);

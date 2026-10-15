@@ -12,7 +12,8 @@ namespace CB { namespace schema
     public:
         const char* m_stringAndFlag;   ///< low bit = owned
 
-        HK_FORCE_INLINE hkStringPtr() {}
+        /// @note Out of line in vanilla (0x140a8d2f0, stores null): the node default constructors call it.
+        hkStringPtr();
         hkStringPtr(hkFinishLoadedObjectFlag flag);
         /// @note The flag's meaning is unknown; the node clone copies pass false.
         hkStringPtr(const hkStringPtr& other, bool flag);
