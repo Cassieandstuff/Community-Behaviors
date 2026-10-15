@@ -249,7 +249,7 @@ symbols:
   - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
   - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbTransformVectorModifier_CloneCtor, kind: func, se: 0, ae: 59905, vr: 0, cpp: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
-  - { name: hkbTransformVectorModifier_ComputeVectorOut, kind: func, se: 0, ae: 60074, vr: 0, cpp: "CB::schema::hkbTransformVectorModifier::computeVectorOut" }  # name provisional; activate/modify tail-jump to it; body (0x140b0f2e0) outside the class's TU
+  - { name: hkbTransformVectorModifierUtils_ComputeVectorOut, kind: func, se: 0, ae: 60074, vr: 0, cpp: "CB::schema::hkbTransformVectorModifierUtils::computeVectorOut" }  # name provisional; activate/modify tail-jump to it; body (0x140b0f2e0) outside the class's TU
   - { name: hkbTwistModifier_CloneCtor, kind: func, se: 0, ae: 59913, vr: 0, cpp: "??0hkbTwistModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTwistModifier(const hkbTwistModifier&) - cloneNode tail-jumps to it
   - { name: hkbTwistModifier_Dtor, kind: func, se: 0, ae: 58990, vr: 0, cpp: "??1hkbTwistModifier@schema@CB@@UEAA@XZ" }  # out of line (in the type-registration block); the deleting destructor calls it
   - { name: hkbTwistModifierUtils_ModifyInternal, kind: func, se: 0, ae: 60075, vr: 0, cpp: "CB::schema::hkbTwistModifierUtils::modifyInternal" }  # name provisional; (twist, inOut, referencePose) - the twist itself, compiled far from the twist

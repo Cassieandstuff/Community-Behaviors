@@ -28,7 +28,7 @@ namespace CB { namespace schema
 
     void hkbTransformVectorModifier::activate(const hkbContext& context)
     {
-        if (m_computeOnActivate) computeVectorOut();
+        if (m_computeOnActivate) hkbTransformVectorModifierUtils::computeVectorOut(*this);
         else                     m_vectorOut.setZero4();
     }
 
@@ -39,7 +39,7 @@ namespace CB { namespace schema
 
     void hkbTransformVectorModifier::modify(const hkbContext& context, hkbGeneratorOutput& inOut)
     {
-        if (m_computeOnModify) computeVectorOut();
+        if (m_computeOnModify) hkbTransformVectorModifierUtils::computeVectorOut(*this);
     }
 
     hkReferencedObject* hkbTransformVectorModifier::createInternalState()
