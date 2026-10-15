@@ -12,6 +12,7 @@ namespace CB { namespace schema
 {
     struct hkbGeneratorOutput;
     class hkaRagdollInstance;
+    class hkbClosestLocalFrameCollector;
     class hkpGroupFilter;
     class hkpRigidBody;
 
@@ -42,6 +43,10 @@ namespace CB { namespace schema
 
         /// @note Values per the Havok SDK, consistent with modify's dispatch (9 = local frame group, 6–8 = skeletons,
         ///       the rest = rigid bodies) and the rigid-body switch.
+        /// @brief The rigid-body property key whose value is the owning hkbCharacter*.
+        /// @note Name provisional; the value (0x1400) is what senseInRigidBodies looks up.
+        enum { PROPERTY_CHARACTER = 0x1400 };
+
         enum SensingMode
         {
             SENSE_IN_NEARBY_RIGID_BODIES                 = 0,
@@ -76,6 +81,7 @@ namespace CB { namespace schema
         hkReal              m_timeSinceLastModify;                  ///< +0xd8
         int                 m_rangeIndexForEventToSendNextUpdate;   ///< +0xdc
 
+        hkbSenseHandleModifier();
         /// @brief The cloneNode copy: the settings, with the sensed handle and outputs reset.
         hkbSenseHandleModifier(const hkbSenseHandleModifier& mod);
 
@@ -108,6 +114,10 @@ namespace CB { namespace schema
         void processSensedHandle();
         /// @brief Appends the ragdoll's bodies that `filter` lets collide with `collisionFilterInfo`.
         /// @note Name provisional.
+        /// @brief Offers every local frame on `character`'s skeleton to `collector`, each tested in its bone's space.
+        /// @note Name provisional.
+        void collectCharacterLocalFrames(const hkVector4& sensorPosWS, hkReal maxDistance, hkbCharacter* character,
+                                         hkbClosestLocalFrameCollector& collector);
         static void getRigidBodiesThatCollide(const hkpGroupFilter* filter, const hkaRagdollInstance* ragdoll, hkUint32 collisionFilterInfo,
                                               hkArray<hkpRigidBody*>& rigidBodiesOut);
     };

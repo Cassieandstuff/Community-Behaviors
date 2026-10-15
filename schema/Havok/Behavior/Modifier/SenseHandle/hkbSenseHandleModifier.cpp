@@ -12,6 +12,25 @@
 
 namespace CB { namespace schema
 {
+    /// @note Not in the inventory (only .pdata references it); the TU's first function.
+    hkbSenseHandleModifier::hkbSenseHandleModifier()
+    :   m_sensorLocalOffset(_mm_setzero_ps())
+    {
+        m_sensorRagdollBoneIndex             = -1;
+        m_sensorAnimationBoneIndex           = -1;
+        m_minDistance                        = 0.0f;
+        m_maxDistance                        = 1.0f;
+        m_distanceOut                        = 0.0f;
+        m_collisionFilterInfo                = 0;
+        m_sensingMode                        = SENSE_IN_NEARBY_RIGID_BODIES;
+        m_extrapolateSensorPosition          = false;
+        m_keepFirstSensedHandle              = false;
+        m_foundHandleOut                     = false;
+        m_timeSinceLastModify                = 0.0f;
+        m_rangeIndexForEventToSendNextUpdate = -1;
+        m_handle.clear();
+    }
+
     /// @note The 0x17-byte memCpy copies m_minDistance through m_keepFirstSensedHandle.
     hkbSenseHandleModifier::hkbSenseHandleModifier(const hkbSenseHandleModifier& mod)
     :   hkbModifier(mod),
@@ -203,6 +222,231 @@ namespace CB { namespace schema
         for (int i = 0; i < ragdoll->m_rigidBodies.getSize(); i++) {
             hkpRigidBody* rigidBody = ragdoll->m_rigidBodies[i];
             if (filter->isCollisionEnabled(collisionFilterInfo, rigidBody->getCollisionFilterInfo())) rigidBodiesOut.pushBack(rigidBody);
+        }
+    }
+
+    void hkbSenseHandleModifier::collectCharacterLocalFrames(const hkVector4& sensorPosWS, hkReal maxDistance, hkbCharacter* character,
+                                                             hkbClosestLocalFrameCollector& collector)
+    {
+        const hkaSkeleton* skeleton = character->m_setup->m_animationSkeleton;
+        if (!skeleton) return;
+
+        for (int i = 0; i < skeleton->m_localFrames.getSize(); i++) {
+            const hkInt16* parentIndices = skeleton->m_parentIndices.m_data;
+            hkQsTransform  boneModelSpace;
+            hkaSkeletonUtils::transformLocalBoneToModelBone(skeleton->m_localFrames[i].m_boneIndex, parentIndices, character->getPoseLocal(), boneModelSpace);
+            hkQsTransform worldFromBone;
+            worldFromBone.setMul(*character->m_worldFromModel, boneModelSpace);
+            hkVector4 sensorPosBS;
+            sensorPosBS.setTransformedInversePos(worldFromBone, sensorPosWS);
+
+            collector.setCharacterAndBone(character, static_cast<hkInt16>(skeleton->m_localFrames[i].m_boneIndex));
+            skeleton->m_localFrames[i].m_localFrame->getNearbyFrames(sensorPosBS, maxDistance, collector);
+        }
+    }
+
+    /// @note m_handleIn names the target: a character (its skeleton's frames), a rigid body (its own frame), or both (every
+    ///       ragdoll body's frame); only frames in the group of m_handleIn's frame count.
+    void hkbSenseHandleModifier::senseInLocalFrameGroup(const hkVector4& sensorPosWS, hkReal minDistance, hkReal maxDistance, const hkbContext& context)
+    {
+        if (!m_handleIn || !m_handleIn->m_frame || !m_handleIn->m_frame->getGroup()) return;
+
+        hkbClosestLocalFrameCollector collector(m_localFrameName.cString());
+        collector.setMinDistance(minDistance);
+        collector.setLocalFrameGroup(m_handleIn->m_frame->getGroup());
+
+        hkpRigidBody* rigidBody = m_handleIn->m_rigidBody;
+        if (rigidBody) {
+            if (!m_handleIn->m_character) {
+                hkVector4 sensorPosRS;
+                sensorPosRS.setTransformedInversePos(rigidBody->getTransform(), sensorPosWS);
+                if (rigidBody->getLocalFrame()) {
+                    collector.setRigidBody(rigidBody);
+                    rigidBody->getLocalFrame()->getNearbyFrames(sensorPosRS, maxDistance, collector);
+                }
+            } else {
+                hkbRagdollDriver*   driver  = m_handleIn->m_character->m_ragdollDriver;
+                hkaRagdollInstance* ragdoll = (driver == HK_NULL) ? HK_NULL : driver->getRagdoll();
+                for (int i = 0; i < ragdoll->m_rigidBodies.getSize(); i++) {
+                    hkpRigidBody* body = ragdoll->m_rigidBodies[i];
+                    hkVector4     sensorPosRS;
+                    sensorPosRS.setTransformedInversePos(body->getTransform(), sensorPosWS);
+                    if (body->getLocalFrame()) {
+                        collector.setRigidBody(body);
+                        body->getLocalFrame()->getNearbyFrames(sensorPosRS, maxDistance, collector);
+                    }
+                }
+            }
+        } else {
+            collectCharacterLocalFrames(sensorPosWS, maxDistance, m_handleIn->m_character, collector);
+        }
+
+        if (collector.m_closestLocalFrame.m_frame) {
+            m_handle.set(collector.m_closestLocalFrame);
+            m_distanceOut = collector.m_closestDistance;
+        }
+    }
+
+    /// @note With a local frame name the closest frame on the candidates' skeletons wins; without one, the closest
+    ///       character (by its world-from-model translation), whatever the distance window.
+    /// @note Mode 7 copies the character to a local before the pushBack: vanilla reads it before growing the array.
+    void hkbSenseHandleModifier::senseInSkeletons(const hkVector4& sensorPosWS, hkReal minDistance, hkReal maxDistance, const hkbContext& context)
+    {
+        hkArray<hkbCharacter*> characters;
+        switch (m_sensingMode) {
+            case SENSE_IN_OTHER_CHARACTER_SKELETON:
+                context.m_character->getNearbyCharacters(maxDistance, characters);
+                break;
+            case SENSE_IN_THIS_CHARACTER_SKELETON: {
+                hkbCharacter* character = context.m_character;
+                characters.pushBack(character);
+                break;
+            }
+            case SENSE_IN_GIVEN_CHARACTER_SKELETON:
+                if (m_handleIn && m_handleIn->m_character) characters.pushBack(m_handleIn->m_character);
+                break;
+        }
+
+        const char* frameName = m_localFrameName.cString();
+        if (frameName && hkString::strLen(frameName) > 0) {
+            hkbClosestLocalFrameCollector collector(m_localFrameName.cString());
+            collector.setMinDistance(minDistance);
+            for (int i = 0; i < characters.getSize(); i++) collectCharacterLocalFrames(sensorPosWS, maxDistance, characters[i], collector);
+
+            if (collector.m_closestLocalFrame.m_frame) {
+                m_handle.set(collector.m_closestLocalFrame);
+                m_distanceOut = collector.m_closestDistance;
+            }
+        } else {
+            hkReal        closestDistance  = HK_REAL_MAX;
+            hkbCharacter* closestCharacter = HK_NULL;
+            for (int i = 0; i < characters.getSize(); i++) {
+                hkVector4 diff;
+                diff.setSub4(sensorPosWS, characters[i]->m_worldFromModel->m_translation);
+                const hkReal distance = diff.length3().getReal();
+                if (distance < closestDistance) {
+                    closestDistance  = distance;
+                    closestCharacter = characters[i];
+                }
+            }
+            m_distanceOut        = closestDistance;
+            m_handle.m_character = closestCharacter;
+        }
+    }
+
+    /// @note The per-case `character` local is vanilla's: it keeps the character in a register across getWorld.
+    /// @note The candidates are the character's nearby bodies (modes 0–2), a ragdoll's bodies (3, 4; filtered through the
+    ///       world's group filter when it has one) or m_handleIn's body (5). A sensed body's owning character comes from its
+    ///       PROPERTY_CHARACTER property, read under the world lock.
+    void hkbSenseHandleModifier::senseInRigidBodies(const hkVector4& sensorPosWS, hkReal minDistance, hkReal maxDistance, const hkbContext& context)
+    {
+        hkArray<hkpRigidBody*> rigidBodiesArray;
+        hkpRigidBody**         rigidBodies    = HK_NULL;
+        int                    numRigidBodies = 0;
+
+        switch (m_sensingMode) {
+            case SENSE_IN_NEARBY_RIGID_BODIES: {
+                hkbCharacter* character = context.m_character;
+                character->getNearbyRigidBodies(sensorPosWS, maxDistance, context.getWorld(), rigidBodiesArray, m_collisionFilterInfo, false, false);
+                rigidBodies    = rigidBodiesArray.m_data;
+                numRigidBodies = rigidBodiesArray.getSize();
+                break;
+            }
+            case SENSE_IN_RIGID_BODIES_OUTSIDE_THIS_CHARACTER: {
+                hkbCharacter* character = context.m_character;
+                character->getNearbyRigidBodies(sensorPosWS, maxDistance, context.getWorld(), rigidBodiesArray, m_collisionFilterInfo, true, false);
+                rigidBodies    = rigidBodiesArray.m_data;
+                numRigidBodies = rigidBodiesArray.getSize();
+                break;
+            }
+            case SENSE_IN_OTHER_CHARACTER_RIGID_BODIES: {
+                hkbCharacter* character = context.m_character;
+                character->getNearbyRigidBodies(sensorPosWS, maxDistance, context.getWorld(), rigidBodiesArray, m_collisionFilterInfo, true, true);
+                rigidBodies    = rigidBodiesArray.m_data;
+                numRigidBodies = rigidBodiesArray.getSize();
+                break;
+            }
+            case SENSE_IN_THIS_CHARACTER_RIGID_BODIES: {
+                hkbRagdollDriver* driver = context.m_character->m_ragdollDriver;
+                if (!driver) break;
+                hkaRagdollInstance* ragdoll = driver->getRagdoll();
+                if (!ragdoll) break;
+                if (context.getWorld()->m_collisionFilter && context.getWorld()->m_collisionFilter->m_type == hkpCollisionFilter::HK_FILTER_GROUP) {
+                    getRigidBodiesThatCollide(static_cast<hkpGroupFilter*>(context.getWorld()->m_collisionFilter), ragdoll, m_collisionFilterInfo, rigidBodiesArray);
+                    rigidBodies    = rigidBodiesArray.m_data;
+                    numRigidBodies = rigidBodiesArray.getSize();
+                } else {
+                    rigidBodies    = ragdoll->m_rigidBodies.m_data;
+                    numRigidBodies = ragdoll->m_rigidBodies.getSize();
+                }
+                break;
+            }
+            case SENSE_IN_GIVEN_CHARACTER_RIGID_BODIES: {
+                if (!m_handleIn || !m_handleIn->m_character) break;
+                hkbRagdollDriver* driver = m_handleIn->m_character->m_ragdollDriver;
+                if (!driver) break;
+                hkaRagdollInstance* ragdoll = driver->getRagdoll();
+                if (!ragdoll) break;
+                if (context.getWorld()->m_collisionFilter && context.getWorld()->m_collisionFilter->m_type == hkpCollisionFilter::HK_FILTER_GROUP) {
+                    getRigidBodiesThatCollide(static_cast<hkpGroupFilter*>(context.getWorld()->m_collisionFilter), ragdoll, m_collisionFilterInfo, rigidBodiesArray);
+                    rigidBodies    = rigidBodiesArray.m_data;
+                    numRigidBodies = rigidBodiesArray.getSize();
+                } else {
+                    rigidBodies    = ragdoll->m_rigidBodies.m_data;
+                    numRigidBodies = ragdoll->m_rigidBodies.getSize();
+                }
+                break;
+            }
+            case SENSE_IN_GIVEN_RIGID_BODY:
+                if (m_handleIn && m_handleIn->m_rigidBody) {
+                    rigidBodies    = &m_handleIn->m_rigidBody;
+                    numRigidBodies = 1;
+                }
+                break;
+        }
+
+        const char* frameName = m_localFrameName.cString();
+        if (frameName && hkString::strLen(frameName) > 0) {
+            hkbClosestLocalFrameCollector collector(m_localFrameName.cString());
+            collector.setMinDistance(minDistance);
+            for (int i = 0; i < numRigidBodies; i++) {
+                hkpRigidBody* rigidBody = rigidBodies[i];
+                hkVector4     sensorPosRS;
+                sensorPosRS.setTransformedInversePos(rigidBody->getTransform(), sensorPosWS);
+                if (rigidBody->getLocalFrame()) {
+                    collector.setRigidBody(rigidBody);
+                    rigidBody->getLocalFrame()->getNearbyFrames(sensorPosRS, maxDistance, collector);
+                }
+            }
+
+            if (collector.m_closestLocalFrame.m_frame) {
+                m_handle.set(collector.m_closestLocalFrame);
+                m_distanceOut = collector.m_closestDistance;
+            }
+        } else {
+            hkReal        closestDistance  = HK_REAL_MAX;
+            hkpRigidBody* closestRigidBody = HK_NULL;
+            for (int i = 0; i < numRigidBodies; i++) {
+                hkpRigidBody* rigidBody = rigidBodies[i];
+                hkVector4     diff;
+                diff.setSub4(sensorPosWS, rigidBody->getPosition());
+                const hkReal distance = diff.length3().getReal();
+                if (distance < maxDistance && distance < closestDistance) {
+                    closestDistance  = distance;
+                    closestRigidBody = rigidBody;
+                }
+            }
+            if (closestRigidBody) {
+                m_distanceOut        = closestDistance;
+                m_handle.m_rigidBody = closestRigidBody;
+            }
+        }
+
+        if (m_handle.m_rigidBody) {
+            context.getWorld()->lock();
+            hkbCharacter* character = reinterpret_cast<hkbCharacter*>(m_handle.m_rigidBody->getProperty(PROPERTY_CHARACTER));
+            context.getWorld()->unlock();
+            m_handle.m_character = character;
         }
     }
 } }

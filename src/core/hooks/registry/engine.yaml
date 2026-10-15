@@ -221,6 +221,8 @@ symbols:
   - { name: hkQuaternion_SetAxisAngle, kind: func, se: 0, ae: 57098, vr: 0, cpp: "CB::schema::hkQuaternion::setAxisAngle" }  # (axis, angle): sin/cos of the half angle
   - { name: hkVector4_SetTransformedPos, kind: func, se: 0, ae: 57213, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
   - { name: hkVector4_SetTransformedPosQs, kind: func, se: 0, ae: 57217, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkQsTransform@23@AEBU123@@Z" }  # (hkQsTransform, v): out of line
+  - { name: hkVector4_SetTransformedInversePos, kind: func, se: 0, ae: 57214, vr: 0, cpp: "?setTransformedInversePos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
+  - { name: hkVector4_SetTransformedInversePosQs, kind: func, se: 0, ae: 57218, vr: 0, cpp: "?setTransformedInversePos@hkVector4@schema@CB@@QEAAXAEBUhkQsTransform@23@AEBU123@@Z" }  # (hkQsTransform, v): out of line
   - { name: hkLocalFrame_GetTransformToRoot, kind: func, se: 0, ae: 57739, vr: 0, cpp: "CB::schema::hkLocalFrame::getTransformToRoot" }  # recursive over getParentFrame (slot 8), composes getLocalTransform (slot 3)
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
@@ -245,6 +247,7 @@ symbols:
   - { name: hkaSkeletonMapper_MapPoseLocalSpace, kind: func, se: 0, ae: 64074, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapPoseLocalSpace" }  # (poseA, poseBInOut, boneToTrackA, boneToTrackB, additive); parameter names provisional
   - { name: hkaSkeletonUtils_FindLastUsedTrack, kind: func, se: 0, ae: 64091, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::findLastUsedTrack" }  # name provisional; highest track below numTracks driving a bone below numBones, else -1
   - { name: hkaSkeletonUtils_GetBoneChain, kind: func, se: 0, ae: 64132, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::getBoneChain" }  # (skeleton, start, end, bonesOut) -> hkBool through memory; start..end, start first
+  - { name: hkaSkeletonUtils_TransformLocalBoneToModelBone, kind: func, se: 0, ae: 64105, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::transformLocalBoneToModelBone" }  # name provisional; (bone, parentIndices, poseLocal, out) composed up the parent chain
   - { name: hkaMirroredSkeleton_GetBonePair, kind: func, se: 0, ae: 64369, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::getBonePair" }  # (bone): the mirror partner from +0x10, -1 for a negative bone
   - { name: hkaMirroredSkeleton_MirrorBone, kind: func, se: 0, ae: 64362, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorBone" }  # name provisional; (transform&, bone, isAdditive) mirrors one bone in place
   # Havok behavior
@@ -258,6 +261,7 @@ symbols:
   - { name: hkbSenseHandleModifier_SenseInSkeletons, kind: func, se: 0, ae: 59887, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::senseInSkeletons" }  # name provisional; sensing modes 6-8
   - { name: hkbSenseHandleModifier_SenseInLocalFrameGroup, kind: func, se: 0, ae: 59888, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::senseInLocalFrameGroup" }  # name provisional; sensing mode 9
   - { name: hkbSenseHandleModifier_ProcessSensedHandle, kind: func, se: 0, ae: 59890, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::processSensedHandle" }  # name provisional; publishes m_handleOut, picks the range
+  - { name: hkbSenseHandleModifier_CollectCharacterLocalFrames, kind: func, se: 0, ae: 59889, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::collectCharacterLocalFrames" }  # name provisional; every skeleton local frame, in its bone space
   - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
   - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbTransformVectorModifier_CloneCtor, kind: func, se: 0, ae: 59905, vr: 0, cpp: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
@@ -277,6 +281,10 @@ symbols:
   - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
   - { name: hkbGeneratorOutputUtils_GetBoneModelSpace, kind: func, se: 0, ae: 58480, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getBoneModelSpace" }  # name provisional; (bone, output, skeleton, out): pose bones, reference pose for unset ones
   - { name: hkbRagdollDriver_GetRagdoll, kind: func, se: 0, ae: 58286, vr: 0, cpp: "CB::schema::hkbRagdollDriver::getRagdoll" }  # returns +0x88
+  - { name: hkbCharacter_GetPoseLocal, kind: func, se: 0, ae: 58458, vr: 0, cpp: "CB::schema::hkbCharacter::getPoseLocal" }  # +0x90, filled from the reference pose on first use
+  - { name: hkbClosestLocalFrameCollector_SetCharacterAndBone, kind: func, se: 0, ae: 60061, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setCharacterAndBone" }  # name provisional
+  - { name: hkbClosestLocalFrameCollector_SetMinDistance, kind: func, se: 0, ae: 60062, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setMinDistance" }  # name provisional; +0x78
+  - { name: hkbClosestLocalFrameCollector_SetLocalFrameGroup, kind: func, se: 0, ae: 60063, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setLocalFrameGroup" }  # name provisional; +0x88
   - { name: hkbClosestLocalFrameCollector_Ctor, kind: func, se: 0, ae: 60058, vr: 0, cpp: "??0hkbClosestLocalFrameCollector@schema@CB@@QEAA@PEBD@Z" }  # (localFrameName)
   - { name: hkbClosestLocalFrameCollector_SetRigidBody, kind: func, se: 0, ae: 60060, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setRigidBody" }  # name provisional
   - { name: hkpGroupFilter_IsCollisionEnabled, kind: func, se: 0, ae: 60401, vr: 0, cpp: "?isCollisionEnabled@hkpGroupFilter@schema@CB@@QEBA?AUhkBool@23@II@Z" }  # (infoA, infoB) -> hkBool through memory
@@ -293,7 +301,6 @@ symbols:
   - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "CB::schema::hkbClipGenerator::`vftable'" }
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
   - { name: hkbModifier_Vtable, kind: data, se: 278385, ae: 226321, vr: 0, cpp: "CB::schema::hkbModifier::`vftable'" }
-  - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # what an embedded hkReferencedObject member's destructor leaves
   - { name: hkbHandle_Vtable, kind: data, se: 278245, ae: 226152, vr: 0, cpp: "CB::schema::hkbHandle::`vftable'" }
   - { name: hkbSenseHandleModifier_Vtable, kind: data, se: 278615, ae: 226606, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::`vftable'" }
   - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }

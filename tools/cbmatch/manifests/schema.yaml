@@ -181,6 +181,7 @@ units:
       - { name: "CB::schema::hkbSequence::setInternalState", va: 0x140b004d0 }
   - source: ../../../schema/Havok/Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
     functions:
+      - { name: "??0hkbSenseHandleModifier@schema@CB@@QEAA@XZ", va: 0x140afd080 }
       - { name: "??0hkbSenseHandleModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afd1b0 }
       - { name: "CB::schema::hkbSenseHandleModifier::activate", va: 0x140afd450 }
       - { name: "CB::schema::hkbSenseHandleModifier::update", va: 0x140afd490 }
@@ -192,5 +193,10 @@ units:
       - { name: "CB::schema::hkbSenseHandleModifier::processSensedHandle", va: 0x140afe7b0 }
       - { name: "CB::schema::hkbSenseHandleModifier::computeSensorPosWS", va: 0x140afd890 }
       - { name: "CB::schema::hkbSenseHandleModifier::getRigidBodiesThatCollide", va: 0x140afe890 }
+      # Written but STRUCTURAL under the current rules (see tools/cbmatch/parked.yaml):
+      # - { name: "CB::schema::hkbSenseHandleModifier::collectCharacterLocalFrames", va: 0x140afe570 }
+      - { name: "CB::schema::hkbSenseHandleModifier::senseInLocalFrameGroup", va: 0x140afe330 }
+      - { name: "CB::schema::hkbSenseHandleModifier::senseInSkeletons", va: 0x140afe080 }
+      # - { name: "CB::schema::hkbSenseHandleModifier::senseInRigidBodies", va: 0x140afdbf0 }
       - { name: "??1hkbSenseHandleModifier@schema@CB@@UEAA@XZ", va: 0x140ac6e70 }
       - { name: "??_GhkbSenseHandleModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acade0 }

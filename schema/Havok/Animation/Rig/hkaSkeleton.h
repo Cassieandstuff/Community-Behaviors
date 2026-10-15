@@ -18,7 +18,7 @@ namespace CB { namespace schema
         struct LocalFrameOnBone
         {
             hkRefPtr<hkLocalFrame> m_localFrame;   ///< +0x00
-            hkInt16                m_boneIndex;    ///< +0x08
+            hkInt32                m_boneIndex;    ///< +0x08 — read as 32 bits by its users
         };
 
         hkStringPtr               m_name;              ///< +0x10

@@ -38,6 +38,7 @@ namespace CB { namespace schema
         ///       an unaligned block copy (movups).
         HK_FORCE_INLINE hkVector4(const hkVector4& v) : m_quad(v.m_quad) {}
         HK_FORCE_INLINE hkVector4(hkReal x, hkReal y, hkReal z, hkReal w = 0.0f) : m_quad(_mm_setr_ps(x, y, z, w)) {}
+        HK_FORCE_INLINE explicit hkVector4(hkQuadReal q) : m_quad(q) {}
         HK_FORCE_INLINE void operator=(const hkVector4& v) { m_quad = v.m_quad; }
         HK_FORCE_INLINE void setZero4() { m_quad = _mm_setzero_ps(); }
         /// @note A load from g_vectorConstantZero, where setZero4 is an xorps (the node default constructors read it).
@@ -54,6 +55,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void add4(const hkVector4& a) { m_quad = _mm_add_ps(m_quad, a.m_quad); }
         HK_FORCE_INLINE void sub4(hkSimdReal s) { m_quad = _mm_sub_ps(m_quad, s.m_real); }
         HK_FORCE_INLINE void setAdd4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(a.m_quad, b.m_quad); }
+        HK_FORCE_INLINE void setSub4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_sub_ps(a.m_quad, b.m_quad); }
         HK_FORCE_INLINE void addMul4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, b.m_quad)); }
         HK_FORCE_INLINE void addMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(s.m_real, a.m_quad)); }
         HK_FORCE_INLINE void addMul4(const hkVector4& a, hkSimdReal s) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, s.m_real)); }
@@ -82,6 +84,8 @@ namespace CB { namespace schema
             return hkSimdReal(_mm_add_ps(_mm_shuffle_ps(sum2, sum2, _MM_SHUFFLE(2, 3, 0, 1)), sum2));
         }
         HK_FORCE_INLINE hkSimdReal lengthSquared3() const { return dot3(*this); }
+        /// @note sqrtss on the broadcast squared length (lane 0 is the result).
+        HK_FORCE_INLINE hkSimdReal length3() const { return hkSimdReal(_mm_sqrt_ss(lengthSquared3().m_real)); }
         HK_FORCE_INLINE hkSimdReal lengthSquared4() const { return dot4(*this); }
 
         /// @brief (1 − t)·a + t·b.
