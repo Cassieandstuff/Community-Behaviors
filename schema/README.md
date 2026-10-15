@@ -1,7 +1,8 @@
 # `schema/` — the class schema (the source of truth for what a Havok class IS)
 
-**This tree is DATA, not code.** One descriptor file per Havok class, describing its binary layout in
-the SSE/AE packfile. It is the single source of truth every consumer reads to know a class — the
+**The descriptors are DATA.** One descriptor file per Havok class, describing its binary layout in
+the SSE/AE packfile. (`Havok/` is the exception: the reimplemented runtime's C++ — see Layout. It never
+ships; staging copies data only.) It is the single source of truth every consumer reads to know a class — the
 `havok-io` serde engine (read/write), the merge engine, the compiler, a future CommonLib-for-Havok
 codegen, and modules. The core knows *nothing* about read/write/transpile/convert/compile — those are
 consumers of this schema. (See the rewrite plan; `havok-core` v2, Stage 1.)
@@ -75,6 +76,14 @@ editor runtime are additive, not a second refactor.
 
 ## Layout
 
-`Havok/<family>/<ClassName>.yaml` — families mirror the old `classes/*.h` grouping (`base/`, `events/`,
+`<family>/<ClassName>.yaml` — families mirror the old `classes/*.h` grouping (`base/`, `events/`,
 `variables/`, `generators/`, `modifiers/`, `statemachine/`, `graph/`, `animation/`, `physics/`,
-`project/`). `Havok/features/` is reserved for module-contributed classes.
+`project/`; `gen/` for generated descriptors).
+
+`Havok/` — the reimplemented Havok runtime (`CB::schema::`), one `.h`/`.cpp` per class, laid out like Havok's
+own source tree: product roots `Common/Base`, `Animation`, `Behavior`, and below them the paths the exe's
+`__FILE__` strings give (`Generator\Clip\hkbClipGenerator.cpp`, `Mapper\hkaSkeletonMapper.cpp`, …). Bethesda's
+behavior classes sit in the same tree, as in their build. A translation unit is part of what gets matched (what a
+caller may assume about a callee it can see), so a class's code is split into a second file only where the bytes
+demand it (`hkbClipGeneratorUtils.cpp`). Built only by `tools/cbmatch` (VS2015, against
+`tools/cbmatch/manifests/schema.yaml`); the include root is `Havok/` (`#include <Behavior/...>`).

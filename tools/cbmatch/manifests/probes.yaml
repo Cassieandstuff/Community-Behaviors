@@ -1,0 +1,14 @@
+# cbmatch manifest: toolchain probes — code matched to learn how a part of the exe was compiled, not schema classes.
+#   cbmatch tools/cbmatch/manifests/probes.yaml --allow-variant
+# Environment: as in schema.yaml.
+runtimes:
+  ae: { exe: "${CB_SKYRIM_AE_EXE}", addresslib: "${CB_ADDRESSLIB_AE}", pins: ae }
+registry: ../../../src/core/hooks/registry/engine.yaml
+toolchains:
+  vs2015: "${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
+flags: [/O2, /Ob1, /GS-, /fp:fast]
+includes: ["${VS140COMNTOOLS}../../VC/include"]
+units:
+  - source: ../probes/BShkbAnimationGraph.cpp
+    functions:
+      - { name: "BShkbAnimationGraph::GetGraphVariableFloat", va: 0x140bb69e0 }

@@ -81,8 +81,8 @@ symbols:
 
   # --- hkbClipGenerator ---
   - { name: hkbClipGenerator_Ctor, kind: func, se: 58597, ae: 59247, vr: 0 }
-  - { name: hkbClipGenerator_CloneCtor, kind: func, se: 0, ae: 59249, vr: 0, cpp: "??0hkbClipGenerator@@QEAA@AEBV0@@Z" }  # hkbClipGenerator(const hkbClipGenerator&) — cloneNode's shallow copy
-  - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0, cpp: "hkbClipGenerator::staticClass" }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
+  - { name: hkbClipGenerator_CloneCtor, kind: func, se: 0, ae: 59249, vr: 0, cpp: "??0hkbClipGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # hkbClipGenerator(const hkbClipGenerator&) — cloneNode's shallow copy
+  - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0, cpp: "CB::schema::hkbClipGenerator::staticClass" }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
   - { name: hkbClipGenerator_Activate, kind: func, se: 58602, ae: 59252, vr: 0 }  # vtable slot 4
   - { name: hkbClipGenerator_Update, kind: func, se: 58603, ae: 59253, vr: 0 }  # vtable slot 5
   - { name: hkbClipGenerator_Deactivate, kind: func, se: 58604, ae: 59254, vr: 0 }  # vtable slot 7
@@ -90,23 +90,23 @@ symbols:
   - { name: hkbClipGenerator_Generate, kind: func, se: 58607, ae: 59257, vr: 0 }  # vtable slot 23
   - { name: hkbClipGenerator_SetAnimationControl, kind: func, se: 58612, ae: 59262, vr: 0 }  # attaches +0x88 (refptr)
   - { name: hkbClipGenerator_RebindFromSetByIndex, kind: func, se: 58616, ae: 59267, vr: 0 }  # reads bindings[+0x70] without a -1 guard
-  - { name: hkbClipGenerator_GetExtractedMotionDelta, kind: func, se: 58623, ae: 59274, vr: 0, cpp: "hkbClipGenerator::getExtractedMotionDelta" }
-  - { name: hkbClipGenerator_SampleAnimation, kind: func, se: 58627, ae: 59278, vr: 0, cpp: "hkbClipGenerator::sampleAnimation" }
-  - { name: hkbClipGenerator_ComputeUsableDuration, kind: func, se: 0, ae: 59263, vr: 0, cpp: "hkbClipGenerator::computeUsableDuration" }  # name provisional
-  - { name: hkbClipGenerator_ComputeEffectivePlaybackSpeed, kind: func, se: 0, ae: 59275, vr: 0, cpp: "hkbClipGenerator::computeEffectivePlaybackSpeed" }  # name provisional; speed x usable/enforced duration, negated on a backward ping-pong
-  - { name: hkbClipGenerator_ComputeStartTime, kind: func, se: 0, ae: 59276, vr: 0, cpp: "hkbClipGenerator::computeStartTime" }  # name provisional; m_startTime rescaled by usable/enforced duration, capped at the duration
-  - { name: hkbClipGenerator_SortTriggers, kind: func, se: 0, ae: 59277, vr: 0, cpp: "hkbClipGenerator::sortTriggers" }  # name provisional; bubble-sorts m_triggers by resolved local time (resetAtEnd tail)
-  - { name: hkbClipGenerator_AddTrigger, kind: func, se: 0, ae: 59264, vr: 0, cpp: "hkbClipGenerator::addTrigger" }  # (localTime, event, relativeToEnd, acyclic, isAnnotation)
-  - { name: hkbClipGenerator_ProcessTriggers, kind: func, se: 0, ae: 59270, vr: 0, cpp: "hkbClipGenerator::processTriggers" }  # name provisional; update's trigger dispatch: splits a step into per-loop ranges for processTriggersInRange
-  - { name: hkbClipGenerator_ProcessTriggersInRange, kind: func, se: 0, ae: 59272, vr: 0, cpp: "hkbClipGenerator::processTriggersInRange" }  # name provisional; (from, to, atEnd, queue, context) — fires the triggers one pass crosses
-  - { name: hkbClipGenerator_ProcessAcyclicTriggers, kind: func, se: 0, ae: 59271, vr: 0, cpp: "hkbClipGenerator::processAcyclicTriggers" }  # name provisional; fires acyclic triggers whose time falls in [from, to) of the elapsed clip time
-  - { name: hkbClipGenerator_AdvanceLocalTime, kind: func, se: 0, ae: 59273, vr: 0, cpp: "hkbClipGenerator::advanceLocalTime" }  # name provisional; (timestep, &prev, &local, &loops, &atEnd)
-  - { name: hkbClipGenerator_ResetAtEnd, kind: func, se: 0, ae: 59279, vr: 0, cpp: "hkbClipGenerator::resetAtEnd" }  # name provisional; tail of activate, update when atEnd: pushes crops to the control, positions local time, resets motion
-  - { name: hkbClipGenerator_Fn140ad11e0, kind: func, se: 0, ae: 59280, vr: 0, cpp: "hkbClipGenerator::fn_140ad11e0" }  # name unknown; clears m_ignoreStartTime (deactivate, 140acee60)
-  - { name: hkbClipGenerator_Fn140ad11f0, kind: func, se: 0, ae: 59281, vr: 0, cpp: "hkbClipGenerator::fn_140ad11f0" }  # name unknown; update, before advancing time: re-derives m_atEnd from the effective speed
-  - { name: hkbClipGenerator_ClipLoader, kind: data, se: 520994, ae: 407512, vr: 0, cpp: "g_animationClipLoader" }  # the loader pointer activate/update/deactivate call (CommonLib AnimationFileManagerSingleton::GetSingleton)
-  - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@@QEAA@AEBU0@@Z" }
-  - { name: hkbMirrorPose, kind: func, se: 0, ae: 59301, vr: 0, cpp: "hkbMirrorPose" }  # name provisional; (output, referencePose) under FLAG_MIRROR
+  - { name: hkbClipGenerator_GetExtractedMotionDelta, kind: func, se: 58623, ae: 59274, vr: 0, cpp: "CB::schema::hkbClipGenerator::getExtractedMotionDelta" }
+  - { name: hkbClipGenerator_SampleAnimation, kind: func, se: 58627, ae: 59278, vr: 0, cpp: "CB::schema::hkbClipGenerator::sampleAnimation" }
+  - { name: hkbClipGenerator_ComputeUsableDuration, kind: func, se: 0, ae: 59263, vr: 0, cpp: "CB::schema::hkbClipGenerator::computeUsableDuration" }  # name provisional
+  - { name: hkbClipGenerator_ComputeEffectivePlaybackSpeed, kind: func, se: 0, ae: 59275, vr: 0, cpp: "CB::schema::hkbClipGenerator::computeEffectivePlaybackSpeed" }  # name provisional; speed x usable/enforced duration, negated on a backward ping-pong
+  - { name: hkbClipGenerator_ComputeStartTime, kind: func, se: 0, ae: 59276, vr: 0, cpp: "CB::schema::hkbClipGenerator::computeStartTime" }  # name provisional; m_startTime rescaled by usable/enforced duration, capped at the duration
+  - { name: hkbClipGenerator_SortTriggers, kind: func, se: 0, ae: 59277, vr: 0, cpp: "CB::schema::hkbClipGenerator::sortTriggers" }  # name provisional; bubble-sorts m_triggers by resolved local time (resetAtEnd tail)
+  - { name: hkbClipGenerator_AddTrigger, kind: func, se: 0, ae: 59264, vr: 0, cpp: "CB::schema::hkbClipGenerator::addTrigger" }  # (localTime, event, relativeToEnd, acyclic, isAnnotation)
+  - { name: hkbClipGenerator_ProcessTriggers, kind: func, se: 0, ae: 59270, vr: 0, cpp: "CB::schema::hkbClipGenerator::processTriggers" }  # name provisional; update's trigger dispatch: splits a step into per-loop ranges for processTriggersInRange
+  - { name: hkbClipGenerator_ProcessTriggersInRange, kind: func, se: 0, ae: 59272, vr: 0, cpp: "CB::schema::hkbClipGenerator::processTriggersInRange" }  # name provisional; (from, to, atEnd, queue, context) — fires the triggers one pass crosses
+  - { name: hkbClipGenerator_ProcessAcyclicTriggers, kind: func, se: 0, ae: 59271, vr: 0, cpp: "CB::schema::hkbClipGenerator::processAcyclicTriggers" }  # name provisional; fires acyclic triggers whose time falls in [from, to) of the elapsed clip time
+  - { name: hkbClipGenerator_AdvanceLocalTime, kind: func, se: 0, ae: 59273, vr: 0, cpp: "CB::schema::hkbClipGenerator::advanceLocalTime" }  # name provisional; (timestep, &prev, &local, &loops, &atEnd)
+  - { name: hkbClipGenerator_ResetAtEnd, kind: func, se: 0, ae: 59279, vr: 0, cpp: "CB::schema::hkbClipGenerator::resetAtEnd" }  # name provisional; tail of activate, update when atEnd: pushes crops to the control, positions local time, resets motion
+  - { name: hkbClipGenerator_Fn140ad11e0, kind: func, se: 0, ae: 59280, vr: 0, cpp: "CB::schema::hkbClipGenerator::fn_140ad11e0" }  # name unknown; clears m_ignoreStartTime (deactivate, 140acee60)
+  - { name: hkbClipGenerator_Fn140ad11f0, kind: func, se: 0, ae: 59281, vr: 0, cpp: "CB::schema::hkbClipGenerator::fn_140ad11f0" }  # name unknown; update, before advancing time: re-derives m_atEnd from the effective speed
+  - { name: hkbClipGenerator_ClipLoader, kind: data, se: 520994, ae: 407512, vr: 0, cpp: "CB::schema::g_animationClipLoader" }  # the loader pointer activate/update/deactivate call (CommonLib AnimationFileManagerSingleton::GetSingleton)
+  - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z" }
+  - { name: hkbMirrorPose, kind: func, se: 0, ae: 59301, vr: 0, cpp: "CB::schema::hkbMirrorPose" }  # name provisional; (output, referencePose) under FLAG_MIRROR
   - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0 }  # hkClass object
 
   # --- Bethesda generators: paired (BSSynchronizedClipGenerator), offset, tweener ---
@@ -170,44 +170,44 @@ symbols:
 
   # --- Referenced by CB's reimplementation (schema/), checked by tools/cbmatch ---
   # Havok base library
-  - { name: hkReferencedObject_AddReference, kind: func, se: 56606, ae: 57010, vr: 0, cpp: "hkReferencedObject::addReference" }
-  - { name: hkReferencedObject_RemoveReference, kind: func, se: 56607, ae: 57011, vr: 0, cpp: "hkReferencedObject::removeReference" }
-  - { name: hkArrayUtil_Reserve, kind: func, se: 0, ae: 57048, vr: 0, cpp: "hkArrayUtil::_reserve" }
-  - { name: hkArrayUtil_ReserveMore, kind: func, se: 0, ae: 57049, vr: 0, cpp: "hkArrayUtil::_reserveMore" }  # (allocator, array, sizeElem): grow when size == capacity (hkArray::pushBack)
-  - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "hkString::strCmp" }
-  - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
-  - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "hkPointerMapStorage::getWithDefault" }  # name provisional
-  - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@@QEAA@AEBV0@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
-  - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@@QEAA@UhkFinishLoadedObjectFlag@@@Z" }
-  - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@@QEAAAEAV0@PEBD@Z" }  # operator=(const char*)
-  - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "hkStringBuf::printf" }
-  - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "hkContainerTempAllocator::s_alloc" }
-  - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "hkContainerHeapAllocator::s_alloc" }
-  - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "hkMemoryRouter_s_memoryRouter" }
-  - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "hkError::s_instance" }
-  - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "hkMonitorStream_s_tls" }
-  - { name: hkVectorConstant_0001, kind: data, se: 0, ae: 219019, vr: 0, cpp: "g_vectorConstant0001" }  # (0,0,0,1) — quaternion identity
-  - { name: hkVectorConstant_MinusHalf, kind: data, se: 0, ae: 219020, vr: 0, cpp: "g_vectorConstantMinusHalf" }  # -0.5 x4
-  - { name: hkVectorConstant_Zero, kind: data, se: 0, ae: 219024, vr: 0, cpp: "g_vectorConstantZero" }
-  - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
+  - { name: hkReferencedObject_AddReference, kind: func, se: 56606, ae: 57010, vr: 0, cpp: "CB::schema::hkReferencedObject::addReference" }
+  - { name: hkReferencedObject_RemoveReference, kind: func, se: 56607, ae: 57011, vr: 0, cpp: "CB::schema::hkReferencedObject::removeReference" }
+  - { name: hkArrayUtil_Reserve, kind: func, se: 0, ae: 57048, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserve" }
+  - { name: hkArrayUtil_ReserveMore, kind: func, se: 0, ae: 57049, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserveMore" }  # (allocator, array, sizeElem): grow when size == capacity (hkArray::pushBack)
+  - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "CB::schema::hkString::strCmp" }
+  - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "CB::schema::hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
+  - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getWithDefault" }  # name provisional
+  - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
+  - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
+  - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
+  - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "CB::schema::hkStringBuf::printf" }
+  - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
+  - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
+  - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "CB::schema::hkMemoryRouter_s_memoryRouter" }
+  - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "CB::schema::hkError::s_instance" }
+  - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "CB::schema::hkMonitorStream_s_tls" }
+  - { name: hkVectorConstant_0001, kind: data, se: 0, ae: 219019, vr: 0, cpp: "CB::schema::g_vectorConstant0001" }  # (0,0,0,1) — quaternion identity
+  - { name: hkVectorConstant_MinusHalf, kind: data, se: 0, ae: 219020, vr: 0, cpp: "CB::schema::g_vectorConstantMinusHalf" }  # -0.5 x4
+  - { name: hkVectorConstant_Zero, kind: data, se: 0, ae: 219024, vr: 0, cpp: "CB::schema::g_vectorConstantZero" }
+  - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "CB::schema::g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
   # Havok animation
-  - { name: hkaSkeletonUtils_ScalePose, kind: func, se: 0, ae: 64092, vr: 0, cpp: "hkaSkeletonUtils::scalePose" }  # name provisional; (scale, pose, count)
-  - { name: hkaDefaultAnimationControl_Ctor, kind: func, se: 0, ae: 64170, vr: 0, cpp: "hkaDefaultAnimationControl::hkaDefaultAnimationControl" }  # (binding, ease, maxCycles)
-  - { name: hkaDefaultAnimationControlMapperData_Ctor, kind: func, se: 0, ae: 64184, vr: 0, cpp: "hkaDefaultAnimationControlMapperData::hkaDefaultAnimationControlMapperData" }
-  - { name: hkaDefaultAnimationControl_SetBinding, kind: func, se: 0, ae: 64390, vr: 0, cpp: "hkaDefaultAnimationControl::setBinding" }  # name provisional
-  - { name: hkaSkeletonMapper_MapExtractedMotion, kind: func, se: 0, ae: 64076, vr: 0, cpp: "hkaSkeletonMapper::mapExtractedMotion" }  # (in, out): applies the mapper's extracted-motion mapping
-  - { name: hkaMirroredSkeleton_MirrorExtractedMotion, kind: func, se: 0, ae: 64361, vr: 0, cpp: "hkaMirroredSkeleton::mirrorExtractedMotion" }  # (motion&)
+  - { name: hkaSkeletonUtils_ScalePose, kind: func, se: 0, ae: 64092, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::scalePose" }  # name provisional; (scale, pose, count)
+  - { name: hkaDefaultAnimationControl_Ctor, kind: func, se: 0, ae: 64170, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::hkaDefaultAnimationControl" }  # (binding, ease, maxCycles)
+  - { name: hkaDefaultAnimationControlMapperData_Ctor, kind: func, se: 0, ae: 64184, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControlMapperData::hkaDefaultAnimationControlMapperData" }
+  - { name: hkaDefaultAnimationControl_SetBinding, kind: func, se: 0, ae: 64390, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::setBinding" }  # name provisional
+  - { name: hkaSkeletonMapper_MapExtractedMotion, kind: func, se: 0, ae: 64076, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapExtractedMotion" }  # (in, out): applies the mapper's extracted-motion mapping
+  - { name: hkaMirroredSkeleton_MirrorExtractedMotion, kind: func, se: 0, ae: 64361, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorExtractedMotion" }  # (motion&)
   # Havok behavior
-  - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@@QEAA@AEBV0@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
-  - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "hkQueue<hkbEvent>::setCapacity" }
-  - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
-  - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
-  - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
-  - { name: hkbBehaviorGraph_GetVariableValueSet, kind: func, se: 0, ae: 63851, vr: 0, cpp: "hkbBehaviorGraph::getVariableValueSet" }  # name provisional
+  - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
+  - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
+  - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
+  - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
+  - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
+  - { name: hkbBehaviorGraph_GetVariableValueSet, kind: func, se: 0, ae: 63851, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getVariableValueSet" }  # name provisional
   - { name: BSCRC32_Pointer, kind: func, se: 0, ae: 68221, vr: 0, cpp: "BSCRC32_Pointer" }  # name provisional; CRC of a pointer value (BSTScatterTable hash)
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
-  - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "hkbNode::`vftable'" }
-  - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "hkbClipGenerator::`vftable'" }
-  - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "hkbClipTriggerArray::`vftable'" }
-  - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "hkbTimerModifierInternalState::`vftable'" }
-  - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "BSSynchronizedClipGenerator::`vftable'" }
+  - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
+  - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "CB::schema::hkbClipGenerator::`vftable'" }
+  - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
+  - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "CB::schema::hkbTimerModifierInternalState::`vftable'" }
+  - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }

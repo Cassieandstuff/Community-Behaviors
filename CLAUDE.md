@@ -64,12 +64,16 @@ src/                         CB's code. src/ is the plugin's private include roo
 common/                      what features build against; common/ is their include root:
   feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::)
   config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
-schema/                      the class schema as DATA, flat — vanilla hk*, Bethesda BS*, CB* custom classes side
-                             by side, told apart by prefix; metadata/ holds enums, merge semantics, debug probes
-                             and the adsf/asdsf descriptors. templates/ = the converter's Nemesis-ingest XML
-                             oracles. Deployed: plugin → Data/community_behaviors/schema (no templates/),
-                             converter → <exe>/schema.
-tools/                       dev-only, never shipped: hky-tool, cbdiff, x64dbg-autoattach, blender-control-rig
+schema/                      the class schema as DATA — one YAML per class in family folders (generators/,
+                             modifiers/, …; vanilla hk*, Bethesda BS*, CB* custom classes told apart by prefix);
+                             metadata/ holds enums, merge semantics, debug probes and the adsf/asdsf descriptors.
+                             templates/ = the converter's Nemesis-ingest XML oracles. Havok/ = the reimplemented
+                             Havok runtime (CB::schema::), laid out like Havok's source tree (Common/Base, Animation,
+                             Behavior; below them the exe's __FILE__ paths), built only by tools/cbmatch (VS2015).
+                             Deployed as data only (staging drops .h/.cpp): plugin → Data/community_behaviors/schema
+                             (no templates/), converter → <exe>/schema.
+tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch (byte-matches schema/Havok against
+                             the exe), x64dbg-autoattach, blender-control-rig
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). On hold — nothing consumes it yet. Nothing private goes in include/.
 ```
@@ -81,7 +85,9 @@ another root renames its namespace; a stray top-level namespace is a bug.
 
 - **Roots.** `CB::core::` = the plugin (src/core) · `CB::engine::` = the shared engine (src/engine) ·
   `CB::feature::` = features + the feature SDK · `CB::converter::` = the converter · `CB::config::` = the
-  config scanner. Nothing else at the top — no bare `havok::` / `sct::` / `bconv::`.
+  config scanner · `CB::schema::` = the reimplemented Havok runtime (schema/Havok; Havok's class names directly
+  under the root, opened as `namespace CB { namespace schema {` since VS2015 builds it). Nothing else at the top
+  — no bare `havok::` / `sct::` / `bconv::`.
 - **Depth: `CB::<root>::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
@@ -137,6 +143,8 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
   runs the SAME `generate-base-master` regen (decompile everything it holds to reflective units, gate
   every unit's served bytes vs its own binaries, pack) → `<Name>.hky`. A new derived bundle = a new source folder.
   Unset → regen skipped, the already-deployed bundles stay.
+- `CB_SKYRIM_AE_EXE` / `CB_ADDRESSLIB_AE` — the unpacked AE 1.6.1170 SkyrimSE.exe and its Address Library
+  database, for `tools/cbmatch/manifests/*.yaml` (which also read `VS140COMNTOOLS`, set by the VS2015 toolset).
 - `SCT_BASE_MASTER_DIR` — a **SHORT** D-drive path (e.g. `D:\sct-base-master`) for the unpacked trees (each
   regen keeps `<Name>.hky\` there). See the diff strategy below. Must be short: these trees blow past
   Windows MAX_PATH under a deep root.
@@ -178,6 +186,10 @@ still belongs in the session scratchpad dir.)
   on vanilla's stored `floatBlockOffsets` for every vanilla clip (5937/5937), and every clip recompiled by CB must
   store exactly where the decoder finds its float section. Run it after any spline compressor change. (Nothing to
   bump: compiled animations are keyed on the plugin DLL's hash, so every rebuild recompiles them once.)
+- **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant` compiles schema/Havok
+  per translation unit and diffs every listed function against the exe (EXACT / REGALLOC / VARIANT, references
+  checked against engine.yaml); `tools/cbmatch/tests/mutants.sh` proves VARIANT still rejects broken copies.
+  Run both after any schema/Havok or cbmatch change.
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
 

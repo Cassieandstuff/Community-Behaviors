@@ -1,0 +1,50 @@
+# cbmatch manifest: the schema tree's reimplemented Havok runtime (schema/Havok) against vanilla.
+#   cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant
+#
+# One unit per translation unit: a TU boundary changes the code MSVC emits (what a caller may assume about a callee
+# it can see), so units mirror the files vanilla was built from, not one per function.
+#
+# Machine-specific paths come from the environment:
+#   CB_SKYRIM_AE_EXE   the unpacked SkyrimSE.exe (AE 1.6.1170)
+#   CB_ADDRESSLIB_AE   its Address Library database (versionlib-1-6-1170-0.bin)
+#   VS140COMNTOOLS     set by the VS2015 (v140) toolset install
+runtimes:
+  ae: { exe: "${CB_SKYRIM_AE_EXE}", addresslib: "${CB_ADDRESSLIB_AE}", pins: ae }
+registry: ../../../src/core/hooks/registry/engine.yaml
+toolchains:
+  vs2015: "${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
+# /Ob1: Havok's build inlines only `inline` functions — vanilla calls small same-file helpers that /Ob2 would inline.
+flags: [/O2, /Ob1, /GS-, /fp:fast]
+includes: [../../../schema/Havok, "${VS140COMNTOOLS}../../VC/include"]
+units:
+  - source: ../../../schema/Havok/Behavior/Modifier/Timer/hkbTimerModifier.cpp
+    functions:
+      - { name: "CB::schema::hkbTimerModifier::update", va: 0x140afebd0 }
+      - { name: "CB::schema::hkbTimerModifier::createInternalState", va: 0x140afed50 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.cpp
+    functions:
+      - { name: "CB::schema::finishLoadedObjectBSSynchronizedClipGenerator", va: 0x140b93c10 }
+  - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGenerator.cpp
+    functions:
+      - { name: "CB::schema::hkbClipGenerator::activate", va: 0x140acd750 }
+      - { name: "CB::schema::hkbClipGenerator::update", va: 0x140acde40 }
+      - { name: "CB::schema::hkbClipGenerator::deactivate", va: 0x140ace1e0 }
+      - { name: "CB::schema::hkbClipGenerator::generate", va: 0x140ace400 }
+      - { name: "CB::schema::hkbClipGenerator::getClassType", va: 0x140acd740 }
+      - { name: "CB::schema::hkbClipGenerator::isValid", va: 0x140ace310 }
+      - { name: "CB::schema::hkbClipGenerator::cloneNode", va: 0x140ace3b0 }
+      - { name: "CB::schema::hkbClipGenerator::hkbClipGenerator", va: 0x140acd450 }
+      - { name: "CB::schema::hkbClipGenerator::computeEffectivePlaybackSpeed", va: 0x140ad01f0 }
+      - { name: "CB::schema::hkbClipGenerator::fn_140ad11e0", va: 0x140ad11e0 }
+      - { name: "CB::schema::hkbClipGenerator::fn_140ad11f0", va: 0x140ad11f0 }
+      - { name: "CB::schema::hkbClipGenerator::computeStartTime", va: 0x140ad0250 }
+      - { name: "CB::schema::hkbClipGenerator::resetAtEnd", va: 0x140ad1050 }
+      - { name: "CB::schema::hkbClipGenerator::advanceLocalTime", va: 0x140acfde0 }
+      - { name: "CB::schema::hkbClipGenerator::addTrigger", va: 0x140acf390 }
+      - { name: "CB::schema::hkbClipGenerator::processTriggers", va: 0x140acf790 }
+      - { name: "CB::schema::hkbClipGenerator::processTriggersInRange", va: 0x140acfb40 }
+      - { name: "CB::schema::hkbClipGenerator::processAcyclicTriggers", va: 0x140acf960 }
+      - { name: "CB::schema::hkbClipGenerator::getExtractedMotionDelta", va: 0x140acfff0 }
+  - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbClipGenerator::computeUsableDuration", va: 0x140acf340 }

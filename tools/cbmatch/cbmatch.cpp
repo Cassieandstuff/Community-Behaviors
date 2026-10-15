@@ -1125,7 +1125,7 @@ bool sameEffect(const Insn& x, const Insn& y, bool masked)
 ///          swapped — both verified to pass), a different value loaded into a register, a condition change hidden by a
 ///          duplicated branch of the same family, an inverted test (`if (p)` → `if (!p)`: jz/jnz share a family because
 ///          branch layout inverts them — verified to pass).
-///          Caught (deliberately broken copies, D:\CB-tmp\matching-probe\mut): wrong field read or written, dropped or
+///          Caught (deliberately broken copies, tools/cbmatch/tests/mutants.sh): wrong field read or written, dropped or
 ///          extra call, dropped or extra store, wrong argument, wrong constant, >= → >. A VARIANT function still needs
 ///          behavioural verification.
 std::optional<std::uint64_t> absoluteTarget(const Insn& i, std::uint64_t runtimeAddress);
