@@ -62,13 +62,20 @@ namespace CB { namespace schema
         struct ChildInfo
         {
             hkbNode* m_node;
-            hkUint8  m_opaque[8];
+            hkUint8  m_pad8[2];
+            /// @note Name provisional: set for a child reported under FLAG_ACTIVE_ONLY (the blender, the behavior
+            ///       reference generator).
+            bool     m_isActive;   ///< +0xa
+            hkUint8  m_padB[5];
         };
         /// @brief Where getChildren reports to.
         /// @note The blender also sets a bool at +0xa of it; unidentified.
         struct ChildrenInfo
         {
             hkArray<ChildInfo>& m_childInfos;
+            hkUint8             m_pad8[2];
+            /// @note Name provisional: set alongside a reported child's m_isActive (the behavior reference generator).
+            bool                m_anyActive;   ///< +0xa
         };
 
         hkUlong     m_userData;     ///< +0x30 — Bethesda keys clip loading off it (the clip tests 0 and 8)
@@ -78,7 +85,7 @@ namespace CB { namespace schema
 
         /// @note Inlined into the node classes' default constructors, where its vtable store survives (the out-of-line
         ///       hkStringPtr constructor could read it); the earlier bases' stores die.
-        HK_FORCE_INLINE hkbNode() : m_userData(0), m_id(-1), m_cloneState(CLONE_STATE_DEFAULT) {}
+        HK_FORCE_INLINE hkbNode() : m_userData(0), m_id(-1) { m_cloneState = CLONE_STATE_DEFAULT; }
         HK_FORCE_INLINE hkbNode(hkFinishLoadedObjectFlag flag) : hkbBindable(flag), m_name(flag) { m_id = -1; }
         /// @brief The clone copy (cloneNode); marks the SOURCE node as cloned.
         hkbNode(const hkbNode& node);

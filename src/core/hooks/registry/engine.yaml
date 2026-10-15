@@ -334,3 +334,8 @@ symbols:
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene
   - { name: hkbReferencePoseGenerator_Vtable, kind: data, se: 278396, ae: 226336, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::`vftable'" }
   - { name: hkbReferencePoseGenerator_GetStaticClass, kind: func, se: 0, ae: 58681, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBehaviorReferenceGenerator_Vtable, kind: data, se: 278344, ae: 226271, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::`vftable'" }
+  - { name: hkbBehaviorReferenceGenerator_GetStaticClass, kind: func, se: 0, ae: 58636, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBehaviorReferenceGenerator_Dtor, kind: func, se: 0, ae: 59235, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::~hkbBehaviorReferenceGenerator" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbBehaviorReferenceGenerator_StaticClass, kind: data, se: 0, ae: 407705, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGeneratorClass" }  # hkClass object
+  - { name: hkbGeneratorOutputUtils_CopyGeneratorOutput, kind: func, se: 0, ae: 59295, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copyGeneratorOutput" }  # name provisional; (in, out) copies the tracks that are on; a jump stub to 0x140ad1390

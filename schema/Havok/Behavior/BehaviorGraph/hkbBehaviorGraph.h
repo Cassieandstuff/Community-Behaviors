@@ -7,6 +7,7 @@
 #include <Behavior/Generator/hkbGenerator.h>
 #include <Behavior/Utils/hkbSymbolIdMap.h>
 #include <Common/Base/Algorithm/PseudoRandom/hkPseudoRandomGenerator.h>
+#include <Common/Base/Container/PointerMap/hkPointerMap.h>
 
 namespace CB { namespace schema
 {
@@ -46,7 +47,9 @@ namespace CB { namespace schema
         hkRefPtr<hkbBehaviorGraphData> m_data;         ///< +0x88
         char                           m_pad90[0x98 - 0x90];
         hkArray<hkbNodeInfo>*          m_activeNodes;  ///< +0x98
-        char                           m_padA0[0xb8 - 0xa0];
+        /// @brief Each active node template's index in m_activeNodes.
+        hkPointerMap<const hkbNode*, int>* m_activeNodeTemplateToIndexMap;   ///< +0xa0
+        char                           m_padA8[0xb8 - 0xa8];
         hkRefPtr<hkbSymbolIdMap>       m_eventIDMap;   ///< +0xb8
 
         /// @brief The template node an event raised by `node` names as its sender.

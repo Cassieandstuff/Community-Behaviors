@@ -259,3 +259,18 @@ units:
       - { name: "CB::schema::hkbReferencePoseGenerator::cloneNode", va: 0x140aeaf10 }
       - { name: "CB::schema::hkbReferencePoseGenerator::generate", va: 0x140aeaf40 }
       - { name: "??_GhkbReferencePoseGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140acaae0 }
+  - source: ../../../schema/Havok/Behavior/Generator/BehaviorReference/hkbBehaviorReferenceGenerator.cpp
+    functions:
+      # STRUCTURAL, store schedule only (m_cloneState vs the second hkStringPtr argument; see parked.yaml):
+      # - { name: "??0hkbBehaviorReferenceGenerator@schema@CB@@QEAA@XZ", va: 0x140accc70 }
+      - { name: "??1hkbBehaviorReferenceGenerator@schema@CB@@UEAA@XZ", va: 0x140accce0 }
+      - { name: "CB::schema::hkbBehaviorReferenceGenerator::getClassType", va: 0x140accd30 }
+      # STRUCTURAL, signed vs unsigned capacity compare in the inlined setSize (see parked.yaml):
+      # - { name: "CB::schema::hkbBehaviorReferenceGenerator::getChildren", va: 0x140accd40 }
+      - { name: "CB::schema::hkbBehaviorReferenceGenerator::isValid", va: 0x140accdf0 }
+      - { name: "CB::schema::hkbBehaviorReferenceGenerator::cloneNode", va: 0x140acce30 }
+      - { name: "CB::schema::hkbBehaviorReferenceGenerator::generate", va: 0x140acce60 }
+      - { name: "CB::schema::hkbBehaviorReferenceGenerator::canRecycleOutput", va: 0x140acce80 }
+      - { name: "CB::schema::hkbBehaviorReferenceGenerator::updateSync", va: 0x140acce90 }
+      - { name: "CB::schema::hkbBehaviorReferenceGenerator::calcContentStatistics", va: 0x140accf10 }
+      - { name: "??_GhkbBehaviorReferenceGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7860 }

@@ -40,6 +40,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE ~hkPointerMap() { m_map.clearAndDeallocate(hkContainerHeapAllocator::s_alloc); }
 
         HK_FORCE_INLINE int      insert(K key, V val) { return m_map.insert(hkContainerHeapAllocator::s_alloc, hkUlong(key), hkUlong(val)); }
+        HK_FORCE_INLINE V        getWithDefault(K key, V def) const { return V(m_map.getWithDefault(hkUlong(key), hkUlong(def))); }
         HK_FORCE_INLINE hkResult get(K key, V* out) const
         {
             hkUlong        tmp;
