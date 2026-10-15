@@ -6,8 +6,12 @@ add_executable(cbmatch cbmatch.cpp)
 
 find_package(zydis CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+# unicorn (--diff's emulator; GPL-2.0, fine for a dev tool that never ships) has no CMake config, only the static archive.
+find_path(UNICORN_INCLUDE_DIR unicorn/unicorn.h REQUIRED)
+find_library(UNICORN_LIBRARY unicorn REQUIRED)
 
-target_link_libraries(cbmatch PRIVATE engine Zydis::Zydis nlohmann_json::nlohmann_json dbghelp)
+target_include_directories(cbmatch PRIVATE "${UNICORN_INCLUDE_DIR}")
+target_link_libraries(cbmatch PRIVATE engine Zydis::Zydis nlohmann_json::nlohmann_json dbghelp "${UNICORN_LIBRARY}")
 
 set_target_properties(cbmatch PROPERTIES
     CXX_STANDARD 23

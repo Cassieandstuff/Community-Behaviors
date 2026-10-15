@@ -13,6 +13,7 @@
     "directxtk",
     "rapidcsv",
     "lz4",
-    "zydis"
+    "zydis",
+    "unicorn"
   ]
 }

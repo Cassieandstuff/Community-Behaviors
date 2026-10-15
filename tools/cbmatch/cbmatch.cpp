@@ -20,9 +20,11 @@
 #include <dbghelp.h>
 
 #include <Zydis/Zydis.h>
+#include <unicorn/unicorn.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <cctype>
 #include <cstdint>
@@ -463,7 +465,7 @@ struct CoffFunction {
     std::string                            mangled, name;
     Bytes                                  bytes;
     std::vector<bool>                      mask;     ///< bytes a relocation fills in at link time
-    struct Target { std::string mangled, name; };
+    struct Target { std::string mangled, name; std::uint16_t type = 0; };
     std::map<std::uint32_t, Target>        targets;  ///< reloc offset → the symbol it refers to
 };
 
@@ -553,7 +555,7 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
                 const auto        width = relocWidth(rd<std::uint16_t>(b, ro + 8));
                 if (at < begin || at >= end) continue;
                 for (std::uint32_t w = 0; w < width && at - begin + w < f.mask.size(); ++w) f.mask[at - begin + w] = true;
-                if (sym < names.size()) f.targets[at - begin] = { names[sym], undecorate(names[sym]) };
+                if (sym < names.size()) f.targets[at - begin] = { names[sym], undecorate(names[sym]), rd<std::uint16_t>(b, ro + 8) };
             }
             out.push_back(std::move(f));
         }
@@ -764,6 +766,8 @@ struct Match {
     std::size_t              refsVerified = 0, refsUnverifiable = 0;
     std::vector<std::string> refsWrong;
     std::vector<UnmappedRef> refsUnmapped;
+
+    const CoffFunction*      ours = nullptr;   ///< the compiled function this result is for (outlives the Match)
 };
 
 std::string targetNote(const CoffFunction& f, const Insn& i)
@@ -1558,6 +1562,892 @@ Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va,
     return m;
 }
 
+// ── differential testing: ours and vanilla run on the same synthetic inputs ─────────────────────────────────────────
+
+/// @brief A function's C++ signature, read from its mangled name: where the arguments go and what comes back.
+struct Signature {
+    enum class Kind { Void, Bool, Int8, Int16, Int32, Int64, Ptr, Ref, Float, Double };
+    bool              hasThis = false;
+    Kind              ret = Kind::Int64;
+    std::vector<Kind> params;   ///< after `this`
+    std::string       text;
+};
+
+Signature::Kind kindOf(std::string t)
+{
+    using K = Signature::Kind;
+    const bool isEnum = t.find("enum ") != std::string::npos;
+    if (t.find('*') != std::string::npos) return K::Ptr;
+    if (t.find('&') != std::string::npos) return K::Ref;
+    for (const char* noise : { "const ", " const", "volatile ", "__ptr64", "class ", "struct ", "union ", "enum " })
+        for (std::size_t p; (p = t.find(noise)) != std::string::npos;) t.erase(p, std::strlen(noise));
+    t = std::string(CB::engine::text::Trim(t));
+    if (t == "void") return K::Void;
+    if (t == "bool") return K::Bool;
+    if (t == "float") return K::Float;
+    if (t == "double") return K::Double;
+    if (t == "char" || t == "signed char" || t == "unsigned char") return K::Int8;
+    if (t == "short" || t == "unsigned short" || t == "wchar_t") return K::Int16;
+    if (t == "int" || t == "unsigned int" || t == "long" || t == "unsigned long" || isEnum) return K::Int32;
+    if (t == "__int64" || t == "unsigned __int64") return K::Int64;
+    return K::Ptr;   // a class by value: an address as far as the inputs go
+}
+
+Signature parseSignature(const std::string& mangled)
+{
+    Signature s;
+    {
+        std::lock_guard lk(g_dbghelp);
+        char            buf[4096];
+        if (!UnDecorateSymbolName(mangled.c_str(), buf, sizeof buf, UNDNAME_COMPLETE)) return s;
+        s.text = buf;
+    }
+    const std::string& t     = s.text;
+    const auto         close = t.rfind(')');
+    if (close == std::string::npos) return s;
+    std::size_t open = std::string::npos;
+    for (std::size_t k = close + 1, depth = 0; k-- > 0;) {
+        if (t[k] == ')') ++depth;
+        else if (t[k] == '(' && --depth == 0) { open = k; break; }
+    }
+    if (open == std::string::npos) return s;
+    const std::string list = t.substr(open + 1, close - open - 1);
+    if (list != "void" && !list.empty()) {
+        int         depth = 0;
+        std::string cur;
+        for (char c : list) {
+            if (c == '<' || c == '(') ++depth;
+            if (c == '>' || c == ')') --depth;
+            if (c == ',' && depth == 0) { s.params.push_back(kindOf(cur)); cur.clear(); continue; }
+            cur += c;
+        }
+        s.params.push_back(kindOf(cur));
+    }
+    const auto  cc   = t.find("__cdecl");
+    std::string head = cc == std::string::npos ? std::string() : t.substr(0, cc);
+    s.hasThis = (head.find("public:") != std::string::npos || head.find("protected:") != std::string::npos ||
+                 head.find("private:") != std::string::npos) && head.find("static ") == std::string::npos;
+    for (const char* w : { "public:", "protected:", "private:", "virtual ", "static " })
+        for (std::size_t p; (p = head.find(w)) != std::string::npos;) head.erase(p, std::strlen(w));
+    head  = std::string(CB::engine::text::Trim(head));
+    s.ret = head.empty() ? Signature::Kind::Void : kindOf(head);
+    return s;
+}
+
+std::uint64_t mix64(std::uint64_t x)
+{
+    x += 0x9E3779B97F4A7C15ull;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ull;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBull;
+    return x ^ (x >> 31);
+}
+
+std::uint64_t seeded(std::uint64_t seed, std::uint64_t key) { return mix64(mix64(seed) ^ key); }
+
+constexpr std::uint64_t kPage       = 0x1000;
+constexpr std::uint64_t kHeapBase   = 0x0000100000000000ull;   ///< synthetic pointers point into the 4 GiB above
+constexpr std::uint64_t kHeapSpan   = 0x0000000100000000ull;
+constexpr std::uint64_t kStackBase  = 0x00007ff000000000ull;
+constexpr std::uint64_t kStackSize  = 0x0000000000100000ull;
+constexpr std::uint64_t kStubBase   = 0x00007fe000000000ull;   ///< import slots point here
+constexpr std::uint64_t kStubSize   = 0x0000000000010000ull;
+constexpr std::uint64_t kSentinel   = kStubBase;               ///< the return address the function under test gets
+constexpr std::uint64_t kStackToken = 0x5354414b5354414bull;   ///< what any pointer into the stack compares as
+constexpr std::size_t   kMaxPages   = 8192;
+constexpr std::uint64_t kBudget     = 20000;   ///< instructions per run; a run that needs more (a loop over a huge synthetic count) is inconclusive
+constexpr std::uint64_t kInputTag   = 1ull << 63;               ///< keys of inputs that are not memory (arguments, call results)
+
+std::uint64_t argKey(std::size_t k)            { return kInputTag | 0xA4600ull | k; }
+std::uint64_t resultKey(std::uint64_t call)    { return kInputTag | (0xCA11ull << 32) | call; }
+
+constexpr float         kFloats[] = { 0.0f, 1.0f, -1.0f, 0.5f, 2.0f, 0.25f, 0.001f, -0.001f, 0.0005f, 30.0f, -2.5f, 0.0133333f, 1e-6f, 100.0f, 0.75f, 3.0f };
+constexpr std::uint32_t kInts[]   = { 0, 1, 2, 3, 4, 5, 8, 0xffffu };   ///< no 32-bit -1: read as a float it is a NaN
+
+std::uint32_t floatBits(float f) { std::uint32_t u; std::memcpy(&u, &f, 4); return u; }
+std::uint32_t synthFloat(std::uint64_t h) { return floatBits(kFloats[h % std::size(kFloats)]); }
+std::uint32_t synthDword(std::uint64_t h) { return (h & 1) ? kInts[(h >> 1) % std::size(kInts)] : synthFloat(h >> 1); }
+/// @brief Both 32-bit lanes made finite floats (an all-ones exponent loses its low bit), since any qword may be read as floats.
+std::uint64_t finite(std::uint64_t v)
+{
+    for (int lane = 0; lane < 2; ++lane)
+        if (((v >> (32 * lane)) & 0x7F800000ull) == 0x7F800000ull) v ^= 0x00800000ull << (32 * lane);
+    return v;
+}
+
+std::uint64_t heapPointer(std::uint64_t h) { return finite(kHeapBase + (((h >> 4) % kHeapSpan) & ~0xFull)); }
+
+/// @brief The synthetic value of the qword at `key`: nulls, pointers into the synthetic heap, small ints and the floats
+///        the code compares against, bools, and noise — a pure function of (seed, key), so both runs read the same.
+/// @note No NaN, infinity or -0: /fp:fast lets the compiler order min/max and compares freely, which only those tell apart.
+std::uint64_t synthQword(std::uint64_t seed, std::uint64_t key)
+{
+    const std::uint64_t h = seeded(seed, key);
+    const std::uint64_t r = mix64(h);
+    switch (h % 20) {
+        case 0: case 1:                         return 0;
+        case 2: case 3: case 4: case 5: case 6: return heapPointer(r);
+        case 15: case 16:                       return r & 0x0101010101010101ull;
+        case 17: case 18: case 19:              return finite(r);
+        default:                                return std::uint64_t(synthDword(r)) | (std::uint64_t(synthDword(mix64(r))) << 32);
+    }
+}
+
+/// @brief The value a forced input takes: a pointer to its own synthetic object.
+std::uint64_t forcedPointer(std::uint64_t seed, std::uint64_t key) { return heapPointer(seeded(seed, key ^ 0x9E3779B97F4A7C15ull)); }
+
+std::uint64_t roundUp(std::uint64_t v, std::uint64_t a) { return (v + a - 1) & ~(a - 1); }
+
+std::uint64_t lowBytes(std::uint64_t v, std::uint8_t width) { return width >= 8 ? v : v & ((1ull << (width * 8)) - 1); }
+
+/// @brief One call out of the function under test: every argument slot as the callee would find it, and how much of
+///        each the caller wrote since the previous call (or was passed in) — for callees whose signature is unknown.
+struct CallRecord {
+    std::uint64_t                target = 0;
+    std::array<std::uint64_t, 4> gpr{};
+    std::array<std::uint8_t, 4>  gprWidth{};   ///< bytes defined; 0 = left alone
+    std::array<std::uint64_t, 4> xmm{};        ///< low 64 bits
+    std::array<bool, 4>          xmmDefined{};
+    std::array<std::uint64_t, 6> stack{};      ///< stack argument slots 5..10
+    std::array<std::uint8_t, 6>  stackWidth{};
+};
+
+/// @brief An argument's value as the callee can observe it: its type's width, and any pointer into the stack (whose
+///        layout is the caller's business) as one token.
+std::uint64_t observed(std::uint64_t v, std::uint8_t width)
+{
+    v = lowBytes(v, width);
+    return (width == 8 && v >= kStackBase && v < kStackBase + kStackSize) ? kStackToken : v;
+}
+
+std::uint8_t widthOf(Signature::Kind k)
+{
+    using K = Signature::Kind;
+    switch (k) {
+        case K::Bool: case K::Int8: return 1;
+        case K::Int16:              return 2;
+        case K::Int32: case K::Float: return 4;
+        default:                    return 8;
+    }
+}
+
+struct RunResult {
+    enum class End { Returned, Fault, Budget } end = End::Fault;
+    std::string                           fault;
+    std::vector<CallRecord>               calls;
+    std::map<std::uint64_t, std::uint8_t> written;   ///< final byte at every address written outside the stack
+    std::uint64_t                         rax = 0, xmm0 = 0;
+    bool                                  preserved = true;   ///< callee-saved registers and rsp restored on return
+    std::vector<std::pair<std::string, std::uint64_t>> pointers;   ///< pointer arguments, for naming addresses
+    std::set<std::uint32_t>               executed;   ///< function offsets
+    std::map<std::uint32_t, std::uint8_t> branches;   ///< conditional jump offset → 1 fell through | 2 taken
+    std::optional<std::uint64_t>          suspect;    ///< on a fault: the input whose value the bad address came from
+    bool                                  nan = false;   ///< a float compare, min or max saw a NaN: /fp:fast code may then legitimately differ
+};
+
+bool isFloatCompare(ZydisMnemonic m)
+{
+    switch (m) {
+        case ZYDIS_MNEMONIC_COMISS: case ZYDIS_MNEMONIC_UCOMISS: case ZYDIS_MNEMONIC_COMISD: case ZYDIS_MNEMONIC_UCOMISD:
+        case ZYDIS_MNEMONIC_MINSS:  case ZYDIS_MNEMONIC_MAXSS:   case ZYDIS_MNEMONIC_MINPS:  case ZYDIS_MNEMONIC_MAXPS:
+        case ZYDIS_MNEMONIC_CMPSS:  case ZYDIS_MNEMONIC_CMPPS:   return true;
+        default:                    return false;
+    }
+}
+
+/// @brief Unicorn over the exe's image, plus a lazily materialized synthetic heap, a stack, and import stubs. Every call
+///        that leaves the function under test is answered by a stub (logged; deterministic results; out-arguments on
+///        the stack filled), so a run is the function's own behavior on one seed's inputs.
+class Emulator {
+public:
+    explicit Emulator(const PeImage& pe) : pe_(pe)
+    {
+        if (uc_open(UC_ARCH_X86, UC_MODE_64, &uc_) != UC_ERR_OK) throw std::runtime_error("unicorn: cannot open an x86-64 engine");
+        std::uint64_t span = 0;
+        for (const auto& s : pe.sections) span = std::max<std::uint64_t>(span, s.va + std::max(s.vsize, s.rawSize));
+        span_  = roundUp(span, kPage);
+        image_ = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, span_, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        stack_ = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, kStackSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        if (!image_ || !stack_) throw std::runtime_error("cannot allocate the emulated image");
+        std::memcpy(image_, pe.bytes.data(), std::min<std::size_t>(kPage, pe.bytes.size()));
+        for (const auto& s : pe.sections) {
+            const std::size_t n = std::min<std::size_t>(s.rawSize, s.vsize ? s.vsize : s.rawSize);
+            if (s.raw + n <= pe.bytes.size()) std::memcpy(image_ + s.va, pe.bytes.data() + s.raw, n);
+        }
+        std::uint64_t stub = kStubBase + 0x10;
+        for (const auto& [slot, name] : pe.importsBySlot) {
+            std::memcpy(image_ + (slot - pe.imageBase), &stub, 8);
+            stubNames_[stub] = name;
+            stub += 0x10;
+        }
+        pristine_.assign(image_, image_ + span_);
+
+        auto check = [](uc_err e, const char* what) { if (e != UC_ERR_OK) throw std::runtime_error(std::string("unicorn: ") + what + ": " + uc_strerror(e)); };
+        std::uint64_t first = span_;
+        for (const auto& s : pe.sections) first = std::min<std::uint64_t>(first, s.va);
+        check(uc_mem_map_ptr(uc_, pe.imageBase, first, UC_PROT_READ, image_), "map headers");
+        for (std::size_t i = 0; i < pe.sections.size(); ++i) {
+            const auto&   s    = pe.sections[i];
+            std::uint64_t size = roundUp(std::max(s.vsize, s.rawSize), kPage);
+            for (const auto& o : pe.sections) if (o.va > s.va) size = std::min<std::uint64_t>(size, o.va - s.va);
+            if (size == 0) continue;
+            std::uint32_t prot = UC_PROT_READ;
+            if (s.characteristics & IMAGE_SCN_MEM_WRITE) prot |= UC_PROT_WRITE;
+            if (s.executable()) prot |= UC_PROT_EXEC;
+            check(uc_mem_map_ptr(uc_, pe.imageBase + s.va, size, prot, image_ + s.va), "map section");
+        }
+        check(uc_mem_map_ptr(uc_, kStackBase, kStackSize, UC_PROT_READ | UC_PROT_WRITE, stack_), "map stack");
+        check(uc_mem_map(uc_, kStubBase, kStubSize, UC_PROT_ALL), "map stubs");
+        const Bytes rets(kStubSize, 0xC3);
+        uc_mem_write(uc_, kStubBase, rets.data(), rets.size());
+        uc_mem_protect(uc_, kStubBase, kStubSize, UC_PROT_READ | UC_PROT_EXEC);
+
+        uc_hook h;
+        check(uc_hook_add(uc_, &h, UC_HOOK_CODE, reinterpret_cast<void*>(&Emulator::onCode), this, 1, 0), "hook code");
+        check(uc_hook_add(uc_, &h, UC_HOOK_MEM_WRITE, reinterpret_cast<void*>(&Emulator::onWrite), this, 1, 0), "hook writes");
+        check(uc_hook_add(uc_, &h, UC_HOOK_MEM_READ, reinterpret_cast<void*>(&Emulator::onRead), this, 1, 0), "hook reads");
+        check(uc_hook_add(uc_, &h, UC_HOOK_MEM_UNMAPPED, reinterpret_cast<void*>(&Emulator::onUnmapped), this, 1, 0), "hook unmapped");
+        check(uc_hook_add(uc_, &h, UC_HOOK_MEM_PROT, reinterpret_cast<void*>(&Emulator::onProt), this, 1, 0), "hook protection");
+        check(uc_hook_add(uc_, &h, UC_HOOK_INTR, reinterpret_cast<void*>(&Emulator::onIntr), this, 1, 0), "hook interrupts");
+        ZydisDecoderInit(&dec_, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+    }
+
+    ~Emulator()
+    {
+        if (uc_) uc_close(uc_);
+        if (image_) VirtualFree(image_, 0, MEM_RELEASE);
+        if (stack_) VirtualFree(stack_, 0, MEM_RELEASE);
+    }
+
+    Emulator(const Emulator&)            = delete;
+    Emulator& operator=(const Emulator&) = delete;
+
+    /// @brief Maps (or replaces) our relocated code at `base`, next to the image so its rel32 references reach.
+    void loadOurs(std::uint64_t base, const Bytes& code)
+    {
+        if (oursSize_) uc_mem_unmap(uc_, oursBase_, oursSize_);
+        oursBase_ = base;
+        oursSize_ = roundUp(code.size(), kPage);
+        if (uc_mem_map(uc_, base, oursSize_, UC_PROT_ALL) != UC_ERR_OK) throw std::runtime_error("unicorn: cannot map our code at 0x" + hex(base));
+        uc_mem_write(uc_, base, code.data(), code.size());
+        uc_mem_protect(uc_, base, oursSize_, UC_PROT_READ | UC_PROT_EXEC);   // a stray store faults, as it would in .text
+        decoded_.clear();
+    }
+
+    /// @brief What the byte at `addr` holds before any run touches it; nullopt where nothing defines it.
+    std::optional<std::uint8_t> initialByte(std::uint64_t addr, std::uint64_t seed, const std::set<std::uint64_t>& forced) const
+    {
+        if (forced.count(addr & ~7ull)) return static_cast<std::uint8_t>(forcedPointer(seed, addr & ~7ull) >> ((addr & 7) * 8));
+        if (addr >= pe_.imageBase && addr < pe_.imageBase + span_) return pristine_[addr - pe_.imageBase];
+        if (addr < kHeapBase || addr >= kHeapBase + kHeapSpan) return std::nullopt;
+        return static_cast<std::uint8_t>(synthQword(seed, addr & ~7ull) >> ((addr & 7) * 8));
+    }
+
+    /// @param forced  inputs (memory addresses, argKey, resultKey) that hold a valid pointer whatever the seed says
+    RunResult run(std::uint64_t start, std::uint64_t end, const Signature& sig, std::uint64_t seed, const std::set<std::uint64_t>& forced,
+                  std::uint64_t budget)
+    {
+        forced_ = &forced;
+        reset(seed, start, end);
+        for (const std::uint64_t key : forced)
+            if (key >= pe_.imageBase && key + 8 <= pe_.imageBase + span_) {
+                const std::uint64_t p = forcedPointer(seed, key);
+                std::memcpy(image_ + (key - pe_.imageBase), &p, 8);
+                dirtyImage_.insert((key - pe_.imageBase) & ~(kPage - 1));
+                dirtyImage_.insert((key + 7 - pe_.imageBase) & ~(kPage - 1));
+            }
+        static constexpr uc_x86_reg gprs[] = { UC_X86_REG_RAX, UC_X86_REG_RBX, UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_RSI,
+                                               UC_X86_REG_RDI, UC_X86_REG_RBP, UC_X86_REG_R8,  UC_X86_REG_R9,  UC_X86_REG_R10,
+                                               UC_X86_REG_R11, UC_X86_REG_R12, UC_X86_REG_R13, UC_X86_REG_R14, UC_X86_REG_R15 };
+        for (std::size_t k = 0; k < std::size(gprs); ++k) writeReg(gprs[k], synthQword(seed, 0xFEED0000ull + k));
+        for (int k = 0; k < 16; ++k) {
+            const std::uint64_t v[2] = { std::uint64_t(synthFloat(seeded(seed, 0xF10A7ull + k))), seeded(seed, 0xF10A8ull + k) };
+            uc_reg_write(uc_, UC_X86_REG_XMM0 + k, v);
+        }
+        entryRsp_ = kStackBase + kStackSize - 0x8000 - 8;
+        std::uint64_t sentinel = kSentinel;
+        uc_mem_write(uc_, entryRsp_, &sentinel, 8);
+
+        static constexpr uc_x86_reg argRegs[] = { UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_R9 };
+        std::vector<Signature::Kind> args;
+        if (sig.hasThis) args.push_back(Signature::Kind::Ref);
+        args.insert(args.end(), sig.params.begin(), sig.params.end());
+        result_.pointers.clear();
+        for (std::size_t k = 0; k < args.size(); ++k) {
+            using K = Signature::Kind;
+            const std::uint64_t h   = seeded(seed, 0xA4600ull + k);
+            const K             kind = args[k];
+            std::uint64_t       v    = 0;
+            switch (kind) {
+                case K::Ref:    v = heapPointer(h); break;
+                case K::Ptr:    v = (h % 10 == 0) ? 0 : heapPointer(h); break;
+                case K::Bool:   v = h & 1; break;
+                case K::Float:  v = synthFloat(h); break;
+                case K::Double: { const double d = kFloats[h % std::size(kFloats)]; std::memcpy(&v, &d, 8); break; }
+                default:        v = kInts[h % std::size(kInts)]; break;
+            }
+            if (forced.count(argKey(k))) v = forcedPointer(seed, argKey(k));
+            recent_.emplace_back(v, argKey(k));
+            if ((kind == K::Ref || kind == K::Ptr) && v)
+                result_.pointers.emplace_back(sig.hasThis && k == 0 ? std::string("this") : "arg" + std::to_string(sig.hasThis ? k - 1 : k), v);
+            const bool fp = kind == K::Float || kind == K::Double;
+            if (k < 4) {
+                if (fp) {
+                    const std::uint64_t x[2] = { v, 0 };
+                    uc_reg_write(uc_, UC_X86_REG_XMM0 + int(k), x);
+                    xmmDefined_[k] = true;
+                } else {
+                    writeReg(argRegs[k], v);
+                    gprWidth_[k] = 8;
+                }
+            } else {
+                uc_mem_write(uc_, entryRsp_ + 8 + 8 * k, &v, 8);
+            }
+        }
+        static constexpr uc_x86_reg saved[] = { UC_X86_REG_RBX, UC_X86_REG_RBP, UC_X86_REG_RDI, UC_X86_REG_RSI,
+                                                UC_X86_REG_R12, UC_X86_REG_R13, UC_X86_REG_R14, UC_X86_REG_R15 };
+        std::array<std::uint64_t, std::size(saved)> savedGpr{};
+        for (std::size_t k = 0; k < std::size(saved); ++k) savedGpr[k] = readReg(saved[k]);
+        std::array<std::array<std::uint64_t, 2>, 10> savedXmm{};
+        for (int k = 0; k < 10; ++k) uc_reg_read(uc_, UC_X86_REG_XMM6 + k, savedXmm[k].data());
+
+        writeReg(UC_X86_REG_RSP, entryRsp_);
+        writeReg(UC_X86_REG_RIP, start);
+        writeReg(UC_X86_REG_EFLAGS, 0x202);
+        writeReg(UC_X86_REG_GS_BASE, heapPointer(seeded(seed, 0x6573ull)));
+        std::uint64_t mxcsr = 0x1F80;
+        uc_reg_write(uc_, UC_X86_REG_MXCSR, &mxcsr);
+
+        const uc_err err = uc_emu_start(uc_, start, kSentinel, 0, budget);
+        const std::uint64_t pc = readReg(UC_X86_REG_RIP);
+        if (!stopReason_.empty())             { result_.end = RunResult::End::Fault; result_.fault = stopReason_; }
+        else if (err != UC_ERR_OK)            { result_.end = RunResult::End::Fault; result_.fault = uc_strerror(err) + (faultAt_.empty() ? std::string() : " " + faultAt_) + " at +0x" + hex(pc - start); }
+        else if (pc == kSentinel)             result_.end = RunResult::End::Returned;
+        else                                  result_.end = RunResult::End::Budget;
+        if (runaway_) result_.end = RunResult::End::Budget;
+
+        if (result_.end == RunResult::End::Returned) {
+            result_.preserved = readReg(UC_X86_REG_RSP) == entryRsp_ + 8;
+            for (std::size_t k = 0; k < std::size(saved); ++k) result_.preserved = result_.preserved && readReg(saved[k]) == savedGpr[k];
+            for (int k = 0; k < 10; ++k) {
+                std::array<std::uint64_t, 2> x{};
+                uc_reg_read(uc_, UC_X86_REG_XMM6 + k, x.data());
+                result_.preserved = result_.preserved && x == savedXmm[k];
+            }
+        }
+        result_.rax = readReg(UC_X86_REG_RAX);
+        std::uint64_t x0[2] = {};
+        uc_reg_read(uc_, UC_X86_REG_XMM0, x0);
+        result_.xmm0 = x0[0];
+        for (const std::uint64_t a : writtenAddrs_) {
+            std::uint8_t byte = 0;
+            if (uc_mem_read(uc_, a, &byte, 1) == UC_ERR_OK) result_.written[a] = byte;
+        }
+        return std::move(result_);
+    }
+
+private:
+    struct Decoded { ZydisDecodedInstruction ins{}; ZydisDecodedOperand ops[ZYDIS_MAX_OPERAND_COUNT]{}; bool ok = false; };
+
+    void reset(std::uint64_t seed, std::uint64_t start, std::uint64_t end)
+    {
+        for (const std::uint64_t page : dirtyImage_) std::memcpy(image_ + page, pristine_.data() + page, kPage);
+        dirtyImage_.clear();
+        for (const std::uint64_t page : heapPages_) uc_mem_unmap(uc_, page, kPage);
+        heapPages_.clear();
+        std::memset(stack_, 0, kStackSize);
+        result_ = RunResult{};
+        writtenAddrs_.clear();
+        stackWritten_.clear();
+        gprWidth_.fill(0);
+        xmmDefined_.fill(false);
+        seed_ = seed; start_ = start; end_ = end;
+        stopReason_.clear(); faultAt_.clear();
+        recent_.clear();
+        outRegions_.clear();
+        stackTouched_.clear();
+        pendingJcc_ = false; runaway_ = false;
+        tsc_ = 0;
+    }
+
+    std::uint64_t readReg(int r) const { std::uint64_t v = 0; uc_reg_read(uc_, r, &v); return v; }
+    void          writeReg(int r, std::uint64_t v) { uc_reg_write(uc_, r, &v); }
+
+    const Decoded& decode(std::uint64_t pc, std::uint32_t size)
+    {
+        auto [it, fresh] = decoded_.try_emplace(pc);
+        if (fresh) {
+            std::uint8_t buf[16] = {};
+            uc_mem_read(uc_, pc, buf, std::min<std::uint32_t>(size, 16));
+            it->second.ok = ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec_, buf, std::min<std::uint32_t>(size, 16), &it->second.ins, it->second.ops));
+        }
+        return it->second;
+    }
+
+    void define(ZydisRegister reg)
+    {
+        const auto cls = ZydisRegisterGetClass(reg);
+        if (cls == ZYDIS_REGCLASS_XMM || cls == ZYDIS_REGCLASS_YMM || cls == ZYDIS_REGCLASS_ZMM) {
+            const auto id = ZydisRegisterGetId(reg);
+            if (id < 4) xmmDefined_[std::size_t(id)] = true;
+            return;
+        }
+        std::uint8_t width = 0;
+        switch (cls) {
+            case ZYDIS_REGCLASS_GPR8:  width = 1; break;
+            case ZYDIS_REGCLASS_GPR16: width = 2; break;
+            case ZYDIS_REGCLASS_GPR32:
+            case ZYDIS_REGCLASS_GPR64: width = 8; break;   // a 32-bit write zero-extends
+            default:                   return;
+        }
+        switch (ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, reg)) {
+            case ZYDIS_REGISTER_RCX: gprWidth_[0] = std::max(gprWidth_[0], width); break;
+            case ZYDIS_REGISTER_RDX: gprWidth_[1] = std::max(gprWidth_[1], width); break;
+            case ZYDIS_REGISTER_R8:  gprWidth_[2] = std::max(gprWidth_[2], width); break;
+            case ZYDIS_REGISTER_R9:  gprWidth_[3] = std::max(gprWidth_[3], width); break;
+            default: break;
+        }
+    }
+
+    void inside(std::uint64_t pc, std::uint32_t size)
+    {
+        const auto off = static_cast<std::uint32_t>(pc - start_);
+        result_.executed.insert(off);
+        if (pendingJcc_) { result_.branches[jccOff_] |= (pc == jccFall_) ? 1 : 2; pendingJcc_ = false; }
+        const Decoded& d = decode(pc, size);
+        if (!d.ok) return;
+        if (d.ins.meta.category == ZYDIS_CATEGORY_COND_BR) { pendingJcc_ = true; jccOff_ = off; jccFall_ = pc + d.ins.length; }
+        if (isFloatCompare(d.ins.mnemonic)) {
+            const bool packed = d.ins.mnemonic == ZYDIS_MNEMONIC_MINPS || d.ins.mnemonic == ZYDIS_MNEMONIC_MAXPS || d.ins.mnemonic == ZYDIS_MNEMONIC_CMPPS;
+            const bool dbl    = d.ins.mnemonic == ZYDIS_MNEMONIC_COMISD || d.ins.mnemonic == ZYDIS_MNEMONIC_UCOMISD;
+            for (std::uint8_t k = 0; k < d.ins.operand_count_visible; ++k) {
+                if (d.ops[k].type != ZYDIS_OPERAND_TYPE_REGISTER || ZydisRegisterGetClass(d.ops[k].reg.value) != ZYDIS_REGCLASS_XMM) continue;
+                std::uint32_t lanes[4] = {};
+                uc_reg_read(uc_, UC_X86_REG_XMM0 + ZydisRegisterGetId(d.ops[k].reg.value), lanes);
+                if (dbl) {
+                    const std::uint64_t q = lanes[0] | (std::uint64_t(lanes[1]) << 32);
+                    if ((q & 0x7FF0000000000000ull) == 0x7FF0000000000000ull && (q & 0x000FFFFFFFFFFFFFull)) result_.nan = true;
+                } else {
+                    for (int l = 0; l < (packed ? 4 : 1); ++l)
+                        if ((lanes[l] & 0x7F800000u) == 0x7F800000u && (lanes[l] & 0x007FFFFFu)) result_.nan = true;
+                }
+            }
+        }
+        if (d.ins.mnemonic == ZYDIS_MNEMONIC_RDTSC) {   // the timer markers: deterministic ticks
+            writeReg(UC_X86_REG_RAX, 0x1000 * ++tsc_);
+            writeReg(UC_X86_REG_RDX, 0);
+            writeReg(UC_X86_REG_RIP, pc + d.ins.length);
+            return;
+        }
+        for (std::uint8_t k = 0; k < d.ins.operand_count; ++k)
+            if (d.ops[k].type == ZYDIS_OPERAND_TYPE_REGISTER && (d.ops[k].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE)) define(d.ops[k].reg.value);
+    }
+
+    /// @brief The function under test called (or jumped to) `target`: log what the callee would see, give it results,
+    ///        and return to the caller as `ret` would.
+    void stub(std::uint64_t target)
+    {
+        if (result_.calls.size() >= 20000) { runaway_ = true; uc_emu_stop(uc_); return; }
+        const std::uint64_t rsp = readReg(UC_X86_REG_RSP);
+        std::uint64_t       ret = 0;
+        if (uc_mem_read(uc_, rsp, &ret, 8) != UC_ERR_OK) { stopReason_ = "stub at 0x" + hex(target) + " with an unreadable stack"; uc_emu_stop(uc_); return; }
+        const std::uint64_t callIndex = result_.calls.size();
+        if (trace)
+            std::fprintf(stderr, "  stub #%zu 0x%llx ret 0x%llx rsp 0x%llx\n", result_.calls.size(), (unsigned long long)target, (unsigned long long)ret, (unsigned long long)rsp);
+
+        CallRecord c;
+        c.target = target;
+        static constexpr uc_x86_reg argRegs[] = { UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_R9 };
+        for (std::size_t k = 0; k < 4; ++k) {
+            c.gprWidth[k]   = gprWidth_[k];
+            c.gpr[k]        = readReg(argRegs[k]);
+            c.xmmDefined[k] = xmmDefined_[k];
+            std::uint64_t x[2] = {};
+            uc_reg_read(uc_, UC_X86_REG_XMM0 + int(k), x);
+            c.xmm[k] = x[0];
+        }
+        std::vector<std::pair<std::uint64_t, std::size_t>> stackPointees;   // (address, argument position)
+        for (std::size_t k = 0; k < 4; ++k)
+            if (gprWidth_[k] == 8) {
+                const std::uint64_t v = readReg(argRegs[k]);
+                if (v >= kStackBase && v < kStackBase + kStackSize) stackPointees.emplace_back(v, k);
+            }
+        for (std::size_t s = 0; s < c.stack.size(); ++s) {
+            const std::uint64_t slot  = rsp + 0x28 + 8 * s;
+            std::uint8_t        width = 0;
+            while (width < 8 && stackWritten_.count(slot + width)) ++width;
+            if (width != 1 && width != 2 && width != 4 && width != 8) width = width >= 4 ? 4 : (width >= 2 ? 2 : (width ? 1 : 0));
+            c.stackWidth[s] = width;
+            std::uint64_t v = 0;
+            uc_mem_read(uc_, slot, &v, 8);
+            c.stack[s] = v;
+            if (width == 8 && v >= kStackBase && v < kStackBase + kStackSize) stackPointees.emplace_back(v, 4 + s);
+        }
+        // Out-arguments: the callee would write them. Each pointee becomes a region (up to the next pointee, 64 bytes, or
+        // the edge of the caller's frame, never its return address); read() fills what the function never wrote itself.
+        std::sort(stackPointees.begin(), stackPointees.end());
+        for (std::size_t p = 0; p < stackPointees.size(); ++p) {
+            const auto [addr, pos] = stackPointees[p];
+            if (addr <= rsp) continue;
+            std::uint64_t limit = std::min<std::uint64_t>(addr + 64, addr < entryRsp_ ? entryRsp_ : entryRsp_ + 0x28);
+            if (p + 1 < stackPointees.size()) limit = std::min(limit, stackPointees[p + 1].first);
+            outRegions_.push_back({ addr, limit, 0x0C0000000000ull + (callIndex << 16) + (std::uint64_t(pos) << 8) });
+        }
+        result_.calls.push_back(c);
+
+        const std::uint64_t result = input(resultKey(callIndex));
+        writeReg(UC_X86_REG_RAX, result);
+        recent_.emplace_back(result, resultKey(callIndex));
+        const std::uint64_t x0[2] = { synthFloat(seeded(seed_, 0x0F100000ull + callIndex)), 0 };
+        uc_reg_write(uc_, UC_X86_REG_XMM0, x0);
+        static constexpr uc_x86_reg volatileRegs[] = { UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_R9, UC_X86_REG_R10, UC_X86_REG_R11 };
+        for (std::size_t k = 0; k < std::size(volatileRegs); ++k) writeReg(volatileRegs[k], seeded(seed_, 0x0B0B0000ull + (callIndex << 4) + k));
+        for (int k = 1; k < 6; ++k) {
+            const std::uint64_t x[2] = { seeded(seed_, 0x0B0C0000ull + (callIndex << 4) + k), 0 };
+            uc_reg_write(uc_, UC_X86_REG_XMM0 + k, x);
+        }
+        gprWidth_.fill(0);
+        xmmDefined_.fill(false);
+        stackWritten_.clear();
+        writeReg(UC_X86_REG_RSP, rsp + 8);
+        writeReg(UC_X86_REG_RIP, ret);
+    }
+
+    void code(std::uint64_t pc, std::uint32_t size)
+    {
+        if (pc >= start_ && pc < end_) inside(pc, size);
+        else if (pc != kSentinel) stub(pc);
+    }
+
+    void write(std::uint64_t addr, int size)
+    {
+        for (int k = 0; k < size; ++k) {
+            const std::uint64_t a = addr + std::uint64_t(k);
+            if (a >= kStackBase && a < kStackBase + kStackSize) { stackWritten_.insert(a); stackTouched_.insert(a); continue; }
+            writtenAddrs_.insert(a);
+            if (a >= pe_.imageBase && a < pe_.imageBase + span_) dirtyImage_.insert((a - pe_.imageBase) & ~(kPage - 1));
+        }
+    }
+
+    std::uint64_t input(std::uint64_t key) const { return forced_->count(key) ? forcedPointer(seed_, key) : synthQword(seed_, key); }
+
+    /// @brief Remembers where each pointer-sized value came from, so a fault can name the input to force.
+    void read(std::uint64_t addr, int size)
+    {
+        if (addr >= kStackBase && addr < kStackBase + kStackSize) { fillOut(addr, size); return; }
+        if (size != 8 || (addr & 7)) return;
+        std::uint64_t v = 0;   // the hook runs before the access, so a page not yet materialized reads as what it will get
+        if (uc_mem_read(uc_, addr, &v, 8) != UC_ERR_OK) v = input(addr);
+        recent_.emplace_back(v, addr);
+    }
+
+    /// @brief A stack byte the function never wrote, inside an out-argument of an earlier call, reads as that callee left
+    ///        it: a value keyed by call, argument position and offset from the pointee, so both layouts agree.
+    void fillOut(std::uint64_t addr, int size)
+    {
+        for (std::uint64_t x = addr; x < addr + std::uint64_t(size); ++x) {
+            if (stackTouched_.count(x)) continue;
+            for (auto r = outRegions_.rbegin(); r != outRegions_.rend(); ++r) {
+                if (x < r->begin || x >= r->end) continue;
+                const std::uint8_t b = static_cast<std::uint8_t>(synthQword(seed_, r->key + (x - r->begin) / 8) >> (((x - r->begin) & 7) * 8));
+                uc_mem_write(uc_, x, &b, 1);
+                break;
+            }
+        }
+    }
+
+    /// @brief The most recent input whose value the faulting address is a small offset from (a field of a bad pointer).
+    std::optional<std::uint64_t> suspect(std::uint64_t addr) const
+    {
+        for (auto it = recent_.rbegin(); it != recent_.rend(); ++it) {
+            // unicorn hands hooks the address cut to 52 bits (no paging, so no canonical-address fault): compare likewise
+            const auto d = static_cast<std::int64_t>(((addr - it->first) & ((1ull << 52) - 1)) << 12) >> 12;
+            if (d >= -0x100 && d < 0x10000) return it->second;
+        }
+        return std::nullopt;
+    }
+
+    bool unmapped(uc_mem_type type, std::uint64_t addr)
+    {
+        const char* what = type == UC_MEM_FETCH_UNMAPPED ? "fetch" : type == UC_MEM_WRITE_UNMAPPED ? "write" : "read";
+        // Only the synthetic heap materializes: anything else is a wild pointer, which would fault on hardware too.
+        if (addr < kHeapBase || addr >= kHeapBase + kHeapSpan || heapPages_.size() >= kMaxPages) {
+            faultAt_ = std::string(what) + " 0x" + hex(addr);
+            result_.suspect = suspect(addr);
+            return false;
+        }
+        const std::uint64_t page = addr & ~(kPage - 1);
+        if (uc_mem_map(uc_, page, kPage, UC_PROT_ALL) != UC_ERR_OK) { faultAt_ = std::string(what) + " 0x" + hex(addr) + " (unmappable)"; return false; }
+        std::array<std::uint64_t, kPage / 8> fill{};
+        for (std::size_t q = 0; q < fill.size(); ++q) fill[q] = input(page + q * 8);
+        uc_mem_write(uc_, page, fill.data(), kPage);
+        heapPages_.push_back(page);
+        return true;
+    }
+
+    static void onCode(uc_engine*, std::uint64_t pc, std::uint32_t size, void* self) { static_cast<Emulator*>(self)->code(pc, size); }
+    static void onWrite(uc_engine*, uc_mem_type, std::uint64_t addr, int size, std::int64_t, void* self) { static_cast<Emulator*>(self)->write(addr, size); }
+    static void onRead(uc_engine*, uc_mem_type, std::uint64_t addr, int size, std::int64_t, void* self) { static_cast<Emulator*>(self)->read(addr, size); }
+    static bool onUnmapped(uc_engine*, uc_mem_type type, std::uint64_t addr, int, std::int64_t, void* self) { return static_cast<Emulator*>(self)->unmapped(type, addr); }
+    static bool onProt(uc_engine*, uc_mem_type type, std::uint64_t addr, int, std::int64_t, void* self)
+    {
+        auto* e    = static_cast<Emulator*>(self);
+        e->faultAt_ = std::string(type == UC_MEM_FETCH_PROT ? "fetch" : type == UC_MEM_WRITE_PROT ? "write" : "read") + " protected 0x" + hex(addr);
+        e->result_.suspect = e->suspect(addr);
+        return false;
+    }
+    static void onIntr(uc_engine* uc, std::uint32_t n, void* self)
+    {
+        static_cast<Emulator*>(self)->stopReason_ = "cpu exception " + std::to_string(n);
+        uc_emu_stop(uc);
+    }
+
+    const PeImage&                          pe_;
+    uc_engine*                              uc_ = nullptr;
+    std::uint8_t*                           image_ = nullptr;
+    std::uint8_t*                           stack_ = nullptr;
+    std::uint64_t                           span_ = 0;
+    Bytes                                   pristine_;
+    std::map<std::uint64_t, std::string>    stubNames_;
+    std::uint64_t                           oursBase_ = 0, oursSize_ = 0;
+    ZydisDecoder                            dec_{};
+    std::map<std::uint64_t, Decoded>        decoded_;
+
+    std::uint64_t                           seed_ = 0, start_ = 0, end_ = 0, entryRsp_ = 0, tsc_ = 0;
+    RunResult                               result_;
+    std::set<std::uint64_t>                 writtenAddrs_, stackWritten_, dirtyImage_;
+    std::vector<std::uint64_t>              heapPages_;
+    const std::set<std::uint64_t>*          forced_ = nullptr;
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> recent_;   ///< (value, input key) in the order the run met them
+    struct OutRegion { std::uint64_t begin, end, key; };
+    std::vector<OutRegion>                  outRegions_;
+    std::set<std::uint64_t>                 stackTouched_;   ///< stack bytes the function itself wrote this run
+    std::array<std::uint8_t, 4>             gprWidth_{};
+    std::array<bool, 4>                     xmmDefined_{};
+    bool                                    pendingJcc_ = false, runaway_ = false;
+    std::uint32_t                           jccOff_ = 0;
+    std::uint64_t                           jccFall_ = 0;
+    std::string                             stopReason_, faultAt_;
+
+public:
+    bool trace = false;   ///< print each stub call and each forcing round (--diff-seed)
+
+    std::string stubName(std::uint64_t a) const { const auto it = stubNames_.find(a); return it == stubNames_.end() ? std::string() : it->second; }
+};
+
+/// @brief Copies our function's bytes with every relocation applied for code placed at `base`: engine symbols from
+///        engine.yaml, compiler constants and string literals at vanilla's copy (the instruction alignment says which),
+///        imports at the exe's slot. Returns why not, or empty.
+std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Bytes& vanilla, std::uint64_t va, const EngineSymbols& syms,
+                         const PeImage& pe, Bytes& code, std::map<std::uint64_t, Signature>& callees)
+{
+    code = ours.bytes;
+    std::map<std::uint32_t, std::uint64_t> viaVanilla;
+    const auto a = disassemble(ours.bytes);
+    const auto b = disassemble(vanilla);
+    if (a && b)
+        for (const auto& [ia, ib] : alignInstructions(*a, *b)) {
+            if (ia < 0 || ib < 0) continue;
+            const Insn& x = (*a)[std::size_t(ia)];
+            const Insn& y = (*b)[std::size_t(ib)];
+            const auto  t = absoluteTarget(y, va + y.off);
+            if (!t) continue;
+            for (std::uint32_t o = x.off; o < x.off + x.ins.length; ++o) if (ours.targets.count(o)) viaVanilla[o] = *t;
+        }
+    for (const auto& [at, t] : ours.targets) {
+        std::optional<std::uint64_t> target;
+        auto                         it = syms.byCpp.find(t.name);
+        if (it == syms.byCpp.end()) it = syms.byCpp.find(t.mangled);
+        const auto vv = viaVanilla.find(at);
+        if (it != syms.byCpp.end()) {
+            target = it->second;
+        } else if (t.mangled.rfind("__imp_", 0) == 0) {
+            for (const auto& [slot, name] : pe.importsBySlot) if (name == t.mangled.substr(6)) target = slot;
+        } else if (vv != viaVanilla.end()) {
+            const auto self = selfCheck(t.mangled, vv->second, pe);
+            const bool literal = t.mangled.rfind("??_C@", 0) == 0 || t.name == "`string'";
+            if ((self && self->empty()) || literal) target = vv->second;
+        }
+        if (!target && (t.mangled.rfind("__real@", 0) == 0 || t.mangled.rfind("__xmm@", 0) == 0)) {
+            // A compiler constant no vanilla instruction lines up with: its name spells its bytes, so place our own copy
+            // after the code, most-significant byte first in the name.
+            const std::string digits = t.mangled.substr(t.mangled.find('@') + 1);
+            code.resize(roundUp(code.size(), 16));
+            target = base + code.size();
+            for (std::size_t k = digits.size() / 2; k-- > 0;)
+                code.push_back(static_cast<std::uint8_t>(std::stoul(digits.substr(k * 2, 2), nullptr, 16)));
+        }
+        if (!target) return "cannot place reference " + t.name + " at +0x" + hex(at);
+        if (t.mangled.rfind("?", 0) == 0 && !callees.count(*target))
+            if (Signature cs = parseSignature(t.mangled); cs.text.find('(') != std::string::npos) callees.emplace(*target, std::move(cs));
+        switch (t.type) {
+            case IMAGE_REL_AMD64_REL32: case IMAGE_REL_AMD64_REL32_1: case IMAGE_REL_AMD64_REL32_2:
+            case IMAGE_REL_AMD64_REL32_3: case IMAGE_REL_AMD64_REL32_4: case IMAGE_REL_AMD64_REL32_5: {
+                const std::int64_t addend = rd<std::int32_t>(code, at);
+                const std::int64_t value  = std::int64_t(*target) + addend - std::int64_t(base + at + 4 + (t.type - IMAGE_REL_AMD64_REL32));
+                if (value < INT32_MIN || value > INT32_MAX) return "reference " + t.name + " out of rel32 reach";
+                const auto v32 = static_cast<std::int32_t>(value);
+                std::memcpy(code.data() + at, &v32, 4);
+                break;
+            }
+            case IMAGE_REL_AMD64_ADDR64: {
+                const std::uint64_t v = *target + rd<std::uint64_t>(code, at);
+                std::memcpy(code.data() + at, &v, 8);
+                break;
+            }
+            default: return "relocation type " + std::to_string(t.type) + " (" + t.name + ") not supported";
+        }
+    }
+    return {};
+}
+
+struct DiffReport {
+    std::size_t seeds = 0, agreed = 0, faultedAlike = 0, inconclusive = 0, diverged = 0;
+    std::size_t runs = 0;
+    std::size_t nan = 0;   ///< seeds that differed only after a NaN reached a float compare
+    std::string firstDivergence, error;
+    std::size_t insnsCovered = 0, insnsTotal = 0, sidesCovered = 0, sidesTotal = 0;
+    double      ms = 0;
+};
+
+std::string nameAddress(std::uint64_t a, const RunResult& r)
+{
+    for (const auto& [label, p] : r.pointers) if (a >= p && a < p + 0x1000) return label + "+0x" + hex(a - p);
+    return "0x" + hex(a);
+}
+
+/// @brief Why ours and vanilla behaved differently on one seed, or nullopt when they agree.
+std::optional<std::string> divergence(const RunResult& o, const RunResult& v, const Signature& sig, const std::map<std::uint64_t, Signature>& callees,
+                                      const Emulator& emu, std::uint64_t seed, const std::set<std::uint64_t>& forced)
+{
+    using End = RunResult::End;
+    auto endName = [](const RunResult& r) { return r.end == End::Returned ? std::string("returned") : r.end == End::Budget ? std::string("ran out of budget") : "faulted (" + r.fault + ")"; };
+    if ((o.end == End::Returned) != (v.end == End::Returned)) return "ours " + endName(o) + ", vanilla " + endName(v);
+    auto targetName = [&](std::uint64_t t) { const auto n = emu.stubName(t); return "0x" + hex(t) + (n.empty() ? "" : " " + n); };
+    const std::size_t common = std::min(o.calls.size(), v.calls.size());
+    for (std::size_t k = 0; k < common; ++k) {
+        const auto& x = o.calls[k];
+        const auto& y = v.calls[k];
+        if (x.target != y.target) return "call #" + std::to_string(k) + ": ours calls " + targetName(x.target) + ", vanilla " + targetName(y.target);
+        auto differs = [&](const std::string& slot, std::uint64_t a, std::uint64_t b, std::uint8_t w) -> std::optional<std::string> {
+            if (observed(a, w) == observed(b, w)) return std::nullopt;
+            return "call #" + std::to_string(k) + " to " + targetName(x.target) + ": " + slot + " ours 0x" + hex(lowBytes(a, w)) + ", vanilla 0x" + hex(lowBytes(b, w));
+        };
+        static const char* gprName[] = { "rcx", "rdx", "r8", "r9" };
+        const auto known = callees.find(x.target);
+        if (known != callees.end()) {
+            // The callee's signature says exactly which slots are arguments and how wide.
+            std::vector<Signature::Kind> args;
+            if (known->second.hasThis) args.push_back(Signature::Kind::Ref);
+            args.insert(args.end(), known->second.params.begin(), known->second.params.end());
+            for (std::size_t p = 0; p < args.size() && p < 4 + x.stack.size(); ++p) {
+                const auto w  = widthOf(args[p]);
+                const bool fp = args[p] == Signature::Kind::Float || args[p] == Signature::Kind::Double;
+                std::optional<std::string> why;
+                if (p >= 4)  why = differs("stack argument " + std::to_string(p + 1), x.stack[p - 4], y.stack[p - 4], w);
+                else if (fp) why = differs("xmm" + std::to_string(p), x.xmm[p], y.xmm[p], w);
+                else         why = differs(gprName[p], x.gpr[p], y.gpr[p], w);
+                if (why) return why;
+            }
+        } else if (x.gprWidth[0] && y.gprWidth[0]) {
+            // Unknown callee (virtual, import): only rcx, which every call with an argument uses; other registers both
+            // sides wrote may just be temporaries.
+            if (auto why = differs("rcx", x.gpr[0], y.gpr[0], std::min(x.gprWidth[0], y.gprWidth[0]))) return why;
+        }
+    }
+    if (o.end == End::Fault) return std::nullopt;   // both faulted: the calls up to the fault are all that is ordered
+    if (o.calls.size() != v.calls.size())
+        return "ours makes " + std::to_string(o.calls.size()) + " calls, vanilla " + std::to_string(v.calls.size()) +
+               (o.calls.size() > common ? "; ours goes on to " + targetName(o.calls[common].target) : "; vanilla goes on to " + targetName(v.calls[common].target));
+    std::set<std::uint64_t> addrs;
+    for (const auto& [a, _] : o.written) addrs.insert(a);
+    for (const auto& [a, _] : v.written) addrs.insert(a);
+    for (const std::uint64_t a : addrs) {
+        const auto ox = o.written.count(a) ? std::optional<std::uint8_t>(o.written.at(a)) : emu.initialByte(a, seed, forced);
+        const auto vx = v.written.count(a) ? std::optional<std::uint8_t>(v.written.at(a)) : emu.initialByte(a, seed, forced);
+        if (ox != vx) {
+            auto show = [](std::optional<std::uint8_t> b) { return b ? "0x" + hex(*b) : std::string("?"); };
+            return "memory " + nameAddress(a, v) + ": ours " + show(ox) + ", vanilla " + show(vx) +
+                   (o.written.count(a) ? "" : " (ours never writes it)") + (v.written.count(a) ? "" : " (vanilla never writes it)");
+        }
+    }
+    using K = Signature::Kind;
+    std::uint64_t mask = 0;
+    bool          fp   = false;
+    switch (sig.ret) {
+        case K::Void:   break;
+        case K::Bool: case K::Int8: mask = 0xFF; break;
+        case K::Int16:  mask = 0xFFFF; break;
+        case K::Int32:  mask = 0xFFFFFFFF; break;
+        case K::Float:  mask = 0xFFFFFFFF; fp = true; break;
+        case K::Double: mask = ~0ull; fp = true; break;
+        default:        mask = ~0ull; break;
+    }
+    if (mask) {
+        const std::uint64_t x = (fp ? o.xmm0 : o.rax) & mask, y = (fp ? v.xmm0 : v.rax) & mask;
+        if (x != y) return std::string("return value: ours 0x") + hex(x) + ", vanilla 0x" + hex(y);
+    }
+    if (!o.preserved && v.preserved) return "ours does not restore a callee-saved register or rsp";
+    return std::nullopt;
+}
+
+DiffReport diffFunction(Emulator& emu, const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, const EngineSymbols& syms,
+                        const PeImage& pe, std::size_t seeds, std::optional<std::uint64_t> onlySeed)
+{
+    DiffReport    rep;
+    const auto    t0   = std::chrono::steady_clock::now();
+    const auto    base = (pe.imageBase - 0x01000000ull) & ~(kPage - 1);
+    Bytes                             code;
+    std::map<std::uint64_t, Signature> callees;
+    if (auto why = relocateOurs(ours, base, vanilla, va, syms, pe, code, callees); !why.empty()) { rep.error = why; return rep; }
+    emu.loadOurs(base, code);
+    const Signature sig = parseSignature(ours.mangled);
+    if (sig.text.empty()) { rep.error = "cannot read the signature of " + ours.mangled; return rep; }
+
+    std::set<std::uint32_t>               executed;
+    std::map<std::uint32_t, std::uint8_t> sides;
+    for (std::uint64_t s = 1; s <= seeds; ++s) {
+        if (onlySeed && s != *onlySeed) continue;
+        ++rep.seeds;
+        // A fault on a bad pointer just ends the run early: force the input it came from to a valid pointer and run the
+        // seed again, so the seeds explore paths past the dereferences rather than dying on them.
+        std::set<std::uint64_t> forced;
+        RunResult               v;
+        for (int round = 0;; ++round) {
+            v = emu.run(va, va + vanilla.size(), sig, s, forced, kBudget);
+            ++rep.runs;
+            if (emu.trace)
+                std::fprintf(stderr, "seed %llu round %d: end %d %s suspect %s calls %zu\n", (unsigned long long)s, round, int(v.end), v.fault.c_str(),
+                             v.suspect ? hex(*v.suspect).c_str() : "-", v.calls.size());
+            if (v.end != RunResult::End::Fault || !v.suspect || forced.count(*v.suspect) || round == 24) break;
+            forced.insert(*v.suspect);
+        }
+        const RunResult o = emu.run(base, base + ours.bytes.size(), sig, s, forced, kBudget);
+        ++rep.runs;
+        executed.insert(v.executed.begin(), v.executed.end());
+        for (const auto& [off, bits] : v.branches) sides[off] |= bits;
+        if (o.end == RunResult::End::Budget || v.end == RunResult::End::Budget) { ++rep.inconclusive; continue; }
+        if (const auto why = divergence(o, v, sig, callees, emu, s, forced)) {
+            if (o.nan || v.nan) { ++rep.nan; continue; }   // /fp:fast assumes no NaN, so code may differ on one
+            if (rep.diverged++ == 0) rep.firstDivergence = "seed " + std::to_string(s) + ": " + *why;
+            continue;
+        }
+        (o.end == RunResult::End::Fault ? rep.faultedAlike : rep.agreed)++;
+    }
+    if (const auto insns = disassemble(vanilla)) {
+        rep.insnsTotal = insns->size();
+        for (const auto& i : *insns) {
+            if (executed.count(i.off)) ++rep.insnsCovered;
+            if (i.ins.meta.category == ZYDIS_CATEGORY_COND_BR) {
+                rep.sidesTotal += 2;
+                const auto it = sides.find(i.off);
+                if (it != sides.end()) rep.sidesCovered += ((it->second & 1) ? 1 : 0) + ((it->second & 2) ? 1 : 0);
+            }
+        }
+    }
+    rep.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    return rep;
+}
+
 // ── driver ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 // ── inventory: what there is to match ─────────────────────────────────────────────────────────────────────────────
@@ -1983,6 +2873,9 @@ void usage()
         "  --inventory          (re)generate the manifest's inventory from the exe instead of matching\n"
         "  --todo <class>       list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
         "  --coverage           after a full run, list every inventory class (default: only those started)\n"
+        "  --diff <seeds>       run each REGALLOC/VARIANT function and vanilla side by side under emulation on <seeds>\n"
+        "                       synthetic inputs, comparing calls, memory writes and results (covers VARIANT's blind spots)\n"
+        "  --diff-seed <n>      run only seed <n> of --diff, printing every stubbed call and forced pointer\n"
         "\n"
         "manifest:\n"
         "  runtimes:   { ae: { exe: <exe>, addresslib: <versionlib-*.bin>, pins: ae } }   # or name: <exe>; ${VAR} = env\n"
@@ -2017,6 +2910,8 @@ struct Options {
     bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false, suggest = false;
     bool        inventory = false, coverageAll = false;
     unsigned    jobs = 0;
+    std::size_t diffSeeds = 0;
+    std::optional<std::uint64_t> diffSeed;   ///< --diff-seed: just this one, traced
 };
 
 int run(const Options& opt)
@@ -2063,7 +2958,7 @@ int run(const Options& opt)
         compiled[j]      = compileUnit(m, unit, m.toolchains[job.toolchain].second, dir);
     }, { .threads = opt.jobs });
 
-    struct Row { std::string name; std::uint64_t va = 0; Match best; std::vector<std::pair<std::string, Match>> all; };
+    struct Row { std::string name; std::uint64_t va = 0; Match best; std::vector<std::pair<std::string, Match>> all; std::optional<DiffReport> diff; };
     std::vector<Row> rows;
     bool             gatePassed = true;
 
@@ -2102,6 +2997,7 @@ int run(const Options& opt)
                             Bytes vanilla(pe.bytes.begin() + *off, pe.bytes.begin() + *off + len);
                             mt = compare(ours, vanilla, row.va, opt.show || opt.showAll, syms ? &*syms : nullptr, pe);
                             mt.toolchain = tc;
+                            mt.ours      = &ours;
                             if (!end) mt.detail += (mt.detail.empty() ? "" : "; ") + std::string("no .pdata entry, length assumed from ours");
                         }
                     }
@@ -2119,6 +3015,20 @@ int run(const Options& opt)
                               (opt.allowVariant && row.best.status == Status::Variant);
             gatePassed      = gatePassed && pass;
             rows.push_back(std::move(row));
+        }
+    }
+
+    if (opt.diffSeeds || opt.diffSeed) {
+        if (!syms) throw std::runtime_error("--diff needs the registry and the runtime's Address Library to place references");
+        Emulator emu(pe);
+        emu.trace = opt.diffSeed.has_value();
+        for (auto& r : rows) {
+            if ((r.best.status != Status::Regalloc && r.best.status != Status::Variant) || !r.best.ours) continue;
+            const auto off = pe.fileOffset(static_cast<std::uint32_t>(r.va - pe.imageBase), r.best.vanillaLen);
+            if (!off) continue;
+            const Bytes vanilla(pe.bytes.begin() + *off, pe.bytes.begin() + *off + r.best.vanillaLen);
+            r.diff = diffFunction(emu, *r.best.ours, vanilla, r.va, *syms, pe, std::max<std::size_t>(opt.diffSeeds, opt.diffSeed.value_or(0)), opt.diffSeed);
+            if (r.diff->diverged) gatePassed = false;
         }
     }
 
@@ -2149,6 +3059,18 @@ int run(const Options& opt)
                 std::printf(")");
             }
             std::printf("\n");
+        }
+        if (r.diff) {
+            const auto& d = *r.diff;
+            if (!d.error.empty()) {
+                std::printf("    diff: not run: %s\n", d.error.c_str());
+            } else {
+                std::printf("    diff: %zu seeds (%zu runs): %zu agree, %zu fault alike, %zu inconclusive, %zu NaN, %zu DIVERGE; vanilla coverage %zu/%zu "
+                            "instructions, %zu/%zu branch sides; %.0f ms\n",
+                            d.seeds, d.runs, d.agreed, d.faultedAlike, d.inconclusive, d.nan, d.diverged, d.insnsCovered, d.insnsTotal, d.sidesCovered,
+                            d.sidesTotal, d.ms);
+                if (d.diverged) std::printf("    diff: first divergence, %s\n", d.firstDivergence.c_str());
+            }
         }
         if ((opt.showAll || (opt.show && b.status != Status::Exact)) && !b.listing.empty()) {
             std::printf("    %-63s | vanilla 0x%s\n", ("ours (" + b.toolchain + ")").c_str(), hex(r.va).c_str());
@@ -2272,6 +3194,8 @@ int main(int argc, char** argv)
         else if (a == "--inventory") opt.inventory = true;
         else if (a == "--todo") opt.todo = next();
         else if (a == "--coverage") opt.coverageAll = true;
+        else if (a == "--diff") opt.diffSeeds = std::stoul(next());
+        else if (a == "--diff-seed") opt.diffSeed = std::stoull(next());
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }
