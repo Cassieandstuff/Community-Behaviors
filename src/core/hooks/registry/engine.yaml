@@ -432,3 +432,12 @@ symbols:
   - { name: hkbDelayedModifierInternalState_Vtable, kind: data, se: 278459, ae: 226416, vr: 0, cpp: "CB::schema::hkbDelayedModifierInternalState::`vftable'" }
   - { name: hkbEventDrivenModifier_Vtable, kind: data, se: 278488, ae: 226452, vr: 0, cpp: "CB::schema::hkbEventDrivenModifier::`vftable'" }
   - { name: hkbEventDrivenModifierInternalState_Vtable, kind: data, se: 278491, ae: 226456, vr: 0, cpp: "CB::schema::hkbEventDrivenModifierInternalState::`vftable'" }
+  - { name: hkbBindable_Vtable, kind: data, se: 275296, ae: 220249, vr: 0, cpp: "CB::schema::hkbBindable::`vftable'" }  # the inline hkbBindable copy stamps it
+  - { name: hkbBoneWeightArray_CopyCtor, kind: func, se: 0, ae: 59516, vr: 0, cpp: "??0hkbBoneWeightArray@schema@CB@@QEAA@AEBV012@@Z" }  # out of line; BSBoneSwitchGeneratorBoneData's copy calls it for a bound weight array
+  - { name: BSBoneSwitchGenerator_Vtable, kind: data, se: 282006, ae: 232633, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::`vftable'" }
+  - { name: BSBoneSwitchGenerator_GetStaticClass, kind: func, se: 0, ae: 62942, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSBoneSwitchGenerator_CloneCtor, kind: func, se: 0, ae: 63120, vr: 0, cpp: "??0BSBoneSwitchGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSBoneSwitchGenerator_Dtor, kind: func, se: 0, ae: 63111, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::~BSBoneSwitchGenerator" }  # out of line; the scalar deleting destructor calls it
+  - { name: BSBoneSwitchGeneratorBoneData_Vtable, kind: data, se: 282011, ae: 232639, vr: 0, cpp: "CB::schema::BSBoneSwitchGeneratorBoneData::`vftable'" }
+  - { name: BSBoneSwitchGeneratorBoneData_CloneCtor, kind: func, se: 0, ae: 63125, vr: 0, cpp: "??0BSBoneSwitchGeneratorBoneData@schema@CB@@QEAA@AEBV012@@Z" }  # the generator's clone copy calls it per child
+  - { name: BSBoneSwitchGeneratorUtils_Generate, kind: func, se: 0, ae: 63343, vr: 0, cpp: "CB::schema::BSBoneSwitchGeneratorUtils::generate" }  # name provisional; generate tail-jumps to it (writes each child's weighted bones over the default pose)

@@ -322,6 +322,28 @@ units:
       - { name: "??_GhkbBlenderGeneratorChild@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7960 }
       - { name: "??_GhkbBlenderGeneratorInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7a00 }
       - { name: "??1hkbBlenderGeneratorInternalState@schema@CB@@UEAA@XZ", va: 0x140ac6160 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSBoneSwitch/BSBoneSwitchGenerator.cpp
+    functions:
+      - { name: "??0BSBoneSwitchGenerator@schema@CB@@QEAA@XZ", va: 0x140b965b0 }
+      - { name: "??0BSBoneSwitchGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b96640 }
+      - { name: "??1BSBoneSwitchGenerator@schema@CB@@UEAA@XZ", va: 0x140b966a0 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::getClassType", va: 0x140b967c0 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::collectBindables", va: 0x140b967d0 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::getMaxNumChildren", va: 0x140b96840 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::getChildren", va: 0x140b96860 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::isValid", va: 0x140b96940 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::cloneNode", va: 0x140b96b70 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::generate", va: 0x140b96bc0 }
+      - { name: "CB::schema::BSBoneSwitchGenerator::canRecycleOutput", va: 0x140b96c10 }
+      - { name: "??0BSBoneSwitchGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b96c20 }
+      - { name: "??_GBSBoneSwitchGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b96d30 }
+      - { name: "CB::schema::BSBoneSwitchGeneratorBoneData::collectBindables", va: 0x140b96df0 }
+      - { name: "??0BSBoneSwitchGeneratorBoneData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b96e30 }
+      - { name: "??0BSBoneSwitchGeneratorBoneData@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b96e60 }
+      - { name: "??_GBSBoneSwitchGeneratorBoneData@schema@CB@@UEAAPEAXI@Z", va: 0x140b96f70 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSBoneSwitch/BSBoneSwitchGeneratorUtils.cpp
+    functions:
+      - { name: "CB::schema::BSBoneSwitchGeneratorUtils::generate", va: 0x140ba0b00 }
   - source: ../../../schema/Havok/Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp
     functions:
       - { name: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@XZ", va: 0x140ae8e70 }

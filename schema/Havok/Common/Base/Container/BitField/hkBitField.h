@@ -34,6 +34,19 @@ namespace CB { namespace schema
             for (int i = 0; i < m_words.getSize(); i++) m_words[i] = fill;
         }
 
+        /// @brief Wraps caller-owned `storage` (never freed) as it is: the bits are not touched.
+        /// @note Signature provisional (BSBoneSwitchGeneratorUtils reads the generator outputs' partition bits through it).
+        HK_FORCE_INLINE hkBitField(hkUint32* storage, int numBits)
+        {
+            m_numBits                  = numBits;
+            const int numWords         = (numBits + 31) >> 5;
+            m_words.m_data             = storage;
+            m_words.m_size             = numWords;
+            m_words.m_capacityAndFlags = numWords | hkArray<hkUint32>::DONT_DEALLOCATE_FLAG;
+        }
+
+        /// @return Bit `index`, as 0 or 1.
+        HK_FORCE_INLINE int  get(int index) const { return (m_words[index >> 5] >> (index & 31)) & 1; }
         HK_FORCE_INLINE void set(int index) { m_words[index >> 5] |= (1 << (index & 31)); }
         /// @brief Sets bit `index` to `value` (0 or 1) without branching.
         HK_FORCE_INLINE void assign(int index, int value)
