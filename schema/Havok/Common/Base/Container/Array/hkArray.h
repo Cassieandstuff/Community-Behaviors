@@ -135,6 +135,12 @@ namespace CB { namespace schema
                 hkArrayUtil::_reserve(hkContainerHeapAllocator::s_alloc, this, newSize, sizeof(T));
             }
         }
+        /// @brief Grows to exactly `n` when the capacity is short (no doubling).
+        HK_FORCE_INLINE void reserveExactly(int n)
+        {
+            if (getCapacity() < n) hkArrayUtil::_reserve(hkContainerHeapAllocator::s_alloc, this, n, sizeof(T));
+        }
+        HK_FORCE_INLINE T*       begin() { return m_data; }
         /// @note A non-POD element constructs through the global placement new (vanilla null-checks the slot); a POD one
         ///       is assigned, unchecked.
         HK_FORCE_INLINE void pushBack(const T& t)

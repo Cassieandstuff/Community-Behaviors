@@ -82,5 +82,12 @@ namespace CB { namespace schema
                 *d++ = src[3];
             }
         }
+        /// @brief Fills `numWords` 4-byte words of `dst` with `value`.
+        /// @note Counted down from numWords - 1, as vanilla tests it (`lea eax,[n-1]; test; js` before the rep stosd).
+        static HK_FORCE_INLINE void memSet4(void* dst, const int value, int numWords)
+        {
+            hkUint32* d = static_cast<hkUint32*>(dst);
+            for (int i = numWords - 1; i >= 0; i--) *d++ = value;
+        }
     };
 } }

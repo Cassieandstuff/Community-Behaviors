@@ -10,7 +10,8 @@ namespace CB { namespace schema
     struct hkbEventQueue : hkQueue<hkbEvent>
     {
         hkbSymbolIdMap* m_symbolIdMap;   ///< +0x18
-        bool            m_directMap;     ///< +0x20 — name provisional: true = index the internal→external array
+        /// @note An hkBool: hkbSequence::update saves it into a bool with `cmp byte,0; setnz` (a plain bool copies the byte).
+        hkBool          m_directMap;     ///< +0x20 — name provisional: true = index the internal→external array
 
         /// @note Must stay force-inlined: under /Ob1 a plain `inline` is only a hint, and outlining it breaks callers.
         HK_FORCE_INLINE int toExternal(int id) const

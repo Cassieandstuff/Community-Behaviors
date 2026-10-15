@@ -7,6 +7,7 @@
 namespace CB { namespace schema
 {
     struct hkbGeneratorOutput;
+    extern const hkClass hkbModifierClass;
 
     /// @note Sized 0x50: derived members start after the base's tail padding. The vtable is hkbNode's 0–22 plus 23–24
     ///       (the timer modifier's has 25 slots).

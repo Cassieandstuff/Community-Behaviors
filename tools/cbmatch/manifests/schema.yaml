@@ -146,3 +146,18 @@ units:
       # - { name: "CB::schema::hkbClipGenerator::copySampledPose", va: 0x140b03380 }
       - { name: "CB::schema::hkbClipGenerator::copySampledFloats", va: 0x140b03550 }
       - { name: "CB::schema::hkbClipGenerator::blendSampledFloats", va: 0x140b036a0 }
+  - source: ../../../schema/Havok/Behavior/Sequence/hkbSequence.cpp
+    functions:
+      - { name: "??0hkbSequence@schema@CB@@QEAA@XZ", va: 0x140aff3e0 }
+      # STRUCTURAL, register naming only (parked: a per-live-range renaming; see tools/cbmatch/parked.yaml).
+      # - { name: "??0hkbSequence@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aff520 }
+      - { name: "??1hkbSequence@schema@CB@@UEAA@XZ", va: 0x140aff860 }
+      - { name: "??_GhkbSequence@schema@CB@@UEAAPEAXI@Z", va: 0x140acae60 }
+      - { name: "CB::schema::hkbSequence::calcContentStatistics", va: 0x140affbf0 }
+      - { name: "CB::schema::hkbSequence::activate", va: 0x140affc70 }
+      - { name: "CB::schema::hkbSequence::handleEvent", va: 0x140affe70 }
+      - { name: "CB::schema::hkbSequence::update", va: 0x140affef0 }
+      - { name: "CB::schema::hkbSequence::cloneNode", va: 0x140b00140 }
+      - { name: "CB::schema::hkbSequence::createInternalState", va: 0x140b00190 }
+      - { name: "CB::schema::hkbSequence::getInternalState", va: 0x140b00210 }
+      - { name: "CB::schema::hkbSequence::setInternalState", va: 0x140b004d0 }

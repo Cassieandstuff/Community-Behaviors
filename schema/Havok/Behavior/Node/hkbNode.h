@@ -2,6 +2,7 @@
 /// @brief hkbBindable and hkbNode: the base of every behavior graph node.
 #pragma once
 
+#include <Behavior/Event/hkbEvent.h>
 #include <Common/Base/hkBase.h>
 
 namespace CB { namespace schema
@@ -18,17 +19,25 @@ namespace CB { namespace schema
         const Binding* findBindingByMemberPath(const char* memberPath) const;
     };
 
+    /// @note The destructor is implicit: under /Ob1 VS2015 inlines it into some node destructors (hkbSequence's) and
+    ///       calls the out-of-line copy from others (the clip's, the timer's) — the same split vanilla shows. A
+    ///       user-provided one adds a vtable store vanilla's lacks.
     struct hkbBindable : hkReferencedObject
     {
+        /// @brief An entry of m_cachedBindables.
+        /// @note 0x10 bytes (the destructor frees capacity << 4); contents not identified. Name provisional.
+        struct CachedBindable
+        {
+            hkUint8 m_opaque[0x10];
+        };
+
         hkRefPtr<hkbVariableBindingSet> m_variableBindingSet;   ///< +0x10
-        hkArray<hkbBindable*>           m_cachedBindables;      ///< +0x18
+        hkArray<CachedBindable>         m_cachedBindables;      ///< +0x18
         hkBool                          m_areBindablesCached;   ///< +0x28
 
         HK_FORCE_INLINE hkbBindable() : m_areBindablesCached(false) {}
         HK_FORCE_INLINE hkbBindable(hkFinishLoadedObjectFlag flag)
         :   hkReferencedObject(flag), m_variableBindingSet(flag), m_areBindablesCached(false) {}
-        /// @note Out of line in vanilla: every node destructor ends in a tail call to it.
-        ~hkbBindable();
 
         virtual void collectBindables(void* collector);   ///< slot 3
     };
@@ -76,7 +85,8 @@ namespace CB { namespace schema
 
         virtual void activate(const hkbContext& context);                      ///< slot 4
         virtual void update(const hkbContext& context, hkReal timestep);       ///< slot 5
-        virtual void handleEvent(const hkbContext& context, const void* e);    ///< slot 6
+        /// @note By value (on x64, a pointer to the caller's copy): hkbSequence's override reads the id through it.
+        virtual void handleEvent(const hkbContext& context, const hkbEvent e); ///< slot 6
         virtual void deactivate(const hkbContext& context);                    ///< slot 7
         /// @note Name provisional (the overrides return their child count). hkbNode's own returns 2 — unexplained.
         virtual int  getMaxNumChildren(GetChildrenFlags flags);                ///< slot 8

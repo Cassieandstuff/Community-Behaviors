@@ -169,6 +169,8 @@ symbols:
   - { name: hkBuiltinTypeRegistry_StaticLinkedTypeInfos, kind: data, se: 289776, ae: 239390, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedClasses, kind: data, se: 289777, ae: 239939, vr: 0 }
   - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0, cpp: "CB::schema::hkbGeneratorClass" }
+  - { name: hkbModifier_StaticClass, kind: data, se: 0, ae: 408229, vr: 0, cpp: "CB::schema::hkbModifierClass" }
+  - { name: hkbSequence_StaticClass, kind: data, se: 0, ae: 408264, vr: 0, cpp: "CB::schema::hkbSequenceClass" }
   - { name: hkClass_IsSuperClass, kind: func, se: 57166, ae: 57626, vr: 0, cpp: "CB::schema::hkClass::isSuperClass" }  # parent-chain strcmp
   - { name: hkNativePackfileUtils_ApplyVirtualFixups, kind: func, se: 64110, ae: 65139, vr: 0 }  # finishes objects by case-sensitive class NAME
   - { name: hkSerializeUtil_ClassSignaturesUpToDate, kind: func, se: 63862, ae: 64867, vr: 0 }
@@ -205,8 +207,8 @@ symbols:
   - { name: hkLifoAllocator_AllocateFromNewSlab, kind: func, se: 0, ae: 57039, vr: 0, cpp: "CB::schema::hkLifoAllocator::allocateFromNewSlab" }  # the stack allocator's slow path: a block that does not fit the current slab
   - { name: hkLifoAllocator_SlowBlockFree, kind: func, se: 0, ae: 57041, vr: 0, cpp: "CB::schema::hkLifoAllocator::slowBlockFree" }  # (p, 16-rounded size): a free that is not the top of the current slab
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getWithDefault" }  # name provisional
+  - { name: hkStringPtr_DefaultCtor, kind: func, se: 0, ae: 57224, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@XZ" }  # the null string; default node constructors call it
   - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
-  - { name: hkStringPtr_DefaultCtor, kind: func, se: 0, ae: 57224, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@XZ" }  # out of line; nulls the string
   - { name: hkStringPtr_Dtor, kind: func, se: 0, ae: 57230, vr: 0, cpp: "CB::schema::hkStringPtr::~hkStringPtr" }
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
   - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
@@ -242,7 +244,7 @@ symbols:
   - { name: hkaMirroredSkeleton_MirrorBone, kind: func, se: 0, ae: 64362, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorBone" }  # name provisional; (transform&, bone, isAdditive) mirrors one bone in place
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
-  - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # out of line: node destructors end in a tail call to it
+  - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # the implicit destructor's out-of-line copy: most node destructors end in a tail call to it (hkbSequence's inlines it)
   - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
   - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbTransformVectorModifier_CloneCtor, kind: func, se: 0, ae: 59905, vr: 0, cpp: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
@@ -251,6 +253,9 @@ symbols:
   - { name: hkbTwistModifier_Dtor, kind: func, se: 0, ae: 58990, vr: 0, cpp: "??1hkbTwistModifier@schema@CB@@UEAA@XZ" }  # out of line (in the type-registration block); the deleting destructor calls it
   - { name: hkbTwistModifierUtils_ModifyInternal, kind: func, se: 0, ae: 60075, vr: 0, cpp: "CB::schema::hkbTwistModifierUtils::modifyInternal" }  # name provisional; (twist, inOut, referencePose) - the twist itself, compiled far from the twist
   - { name: hkbVariableBindingSet_FindBindingByMemberPath, kind: func, se: 0, ae: 59472, vr: 0, cpp: "CB::schema::hkbVariableBindingSet::findBindingByMemberPath" }  # (memberPath) -> Binding* or null; exact strCmp over the 0x28-byte bindings
+  - { name: hkbSequence_CloneCtor, kind: func, se: 0, ae: 59920, vr: 0, cpp: "??0hkbSequence@schema@CB@@QEAA@AEBV012@@Z" }  # hkbSequence(const hkbSequence&) — cloneNode tail-jumps to it
+  - { name: hkbSequence_Dtor, kind: func, se: 0, ae: 59921, vr: 0, cpp: "CB::schema::hkbSequence::~hkbSequence" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbBehaviorGraph_CopyVariablesToMembers, kind: func, se: 0, ae: 58382, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::copyVariablesToMembers" }  # (context, flag); monitor timer "hkbBehaviorGraph::copyVariablesToMembersRoot"
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
@@ -263,6 +268,7 @@ symbols:
   - { name: BSSynchronizedClipGenerator_EmptyString, kind: data, se: 0, ae: 385925, vr: 0, cpp: "CB::schema::g_bssyncEmptyString" }  # name provisional; const char* → "", an unset prefix
   - { name: BSSynchronizedClipGenerator_PairEndEvent, kind: data, se: 0, ae: 385926, vr: 0, cpp: "CB::schema::g_bssyncPairEndEvent" }  # name provisional; const char* → "PairEnd"
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
+  - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
   - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "CB::schema::hkbClipGenerator::`vftable'" }
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
@@ -274,5 +280,7 @@ symbols:
   - { name: hkbSetWorldFromModelModifier_Vtable, kind: data, se: 278624, ae: 226616, vr: 0, cpp: "CB::schema::hkbSetWorldFromModelModifier::`vftable'" }
   - { name: hkbTransformVectorModifier_Vtable, kind: data, se: 278633, ae: 226628, vr: 0, cpp: "CB::schema::hkbTransformVectorModifier::`vftable'" }
   - { name: hkbTransformVectorModifierInternalState_Vtable, kind: data, se: 278636, ae: 226632, vr: 0, cpp: "CB::schema::hkbTransformVectorModifierInternalState::`vftable'" }
+  - { name: hkbSequence_Vtable, kind: data, se: 278658, ae: 226657, vr: 0, cpp: "CB::schema::hkbSequence::`vftable'" }
+  - { name: hkbSequenceInternalState_Vtable, kind: data, se: 278661, ae: 226661, vr: 0, cpp: "CB::schema::hkbSequenceInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene
