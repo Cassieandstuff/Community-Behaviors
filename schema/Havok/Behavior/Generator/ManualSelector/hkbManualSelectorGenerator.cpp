@@ -42,7 +42,7 @@ namespace CB { namespace schema
     }
 
     /// @note The monitor timer opens after the new index is stored, as in vanilla. Vanilla keeps `flag | true` unfolded
-    ///       (setnz; or 1); VS2015 24247 folds it to a constant store (parked).
+    ///       (setnz; or 1); VS2015 24247 folds it to a constant store (rule H).
     void hkbManualSelectorGenerator::update(const hkbContext& context, hkReal timestep)
     {
         const int previousIndex = m_currentGeneratorIndex;

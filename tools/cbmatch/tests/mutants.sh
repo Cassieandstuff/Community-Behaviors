@@ -4,9 +4,10 @@
 # Every mutant must come out STRUCTURAL except the documented VARIANT blind spots, which must come out VARIANT and then
 # DIVERGE under --diff (<seeds> synthetic inputs, default 256): u3 (dropped i--), t3 (two register arguments swapped) and
 # k2 (a constant the build already holds in a register: no load, so the changed value is just another register) are
-# register dataflow; c1 and y2 (inverted tests) are jz/jnz sharing a condition family because branch layout inverts them.
-# The gated families (o, z) are functions VARIANT only through rules A/E, which hold only if --diff confirms them: their
-# mutants change dataflow those rules let through structurally and must come out STRUCTURAL because they diverge.
+# register dataflow; c1 and y2 (inverted tests) are jz/jnz sharing a condition family because branch layout inverts them;
+# h1 (a cleared flag where vanilla's setcc; or 1 stores 1) is a store's value, which store matching leaves to --diff.
+# The gated families (o, z, v) are functions VARIANT only through rules A/E/I, which hold only if --diff confirms them:
+# their mutants change dataflow those rules let through structurally and must come out STRUCTURAL because they diverge.
 # Controls (x_*) compile the same functions unmutated: they must come out VARIANT with no divergence, or a harness that
 # diverges on everything would pass.
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
@@ -15,7 +16,10 @@
 # home-area scratch), s setElapsedTime (frame size), k startEcho, y updateSync (rax frame base, materialized zero test
 # with an intervening instruction), j hkbSenseHandleModifier::senseInRigidBodies (switch jump tables),
 # b rebindFromBindingSet (a signed compare of a possibly negative index must not fold onto unsigned), z sortTriggers
-# (rule A: locals in the argument area), o hkbRotateCharacterModifierUtils::modify (rule E: shuffles). A mutant of a
+# (rule A: locals in the argument area), o hkbRotateCharacterModifierUtils::modify (rule E: shuffles), q
+# hkbRagdollDriver::reset (a reference's offset into its symbol), h hkbManualSelectorGenerator::update (rule H),
+# v hkbEvaluateExpressionModifier's copy constructor (rule I: a duplicated return tail), w
+# hkbSenseHandleModifier::collectCharacterLocalFrames (rule J: register setup; a wrong slot still fails). A mutant of a
 # header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -24,8 +28,8 @@ seeds=${3:-256}
 repo=$(cd "$(dirname "$0")/../../.." && pwd -W)
 havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
-expectVariant=" u3 t3 c1 k2 y2 "
-gated=" o z "
+expectVariant=" u3 t3 c1 k2 y2 h1 "
+gated=" o z v "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -35,7 +39,7 @@ names=""
 
 # target <name>: the class, source file, function and vanilla address a name's family letter stands for.
 target() {
-    cls=hkbClipGenerator src=$clip
+    cls=hkbClipGenerator src=$clip full=""
     case "$1" in
         m*) fn=activate va=0x140acd750 ;;           u*) fn=update va=0x140acde40 ;;
         d*) fn=deactivate va=0x140ace1e0 ;;         g*) fn=generate va=0x140ace400 ;;
@@ -48,6 +52,13 @@ target() {
         y*) fn=updateSync va=0x140ace930 ;;
         b*) fn=rebindFromBindingSet va=0x140acf6e0 ;;
         z*) fn=sortTriggers va=0x140ad0290 ;;
+        q*) cls=hkbRagdollDriver src=Behavior/Driver/Ragdoll/hkbRagdollDriver.cpp fn=reset va=0x140aaea40 ;;
+        h*) cls=hkbManualSelectorGenerator src=Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp
+            fn=update va=0x140ae9130 ;;
+        v*) cls=hkbEvaluateExpressionModifier src=Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp
+            fn=copyConstructor va=0x140aedc70 full="??0hkbEvaluateExpressionModifier@schema@CB@@QEAA@AEBV012@@Z" ;;
+        w*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
+            fn=collectCharacterLocalFrames va=0x140afe570 ;;
         o*) cls=hkbRotateCharacterModifierUtils src=Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp
             fn=modify va=0x140b0ee80 ;;
         j*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
@@ -69,7 +80,7 @@ mutant() {
     sed "$expr" "$havok/$file" > "$out"
     if cmp -s "$out" "$havok/$file"; then echo "UNCHANGED: $name (its pattern no longer matches $file)"; exit 1; fi
     units="$units
-  - { source: \"$source\", flags: $flags, functions: [ { name: \"CB::schema::$cls::$fn\", va: $va } ] }"
+  - { source: \"$source\", flags: $flags, functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
     names="$names $name"
 }
 
@@ -124,12 +135,20 @@ rot="Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp"
 mutant o1_swapped_rotation    "$rot" 's/m_rotation\.setMul(worldFromCharacter\.m_rotation, rotation);/m_rotation.setMul(rotation, worldFromCharacter.m_rotation);/'
 mutant o2_negated_angle       "$rot" 's/rotation\.setAxisAngle(modelUp, mod\.m_angle);/rotation.setAxisAngle(modelUp, -mod.m_angle);/'
 mutant z1_bound_off_by_one    "$clip" 's/for (int j = 0; j < numTriggers - 1 - i; j++) {/for (int j = 0; j < numTriggers - 2 - i; j++) {/'
+ragdoll="Behavior/Driver/Ragdoll/hkbRagdollDriver.cpp"
+mutant q1_identity_fields_swapped "$ragdoll" 's/^        m_lastWorldFromModel            = hkQsTransform::getIdentity();$/        m_lastWorldFromModel.m_translation = hkQsTransform::getIdentity().m_scale; m_lastWorldFromModel.m_rotation = hkQsTransform::getIdentity().m_rotation; m_lastWorldFromModel.m_scale = hkQsTransform::getIdentity().m_translation;/'
+selector="Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp"
+mutant h1_flag_cleared        "$selector" 's/rootBehavior->m_updateActiveNodes = rootBehavior->m_updateActiveNodes | true;/rootBehavior->m_updateActiveNodes = false;/'
+mutant h2_flag_store_dropped  "$selector" 's/rootBehavior->m_updateActiveNodes = rootBehavior->m_updateActiveNodes | true;/(void)rootBehavior;/'
+expression="Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp"
+mutant v2_own_compiled_set    "$expression" 's/m_compiledExpressionSet(mod\.m_compiledExpressionSet)/m_compiledExpressionSet(m_compiledExpressionSet)/'
+mutant w1_wrong_transform     "$sense" 's/sensorPosBS\.setTransformedInversePos(worldFromBone, sensorPosWS);/sensorPosBS.setTransformedInversePos(boneModelSpace, sensorPosWS);/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {
     target "$1"
     units="$units
-  - { source: \"$havok/$src\", flags: [], functions: [ { name: \"CB::schema::$cls::$fn\", va: $va } ] }"
+  - { source: \"$havok/$src\", flags: [], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
     names="$names x_$fn"
 }
 for family in $expectVariant $gated; do control "$family"; done

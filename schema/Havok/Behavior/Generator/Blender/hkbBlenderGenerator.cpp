@@ -73,7 +73,7 @@ namespace CB { namespace schema
         for (int i = 0; i < numChildren; i++) m_children[i]->collectBindables(collector);
     }
 
-    /// @note Vanilla keeps `flag | true` unfolded (setnz; or 1); VS2015 24247 folds it to a constant store (parked).
+    /// @note Vanilla keeps `flag | true` unfolded (setnz; or 1); VS2015 24247 folds it to a constant store (rule H).
     void hkbBlenderGenerator::activate(const hkbContext& context)
     {
         m_beginIntervalIndex = 0;
@@ -92,7 +92,7 @@ namespace CB { namespace schema
         }
     }
 
-    /// @note The same `flag | true` fold as activate (parked).
+    /// @note The same `flag | true` fold as activate (rule H).
     void hkbBlenderGenerator::update(const hkbContext& context, hkReal timestep)
     {
         HK_TIMER_BEGIN("hkbBlenderGenerator::update");

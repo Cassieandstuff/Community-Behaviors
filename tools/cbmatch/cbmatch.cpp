@@ -470,6 +470,9 @@ struct CoffFunction {
         std::string                 mangled, name;
         std::uint16_t               type = 0;
         std::optional<std::int64_t> local;   ///< the referenced offset within this function, when it points into it
+        /// @brief The offset into the symbol the reference addresses (COFF keeps it in the patched field): a member of
+        ///        a constant object, `symbol+0x10`.
+        std::int64_t                addend = 0;
     };
     std::map<std::uint32_t, Target>        targets;  ///< reloc offset → the symbol it refers to
 };
@@ -566,6 +569,8 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
                 for (std::uint32_t w = 0; w < width && at - begin + w < f.mask.size(); ++w) f.mask[at - begin + w] = true;
                 if (sym >= names.size()) continue;
                 CoffFunction::Target t{ names[sym], undecorate(names[sym]), rd<std::uint16_t>(b, ro + 8), std::nullopt };
+                if (width == 4) t.addend = rd<std::int32_t>(b, rawPtr + at);
+                else if (width == 8) t.addend = rd<std::int64_t>(b, rawPtr + at);
                 // A reference into this same section (a jump table, its entries): resolve it to a function offset. COFF
                 // keeps the addend in the field itself.
                 if (symSection[sym] == section && width == 4) {
@@ -1636,9 +1641,98 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     };
     std::map<std::pair<std::size_t, std::string>, int> simdBalance;   ///< (segment, mnemonic:immediates) → ours minus vanilla
     std::set<std::string> simdChecked;   ///< mnemonics whose balance is checked
-    bool ruleA = false, ruleE = false;
 
-    for (const auto& [ia, ib] : alignInstructions(liveA, liveB)) {
+    // Rule H: `setcc r8; or r8, 1` leaves r8 = 1 whatever the condition (setcc writes 0 or 1), so the setcc tests
+    // nothing. One build keeps an unfolded `flag = flag | true`, another stores the constant; the stored value then
+    // pairs as any store does.
+    auto orOne = [](const std::vector<Insn>& side, std::size_t k) {
+        if (k + 1 >= side.size() || side[k].ins.meta.category != ZYDIS_CATEGORY_SETCC || side[k].ops[0].type != ZYDIS_OPERAND_TYPE_REGISTER)
+            return false;
+        const Insn& o = side[k + 1];
+        return o.ins.mnemonic == ZYDIS_MNEMONIC_OR && o.ins.operand_count_visible == 2 && o.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+               o.ops[0].reg.value == side[k].ops[0].reg.value && o.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && o.ops[1].imm.value.u == 1;
+    };
+
+    // Rule I (needs --diff): a tail ending in `ret` that one build duplicates into a path and another reaches by a jump.
+    // Within a side, the last n instructions before two `ret`s (no branch, call or RIP-relative operand among them) that
+    // are the same instructions as a set, registers aside, are twin copies (a duplicated tail may be scheduled in another
+    // order). Of each twin pair the less-paired copy is the duplicate: its unpaired instructions are layout, since running
+    // a copy of the tail is running the tail; the other copy is counted as usual.
+    auto duplicateTails = [](const std::vector<Insn>& side, const std::vector<bool>& paired) {
+        std::vector<bool> excused(side.size(), false);
+        auto plain = [](const Insn& i) {
+            const auto cat = i.ins.meta.category;
+            if (cat == ZYDIS_CATEGORY_COND_BR || cat == ZYDIS_CATEGORY_UNCOND_BR || cat == ZYDIS_CATEGORY_CALL || cat == ZYDIS_CATEGORY_RET) return false;
+            for (std::uint8_t o = 0; o < i.ins.operand_count_visible; ++o)
+                if ((i.ops[o].type == ZYDIS_OPERAND_TYPE_MEMORY && i.ops[o].mem.base == ZYDIS_REGISTER_RIP) ||
+                    (i.ops[o].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && i.ops[o].imm.is_relative))
+                    return false;
+            return true;
+        };
+        /// The run of plain instructions before the ret at `r`, ret included (at most 16).
+        auto tail = [&](std::size_t r) {
+            std::vector<std::size_t> run{ r };
+            while (run.size() < 16 && run.back() > 0 && plain(side[run.back() - 1])) run.push_back(run.back() - 1);
+            return run;   // ret first, then backwards
+        };
+        /// Whether the first n of `p` and of `q` are the same instructions as a set (registers aside).
+        auto sameSet = [&](const std::vector<std::size_t>& p, const std::vector<std::size_t>& q, std::size_t n) {
+            std::vector<bool> used(n, false);
+            for (std::size_t i = 0; i < n; ++i) {
+                bool hit = false;
+                for (std::size_t j = 0; j < n && !hit; ++j)
+                    if (!used[j] && matchScore(side[p[i]], side[q[j]]) == 2) used[j] = hit = true;
+                if (!hit) return false;
+            }
+            return true;
+        };
+        std::vector<std::size_t> rets;
+        for (std::size_t k = 0; k < side.size(); ++k)
+            if (side[k].ins.mnemonic == ZYDIS_MNEMONIC_RET) rets.push_back(k);
+        for (std::size_t a = 0; a < rets.size(); ++a)
+            for (std::size_t b = a + 1; b < rets.size(); ++b) {
+                const auto p = tail(rets[a]), q = tail(rets[b]);
+                for (std::size_t n = std::min(p.size(), q.size()); n > 1; --n) {
+                    if (!sameSet(p, q, n)) continue;
+                    std::size_t pp = 0, pq = 0;
+                    for (std::size_t i = 0; i < n; ++i) pp += paired[p[i]], pq += paired[q[i]];
+                    for (std::size_t i = 0; i < n; ++i) excused[(pp < pq ? p : q)[i]] = true;
+                    break;
+                }
+            }
+        return excused;
+    };
+    const auto rows = alignInstructions(liveA, liveB);
+    std::vector<bool> pairedA(liveA.size(), false), pairedB(liveB.size(), false);
+    for (const auto& [ia, ib] : rows)
+        if (ia >= 0 && ib >= 0) pairedA[std::size_t(ia)] = pairedB[std::size_t(ib)] = true;
+    const auto duplicateA = duplicateTails(liveA, pairedA), duplicateB = duplicateTails(liveB, pairedB);
+
+    // Rule J (needs --diff): register setup a build scheduled in another order within a block — the vtable `lea` and an
+    // argument `lea` crossing a constant store, two argument `lea`s swapped. An aligned pair of register-only definitions
+    // (`lea r, [address]`, `mov r, imm`: no memory touched) whose sources differ is set aside; the set-aside and unpaired
+    // ones of that mnemonic must balance per stretch between calls, by what they compute (registers aside).
+    auto registerSetup = [](const Insn& i) {
+        if (i.ins.operand_count_visible != 2 || i.ops[0].type != ZYDIS_OPERAND_TYPE_REGISTER) return false;
+        const auto cls = ZydisRegisterGetClass(i.ops[0].reg.value);
+        if (cls != ZYDIS_REGCLASS_GPR64 && cls != ZYDIS_REGCLASS_GPR32) return false;
+        if (i.ins.mnemonic == ZYDIS_MNEMONIC_LEA) return i.ops[1].type == ZYDIS_OPERAND_TYPE_MEMORY;
+        return i.ins.mnemonic == ZYDIS_MNEMONIC_MOV && i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE;
+    };
+    auto setupKey = [](const Insn& i, const Frame& f) {
+        std::string key = ZydisMnemonicGetString(i.ins.mnemonic);
+        const auto& s   = i.ops[1];
+        if (s.type == ZYDIS_OPERAND_TYPE_IMMEDIATE) return key + ":i" + hex(s.imm.value.u);
+        if (s.mem.base == ZYDIS_REGISTER_RIP) return key + ":rip";   // the reference check places the address
+        if (s.mem.base == ZYDIS_REGISTER_RSP && s.mem.index == ZYDIS_REGISTER_NONE)
+            if (const auto d = f.depth.find(i.off); d != f.depth.end()) return key + ":s" + std::to_string(s.mem.disp.value - d->second);
+        return key + ":d" + hex(std::uint64_t(s.mem.disp.value)) + (s.mem.index != ZYDIS_REGISTER_NONE ? "x" + std::to_string(s.mem.scale) : "");
+    };
+    std::map<std::pair<std::size_t, std::string>, int> setupBalance;   ///< (segment, what it computes) → ours minus vanilla
+    std::set<std::string> setupChecked;
+    bool ruleA = false, ruleE = false, ruleI = false, ruleJ = false;
+
+    for (const auto& [ia, ib] : rows) {
         if (ia >= 0 && ib >= 0) {
             const auto& x = liveA[std::size_t(ia)];
             const auto& y = liveB[std::size_t(ib)];
@@ -1668,8 +1762,8 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                 effectsB.push_back({ &y, segment });
                 continue;
             }
-            bool readsDiffer = false, simdDeferred = false;
-            for (std::uint8_t o = 0; o < x.ins.operand_count_visible && !simdDeferred; ++o) {
+            bool readsDiffer = false, simdDeferred = false, setupDeferred = false;
+            for (std::uint8_t o = 0; o < x.ins.operand_count_visible && !simdDeferred && !setupDeferred; ++o) {
                 const auto& ox = x.ops[o];
                 const auto& oy = y.ops[o];
                 if (privateLocal(liveA, std::size_t(ia), ox, frameA, takenA, targetsA) && privateLocal(liveB, std::size_t(ib), oy, frameB, takenB, targetsB) &&
@@ -1691,6 +1785,10 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                         simdDeferred = true;
                         break;
                     }
+                    if (x.ins.mnemonic == y.ins.mnemonic && registerSetup(x) && registerSetup(y)) {
+                        setupDeferred = true;
+                        break;
+                    }
                     why = "operands differ beyond registers at ours +0x" + hex(x.off) + " / vanilla +0x" + hex(y.off);
                     return false;
                 }
@@ -1700,6 +1798,14 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                 ++simdBalance[{ segment, simdKey(x) }];
                 --simdBalance[{ segment, simdKey(y) }];
                 ruleE = true;
+                ++glue;
+                continue;
+            }
+            if (setupDeferred) {
+                setupChecked.insert(ZydisMnemonicGetString(x.ins.mnemonic));
+                ++setupBalance[{ segment, setupKey(x, frameA) }];
+                --setupBalance[{ segment, setupKey(y, frameB) }];
+                ruleJ = true;
                 ++glue;
                 continue;
             }
@@ -1713,9 +1819,13 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_CALL) ++segment;
         } else if (ia >= 0) {
             const Insn& x = liveA[std::size_t(ia)];
-            if (const char* fam = foldedConditionFamily(liveA, std::size_t(ia), targetsA); fam && !materializedNullTest(liveA, std::size_t(ia))) ++conditions[fam].first;
+            if (duplicateA[std::size_t(ia)] && !pairedA[std::size_t(ia)]) { ++glue, ruleI = true; continue; }
+            if (const char* fam = foldedConditionFamily(liveA, std::size_t(ia), targetsA);
+                fam && !materializedNullTest(liveA, std::size_t(ia)) && !orOne(liveA, std::size_t(ia)))
+                ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
             if (simdOnly(x)) ++simdBalance[{ segment, simdKey(x) }];
+            if (registerSetup(x)) ++setupBalance[{ segment, setupKey(x, frameA) }];
             const auto* wx    = writtenMemory(x);
             const bool  spill = wx && privateLocal(liveA, std::size_t(ia), *wx, frameA, takenA, targetsA);
             const auto  rx    = readOf(x, frameA);
@@ -1727,9 +1837,13 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                 ++glue, ruleA = ruleA || (spill && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA));
         } else {
             const Insn& y = liveB[std::size_t(ib)];
-            if (const char* fam = foldedConditionFamily(liveB, std::size_t(ib), targetsB); fam && !materializedNullTest(liveB, std::size_t(ib))) ++conditions[fam].second;
+            if (duplicateB[std::size_t(ib)] && !pairedB[std::size_t(ib)]) { ++glue, ruleI = true; continue; }
+            if (const char* fam = foldedConditionFamily(liveB, std::size_t(ib), targetsB);
+                fam && !materializedNullTest(liveB, std::size_t(ib)) && !orOne(liveB, std::size_t(ib)))
+                ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
             if (simdOnly(y)) --simdBalance[{ segment, simdKey(y) }];
+            if (registerSetup(y)) --setupBalance[{ segment, setupKey(y, frameB) }];
             const auto* wy    = writtenMemory(y);
             const bool  spill = wy && privateLocal(liveB, std::size_t(ib), *wy, frameB, takenB, targetsB);
             const auto  ry    = readOf(y, frameB);
@@ -1796,12 +1910,21 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             return false;
         }
     }
-    needsDiff = ruleA || ruleE;
+    for (const auto& [key, balance] : setupBalance) {
+        if (balance != 0 && setupChecked.count(key.second.substr(0, key.second.find(':')))) {
+            why = "register setup set aside as rescheduled doesn't balance (" + key.second + ", ours " + (balance > 0 ? "+" : "") +
+                  std::to_string(balance) + ")";
+            return false;
+        }
+    }
+    needsDiff = ruleA || ruleE || ruleI || ruleJ;
     why = std::to_string(aligned) + " aligned, " + std::to_string(glue) + " unpaired side-effect-free, " +
           std::to_string(effectsA.size()) + " store(s) with a different source";
     if (deadCount) why += ", " + std::to_string(deadCount) + " provably dead";
     if (ruleA) why += ", local stack slots rearranged (rule A)";
     if (ruleE) why += ", SIMD rescheduled (rule E)";
+    if (ruleI) why += ", a duplicated return tail (rule I)";
+    if (ruleJ) why += ", register setup rescheduled (rule J)";
     return true;
 }
 
@@ -1891,10 +2014,12 @@ void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn
             auto it = syms.byCpp.find(t->second.name);
             if (it == syms.byCpp.end()) it = syms.byCpp.find(t->second.mangled);
             if (it != syms.byCpp.end()) {
-                if (actual && *actual == it->second) {
+                const std::uint64_t expect = it->second + std::uint64_t(t->second.addend);
+                if (actual && *actual == expect) {
                     ++m.refsVerified;
                 } else {
-                    m.refsWrong.push_back(t->second.name + " should be 0x" + hex(it->second) + " (" + syms.registryName.at(it->first) +
+                    m.refsWrong.push_back(t->second.name + " should be 0x" + hex(expect) + " (" + syms.registryName.at(it->first) +
+                                          (t->second.addend ? (t->second.addend > 0 ? "+0x" : "-0x") + hex(std::uint64_t(std::llabs(t->second.addend))) : std::string()) +
                                           ") but vanilla +0x" + hex(y.off) + " references " + (actual ? "0x" + hex(*actual) : std::string("nothing")));
                 }
             } else if (actual) {
@@ -3483,8 +3608,9 @@ void usage()
         "  --jobs <n>           parallel compiles (default: hardware threads)\n"
         "  --allow-regalloc     exit 0 when every function is EXACT or REGALLOC\n"
         "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT; a VARIANT that needs rule A\n"
-        "                       (local stack slots) or E (SIMD schedule) always runs --diff (>= 256 seeds) and is\n"
-        "                       STRUCTURAL if a seed diverges or none agrees\n"
+        "                       (local stack slots), E (SIMD schedule), I (a duplicated return tail) or J (register setup\n"
+        "                       schedule) always runs --diff (>= 256 seeds) and is STRUCTURAL if a seed diverges or none\n"
+        "                       agrees\n"
         "  --suggest            print engine.yaml lines (with Address Library ids) for unmapped references\n"
         "  --inventory          (re)generate the manifest's inventory from the exe instead of matching\n"
         "  --todo <class>       list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
@@ -3671,7 +3797,7 @@ int run(const Options& opt)
         }
         if (!why.empty()) {
             r.best.status = Status::Structural;
-            r.best.detail = "rule A/E unconfirmed: " + why + "\n" + r.best.detail;
+            r.best.detail = "--diff-gated rule (A, E, I, J) unconfirmed: " + why + "\n" + r.best.detail;
         }
     }
     if (opt.diffSeeds || opt.diffSeed) {
