@@ -834,7 +834,7 @@ namespace CB { namespace schema
 
         if (m_echos.getSize() == 0) {
             animation->samplePartialTracks(m_localTime, numTracks, tracks, numFloats, floatTracks, animationCache);
-            if (numFloatSlots > 0) hkbCopyFloatTracksToSlots(numFloats, floatTracks, numFloatSlots, binding, floatSlots);
+            if (numFloatSlots > 0) copySampledFloats(numFloats, floatTracks, numFloatSlots, binding, floatSlots);
         } else {
             hkString::memSet(tracks, 0, numTracks * int(sizeof(hkQsTransform)));
             hkReal totalWeight = 0.0f;
@@ -857,7 +857,7 @@ namespace CB { namespace schema
 
                 animation->samplePartialTracks(localTime, numTracks, echoTracks, numFloats, floatTracks, animationCache);
                 for (hkInt16 j = 0; j < numTracks; j++) tracks[j].blendAddMul(echoTracks[j], hkSimdReal(weight));
-                if (numFloatSlots > 0) hkbBlendFloatTracksToSlots(numFloats, floatTracks, numFloatSlots, binding, weight, floatSlots);
+                if (numFloatSlots > 0) blendSampledFloats(numFloats, floatTracks, numFloatSlots, binding, weight, floatSlots);
 
                 hkDeallocateStack(echoTracks, numTracks);
             }
@@ -880,7 +880,7 @@ namespace CB { namespace schema
             mapped = tracks;
         }
 
-        hkbCopyTracksToPose(numMapped, mapped, numPoseLocal, poseLocal, partitionsSampled,
+        copySampledPose(numMapped, mapped, numPoseLocal, poseLocal, partitionsSampled,
                             (m_mapperData == HK_NULL) ? binding->m_transformTrackToBoneIndices : m_mapperData->m_trackToBoneIndicesB,
                             binding->m_blendHint == hkaAnimationBinding::ADDITIVE, mirror, true);
 

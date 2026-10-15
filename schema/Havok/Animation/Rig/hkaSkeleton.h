@@ -17,6 +17,11 @@ namespace CB { namespace schema
     struct hkaMirroredSkeleton : hkReferencedObject
     {
         void mirrorExtractedMotion(hkQsTransform& motion) const;
+        /// @brief The bone's mirror partner; -1 for a negative index.
+        hkInt16 getBonePair(hkInt16 bone) const;
+        /// @brief Mirrors one bone's transform in place.
+        /// @note Name provisional.
+        void mirrorBone(hkQsTransform& transformInOut, hkInt16 bone, bool isAdditive) const;
     };
 
     struct hkaSkeletonUtils

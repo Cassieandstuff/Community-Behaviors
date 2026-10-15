@@ -45,13 +45,13 @@ namespace CB { namespace schema
         virtual int      getMaxNumChildren(int flags);                         ///< slot 8
         virtual void     getChildren(int flags, void* childrenInfo);           ///< slot 9
         virtual bool     isValid(hkStringPtr& errorString) const;              ///< slot 10
-        /// @note Slots 11 and 13–22 are placeholders: declared so the slots after them land where vanilla's do.
+        /// @note Slots 11, 15 and 17–22 are placeholders: declared so the slots after them land where vanilla's do.
         virtual void     v11();
         virtual hkbNode* cloneNode(hkbBehaviorGraph& rootBehavior) const;      ///< slot 12
-        virtual void     v13();
-        virtual void     v14();
+        virtual hkReferencedObject* createInternalState();                            ///< slot 13
+        virtual void     getInternalState(hkReferencedObject& internalState) const;   ///< slot 14
         virtual void     v15();
-        virtual void     v16();
+        virtual void     setInternalState(const hkReferencedObject& internalState);   ///< slot 16
         virtual void     v17();
         virtual void     v18();
         virtual void     v19();

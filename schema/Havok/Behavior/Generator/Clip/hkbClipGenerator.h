@@ -15,6 +15,7 @@ namespace CB { namespace schema
 {
     class hkbClipGenerator;
     extern const hkClass hkbClipGeneratorClass;
+    struct hkaMirroredSkeleton;
 
     /// @brief Bethesda's clip loader (AnimationFileManagerSingleton), which activate/update/deactivate call into.
     struct IAnimationClipLoader
@@ -29,21 +30,6 @@ namespace CB { namespace schema
     /// @brief Mirrors the pose in `output` (generate's FLAG_MIRROR_POSE path).
     /// @note Name provisional.
     void hkbMirrorPose(hkbGeneratorOutput& output, const hkQsTransform* referencePose);
-
-    /// @brief Scatters sampled transform tracks into the pose through `trackToBone` (empty = identity), skipping bones
-    ///        at or past `numBones`; with `mirror`, onto each bone's mirror partner (mirroring the transform too when
-    ///        `mirrorTransforms`). Marks every bone written in `bonesSampled`, and bit `numBones` when all were.
-    /// @note Name and parameter names provisional (0x140b03380, outside the clip's own TU).
-    void hkbCopyTracksToPose(int numTracks, const hkQsTransform* tracks, int numBones, hkQsTransform* poseOut, hkBitField& bonesSampled,
-                             const hkArray<hkInt16>& trackToBone, bool additive, const hkaMirroredSkeleton* mirror, bool mirrorTransforms);
-    /// @brief Scatters sampled float tracks into the float slots through the binding's float-track-to-slot table.
-    /// @note Name provisional (0x140b03550, outside the clip's own TU).
-    void hkbCopyFloatTracksToSlots(int numFloatTracks, const hkReal* floatTracks, int numFloatSlots, const hkaAnimationBinding* binding,
-                                   hkReal* floatSlotsOut);
-    /// @brief Adds `weight` × each sampled float track to its slot; a slot still at HK_REAL_MAX (unset) is replaced.
-    /// @note Name provisional (0x140b036a0, outside the clip's own TU).
-    void hkbBlendFloatTracksToSlots(int numFloatTracks, const hkReal* floatTracks, int numFloatSlots, const hkaAnimationBinding* binding,
-                                    hkReal weight, hkReal* floatSlotsInOut);
 
     /// @note The `slot N` annotations are vanilla's vtable slots; hkbNode and hkbGenerator declare (or hold placeholders
     ///       for) slots 0–25, so the overrides and this class's own slots 26–27 land where vanilla's do.
@@ -71,8 +57,8 @@ namespace CB { namespace schema
             hkUint8 m_opaque[0xe0];
         };
 
-        /// @note 0x10 bytes.
-        struct Echo
+        /// @note 0x10 bytes, 16-aligned: copying the internal state's echos moves each one with movaps/movdqa.
+        struct __declspec(align(16)) Echo
         {
             hkReal m_offsetLocalTime;
             hkReal m_weight;
@@ -203,6 +189,49 @@ namespace CB { namespace schema
         void   setLocalTime(hkReal localTime);
         /// @note Name provisional.
         hkReal getLocalTime() const;
+        /// @note The internal-state accessors and the three sampling helpers below live in vanilla's second clip
+        ///       translation unit (hkbClipGeneratorSecondUnit.cpp), not in hkbClipGenerator.cpp.
+        virtual hkReferencedObject* createInternalState();                                    ///< slot 13
+        /// @pre `internalState` is an hkbClipGeneratorInternalState.
+        virtual void                getInternalState(hkReferencedObject& internalState) const;    ///< slot 14
+        /// @pre `internalState` is an hkbClipGeneratorInternalState.
+        virtual void                setInternalState(const hkReferencedObject& internalState);    ///< slot 16
+
+        /// @brief Copies the sampled transform tracks into the pose through `trackToBone` (identity when empty) —
+        ///        mirrored to the partner bone when `mirroredSkeleton` is set — skipping bones past `numPoseLocal`;
+        ///        sets each written bone's bit in `bonesSampled`, and bit `numPoseLocal` iff every bone was written.
+        /// @note Name provisional. With `mirroredSkeleton`, `mirrorTransforms` mirrors each SAMPLED transform in place
+        ///       before the copy (sampleAnimation always passes true).
+        static void copySampledPose(int numTracks, hkQsTransform* sampled, int numPoseLocal, hkQsTransform* poseLocal,
+                                    hkBitField& bonesSampled, const hkArray<hkInt16>& trackToBone, bool isAdditive,
+                                    const hkaMirroredSkeleton* mirroredSkeleton, bool mirrorTransforms);
+        /// @brief Copies the sampled float tracks into the float slots through the binding's track-to-slot map
+        ///        (identity when empty), skipping slots past `numFloatSlots`.
+        /// @note Name provisional.
+        static void copySampledFloats(int numTracks, const hkReal* sampled, int numFloatSlots, const hkaAnimationBinding* binding,
+                                      hkReal* floatSlots);
+        /// @brief Accumulates `weight` × each sampled float track into its slot; a slot still holding HK_REAL_MAX
+        ///        (unwritten) is treated as 0.
+        /// @note Name provisional.
+        static void blendSampledFloats(int numTracks, const hkReal* sampled, int numFloatSlots, const hkaAnimationBinding* binding,
+                                       hkReal weight, hkReal* floatSlots);
     };
+
+    /// @brief The clip's runtime state as getInternalState/setInternalState exchange it.
+    /// @note 0x70 bytes; field order mirrors the clip's runtime members (+0xb0 onwards).
+    struct hkbClipGeneratorInternalState : hkReferencedObject
+    {
+        hkQsTransform                   m_extractedMotion;                      ///< +0x10
+        hkArray<hkbClipGenerator::Echo> m_echos;                                ///< +0x40
+        hkReal                          m_localTime;                            ///< +0x50
+        hkReal                          m_time;                                 ///< +0x54
+        hkReal                          m_previousUserControlledTimeFraction;   ///< +0x58
+        hkInt32                         m_bufferSize;                           ///< +0x5c
+        hkInt32                         m_echoBufferSize;                       ///< +0x60
+        hkBool                          m_atEnd;                                ///< +0x64
+        hkBool                          m_ignoreStartTime;                      ///< +0x65
+        hkBool                          m_pingPongBackward;                     ///< +0x66
+    };
+    static_assert(sizeof(hkbClipGeneratorInternalState) == 0x70, "hkbClipGeneratorInternalState size");
     static_assert(sizeof(hkbClipGenerator) == 0x110, "hkbClipGenerator size");
 } }

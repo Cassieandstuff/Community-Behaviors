@@ -62,6 +62,28 @@ namespace CB { namespace schema
             m_capacityAndFlags = DONT_DEALLOCATE_FLAG;
         }
 
+        HK_FORCE_INLINE hkArray& operator=(const hkArray& a) { return assign(a, hkArrayIsPod<__is_pod(T)>()); }
+
+        /// @brief Plain-old-data elements: reallocates (to exactly `a`'s size) only when the capacity is short, then copies.
+        /// @note Vanilla's copy loop counts up (`inc; cmp; jl`); VS2015 24247 counts this spelling (and every other tried)
+        ///       down, which keeps the clip's getInternalState/setInternalState STRUCTURAL.
+        HK_FORCE_INLINE hkArray& assign(const hkArray& a, hkArrayIsPod<true>)
+        {
+            if (getCapacity() < a.getSize()) {
+                hkMemoryAllocator& alloc = hkContainerHeapAllocator::s_alloc;
+                if (m_capacityAndFlags >= 0) alloc.bufFree(m_data, getCapacity() * int(sizeof(T)));
+                int numBytes       = a.getSize() * int(sizeof(T));
+                m_data             = static_cast<T*>(alloc.bufAlloc(numBytes));
+                m_capacityAndFlags = numBytes / int(sizeof(T));
+            }
+            const int n = a.getSize();
+            m_size      = n;
+            T*       d  = m_data;
+            const T* s  = a.m_data;
+            for (int i = 0; i < n; i++) d[i] = s[i];
+            return *this;
+        }
+
         HK_FORCE_INLINE int      getSize() const { return m_size; }
         HK_FORCE_INLINE int      getCapacity() const { return m_capacityAndFlags & CAPACITY_MASK; }
         HK_FORCE_INLINE T&       operator[](int i) { return m_data[i]; }
@@ -75,11 +97,10 @@ namespace CB { namespace schema
             hkArrayUtil::construct(m_data + m_size, n - m_size, hkArrayIsPod<__is_pod(T)>());
             m_size = n;
         }
-        /// @brief Assigns over the elements both arrays have, destroys this one's surplus and copy-constructs the rest.
-        /// @warning Only the non-POD path is reimplemented so far.
-        HK_FORCE_INLINE hkArray& operator=(const hkArray& a)
+        /// @brief Other elements: assigns over the ones both arrays have, destroys this one's surplus and copy-constructs
+        ///        the rest.
+        HK_FORCE_INLINE hkArray& assign(const hkArray& a, hkArrayIsPod<false>)
         {
-            static_assert(!__is_pod(T), "hkArray: POD copy-assignment not reimplemented yet");
             const int oldSize    = m_size;
             const int newSize    = a.getSize();
             const int copiedSize = (newSize > oldSize) ? oldSize : newSize;

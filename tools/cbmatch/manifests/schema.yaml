@@ -95,3 +95,17 @@ units:
   - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorOpaque.cpp
     functions:
       - { name: "CB::schema::hkbClipGenerator::computeUsableDuration", va: 0x140acf340 }
+  # The clip's second vanilla unit (no exe string names it; see the file's @file note).
+  - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorSecondUnit.cpp
+    functions:
+      - { name: "CB::schema::hkbClipGenerator::createInternalState", va: 0x140b030c0 }
+      # STOPPED (STRUCTURAL, awaiting a VARIANT-rule decision): the copy loop counts up (`inc; cmp; jl`) where 24247
+      # counts down (`sub 1; jnz`), no spelling found that keeps it up.
+      # - { name: "CB::schema::hkbClipGenerator::getInternalState", va: 0x140b03110 }
+      # - { name: "CB::schema::hkbClipGenerator::setInternalState", va: 0x140b03250 }
+      # STOPPED (STRUCTURAL, awaiting a VARIANT-rule decision): vanilla keeps the loop-invariant "no map" / "mirror"
+      # tests as materialized bools (`cmp [m],0; setz bl` / setnz spilled to a stack slot) where 24247 keeps the
+      # loaded size / pointer and re-tests it.
+      # - { name: "CB::schema::hkbClipGenerator::copySampledPose", va: 0x140b03380 }
+      # - { name: "CB::schema::hkbClipGenerator::copySampledFloats", va: 0x140b03550 }
+      # - { name: "CB::schema::hkbClipGenerator::blendSampledFloats", va: 0x140b036a0 }
