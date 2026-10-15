@@ -1,6 +1,7 @@
 /// @file
 /// @brief hkbSenseHandleModifier, reimplemented against vanilla (AE 1.6.1170).
 #include <Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.h>
+#include <Behavior/Generator/hkbGeneratorOutputUtils.h>
 
 #include <Animation/Ragdoll/Instance/hkaRagdollInstance.h>
 #include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
