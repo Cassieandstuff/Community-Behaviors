@@ -1,18 +1,21 @@
 #!/bin/sh
-# cbmatch's regression test: deliberately broken copies of the schema runtime, each of which VARIANT must reject.
-#   tools/cbmatch/tests/mutants.sh <cbmatch.exe> <workDir>          (Git Bash; same environment as manifests/schema.yaml)
-# Every mutant must come out STRUCTURAL except the documented VARIANT blind spots, which must come out VARIANT:
-#   u3 (dropped i--), t3 (two register arguments swapped) and k2 (a constant the build already holds in a register:
-#   no load, so the changed value is just another register) are register dataflow; c1 (an inverted zero test) is
-#   jz/jnz sharing a condition family because branch layout inverts them.
+# cbmatch's regression test: deliberately broken copies of the schema runtime, each of which the gate must reject.
+#   tools/cbmatch/tests/mutants.sh <cbmatch.exe> <workDir> [seeds]   (Git Bash; same environment as manifests/schema.yaml)
+# Every mutant must come out STRUCTURAL except the documented VARIANT blind spots, which must come out VARIANT and then
+# DIVERGE under --diff (<seeds> synthetic inputs, default 256): u3 (dropped i--), t3 (two register arguments swapped) and
+# k2 (a constant the build already holds in a register: no load, so the changed value is just another register) are
+# register dataflow; c1 (an inverted zero test) is jz/jnz sharing a condition family because branch layout inverts them.
+# Controls (x_*) compile the same functions unmutated: they must come out VARIANT with no divergence, or a harness that
+# diverges on everything would pass.
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
 # home-area scratch), s setElapsedTime (frame size), k startEcho. A mutant of a header is compiled against a
 # shadowing copy of that header (unit /I first).
 set -e
-cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir>}
-work=${2:?usage: mutants.sh <cbmatch.exe> <workDir>}
+cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
+work=${2:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
+seeds=${3:-256}
 repo=$(cd "$(dirname "$0")/../../.." && pwd -W)
 havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
@@ -24,10 +27,9 @@ rm -rf "$work/mut" && mkdir -p "$work/mut"
 units=""
 names=""
 
-# mutant <name> <file under schema/Havok> <sed expression> — the expression must change exactly that file.
-mutant() {
-    name=$1 file=$2 expr=$3
-    case "$name" in
+# target <name>: the function and vanilla address a name's family letter stands for.
+target() {
+    case "$1" in
         m*) fn=activate va=0x140acd750 ;;           u*) fn=update va=0x140acde40 ;;
         d*) fn=deactivate va=0x140ace1e0 ;;         g*) fn=generate va=0x140ace400 ;;
         a*) fn=advanceLocalTime va=0x140acfde0 ;;   r*) fn=resetAtEnd va=0x140ad1050 ;;
@@ -37,6 +39,12 @@ mutant() {
         s*) fn=setElapsedTime va=0x140acecd0 ;;
         k*) fn=startEcho va=0x140acee60 ;;
     esac
+}
+
+# mutant <name> <file under schema/Havok> <sed expression> — the expression must change exactly that file.
+mutant() {
+    name=$1 file=$2 expr=$3
+    target "$name"
     if [ "$file" = "$clip" ]; then
         out="$work/mut/$name.cpp"
         source="$out" flags="[]"
@@ -95,6 +103,15 @@ mutant k1_limit_inclusive      "$clip" 's/if (numEchos < s_maxEchos) {/if (numEc
 mutant k2_fade_sign            "$clip" 's/echo\.m_dwdt            = -1\.0f \/ echoDuration;/echo.m_dwdt            = 1.0f \/ echoDuration;/'
 mutant k3_wrap_wrong_mode      "$clip" 's/if (t > duration \&\& m_mode == MODE_LOOPING)/if (t > duration \&\& m_mode == MODE_PING_PONG)/'
 
+# control <family letter>: the family's function compiled from the unmutated source.
+control() {
+    target "$1"
+    units="$units
+  - { source: \"$havok/$clip\", flags: [], functions: [ { name: \"CB::schema::hkbClipGenerator::$fn\", va: $va } ] }"
+    names="$names x_$fn"
+}
+for family in $expectVariant; do control "$family"; done
+
 cat > "$work/mutants.yaml" <<EOF
 runtimes:
   ae: { exe: "\${CB_SKYRIM_AE_EXE}", addresslib: "\${CB_ADDRESSLIB_AE}", pins: ae }
@@ -106,22 +123,36 @@ includes: ["$havok", "\${VS140COMNTOOLS}../../VC/include"]
 units:$units
 EOF
 
-"$cbmatch" "$work/mutants.yaml" --allow-variant --work "$work/run" > "$work/result.txt" 2>&1 || true
-statuses=$(grep -E ' 14[0-9a-f]{7} ' "$work/result.txt" | awk '{print $4}')
+"$cbmatch" "$work/mutants.yaml" --allow-variant --diff "$seeds" --work "$work/run" > "$work/result.txt" 2>&1 || true
+# One "<status> <divergences>" pair per function, in manifest order; "-" = --diff didn't run, "?" = it couldn't.
+results=$(awk '
+    / 14[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f] / { if (s != "") print s, d; s = $4; d = "-" }
+    /^    diff: / { if ($0 ~ /not run/) d = "?"; else if ($0 ~ / DIVERGE/) { n = $0; sub(/ DIVERGE.*/, "", n); sub(/.* /, "", n); d = n } }
+    END { if (s != "") print s, d }' "$work/result.txt")
 failed=0 total=0
-set -- $statuses
+set -- $results
 for name in $names; do
-    status=${1:-MISSING}
-    [ $# -gt 0 ] && shift
+    status=${1:-MISSING} diverged=${2:--}
+    [ $# -gt 1 ] && shift 2
     total=$((total + 1))
     short=${name%%_*}
-    case "$expectVariant" in *" $short "*) want=VARIANT ;; *) want=STRUCTURAL ;; esac
-    if [ "$status" = "$want" ]; then
-        echo "  ok    $name ($status)"
+    ok=""
+    case "$name" in
+        x_*) want="VARIANT, no divergence"
+             [ "$status" = VARIANT ] && [ "$diverged" = 0 ] && ok=y ;;
+        *)   case "$expectVariant" in
+                 *" $short "*) want="VARIANT, diverging"
+                               [ "$status" = VARIANT ] && [ "$diverged" != - ] && [ "$diverged" != "?" ] && [ "$diverged" != 0 ] && ok=y ;;
+                 *)            want=STRUCTURAL
+                               [ "$status" = STRUCTURAL ] && ok=y ;;
+             esac ;;
+    esac
+    if [ "$ok" = y ]; then
+        echo "  ok    $name ($status, $diverged diverging)"
     else
-        echo "  FAIL  $name: $status, expected $want"
+        echo "  FAIL  $name: $status, $diverged diverging; expected $want"
         failed=$((failed + 1))
     fi
 done
-echo "$((total - failed))/$total mutants as expected"
+echo "$((total - failed))/$total as expected"
 [ $failed -eq 0 ]

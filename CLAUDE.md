@@ -188,7 +188,10 @@ still belongs in the session scratchpad dir.)
   bump: compiled animations are keyed on the plugin DLL's hash, so every rebuild recompiles them once.)
 - **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant` compiles schema/Havok
   per translation unit and diffs every listed function against the exe (EXACT / REGALLOC / VARIANT, references
-  checked against engine.yaml); `tools/cbmatch/tests/mutants.sh` proves VARIANT still rejects broken copies.
+  checked against engine.yaml); `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
+  under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow.
+  `tools/cbmatch/tests/mutants.sh` proves the gate rejects broken copies (STRUCTURAL, or VARIANT plus a `--diff`
+  divergence for the documented blind spots), with unmutated controls that must agree.
   Run both after any schema/Havok or cbmatch change. A full run ends with coverage against
   `tools/cbmatch/inventory.yaml` (regenerate with `--inventory`; `--todo <Class>` lists what's left).
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
