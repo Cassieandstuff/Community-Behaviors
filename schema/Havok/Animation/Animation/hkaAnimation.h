@@ -16,9 +16,11 @@ namespace CB { namespace schema
         hkInt32                             m_numberOfFloatTracks;       ///< +0x1c
         hkRefPtr<hkaAnimatedReferenceFrame> m_extractedMotion;           ///< +0x20
 
-        /// @note Slots 3–12 are placeholders until the class is reimplemented; only slot 13 is called so far.
+        /// @note Slots 3 and 5–12 are placeholders until the class is reimplemented.
         virtual void v3();
-        virtual void v4();
+        /// @brief Samples the first `maxNumTransformTracks` transform tracks and `maxNumFloatTracks` float tracks at `time`.
+        virtual void samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut, hkUint32 maxNumFloatTracks,
+                                         hkReal* floatTracksOut, void* cache) const;   ///< slot 4
         virtual void v5();
         virtual void v6();
         virtual void v7();

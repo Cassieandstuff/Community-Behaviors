@@ -16,37 +16,39 @@ namespace CB { namespace schema
         virtual void  bufFree(void* p, int numBytes);
     };
 
-    /// @brief The per-thread stack allocator: bump allocation within slabs, freed in reverse order.
-    /// @note Only the members the inline fast paths touch are named; the rest of its 0x50 bytes is padding.
+    extern DWORD hkMemoryRouter_s_memoryRouter;   ///< the router's TLS index
+
+    /// @brief The per-thread stack allocator: slabs handed out and returned strictly last-in first-out.
     struct hkLifoAllocator : hkMemoryAllocator
     {
-        void* m_impl;              ///< +0x08
-        int   m_slabSize;          ///< +0x10
-        void* m_cur;               ///< +0x18
-        void* m_end;               ///< +0x20
-        void* m_firstNonLifoEnd;   ///< +0x28
-        char  m_pad30[0x20];
+        void*              m_impl;              ///< +0x08
+        int                m_slabSize;          ///< +0x10
+        void*              m_cur;               ///< +0x18
+        void*              m_end;               ///< +0x20
+        void*              m_firstNonLifoEnd;   ///< +0x28
+        void*              m_cachedEmptySlab;   ///< +0x30
+        hkMemoryAllocator* m_slabAllocator;     ///< +0x38
+        hkMemoryAllocator* m_internalAllocator; ///< +0x40
+        hkMemoryAllocator* m_externalAllocator; ///< +0x48
 
-        /// @brief fastBlockAlloc's slow path: the block does not fit the current slab.
         void* allocateFromNewSlab(int numBytes);
-        /// @brief fastBlockFree's slow path: `p` is not the top of the current slab.
-        void slowBlockFree(void* p, int numBytes);
+        void  slowBlockFree(void* p, int numBytes);
 
-        HK_FORCE_INLINE void* fastBlockAlloc(int numBytesIn)
+        /// @pre `numBytes` is a multiple of 16 (hkAllocateStack passes multiples of 128).
+        HK_FORCE_INLINE void* fastBlockAlloc(int numBytes)
         {
-            const int numBytes = HK_NEXT_MULTIPLE_OF(16, numBytesIn);
-            void*     p        = m_cur;
-            void*     nextPtr  = static_cast<char*>(p) + numBytes;
-            if (numBytes <= m_slabSize && nextPtr <= m_end) {
-                m_cur = nextPtr;
+            void* p   = m_cur;
+            void* end = static_cast<char*>(p) + numBytes;
+            if (numBytes <= m_slabSize && end <= m_end) {
+                m_cur = end;
                 return p;
-            } else {
-                return allocateFromNewSlab(numBytes);
             }
+            return allocateFromNewSlab(numBytes);
         }
+        /// @note Frees in place only the top of the current slab; anything else goes to slowBlockFree.
         HK_FORCE_INLINE void fastBlockFree(void* p, int numBytesIn)
         {
-            const int numBytes = HK_NEXT_MULTIPLE_OF(16, numBytesIn);
+            const int numBytes = (numBytesIn + 15) & ~15;
             if (numBytesIn <= m_slabSize && static_cast<char*>(p) + numBytes == m_cur && m_firstNonLifoEnd != p) {
                 m_cur = p;
             } else {
@@ -54,30 +56,32 @@ namespace CB { namespace schema
             }
         }
     };
-    static_assert(sizeof(hkLifoAllocator) == 0x50, "hkLifoAllocator size");
-
-    extern DWORD hkMemoryRouter_s_memoryRouter;   ///< the router's TLS index
 
     struct hkMemoryRouter
     {
         hkLifoAllocator    m_stack;   ///< +0x00
-        char               m_pad50[0x8];
+        hkMemoryAllocator* m_temp;    ///< +0x50
         hkMemoryAllocator* m_heap;    ///< +0x58
 
         static HK_FORCE_INLINE hkMemoryRouter& getInstance() { return *static_cast<hkMemoryRouter*>(TlsGetValue(hkMemoryRouter_s_memoryRouter)); }
         HK_FORCE_INLINE hkLifoAllocator&   stack() { return m_stack; }
         HK_FORCE_INLINE hkMemoryAllocator& heap() { return *m_heap; }
     };
+    static_assert(sizeof(hkLifoAllocator) == 0x50, "hkLifoAllocator size");
 
-    /// @brief `n` T from the thread's stack allocator, rounded up to 128 bytes.
-    template <typename T> HK_FORCE_INLINE T* hkAllocateStack(int n)
+    /// @brief `n` T's on the thread's stack allocator, the block rounded up to 128 bytes.
+    /// @note The router fetch is its own statement: vanilla calls TlsGetValue before computing the size.
+    template <typename T>
+    HK_FORCE_INLINE T* hkAllocateStack(int n)
     {
-        return static_cast<T*>(hkMemoryRouter::getInstance().stack().fastBlockAlloc(HK_NEXT_MULTIPLE_OF(128, n * int(sizeof(T)))));
+        hkLifoAllocator& stack = hkMemoryRouter::getInstance().stack();
+        return static_cast<T*>(stack.fastBlockAlloc((n * int(sizeof(T)) + 127) & ~127));
     }
-    /// @pre `p` is this thread's most recent live stack allocation, made with the same `n`.
-    template <typename T> HK_FORCE_INLINE void hkDeallocateStack(T* p, int n)
+    /// @pre `p` is the most recent live hkAllocateStack block of `n` T's (else it takes the slow path).
+    template <typename T>
+    HK_FORCE_INLINE void hkDeallocateStack(T* p, int n)
     {
-        hkMemoryRouter::getInstance().stack().fastBlockFree(p, HK_NEXT_MULTIPLE_OF(128, n * int(sizeof(T))));
+        hkMemoryRouter::getInstance().stack().fastBlockFree(p, (n * int(sizeof(T)) + 127) & ~127);
     }
 
     struct hkContainerHeapAllocator

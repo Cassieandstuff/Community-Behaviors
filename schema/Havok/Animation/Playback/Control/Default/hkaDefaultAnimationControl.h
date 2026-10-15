@@ -49,8 +49,13 @@ namespace CB { namespace schema
 
     struct hkaDefaultAnimationControlMapperData : hkReferencedObject
     {
-        const hkaSkeletonMapper* m_mapper;   ///< +0x10
-        char                     m_pad18[0x48 - 0x18];
+        /// @note The three tables' names are provisional, read off hkbClipGenerator::sampleAnimation: it passes the first
+        ///       two to hkaSkeletonMapper::mapPoseLocalSpace and seeds the mapped pose from skeleton B's reference pose
+        ///       through the third.
+        const hkaSkeletonMapper* m_mapper;                ///< +0x10
+        hkArray<hkInt16>         m_boneToTrackIndicesA;   ///< +0x18
+        hkArray<hkInt16>         m_boneToTrackIndicesB;   ///< +0x28
+        hkArray<hkInt16>         m_trackToBoneIndicesB;   ///< +0x38
 
         hkaDefaultAnimationControlMapperData(const hkaSkeletonMapper* mapper, const hkaAnimationBinding* binding);
     };

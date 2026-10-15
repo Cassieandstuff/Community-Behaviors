@@ -15,6 +15,14 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkSimdReal() {}
         HK_FORCE_INLINE explicit hkSimdReal(hkQuadReal q) : m_real(q) {}
         HK_FORCE_INLINE hkSimdReal(float f) : m_real(_mm_set1_ps(f)) {}
+
+        /// @note Through memory (`_mm_store_ss`), as vanilla converts it: a store and reload before every compare.
+        HK_FORCE_INLINE hkReal getReal() const
+        {
+            hkReal r;
+            _mm_store_ss(&r, m_real);
+            return r;
+        }
     };
 
     struct hkQuaternion;
@@ -56,6 +64,18 @@ namespace CB { namespace schema
             return hkSimdReal(_mm_shuffle_ps(xyz, xyz, _MM_SHUFFLE(0, 0, 0, 0)));
         }
 
+        /// @brief The four-lane dot product, in every lane.
+        HK_FORCE_INLINE hkSimdReal dot4(const hkVector4& a) const
+        {
+            const hkQuadReal x2   = _mm_mul_ps(m_quad, a.m_quad);
+            const hkQuadReal sum2 = _mm_add_ps(_mm_shuffle_ps(x2, x2, _MM_SHUFFLE(1, 0, 3, 2)), x2);
+            return hkSimdReal(_mm_add_ps(_mm_shuffle_ps(sum2, sum2, _MM_SHUFFLE(2, 3, 0, 1)), sum2));
+        }
+        HK_FORCE_INLINE hkSimdReal lengthSquared3() const { return dot3(*this); }
+        HK_FORCE_INLINE hkSimdReal lengthSquared4() const { return dot4(*this); }
+        /// @note A zero vector stays zero (the reciprocal square root is masked to 0).
+        HK_FORCE_INLINE void normalize4();
+
         /// @brief xyz from `xyz`, w from lane 3 of `w`.
         HK_FORCE_INLINE void setXYZ_W(const hkVector4& xyz, const hkVector4& w)
         {
@@ -69,6 +89,17 @@ namespace CB { namespace schema
     extern const hkVector4 g_vectorConstantMinusHalf;   ///< -0.5 x4
     extern const hkVector4 g_vectorConstantZero;        ///< 0 x4
     extern const hkVector4 g_vectorConstantMax;         ///< HK_REAL_MAX (0x7f7fffee) x4
+    extern const hkVector4 g_vectorConstantOne;         ///< 1 x4
+    /// @brief 0 x4 from the table holding g_vectorConstant0001 (g_vectorConstantZero is another table's zero).
+    /// @note Name provisional; hkQsTransform::blendAddMul negates through it.
+    extern const hkVector4 g_quadRealZero;
+
+    /// @note Subtracts from g_quadRealZero (not g_vectorConstantZero) and re-broadcasts lane 0, as vanilla does.
+    HK_FORCE_INLINE hkSimdReal operator-(hkSimdReal a)
+    {
+        const hkQuadReal neg = _mm_sub_ps(g_quadRealZero.m_quad, a.m_real);
+        return hkSimdReal(_mm_shuffle_ps(neg, neg, _MM_SHUFFLE(0, 0, 0, 0)));
+    }
 
     struct hkQuaternion
     {
@@ -140,6 +171,13 @@ namespace CB { namespace schema
             m_rotation.setMul(t1.m_rotation, t2.m_rotation);
             m_scale.setMul4(t1.m_scale, t2.m_scale);
         }
+
+        /// @brief Accumulates `weight` × `other` for a later blendNormalize; the rotation is added on `other`'s
+        ///        hemisphere nearest this sum.
+        HK_FORCE_INLINE void blendAddMul(const hkQsTransform& other, hkSimdReal weight);
+        /// @brief Divides an accumulated blend by `totalWeight` and renormalizes it: a near-zero weight gives the
+        ///        identity, a near-zero rotation or scale its identity.
+        HK_FORCE_INLINE void blendNormalize(hkSimdReal totalWeight);
     };
 
     struct hkMath
@@ -161,5 +199,49 @@ namespace CB { namespace schema
             const int negative = _mm_movemask_ps(_mm_unpacklo_ps(v, v)) & 1;
             return _mm_cvtss_f32(_mm_cvtepi32_ps(_mm_cvtsi32_si128(i - negative)));
         }
+
+        /// @brief 1/sqrt(r): rsqrtss plus one Newton-Raphson step, 0 for r == 0.
+        static HK_FORCE_INLINE hkSimdReal sqrtInverse(hkSimdReal r)
+        {
+            const hkQuadReal x      = _mm_shuffle_ps(r.m_real, r.m_real, _MM_SHUFFLE(0, 0, 0, 0));
+            const hkQuadReal e      = _mm_rsqrt_ss(x);
+            const hkQuadReal isZero = _mm_cmpeq_ss(x, _mm_set_ss(0.0f));
+            const hkQuadReal he     = _mm_mul_ss(_mm_set_ss(0.5f), e);
+            const hkQuadReal ree    = _mm_mul_ss(_mm_mul_ss(x, e), e);
+            const hkQuadReal inv    = _mm_andnot_ps(isZero, _mm_mul_ss(he, _mm_sub_ss(_mm_set_ss(3.0f), ree)));
+            return hkSimdReal(_mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0, 0, 0, 0)));
+        }
     };
+
+    HK_FORCE_INLINE void hkVector4::normalize4()
+    {
+        mul4(hkMath::sqrtInverse(lengthSquared4()));
+    }
+
+    HK_FORCE_INLINE void hkQsTransform::blendAddMul(const hkQsTransform& other, hkSimdReal weight)
+    {
+        m_translation.addMul4(weight, other.m_translation);
+        m_scale.addMul4(other.m_scale, weight);
+        const hkSimdReal signedWeight =
+            (m_rotation.m_vec.dot4(other.m_rotation.m_vec).getReal() < 0.0f) ? -weight : weight;
+        m_rotation.m_vec.addMul4(signedWeight, other.m_rotation.m_vec);
+    }
+
+    HK_FORCE_INLINE void hkQsTransform::blendNormalize(hkSimdReal totalWeight)
+    {
+        if (hkMath::fabs(totalWeight.getReal()) < 1.192092896e-07f) {
+            setIdentity();
+            return;
+        }
+
+        const hkQuadReal invWeight = _mm_div_ps(g_vectorConstantOne.m_quad, totalWeight.m_real);
+        const hkSimdReal inv(_mm_shuffle_ps(invWeight, invWeight, _MM_SHUFFLE(0, 0, 0, 0)));
+        m_translation.m_quad = _mm_mul_ps(inv.m_real, m_translation.m_quad);
+        m_scale.m_quad       = _mm_mul_ps(inv.m_real, m_scale.m_quad);
+
+        if (m_rotation.m_vec.lengthSquared4().getReal() < 1.192092896e-07f) m_rotation.setIdentity();
+        else                                                                m_rotation.m_vec.normalize4();
+
+        if (m_scale.lengthSquared3().getReal() < 1.192092896e-07f) m_scale.setAll(1.0f);
+    }
 } }

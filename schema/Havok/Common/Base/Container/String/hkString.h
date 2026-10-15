@@ -54,6 +54,7 @@ namespace CB { namespace schema
         static int  strCmp(const char* a, const char* b);
         /// @note Out of line: zero-extends `nbytes` and tail-jumps to memcpy.
         static void memCpy(void* dst, const void* src, int nbytes);
+        static void memSet(void* dst, const int c, int nbytes);
 
         /// @brief Fills `numQuads` 16-byte blocks of `dst` with the 16 bytes at `value`.
         static HK_FORCE_INLINE void memSet16(void* dst, const void* value, int numQuads)

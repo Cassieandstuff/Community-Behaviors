@@ -182,6 +182,9 @@ symbols:
   - { name: hkArrayUtil_ReserveMore, kind: func, se: 0, ae: 57049, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserveMore" }  # (allocator, array, sizeElem): grow when size == capacity (hkArray::pushBack)
   - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "CB::schema::hkString::strCmp" }
   - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "CB::schema::hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
+  - { name: hkString_MemSet, kind: func, se: 0, ae: 57150, vr: 0, cpp: "CB::schema::hkString::memSet" }  # (dst, value, nbytes)
+  - { name: hkLifoAllocator_AllocateFromNewSlab, kind: func, se: 0, ae: 57039, vr: 0, cpp: "CB::schema::hkLifoAllocator::allocateFromNewSlab" }  # the stack allocator's slow path: a block that does not fit the current slab
+  - { name: hkLifoAllocator_SlowBlockFree, kind: func, se: 0, ae: 57041, vr: 0, cpp: "CB::schema::hkLifoAllocator::slowBlockFree" }  # (p, 16-rounded size): a free that is not the top of the current slab
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getWithDefault" }  # name provisional
   - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
   - { name: hkStringPtr_Dtor, kind: func, se: 0, ae: 57230, vr: 0, cpp: "CB::schema::hkStringPtr::~hkStringPtr" }
@@ -200,6 +203,8 @@ symbols:
   - { name: hkVectorConstant_MinusHalf, kind: data, se: 0, ae: 219020, vr: 0, cpp: "CB::schema::g_vectorConstantMinusHalf" }  # -0.5 x4
   - { name: hkVectorConstant_Zero, kind: data, se: 0, ae: 219024, vr: 0, cpp: "CB::schema::g_vectorConstantZero" }
   - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "CB::schema::g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
+  - { name: hkVectorConstant_One, kind: data, se: 0, ae: 219027, vr: 0, cpp: "CB::schema::g_vectorConstantOne" }  # 1 x4, beside hkVectorConstant_Zero
+  - { name: hkQuadReal_Zero, kind: data, se: 0, ae: 219013, vr: 0, cpp: "CB::schema::g_quadRealZero" }  # 0 x4 in the table hkVectorConstant_0001 sits in (not hkVectorConstant_Zero); name provisional
   # Havok animation
   - { name: hkaSkeletonUtils_ScalePose, kind: func, se: 0, ae: 64092, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::scalePose" }  # name provisional; (scale, pose, count)
   - { name: hkaDefaultAnimationControl_Ctor, kind: func, se: 0, ae: 64170, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::hkaDefaultAnimationControl" }  # (binding, ease, maxCycles)
@@ -207,6 +212,8 @@ symbols:
   - { name: hkaDefaultAnimationControl_SetBinding, kind: func, se: 0, ae: 64390, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::setBinding" }  # name provisional
   - { name: hkaSkeletonMapper_MapExtractedMotion, kind: func, se: 0, ae: 64076, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapExtractedMotion" }  # (in, out): applies the mapper's extracted-motion mapping
   - { name: hkaMirroredSkeleton_MirrorExtractedMotion, kind: func, se: 0, ae: 64361, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorExtractedMotion" }  # (motion&)
+  - { name: hkaSkeletonMapper_MapPoseLocalSpace, kind: func, se: 0, ae: 64074, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapPoseLocalSpace" }  # (poseA, poseBInOut, boneToTrackA, boneToTrackB, additive); parameter names provisional
+  - { name: hkaSkeletonUtils_FindLastUsedTrack, kind: func, se: 0, ae: 64091, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::findLastUsedTrack" }  # name provisional; highest track below numTracks driving a bone below numBones, else -1
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # out of line: node destructors end in a tail call to it
@@ -215,6 +222,9 @@ symbols:
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
   - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
+  - { name: hkbCopyTracksToPose, kind: func, se: 0, ae: 60005, vr: 0, cpp: "CB::schema::hkbCopyTracksToPose" }  # name provisional; hkbClipGenerator::sampleAnimation scatters its sampled tracks into the pose
+  - { name: hkbCopyFloatTracksToSlots, kind: func, se: 0, ae: 60006, vr: 0, cpp: "CB::schema::hkbCopyFloatTracksToSlots" }  # name provisional; sampled float tracks into the float slots
+  - { name: hkbBlendFloatTracksToSlots, kind: func, se: 0, ae: 60007, vr: 0, cpp: "CB::schema::hkbBlendFloatTracksToSlots" }  # name provisional; adds weight x float tracks into the float slots (echo blending)
   - { name: hkbBehaviorGraph_GetVariableValueSet, kind: func, se: 0, ae: 63851, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getVariableValueSet" }  # name provisional
   - { name: BSCRC32_Pointer, kind: func, se: 0, ae: 68221, vr: 0, cpp: "BSCRC32_Pointer" }  # name provisional; CRC of a pointer value (BSTScatterTable hash)
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*

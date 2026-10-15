@@ -22,5 +22,9 @@ namespace CB { namespace schema
     {
         /// @note Name provisional; (scale, pose, count).
         static void scalePose(hkReal scale, hkQsTransform* poseInOut, int numTransforms);
+        /// @brief The highest track below `numTracks` that drives a bone in [0, numBones) and is enabled, else -1; with
+        ///        no `trackToBone` table, track i drives bone i.
+        /// @note Name provisional; `tracksEnabled` may be null (every track enabled).
+        static int findLastUsedTrack(const hkInt16* trackToBone, const hkBool* tracksEnabled, int numBones, int numTracks);
     };
 } }

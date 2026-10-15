@@ -52,7 +52,10 @@ namespace CB { namespace schema
 
     struct hkbCharacter : hkReferencedObject
     {
-        char                             m_pad10[0x50 - 0x10];
+        char                             m_pad10[0x20 - 0x10];
+        hkInt16                          m_currentLod;            ///< +0x20
+        hkInt16                          m_numTracksInLod;        ///< +0x22, -1 = no limit
+        char                             m_pad24[0x50 - 0x24];
         hkRefPtr<hkbCharacterSetup>      m_setup;                 ///< +0x50
         hkbBehaviorGraph*                m_behaviorGraph;         ///< +0x58
         char                             m_pad60[0x68 - 0x60];

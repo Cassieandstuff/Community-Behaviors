@@ -30,13 +30,29 @@ namespace CB { namespace schema
     /// @note Name provisional.
     void hkbMirrorPose(hkbGeneratorOutput& output, const hkQsTransform* referencePose);
 
+    /// @brief Scatters sampled transform tracks into the pose through `trackToBone` (empty = identity), skipping bones
+    ///        at or past `numBones`; with `mirror`, onto each bone's mirror partner (mirroring the transform too when
+    ///        `mirrorTransforms`). Marks every bone written in `bonesSampled`, and bit `numBones` when all were.
+    /// @note Name and parameter names provisional (0x140b03380, outside the clip's own TU).
+    void hkbCopyTracksToPose(int numTracks, const hkQsTransform* tracks, int numBones, hkQsTransform* poseOut, hkBitField& bonesSampled,
+                             const hkArray<hkInt16>& trackToBone, bool additive, const hkaMirroredSkeleton* mirror, bool mirrorTransforms);
+    /// @brief Scatters sampled float tracks into the float slots through the binding's float-track-to-slot table.
+    /// @note Name provisional (0x140b03550, outside the clip's own TU).
+    void hkbCopyFloatTracksToSlots(int numFloatTracks, const hkReal* floatTracks, int numFloatSlots, const hkaAnimationBinding* binding,
+                                   hkReal* floatSlotsOut);
+    /// @brief Adds `weight` × each sampled float track to its slot; a slot still at HK_REAL_MAX (unset) is replaced.
+    /// @note Name provisional (0x140b036a0, outside the clip's own TU).
+    void hkbBlendFloatTracksToSlots(int numFloatTracks, const hkReal* floatTracks, int numFloatSlots, const hkaAnimationBinding* binding,
+                                    hkReal weight, hkReal* floatSlotsInOut);
+
     /// @note The `slot N` annotations are vanilla's vtable slots. The declared virtuals reproduce vanilla's order only
     ///       through slot 7 (hkbNode); the rest of the vtable is not declared yet, so slots 8+ are not this class's own.
     class hkbClipGenerator : public hkbGenerator
     {
     public:
         /// @note The schema names bit 0x8 FLAG_FORCE_DENSE_POSE, but generate mirrors the pose under it; its meaning is
-        ///       unverified, hence FLAG_MIRROR_POSE. 0x4 (FLAG_MIRROR) mirrors the extracted motion.
+        ///       unverified, hence FLAG_MIRROR_POSE. 0x4 (FLAG_MIRROR) mirrors the extracted motion, and sampleAnimation
+        ///       scatters the sampled tracks through the mirrored skeleton under it.
         enum
         {
             FLAG_CONTINUE_MOTION_AT_END = 0x1,
@@ -165,6 +181,9 @@ namespace CB { namespace schema
         /// @note Name provisional.
         void processAcyclicTriggers(hkReal fromTime, hkReal toTime, hkbEventQueue* queue, const hkbContext& context);
         void addTrigger(hkReal localTime, const hkbEvent& event, bool relativeToEndOfClip, bool acyclic, bool isAnnotation);
+        /// @brief Samples the clip into `poseLocal` and the float slots: at m_localTime, or with echos a blend of every
+        ///        echo's time (its offset ahead of the clip) with the clip itself taking the remaining weight. Retargets
+        ///        through m_mapperData, mirrors under FLAG_MIRROR, and limits the tracks to the character's LOD.
         void sampleAnimation(const hkbContext& context, hkQsTransform* poseLocal, int numPoseLocal, hkReal* floatSlots, int numFloatSlots,
                              void* animationCache, hkBitField& partitionsSampled);
 

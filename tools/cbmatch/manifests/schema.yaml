@@ -61,6 +61,9 @@ units:
       - { name: "CB::schema::hkbClipGenerator::getExtractedMotionDelta", va: 0x140acfff0 }
       - { name: "CB::schema::hkbClipGenerator::setElapsedTime", va: 0x140acecd0 }
       - { name: "CB::schema::hkbClipGenerator::startEcho", va: 0x140acee60 }
+      # sampleAnimation (0x140ad0730) is implemented but STRUCTURAL: vanilla addresses its frame through rbp
+      # (`lea rbp, [rsp-0x28]`) and VS2015 24247 allocates rbp as a register instead; cbmatch has no rbp frame base.
+      # - { name: "CB::schema::hkbClipGenerator::sampleAnimation", va: 0x140ad0730 }
       - { name: "??1hkbClipGenerator@schema@CB@@UEAA@XZ", va: 0x140acd620 }
       - { name: "??_GhkbClipGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ad1310 }
       - { name: "CB::schema::hkbClipGenerator::calcContentStatistics", va: 0x140acf1e0 }
