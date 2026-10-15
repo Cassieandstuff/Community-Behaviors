@@ -2,16 +2,31 @@
 /// @brief hkaSkeleton, the mirrored skeleton and the skeleton utilities.
 #pragma once
 
-#include <Common/Base/hkBase.h>
+#include <Common/Base/Types/Geometry/LocalFrame/hkLocalFrame.h>
 
 namespace CB { namespace schema
 {
+    struct hkaBone
+    {
+        hkStringPtr m_name;              ///< +0x00
+        hkBool      m_lockTranslation;   ///< +0x08
+    };
+
     struct hkaSkeleton : hkReferencedObject
     {
-        hkStringPtr            m_name;            ///< +0x10
-        hkArray<hkInt16>       m_parentIndices;   ///< +0x18 — -1 for a root bone
-        char                   m_pad28[0x38 - 0x28];
-        hkArray<hkQsTransform> m_referencePose;   ///< +0x38
+        /// @brief A local frame attached to a bone.
+        struct LocalFrameOnBone
+        {
+            hkRefPtr<hkLocalFrame> m_localFrame;   ///< +0x00
+            hkInt16                m_boneIndex;    ///< +0x08
+        };
+
+        hkStringPtr               m_name;              ///< +0x10
+        hkArray<hkInt16>          m_parentIndices;     ///< +0x18 — -1 for a root bone
+        hkArray<hkaBone>          m_bones;             ///< +0x28
+        hkArray<hkQsTransform>    m_referencePose;     ///< +0x38
+        char                      m_pad48[0x68 - 0x48];
+        hkArray<LocalFrameOnBone> m_localFrames;       ///< +0x68
     };
 
     struct hkaMirroredSkeleton : hkReferencedObject
@@ -35,5 +50,8 @@ namespace CB { namespace schema
         /// @brief The chain from `startBone` down to `endBone`, start first, into `bonesOut` (resized to fit); false, with
         ///        `bonesOut` untouched, when the walk up from `endBone` reaches a negative parent.
         static hkBool getBoneChain(const hkaSkeleton& skeleton, hkInt16 startBone, hkInt16 endBone, hkArray<hkInt16>& bonesOut);
+        /// @brief Bone `boneIndex`'s model-space transform: its local transform composed up the parent chain.
+        /// @note Name provisional.
+        static void transformLocalBoneToModelBone(int boneIndex, const hkInt16* parentIndices, const hkQsTransform* poseLocal, hkQsTransform& boneModelOut);
     };
 } }

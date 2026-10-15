@@ -6,6 +6,8 @@
 
 namespace CB { namespace schema
 {
+    class hkpWorld;
+
     struct hkbContext
     {
         hkbCharacter*     m_character;        ///< +0x00
@@ -15,6 +17,9 @@ namespace CB { namespace schema
         char              m_pad20[0x48 - 0x20];
         void*             m_animationCache;   ///< +0x48
 
+        /// @brief The physics world: the context's, else the one the character's world holds.
+        /// @note Out of line in vanilla.
+        hkpWorld* getWorld() const;
         /// @brief The context's queue, else the character's.
         HK_FORCE_INLINE hkbEventQueue* getEventQueue() const { return m_eventQueue ? m_eventQueue : m_character->m_eventQueue; }
     };

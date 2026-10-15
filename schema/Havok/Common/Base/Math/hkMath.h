@@ -26,6 +26,8 @@ namespace CB { namespace schema
     };
 
     struct hkQuaternion;
+    struct hkQsTransform;
+    struct hkTransform;
 
     struct hkVector4
     {
@@ -117,6 +119,13 @@ namespace CB { namespace schema
         /// @brief 1/v for x, y and z (rcpps plus one Newton-Raphson step); w is 0.
         /// @note w is set to 1 before the estimate so it cannot overflow, then masked off.
         HK_FORCE_INLINE void setReciprocal3(const hkVector4& v);
+
+        /// @brief t·v (rotation then translation), and its inverse.
+        /// @note Out of line in vanilla (Havok's non-underscore transform family).
+        void setTransformedPos(const hkTransform& t, const hkVector4& v);
+        void setTransformedInversePos(const hkTransform& t, const hkVector4& v);
+        void setTransformedPos(const hkQsTransform& t, const hkVector4& v);
+        void setTransformedInversePos(const hkQsTransform& t, const hkVector4& v);
 
         /// @brief Whether x, y and z each lie within `epsilon` of `v`'s.
         HK_FORCE_INLINE bool equals3(const hkVector4& v, hkReal epsilon) const
@@ -296,6 +305,23 @@ namespace CB { namespace schema
         /// @brief Divides an accumulated blend by `totalWeight` and renormalizes it: a near-zero weight gives the
         ///        identity, a near-zero rotation or scale its identity.
         HK_FORCE_INLINE void blendNormalize(hkSimdReal totalWeight);
+    };
+
+    /// @brief A 3x3 rotation as three columns.
+    struct hkRotation
+    {
+        hkVector4 m_col0;
+        hkVector4 m_col1;
+        hkVector4 m_col2;
+    };
+
+    /// @brief A rigid transform: rotation, then translation (+0x30).
+    struct hkTransform
+    {
+        hkRotation m_rotation;
+        hkVector4  m_translation;
+
+        HK_FORCE_INLINE const hkVector4& getTranslation() const { return m_translation; }
     };
 
     struct hkMath

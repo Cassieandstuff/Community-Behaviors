@@ -10,6 +10,9 @@
 namespace CB { namespace schema
 {
     class hkbBehaviorGraph;
+    class hkbRagdollDriver;
+    class hkpRigidBody;
+    class hkpWorld;
     struct hkbEventQueue;
 
     struct hkbAnimationBindingWithTriggers : hkReferencedObject
@@ -57,7 +60,9 @@ namespace CB { namespace schema
         char                             m_pad10[0x20 - 0x10];
         hkInt16                          m_currentLod;            ///< +0x20
         hkInt16                          m_numTracksInLod;        ///< +0x22, -1 = no limit
-        char                             m_pad24[0x50 - 0x24];
+        char                             m_pad24[0x30 - 0x24];
+        hkRefPtr<hkbRagdollDriver>       m_ragdollDriver;         ///< +0x30
+        char                             m_pad38[0x50 - 0x38];
         hkRefPtr<hkbCharacterSetup>      m_setup;                 ///< +0x50
         hkbBehaviorGraph*                m_behaviorGraph;         ///< +0x58
         char                             m_pad60[0x68 - 0x60];
@@ -65,6 +70,18 @@ namespace CB { namespace schema
         char                             m_pad70[0x80 - 0x70];
         hkbEventQueue*                   m_eventQueue;            ///< +0x80
         hkQsTransform*                   m_worldFromModel;        ///< +0x88
+
+        /// @brief The rigid bodies near `position` (within `radius`) that collide with `collisionFilterInfo`.
+        /// @note Name and parameter names provisional (the two flags: mode 1 sets the first, mode 2 both — read as
+        ///       "exclude this character's bodies" and "only other characters' bodies").
+        virtual void getNearbyRigidBodies(const hkVector4& position, hkReal radius, hkpWorld* world, hkArray<hkpRigidBody*>& rigidBodiesOut,
+                                          hkUint32 collisionFilterInfo, bool excludeThisCharacter, bool onlyOtherCharacters);   ///< slot 3
+        /// @brief The characters within `radius`.
+        virtual void getNearbyCharacters(hkReal radius, hkArray<hkbCharacter*>& charactersOut);   ///< slot 4
+
+        /// @brief The local pose, built from the skeleton's reference pose on first use.
+        /// @note Out of line in vanilla.
+        const hkQsTransform* getPoseLocal();
 
         /// @brief The character's own binding set, else its setup's.
         HK_FORCE_INLINE hkbAnimationBindingSet* getAnimationBindingSet() const

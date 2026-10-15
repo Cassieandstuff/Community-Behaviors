@@ -45,4 +45,15 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkQsTransform* accessPoseLocal() { return static_cast<hkQsTransform*>(getTrackData(TRACK_POSE)); }
         HK_FORCE_INLINE hkQsTransform& accessWorldFromModel() { return *static_cast<hkQsTransform*>(getTrackData(TRACK_WORLD_FROM_MODEL)); }
     };
+
+    struct hkaSkeleton;
+
+    /// @note Name provisional (shared by hkbSenseHandleModifier and hkbDetectCloseToGroundModifier).
+    struct hkbGeneratorOutputUtils
+    {
+        /// @brief A bone's model-space transform from the output's pose, taking the skeleton's reference pose for
+        ///        bones the pose does not set.
+        /// @note Out of line in vanilla.
+        static void getBoneModelSpace(int boneIndex, const hkbGeneratorOutput& output, const hkaSkeleton* skeleton, hkQsTransform& boneModelSpaceOut);
+    };
 } }

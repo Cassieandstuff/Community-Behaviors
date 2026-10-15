@@ -11,6 +11,9 @@
 namespace CB { namespace schema
 {
     struct hkbGeneratorOutput;
+    class hkaRagdollInstance;
+    class hkpGroupFilter;
+    class hkpRigidBody;
 
     /// @note Sized 0xe0. Member names are the reflected ones (the exe's class strings); the `slot N` annotations are
     ///       vanilla's vtable slots. The destructor is implicit: vanilla's (0x140ac6e70) is a COMDAT copy the deleting
@@ -83,6 +86,19 @@ namespace CB { namespace schema
         virtual hkbNode* cloneNode(hkbBehaviorGraph& rootBehavior) const;                ///< slot 12
         virtual void     modify(const hkbContext& context, hkbGeneratorOutput& inOut);   ///< slot 23
 
+        /// @brief Where the sensor is in world space: the sensor offset from the ragdoll bone's rigid body (optionally
+        ///        extrapolated by its velocity), from the animation bone in the pose, or from the character.
+        /// @note Name provisional.
+        void computeSensorPosWS(const hkbContext& context, hkbGeneratorOutput& inOut, hkVector4& sensorPosWS) const;
+        /// @brief Modes 0–5: the closest rigid body (or local frame on one) within the distance window.
+        /// @note Name provisional.
+        void senseInRigidBodies(const hkVector4& sensorPosWS, hkReal minDistance, hkReal maxDistance, const hkbContext& context);
+        /// @brief Modes 6–8: the closest character (or local frame on its skeleton).
+        /// @note Name provisional.
+        void senseInSkeletons(const hkVector4& sensorPosWS, hkReal minDistance, hkReal maxDistance, const hkbContext& context);
+        /// @brief Mode 9: the closest local frame in the group of m_handleIn's frame.
+        /// @note Name provisional.
+        void senseInLocalFrameGroup(const hkVector4& sensorPosWS, hkReal minDistance, hkReal maxDistance, const hkbContext& context);
         /// @brief The widest distance window over the modifier's own and every range's.
         /// @note Name provisional.
         void computeMinMaxDistances(hkReal& minDistance, hkReal& maxDistance) const;
@@ -90,5 +106,9 @@ namespace CB { namespace schema
         ///        distance falls in; a range that ignores the handle clears the output again.
         /// @note Name provisional.
         void processSensedHandle();
+        /// @brief Appends the ragdoll's bodies that `filter` lets collide with `collisionFilterInfo`.
+        /// @note Name provisional.
+        static void getRigidBodiesThatCollide(const hkpGroupFilter* filter, const hkaRagdollInstance* ragdoll, hkUint32 collisionFilterInfo,
+                                              hkArray<hkpRigidBody*>& rigidBodiesOut);
     };
 } }
