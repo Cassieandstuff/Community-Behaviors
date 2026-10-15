@@ -166,7 +166,8 @@ namespace CB { namespace schema
         virtual void getActiveVariables(hkPointerMap<int, bool>& activeVariables) const;   ///< slot 20
         /// @note hkbNode's returns false, hkbGenerator's true.
         virtual bool vfn21();                                                  ///< slot 21
-        virtual void vfn22();                                                  ///< slot 22
+        /// @note hkbNode's returns false (0x140ab7da0), hkbBehaviorGraph's true (0x140ab7d90); meaning unidentified.
+        virtual bool vfn22();                                                  ///< slot 22
     };
 
     template <> struct hkIsPodType<hkbNode::ChildInfo> { enum { result = 1 }; };

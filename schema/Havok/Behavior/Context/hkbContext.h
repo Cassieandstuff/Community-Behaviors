@@ -29,6 +29,11 @@ namespace CB { namespace schema
         ///       here; its neighbour 0x141941228 = 1 is another such bit.
         static const hkUint8 FLAG_ACTIVE_NODES_CHANGED;
 
+        /// @brief A context for `character` with no behavior, queue or flags yet.
+        /// @note Out of line in vanilla (0x140ab0a60). Parameter names provisional: hkbCharacter passes its behavior
+        ///       world's +0x138 / +0x130 and a null cache.
+        hkbContext(hkbCharacter* character, hkpWorld* world, void* attachmentManager, void* animationCache);
+
         /// @brief The context's queue, else the character's.
         HK_FORCE_INLINE hkbEventQueue* getEventQueue() const { return m_eventQueue ? m_eventQueue : m_character->m_eventQueue; }
         /// @brief The context's physics world, else the character's behavior world's (null without either).

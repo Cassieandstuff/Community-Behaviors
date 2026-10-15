@@ -146,7 +146,7 @@ symbols:
   - { name: BShkbAnimationGraph_SendTransformDeltaEvent, kind: func, se: 62847, ae: 63783, vr: 0 }
   - { name: hkbCharacter_GraphExportFill, kind: func, se: 64119, ae: 65148, vr: 0 }  # two exact-class sites; purpose not fully mapped
   - { name: hkbBehaviorGraph_CollectInternalState, kind: func, se: 57799, ae: 58372, vr: 0 }
-  - { name: hkbBehaviorGraph_CollectUsedBindingIndices, kind: func, se: 57800, ae: 58373, vr: 0 }  # sets a bit at each clip's +0x70
+  - { name: hkbBehaviorGraph_CollectUsedBindingIndices, kind: func, se: 57800, ae: 58373, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::activateWithInternalState" }  # = hkbBehaviorGraph::activateWithInternalState (context, state): builds a bit field of the saved nodes ids (+0x70 of each saved record), restores the variables, re-activates
   - { name: hkbBehaviorGraph_UsedBindingIndicesCaller, kind: func, se: 57881, ae: 58454, vr: 0 }
   - { name: hkbBehaviorGraph_CloneFixups, kind: func, se: 59440, ae: 60115, vr: 0 }  # per-character clone; finds clone nodes by offset
   - { name: hkbVariableBindingSet_CopyVariableOrMember, kind: func, se: 59343, ae: 60016, vr: 0 }
@@ -551,3 +551,16 @@ symbols:
   - { name: hkbBlendCurveUtils_ApplyBlendCurve, kind: func, se: 0, ae: 58448, vr: 0, cpp: "CB::schema::hkbBlendCurveUtils::applyBlendCurve" }  # (curve, t): smoothstep / linear / half-curves, clamped to [0, 1]
   - { name: hkbBlenderGeneratorUtils_ComputeSyncedLocalTime, kind: func, se: 0, ae: 60047, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::computeSyncedLocalTime" }  # name provisional; (localTime, syncInfo, childSyncInfo) — the child's local time in step over their common sync points
   - { name: hkbGeneratorSyncInfo_ComputeSyncPointIntervalAmong, kind: func, se: 0, ae: 58545, vr: 0, cpp: "?computeSyncPointInterval@hkbGeneratorSyncInfo@schema@CB@@QEBAXMPEBHHAEAUSyncPointInterval@123@@Z" }  # name provisional; (this, localTime, ids, n, out) — the interval over the given sync point ids only
+  - { name: hkMemoryRouter_EasyAlloc, kind: func, se: 0, ae: 57056, vr: 0, cpp: "CB::schema::hkMemoryRouter::easyAlloc" }  # (allocator, nbytes) a block that records its own size
+  - { name: hkMemoryRouter_EasyFree, kind: func, se: 0, ae: 57059, vr: 0, cpp: "CB::schema::hkMemoryRouter::easyFree" }  # (allocator, p)
+  - { name: hkbContext_Ctor, kind: func, se: 0, ae: 58315, vr: 0, cpp: "CB::schema::hkbContext::hkbContext" }  # (character, world, attachmentManager, animationCache); names provisional
+  - { name: hkbAnimationBindingSet_Vtable, kind: data, se: 0, ae: 220343, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::`vftable'" }
+  - { name: hkbCharacter_Vtable, kind: data, se: 0, ae: 220345, vr: 0, cpp: "CB::schema::hkbCharacter::`vftable'" }
+  - { name: hkbCharacter_Dtor, kind: func, se: 0, ae: 58450, vr: 0, cpp: "CB::schema::hkbCharacter::~hkbCharacter" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbCharacter_InitPoseLocal, kind: func, se: 0, ae: 58466, vr: 0, cpp: "CB::schema::hkbCharacter::initPoseLocal" }  # name provisional; copies the reference pose into an owned +0x90
+  - { name: hkbCharacter_DeletePoseLocal, kind: func, se: 0, ae: 58467, vr: 0, cpp: "CB::schema::hkbCharacter::deletePoseLocal" }  # name provisional
+  - { name: hkbFootIkDriver_Reset, kind: func, se: 0, ae: 58427, vr: 0, cpp: "CB::schema::hkbFootIkDriver::reset" }
+  - { name: hkbHandIkDriver_Reset, kind: func, se: 0, ae: 59422, vr: 0, cpp: "CB::schema::hkbHandIkDriver::reset" }
+  - { name: hkbRagdollDriver_Reset, kind: func, se: 0, ae: 58294, vr: 0, cpp: "CB::schema::hkbRagdollDriver::reset" }
+  - { name: hkbWorld_GetListeners, kind: func, se: 0, ae: 58495, vr: 0, cpp: "CB::schema::hkbWorld::getListeners" }  # returns &m_listeners (+0x30)
+  - { name: hkbAnimationBindingSet_Dtor, kind: func, se: 0, ae: 59417, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::~hkbAnimationBindingSet" }  # out of line; the scalar deleting destructor (in hkbCharacter.cpp) calls it

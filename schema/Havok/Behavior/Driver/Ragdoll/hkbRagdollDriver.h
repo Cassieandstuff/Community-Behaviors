@@ -13,5 +13,8 @@ namespace CB { namespace schema
     public:
         /// @note Out of line in vanilla (returns +0x88).
         hkaRagdollInstance* getRagdoll() const;
+        /// @brief Returns the driver to its freshly-set-up state (hkbCharacter::deactivate).
+        /// @note Out of line in vanilla (0x140aaea40).
+        void reset();
     };
 } }

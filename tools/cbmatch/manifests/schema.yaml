@@ -750,3 +750,24 @@ units:
   - source: ../../../schema/Havok/Behavior/Generator/Blender/hkbBlenderGeneratorUtilsSyncedLocalTime.cpp
     functions:
       - { name: "CB::schema::hkbBlenderGeneratorUtils::computeSyncedLocalTime", va: 0x140b0ca10 }
+  - source: ../../../schema/Havok/Behavior/Character/hkbCharacter.cpp
+    functions:
+      - { name: "CB::schema::hkbCharacter::getNearbyCharacters", va: 0x140abd540 }
+      - { name: "CB::schema::hkbCharacter::activate", va: 0x140abd630 }
+      - { name: "CB::schema::hkbCharacter::activateWithInternalState", va: 0x140abd6b0 }
+      - { name: "CB::schema::hkbCharacter::deactivate", va: 0x140abd740 }
+      - { name: "CB::schema::hkbCharacter::handleEvent", va: 0x140abd810 }
+      - { name: "CB::schema::hkbCharacter::getName", va: 0x140abd8c0 }
+      - { name: "CB::schema::hkbCharacter::getPoseLocal", va: 0x140abd930 }
+      - { name: "CB::schema::hkbCharacter::accessAnimationBindingSet", va: 0x140abd970 }
+      - { name: "CB::schema::hkbCharacter::setAnimationBindingSet", va: 0x140abda20 }
+      - { name: "CB::schema::hkbCharacter::setWorldFromModel", va: 0x140abda60 }
+      - { name: "CB::schema::hkbCharacter::setPoseLocal", va: 0x140abdb10 }
+      - { name: "CB::schema::hkbCharacter::getRaycastInterface", va: 0x140abdba0 }
+      - { name: "CB::schema::hkbCharacter::setBehavior", va: 0x140abdbd0 }
+      - { name: "CB::schema::hkbCharacter::setPoseLocalBuffer", va: 0x140abdc70 }
+      - { name: "CB::schema::hkbCharacter::initPoseLocal", va: 0x140abdc90 }
+      - { name: "CB::schema::hkbCharacter::deletePoseLocal", va: 0x140abdd20 }
+      - { name: "??0hkbCharacter@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140abdd80 }
+      - { name: "??_GhkbAnimationBindingSet@schema@CB@@UEAAPEAXI@Z", va: 0x140abddb0 }
+      - { name: "??_GhkbCharacter@schema@CB@@UEAAPEAXI@Z", va: 0x140abde30 }

@@ -66,8 +66,34 @@ namespace CB { namespace schema
         static HK_FORCE_INLINE hkMemoryRouter& getInstance() { return *static_cast<hkMemoryRouter*>(TlsGetValue(hkMemoryRouter_s_memoryRouter)); }
         HK_FORCE_INLINE hkLifoAllocator&   stack() { return m_stack; }
         HK_FORCE_INLINE hkMemoryAllocator& heap() { return *m_heap; }
+
+        /// @brief A block that remembers its own size (so easyFree needs none).
+        /// @note Out of line in vanilla (0x140a89640).
+        static void* easyAlloc(hkMemoryAllocator& b, int nbytes);
+        /// @brief Frees an easyAlloc block.
+        /// @note Out of line in vanilla (0x140a896a0).
+        static void  easyFree(hkMemoryAllocator& b, void* p);
     };
     static_assert(sizeof(hkLifoAllocator) == 0x50, "hkLifoAllocator size");
+
+    /// @brief `n` T's from the thread's heap, as a self-sized (easyAlloc) block.
+    template <typename T>
+    HK_FORCE_INLINE T* hkAllocate(int n)
+    {
+        return static_cast<T*>(hkMemoryRouter::easyAlloc(hkMemoryRouter::getInstance().heap(), n * int(sizeof(T))));
+    }
+    /// @brief Frees an hkAllocate block.
+    template <typename T>
+    HK_FORCE_INLINE void hkDeallocate(T* p)
+    {
+        hkMemoryRouter::easyFree(hkMemoryRouter::getInstance().heap(), p);
+    }
+    /// @brief Frees a heap block of `n` T's (blockFree with the size the caller knows).
+    template <typename T>
+    HK_FORCE_INLINE void hkDeallocateChunk(T* p, int n)
+    {
+        hkMemoryRouter::getInstance().heap().blockFree(p, n * int(sizeof(T)));
+    }
 
     /// @brief `n` T's on the thread's stack allocator, the block rounded up to 128 bytes.
     /// @note The router fetch is its own statement: vanilla calls TlsGetValue before computing the size.

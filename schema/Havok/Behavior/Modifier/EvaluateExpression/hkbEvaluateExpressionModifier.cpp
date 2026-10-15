@@ -302,7 +302,7 @@ namespace CB { namespace schema
     void hkbEvaluateExpressionModifier::setVariable(int variableIndex, const hkbContext& context, hkReal value)
     {
         const hkbBehaviorGraphData* data      = context.m_behavior->m_data;
-        const int                   rootIndex = hkbSymbolIdMap::convertInternalId(context.m_behavior->m_variableIDMap, context.m_character->m_behaviorGraph->m_variableIDMap, variableIndex);
+        const int                   rootIndex = hkbSymbolIdMap::convertInternalId(context.m_behavior->m_variableIdMap, context.m_character->m_behaviorGraph->m_variableIdMap, variableIndex);
         hkbBehaviorGraph*           root      = context.m_character->m_behaviorGraph;
         bool                        clamp     = false;
         if (root->m_data->m_wordMinVariableValues.getSize() > 0) clamp = true;

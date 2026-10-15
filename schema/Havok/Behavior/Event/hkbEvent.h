@@ -31,6 +31,14 @@ namespace CB { namespace schema
             m_payload = payload;
             m_sender  = sender;
         }
+        /// @note Memberwise (id, payload, sender as three moves), as vanilla copies one into a by-value argument; the
+        ///       implicit copy moves it as one 16-byte block plus 8.
+        HK_FORCE_INLINE hkbEvent(const hkbEvent& e)
+        {
+            m_id      = e.m_id;
+            m_payload = e.m_payload;
+            m_sender  = e.m_sender;
+        }
     };
 
     /// @brief An event as a node stores it: id + ref-counted payload, no sender.

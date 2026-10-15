@@ -13,6 +13,15 @@
 
 namespace CB { namespace schema
 {
+    extern const hkClass hkbBehaviorGraphClass;
+    struct hkbVariableValueSet;
+
+    /// @note 0x10 bytes (reflected); contents not declared yet.
+    struct hkbVariableInfo
+    {
+        hkUint8 m_opaque[0x10];
+    };
+
     struct hkbBehaviorGraphStringData : hkReferencedObject
     {
         hkArray<hkStringPtr> m_eventNames;               ///< +0x10
@@ -48,28 +57,85 @@ namespace CB { namespace schema
         }
     };
 
+    /// @brief A graph's saved state: one record per node that has internal state, plus the variable values.
+    struct hkbBehaviorGraphInternalState : hkReferencedObject
+    {
+        /// @note Only the node id (+0x70) is read so far.
+        struct NodeInternalStateInfo;
+
+        hkArray<NodeInternalStateInfo*> m_nodeInternalStateInfos;   ///< +0x10
+        hkbVariableValueSet*            m_variableValueSet;         ///< +0x20
+    };
+
+    /// @note The member names after +0x88 are the Havok SDK's reflected (serialize-ignored) runtime members, matched to
+    ///       the schema's 14 ignored pointers by position.
     class hkbBehaviorGraph : public hkbGenerator
     {
     public:
-        char                           m_pad48[0x78 - 0x48];
+        /// @note Values per the Havok SDK.
+        enum VariableMode { VARIABLE_MODE_DISCARD_WHEN_INACTIVE = 0, VARIABLE_MODE_MAINTAIN_VALUES_WHEN_INACTIVE = 1 };
+
+        hkInt8                         m_variableMode;            ///< +0x48
+        hkArray<hkInt16>               m_uniqueIdPool;            ///< +0x50
+        void*                          m_idToStateMachineTemplateMap;   ///< +0x60
+        hkArray<int>                   m_mirroredExternalIdMap;   ///< +0x68
         hkPseudoRandomGenerator*       m_pseudoRandomGenerator;   ///< +0x78 — reflected serialize-ignored
-        char                           m_pad80[0x88 - 0x80];
+        hkRefPtr<hkbGenerator>         m_rootGenerator;           ///< +0x80
         hkRefPtr<hkbBehaviorGraphData> m_data;         ///< +0x88
-        char                           m_pad90[0x98 - 0x90];
+        hkbGenerator*                  m_rootGeneratorClone;      ///< +0x90
         hkArray<hkbNodeInfo>*          m_activeNodes;  ///< +0x98
         /// @brief Each active node template's index in m_activeNodes.
         hkPointerMap<const hkbNode*, int>* m_activeNodeTemplateToIndexMap;   ///< +0xa0
-        char                           m_padA8[0xb8 - 0xa8];
+        /// @brief The active nodes' child indices (into m_activeNodes), each node's run starting at its
+        ///        hkbNodeInfo::m_childrenIndicesStart.
+        hkArray<int>*                  m_activeNodesChildrenIndices;   ///< +0xa8
+        void*                          m_globalTransitionData;    ///< +0xb0
         hkRefPtr<hkbSymbolIdMap>       m_eventIDMap;   ///< +0xb8
-        char                           m_padC0[0xc8 - 0xc0];
-        /// @brief Maps this graph's variable indices to the root graph's (a referenced behavior has its own).
-        hkRefPtr<hkbSymbolIdMap>       m_variableIDMap;   ///< +0xc8
-        char                           m_padD0[0xd8 - 0xd0];
-        hkRefPtr<hkbVariableValueSet>  m_variableValueSet;   ///< +0xd8
-        char                           m_padE0[0x12e - 0xe0];
+        hkRefPtr<hkbSymbolIdMap>       m_attributeIdMap;          ///< +0xc0
+        hkRefPtr<hkbSymbolIdMap>       m_variableIdMap;           ///< +0xc8
+        hkRefPtr<hkbSymbolIdMap>       m_characterPropertyIdMap;  ///< +0xd0
+        hkbVariableValueSet*           m_variableValueSet;        ///< +0xd8
+        hkPointerMap<const hkbNode*, hkbNode*>* m_nodeTemplateToCloneMap;   ///< +0xe0
+        hkPointerMap<const hkbNode*, hkbNode*>* m_nodeCloneToTemplateMap;   ///< +0xe8
+        void*                          m_stateListenerTemplateToCloneMap;  ///< +0xf0
+        void*                          m_nodePartitionInfo;       ///< +0xf8
+        int                            m_numIntermediateOutputs;  ///< +0x100
+        hkArray<hkbNode*>              m_jobs;                    ///< +0x108
+        hkArray<hkbNode*>              m_allPartitionMemory;      ///< +0x118
+        hkInt16                        m_numStaticNodes;          ///< +0x128
+        hkInt16                        m_nextUniqueId;            ///< +0x12a
+        hkBool                         m_isActive;                ///< +0x12c
+        hkBool                         m_isLinked;                ///< +0x12d
         /// @brief Asks the graph to recompute its active nodes (a selector switched to another child).
         /// @note Name provisional: Havok's (the selector raises it under the monitor timer "MSG::requestUpdateActiveNodes").
         hkBool                         m_updateActiveNodes;   ///< +0x12e
+        hkBool                         m_stateOrTransitionChanged;   ///< +0x12f
+
+        /// @note Out of line in vanilla (called by the scalar deleting destructor); not reimplemented yet.
+        virtual ~hkbBehaviorGraph();                                                                     ///< slot 0
+
+        /// @note Out of line among the type-registration getters (0x140ac2a20); getClassType tail-jumps to it.
+        static const hkClass& staticClass();
+
+        virtual const void* getClassType() const;                                                      ///< slot 1
+        virtual void        getChildren(GetChildrenFlags flags, ChildrenInfo& childrenInfo);           ///< slot 9
+        /// @brief Shared, never copied: a behavior graph is its own clone.
+        virtual hkbNode*    cloneNode(hkbBehaviorGraph& rootBehavior) const;                           ///< slot 12
+        /// @note hkbNode's returns false.
+        virtual bool        vfn22();                                                                   ///< slot 22
+        /// @brief Passes the root generator's output through.
+        virtual void        generate(const hkbContext& context, const hkbGeneratorOutput** activeChildrenOutput, hkbGeneratorOutput& output,
+                                     hkReal timeOffset);                                               ///< slot 23
+        virtual bool        canRecycleOutput() const;                                                  ///< slot 24
+        /// @brief Defers this graph's sync info to its root generator's record.
+        virtual void        updateSync(const hkbContext& context, hkbNodeInfo& info);                   ///< slot 25
+
+        /// @brief Activates the graph from a saved internal state (node states keyed by node id, variable values).
+        /// @note Name provisional (the Havok SDK's); pinned as hkbBehaviorGraph_CollectUsedBindingIndices before.
+        void activateWithInternalState(const hkbContext& context, const hkbBehaviorGraphInternalState& internalState);
+        /// @brief Returns a node's unique id to the pool (ids below m_numStaticNodes stay with the template).
+        /// @note Name provisional.
+        void releaseUniqueId(hkInt16 id);
 
         /// @brief The template node an event raised by `node` names as its sender.
         /// @note Name provisional.
