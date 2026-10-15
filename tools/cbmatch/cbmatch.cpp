@@ -1122,7 +1122,8 @@ bool sameEffect(const Insn& x, const Insn& y, bool masked)
 ///        compiler compiling the same source.
 /// @warning Weaker than EXACT/REGALLOC: it checks effects (calls, stores) and tested conditions, not register dataflow.
 ///          NOT caught: a changed or dropped register computation (e.g. a loop's `i--` removed, two register arguments
-///          swapped — both verified to pass), a different value loaded into a register, a condition change hidden by a
+///          swapped — both verified to pass), a different value loaded into a register (a changed constant the build
+///          already holds in another register needs no load — verified to pass), a condition change hidden by a
 ///          duplicated branch of the same family, an inverted test (`if (p)` → `if (!p)`: jz/jnz share a family because
 ///          branch layout inverts them — verified to pass).
 ///          Caught (deliberately broken copies, tools/cbmatch/tests/mutants.sh): wrong field read or written, dropped or

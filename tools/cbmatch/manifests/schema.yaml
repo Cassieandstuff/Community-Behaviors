@@ -46,6 +46,7 @@ units:
       - { name: "CB::schema::hkbClipGenerator::processAcyclicTriggers", va: 0x140acf960 }
       - { name: "CB::schema::hkbClipGenerator::getExtractedMotionDelta", va: 0x140acfff0 }
       - { name: "CB::schema::hkbClipGenerator::setElapsedTime", va: 0x140acecd0 }
+      - { name: "CB::schema::hkbClipGenerator::startEcho", va: 0x140acee60 }
       - { name: "??1hkbClipGenerator@schema@CB@@UEAA@XZ", va: 0x140acd620 }
       - { name: "??_GhkbClipGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ad1310 }
   - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorUtils.cpp

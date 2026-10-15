@@ -306,6 +306,54 @@ namespace CB { namespace schema
         m_ignoreStartTime               = true;
     }
 
+    void hkbClipGenerator::startEcho(hkReal echoDuration)
+    {
+        if (m_mode == MODE_USER_CONTROLLED) return;
+
+        hkaDefaultAnimationControl* control = m_animationControl;
+        hkReal                      offset  = m_localTime - (computeStartTime() + control->m_cropStartAmountLocalTime);
+        if (offset < 0.0f) {
+            if (control->m_binding && control->m_binding->m_animation) offset += control->m_binding->m_animation->m_duration;
+            else                                                         offset = 0.0f;
+        }
+
+        fn_140ad11e0();
+        resetAtEnd();
+
+        if (echoDuration == 0.0f) {
+            m_echos.setSize(0);
+            return;
+        }
+
+        const int    numEchos    = m_echos.getSize();
+        int          index       = -1;
+        hkReal       minWeight   = 1.0f;
+        hkReal       totalWeight = 0.0f;
+        const hkReal duration    = computeUsableDuration();
+        for (int i = 0; i < numEchos; i++) {
+            Echo&       echo = m_echos[i];
+            const hkReal t    = offset + echo.m_offsetLocalTime;
+            echo.m_offsetLocalTime = t;
+            if (t > duration && m_mode == MODE_LOOPING) echo.m_offsetLocalTime = t - duration;
+            totalWeight += echo.m_weight;
+            if (m_echos[i].m_weight < minWeight) {
+                minWeight = m_echos[i].m_weight;
+                index     = i;
+            }
+        }
+
+        if (numEchos < s_maxEchos || minWeight < 1.0f - totalWeight) {
+            if (numEchos < s_maxEchos) {
+                m_echos.setSize(numEchos + 1);
+                index = numEchos;
+            }
+            Echo& echo            = m_echos[index];
+            echo.m_offsetLocalTime = offset;
+            echo.m_dwdt            = -1.0f / echoDuration;
+            echo.m_weight          = 1.0f - totalWeight;
+        }
+    }
+
     hkbNode* hkbClipGenerator::cloneNode(hkbBehaviorGraph& rootBehavior) const
     {
         return new hkbClipGenerator(*this);

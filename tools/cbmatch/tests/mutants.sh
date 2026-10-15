@@ -2,19 +2,21 @@
 # cbmatch's regression test: deliberately broken copies of the schema runtime, each of which VARIANT must reject.
 #   tools/cbmatch/tests/mutants.sh <cbmatch.exe> <workDir>          (Git Bash; same environment as manifests/schema.yaml)
 # Every mutant must come out STRUCTURAL except the documented VARIANT blind spots, which must come out VARIANT:
-#   u3 (dropped i--) and t3 (two register arguments swapped) are register dataflow; c1 (an inverted zero test) is
+#   u3 (dropped i--), t3 (two register arguments swapped) and k2 (a constant the build already holds in a register:
+#   no load, so the changed value is just another register) are register dataflow; c1 (an inverted zero test) is
 #   jz/jnz sharing a condition family because branch layout inverts them.
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
-# home-area scratch), s setElapsedTime (frame size). A mutant of a header is compiled against a shadowing copy of that header (unit /I first).
+# home-area scratch), s setElapsedTime (frame size), k startEcho. A mutant of a header is compiled against a
+# shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir>}
 work=${2:?usage: mutants.sh <cbmatch.exe> <workDir>}
 repo=$(cd "$(dirname "$0")/../../.." && pwd -W)
 havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
-expectVariant=" u3 t3 c1 "
+expectVariant=" u3 t3 c1 k2 "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -33,6 +35,7 @@ mutant() {
         c*) fn=processAcyclicTriggers va=0x140acf960 ;;
         e*) fn=getExtractedMotionDelta va=0x140acfff0 ;;
         s*) fn=setElapsedTime va=0x140acecd0 ;;
+        k*) fn=startEcho va=0x140acee60 ;;
     esac
     if [ "$file" = "$clip" ]; then
         out="$work/mut/$name.cpp"
@@ -88,6 +91,9 @@ mutant e4_dropped_ignore_test  "$clip" 's/if (animation \&\& !(m_flags \& FLAG_I
 mutant s1_wrong_half_cycle_bit "$clip" 's/!(m_flags \& FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE)/!(m_flags \& FLAG_MIRROR)/'
 mutant s2_dropped_ignore_store "$clip" 's/^        m_ignoreStartTime  *= true;$/        \/\/ m_ignoreStartTime store dropped/'
 mutant s3_wrong_half           "$clip" 's/t > cycle \* 0\.5f/t > cycle * 0.25f/'
+mutant k1_limit_inclusive      "$clip" 's/if (numEchos < s_maxEchos) {/if (numEchos <= s_maxEchos) {/'
+mutant k2_fade_sign            "$clip" 's/echo\.m_dwdt            = -1\.0f \/ echoDuration;/echo.m_dwdt            = 1.0f \/ echoDuration;/'
+mutant k3_wrap_wrong_mode      "$clip" 's/if (t > duration \&\& m_mode == MODE_LOOPING)/if (t > duration \&\& m_mode == MODE_PING_PONG)/'
 
 cat > "$work/mutants.yaml" <<EOF
 runtimes:

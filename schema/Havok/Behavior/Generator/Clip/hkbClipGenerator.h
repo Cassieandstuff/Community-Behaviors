@@ -98,6 +98,9 @@ namespace CB { namespace schema
         virtual ~hkbClipGenerator();                                         ///< slot 0
 
         static const struct hkClass& staticClass();
+        /// @brief How many echos a clip blends at most (2 in vanilla; writable data).
+        /// @note Name provisional.
+        static hkInt8 s_maxEchos;
 
         virtual const void* getClassType() const;                                ///< slot 1
         virtual void        activate(const hkbContext& context);                 ///< slot 4
@@ -110,6 +113,11 @@ namespace CB { namespace schema
         ///        m_ignoreStartTime so the next reset keeps it.
         /// @note Name provisional.
         virtual void        setElapsedTime(hkReal elapsed);                       ///< slot 26
+        /// @brief Starts an echo of the current pose: shifts the live echos by the clip's offset, resets the clip, and adds
+        ///        a fading echo (weight 1 − total, fading over `echoDuration`) — replacing the lightest one at s_maxEchos.
+        ///        An echoDuration of 0 drops every echo.
+        /// @note Name provisional.
+        virtual void        startEcho(hkReal echoDuration);                       ///< slot 27
         virtual void        generate(const hkbContext& context, const hkbGeneratorOutput** activeChildrenOutput, hkbGeneratorOutput& output,
                                      hkReal timeOffset);                         ///< slot 23
 
