@@ -11,7 +11,8 @@
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
 # home-area scratch), s setElapsedTime (frame size), k startEcho, y updateSync (rax frame base, materialized zero test
-# with an intervening instruction), j hkbSenseHandleModifier::senseInRigidBodies (switch jump tables). A mutant of a
+# with an intervening instruction), j hkbSenseHandleModifier::senseInRigidBodies (switch jump tables),
+# b rebindFromBindingSet (a signed compare of a possibly negative index must not fold onto unsigned). A mutant of a
 # header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -41,6 +42,7 @@ target() {
         s*) fn=setElapsedTime va=0x140acecd0 ;;
         k*) fn=startEcho va=0x140acee60 ;;
         y*) fn=updateSync va=0x140ace930 ;;
+        b*) fn=rebindFromBindingSet va=0x140acf6e0 ;;
         j*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
             fn=senseInRigidBodies va=0x140afdbf0 ;;
     esac
@@ -108,6 +110,7 @@ mutant k2_fade_sign            "$clip" 's/echo\.m_dwdt            = -1\.0f \/ ec
 mutant k3_wrap_wrong_mode      "$clip" 's/if (t > duration \&\& m_mode == MODE_LOOPING)/if (t > duration \&\& m_mode == MODE_PING_PONG)/'
 mutant y1_wrong_sync_field     "$clip" 's/^        syncInfo\.m_playbackSpeed = 1\.0f;$/        syncInfo.m_localTime     = 1.0f;/'
 mutant y2_inverted_sync_point  "$clip" 's/if (graphData \&\& graphData->isEventSyncPoint(id)) {/if (graphData \&\& !graphData->isEventSyncPoint(id)) {/'
+mutant b1_unsigned_index       "$clip" 's/if (bindingSet \&\& m_animationBindingIndex < bindingSet->m_bindings\.getSize()) {/if (bindingSet \&\& unsigned(m_animationBindingIndex) < unsigned(bindingSet->m_bindings.getSize())) {/'
 sense="Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp"
 mutant j1_swapped_cases        "$sense" 's/case SENSE_IN_RIGID_BODIES_OUTSIDE_THIS_CHARACTER:/case TMP_SWAP:/; s/case SENSE_IN_OTHER_CHARACTER_RIGID_BODIES:/case SENSE_IN_RIGID_BODIES_OUTSIDE_THIS_CHARACTER:/; s/case TMP_SWAP:/case SENSE_IN_OTHER_CHARACTER_RIGID_BODIES:/'
 

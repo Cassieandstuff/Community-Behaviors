@@ -1243,6 +1243,79 @@ bool sameEffect(const Insn& x, const Insn& y, bool masked)
     return operandsMatch(x.ops[0], y.ops[0], masked || relative);
 }
 
+/// @brief An upper bound on a register's value at instruction `k` when it is provably non-negative there, found by
+///        walking back to its definition in straight-line code: an `and` with a sign-clear mask, `movzx`, a non-negative
+///        `mov` immediate, `xor r, r`, or the doubling (`add r, r` / `lea r, [a+a]`) of such a value. nullopt: unknown.
+std::optional<std::uint64_t> nonNegativeBound(const std::vector<Insn>& side, std::size_t k, ZydisRegister reg,
+                                              const std::set<std::uint64_t>& targets, int depth = 0)
+{
+    if (depth > 4) return std::nullopt;
+    for (std::size_t j = k; j-- > 0;) {
+        const Insn& i = side[j];
+        const auto  cat = i.ins.meta.category;
+        if (targets.count(side[j + 1].off) || cat == ZYDIS_CATEGORY_UNCOND_BR || cat == ZYDIS_CATEGORY_CALL || cat == ZYDIS_CATEGORY_RET)
+            return std::nullopt;   // another path may join, or a call clobbers: only straight-line (fall-through) code counts
+        if (!writesRegister(i, reg)) continue;
+        const auto& d = i.ops[0];
+        const auto& s = i.ops[1];
+        if (d.type != ZYDIS_OPERAND_TYPE_REGISTER || enclosing(d.reg.value) != enclosing(reg)) return std::nullopt;
+        const std::uint64_t signBit = d.size ? (1ull << (d.size - 1)) : 0;
+        switch (i.ins.mnemonic) {
+            case ZYDIS_MNEMONIC_AND:
+                if (s.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && !(s.imm.value.u & signBit)) return s.imm.value.u & (signBit - 1);
+                return std::nullopt;
+            case ZYDIS_MNEMONIC_MOVZX:
+                return (1ull << s.size) - 1;
+            case ZYDIS_MNEMONIC_MOV:
+                if (s.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && !(s.imm.value.u & signBit)) return s.imm.value.u;
+                return std::nullopt;
+            case ZYDIS_MNEMONIC_XOR:
+                if (s.type == ZYDIS_OPERAND_TYPE_REGISTER && s.reg.value == d.reg.value) return 0;
+                return std::nullopt;
+            case ZYDIS_MNEMONIC_ADD:
+                if (s.type == ZYDIS_OPERAND_TYPE_REGISTER && s.reg.value == d.reg.value)
+                    if (const auto b = nonNegativeBound(side, j, reg, targets, depth + 1); b && 2 * *b < signBit) return 2 * *b;
+                return std::nullopt;
+            case ZYDIS_MNEMONIC_LEA:
+                if (s.mem.base != ZYDIS_REGISTER_NONE && s.mem.base == s.mem.index && s.mem.scale == 1 && s.mem.disp.value == 0)
+                    if (const auto b = nonNegativeBound(side, j, s.mem.base, targets, depth + 1); b && 2 * *b < signBit) return 2 * *b;
+                return std::nullopt;
+            default:
+                return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
+/// @brief The family of the condition at `k`, with a signed relation (l, le) folded onto its unsigned counterpart
+///        (b, be) when the compare it reads has two provably non-negative operands within the signed range: then both
+///        orderings agree, and which one a compiler emits is its own choice (VS2015 24247 picks unsigned where vanilla's
+///        build kept Havok's signed compare, e.g. hkArray::setSize's capacity test).
+const char* foldedConditionFamily(const std::vector<Insn>& side, std::size_t k, const std::set<std::uint64_t>& targets)
+{
+    const char* fam = conditionFamily(side[k].ins.mnemonic);
+    if (!fam || (std::strcmp(fam, "l") != 0 && std::strcmp(fam, "le") != 0)) return fam;
+    for (std::size_t j = k; j-- > 0;) {
+        const Insn& c   = side[j];
+        const auto* fl  = c.ins.cpu_flags;
+        const bool  wrf = fl && (fl->modified | fl->set_0 | fl->set_1 | fl->undefined) != 0;
+        const auto  cat = c.ins.meta.category;
+        if (targets.count(side[j + 1].off) || cat == ZYDIS_CATEGORY_UNCOND_BR || cat == ZYDIS_CATEGORY_CALL || cat == ZYDIS_CATEGORY_RET)
+            return fam;
+        if (!wrf) continue;
+        if (c.ins.mnemonic != ZYDIS_MNEMONIC_CMP || c.ins.operand_count_visible != 2) return fam;
+        auto bounded = [&](const ZydisDecodedOperand& op) -> bool {
+            const std::uint64_t signBit = op.size ? (1ull << (op.size - 1)) : 0;
+            if (op.type == ZYDIS_OPERAND_TYPE_IMMEDIATE) return !(op.imm.value.u & signBit);
+            if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) return nonNegativeBound(side, j, op.reg.value, targets).has_value();
+            return false;
+        };
+        if (bounded(c.ops[0]) && bounded(c.ops[1])) return std::strcmp(fam, "l") == 0 ? "b" : "be";
+        return fam;
+    }
+    return fam;
+}
+
 /// @brief VARIANT: the same calls, returns, stack traffic and memory writes in the same order, at the same data
 ///        offsets; only register choice, branch layout (tail merging/duplication, cmov vs branch) and side-effect-free
 ///        instructions (loads, compares, register moves) may differ. The signature of a different build of the same
@@ -1541,7 +1614,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_CALL) ++segment;
         } else if (ia >= 0) {
             const Insn& x = liveA[std::size_t(ia)];
-            if (const char* fam = conditionFamily(x.ins.mnemonic); fam && !materializedNullTest(liveA, std::size_t(ia))) ++conditions[fam].first;
+            if (const char* fam = foldedConditionFamily(liveA, std::size_t(ia), targetsA); fam && !materializedNullTest(liveA, std::size_t(ia))) ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
             if (const auto r = readOf(x, frameA)) spareA.push_back(*r);
             if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA) && !privateScratch(x, frameA, homeEscapesA) &&
@@ -1551,7 +1624,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                 ++glue;
         } else {
             const Insn& y = liveB[std::size_t(ib)];
-            if (const char* fam = conditionFamily(y.ins.mnemonic); fam && !materializedNullTest(liveB, std::size_t(ib))) ++conditions[fam].second;
+            if (const char* fam = foldedConditionFamily(liveB, std::size_t(ib), targetsB); fam && !materializedNullTest(liveB, std::size_t(ib))) ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
             if (const auto r = readOf(y, frameB)) spareB.push_back(*r);
             if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB) && !privateScratch(y, frameB, homeEscapesB) &&
