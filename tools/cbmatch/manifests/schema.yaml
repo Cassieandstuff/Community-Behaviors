@@ -311,3 +311,14 @@ units:
       - { name: "CB::schema::hkbManualSelectorGenerator::getInternalState", va: 0x140ae9610 }
       - { name: "CB::schema::hkbManualSelectorGenerator::setInternalState", va: 0x140ae9620 }
       - { name: "??_GhkbManualSelectorGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9e40 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSEventOnFalseToTrueModifier/BSEventOnFalseToTrueModifier.cpp
+    functions:
+      - { name: "??0BSEventOnFalseToTrueModifier@schema@CB@@QEAA@XZ", va: 0x140b9ae20 }
+      - { name: "??0BSEventOnFalseToTrueModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9aed0 }
+      - { name: "CB::schema::BSEventOnFalseToTrueModifier::getClassType", va: 0x140b9af40 }
+      - { name: "CB::schema::BSEventOnFalseToTrueModifier::update", va: 0x140b9af50 }
+      - { name: "CB::schema::BSEventOnFalseToTrueModifier::cloneNode", va: 0x140b9b2b0 }
+      - { name: "CB::schema::BSEventOnFalseToTrueModifier::isValid", va: 0x140b9b300 }
+      - { name: "??0BSEventOnFalseToTrueModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9b350 }
+      - { name: "??1BSEventOnFalseToTrueModifier@schema@CB@@UEAA@XZ", va: 0x140b9b490 }
+      - { name: "??_GBSEventOnFalseToTrueModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9b500 }

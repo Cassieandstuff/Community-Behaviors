@@ -216,6 +216,7 @@ symbols:
   - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "CB::schema::hkStringBuf::printf" }
   - { name: hkStringBuf_CtorStringPtr, kind: func, se: 0, ae: 57459, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@AEBVhkStringPtr@12@@Z" }  # hkStringBuf(const hkStringPtr&)
   - { name: hkStringPtr_Printf, kind: func, se: 0, ae: 57234, vr: 0, cpp: "CB::schema::hkStringPtr::printf" }  # (fmt, ...) formats into a buffer, then assigns
+  - { name: hkStringPtr_GetLength, kind: func, se: 0, ae: 57233, vr: 0, cpp: "CB::schema::hkStringPtr::getLength" }  # 0 for the null string, else strLen
   - { name: hkString_BeginsWith, kind: func, se: 0, ae: 57131, vr: 0, cpp: "CB::schema::hkString::beginsWith" }  # (str, prefix) -> hkBool, returned through memory
   - { name: hkQsTransform_IsApproximatelyEqual, kind: func, se: 0, ae: 57252, vr: 0, cpp: "CB::schema::hkQsTransform::isApproximatelyEqual" }  # (other, epsilon) -> hkBool
   - { name: hkQuaternion_SetAxisAngle, kind: func, se: 0, ae: 57098, vr: 0, cpp: "CB::schema::hkQuaternion::setAxisAngle" }  # (axis, angle): sin/cos of the half angle
@@ -307,6 +308,9 @@ symbols:
   - { name: BSEventEveryNEventsModifier_CloneCtor, kind: func, se: 0, ae: 63214, vr: 0, cpp: "??0BSEventEveryNEventsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: BSEventEveryNEventsModifier_CalculateNumberOfEventsBeforeSend, kind: func, se: 0, ae: 63213, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::calculateNumberOfEventsBeforeSend" }  # name provisional; draws the next N from the behavior graph's pseudo-random generator
   - { name: BSEventEveryNEventsModifier_GetStaticClass, kind: func, se: 0, ae: 62970, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSEventOnFalseToTrueModifier_GetStaticClass, kind: func, se: 0, ae: 62975, vr: 0, cpp: "CB::schema::BSEventOnFalseToTrueModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSEventOnFalseToTrueModifier_CloneCtor, kind: func, se: 0, ae: 63229, vr: 0, cpp: "??0BSEventOnFalseToTrueModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSEventOnFalseToTrueModifier_Dtor, kind: func, se: 0, ae: 63230, vr: 0, cpp: "??1BSEventOnFalseToTrueModifier@schema@CB@@UEAA@XZ" }  # the scalar deleting destructor calls it
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
@@ -331,6 +335,7 @@ symbols:
   - { name: BSEventOnDeactivateModifier_Vtable, kind: data, se: 282048, ae: 232685, vr: 0, cpp: "CB::schema::BSEventOnDeactivateModifier::`vftable'" }
   - { name: BSModifyOnceModifier_Vtable, kind: data, se: 282067, ae: 232711, vr: 0, cpp: "CB::schema::BSModifyOnceModifier::`vftable'" }
   - { name: BSEventEveryNEventsModifier_Vtable, kind: data, se: 282042, ae: 232678, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::`vftable'" }
+  - { name: BSEventOnFalseToTrueModifier_Vtable, kind: data, se: 282050, ae: 232688, vr: 0, cpp: "CB::schema::BSEventOnFalseToTrueModifier::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene
   - { name: hkbReferencePoseGenerator_Vtable, kind: data, se: 278396, ae: 226336, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::`vftable'" }
   - { name: hkbReferencePoseGenerator_GetStaticClass, kind: func, se: 0, ae: 58681, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::staticClass" }  # getClassType tail-jumps to it
