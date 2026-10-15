@@ -29,6 +29,7 @@ extern "C" float __cdecl acosf(float);
 #define HK_REAL_PI 3.14159265358979f
 #define HK_REAL_DEG_TO_RAD (HK_REAL_PI / 180.0f)
 #define HK_REAL_RAD_TO_DEG 57.2957795f
+#define HK_REAL_EPSILON 1.192092896e-07f
 
 /// @brief Global placement new, as `<new>` declares it.
 /// @note MSVC null-checks its result, which vanilla's hkArray::pushBack carries. hkReferencedObject declares its own,

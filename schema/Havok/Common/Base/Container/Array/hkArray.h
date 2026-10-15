@@ -19,6 +19,9 @@ namespace CB { namespace schema
     /// @note Havok declares hkBool POD (it has a constructor, so __is_pod says no): vanilla fills and copies an
     ///       hkArray<hkBool> as raw bytes.
     template <> struct hkIsPodType<hkBool> { static const bool result = true; };
+    struct hkQsTransform;
+    /// @note Havok declares its math types POD: arrays of them copy element-wise (three movaps), no construct loop.
+    template <> struct hkIsPodType<hkQsTransform> { enum { result = 1 }; };
 
     struct hkArrayUtil
     {
@@ -37,6 +40,11 @@ namespace CB { namespace schema
         template <class T> static HK_FORCE_INLINE void copy(T* dst, const T* src, int numElements)
         {
             for (int i = 0; i < numElements; i++) dst[i] = src[i];
+        }
+        /// @brief Assigns `numElements` elements from `src` into raw storage.
+        template <class T> static HK_FORCE_INLINE void constructWithArray(T* base, int numElements, const T* src, hkArrayIsPod<true>)
+        {
+            for (int i = 0; i < numElements; i++) base[i] = src[i];
         }
         /// @brief Copy-constructs `numElements` elements from `src` (through the global placement new, null-checked).
         template <class T> static HK_FORCE_INLINE void constructWithArray(T* base, int numElements, const T* src, hkArrayIsPod<false>)
@@ -191,5 +199,24 @@ namespace CB { namespace schema
             if (m_size == getCapacity()) hkArrayUtil::_reserveMore(hkContainerHeapAllocator::s_alloc, this, sizeof(T));
             return m_data[m_size++];
         }
+        /// @brief Appends `numElemsToAppend` elements copied from `a`, growing (at least doubling) when short.
+        HK_FORCE_INLINE void append(const T* a, int numElemsToAppend) { _append(hkContainerHeapAllocator::s_alloc, a, numElemsToAppend); }
+        /// @note Out of line in vanilla (Havok's hkArrayBase::_append, not inline): an instance per T, compiled in the
+        ///       caller's unit (hkbBlendingTransitionEffect's for hkQsTransform).
+        void _append(hkMemoryAllocator& alloc, const T* a, int numElemsToAppend);
     };
+
+    template <class T>
+    void hkArray<T>::_append(hkMemoryAllocator& alloc, const T* a, int numElemsToAppend)
+    {
+        const int newSize = m_size + numElemsToAppend;
+        if (newSize > getCapacity()) {
+            if (getCapacity() < newSize) {
+                const int cap2 = 2 * getCapacity();
+                hkArrayUtil::_reserve(alloc, this, (newSize < cap2) ? cap2 : newSize, sizeof(T));
+            }
+        }
+        hkArrayUtil::constructWithArray(m_data + m_size, numElemsToAppend, a, hkArrayIsPod<hkIsPodType<T>::result != 0>());
+        m_size = newSize;
+    }
 } }

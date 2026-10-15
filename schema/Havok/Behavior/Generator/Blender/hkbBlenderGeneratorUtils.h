@@ -29,5 +29,10 @@ namespace CB { namespace schema
         /// @note Name provisional; 0x140b0c450 (shared with hkbBlendingTransitionEffect).
         void computeSyncInfo(const hkbGeneratorSyncInfo** syncInfos, int numSyncInfos, const hkReal* weights, hkReal referencePoseWeightThreshold,
                              bool initSync, hkbGeneratorSyncInfo& syncInfoOut);
+        /// @brief The local time at which `childSyncInfo` sits at the same point of the sync points it shares with
+        ///        `syncInfo` as `syncInfo` does at `localTime`.
+        /// @note Name provisional; 0x140b0ca10, called only by hkbBlendingTransitionEffect (to start the to-generator in
+        ///       step under FLAG_SYNC).
+        hkReal computeSyncedLocalTime(hkReal localTime, const hkbGeneratorSyncInfo& syncInfo, const hkbGeneratorSyncInfo& childSyncInfo);
     }
 } }

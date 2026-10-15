@@ -712,3 +712,38 @@ units:
     functions:
       - { name: "CB::schema::hkbGeneratorTransitionEffectUtils::generateInternal", va: 0x140b0fa30 }
       - { name: "CB::schema::hkbGeneratorTransitionEffectUtils::computeBlendDurations", va: 0x140b0fb20 }
+  - source: ../../../schema/Havok/Behavior/TransitionEffect/Blending/hkbBlendingTransitionEffect.cpp
+    functions:
+      - { name: "??0hkbBlendingTransitionEffect@schema@CB@@QEAA@XZ", va: 0x140b01200 }
+      - { name: "??0hkbBlendingTransitionEffect@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b01260 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::getClassType", va: 0x140b01370 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::activate", va: 0x140b01380 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::update", va: 0x140b013f0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::deactivate", va: 0x140b01400 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::getChildren", va: 0x140b01420 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::cloneNode", va: 0x140b015a0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::generate", va: 0x140b015f0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::canRecycleOutput", va: 0x140b01640 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::updateSync", va: 0x140b01660 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::isDone", va: 0x140b01670 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::setFromGenerator", va: 0x140b016a0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::setToGenerator", va: 0x140b016b0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::getFromGeneratorBlendOutTime", va: 0x140b016c0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::getToGeneratorBlendInTime", va: 0x140b016d0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::updateSyncInternal", va: 0x140b016e0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::updateInternal", va: 0x140b01c20 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::computeTimeRemaining", va: 0x140b01d90 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::canSyncGenerators", va: 0x140b01e30 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::isAtStart", va: 0x140b01f30 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::useFromGeneratorSyncInfo", va: 0x140b01f50 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::getFromGeneratorSyncInfo", va: 0x140b01f60 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::getDuration", va: 0x140b01fe0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::isStarting", va: 0x140b01ff0 }
+      - { name: "CB::schema::hkArray<CB::schema::hkQsTransform>::_append", va: 0x140b02000 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::createInternalState", va: 0x140b020c0 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::getInternalState", va: 0x140b02110 }
+      - { name: "CB::schema::hkbBlendingTransitionEffect::setInternalState", va: 0x140b02210 }
+      - { name: "??_GhkbBlendingTransitionEffect@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7a80 }
+  - source: ../../../schema/Havok/Behavior/TransitionEffect/Blending/hkbBlendingTransitionEffectUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbBlendingTransitionEffectUtils::generateInternal", va: 0x140b0f830 }

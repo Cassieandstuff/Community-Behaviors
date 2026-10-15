@@ -94,7 +94,8 @@ namespace CB { namespace schema
         {
             if (node->m_cloneState == hkbNode::CLONE_STATE_CLONE) node = getNodeTemplate(node);
             hkbNodeInfo& info = (*m_activeNodes)[m_activeNodeTemplateToIndexMap->getWithDefault(node, 0)];
-            return info.m_isProxy ? (*m_activeNodes)[info.m_proxyIndex] : info;
+            if (!info.m_isProxy) return info;
+            return (*m_activeNodes)[info.m_proxyIndex];
         }
         /// @brief Starts an echo of `echoDuration` seconds (hkbGenerator::startEcho) on every active generator from `node`
         ///        down; a zero duration restarts them.

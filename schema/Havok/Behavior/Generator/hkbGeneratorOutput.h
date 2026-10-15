@@ -10,7 +10,19 @@ namespace CB { namespace schema
 
     struct hkbGeneratorOutput
     {
-        enum StandardTracks { TRACK_WORLD_FROM_MODEL = 0, TRACK_EXTRACTED_MOTION = 1, TRACK_POSE = 2, TRACK_FLOAT_SLOTS = 3 };
+        /// @note Tracks 4-8 named per the Havok SDK; hkbBlendingTransitionEffectUtils reads 4 and 6 as the ragdoll controls.
+        enum StandardTracks
+        {
+            TRACK_WORLD_FROM_MODEL                      = 0,
+            TRACK_EXTRACTED_MOTION                      = 1,
+            TRACK_POSE                                  = 2,
+            TRACK_FLOAT_SLOTS                           = 3,
+            TRACK_RIGID_BODY_RAGDOLL_CONTROLS           = 4,
+            TRACK_RIGID_BODY_RAGDOLL_BLEND_TIME         = 5,
+            TRACK_POWERED_RAGDOLL_CONTROLS              = 6,
+            TRACK_POWERED_RAGDOLL_WORLD_FROM_MODEL_MODE = 7,
+            TRACK_KEYFRAMED_RAGDOLL_BONES               = 8
+        };
         enum TrackFlags { TRACK_FLAG_ADDITIVE_POSE = 1 };
 
         struct TrackHeader
@@ -41,6 +53,15 @@ namespace CB { namespace schema
 
         HK_FORCE_INLINE int            getNumTracks() const { return m_tracks->m_masterHeader.m_numTracks; }
         HK_FORCE_INLINE bool           isValid(int track) const { return getNumTracks() > track; }
+        /// @brief Whether the output has `track` and it contributes (m_onFraction > 0).
+        /// @note Name provisional. Spelled as a flag set under the isValid test: vanilla materializes the fraction test
+        ///       (setb; test) and branches on it, which `isValid() && fraction > 0` does not reproduce.
+        HK_FORCE_INLINE bool           isTrackOn(int track) const
+        {
+            bool on = false;
+            if (isValid(track)) on = m_tracks->m_trackHeaders[track].m_onFraction > 0.0f;
+            return on;
+        }
         HK_FORCE_INLINE TrackHeader&   getTrackHeader(int track) { return m_tracks->m_trackHeaders[track]; }
         HK_FORCE_INLINE void*          getTrackData(int track) { return reinterpret_cast<char*>(m_tracks) + m_tracks->m_trackHeaders[track].m_dataOffset; }
         HK_FORCE_INLINE int            getNumPoseLocal() const { return isValid(TRACK_POSE) ? m_tracks->m_trackHeaders[TRACK_POSE].m_numData : 0; }
