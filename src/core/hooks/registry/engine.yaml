@@ -172,6 +172,7 @@ symbols:
   - { name: hkReferencedObject_AddReference, kind: func, se: 56606, ae: 57010, vr: 0, cpp: "hkReferencedObject::addReference" }
   - { name: hkReferencedObject_RemoveReference, kind: func, se: 56607, ae: 57011, vr: 0, cpp: "hkReferencedObject::removeReference" }
   - { name: hkArrayUtil_Reserve, kind: func, se: 0, ae: 57048, vr: 0, cpp: "hkArrayUtil::_reserve" }
+  - { name: hkArrayUtil_ReserveMore, kind: func, se: 0, ae: 57049, vr: 0, cpp: "hkArrayUtil::_reserveMore" }  # (allocator, array, sizeElem): grow when size == capacity (hkArray::pushBack)
   - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "hkString::strCmp" }
   - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "hkPointerMapStorage::getWithDefault" }  # name provisional
