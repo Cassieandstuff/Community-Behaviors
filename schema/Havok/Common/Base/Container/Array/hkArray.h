@@ -9,6 +9,15 @@ namespace CB { namespace schema
     /// @brief Whether T is plain old data: picks hkArrayUtil's construct/destruct at compile time.
     template <bool IS_POD> struct hkArrayIsPod {};
 
+    /// @brief Whether containers may treat T as plain old data: the compiler's __is_pod, or a type that says so with
+    ///        HK_DECLARE_POD_TYPE() (Havok's marker for structs whose members, such as hkBool, have constructors).
+    template <class T> struct hkIsPodType
+    {
+        template <class U> static char test(typename U::hkIsPodTypeTag*);
+        template <class U> static int  test(...);
+        static const bool result = __is_pod(T) || sizeof(test<T>(0)) == 1;
+    };
+
     struct hkArrayUtil
     {
         static void _reserve(hkMemoryAllocator& a, void* array, int reqCapacity, int sizeElem);
@@ -64,7 +73,7 @@ namespace CB { namespace schema
         /// @brief Destroys the elements (last to first), frees owned storage and leaves the array empty and non-owning.
         HK_FORCE_INLINE ~hkArray()
         {
-            hkArrayUtil::destruct(m_data, m_size, hkArrayIsPod<__is_pod(T)>());
+            hkArrayUtil::destruct(m_data, m_size, hkArrayIsPod<hkIsPodType<T>::result>());
             m_size = 0;
             if (m_capacityAndFlags >= 0) {
                 hkMemoryAllocator& a = hkContainerHeapAllocator::s_alloc;
@@ -74,7 +83,7 @@ namespace CB { namespace schema
             m_capacityAndFlags = DONT_DEALLOCATE_FLAG;
         }
 
-        HK_FORCE_INLINE hkArray& operator=(const hkArray& a) { return assign(a, hkArrayIsPod<__is_pod(T)>()); }
+        HK_FORCE_INLINE hkArray& operator=(const hkArray& a) { return assign(a, hkArrayIsPod<hkIsPodType<T>::result>()); }
 
         /// @brief Plain-old-data elements: reallocates (to exactly `a`'s size) only when the capacity is short, then copies.
         /// @note Vanilla's copy loop counts up (`inc; cmp; jl`); VS2015 24247 counts this spelling (and every other tried)
@@ -97,6 +106,17 @@ namespace CB { namespace schema
         }
 
         HK_FORCE_INLINE void     clear() { m_size = 0; }
+        /// @brief Empties the array and frees owned storage, leaving it empty and non-owning (the destructor's body).
+        HK_FORCE_INLINE void clearAndDeallocate()
+        {
+            m_size = 0;
+            if (m_capacityAndFlags >= 0) {
+                hkMemoryAllocator& a = hkContainerHeapAllocator::s_alloc;
+                a.bufFree(m_data, getCapacity() * int(sizeof(T)));
+            }
+            m_data             = HK_NULL;
+            m_capacityAndFlags = DONT_DEALLOCATE_FLAG;
+        }
         HK_FORCE_INLINE int      getSize() const { return m_size; }
         HK_FORCE_INLINE int      getCapacity() const { return m_capacityAndFlags & CAPACITY_MASK; }
         HK_FORCE_INLINE T&       operator[](int i) { return m_data[i]; }
@@ -106,16 +126,16 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void setSize(int n)
         {
             reserve(n);
-            hkArrayUtil::destruct(m_data + n, m_size - n, hkArrayIsPod<__is_pod(T)>());
-            hkArrayUtil::construct(m_data + m_size, n - m_size, hkArrayIsPod<__is_pod(T)>());
+            hkArrayUtil::destruct(m_data + n, m_size - n, hkArrayIsPod<hkIsPodType<T>::result>());
+            hkArrayUtil::construct(m_data + m_size, n - m_size, hkArrayIsPod<hkIsPodType<T>::result>());
             m_size = n;
         }
         /// @brief As setSize(n), with the new elements copies of `fill`.
         HK_FORCE_INLINE void setSize(int n, const T& fill)
         {
             reserve(n);
-            hkArrayUtil::destruct(m_data + n, m_size - n, hkArrayIsPod<__is_pod(T)>());
-            hkArrayUtil::constructWithCopy(m_data + m_size, n - m_size, fill, hkArrayIsPod<__is_pod(T)>());
+            hkArrayUtil::destruct(m_data + n, m_size - n, hkArrayIsPod<hkIsPodType<T>::result>());
+            hkArrayUtil::constructWithCopy(m_data + m_size, n - m_size, fill, hkArrayIsPod<hkIsPodType<T>::result>());
             m_size = n;
         }
         /// @brief Other elements: assigns over the ones both arrays have, destroys this one's surplus and copy-constructs
@@ -156,7 +176,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void pushBack(const T& t)
         {
             if (m_size == getCapacity()) hkArrayUtil::_reserveMore(hkContainerHeapAllocator::s_alloc, this, sizeof(T));
-            hkArrayUtil::constructWithCopy(m_data + m_size, 1, t, hkArrayIsPod<__is_pod(T)>());
+            hkArrayUtil::constructWithCopy(m_data + m_size, 1, t, hkArrayIsPod<hkIsPodType<T>::result>());
             m_size++;
         }
         /// @brief Appends one element left unconstructed and returns it.

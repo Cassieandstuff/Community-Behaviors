@@ -62,6 +62,12 @@ namespace CB { namespace schema
         /// @brief This graph's clone of the template node `node`, else null.
         /// @note Name provisional (the inverse of getNodeTemplate).
         hkbNode* getNodeClone(const hkbNode* node);
+        /// @brief Moves the active node `node` to `localTime` (its clone's setElapsedTime, slot 26) and carries the
+        ///        move down to its synchronized active descendants, each placed at the same sync-point interval as its
+        ///        parent.
+        /// @note Name provisional; out of line (0x140ab3c10), called by the blender and the transition effects. `node`
+        ///       keys m_activeNodeTemplateToIndexMap as is (not found: nothing moves).
+        void setNodeLocalTime(const hkbNode* node, hkReal localTime);
         /// @brief Pushes the graph's variable values into the bound node members of every active node.
         /// @note Name from its monitor timer ("hkbBehaviorGraph::copyVariablesToMembersRoot"); the flag is passed through
         ///       to each node's copy unchanged, meaning unknown (hkbSequence::update passes false).

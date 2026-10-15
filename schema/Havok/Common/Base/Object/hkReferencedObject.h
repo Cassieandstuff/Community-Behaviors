@@ -26,6 +26,12 @@ namespace CB { namespace schema
 
         HK_FORCE_INLINE hkReferencedObject() : m_memSizeAndFlags(0xffff), m_referenceCount(1) {}
         HK_FORCE_INLINE hkReferencedObject(hkFinishLoadedObjectFlag) {}
+        /// @brief A copy is a fresh object: not heap-sized (0xffff) and singly referenced, whatever the original was.
+        HK_FORCE_INLINE hkReferencedObject(const hkReferencedObject&) : m_memSizeAndFlags(0xffff), m_referenceCount(1) {}
+
+        enum { MASK_MEMSIZE = 0x7fff };
+        /// @brief The size the class allocator recorded; 0 for an object a packfile load placed (it owns no references).
+        HK_FORCE_INLINE int getAllocatedSize() const { return m_memSizeAndFlags & MASK_MEMSIZE; }
 
         /// @brief The class allocator: blocks come from the thread's heap and record their size.
         /// @note `__assume` the result non-null, as vanilla does (no null check after the allocation).

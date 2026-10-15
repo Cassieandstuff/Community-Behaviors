@@ -20,6 +20,8 @@ extern "C" float __cdecl asinf(float);
 
 #define HK_NULL 0
 #define HK_FORCE_INLINE __forceinline
+/// @brief Marks a struct containers may copy as raw bytes though a member has a constructor (see hkIsPodType).
+#define HK_DECLARE_POD_TYPE() typedef void hkIsPodTypeTag
 #define HK_NEXT_MULTIPLE_OF(ALIGNMENT, VALUE) (((VALUE) + ((ALIGNMENT)-1)) & (~((ALIGNMENT)-1)))
 #define HK_REAL_MAX 3.40282e+38f
 #define HK_REAL_PI 3.14159265358979f

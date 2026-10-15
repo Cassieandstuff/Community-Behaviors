@@ -9,6 +9,16 @@ namespace CB { namespace schema
 {
     struct hkbContext;
     class hkbBehaviorGraph;
+    struct hkbBindable;
+
+    /// @brief Receives the bindables hkbBindable::collectBindables walks.
+    /// @note Slot 0 is the (pure) collect callback, slot 1 the destructor (0x140ac1900), as vanilla's vtable 0x141941bc8 has them.
+    class hkbBindableCollector
+    {
+    public:
+        virtual void collectBindable(hkbBindable* bindable) = 0;   ///< slot 0
+        virtual ~hkbBindableCollector() {}                        ///< slot 1
+    };
 
     struct hkbVariableBindingSet : hkReferencedObject
     {
@@ -40,8 +50,12 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkbBindable() : m_areBindablesCached(false) {}
         HK_FORCE_INLINE hkbBindable(hkFinishLoadedObjectFlag flag)
         :   hkReferencedObject(flag), m_variableBindingSet(flag), m_areBindablesCached(false) {}
+        /// @brief Shares the binding set (one more reference); the bindable cache starts empty.
+        HK_FORCE_INLINE hkbBindable(const hkbBindable& bindable)
+        :   hkReferencedObject(bindable), m_variableBindingSet(bindable.m_variableBindingSet), m_areBindablesCached(false) {}
 
-        virtual void collectBindables(void* collector);   ///< slot 3
+        /// @brief Hands `collector` this object and every bindable it owns.
+        virtual void collectBindables(hkbBindableCollector& collector);   ///< slot 3
     };
 
     /// @note A `class`, as in Havok: the class-key is part of the mangled name of the constructors that take one.

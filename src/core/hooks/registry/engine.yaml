@@ -404,6 +404,27 @@ symbols:
   - { name: hkbManualSelectorGenerator_CloneCtor, kind: func, se: 0, ae: 59542, vr: 0, cpp: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbManualSelectorGenerator_Dtor, kind: func, se: 0, ae: 59543, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::~hkbManualSelectorGenerator" }  # out of line; the scalar deleting destructor calls it
   - { name: hkbManualSelectorGenerator_ComputeCurrentGeneratorIndex, kind: func, se: 0, ae: 59555, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::computeCurrentGeneratorIndex" }  # name provisional; the selected index clamped into [0, last child] (activate, update)
+  - { name: hkbBindable_Vtable, kind: data, se: 0, ae: 220249, vr: 0, cpp: "CB::schema::hkbBindable::`vftable'" }  # the bindable copy constructor's store (blender child clone)
+  - { name: hkbBlenderGenerator_Vtable, kind: data, se: 0, ae: 226277, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::`vftable'" }
+  - { name: hkbBlenderGeneratorChild_Vtable, kind: data, se: 0, ae: 226275, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorChild::`vftable'" }
+  - { name: hkbBlenderGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226285, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorInternalState::`vftable'" }
+  - { name: hkbBoneWeightArray_Vtable, kind: data, se: 0, ae: 226195, vr: 0, cpp: "CB::schema::hkbBoneWeightArray::`vftable'" }
+  - { name: hkbBlenderGenerator_GetStaticClass, kind: func, se: 0, ae: 58639, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBlenderGenerator_CloneCtor, kind: func, se: 0, ae: 59517, vr: 0, cpp: "??0hkbBlenderGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it; hkbPoseMatchingGenerator's clone too
+  - { name: hkbBlenderGenerator_Dtor, kind: func, se: 0, ae: 59518, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::~hkbBlenderGenerator" }  # out of line; the scalar deleting destructor (and hkbPoseMatchingGenerator's) calls it
+  - { name: hkbBlenderGenerator_UpdateActiveChildren, kind: func, se: 0, ae: 59534, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::updateActiveChildren" }  # name provisional; activate/update: true when a child turned on or off
+  - { name: hkbBlenderGenerator_ComputeBlendInterval, kind: func, se: 0, ae: 59535, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::computeBlendInterval" }  # name provisional; parametric blends: begin/end child + end weight
+  - { name: hkbBlenderGenerator_SortChildren, kind: func, se: 0, ae: 59537, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::sortChildren" }  # name provisional; bubble sort of child indices by m_weight
+  - { name: hkbBlenderGeneratorChild_CloneCtor, kind: func, se: 0, ae: 59514, vr: 0, cpp: "??0hkbBlenderGeneratorChild@schema@CB@@QEAA@AEBV012@@Z" }  # the blender's clone copies each child through it
+  - { name: hkbBlenderGeneratorInternalState_Dtor, kind: func, se: 0, ae: 58973, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorInternalState::~hkbBlenderGeneratorInternalState" }  # implicit; COMDAT in the type-registration block, the deleting destructor calls it
+  - { name: hkbBoneWeightArray_CopyCtor, kind: func, se: 0, ae: 59516, vr: 0, cpp: "??0hkbBoneWeightArray@schema@CB@@QEAA@AEBV012@@Z" }  # inline, not inlined (/Ob1); the blender child's clone calls it
+  - { name: hkbBlenderGeneratorUtils_GenerateInternal, kind: func, se: 0, ae: 60039, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::generateInternal" }  # monitor timer "hkbBlenderGeneratorUtils::generateInternal"; generate tail-jumps to it
+  - { name: hkbBlenderGeneratorUtils_ComputeChildWeight, kind: func, se: 0, ae: 60040, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::computeChildWeight" }  # name provisional; (blender, childIndex) clamped/smoothstepped weight or parametric share
+  - { name: hkbBlenderGeneratorUtils_FindCommonSyncPointIds, kind: func, se: 0, ae: 60045, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::findCommonSyncPointIds" }  # name provisional; (syncInfos, n, idsOut) -> count
+  - { name: hkbBlenderGeneratorUtils_ComputeSyncInfo, kind: func, se: 0, ae: 60046, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::computeSyncInfo" }  # name provisional; (syncInfos, n, weights, threshold, initSync, out); shared with hkbBlendingTransitionEffect
+  - { name: hkbGeneratorSyncInfo_ComputeSyncPointInterval, kind: func, se: 0, ae: 58544, vr: 0, cpp: "CB::schema::hkbGeneratorSyncInfo::computeSyncPointInterval" }  # name provisional; (this, localTime, out{beginId, endId, fraction})
+  - { name: hkbGeneratorSyncInfo_ComputeLocalTime, kind: func, se: 0, ae: 58546, vr: 0, cpp: "CB::schema::hkbGeneratorSyncInfo::computeLocalTime" }  # name provisional; (this, interval, localTimeOut) -> hkResult
+  - { name: hkbBehaviorGraph_SetNodeLocalTime, kind: func, se: 0, ae: 58357, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setNodeLocalTime" }  # name provisional; (node, localTime): setElapsedTime on its clone, carried down to synced active descendants
   - { name: hkbModifierWrapper_Vtable, kind: data, se: 278455, ae: 226410, vr: 0, cpp: "CB::schema::hkbModifierWrapper::`vftable'" }
   - { name: hkbModifierList_Vtable, kind: data, se: 278554, ae: 226532, vr: 0, cpp: "CB::schema::hkbModifierList::`vftable'" }
   - { name: hkbModifierGenerator_Vtable, kind: data, se: 278386, ae: 226323, vr: 0, cpp: "CB::schema::hkbModifierGenerator::`vftable'" }
