@@ -18,7 +18,6 @@ namespace CB { namespace schema
         m_activeNodes(HK_NULL),
         m_activeNodeTemplateToIndexMap(HK_NULL),
         m_activeNodesChildrenIndices(HK_NULL),
-        m_globalTransitionData(HK_NULL),
         m_variableValueSet(HK_NULL),
         m_nodeTemplateToCloneMap(HK_NULL),
         m_nodeCloneToTemplateMap(HK_NULL),
@@ -45,7 +44,6 @@ namespace CB { namespace schema
         m_activeNodes(HK_NULL),
         m_activeNodeTemplateToIndexMap(HK_NULL),
         m_activeNodesChildrenIndices(HK_NULL),
-        m_globalTransitionData(HK_NULL),
         m_variableValueSet(HK_NULL),
         m_nodeTemplateToCloneMap(HK_NULL),
         m_nodeCloneToTemplateMap(HK_NULL),
@@ -60,6 +58,82 @@ namespace CB { namespace schema
         m_stateOrTransitionChanged(false)
     {
         m_pseudoRandomGenerator = new hkPseudoRandomGenerator(1321);
+    }
+
+    /// @note A root that never cloned its nodes (no template-to-clone map) owns the clones its active nodes resolve to;
+    ///       a graph that cloned its root generator destroys every collected clone in place, then frees their block.
+    hkbBehaviorGraph::~hkbBehaviorGraph()
+    {
+        if (m_activeNodes && m_nodeTemplateToCloneMap == HK_NULL) {
+            const int numActive = m_activeNodes->getSize();
+            for (int i = 0; i < numActive; i++) {
+                hkbNode* clone = getNodeClone((*m_activeNodes)[i].m_nodeTemplate);
+                if (clone->m_cloneState == CLONE_STATE_CLONE || clone->m_cloneState == CLONE_STATE_SHARABLE) clone->removeReference();
+            }
+        }
+        if (m_rootGenerator) {
+            m_rootGenerator = HK_NULL;
+            if (m_rootGeneratorClone) {
+                {
+                    hkArray<hkbNodeInfo> nodes;
+                    hkbBehaviorGraphUtils::collectNodes(m_rootGeneratorClone, this, 4, nodes, HK_NULL);
+                    const int numNodes = nodes.getSize();
+                    for (int i = 0; i < numNodes; i++) nodes[i].m_nodeTemplate->~hkbNode();
+                }
+                hkbBehaviorGraphUtils::freeCloneBlock(m_rootGeneratorClone);
+            }
+        }
+        if (m_pseudoRandomGenerator) delete m_pseudoRandomGenerator;
+        setEventIdMap(HK_NULL);
+        setAttributeIdMap(HK_NULL);
+        setVariableIdMap(HK_NULL);
+        setCharacterPropertyIdMap(HK_NULL);
+        setData(HK_NULL);
+        setGlobalTransitionData(HK_NULL);
+        deleteActiveNodes();
+        if (m_variableValueSet) m_variableValueSet->removeReference();
+        if (m_nodeTemplateToCloneMap == HK_NULL) delete m_idToStateMachineTemplateMap;
+        m_idToStateMachineTemplateMap = HK_NULL;
+        delete m_nodeTemplateToCloneMap;
+        delete m_nodeCloneToTemplateMap;
+        if (m_stateListenerTemplateToCloneMap) {
+            for (hkPointerMap<const hkReferencedObject*, hkReferencedObject*>::Iterator it = m_stateListenerTemplateToCloneMap->getIterator();
+                 m_stateListenerTemplateToCloneMap->isValid(it); it = m_stateListenerTemplateToCloneMap->getNext(it)) {
+                m_stateListenerTemplateToCloneMap->getValue(it)->removeReference();
+            }
+            delete m_stateListenerTemplateToCloneMap;
+        }
+        deletePartitionMemory();
+    }
+
+    void hkbBehaviorGraph::setData(hkbBehaviorGraphData* data)
+    {
+        m_data = data;
+    }
+
+    void hkbBehaviorGraph::setEventIdMap(hkbSymbolIdMap* eventIdMap)
+    {
+        m_eventIDMap = eventIdMap;
+    }
+
+    void hkbBehaviorGraph::setAttributeIdMap(hkbSymbolIdMap* attributeIdMap)
+    {
+        m_attributeIdMap = attributeIdMap;
+    }
+
+    void hkbBehaviorGraph::setVariableIdMap(hkbSymbolIdMap* variableIdMap)
+    {
+        m_variableIdMap = variableIdMap;
+    }
+
+    void hkbBehaviorGraph::setCharacterPropertyIdMap(hkbSymbolIdMap* characterPropertyIdMap)
+    {
+        m_characterPropertyIdMap = characterPropertyIdMap;
+    }
+
+    void hkbBehaviorGraph::setGlobalTransitionData(hkbGlobalTransitionData* globalTransitionData)
+    {
+        m_globalTransitionData = globalTransitionData;
     }
 
     const hkClass& hkbBehaviorGraph::staticClass()

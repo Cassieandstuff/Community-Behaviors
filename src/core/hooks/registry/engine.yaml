@@ -585,3 +585,12 @@ symbols:
   - { name: hkbBehaviorGraph_ComputeTimesteps, kind: func, se: 0, ae: 58383, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::computeTimesteps" }  # name provisional; (timestep, timestepsOut)
   - { name: hkQueue_hkbEvent_Dtor, kind: func, se: 0, ae: 58389, vr: 0, cpp: "??1?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ" }  # out of line; frees m_capacity events
   - { name: hkbModifier_UpdateModifier, kind: func, se: 0, ae: 59311, vr: 0, cpp: "CB::schema::hkbModifier::updateModifier" }  # name provisional; (context, modifier, timestep, info): the graph update's per-modifier step
+  - { name: hkbBehaviorGraph_SetData, kind: func, se: 0, ae: 58345, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setData" }
+  - { name: hkbBehaviorGraph_SetEventIdMap, kind: func, se: 0, ae: 58350, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setEventIdMap" }
+  - { name: hkbBehaviorGraph_SetAttributeIdMap, kind: func, se: 0, ae: 58351, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setAttributeIdMap" }
+  - { name: hkbBehaviorGraph_SetVariableIdMap, kind: func, se: 0, ae: 58352, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setVariableIdMap" }
+  - { name: hkbBehaviorGraph_SetCharacterPropertyIdMap, kind: func, se: 0, ae: 58353, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setCharacterPropertyIdMap" }
+  - { name: hkbBehaviorGraph_SetGlobalTransitionData, kind: func, se: 0, ae: 58367, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setGlobalTransitionData" }  # name provisional (+0xb0)
+  - { name: hkbBehaviorGraph_DeletePartitionMemory, kind: func, se: 0, ae: 58386, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::deletePartitionMemory" }  # name provisional
+  - { name: hkbBehaviorGraphUtils_CollectNodes, kind: func, se: 0, ae: 59317, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::collectNodes" }  # name provisional; (root, rootBehavior, flags, nodesOut, ?)
+  - { name: hkbBehaviorGraphUtils_FreeCloneBlock, kind: func, se: 0, ae: 60122, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::freeCloneBlock" }  # name provisional

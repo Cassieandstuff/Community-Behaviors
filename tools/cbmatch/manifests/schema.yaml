@@ -775,6 +775,7 @@ units:
     functions:
       - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@XZ", va: 0x140ab0e70 }
       - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@PEAVhkbGenerator@12@PEAUhkbBehaviorGraphData@12@@Z", va: 0x140ab1000 }
+      - { name: "??1hkbBehaviorGraph@schema@CB@@UEAA@XZ", va: 0x140ab11d0 }
       - { name: "CB::schema::hkbBehaviorGraph::getClassType", va: 0x140ab1770 }
       - { name: "CB::schema::hkbBehaviorGraph::activate", va: 0x140ab1780 }
       - { name: "CB::schema::hkbBehaviorGraph::update", va: 0x140ab1890 }
@@ -785,6 +786,12 @@ units:
       - { name: "CB::schema::hkbBehaviorGraph::generate", va: 0x140ab2190 }
       - { name: "CB::schema::hkbBehaviorGraph::canRecycleOutput", va: 0x140ab21b0 }
       - { name: "CB::schema::hkbBehaviorGraph::updateSync", va: 0x140ab21c0 }
+      - { name: "CB::schema::hkbBehaviorGraph::setData", va: 0x140ab3260 }
+      - { name: "CB::schema::hkbBehaviorGraph::setEventIdMap", va: 0x140ab33c0 }
+      - { name: "CB::schema::hkbBehaviorGraph::setAttributeIdMap", va: 0x140ab3410 }
+      - { name: "CB::schema::hkbBehaviorGraph::setVariableIdMap", va: 0x140ab3460 }
+      - { name: "CB::schema::hkbBehaviorGraph::setCharacterPropertyIdMap", va: 0x140ab34b0 }
+      - { name: "CB::schema::hkbBehaviorGraph::setGlobalTransitionData", va: 0x140ab44b0 }
       - { name: "CB::schema::hkbBehaviorGraph::releaseUniqueId", va: 0x140ab4740 }
       # - { name: "CB::schema::hkbBehaviorGraph::activateWithInternalState", va: 0x140ab4a00 }  # parked: spilled storage size/pointer vs 24247 callee-saved registers
       - { name: "CB::schema::hkbBehaviorGraph::deleteActiveNodes", va: 0x140ab7090 }

@@ -74,6 +74,9 @@ namespace CB { namespace schema
         hkbVariableValueSet*            m_variableValueSet;         ///< +0x20
     };
 
+    /// @note Only referenced so far.
+    struct hkbGlobalTransitionData : hkReferencedObject {};
+
     /// @note The member names after +0x88 are the Havok SDK's reflected (serialize-ignored) runtime members, matched to
     ///       the schema's 14 ignored pointers by position.
     class hkbBehaviorGraph : public hkbGenerator
@@ -84,7 +87,7 @@ namespace CB { namespace schema
 
         hkInt8                         m_variableMode;            ///< +0x48
         hkArray<hkInt16>               m_uniqueIdPool;            ///< +0x50
-        void*                          m_idToStateMachineTemplateMap;   ///< +0x60
+        hkPointerMap<int, const hkbNode*>* m_idToStateMachineTemplateMap;   ///< +0x60 — state machine id → template (values per the SDK)
         hkArray<int>                   m_mirroredExternalIdMap;   ///< +0x68
         hkPseudoRandomGenerator*       m_pseudoRandomGenerator;   ///< +0x78 — reflected serialize-ignored
         hkRefPtr<hkbGenerator>         m_rootGenerator;           ///< +0x80
@@ -96,7 +99,7 @@ namespace CB { namespace schema
         /// @brief The active nodes' child indices (into m_activeNodes), each node's run starting at its
         ///        hkbNodeInfo::m_childrenIndicesStart.
         hkArray<int>*                  m_activeNodesChildrenIndices;   ///< +0xa8
-        void*                          m_globalTransitionData;    ///< +0xb0
+        hkRefPtr<hkbGlobalTransitionData> m_globalTransitionData; ///< +0xb0
         hkRefPtr<hkbSymbolIdMap>       m_eventIDMap;   ///< +0xb8
         hkRefPtr<hkbSymbolIdMap>       m_attributeIdMap;          ///< +0xc0
         hkRefPtr<hkbSymbolIdMap>       m_variableIdMap;           ///< +0xc8
@@ -104,7 +107,8 @@ namespace CB { namespace schema
         hkbVariableValueSet*           m_variableValueSet;        ///< +0xd8
         hkPointerMap<const hkbNode*, hkbNode*>* m_nodeTemplateToCloneMap;   ///< +0xe0
         hkPointerMap<const hkbNode*, hkbNode*>* m_nodeCloneToTemplateMap;   ///< +0xe8
-        void*                          m_stateListenerTemplateToCloneMap;  ///< +0xf0
+        /// @brief Each state listener template's clone (the clones referenced by the map).
+        hkPointerMap<const hkReferencedObject*, hkReferencedObject*>* m_stateListenerTemplateToCloneMap;  ///< +0xf0
         void*                          m_nodePartitionInfo;       ///< +0xf8
         int                            m_numIntermediateOutputs;  ///< +0x100
         hkArray<hkbNode*>              m_jobs;                    ///< +0x108
@@ -172,6 +176,17 @@ namespace CB { namespace schema
         /// @brief Each active node's timestep for this frame (from the last record back; synced children adjusted).
         /// @note Name provisional (its monitor split is "ComputeTimesteps"); out of line in vanilla (0x140ab6ad0).
         void computeTimesteps(hkReal timestep, hkReal* timestepsOut);
+        /// @note Setters (each references the new value, releases the old).
+        void setData(hkbBehaviorGraphData* data);
+        void setEventIdMap(hkbSymbolIdMap* eventIdMap);
+        void setAttributeIdMap(hkbSymbolIdMap* attributeIdMap);
+        void setVariableIdMap(hkbSymbolIdMap* variableIdMap);
+        void setCharacterPropertyIdMap(hkbSymbolIdMap* characterPropertyIdMap);
+        /// @note Name provisional (the member at +0xb0).
+        void setGlobalTransitionData(hkbGlobalTransitionData* globalTransitionData);
+        /// @brief Frees the partition and job blocks (from the thread's temp allocator).
+        /// @note Name provisional; out of line in vanilla (0x140ab7290).
+        void deletePartitionMemory();
 
         /// @brief The template node an event raised by `node` names as its sender.
         /// @note Name provisional.
@@ -218,5 +233,13 @@ namespace CB { namespace schema
         ///       a map of the saved records keyed by node id; activate and the event pass pass null.
         static void updateActiveNodes(hkbBehaviorGraph& graph, const hkbContext& context,
                                       const hkPointerMap<int, const hkbNodeInternalStateInfo*>* nodeIdToInternalState);
+        /// @brief Collects the nodes under `root` (as node-info records, the node in m_nodeTemplate).
+        /// @note Name, flag and the last (pointer-sized) parameter provisional; out of line in vanilla (0x140ad5350, beside the
+        ///       modifier steps).
+        ///       The graph destructor passes flags 4 and 0.
+        static void collectNodes(hkbNode* root, hkbBehaviorGraph* rootBehavior, int flags, hkArray<hkbNodeInfo>& nodesOut, void* unknown);
+        /// @brief Frees the single block the node clones of a behavior were allocated in (each clone's destructor has run).
+        /// @note Name provisional; out of line in vanilla (0x140b13ca0).
+        static hkResult freeCloneBlock(void* block);
     };
 } }
