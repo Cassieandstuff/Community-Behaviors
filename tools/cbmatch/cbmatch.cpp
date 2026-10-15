@@ -34,6 +34,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -788,6 +789,7 @@ struct Match {
     std::vector<UnmappedRef> refsUnmapped;
 
     const CoffFunction*      ours = nullptr;   ///< the compiled function this result is for (outlives the Match)
+    bool                     needsDiff = false;   ///< VARIANT only through rule A or E: --diff must confirm it
 };
 
 std::string targetNote(const CoffFunction& f, const Insn& i)
@@ -1349,7 +1351,7 @@ void canonicalizeDoubling(std::vector<Insn>& insns, const std::function<bool(con
 }
 
 bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursInsns, const std::vector<Insn>& vanillaInsns, std::uint64_t va,
-                       const PeImage& pe, std::string& why)
+                       const PeImage& pe, std::string& why, bool& needsDiff)
 {
     std::vector<Insn> a = oursInsns;
     std::vector<Insn> b = vanillaInsns;
@@ -1563,6 +1565,79 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
         return (&side == &liveA ? setccA : setccB).count(side[k].off) != 0;
     };
 
+    // Rule A (needs --diff): a function's own stack slots — its locals below the return address and its home area
+    // above it, never `lea`'d (so no callee can see them), and not an outgoing argument — are register allocation:
+    // which slot a build spills a value to, or whether it spills at all. What flows through them is the dataflow --diff
+    // checks.
+    auto takenSlots = [](const std::vector<Insn>& all, const Frame& f) {
+        std::vector<std::int64_t> taken;
+        for (const auto& i : all)
+            if (i.ins.mnemonic == ZYDIS_MNEMONIC_LEA)
+                if (const auto s = slotOf(i.ops[1], i, f)) taken.push_back(*s);
+        return taken;
+    };
+    /// Slots the function reads back itself. An outgoing argument is written for the callee and never read by the
+    /// caller, so a store into the argument area ([rsp+0x20..]) counts as a local only when its slot is read back.
+    auto readBackSlots = [](const std::vector<Insn>& all, const Frame& f) {
+        std::set<std::int64_t> read;
+        for (const auto& i : all) {
+            if (i.ins.mnemonic == ZYDIS_MNEMONIC_LEA) continue;
+            for (std::uint8_t o = 0; o < i.ins.operand_count_visible; ++o)
+                if (i.ops[o].type == ZYDIS_OPERAND_TYPE_MEMORY && (i.ops[o].actions & ZYDIS_OPERAND_ACTION_MASK_READ))
+                    if (const auto s = slotOf(i.ops[o], i, f)) read.insert(*s);
+        }
+        return read;
+    };
+    const std::vector<std::int64_t> takenA = takenSlots(liveA, frameA), takenB = takenSlots(liveB, frameB);
+    const std::set<std::int64_t>    readBackA = readBackSlots(liveA, frameA), readBackB = readBackSlots(liveB, frameB);
+    auto privateLocal = [&](const std::vector<Insn>& side, std::size_t k, const ZydisDecodedOperand& op, const Frame& f,
+                            const std::vector<std::int64_t>& taken, const std::set<std::uint64_t>&) {
+        if (op.type != ZYDIS_OPERAND_TYPE_MEMORY) return false;
+        const auto s = slotOf(op, side[k], f);
+        if (!s) return false;
+        const bool ours = &side == &liveA;
+        if (*s >= 0) return homeSlot(op, side[k], f) && !(ours ? homeEscapesA : homeEscapesB);
+        for (const auto t : taken)
+            if (*s >= t && *s < t + 0x40) return false;
+        const bool argumentArea = op.mem.base == ZYDIS_REGISTER_RSP && op.mem.disp.value >= 0x20 && op.mem.disp.value < 0x60;
+        return !((op.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) && argumentArea && !(ours ? readBackA : readBackB).count(*s));
+    };
+    auto privateLocalRead = [&](const std::vector<Insn>& side, std::size_t k, const Frame& f, const std::vector<std::int64_t>& taken,
+                                const std::set<std::uint64_t>& targets) {
+        const Insn& i = side[k];
+        for (std::uint8_t o = 0; o < i.ins.operand_count_visible; ++o)
+            if (i.ops[o].type == ZYDIS_OPERAND_TYPE_MEMORY && !(i.ops[o].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE))
+                return privateLocal(side, k, i.ops[o], f, taken, targets);
+        return false;
+    };
+    // Rule E (needs --diff): two aligned SIMD instructions differing only in an immediate (a shuffle's selector) are the
+    // same instructions scheduled differently: set aside, they must balance as a multiset per stretch between calls,
+    // together with the unpaired SIMD instructions of that mnemonic (the alignment pairs some crosswise, leaves others over).
+    auto simdOnly = [](const Insn& i) {
+        if (writtenMemory(i) || i.ins.operand_count_visible == 0) return false;
+        bool anyXmm = false;
+        for (std::uint8_t o = 0; o < i.ins.operand_count_visible; ++o) {
+            const auto& op = i.ops[o];
+            if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
+                const auto cls = ZydisRegisterGetClass(op.reg.value);
+                if (cls != ZYDIS_REGCLASS_XMM) return false;
+                anyXmm = true;
+            } else if (op.type != ZYDIS_OPERAND_TYPE_IMMEDIATE && op.type != ZYDIS_OPERAND_TYPE_MEMORY) {
+                return false;
+            }
+        }
+        return anyXmm;
+    };
+    auto simdKey = [](const Insn& i) {
+        std::string key = ZydisMnemonicGetString(i.ins.mnemonic);
+        for (std::uint8_t o = 0; o < i.ins.operand_count_visible; ++o)
+            if (i.ops[o].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) key += ":" + hex(i.ops[o].imm.value.u);
+        return key;
+    };
+    std::map<std::pair<std::size_t, std::string>, int> simdBalance;   ///< (segment, mnemonic:immediates) → ours minus vanilla
+    std::set<std::string> simdChecked;   ///< mnemonics whose balance is checked
+    bool ruleA = false, ruleE = false;
+
     for (const auto& [ia, ib] : alignInstructions(liveA, liveB)) {
         if (ia >= 0 && ib >= 0) {
             const auto& x = liveA[std::size_t(ia)];
@@ -1578,6 +1653,13 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                        i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE;
             };
             if (frameAdjust(x) && frameAdjust(y) && x.ins.mnemonic == y.ins.mnemonic) { ++aligned; continue; }
+            if (const auto* wx = writtenMemory(x), *wy = writtenMemory(y);
+                wx && wy && x.ins.mnemonic == y.ins.mnemonic && privateLocal(liveA, std::size_t(ia), *wx, frameA, takenA, targetsA) &&
+                privateLocal(liveB, std::size_t(ib), *wy, frameB, takenB, targetsB)) {
+                if (!operandsMatch(*wx, *wy, masked)) ruleA = true;
+                ++glue;
+                continue;
+            }
             // Two stores aligned crosswise (a build wrote the fields in the other order): match them as a set within
             // the stretch between calls, like any unpaired store, instead of failing on the pair.
             if (const auto* wx = writtenMemory(x), *wy = writtenMemory(y);
@@ -1586,10 +1668,15 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                 effectsB.push_back({ &y, segment });
                 continue;
             }
-            bool readsDiffer = false;
-            for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
+            bool readsDiffer = false, simdDeferred = false;
+            for (std::uint8_t o = 0; o < x.ins.operand_count_visible && !simdDeferred; ++o) {
                 const auto& ox = x.ops[o];
                 const auto& oy = y.ops[o];
+                if (privateLocal(liveA, std::size_t(ia), ox, frameA, takenA, targetsA) && privateLocal(liveB, std::size_t(ib), oy, frameB, takenB, targetsB) &&
+                    !(ox.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) && !(oy.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE)) {
+                    if (ox.mem.disp.value != oy.mem.disp.value || ox.size != oy.size) ruleA = true;
+                    continue;
+                }
                 // A read-only memory operand may take another address form after strength reduction ([r9+rcx] for
                 // [rcx]); its displacement still has to match, which is what pins the field being read.
                 const bool readOnly = ox.type == ZYDIS_OPERAND_TYPE_MEMORY && oy.type == ZYDIS_OPERAND_TYPE_MEMORY &&
@@ -1600,9 +1687,21 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                 if (readOnly && ox.mem.base != ZYDIS_REGISTER_RIP && !hasEffect(x) && !hasEffect(y)) { readsDiffer = true; continue; }
                 const bool relative = ox.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ox.imm.is_relative;
                 if (!operandsMatch(ox, oy, masked || relative)) {
+                    if (x.ins.mnemonic == y.ins.mnemonic && simdOnly(x) && simdOnly(y)) {
+                        simdDeferred = true;
+                        break;
+                    }
                     why = "operands differ beyond registers at ours +0x" + hex(x.off) + " / vanilla +0x" + hex(y.off);
                     return false;
                 }
+            }
+            if (simdDeferred) {
+                simdChecked.insert(ZydisMnemonicGetString(x.ins.mnemonic));
+                ++simdBalance[{ segment, simdKey(x) }];
+                --simdBalance[{ segment, simdKey(y) }];
+                ruleE = true;
+                ++glue;
+                continue;
             }
             if (readsDiffer) {
                 crossed.emplace_back(*readOf(x, frameA), *readOf(y, frameB));
@@ -1616,22 +1715,30 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             const Insn& x = liveA[std::size_t(ia)];
             if (const char* fam = foldedConditionFamily(liveA, std::size_t(ia), targetsA); fam && !materializedNullTest(liveA, std::size_t(ia))) ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
-            if (const auto r = readOf(x, frameA)) spareA.push_back(*r);
+            if (simdOnly(x)) ++simdBalance[{ segment, simdKey(x) }];
+            const auto* wx    = writtenMemory(x);
+            const bool  spill = wx && privateLocal(liveA, std::size_t(ia), *wx, frameA, takenA, targetsA);
+            const auto  rx    = readOf(x, frameA);
+            if (rx && !(rx->stack && privateLocalRead(liveA, std::size_t(ia), frameA, takenA, targetsA))) spareA.push_back(*rx);
             if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA) && !privateScratch(x, frameA, homeEscapesA) &&
-                !flagSpillA.count(x.off))
+                !flagSpillA.count(x.off) && !spill)
                 effectsA.push_back({ &x, segment });
             else
-                ++glue;
+                ++glue, ruleA = ruleA || (spill && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA));
         } else {
             const Insn& y = liveB[std::size_t(ib)];
             if (const char* fam = foldedConditionFamily(liveB, std::size_t(ib), targetsB); fam && !materializedNullTest(liveB, std::size_t(ib))) ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
-            if (const auto r = readOf(y, frameB)) spareB.push_back(*r);
+            if (simdOnly(y)) --simdBalance[{ segment, simdKey(y) }];
+            const auto* wy    = writtenMemory(y);
+            const bool  spill = wy && privateLocal(liveB, std::size_t(ib), *wy, frameB, takenB, targetsB);
+            const auto  ry    = readOf(y, frameB);
+            if (ry && !(ry->stack && privateLocalRead(liveB, std::size_t(ib), frameB, takenB, targetsB))) spareB.push_back(*ry);
             if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB) && !privateScratch(y, frameB, homeEscapesB) &&
-                !flagSpillB.count(y.off))
+                !flagSpillB.count(y.off) && !spill)
                 effectsB.push_back({ &y, segment });
             else
-                ++glue;
+                ++glue, ruleA = ruleA || (spill && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB));
         }
     }
     // Crossed pairs vouch for each other: a pair of loads swapped twice is two crossed pairs whose reads balance.
@@ -1682,9 +1789,19 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
         }
         hit->used = true;
     }
+    for (const auto& [key, balance] : simdBalance) {
+        if (balance != 0 && simdChecked.count(key.second.substr(0, key.second.find(':')))) {
+            why = "SIMD instructions set aside as rescheduled don't balance (" + key.second + ", ours " + (balance > 0 ? "+" : "") +
+                  std::to_string(balance) + ")";
+            return false;
+        }
+    }
+    needsDiff = ruleA || ruleE;
     why = std::to_string(aligned) + " aligned, " + std::to_string(glue) + " unpaired side-effect-free, " +
           std::to_string(effectsA.size()) + " store(s) with a different source";
     if (deadCount) why += ", " + std::to_string(deadCount) + " provably dead";
+    if (ruleA) why += ", local stack slots rearranged (rule A)";
+    if (ruleE) why += ", SIMD rescheduled (rule E)";
     return true;
 }
 
@@ -1861,7 +1978,7 @@ Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va,
         if (regallocWhy.empty()) { m.status = Status::Regalloc; return m; }
     }
     std::string variantWhy;
-    if (variantEquivalent(ours, *a, *b, va, pe, variantWhy)) {
+    if (variantEquivalent(ours, *a, *b, va, pe, variantWhy, m.needsDiff)) {
         m.status = Status::Variant;
         m.detail = regallocWhy + "; " + variantWhy;
     } else {
@@ -3360,7 +3477,9 @@ void usage()
         "  --work <dir>         where objects and listings go (default: %TEMP%/cbmatch/<manifest name>)\n"
         "  --jobs <n>           parallel compiles (default: hardware threads)\n"
         "  --allow-regalloc     exit 0 when every function is EXACT or REGALLOC\n"
-        "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT\n"
+        "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT; a VARIANT that needs rule A\n"
+        "                       (local stack slots) or E (SIMD schedule) always runs --diff (>= 256 seeds) and is\n"
+        "                       STRUCTURAL if a seed diverges or none agrees\n"
         "  --suggest            print engine.yaml lines (with Address Library ids) for unmapped references\n"
         "  --inventory          (re)generate the manifest's inventory from the exe instead of matching\n"
         "  --todo <class>       list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
@@ -3516,26 +3635,55 @@ int run(const Options& opt)
                                     row.best.toolchain.empty();
                 if (better) row.best = mt;
             }
-            const bool pass = row.best.status == Status::Exact ||
-                              ((opt.allowRegalloc || opt.allowVariant) && row.best.status == Status::Regalloc) ||
-                              (opt.allowVariant && row.best.status == Status::Variant);
-            gatePassed      = gatePassed && pass;
             rows.push_back(std::move(row));
         }
     }
 
+    // A VARIANT that rests on rule A or E (local stack slots, SIMD schedule) is only as good as its dataflow: --diff runs
+    // on it whether asked for or not, and a divergence, or a run that cannot confirm anything, makes it STRUCTURAL.
+    std::unique_ptr<Emulator> emu;
+    auto emulator = [&]() -> Emulator& {
+        if (!emu) {
+            emu = std::make_unique<Emulator>(pe);
+            emu->trace = opt.diffSeed.has_value();
+        }
+        return *emu;
+    };
+    const std::size_t gateSeeds = std::max<std::size_t>({ opt.diffSeeds, opt.diffSeed.value_or(0), 256 });
+    for (auto& r : rows) {
+        if (r.best.status != Status::Variant || !r.best.needsDiff || !r.best.ours) continue;
+        std::string why;
+        if (!syms) {
+            why = "needs --diff, which needs the registry and an Address Library";
+        } else if (const auto off = pe.fileOffset(static_cast<std::uint32_t>(r.va - pe.imageBase), r.best.vanillaLen); !off) {
+            why = "needs --diff, but vanilla's bytes are not in the file image";
+        } else {
+            const Bytes vanilla(pe.bytes.begin() + *off, pe.bytes.begin() + *off + r.best.vanillaLen);
+            r.diff = diffFunction(emulator(), *r.best.ours, vanilla, r.va, *syms, pe, gateSeeds, opt.diffSeed);
+            if (!r.diff->error.empty()) why = "needs --diff, which could not run: " + r.diff->error;
+            else if (r.diff->diverged) why = "--diff diverges: " + r.diff->firstDivergence;
+            else if (r.diff->agreed == 0) why = "--diff confirmed no seed (all faulted, inconclusive or NaN)";
+        }
+        if (!why.empty()) {
+            r.best.status = Status::Structural;
+            r.best.detail = "rule A/E unconfirmed: " + why + "\n" + r.best.detail;
+        }
+    }
     if (opt.diffSeeds || opt.diffSeed) {
         if (!syms) throw std::runtime_error("--diff needs the registry and the runtime's Address Library to place references");
-        Emulator emu(pe);
-        emu.trace = opt.diffSeed.has_value();
         for (auto& r : rows) {
-            if ((r.best.status != Status::Regalloc && r.best.status != Status::Variant) || !r.best.ours) continue;
+            if ((r.best.status != Status::Regalloc && r.best.status != Status::Variant) || !r.best.ours || r.diff) continue;
             const auto off = pe.fileOffset(static_cast<std::uint32_t>(r.va - pe.imageBase), r.best.vanillaLen);
             if (!off) continue;
             const Bytes vanilla(pe.bytes.begin() + *off, pe.bytes.begin() + *off + r.best.vanillaLen);
-            r.diff = diffFunction(emu, *r.best.ours, vanilla, r.va, *syms, pe, std::max<std::size_t>(opt.diffSeeds, opt.diffSeed.value_or(0)), opt.diffSeed);
-            if (r.diff->diverged) gatePassed = false;
+            r.diff = diffFunction(emulator(), *r.best.ours, vanilla, r.va, *syms, pe, std::max<std::size_t>(opt.diffSeeds, opt.diffSeed.value_or(0)), opt.diffSeed);
         }
+    }
+    for (const auto& r : rows) {
+        const bool pass = r.best.status == Status::Exact ||
+                          ((opt.allowRegalloc || opt.allowVariant) && r.best.status == Status::Regalloc) ||
+                          (opt.allowVariant && r.best.status == Status::Variant);
+        gatePassed = gatePassed && pass && !(r.diff && r.diff->diverged);
     }
 
     std::printf("cbmatch: runtime %s, exe %s, work %s\n\n", runtime.c_str(), exePath.string().c_str(), work.string().c_str());

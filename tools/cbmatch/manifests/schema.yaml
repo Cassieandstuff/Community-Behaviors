@@ -86,8 +86,7 @@ units:
       # - { name: "??_GhkbRotateCharacterModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140acad50 }
   - source: ../../../schema/Havok/Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp
     functions:
-      # Written but STRUCTURAL under the current rules (SIMD scheduling only, see parked.yaml); awaiting a decision:
-      # - { name: "CB::schema::hkbRotateCharacterModifierUtils::modify", va: 0x140b0ee80 }
+      - { name: "CB::schema::hkbRotateCharacterModifierUtils::modify", va: 0x140b0ee80 }
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.cpp
     functions:
       - { name: "CB::schema::finishLoadedObjectBSSynchronizedClipGenerator", va: 0x140b93c10 }
@@ -112,9 +111,8 @@ units:
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGeneratorUtils.cpp
     functions:
       - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::generateClip", va: 0x140ba02a0 }
-      # Written but STRUCTURAL under the current rules (register allocation / SIMD scheduling only); awaiting a decision:
-      # - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::generate", va: 0x140ba0020 }
-      # - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::applyMotionFromRoot", va: 0x140ba0350 }
+      - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::generate", va: 0x140ba0020 }
+      - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::applyMotionFromRoot", va: 0x140ba0350 }
   - source: ../../../schema/Havok/Common/Base/Container/String/hkString.cpp
     functions:
       - { name: "CB::schema::hkString::beginsWith", va: 0x140a8b840 }
@@ -141,9 +139,10 @@ units:
       - { name: "CB::schema::hkbClipGenerator::getExtractedMotionDelta", va: 0x140acfff0 }
       - { name: "CB::schema::hkbClipGenerator::setElapsedTime", va: 0x140acecd0 }
       - { name: "CB::schema::hkbClipGenerator::startEcho", va: 0x140acee60 }
-      # sampleAnimation (0x140ad0730) is implemented but STRUCTURAL: vanilla addresses its frame through rbp
-      # (`lea rbp, [rsp-0x28]`) and VS2015 24247 allocates rbp as a register instead; cbmatch has no rbp frame base.
+      # sampleAnimation (0x140ad0730): STRUCTURAL - its lea'd out-argument locals sit at other offsets (rule A covers only
+      # slots whose address never escapes).
       # - { name: "CB::schema::hkbClipGenerator::sampleAnimation", va: 0x140ad0730 }
+      - { name: "CB::schema::hkbClipGenerator::sortTriggers", va: 0x140ad0290 }
       - { name: "CB::schema::hkbClipGenerator::updateSync", va: 0x140ace930 }
       - { name: "??1hkbClipGenerator@schema@CB@@UEAA@XZ", va: 0x140acd620 }
       - { name: "??_GhkbClipGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ad1310 }
@@ -166,8 +165,7 @@ units:
       # counts down (`sub 1; jnz`), no spelling found that keeps it up.
       # - { name: "CB::schema::hkbClipGenerator::getInternalState", va: 0x140b03110 }
       # - { name: "CB::schema::hkbClipGenerator::setInternalState", va: 0x140b03250 }
-      # copySampledPose: STRUCTURAL; its loop counter lives in a home slot where vanilla uses a local (see parked.yaml).
-      # - { name: "CB::schema::hkbClipGenerator::copySampledPose", va: 0x140b03380 }
+      - { name: "CB::schema::hkbClipGenerator::copySampledPose", va: 0x140b03380 }
       - { name: "CB::schema::hkbClipGenerator::copySampledFloats", va: 0x140b03550 }
       - { name: "CB::schema::hkbClipGenerator::blendSampledFloats", va: 0x140b036a0 }
   - source: ../../../schema/Havok/Behavior/Sequence/hkbSequence.cpp
@@ -434,7 +432,7 @@ units:
       - { name: "??_GhkbMirrorModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9f50 }
   - source: ../../../schema/Havok/Behavior/Modifier/Mirror/hkbMirrorModifierUtils.cpp
     functions:
-      # STRUCTURAL, SIMD scheduling only after the pose loop (rule E; see parked.yaml):
+      # STRUCTURAL: a commutative mulps takes its operands the other way round (see parked.yaml):
       # - { name: "CB::schema::hkbMirrorModifierUtils::modify", va: 0x140b0dac0 }
   - source: ../../../schema/Havok/Behavior/Modifier/Damping/hkbDampingModifier.cpp
     functions:

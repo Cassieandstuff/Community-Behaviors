@@ -545,8 +545,8 @@ namespace CB { namespace schema
     }
 
     /// @note `times[j] > times[j + 1]` — `times[j + 1] < times[j]` swaps the comparison's operands against vanilla.
-    /// @note Not yet matched (tools/cbmatch/parked.yaml): 24247 reuses the buffer's rounded byte count at the free
-    ///       where vanilla recomputes it from the count, which moves the spill slots.
+    /// @note 24247 reuses the buffer's rounded byte count at the free where vanilla recomputes it from the count, which
+    ///       moves the spill slots (rule A).
     void hkbClipGenerator::sortTriggers()
     {
         if (m_triggers) {

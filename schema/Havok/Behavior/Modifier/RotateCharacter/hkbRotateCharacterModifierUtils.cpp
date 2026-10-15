@@ -6,7 +6,7 @@ namespace CB { namespace schema
 {
     namespace hkbRotateCharacterModifierUtils
     {
-        /// @note Spelling closest to vanilla's code (parked, SIMD scheduling only): the character transform copied to a
+        /// @note Spelling closest to vanilla's code (VARIANT through rule E, SIMD scheduling only): the character transform copied to a
         ///       local before the call (vanilla keeps it in registers across it), one setAxisAngle call per axis (a
         ///       pointer/reference ternary becomes cmov, vanilla branches), and the result built in a local and copied
         ///       out (vanilla's store order and frame size).

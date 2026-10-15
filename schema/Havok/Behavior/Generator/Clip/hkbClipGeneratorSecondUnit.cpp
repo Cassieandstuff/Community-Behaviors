@@ -50,10 +50,9 @@ namespace CB { namespace schema
         m_pingPongBackward                   = internalState.m_pingPongBackward;
     }
 
-    /// @note The helpers below stay STRUCTURAL under 24247: vanilla keeps the loop-invariant `identity`/`mirror` tests
-    ///       as materialized bools (setz/setnz, spilled), 24247 folds them back into re-testing the loaded size/pointer
-    ///       (bool, hkBool and in-loop forms all tried). The mirror/else-if split is what reproduces vanilla's
-    ///       duplicated bound check.
+    /// @note Vanilla keeps the loop-invariant `identity`/`mirror` tests as materialized bools (setz/setnz, spilled),
+    ///       24247 folds them back into re-testing the loaded size/pointer (bool, hkBool and in-loop forms all tried;
+    ///       rules G and A accept it). The mirror/else-if split is what reproduces vanilla's duplicated bound check.
     void hkbClipGenerator::copySampledPose(int numTracks, hkQsTransform* sampled, int numPoseLocal, hkQsTransform* poseLocal,
                                            hkBitField& bonesSampled, const hkArray<hkInt16>& trackToBone, bool isAdditive,
                                            const hkaMirroredSkeleton* mirroredSkeleton, bool mirrorTransforms)

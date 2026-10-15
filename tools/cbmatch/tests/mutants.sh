@@ -5,6 +5,8 @@
 # DIVERGE under --diff (<seeds> synthetic inputs, default 256): u3 (dropped i--), t3 (two register arguments swapped) and
 # k2 (a constant the build already holds in a register: no load, so the changed value is just another register) are
 # register dataflow; c1 and y2 (inverted tests) are jz/jnz sharing a condition family because branch layout inverts them.
+# The gated families (o, z) are functions VARIANT only through rules A/E, which hold only if --diff confirms them: their
+# mutants change dataflow those rules let through structurally and must come out STRUCTURAL because they diverge.
 # Controls (x_*) compile the same functions unmutated: they must come out VARIANT with no divergence, or a harness that
 # diverges on everything would pass.
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
@@ -12,7 +14,8 @@
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
 # home-area scratch), s setElapsedTime (frame size), k startEcho, y updateSync (rax frame base, materialized zero test
 # with an intervening instruction), j hkbSenseHandleModifier::senseInRigidBodies (switch jump tables),
-# b rebindFromBindingSet (a signed compare of a possibly negative index must not fold onto unsigned). A mutant of a
+# b rebindFromBindingSet (a signed compare of a possibly negative index must not fold onto unsigned), z sortTriggers
+# (rule A: locals in the argument area), o hkbRotateCharacterModifierUtils::modify (rule E: shuffles). A mutant of a
 # header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -22,6 +25,7 @@ repo=$(cd "$(dirname "$0")/../../.." && pwd -W)
 havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
 expectVariant=" u3 t3 c1 k2 y2 "
+gated=" o z "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -43,6 +47,9 @@ target() {
         k*) fn=startEcho va=0x140acee60 ;;
         y*) fn=updateSync va=0x140ace930 ;;
         b*) fn=rebindFromBindingSet va=0x140acf6e0 ;;
+        z*) fn=sortTriggers va=0x140ad0290 ;;
+        o*) cls=hkbRotateCharacterModifierUtils src=Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp
+            fn=modify va=0x140b0ee80 ;;
         j*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
             fn=senseInRigidBodies va=0x140afdbf0 ;;
     esac
@@ -113,6 +120,10 @@ mutant y2_inverted_sync_point  "$clip" 's/if (graphData \&\& graphData->isEventS
 mutant b1_unsigned_index       "$clip" 's/if (bindingSet \&\& m_animationBindingIndex < bindingSet->m_bindings\.getSize()) {/if (bindingSet \&\& unsigned(m_animationBindingIndex) < unsigned(bindingSet->m_bindings.getSize())) {/'
 sense="Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp"
 mutant j1_swapped_cases        "$sense" 's/case SENSE_IN_RIGID_BODIES_OUTSIDE_THIS_CHARACTER:/case TMP_SWAP:/; s/case SENSE_IN_OTHER_CHARACTER_RIGID_BODIES:/case SENSE_IN_RIGID_BODIES_OUTSIDE_THIS_CHARACTER:/; s/case TMP_SWAP:/case SENSE_IN_OTHER_CHARACTER_RIGID_BODIES:/'
+rot="Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp"
+mutant o1_swapped_rotation    "$rot" 's/m_rotation\.setMul(worldFromCharacter\.m_rotation, rotation);/m_rotation.setMul(rotation, worldFromCharacter.m_rotation);/'
+mutant o2_negated_angle       "$rot" 's/rotation\.setAxisAngle(modelUp, mod\.m_angle);/rotation.setAxisAngle(modelUp, -mod.m_angle);/'
+mutant z1_bound_off_by_one    "$clip" 's/for (int j = 0; j < numTriggers - 1 - i; j++) {/for (int j = 0; j < numTriggers - 2 - i; j++) {/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {
@@ -121,7 +132,7 @@ control() {
   - { source: \"$havok/$src\", flags: [], functions: [ { name: \"CB::schema::$cls::$fn\", va: $va } ] }"
     names="$names x_$fn"
 }
-for family in $expectVariant; do control "$family"; done
+for family in $expectVariant $gated; do control "$family"; done
 
 cat > "$work/mutants.yaml" <<EOF
 runtimes:
@@ -151,11 +162,17 @@ for name in $names; do
     case "$name" in
         x_*) want="VARIANT, no divergence"
              [ "$status" = VARIANT ] && [ "$diverged" = 0 ] && ok=y ;;
-        *)   case "$expectVariant" in
+        *)   diverging=""
+             [ "$diverged" != - ] && [ "$diverged" != "?" ] && [ "$diverged" != 0 ] && diverging=y
+             case "$expectVariant" in
                  *" $short "*) want="VARIANT, diverging"
-                               [ "$status" = VARIANT ] && [ "$diverged" != - ] && [ "$diverged" != "?" ] && [ "$diverged" != 0 ] && ok=y ;;
-                 *)            want=STRUCTURAL
-                               [ "$status" = STRUCTURAL ] && ok=y ;;
+                               [ "$status" = VARIANT ] && [ "$diverging" = y ] && ok=y ;;
+                 *) case "$gated" in
+                        *" ${short%%[0-9]*} "*) want="STRUCTURAL through the --diff gate (diverging)"
+                                                [ "$status" = STRUCTURAL ] && [ "$diverging" = y ] && ok=y ;;
+                        *)                      want=STRUCTURAL
+                                                [ "$status" = STRUCTURAL ] && ok=y ;;
+                    esac ;;
              esac ;;
     esac
     if [ "$ok" = y ]; then

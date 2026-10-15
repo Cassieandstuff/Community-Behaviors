@@ -189,7 +189,8 @@ still belongs in the session scratchpad dir.)
 - **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant` compiles schema/Havok
   per translation unit and diffs every listed function against the exe (EXACT / REGALLOC / VARIANT, references
   checked against engine.yaml); `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
-  under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow.
+  under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow. A VARIANT that
+  needs rule A (local stack slots rearranged) or E (SIMD rescheduled) runs `--diff` always and fails unless it agrees.
   `tools/cbmatch/tests/mutants.sh` proves the gate rejects broken copies (STRUCTURAL, or VARIANT plus a `--diff`
   divergence for the documented blind spots), with unmutated controls that must agree.
   Run both after any schema/Havok or cbmatch change. A full run ends with coverage against
