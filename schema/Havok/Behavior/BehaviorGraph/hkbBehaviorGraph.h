@@ -59,6 +59,9 @@ namespace CB { namespace schema
         /// @brief The template node an event raised by `node` names as its sender.
         /// @note Name provisional.
         hkbNode* getNodeTemplate(const hkbNode* node);
+        /// @brief This graph's clone of the template node `node`, else null.
+        /// @note Name provisional (the inverse of getNodeTemplate).
+        hkbNode* getNodeClone(const hkbNode* node);
         /// @brief Pushes the graph's variable values into the bound node members of every active node.
         /// @note Name from its monitor timer ("hkbBehaviorGraph::copyVariablesToMembersRoot"); the flag is passed through
         ///       to each node's copy unchanged, meaning unknown (hkbSequence::update passes false).

@@ -282,6 +282,9 @@ symbols:
   - { name: hkbRotateCharacterModifierUtils_Modify, kind: func, se: 0, ae: 60073, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierUtils::modify" }  # name provisional; (modifier, characterWorldFromModel, modelUp, worldFromModel) applies and clears m_angle
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
+  - { name: hkbBehaviorGraph_GetNodeClone, kind: func, se: 0, ae: 58359, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeClone" }  # name provisional; template node -> this graph's clone
+  - { name: hkbStateMachine_GetStaticClass, kind: func, se: 0, ae: 58901, vr: 0, cpp: "CB::schema::hkbStateMachine::staticClass" }
+  - { name: hkbStateMachine_GetStateIndex, kind: func, se: 0, ae: 59372, vr: 0, cpp: "CB::schema::hkbStateMachine::getStateIndex" }  # stateId -> index in m_states, -1 for none
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
   - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
   - { name: hkbGeneratorOutputUtils_GetBoneModelSpace, kind: func, se: 0, ae: 58480, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getBoneModelSpace" }  # name provisional; (bone, output, skeleton, out): pose bones, reference pose for unset ones
@@ -317,6 +320,10 @@ symbols:
   - { name: BSTweenerModifier_GetStaticClass, kind: func, se: 0, ae: 63006, vr: 0, cpp: "CB::schema::BSTweenerModifier::staticClass" }  # getClassType tail-jumps to it
   - { name: BSTweenerModifier_CloneCtor, kind: func, se: 0, ae: 63327, vr: 0, cpp: "??0BSTweenerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: BSTweenerModifier_InterpolateRotation, kind: func, se: 0, ae: 63326, vr: 0, cpp: "CB::schema::BSTweenerModifier::interpolateRotation" }  # name provisional; modify calls it
+  - { name: BSIStateManagerModifier_GetStaticClass, kind: func, se: 0, ae: 63009, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSIStateManagerModifier_CloneCtor, kind: func, se: 0, ae: 63107, vr: 0, cpp: "??0BSIStateManagerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSIStateManagerModifier_Dtor, kind: func, se: 0, ae: 63101, vr: 0, cpp: "??1BSIStateManagerModifier@schema@CB@@UEAA@XZ" }  # the scalar deleting destructor calls it
+  - { name: BSIStateManagerModifier_OnStateEntered, kind: func, se: 0, ae: 63106, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::onStateEntered" }  # name provisional; the listener's onEnter calls it on the manager's clone
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
@@ -344,6 +351,8 @@ symbols:
   - { name: BSEventOnFalseToTrueModifier_Vtable, kind: data, se: 282050, ae: 232688, vr: 0, cpp: "CB::schema::BSEventOnFalseToTrueModifier::`vftable'" }
   - { name: BSPassByTargetTriggerModifier_Vtable, kind: data, se: 282069, ae: 232714, vr: 0, cpp: "CB::schema::BSPassByTargetTriggerModifier::`vftable'" }
   - { name: BSTweenerModifier_Vtable, kind: data, se: 282074, ae: 232722, vr: 0, cpp: "CB::schema::BSTweenerModifier::`vftable'" }
+  - { name: BSIStateManagerModifier_Vtable, kind: data, se: 282001, ae: 232627, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::`vftable'" }
+  - { name: BSIStateManagerModifier_StateListener_Vtable, kind: data, se: 281681, ae: 232295, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::BSIStateManagerStateListener::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene
   - { name: hkbReferencePoseGenerator_Vtable, kind: data, se: 278396, ae: 226336, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::`vftable'" }
   - { name: hkbReferencePoseGenerator_GetStaticClass, kind: func, se: 0, ae: 58681, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::staticClass" }  # getClassType tail-jumps to it
