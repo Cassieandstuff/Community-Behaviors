@@ -24,6 +24,12 @@ namespace CB { namespace schema
         virtual int  queue(const hkbContext& context, hkbClipGenerator* clip, void* sync);    ///< slot 1
         virtual bool load(const hkbContext& context, hkbClipGenerator* clip, void* sync);     ///< slot 2
         virtual int  unload(const hkbContext& context, hkbClipGenerator* clip, void* sync);   ///< slot 3
+        /// @brief Loads the animation at `animationBindingIndex` (no clip involved); false while it is still loading.
+        /// @note Name provisional (BSOffsetAnimationGenerator's activate and update call it).
+        virtual bool loadAnimation(const hkbContext& context, hkInt16 animationBindingIndex);   ///< slot 4
+        /// @brief Releases what loadAnimation loaded.
+        /// @note Name provisional (BSOffsetAnimationGenerator's deactivate calls it).
+        virtual void unloadAnimation(const hkbContext& context, hkInt16 animationBindingIndex);   ///< slot 5
     };
     extern IAnimationClipLoader* g_animationClipLoader;
 

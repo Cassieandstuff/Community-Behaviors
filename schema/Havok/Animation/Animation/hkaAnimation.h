@@ -32,7 +32,7 @@ namespace CB { namespace schema
         hkRefPtr<hkaAnimatedReferenceFrame> m_extractedMotion;           ///< +0x20
         hkArray<hkaAnnotationTrack>         m_annotationTracks;          ///< +0x28
 
-        /// @note Slots 3, 5 and 7–12 are placeholders until the class is reimplemented.
+        /// @note Slots 3, 5, 7 and 9–12 are placeholders until the class is reimplemented.
         virtual void v3();
         /// @brief Samples the first `maxNumTransformTracks` transform tracks and `maxNumFloatTracks` float tracks at `time`.
         virtual void samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut, hkUint32 maxNumFloatTracks,
@@ -41,7 +41,8 @@ namespace CB { namespace schema
         virtual void sampleIndividualTransformTracks(hkReal time, const hkInt16* tracks, hkUint32 numTracks,
                                                      hkQsTransform* transformOut) const;   ///< slot 6
         virtual void v7();
-        virtual void v8();
+        /// @note Havok's name: BSOffsetAnimationGenerator spaces its frames by duration / (frames - 1).
+        virtual int  getNumOriginalFrames() const;   ///< slot 8
         virtual void v9();
         virtual void v10();
         virtual void v11();

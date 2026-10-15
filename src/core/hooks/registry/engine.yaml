@@ -441,3 +441,11 @@ symbols:
   - { name: BSBoneSwitchGeneratorBoneData_Vtable, kind: data, se: 282011, ae: 232639, vr: 0, cpp: "CB::schema::BSBoneSwitchGeneratorBoneData::`vftable'" }
   - { name: BSBoneSwitchGeneratorBoneData_CloneCtor, kind: func, se: 0, ae: 63125, vr: 0, cpp: "??0BSBoneSwitchGeneratorBoneData@schema@CB@@QEAA@AEBV012@@Z" }  # the generator's clone copy calls it per child
   - { name: BSBoneSwitchGeneratorUtils_Generate, kind: func, se: 0, ae: 63343, vr: 0, cpp: "CB::schema::BSBoneSwitchGeneratorUtils::generate" }  # name provisional; generate tail-jumps to it (writes each child's weighted bones over the default pose)
+  - { name: BSOffsetAnimationGenerator_Vtable, kind: data, se: 282023, ae: 232653, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::`vftable'" }
+  - { name: BSOffsetAnimationGenerator_GetStaticClass, kind: func, se: 0, ae: 62950, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSOffsetAnimationGenerator_CloneCtor, kind: func, se: 0, ae: 63160, vr: 0, cpp: "??0BSOffsetAnimationGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSOffsetAnimationGenerator_Dtor, kind: func, se: 0, ae: 63161, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::~BSOffsetAnimationGenerator" }  # implicit, out of line; the scalar deleting destructor calls it
+  - { name: BSOffsetAnimationGenerator_SampleOffset, kind: func, se: 0, ae: 63158, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::sampleOffset" }  # name provisional; picks the offset frame from the variable and samples it (activate, update)
+  - { name: BSOffsetAnimationGenerator_SampleBoneOffsets, kind: func, se: 0, ae: 63159, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::sampleBoneOffsets" }  # name provisional; samples the tracks and maps the non-identity ones to bones
+  - { name: BSOffsetAnimationGenerator_ComputeNumChildren, kind: func, se: 0, ae: 63163, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::computeNumChildren" }  # name provisional; getMaxNumChildren tail-calls it, getChildren calls it
+  - { name: BSOffsetAnimationGeneratorUtils_ApplyOffsets, kind: func, se: 0, ae: 63344, vr: 0, cpp: "CB::schema::BSOffsetAnimationGeneratorUtils::applyOffsets" }  # name provisional; generate calls it (multiplies the sampled offsets onto the pose)

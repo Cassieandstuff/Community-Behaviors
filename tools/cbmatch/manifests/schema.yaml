@@ -344,6 +344,32 @@ units:
   - source: ../../../schema/Havok/Behavior/Generator/BSBoneSwitch/BSBoneSwitchGeneratorUtils.cpp
     functions:
       - { name: "CB::schema::BSBoneSwitchGeneratorUtils::generate", va: 0x140ba0b00 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGenerator.cpp
+    functions:
+      - { name: "??0BSOffsetAnimationGenerator@schema@CB@@QEAA@XZ", va: 0x140b97cf0 }
+      - { name: "??0BSOffsetAnimationGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b97dc0 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::getClassType", va: 0x140b97e70 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::activate", va: 0x140b97e80 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::deactivate", va: 0x140b97f20 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::cloneNode", va: 0x140b97fb0 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::getMaxNumChildren", va: 0x140b98000 }
+      # REGALLOC, but --diff DIVERGEs: vanilla keeps r8 live across a same-TU call (see parked.yaml):
+      # - { name: "CB::schema::BSOffsetAnimationGenerator::getChildren", va: 0x140b98010 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::isValid", va: 0x140b980c0 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::update", va: 0x140b98150 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::generate", va: 0x140b98260 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::canRecycleOutput", va: 0x140b98330 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::updateSync", va: 0x140b98340 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::sampleOffset", va: 0x140b983e0 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::sampleBoneOffsets", va: 0x140b987e0 }
+      - { name: "??0BSOffsetAnimationGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b98940 }
+      - { name: "??1BSOffsetAnimationGenerator@schema@CB@@UEAA@XZ", va: 0x140b989e0 }
+      - { name: "??_GBSOffsetAnimationGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b98a90 }
+      - { name: "CB::schema::BSOffsetAnimationGenerator::computeNumChildren", va: 0x140b98b10 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorUtils.cpp
+    functions:
+      # STRUCTURAL, setMul SIMD scheduling (see parked.yaml):
+      # - { name: "CB::schema::BSOffsetAnimationGeneratorUtils::applyOffsets", va: 0x140ba0fb0 }
   - source: ../../../schema/Havok/Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp
     functions:
       - { name: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@XZ", va: 0x140ae8e70 }

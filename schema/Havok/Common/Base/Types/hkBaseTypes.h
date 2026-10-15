@@ -24,6 +24,7 @@ extern "C" float __cdecl asinf(float);
 #define HK_DECLARE_POD_TYPE() typedef void hkIsPodTypeTag
 #define HK_NEXT_MULTIPLE_OF(ALIGNMENT, VALUE) (((VALUE) + ((ALIGNMENT)-1)) & (~((ALIGNMENT)-1)))
 #define HK_REAL_MAX 3.40282e+38f
+#define HK_REAL_EPSILON 1.192092896e-07f
 #define HK_REAL_PI 3.14159265358979f
 #define HK_REAL_DEG_TO_RAD (HK_REAL_PI / 180.0f)
 #define HK_REAL_RAD_TO_DEG 57.2957795f
