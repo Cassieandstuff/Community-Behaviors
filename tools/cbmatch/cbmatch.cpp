@@ -703,14 +703,18 @@ bool operandsMatch(const ZydisDecodedOperand& a, const ZydisDecodedOperand& b, b
     switch (a.type) {
         case ZYDIS_OPERAND_TYPE_REGISTER:
             return sameRegClass(a.reg.value, b.reg.value);
-        case ZYDIS_OPERAND_TYPE_MEMORY:
-            if (a.mem.type != b.mem.type || a.mem.scale != b.mem.scale || a.mem.segment != b.mem.segment) return false;
+        case ZYDIS_OPERAND_TYPE_MEMORY: {
+            // In 64-bit mode SS and DS are both flat; which one an address implies follows from its base register
+            // (rbp/rsp → SS), so it is register choice. fs/gs (thread data) stay distinct.
+            auto flat = [](ZydisRegister s) { return s == ZYDIS_REGISTER_SS ? ZYDIS_REGISTER_DS : s; };
+            if (a.mem.type != b.mem.type || a.mem.scale != b.mem.scale || flat(a.mem.segment) != flat(b.mem.segment)) return false;
             if ((a.mem.base == ZYDIS_REGISTER_NONE) != (b.mem.base == ZYDIS_REGISTER_NONE)) return false;
             if ((a.mem.index == ZYDIS_REGISTER_NONE) != (b.mem.index == ZYDIS_REGISTER_NONE)) return false;
             if ((a.mem.base == ZYDIS_REGISTER_RIP) != (b.mem.base == ZYDIS_REGISTER_RIP)) return false;
             if (a.mem.base != ZYDIS_REGISTER_NONE && !sameRegClass(a.mem.base, b.mem.base)) return false;
             if (a.mem.index != ZYDIS_REGISTER_NONE && !sameRegClass(a.mem.index, b.mem.index)) return false;
             return masked || a.mem.disp.value == b.mem.disp.value;
+        }
         case ZYDIS_OPERAND_TYPE_IMMEDIATE:
             return masked || (a.imm.is_relative == b.imm.is_relative && a.imm.value.u == b.imm.value.u);
         case ZYDIS_OPERAND_TYPE_POINTER:
@@ -1006,40 +1010,61 @@ bool isPlainMove(ZydisMnemonic m)
 }
 
 /// @brief How far rsp sits below its entry value at each instruction, so stack slots compare across address forms.
-/// @note r11 is a frame base only when the function opens with `mov r11, rsp` and never writes r11 again. After an
-///       unconditional exit (ret / tail jmp) the depth resets to the body's: the following code still has the frame.
+/// @note r11 is a frame base wherever its value is known relative to the entry rsp: set by `mov r11, rsp` (the
+///       prologue) or `lea r11, [rsp+k]` (an epilogue re-deriving it); any other write ends that until the next such
+///       set. After an unconditional exit (ret / tail jmp) depth and r11 reset to the body's: the following code still
+///       has the frame.
 struct Frame {
     std::map<std::uint32_t, std::int64_t> depth;
-    bool                                  r11IsEntry = false;
+    std::map<std::uint32_t, std::int64_t> r11;   ///< r11's value relative to the entry rsp, where known
+    std::map<std::uint32_t, std::int64_t> rax;   ///< likewise rax (`mov rax, rsp` opens many prologues; saves go through it)
 };
+
+/// @brief Whether `i` writes `reg` (or a register it encloses).
+bool writesRegister(const Insn& i, ZydisRegister reg)
+{
+    for (std::uint8_t o = 0; o < i.ins.operand_count; ++o)
+        if (i.ops[o].type == ZYDIS_OPERAND_TYPE_REGISTER && enclosing(i.ops[o].reg.value) == enclosing(reg) &&
+            (i.ops[o].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE))
+            return true;
+    return false;
+}
 
 Frame frameOf(const std::vector<Insn>& all)
 {
-    Frame        f;
-    std::int64_t depth = 0, body = 0;
-    bool         inPrologue = true;
-    if (!all.empty() && all[0].ins.mnemonic == ZYDIS_MNEMONIC_MOV && all[0].ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-        all[0].ops[0].reg.value == ZYDIS_REGISTER_R11 && all[0].ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-        all[0].ops[1].reg.value == ZYDIS_REGISTER_RSP) {
-        f.r11IsEntry = true;
-        for (std::size_t k = 1; k < all.size() && f.r11IsEntry; ++k)
-            for (std::uint8_t o = 0; o < all[k].ins.operand_count; ++o)
-                if (all[k].ops[o].type == ZYDIS_OPERAND_TYPE_REGISTER && enclosing(all[k].ops[o].reg.value) == ZYDIS_REGISTER_R11 &&
-                    (all[k].ops[o].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE))
-                    f.r11IsEntry = false;
-    }
+    Frame                       f;
+    std::int64_t                depth = 0, body = 0;
+    std::optional<std::int64_t> r11, bodyR11, rax;
+    bool                        inPrologue = true;
+    // A register set to (rsp + k) holds a known entry-relative value until anything else writes it.
+    auto track = [&](const Insn& i, ZydisRegister reg, std::optional<std::int64_t>& value) {
+        if (!writesRegister(i, reg)) return;
+        const auto& d  = i.ops[0];
+        const auto& s  = i.ops[1];
+        const bool  to = d.type == ZYDIS_OPERAND_TYPE_REGISTER && d.reg.value == reg;
+        if (to && i.ins.mnemonic == ZYDIS_MNEMONIC_MOV && s.type == ZYDIS_OPERAND_TYPE_REGISTER && s.reg.value == ZYDIS_REGISTER_RSP)
+            value = -depth;
+        else if (to && i.ins.mnemonic == ZYDIS_MNEMONIC_LEA && s.mem.base == ZYDIS_REGISTER_RSP && s.mem.index == ZYDIS_REGISTER_NONE)
+            value = s.mem.disp.value - depth;
+        else
+            value.reset();
+    };
     for (const auto& i : all) {
         f.depth[i.off] = depth;
+        if (r11) f.r11[i.off] = *r11;
+        if (rax) f.rax[i.off] = *rax;
+        track(i, ZYDIS_REGISTER_R11, r11);
+        track(i, ZYDIS_REGISTER_RAX, rax);
         const auto& op0  = i.ops[0];
         const bool  rsp0 = op0.type == ZYDIS_OPERAND_TYPE_REGISTER && op0.reg.value == ZYDIS_REGISTER_RSP;
         const auto  imm  = i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE ? std::int64_t(i.ops[1].imm.value.s) : 0;
         switch (i.ins.mnemonic) {
             case ZYDIS_MNEMONIC_PUSH: depth += 8; break;
             case ZYDIS_MNEMONIC_POP:  depth -= 8; break;
-            case ZYDIS_MNEMONIC_SUB:  if (rsp0) { depth += imm; if (inPrologue) { body = depth; inPrologue = false; } } break;
+            case ZYDIS_MNEMONIC_SUB:  if (rsp0) { depth += imm; if (inPrologue) { body = depth; bodyR11 = r11; inPrologue = false; } } break;
             case ZYDIS_MNEMONIC_ADD:  if (rsp0) depth -= imm; break;
-            case ZYDIS_MNEMONIC_RET:  depth = body; break;
-            case ZYDIS_MNEMONIC_JMP:  if (!inPrologue && depth != body) depth = body; break;
+            case ZYDIS_MNEMONIC_RET:  depth = body; r11 = bodyR11; rax.reset(); break;
+            case ZYDIS_MNEMONIC_JMP:  if (!inPrologue && depth != body) { depth = body; r11 = bodyR11; rax.reset(); } break;
             default: break;
         }
     }
@@ -1052,8 +1077,64 @@ std::optional<std::int64_t> slotOf(const ZydisDecodedOperand& op, const Insn& i,
     if (op.type != ZYDIS_OPERAND_TYPE_MEMORY || op.mem.type != ZYDIS_MEMOP_TYPE_MEM || op.mem.index != ZYDIS_REGISTER_NONE)
         return std::nullopt;
     if (op.mem.base == ZYDIS_REGISTER_RSP) return op.mem.disp.value - f.depth.at(i.off);
-    if (op.mem.base == ZYDIS_REGISTER_R11 && f.r11IsEntry) return op.mem.disp.value;
+    if (op.mem.base == ZYDIS_REGISTER_R11) {
+        const auto it = f.r11.find(i.off);
+        if (it != f.r11.end()) return it->second + op.mem.disp.value;
+    }
+    if (op.mem.base == ZYDIS_REGISTER_RAX) {
+        const auto it = f.rax.find(i.off);
+        if (it != f.rax.end()) return it->second + op.mem.disp.value;
+    }
     return std::nullopt;
+}
+
+/// @brief Rewrites a frame-pointer function's `[rbp+d]` operands as the `[rsp+d']` they address, so a build that keeps
+///        rbp as a frame base compares with one that addresses the same slots from rsp.
+/// @note Only when the prologue sets rbp from the stack once (`mov rbp, rsp`, `lea rbp, [rsp+k]`, or `lea rbp, [rax+k]`
+///       after an opening `mov rax, rsp`) and every later write of rbp is a `pop rbp` (the epilogue's restore): then
+///       rbp is purely an addressing base. Any other write leaves the function untouched.
+void canonicalizeFrameBase(std::vector<Insn>& insns)
+{
+    const Frame                 f = frameOf(insns);
+    std::optional<std::size_t>  at;
+    std::int64_t                base = 0;   ///< rbp relative to the entry rsp
+    const bool raxIsEntry = !insns.empty() && insns[0].ins.mnemonic == ZYDIS_MNEMONIC_MOV && insns[0].ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                            insns[0].ops[0].reg.value == ZYDIS_REGISTER_RAX && insns[0].ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                            insns[0].ops[1].reg.value == ZYDIS_REGISTER_RSP;
+    bool raxStillEntry = raxIsEntry;
+    for (std::size_t k = 0; k < insns.size(); ++k) {
+        const Insn& i = insns[k];
+        if (k > 0 && writesRegister(i, ZYDIS_REGISTER_RAX)) raxStillEntry = false;
+        if (!writesRegister(i, ZYDIS_REGISTER_RBP)) continue;
+        if (i.ins.mnemonic == ZYDIS_MNEMONIC_PUSH) continue;   // push rbp reads it
+        if (at) {
+            if (i.ins.mnemonic != ZYDIS_MNEMONIC_POP) return;   // rbp rewritten: not a plain frame base
+            continue;
+        }
+        const auto& d = i.ops[0];
+        const auto& s = i.ops[1];
+        if (d.type != ZYDIS_OPERAND_TYPE_REGISTER || d.reg.value != ZYDIS_REGISTER_RBP) return;
+        if (i.ins.mnemonic == ZYDIS_MNEMONIC_MOV && s.type == ZYDIS_OPERAND_TYPE_REGISTER && s.reg.value == ZYDIS_REGISTER_RSP)
+            base = -f.depth.at(i.off);
+        else if (i.ins.mnemonic == ZYDIS_MNEMONIC_LEA && s.mem.index == ZYDIS_REGISTER_NONE && s.mem.base == ZYDIS_REGISTER_RSP)
+            base = s.mem.disp.value - f.depth.at(i.off);
+        else if (i.ins.mnemonic == ZYDIS_MNEMONIC_LEA && s.mem.index == ZYDIS_REGISTER_NONE && s.mem.base == ZYDIS_REGISTER_RAX && raxStillEntry)
+            base = s.mem.disp.value;
+        else
+            return;
+        at = k;
+    }
+    if (!at) return;
+    for (std::size_t k = *at + 1; k < insns.size(); ++k) {
+        Insn& i = insns[k];
+        for (std::uint8_t o = 0; o < i.ins.operand_count; ++o) {
+            auto& op = i.ops[o];
+            if (op.type != ZYDIS_OPERAND_TYPE_MEMORY || op.mem.base != ZYDIS_REGISTER_RBP) continue;
+            op.mem.base       = ZYDIS_REGISTER_RSP;
+            op.mem.disp.value = base + op.mem.disp.value + f.depth.at(i.off);
+            op.mem.disp.has_displacement = ZYAN_TRUE;
+        }
+    }
 }
 
 SaveSlots findSaves(const std::vector<Insn>& all, const Frame& f)
@@ -1079,8 +1160,12 @@ SaveSlots findSaves(const std::vector<Insn>& all, const Frame& f)
 }
 
 /// @brief The save of a callee-saved register, or its restore from that same slot: register allocation, not an effect.
+/// @note A push/pop of a callee-saved register counts too: how many registers a build needs (so which it pushes, and
+///       where the rest of its saves land) is register allocation. Restoring the caller's values is checked by --diff.
 bool isSaveOrRestore(const Insn& i, const SaveSlots& saves, const Frame& f)
 {
+    if ((i.ins.mnemonic == ZYDIS_MNEMONIC_PUSH || i.ins.mnemonic == ZYDIS_MNEMONIC_POP) && i.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER)
+        return isCalleeSaved(i.ops[0].reg.value);
     if (!isPlainMove(i.ins.mnemonic) || i.ins.operand_count_visible != 2) return false;
     const auto& d = i.ops[0];
     const auto& s = i.ops[1];
@@ -1194,6 +1279,8 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (std::memcmp(&pe.bytes[*off + 4 * k], "\x00\x00\x00\x40", 4) != 0) return false;
         return true;
     });
+    canonicalizeFrameBase(a);
+    canonicalizeFrameBase(b);
 
     // Unpaired effects are matched as a set within each stretch between two aligned calls: a compiler may reorder
     // independent stores, never across a call.
@@ -1275,22 +1362,116 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
         const auto* w = writtenMemory(i);
         return !escapes && w && i.ins.mnemonic != ZYDIS_MNEMONIC_CALL && homeSlot(*w, i, f);
     };
-    // A materialized null test: `test R, R; setz/setnz D` whose D is later self-tested and branched on. One build keeps
-    // a loop-invariant pointer test as a bool in a register, another re-tests the pointer; the branch on D is what
-    // pairs with the other side's test, so the setcc itself adds no condition. Narrow on purpose: zero tests only.
+    // A materialized zero test: `test R, R` or `cmp X, 0`, then `setz/setnz D`, whose D is later tested and branched on
+    // (directly, or after a spill to a stack slot and a reload). One build keeps a loop-invariant zero/null test as a
+    // bool, another re-tests the value; the branch on D is what pairs with the other side's test, so the setcc itself
+    // adds no condition. Between the test and the setcc only instructions that write no flags, not the tested register
+    // and no memory may sit (setcc reads the flags of the last writer), and none of them may be a branch target.
+    // Narrow on purpose: zero tests only.
     auto selfTest = [](const Insn& i) {
         return i.ins.mnemonic == ZYDIS_MNEMONIC_TEST && i.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER && i.ops[0].reg.value == i.ops[1].reg.value;
     };
-    auto materializedNullTest = [&](const std::vector<Insn>& side, std::size_t k) {
+    auto zeroCompare = [](const Insn& i) {
+        return i.ins.mnemonic == ZYDIS_MNEMONIC_CMP && i.ins.operand_count_visible == 2 && i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
+               i.ops[1].imm.value.u == 0 &&
+               (i.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER || (i.ops[0].type == ZYDIS_OPERAND_TYPE_MEMORY && i.ops[0].mem.type == ZYDIS_MEMOP_TYPE_MEM));
+    };
+    auto writesFlags = [](const Insn& i) {
+        const auto* fl = i.ins.cpu_flags;
+        return fl && (fl->modified | fl->set_0 | fl->set_1 | fl->undefined) != 0;
+    };
+    auto branchTargets = [](const std::vector<Insn>& side) {
+        std::set<std::uint64_t> targets;
+        for (const auto& i : side)
+            if (i.ins.meta.category == ZYDIS_CATEGORY_COND_BR || i.ins.meta.category == ZYDIS_CATEGORY_UNCOND_BR)
+                if (const auto t = absoluteTarget(i, i.off)) targets.insert(*t);
+        return targets;
+    };
+    const std::set<std::uint64_t> targetsA = branchTargets(liveA);
+    const std::set<std::uint64_t> targetsB = branchTargets(liveB);
+    /// The setcc's zero test sits at k - gap with only neutral instructions between.
+    auto zeroTestBefore = [&](const std::vector<Insn>& side, std::size_t k, const std::set<std::uint64_t>& targets) {
+        for (std::size_t j = k; j-- > 0 && k - j <= 8;) {
+            const Insn& t = side[j];
+            if (selfTest(t) || zeroCompare(t)) {
+                const bool          reg    = t.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER;
+                const ZydisRegister tested = reg ? t.ops[0].reg.value : ZYDIS_REGISTER_NONE;
+                for (std::size_t m = j + 1; m <= k; ++m) {
+                    if (targets.count(side[m].off)) return false;
+                    if (m == k) break;
+                    if ((reg && writesRegister(side[m], tested)) || (!reg && writtenMemory(side[m]))) return false;
+                }
+                return true;
+            }
+            if (writesFlags(t) || t.ins.meta.category == ZYDIS_CATEGORY_COND_BR || t.ins.meta.category == ZYDIS_CATEGORY_UNCOND_BR ||
+                t.ins.meta.category == ZYDIS_CATEGORY_CALL || t.ins.meta.category == ZYDIS_CATEGORY_RET || writtenMemory(t))
+                return false;
+        }
+        return false;
+    };
+    /// Where D goes after the setcc: the stack slot it is spilled to (with that store's offset), if it is spilled
+    /// before being overwritten.
+    struct Spill { std::uint32_t storeOff; std::int64_t slot; };
+    auto spillOf = [&](const std::vector<Insn>& side, std::size_t k, const Frame& f) -> std::optional<Spill> {
+        const ZydisRegister d = side[k].ops[0].reg.value;
+        for (std::size_t j = k + 1; j < side.size(); ++j) {
+            const Insn& i = side[j];
+            if (const auto* w = writtenMemory(i);
+                w && isPlainMove(i.ins.mnemonic) && i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER && i.ops[1].reg.value == d)
+                if (const auto slot = slotOf(*w, i, f)) return Spill{ i.off, *slot };
+            if (writesRegister(i, d) || i.ins.meta.category == ZYDIS_CATEGORY_COND_BR || i.ins.meta.category == ZYDIS_CATEGORY_UNCOND_BR)
+                return std::nullopt;
+        }
+        return std::nullopt;
+    };
+    auto slotEscapes = [&](const std::vector<Insn>& side, std::int64_t slot, const Frame& f) {
+        for (const auto& i : side)
+            if (i.ins.mnemonic == ZYDIS_MNEMONIC_LEA)
+                if (const auto s = slotOf(i.ops[1], i, f); s && *s <= slot && slot < *s + 16) return true;
+        return false;
+    };
+    /// A later branch on D: `test D, D; jcc`, or (spilled) a read of D's slot followed within two instructions by a
+    /// zero test and a jcc.
+    auto branchedOn = [&](const std::vector<Insn>& side, std::size_t k, const Frame& f, std::optional<Spill> spill) {
+        const ZydisRegister d = side[k].ops[0].reg.value;
+        for (std::size_t j = k + 1; j + 1 < side.size(); ++j) {
+            const Insn& i = side[j];
+            if (selfTest(i) && i.ops[0].reg.value == d && side[j + 1].ins.meta.category == ZYDIS_CATEGORY_COND_BR) return true;
+            if (!spill) continue;
+            const bool readsSlot = std::any_of(i.ops, i.ops + i.ins.operand_count_visible, [&](const ZydisDecodedOperand& op) {
+                const auto s = slotOf(op, i, f);
+                return s && *s == spill->slot && !(op.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE);
+            });
+            if (!readsSlot) continue;
+            if (zeroCompare(i) && side[j + 1].ins.meta.category == ZYDIS_CATEGORY_COND_BR) return true;
+            if (j + 2 < side.size() && selfTest(side[j + 1]) && side[j + 2].ins.meta.category == ZYDIS_CATEGORY_COND_BR) return true;
+        }
+        return false;
+    };
+    auto isMaterialized = [&](const std::vector<Insn>& side, std::size_t k, const Frame& f, const std::set<std::uint64_t>& targets) {
         const Insn& s = side[k];
         if ((s.ins.mnemonic != ZYDIS_MNEMONIC_SETZ && s.ins.mnemonic != ZYDIS_MNEMONIC_SETNZ) || s.ops[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||
-            k == 0 || !selfTest(side[k - 1]))
+            !zeroTestBefore(side, k, targets))
             return false;
-        for (std::size_t j = k + 1; j + 1 < side.size(); ++j)
-            if (selfTest(side[j]) && side[j].ops[0].reg.value == s.ops[0].reg.value && side[j + 1].ins.meta.category == ZYDIS_CATEGORY_COND_BR)
-                return true;
-        return false;
+        auto spill = spillOf(side, k, f);
+        if (spill && slotEscapes(side, spill->slot, f)) spill.reset();
+        return branchedOn(side, k, f, spill);
+    };
+    /// The materialized setcc's and their non-escaping flag spills (the spill store is glue: a bool parked on the stack).
+    auto materializedOf = [&](const std::vector<Insn>& side, const Frame& f, const std::set<std::uint64_t>& targets,
+                              std::set<std::uint32_t>& setccs, std::set<std::uint32_t>& spills) {
+        for (std::size_t k = 0; k < side.size(); ++k) {
+            if (!isMaterialized(side, k, f, targets)) continue;
+            setccs.insert(side[k].off);
+            if (const auto spill = spillOf(side, k, f); spill && !slotEscapes(side, spill->slot, f)) spills.insert(spill->storeOff);
+        }
+    };
+    std::set<std::uint32_t> setccA, setccB, flagSpillA, flagSpillB;
+    materializedOf(liveA, frameA, targetsA, setccA, flagSpillA);
+    materializedOf(liveB, frameB, targetsB, setccB, flagSpillB);
+    auto materializedNullTest = [&](const std::vector<Insn>& side, std::size_t k) {
+        return (&side == &liveA ? setccA : setccB).count(side[k].off) != 0;
     };
 
     for (const auto& [ia, ib] : alignInstructions(liveA, liveB)) {
@@ -1347,7 +1528,8 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (const char* fam = conditionFamily(x.ins.mnemonic); fam && !materializedNullTest(liveA, std::size_t(ia))) ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
             if (const auto r = readOf(x, frameA)) spareA.push_back(*r);
-            if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA) && !privateScratch(x, frameA, homeEscapesA))
+            if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA) && !privateScratch(x, frameA, homeEscapesA) &&
+                !flagSpillA.count(x.off))
                 effectsA.push_back({ &x, segment });
             else
                 ++glue;
@@ -1356,7 +1538,8 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (const char* fam = conditionFamily(y.ins.mnemonic); fam && !materializedNullTest(liveB, std::size_t(ib))) ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
             if (const auto r = readOf(y, frameB)) spareB.push_back(*r);
-            if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB) && !privateScratch(y, frameB, homeEscapesB))
+            if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB) && !privateScratch(y, frameB, homeEscapesB) &&
+                !flagSpillB.count(y.off))
                 effectsB.push_back({ &y, segment });
             else
                 ++glue;

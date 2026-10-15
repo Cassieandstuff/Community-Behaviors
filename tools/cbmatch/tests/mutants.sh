@@ -4,13 +4,14 @@
 # Every mutant must come out STRUCTURAL except the documented VARIANT blind spots, which must come out VARIANT and then
 # DIVERGE under --diff (<seeds> synthetic inputs, default 256): u3 (dropped i--), t3 (two register arguments swapped) and
 # k2 (a constant the build already holds in a register: no load, so the changed value is just another register) are
-# register dataflow; c1 (an inverted zero test) is jz/jnz sharing a condition family because branch layout inverts them.
+# register dataflow; c1 and y2 (inverted tests) are jz/jnz sharing a condition family because branch layout inverts them.
 # Controls (x_*) compile the same functions unmutated: they must come out VARIANT with no divergence, or a harness that
 # diverges on everything would pass.
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
-# home-area scratch), s setElapsedTime (frame size), k startEcho. A mutant of a header is compiled against a
+# home-area scratch), s setElapsedTime (frame size), k startEcho, y updateSync (rax frame base, materialized zero test
+# with an intervening instruction). A mutant of a header is compiled against a
 # shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -19,7 +20,7 @@ seeds=${3:-256}
 repo=$(cd "$(dirname "$0")/../../.." && pwd -W)
 havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
-expectVariant=" u3 t3 c1 k2 "
+expectVariant=" u3 t3 c1 k2 y2 "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -38,6 +39,7 @@ target() {
         e*) fn=getExtractedMotionDelta va=0x140acfff0 ;;
         s*) fn=setElapsedTime va=0x140acecd0 ;;
         k*) fn=startEcho va=0x140acee60 ;;
+        y*) fn=updateSync va=0x140ace930 ;;
     esac
 }
 
@@ -102,6 +104,8 @@ mutant s3_wrong_half           "$clip" 's/t > cycle \* 0\.5f/t > cycle * 0.25f/'
 mutant k1_limit_inclusive      "$clip" 's/if (numEchos < s_maxEchos) {/if (numEchos <= s_maxEchos) {/'
 mutant k2_fade_sign            "$clip" 's/echo\.m_dwdt            = -1\.0f \/ echoDuration;/echo.m_dwdt            = 1.0f \/ echoDuration;/'
 mutant k3_wrap_wrong_mode      "$clip" 's/if (t > duration \&\& m_mode == MODE_LOOPING)/if (t > duration \&\& m_mode == MODE_PING_PONG)/'
+mutant y1_wrong_sync_field     "$clip" 's/^        syncInfo\.m_playbackSpeed = 1\.0f;$/        syncInfo.m_localTime     = 1.0f;/'
+mutant y2_inverted_sync_point  "$clip" 's/if (graphData \&\& graphData->isEventSyncPoint(id)) {/if (graphData \&\& !graphData->isEventSyncPoint(id)) {/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {
