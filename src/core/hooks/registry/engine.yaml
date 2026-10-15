@@ -170,7 +170,9 @@ symbols:
   - { name: hkReferencedObject_RemoveReference, kind: func, se: 56607, ae: 57011, vr: 0, cpp: "hkReferencedObject::removeReference" }
   - { name: hkArrayUtil_Reserve, kind: func, se: 0, ae: 57048, vr: 0, cpp: "hkArrayUtil::_reserve" }
   - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "hkString::strCmp" }
+  - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "hkPointerMapStorage::getWithDefault" }  # name provisional
+  - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@@QEAA@AEBV0@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@@QEAA@UhkFinishLoadedObjectFlag@@@Z" }
   - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@@QEAAAEAV0@PEBD@Z" }  # operator=(const char*)
   - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "hkStringBuf::printf" }
@@ -179,6 +181,7 @@ symbols:
   - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "hkMemoryRouter_s_memoryRouter" }
   - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "hkError::s_instance" }
   - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "hkMonitorStream_s_tls" }
+  - { name: hkVectorConstant_0001, kind: data, se: 0, ae: 219019, vr: 0, cpp: "g_vectorConstant0001" }  # (0,0,0,1) — quaternion identity
   - { name: hkVectorConstant_MinusHalf, kind: data, se: 0, ae: 219020, vr: 0, cpp: "g_vectorConstantMinusHalf" }  # -0.5 x4
   - { name: hkVectorConstant_Zero, kind: data, se: 0, ae: 219024, vr: 0, cpp: "g_vectorConstantZero" }
   - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
@@ -188,6 +191,7 @@ symbols:
   - { name: hkaDefaultAnimationControlMapperData_Ctor, kind: func, se: 0, ae: 64184, vr: 0, cpp: "hkaDefaultAnimationControlMapperData::hkaDefaultAnimationControlMapperData" }
   - { name: hkaDefaultAnimationControl_SetBinding, kind: func, se: 0, ae: 64390, vr: 0, cpp: "hkaDefaultAnimationControl::setBinding" }  # name provisional
   # Havok behavior
+  - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@@QEAA@AEBV0@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "hkQueue<hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
@@ -195,6 +199,7 @@ symbols:
   - { name: BSCRC32_Pointer, kind: func, se: 0, ae: 68221, vr: 0, cpp: "BSCRC32_Pointer" }  # name provisional; CRC of a pointer value (BSTScatterTable hash)
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "hkbNode::`vftable'" }
+  - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "hkbClipGenerator::`vftable'" }
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "hkbClipTriggerArray::`vftable'" }
   - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "hkbTimerModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "BSSynchronizedClipGenerator::`vftable'" }
