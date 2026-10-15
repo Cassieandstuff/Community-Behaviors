@@ -251,3 +251,11 @@ units:
       - { name: "CB::schema::BSEventEveryNEventsModifier::calculateNumberOfEventsBeforeSend", va: 0x140b9a8d0 }
       - { name: "??0BSEventEveryNEventsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9a920 }
       - { name: "??_GBSEventEveryNEventsModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9aa00 }
+  - source: ../../../schema/Havok/Behavior/Generator/ReferencePose/hkbReferencePoseGenerator.cpp
+    functions:
+      - { name: "??0hkbReferencePoseGenerator@schema@CB@@QEAA@XZ", va: 0x140aeae10 }
+      - { name: "??0hkbReferencePoseGenerator@schema@CB@@QEAA@PEBUhkaSkeleton@12@@Z", va: 0x140aeae80 }
+      - { name: "CB::schema::hkbReferencePoseGenerator::getClassType", va: 0x140aeaf00 }
+      - { name: "CB::schema::hkbReferencePoseGenerator::cloneNode", va: 0x140aeaf10 }
+      - { name: "CB::schema::hkbReferencePoseGenerator::generate", va: 0x140aeaf40 }
+      - { name: "??_GhkbReferencePoseGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140acaae0 }

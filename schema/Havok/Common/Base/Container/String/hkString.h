@@ -84,6 +84,25 @@ namespace CB { namespace schema
                 *d++ = src[3];
             }
         }
+        /// @brief Copies `numQuads` 16-byte blocks from `src` to `dst`, a 4-byte word at a time.
+        /// @note Each block is read whole before it is written (four loads, then four stores), as vanilla does.
+        static HK_FORCE_INLINE void memCpy16(void* dst, const void* src, int numQuads)
+        {
+            const hkUint32* s = static_cast<const hkUint32*>(src);
+            hkUint32*       d = static_cast<hkUint32*>(dst);
+            for (int i = 0; i < numQuads; i++) {
+                const hkUint32 a = s[0];
+                const hkUint32 b = s[1];
+                const hkUint32 c = s[2];
+                const hkUint32 e = s[3];
+                d[0]             = a;
+                d[1]             = b;
+                d[2]             = c;
+                d[3]             = e;
+                d += 4;
+                s += 4;
+            }
+        }
         /// @brief Fills `numWords` 4-byte words of `dst` with `value`.
         /// @note Counted down from numWords - 1, as vanilla tests it (`lea eax,[n-1]; test; js` before the rep stosd).
         static HK_FORCE_INLINE void memSet4(void* dst, const int value, int numWords)

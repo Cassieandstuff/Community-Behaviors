@@ -22,6 +22,18 @@ namespace CB { namespace schema
             for (int i = 0; i < m_words.getSize(); i++) m_words[i] = 0;
         }
 
+        /// @brief Wraps caller-owned `storage` (never freed) and sets every bit of it to `initialValue` (0 or 1).
+        HK_FORCE_INLINE hkBitField(int numBits, hkUint32* storage, int initialValue)
+        {
+            m_numBits                  = numBits;
+            const int numWords         = (numBits + 31) >> 5;
+            m_words.m_data             = storage;
+            m_words.m_size             = numWords;
+            m_words.m_capacityAndFlags = numWords | hkArray<hkUint32>::DONT_DEALLOCATE_FLAG;
+            const hkUint32 fill        = initialValue ? 0xffffffffu : 0u;
+            for (int i = 0; i < m_words.getSize(); i++) m_words[i] = fill;
+        }
+
         HK_FORCE_INLINE void set(int index) { m_words[index >> 5] |= (1 << (index & 31)); }
         /// @brief Sets bit `index` to `value` (0 or 1) without branching.
         HK_FORCE_INLINE void assign(int index, int value)

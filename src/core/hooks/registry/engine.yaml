@@ -332,3 +332,5 @@ symbols:
   - { name: BSModifyOnceModifier_Vtable, kind: data, se: 282067, ae: 232711, vr: 0, cpp: "CB::schema::BSModifyOnceModifier::`vftable'" }
   - { name: BSEventEveryNEventsModifier_Vtable, kind: data, se: 282042, ae: 232678, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene
+  - { name: hkbReferencePoseGenerator_Vtable, kind: data, se: 278396, ae: 226336, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::`vftable'" }
+  - { name: hkbReferencePoseGenerator_GetStaticClass, kind: func, se: 0, ae: 58681, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::staticClass" }  # getClassType tail-jumps to it
