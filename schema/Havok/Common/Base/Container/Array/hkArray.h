@@ -8,12 +8,6 @@ namespace CB { namespace schema
 {
     /// @brief Whether T is plain old data: picks hkArrayUtil's construct/destruct at compile time.
     template <bool IS_POD> struct hkArrayIsPod {};
-    /// @brief Whether hkArray treats T as plain old data: the compiler's answer, except where Havok declares a type POD.
-    template <class T> struct hkIsPodType { enum { result = __is_pod(T) }; };
-    /// @note Havok declares hkBool POD (it has a constructor, so __is_pod says no): vanilla fills and copies an
-    ///       hkArray<hkBool> as raw bytes.
-    template <> struct hkIsPodType<hkBool> { enum { result = true }; };
-
     /// @brief Whether containers may treat T as plain old data: the compiler's __is_pod, or a type that says so with
     ///        HK_DECLARE_POD_TYPE() (Havok's marker for structs whose members, such as hkBool, have constructors).
     template <class T> struct hkIsPodType
@@ -22,6 +16,9 @@ namespace CB { namespace schema
         template <class U> static int  test(...);
         static const bool result = __is_pod(T) || sizeof(test<T>(0)) == 1;
     };
+    /// @note Havok declares hkBool POD (it has a constructor, so __is_pod says no): vanilla fills and copies an
+    ///       hkArray<hkBool> as raw bytes.
+    template <> struct hkIsPodType<hkBool> { static const bool result = true; };
 
     struct hkArrayUtil
     {
