@@ -680,3 +680,8 @@ units:
       - { name: "??0BSLookAtModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9d8c0 }
       - { name: "??1BSLookAtModifier@schema@CB@@UEAA@XZ", va: 0x140b9e210 }
       - { name: "??_GBSLookAtModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9e2c0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSLookAt/BSLookAtModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::BSComputeGainForTimeStep", va: 0x140ba2060 }
+      # - { name: "CB::schema::BSLookAtModifierUtils::modifyInternal", va: 0x140ba2090 }  # parked: one dead broadcast shufps vanilla keeps (see parked.yaml)
+      # - { name: "CB::schema::BSLookAtModifierUtils::modifyBone", va: 0x140ba2ba0 }  # parked: constants hoisted into different xmm registers (see parked.yaml)

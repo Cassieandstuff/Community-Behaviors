@@ -45,6 +45,8 @@ namespace CB { namespace schema
         /// @note A load from g_vectorConstantZero, where setZero4 is an xorps (the node default constructors read it).
         static HK_FORCE_INLINE const hkVector4& getZero();
         HK_FORCE_INLINE void setAll(float a) { m_quad = _mm_set1_ps(a); }
+        /// @brief Component `i`, through memory.
+        HK_FORCE_INLINE hkReal& operator()(int i) { return m_quad.m128_f32[i]; }
         HK_FORCE_INLINE void set(hkReal x, hkReal y, hkReal z, hkReal w = 0.0f) { m_quad = _mm_setr_ps(x, y, z, w); }
 
         HK_FORCE_INLINE hkSimdReal getSimdAt3() const { return hkSimdReal(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(3, 3, 3, 3))); }
@@ -383,6 +385,9 @@ namespace CB { namespace schema
             if (fabs(r) >= 1.0f) return (r > 0.0f) ? 0.5f * HK_REAL_PI : -0.5f * HK_REAL_PI;
             return ::asinf(r);
         }
+        /// @brief acos, 0 at or above 1 and pi at or below -1.
+        /// @note Out of line in vanilla (0x140b078e0; the IK solvers, hkbEvaluateExpressionModifier and BSLookAt call it).
+        static hkReal acos(hkReal r);
 
         /// @brief Rounds toward negative infinity: truncate, then step down for a negative non-integer.
         /// @note Out-of-range input (truncation gives 0x80000000) and integers come back unchanged.

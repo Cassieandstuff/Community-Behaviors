@@ -17,6 +17,7 @@ extern "C" unsigned __int64 __rdtsc();
 extern "C" double __cdecl fabs(double);
 #pragma intrinsic(fabs)
 extern "C" float __cdecl asinf(float);
+extern "C" float __cdecl acosf(float);
 
 #define HK_NULL 0
 #define HK_FORCE_INLINE __forceinline

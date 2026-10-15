@@ -522,3 +522,10 @@ symbols:
   - { name: BSLookAtModifierBoneData_ResetCurrentFwdAxis, kind: func, se: 0, ae: 63269, vr: 0, cpp: "CB::schema::BSLookAtModifierBoneData::resetCurrentFwdAxis" }  # name provisional; currentFwdAxisLS = fwdAxisLS
   - { name: BSLookAtModifierUtils_ModifyInternal, kind: func, se: 0, ae: 63350, vr: 0, cpp: "CB::schema::BSLookAtModifierUtils::modifyInternal" }  # (modifier, pose, inOut, context-or-null); name from its warning string
   - { name: hkVector4_IsNormalized3, kind: func, se: 0, ae: 57221, vr: 0, cpp: "CB::schema::hkVector4::isNormalized3" }  # (epsilon) -> hkBool through a hidden pointer
+  - { name: BSComputeGainForTimeStep, kind: func, se: 0, ae: 63349, vr: 0, cpp: "CB::schema::BSComputeGainForTimeStep" }  # name provisional; clamp(gain * timeStep * 30, 0, 1), shared by the BS look-at/IK/interp modifiers
+  - { name: BSLookAtModifierUtils_ModifyBone, kind: func, se: 0, ae: 63351, vr: 0, cpp: "CB::schema::BSLookAtModifierUtils::modifyBone" }  # name provisional; (modifier, bone, pose, lookAt, targetMS, limitAngle) -> angle asked
+  - { name: hkErrStream_Ctor, kind: func, se: 0, ae: 57207, vr: 0, cpp: "CB::schema::hkErrStream::hkErrStream" }  # (buf, bufSize) the HK_WARN text stream
+  - { name: hkOstream_PrintCStr, kind: func, se: 0, ae: 57518, vr: 0, cpp: "CB::schema::hkOstream::operator<<" }  # operator<<(const char*)
+  - { name: hkOstream_Dtor, kind: func, se: 0, ae: 57513, vr: 0, cpp: "CB::schema::hkOstream::~hkOstream" }
+  - { name: hkMath_Acos, kind: func, se: 0, ae: 60037, vr: 0, cpp: "CB::schema::hkMath::acos" }  # out-of-line copy: 0 at >= 1, pi at <= -1, else acosf
+  - { name: CRT_acosf, kind: func, se: 0, ae: 109723, vr: 0, cpp: "acosf" }  # the CRT acosf

@@ -16,6 +16,11 @@ namespace CB { namespace schema
             hkUint32    m_time0;
             hkUint32    m_pad;
         };
+        /// @brief A list-begin command: the list's name, then the first split's.
+        struct TimerBeginListCommand : TimerCommand
+        {
+            const char* m_nameOfFirstSplit;
+        };
 
         char* m_start;
         char* m_end;
@@ -40,3 +45,19 @@ namespace CB { namespace schema
     }
 #define HK_TIMER_BEGIN(NAME) HK_TIMER_COMMAND("Tt" NAME)
 #define HK_TIMER_END()       HK_TIMER_COMMAND("Et")
+
+/// @brief Opens a timer list (`Lt<name>`) whose first split is `St<first>`; HK_TIMER_SPLIT_LIST starts the next split,
+///        HK_TIMER_END_LIST (`lt`) closes it.
+#define HK_TIMER_BEGIN_LIST(NAME, FIRST)                                                                            \
+    {                                                                                                               \
+        ::CB::schema::hkMonitorStream& mStream = ::CB::schema::hkMonitorStream::getInstance();                      \
+        if (mStream.memoryAvailable()) {                                                                            \
+            ::CB::schema::hkMonitorStream::TimerBeginListCommand* h = reinterpret_cast<::CB::schema::hkMonitorStream::TimerBeginListCommand*>(mStream.m_end); \
+            h->m_commandAndMonitor = "Lt" NAME;                                                                     \
+            h->m_nameOfFirstSplit  = "St" FIRST;                                                                    \
+            h->m_time0             = static_cast<::CB::schema::hkUint32>(__rdtsc());                               \
+            mStream.m_end          = reinterpret_cast<char*>(h + 1);                                               \
+        }                                                                                                           \
+    }
+#define HK_TIMER_SPLIT_LIST(NAME) HK_TIMER_COMMAND("St" NAME)
+#define HK_TIMER_END_LIST()       HK_TIMER_COMMAND("lt")
