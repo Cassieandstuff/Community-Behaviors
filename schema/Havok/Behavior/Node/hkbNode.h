@@ -31,6 +31,14 @@ namespace CB { namespace schema
         const Binding* findBindingByMemberPath(const char* memberPath) const;
     };
 
+    /// @note Only the member path is identified (BSCyclicBlendTransitionGenerator::handleEvent walks the bindings
+    ///       comparing it, 0x28 apart).
+    struct hkbVariableBindingSet::Binding
+    {
+        hkStringPtr m_memberPath;    ///< +0x00
+        hkUint8     m_pad8[0x20];
+    };
+
     /// @note The destructor is implicit: under /Ob1 VS2015 inlines it into some node destructors (hkbSequence's) and
     ///       calls the out-of-line copy from others (the clip's, the timer's) — the same split vanilla shows. A
     ///       user-provided one adds a vtable store vanilla's lacks.

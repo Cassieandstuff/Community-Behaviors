@@ -344,6 +344,26 @@ units:
   - source: ../../../schema/Havok/Behavior/Generator/BSBoneSwitch/BSBoneSwitchGeneratorUtils.cpp
     functions:
       - { name: "CB::schema::BSBoneSwitchGeneratorUtils::generate", va: 0x140ba0b00 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSCyclicBlendTransition/BSCyclicBlendTransitionGenerator.cpp
+    functions:
+      - { name: "??0BSCyclicBlendTransitionGenerator@schema@CB@@QEAA@XZ", va: 0x140b97010 }
+      - { name: "??0BSCyclicBlendTransitionGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b970c0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::getClassType", va: 0x140b97130 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::activate", va: 0x140b97140 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::deactivate", va: 0x140b97200 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::update", va: 0x140b97260 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::handleEvent", va: 0x140b97380 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::cloneNode", va: 0x140b97670 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::getMaxNumChildren", va: 0x140b976c0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::getChildren", va: 0x140b976d0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::isValid", va: 0x140b977a0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::generate", va: 0x140b978c0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::canRecycleOutput", va: 0x140b979c0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::updateSync", va: 0x140b979e0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::getBlenderClone", va: 0x140b97ab0 }
+      - { name: "CB::schema::BSCyclicBlendTransitionGenerator::computeNumChildren", va: 0x140b97b20 }
+      - { name: "??0BSCyclicBlendTransitionGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b97b50 }
+      - { name: "??_GBSCyclicBlendTransitionGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b97c30 }
   - source: ../../../schema/Havok/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGenerator.cpp
     functions:
       - { name: "??0BSOffsetAnimationGenerator@schema@CB@@QEAA@XZ", va: 0x140b97cf0 }
@@ -368,7 +388,7 @@ units:
       - { name: "CB::schema::BSOffsetAnimationGenerator::computeNumChildren", va: 0x140b98b10 }
   - source: ../../../schema/Havok/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorUtils.cpp
     functions:
-      # STRUCTURAL, setMul SIMD scheduling (see parked.yaml):
+      # STRUCTURAL even with rule E: vanilla keeps the bone loop top-tested, 24247 rotates it behind a size guard (see parked.yaml):
       # - { name: "CB::schema::BSOffsetAnimationGeneratorUtils::applyOffsets", va: 0x140ba0fb0 }
   - source: ../../../schema/Havok/Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp
     functions:

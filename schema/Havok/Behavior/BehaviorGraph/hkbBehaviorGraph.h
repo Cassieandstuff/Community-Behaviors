@@ -68,6 +68,9 @@ namespace CB { namespace schema
         /// @note Name provisional; out of line (0x140ab3c10), called by the blender and the transition effects. `node`
         ///       keys m_activeNodeTemplateToIndexMap as is (not found: nothing moves).
         void setNodeLocalTime(const hkbNode* node, hkReal localTime);
+        /// @brief As getNodeClone, but a template not cloned yet is cloned (cloneNode) and both maps learn the pair.
+        /// @note Name provisional (0x140ab4020; BSCyclicBlendTransitionGenerator::activate calls it).
+        hkbNode* getOrCreateNodeClone(hkbNode* node);
         /// @brief The active-node record of `node` (a template or this graph's clone of one), or the record it is a
         ///        proxy for.
         /// @pre `node` is active (an unknown node reads record 0).
