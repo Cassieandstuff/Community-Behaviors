@@ -261,6 +261,10 @@ symbols:
   - { name: hkbSenseHandleModifier_SenseInSkeletons, kind: func, se: 0, ae: 59887, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::senseInSkeletons" }  # name provisional; sensing modes 6-8
   - { name: hkbSenseHandleModifier_SenseInLocalFrameGroup, kind: func, se: 0, ae: 59888, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::senseInLocalFrameGroup" }  # name provisional; sensing mode 9
   - { name: hkbSenseHandleModifier_ProcessSensedHandle, kind: func, se: 0, ae: 59890, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::processSensedHandle" }  # name provisional; publishes m_handleOut, picks the range
+  - { name: hkbSenseHandleModifier_GetRigidBodiesThatCollide, kind: func, se: 0, ae: 59891, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::getRigidBodiesThatCollide" }  # static; senseInRigidBodies' per-mode query
+  - { name: hkbContext_GetWorld, kind: func, se: 0, ae: 58316, vr: 0, cpp: "CB::schema::hkbContext::getWorld" }  # out of line
+  - { name: hkpWorld_Lock, kind: func, se: 0, ae: 61335, vr: 0, cpp: "CB::schema::hkpWorld::lock" }  # name provisional
+  - { name: hkpWorld_Unlock, kind: func, se: 0, ae: 61337, vr: 0, cpp: "CB::schema::hkpWorld::unlock" }  # name provisional
   - { name: hkbSenseHandleModifier_CollectCharacterLocalFrames, kind: func, se: 0, ae: 59889, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::collectCharacterLocalFrames" }  # name provisional; every skeleton local frame, in its bone space
   - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
   - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it

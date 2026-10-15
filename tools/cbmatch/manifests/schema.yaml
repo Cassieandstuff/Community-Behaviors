@@ -197,6 +197,6 @@ units:
       # - { name: "CB::schema::hkbSenseHandleModifier::collectCharacterLocalFrames", va: 0x140afe570 }
       - { name: "CB::schema::hkbSenseHandleModifier::senseInLocalFrameGroup", va: 0x140afe330 }
       - { name: "CB::schema::hkbSenseHandleModifier::senseInSkeletons", va: 0x140afe080 }
-      # - { name: "CB::schema::hkbSenseHandleModifier::senseInRigidBodies", va: 0x140afdbf0 }
+      - { name: "CB::schema::hkbSenseHandleModifier::senseInRigidBodies", va: 0x140afdbf0 }
       - { name: "??1hkbSenseHandleModifier@schema@CB@@UEAA@XZ", va: 0x140ac6e70 }
       - { name: "??_GhkbSenseHandleModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acade0 }

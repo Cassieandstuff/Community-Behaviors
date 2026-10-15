@@ -11,8 +11,8 @@
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
 # home-area scratch), s setElapsedTime (frame size), k startEcho, y updateSync (rax frame base, materialized zero test
-# with an intervening instruction). A mutant of a header is compiled against a
-# shadowing copy of that header (unit /I first).
+# with an intervening instruction), j hkbSenseHandleModifier::senseInRigidBodies (switch jump tables). A mutant of a
+# header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
 work=${2:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -28,8 +28,9 @@ rm -rf "$work/mut" && mkdir -p "$work/mut"
 units=""
 names=""
 
-# target <name>: the function and vanilla address a name's family letter stands for.
+# target <name>: the class, source file, function and vanilla address a name's family letter stands for.
 target() {
+    cls=hkbClipGenerator src=$clip
     case "$1" in
         m*) fn=activate va=0x140acd750 ;;           u*) fn=update va=0x140acde40 ;;
         d*) fn=deactivate va=0x140ace1e0 ;;         g*) fn=generate va=0x140ace400 ;;
@@ -40,6 +41,8 @@ target() {
         s*) fn=setElapsedTime va=0x140acecd0 ;;
         k*) fn=startEcho va=0x140acee60 ;;
         y*) fn=updateSync va=0x140ace930 ;;
+        j*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
+            fn=senseInRigidBodies va=0x140afdbf0 ;;
     esac
 }
 
@@ -47,18 +50,17 @@ target() {
 mutant() {
     name=$1 file=$2 expr=$3
     target "$name"
-    if [ "$file" = "$clip" ]; then
-        out="$work/mut/$name.cpp"
-        source="$out" flags="[]"
-    else
-        out="$work/mut/$name/$file"
-        mkdir -p "$(dirname "$out")"
-        source="$havok/$clip" flags="[\"/I$work/mut/$name\"]"
-    fi
+    case "$file" in
+        *.cpp) out="$work/mut/$name.cpp"
+               source="$out" flags="[]" ;;
+        *)     out="$work/mut/$name/$file"
+               mkdir -p "$(dirname "$out")"
+               source="$havok/$src" flags="[\"/I$work/mut/$name\"]" ;;
+    esac
     sed "$expr" "$havok/$file" > "$out"
     if cmp -s "$out" "$havok/$file"; then echo "UNCHANGED: $name (its pattern no longer matches $file)"; exit 1; fi
     units="$units
-  - { source: \"$source\", flags: $flags, functions: [ { name: \"CB::schema::hkbClipGenerator::$fn\", va: $va } ] }"
+  - { source: \"$source\", flags: $flags, functions: [ { name: \"CB::schema::$cls::$fn\", va: $va } ] }"
     names="$names $name"
 }
 
@@ -106,12 +108,14 @@ mutant k2_fade_sign            "$clip" 's/echo\.m_dwdt            = -1\.0f \/ ec
 mutant k3_wrap_wrong_mode      "$clip" 's/if (t > duration \&\& m_mode == MODE_LOOPING)/if (t > duration \&\& m_mode == MODE_PING_PONG)/'
 mutant y1_wrong_sync_field     "$clip" 's/^        syncInfo\.m_playbackSpeed = 1\.0f;$/        syncInfo.m_localTime     = 1.0f;/'
 mutant y2_inverted_sync_point  "$clip" 's/if (graphData \&\& graphData->isEventSyncPoint(id)) {/if (graphData \&\& !graphData->isEventSyncPoint(id)) {/'
+sense="Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp"
+mutant j1_swapped_cases        "$sense" 's/case SENSE_IN_RIGID_BODIES_OUTSIDE_THIS_CHARACTER:/case TMP_SWAP:/; s/case SENSE_IN_OTHER_CHARACTER_RIGID_BODIES:/case SENSE_IN_RIGID_BODIES_OUTSIDE_THIS_CHARACTER:/; s/case TMP_SWAP:/case SENSE_IN_OTHER_CHARACTER_RIGID_BODIES:/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {
     target "$1"
     units="$units
-  - { source: \"$havok/$clip\", flags: [], functions: [ { name: \"CB::schema::hkbClipGenerator::$fn\", va: $va } ] }"
+  - { source: \"$havok/$src\", flags: [], functions: [ { name: \"CB::schema::$cls::$fn\", va: $va } ] }"
     names="$names x_$fn"
 }
 for family in $expectVariant; do control "$family"; done

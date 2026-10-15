@@ -465,7 +465,11 @@ struct CoffFunction {
     std::string                            mangled, name;
     Bytes                                  bytes;
     std::vector<bool>                      mask;     ///< bytes a relocation fills in at link time
-    struct Target { std::string mangled, name; std::uint16_t type = 0; };
+    struct Target {
+        std::string                 mangled, name;
+        std::uint16_t               type = 0;
+        std::optional<std::int64_t> local;   ///< the referenced offset within this function, when it points into it
+    };
     std::map<std::uint32_t, Target>        targets;  ///< reloc offset → the symbol it refers to
 };
 
@@ -514,7 +518,9 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
         return std::string(p, strnlen(p, 8));
     };
 
-    std::vector<std::string> names(nSymbols);
+    std::vector<std::string>  names(nSymbols);
+    std::vector<std::int16_t> symSection(nSymbols, 0);
+    std::vector<std::uint32_t> symValue(nSymbols, 0);
     struct Sym { std::uint32_t index, value; };
     std::map<int, std::vector<Sym>> funcsBySection;
     for (std::uint32_t i = 0; i < nSymbols; ++i) {
@@ -525,6 +531,8 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
         const auto type     = rd<std::uint16_t>(b, s + 14);
         const auto storage  = rd<std::uint8_t>(b, s + 16);
         const auto aux      = rd<std::uint8_t>(b, s + 17);
+        symSection[i]       = section;
+        symValue[i]         = value;
         if (section > 0 && section <= nSections && (type >> 4) == IMAGE_SYM_DTYPE_FUNCTION &&
             (storage == IMAGE_SYM_CLASS_EXTERNAL || storage == IMAGE_SYM_CLASS_STATIC))
             funcsBySection[section].push_back({ i, value });
@@ -555,7 +563,15 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
                 const auto        width = relocWidth(rd<std::uint16_t>(b, ro + 8));
                 if (at < begin || at >= end) continue;
                 for (std::uint32_t w = 0; w < width && at - begin + w < f.mask.size(); ++w) f.mask[at - begin + w] = true;
-                if (sym < names.size()) f.targets[at - begin] = { names[sym], undecorate(names[sym]), rd<std::uint16_t>(b, ro + 8) };
+                if (sym >= names.size()) continue;
+                CoffFunction::Target t{ names[sym], undecorate(names[sym]), rd<std::uint16_t>(b, ro + 8), std::nullopt };
+                // A reference into this same section (a jump table, its entries): resolve it to a function offset. COFF
+                // keeps the addend in the field itself.
+                if (symSection[sym] == section && width == 4) {
+                    const std::int64_t target = std::int64_t(symValue[sym]) + rd<std::int32_t>(b, rawPtr + at);
+                    if (target >= begin && target < end) t.local = target - begin;
+                }
+                f.targets[at - begin] = std::move(t);
             }
             out.push_back(std::move(f));
         }
@@ -1620,6 +1636,7 @@ std::optional<std::uint64_t> absoluteTarget(const Insn& i, std::uint64_t runtime
 ///        table. nullopt = not such a reference.
 std::optional<std::string> selfCheck(const std::string& name, std::uint64_t target, const PeImage& pe)
 {
+    if (name == "__ImageBase") return target == pe.imageBase ? std::string() : "__ImageBase: vanilla 0x" + hex(target) + " is not the image base";
     for (const char* prefix : { "__real@", "__xmm@" }) {
         if (name.rfind(prefix, 0) != 0) continue;
         const std::string hexBytes = name.substr(std::strlen(prefix));
@@ -1659,6 +1676,7 @@ void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn
             const auto t = ours.targets.find(o);
             if (t == ours.targets.end()) continue;
             if (t->second.mangled.rfind("??_C@", 0) == 0 || t->second.name == "`string'") continue;   // string literals
+            if (t->second.local) { ++m.refsVerified; continue; }   // into this function (a jump table): checkTables compares it
             const bool constant = t->second.mangled.rfind("__real@", 0) == 0 || t->second.mangled.rfind("__xmm@", 0) == 0;
             if (ib < 0) {
                 if (constant) deferred.push_back({ &x, t->second.mangled, std::string() });   // unverifiable unless found
@@ -1777,6 +1795,178 @@ Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va,
         m.detail = regallocWhy + "; not VARIANT: " + variantWhy;
     }
     return m;
+}
+
+// ── switch jump tables ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/// @brief A switch's table, laid out after the function's code. 4-byte entries are case targets (function offsets);
+///        1-byte entries index a 4-byte table (a two-level switch).
+struct JumpTable {
+    std::uint32_t             start = 0;
+    std::uint8_t              entrySize = 4;
+    std::vector<std::int64_t> entries;
+};
+
+/// @brief Where a function's code ends and its jump tables (which follow it) begin.
+struct CodeLayout {
+    std::uint32_t          codeEnd = 0;
+    std::vector<JumpTable> tables;
+};
+
+/// @brief Decodes `bytes` linearly, asking `tableAt` of each instruction whether it reads a jump table (and where), and
+///        stops at the first table: what follows is data. MSVC x64 places a function's tables after its code.
+CodeLayout layoutOf(const Bytes& bytes, const std::function<std::optional<std::pair<std::uint32_t, std::uint8_t>>(const Insn&)>& tableAt)
+{
+    CodeLayout   layout;
+    ZydisDecoder dec;
+    ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+    std::uint32_t firstTable = std::uint32_t(bytes.size());
+    std::uint32_t off        = 0;
+    while (off < bytes.size() && off < firstTable) {
+        Insn i;
+        i.off = off;
+        if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec, bytes.data() + off, bytes.size() - off, &i.ins, i.ops))) break;
+        if (const auto t = tableAt(i); t && t->first > off && t->first < bytes.size()) {
+            if (std::none_of(layout.tables.begin(), layout.tables.end(), [&](const JumpTable& j) { return j.start == t->first; }))
+                layout.tables.push_back({ t->first, t->second, {} });
+            firstTable = std::min(firstTable, t->first);
+        }
+        off += i.ins.length;
+    }
+    layout.codeEnd = layout.tables.empty() ? std::uint32_t(bytes.size()) : std::min(off, firstTable);
+    std::sort(layout.tables.begin(), layout.tables.end(), [](const JumpTable& a, const JumpTable& b) { return a.start < b.start; });
+    return layout;
+}
+
+/// @brief The memory operand reading a jump table: `[base + index*4 + disp]` (case targets) or `[base + index + disp]`
+///        (the byte index of a two-level switch).
+const ZydisDecodedOperand* tableOperand(const Insn& i)
+{
+    for (std::uint8_t k = 0; k < i.ins.operand_count_visible; ++k) {
+        const auto& op = i.ops[k];
+        if (op.type == ZYDIS_OPERAND_TYPE_MEMORY && op.mem.type == ZYDIS_MEMOP_TYPE_MEM && op.mem.base != ZYDIS_REGISTER_NONE &&
+            op.mem.base != ZYDIS_REGISTER_RIP && op.mem.index != ZYDIS_REGISTER_NONE && (op.mem.scale == 4 || op.mem.scale == 1) &&
+            !(op.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE))
+            return &op;
+    }
+    return nullptr;
+}
+
+/// @brief Fills each table's entries from 4-byte `entryAt(offset)` (nullopt ends the table) or raw bytes, each table
+///        running at most to the next one. A byte table stops at the first index past the case table it selects into.
+void fillTables(CodeLayout& layout, const Bytes& bytes, const std::function<std::optional<std::int64_t>(std::uint32_t)>& entryAt)
+{
+    std::size_t cases = 0;
+    for (std::size_t k = 0; k < layout.tables.size(); ++k) {
+        auto&               t   = layout.tables[k];
+        const std::uint32_t end = k + 1 < layout.tables.size() ? layout.tables[k + 1].start : std::uint32_t(bytes.size());
+        if (t.entrySize != 4) continue;
+        for (std::uint32_t at = t.start; at + 4 <= end; at += 4) {
+            const auto e = entryAt(at);
+            if (!e || *e < 0 || *e >= layout.codeEnd) break;
+            t.entries.push_back(*e);
+        }
+        cases = std::max(cases, t.entries.size());
+    }
+    for (std::size_t k = 0; k < layout.tables.size(); ++k) {
+        auto&               t   = layout.tables[k];
+        const std::uint32_t end = k + 1 < layout.tables.size() ? layout.tables[k + 1].start : std::uint32_t(bytes.size());
+        if (t.entrySize != 1) continue;
+        for (std::uint32_t at = t.start; at < end; ++at) {
+            if (cases && bytes[at] >= cases) break;
+            t.entries.push_back(bytes[at]);
+        }
+    }
+}
+
+/// @brief Vanilla's layout: a table is read through a register holding the image base (`lea r, [__ImageBase]`), its
+///        displacement the table's RVA.
+CodeLayout vanillaLayout(const Bytes& bytes, std::uint64_t va, std::uint64_t imageBase)
+{
+    std::set<ZydisRegister> baseRegs;
+    CodeLayout              layout = layoutOf(bytes, [&](const Insn& i) -> std::optional<std::pair<std::uint32_t, std::uint8_t>> {
+        if (i.ins.mnemonic == ZYDIS_MNEMONIC_LEA && i.ops[1].mem.base == ZYDIS_REGISTER_RIP) {
+            ZyanU64 abs = 0;
+            if (ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&i.ins, &i.ops[1], va + i.off, &abs)) && abs == imageBase) {
+                baseRegs.insert(enclosing(i.ops[0].reg.value));
+                return std::nullopt;
+            }
+        }
+        const auto* op = tableOperand(i);
+        if (!op || !baseRegs.count(enclosing(op->mem.base))) return std::nullopt;
+        const std::int64_t at = std::int64_t(imageBase) + op->mem.disp.value - std::int64_t(va);
+        if (at <= 0) return std::nullopt;
+        return std::make_pair(std::uint32_t(at), std::uint8_t(op->mem.scale));
+    });
+    fillTables(layout, bytes, [&](std::uint32_t at) -> std::optional<std::int64_t> {
+        return std::int64_t(imageBase) + rd<std::uint32_t>(bytes, at) - std::int64_t(va);
+    });
+    return layout;
+}
+
+/// @brief Our layout: a table is read through an image-relative relocation into this function (`$LN` / section
+///        symbol), its entries image-relative relocations to case labels.
+CodeLayout oursLayout(const CoffFunction& f)
+{
+    auto localAt = [&](std::uint32_t at) -> std::optional<std::int64_t> {
+        const auto t = f.targets.find(at);
+        if (t == f.targets.end() || t->second.type != IMAGE_REL_AMD64_ADDR32NB || !t->second.local) return std::nullopt;
+        return *t->second.local;
+    };
+    CodeLayout layout = layoutOf(f.bytes, [&](const Insn& i) -> std::optional<std::pair<std::uint32_t, std::uint8_t>> {
+        const auto* op = tableOperand(i);
+        if (!op) return std::nullopt;
+        for (std::uint32_t o = i.off; o < i.off + i.ins.length; ++o)
+            if (const auto l = localAt(o)) return std::make_pair(std::uint32_t(*l), std::uint8_t(op->mem.scale));
+        return std::nullopt;
+    });
+    fillTables(layout, f.bytes, localAt);
+    return layout;
+}
+
+/// @brief The function without its jump tables: what the instruction comparison sees.
+CoffFunction codeOnly(const CoffFunction& f, std::uint32_t codeEnd)
+{
+    CoffFunction c = f;
+    c.bytes.resize(codeEnd);
+    c.mask.resize(codeEnd);
+    for (auto it = c.targets.begin(); it != c.targets.end();) it = it->first >= codeEnd ? c.targets.erase(it) : std::next(it);
+    return c;
+}
+
+/// @brief Compares the two functions' jump tables after their code has been matched: the same tables, byte index
+///        tables identical, and every case target landing on corresponding code — the same offset when the code has the
+///        same layout (EXACT/REGALLOC), an instruction the alignment pairs with vanilla's otherwise (VARIANT).
+void checkTables(Match& m, const CoffFunction& code, const Bytes& vanillaCode, const CodeLayout& ours, const CodeLayout& vanilla)
+{
+    auto fail = [&](const std::string& why) {
+        m.status = Status::Structural;
+        m.detail = "jump tables: " + why + (m.detail.empty() ? "" : "\n" + m.detail);
+    };
+    if (m.status != Status::Exact && m.status != Status::Regalloc && m.status != Status::Variant) return;
+    if (ours.tables.size() != vanilla.tables.size()) return fail(std::to_string(ours.tables.size()) + " vs " + std::to_string(vanilla.tables.size()));
+    std::map<std::uint32_t, std::uint32_t> paired;   ///< our instruction offset → vanilla's
+    if (m.status == Status::Variant) {
+        const auto a = disassemble(code.bytes);
+        const auto b = disassemble(vanillaCode);
+        if (!a || !b) return fail("undecodable code");
+        for (const auto& [ia, ib] : alignInstructions(*a, *b))
+            if (ia >= 0 && ib >= 0) paired[(*a)[std::size_t(ia)].off] = (*b)[std::size_t(ib)].off;
+    }
+    for (std::size_t k = 0; k < ours.tables.size(); ++k) {
+        const auto& x = ours.tables[k];
+        const auto& y = vanilla.tables[k];
+        if (x.entrySize != y.entrySize || x.entries.size() != y.entries.size())
+            return fail("table " + std::to_string(k) + " has " + std::to_string(x.entries.size()) + " vs " + std::to_string(y.entries.size()) + " entries");
+        for (std::size_t e = 0; e < x.entries.size(); ++e) {
+            const bool same = x.entrySize == 1 || m.status != Status::Variant
+                                  ? x.entries[e] == y.entries[e]
+                                  : paired.count(std::uint32_t(x.entries[e])) && paired.at(std::uint32_t(x.entries[e])) == y.entries[e];
+            if (!same)
+                return fail("table " + std::to_string(k) + " entry " + std::to_string(e) + ": ours +0x" + hex(std::uint64_t(x.entries[e])) +
+                            ", vanilla +0x" + hex(std::uint64_t(y.entries[e])));
+        }
+    }
 }
 
 // ── differential testing: ours and vanilla run on the same synthetic inputs ─────────────────────────────────────────
@@ -2459,8 +2649,8 @@ std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Byt
 {
     code = ours.bytes;
     std::map<std::uint32_t, std::uint64_t> viaVanilla;
-    const auto a = disassemble(ours.bytes);
-    const auto b = disassemble(vanilla);
+    const auto a = disassemble(codeOnly(ours, oursLayout(ours).codeEnd).bytes);
+    const auto b = disassemble(Bytes(vanilla.begin(), vanilla.begin() + vanillaLayout(vanilla, va, pe.imageBase).codeEnd));
     if (a && b)
         for (const auto& [ia, ib] : alignInstructions(*a, *b)) {
             if (ia < 0 || ib < 0) continue;
@@ -2470,12 +2660,24 @@ std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Byt
             if (!t) continue;
             for (std::uint32_t o = x.off; o < x.off + x.ins.length; ++o) if (ours.targets.count(o)) viaVanilla[o] = *t;
         }
+    // Image-relative references into this function (jump tables and their entries) resolve against an __ImageBase of
+    // `base`, so each is just the function offset; `lea r, [__ImageBase]` gets `base` itself.
+    for (const auto& [at, t] : ours.targets) {
+        if (t.type == IMAGE_REL_AMD64_ADDR32NB && t.local) {
+            const auto v = static_cast<std::uint32_t>(*t.local);
+            std::memcpy(code.data() + at, &v, 4);
+        }
+    }
     for (const auto& [at, t] : ours.targets) {
         std::optional<std::uint64_t> target;
+        if (t.type == IMAGE_REL_AMD64_ADDR32NB && t.local) continue;
+        if (t.mangled == "__ImageBase") target = base;
         auto                         it = syms.byCpp.find(t.name);
         if (it == syms.byCpp.end()) it = syms.byCpp.find(t.mangled);
         const auto vv = viaVanilla.find(at);
-        if (it != syms.byCpp.end()) {
+        if (target) {
+            // __ImageBase, placed above: the alignment would hand it vanilla's image base
+        } else if (it != syms.byCpp.end()) {
             target = it->second;
         } else if (t.mangled.rfind("__imp_", 0) == 0) {
             for (const auto& [slot, name] : pe.importsBySlot) if (name == t.mangled.substr(6)) target = slot;
@@ -2650,7 +2852,7 @@ DiffReport diffFunction(Emulator& emu, const CoffFunction& ours, const Bytes& va
         }
         (o.end == RunResult::End::Fault ? rep.faultedAlike : rep.agreed)++;
     }
-    if (const auto insns = disassemble(vanilla)) {
+    if (const auto insns = disassemble(Bytes(vanilla.begin(), vanilla.begin() + vanillaLayout(vanilla, va, pe.imageBase).codeEnd))) {
         rep.insnsTotal = insns->size();
         for (const auto& i : *insns) {
             if (executed.count(i.off)) ++rep.insnsCovered;
@@ -3118,7 +3320,8 @@ void usage()
         "compiler produces; it does NOT check register dataflow, so a dropped or changed register computation such as a\n"
         "loop counter step passes), STRUCTURAL, MISSING (symbol or address not found), COMPILE-ERROR.\n"
         "With a registry, a relocation that points somewhere other than its engine.yaml address makes the function\n"
-        "STRUCTURAL whatever its bytes say. Exit code 0 only when every function is EXACT.");
+        "STRUCTURAL whatever its bytes say. A switch's jump tables (after the code) are compared apart from the instructions:\n"
+        "byte index tables identical, every case target on corresponding code. Exit code 0 only when every function is EXACT.");
 }
 
 struct Options {
@@ -3212,7 +3415,20 @@ int run(const Options& opt)
                             mt.detail = "address 0x" + hex(row.va) + " is not in the exe's file image";
                         } else {
                             Bytes vanilla(pe.bytes.begin() + *off, pe.bytes.begin() + *off + len);
-                            mt = compare(ours, vanilla, row.va, opt.show || opt.showAll, syms ? &*syms : nullptr, pe);
+                            // A switch's jump tables follow the code: the instructions are compared without them, then
+                            // the tables against each other.
+                            const CodeLayout oursLay    = oursLayout(ours);
+                            const CodeLayout vanillaLay = vanillaLayout(vanilla, row.va, pe.imageBase);
+                            if (oursLay.tables.empty() && vanillaLay.tables.empty()) {
+                                mt = compare(ours, vanilla, row.va, opt.show || opt.showAll, syms ? &*syms : nullptr, pe);
+                            } else {
+                                const CoffFunction code = codeOnly(ours, oursLay.codeEnd);
+                                const Bytes        vcode(vanilla.begin(), vanilla.begin() + vanillaLay.codeEnd);
+                                mt = compare(code, vcode, row.va, opt.show || opt.showAll, syms ? &*syms : nullptr, pe);
+                                checkTables(mt, code, vcode, oursLay, vanillaLay);
+                                mt.oursLen    = ours.bytes.size();
+                                mt.vanillaLen = vanilla.size();
+                            }
                             mt.toolchain = tc;
                             mt.ours      = &ours;
                             if (!end) mt.detail += (mt.detail.empty() ? "" : "; ") + std::string("no .pdata entry, length assumed from ours");
