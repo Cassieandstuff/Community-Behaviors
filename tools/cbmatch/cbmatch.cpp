@@ -1121,10 +1121,10 @@ bool sameEffect(const Insn& x, const Insn& y, bool masked)
 ///        instructions (loads, compares, register moves) may differ. The signature of a different build of the same
 ///        compiler compiling the same source.
 /// @warning Weaker than EXACT/REGALLOC: it checks effects (calls, stores) and tested conditions, not register dataflow.
-///          NOT caught: a changed or dropped register computation (e.g. a loop's `i--` removed — verified to pass), a
-///          different value loaded into a register, a condition change hidden by a duplicated branch of the same family,
-///          an inverted test (`if (p)` → `if (!p)`: jz/jnz share a family because branch layout inverts them — verified
-///          to pass).
+///          NOT caught: a changed or dropped register computation (e.g. a loop's `i--` removed, two register arguments
+///          swapped — both verified to pass), a different value loaded into a register, a condition change hidden by a
+///          duplicated branch of the same family, an inverted test (`if (p)` → `if (!p)`: jz/jnz share a family because
+///          branch layout inverts them — verified to pass).
 ///          Caught (deliberately broken copies, D:\CB-tmp\matching-probe\mut): wrong field read or written, dropped or
 ///          extra call, dropped or extra store, wrong argument, wrong constant, >= → >. A VARIANT function still needs
 ///          behavioural verification.
@@ -1225,6 +1225,29 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     auto sameRead = [](const Read& p, const Read& q) {
         return p.mnemonic == q.mnemonic && p.size == q.size && p.slot == q.slot && p.stack == q.stack;
     };
+    // The 32-byte home area above the return address belongs to the callee (x64 ABI): one build spills a temporary
+    // there, another keeps it in a register. A store into it is private scratch unless the area's address escapes —
+    // a `lea` of it into an argument register.
+    auto homeSlot = [](const ZydisDecodedOperand& op, const Insn& i, const Frame& f) {
+        const auto slot = slotOf(op, i, f);
+        return slot && *slot >= 8 && *slot < 0x28;
+    };
+    auto homeEscapes = [&](const std::vector<Insn>& all, const Frame& f) {
+        for (const auto& i : all) {
+            if (i.ins.mnemonic != ZYDIS_MNEMONIC_LEA || !homeSlot(i.ops[1], i, f)) continue;
+            switch (enclosing(i.ops[0].reg.value)) {
+                case ZYDIS_REGISTER_RCX: case ZYDIS_REGISTER_RDX: case ZYDIS_REGISTER_R8: case ZYDIS_REGISTER_R9: return true;
+                default: break;
+            }
+        }
+        return false;
+    };
+    const bool homeEscapesA = homeEscapes(a, frameA);
+    const bool homeEscapesB = homeEscapes(b, frameB);
+    auto       privateScratch = [&](const Insn& i, const Frame& f, bool escapes) {
+        const auto* w = writtenMemory(i);
+        return !escapes && w && i.ins.mnemonic != ZYDIS_MNEMONIC_CALL && homeSlot(*w, i, f);
+    };
     // A materialized null test: `test R, R; setz/setnz D` whose D is later self-tested and branched on. One build keeps
     // a loop-invariant pointer test as a bool in a register, another re-tests the pointer; the branch on D is what
     // pairs with the other side's test, so the setcc itself adds no condition. Narrow on purpose: zero tests only.
@@ -1251,6 +1274,14 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_NOP) { ++aligned; continue; }   // alignment padding: its encoding is filler
             // Which callee-saved register a value lives in picks the slot it is saved to and restored from.
             if (isSaveOrRestore(x, savesA, frameA) && isSaveOrRestore(y, savesB, frameB)) { ++aligned; continue; }
+            // Two stores aligned crosswise (a build wrote the fields in the other order): match them as a set within
+            // the stretch between calls, like any unpaired store, instead of failing on the pair.
+            if (const auto* wx = writtenMemory(x), *wy = writtenMemory(y);
+                wx && wy && x.ins.mnemonic == y.ins.mnemonic && x.ins.mnemonic != ZYDIS_MNEMONIC_CALL && !operandsMatch(*wx, *wy, masked)) {
+                effectsA.push_back({ &x, segment });
+                effectsB.push_back({ &y, segment });
+                continue;
+            }
             bool readsDiffer = false;
             for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
                 const auto& ox = x.ops[o];
@@ -1282,14 +1313,25 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (const char* fam = conditionFamily(x.ins.mnemonic); fam && !materializedNullTest(liveA, std::size_t(ia))) ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
             if (const auto r = readOf(x, frameA)) spareA.push_back(*r);
-            if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA)) effectsA.push_back({ &x, segment }); else ++glue;
+            if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA) && !privateScratch(x, frameA, homeEscapesA))
+                effectsA.push_back({ &x, segment });
+            else
+                ++glue;
         } else {
             const Insn& y = liveB[std::size_t(ib)];
             if (const char* fam = conditionFamily(y.ins.mnemonic); fam && !materializedNullTest(liveB, std::size_t(ib))) ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
             if (const auto r = readOf(y, frameB)) spareB.push_back(*r);
-            if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB)) effectsB.push_back({ &y, segment }); else ++glue;
+            if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB) && !privateScratch(y, frameB, homeEscapesB))
+                effectsB.push_back({ &y, segment });
+            else
+                ++glue;
         }
+    }
+    // Crossed pairs vouch for each other: a pair of loads swapped twice is two crossed pairs whose reads balance.
+    for (const auto& [rx, ry] : crossed) {
+        spareA.push_back(rx);
+        spareB.push_back(ry);
     }
     for (std::size_t k = 0; k < crossed.size(); ++k) {
         const auto& [rx, ry] = crossed[k];
