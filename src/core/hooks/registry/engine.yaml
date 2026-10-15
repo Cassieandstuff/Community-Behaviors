@@ -110,6 +110,7 @@ symbols:
   - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z" }
   - { name: hkbMirrorPose, kind: func, se: 0, ae: 59301, vr: 0, cpp: "CB::schema::hkbMirrorPose" }  # name provisional; (output, referencePose) under FLAG_MIRROR
   - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0, cpp: "CB::schema::hkbClipGeneratorClass" }  # hkClass object
+  - { name: hkbGeneratorSyncInfo_Mirror, kind: func, se: 0, ae: 58547, vr: 0, cpp: "CB::schema::hkbGeneratorSyncInfo::mirror" }  # name provisional; mirrors each sync point's event id, sets m_isMirrored (clip updateSync under FLAG_MIRROR)
 
   # --- Bethesda generators: paired (BSSynchronizedClipGenerator), offset, tweener ---
   - { name: BSSynchronizedClipGenerator_FinishCtor, kind: func, se: 62108, ae: 63044, vr: 0 }

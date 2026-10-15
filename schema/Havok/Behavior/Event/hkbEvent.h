@@ -57,7 +57,7 @@ namespace CB { namespace schema
 
     struct hkbEventInfo
     {
-        enum { FLAG_SILENT = 0x1 };
+        enum { FLAG_SILENT = 0x1, FLAG_SYNC_POINT = 0x2 };
         hkUint32 m_flags;
     };
 } }

@@ -143,6 +143,10 @@ namespace CB { namespace schema
         virtual void        startEcho(hkReal echoDuration);                       ///< slot 27
         virtual void        generate(const hkbContext& context, const hkbGeneratorOutput** activeChildrenOutput, hkbGeneratorOutput& output,
                                      hkReal timeOffset);                         ///< slot 23
+        /// @brief Reports the clip's timeline for synchronization: frequency and local time in seconds of playback at the
+        ///        effective speed, the sync-point triggers (at most MAX_SYNC_POINTS) at the clip's own speed, the
+        ///        cyclic/additive/mirrored state.
+        virtual void        updateSync(const hkbContext& context, hkbNodeInfo& info);   ///< slot 25
 
         /// @brief The animation's duration minus both crops, never negative; 0.01333 s without an animation.
         /// @note Compiled apart (hkbClipGeneratorOpaque.cpp) so its callers can't see its body: vanilla's callers keep

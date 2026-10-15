@@ -16,5 +16,11 @@ namespace CB { namespace schema
             if (external < 0) return external;
             return static_cast<int>(m_externalToInternalMap.getWithDefault(external + 1, hkUlong(-1)));
         }
+
+        HK_FORCE_INLINE int getExternal(int internal) const
+        {
+            if (internal < 0) return internal;
+            return m_internalToExternalMap[internal];
+        }
     };
 } }

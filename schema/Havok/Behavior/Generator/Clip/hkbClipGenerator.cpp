@@ -272,6 +272,71 @@ namespace CB { namespace schema
         }
     }
 
+    /// @note Sync-point times scale by 1/|m_playbackSpeed| (the setting), the local time and frequency by the effective
+    ///       speed. Vanilla hoists `graphData != 0` out of the loop as a bool (`test; divss; setnz`) where VS2015 24247
+    ///       re-tests the pointer each pass; no spelling tried (bool/hkBool local, `continue`, ternary) reproduces it.
+    void hkbClipGenerator::updateSync(const hkbContext& context, hkbNodeInfo& info)
+    {
+        HK_TIMER_BEGIN("hkbClipGenerator::updateSync");
+
+        hkbGeneratorSyncInfo& syncInfo =
+            info.m_isProxy ? (*context.m_character->m_behaviorGraph->m_activeNodes)[info.m_proxyIndex].m_syncInfo : info.m_syncInfo;
+        syncInfo.m_numSyncPoints = 0;
+        syncInfo.m_playbackSpeed = 1.0f;
+        syncInfo.m_isCyclic      = (m_mode == MODE_LOOPING);
+
+        hkReal speed;
+        if (m_userData == 8 || (speed = computeEffectivePlaybackSpeed()) == 0.0f) {
+            syncInfo.m_baseFrequency = 0.0f;
+        } else {
+            const hkReal absSpeed  = hkMath::fabs(speed);
+            const hkReal duration  = computeUsableDuration();
+            const hkReal invSpeed  = 1.0f / absSpeed;
+            hkReal       period    = invSpeed * duration;
+            hkReal       localTime = (m_localTime - m_animationControl->m_cropStartAmountLocalTime - computeStartTime()) * invSpeed;
+            if (localTime < 0.0f) localTime += period;
+            if (m_mode == MODE_PING_PONG && !(m_flags & FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE)) period *= 2.0f;
+            if (speed < 0.0f) localTime = period - localTime;
+            localTime                = (localTime < period) ? localTime : period;
+            syncInfo.m_localTime     = localTime;
+            syncInfo.m_baseFrequency = (period > 0.0f) ? 1.0f / period : 0.0f;
+
+            if (m_triggers) {
+                const int                   numTriggers      = m_triggers->m_triggers.getSize();
+                const hkbBehaviorGraphData* graphData        = context.m_behavior->m_data;
+                const hkbSymbolIdMap*       eventIDMap       = context.m_behavior->m_eventIDMap;
+                const hkReal                invPlaybackSpeed = 1.0f / hkMath::fabs(m_playbackSpeed);
+                for (int i = 0; i < numTriggers; i++) {
+                    if (syncInfo.m_numSyncPoints >= hkbGeneratorSyncInfo::MAX_SYNC_POINTS) break;
+
+                    const hkbClipTrigger& trig = m_triggers->m_triggers[i];
+                    const int             id   = trig.m_event.getId();
+                    if (graphData && graphData->isEventSyncPoint(id)) {
+                        hkbGeneratorSyncInfo::SyncPoint& point = syncInfo.m_syncPoints[syncInfo.m_numSyncPoints];
+                        point.m_id = eventIDMap ? eventIDMap->getExternal(id) : id;
+
+                        hkReal t;
+                        if (trig.m_acyclic.m_bool) {
+                            t = trig.m_localTime;
+                        } else {
+                            t = trig.m_relativeToEndOfClip.m_bool ? duration + trig.m_localTime : trig.m_localTime;
+                            t = hkMath::min2(hkMath::max2(t, 0.0f), duration);
+                        }
+                        point.m_time = t * invPlaybackSpeed;
+                        syncInfo.m_numSyncPoints++;
+                    }
+                }
+            }
+        }
+
+        syncInfo.m_isMirrored              = false;
+        const hkaAnimationBinding* binding = m_animationControl->m_binding;
+        syncInfo.m_isAdditive              = binding ? (binding->m_blendHint == hkaAnimationBinding::ADDITIVE) : false;
+        if (m_flags & FLAG_MIRROR) syncInfo.mirror(context);
+
+        HK_TIMER_END();
+    }
+
     const void* hkbClipGenerator::getClassType() const
     {
         return &staticClass();

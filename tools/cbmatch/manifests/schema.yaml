@@ -64,6 +64,9 @@ units:
       # sampleAnimation (0x140ad0730) is implemented but STRUCTURAL: vanilla addresses its frame through rbp
       # (`lea rbp, [rsp-0x28]`) and VS2015 24247 allocates rbp as a register instead; cbmatch has no rbp frame base.
       # - { name: "CB::schema::hkbClipGenerator::sampleAnimation", va: 0x140ad0730 }
+      # STRUCTURAL pending a rule decision: vanilla's hoisted null test is `test R,R; <divss>; setnz D`, and the
+      # materialized-null-test rule only accepts the setcc directly after the test. Re-enable once that is settled.
+      # - { name: "CB::schema::hkbClipGenerator::updateSync", va: 0x140ace930 }
       - { name: "??1hkbClipGenerator@schema@CB@@UEAA@XZ", va: 0x140acd620 }
       - { name: "??_GhkbClipGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ad1310 }
       - { name: "CB::schema::hkbClipGenerator::calcContentStatistics", va: 0x140acf1e0 }
