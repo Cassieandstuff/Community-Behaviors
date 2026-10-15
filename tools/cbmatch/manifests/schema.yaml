@@ -67,6 +67,9 @@ units:
       - { name: "CB::schema::hkbTwistModifier::modify", va: 0x140aff320 }
       - { name: "??1hkbTwistModifier@schema@CB@@UEAA@XZ", va: 0x140ac72d0 }
       - { name: "??_GhkbTwistModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb610 }
+  - source: ../../../schema/Havok/Behavior/Modifier/Twist/hkbTwistModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbTwistModifierUtils::modifyInternal", va: 0x140b0f3e0 }
   - source: ../../../schema/Havok/Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifier.cpp
     functions:
       - { name: "??0hkbRotateCharacterModifier@schema@CB@@QEAA@XZ", va: 0x140afcde0 }

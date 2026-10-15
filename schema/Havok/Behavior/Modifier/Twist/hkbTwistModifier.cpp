@@ -1,6 +1,6 @@
 /// @file
 /// @brief hkbTwistModifier, reimplemented against vanilla (AE 1.6.1170).
-#include <Behavior/Modifier/Twist/hkbTwistModifier.h>
+#include <Behavior/Modifier/Twist/hkbTwistModifierUtils.h>
 
 namespace CB { namespace schema
 {

@@ -7,18 +7,6 @@
 
 namespace CB { namespace schema
 {
-    struct hkbGeneratorOutput;
-    class hkbTwistModifier;
-
-    /// @brief The twist itself, applied to the output pose.
-    /// @note Name provisional, after Bethesda's own `BSLookAtModifierUtils::modifyInternal` (the exe's strings). Vanilla
-    ///       compiles it far from the twist's file (0x140b0f3e0), among the heavy halves of a dozen other nodes
-    ///       (keyframe bones, rotate character, blending transition...) - that file is not identified.
-    struct hkbTwistModifierUtils
-    {
-        static void modifyInternal(const hkbTwistModifier& modifier, hkbGeneratorOutput& inOut, const hkQsTransform* referencePose);
-    };
-
     /// @note The `slot N` annotations are vanilla's vtable slots (25 of them; the rest are hkbModifier's). The destructor is
     ///       implicit: vanilla's stamps no vtable, which a user-declared one (even empty) does. The deleting destructor
     ///       (slot 0) still calls it out of line.
