@@ -564,3 +564,13 @@ symbols:
   - { name: hkbRagdollDriver_Reset, kind: func, se: 0, ae: 58294, vr: 0, cpp: "CB::schema::hkbRagdollDriver::reset" }
   - { name: hkbWorld_GetListeners, kind: func, se: 0, ae: 58495, vr: 0, cpp: "CB::schema::hkbWorld::getListeners" }  # returns &m_listeners (+0x30)
   - { name: hkbAnimationBindingSet_Dtor, kind: func, se: 0, ae: 59417, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::~hkbAnimationBindingSet" }  # out of line; the scalar deleting destructor (in hkbCharacter.cpp) calls it
+  - { name: hkbBehaviorGraph_Dtor, kind: func, se: 0, ae: 58326, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::~hkbBehaviorGraph" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbBehaviorGraph_InitVariableValueSet, kind: func, se: 0, ae: 58346, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::initVariableValueSet" }  # name provisional; activate calls it when the graph has data
+  - { name: hkbBehaviorGraph_HandleEventInternal, kind: func, se: 0, ae: 58377, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::handleEventInternal" }  # name provisional; the root's event pass (slot 6 forwards to it)
+  - { name: hkbBehaviorGraph_GetStaticClass, kind: func, se: 0, ae: 58554, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBehaviorGraph_StaticClass, kind: data, se: 0, ae: 407521, vr: 0, cpp: "CB::schema::hkbBehaviorGraphClass" }  # hkClass object
+  - { name: hkbBehaviorGraphUtils_UpdateActiveNodes, kind: func, se: 0, ae: 60079, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::updateActiveNodes" }  # name provisional; (graph, context, nodeIdToInternalState or null)
+  - { name: hkbBehaviorGraph_Vtable, kind: data, se: 0, ae: 220287, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::`vftable'" }
+  - { name: hkbBehaviorGraph_DeleteActiveNodes, kind: func, se: 0, ae: 58385, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::deleteActiveNodes" }  # name provisional; releases the clones, frees the active-node tables
+  - { name: hkbBehaviorGraph_ReleaseUniqueId, kind: func, se: 0, ae: 58371, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::releaseUniqueId" }  # name provisional
+  - { name: hkPointerMap_Clear, kind: func, se: 0, ae: 57183, vr: 0, cpp: "CB::schema::hkPointerMapStorage::clear" }  # name provisional; every key to empty, keeps the storage

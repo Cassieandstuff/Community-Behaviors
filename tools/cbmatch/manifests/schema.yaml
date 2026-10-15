@@ -771,3 +771,24 @@ units:
       - { name: "??0hkbCharacter@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140abdd80 }
       - { name: "??_GhkbAnimationBindingSet@schema@CB@@UEAAPEAXI@Z", va: 0x140abddb0 }
       - { name: "??_GhkbCharacter@schema@CB@@UEAAPEAXI@Z", va: 0x140abde30 }
+  - source: ../../../schema/Havok/Behavior/BehaviorGraph/hkbBehaviorGraph.cpp
+    functions:
+      - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@XZ", va: 0x140ab0e70 }
+      - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@PEAVhkbGenerator@12@PEAUhkbBehaviorGraphData@12@@Z", va: 0x140ab1000 }
+      - { name: "CB::schema::hkbBehaviorGraph::getClassType", va: 0x140ab1770 }
+      - { name: "CB::schema::hkbBehaviorGraph::activate", va: 0x140ab1780 }
+      - { name: "CB::schema::hkbBehaviorGraph::handleEvent", va: 0x140ab1f30 }
+      - { name: "CB::schema::hkbBehaviorGraph::deactivate", va: 0x140ab1f70 }
+      - { name: "CB::schema::hkbBehaviorGraph::getChildren", va: 0x140ab20c0 }
+      - { name: "CB::schema::hkbBehaviorGraph::cloneNode", va: 0x140ab2160 }
+      - { name: "CB::schema::hkbBehaviorGraph::generate", va: 0x140ab2190 }
+      - { name: "CB::schema::hkbBehaviorGraph::canRecycleOutput", va: 0x140ab21b0 }
+      - { name: "CB::schema::hkbBehaviorGraph::updateSync", va: 0x140ab21c0 }
+      - { name: "CB::schema::hkbBehaviorGraph::releaseUniqueId", va: 0x140ab4740 }
+      - { name: "CB::schema::hkbBehaviorGraph::deleteActiveNodes", va: 0x140ab7090 }
+      - { name: "??_GhkbBehaviorGraph@schema@CB@@UEAAPEAXI@Z", va: 0x140ab78a0 }
+      - { name: "CB::schema::hkbBehaviorGraph::vfn22", va: 0x140ab7d90 }
+      - { name: "CB::schema::hkbBehaviorGraph::staticClass", va: 0x140ac2a20 }
+  - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriver.cpp
+    functions:
+      - { name: "CB::schema::hkbHandIkDriver::reset", va: 0x140ae0830 }

@@ -12,9 +12,12 @@ namespace CB { namespace schema
         hkInt32 m_value;
     };
 
+    /// @note 0x40 bytes (vanilla allocates it so).
     class hkbVariableValueSet : public hkReferencedObject
     {
     public:
-        hkArray<hkbVariableValue> m_wordVariableValues;   ///< +0x10
+        hkArray<hkbVariableValue>    m_wordVariableValues;      ///< +0x10
+        hkArray<hkVector4>           m_quadVariableValues;      ///< +0x20
+        hkArray<hkReferencedObject*> m_variantVariableValues;   ///< +0x30
     };
 } }

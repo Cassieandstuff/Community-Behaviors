@@ -14,7 +14,6 @@
 namespace CB { namespace schema
 {
     extern const hkClass hkbBehaviorGraphClass;
-    struct hkbVariableValueSet;
 
     /// @note 0x10 bytes (reflected); contents not declared yet.
     struct hkbVariableInfo
@@ -111,6 +110,10 @@ namespace CB { namespace schema
         hkBool                         m_updateActiveNodes;   ///< +0x12e
         hkBool                         m_stateOrTransitionChanged;   ///< +0x12f
 
+        /// @note Allocates the pseudo-random generator (seed 1321) up front, as both of vanilla's constructors do.
+        hkbBehaviorGraph();
+        /// @brief A graph over `rootGenerator` and `data` (both referenced).
+        hkbBehaviorGraph(hkbGenerator* rootGenerator, hkbBehaviorGraphData* data);
         /// @note Out of line in vanilla (called by the scalar deleting destructor); not reimplemented yet.
         virtual ~hkbBehaviorGraph();                                                                     ///< slot 0
 
@@ -118,6 +121,14 @@ namespace CB { namespace schema
         static const hkClass& staticClass();
 
         virtual const void* getClassType() const;                                                      ///< slot 1
+        /// @brief Builds the active-node tables and activates the active nodes — only as a root (no behavior in the
+        ///        context yet).
+        virtual void        activate(const hkbContext& context);                                       ///< slot 4
+        /// @brief Only as a root: processes the event (handleEventInternal).
+        virtual void        handleEvent(const hkbContext& context, const hkbEvent e);                  ///< slot 6
+        /// @brief Only as a root: deactivates every active node (each in its own graph's context), releases the clones
+        ///        and the active-node tables, and drops the variable values unless they are kept while inactive.
+        virtual void        deactivate(const hkbContext& context);                                     ///< slot 7
         virtual void        getChildren(GetChildrenFlags flags, ChildrenInfo& childrenInfo);           ///< slot 9
         /// @brief Shared, never copied: a behavior graph is its own clone.
         virtual hkbNode*    cloneNode(hkbBehaviorGraph& rootBehavior) const;                           ///< slot 12
@@ -136,6 +147,16 @@ namespace CB { namespace schema
         /// @brief Returns a node's unique id to the pool (ids below m_numStaticNodes stay with the template).
         /// @note Name provisional.
         void releaseUniqueId(hkInt16 id);
+        /// @brief Creates the variable value set from the graph data's initial values, if the data declares variables
+        ///        and there is no set yet.
+        /// @note Name provisional; out of line in vanilla (0x140ab32b0).
+        void initVariableValueSet();
+        /// @brief The root's event pass: offers the event to every active node in its own graph's context.
+        /// @note Name provisional; out of line in vanilla (0x140ab58a0).
+        void handleEventInternal(const hkbContext& context, const hkbEvent e);
+        /// @brief Releases the node clones and frees the active-node tables.
+        /// @note Name provisional.
+        void deleteActiveNodes();
 
         /// @brief The template node an event raised by `node` names as its sender.
         /// @note Name provisional.
@@ -171,5 +192,15 @@ namespace CB { namespace schema
         /// @note Name from its monitor timer ("hkbBehaviorGraph::copyVariablesToMembersRoot"); the flag is passed through
         ///       to each node's copy unchanged, meaning unknown (hkbSequence::update passes false).
         void copyVariablesToMembers(const hkbContext& context, bool flag);
+    };
+
+    /// @brief The graph's heavy half, compiled apart from hkbBehaviorGraph.cpp.
+    struct hkbBehaviorGraphUtils
+    {
+        /// @brief Recomputes the graph's active nodes, activating new ones (restored from `nodeIdToInternalState` when
+        ///        given) and deactivating dropped ones.
+        /// @note Name and parameter type provisional; out of line in vanilla (0x140b0fb70). activateWithInternalState passes
+        ///       a map of the saved records keyed by node id; activate and the event pass pass null.
+        static void updateActiveNodes(hkbBehaviorGraph& graph, const hkbContext& context, const hkPointerMap<int, int>* nodeIdToInternalState);
     };
 } }

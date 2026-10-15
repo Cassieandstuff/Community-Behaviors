@@ -77,6 +77,14 @@ namespace CB { namespace schema
         int m_size;
         int m_capacityAndFlags;
 
+        /// @brief The class allocator (an array held by pointer, e.g. hkbBehaviorGraph::m_activeNodes).
+        /// @note `throw()`: vanilla null-checks the block before constructing in it.
+        HK_FORCE_INLINE void* operator new(hkUlong nbytes) throw() { return hkMemoryRouter::getInstance().heap().blockAlloc(static_cast<int>(nbytes)); }
+        HK_FORCE_INLINE void  operator delete(void* p, hkUlong nbytes) { hkMemoryRouter::getInstance().heap().blockFree(p, static_cast<int>(nbytes)); }
+        /// @note hkArrayUtil::constructWithArray uses the global placement new; this keeps it reachable.
+        HK_FORCE_INLINE void* operator new(hkUlong, void* p) throw() { return p; }
+        HK_FORCE_INLINE void  operator delete(void*, void*) {}
+
         HK_FORCE_INLINE hkArray() : m_data(HK_NULL), m_size(0), m_capacityAndFlags(DONT_DEALLOCATE_FLAG) {}
         /// @brief Over caller-owned storage (`capacity` elements at `buffer`, `size` in use), never freed.
         HK_FORCE_INLINE hkArray(T* buffer, int size, int capacity)

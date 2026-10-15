@@ -25,6 +25,36 @@ namespace CB { namespace schema
         /// @return Nonzero when the key was new.
         int      insert(hkMemoryAllocator& alloc, hkUlong key, hkUlong val);
         void     clearAndDeallocate(hkMemoryAllocator& alloc);
+        /// @brief Empties the map, keeping its storage.
+        /// @note Out of line in vanilla (0x140a8c2b0).
+        void     clear();
+
+        /// @brief Iteration over the occupied slots: an iterator is a slot index (sign-extended into a pointer-sized
+        ///        handle, as Havok's hkMap::Iterator), valid while <= m_hashMod.
+        struct Pair
+        {
+            hkUlong m_key;
+            hkUlong m_value;
+        };
+        typedef struct IteratorTag* Iterator;
+        HK_FORCE_INLINE Iterator getIterator() const
+        {
+            int i;
+            for (i = 0; i <= m_hashMod; i++) {
+                if (static_cast<const Pair*>(m_elem)[i].m_key != hkUlong(-1)) break;
+            }
+            return reinterpret_cast<Iterator>(hkLong(i));
+        }
+        HK_FORCE_INLINE Iterator getNext(Iterator it) const
+        {
+            int i;
+            for (i = int(hkLong(it)) + 1; i <= m_hashMod; i++) {
+                if (static_cast<const Pair*>(m_elem)[i].m_key != hkUlong(-1)) break;
+            }
+            return reinterpret_cast<Iterator>(hkLong(i));
+        }
+        HK_FORCE_INLINE bool    isValid(Iterator it) const { return int(hkLong(it)) <= m_hashMod; }
+        HK_FORCE_INLINE hkUlong getValue(Iterator it) const { return static_cast<const Pair*>(m_elem)[int(hkLong(it))].m_value; }
     };
 
     /// @brief A map between pointer-sized keys and values, stored in the container heap.
@@ -39,6 +69,12 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkPointerMap() {}
         HK_FORCE_INLINE ~hkPointerMap() { m_map.clearAndDeallocate(hkContainerHeapAllocator::s_alloc); }
 
+        HK_FORCE_INLINE void     clear() { m_map.clear(); }
+        typedef hkPointerMapStorage::Iterator Iterator;
+        HK_FORCE_INLINE Iterator getIterator() const { return m_map.getIterator(); }
+        HK_FORCE_INLINE Iterator getNext(Iterator it) const { return m_map.getNext(it); }
+        HK_FORCE_INLINE bool     isValid(Iterator it) const { return m_map.isValid(it); }
+        HK_FORCE_INLINE V        getValue(Iterator it) const { return V(m_map.getValue(it)); }
         HK_FORCE_INLINE int      insert(K key, V val) { return m_map.insert(hkContainerHeapAllocator::s_alloc, hkUlong(key), hkUlong(val)); }
         HK_FORCE_INLINE V        getWithDefault(K key, V def) const { return V(m_map.getWithDefault(hkUlong(key), hkUlong(def))); }
         HK_FORCE_INLINE hkResult get(K key, V* out) const

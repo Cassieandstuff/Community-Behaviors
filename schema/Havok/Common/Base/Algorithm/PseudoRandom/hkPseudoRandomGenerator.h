@@ -2,7 +2,7 @@
 /// @brief hkPseudoRandomGenerator: Havok's linear congruential generator.
 #pragma once
 
-#include <Common/Base/Types/hkBaseTypes.h>
+#include <Common/Base/Memory/hkMemory.h>
 
 namespace CB { namespace schema
 {
@@ -13,6 +13,12 @@ namespace CB { namespace schema
     public:
         hkUint32 m_seed;      ///< +0x0
         hkUint32 m_current;   ///< +0x4
+
+        /// @brief The class allocator. `throw()`: vanilla null-checks the block (hkbBehaviorGraph's constructors).
+        HK_FORCE_INLINE void* operator new(hkUlong nbytes) throw() { return hkMemoryRouter::getInstance().heap().blockAlloc(static_cast<int>(nbytes)); }
+        HK_FORCE_INLINE void  operator delete(void* p, hkUlong nbytes) { hkMemoryRouter::getInstance().heap().blockFree(p, static_cast<int>(nbytes)); }
+
+        HK_FORCE_INLINE hkPseudoRandomGenerator(int seed) : m_seed(seed), m_current(seed) {}
 
         HK_FORCE_INLINE hkUint32 getRand32()
         {

@@ -39,6 +39,7 @@ HK_FORCE_INLINE void* operator new(size_t, void* p) throw() { return p; }
 namespace CB { namespace schema
 {
     typedef unsigned long long hkUlong;
+    typedef long long          hkLong;
     typedef unsigned short     hkUint16;
     typedef unsigned int       hkUint32;
     typedef short              hkInt16;
