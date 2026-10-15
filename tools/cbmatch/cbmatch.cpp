@@ -1645,6 +1645,13 @@ void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn
                       const EngineSymbols& syms, const PeImage& pe)
 {
     m.refsChecked = true;
+    // Compiler constants name their own bytes, so one the alignment paired with another load (the two builds scheduled
+    // the loads differently) is still placed if some other vanilla load of the same mnemonic reads exactly those bytes.
+    // Each vanilla load vouches once, and only after every aligned check has claimed its own, so a changed constant
+    // (no vanilla load of its bytes) still fails.
+    struct Deferred { const Insn* x; std::string mangled, error; };   ///< error empty: no aligned partner at all
+    std::vector<Deferred>   deferred;
+    std::set<std::uint32_t> claimed;   ///< vanilla offsets whose constant load already placed one of ours
     for (const auto& [ia, ib] : alignInstructions(a, b)) {
         if (ia < 0) continue;
         const Insn& x = a[std::size_t(ia)];
@@ -1652,13 +1659,24 @@ void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn
             const auto t = ours.targets.find(o);
             if (t == ours.targets.end()) continue;
             if (t->second.mangled.rfind("??_C@", 0) == 0 || t->second.name == "`string'") continue;   // string literals
-            if (ib < 0) { ++m.refsUnverifiable; continue; }
+            const bool constant = t->second.mangled.rfind("__real@", 0) == 0 || t->second.mangled.rfind("__xmm@", 0) == 0;
+            if (ib < 0) {
+                if (constant) deferred.push_back({ &x, t->second.mangled, std::string() });   // unverifiable unless found
+                else ++m.refsUnverifiable;
+                continue;
+            }
             const Insn& y      = b[std::size_t(ib)];
             const auto  actual = absoluteTarget(y, va + y.off);
             if (actual) {
                 if (const auto self = selfCheck(t->second.mangled, *actual, pe)) {
-                    if (self->empty()) ++m.refsVerified;
-                    else m.refsWrong.push_back(*self);
+                    if (self->empty()) {
+                        ++m.refsVerified;
+                        claimed.insert(y.off);
+                    } else if (constant) {
+                        deferred.push_back({ &x, t->second.mangled, *self });
+                    } else {
+                        m.refsWrong.push_back(*self);
+                    }
                     continue;
                 }
             }
@@ -1677,6 +1695,22 @@ void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn
             } else {
                 ++m.refsUnverifiable;
             }
+        }
+    }
+    for (const auto& d : deferred) {
+        const auto hit = std::find_if(b.begin(), b.end(), [&](const Insn& y) {
+            if (y.ins.mnemonic != d.x->ins.mnemonic || claimed.count(y.off)) return false;
+            const auto actual = absoluteTarget(y, va + y.off);
+            if (!actual) return false;
+            const auto self = selfCheck(d.mangled, *actual, pe);
+            return self && self->empty();
+        });
+        if (hit == b.end()) {
+            if (d.error.empty()) ++m.refsUnverifiable;
+            else m.refsWrong.push_back(d.error);
+        } else {
+            claimed.insert(hit->off);
+            ++m.refsVerified;
         }
     }
     if (!m.refsWrong.empty()) {

@@ -142,9 +142,7 @@ units:
       # counts down (`sub 1; jnz`), no spelling found that keeps it up.
       # - { name: "CB::schema::hkbClipGenerator::getInternalState", va: 0x140b03110 }
       # - { name: "CB::schema::hkbClipGenerator::setInternalState", va: 0x140b03250 }
-      # STOPPED (STRUCTURAL, awaiting a VARIANT-rule decision): vanilla keeps the loop-invariant "no map" / "mirror"
-      # tests as materialized bools (`cmp [m],0; setz bl` / setnz spilled to a stack slot) where 24247 keeps the
-      # loaded size / pointer and re-tests it.
+      # copySampledPose: STRUCTURAL; its loop counter lives in a home slot where vanilla uses a local (see parked.yaml).
       # - { name: "CB::schema::hkbClipGenerator::copySampledPose", va: 0x140b03380 }
       - { name: "CB::schema::hkbClipGenerator::copySampledFloats", va: 0x140b03550 }
-      # - { name: "CB::schema::hkbClipGenerator::blendSampledFloats", va: 0x140b036a0 }
+      - { name: "CB::schema::hkbClipGenerator::blendSampledFloats", va: 0x140b036a0 }
