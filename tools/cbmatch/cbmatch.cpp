@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -1044,8 +1045,46 @@ bool sameEffect(const Insn& x, const Insn& y, bool masked)
 ///          Caught (deliberately broken copies, D:\CB-tmp\matching-probe\mut): wrong field read or written, dropped or
 ///          extra call, dropped or extra store, wrong argument, wrong constant, >= → >. A VARIANT function still needs
 ///          behavioural verification.
-bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, const std::vector<Insn>& b, std::string& why)
+std::optional<std::uint64_t> absoluteTarget(const Insn& i, std::uint64_t runtimeAddress);
+
+/// @brief Rewrites `mulss/mulps x, [2.0]` to `addss/addps x, x` — bit-identical in IEEE arithmetic; one compiler build
+///        strength-reduces the multiply, another keeps it. `isTwo` says whether the instruction's constant operand is 2.0
+///        in every lane (checked by value, never assumed).
+void canonicalizeDoubling(std::vector<Insn>& insns, const std::function<bool(const Insn&, std::size_t lanes)>& isTwo)
 {
+    for (auto& i : insns) {
+        const bool scalar = i.ins.mnemonic == ZYDIS_MNEMONIC_MULSS;
+        if (!scalar && i.ins.mnemonic != ZYDIS_MNEMONIC_MULPS) continue;
+        if (i.ins.operand_count_visible != 2 || i.ops[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||
+            i.ops[1].type != ZYDIS_OPERAND_TYPE_MEMORY || i.ops[1].mem.base != ZYDIS_REGISTER_RIP || !isTwo(i, scalar ? 1 : 4))
+            continue;
+        i.ins.mnemonic = scalar ? ZYDIS_MNEMONIC_ADDSS : ZYDIS_MNEMONIC_ADDPS;
+        i.ops[1]         = i.ops[0];
+        i.ops[1].actions = ZYDIS_OPERAND_ACTION_READ;
+    }
+}
+
+bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursInsns, const std::vector<Insn>& vanillaInsns, std::uint64_t va,
+                       const PeImage& pe, std::string& why)
+{
+    std::vector<Insn> a = oursInsns;
+    std::vector<Insn> b = vanillaInsns;
+    canonicalizeDoubling(a, [&](const Insn& i, std::size_t lanes) {
+        std::string want = lanes == 1 ? "__real@40000000" : "__xmm@40000000400000004000000040000000";
+        for (std::uint32_t o = i.off; o < i.off + i.ins.length; ++o)
+            if (const auto t = ours.targets.find(o); t != ours.targets.end()) return t->second.mangled == want;
+        return false;
+    });
+    canonicalizeDoubling(b, [&](const Insn& i, std::size_t lanes) {
+        const auto target = absoluteTarget(i, va + i.off);
+        if (!target) return false;
+        const auto off = pe.fileOffset(static_cast<std::uint32_t>(*target - pe.imageBase), 4 * lanes);
+        if (!off) return false;
+        for (std::size_t k = 0; k < lanes; ++k)
+            if (std::memcmp(&pe.bytes[*off + 4 * k], "\x00\x00\x00\x40", 4) != 0) return false;
+        return true;
+    });
+
     // Unpaired effects are matched as a set within each stretch between two aligned calls: a compiler may reorder
     // independent stores, never across a call.
     struct Effect { const Insn* insn; std::size_t segment; bool used = false; };
@@ -1242,11 +1281,11 @@ void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn
     }
 }
 
-Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing);
+Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing, const PeImage& pe);
 
 Match compare(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing, const EngineSymbols* syms, const PeImage& pe)
 {
-    Match m = classify(ours, vanilla, va, wantListing);
+    Match m = classify(ours, vanilla, va, wantListing, pe);
     if (syms) {
         const auto a = disassemble(ours.bytes);
         const auto b = disassemble(vanilla);
@@ -1255,7 +1294,7 @@ Match compare(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, 
     return m;
 }
 
-Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing)
+Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, bool wantListing, const PeImage& pe)
 {
     Match m;
     m.oursLen    = ours.bytes.size();
@@ -1291,7 +1330,7 @@ Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va,
         if (regallocWhy.empty()) { m.status = Status::Regalloc; return m; }
     }
     std::string variantWhy;
-    if (variantEquivalent(ours, *a, *b, variantWhy)) {
+    if (variantEquivalent(ours, *a, *b, va, pe, variantWhy)) {
         m.status = Status::Variant;
         m.detail = regallocWhy + "; " + variantWhy;
     } else {
