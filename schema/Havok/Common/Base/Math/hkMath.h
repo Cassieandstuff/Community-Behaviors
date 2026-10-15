@@ -35,6 +35,7 @@ namespace CB { namespace schema
         /// @note User-defined, as Havok's: a copied hkQsTransform member then moves as aligned vectors (movaps), not as
         ///       an unaligned block copy (movups).
         HK_FORCE_INLINE hkVector4(const hkVector4& v) : m_quad(v.m_quad) {}
+        HK_FORCE_INLINE hkVector4(hkReal x, hkReal y, hkReal z, hkReal w = 0.0f) : m_quad(_mm_setr_ps(x, y, z, w)) {}
         HK_FORCE_INLINE void operator=(const hkVector4& v) { m_quad = v.m_quad; }
         HK_FORCE_INLINE void setZero4() { m_quad = _mm_setzero_ps(); }
         /// @note A load from g_vectorConstantZero, where setZero4 is an xorps (the node default constructors read it).

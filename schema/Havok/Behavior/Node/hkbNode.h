@@ -9,7 +9,14 @@ namespace CB { namespace schema
     struct hkbContext;
     class hkbBehaviorGraph;
 
-    struct hkbVariableBindingSet : hkReferencedObject {};
+    struct hkbVariableBindingSet : hkReferencedObject
+    {
+        /// @note 0x28 bytes, starting with its hkStringPtr m_memberPath; the rest is not declared yet.
+        struct Binding;
+
+        /// @brief The binding whose member path is `memberPath` (exact compare), else null.
+        const Binding* findBindingByMemberPath(const char* memberPath) const;
+    };
 
     struct hkbBindable : hkReferencedObject
     {

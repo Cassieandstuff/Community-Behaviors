@@ -53,6 +53,17 @@ units:
       - { name: "CB::schema::hkbTransformVectorModifier::getInternalState", va: 0x140afef80 }
       - { name: "CB::schema::hkbTransformVectorModifier::setInternalState", va: 0x140afefa0 }
       - { name: "??_GhkbTransformVectorModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb460 }
+  - source: ../../../schema/Havok/Behavior/Modifier/Twist/hkbTwistModifier.cpp
+    functions:
+      - { name: "??0hkbTwistModifier@schema@CB@@QEAA@XZ", va: 0x140afefb0 }
+      - { name: "??0hkbTwistModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aff070 }
+      - { name: "CB::schema::hkbTwistModifier::activate", va: 0x140aff100 }
+      - { name: "CB::schema::hkbTwistModifier::deactivate", va: 0x140aff1d0 }
+      - { name: "CB::schema::hkbTwistModifier::isValid", va: 0x140aff1f0 }
+      - { name: "CB::schema::hkbTwistModifier::cloneNode", va: 0x140aff2d0 }
+      - { name: "CB::schema::hkbTwistModifier::modify", va: 0x140aff320 }
+      - { name: "??1hkbTwistModifier@schema@CB@@UEAA@XZ", va: 0x140ac72d0 }
+      - { name: "??_GhkbTwistModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb610 }
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.cpp
     functions:
       - { name: "CB::schema::finishLoadedObjectBSSynchronizedClipGenerator", va: 0x140b93c10 }

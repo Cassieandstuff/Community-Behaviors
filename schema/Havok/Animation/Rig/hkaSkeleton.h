@@ -32,5 +32,8 @@ namespace CB { namespace schema
         ///        no `trackToBone` table, track i drives bone i.
         /// @note Name provisional; `tracksEnabled` may be null (every track enabled).
         static int findLastUsedTrack(const hkInt16* trackToBone, const hkBool* tracksEnabled, int numBones, int numTracks);
+        /// @brief The chain from `startBone` down to `endBone`, start first, into `bonesOut` (resized to fit); false, with
+        ///        `bonesOut` untouched, when the walk up from `endBone` reaches a negative parent.
+        static hkBool getBoneChain(const hkaSkeleton& skeleton, hkInt16 startBone, hkInt16 endBone, hkArray<hkInt16>& bonesOut);
     };
 } }

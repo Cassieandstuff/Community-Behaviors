@@ -32,6 +32,16 @@ namespace CB { namespace schema
         {
             for (int i = 0; i < numElements; i++) new (base + i) T(src[i]);
         }
+        /// @brief Constructs `numElements` copies of `t`.
+        template <class T> static HK_FORCE_INLINE void constructWithCopy(T* base, int numElements, const T& t, hkArrayIsPod<true>)
+        {
+            for (int i = 0; i < numElements; i++) base[i] = t;
+        }
+        /// @note Through the global placement new: vanilla null-checks each slot.
+        template <class T> static HK_FORCE_INLINE void constructWithCopy(T* base, int numElements, const T& t, hkArrayIsPod<false>)
+        {
+            for (int i = 0; i < numElements; i++) new (base + i) T(t);
+        }
         template <class T> static HK_FORCE_INLINE void destruct(T*, int, hkArrayIsPod<true>) {}
         /// @note Last to first, as vanilla walks them.
         template <class T> static HK_FORCE_INLINE void destruct(T* base, int numElements, hkArrayIsPod<false>)
@@ -84,6 +94,7 @@ namespace CB { namespace schema
             return *this;
         }
 
+        HK_FORCE_INLINE void     clear() { m_size = 0; }
         HK_FORCE_INLINE int      getSize() const { return m_size; }
         HK_FORCE_INLINE int      getCapacity() const { return m_capacityAndFlags & CAPACITY_MASK; }
         HK_FORCE_INLINE T&       operator[](int i) { return m_data[i]; }
@@ -124,11 +135,12 @@ namespace CB { namespace schema
                 hkArrayUtil::_reserve(hkContainerHeapAllocator::s_alloc, this, newSize, sizeof(T));
             }
         }
-        /// @note Constructs through the global placement new: vanilla null-checks the slot.
+        /// @note A non-POD element constructs through the global placement new (vanilla null-checks the slot); a POD one
+        ///       is assigned, unchecked.
         HK_FORCE_INLINE void pushBack(const T& t)
         {
             if (m_size == getCapacity()) hkArrayUtil::_reserveMore(hkContainerHeapAllocator::s_alloc, this, sizeof(T));
-            new (m_data + m_size) T(t);
+            hkArrayUtil::constructWithCopy(m_data + m_size, 1, t, hkArrayIsPod<__is_pod(T)>());
             m_size++;
         }
     };

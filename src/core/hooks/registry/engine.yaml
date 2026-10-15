@@ -206,9 +206,9 @@ symbols:
   - { name: hkLifoAllocator_SlowBlockFree, kind: func, se: 0, ae: 57041, vr: 0, cpp: "CB::schema::hkLifoAllocator::slowBlockFree" }  # (p, 16-rounded size): a free that is not the top of the current slab
   - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getWithDefault" }  # name provisional
   - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
+  - { name: hkStringPtr_DefaultCtor, kind: func, se: 0, ae: 57224, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@XZ" }  # out of line; nulls the string
   - { name: hkStringPtr_Dtor, kind: func, se: 0, ae: 57230, vr: 0, cpp: "CB::schema::hkStringPtr::~hkStringPtr" }
   - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
-  - { name: hkStringPtr_DefaultCtor, kind: func, se: 0, ae: 57224, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@XZ" }  # stores null; the node default constructors call it
   - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
   - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "CB::schema::hkStringBuf::printf" }
   - { name: hkStringBuf_CtorStringPtr, kind: func, se: 0, ae: 57459, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@AEBVhkStringPtr@12@@Z" }  # hkStringBuf(const hkStringPtr&)
@@ -237,6 +237,7 @@ symbols:
   - { name: hkaMirroredSkeleton_MirrorExtractedMotion, kind: func, se: 0, ae: 64361, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorExtractedMotion" }  # (motion&)
   - { name: hkaSkeletonMapper_MapPoseLocalSpace, kind: func, se: 0, ae: 64074, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapPoseLocalSpace" }  # (poseA, poseBInOut, boneToTrackA, boneToTrackB, additive); parameter names provisional
   - { name: hkaSkeletonUtils_FindLastUsedTrack, kind: func, se: 0, ae: 64091, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::findLastUsedTrack" }  # name provisional; highest track below numTracks driving a bone below numBones, else -1
+  - { name: hkaSkeletonUtils_GetBoneChain, kind: func, se: 0, ae: 64132, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::getBoneChain" }  # (skeleton, start, end, bonesOut) -> hkBool through memory; start..end, start first
   - { name: hkaMirroredSkeleton_GetBonePair, kind: func, se: 0, ae: 64369, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::getBonePair" }  # (bone): the mirror partner from +0x10, -1 for a negative bone
   - { name: hkaMirroredSkeleton_MirrorBone, kind: func, se: 0, ae: 64362, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorBone" }  # name provisional; (transform&, bone, isAdditive) mirrors one bone in place
   # Havok behavior
@@ -246,6 +247,10 @@ symbols:
   - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbTransformVectorModifier_CloneCtor, kind: func, se: 0, ae: 59905, vr: 0, cpp: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbTransformVectorModifier_ComputeVectorOut, kind: func, se: 0, ae: 60074, vr: 0, cpp: "CB::schema::hkbTransformVectorModifier::computeVectorOut" }  # name provisional; activate/modify tail-jump to it; body (0x140b0f2e0) outside the class's TU
+  - { name: hkbTwistModifier_CloneCtor, kind: func, se: 0, ae: 59913, vr: 0, cpp: "??0hkbTwistModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTwistModifier(const hkbTwistModifier&) - cloneNode tail-jumps to it
+  - { name: hkbTwistModifier_Dtor, kind: func, se: 0, ae: 58990, vr: 0, cpp: "??1hkbTwistModifier@schema@CB@@UEAA@XZ" }  # out of line (in the type-registration block); the deleting destructor calls it
+  - { name: hkbTwistModifierUtils_ModifyInternal, kind: func, se: 0, ae: 60075, vr: 0, cpp: "CB::schema::hkbTwistModifierUtils::modifyInternal" }  # name provisional; (twist, inOut, referencePose) - the twist itself, compiled far from the twist
+  - { name: hkbVariableBindingSet_FindBindingByMemberPath, kind: func, se: 0, ae: 59472, vr: 0, cpp: "CB::schema::hkbVariableBindingSet::findBindingByMemberPath" }  # (memberPath) -> Binding* or null; exact strCmp over the 0x28-byte bindings
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
@@ -263,6 +268,7 @@ symbols:
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
   - { name: hkbModifier_Vtable, kind: data, se: 278385, ae: 226321, vr: 0, cpp: "CB::schema::hkbModifier::`vftable'" }
   - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
+  - { name: hkbTwistModifier_Vtable, kind: data, se: 278639, ae: 226636, vr: 0, cpp: "CB::schema::hkbTwistModifier::`vftable'" }
   - { name: hkbClipGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226305, vr: 0, cpp: "CB::schema::hkbClipGeneratorInternalState::`vftable'" }
   - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "CB::schema::hkbTimerModifierInternalState::`vftable'" }
   - { name: hkbSetWorldFromModelModifier_Vtable, kind: data, se: 278624, ae: 226616, vr: 0, cpp: "CB::schema::hkbSetWorldFromModelModifier::`vftable'" }
