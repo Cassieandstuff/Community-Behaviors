@@ -218,6 +218,19 @@ symbols:
   - { name: hkStringPtr_Printf, kind: func, se: 0, ae: 57234, vr: 0, cpp: "CB::schema::hkStringPtr::printf" }  # (fmt, ...) formats into a buffer, then assigns
   - { name: hkStringPtr_GetLength, kind: func, se: 0, ae: 57233, vr: 0, cpp: "CB::schema::hkStringPtr::getLength" }  # 0 for the null string, else strLen
   - { name: hkString_BeginsWith, kind: func, se: 0, ae: 57131, vr: 0, cpp: "CB::schema::hkString::beginsWith" }  # (str, prefix) -> hkBool, returned through memory
+  - { name: hkString_Sprintf, kind: func, se: 0, ae: 57117, vr: 0, cpp: "CB::schema::hkString::sprintf" }  # (buf, fmt, ...) unbounded
+  - { name: hkStringPtr_Assign, kind: func, se: 0, ae: 57232, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@AEBV012@@Z" }  # operator=(const hkStringPtr&)
+  - { name: hkStringBuf_CtorCStrLen, kind: func, se: 0, ae: 57461, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@PEBDH@Z" }  # hkStringBuf(const char*, int len)
+  - { name: hkStringBuf_IndexOfString, kind: func, se: 0, ae: 57466, vr: 0, cpp: "?indexOf@hkStringBuf@schema@CB@@QEBAHPEBDHH@Z" }  # (str, start, end) via strstr, -1 if absent
+  - { name: hkStringBuf_IndexOfChar, kind: func, se: 0, ae: 57465, vr: 0, cpp: "?indexOf@hkStringBuf@schema@CB@@QEBAHDHH@Z" }  # (char, start, end), -1 if absent
+  - { name: hkStringBuf_AppendCStr, kind: func, se: 0, ae: 57485, vr: 0, cpp: "CB::schema::hkStringBuf::operator+=" }  # (const char*)
+  - { name: hkStringBuf_Replace, kind: func, se: 0, ae: 57499, vr: 0, cpp: "CB::schema::hkStringBuf::replace" }  # (from, to, REPLACE_ONE/ALL)
+  - { name: hkStringBuf_ChompStart, kind: func, se: 0, ae: 57488, vr: 0, cpp: "CB::schema::hkStringBuf::chompStart" }  # drops the first n characters
+  - { name: hkStringBuf_Slice, kind: func, se: 0, ae: 57490, vr: 0, cpp: "CB::schema::hkStringBuf::slice" }  # (start, length) keeps that substring
+  - { name: hkCachedHashMap_StringMap_Ctor, kind: func, se: 0, ae: 57751, vr: 0, cpp: "??0?$hkCachedHashMap@UhkStringMapOperations@schema@CB@@@schema@CB@@QEAA@UhkStringMapOperations@12@@Z" }  # hkStringMap's body; 16 empty slots
+  - { name: hkCachedHashMap_StringMap_Dtor, kind: func, se: 0, ae: 57752, vr: 0, cpp: "??1?$hkCachedHashMap@UhkStringMapOperations@schema@CB@@@schema@CB@@QEAA@XZ" }
+  - { name: hkCachedHashMap_StringMap_Insert, kind: func, se: 0, ae: 57771, vr: 0, cpp: "CB::schema::hkCachedHashMap<CB::schema::hkStringMapOperations>::insert" }  # (key, value); keys are not copied
+  - { name: hkCachedHashMap_StringMap_Get, kind: func, se: 0, ae: 57761, vr: 0, cpp: "CB::schema::hkCachedHashMap<CB::schema::hkStringMapOperations>::get" }  # (key, out) -> hkResult
   - { name: hkQsTransform_IsApproximatelyEqual, kind: func, se: 0, ae: 57252, vr: 0, cpp: "CB::schema::hkQsTransform::isApproximatelyEqual" }  # (other, epsilon) -> hkBool
   - { name: hkQuaternion_SetAxisAngle, kind: func, se: 0, ae: 57098, vr: 0, cpp: "CB::schema::hkQuaternion::setAxisAngle" }  # (axis, angle): sin/cos of the half angle
   - { name: hkQuaternion_Set, kind: func, se: 0, ae: 57099, vr: 0, cpp: "CB::schema::hkQuaternion::set" }  # (const hkRotation&)
@@ -360,6 +373,20 @@ symbols:
   - { name: hkbHandleUtils_AreEqual, kind: func, se: 0, ae: 60013, vr: 0, cpp: "CB::schema::hkbHandleUtils::areEqual" }  # name provisional; frame, body, character and bone all equal
   - { name: hkbEventsFromRangeModifier_CloneCtor, kind: func, se: 0, ae: 59723, vr: 0, cpp: "??0hkbEventsFromRangeModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbEventsFromRangeModifier_Dtor, kind: func, se: 0, ae: 58979, vr: 0, cpp: "??1hkbEventsFromRangeModifier@schema@CB@@UEAA@XZ" }  # COMDAT in the type-registration block; the deleting destructor calls it
+  - { name: hkbSymbolIdMap_ConvertInternalId, kind: func, se: 0, ae: 59323, vr: 0, cpp: "CB::schema::hkbSymbolIdMap::convertInternalId" }  # name provisional; static (fromMap, toMap, id) through the external id
+  - { name: hkbCompiledExpressionSet_Ctor, kind: func, se: 0, ae: 60023, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::hkbCompiledExpressionSet" }
+  - { name: hkbCompiledExpressionSet_Compile, kind: func, se: 0, ae: 60024, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::compile" }  # name provisional; (expression, variableMap, characterPropertyMap, errorString) -> bool; the native expression compiler
+  - { name: hkbCompiledExpressionSet_Evaluate, kind: func, se: 0, ae: 60025, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::evaluate" }  # name provisional; (context, index, result&) -> bool; hkbExpressionCondition shares it
+  - { name: hkbCompiledExpressionSet_GetActiveVariables, kind: func, se: 0, ae: 60026, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::getActiveVariables" }  # name provisional; variable tokens of every expression
+  - { name: hkbExpressionDataArray_CopyCtor, kind: func, se: 0, ae: 59682, vr: 0, cpp: "??0hkbExpressionDataArray@schema@CB@@QEAA@AEBV012@@Z" }  # the clone's deep copy
+  - { name: hkbEvaluateExpressionModifier_CloneCtor, kind: func, se: 0, ae: 59684, vr: 0, cpp: "??0hkbEvaluateExpressionModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbEvaluateExpressionModifier_Dtor, kind: func, se: 0, ae: 58977, vr: 0, cpp: "??1hkbEvaluateExpressionModifier@schema@CB@@UEAA@XZ" }  # COMDAT in the type-registration block; the deleting destructor calls it
+  - { name: hkbEvaluateExpressionModifier_GetStaticClass, kind: func, se: 0, ae: 58735, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbEvaluateExpressionModifier_ParseAssignment, kind: func, se: 0, ae: 59694, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::parseAssignment" }  # name provisional; splits `event if ...` / `variable = ...`
+  - { name: hkbEvaluateExpressionModifier_FindEventIndex, kind: func, se: 0, ae: 59695, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::findEventIndex" }  # name provisional; exact strCmp over the behavior's event names
+  - { name: hkbEvaluateExpressionModifier_SetVariable, kind: func, se: 0, ae: 59696, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::setVariable" }  # name provisional; (index, context, value) typed + clamped into the root graph
+  - { name: hkbEvaluateExpressionModifier_TrimWhitespace, kind: func, se: 0, ae: 59697, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::trimWhitespace" }  # name provisional; spaces only
+  - { name: hkbEvaluateExpressionModifier_IsValidErrorBuffer, kind: data, se: 0, ae: 408434, vr: 0, cpp: "?s_errorBuffer@?M@??isValid@hkbEvaluateExpressionModifier@schema@CB@@UEBA_NAEAVhkStringPtr@34@@Z@4PADA" }  # isValid's static char[1024]
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
@@ -474,3 +501,6 @@ symbols:
   - { name: hkbEvaluateHandleModifier_Vtable, kind: data, se: 278481, ae: 226444, vr: 0, cpp: "CB::schema::hkbEvaluateHandleModifier::`vftable'" }
   - { name: hkbEventsFromRangeModifier_Vtable, kind: data, se: 278495, ae: 226462, vr: 0, cpp: "CB::schema::hkbEventsFromRangeModifier::`vftable'" }
   - { name: hkbEventsFromRangeModifierInternalState_Vtable, kind: data, se: 278502, ae: 226470, vr: 0, cpp: "CB::schema::hkbEventsFromRangeModifierInternalState::`vftable'" }
+  - { name: hkbExpressionDataArray_Vtable, kind: data, se: 278468, ae: 226428, vr: 0, cpp: "CB::schema::hkbExpressionDataArray::`vftable'" }
+  - { name: hkbEvaluateExpressionModifier_Vtable, kind: data, se: 278469, ae: 226430, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::`vftable'" }
+  - { name: hkbEvaluateExpressionModifierInternalState_Vtable, kind: data, se: 278478, ae: 226440, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifierInternalState::`vftable'" }

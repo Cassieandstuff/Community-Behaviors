@@ -21,5 +21,10 @@ namespace CB { namespace schema
             if (external < 0) return external;
             return static_cast<int>(m_externalToInternalMap.getWithDefault(external + 1, hkUlong(-1)));
         }
+
+        /// @brief `id`, internal to `fromMap`'s graph, as the internal id of `toMap`'s (through the external id they
+        ///        share); unchanged when both maps are the same, and a null map passes the id through.
+        /// @note Name provisional. Out of line in vanilla (0x140ad6050).
+        static int convertInternalId(const hkbSymbolIdMap* fromMap, const hkbSymbolIdMap* toMap, int id);
     };
 } }

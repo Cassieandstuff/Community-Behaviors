@@ -6,6 +6,8 @@
 #include <Behavior/Event/hkbEvent.h>
 #include <Behavior/Generator/hkbGenerator.h>
 #include <Behavior/Utils/hkbSymbolIdMap.h>
+#include <Behavior/Variables/hkbVariableInfo.h>
+#include <Behavior/Variables/hkbVariableValueSet.h>
 #include <Common/Base/Algorithm/PseudoRandom/hkPseudoRandomGenerator.h>
 #include <Common/Base/Container/PointerMap/hkPointerMap.h>
 
@@ -13,14 +15,22 @@ namespace CB { namespace schema
 {
     struct hkbBehaviorGraphStringData : hkReferencedObject
     {
-        hkArray<hkStringPtr> m_eventNames;   ///< +0x10
+        hkArray<hkStringPtr> m_eventNames;               ///< +0x10
+        hkArray<hkStringPtr> m_attributeNames;           ///< +0x20
+        hkArray<hkStringPtr> m_variableNames;            ///< +0x30
+        hkArray<hkStringPtr> m_characterPropertyNames;   ///< +0x40
     };
 
     struct hkbBehaviorGraphData : hkReferencedObject
     {
-        char                                 m_pad10[0x40 - 0x10];
+        hkArray<hkReal>                      m_attributeDefaults;        ///< +0x10
+        hkArray<hkbVariableInfo>             m_variableInfos;            ///< +0x20
+        hkArray<hkbVariableInfo>             m_characterPropertyInfos;   ///< +0x30
         hkArray<hkbEventInfo>                m_eventInfos;   ///< +0x40
-        char                                 m_pad50[0x78 - 0x50];
+        /// @brief Per-variable bounds (empty when no variable has any).
+        hkArray<hkbVariableValue>            m_wordMinVariableValues;    ///< +0x50
+        hkArray<hkbVariableValue>            m_wordMaxVariableValues;    ///< +0x60
+        hkRefPtr<hkbVariableValueSet>        m_variableInitialValues;    ///< +0x70
         hkRefPtr<hkbBehaviorGraphStringData> m_stringData;   ///< +0x78
 
         /// @note An id past the table reads as no flags.
@@ -51,7 +61,12 @@ namespace CB { namespace schema
         hkPointerMap<const hkbNode*, int>* m_activeNodeTemplateToIndexMap;   ///< +0xa0
         char                           m_padA8[0xb8 - 0xa8];
         hkRefPtr<hkbSymbolIdMap>       m_eventIDMap;   ///< +0xb8
-        char                           m_padC0[0x12e - 0xc0];
+        char                           m_padC0[0xc8 - 0xc0];
+        /// @brief Maps this graph's variable indices to the root graph's (a referenced behavior has its own).
+        hkRefPtr<hkbSymbolIdMap>       m_variableIDMap;   ///< +0xc8
+        char                           m_padD0[0xd8 - 0xd0];
+        hkRefPtr<hkbVariableValueSet>  m_variableValueSet;   ///< +0xd8
+        char                           m_padE0[0x12e - 0xe0];
         /// @brief Asks the graph to recompute its active nodes (a selector switched to another child).
         /// @note Name provisional: Havok's (the selector raises it under the monitor timer "MSG::requestUpdateActiveNodes").
         hkBool                         m_updateActiveNodes;   ///< +0x12e

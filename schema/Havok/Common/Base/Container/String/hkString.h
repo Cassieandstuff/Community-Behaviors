@@ -21,6 +21,7 @@ namespace CB { namespace schema
         hkStringPtr(const hkStringPtr& other);
         ~hkStringPtr();
         hkStringPtr& operator=(const char* s);
+        hkStringPtr& operator=(const hkStringPtr& other);
         /// @brief Formats into a temporary buffer, then assigns it.
         void printf(const char* fmt, ...);
         /// @note Out of line in vanilla (0x140a8d480): 0 for the null string, else hkString::strLen.
@@ -36,16 +37,19 @@ namespace CB { namespace schema
         int   m_capacityAndFlags;
         char  m_storage[128];
 
+        /// @note The capacity is stored before the size, as vanilla does everywhere.
         HK_FORCE_INLINE hkStringBuf()
         {
             m_data             = m_storage;
-            m_size             = 1;
             m_capacityAndFlags = int(0x80000000) | 128;
+            m_size             = 1;
             m_storage[0]       = 0;
         }
         /// @note Out of line in vanilla; a null `s` gives the empty string.
         hkStringBuf(const char* s);
         hkStringBuf(const hkStringPtr& s);
+        /// @brief The first `len` characters of `s`.
+        hkStringBuf(const char* s, int len);
         /// @note Resets to empty and non-owning after the free, like hkArray's destructor (vanilla keeps those stores
         ///       when the buffer dies inside a loop).
         HK_FORCE_INLINE ~hkStringBuf()
@@ -59,7 +63,21 @@ namespace CB { namespace schema
             m_capacityAndFlags = int(0x80000000);
         }
 
+        enum ReplaceType { REPLACE_ONE = 0, REPLACE_ALL = 1 };
+
         void printf(const char* fmt, ...);
+        /// @brief Appends `s`.
+        hkStringBuf& operator+=(const char* s);
+        /// @brief The index of the first `c` / `s` at or after `startIndex` (before `endIndex`), else -1.
+        int  indexOf(char c, int startIndex = 0, int endIndex = 0x7fffffff) const;
+        int  indexOf(const char* s, int startIndex = 0, int endIndex = 0x7fffffff) const;
+        /// @brief Replaces `from` with `to` (the first or every occurrence).
+        void replace(char from, char to, ReplaceType rt = REPLACE_ALL);
+        /// @brief Drops the first `n` characters.
+        void chompStart(int n);
+        /// @brief Keeps the `length` characters from `startOffset`.
+        void slice(int startOffset, int length);
+        HK_FORCE_INLINE int getLength() const { return m_size - 1; }
         HK_FORCE_INLINE const char* cString() const { return m_data; }
     };
 
@@ -68,6 +86,8 @@ namespace CB { namespace schema
         static int  strCmp(const char* a, const char* b);
         static int  strNcmp(const char* a, const char* b, int n);
         static int  strLen(const char* s);
+        /// @brief Formats into `buf` (no size limit).
+        static int  sprintf(char* buf, const char* fmt, ...);
         /// @brief Whether `s` starts with `prefix` (case-sensitive; an empty prefix always matches).
         static hkBool beginsWith(const char* s, const char* prefix);
         /// @note Out of line: zero-extends `nbytes` and tail-jumps to memcpy.

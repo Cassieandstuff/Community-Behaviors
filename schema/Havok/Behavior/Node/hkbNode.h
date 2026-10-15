@@ -20,6 +20,8 @@ namespace CB { namespace schema
         virtual ~hkbBindableCollector() {}                        ///< slot 1
     };
 
+    struct hkbNodeInternalStateInfo;
+
     struct hkbVariableBindingSet : hkReferencedObject
     {
         /// @note 0x28 bytes, starting with its hkStringPtr m_memberPath; the rest is not declared yet.
@@ -144,15 +146,23 @@ namespace CB { namespace schema
         virtual hkbNode* cloneNode(hkbBehaviorGraph& rootBehavior) const;      ///< slot 12
         virtual hkReferencedObject* createInternalState();                     ///< slot 13
         virtual void getInternalState(hkReferencedObject& internalState) const;   ///< slot 14
-        virtual void vfn15();                                                  ///< slot 15
+        /// @brief Fills `internalState` with the state the node keeps outside itself (in its shared data).
+        /// @note Name and signature after the Havok SDK's getInternalStateUser (unverified beyond the state in r8).
+        virtual void getInternalStateUser(const hkbBehaviorGraph& rootBehavior, hkReferencedObject& internalState);   ///< slot 15
         virtual void setInternalState(const hkReferencedObject& internalState);   ///< slot 16
-        virtual void vfn17();                                                  ///< slot 17
+        /// @brief Restores what getInternalStateUser saved.
+        /// @note Name and signature after the Havok SDK's setInternalStateUser (unverified beyond the state in r8).
+        virtual void setInternalStateUser(const hkbContext& context, const hkReferencedObject& internalState,
+                                          hkPointerMap<hkInt16, const hkbNodeInternalStateInfo*>& nodeIdToInternalStateMap);   ///< slot 17
         /// @brief Adds the event ids the node reacts to into `activeEvents` (id → true).
         /// @note Name after the Havok SDK's hkbNode::getActiveEvents; hkbEventDrivenModifier's adds its two event ids.
         virtual void getActiveEvents(hkPointerMap<int, bool>& activeEvents) const;   ///< slot 18
         /// @note Name provisional: hkbNode's returns false, hkbTransitionEffect's true.
         virtual bool isTransitionEffect() const;                               ///< slot 19
-        virtual void vfn20();                                                  ///< slot 20
+        /// @brief Adds the variable indices the node reads or writes into `activeVariables` (index → true).
+        /// @note Name provisional (the Havok SDK's getActiveVariables): hkbEvaluateExpressionModifier's adds its assignment
+        ///       variables and the ones its compiled expressions read.
+        virtual void getActiveVariables(hkPointerMap<int, bool>& activeVariables) const;   ///< slot 20
         /// @note hkbNode's returns false, hkbGenerator's true.
         virtual bool vfn21();                                                  ///< slot 21
         virtual void vfn22();                                                  ///< slot 22

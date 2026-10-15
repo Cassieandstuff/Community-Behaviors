@@ -238,6 +238,34 @@ units:
       - { name: "??1hkbEventsFromRangeModifier@schema@CB@@UEAA@XZ", va: 0x140ac6870 }
       - { name: "??_GhkbEventsFromRangeModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8ff0 }
       - { name: "??_GhkbEventsFromRangeModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9070 }
+  - source: ../../../schema/Havok/Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp
+    functions:
+      - { name: "??0hkbExpressionDataArray@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aed990 }
+      # STRUCTURAL: vanilla duplicates the setAndDontIncrementRefCount store + epilogue tail (see tools/cbmatch/parked.yaml):
+      # - { name: "??0hkbEvaluateExpressionModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aedc70 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::getClassType", va: 0x140aedd50 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::update", va: 0x140aedd60 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::activate", va: 0x140aee020 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::precompute", va: 0x140aee0d0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::isValid", va: 0x140aee3b0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::cloneNode", va: 0x140aee6c0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::getActiveVariables", va: 0x140aee710 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::getInternalStateUser", va: 0x140aee7a0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::setInternalStateUser", va: 0x140aee850 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::parseAssignment", va: 0x140aee8c0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::findEventIndex", va: 0x140aeeb30 }
+      # STRUCTURAL: vanilla tail-duplicates the int32 case's store (see tools/cbmatch/parked.yaml):
+      # - { name: "CB::schema::hkbEvaluateExpressionModifier::setVariable", va: 0x140aeebc0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::trimWhitespace", va: 0x140aeedd0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::createInternalState", va: 0x140aeee50 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::getInternalState", va: 0x140aeeea0 }
+      - { name: "CB::schema::hkbEvaluateExpressionModifier::setInternalState", va: 0x140aeef80 }
+      - { name: "??1hkbEvaluateExpressionModifier@schema@CB@@UEAA@XZ", va: 0x140ac6730 }
+      - { name: "??_GhkbEvaluateExpressionModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8a70 }
+      - { name: "??_GhkbEvaluateExpressionModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8af0 }
+  - source: ../../../schema/Havok/Behavior/Utils/hkbCompiledExpressionSet.cpp
+    functions:
+      - { name: "CB::schema::hkbCompiledExpressionSet::getActiveVariables", va: 0x140b06d10 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSTimerModifier/BSTimerModifier.cpp
     functions:
       - { name: "??0BSTimerModifier@schema@CB@@QEAA@XZ", va: 0x140b9f1b0 }
