@@ -51,6 +51,10 @@ namespace CB { namespace schema
         hkPointerMap<const hkbNode*, int>* m_activeNodeTemplateToIndexMap;   ///< +0xa0
         char                           m_padA8[0xb8 - 0xa8];
         hkRefPtr<hkbSymbolIdMap>       m_eventIDMap;   ///< +0xb8
+        char                           m_padC0[0x12e - 0xc0];
+        /// @brief Asks the graph to recompute its active nodes (a selector switched to another child).
+        /// @note Name provisional: Havok's (the selector raises it under the monitor timer "MSG::requestUpdateActiveNodes").
+        hkBool                         m_updateActiveNodes;   ///< +0x12e
 
         /// @brief The template node an event raised by `node` names as its sender.
         /// @note Name provisional.

@@ -108,6 +108,14 @@ namespace CB { namespace schema
             hkArrayUtil::construct(m_data + m_size, n - m_size, hkArrayIsPod<__is_pod(T)>());
             m_size = n;
         }
+        /// @brief As setSize(n), with the new elements copies of `fill`.
+        HK_FORCE_INLINE void setSize(int n, const T& fill)
+        {
+            reserve(n);
+            hkArrayUtil::destruct(m_data + n, m_size - n, hkArrayIsPod<__is_pod(T)>());
+            hkArrayUtil::constructWithCopy(m_data + m_size, n - m_size, fill, hkArrayIsPod<__is_pod(T)>());
+            m_size = n;
+        }
         /// @brief Other elements: assigns over the ones both arrays have, destroys this one's surplus and copy-constructs
         ///        the rest.
         HK_FORCE_INLINE hkArray& assign(const hkArray& a, hkArrayIsPod<false>)

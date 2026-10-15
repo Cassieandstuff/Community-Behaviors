@@ -344,3 +344,9 @@ symbols:
   - { name: BSiStateTaggingGenerator_Vtable, kind: data, se: 282032, ae: 232663, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::`vftable'" }
   - { name: BSiStateTaggingGenerator_GetStaticClass, kind: func, se: 0, ae: 62953, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::staticClass" }  # getClassType tail-jumps to it
   - { name: BSiStateTaggingGenerator_CloneCtor, kind: func, se: 0, ae: 63174, vr: 0, cpp: "??0BSiStateTaggingGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbManualSelectorGenerator_Vtable, kind: data, se: 278379, ae: 226313, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::`vftable'" }
+  - { name: hkbManualSelectorGeneratorInternalState_Vtable, kind: data, se: 278382, ae: 226317, vr: 0, cpp: "CB::schema::hkbManualSelectorGeneratorInternalState::`vftable'" }
+  - { name: hkbManualSelectorGenerator_GetStaticClass, kind: func, se: 0, ae: 58666, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbManualSelectorGenerator_CloneCtor, kind: func, se: 0, ae: 59542, vr: 0, cpp: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbManualSelectorGenerator_Dtor, kind: func, se: 0, ae: 59543, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::~hkbManualSelectorGenerator" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbManualSelectorGenerator_ComputeCurrentGeneratorIndex, kind: func, se: 0, ae: 59555, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::computeCurrentGeneratorIndex" }  # name provisional; the selected index clamped into [0, last child] (activate, update)

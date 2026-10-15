@@ -288,3 +288,26 @@ units:
       - { name: "CB::schema::BSiStateTaggingGenerator::updateSync", va: 0x140b98e10 }
       - { name: "??0BSiStateTaggingGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b98eb0 }
       - { name: "??_GBSiStateTaggingGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b98f00 }
+  - source: ../../../schema/Havok/Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp
+    functions:
+      - { name: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@XZ", va: 0x140ae8e70 }
+      - { name: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ae8ef0 }
+      - { name: "??1hkbManualSelectorGenerator@schema@CB@@UEAA@XZ", va: 0x140ae9000 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::getClassType", va: 0x140ae9100 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::activate", va: 0x140ae9110 }
+      # STRUCTURAL, VS2015 24247 folds `flag |= true` to a constant store (see parked.yaml):
+      # - { name: "CB::schema::hkbManualSelectorGenerator::update", va: 0x140ae9130 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::getMaxNumChildren", va: 0x140ae9210 }
+      # STRUCTURAL, signed vs unsigned capacity compare in the inlined setSize(1) (see parked.yaml):
+      # - { name: "CB::schema::hkbManualSelectorGenerator::getChildren", va: 0x140ae9230 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::isValid", va: 0x140ae9340 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::cloneNode", va: 0x140ae93d0 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::generate", va: 0x140ae9420 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::canRecycleOutput", va: 0x140ae9440 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::updateSync", va: 0x140ae9450 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::setGenerator", va: 0x140ae94e0 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::computeCurrentGeneratorIndex", va: 0x140ae95a0 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::createInternalState", va: 0x140ae95d0 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::getInternalState", va: 0x140ae9610 }
+      - { name: "CB::schema::hkbManualSelectorGenerator::setInternalState", va: 0x140ae9620 }
+      - { name: "??_GhkbManualSelectorGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9e40 }
