@@ -25,7 +25,8 @@ namespace CB { namespace schema
         hkArray<hkInt16>          m_parentIndices;     ///< +0x18 — -1 for a root bone
         hkArray<hkaBone>          m_bones;             ///< +0x28
         hkArray<hkQsTransform>    m_referencePose;     ///< +0x38
-        char                      m_pad48[0x68 - 0x48];
+        hkArray<hkReal>           m_referenceFloats;   ///< +0x48
+        hkArray<hkStringPtr>      m_floatSlots;        ///< +0x58
         hkArray<LocalFrameOnBone> m_localFrames;       ///< +0x68
     };
 

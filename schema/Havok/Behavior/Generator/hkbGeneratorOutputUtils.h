@@ -23,5 +23,12 @@ namespace CB { namespace schema
         ///        (identity when null), then sets all the bits.
         /// @note 0x140ad2a70, formerly pinned as hkbMirrorPose: it makes the pose dense, it does not mirror it.
         static void makePoseDense(hkbGeneratorOutput& output, const hkQsTransform* referencePose);
+        /// @brief The output's pose as a full skeleton pose into `poseLocalOut` (the skeleton's bone count): bones the
+        ///        partition bits leave unset, and bones past the output's count, come from the reference pose.
+        /// @note 0x140abe3e0; the IK modifiers (look-at, foot, hand, limb) load their hkaPose with it.
+        static void getFilledPoseLocal(const hkbGeneratorOutput& output, const hkaSkeleton* skeleton, hkQsTransform* poseLocalOut);
+        /// @brief Sets every partition bit after the output's pose (all bones set), the pose untouched.
+        /// @note 0x140abe0e0; the IK modifiers call it after writing their whole pose back.
+        static void markPoseDense(hkbGeneratorOutput& output);
     };
 } }

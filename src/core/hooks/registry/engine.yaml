@@ -504,3 +504,21 @@ symbols:
   - { name: hkbExpressionDataArray_Vtable, kind: data, se: 278468, ae: 226428, vr: 0, cpp: "CB::schema::hkbExpressionDataArray::`vftable'" }
   - { name: hkbEvaluateExpressionModifier_Vtable, kind: data, se: 278469, ae: 226430, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::`vftable'" }
   - { name: hkbEvaluateExpressionModifierInternalState_Vtable, kind: data, se: 278478, ae: 226440, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifierInternalState::`vftable'" }
+  - { name: hkbLookAtModifier_Vtable, kind: data, se: 0, ae: 226536, vr: 0, cpp: "CB::schema::hkbLookAtModifier::`vftable'" }
+  - { name: hkbLookAtModifierInternalState_Vtable, kind: data, se: 0, ae: 226540, vr: 0, cpp: "CB::schema::hkbLookAtModifierInternalState::`vftable'" }
+  - { name: hkbLookAtModifier_CloneCtor, kind: func, se: 0, ae: 59804, vr: 0, cpp: "??0hkbLookAtModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkaPose_Dtor, kind: func, se: 0, ae: 58443, vr: 0, cpp: "CB::schema::hkaPose::~hkaPose" }  # out of line; frees the four arrays
+  - { name: hkaPose_AccessUnsyncedPoseLocalSpace, kind: func, se: 0, ae: 56992, vr: 0, cpp: "CB::schema::hkaPose::accessUnsyncedPoseLocalSpace" }  # marks every bone model-dirty, local in sync
+  - { name: hkaPose_GetSyncedPoseLocalSpace, kind: func, se: 0, ae: 56982, vr: 0, cpp: "CB::schema::hkaPose::getSyncedPoseLocalSpace" }
+  - { name: hkaPose_AccessBoneModelSpace, kind: func, se: 0, ae: 56989, vr: 0, cpp: "CB::schema::hkaPose::accessBoneModelSpace" }  # (bone, PropagateOrNot)
+  - { name: hkaPose_CalculateBoneModelSpace, kind: func, se: 0, ae: 56999, vr: 0, cpp: "CB::schema::hkaPose::calculateBoneModelSpace" }  # getBoneModelSpace's dirty path
+  - { name: hkaLookAtIkSolver_Solve, kind: func, se: 0, ae: 64407, vr: 0, cpp: "CB::schema::hkaLookAtIkSolver::solve" }  # (setup, targetMS, gain, boneModelSpace, range) -> hkBool inside limits
+  - { name: hkbGeneratorOutputUtils_GetFilledPoseLocal, kind: func, se: 0, ae: 58478, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getFilledPoseLocal" }  # name provisional; (output, skeleton, poseOut) output pose, unset bones from the reference pose
+  - { name: hkbGeneratorOutputUtils_MarkPoseDense, kind: func, se: 0, ae: 58474, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::markPoseDense" }  # name provisional; sets every pose partition bit
+  - { name: BSLookAtModifier_Vtable, kind: data, se: 0, ae: 232704, vr: 0, cpp: "CB::schema::BSLookAtModifier::`vftable'" }
+  - { name: BSLookAtModifier_GetStaticClass, kind: func, se: 0, ae: 62988, vr: 0, cpp: "CB::schema::BSLookAtModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSLookAtModifier_CloneCtor, kind: func, se: 0, ae: 63279, vr: 0, cpp: "??0BSLookAtModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSLookAtModifier_Dtor, kind: func, se: 0, ae: 63280, vr: 0, cpp: "CB::schema::BSLookAtModifier::~BSLookAtModifier" }  # out of line; the deleting destructor calls it
+  - { name: BSLookAtModifierBoneData_ResetCurrentFwdAxis, kind: func, se: 0, ae: 63269, vr: 0, cpp: "CB::schema::BSLookAtModifierBoneData::resetCurrentFwdAxis" }  # name provisional; currentFwdAxisLS = fwdAxisLS
+  - { name: BSLookAtModifierUtils_ModifyInternal, kind: func, se: 0, ae: 63350, vr: 0, cpp: "CB::schema::BSLookAtModifierUtils::modifyInternal" }  # (modifier, pose, inOut, context-or-null); name from its warning string
+  - { name: hkVector4_IsNormalized3, kind: func, se: 0, ae: 57221, vr: 0, cpp: "CB::schema::hkVector4::isNormalized3" }  # (epsilon) -> hkBool through a hidden pointer

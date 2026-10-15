@@ -139,6 +139,10 @@ namespace CB { namespace schema
         void setTransformedPos(const hkQsTransform& t, const hkVector4& v);
         void setTransformedInversePos(const hkQsTransform& t, const hkVector4& v);
 
+        /// @brief Whether the xyz length is 1 within `epsilon`.
+        /// @note Out of line in vanilla (0x140a8d170); returns the hkBool through a hidden pointer.
+        hkBool isNormalized3(hkReal epsilon = 1e-4f) const;
+
         /// @brief Whether x, y and z each lie within `epsilon` of `v`'s.
         HK_FORCE_INLINE bool equals3(const hkVector4& v, hkReal epsilon) const
         {

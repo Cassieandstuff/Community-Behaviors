@@ -70,6 +70,9 @@ namespace CB { namespace schema
         int m_capacityAndFlags;
 
         HK_FORCE_INLINE hkArray() : m_data(HK_NULL), m_size(0), m_capacityAndFlags(DONT_DEALLOCATE_FLAG) {}
+        /// @brief Over caller-owned storage (`capacity` elements at `buffer`, `size` in use), never freed.
+        HK_FORCE_INLINE hkArray(T* buffer, int size, int capacity)
+        :   m_data(buffer), m_size(size), m_capacityAndFlags(capacity | DONT_DEALLOCATE_FLAG) {}
         /// @note Leaves the loaded array as it is.
         HK_FORCE_INLINE hkArray(hkFinishLoadedObjectFlag) {}
         /// @brief Destroys the elements (last to first), frees owned storage and leaves the array empty and non-owning.
@@ -173,6 +176,7 @@ namespace CB { namespace schema
             if (getCapacity() < n) hkArrayUtil::_reserve(hkContainerHeapAllocator::s_alloc, this, n, sizeof(T));
         }
         HK_FORCE_INLINE T*       begin() { return m_data; }
+        HK_FORCE_INLINE const T* begin() const { return m_data; }
         /// @note A non-POD element constructs through the global placement new (vanilla null-checks the slot); a POD one
         ///       is assigned, unchecked.
         HK_FORCE_INLINE void pushBack(const T& t)
