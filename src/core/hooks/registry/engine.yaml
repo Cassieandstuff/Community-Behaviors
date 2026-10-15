@@ -204,6 +204,7 @@ symbols:
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # out of line: node destructors end in a tail call to it
+  - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
@@ -214,5 +215,7 @@ symbols:
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
   - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "CB::schema::hkbClipGenerator::`vftable'" }
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
+  - { name: hkbModifier_Vtable, kind: data, se: 278385, ae: 226321, vr: 0, cpp: "CB::schema::hkbModifier::`vftable'" }
+  - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
   - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "CB::schema::hkbTimerModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }

@@ -29,6 +29,12 @@ units:
     functions:
       - { name: "CB::schema::hkbTimerModifier::update", va: 0x140afebd0 }
       - { name: "CB::schema::hkbTimerModifier::createInternalState", va: 0x140afed50 }
+      - { name: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afeb30 }
+      - { name: "CB::schema::hkbTimerModifier::activate", va: 0x140afebc0 }
+      - { name: "CB::schema::hkbTimerModifier::cloneNode", va: 0x140afed00 }
+      - { name: "CB::schema::hkbTimerModifier::getInternalState", va: 0x140afed90 }
+      - { name: "CB::schema::hkbTimerModifier::setInternalState", va: 0x140afeda0 }
+      - { name: "??_GhkbTimerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb330 }
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.cpp
     functions:
       - { name: "CB::schema::finishLoadedObjectBSSynchronizedClipGenerator", va: 0x140b93c10 }
