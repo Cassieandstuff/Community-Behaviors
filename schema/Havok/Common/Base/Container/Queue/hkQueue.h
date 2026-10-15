@@ -2,7 +2,7 @@
 /// @brief hkQueue: a growable ring buffer.
 #pragma once
 
-#include <Common/Base/Types/hkBaseTypes.h>
+#include <Common/Base/Memory/hkMemory.h>
 
 namespace CB { namespace schema
 {
@@ -13,6 +13,11 @@ namespace CB { namespace schema
         int m_head;            ///< +0x0c
         int m_tail;            ///< +0x10
         int m_elementsInUse;   ///< +0x14
+
+        /// @note Out of line (not `inline`): vanilla calls the hkbEvent instantiation (0x140ab74d0, 0x140ab7500) from
+        ///       hkbBehaviorGraph::update.
+        hkQueue();
+        ~hkQueue();
 
         void setCapacity(int n);
 
@@ -39,4 +44,16 @@ namespace CB { namespace schema
             m_elementsInUse++;
         }
     };
+
+    template <class T> hkQueue<T>::hkQueue() : m_data(HK_NULL), m_capacity(0), m_head(0), m_tail(0), m_elementsInUse(0) {}
+
+    /// @note The storage is a heap block of exactly m_capacity elements.
+    template <class T> hkQueue<T>::~hkQueue()
+    {
+        const int capacity = m_capacity;
+        if (capacity) {
+            T* data = m_data;
+            hkMemoryRouter::getInstance().heap().blockFree(data, capacity * int(sizeof(T)));
+        }
+    }
 } }

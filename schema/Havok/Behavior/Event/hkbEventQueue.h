@@ -13,6 +13,14 @@ namespace CB { namespace schema
         /// @note An hkBool: hkbSequence::update saves it into a bool with `cmp byte,0; setnz` (a plain bool copies the byte).
         hkBool          m_directMap;     ///< +0x20 — name provisional: true = index the internal→external array
 
+        HK_FORCE_INLINE hkbEventQueue() : m_symbolIdMap(HK_NULL), m_directMap(false) {}
+        /// @note Clears the map before the queue storage goes (vanilla stores both before calling ~hkQueue).
+        HK_FORCE_INLINE ~hkbEventQueue()
+        {
+            m_symbolIdMap = HK_NULL;
+            m_directMap   = false;
+        }
+
         /// @note Must stay force-inlined: under /Ob1 a plain `inline` is only a hint, and outlining it breaks callers.
         HK_FORCE_INLINE int toExternal(int id) const
         {

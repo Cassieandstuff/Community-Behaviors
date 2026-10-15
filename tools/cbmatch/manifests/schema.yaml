@@ -777,6 +777,7 @@ units:
       - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@PEAVhkbGenerator@12@PEAUhkbBehaviorGraphData@12@@Z", va: 0x140ab1000 }
       - { name: "CB::schema::hkbBehaviorGraph::getClassType", va: 0x140ab1770 }
       - { name: "CB::schema::hkbBehaviorGraph::activate", va: 0x140ab1780 }
+      - { name: "CB::schema::hkbBehaviorGraph::update", va: 0x140ab1890 }
       - { name: "CB::schema::hkbBehaviorGraph::handleEvent", va: 0x140ab1f30 }
       - { name: "CB::schema::hkbBehaviorGraph::deactivate", va: 0x140ab1f70 }
       - { name: "CB::schema::hkbBehaviorGraph::getChildren", va: 0x140ab20c0 }
@@ -785,10 +786,18 @@ units:
       - { name: "CB::schema::hkbBehaviorGraph::canRecycleOutput", va: 0x140ab21b0 }
       - { name: "CB::schema::hkbBehaviorGraph::updateSync", va: 0x140ab21c0 }
       - { name: "CB::schema::hkbBehaviorGraph::releaseUniqueId", va: 0x140ab4740 }
+      # - { name: "CB::schema::hkbBehaviorGraph::activateWithInternalState", va: 0x140ab4a00 }  # parked: spilled storage size/pointer vs 24247 callee-saved registers
       - { name: "CB::schema::hkbBehaviorGraph::deleteActiveNodes", va: 0x140ab7090 }
+      - { name: "??0?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ", va: 0x140ab74d0 }
+      - { name: "??1?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ", va: 0x140ab7500 }
       - { name: "??_GhkbBehaviorGraph@schema@CB@@UEAAPEAXI@Z", va: 0x140ab78a0 }
       - { name: "CB::schema::hkbBehaviorGraph::vfn22", va: 0x140ab7d90 }
       - { name: "CB::schema::hkbBehaviorGraph::staticClass", va: 0x140ac2a20 }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriver.cpp
     functions:
       - { name: "CB::schema::hkbHandIkDriver::reset", va: 0x140ae0830 }
+  - source: ../../../schema/Havok/Behavior/Modifier/hkbModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbModifier::updateModifier", va: 0x140ad4da0 }
+      - { name: "CB::schema::hkbModifier::activateModifier", va: 0x140ad4ff0 }
+      - { name: "CB::schema::hkbModifier::deactivateModifier", va: 0x140ad5050 }

@@ -17,6 +17,12 @@ namespace CB { namespace schema
         int   m_hashMod;    ///< capacity - 1
 
         HK_FORCE_INLINE hkPointerMapStorage() : m_elem(HK_NULL), m_numElems(0), m_hashMod(-1) {}
+        /// @brief A map over caller-owned storage of `sizeInBytes` (DONT_DEALLOCATE: it is never freed by the map).
+        /// @note Out of line in vanilla (0x140a8c620).
+        hkPointerMapStorage(void* ptr, int sizeInBytes);
+        /// @brief The storage a map of `numKeys` keys needs (a power of two of at least 8 slots, twice the keys).
+        /// @note Out of line in vanilla (0x140a8c560).
+        static int getSizeInBytesFor(int numKeys);
         /// @note Out of line in vanilla (and empty: the owner frees the storage with clearAndDeallocate first).
         ~hkPointerMapStorage();
 
@@ -67,6 +73,9 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void  operator delete(void* p, hkUlong nbytes) { hkMemoryRouter::getInstance().heap().blockFree(p, static_cast<int>(nbytes)); }
 
         HK_FORCE_INLINE hkPointerMap() {}
+        HK_FORCE_INLINE hkPointerMap(void* ptr, int sizeInBytes) : m_map(ptr, sizeInBytes) {}
+        static HK_FORCE_INLINE int getSizeInBytesFor(int numKeys) { return hkPointerMapStorage::getSizeInBytesFor(numKeys); }
+        HK_FORCE_INLINE void     clearAndDeallocate() { m_map.clearAndDeallocate(hkContainerHeapAllocator::s_alloc); }
         HK_FORCE_INLINE ~hkPointerMap() { m_map.clearAndDeallocate(hkContainerHeapAllocator::s_alloc); }
 
         HK_FORCE_INLINE void     clear() { m_map.clear(); }

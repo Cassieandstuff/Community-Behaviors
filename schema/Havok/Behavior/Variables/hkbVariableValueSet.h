@@ -19,5 +19,9 @@ namespace CB { namespace schema
         hkArray<hkbVariableValue>    m_wordVariableValues;      ///< +0x10
         hkArray<hkVector4>           m_quadVariableValues;      ///< +0x20
         hkArray<hkReferencedObject*> m_variantVariableValues;   ///< +0x30
+
+        /// @brief Copies every value (the variant ones referenced).
+        /// @note Out of line in vanilla (0x140ac1dd0).
+        hkbVariableValueSet& operator=(const hkbVariableValueSet& other);
     };
 } }

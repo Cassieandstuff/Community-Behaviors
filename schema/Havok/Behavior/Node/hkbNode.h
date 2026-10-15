@@ -66,6 +66,12 @@ namespace CB { namespace schema
 
         /// @brief Hands `collector` this object and every bindable it owns.
         virtual void collectBindables(hkbBindableCollector& collector);   ///< slot 3
+
+        /// @brief Copies the bound graph variables into this object's members (`fromMembers` false) or the members back
+        ///        into the variables (true).
+        /// @return Nonzero when the object has bindings (the modifier update copies back only then).
+        /// @note Name and return meaning provisional; out of line in vanilla (0x140ac1660).
+        int copyVariablesToMembers(const hkbContext& context, bool fromMembers);
     };
 
     /// @note A `class`, as in Havok: the class-key is part of the mangled name of the constructors that take one.

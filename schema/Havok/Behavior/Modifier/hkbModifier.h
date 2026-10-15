@@ -27,6 +27,19 @@ namespace CB { namespace schema
         /// @note Name provisional; 0x140ad4bb0, among the graph's own functions. Every node that runs a child modifier
         ///       (hkbModifierList, hkbModifierGenerator, the modifier wrappers) calls it, and nothing else does.
         static void callModify(const hkbContext& context, hkbModifier* modifier, hkbGeneratorOutput& inOut);
+        /// @brief The graph's per-frame step for one modifier: pushes its bound variables in, then activates and updates it
+        ///        while it is enabled, or deactivates it once disabled, copying its members back to the variables when it
+        ///        has bindings (and was enabled).
+        /// @note Name provisional (its monitor list is "SingleModifierUpdate"); 0x140ad4da0, beside callModify.
+        static void updateModifier(const hkbContext& context, hkbModifier* modifier, hkReal timestep, hkbNodeInfo& info);
+        /// @brief Activates `modifier` unless its record says it is active, and asks the root graph to recompute its
+        ///        active nodes when the modifier has children.
+        /// @note Name provisional (0x140ad4ff0).
+        static void activateModifier(const hkbContext& context, hkbModifier* modifier, hkbNodeInfo& info);
+        /// @brief deactivate's counterpart of activateModifier.
+        /// @return Whether it was active (and is now deactivated).
+        /// @note Name provisional (0x140ad5050).
+        static bool deactivateModifier(const hkbContext& context, hkbModifier* modifier, hkbNodeInfo& info);
 
         /// @brief Modifies the child's output in place.
         virtual void modify(const hkbContext& context, hkbGeneratorOutput& inOut);   ///< slot 23

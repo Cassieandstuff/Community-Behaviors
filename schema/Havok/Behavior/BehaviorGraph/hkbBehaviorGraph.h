@@ -57,12 +57,20 @@ namespace CB { namespace schema
     };
 
     /// @brief A graph's saved state: one record per node that has internal state, plus the variable values.
+    /// @brief One node's saved state: its sync info, name, internal state object and id.
+    /// @note Layout per the Havok SDK's hkbNodeInternalStateInfo; only m_nodeId is read so far.
+    struct hkbNodeInternalStateInfo : hkReferencedObject
+    {
+        hkbGeneratorSyncInfo         m_syncInfo;                 ///< +0x10
+        hkStringPtr                  m_name;                    ///< +0x60
+        hkRefPtr<hkReferencedObject> m_internalState;           ///< +0x68
+        hkInt16                      m_nodeId;                  ///< +0x70
+        hkBool                       m_hasActivateBeenCalled;   ///< +0x72
+    };
+
     struct hkbBehaviorGraphInternalState : hkReferencedObject
     {
-        /// @note Only the node id (+0x70) is read so far.
-        struct NodeInternalStateInfo;
-
-        hkArray<NodeInternalStateInfo*> m_nodeInternalStateInfos;   ///< +0x10
+        hkArray<hkbNodeInternalStateInfo*> m_nodeInternalStateInfos;   ///< +0x10
         hkbVariableValueSet*            m_variableValueSet;         ///< +0x20
     };
 
@@ -125,6 +133,10 @@ namespace CB { namespace schema
         ///        context yet).
         virtual void        activate(const hkbContext& context);                                       ///< slot 4
         /// @brief Only as a root: processes the event (handleEventInternal).
+        /// @brief Only as a root: the per-frame update of every active node (each in its own graph's context and event map,
+        ///        with its own timestep), then either the generators' sync pass or, when a node asked for it, an active-node
+        ///        update.
+        virtual void        update(const hkbContext& context, hkReal timestep);                       ///< slot 5
         virtual void        handleEvent(const hkbContext& context, const hkbEvent e);                  ///< slot 6
         /// @brief Only as a root: deactivates every active node (each in its own graph's context), releases the clones
         ///        and the active-node tables, and drops the variable values unless they are kept while inactive.
@@ -157,6 +169,9 @@ namespace CB { namespace schema
         /// @brief Releases the node clones and frees the active-node tables.
         /// @note Name provisional.
         void deleteActiveNodes();
+        /// @brief Each active node's timestep for this frame (from the last record back; synced children adjusted).
+        /// @note Name provisional (its monitor split is "ComputeTimesteps"); out of line in vanilla (0x140ab6ad0).
+        void computeTimesteps(hkReal timestep, hkReal* timestepsOut);
 
         /// @brief The template node an event raised by `node` names as its sender.
         /// @note Name provisional.
@@ -201,6 +216,7 @@ namespace CB { namespace schema
         ///        given) and deactivating dropped ones.
         /// @note Name and parameter type provisional; out of line in vanilla (0x140b0fb70). activateWithInternalState passes
         ///       a map of the saved records keyed by node id; activate and the event pass pass null.
-        static void updateActiveNodes(hkbBehaviorGraph& graph, const hkbContext& context, const hkPointerMap<int, int>* nodeIdToInternalState);
+        static void updateActiveNodes(hkbBehaviorGraph& graph, const hkbContext& context,
+                                      const hkPointerMap<int, const hkbNodeInternalStateInfo*>* nodeIdToInternalState);
     };
 } }

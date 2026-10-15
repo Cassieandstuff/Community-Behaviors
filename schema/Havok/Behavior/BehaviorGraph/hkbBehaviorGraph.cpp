@@ -5,6 +5,8 @@
 #include <Behavior/Context/hkbContext.h>
 #include <Behavior/Event/hkbEventQueue.h>
 #include <Behavior/Generator/hkbGeneratorOutputUtils.h>
+#include <Behavior/Modifier/hkbModifier.h>
+#include <Common/Base/Memory/hkMemory.h>
 
 namespace CB { namespace schema
 {
@@ -81,6 +83,79 @@ namespace CB { namespace schema
             m_isActive                     = true;
             hkbBehaviorGraphUtils::updateActiveNodes(*this, context, HK_NULL);
             const_cast<hkbContext&>(context).m_behavior = HK_NULL;
+        }
+    }
+
+    /// @note Monitor timers as vanilla's (list "hkbBehaviorGraph::update", one "SingleNodeUpdate" list per node). Nodes
+    ///       whose m_userData has bit 0 set are skipped (a Bethesda flag; meaning not identified).
+    void hkbBehaviorGraph::update(const hkbContext& context, hkReal timestep)
+    {
+        if (context.m_behavior == HK_NULL) {
+            hkbContext&    ctx   = const_cast<hkbContext&>(context);
+            hkbEventQueue* queue = context.getEventQueue();
+            HK_TIMER_BEGIN_LIST("hkbBehaviorGraph::update", "CopyVariablesToMembers");
+            HK_TIMER_SPLIT_LIST("UpdateActiveNodes");
+            if (m_updateActiveNodes) hkbBehaviorGraphUtils::updateActiveNodes(*this, context, HK_NULL);
+            const int numActiveNodes = m_activeNodes->getSize();
+            HK_TIMER_SPLIT_LIST("ComputeTimesteps");
+            hkReal* timesteps = hkAllocateStack<hkReal>(numActiveNodes);
+            computeTimesteps(timestep, timesteps);
+            HK_TIMER_SPLIT_LIST("UpdateNodes");
+            hkbSymbolIdMap* oldMap    = queue->m_symbolIdMap;
+            const bool      oldDirect = queue->m_directMap;
+            hkMath::prefetch128((*m_activeNodes)[0].m_nodeClone);
+            for (int i = 0; i < numActiveNodes; i++) {
+                HK_TIMER_BEGIN_LIST("SingleNodeUpdate", "GetCloneAndSetupEventMap");
+                if (i < numActiveNodes - 1) hkMath::prefetch128((*m_activeNodes)[i + 1].m_nodeClone);
+                const hkReal   nodeTimestep = timesteps[i];
+                hkbNodeInfo&   info         = (*m_activeNodes)[i];
+                hkbNode*       node         = info.m_nodeClone;
+                ctx.m_behavior              = info.m_behavior;
+                hkbEventQueue* contextQueue = context.m_eventQueue;
+                hkbEventQueue  ignoredEvents;
+                if (info.m_ignoreEvents) {
+                    ctx.m_eventQueue = &ignoredEvents;
+                } else {
+                    queue->m_symbolIdMap = info.m_behavior->m_eventIDMap;
+                    queue->m_directMap   = true;
+                }
+                if (!(node->m_userData & 1)) {
+                    if (info.m_isGenerator) {
+                        HK_TIMER_SPLIT_LIST("UpdateSingleGenerator");
+                        HK_TIMER_BEGIN_LIST("SingleGeneratorUpdate", "CopyVariablesToNodes");
+                        const int hasBindings = node->copyVariablesToMembers(context, false);
+                        HK_TIMER_SPLIT_LIST("UpdateGeneratorNode");
+                        node->update(context, nodeTimestep);
+                        HK_TIMER_SPLIT_LIST("CopyVariablesFromNodes");
+                        if (hasBindings) node->copyVariablesToMembers(context, true);
+                        HK_TIMER_END_LIST();
+                    } else {
+                        HK_TIMER_SPLIT_LIST("UpdateSingleModifier");
+                        hkbModifier::updateModifier(context, static_cast<hkbModifier*>(node), nodeTimestep, info);
+                    }
+                }
+                HK_TIMER_END_LIST();
+                ctx.m_eventQueue = contextQueue;
+            }
+            queue->m_symbolIdMap = oldMap;
+            queue->m_directMap   = oldDirect;
+            if (m_updateActiveNodes) {
+                HK_TIMER_SPLIT_LIST("ActiveNodeUpdate");
+                hkbBehaviorGraphUtils::updateActiveNodes(*this, context, HK_NULL);
+            } else {
+                HK_TIMER_SPLIT_LIST("UpdateSync");
+                for (int i = 0; i < m_activeNodes->getSize(); i++) {
+                    hkbNodeInfo& info = (*m_activeNodes)[i];
+                    if (info.m_isGenerator) {
+                        hkbGenerator* generator = static_cast<hkbGenerator*>(info.m_nodeClone);
+                        ctx.m_behavior          = info.m_behavior;
+                        generator->updateSync(context, info);
+                    }
+                }
+            }
+            ctx.m_behavior = HK_NULL;
+            HK_TIMER_END_LIST();
+            hkDeallocateStack(timesteps, numActiveNodes);
         }
     }
 
@@ -166,6 +241,35 @@ namespace CB { namespace schema
         if (id >= 0 && id >= m_numStaticNodes) m_uniqueIdPool.pushBack(id);
     }
 
+
+    /// @note The saved records are keyed by node id in a map over stack storage; it is emptied before the storage goes
+    ///       back, and again by its destructor.
+    void hkbBehaviorGraph::activateWithInternalState(const hkbContext& context, const hkbBehaviorGraphInternalState& internalState)
+    {
+        const int numInfos = internalState.m_nodeInternalStateInfos.getSize();
+        const int mapSize  = hkPointerMap<int, const hkbNodeInternalStateInfo*>::getSizeInBytesFor(numInfos);
+        char*     storage  = hkAllocateStack<char>(mapSize);
+        hkPointerMap<int, const hkbNodeInternalStateInfo*> nodeIdToInternalState(storage, mapSize);
+        for (int i = 0; i < numInfos; i++) {
+            const hkbNodeInternalStateInfo* info = internalState.m_nodeInternalStateInfos[i];
+            nodeIdToInternalState.insert(info->m_nodeId, info);
+        }
+
+        if (m_data && m_data->m_variableInfos.getSize() > 0) {
+            if (m_variableValueSet == HK_NULL) m_variableValueSet = new hkbVariableValueSet;
+            *m_variableValueSet = *internalState.m_variableValueSet;
+        }
+
+        m_activeNodes                  = new hkArray<hkbNodeInfo>;
+        m_activeNodeTemplateToIndexMap = new hkPointerMap<const hkbNode*, int>;
+        m_activeNodesChildrenIndices   = new hkArray<int>;
+        m_isActive                     = true;
+        hkbBehaviorGraphUtils::updateActiveNodes(*this, context, &nodeIdToInternalState);
+        const_cast<hkbContext&>(context).m_behavior = HK_NULL;
+
+        nodeIdToInternalState.clearAndDeallocate();
+        hkDeallocateStack(storage, mapSize);
+    }
 
     void hkbBehaviorGraph::deleteActiveNodes()
     {

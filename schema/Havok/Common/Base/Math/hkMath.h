@@ -372,6 +372,8 @@ namespace CB { namespace schema
     {
         /// @note `fabsf` compiles to a call under VS2015; the intrinsic double `fabs` narrowed back is what vanilla has.
         static HK_FORCE_INLINE float fabs(float r) { return static_cast<float>(::fabs(r)); }
+        /// @brief Hints the cache line at `p` in (prefetchnta).
+        static HK_FORCE_INLINE void prefetch128(const void* p) { _mm_prefetch(static_cast<const char*>(p), _MM_HINT_NTA); }
         /// @note Clamps written through these give maxss/minss; the same ternaries as separate statements branch.
         template <class T> static HK_FORCE_INLINE T max2(T a, T b) { return (a > b) ? a : b; }
         template <class T> static HK_FORCE_INLINE T min2(T a, T b) { return (a < b) ? a : b; }
