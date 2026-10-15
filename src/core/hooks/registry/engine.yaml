@@ -182,6 +182,13 @@ symbols:
   - { name: hkArrayUtil_Reserve, kind: func, se: 0, ae: 57048, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserve" }
   - { name: hkArrayUtil_ReserveMore, kind: func, se: 0, ae: 57049, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserveMore" }  # (allocator, array, sizeElem): grow when size == capacity (hkArray::pushBack)
   - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "CB::schema::hkString::strCmp" }
+  - { name: hkString_StrNcmp, kind: func, se: 0, ae: 57119, vr: 0, cpp: "CB::schema::hkString::strNcmp" }
+  - { name: hkString_StrLen, kind: func, se: 0, ae: 57124, vr: 0, cpp: "CB::schema::hkString::strLen" }
+  - { name: hkStringBuf_CtorCStr, kind: func, se: 0, ae: 57458, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@PEBD@Z" }  # hkStringBuf(const char*) — out of line
+  - { name: hkPointerMap_Get, kind: func, se: 0, ae: 57187, vr: 0, cpp: "CB::schema::hkPointerMapStorage::get" }  # name provisional; (key, out) → hkResult
+  - { name: hkPointerMap_Insert, kind: func, se: 0, ae: 57198, vr: 0, cpp: "CB::schema::hkPointerMapStorage::insert" }  # name provisional; (allocator, key, value)
+  - { name: hkPointerMap_ClearAndDeallocate, kind: func, se: 0, ae: 57184, vr: 0, cpp: "CB::schema::hkPointerMapStorage::clearAndDeallocate" }  # name provisional; (allocator)
+  - { name: hkPointerMap_Dtor, kind: func, se: 0, ae: 57174, vr: 0, cpp: "CB::schema::hkPointerMapStorage::~hkPointerMapStorage" }  # name provisional; empty, out of line
   - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "CB::schema::hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
   - { name: hkString_MemSet, kind: func, se: 0, ae: 57150, vr: 0, cpp: "CB::schema::hkString::memSet" }  # (dst, value, nbytes)
   - { name: hkLifoAllocator_AllocateFromNewSlab, kind: func, se: 0, ae: 57039, vr: 0, cpp: "CB::schema::hkLifoAllocator::allocateFromNewSlab" }  # the stack allocator's slow path: a block that does not fit the current slab
@@ -195,8 +202,6 @@ symbols:
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
   - { name: GlobalSizedDelete, kind: func, se: 0, ae: 82484, vr: 0, cpp: "__global_delete" }  # operator delete(void*, size_t) — the ::delete path of every deleting destructor
-  - { name: hkLifoAllocator_AllocateFromNewSlab, kind: func, se: 0, ae: 57039, vr: 0, cpp: "CB::schema::hkLifoAllocator::allocateFromNewSlab" }  # (numBytes): fastBlockAlloc's slow path
-  - { name: hkLifoAllocator_SlowBlockFree, kind: func, se: 0, ae: 57041, vr: 0, cpp: "CB::schema::hkLifoAllocator::slowBlockFree" }  # (p, numBytes): fastBlockFree's slow path
   - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "CB::schema::hkMemoryRouter_s_memoryRouter" }
   - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "CB::schema::hkError::s_instance" }
   - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "CB::schema::hkMonitorStream_s_tls" }
@@ -228,6 +233,11 @@ symbols:
   - { name: hkbBlendFloatTracksToSlots, kind: func, se: 0, ae: 60007, vr: 0, cpp: "CB::schema::hkbBlendFloatTracksToSlots" }  # name provisional; adds weight x float tracks into the float slots (echo blending)
   - { name: hkbBehaviorGraph_GetVariableValueSet, kind: func, se: 0, ae: 63851, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getVariableValueSet" }  # name provisional
   - { name: BSCRC32_Pointer, kind: func, se: 0, ae: 68221, vr: 0, cpp: "BSCRC32_Pointer" }  # name provisional; CRC of a pointer value (BSTScatterTable hash)
+  # Bethesda behavior classes
+  - { name: BSSynchronizedClipGeneratorUtils_GenerateClip, kind: func, se: 0, ae: 63336, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::generateClip" }  # name provisional; the clip's generate, or the reference pose while it loads
+  - { name: BSSynchronizedClipGeneratorUtils_ApplyMotionFromRoot, kind: func, se: 0, ae: 63337, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::applyMotionFromRoot" }  # name provisional; (skeleton, output, markWS)
+  - { name: BSSynchronizedClipGenerator_EmptyString, kind: data, se: 0, ae: 385925, vr: 0, cpp: "CB::schema::g_bssyncEmptyString" }  # name provisional; const char* → "", an unset prefix
+  - { name: BSSynchronizedClipGenerator_PairEndEvent, kind: data, se: 0, ae: 385926, vr: 0, cpp: "CB::schema::g_bssyncPairEndEvent" }  # name provisional; const char* → "PairEnd"
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
   - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "CB::schema::hkbClipGenerator::`vftable'" }

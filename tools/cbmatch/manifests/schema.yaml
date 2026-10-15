@@ -38,6 +38,21 @@ units:
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.cpp
     functions:
       - { name: "CB::schema::finishLoadedObjectBSSynchronizedClipGenerator", va: 0x140b93c10 }
+      - { name: "??0BSSynchronizedClipGenerator@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z", va: 0x140b93c70 }
+      - { name: "??1BSSynchronizedClipGenerator@schema@CB@@UEAA@XZ", va: 0x140b93df0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::sampleSyncMark", va: 0x140b948e0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::buildEventMap", va: 0x140b94bc0 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::remapEvents", va: 0x140b94d30 }
+      - { name: "CB::schema::BSSynchronizedClipGenerator::activateClipGenerator", va: 0x140b94f60 }
+  - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGeneratorUtils.cpp
+    functions:
+      - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::generateClip", va: 0x140ba02a0 }
+      # Written but STRUCTURAL under the current rules (register allocation / SIMD scheduling only); awaiting a decision:
+      # - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::generate", va: 0x140ba0020 }
+      # - { name: "CB::schema::BSSynchronizedClipGeneratorUtils::applyMotionFromRoot", va: 0x140ba0350 }
+  - source: ../../../schema/Havok/Common/Base/Container/String/hkString.cpp
+    functions:
+      - { name: "CB::schema::hkString::beginsWith", va: 0x140a8b840 }
   - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGenerator.cpp
     functions:
       - { name: "CB::schema::hkbClipGenerator::activate", va: 0x140acd750 }

@@ -42,5 +42,21 @@ namespace CB { namespace schema
         virtual void update(const hkbContext& context, hkReal timestep);       ///< slot 5
         virtual void handleEvent(const hkbContext& context, const void* e);    ///< slot 6
         virtual void deactivate(const hkbContext& context);                    ///< slot 7
+        virtual int      getMaxNumChildren(int flags);                         ///< slot 8
+        virtual void     getChildren(int flags, void* childrenInfo);           ///< slot 9
+        virtual bool     isValid(hkStringPtr& errorString) const;              ///< slot 10
+        /// @note Slots 11 and 13–22 are placeholders: declared so the slots after them land where vanilla's do.
+        virtual void     v11();
+        virtual hkbNode* cloneNode(hkbBehaviorGraph& rootBehavior) const;      ///< slot 12
+        virtual void     v13();
+        virtual void     v14();
+        virtual void     v15();
+        virtual void     v16();
+        virtual void     v17();
+        virtual void     v18();
+        virtual void     v19();
+        virtual void     v20();
+        virtual void     v21();
+        virtual void     v22();
     };
 } }

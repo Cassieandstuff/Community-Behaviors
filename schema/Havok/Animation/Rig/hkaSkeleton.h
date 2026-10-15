@@ -9,7 +9,8 @@ namespace CB { namespace schema
     struct hkaSkeleton : hkReferencedObject
     {
         hkStringPtr            m_name;            ///< +0x10
-        char                   m_pad18[0x38 - 0x18];
+        hkArray<hkInt16>       m_parentIndices;   ///< +0x18 — -1 for a root bone
+        char                   m_pad28[0x38 - 0x28];
         hkArray<hkQsTransform> m_referencePose;   ///< +0x38
     };
 

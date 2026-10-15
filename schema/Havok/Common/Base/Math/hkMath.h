@@ -31,6 +31,10 @@ namespace CB { namespace schema
     {
         hkQuadReal m_quad;
 
+        HK_FORCE_INLINE hkVector4() {}
+        /// @note User-defined, as Havok's: a copied hkQsTransform member then moves as aligned vectors (movaps), not as
+        ///       an unaligned block copy (movups).
+        HK_FORCE_INLINE hkVector4(const hkVector4& v) : m_quad(v.m_quad) {}
         HK_FORCE_INLINE void operator=(const hkVector4& v) { m_quad = v.m_quad; }
         HK_FORCE_INLINE void setZero4() { m_quad = _mm_setzero_ps(); }
         HK_FORCE_INLINE void setAll(float a) { m_quad = _mm_set1_ps(a); }
@@ -73,8 +77,27 @@ namespace CB { namespace schema
         }
         HK_FORCE_INLINE hkSimdReal lengthSquared3() const { return dot3(*this); }
         HK_FORCE_INLINE hkSimdReal lengthSquared4() const { return dot4(*this); }
-        /// @note A zero vector stays zero (the reciprocal square root is masked to 0).
-        HK_FORCE_INLINE void normalize4();
+
+        /// @brief (1 − t)·a + t·b.
+        HK_FORCE_INLINE void setInterpolate4(const hkVector4& a, const hkVector4& b, hkSimdReal t)
+        {
+            const hkQuadReal t4        = _mm_shuffle_ps(t.m_real, t.m_real, _MM_SHUFFLE(0, 0, 0, 0));
+            const hkQuadReal oneMinusT = _mm_sub_ps(_mm_set1_ps(1.0f), t4);
+            m_quad                     = _mm_add_ps(_mm_mul_ps(oneMinusT, a.m_quad), _mm_mul_ps(t4, b.m_quad));
+        }
+
+        /// @brief Scales to unit length; a zero vector stays zero.
+        /// @note One Newton step on the scalar rsqrt estimate.
+        HK_FORCE_INLINE void normalize4()
+        {
+            const hkQuadReal d       = dot4(*this).m_real;
+            const hkQuadReal len2    = _mm_shuffle_ps(d, d, _MM_SHUFFLE(0, 0, 0, 0));
+            const hkQuadReal e       = _mm_rsqrt_ss(len2);
+            const hkQuadReal isZero  = _mm_cmpeq_ss(len2, _mm_set_ss(0.0f));
+            const hkQuadReal invSqrt = _mm_mul_ss(_mm_mul_ss(_mm_set_ss(0.5f), e), _mm_sub_ss(_mm_set_ss(3.0f), _mm_mul_ss(_mm_mul_ss(len2, e), e)));
+            const hkQuadReal inv     = _mm_andnot_ps(isZero, invSqrt);
+            m_quad                   = _mm_mul_ps(_mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0, 0, 0, 0)), m_quad);
+        }
 
         /// @brief xyz from `xyz`, w from lane 3 of `w`.
         HK_FORCE_INLINE void setXYZ_W(const hkVector4& xyz, const hkVector4& w)
@@ -91,7 +114,8 @@ namespace CB { namespace schema
     extern const hkVector4 g_vectorConstantMax;         ///< HK_REAL_MAX (0x7f7fffee) x4
     extern const hkVector4 g_vectorConstantOne;         ///< 1 x4
     /// @brief 0 x4 from the table holding g_vectorConstant0001 (g_vectorConstantZero is another table's zero).
-    /// @note Name provisional; hkQsTransform::blendAddMul negates through it.
+    /// @note Name provisional (which of the two zeros Havok calls what is unknown); hkQsTransform::blendAddMul and
+    ///       setInterpolate4 negate through it.
     extern const hkVector4 g_quadRealZero;
 
     /// @note Subtracts from g_quadRealZero (not g_vectorConstantZero) and re-broadcasts lane 0, as vanilla does.
@@ -162,6 +186,25 @@ namespace CB { namespace schema
             m_scale       = t.m_scale;
         }
 
+        /// @brief Blends `a` to `b` by `t`: translation and scale linearly, rotation by normalized lerp on the nearer
+        ///        hemisphere.
+        HK_FORCE_INLINE void setInterpolate4(const hkQsTransform& a, const hkQsTransform& b, hkSimdReal t)
+        {
+            m_scale.setInterpolate4(a.m_scale, b.m_scale, t);
+            m_translation.setInterpolate4(a.m_translation, b.m_translation, t);
+
+            const hkSimdReal oneMinusT(_mm_shuffle_ps(_mm_sub_ps(g_vectorConstantOne.m_quad, t.m_real), _mm_sub_ps(g_vectorConstantOne.m_quad, t.m_real), _MM_SHUFFLE(0, 0, 0, 0)));
+            hkReal           polarity;
+            _mm_store_ss(&polarity, b.m_rotation.m_vec.dot4(a.m_rotation.m_vec).m_real);
+            const hkSimdReal signedT = (polarity < 0.0f) ? hkSimdReal(_mm_shuffle_ps(_mm_sub_ps(g_quadRealZero.m_quad, t.m_real), _mm_sub_ps(g_quadRealZero.m_quad, t.m_real), _MM_SHUFFLE(0, 0, 0, 0))) : t;
+
+            hkQuaternion rot;
+            rot.m_vec.setMul4(a.m_rotation.m_vec, oneMinusT);
+            rot.m_vec.addMul4(b.m_rotation.m_vec, signedT);
+            rot.m_vec.normalize4();
+            m_rotation = rot;
+        }
+
         /// @note Built in a local (`rotated`), as vanilla does.
         HK_FORCE_INLINE void setMul(const hkQsTransform& t1, const hkQsTransform& t2)
         {
@@ -212,11 +255,6 @@ namespace CB { namespace schema
             return hkSimdReal(_mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0, 0, 0, 0)));
         }
     };
-
-    HK_FORCE_INLINE void hkVector4::normalize4()
-    {
-        mul4(hkMath::sqrtInverse(lengthSquared4()));
-    }
 
     HK_FORCE_INLINE void hkQsTransform::blendAddMul(const hkQsTransform& other, hkSimdReal weight)
     {

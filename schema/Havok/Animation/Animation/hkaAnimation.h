@@ -8,6 +8,13 @@ namespace CB { namespace schema
 {
     struct hkaAnimatedReferenceFrame : hkReferencedObject {};
 
+    /// @note 0x18 bytes; the annotations themselves are not read yet.
+    struct hkaAnnotationTrack
+    {
+        hkStringPtr     m_trackName;     ///< +0x00
+        hkArray<void*>  m_annotations;   ///< +0x08 — element type not modelled
+    };
+
     struct hkaAnimation : hkReferencedObject
     {
         hkInt32                             m_type;                      ///< +0x10
@@ -15,14 +22,16 @@ namespace CB { namespace schema
         hkInt32                             m_numberOfTransformTracks;   ///< +0x18
         hkInt32                             m_numberOfFloatTracks;       ///< +0x1c
         hkRefPtr<hkaAnimatedReferenceFrame> m_extractedMotion;           ///< +0x20
+        hkArray<hkaAnnotationTrack>         m_annotationTracks;          ///< +0x28
 
-        /// @note Slots 3 and 5–12 are placeholders until the class is reimplemented.
+        /// @note Slots 3, 5 and 7–12 are placeholders until the class is reimplemented.
         virtual void v3();
         /// @brief Samples the first `maxNumTransformTracks` transform tracks and `maxNumFloatTracks` float tracks at `time`.
         virtual void samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut, hkUint32 maxNumFloatTracks,
                                          hkReal* floatTracksOut, void* cache) const;   ///< slot 4
         virtual void v5();
-        virtual void v6();
+        virtual void sampleIndividualTransformTracks(hkReal time, const hkInt16* tracks, hkUint32 numTracks,
+                                                     hkQsTransform* transformOut) const;   ///< slot 6
         virtual void v7();
         virtual void v8();
         virtual void v9();

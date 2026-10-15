@@ -24,6 +24,7 @@ namespace CB { namespace schema
     {
         hkbNode* m_sender;
 
+        HK_FORCE_INLINE hkbEvent() {}
         HK_FORCE_INLINE hkbEvent(int id, hkbEventPayload* payload, hkbNode* sender)
         {
             m_id      = id;

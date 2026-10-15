@@ -45,8 +45,8 @@ namespace CB { namespace schema
     void hkbBlendFloatTracksToSlots(int numFloatTracks, const hkReal* floatTracks, int numFloatSlots, const hkaAnimationBinding* binding,
                                     hkReal weight, hkReal* floatSlotsInOut);
 
-    /// @note The `slot N` annotations are vanilla's vtable slots. The declared virtuals reproduce vanilla's order only
-    ///       through slot 7 (hkbNode); the rest of the vtable is not declared yet, so slots 8+ are not this class's own.
+    /// @note The `slot N` annotations are vanilla's vtable slots; hkbNode and hkbGenerator declare (or hold placeholders
+    ///       for) slots 0–25, so the overrides and this class's own slots 26–27 land where vanilla's do.
     class hkbClipGenerator : public hkbGenerator
     {
     public:

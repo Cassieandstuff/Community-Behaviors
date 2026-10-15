@@ -36,6 +36,8 @@ namespace CB { namespace schema
             m_capacityAndFlags = int(0x80000000) | 128;
             m_storage[0]       = 0;
         }
+        /// @note Out of line in vanilla; a null `s` gives the empty string.
+        hkStringBuf(const char* s);
         HK_FORCE_INLINE ~hkStringBuf()
         {
             m_size = 0;
@@ -52,6 +54,10 @@ namespace CB { namespace schema
     struct hkString
     {
         static int  strCmp(const char* a, const char* b);
+        static int  strNcmp(const char* a, const char* b, int n);
+        static int  strLen(const char* s);
+        /// @brief Whether `s` starts with `prefix` (case-sensitive; an empty prefix always matches).
+        static hkBool beginsWith(const char* s, const char* prefix);
         /// @note Out of line: zero-extends `nbytes` and tail-jumps to memcpy.
         static void memCpy(void* dst, const void* src, int nbytes);
         static void memSet(void* dst, const int c, int nbytes);
