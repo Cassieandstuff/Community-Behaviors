@@ -204,6 +204,40 @@ units:
       - { name: "CB::schema::hkbSenseHandleModifier::senseInRigidBodies", va: 0x140afdbf0 }
       - { name: "??1hkbSenseHandleModifier@schema@CB@@UEAA@XZ", va: 0x140ac6e70 }
       - { name: "??_GhkbSenseHandleModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acade0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/GetHandleOnBone/hkbGetHandleOnBoneModifier.cpp
+    functions:
+      # STRUCTURAL: m_cloneState store scheduled across the second hkStringPtr() argument LEA (see tools/cbmatch/parked.yaml):
+      # - { name: "??0hkbGetHandleOnBoneModifier@schema@CB@@QEAA@XZ", va: 0x140af5440 }
+      - { name: "??0hkbGetHandleOnBoneModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af54d0 }
+      - { name: "CB::schema::hkbGetHandleOnBoneModifier::activate", va: 0x140af5540 }
+      - { name: "CB::schema::hkbGetHandleOnBoneModifier::deactivate", va: 0x140af5850 }
+      - { name: "CB::schema::hkbGetHandleOnBoneModifier::isValid", va: 0x140af5880 }
+      - { name: "CB::schema::hkbGetHandleOnBoneModifier::cloneNode", va: 0x140af5930 }
+      - { name: "??_GhkbGetHandleOnBoneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac95f0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/EvaluateHandle/hkbEvaluateHandleModifier.cpp
+    functions:
+      - { name: "??0hkbEvaluateHandleModifier@schema@CB@@QEAA@XZ", va: 0x140aef050 }
+      - { name: "??0hkbEvaluateHandleModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aef130 }
+      - { name: "CB::schema::hkbEvaluateHandleModifier::activate", va: 0x140aef1d0 }
+      - { name: "CB::schema::hkbEvaluateHandleModifier::update", va: 0x140aef220 }
+      - { name: "CB::schema::hkbEvaluateHandleModifier::deactivate", va: 0x140aef240 }
+      - { name: "CB::schema::hkbEvaluateHandleModifier::cloneNode", va: 0x140aef270 }
+      - { name: "CB::schema::hkbEvaluateHandleModifier::modify", va: 0x140aef2c0 }
+      - { name: "??_GhkbEvaluateHandleModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8bb0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/EventsFromRange/hkbEventsFromRangeModifier.cpp
+    functions:
+      - { name: "??0hkbEventsFromRangeModifier@schema@CB@@QEAA@XZ", va: 0x140aefb60 }
+      - { name: "??0hkbEventsFromRangeModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aefbf0 }
+      - { name: "CB::schema::hkbEventsFromRangeModifier::activate", va: 0x140aefc60 }
+      - { name: "CB::schema::hkbEventsFromRangeModifier::update", va: 0x140aefd40 }
+      - { name: "CB::schema::hkbEventsFromRangeModifier::isValid", va: 0x140aeff20 }
+      - { name: "CB::schema::hkbEventsFromRangeModifier::cloneNode", va: 0x140aeffc0 }
+      - { name: "CB::schema::hkbEventsFromRangeModifier::createInternalState", va: 0x140af0010 }
+      - { name: "CB::schema::hkbEventsFromRangeModifier::getInternalState", va: 0x140af0060 }
+      - { name: "CB::schema::hkbEventsFromRangeModifier::setInternalState", va: 0x140af0110 }
+      - { name: "??1hkbEventsFromRangeModifier@schema@CB@@UEAA@XZ", va: 0x140ac6870 }
+      - { name: "??_GhkbEventsFromRangeModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8ff0 }
+      - { name: "??_GhkbEventsFromRangeModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9070 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSTimerModifier/BSTimerModifier.cpp
     functions:
       - { name: "??0BSTimerModifier@schema@CB@@QEAA@XZ", va: 0x140b9f1b0 }

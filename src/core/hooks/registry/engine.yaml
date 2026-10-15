@@ -220,6 +220,8 @@ symbols:
   - { name: hkString_BeginsWith, kind: func, se: 0, ae: 57131, vr: 0, cpp: "CB::schema::hkString::beginsWith" }  # (str, prefix) -> hkBool, returned through memory
   - { name: hkQsTransform_IsApproximatelyEqual, kind: func, se: 0, ae: 57252, vr: 0, cpp: "CB::schema::hkQsTransform::isApproximatelyEqual" }  # (other, epsilon) -> hkBool
   - { name: hkQuaternion_SetAxisAngle, kind: func, se: 0, ae: 57098, vr: 0, cpp: "CB::schema::hkQuaternion::setAxisAngle" }  # (axis, angle): sin/cos of the half angle
+  - { name: hkQuaternion_Set, kind: func, se: 0, ae: 57099, vr: 0, cpp: "CB::schema::hkQuaternion::set" }  # (const hkRotation&)
+  - { name: hkQuaternion_SetSlerp, kind: func, se: 0, ae: 57103, vr: 0, cpp: "CB::schema::hkQuaternion::setSlerp" }  # (q0, q1, t) t as a float in xmm3; lerp above cos 0.999
   - { name: hkVector4_SetTransformedPos, kind: func, se: 0, ae: 57213, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
   - { name: hkVector4_SetTransformedPosQs, kind: func, se: 0, ae: 57217, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkQsTransform@23@AEBU123@@Z" }  # (hkQsTransform, v): out of line
   - { name: hkVector4_SetTransformedInversePos, kind: func, se: 0, ae: 57214, vr: 0, cpp: "?setTransformedInversePos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
@@ -351,6 +353,13 @@ symbols:
   - { name: BSIStateManagerModifier_CloneCtor, kind: func, se: 0, ae: 63107, vr: 0, cpp: "??0BSIStateManagerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: BSIStateManagerModifier_Dtor, kind: func, se: 0, ae: 63101, vr: 0, cpp: "??1BSIStateManagerModifier@schema@CB@@UEAA@XZ" }  # the scalar deleting destructor calls it
   - { name: BSIStateManagerModifier_OnStateEntered, kind: func, se: 0, ae: 63106, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::onStateEntered" }  # name provisional; the listener's onEnter calls it on the manager's clone
+  - { name: hkbGetHandleOnBoneModifier_CloneCtor, kind: func, se: 0, ae: 59755, vr: 0, cpp: "??0hkbGetHandleOnBoneModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbEvaluateHandleModifier_CloneCtor, kind: func, se: 0, ae: 59702, vr: 0, cpp: "??0hkbEvaluateHandleModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbHandleUtils_GetWorldFromHandle, kind: func, se: 0, ae: 60011, vr: 0, cpp: "CB::schema::hkbHandleUtils::getWorldFromHandle" }  # name provisional; (handle, worldFromHandleOut, worldFromModel, poseLocal, numPoseLocal), nulls = the character's own
+  - { name: hkbHandleUtils_GetExtrapolatedWorldFromHandle, kind: func, se: 0, ae: 60012, vr: 0, cpp: "CB::schema::hkbHandleUtils::getExtrapolatedWorldFromHandle" }  # name provisional; (handle, worldFromHandleOut, timeStep) rigid body motion read ahead under the world lock
+  - { name: hkbHandleUtils_AreEqual, kind: func, se: 0, ae: 60013, vr: 0, cpp: "CB::schema::hkbHandleUtils::areEqual" }  # name provisional; frame, body, character and bone all equal
+  - { name: hkbEventsFromRangeModifier_CloneCtor, kind: func, se: 0, ae: 59723, vr: 0, cpp: "??0hkbEventsFromRangeModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbEventsFromRangeModifier_Dtor, kind: func, se: 0, ae: 58979, vr: 0, cpp: "??1hkbEventsFromRangeModifier@schema@CB@@UEAA@XZ" }  # COMDAT in the type-registration block; the deleting destructor calls it
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
@@ -461,3 +470,7 @@ symbols:
   - { name: hkbBlendingTransitionEffect_UpdateSyncInternal, kind: func, se: 0, ae: 59960, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::updateSyncInternal" }  # name provisional; (context, syncNode) - updateSync (slot 25) passes the effect itself
   - { name: hkbBehaviorGraph_GetOrCreateNodeClone, kind: func, se: 0, ae: 58360, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getOrCreateNodeClone" }  # name provisional; getNodeClone that clones (and maps) a template not cloned yet
   - { name: hkbContext_FlagActiveNodesChanged, kind: data, se: 0, ae: 220247, vr: 0, cpp: "CB::schema::hkbContext::FLAG_ACTIVE_NODES_CHANGED" }  # name provisional; the byte constant 2 at 0x141941229 that handleEvent ORs into hkbContext::m_flags
+  - { name: hkbGetHandleOnBoneModifier_Vtable, kind: data, se: 278525, ae: 226496, vr: 0, cpp: "CB::schema::hkbGetHandleOnBoneModifier::`vftable'" }
+  - { name: hkbEvaluateHandleModifier_Vtable, kind: data, se: 278481, ae: 226444, vr: 0, cpp: "CB::schema::hkbEvaluateHandleModifier::`vftable'" }
+  - { name: hkbEventsFromRangeModifier_Vtable, kind: data, se: 278495, ae: 226462, vr: 0, cpp: "CB::schema::hkbEventsFromRangeModifier::`vftable'" }
+  - { name: hkbEventsFromRangeModifierInternalState_Vtable, kind: data, se: 278502, ae: 226470, vr: 0, cpp: "CB::schema::hkbEventsFromRangeModifierInternalState::`vftable'" }

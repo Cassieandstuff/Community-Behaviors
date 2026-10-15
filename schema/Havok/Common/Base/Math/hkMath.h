@@ -28,6 +28,7 @@ namespace CB { namespace schema
     struct hkQuaternion;
     struct hkQsTransform;
     struct hkTransform;
+    struct hkRotation;
 
     struct hkVector4
     {
@@ -201,6 +202,13 @@ namespace CB { namespace schema
         /// @brief The rotation by `angle` radians about the unit vector `axis`.
         /// @note Out of line in vanilla.
         void setAxisAngle(const hkVector4& axis, hkReal angle);
+        /// @brief The rotation `r` as a quaternion.
+        /// @note Out of line in vanilla (0x140a8a360).
+        void set(const hkRotation& r);
+        /// @brief Spherical interpolation from `q0` (t = 0) to `q1` (t = 1) on the shorter arc, renormalized; nearly
+        ///        parallel inputs blend linearly.
+        /// @note Out of line in vanilla (0x140a8ab10); `t` arrives as a float (xmm3).
+        void setSlerp(const hkQuaternion& q0, const hkQuaternion& q1, hkReal t);
 
         HK_FORCE_INLINE void setMul(const hkQuaternion& q0, const hkQuaternion& q1)
         {
