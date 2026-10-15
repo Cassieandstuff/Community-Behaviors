@@ -15,6 +15,8 @@ namespace CB { namespace schema
         /// @note Out of line in vanilla (0x140a8d2f0, stores null): the node default constructors call it.
         hkStringPtr();
         hkStringPtr(hkFinishLoadedObjectFlag flag);
+        /// @brief A copy of `s` (null stays null).
+        hkStringPtr(const char* s);
         /// @note The flag's meaning is unknown; the node clone copies pass false.
         hkStringPtr(const hkStringPtr& other, bool flag);
         /// @brief The plain copy (hkbSenseHandleModifier's clone copy calls it).

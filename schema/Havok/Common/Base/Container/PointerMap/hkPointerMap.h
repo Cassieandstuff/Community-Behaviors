@@ -64,6 +64,12 @@ namespace CB { namespace schema
         }
         HK_FORCE_INLINE bool    isValid(Iterator it) const { return int(hkLong(it)) <= m_hashMod; }
         HK_FORCE_INLINE hkUlong getValue(Iterator it) const { return static_cast<const Pair*>(m_elem)[int(hkLong(it))].m_value; }
+        /// @brief Where `key` is (an invalid iterator when absent).
+        Iterator findKey(hkUlong key) const;
+        /// @pre `it` is valid.
+        void     remove(Iterator it);
+        /// @return HK_FAILURE when the key was absent.
+        hkResult remove(hkUlong key);
     };
 
     /// @brief A map between pointer-sized keys and values, stored in the container heap.
@@ -87,6 +93,9 @@ namespace CB { namespace schema
         HK_FORCE_INLINE Iterator getNext(Iterator it) const { return m_map.getNext(it); }
         HK_FORCE_INLINE bool     isValid(Iterator it) const { return m_map.isValid(it); }
         HK_FORCE_INLINE V        getValue(Iterator it) const { return V(m_map.getValue(it)); }
+        HK_FORCE_INLINE Iterator findKey(K key) const { return m_map.findKey(hkUlong(key)); }
+        HK_FORCE_INLINE void     remove(Iterator it) { m_map.remove(it); }
+        HK_FORCE_INLINE hkResult remove(K key) { return m_map.remove(hkUlong(key)); }
         HK_FORCE_INLINE int      insert(K key, V val) { return m_map.insert(hkContainerHeapAllocator::s_alloc, hkUlong(key), hkUlong(val)); }
         HK_FORCE_INLINE V        getWithDefault(K key, V def) const { return V(m_map.getWithDefault(hkUlong(key), hkUlong(def))); }
         HK_FORCE_INLINE hkResult get(K key, V* out) const

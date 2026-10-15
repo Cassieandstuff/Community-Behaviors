@@ -173,6 +173,13 @@ namespace CB { namespace schema
             m_size = newSize;
             return *this;
         }
+        /// @brief Removes element `index`, moving the last element into its place.
+        HK_FORCE_INLINE void removeAt(int index)
+        {
+            hkArrayUtil::destruct(m_data + index, 1, hkArrayIsPod<__is_pod(T)>());
+            m_size--;
+            if (m_size != index) hkMemUtil::memCpyOne<sizeof(T)>(m_data + index, m_data + m_size);
+        }
         HK_FORCE_INLINE void removeAtAndCopy(int index)
         {
             m_size--;

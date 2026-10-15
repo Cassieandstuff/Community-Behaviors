@@ -814,3 +814,65 @@ units:
   - source: ../../../schema/Havok/Behavior/Driver/Ragdoll/hkbRagdollDriver.cpp
     functions:
       # - { name: "CB::schema::hkbRagdollDriver::reset", va: 0x140aaea40 }  # parked: 100% bytes, reference check ignores the symbol+offset addend
+  - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateMachine.cpp
+    functions:
+      - { name: "??0hkbStateMachine@schema@CB@@QEAA@XZ", va: 0x140ad75b0 }
+      - { name: "??0hkbStateMachine@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z", va: 0x140ad7740 }
+      - { name: "??1hkbStateMachine@schema@CB@@UEAA@XZ", va: 0x140ad7be0 }
+      - { name: "CB::schema::hkbStateMachine::getClassType", va: 0x140ad7ee0 }
+      - { name: "CB::schema::hkbStateMachine::collectBindables", va: 0x140ad7ef0 }
+      # STRUCTURAL: printf-buffer constant stores scheduled across argument LEAs (see parked.yaml):
+      # - { name: "CB::schema::hkbStateMachine::activate", va: 0x140ad7f70 }
+      # STRUCTURAL: a local event store moved across the getNodeTemplate call (see parked.yaml):
+      # - { name: "CB::schema::hkbStateMachine::update", va: 0x140ad82c0 }
+      - { name: "CB::schema::hkbStateMachine::handleEvent", va: 0x140ad8570 }
+      # STRUCTURAL: vanilla keeps two dead reserveExactly(0) blocks 24247 deletes (see parked.yaml):
+      # - { name: "CB::schema::hkbStateMachine::deactivate", va: 0x140ad8580 }
+      # STRUCTURAL: 24247 if-converts the counting increments to cmov (see parked.yaml):
+      # - { name: "CB::schema::hkbStateMachine::getMaxNumChildren", va: 0x140ad8620 }
+      - { name: "CB::schema::hkbStateMachine::getChildren", va: 0x140ad86d0 }
+      - { name: "CB::schema::hkbStateMachine::isValid", va: 0x140ad8990 }
+      - { name: "CB::schema::hkbStateMachine::cloneNode", va: 0x140ad8e50 }
+      - { name: "CB::schema::hkbStateMachine::getInternalStateUser", va: 0x140ad8eb0 }
+      - { name: "CB::schema::hkbStateMachine::setInternalStateUser", va: 0x140ad9070 }
+      - { name: "CB::schema::hkbStateMachine::getActiveEvents", va: 0x140ad9240 }
+      - { name: "CB::schema::hkbStateMachine::getActiveVariables", va: 0x140ad9310 }
+      - { name: "CB::schema::hkbStateMachine::generate", va: 0x140ad9340 }
+      - { name: "CB::schema::hkbStateMachine::canRecycleOutput", va: 0x140ad9360 }
+      - { name: "CB::schema::hkbStateMachine::updateSync", va: 0x140ad9370 }
+      - { name: "CB::schema::hkbStateMachine::startEcho", va: 0x140ad93c0 }
+      - { name: "??1ActiveTransitionInfo@hkbStateMachine@schema@CB@@QEAA@XZ", va: 0x140ad93d0 }
+      - { name: "??1TransitionInfoArray@hkbStateMachine@schema@CB@@UEAA@XZ", va: 0x140ad93f0 }
+      - { name: "??0StateInfo@hkbStateMachine@schema@CB@@QEAA@AEBV0123@AEBU?$hkArray@PEAVhkbStateListener@schema@CB@@@23@@Z", va: 0x140ad94b0 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::~StateInfo", va: 0x140ad9680 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::setGenerator", va: 0x140ad97c0 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::addListener", va: 0x140ad9800 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::addEnterNotifyEvent", va: 0x140ad98e0 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::addExitNotifyEvent", va: 0x140ad9a00 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::updateListeners", va: 0x140ad9b20 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::enter", va: 0x140ad9bb0 }
+      - { name: "CB::schema::hkbStateMachine::StateInfo::exit", va: 0x140ad9d50 }
+      - { name: "CB::schema::hkbStateMachine::addState", va: 0x140ad9ef0 }
+      - { name: "CB::schema::hkbStateMachine::getFirstFreeStateId", va: 0x140ada400 }
+      - { name: "CB::schema::hkbStateMachine::removeState", va: 0x140ada150 }
+      # STRUCTURAL: setcc; or 1 on m_updateActiveNodes folded to a constant store (see parked.yaml):
+      # - { name: "CB::schema::hkbStateMachine::transitionToState", va: 0x140ada230 }
+      - { name: "CB::schema::hkbStateMachine::swapStateIds", va: 0x140ada450 }
+      - { name: "CB::schema::hkbStateMachine::getStateIndex", va: 0x140ada660 }
+      - { name: "CB::schema::hkbStateMachine::beginTransitionWithBestEffect", va: 0x140ada6a0 }
+      - { name: "CB::schema::hkbStateMachine::calcContentStatistics", va: 0x140adaa70 }
+      - { name: "CB::schema::hkbStateMachine::processDelayedTransitions", va: 0x140add830 }
+      - { name: "CB::schema::hkbStateMachine::removeTransitionsToState", va: 0x140add940 }
+      - { name: "CB::schema::hkbStateMachine::removeTransitions", va: 0x140add9d0 }
+      - { name: "CB::schema::hkbStateMachine::updateActiveTransitions", va: 0x140ade4f0 }
+      - { name: "CB::schema::hkbStateMachine::getActiveGenerator", va: 0x140ade8a0 }
+      - { name: "CB::schema::hkbStateMachine::isFromGeneratorAtEnd", va: 0x140ade8f0 }
+      - { name: "CB::schema::hkbStateMachine::getActiveEventsOfTransitions", va: 0x140adeff0 }
+      - { name: "??_GhkbStateMachine@schema@CB@@UEAAPEAXI@Z", va: 0x140adf2c0 }
+  - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateMachineSecondUnit.cpp
+    functions:
+      - { name: "CB::schema::hkbStateMachine::createInternalState", va: 0x140b038e0 }
+      # STRUCTURAL: byte-array copy loops count up in vanilla, down in 24247 (see parked.yaml):
+      # - { name: "CB::schema::hkbStateMachine::getInternalState", va: 0x140b03960 }
+      # STRUCTURAL: byte-array copy loops count up in vanilla, down in 24247 (see parked.yaml):
+      # - { name: "CB::schema::hkbStateMachine::setInternalState", va: 0x140b03ce0 }

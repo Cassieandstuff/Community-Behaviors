@@ -123,6 +123,17 @@ namespace CB { namespace schema
 
     struct hkMemUtil
     {
+        /// @brief Copies one `ELEMENT_SIZE`-byte element, a qword at a time.
+        /// @pre `ELEMENT_SIZE` is a multiple of 8 and both pointers are 8-aligned.
+        template <int ELEMENT_SIZE> static HK_FORCE_INLINE void memCpyOne(void* dst, const void* src)
+        {
+            unsigned __int64* d     = static_cast<unsigned __int64*>(dst);
+            const __int64     delta = static_cast<const char*>(src) - static_cast<const char*>(dst);
+            for (int i = 0; i < ELEMENT_SIZE; i += 8) {
+                *d = *reinterpret_cast<const unsigned __int64*>(reinterpret_cast<const char*>(d) + delta);
+                d++;
+            }
+        }
         /// @brief Havok's word-wise copy: ceil(nbytes / 8) qword moves.
         /// @note Vanilla's one-pointer-plus-delta loop form is not reproduced under cl 19.00.24247 (compiler-build
         ///       variance; the callers come out VARIANT).
@@ -133,4 +144,10 @@ namespace CB { namespace schema
             for (int i = 0; i < nbytes; i += 8) *d++ = *s++;
         }
     };
+
+    /// @brief One qword: a single move.
+    template <> HK_FORCE_INLINE void hkMemUtil::memCpyOne<8>(void* dst, const void* src)
+    {
+        *static_cast<unsigned __int64*>(dst) = *static_cast<const unsigned __int64*>(src);
+    }
 } }

@@ -124,6 +124,9 @@ namespace CB { namespace schema
             bool                m_anyActive;   ///< +0xa
             /// @note Name provisional: raised with a child's m_skipGenerate (hkbGeneratorTransitionEffect).
             hkBool              m_anySkipGenerate;   ///< +0xb
+
+            HK_FORCE_INLINE ChildrenInfo(hkArray<ChildInfo>& childInfos)
+            :   m_childInfos(childInfos), m_anyIgnoreEvents(false), m_anyReactivate(false), m_anyActive(false), m_anySkipGenerate(false) {}
         };
 
         hkUlong     m_userData;     ///< +0x30 — Bethesda keys clip loading off it (the clip tests 0 and 8)

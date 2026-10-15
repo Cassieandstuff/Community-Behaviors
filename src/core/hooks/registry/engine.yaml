@@ -198,6 +198,7 @@ symbols:
   - { name: hkString_StrNcmp, kind: func, se: 0, ae: 57119, vr: 0, cpp: "CB::schema::hkString::strNcmp" }
   - { name: hkString_StrLen, kind: func, se: 0, ae: 57124, vr: 0, cpp: "CB::schema::hkString::strLen" }
   - { name: hkStringBuf_CtorCStr, kind: func, se: 0, ae: 57458, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@PEBD@Z" }  # hkStringBuf(const char*) — out of line
+  - { name: hkStringBuf_AppendCStr, kind: func, se: 0, ae: 57485, vr: 0, cpp: "CB::schema::hkStringBuf::operator+=" }  # (const char*)
   - { name: hkPointerMap_Get, kind: func, se: 0, ae: 57187, vr: 0, cpp: "CB::schema::hkPointerMapStorage::get" }  # name provisional; (key, out) → hkResult
   - { name: hkPointerMap_Insert, kind: func, se: 0, ae: 57198, vr: 0, cpp: "CB::schema::hkPointerMapStorage::insert" }  # name provisional; (allocator, key, value)
   - { name: hkPointerMap_ClearAndDeallocate, kind: func, se: 0, ae: 57184, vr: 0, cpp: "CB::schema::hkPointerMapStorage::clearAndDeallocate" }  # name provisional; (allocator)
@@ -223,7 +224,6 @@ symbols:
   - { name: hkStringBuf_CtorCStrLen, kind: func, se: 0, ae: 57461, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@PEBDH@Z" }  # hkStringBuf(const char*, int len)
   - { name: hkStringBuf_IndexOfString, kind: func, se: 0, ae: 57466, vr: 0, cpp: "?indexOf@hkStringBuf@schema@CB@@QEBAHPEBDHH@Z" }  # (str, start, end) via strstr, -1 if absent
   - { name: hkStringBuf_IndexOfChar, kind: func, se: 0, ae: 57465, vr: 0, cpp: "?indexOf@hkStringBuf@schema@CB@@QEBAHDHH@Z" }  # (char, start, end), -1 if absent
-  - { name: hkStringBuf_AppendCStr, kind: func, se: 0, ae: 57485, vr: 0, cpp: "CB::schema::hkStringBuf::operator+=" }  # (const char*)
   - { name: hkStringBuf_Replace, kind: func, se: 0, ae: 57499, vr: 0, cpp: "CB::schema::hkStringBuf::replace" }  # (from, to, REPLACE_ONE/ALL)
   - { name: hkStringBuf_ChompStart, kind: func, se: 0, ae: 57488, vr: 0, cpp: "CB::schema::hkStringBuf::chompStart" }  # drops the first n characters
   - { name: hkStringBuf_Slice, kind: func, se: 0, ae: 57490, vr: 0, cpp: "CB::schema::hkStringBuf::slice" }  # (start, length) keeps that substring
@@ -315,6 +315,42 @@ symbols:
   - { name: hkbBehaviorGraph_GetNodeClone, kind: func, se: 0, ae: 58359, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeClone" }  # name provisional; template node -> this graph's clone
   - { name: hkbStateMachine_GetStaticClass, kind: func, se: 0, ae: 58901, vr: 0, cpp: "CB::schema::hkbStateMachine::staticClass" }
   - { name: hkbStateMachine_GetStateIndex, kind: func, se: 0, ae: 59372, vr: 0, cpp: "CB::schema::hkbStateMachine::getStateIndex" }  # stateId -> index in m_states, -1 for none
+  - { name: hkbStateMachine_Vtable, kind: data, se: 0, ae: 226812, vr: 0, cpp: "CB::schema::hkbStateMachine::`vftable'" }
+  - { name: hkbStateMachineClass, kind: data, se: 0, ae: 408354, vr: 0, cpp: "CB::schema::hkbStateMachineClass" }  # the reflected hkClass
+  - { name: hkbStateMachine_CloneCtor, kind: func, se: 0, ae: 59330, vr: 0, cpp: "??0hkbStateMachine@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z" }  # (sm, rootBehavior) — cloneNode's copy
+  - { name: hkbStateMachine_Dtor, kind: func, se: 0, ae: 59331, vr: 0, cpp: "CB::schema::hkbStateMachine::~hkbStateMachine" }
+  - { name: hkbStateMachine_ActiveTransitionInfo_Dtor, kind: func, se: 0, ae: 59350, vr: 0, cpp: "CB::schema::hkbStateMachine::ActiveTransitionInfo::~ActiveTransitionInfo" }
+  - { name: hkbStateMachine_TransitionInfoArray_Vtable, kind: data, se: 0, ae: 226702, vr: 0, cpp: "CB::schema::hkbStateMachine::TransitionInfoArray::`vftable'" }
+  - { name: hkbStateMachine_EventPropertyArray_Vtable, kind: data, se: 0, ae: 226704, vr: 0, cpp: "CB::schema::hkbStateMachine::EventPropertyArray::`vftable'" }
+  - { name: hkbStateMachine_StateInfo_Vtable, kind: data, se: 0, ae: 226706, vr: 0, cpp: "CB::schema::hkbStateMachine::StateInfo::`vftable'" }
+  - { name: hkbStateMachine_StateInfo_CopyCtor, kind: func, se: 0, ae: 59352, vr: 0, cpp: "??0StateInfo@hkbStateMachine@schema@CB@@QEAA@AEBV0123@AEBU?$hkArray@PEAVhkbStateListener@schema@CB@@@23@@Z" }  # (stateInfo, listeners)
+  - { name: hkbStateMachine_EndTransitions, kind: func, se: 0, ae: 59384, vr: 0, cpp: "CB::schema::hkbStateMachine::endTransitions" }  # name provisional; (index, context)
+  - { name: hkbStateMachine_HandleEventInternal, kind: func, se: 0, ae: 59385, vr: 0, cpp: "CB::schema::hkbStateMachine::handleEventInternal" }  # name provisional; (context, eventId)
+  - { name: hkbStateMachine_RemoveTransitions, kind: func, se: 0, ae: 59389, vr: 0, cpp: "CB::schema::hkbStateMachine::removeTransitions" }  # name provisional; static (toStateId, transitions)
+  - { name: hkbStateMachine_GetActiveGenerator, kind: func, se: 0, ae: 59402, vr: 0, cpp: "CB::schema::hkbStateMachine::getActiveGenerator" }  # name provisional
+  - { name: hkbStateMachine_InitRuntimeData, kind: func, se: 0, ae: 59407, vr: 0, cpp: "CB::schema::hkbStateMachine::initRuntimeData" }  # name provisional
+  - { name: hkbStateMachine_GetActiveEventsOfTransitions, kind: func, se: 0, ae: 59408, vr: 0, cpp: "CB::schema::hkbStateMachine::getActiveEventsOfTransitions" }  # name provisional; static (transitions, activeEvents)
+  - { name: hkbStateMachine_ExitCurrentState, kind: func, se: 0, ae: 59411, vr: 0, cpp: "CB::schema::hkbStateMachine::exitCurrentState" }  # name provisional
+  - { name: hkbBehaviorGraph_GetStateListenerClone, kind: func, se: 0, ae: 58361, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getStateListenerClone" }  # name provisional; clones through hkbStateListener::clone once, remembered in +0xf0
+  - { name: hkStringPtr_CtorCStr, kind: func, se: 0, ae: 57225, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@PEBD@Z" }  # hkStringPtr(const char*)
+  - { name: hkPointerMap_GetMemSize, kind: func, se: 0, ae: 57191, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getMemSize" }  # name provisional; bytes of the element storage
+  - { name: hkbStateMachine_TransitionToState, kind: func, se: 0, ae: 59369, vr: 0, cpp: "CB::schema::hkbStateMachine::transitionToState" }  # name provisional; (toStateId, context, immediate, forceIfNoTransition, isReturnToPreviousState)
+  - { name: hkbStateMachine_IsInterruptible, kind: func, se: 0, ae: 59377, vr: 0, cpp: "CB::schema::hkbStateMachine::isInterruptible" }  # name provisional
+  - { name: hkbStateMachine_GetTransitions, kind: func, se: 0, ae: 59380, vr: 0, cpp: "CB::schema::hkbStateMachine::getTransitions" }  # name provisional; collects TransitionInfoReferences
+  - { name: hkbStateMachine_FindTransitions, kind: func, se: 0, ae: 59381, vr: 0, cpp: "CB::schema::hkbStateMachine::findTransitions" }  # name provisional; collects ProspectiveTransitionInfos
+  - { name: hkbStateMachine_BeginTransitions, kind: func, se: 0, ae: 59382, vr: 0, cpp: "CB::schema::hkbStateMachine::beginTransitions" }  # name provisional
+  - { name: hkbStateMachine_BeginTransition, kind: func, se: 0, ae: 59383, vr: 0, cpp: "CB::schema::hkbStateMachine::beginTransition" }  # name provisional; (context, prospective, isReturnToPreviousState)
+  - { name: hkbStateMachine_RemoveTransitionsToState, kind: func, se: 0, ae: 59388, vr: 0, cpp: "CB::schema::hkbStateMachine::removeTransitionsToState" }  # name provisional
+  - { name: hkbStateMachine_SetCurrentState, kind: func, se: 0, ae: 59390, vr: 0, cpp: "CB::schema::hkbStateMachine::setCurrentState" }  # name provisional
+  - { name: hkbStateMachine_WriteSyncVariable, kind: func, se: 0, ae: 59399, vr: 0, cpp: "CB::schema::hkbStateMachine::writeSyncVariable" }  # name provisional
+  - { name: hkbStateMachine_ChooseStartStateId, kind: func, se: 0, ae: 59405, vr: 0, cpp: "CB::schema::hkbStateMachine::chooseStartStateId" }  # name provisional
+  - { name: hkPointerMap_FindKey, kind: func, se: 0, ae: 57185, vr: 0, cpp: "CB::schema::hkPointerMapStorage::findKey" }  # name provisional; key -> iterator
+  - { name: hkPointerMap_RemoveIterator, kind: func, se: 0, ae: 57202, vr: 0, cpp: "?remove@hkPointerMapStorage@schema@CB@@QEAAXPEAUIteratorTag@23@@Z" }  # name provisional; remove(iterator)
+  - { name: hkPointerMap_RemoveKey, kind: func, se: 0, ae: 57201, vr: 0, cpp: "?remove@hkPointerMapStorage@schema@CB@@QEAA?AW4hkResult@23@_K@Z" }  # name provisional; remove(key) -> hkResult
+  - { name: hkbBehaviorGraph_GetUniqueId, kind: func, se: 0, ae: 58370, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getUniqueId" }  # name provisional; an id for a node cloned at runtime
+  - { name: hkbNodeInternalStateInfo_Vtable, kind: data, se: 0, ae: 220289, vr: 0, cpp: "CB::schema::hkbNodeInternalStateInfo::`vftable'" }
+  - { name: hkbStateMachine_SetCurrentStateId, kind: func, se: 0, ae: 59409, vr: 0, cpp: "CB::schema::hkbStateMachine::setCurrentStateId" }  # name provisional; id + its index (shifted) into m_sCurrentStateIndexAndEntered
+  - { name: hkbStateMachineInternalState_Vtable, kind: data, se: 0, ae: 226734, vr: 0, cpp: "CB::schema::hkbStateMachineInternalState::`vftable'" }
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
   - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
   - { name: hkbCharacter_GetPoseLocal, kind: func, se: 0, ae: 58458, vr: 0, cpp: "CB::schema::hkbCharacter::getPoseLocal" }  # +0x90, filled from the reference pose on first use
@@ -597,7 +633,6 @@ symbols:
   - { name: hkQsTransform_IdentityStorage, kind: data, se: 0, ae: 407391, vr: 0, cpp: "CB::schema::hkQsTransform_identityStorage" }  # hkQsTransform::getIdentity()
   - { name: hkbRagdollDriver_SetRagdoll, kind: func, se: 0, ae: 58285, vr: 0, cpp: "CB::schema::hkbRagdollDriver::setRagdoll" }  # (ragdoll) referenced; tears down the old one's state
   - { name: hkbRagdollDriver_FreeRagdollPoseWS, kind: func, se: 0, ae: 58309, vr: 0, cpp: "CB::schema::hkbRagdollDriver::freeRagdollPoseWS" }  # name provisional; easyFree of +0x90
-  - { name: hkPointerMap_GetMemSize, kind: func, se: 0, ae: 57191, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getMemSize" }  # name provisional; bytes of storage
   - { name: hkbPhysicsUtils_GetClosestPoints, kind: func, se: 0, ae: 59430, vr: 0, cpp: "CB::schema::hkbPhysicsUtils::getClosestPoints" }  # name provisional; (world, filterInfo, position, tolerance, radius, collector)
   - { name: hkpAllCdPointCollector_Vtable, kind: data, se: 0, ae: 196331, vr: 0, cpp: "CB::schema::hkpAllCdPointCollector::`vftable'" }
   - { name: hkbCharacter_SetWorldFromModel, kind: func, se: 0, ae: 58461, vr: 0, cpp: "CB::schema::hkbCharacter::setWorldFromModel" }  # (worldFromModel, deleteWorldFromModel)

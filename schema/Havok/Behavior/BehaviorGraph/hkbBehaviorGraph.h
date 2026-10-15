@@ -14,6 +14,7 @@
 namespace CB { namespace schema
 {
     extern const hkClass hkbBehaviorGraphClass;
+    class hkbStateListener;
 
     struct hkbBehaviorGraphStringData : hkReferencedObject
     {
@@ -159,6 +160,9 @@ namespace CB { namespace schema
         /// @brief Returns a node's unique id to the pool (ids below m_numStaticNodes stay with the template).
         /// @note Name provisional.
         void releaseUniqueId(hkInt16 id);
+        /// @brief A unique id for a node cloned at runtime (from the pool, else the next one).
+        /// @note Name provisional. Out of line (0x140ab4700); the state machine ids the transition effects it clones.
+        hkInt16 getUniqueId();
         /// @brief Creates the variable value set from the graph data's initial values, if the data declares variables
         ///        and there is no set yet.
         /// @note Name provisional; out of line in vanilla (0x140ab32b0).
@@ -199,6 +203,10 @@ namespace CB { namespace schema
         /// @brief As getNodeClone, but a template not cloned yet is cloned (cloneNode) and both maps learn the pair.
         /// @note Name provisional (0x140ab4020; BSCyclicBlendTransitionGenerator::activate calls it).
         hkbNode* getOrCreateNodeClone(hkbNode* node);
+        /// @brief This graph's clone of the state listener `listener` (made with hkbStateListener::clone the first time and
+        ///        remembered), with one more reference; null when the listener does not clone.
+        /// @note Name provisional. Out of line (0x140ab40c0); hkbStateMachine's clone copy calls it.
+        hkbStateListener* getStateListenerClone(hkbStateListener* listener);
         /// @brief The active-node record of `node` (a template or this graph's clone of one), or the record it is a
         ///        proxy for.
         /// @pre `node` is active (an unknown node reads record 0).
