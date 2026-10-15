@@ -64,6 +64,24 @@ units:
       - { name: "CB::schema::hkbTwistModifier::modify", va: 0x140aff320 }
       - { name: "??1hkbTwistModifier@schema@CB@@UEAA@XZ", va: 0x140ac72d0 }
       - { name: "??_GhkbTwistModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb610 }
+  - source: ../../../schema/Havok/Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifier.cpp
+    functions:
+      - { name: "??0hkbRotateCharacterModifier@schema@CB@@QEAA@XZ", va: 0x140afcde0 }
+      - { name: "??0hkbRotateCharacterModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afce70 }
+      - { name: "CB::schema::hkbRotateCharacterModifier::activate", va: 0x140afced0 }
+      - { name: "CB::schema::hkbRotateCharacterModifier::update", va: 0x140afcee0 }
+      - { name: "CB::schema::hkbRotateCharacterModifier::cloneNode", va: 0x140afcf10 }
+      - { name: "CB::schema::hkbRotateCharacterModifier::modify", va: 0x140afcf60 }
+      - { name: "CB::schema::hkbRotateCharacterModifier::createInternalState", va: 0x140afd020 }
+      - { name: "CB::schema::hkbRotateCharacterModifier::getInternalState", va: 0x140afd060 }
+      - { name: "CB::schema::hkbRotateCharacterModifier::setInternalState", va: 0x140afd070 }
+      - { name: "??_GhkbRotateCharacterModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acacc0 }
+      # STRUCTURAL (duplicated return tail, see parked.yaml):
+      # - { name: "??_GhkbRotateCharacterModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140acad50 }
+  - source: ../../../schema/Havok/Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp
+    functions:
+      # Written but STRUCTURAL under the current rules (SIMD scheduling only, see parked.yaml); awaiting a decision:
+      # - { name: "CB::schema::hkbRotateCharacterModifierUtils::modify", va: 0x140b0ee80 }
   - source: ../../../schema/Havok/Behavior/Generator/BSSynchronizedClipGenerator/BSSynchronizedClipGenerator.cpp
     functions:
       - { name: "CB::schema::finishLoadedObjectBSSynchronizedClipGenerator", va: 0x140b93c10 }

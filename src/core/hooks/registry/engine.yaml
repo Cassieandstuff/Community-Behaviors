@@ -217,6 +217,7 @@ symbols:
   - { name: hkStringPtr_Printf, kind: func, se: 0, ae: 57234, vr: 0, cpp: "CB::schema::hkStringPtr::printf" }  # (fmt, ...) formats into a buffer, then assigns
   - { name: hkString_BeginsWith, kind: func, se: 0, ae: 57131, vr: 0, cpp: "CB::schema::hkString::beginsWith" }  # (str, prefix) -> hkBool, returned through memory
   - { name: hkQsTransform_IsApproximatelyEqual, kind: func, se: 0, ae: 57252, vr: 0, cpp: "CB::schema::hkQsTransform::isApproximatelyEqual" }  # (other, epsilon) -> hkBool
+  - { name: hkQuaternion_SetAxisAngle, kind: func, se: 0, ae: 57098, vr: 0, cpp: "CB::schema::hkQuaternion::setAxisAngle" }  # (axis, angle): sin/cos of the half angle
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
   - { name: GlobalSizedDelete, kind: func, se: 0, ae: 82484, vr: 0, cpp: "__global_delete" }  # operator delete(void*, size_t) — the ::delete path of every deleting destructor
@@ -256,6 +257,8 @@ symbols:
   - { name: hkbSequence_CloneCtor, kind: func, se: 0, ae: 59920, vr: 0, cpp: "??0hkbSequence@schema@CB@@QEAA@AEBV012@@Z" }  # hkbSequence(const hkbSequence&) — cloneNode tail-jumps to it
   - { name: hkbSequence_Dtor, kind: func, se: 0, ae: 59921, vr: 0, cpp: "CB::schema::hkbSequence::~hkbSequence" }  # out of line; the scalar deleting destructor calls it
   - { name: hkbBehaviorGraph_CopyVariablesToMembers, kind: func, se: 0, ae: 58382, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::copyVariablesToMembers" }  # (context, flag); monitor timer "hkbBehaviorGraph::copyVariablesToMembersRoot"
+  - { name: hkbRotateCharacterModifier_CloneCtor, kind: func, se: 0, ae: 59868, vr: 0, cpp: "??0hkbRotateCharacterModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbRotateCharacterModifierUtils_Modify, kind: func, se: 0, ae: 60073, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierUtils::modify" }  # name provisional; (modifier, characterWorldFromModel, modelUp, worldFromModel) applies and clears m_angle
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
@@ -282,5 +285,7 @@ symbols:
   - { name: hkbTransformVectorModifierInternalState_Vtable, kind: data, se: 278636, ae: 226632, vr: 0, cpp: "CB::schema::hkbTransformVectorModifierInternalState::`vftable'" }
   - { name: hkbSequence_Vtable, kind: data, se: 278658, ae: 226657, vr: 0, cpp: "CB::schema::hkbSequence::`vftable'" }
   - { name: hkbSequenceInternalState_Vtable, kind: data, se: 278661, ae: 226661, vr: 0, cpp: "CB::schema::hkbSequenceInternalState::`vftable'" }
+  - { name: hkbRotateCharacterModifier_Vtable, kind: data, se: 278609, ae: 226598, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifier::`vftable'" }
+  - { name: hkbRotateCharacterModifierInternalState_Vtable, kind: data, se: 278612, ae: 226602, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene

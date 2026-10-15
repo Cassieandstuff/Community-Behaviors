@@ -41,6 +41,7 @@ namespace CB { namespace schema
         /// @note A load from g_vectorConstantZero, where setZero4 is an xorps (the node default constructors read it).
         static HK_FORCE_INLINE const hkVector4& getZero();
         HK_FORCE_INLINE void setAll(float a) { m_quad = _mm_set1_ps(a); }
+        HK_FORCE_INLINE void set(hkReal x, hkReal y, hkReal z, hkReal w = 0.0f) { m_quad = _mm_setr_ps(x, y, z, w); }
 
         HK_FORCE_INLINE hkSimdReal getSimdAt3() const { return hkSimdReal(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(3, 3, 3, 3))); }
         HK_FORCE_INLINE float      getW() const { return _mm_cvtss_f32(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(3, 3, 3, 3))); }
@@ -109,6 +110,13 @@ namespace CB { namespace schema
         }
 
         HK_FORCE_INLINE void setRotatedDir(const hkQuaternion& quat, const hkVector4& direction);
+        /// @brief Rotates `direction` by the inverse of `quat`.
+        HK_FORCE_INLINE void setRotatedInverseDir(const hkQuaternion& quat, const hkVector4& direction);
+        /// @note Flips the sign bits (xor with -0 x4).
+        HK_FORCE_INLINE void setNeg4(const hkVector4& v) { m_quad = _mm_xor_ps(v.m_quad, _mm_castsi128_ps(_mm_set1_epi32(int(0x80000000)))); }
+        /// @brief 1/v for x, y and z (rcpps plus one Newton-Raphson step); w is 0.
+        /// @note w is set to 1 before the estimate so it cannot overflow, then masked off.
+        HK_FORCE_INLINE void setReciprocal3(const hkVector4& v);
 
         /// @brief Whether x, y and z each lie within `epsilon` of `v`'s.
         HK_FORCE_INLINE bool equals3(const hkVector4& v, hkReal epsilon) const
@@ -151,6 +159,12 @@ namespace CB { namespace schema
         HK_FORCE_INLINE float getReal() const { return m_vec.getW(); }
         HK_FORCE_INLINE void  setIdentity() { m_vec = g_vectorConstant0001; }
         static HK_FORCE_INLINE const hkQuaternion& getIdentity() { return reinterpret_cast<const hkQuaternion&>(g_vectorConstants0001); }
+        /// @brief The conjugate: x, y and z negated.
+        HK_FORCE_INLINE void  setInverse(const hkQuaternion& q) { m_vec.m_quad = _mm_xor_ps(q.m_vec.m_quad, _mm_castsi128_ps(_mm_setr_epi32(int(0x80000000), int(0x80000000), int(0x80000000), 0))); }
+        HK_FORCE_INLINE void  normalize() { m_vec.normalize4(); }
+        /// @brief The rotation by `angle` radians about the unit vector `axis`.
+        /// @note Out of line in vanilla.
+        void setAxisAngle(const hkVector4& axis, hkReal angle);
 
         HK_FORCE_INLINE void setMul(const hkQuaternion& q0, const hkQuaternion& q1)
         {
@@ -177,6 +191,30 @@ namespace CB { namespace schema
         imagCrossDir.setCross(quat.m_vec, direction);
         ret.addMul4(imagCrossDir, qreal);
         setAdd4(ret, ret);
+    }
+
+    /// @note setRotatedDir with the cross product's operands swapped.
+    HK_FORCE_INLINE void hkVector4::setRotatedInverseDir(const hkQuaternion& quat, const hkVector4& direction)
+    {
+        const hkSimdReal qreal = quat.m_vec.getSimdAt3();
+        const hkSimdReal q2minus1(_mm_add_ps(_mm_mul_ps(qreal.m_real, qreal.m_real), g_vectorConstantMinusHalf.m_quad));
+        hkVector4 ret;
+        ret.setMul4(direction, q2minus1);
+        const hkSimdReal imagDotDir = quat.m_vec.dot3(direction);
+        ret.addMul4(imagDotDir, quat.m_vec);
+        hkVector4 dirCrossImag;
+        dirCrossImag.setCross(direction, quat.m_vec);
+        ret.addMul4(dirCrossImag, qreal);
+        setAdd4(ret, ret);
+    }
+
+    HK_FORCE_INLINE void hkVector4::setReciprocal3(const hkVector4& v)
+    {
+        hkVector4 val;
+        val.setXYZ_W(v, g_vectorConstantOne);
+        const hkQuadReal r = _mm_rcp_ps(val.m_quad);
+        const hkQuadReal refined = _mm_sub_ps(_mm_add_ps(r, r), _mm_mul_ps(_mm_mul_ps(r, val.m_quad), r));
+        m_quad = _mm_and_ps(refined, _mm_castsi128_ps(_mm_setr_epi32(-1, -1, -1, 0)));
     }
 
     struct hkQsTransform
@@ -225,6 +263,22 @@ namespace CB { namespace schema
         }
         /// @note Out of line in vanilla.
         hkBool isApproximatelyEqual(const hkQsTransform& other, hkReal epsilon) const;
+
+        HK_FORCE_INLINE void setInverse(const hkQsTransform& t)
+        {
+            m_rotation.setInverse(t.m_rotation);
+            m_translation.setRotatedInverseDir(t.m_rotation, t.m_translation);
+            m_translation.setNeg4(m_translation);
+            m_scale.setReciprocal3(t.m_scale);
+        }
+
+        /// @brief inverse(t1) x t2.
+        HK_FORCE_INLINE void setMulInverseMul(const hkQsTransform& t1, const hkQsTransform& t2)
+        {
+            hkQsTransform inverse;
+            inverse.setInverse(t1);
+            setMul(inverse, t2);
+        }
 
         /// @note Built in a local (`rotated`), as vanilla does.
         HK_FORCE_INLINE void setMul(const hkQsTransform& t1, const hkQsTransform& t2)

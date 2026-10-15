@@ -32,8 +32,10 @@ namespace CB { namespace schema
 
     struct hkbCharacterData : hkReferencedObject
     {
-        char   m_pad10[0xa8 - 0x10];
-        hkReal m_scale;   ///< +0xa8
+        char      m_pad10[0x30 - 0x10];
+        hkVector4 m_modelUpMS;   ///< +0x30
+        char      m_pad40[0xa8 - 0x40];
+        hkReal    m_scale;       ///< +0xa8
     };
 
     struct hkbCharacterSetup : hkReferencedObject

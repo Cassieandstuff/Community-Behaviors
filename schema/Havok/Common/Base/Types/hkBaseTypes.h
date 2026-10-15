@@ -21,6 +21,8 @@ extern "C" double __cdecl fabs(double);
 #define HK_FORCE_INLINE __forceinline
 #define HK_NEXT_MULTIPLE_OF(ALIGNMENT, VALUE) (((VALUE) + ((ALIGNMENT)-1)) & (~((ALIGNMENT)-1)))
 #define HK_REAL_MAX 3.40282e+38f
+#define HK_REAL_PI 3.14159265358979f
+#define HK_REAL_DEG_TO_RAD (HK_REAL_PI / 180.0f)
 
 /// @brief Global placement new, as `<new>` declares it.
 /// @note MSVC null-checks its result, which vanilla's hkArray::pushBack carries. hkReferencedObject declares its own,
