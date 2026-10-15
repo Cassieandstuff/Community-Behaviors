@@ -85,6 +85,15 @@ struct RuntimeSpec {
     std::string pins;             ///< which engine.yaml pin column this runtime uses (se | ae | vr); defaults to `name`
 };
 
+/// @brief Which of the exe's classes the inventory covers, and where it and the parked ledger live.
+struct InventorySpec {
+    fs::path                 file;      ///< the generated inventory; empty = no inventory
+    fs::path                 parked;    ///< hand-kept functions set aside, with why; optional
+    fs::path                 schema;    ///< every class with a YAML descriptor under it is in scope; optional
+    std::vector<std::string> include;   ///< RTTI class-name globs in scope
+    std::vector<std::string> exclude;   ///< globs taken out again (deferred families)
+};
+
 struct Manifest {
     fs::path                                     dir;
     std::vector<RuntimeSpec>                     runtimes;     ///< in file order; the first is the default
@@ -93,6 +102,7 @@ struct Manifest {
     std::vector<std::string>                     flags;
     std::vector<fs::path>                        includes;
     std::vector<UnitSpec>                        units;
+    InventorySpec                                inventory;
 };
 
 [[noreturn]] void rymlThrowBasic(c4::csubstr msg, c4::yml::ErrorDataBasic const&, void*) { throw std::runtime_error(std::string(msg.str, msg.len)); }
@@ -207,6 +217,14 @@ Manifest loadManifest(const fs::path& path)
     m.toolchains = namedPaths(root, "toolchains", m.dir);
     m.flags      = strSeq(root, "flags");
     for (const auto& inc : strSeq(root, "includes")) m.includes.push_back(fs::path(inc).is_absolute() ? fs::path(inc) : m.dir / inc);
+    if (has(root, "inventory")) {
+        const auto inv = root["inventory"];
+        if (has(inv, "file")) m.inventory.file = resolve(val(inv["file"]));
+        if (has(inv, "parked")) m.inventory.parked = resolve(val(inv["parked"]));
+        if (has(inv, "schema")) m.inventory.schema = resolve(val(inv["schema"]));
+        m.inventory.include = strSeq(inv, "include");
+        m.inventory.exclude = strSeq(inv, "exclude");
+    }
 
     if (!has(root, "units")) throw std::runtime_error("manifest has no units");
     for (const auto u : root["units"].children()) {
@@ -238,7 +256,10 @@ Manifest loadManifest(const fs::path& path)
 // ── the game exe ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 struct PeImage {
-    struct Section { std::uint32_t va, vsize, raw, rawSize; };
+    struct Section {
+        std::uint32_t va, vsize, raw, rawSize, characteristics;
+        bool          executable() const { return (characteristics & IMAGE_SCN_MEM_EXECUTE) != 0; }
+    };
 
     Bytes                                   bytes;
     std::uint64_t                           imageBase = 0;
@@ -308,7 +329,8 @@ PeImage loadPe(const fs::path& path)
         pe.pdataSize = rd<std::uint32_t>(b, opt + 116 + IMAGE_DIRECTORY_ENTRY_EXCEPTION * 8);
     }
     for (std::size_t i = 0, sh = opt + optSize; i < nSections; ++i, sh += 40)
-        pe.sections.push_back({ rd<std::uint32_t>(b, sh + 12), rd<std::uint32_t>(b, sh + 8), rd<std::uint32_t>(b, sh + 20), rd<std::uint32_t>(b, sh + 16) });
+        pe.sections.push_back({ rd<std::uint32_t>(b, sh + 12), rd<std::uint32_t>(b, sh + 8), rd<std::uint32_t>(b, sh + 20), rd<std::uint32_t>(b, sh + 16),
+                                rd<std::uint32_t>(b, sh + 36) });
 
     // Import table: every IAT slot named by its import, so `call [__imp_X]` can be checked by name.
     if (nDirs > IMAGE_DIRECTORY_ENTRY_IMPORT) {
@@ -1538,6 +1560,408 @@ Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va,
 
 // ── driver ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
+// ── inventory: what there is to match ─────────────────────────────────────────────────────────────────────────────
+
+/// @brief `*` matches any run of characters; everything else literally (names are compared exactly, case included).
+bool globMatch(std::string_view pattern, std::string_view s)
+{
+    if (pattern.empty()) return s.empty();
+    if (pattern.front() == '*') {
+        for (std::size_t k = 0; k <= s.size(); ++k)
+            if (globMatch(pattern.substr(1), s.substr(k))) return true;
+        return false;
+    }
+    return !s.empty() && pattern.front() == s.front() && globMatch(pattern.substr(1), s.substr(1));
+}
+
+/// @brief A function as .pdata bounds it: chained unwind entries (a function's later fragments) fold into it.
+struct ExeFunction {
+    std::uint32_t rva = 0, end = 0;
+};
+
+std::vector<ExeFunction> exeFunctions(const PeImage& pe)
+{
+    std::vector<ExeFunction> out;
+    const auto               base = pe.fileOffset(pe.pdataRva, pe.pdataSize);
+    if (!base) return out;
+    for (std::size_t i = 0; i < pe.pdataSize / 12; ++i) {
+        const std::size_t   o     = *base + i * 12;
+        const std::uint32_t begin = rd<std::uint32_t>(pe.bytes, o), end = rd<std::uint32_t>(pe.bytes, o + 4);
+        const std::uint32_t info  = rd<std::uint32_t>(pe.bytes, o + 8);
+        const auto          u     = pe.fileOffset(info & ~1u, 1);
+        const bool          chain = (info & 1u) || (u && ((pe.bytes[*u] >> 3) & UNW_FLAG_CHAININFO));
+        if (chain && !out.empty()) out.back().end = std::max(out.back().end, end);
+        else                       out.push_back({ begin, end });
+    }
+    return out;
+}
+
+bool executableRva(const PeImage& pe, std::uint64_t rva)
+{
+    for (const auto& s : pe.sections)
+        if (s.executable() && rva >= s.va && rva < s.va + std::max(s.vsize, s.rawSize)) return true;
+    return false;
+}
+
+/// @brief Direct call / jmp rel32 edges between functions: callee rva → the rvas of the functions that reach it.
+/// @note A target need not have a .pdata entry: leaf functions that never touch the stack have none. Indirect calls
+///       (vtables, function pointers) are not edges; vtable slots are found from RTTI instead.
+std::map<std::uint32_t, std::set<std::uint32_t>> directCallers(const PeImage& pe, const std::vector<ExeFunction>& fns)
+{
+    std::vector<std::vector<std::pair<std::uint32_t, std::uint32_t>>> edges(fns.size());
+    CB::engine::exec::ParallelFor(fns.size(), [&](std::size_t k) {
+        const auto& f   = fns[k];
+        const auto  off = pe.fileOffset(f.rva, f.end - f.rva);
+        if (!off) return;
+        ZydisDecoder dec;
+        ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+        for (std::uint32_t p = 0; p < f.end - f.rva;) {
+            ZydisDecodedInstruction ins;
+            if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&dec, nullptr, pe.bytes.data() + *off + p, f.end - f.rva - p, &ins))) { ++p; continue; }
+            if ((ins.mnemonic == ZYDIS_MNEMONIC_CALL || ins.mnemonic == ZYDIS_MNEMONIC_JMP) && ins.raw.imm[0].is_relative &&
+                ins.raw.imm[0].size == 32) {
+                const std::int64_t target = std::int64_t(f.rva) + p + ins.length + ins.raw.imm[0].value.s;
+                if (target >= 0 && (target < f.rva || target >= f.end) && executableRva(pe, std::uint64_t(target)))
+                    edges[k].emplace_back(std::uint32_t(target), f.rva);
+            }
+            p += ins.length;
+        }
+    });
+    std::map<std::uint32_t, std::set<std::uint32_t>> callers;
+    for (const auto& list : edges)
+        for (const auto& [to, from] : list) callers[to].insert(from);
+    return callers;
+}
+
+/// @brief A polymorphic class as MSVC's RTTI describes it, with its primary vtable.
+struct RttiClass {
+    std::string                name, parent;
+    std::uint32_t              vtable = 0;   ///< rva of slot 0
+    std::vector<std::uint32_t> slots;        ///< function rvas
+};
+
+/// @brief Every class with a primary vtable: complete object locators (found by their self-rva), their type and
+///        hierarchy descriptors, and the vtable whose slot -1 points at the locator.
+/// @note A name inside a namespace or template is left out — Havok's and Bethesda's runtime classes are global.
+std::map<std::string, RttiClass> rttiClasses(const PeImage& pe)
+{
+    auto cstrAt = [&](std::uint32_t rva) -> std::string {
+        const auto o = pe.fileOffset(rva, 1);
+        if (!o) return {};
+        const char* p = reinterpret_cast<const char*>(pe.bytes.data() + *o);
+        return std::string(p, strnlen(p, pe.bytes.size() - *o));
+    };
+    auto typeName = [&](std::uint32_t td) -> std::string {
+        const std::string raw = cstrAt(td + 0x10);
+        if (raw.rfind(".?AV", 0) != 0 && raw.rfind(".?AU", 0) != 0) return {};
+        const std::string body = raw.substr(4);
+        if (body.size() < 3 || body.compare(body.size() - 2, 2, "@@") != 0) return {};
+        const std::string name = body.substr(0, body.size() - 2);
+        return (name.find('@') != std::string::npos || name.find('?') != std::string::npos) ? std::string() : name;
+    };
+    auto dword = [&](std::uint32_t rva) -> std::optional<std::uint32_t> {
+        const auto o = pe.fileOffset(rva, 4);
+        if (!o) return std::nullopt;
+        return rd<std::uint32_t>(pe.bytes, *o);
+    };
+    auto inExecutable = [&](std::uint64_t va) {
+        if (va < pe.imageBase) return false;
+        const std::uint64_t rva = va - pe.imageBase;
+        for (const auto& s : pe.sections)
+            if (s.executable() && rva >= s.va && rva < s.va + std::max(s.vsize, s.rawSize)) return true;
+        return false;
+    };
+
+    std::map<std::uint64_t, RttiClass> byLocator;   ///< locator va → class (primary locators only)
+    for (const auto& s : pe.sections) {
+        if (s.executable()) continue;
+        for (std::uint32_t r = 0; r + 0x18 <= s.rawSize; r += 4) {
+            const std::size_t o = s.raw + r;
+            if (rd<std::uint32_t>(pe.bytes, o) != 1 || rd<std::uint32_t>(pe.bytes, o + 0x14) != s.va + r) continue;
+            if (rd<std::uint32_t>(pe.bytes, o + 4) != 0) continue;   // a secondary base's vtable
+            RttiClass c;
+            c.name = typeName(rd<std::uint32_t>(pe.bytes, o + 0xC));
+            if (c.name.empty()) continue;
+            const std::uint32_t chd = rd<std::uint32_t>(pe.bytes, o + 0x10);
+            const auto          nb  = dword(chd + 8);
+            const auto          bca = dword(chd + 0xC);
+            if (nb && bca && *nb > 1)
+                if (const auto bcd = dword(*bca + 4))
+                    if (const auto td = dword(*bcd)) c.parent = typeName(*td);
+            byLocator[pe.imageBase + s.va + r] = std::move(c);
+        }
+    }
+    std::map<std::string, RttiClass> out;
+    for (const auto& s : pe.sections) {
+        if (s.executable()) continue;
+        for (std::uint32_t r = 0; r + 16 <= s.rawSize; r += 8) {
+            const auto it = byLocator.find(rd<std::uint64_t>(pe.bytes, s.raw + r));
+            if (it == byLocator.end() || out.count(it->second.name)) continue;
+            RttiClass c = it->second;
+            c.vtable    = s.va + r + 8;
+            for (std::uint32_t q = r + 8; q + 8 <= s.rawSize; q += 8) {
+                const std::uint64_t v = rd<std::uint64_t>(pe.bytes, s.raw + q);
+                if (!inExecutable(v)) break;
+                c.slots.push_back(std::uint32_t(v - pe.imageBase));
+            }
+            out.emplace(c.name, std::move(c));
+        }
+    }
+    return out;
+}
+
+/// @brief One function of the inventory.
+struct InventoryFunction {
+    std::uint64_t va = 0;
+    std::uint32_t size = 0;
+    int           slot = -1;              ///< vtable slot, or -1 for a non-virtual member
+    std::string   via;                    ///< non-virtual: tu (inside the class's address range) or call (only its code calls it)
+    std::uint64_t id = 0;                 ///< Address Library id (0 = none)
+    std::vector<std::string> classes;     ///< shared functions: every class that uses it
+};
+
+/// @brief Writes the inventory: every in-scope class's own functions (its vtable slots that differ from its parent's,
+///        then helpers whose every direct caller is already that class's), and the functions several classes share
+///        (one body the linker folded into several vtables, or a helper called from several classes).
+int buildInventory(const Manifest& m, const RuntimeSpec& rt)
+{
+    if (m.inventory.file.empty()) throw std::runtime_error("the manifest has no inventory: { file: ... }");
+    const PeImage pe = loadPe(rt.exe);
+    std::map<std::uint64_t, std::uint64_t> idByOffset;
+    if (!rt.addressLibrary.empty())
+        for (const auto& [id, off] : loadAddressLibrary(rt.addressLibrary)) idByOffset.emplace(off, id);
+
+    std::set<std::string> schemaClasses;
+    if (!m.inventory.schema.empty())
+        for (const auto& e : fs::recursive_directory_iterator(m.inventory.schema))
+            if (e.is_regular_file() && e.path().extension() == ".yaml") schemaClasses.insert(e.path().stem().string());
+    auto inScope = [&](const std::string& name) {
+        for (const auto& x : m.inventory.exclude) if (globMatch(x, name)) return false;
+        if (schemaClasses.count(name)) return true;
+        for (const auto& g : m.inventory.include) if (globMatch(g, name)) return true;
+        return false;
+    };
+
+    const auto fns     = exeFunctions(pe);
+    const auto callers = directCallers(pe, fns);
+    const auto classes = rttiClasses(pe);
+
+    // Every function start: .pdata's, plus direct-call targets and vtable slots (leaf functions have no .pdata entry;
+    // their end is the first ret / jmp no earlier forward branch reaches past, never past the next start).
+    std::map<std::uint32_t, std::uint32_t> endOf;
+    for (const auto& f : fns) endOf[f.rva] = f.end;
+    for (const auto& [callee, from] : callers) endOf.emplace(callee, 0);
+    for (const auto& [name, c] : classes)
+        for (const auto s : c.slots) endOf.emplace(s, 0);
+    {
+        ZydisDecoder dec;
+        ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+        for (auto it = endOf.begin(); it != endOf.end(); ++it) {
+            if (it->second) continue;
+            const auto          next  = std::next(it);
+            const std::uint32_t limit = next == endOf.end() ? it->first + 0x1000 : next->first;
+            const auto          off   = pe.fileOffset(it->first, limit - it->first);
+            std::uint32_t       p = 0, reach = 0;   ///< reach: the furthest forward branch target inside the function
+            for (; off && it->first + p < limit;) {
+                ZydisDecodedInstruction ins;
+                if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&dec, nullptr, pe.bytes.data() + *off + p, limit - it->first - p, &ins))) break;
+                p += ins.length;
+                if (ins.raw.imm[0].is_relative && ins.mnemonic != ZYDIS_MNEMONIC_CALL) {
+                    const std::int64_t t = std::int64_t(p) + ins.raw.imm[0].value.s;
+                    if (t > std::int64_t(p) && it->first + t < limit) reach = std::max(reach, std::uint32_t(t));
+                }
+                if ((ins.mnemonic == ZYDIS_MNEMONIC_RET || ins.mnemonic == ZYDIS_MNEMONIC_JMP || ins.mnemonic == ZYDIS_MNEMONIC_INT3) && p >= reach)
+                    break;
+            }
+            it->second = it->first + p;
+        }
+    }
+    std::map<std::uint32_t, std::uint32_t> sizeOf;
+    for (const auto& [rva, end] : endOf) sizeOf[rva] = end - rva;
+
+    // A slot belongs to a class when its parent's vtable doesn't hold the same function there.
+    std::map<std::uint32_t, std::set<std::string>> claims;   ///< function rva → classes whose own slot it is
+    std::map<std::pair<std::string, std::uint32_t>, int> slotOf;
+    for (const auto& [name, c] : classes) {
+        const RttiClass* parent = c.parent.empty() ? nullptr : (classes.count(c.parent) ? &classes.at(c.parent) : nullptr);
+        for (std::size_t i = 0; i < c.slots.size(); ++i) {
+            if (parent && i < parent->slots.size() && parent->slots[i] == c.slots[i]) continue;
+            claims[c.slots[i]].insert(name);
+            slotOf.emplace(std::make_pair(name, c.slots[i]), int(i));
+        }
+    }
+    std::map<std::uint32_t, std::string> owner;
+    std::map<std::uint32_t, std::set<std::string>> shared;
+    for (const auto& [rva, names] : claims) {
+        bool allInScope = true;
+        for (const auto& n : names) allInScope = allInScope && inScope(n);
+        if (names.size() == 1 && allInScope) owner[rva] = *names.begin();
+        else if (names.size() > 1 && allInScope) shared[rva] = names;
+    }
+    // A translation unit's functions sit together in .text, so a class's code is the address range around its own
+    // slots: the densest cluster of them (gaps under 16 KiB), which drops slots compiled elsewhere. Unowned functions
+    // inside it are the class's non-virtual members, whoever else calls them.
+    std::map<std::uint32_t, std::set<std::string>> inRange;
+    std::map<std::uint32_t, std::string>           via;   ///< how a function was attributed: slot / tu / call
+    for (const auto& [rva, name] : owner) via[rva] = "slot";
+    std::map<std::string, std::vector<std::uint32_t>> ownSlots;
+    for (const auto& [rva, name] : owner) ownSlots[name].push_back(rva);
+    for (auto& [name, list] : ownSlots) {
+        std::sort(list.begin(), list.end());
+        std::size_t bestBegin = 0, bestLen = 0;
+        for (std::size_t i = 0; i < list.size();) {
+            std::size_t j = i + 1;
+            while (j < list.size() && list[j] - list[j - 1] < 0x4000) ++j;
+            if (j - i > bestLen) { bestBegin = i; bestLen = j - i; }
+            i = j;
+        }
+        const std::uint32_t lo = list[bestBegin], hi = list[bestBegin + bestLen - 1];
+        for (auto it = endOf.lower_bound(lo); it != endOf.end() && it->first <= hi; ++it) inRange[it->first].insert(name);
+    }
+    for (const auto& [rva, names] : inRange) {
+        if (owner.count(rva) || claims.count(rva) || shared.count(rva)) continue;
+        if (names.size() == 1) { owner[rva] = *names.begin(); via[rva] = "tu"; }
+        else                   shared[rva] = names;
+    }
+
+    // What's left: a function every direct caller of which already belongs to one class belongs to it too.
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (const auto& [callee, from] : callers) {
+            if (owner.count(callee) || claims.count(callee) || shared.count(callee)) continue;
+            std::set<std::string> by;
+            bool                  allOwned = true;
+            for (const auto c : from) {
+                const auto it = owner.find(c);
+                if (it == owner.end()) { allOwned = false; break; }
+                by.insert(it->second);
+            }
+            if (!allOwned) continue;
+            if (by.size() == 1) { owner[callee] = *by.begin(); via[callee] = "call"; }
+            else                shared[callee] = by;
+            grew = true;
+        }
+    }
+
+    std::map<std::string, std::vector<InventoryFunction>> byClass;
+    for (const auto& [rva, name] : owner) {
+        InventoryFunction f;
+        f.va   = pe.imageBase + rva;
+        f.size = sizeOf.count(rva) ? sizeOf[rva] : 0;
+        const auto s = slotOf.find({ name, rva });
+        f.slot = s == slotOf.end() ? -1 : s->second;
+        f.id   = idByOffset.count(rva) ? idByOffset[rva] : 0;
+        if (f.slot < 0) f.via = via[rva];
+        byClass[name].push_back(f);
+    }
+    std::size_t total = 0;
+    for (const auto& [n, list] : byClass) total += list.size();
+
+    std::string y;
+    y += "# Generated by `cbmatch --inventory` from the exe's RTTI, vtables and direct calls; do not edit, regenerate.\n";
+    y += "# A class owns its vtable slots that differ from its parent's (slot); then the unowned functions inside the\n";
+    y += "# address range of its densest cluster of slots, since a translation unit's functions sit together (tu); then\n";
+    y += "# whatever is left whose every direct caller it already owns (call). Sizes without a .pdata entry run to the first\n";
+    y += "# ret / jmp. Not found: functions reached only through data outside every class's range (finish-loaded\n";
+    y += "# constructors, callbacks).\n";
+    y += "runtime: " + rt.name + "\n";
+    y += "summary: { classes: " + std::to_string(byClass.size()) + ", functions: " + std::to_string(total) + ", shared: " +
+         std::to_string(shared.size()) + " }\n";
+    y += "classes:\n";
+    for (const auto& [name, list] : byClass) {
+        const auto& c = classes.count(name) ? classes.at(name) : RttiClass{};
+        y += "  " + name + ":\n";
+        if (!c.parent.empty()) y += "    parent: " + c.parent + "\n";
+        if (c.vtable) y += "    vtable: 0x" + hex(pe.imageBase + c.vtable) + "\n";
+        y += "    functions:\n";
+        for (const auto& f : list) {
+            y += "      - { va: 0x" + hex(f.va) + ", size: " + std::to_string(f.size);
+            if (f.slot >= 0) y += ", slot: " + std::to_string(f.slot);
+            else             y += ", via: " + f.via;
+            if (f.id) y += ", id: " + std::to_string(f.id);
+            y += " }\n";
+        }
+    }
+    y += "shared:\n";
+    for (const auto& [rva, names] : shared) {
+        y += "  - { va: 0x" + hex(pe.imageBase + rva) + ", size: " + std::to_string(sizeOf.count(rva) ? sizeOf[rva] : 0);
+        if (idByOffset.count(rva)) y += ", id: " + std::to_string(idByOffset[rva]);
+        y += ", classes: [";
+        bool first = true;
+        for (const auto& n : names) { y += (first ? "" : ", ") + n; first = false; }
+        y += "] }\n";
+    }
+    std::string err;
+    if (!CB::engine::disk::WriteFile(m.inventory.file, y, {}, &err)) throw std::runtime_error("cannot write inventory: " + err);
+    std::printf("cbmatch: inventory of %zu classes, %zu functions (%zu shared) -> %s\n", byClass.size(), total, shared.size(),
+                m.inventory.file.string().c_str());
+    return 0;
+}
+
+/// @brief The inventory as written: class → its functions' addresses (and their slot / size).
+struct Inventory {
+    std::map<std::string, std::vector<InventoryFunction>> classes;
+    std::map<std::uint64_t, std::string>                  parked;   ///< va → why it is set aside
+};
+
+Inventory loadInventory(const InventorySpec& spec)
+{
+    Inventory inv;
+    auto      parse = [](const fs::path& p) {
+        auto text = CB::engine::disk::ReadFile(p, { .stripBom = true });
+        if (!text) throw std::runtime_error("cannot read " + p.string());
+        return std::make_pair(std::move(*text), c4::yml::Tree());
+    };
+    ensureRymlThrows();
+    {
+        auto [text, tree] = parse(spec.file);
+        tree              = c4::yml::parse_in_place(c4::to_substr(text));
+        const auto root   = tree.crootref();
+        if (has(root, "classes"))
+            for (const auto c : root["classes"].children()) {
+                auto& list = inv.classes[str(c.key())];
+                for (const auto f : c["functions"].children()) {
+                    InventoryFunction fn;
+                    fn.va   = parseAddress(val(f["va"]));
+                    fn.size = static_cast<std::uint32_t>(std::stoul(val(f["size"])));
+                    fn.slot = has(f, "slot") ? std::stoi(val(f["slot"])) : -1;
+                    fn.via  = has(f, "via") ? val(f["via"]) : std::string();
+                    list.push_back(fn);
+                }
+            }
+    }
+    if (!spec.parked.empty() && fs::exists(spec.parked)) {
+        auto [text, tree] = parse(spec.parked);
+        tree              = c4::yml::parse_in_place(c4::to_substr(text));
+        const auto root   = tree.crootref();
+        if (has(root, "parked"))
+            for (const auto p : root["parked"].children()) inv.parked[parseAddress(val(p["va"]))] = val(p["why"]);
+    }
+    return inv;
+}
+
+/// @brief The functions of `cls` the manifest doesn't list yet and the ledger hasn't parked.
+int printTodo(const Manifest& m, const std::string& runtime, const std::string& cls)
+{
+    const Inventory inv = loadInventory(m.inventory);
+    const auto      it  = inv.classes.find(cls);
+    if (it == inv.classes.end()) throw std::runtime_error("the inventory has no class " + cls);
+    std::set<std::uint64_t> listed;
+    for (const auto& u : m.units)
+        for (const auto& f : u.functions)
+            if (const auto va = f.va.find(runtime); va != f.va.end()) listed.insert(va->second);
+    std::size_t todo = 0;
+    for (const auto& f : it->second) {
+        if (listed.count(f.va)) continue;
+        const auto p = inv.parked.find(f.va);
+        std::printf("  0x%s  %6u bytes  %s%s\n", hex(f.va).c_str(), f.size, f.slot >= 0 ? ("slot " + std::to_string(f.slot)).c_str() : f.via.c_str(),
+                    p == inv.parked.end() ? "" : ("  [parked: " + p->second + "]").c_str());
+        if (p == inv.parked.end()) ++todo;
+    }
+    std::printf("%s: %zu of %zu functions to do\n", cls.c_str(), todo, it->second.size());
+    return 0;
+}
+
 void usage()
 {
     std::puts(
@@ -1556,6 +1980,9 @@ void usage()
         "  --allow-regalloc     exit 0 when every function is EXACT or REGALLOC\n"
         "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT\n"
         "  --suggest            print engine.yaml lines (with Address Library ids) for unmapped references\n"
+        "  --inventory          (re)generate the manifest's inventory from the exe instead of matching\n"
+        "  --todo <class>       list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
+        "  --coverage           after a full run, list every inventory class (default: only those started)\n"
         "\n"
         "manifest:\n"
         "  runtimes:   { ae: { exe: <exe>, addresslib: <versionlib-*.bin>, pins: ae } }   # or name: <exe>; ${VAR} = env\n"
@@ -1568,6 +1995,12 @@ void usage()
         "      defines: [NAME=1]                        # optional; also flags:, toolchains: [vs2015]\n"
         "      functions:\n"
         "        - { name: \"hkbTimerModifier::update\", va: { ae: 0x140afebd0 } }\n"
+        "  inventory:                                   # optional: what there is to match, for --inventory/--todo/coverage\n"
+        "    file:    inventory.yaml                    # generated\n"
+        "    parked:  parked.yaml                       # hand-kept: parked: [ { va: 0x..., why: \"...\" } ]\n"
+        "    schema:  ../schema                         # every class with a YAML descriptor there is in scope\n"
+        "    include: [\"hkb*\"]                          # RTTI class-name globs in scope\n"
+        "    exclude: [\"hkp*\"]\n"
         "\n"
         "Statuses: EXACT (identical with relocated fields masked), REGALLOC (identical but for register choice),\n"
         "VARIANT (the same calls and memory writes in the same order at the same offsets and the same tested conditions;\n"
@@ -1580,8 +2013,9 @@ void usage()
 
 struct Options {
     fs::path    manifest, exe, work, report;
-    std::string runtime, only;
+    std::string runtime, only, todo;
     bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false, suggest = false;
+    bool        inventory = false, coverageAll = false;
     unsigned    jobs = 0;
 };
 
@@ -1598,6 +2032,12 @@ int run(const Options& opt)
         if (!rt) throw std::runtime_error("manifest has no runtime '" + runtime + "'");
         exePath = rt->exe;
     }
+    if (opt.inventory) {
+        RuntimeSpec spec = rt ? *rt : RuntimeSpec{ runtime, exePath, {}, runtime };
+        spec.exe         = exePath;
+        return buildInventory(m, spec);
+    }
+    if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
 
     std::optional<EngineSymbols> syms;
@@ -1738,6 +2178,50 @@ int run(const Options& opt)
         }
     }
 
+    // Coverage: this run's statuses over the inventory (a partial run would undercount, so only after a full one).
+    if (!m.inventory.file.empty() && fs::exists(m.inventory.file) && opt.only.empty()) {
+        const Inventory               inv = loadInventory(m.inventory);
+        std::map<std::uint64_t, Status> statusOf;
+        for (const auto& r : rows) statusOf[r.va] = r.best.status;
+        std::set<std::uint64_t> inInventory;
+        std::size_t total = 0, matched = 0, parked = 0;
+        struct ClassRow { std::string name; std::size_t total = 0, exact = 0, regalloc = 0, variant = 0, other = 0, parked = 0; };
+        std::vector<ClassRow> classRows;
+        for (const auto& [name, list] : inv.classes) {
+            ClassRow c;
+            c.name  = name;
+            c.total = list.size();
+            for (const auto& f : list) {
+                inInventory.insert(f.va);
+                const auto s = statusOf.find(f.va);
+                if (s != statusOf.end()) {
+                    if (s->second == Status::Exact) ++c.exact;
+                    else if (s->second == Status::Regalloc) ++c.regalloc;
+                    else if (s->second == Status::Variant) ++c.variant;
+                    else ++c.other;
+                } else if (inv.parked.count(f.va)) {
+                    ++c.parked;
+                }
+            }
+            total += c.total;
+            matched += c.exact + c.regalloc + c.variant;
+            parked += c.parked;
+            classRows.push_back(c);
+        }
+        std::size_t outside = 0;
+        for (const auto& r : rows) outside += inInventory.count(r.va) ? 0 : 1;
+        std::printf("\ncoverage: %zu of %zu inventory functions matched (%.1f%%) across %zu classes; %zu parked; %zu manifest "
+                    "functions outside the inventory\n",
+                    matched, total, total ? 100.0 * double(matched) / double(total) : 0.0, inv.classes.size(), parked, outside);
+        std::printf("  %-44s %9s  %5s %8s %7s %5s %6s\n", "class", "matched", "EXACT", "REGALLOC", "VARIANT", "other", "parked");
+        for (const auto& c : classRows) {
+            const std::size_t done = c.exact + c.regalloc + c.variant;
+            if (!opt.coverageAll && done + c.other + c.parked == 0) continue;
+            std::printf("  %-44s %4zu/%-4zu  %5zu %8zu %7zu %5zu %6zu\n", c.name.c_str(), done, c.total, c.exact, c.regalloc, c.variant,
+                        c.other, c.parked);
+        }
+    }
+
     if (!opt.report.empty()) {
         nlohmann::json j;
         j["runtime"] = runtime;
@@ -1785,6 +2269,9 @@ int main(int argc, char** argv)
         else if (a == "--allow-regalloc") opt.allowRegalloc = true;
         else if (a == "--allow-variant") opt.allowVariant = true;
         else if (a == "--suggest") opt.suggest = true;
+        else if (a == "--inventory") opt.inventory = true;
+        else if (a == "--todo") opt.todo = next();
+        else if (a == "--coverage") opt.coverageAll = true;
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }

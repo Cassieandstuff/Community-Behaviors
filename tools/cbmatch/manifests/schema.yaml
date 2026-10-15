@@ -16,6 +16,14 @@ toolchains:
 # /Ob1: Havok's build inlines only `inline` functions — vanilla calls small same-file helpers that /Ob2 would inline.
 flags: [/O2, /Ob1, /GS-, /fp:fast]
 includes: [../../../schema/Havok, "${VS140COMNTOOLS}../../VC/include"]
+# What there is to match: `cbmatch --inventory` regenerates the file from the exe; coverage prints after a full run.
+# Physics (hkp*) is a later pass (D4).
+inventory:
+  file: ../inventory.yaml
+  parked: ../parked.yaml
+  schema: ../../../schema
+  include: ["hkb*", "hka*"]
+  exclude: ["hkp*"]
 units:
   - source: ../../../schema/Havok/Behavior/Modifier/Timer/hkbTimerModifier.cpp
     functions:
@@ -49,6 +57,6 @@ units:
       - { name: "CB::schema::hkbClipGenerator::startEcho", va: 0x140acee60 }
       - { name: "??1hkbClipGenerator@schema@CB@@UEAA@XZ", va: 0x140acd620 }
       - { name: "??_GhkbClipGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ad1310 }
-  - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorUtils.cpp
+  - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorOpaque.cpp
     functions:
       - { name: "CB::schema::hkbClipGenerator::computeUsableDuration", va: 0x140acf340 }

@@ -84,6 +84,6 @@ editor runtime are additive, not a second refactor.
 own source tree: product roots `Common/Base`, `Animation`, `Behavior`, and below them the paths the exe's
 `__FILE__` strings give (`Generator\Clip\hkbClipGenerator.cpp`, `Mapper\hkaSkeletonMapper.cpp`, …). Bethesda's
 behavior classes sit in the same tree, as in their build. A translation unit is part of what gets matched (what a
-caller may assume about a callee it can see), so a class's code is split into a second file only where the bytes
-demand it (`hkbClipGeneratorUtils.cpp`). Built only by `tools/cbmatch` (VS2015, against
+caller may assume about a callee it can see), so code is compiled apart only where the bytes demand it, in a file
+named for that (`hkbClipGeneratorOpaque.cpp`), never one posing as a Havok file. Built only by `tools/cbmatch` (VS2015, against
 `tools/cbmatch/manifests/schema.yaml`); the include root is `Havok/` (`#include <Behavior/...>`).

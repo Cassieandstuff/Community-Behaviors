@@ -1,0 +1,4 @@
+# Functions set aside: still STRUCTURAL after an honest attempt, or blocked on something outside the function.
+# Each entry says why, so the next attempt starts from the diagnosis. cbmatch counts them separately in coverage.
+#   - { va: 0x140xxxxxx, why: "..." }
+parked: []

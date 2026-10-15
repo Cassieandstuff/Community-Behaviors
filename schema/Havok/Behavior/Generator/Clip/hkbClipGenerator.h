@@ -122,8 +122,8 @@ namespace CB { namespace schema
                                      hkReal timeOffset);                         ///< slot 23
 
         /// @brief The animation's duration minus both crops, never negative; 0.01333 s without an animation.
-        /// @note Defined in its own translation unit (hkbClipGeneratorUtils.cpp): vanilla's callers keep values in
-        ///       registers across calls to it, which MSVC only does when it cannot see the callee.
+        /// @note Compiled apart (hkbClipGeneratorOpaque.cpp) so its callers can't see its body: vanilla's callers keep
+        ///       values in registers across calls to it, which VS2015 24247 only does for a callee it can't see.
         hkReal computeUsableDuration() const;
         /// @brief playbackSpeed × usable/enforced duration, negated while ping-pong runs backward.
         /// @note Name provisional.

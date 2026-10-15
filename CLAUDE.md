@@ -189,7 +189,8 @@ still belongs in the session scratchpad dir.)
 - **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant` compiles schema/Havok
   per translation unit and diffs every listed function against the exe (EXACT / REGALLOC / VARIANT, references
   checked against engine.yaml); `tools/cbmatch/tests/mutants.sh` proves VARIANT still rejects broken copies.
-  Run both after any schema/Havok or cbmatch change.
+  Run both after any schema/Havok or cbmatch change. A full run ends with coverage against
+  `tools/cbmatch/inventory.yaml` (regenerate with `--inventory`; `--todo <Class>` lists what's left).
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
 
