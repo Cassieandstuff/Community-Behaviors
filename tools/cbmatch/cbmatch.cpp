@@ -869,6 +869,8 @@ const char* conditionFamily(ZydisMnemonic m)
 ///        sign bit clear>` is always taken (the and leaves SF = OF = 0), so the block it jumps over is dead — unless
 ///        another branch lands inside it. The guarding and/jcc are marked too: together they are an unconditional jump.
 /// @note  One compiler build deletes such a block (hkArray::reserve(0) behind setSize(0)); another keeps it.
+ZydisRegister enclosing(ZydisRegister r);
+
 std::vector<bool> provablyDead(const std::vector<Insn>& insns)
 {
     std::vector<bool> dead(insns.size(), false);
@@ -897,6 +899,40 @@ std::vector<bool> provablyDead(const std::vector<Insn>& insns)
         }
         if (enteredElsewhere) continue;
         for (std::size_t m = k; m < end; ++m) dead[m] = true;
+    }
+
+    // A repeated guard: `test X, X; jcc` falling through into straight-line code that re-tests the unchanged X with the
+    // same jcc. The repeat can never branch (one build keeps a rotated loop's entry guard behind an earlier identical
+    // test, another folds it). Straight-line = no call, branch or return in between, nothing jumps into the stretch.
+    std::set<long long> targets;
+    for (const auto& i : insns)
+        if (i.ins.mnemonic != ZYDIS_MNEMONIC_CALL)
+            if (const long long t = branchTarget(i); t >= 0) targets.insert(t);
+    auto isSelfTest = [](const Insn& i) {
+        return i.ins.mnemonic == ZYDIS_MNEMONIC_TEST && i.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+               i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER && i.ops[0].reg.value == i.ops[1].reg.value;
+    };
+    auto isCondJump = [](const Insn& i) { return i.ins.meta.category == ZYDIS_CATEGORY_COND_BR; };
+    for (std::size_t k = 0; k + 1 < insns.size(); ++k) {
+        if (!isSelfTest(insns[k]) || !isCondJump(insns[k + 1])) continue;
+        const ZydisRegister x = enclosing(insns[k].ops[0].reg.value);
+        for (std::size_t m = k + 2; m + 1 < insns.size(); ++m) {
+            const Insn& i = insns[m];
+            if (targets.count(static_cast<long long>(i.off))) break;
+            if (isSelfTest(i) && insns[m].ops[0].reg.value == insns[k].ops[0].reg.value &&
+                insns[m + 1].ins.mnemonic == insns[k + 1].ins.mnemonic && !targets.count(static_cast<long long>(insns[m + 1].off))) {
+                dead[m] = dead[m + 1] = true;
+                break;
+            }
+            const auto cat = i.ins.meta.category;
+            if (cat == ZYDIS_CATEGORY_CALL || cat == ZYDIS_CATEGORY_RET || cat == ZYDIS_CATEGORY_COND_BR || cat == ZYDIS_CATEGORY_UNCOND_BR)
+                break;
+            bool writesX = false;
+            for (std::uint8_t o = 0; o < i.ins.operand_count && !writesX; ++o)
+                writesX = i.ops[o].type == ZYDIS_OPERAND_TYPE_REGISTER && enclosing(i.ops[o].reg.value) == x &&
+                          (i.ops[o].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE);
+            if (writesX) break;
+        }
     }
     return dead;
 }
@@ -1086,7 +1122,9 @@ bool sameEffect(const Insn& x, const Insn& y, bool masked)
 ///        compiler compiling the same source.
 /// @warning Weaker than EXACT/REGALLOC: it checks effects (calls, stores) and tested conditions, not register dataflow.
 ///          NOT caught: a changed or dropped register computation (e.g. a loop's `i--` removed — verified to pass), a
-///          different value loaded into a register, a condition change hidden by a duplicated branch of the same family.
+///          different value loaded into a register, a condition change hidden by a duplicated branch of the same family,
+///          an inverted test (`if (p)` → `if (!p)`: jz/jnz share a family because branch layout inverts them — verified
+///          to pass).
 ///          Caught (deliberately broken copies, D:\CB-tmp\matching-probe\mut): wrong field read or written, dropped or
 ///          extra call, dropped or extra store, wrong argument, wrong constant, >= → >. A VARIANT function still needs
 ///          behavioural verification.
@@ -1187,6 +1225,23 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     auto sameRead = [](const Read& p, const Read& q) {
         return p.mnemonic == q.mnemonic && p.size == q.size && p.slot == q.slot && p.stack == q.stack;
     };
+    // A materialized null test: `test R, R; setz/setnz D` whose D is later self-tested and branched on. One build keeps
+    // a loop-invariant pointer test as a bool in a register, another re-tests the pointer; the branch on D is what
+    // pairs with the other side's test, so the setcc itself adds no condition. Narrow on purpose: zero tests only.
+    auto selfTest = [](const Insn& i) {
+        return i.ins.mnemonic == ZYDIS_MNEMONIC_TEST && i.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+               i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER && i.ops[0].reg.value == i.ops[1].reg.value;
+    };
+    auto materializedNullTest = [&](const std::vector<Insn>& side, std::size_t k) {
+        const Insn& s = side[k];
+        if ((s.ins.mnemonic != ZYDIS_MNEMONIC_SETZ && s.ins.mnemonic != ZYDIS_MNEMONIC_SETNZ) || s.ops[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||
+            k == 0 || !selfTest(side[k - 1]))
+            return false;
+        for (std::size_t j = k + 1; j + 1 < side.size(); ++j)
+            if (selfTest(side[j]) && side[j].ops[0].reg.value == s.ops[0].reg.value && side[j + 1].ins.meta.category == ZYDIS_CATEGORY_COND_BR)
+                return true;
+        return false;
+    };
 
     for (const auto& [ia, ib] : alignInstructions(liveA, liveB)) {
         if (ia >= 0 && ib >= 0) {
@@ -1224,13 +1279,13 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_CALL) ++segment;
         } else if (ia >= 0) {
             const Insn& x = liveA[std::size_t(ia)];
-            if (const char* fam = conditionFamily(x.ins.mnemonic)) ++conditions[fam].first;
+            if (const char* fam = conditionFamily(x.ins.mnemonic); fam && !materializedNullTest(liveA, std::size_t(ia))) ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
             if (const auto r = readOf(x, frameA)) spareA.push_back(*r);
             if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA, frameA)) effectsA.push_back({ &x, segment }); else ++glue;
         } else {
             const Insn& y = liveB[std::size_t(ib)];
-            if (const char* fam = conditionFamily(y.ins.mnemonic)) ++conditions[fam].second;
+            if (const char* fam = conditionFamily(y.ins.mnemonic); fam && !materializedNullTest(liveB, std::size_t(ib))) ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
             if (const auto r = readOf(y, frameB)) spareB.push_back(*r);
             if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB, frameB)) effectsB.push_back({ &y, segment }); else ++glue;

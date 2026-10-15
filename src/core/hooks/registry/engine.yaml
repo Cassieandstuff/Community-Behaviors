@@ -99,7 +99,7 @@ symbols:
   - { name: hkbClipGenerator_AddTrigger, kind: func, se: 0, ae: 59264, vr: 0, cpp: "hkbClipGenerator::addTrigger" }  # (localTime, event, relativeToEnd, acyclic, isAnnotation)
   - { name: hkbClipGenerator_ProcessTriggers, kind: func, se: 0, ae: 59270, vr: 0, cpp: "hkbClipGenerator::processTriggers" }  # name provisional; update's trigger dispatch: splits a step into per-loop ranges for processTriggersInRange
   - { name: hkbClipGenerator_ProcessTriggersInRange, kind: func, se: 0, ae: 59272, vr: 0, cpp: "hkbClipGenerator::processTriggersInRange" }  # name provisional; (from, to, atEnd, queue, context) — fires the triggers one pass crosses
-  - { name: hkbClipGenerator_ProcessEchoTriggers, kind: func, se: 0, ae: 59271, vr: 0, cpp: "hkbClipGenerator::processEchoTriggers" }  # name provisional
+  - { name: hkbClipGenerator_ProcessAcyclicTriggers, kind: func, se: 0, ae: 59271, vr: 0, cpp: "hkbClipGenerator::processAcyclicTriggers" }  # name provisional; fires acyclic triggers whose time falls in [from, to) of the elapsed clip time
   - { name: hkbClipGenerator_AdvanceLocalTime, kind: func, se: 0, ae: 59273, vr: 0, cpp: "hkbClipGenerator::advanceLocalTime" }  # name provisional; (timestep, &prev, &local, &loops, &atEnd)
   - { name: hkbClipGenerator_ResetAtEnd, kind: func, se: 0, ae: 59279, vr: 0, cpp: "hkbClipGenerator::resetAtEnd" }  # name provisional; tail of activate, update when atEnd: pushes crops to the control, positions local time, resets motion
   - { name: hkbClipGenerator_Fn140ad11e0, kind: func, se: 0, ae: 59280, vr: 0, cpp: "hkbClipGenerator::fn_140ad11e0" }  # name unknown; clears m_ignoreStartTime (deactivate, 140acee60)
