@@ -362,7 +362,6 @@ symbols:
   - { name: hkbBehaviorReferenceGenerator_StaticClass, kind: data, se: 0, ae: 407705, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGeneratorClass" }  # hkClass object
   - { name: hkbGeneratorOutputUtils_CopyGeneratorOutput, kind: func, se: 0, ae: 59295, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copyGeneratorOutput" }  # name provisional; (in, out) copies the tracks that are on; a jump stub to 0x140ad1390
   - { name: hkbGenerator_UpdateSync, kind: func, se: 0, ae: 58538, vr: 0, cpp: "CB::schema::hkbGenerator::updateSync" }  # vtable slot 25 (no sync points); overrides without a child tail-call it
-  - { name: hkStringPtr_GetLength, kind: func, se: 0, ae: 57233, vr: 0, cpp: "CB::schema::hkStringPtr::getLength" }
   - { name: BSiStateTaggingGenerator_Vtable, kind: data, se: 282032, ae: 232663, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::`vftable'" }
   - { name: BSiStateTaggingGenerator_GetStaticClass, kind: func, se: 0, ae: 62953, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::staticClass" }  # getClassType tail-jumps to it
   - { name: BSiStateTaggingGenerator_CloneCtor, kind: func, se: 0, ae: 63174, vr: 0, cpp: "??0BSiStateTaggingGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it

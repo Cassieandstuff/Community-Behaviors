@@ -59,9 +59,9 @@ namespace CB { namespace schema
         int m_capacityAndFlags;
 
         HK_FORCE_INLINE hkArray() : m_data(HK_NULL), m_size(0), m_capacityAndFlags(DONT_DEALLOCATE_FLAG) {}
-        /// @brief Destroys the elements (last to first), frees owned storage and leaves the array empty and non-owning.
         /// @note Leaves the loaded array as it is.
         HK_FORCE_INLINE hkArray(hkFinishLoadedObjectFlag) {}
+        /// @brief Destroys the elements (last to first), frees owned storage and leaves the array empty and non-owning.
         HK_FORCE_INLINE ~hkArray()
         {
             hkArrayUtil::destruct(m_data, m_size, hkArrayIsPod<__is_pod(T)>());
