@@ -216,7 +216,7 @@ namespace CB { namespace schema
                 if (toInfo.m_syncInfo.m_baseFrequency != 0.0f && toInfo.m_syncInfo.m_isCyclic && m_syncToGeneratorStartTime) {
                     const hkReal localTime = hkMath::max2(1.0f / toInfo.m_syncInfo.m_baseFrequency - blendOutDuration, 0.0f);
                     if (localTime != 0.0f) {
-                        rootBehavior.setLocalTime(m_toGenerator, localTime);
+                        rootBehavior.setNodeLocalTime(m_toGenerator, localTime);
                         started = true;
                     }
                 }

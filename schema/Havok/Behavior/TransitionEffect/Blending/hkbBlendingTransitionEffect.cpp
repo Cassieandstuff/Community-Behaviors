@@ -195,7 +195,7 @@ namespace CB { namespace schema
                 if (initSync) {
                     const hkbNodeInfo& toInfo    = rootBehavior->getNodeInfo(m_toGenerator);
                     const hkReal       localTime = hkbBlenderGeneratorUtils::computeSyncedLocalTime(info.m_syncInfo.m_localTime, info.m_syncInfo, toInfo.m_syncInfo);
-                    rootBehavior->setLocalTime(m_toGenerator, localTime);
+                    rootBehavior->setNodeLocalTime(m_toGenerator, localTime);
                     duration = getDuration();
                 } else {
                     duration = getDuration();
@@ -220,7 +220,7 @@ namespace CB { namespace schema
             info.m_syncInfo.m_localTime     = 0.0f;
             if (isAtStart() && m_toGeneratorStartTimeFraction != 0.0f && rootBehavior->getNodeInfo(m_toGenerator).m_syncInfo.m_baseFrequency != 0.0f) {
                 const hkReal period = 1.0f / rootBehavior->getNodeInfo(m_toGenerator).m_syncInfo.m_baseFrequency;
-                rootBehavior->setLocalTime(m_toGenerator, period * m_toGeneratorStartTimeFraction);
+                rootBehavior->setNodeLocalTime(m_toGenerator, period * m_toGeneratorStartTimeFraction);
             }
             fromSyncInfo = &getFromGeneratorSyncInfo(*rootBehavior);
             duration     = getDuration();

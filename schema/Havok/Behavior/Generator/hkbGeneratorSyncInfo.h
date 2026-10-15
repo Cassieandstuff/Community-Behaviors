@@ -45,6 +45,10 @@ namespace CB { namespace schema
         /// @brief The sync-point interval `localTime` falls in on this timeline.
         /// @note Name provisional; out of line (0x140ac2150).
         void computeSyncPointInterval(hkReal localTime, SyncPointInterval& intervalOut) const;
+        /// @brief As computeSyncPointInterval, counting only the sync points whose ids are among `syncPointIds`; with
+        ///        none, an interval without sync points (ids -1) at the fraction localTime * m_baseFrequency.
+        /// @note Name provisional; out of line (0x140ac22e0).
+        void computeSyncPointInterval(hkReal localTime, const int* syncPointIds, int numSyncPointIds, SyncPointInterval& intervalOut) const;
         /// @brief The local time on this timeline at the same place in `interval` (between the same sync point ids);
         ///        HK_FAILURE when this timeline lacks them.
         /// @note Name provisional; out of line (0x140ac2500).

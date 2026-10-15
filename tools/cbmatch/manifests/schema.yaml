@@ -747,3 +747,6 @@ units:
   - source: ../../../schema/Havok/Behavior/TransitionEffect/Blending/hkbBlendingTransitionEffectUtils.cpp
     functions:
       - { name: "CB::schema::hkbBlendingTransitionEffectUtils::generateInternal", va: 0x140b0f830 }
+  - source: ../../../schema/Havok/Behavior/Generator/Blender/hkbBlenderGeneratorUtilsSyncedLocalTime.cpp
+    functions:
+      - { name: "CB::schema::hkbBlenderGeneratorUtils::computeSyncedLocalTime", va: 0x140b0ca10 }
