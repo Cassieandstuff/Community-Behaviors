@@ -37,14 +37,4 @@ namespace CB { namespace schema
         virtual void                modify(const hkbContext& context, hkbGeneratorOutput& inOut);   ///< slot 23
 
     };
-
-    /// @note The heavy halves of several modifiers sit together outside their classes' TUs (0x140b0c450–0x140b0fb0f); each
-    ///       is a `<Class>Utils` here, as BSSynchronizedClipGeneratorUtils is (an exe path) and BSLookAtModifierUtils.
-    namespace hkbTransformVectorModifierUtils
-    {
-        /// @brief m_vectorOut = m_vectorIn transformed by (m_translation, m_rotation), or by its inverse; rotation only
-        ///        under m_rotateOnly.
-        /// @note Name provisional (0x140b0f2e0); pinned, not reimplemented yet.
-        void computeVectorOut(hkbTransformVectorModifier& modifier);
-    }
 } }

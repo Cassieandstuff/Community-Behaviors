@@ -53,6 +53,9 @@ units:
       - { name: "CB::schema::hkbTransformVectorModifier::getInternalState", va: 0x140afef80 }
       - { name: "CB::schema::hkbTransformVectorModifier::setInternalState", va: 0x140afefa0 }
       - { name: "??_GhkbTransformVectorModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb460 }
+  - source: ../../../schema/Havok/Behavior/Modifier/TransformVector/hkbTransformVectorModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbTransformVectorModifierUtils::computeVectorOut", va: 0x140b0f2e0 }
   - source: ../../../schema/Havok/Behavior/Modifier/Twist/hkbTwistModifier.cpp
     functions:
       - { name: "??0hkbTwistModifier@schema@CB@@QEAA@XZ", va: 0x140afefb0 }

@@ -1,6 +1,6 @@
 /// @file
 /// @brief hkbTransformVectorModifier, reimplemented against vanilla (AE 1.6.1170).
-#include <Behavior/Modifier/TransformVector/hkbTransformVectorModifier.h>
+#include <Behavior/Modifier/TransformVector/hkbTransformVectorModifierUtils.h>
 
 namespace CB { namespace schema
 {

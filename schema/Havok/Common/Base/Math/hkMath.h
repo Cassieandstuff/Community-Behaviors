@@ -123,7 +123,8 @@ namespace CB { namespace schema
         /// @brief 1/v for x, y and z (rcpps plus one Newton-Raphson step); w is 0.
         /// @note w is set to 1 before the estimate so it cannot overflow, then masked off.
         HK_FORCE_INLINE void setReciprocal3(const hkVector4& v);
-
+        /// @brief Scales x, y and z to unit length (w scales along); a zero vector stays zero.
+        HK_FORCE_INLINE void normalize3();
         /// @brief t·v (rotation then translation), and its inverse.
         /// @note Out of line in vanilla (Havok's non-underscore transform family).
         void setTransformedPos(const hkTransform& t, const hkVector4& v);
@@ -239,6 +240,9 @@ namespace CB { namespace schema
         enum IdentityInitializer { IDENTITY };
         HK_FORCE_INLINE hkQsTransform() {}
         HK_FORCE_INLINE explicit hkQsTransform(IdentityInitializer) { setIdentity(); }
+        /// @note The unit scale is (1,1,1,0), a compiler literal.
+        HK_FORCE_INLINE hkQsTransform(const hkVector4& translation, const hkQuaternion& rotation)
+        :   m_translation(translation), m_rotation(rotation), m_scale(1.0f, 1.0f, 1.0f) {}
 
         /// @note The scale's (1,1,1,1) is a compiler literal (`_mm_set1_ps`), not Havok's constant table: vanilla loads
         ///       it from the compiler's literal pool while the rotation comes from g_vectorConstant0001.
@@ -360,6 +364,8 @@ namespace CB { namespace schema
             return hkSimdReal(_mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0, 0, 0, 0)));
         }
     };
+
+    HK_FORCE_INLINE void hkVector4::normalize3() { mul4(hkMath::sqrtInverse(lengthSquared3())); }
 
     HK_FORCE_INLINE void hkQsTransform::blendAddMul(const hkQsTransform& other, hkSimdReal weight)
     {
