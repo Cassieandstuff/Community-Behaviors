@@ -1,6 +1,7 @@
 /// @file
 /// @brief hkbTwistModifierUtils, reimplemented against vanilla (AE 1.6.1170).
 #include <Behavior/Modifier/Twist/hkbTwistModifierUtils.h>
+#include <Behavior/Generator/hkbGeneratorOutputUtils.h>
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Behavior/Generator/hkbGeneratorOutput.h>
 
@@ -11,8 +12,6 @@ namespace CB { namespace schema
         /// @note In model coordinates the axis is taken into the chain's local frame through the accumulated rotation of
         ///       the start bone's ancestors and of the chain bones already twisted. RAMPED divides the running angle by
         ///       (i + 0.5) at every bone, cumulatively — vanilla's arithmetic, kept as is.
-        /// @note hkbMirrorPose (0x140ad2a70) is misnamed: it fills every bone the pose's partition bits mark unsampled
-        ///       from `referencePose` (identity when null), then marks all bones sampled — it makes the pose dense.
         void modifyInternal(const hkbTwistModifier& modifier, hkbGeneratorOutput& inOut, const hkQsTransform* referencePose)
         {
             const int numPoseLocal = inOut.getNumPoseLocal();
@@ -20,7 +19,7 @@ namespace CB { namespace schema
                 (modifier.m_startBoneIndex < numPoseLocal || modifier.m_endBoneIndex < numPoseLocal) &&
                 modifier.m_boneChainIndices.getSize() > 0)
             {
-                hkbMirrorPose(inOut, referencePose);
+                hkbGeneratorOutputUtils::makePoseDense(inOut, referencePose);
                 hkQsTransform* pose = inOut.accessPoseLocal();
 
                 hkQuaternion parentRotation = hkQuaternion::getIdentity();

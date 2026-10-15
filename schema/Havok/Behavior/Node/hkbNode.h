@@ -15,6 +15,8 @@ namespace CB { namespace schema
         /// @note 0x28 bytes, starting with its hkStringPtr m_memberPath; the rest is not declared yet.
         struct Binding;
 
+        hkArray<Binding> m_bindings;   ///< +0x10
+
         /// @brief The binding whose member path is `memberPath` (exact compare), else null.
         const Binding* findBindingByMemberPath(const char* memberPath) const;
     };

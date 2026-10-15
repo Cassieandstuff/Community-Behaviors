@@ -27,17 +27,14 @@ namespace CB { namespace schema
     };
     extern IAnimationClipLoader* g_animationClipLoader;
 
-    /// @brief Mirrors the pose in `output` (generate's FLAG_MIRROR_POSE path).
-    /// @note Name provisional.
-    void hkbMirrorPose(hkbGeneratorOutput& output, const hkQsTransform* referencePose);
-
     /// @note The `slot N` annotations are vanilla's vtable slots; hkbNode and hkbGenerator declare (or hold placeholders
     ///       for) slots 0–25, so the overrides and this class's own slots 26–27 land where vanilla's do.
     class hkbClipGenerator : public hkbGenerator
     {
     public:
-        /// @note The schema names bit 0x8 FLAG_FORCE_DENSE_POSE, but generate mirrors the pose under it; its meaning is
-        ///       unverified, hence FLAG_MIRROR_POSE. 0x4 (FLAG_MIRROR) mirrors the extracted motion, and sampleAnimation
+        /// @note Bit 0x8 is the schema's FLAG_FORCE_DENSE_POSE: generate fills the unsampled bones from the reference pose
+        ///       under it (hkbGeneratorOutputUtils::makePoseDense); the enumerator keeps its old name FLAG_MIRROR_POSE, which
+        ///       tools/cbmatch/tests/mutants.sh spells. 0x4 (FLAG_MIRROR) mirrors the extracted motion, and sampleAnimation
         ///       scatters the sampled tracks through the mirrored skeleton under it.
         enum
         {

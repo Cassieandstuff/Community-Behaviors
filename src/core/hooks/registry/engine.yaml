@@ -112,7 +112,7 @@ symbols:
   - { name: hkbClipGenerator_BlendSampledFloats, kind: func, se: 0, ae: 60007, vr: 0, cpp: "CB::schema::hkbClipGenerator::blendSampledFloats" }  # name provisional; sampleAnimation's weighted float track accumulate (echo path)
   - { name: hkbClipGenerator_GetLocalTime, kind: func, se: 0, ae: 59269, vr: 0, cpp: "CB::schema::hkbClipGenerator::getLocalTime" }  # name provisional; BSSynchronizedClipGenerator::deactivate calls it
   - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z" }
-  - { name: hkbMirrorPose, kind: func, se: 0, ae: 59301, vr: 0, cpp: "CB::schema::hkbMirrorPose" }  # name provisional; (output, referencePose) under FLAG_MIRROR
+  - { name: hkbGeneratorOutputUtils_MakePoseDense, kind: func, se: 0, ae: 59301, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::makePoseDense" }  # name provisional; (output, referencePose): fills the unsampled pose bones from the reference pose (identity when null), sets every partition bit
   - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0, cpp: "CB::schema::hkbClipGeneratorClass" }  # hkClass object
   - { name: hkbGeneratorSyncInfo_Mirror, kind: func, se: 0, ae: 58547, vr: 0, cpp: "CB::schema::hkbGeneratorSyncInfo::mirror" }  # name provisional; mirrors each sync point's event id, sets m_isMirrored (clip updateSync under FLAG_MIRROR)
 
@@ -280,6 +280,10 @@ symbols:
   - { name: hkbBehaviorGraph_CopyVariablesToMembers, kind: func, se: 0, ae: 58382, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::copyVariablesToMembers" }  # (context, flag); monitor timer "hkbBehaviorGraph::copyVariablesToMembersRoot"
   - { name: hkbRotateCharacterModifier_CloneCtor, kind: func, se: 0, ae: 59868, vr: 0, cpp: "??0hkbRotateCharacterModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbRotateCharacterModifierUtils_Modify, kind: func, se: 0, ae: 60073, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierUtils::modify" }  # name provisional; (modifier, characterWorldFromModel, modelUp, worldFromModel) applies and clears m_angle
+  - { name: hkbMirrorModifier_CloneCtor, kind: func, se: 0, ae: 59813, vr: 0, cpp: "??0hkbMirrorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbMirrorModifierUtils_Modify, kind: func, se: 0, ae: 60067, vr: 0, cpp: "CB::schema::hkbMirrorModifierUtils::modify" }  # name provisional; (modifier, mirroredSkeleton, referencePose, worldFromModel, inOut) mirrors the pose and the world-from-model
+  - { name: hkbDampingModifier_CloneCtor, kind: func, se: 0, ae: 59647, vr: 0, cpp: "??0hkbDampingModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbDampingModifierUtils_Modify, kind: func, se: 0, ae: 60055, vr: 0, cpp: "CB::schema::hkbDampingModifierUtils::modify" }  # name provisional; (modifier) one PID step of the scalar and vector channels
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbBehaviorGraph_GetNodeClone, kind: func, se: 0, ae: 58359, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeClone" }  # name provisional; template node -> this graph's clone
@@ -357,6 +361,9 @@ symbols:
   - { name: hkbSequenceInternalState_Vtable, kind: data, se: 278661, ae: 226661, vr: 0, cpp: "CB::schema::hkbSequenceInternalState::`vftable'" }
   - { name: hkbRotateCharacterModifier_Vtable, kind: data, se: 278609, ae: 226598, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifier::`vftable'" }
   - { name: hkbRotateCharacterModifierInternalState_Vtable, kind: data, se: 278612, ae: 226602, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierInternalState::`vftable'" }
+  - { name: hkbMirrorModifier_Vtable, kind: data, se: 278563, ae: 226544, vr: 0, cpp: "CB::schema::hkbMirrorModifier::`vftable'" }
+  - { name: hkbDampingModifier_Vtable, kind: data, se: 278449, ae: 226402, vr: 0, cpp: "CB::schema::hkbDampingModifier::`vftable'" }
+  - { name: hkbDampingModifierInternalState_Vtable, kind: data, se: 278452, ae: 226406, vr: 0, cpp: "CB::schema::hkbDampingModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
   - { name: BSTimerModifier_Vtable, kind: data, se: 282073, ae: 232720, vr: 0, cpp: "CB::schema::BSTimerModifier::`vftable'" }
   - { name: BSEventOnDeactivateModifier_Vtable, kind: data, se: 282048, ae: 232685, vr: 0, cpp: "CB::schema::BSEventOnDeactivateModifier::`vftable'" }

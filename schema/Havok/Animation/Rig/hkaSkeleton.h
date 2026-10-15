@@ -36,7 +36,7 @@ namespace CB { namespace schema
         hkInt16 getBonePair(hkInt16 bone) const;
         /// @brief Mirrors one bone's transform in place.
         /// @note Name provisional.
-        void mirrorBone(hkQsTransform& transformInOut, hkInt16 bone, bool isAdditive) const;
+        void mirrorBone(hkQsTransform& transformInOut, int bone, bool isAdditive) const;
     };
 
     struct hkaSkeletonUtils

@@ -5,6 +5,7 @@
 ///       order, ternary vs if, which expressions are their own statement). Where one form matched vanilla and an
 ///       equivalent did not, the definition says so; keep those forms.
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <Behavior/Generator/hkbGeneratorOutputUtils.h>
 
 #include <Animation/Rig/hkaSkeleton.h>
 #include <Common/Base/Memory/Util/Stats/hkStatisticsCollector.h>
@@ -257,7 +258,7 @@ namespace CB { namespace schema
             if (!isAdditive) pose[0].m_scale.mul4(hkSimdReal(scale));
 
             if (m_flags & FLAG_MIRROR_POSE)
-                hkbMirrorPose(output, isAdditive ? HK_NULL : context.m_character->m_setup->m_animationSkeleton->m_referencePose.m_data);
+                hkbGeneratorOutputUtils::makePoseDense(output, isAdditive ? HK_NULL : context.m_character->m_setup->m_animationSkeleton->m_referencePose.m_data);
 
             output.getTrackHeader(hkbGeneratorOutput::TRACK_POSE).m_onFraction = 1.0f;
             if (isAdditive) output.getTrackHeader(hkbGeneratorOutput::TRACK_POSE).m_flags |= hkbGeneratorOutput::TRACK_FLAG_ADDITIVE_POSE;
