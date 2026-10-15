@@ -33,6 +33,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -916,6 +917,76 @@ bool isFloatArithmetic(ZydisMnemonic m)
     }
 }
 
+/// @brief Where a function saves each callee-saved register it uses: register → stack slot (rsp displacement).
+/// @note A save is a plain move of a callee-saved register (rbx rbp rsi rdi r12-r15 xmm6-xmm15) to [rsp+d] at the
+///       register's first appearance, so it still holds the caller's value. Shrink-wrapped saves sit after the frame is
+///       allocated, which the prologue rule does not cover.
+using SaveSlots = std::map<ZydisRegister, std::int64_t>;
+
+ZydisRegister enclosing(ZydisRegister r) { return ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, r); }
+
+bool isCalleeSaved(ZydisRegister r)
+{
+    switch (r) {
+        case ZYDIS_REGISTER_RBX: case ZYDIS_REGISTER_RBP: case ZYDIS_REGISTER_RSI: case ZYDIS_REGISTER_RDI:
+        case ZYDIS_REGISTER_R12: case ZYDIS_REGISTER_R13: case ZYDIS_REGISTER_R14: case ZYDIS_REGISTER_R15:
+            return true;
+        default:
+            return r >= ZYDIS_REGISTER_XMM6 && r <= ZYDIS_REGISTER_XMM15;
+    }
+}
+
+bool isPlainMove(ZydisMnemonic m)
+{
+    return m == ZYDIS_MNEMONIC_MOV || m == ZYDIS_MNEMONIC_MOVAPS || m == ZYDIS_MNEMONIC_MOVUPS || m == ZYDIS_MNEMONIC_MOVDQA ||
+           m == ZYDIS_MNEMONIC_MOVDQU;
+}
+
+bool isRspSlot(const ZydisDecodedOperand& op)
+{
+    return op.type == ZYDIS_OPERAND_TYPE_MEMORY && op.mem.type == ZYDIS_MEMOP_TYPE_MEM && op.mem.base == ZYDIS_REGISTER_RSP &&
+           op.mem.index == ZYDIS_REGISTER_NONE;
+}
+
+SaveSlots findSaves(const std::vector<Insn>& all)
+{
+    SaveSlots                saves;
+    std::set<ZydisRegister> seen;
+    for (const auto& i : all) {
+        if (isPlainMove(i.ins.mnemonic) && i.ins.operand_count_visible == 2 && isRspSlot(i.ops[0]) &&
+            i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+            const ZydisRegister r = i.ops[1].reg.value;
+            if (isCalleeSaved(r) && !seen.count(enclosing(r)) && !saves.count(r)) saves[r] = i.ops[0].mem.disp.value;
+        }
+        for (std::uint8_t k = 0; k < i.ins.operand_count; ++k) {
+            const auto& op = i.ops[k];
+            if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) seen.insert(enclosing(op.reg.value));
+            if (op.type == ZYDIS_OPERAND_TYPE_MEMORY) {
+                if (op.mem.base != ZYDIS_REGISTER_NONE) seen.insert(enclosing(op.mem.base));
+                if (op.mem.index != ZYDIS_REGISTER_NONE) seen.insert(enclosing(op.mem.index));
+            }
+        }
+    }
+    return saves;
+}
+
+/// @brief The save of a callee-saved register, or its restore from that same slot: register allocation, not an effect.
+bool isSaveOrRestore(const Insn& i, const SaveSlots& saves)
+{
+    if (!isPlainMove(i.ins.mnemonic) || i.ins.operand_count_visible != 2) return false;
+    const auto& d = i.ops[0];
+    const auto& s = i.ops[1];
+    if (isRspSlot(d) && s.type == ZYDIS_OPERAND_TYPE_REGISTER) {
+        const auto it = saves.find(s.reg.value);
+        return it != saves.end() && it->second == d.mem.disp.value;
+    }
+    if (d.type == ZYDIS_OPERAND_TYPE_REGISTER && isRspSlot(s)) {
+        const auto it = saves.find(d.reg.value);
+        return it != saves.end() && it->second == s.mem.disp.value;
+    }
+    return false;
+}
+
 bool isMasked(const CoffFunction& f, const Insn& i)
 {
     for (std::uint32_t o = i.off; o < i.off + i.ins.length; ++o)
@@ -1008,12 +1079,16 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
     const std::vector<Insn> liveB = live(b);
     const std::uint32_t     prologueA = prologueEnd(a);
     const std::uint32_t     prologueB = prologueEnd(b);
+    const SaveSlots         savesA    = findSaves(a);
+    const SaveSlots         savesB    = findSaves(b);
     for (const auto& [ia, ib] : alignInstructions(liveA, liveB)) {
         if (ia >= 0 && ib >= 0) {
             const auto& x = liveA[std::size_t(ia)];
             const auto& y = liveB[std::size_t(ib)];
             const bool  masked = isMasked(ours, x);
             if (x.ins.mnemonic == ZYDIS_MNEMONIC_NOP) { ++aligned; continue; }   // alignment padding: its encoding is filler
+            // Which callee-saved register a value lives in picks the slot it is saved to and restored from.
+            if (isSaveOrRestore(x, savesA) && isSaveOrRestore(y, savesB)) { ++aligned; continue; }
             for (std::uint8_t o = 0; o < x.ins.operand_count_visible; ++o) {
                 const auto& ox = x.ops[o];
                 const auto& oy = y.ops[o];
@@ -1036,12 +1111,12 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& a, con
             const Insn& x = liveA[std::size_t(ia)];
             if (const char* fam = conditionFamily(x.ins.mnemonic)) ++conditions[fam].first;
             if (isFloatArithmetic(x.ins.mnemonic)) ++floatOps[int(x.ins.mnemonic)];
-            if (hasEffect(x) && x.off >= prologueA) effectsA.push_back({ &x, segment }); else ++glue;
+            if (hasEffect(x) && x.off >= prologueA && !isSaveOrRestore(x, savesA)) effectsA.push_back({ &x, segment }); else ++glue;
         } else {
             const Insn& y = liveB[std::size_t(ib)];
             if (const char* fam = conditionFamily(y.ins.mnemonic)) ++conditions[fam].second;
             if (isFloatArithmetic(y.ins.mnemonic)) --floatOps[int(y.ins.mnemonic)];
-            if (hasEffect(y) && y.off >= prologueB) effectsB.push_back({ &y, segment }); else ++glue;
+            if (hasEffect(y) && y.off >= prologueB && !isSaveOrRestore(y, savesB)) effectsB.push_back({ &y, segment }); else ++glue;
         }
     }
     for (const auto& [mnemonic, balance] : floatOps) {
