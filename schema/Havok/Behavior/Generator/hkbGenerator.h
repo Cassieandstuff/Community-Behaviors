@@ -6,6 +6,8 @@
 
 namespace CB { namespace schema
 {
+    extern const hkClass hkbGeneratorClass;
+
     class hkbGenerator : public hkbNode
     {
     public:

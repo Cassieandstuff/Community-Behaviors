@@ -7,6 +7,7 @@
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <Animation/Rig/hkaSkeleton.h>
+#include <Common/Base/Memory/Util/Stats/hkStatisticsCollector.h>
 
 namespace CB { namespace schema
 {
@@ -21,6 +22,14 @@ namespace CB { namespace schema
             const hkReal t = trig.m_relativeToEndOfClip.m_bool ? duration + trig.m_localTime : trig.m_localTime;
             return hkMath::min2(hkMath::max2(t, 0.0f), duration);
         }
+    }
+
+    /// @note Defined in the clip's translation unit, as in vanilla (its first function by address). A fresh object:
+    ///       the reference count starts at 1, the copy is only of the triggers.
+    hkbClipTriggerArray::hkbClipTriggerArray(const hkbClipTriggerArray& other)
+    :   hkReferencedObject()
+    {
+        m_triggers = other.m_triggers;
     }
 
     /// @note The two warnings pass vanilla's own file string and line numbers (0x10d, 0x122).
@@ -675,5 +684,66 @@ namespace CB { namespace schema
         } else {
             out.setIdentity();
         }
+    }
+
+    void hkbClipGenerator::calcContentStatistics(hkStatisticsCollector* collector, const hkClass* cls) const
+    {
+        hkStatisticsCollectorUtil::addDeclaredMembers(this, &hkbClipGeneratorClass, collector);
+        collector->addArray("Echos", m_echos, hkStatisticsCollector::MEMORY_RUNTIME);
+        for (int i = 0; i < m_echos.getSize(); i++) collector->addNormalChunk("Echo", &m_echos[i], sizeof(Echo));
+        collector->addReferencedObject("hkDefaultAnimationControl", m_animationControl);
+        hkbGenerator::calcContentStatistics(collector, &hkbGeneratorClass);
+    }
+
+    void hkbClipGenerator::setAnimationControl(hkaDefaultAnimationControl* animationControl)
+    {
+        m_animationControl = animationControl;
+    }
+
+    void hkbClipGenerator::removeAnnotationTriggers()
+    {
+        hkbClipTriggerArray* triggers = m_triggers;
+        if (triggers) {
+            const int numTriggers = triggers->m_triggers.getSize();
+            int       numKept     = 0;
+            for (int i = 0; i < numTriggers; i++) {
+                if (!triggers->m_triggers[i].m_isAnnotation) {
+                    if (i != numKept) triggers->m_triggers[numKept] = triggers->m_triggers[i];
+                    numKept++;
+                }
+            }
+            triggers->m_triggers.setSize(numKept);
+        }
+    }
+
+    void hkbClipGenerator::rebindFromBindingSet(const hkbContext& context)
+    {
+        hkbAnimationBindingSet* bindingSet = context.m_character ? context.m_character->getAnimationBindingSet() : HK_NULL;
+        hkaAnimationBinding*    binding    = HK_NULL;
+        if (bindingSet && m_animationBindingIndex < bindingSet->m_bindings.getSize()) {
+            hkbAnimationBindingWithTriggers* bwt = bindingSet->m_bindings[m_animationBindingIndex];
+            if (bwt) binding = bwt->m_binding;
+        }
+        if (m_animationControl) m_animationControl->setBinding(binding);
+        m_binding = binding;
+    }
+
+    void hkbClipGenerator::setLocalTime(hkReal localTime)
+    {
+        m_localTime = localTime;
+    }
+
+    hkReal hkbClipGenerator::getLocalTime() const
+    {
+        return m_localTime;
+    }
+
+    hkbClipGenerator::hkbClipGenerator(hkFinishLoadedObjectFlag flag)
+    :   hkbGenerator(flag),
+        m_animationName(flag),
+        m_triggers(flag),
+        m_binding(HK_NULL)
+    {
+        m_userData = 0;
     }
 } }

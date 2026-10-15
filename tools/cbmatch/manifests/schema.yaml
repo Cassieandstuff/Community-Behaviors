@@ -47,7 +47,7 @@ units:
       - { name: "CB::schema::hkbClipGenerator::getClassType", va: 0x140acd740 }
       - { name: "CB::schema::hkbClipGenerator::isValid", va: 0x140ace310 }
       - { name: "CB::schema::hkbClipGenerator::cloneNode", va: 0x140ace3b0 }
-      - { name: "CB::schema::hkbClipGenerator::hkbClipGenerator", va: 0x140acd450 }
+      - { name: "??0hkbClipGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140acd450 }
       - { name: "CB::schema::hkbClipGenerator::computeEffectivePlaybackSpeed", va: 0x140ad01f0 }
       - { name: "CB::schema::hkbClipGenerator::fn_140ad11e0", va: 0x140ad11e0 }
       - { name: "CB::schema::hkbClipGenerator::fn_140ad11f0", va: 0x140ad11f0 }
@@ -63,6 +63,14 @@ units:
       - { name: "CB::schema::hkbClipGenerator::startEcho", va: 0x140acee60 }
       - { name: "??1hkbClipGenerator@schema@CB@@UEAA@XZ", va: 0x140acd620 }
       - { name: "??_GhkbClipGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ad1310 }
+      - { name: "CB::schema::hkbClipGenerator::calcContentStatistics", va: 0x140acf1e0 }
+      - { name: "CB::schema::hkbClipGenerator::setAnimationControl", va: 0x140acf2f0 }
+      - { name: "CB::schema::hkbClipGenerator::removeAnnotationTriggers", va: 0x140acf4e0 }
+      - { name: "CB::schema::hkbClipGenerator::rebindFromBindingSet", va: 0x140acf6e0 }
+      - { name: "CB::schema::hkbClipGenerator::setLocalTime", va: 0x140acf770 }
+      - { name: "CB::schema::hkbClipGenerator::getLocalTime", va: 0x140acf780 }
+      - { name: "??0hkbClipGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140ad1260 }
+      - { name: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z", va: 0x140accfa0 }
   - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorOpaque.cpp
     functions:
       - { name: "CB::schema::hkbClipGenerator::computeUsableDuration", va: 0x140acf340 }

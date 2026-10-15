@@ -14,6 +14,7 @@
 namespace CB { namespace schema
 {
     class hkbClipGenerator;
+    extern const hkClass hkbClipGeneratorClass;
 
     /// @brief Bethesda's clip loader (AnimationFileManagerSingleton), which activate/update/deactivate call into.
     struct IAnimationClipLoader
@@ -94,6 +95,9 @@ namespace CB { namespace schema
 
         /// @brief The cloneNode copy: settings and triggers from `gen`, fresh runtime state, a new animation control.
         hkbClipGenerator(const hkbClipGenerator& gen);
+        /// @brief The packfile load: finishes the loaded members and resets the runtime ones (no animation control,
+        ///        binding or echos; m_userData 0). m_mapperData and m_mirroredAnimation are left as loaded.
+        hkbClipGenerator(hkFinishLoadedObjectFlag flag);
         /// @brief Releases m_mirroredAnimation (a raw reference); the members release the rest.
         virtual ~hkbClipGenerator();                                         ///< slot 0
 
@@ -103,6 +107,9 @@ namespace CB { namespace schema
         static hkInt8 s_maxEchos;
 
         virtual const void* getClassType() const;                                ///< slot 1
+        /// @brief The clip's own reflected members, its echo buffer and animation control, then hkbGenerator's members.
+        /// @note `cls` is ignored: the clip names its own class, and hkbGenerator's for the base.
+        virtual void        calcContentStatistics(hkStatisticsCollector* collector, const hkClass* cls) const;   ///< slot 2
         virtual void        activate(const hkbContext& context);                 ///< slot 4
         virtual void        update(const hkbContext& context, hkReal timestep);  ///< slot 5
         virtual void        deactivate(const hkbContext& context);               ///< slot 7
@@ -160,6 +167,19 @@ namespace CB { namespace schema
         void addTrigger(hkReal localTime, const hkbEvent& event, bool relativeToEndOfClip, bool acyclic, bool isAnnotation);
         void sampleAnimation(const hkbContext& context, hkQsTransform* poseLocal, int numPoseLocal, hkReal* floatSlots, int numFloatSlots,
                              void* animationCache, hkBitField& partitionsSampled);
+
+        void setAnimationControl(hkaDefaultAnimationControl* animationControl);
+        /// @brief Takes the binding at m_animationBindingIndex from the character's binding set (null when out of range or
+        ///        without a set) into the control and m_binding.
+        /// @note Name provisional. No -1 guard: an index of -1 compares below any size and reads the slot before the array.
+        void rebindFromBindingSet(const hkbContext& context);
+        /// @brief Drops the triggers merged in from the animation's annotations (m_isAnnotation), keeping the others' order.
+        /// @note Name provisional.
+        void removeAnnotationTriggers();
+        /// @note Name provisional. Sets only the clip's time, not the control's.
+        void   setLocalTime(hkReal localTime);
+        /// @note Name provisional.
+        hkReal getLocalTime() const;
     };
     static_assert(sizeof(hkbClipGenerator) == 0x110, "hkbClipGenerator size");
 } }

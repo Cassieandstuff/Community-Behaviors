@@ -6,11 +6,38 @@
 
 namespace CB { namespace schema
 {
+    /// @brief Whether T is plain old data: picks hkArrayUtil's construct/destruct at compile time.
+    template <bool IS_POD> struct hkArrayIsPod {};
+
     struct hkArrayUtil
     {
         static void _reserve(hkMemoryAllocator& a, void* array, int reqCapacity, int sizeElem);
         /// @brief Grows a full array (pushBack's slow path).
         static void _reserveMore(hkMemoryAllocator& a, void* array, int sizeElem);
+
+        template <class T> static HK_FORCE_INLINE void construct(T*, int, hkArrayIsPod<true>) {}
+        /// @note Through the global placement new: vanilla null-checks each slot.
+        template <class T> static HK_FORCE_INLINE void construct(T* base, int numElements, hkArrayIsPod<false>)
+        {
+            for (int i = 0; i < numElements; i++) new (base + i) T();
+        }
+        /// @brief Assigns `numElements` elements from `src`.
+        /// @note The pointers are parameters: vanilla reads both arrays' data once, not again after each element's calls.
+        template <class T> static HK_FORCE_INLINE void copy(T* dst, const T* src, int numElements)
+        {
+            for (int i = 0; i < numElements; i++) dst[i] = src[i];
+        }
+        /// @brief Copy-constructs `numElements` elements from `src` (through the global placement new, null-checked).
+        template <class T> static HK_FORCE_INLINE void constructWithArray(T* base, int numElements, const T* src, hkArrayIsPod<false>)
+        {
+            for (int i = 0; i < numElements; i++) new (base + i) T(src[i]);
+        }
+        template <class T> static HK_FORCE_INLINE void destruct(T*, int, hkArrayIsPod<true>) {}
+        /// @note Last to first, as vanilla walks them.
+        template <class T> static HK_FORCE_INLINE void destruct(T* base, int numElements, hkArrayIsPod<false>)
+        {
+            for (int i = numElements - 1; i >= 0; i--) base[i].~T();
+        }
     };
 
     template <class T> struct hkArray
@@ -40,10 +67,28 @@ namespace CB { namespace schema
         HK_FORCE_INLINE T&       operator[](int i) { return m_data[i]; }
         HK_FORCE_INLINE const T& operator[](int i) const { return m_data[i]; }
 
+        /// @brief Destroys the elements past `n` and default-constructs the new ones (both no-ops for POD).
         HK_FORCE_INLINE void setSize(int n)
         {
             reserve(n);
+            hkArrayUtil::destruct(m_data + n, m_size - n, hkArrayIsPod<__is_pod(T)>());
+            hkArrayUtil::construct(m_data + m_size, n - m_size, hkArrayIsPod<__is_pod(T)>());
             m_size = n;
+        }
+        /// @brief Assigns over the elements both arrays have, destroys this one's surplus and copy-constructs the rest.
+        /// @warning Only the non-POD path is reimplemented so far.
+        HK_FORCE_INLINE hkArray& operator=(const hkArray& a)
+        {
+            static_assert(!__is_pod(T), "hkArray: POD copy-assignment not reimplemented yet");
+            const int oldSize    = m_size;
+            const int newSize    = a.getSize();
+            const int copiedSize = (newSize > oldSize) ? oldSize : newSize;
+            reserve(newSize);
+            hkArrayUtil::destruct(m_data + newSize, oldSize - newSize, hkArrayIsPod<false>());
+            hkArrayUtil::copy(m_data, a.m_data, copiedSize);
+            hkArrayUtil::constructWithArray(m_data + copiedSize, newSize - copiedSize, a.m_data + copiedSize, hkArrayIsPod<false>());
+            m_size = newSize;
+            return *this;
         }
         HK_FORCE_INLINE void removeAtAndCopy(int index)
         {

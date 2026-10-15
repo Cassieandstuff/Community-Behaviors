@@ -109,7 +109,7 @@ symbols:
   - { name: hkbClipGenerator_MaxEchos, kind: data, se: 0, ae: 385121, vr: 0, cpp: "CB::schema::hkbClipGenerator::s_maxEchos" }  # hkInt8 = 2; name provisional; startEcho caps the echo array at it
   - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z" }
   - { name: hkbMirrorPose, kind: func, se: 0, ae: 59301, vr: 0, cpp: "CB::schema::hkbMirrorPose" }  # name provisional; (output, referencePose) under FLAG_MIRROR
-  - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0 }  # hkClass object
+  - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0, cpp: "CB::schema::hkbClipGeneratorClass" }  # hkClass object
 
   # --- Bethesda generators: paired (BSSynchronizedClipGenerator), offset, tweener ---
   - { name: BSSynchronizedClipGenerator_FinishCtor, kind: func, se: 62108, ae: 63044, vr: 0 }
@@ -156,7 +156,7 @@ symbols:
   - { name: hkClassNameRegistry_Global, kind: data, se: 523168, ae: 409704, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedTypeInfos, kind: data, se: 289776, ae: 239390, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedClasses, kind: data, se: 289777, ae: 239939, vr: 0 }
-  - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0 }
+  - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0, cpp: "CB::schema::hkbGeneratorClass" }
   - { name: hkClass_IsSuperClass, kind: func, se: 57166, ae: 57626, vr: 0 }  # parent-chain strcmp
   - { name: hkNativePackfileUtils_ApplyVirtualFixups, kind: func, se: 64110, ae: 65139, vr: 0 }  # finishes objects by case-sensitive class NAME
   - { name: hkSerializeUtil_ClassSignaturesUpToDate, kind: func, se: 63862, ae: 64867, vr: 0 }
@@ -174,6 +174,10 @@ symbols:
   # Havok base library
   - { name: hkReferencedObject_AddReference, kind: func, se: 56606, ae: 57010, vr: 0, cpp: "CB::schema::hkReferencedObject::addReference" }
   - { name: hkReferencedObject_RemoveReference, kind: func, se: 56607, ae: 57011, vr: 0, cpp: "CB::schema::hkReferencedObject::removeReference" }
+  - { name: hkReferencedObject_CalcContentStatistics, kind: func, se: 0, ae: 57022, vr: 0, cpp: "CB::schema::hkReferencedObject::calcContentStatistics" }  # vtable slot 2; overrides tail-call it with their parent class
+  - { name: hkStatisticsCollectorUtil_AddDeclaredMembers, kind: func, se: 0, ae: 57261, vr: 0, cpp: "CB::schema::hkStatisticsCollectorUtil::addDeclaredMembers" }  # name provisional; (obj, class, collector) reflective member walk
+  - { name: hkStatisticsCollector_AddNormalChunk, kind: func, se: 0, ae: 57582, vr: 0, cpp: "CB::schema::hkStatisticsCollector::addNormalChunk" }  # addChunk(1, ...), sizing an allocatedSize of 0 from the heap
+  - { name: hkStatisticsCollector_GetAllocatedSize, kind: func, se: 0, ae: 57585, vr: 0, cpp: "CB::schema::hkStatisticsCollector::getAllocatedSize" }  # name provisional; (p, size): the heap's allocated size (allocator slot 9), size itself for null
   - { name: hkArrayUtil_Reserve, kind: func, se: 0, ae: 57048, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserve" }
   - { name: hkArrayUtil_ReserveMore, kind: func, se: 0, ae: 57049, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserveMore" }  # (allocator, array, sizeElem): grow when size == capacity (hkArray::pushBack)
   - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "CB::schema::hkString::strCmp" }

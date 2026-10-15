@@ -6,6 +6,9 @@
 
 namespace CB { namespace schema
 {
+    struct hkClass;
+    class hkStatisticsCollector;
+
     struct hkBaseObject
     {
         HK_FORCE_INLINE hkBaseObject() {}
@@ -18,7 +21,8 @@ namespace CB { namespace schema
         hkInt16  m_referenceCount;    ///< +0x0a
 
         virtual const void* getClassType() const;                                       ///< slot 1
-        virtual void        calcContentStatistics(void* collector, const void* cls) const;   ///< slot 2
+        /// @brief Reports this object's memory to `collector` by walking the reflected members of `cls`.
+        virtual void        calcContentStatistics(hkStatisticsCollector* collector, const hkClass* cls) const;   ///< slot 2
 
         HK_FORCE_INLINE hkReferencedObject() : m_memSizeAndFlags(0xffff), m_referenceCount(1) {}
         HK_FORCE_INLINE hkReferencedObject(hkFinishLoadedObjectFlag) {}
