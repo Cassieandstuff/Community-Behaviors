@@ -93,13 +93,14 @@ symbols:
   - { name: hkbClipGenerator_GetExtractedMotionDelta, kind: func, se: 58623, ae: 59274, vr: 0, cpp: "hkbClipGenerator::getExtractedMotionDelta" }
   - { name: hkbClipGenerator_SampleAnimation, kind: func, se: 58627, ae: 59278, vr: 0, cpp: "hkbClipGenerator::sampleAnimation" }
   - { name: hkbClipGenerator_ComputeUsableDuration, kind: func, se: 0, ae: 59263, vr: 0, cpp: "hkbClipGenerator::computeUsableDuration" }  # name provisional
+  - { name: hkbClipGenerator_ComputeEffectivePlaybackSpeed, kind: func, se: 0, ae: 59275, vr: 0, cpp: "hkbClipGenerator::computeEffectivePlaybackSpeed" }  # name provisional; speed x usable/enforced duration, negated on a backward ping-pong
   - { name: hkbClipGenerator_AddTrigger, kind: func, se: 0, ae: 59264, vr: 0, cpp: "hkbClipGenerator::addTrigger" }  # (localTime, event, relativeToEnd, acyclic, isAnnotation)
   - { name: hkbClipGenerator_ProcessTriggers, kind: func, se: 0, ae: 59270, vr: 0, cpp: "hkbClipGenerator::processTriggers" }  # name provisional; update's trigger dispatch
   - { name: hkbClipGenerator_ProcessEchoTriggers, kind: func, se: 0, ae: 59271, vr: 0, cpp: "hkbClipGenerator::processEchoTriggers" }  # name provisional
   - { name: hkbClipGenerator_AdvanceLocalTime, kind: func, se: 0, ae: 59273, vr: 0, cpp: "hkbClipGenerator::advanceLocalTime" }  # name provisional; (timestep, &prev, &local, &loops, &atEnd)
   - { name: hkbClipGenerator_ResetAtEnd, kind: func, se: 0, ae: 59279, vr: 0, cpp: "hkbClipGenerator::resetAtEnd" }  # name provisional; tail of activate, update when atEnd
-  - { name: hkbClipGenerator_Fn140ad11e0, kind: func, se: 0, ae: 59280, vr: 0, cpp: "hkbClipGenerator::fn_140ad11e0" }  # name unknown; first call of deactivate
-  - { name: hkbClipGenerator_Fn140ad11f0, kind: func, se: 0, ae: 59281, vr: 0, cpp: "hkbClipGenerator::fn_140ad11f0" }  # name unknown; update, before advancing time
+  - { name: hkbClipGenerator_Fn140ad11e0, kind: func, se: 0, ae: 59280, vr: 0, cpp: "hkbClipGenerator::fn_140ad11e0" }  # name unknown; clears m_ignoreStartTime (deactivate, 140acee60)
+  - { name: hkbClipGenerator_Fn140ad11f0, kind: func, se: 0, ae: 59281, vr: 0, cpp: "hkbClipGenerator::fn_140ad11f0" }  # name unknown; update, before advancing time: re-derives m_atEnd from the effective speed
   - { name: hkbClipGenerator_ClipLoader, kind: data, se: 520994, ae: 407512, vr: 0, cpp: "g_animationClipLoader" }  # the loader pointer activate/update/deactivate call (CommonLib AnimationFileManagerSingleton::GetSingleton)
   - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@@QEAA@AEBU0@@Z" }
   - { name: hkbMirrorPose, kind: func, se: 0, ae: 59301, vr: 0, cpp: "hkbMirrorPose" }  # name provisional; (output, referencePose) under FLAG_MIRROR
