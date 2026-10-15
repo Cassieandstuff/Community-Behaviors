@@ -299,6 +299,14 @@ symbols:
   - { name: BSSynchronizedClipGeneratorUtils_ApplyMotionFromRoot, kind: func, se: 0, ae: 63337, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::applyMotionFromRoot" }  # name provisional; (skeleton, output, markWS)
   - { name: BSSynchronizedClipGenerator_EmptyString, kind: data, se: 0, ae: 385925, vr: 0, cpp: "CB::schema::g_bssyncEmptyString" }  # name provisional; const char* → "", an unset prefix
   - { name: BSSynchronizedClipGenerator_PairEndEvent, kind: data, se: 0, ae: 385926, vr: 0, cpp: "CB::schema::g_bssyncPairEndEvent" }  # name provisional; const char* → "PairEnd"
+  - { name: BSTimerModifier_CloneCtor, kind: func, se: 0, ae: 63315, vr: 0, cpp: "??0BSTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSTimerModifier_GetStaticClass, kind: func, se: 0, ae: 63003, vr: 0, cpp: "CB::schema::BSTimerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSEventOnDeactivateModifier_CloneCtor, kind: func, se: 0, ae: 63221, vr: 0, cpp: "??0BSEventOnDeactivateModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSModifyOnceModifier_CloneCtor, kind: func, se: 0, ae: 63292, vr: 0, cpp: "??0BSModifyOnceModifier@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z" }  # (other, rootBehavior) — cloneNode tail-jumps to it; clones both modifiers
+  - { name: BSModifyOnceModifier_Dtor, kind: func, se: 0, ae: 63284, vr: 0, cpp: "??1BSModifyOnceModifier@schema@CB@@UEAA@XZ" }  # out of line; deletes the modifiers it cloned; the scalar deleting destructor calls it
+  - { name: BSEventEveryNEventsModifier_CloneCtor, kind: func, se: 0, ae: 63214, vr: 0, cpp: "??0BSEventEveryNEventsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSEventEveryNEventsModifier_CalculateNumberOfEventsBeforeSend, kind: func, se: 0, ae: 63213, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::calculateNumberOfEventsBeforeSend" }  # name provisional; draws the next N from the behavior graph's pseudo-random generator
+  - { name: BSEventEveryNEventsModifier_GetStaticClass, kind: func, se: 0, ae: 62970, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::staticClass" }  # getClassType tail-jumps to it
   # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
   - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
   - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
@@ -319,4 +327,8 @@ symbols:
   - { name: hkbRotateCharacterModifier_Vtable, kind: data, se: 278609, ae: 226598, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifier::`vftable'" }
   - { name: hkbRotateCharacterModifierInternalState_Vtable, kind: data, se: 278612, ae: 226602, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
+  - { name: BSTimerModifier_Vtable, kind: data, se: 282073, ae: 232720, vr: 0, cpp: "CB::schema::BSTimerModifier::`vftable'" }
+  - { name: BSEventOnDeactivateModifier_Vtable, kind: data, se: 282048, ae: 232685, vr: 0, cpp: "CB::schema::BSEventOnDeactivateModifier::`vftable'" }
+  - { name: BSModifyOnceModifier_Vtable, kind: data, se: 282067, ae: 232711, vr: 0, cpp: "CB::schema::BSModifyOnceModifier::`vftable'" }
+  - { name: BSEventEveryNEventsModifier_Vtable, kind: data, se: 282042, ae: 232678, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::`vftable'" }
   - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene

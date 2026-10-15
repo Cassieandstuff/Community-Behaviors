@@ -206,3 +206,48 @@ units:
       - { name: "CB::schema::hkbSenseHandleModifier::senseInRigidBodies", va: 0x140afdbf0 }
       - { name: "??1hkbSenseHandleModifier@schema@CB@@UEAA@XZ", va: 0x140ac6e70 }
       - { name: "??_GhkbSenseHandleModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acade0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSTimerModifier/BSTimerModifier.cpp
+    functions:
+      - { name: "??0BSTimerModifier@schema@CB@@QEAA@XZ", va: 0x140b9f1b0 }
+      - { name: "??0BSTimerModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9f240 }
+      - { name: "CB::schema::BSTimerModifier::getClassType", va: 0x140b9f2a0 }
+      - { name: "CB::schema::BSTimerModifier::cloneNode", va: 0x140b9f2b0 }
+      - { name: "CB::schema::BSTimerModifier::activate", va: 0x140b9f300 }
+      - { name: "CB::schema::BSTimerModifier::update", va: 0x140b9f310 }
+      - { name: "??0BSTimerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9f440 }
+      - { name: "??_GBSTimerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9f4e0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSEventOnDeactivateModifier/BSEventOnDeactivateModifier.cpp
+    functions:
+      - { name: "??0BSEventOnDeactivateModifier@schema@CB@@QEAA@XZ", va: 0x140b9aac0 }
+      - { name: "??0BSEventOnDeactivateModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9ab40 }
+      - { name: "CB::schema::BSEventOnDeactivateModifier::deactivate", va: 0x140b9aba0 }
+      - { name: "CB::schema::BSEventOnDeactivateModifier::cloneNode", va: 0x140b9ac70 }
+      - { name: "CB::schema::BSEventOnDeactivateModifier::isValid", va: 0x140b9acc0 }
+      - { name: "??0BSEventOnDeactivateModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9ad00 }
+      - { name: "??_GBSEventOnDeactivateModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9ad80 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSModifyOnceModifier/BSModifyOnceModifier.cpp
+    functions:
+      - { name: "??0BSModifyOnceModifier@schema@CB@@QEAA@XZ", va: 0x140b9e340 }
+      - { name: "??0BSModifyOnceModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9e3c0 }
+      - { name: "??1BSModifyOnceModifier@schema@CB@@UEAA@XZ", va: 0x140b9e420 }
+      - { name: "CB::schema::BSModifyOnceModifier::activate", va: 0x140b9e490 }
+      - { name: "CB::schema::BSModifyOnceModifier::deactivate", va: 0x140b9e4f0 }
+      - { name: "CB::schema::BSModifyOnceModifier::precompute", va: 0x140b9e540 }
+      - { name: "CB::schema::BSModifyOnceModifier::cloneNode", va: 0x140b9e590 }
+      - { name: "CB::schema::BSModifyOnceModifier::isValid", va: 0x140b9e5f0 }
+      - { name: "CB::schema::BSModifyOnceModifier::getMaxNumChildren", va: 0x140b9e640 }
+      - { name: "CB::schema::BSModifyOnceModifier::getChildren", va: 0x140b9e660 }
+      - { name: "??0BSModifyOnceModifier@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z", va: 0x140b9e740 }
+      - { name: "??_GBSModifyOnceModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9e7d0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSEventEveryNEventsModifier/BSEventEveryNEventsModifier.cpp
+    functions:
+      - { name: "??0BSEventEveryNEventsModifier@schema@CB@@QEAA@XZ", va: 0x140b9a560 }
+      - { name: "??0BSEventEveryNEventsModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9a600 }
+      - { name: "CB::schema::BSEventEveryNEventsModifier::getClassType", va: 0x140b9a660 }
+      - { name: "CB::schema::BSEventEveryNEventsModifier::activate", va: 0x140b9a670 }
+      - { name: "CB::schema::BSEventEveryNEventsModifier::handleEvent", va: 0x140b9a6a0 }
+      - { name: "CB::schema::BSEventEveryNEventsModifier::cloneNode", va: 0x140b9a7d0 }
+      - { name: "CB::schema::BSEventEveryNEventsModifier::isValid", va: 0x140b9a820 }
+      - { name: "CB::schema::BSEventEveryNEventsModifier::calculateNumberOfEventsBeforeSend", va: 0x140b9a8d0 }
+      - { name: "??0BSEventEveryNEventsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9a920 }
+      - { name: "??_GBSEventEveryNEventsModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9aa00 }

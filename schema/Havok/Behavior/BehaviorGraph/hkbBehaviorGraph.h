@@ -6,6 +6,7 @@
 #include <Behavior/Event/hkbEvent.h>
 #include <Behavior/Generator/hkbGenerator.h>
 #include <Behavior/Utils/hkbSymbolIdMap.h>
+#include <Common/Base/Algorithm/PseudoRandom/hkPseudoRandomGenerator.h>
 
 namespace CB { namespace schema
 {
@@ -39,7 +40,9 @@ namespace CB { namespace schema
     class hkbBehaviorGraph : public hkbGenerator
     {
     public:
-        char                           m_pad48[0x88 - 0x48];
+        char                           m_pad48[0x78 - 0x48];
+        hkPseudoRandomGenerator*       m_pseudoRandomGenerator;   ///< +0x78 — reflected serialize-ignored
+        char                           m_pad80[0x88 - 0x80];
         hkRefPtr<hkbBehaviorGraphData> m_data;         ///< +0x88
         char                           m_pad90[0x98 - 0x90];
         hkArray<hkbNodeInfo>*          m_activeNodes;  ///< +0x98

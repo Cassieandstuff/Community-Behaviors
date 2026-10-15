@@ -43,6 +43,7 @@ namespace CB { namespace schema
         hkRefPtr<hkbEventPayload> m_payload;
 
         HK_FORCE_INLINE hkbEventProperty() : m_id(-1) {}
+        HK_FORCE_INLINE hkbEventProperty(hkFinishLoadedObjectFlag flag) : m_payload(flag) {}
         HK_FORCE_INLINE hkbEventProperty(const hkbEventBase& e) : m_id(e.m_id) { m_payload = e.m_payload; }
         HK_FORCE_INLINE hkbEventProperty(const hkbEventProperty& e) : m_id(e.m_id) { m_payload = e.getPayload(); }
         HK_FORCE_INLINE hkbEventProperty& operator=(const hkbEventProperty& e)

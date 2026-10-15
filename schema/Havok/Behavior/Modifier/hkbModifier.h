@@ -17,6 +17,7 @@ namespace CB { namespace schema
         hkBool m_enable;   ///< +0x48
 
         HK_FORCE_INLINE hkbModifier() : m_enable(true) {}
+        HK_FORCE_INLINE hkbModifier(hkFinishLoadedObjectFlag flag) : hkbNode(flag) {}
         /// @note Inline, and its vtable store survives in the clone copies: the m_enable read could alias it.
         HK_FORCE_INLINE hkbModifier(const hkbModifier& mod) : hkbNode(mod), m_enable(mod.m_enable) {}
 

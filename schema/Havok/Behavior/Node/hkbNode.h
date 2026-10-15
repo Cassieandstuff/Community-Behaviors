@@ -92,7 +92,9 @@ namespace CB { namespace schema
         virtual int  getMaxNumChildren(GetChildrenFlags flags);                ///< slot 8
         virtual void getChildren(GetChildrenFlags flags, ChildrenInfo& childrenInfo);   ///< slot 9
         virtual bool isValid(hkStringPtr& errorString) const;                  ///< slot 10
-        virtual void vfn11();                                                  ///< slot 11
+        /// @note Havok's name: hkbEvaluateExpressionModifier's override compiles its expressions once against the
+        ///       context's behavior (the SDK's precompute); hkbNode's is a no-op.
+        virtual void precompute(const hkbContext& context);                    ///< slot 11
         virtual hkbNode* cloneNode(hkbBehaviorGraph& rootBehavior) const;      ///< slot 12
         virtual hkReferencedObject* createInternalState();                     ///< slot 13
         virtual void getInternalState(hkReferencedObject& internalState) const;   ///< slot 14

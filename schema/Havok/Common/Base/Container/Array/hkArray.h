@@ -149,5 +149,11 @@ namespace CB { namespace schema
             hkArrayUtil::constructWithCopy(m_data + m_size, 1, t, hkArrayIsPod<__is_pod(T)>());
             m_size++;
         }
+        /// @brief Appends one element left unconstructed and returns it.
+        HK_FORCE_INLINE T& expandOne()
+        {
+            if (m_size == getCapacity()) hkArrayUtil::_reserveMore(hkContainerHeapAllocator::s_alloc, this, sizeof(T));
+            return m_data[m_size++];
+        }
     };
 } }
