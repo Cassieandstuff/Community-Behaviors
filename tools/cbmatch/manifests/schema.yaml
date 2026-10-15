@@ -322,3 +322,14 @@ units:
       - { name: "??0BSEventOnFalseToTrueModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9b350 }
       - { name: "??1BSEventOnFalseToTrueModifier@schema@CB@@UEAA@XZ", va: 0x140b9b490 }
       - { name: "??_GBSEventOnFalseToTrueModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9b500 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSPassByTargetTriggerModifier/BSPassByTargetTriggerModifier.cpp
+    functions:
+      - { name: "??0BSPassByTargetTriggerModifier@schema@CB@@QEAA@XZ", va: 0x140b9e850 }
+      - { name: "??0BSPassByTargetTriggerModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9e8f0 }
+      - { name: "CB::schema::BSPassByTargetTriggerModifier::getClassType", va: 0x140b9e950 }
+      - { name: "CB::schema::BSPassByTargetTriggerModifier::isValid", va: 0x140b9e960 }
+      - { name: "CB::schema::BSPassByTargetTriggerModifier::cloneNode", va: 0x140b9e970 }
+      - { name: "CB::schema::BSPassByTargetTriggerModifier::activate", va: 0x140b9e9c0 }
+      - { name: "CB::schema::BSPassByTargetTriggerModifier::modify", va: 0x140b9e9d0 }
+      - { name: "??0BSPassByTargetTriggerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9ed60 }
+      - { name: "??_GBSPassByTargetTriggerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9ee20 }

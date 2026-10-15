@@ -54,6 +54,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void mul4(hkSimdReal s) { m_quad = _mm_mul_ps(m_quad, s.m_real); }
         HK_FORCE_INLINE void add4(const hkVector4& a) { m_quad = _mm_add_ps(m_quad, a.m_quad); }
         HK_FORCE_INLINE void sub4(hkSimdReal s) { m_quad = _mm_sub_ps(m_quad, s.m_real); }
+        HK_FORCE_INLINE void setSub4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_sub_ps(a.m_quad, b.m_quad); }
         HK_FORCE_INLINE void setAdd4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(a.m_quad, b.m_quad); }
         HK_FORCE_INLINE void setSub4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_sub_ps(a.m_quad, b.m_quad); }
         HK_FORCE_INLINE void addMul4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, b.m_quad)); }
@@ -109,6 +110,11 @@ namespace CB { namespace schema
             m_quad                   = _mm_mul_ps(_mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0, 0, 0, 0)), m_quad);
         }
 
+        /// @brief Scales x, y and z (and w) by 1/|xyz|; a zero vector stays zero.
+        HK_FORCE_INLINE void normalize3();
+        /// @brief normalize3, returning the length it divided by (0 for a zero vector).
+        HK_FORCE_INLINE hkSimdReal normalizeWithLength3();
+
         /// @brief xyz from `xyz`, w from lane 3 of `w`.
         HK_FORCE_INLINE void setXYZ_W(const hkVector4& xyz, const hkVector4& w)
         {
@@ -123,8 +129,6 @@ namespace CB { namespace schema
         /// @brief 1/v for x, y and z (rcpps plus one Newton-Raphson step); w is 0.
         /// @note w is set to 1 before the estimate so it cannot overflow, then masked off.
         HK_FORCE_INLINE void setReciprocal3(const hkVector4& v);
-        /// @brief Scales x, y and z to unit length (w scales along); a zero vector stays zero.
-        HK_FORCE_INLINE void normalize3();
         /// @brief t·v (rotation then translation), and its inverse.
         /// @note Out of line in vanilla (Havok's non-underscore transform family).
         void setTransformedPos(const hkTransform& t, const hkVector4& v);
@@ -366,6 +370,15 @@ namespace CB { namespace schema
     };
 
     HK_FORCE_INLINE void hkVector4::normalize3() { mul4(hkMath::sqrtInverse(lengthSquared3())); }
+    /// @note The length is a scalar product (`mulss`): callers read it through getReal. The squared length is computed
+    ///       twice (vanilla repeats the dot product for the inverse).
+    HK_FORCE_INLINE hkSimdReal hkVector4::normalizeWithLength3()
+    {
+        const hkSimdReal len2   = lengthSquared3();
+        const hkSimdReal invLen = hkMath::sqrtInverse(lengthSquared3());
+        m_quad                  = _mm_mul_ps(m_quad, invLen.m_real);
+        return hkSimdReal(_mm_mul_ss(len2.m_real, invLen.m_real));
+    }
 
     HK_FORCE_INLINE void hkQsTransform::blendAddMul(const hkQsTransform& other, hkSimdReal weight)
     {
