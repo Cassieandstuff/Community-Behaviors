@@ -81,19 +81,32 @@ namespace CB { namespace schema
         struct ChildInfo
         {
             hkbNode* m_node;
-            hkUint8  m_pad8[2];
+            /// @note Name provisional: the transition effects set it on the child their event mode
+            ///       (EVENT_MODE_IGNORE_FROM/TO_GENERATOR) keeps events from.
+            bool     m_ignoreEvents;   ///< +0x8
+            /// @note Name provisional: the transition effects set it on an already-active to-generator under
+            ///       SELF_TRANSITION_MODE_RESET.
+            bool     m_reactivate;     ///< +0x9
             /// @note Name provisional: set for a child reported under FLAG_ACTIVE_ONLY (the blender, the behavior
-            ///       reference generator).
+            ///       reference generator); hkbBlendingTransitionEffect sets it on both children under its FLAG_SYNC.
             bool     m_isActive;   ///< +0xa
-            hkUint8  m_padB[5];
+            /// @note Name provisional: hkbGeneratorTransitionEffect sets it on the to-generator it reports while the
+            ///       transition generator still plays (stages 0 and 1), when its generate reads no output of it.
+            bool     m_skipGenerate;   ///< +0xb
+            hkUint8  m_padC[4];
         };
         /// @brief Where getChildren reports to.
         struct ChildrenInfo
         {
             hkArray<ChildInfo>& m_childInfos;
-            hkUint8             m_pad8[2];
+            /// @note Name provisional: raised with a child's m_ignoreEvents (the transition effects).
+            bool                m_anyIgnoreEvents;   ///< +0x8
+            /// @note Name provisional: raised with a child's m_reactivate (the transition effects).
+            bool                m_anyReactivate;     ///< +0x9
             /// @note Name provisional: set alongside a reported child's m_isActive (the behavior reference generator).
             bool                m_anyActive;   ///< +0xa
+            /// @note Name provisional: raised with a child's m_skipGenerate (hkbGeneratorTransitionEffect).
+            bool                m_anySkipGenerate;   ///< +0xb
         };
 
         hkUlong     m_userData;     ///< +0x30 — Bethesda keys clip loading off it (the clip tests 0 and 8)
@@ -129,7 +142,8 @@ namespace CB { namespace schema
         /// @brief Adds the event ids the node reacts to into `activeEvents` (id → true).
         /// @note Name after the Havok SDK's hkbNode::getActiveEvents; hkbEventDrivenModifier's adds its two event ids.
         virtual void getActiveEvents(hkPointerMap<int, bool>& activeEvents) const;   ///< slot 18
-        virtual void vfn19();                                                  ///< slot 19
+        /// @note Name provisional: hkbNode's returns false, hkbTransitionEffect's true.
+        virtual bool isTransitionEffect() const;                               ///< slot 19
         virtual void vfn20();                                                  ///< slot 20
         /// @note hkbNode's returns false, hkbGenerator's true.
         virtual bool vfn21();                                                  ///< slot 21

@@ -560,3 +560,12 @@ units:
       - { name: "CB::schema::hkbDetectCloseToGroundModifier::getInternalState", va: 0x140aed970 }
       - { name: "CB::schema::hkbDetectCloseToGroundModifier::setInternalState", va: 0x140aed980 }
       - { name: "??_GhkbDetectCloseToGroundModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8940 }
+  - source: ../../../schema/Havok/Behavior/TransitionEffect/hkbTransitionEffect.cpp
+    functions:
+      - { name: "??0hkbTransitionEffect@schema@CB@@QEAA@XZ", va: 0x140ae5d80 }
+      - { name: "??0hkbTransitionEffect@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ae5df0 }
+      - { name: "CB::schema::hkbTransitionEffect::isTransitionEffect", va: 0x140ae5e40 }
+      - { name: "CB::schema::hkbTransitionEffect::applySelfTransitionMode", va: 0x140ae5e50 }
+      - { name: "CB::schema::hkbTransitionEffect::getEventMode", va: 0x140ae5f20 }
+      - { name: "CB::schema::hkbTransitionEffect::isGeneratorActive", va: 0x140ae5f40 }
+      - { name: "??_GhkbTransitionEffect@schema@CB@@UEAAPEAXI@Z", va: 0x140acb580 }

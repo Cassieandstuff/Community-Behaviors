@@ -7,6 +7,7 @@
 namespace CB { namespace schema
 {
     class hkpWorld;
+    class hkbNode;
 
     struct hkbContext
     {
@@ -36,5 +37,9 @@ namespace CB { namespace schema
         /// @brief The behavior world's up vector, else the character's project data's.
         /// @note Out of line in vanilla (0x140ab0ad0).
         const hkVector4& getWorldUpWS() const;
+        /// @brief Whether `node` is active: in the context's node-to-index map when it has one, else in the root graph's
+        ///        active nodes (the root graph itself counts while the graph is active).
+        /// @note Name provisional. Out of line in vanilla (0x140ab0b40).
+        bool isNodeActive(const hkbNode* node) const;
     };
 } }

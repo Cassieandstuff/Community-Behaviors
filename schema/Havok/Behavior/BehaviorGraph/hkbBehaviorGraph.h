@@ -68,6 +68,20 @@ namespace CB { namespace schema
         /// @note Name provisional; out of line (0x140ab3c10), called by the blender and the transition effects. `node`
         ///       keys m_activeNodeTemplateToIndexMap as is (not found: nothing moves).
         void setNodeLocalTime(const hkbNode* node, hkReal localTime);
+        /// @brief The active-node record of `node` (a template or this graph's clone of one), or the record it is a
+        ///        proxy for.
+        /// @pre `node` is active (an unknown node reads record 0).
+        /// @note Name provisional. Inlined everywhere in vanilla (the transition effects, the selector's updateSync).
+        HK_FORCE_INLINE hkbNodeInfo& getNodeInfo(const hkbNode* node)
+        {
+            if (node->m_cloneState == hkbNode::CLONE_STATE_CLONE) node = getNodeTemplate(node);
+            hkbNodeInfo& info = (*m_activeNodes)[m_activeNodeTemplateToIndexMap->getWithDefault(node, 0)];
+            return info.m_isProxy ? (*m_activeNodes)[info.m_proxyIndex] : info;
+        }
+        /// @brief Starts an echo of `echoDuration` seconds (hkbGenerator::startEcho) on every active generator from `node`
+        ///        down; a zero duration restarts them.
+        /// @note Name provisional. The transition effects' self transitions call it on the to-generator.
+        void startEcho(hkReal echoDuration, hkbNode* node);
         /// @brief Pushes the graph's variable values into the bound node members of every active node.
         /// @note Name from its monitor timer ("hkbBehaviorGraph::copyVariablesToMembersRoot"); the flag is passed through
         ///       to each node's copy unchanged, meaning unknown (hkbSequence::update passes false).

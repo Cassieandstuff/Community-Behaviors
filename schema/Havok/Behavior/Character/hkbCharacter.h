@@ -10,6 +10,7 @@
 namespace CB { namespace schema
 {
     class hkbBehaviorGraph;
+    struct hkbProjectData;
     class hkbRagdollDriver;
     class hkpRigidBody;
     class hkpWorld;
@@ -80,7 +81,7 @@ namespace CB { namespace schema
         char                             m_pad38[0x50 - 0x38];
         hkRefPtr<hkbCharacterSetup>      m_setup;                 ///< +0x50
         hkbBehaviorGraph*                m_behaviorGraph;         ///< +0x58
-        void*                            m_projectData;           ///< +0x60
+        hkbProjectData*                  m_projectData;           ///< +0x60
         hkRefPtr<hkbAnimationBindingSet> m_animationBindingSet;   ///< +0x68
         hkbRaycastInterface*             m_raycastInterface;      ///< +0x70
         hkbWorld*                        m_world;                 ///< +0x78

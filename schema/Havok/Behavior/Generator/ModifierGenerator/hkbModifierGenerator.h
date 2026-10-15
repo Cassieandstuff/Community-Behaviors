@@ -7,6 +7,8 @@
 
 namespace CB { namespace schema
 {
+    extern const hkClass hkbModifierGeneratorClass;
+
     /// @note The `slot N` annotations are vanilla's vtable slots. The destructor is implicit: vanilla's scalar deleting
     ///       destructor (slot 0) stamps no vtable.
     class hkbModifierGenerator : public hkbGenerator
