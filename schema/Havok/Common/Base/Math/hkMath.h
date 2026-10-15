@@ -59,6 +59,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void addMul4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, b.m_quad)); }
         HK_FORCE_INLINE void addMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(s.m_real, a.m_quad)); }
         HK_FORCE_INLINE void addMul4(const hkVector4& a, hkSimdReal s) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, s.m_real)); }
+        HK_FORCE_INLINE void subMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_sub_ps(m_quad, _mm_mul_ps(s.m_real, a.m_quad)); }
 
         /// @note Shuffle constants 0xc9 / 0xd2 in this operand order are what vanilla's cross product compiles to.
         HK_FORCE_INLINE void setCross(const hkVector4& a, const hkVector4& b)
@@ -87,6 +88,8 @@ namespace CB { namespace schema
         /// @note sqrtss on the broadcast squared length (lane 0 is the result).
         HK_FORCE_INLINE hkSimdReal length3() const { return hkSimdReal(_mm_sqrt_ss(lengthSquared3().m_real)); }
         HK_FORCE_INLINE hkSimdReal lengthSquared4() const { return dot4(*this); }
+        /// @brief Scales to unit length (rsqrtps plus one Newton-Raphson step) unless the xyz length is zero.
+        HK_FORCE_INLINE void normalize3IfNotZero();
 
         /// @brief (1 − t)·a + t·b.
         HK_FORCE_INLINE void setInterpolate4(const hkVector4& a, const hkVector4& b, hkSimdReal t)
@@ -158,6 +161,10 @@ namespace CB { namespace schema
     /// @note Name provisional. Not g_vectorConstant0001 (the g_quadRealZero table's): the node default constructors
     ///       read this one (hkQuaternion::getIdentity), hkQsTransform::setIdentity the other.
     extern const hkVector4 g_vectorConstants0001;
+    /// @brief 0.5 x4 and 3 x4 from g_quadRealZero's table (just before it).
+    /// @note Names provisional; hkVector4::normalize3IfNotZero's Newton step reads them.
+    extern const hkVector4 g_quadRealInv2;
+    extern const hkVector4 g_quadReal3;
 
     HK_FORCE_INLINE const hkVector4& hkVector4::getZero() { return g_vectorConstantZero; }
 
@@ -166,6 +173,18 @@ namespace CB { namespace schema
     {
         const hkQuadReal neg = _mm_sub_ps(g_quadRealZero.m_quad, a.m_real);
         return hkSimdReal(_mm_shuffle_ps(neg, neg, _MM_SHUFFLE(0, 0, 0, 0)));
+    }
+
+    /// @note The zero test is the sign of the negated square (movmskps), as vanilla's.
+    HK_FORCE_INLINE void hkVector4::normalize3IfNotZero()
+    {
+        const hkSimdReal lengthSquared = lengthSquared3();
+        if (_mm_movemask_ps((-lengthSquared).m_real) & 1) {
+            const hkQuadReal e      = _mm_rsqrt_ps(lengthSquared.m_real);
+            const hkQuadReal ree    = _mm_mul_ps(_mm_mul_ps(lengthSquared.m_real, e), e);
+            const hkQuadReal invLen = _mm_mul_ps(_mm_sub_ps(g_quadReal3.m_quad, ree), _mm_mul_ps(e, g_quadRealInv2.m_quad));
+            m_quad = _mm_mul_ps(_mm_shuffle_ps(invLen, invLen, _MM_SHUFFLE(0, 0, 0, 0)), m_quad);
+        }
     }
 
     struct hkQuaternion
@@ -342,6 +361,16 @@ namespace CB { namespace schema
         /// @note Clamps written through these give maxss/minss; the same ternaries as separate statements branch.
         template <class T> static HK_FORCE_INLINE T max2(T a, T b) { return (a > b) ? a : b; }
         template <class T> static HK_FORCE_INLINE T min2(T a, T b) { return (a < b) ? a : b; }
+
+        /// @brief atan2(y, x) by a polynomial approximation (radians).
+        /// @note Out of line in vanilla (0x140a917c0).
+        static hkReal atan2fApproximation(hkReal y, hkReal x);
+        /// @brief asin, clamped to ±pi/2 outside (-1, 1).
+        static HK_FORCE_INLINE hkReal asin(hkReal r)
+        {
+            if (fabs(r) >= 1.0f) return (r > 0.0f) ? 0.5f * HK_REAL_PI : -0.5f * HK_REAL_PI;
+            return ::asinf(r);
+        }
 
         /// @brief Rounds toward negative infinity: truncate, then step down for a negative non-integer.
         /// @note Out-of-range input (truncation gives 0x80000000) and integers come back unchanged.

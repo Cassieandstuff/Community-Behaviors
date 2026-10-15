@@ -17,12 +17,11 @@ namespace CB { namespace schema
         char              m_pad20[0x30 - 0x20];
         /// @note Name provisional: bits callbacks raise through the const context (hence mutable).
         mutable hkUint8   m_flags;            ///< +0x30
-        char              m_pad31[0x48 - 0x31];
+        char              m_pad31[0x38 - 0x31];
+        hkpWorld*         m_world;            ///< +0x38
+        char              m_pad40[0x48 - 0x40];
         void*             m_animationCache;   ///< +0x48
 
-        /// @brief The physics world: the context's, else the one the character's world holds.
-        /// @note Out of line in vanilla.
-        hkpWorld* getWorld() const;
         /// @brief The m_flags bit a node raises when its set of active children changes during handleEvent
         ///        (hkbEventDrivenModifier, hkbStateMachine, BSCyclicBlendTransitionGenerator).
         /// @note Name provisional. A constant vanilla reads from memory (0x141941229 = 2), so it is declared, not defined,
@@ -31,5 +30,11 @@ namespace CB { namespace schema
 
         /// @brief The context's queue, else the character's.
         HK_FORCE_INLINE hkbEventQueue* getEventQueue() const { return m_eventQueue ? m_eventQueue : m_character->m_eventQueue; }
+        /// @brief The context's physics world, else the character's behavior world's (null without either).
+        /// @note Name provisional. Out of line in vanilla (0x140ab0aa0).
+        hkpWorld* getWorld() const;
+        /// @brief The behavior world's up vector, else the character's project data's.
+        /// @note Out of line in vanilla (0x140ab0ad0).
+        const hkVector4& getWorldUpWS() const;
     };
 } }

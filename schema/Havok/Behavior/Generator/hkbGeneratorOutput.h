@@ -6,6 +6,8 @@
 
 namespace CB { namespace schema
 {
+    struct hkaSkeleton;
+
     struct hkbGeneratorOutput
     {
         enum StandardTracks { TRACK_WORLD_FROM_MODEL = 0, TRACK_EXTRACTED_MOTION = 1, TRACK_POSE = 2, TRACK_FLOAT_SLOTS = 3 };

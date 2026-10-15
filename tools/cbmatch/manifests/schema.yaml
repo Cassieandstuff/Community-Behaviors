@@ -456,3 +456,30 @@ units:
   - source: ../../../schema/Havok/Behavior/Modifier/Damping/hkbDampingModifierUtils.cpp
     functions:
       - { name: "CB::schema::hkbDampingModifierUtils::modify", va: 0x140b0d3f0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/ComputeDirection/hkbComputeDirectionModifier.cpp
+    functions:
+      - { name: "??0hkbComputeDirectionModifier@schema@CB@@QEAA@XZ", va: 0x140aec570 }
+      - { name: "??0hkbComputeDirectionModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aec610 }
+      - { name: "CB::schema::hkbComputeDirectionModifier::activate", va: 0x140aec690 }
+      - { name: "CB::schema::hkbComputeDirectionModifier::cloneNode", va: 0x140aec6b0 }
+      - { name: "CB::schema::hkbComputeDirectionModifier::modify", va: 0x140aec700 }
+      - { name: "CB::schema::hkbComputeDirectionModifier::createInternalState", va: 0x140aec740 }
+      - { name: "CB::schema::hkbComputeDirectionModifier::getInternalState", va: 0x140aec780 }
+      - { name: "CB::schema::hkbComputeDirectionModifier::setInternalState", va: 0x140aec7b0 }
+      - { name: "??_GhkbComputeDirectionModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8300 }
+  - source: ../../../schema/Havok/Behavior/Modifier/ComputeDirection/hkbComputeDirectionModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbComputeDirectionModifierUtils::modify", va: 0x140b0ce80 }
+  - source: ../../../schema/Havok/Behavior/Modifier/DetectCloseToGround/hkbDetectCloseToGroundModifier.cpp
+    functions:
+      - { name: "??0hkbDetectCloseToGroundModifier@schema@CB@@QEAA@XZ", va: 0x140aed450 }
+      - { name: "??0hkbDetectCloseToGroundModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aed4f0 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::activate", va: 0x140aed560 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::update", va: 0x140aed570 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::isValid", va: 0x140aed660 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::cloneNode", va: 0x140aed720 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::modify", va: 0x140aed770 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::createInternalState", va: 0x140aed930 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::getInternalState", va: 0x140aed970 }
+      - { name: "CB::schema::hkbDetectCloseToGroundModifier::setInternalState", va: 0x140aed980 }
+      - { name: "??_GhkbDetectCloseToGroundModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8940 }

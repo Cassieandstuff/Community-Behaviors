@@ -16,6 +16,7 @@ extern "C" unsigned __int64 __rdtsc();
 #pragma intrinsic(__rdtsc)
 extern "C" double __cdecl fabs(double);
 #pragma intrinsic(fabs)
+extern "C" float __cdecl asinf(float);
 
 #define HK_NULL 0
 #define HK_FORCE_INLINE __forceinline
@@ -23,6 +24,7 @@ extern "C" double __cdecl fabs(double);
 #define HK_REAL_MAX 3.40282e+38f
 #define HK_REAL_PI 3.14159265358979f
 #define HK_REAL_DEG_TO_RAD (HK_REAL_PI / 180.0f)
+#define HK_REAL_RAD_TO_DEG 57.2957795f
 
 /// @brief Global placement new, as `<new>` declares it.
 /// @note MSVC null-checks its result, which vanilla's hkArray::pushBack carries. hkReferencedObject declares its own,

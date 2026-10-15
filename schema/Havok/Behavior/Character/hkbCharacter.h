@@ -14,6 +14,19 @@ namespace CB { namespace schema
     class hkpRigidBody;
     class hkpWorld;
     struct hkbEventQueue;
+    struct hkbWorld;
+    class hkaRagdollInstance;
+
+    /// @brief Casts the rays behavior nodes ask for (the game implements it).
+    /// @note Only the slot vanilla's callers use is declared; slot 0 is the destructor.
+    class hkbRaycastInterface
+    {
+    public:
+        virtual ~hkbRaycastInterface();
+        /// @brief Whether the ray from `from` to `to` hits; the hit's fraction along it and its normal.
+        virtual hkBool castRay(const hkVector4& from, const hkVector4& to, hkUint32 collisionFilterInfo, hkReal& hitFractionOut,
+                               hkVector4& normalWSOut) = 0;   ///< slot 1
+    };
 
     struct hkbAnimationBindingWithTriggers : hkReferencedObject
     {
@@ -36,9 +49,11 @@ namespace CB { namespace schema
     struct hkbCharacterData : hkReferencedObject
     {
         char      m_pad10[0x30 - 0x10];
-        hkVector4 m_modelUpMS;   ///< +0x30
-        char      m_pad40[0xa8 - 0x40];
-        hkReal    m_scale;       ///< +0xa8
+        hkVector4 m_modelUpMS;        ///< +0x30
+        hkVector4 m_modelForwardMS;   ///< +0x40
+        hkVector4 m_modelRightMS;     ///< +0x50
+        char      m_pad60[0xa8 - 0x60];
+        hkReal    m_scale;            ///< +0xa8
     };
 
     struct hkbCharacterSetup : hkReferencedObject
@@ -65,9 +80,10 @@ namespace CB { namespace schema
         char                             m_pad38[0x50 - 0x38];
         hkRefPtr<hkbCharacterSetup>      m_setup;                 ///< +0x50
         hkbBehaviorGraph*                m_behaviorGraph;         ///< +0x58
-        char                             m_pad60[0x68 - 0x60];
+        void*                            m_projectData;           ///< +0x60
         hkRefPtr<hkbAnimationBindingSet> m_animationBindingSet;   ///< +0x68
-        char                             m_pad70[0x80 - 0x70];
+        hkbRaycastInterface*             m_raycastInterface;      ///< +0x70
+        hkbWorld*                        m_world;                 ///< +0x78
         hkbEventQueue*                   m_eventQueue;            ///< +0x80
         hkQsTransform*                   m_worldFromModel;        ///< +0x88
 
@@ -82,6 +98,9 @@ namespace CB { namespace schema
         /// @brief The local pose, built from the skeleton's reference pose on first use.
         /// @note Out of line in vanilla.
         const hkQsTransform* getPoseLocal();
+        /// @brief The character's own raycast interface, else its world's.
+        /// @note Out of line in vanilla (0x140abdba0).
+        hkbRaycastInterface* getRaycastInterface() const;
 
         /// @brief The character's own binding set, else its setup's.
         HK_FORCE_INLINE hkbAnimationBindingSet* getAnimationBindingSet() const

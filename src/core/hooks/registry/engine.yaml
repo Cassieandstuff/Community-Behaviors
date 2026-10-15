@@ -228,6 +228,7 @@ symbols:
   - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
   - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
   - { name: GlobalSizedDelete, kind: func, se: 0, ae: 82484, vr: 0, cpp: "__global_delete" }  # operator delete(void*, size_t) — the ::delete path of every deleting destructor
+  - { name: CRT_asinf, kind: func, se: 0, ae: 109724, vr: 0, cpp: "asinf" }  # the CRT asinf (hkMath::asin inside (-1, 1))
   - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "CB::schema::hkMemoryRouter_s_memoryRouter" }
   - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "CB::schema::hkError::s_instance" }
   - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "CB::schema::hkMonitorStream_s_tls" }
@@ -237,6 +238,9 @@ symbols:
   - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "CB::schema::g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
   - { name: hkVectorConstant_One, kind: data, se: 0, ae: 219027, vr: 0, cpp: "CB::schema::g_vectorConstantOne" }  # 1 x4, beside hkVectorConstant_Zero
   - { name: hkQuadReal_Zero, kind: data, se: 0, ae: 219013, vr: 0, cpp: "CB::schema::g_quadRealZero" }  # 0 x4 in the table hkVectorConstant_0001 sits in (not hkVectorConstant_Zero); name provisional
+  - { name: hkQuadReal_Inv2, kind: data, se: 0, ae: 219011, vr: 0, cpp: "CB::schema::g_quadRealInv2" }  # 0.5 x4 in hkQuadReal_Zero's table; name provisional
+  - { name: hkQuadReal_3, kind: data, se: 0, ae: 219012, vr: 0, cpp: "CB::schema::g_quadReal3" }  # 3 x4 in hkQuadReal_Zero's table; name provisional
+  - { name: hkMath_Atan2fApproximation, kind: func, se: 0, ae: 57396, vr: 0, cpp: "CB::schema::hkMath::atan2fApproximation" }  # (y, x) polynomial atan2, radians
   - { name: hkVectorConstants_0001, kind: data, se: 0, ae: 219033, vr: 0, cpp: "CB::schema::g_vectorConstants0001" }  # (0,0,0,1) in hkVectorConstant_Zero's table (not hkVectorConstant_0001's); name provisional
   # Havok animation
   - { name: hkaSkeletonUtils_ScalePose, kind: func, se: 0, ae: 64092, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::scalePose" }  # name provisional; (scale, pose, count)
@@ -284,6 +288,13 @@ symbols:
   - { name: hkbMirrorModifierUtils_Modify, kind: func, se: 0, ae: 60067, vr: 0, cpp: "CB::schema::hkbMirrorModifierUtils::modify" }  # name provisional; (modifier, mirroredSkeleton, referencePose, worldFromModel, inOut) mirrors the pose and the world-from-model
   - { name: hkbDampingModifier_CloneCtor, kind: func, se: 0, ae: 59647, vr: 0, cpp: "??0hkbDampingModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbDampingModifierUtils_Modify, kind: func, se: 0, ae: 60055, vr: 0, cpp: "CB::schema::hkbDampingModifierUtils::modify" }  # name provisional; (modifier) one PID step of the scalar and vector channels
+  - { name: hkbComputeDirectionModifier_CloneCtor, kind: func, se: 0, ae: 59623, vr: 0, cpp: "??0hkbComputeDirectionModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbComputeDirectionModifierUtils_Modify, kind: func, se: 0, ae: 60053, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifierUtils::modify" }  # name provisional; (up, forward, right, inOut, modifier)
+  - { name: hkbDetectCloseToGroundModifier_CloneCtor, kind: func, se: 0, ae: 59673, vr: 0, cpp: "??0hkbDetectCloseToGroundModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbCharacter_GetRaycastInterface, kind: func, se: 0, ae: 58463, vr: 0, cpp: "CB::schema::hkbCharacter::getRaycastInterface" }  # +0x70, else the behavior world's (+0x78 -> +0x148)
+  - { name: hkbContext_GetWorldUpWS, kind: func, se: 0, ae: 58317, vr: 0, cpp: "CB::schema::hkbContext::getWorldUpWS" }  # behavior world +0x120, else project data +0x10
+  - { name: hkbGeneratorOutputUtils_GetBoneModelSpace, kind: func, se: 0, ae: 58480, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getBoneModelSpace" }  # name provisional; (bone, output, skeleton, out) composes up the parent chain
+  - { name: hkbRagdollDriver_GetRagdoll, kind: func, se: 0, ae: 58286, vr: 0, cpp: "CB::schema::hkbRagdollDriver::getRagdoll" }  # name provisional; returns +0x88
   - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
   - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
   - { name: hkbBehaviorGraph_GetNodeClone, kind: func, se: 0, ae: 58359, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeClone" }  # name provisional; template node -> this graph's clone
@@ -291,8 +302,6 @@ symbols:
   - { name: hkbStateMachine_GetStateIndex, kind: func, se: 0, ae: 59372, vr: 0, cpp: "CB::schema::hkbStateMachine::getStateIndex" }  # stateId -> index in m_states, -1 for none
   - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
   - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
-  - { name: hkbGeneratorOutputUtils_GetBoneModelSpace, kind: func, se: 0, ae: 58480, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getBoneModelSpace" }  # name provisional; (bone, output, skeleton, out): pose bones, reference pose for unset ones
-  - { name: hkbRagdollDriver_GetRagdoll, kind: func, se: 0, ae: 58286, vr: 0, cpp: "CB::schema::hkbRagdollDriver::getRagdoll" }  # returns +0x88
   - { name: hkbCharacter_GetPoseLocal, kind: func, se: 0, ae: 58458, vr: 0, cpp: "CB::schema::hkbCharacter::getPoseLocal" }  # +0x90, filled from the reference pose on first use
   - { name: hkbClosestLocalFrameCollector_SetCharacterAndBone, kind: func, se: 0, ae: 60061, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setCharacterAndBone" }  # name provisional
   - { name: hkbClosestLocalFrameCollector_SetMinDistance, kind: func, se: 0, ae: 60062, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setMinDistance" }  # name provisional; +0x78
@@ -364,6 +373,10 @@ symbols:
   - { name: hkbMirrorModifier_Vtable, kind: data, se: 278563, ae: 226544, vr: 0, cpp: "CB::schema::hkbMirrorModifier::`vftable'" }
   - { name: hkbDampingModifier_Vtable, kind: data, se: 278449, ae: 226402, vr: 0, cpp: "CB::schema::hkbDampingModifier::`vftable'" }
   - { name: hkbDampingModifierInternalState_Vtable, kind: data, se: 278452, ae: 226406, vr: 0, cpp: "CB::schema::hkbDampingModifierInternalState::`vftable'" }
+  - { name: hkbComputeDirectionModifier_Vtable, kind: data, se: 278431, ae: 226378, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifier::`vftable'" }
+  - { name: hkbComputeDirectionModifierInternalState_Vtable, kind: data, se: 278434, ae: 226382, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifierInternalState::`vftable'" }
+  - { name: hkbDetectCloseToGroundModifier_Vtable, kind: data, se: 278462, ae: 226420, vr: 0, cpp: "CB::schema::hkbDetectCloseToGroundModifier::`vftable'" }
+  - { name: hkbDetectCloseToGroundModifierInternalState_Vtable, kind: data, se: 278465, ae: 226424, vr: 0, cpp: "CB::schema::hkbDetectCloseToGroundModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
   - { name: BSTimerModifier_Vtable, kind: data, se: 282073, ae: 232720, vr: 0, cpp: "CB::schema::BSTimerModifier::`vftable'" }
   - { name: BSEventOnDeactivateModifier_Vtable, kind: data, se: 282048, ae: 232685, vr: 0, cpp: "CB::schema::BSEventOnDeactivateModifier::`vftable'" }
