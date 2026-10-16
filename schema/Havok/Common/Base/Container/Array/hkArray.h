@@ -126,7 +126,12 @@ namespace CB { namespace schema
             return *this;
         }
 
-        HK_FORCE_INLINE void     clear() { m_size = 0; }
+        /// @brief Destroys the elements (last to first; a no-op for POD) and empties the array, keeping its storage.
+        HK_FORCE_INLINE void clear()
+        {
+            hkArrayUtil::destruct(m_data, m_size, hkArrayIsPod<hkIsPodType<T>::result != 0>());
+            m_size = 0;
+        }
         /// @brief Empties the array and frees owned storage, leaving it empty and non-owning (the destructor's body).
         HK_FORCE_INLINE void clearAndDeallocate()
         {

@@ -568,6 +568,19 @@ symbols:
   - { name: hkaPose_GetSyncedPoseLocalSpace, kind: func, se: 0, ae: 56982, vr: 0, cpp: "CB::schema::hkaPose::getSyncedPoseLocalSpace" }
   - { name: hkaPose_AccessBoneModelSpace, kind: func, se: 0, ae: 56989, vr: 0, cpp: "CB::schema::hkaPose::accessBoneModelSpace" }  # (bone, PropagateOrNot)
   - { name: hkaPose_CalculateBoneModelSpace, kind: func, se: 0, ae: 56999, vr: 0, cpp: "CB::schema::hkaPose::calculateBoneModelSpace" }  # getBoneModelSpace's dirty path
+  - { name: hkaPose_AccessBoneLocalSpace, kind: func, se: 0, ae: 56988, vr: 0, cpp: "CB::schema::hkaPose::accessBoneLocalSpace" }  # (bone) syncs it, marks its descendants model-dirty
+  - { name: BGSGamebryoSequenceGenerator_Vtable, kind: data, se: 0, ae: 230942, vr: 0, cpp: "CB::schema::BGSGamebryoSequenceGenerator::`vftable'" }
+  - { name: BGSGamebryoSequenceGenerator_GetStaticClass, kind: func, se: 0, ae: 62956, vr: 0, cpp: "CB::schema::BGSGamebryoSequenceGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BGSGamebryoSequenceGenerator_CloneCtor, kind: func, se: 0, ae: 62937, vr: 0, cpp: "??0BGSGamebryoSequenceGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BGSGamebryoSequenceGenerator_Dtor, kind: func, se: 0, ae: 62928, vr: 0, cpp: "CB::schema::BGSGamebryoSequenceGenerator::~BGSGamebryoSequenceGenerator" }  # user-declared (re-stamps the vtable); the deleting destructor calls it
+  - { name: IGamebryoSequenceGeneratorHolderSingleton_Instance, kind: data, se: 0, ae: 409305, vr: 0, cpp: "CB::schema::IGamebryoSequenceGeneratorHolderSingleton::s_instance" }  # BSTSingletonSDM<BGSGamebryoSequenceGeneratorHolderSingleton>; plays the Gamebryo sequences
+  - { name: BSDirectAtModifier_Vtable, kind: data, se: 0, ae: 232672, vr: 0, cpp: "CB::schema::BSDirectAtModifier::`vftable'" }
+  - { name: BSDirectAtModifier_CloneCtor, kind: func, se: 0, ae: 63196, vr: 0, cpp: "??0BSDirectAtModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSDirectAtModifier_Dtor, kind: func, se: 0, ae: 63197, vr: 0, cpp: "CB::schema::BSDirectAtModifier::~BSDirectAtModifier" }  # out of line; the deleting destructor calls it
+  - { name: BSDirectAtModifierInterface_Instance, kind: data, se: 0, ae: 409506, vr: 0, cpp: "CB::schema::BSDirectAtModifierInterface::s_instance" }  # BSTSingletonSDM<BSDirectAtModifierInterface>; update asks it for the target
+  - { name: BSDirectAtModifierUtils_ModifyInternal, kind: func, se: 0, ae: 63345, vr: 0, cpp: "CB::schema::BSDirectAtModifierUtils::modifyInternal" }  # name provisional; (modifier, skeleton, worldFromModel, upWS, inOut)
+  - { name: BSDirectAtModifierUtils_ComputeHeadingDelta, kind: func, se: 0, ae: 63346, vr: 0, cpp: "CB::schema::BSDirectAtModifierUtils::computeHeadingDelta" }  # name provisional; atan2(x, y) difference wrapped to [-pi, pi]
+  - { name: BSDirectAtModifierUtils_ComputePitchDelta, kind: func, se: 0, ae: 63347, vr: 0, cpp: "CB::schema::BSDirectAtModifierUtils::computePitchDelta" }  # name provisional; elevation difference wrapped to [-pi, pi]
   - { name: hkaLookAtIkSolver_Solve, kind: func, se: 0, ae: 64407, vr: 0, cpp: "CB::schema::hkaLookAtIkSolver::solve" }  # (setup, targetMS, gain, boneModelSpace, range) -> hkBool inside limits
   - { name: hkbGeneratorOutputUtils_GetFilledPoseLocal, kind: func, se: 0, ae: 58478, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getFilledPoseLocal" }  # name provisional; (output, skeleton, poseOut) output pose, unset bones from the reference pose
   - { name: hkbGeneratorOutputUtils_MarkPoseDense, kind: func, se: 0, ae: 58474, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::markPoseDense" }  # name provisional; sets every pose partition bit
@@ -586,6 +599,7 @@ symbols:
   - { name: hkOstream_Dtor, kind: func, se: 0, ae: 57513, vr: 0, cpp: "CB::schema::hkOstream::~hkOstream" }
   - { name: hkMath_Acos, kind: func, se: 0, ae: 60037, vr: 0, cpp: "CB::schema::hkMath::acos" }  # out-of-line copy: 0 at >= 1, pi at <= -1, else acosf
   - { name: CRT_acosf, kind: func, se: 0, ae: 109723, vr: 0, cpp: "acosf" }  # the CRT acosf
+  - { name: CRT_fmodf, kind: func, se: 0, ae: 109714, vr: 0, cpp: "fmodf" }  # the CRT fmodf (BGSGamebryoSequenceGenerator::update wraps looping time)
   - { name: hkbTransitionEffect_DefaultCtor, kind: func, se: 0, ae: 59487, vr: 0, cpp: "??0hkbTransitionEffect@schema@CB@@QEAA@XZ" }  # out of line; the effects' default constructors call it
   - { name: hkbTransitionEffect_CloneCtor, kind: func, se: 0, ae: 59488, vr: 0, cpp: "??0hkbTransitionEffect@schema@CB@@QEAA@AEBV012@@Z" }  # out of line; the effects' clone copies call it
   - { name: hkbTransitionEffect_ApplySelfTransitionMode, kind: func, se: 0, ae: 59490, vr: 0, cpp: "CB::schema::hkbTransitionEffect::applySelfTransitionMode" }  # name provisional; restarts an already-active to-generator per m_selfTransitionMode

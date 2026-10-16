@@ -745,6 +745,41 @@ units:
       - { name: "CB::schema::BSComputeGainForTimeStep", va: 0x140ba2060 }
       # - { name: "CB::schema::BSLookAtModifierUtils::modifyInternal", va: 0x140ba2090 }  # parked: one dead broadcast shufps vanilla keeps (see parked.yaml)
       # - { name: "CB::schema::BSLookAtModifierUtils::modifyBone", va: 0x140ba2ba0 }  # parked: constants hoisted into different xmm registers (see parked.yaml)
+  - source: ../../../schema/Havok/Behavior/Generator/BGSGamebryoSequence/BGSGamebryoSequenceGenerator.cpp
+    functions:
+      - { name: "??0BGSGamebryoSequenceGenerator@schema@CB@@QEAA@XZ", va: 0x140b928e0 }
+      - { name: "??0BGSGamebryoSequenceGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b92980 }
+      - { name: "??1BGSGamebryoSequenceGenerator@schema@CB@@UEAA@XZ", va: 0x140b92a00 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::getClassType", va: 0x140b92ac0 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::generate", va: 0x140b92ad0 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::activate", va: 0x140b92c10 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::update", va: 0x140b92c30 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::deactivate", va: 0x140b92f10 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::isValid", va: 0x140b92fb0 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::cloneNode", va: 0x140b92ff0 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::getBlendWeight", va: 0x140b93040 }
+      - { name: "??0BGSGamebryoSequenceGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b93080 }
+      - { name: "??_GBGSGamebryoSequenceGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b930f0 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::canRecycleOutput", va: 0x140b93170 }
+      - { name: "CB::schema::BGSGamebryoSequenceGenerator::setElapsedTime", va: 0x140b93180 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSDirectAt/BSDirectAtModifier.cpp
+    functions:
+      - { name: "??0BSDirectAtModifier@schema@CB@@QEAA@XZ", va: 0x140b99b50 }
+      - { name: "??0BSDirectAtModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b99c60 }
+      - { name: "CB::schema::BSDirectAtModifier::activate", va: 0x140b99cd0 }
+      - { name: "CB::schema::BSDirectAtModifier::deactivate", va: 0x140b99cf0 }
+      - { name: "CB::schema::BSDirectAtModifier::cloneNode", va: 0x140b99d20 }
+      - { name: "CB::schema::BSDirectAtModifier::update", va: 0x140b99d70 }
+      - { name: "CB::schema::BSDirectAtModifier::modify", va: 0x140b99e10 }
+      - { name: "??0BSDirectAtModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b99f00 }
+      - { name: "??1BSDirectAtModifier@schema@CB@@UEAA@XZ", va: 0x140b9a040 }
+      - { name: "??_GBSDirectAtModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9a0b0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSDirectAt/BSDirectAtModifierUtils.cpp
+    functions:
+      # - { name: "CB::schema::BSDirectAtModifierUtils::modifyInternal", va: 0x140ba1200 }  # parked: vanilla calls the hkBitField destructor out of line (see parked.yaml)
+      - { name: "CB::schema::BSDirectAtModifierUtils::computeHeadingDelta", va: 0x140ba1f00 }
+      - { name: "CB::schema::BSDirectAtModifierUtils::computePitchDelta", va: 0x140ba1f70 }
+      # - { name: "??1hkBitField@schema@CB@@QEAA@XZ", va: 0x140ba2000 }  # parked: 24247 inlines it, so it is never emitted (see parked.yaml)
   - source: ../../../schema/Havok/Behavior/TransitionEffect/Generator/hkbGeneratorTransitionEffect.cpp
     functions:
       - { name: "??0hkbGeneratorTransitionEffect@schema@CB@@QEAA@XZ", va: 0x140b02310 }

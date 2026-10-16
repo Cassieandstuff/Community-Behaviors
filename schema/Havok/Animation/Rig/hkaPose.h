@@ -75,7 +75,27 @@ namespace CB { namespace schema
         /// @brief Recomputes a dirty bone's model transform (up its parent chain) and returns it.
         const hkQsTransform& calculateBoneModelSpace(int boneIdx) const;
 
+        /// @brief A bone's local transform for writing: its descendants' model transforms are marked dirty.
+        /// @note Out of line in vanilla (0x140a852f0).
+        hkQsTransform& accessBoneLocalSpace(int boneIdx);
+
         HK_FORCE_INLINE int isFlagOn(int boneIdx, int flag) const { return m_boneFlags[boneIdx] & flag; }
+        HK_FORCE_INLINE void clearFlag(int boneIdx, int flag) const { m_boneFlags[boneIdx] &= ~flag; }
+        /// @brief A bone's local transform, recomputed from its and its parent's model transforms first when dirty.
+        HK_FORCE_INLINE const hkQsTransform& getBoneLocalSpace(int boneIdx) const
+        {
+            if (!isFlagOn(boneIdx, F_BONE_LOCAL_DIRTY)) return m_localPose[boneIdx];
+            const hkQsTransform& boneModelSpace = m_modelPose[boneIdx];
+            const hkInt16        parentIdx      = m_skeleton->m_parentIndices[boneIdx];
+            if (parentIdx != -1) {
+                const hkQsTransform& parentModelSpace = getBoneModelSpace(parentIdx);
+                m_localPose[boneIdx].setMulInverseMul(parentModelSpace, boneModelSpace);
+            } else {
+                m_localPose[boneIdx] = boneModelSpace;
+            }
+            clearFlag(boneIdx, F_BONE_LOCAL_DIRTY);
+            return m_localPose[boneIdx];
+        }
         HK_FORCE_INLINE const hkQsTransform& getBoneModelSpace(int boneIdx) const
         {
             if (!isFlagOn(boneIdx, F_BONE_MODEL_DIRTY)) return m_modelPose[boneIdx];

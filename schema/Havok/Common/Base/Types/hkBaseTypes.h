@@ -18,6 +18,9 @@ extern "C" double __cdecl fabs(double);
 #pragma intrinsic(fabs)
 extern "C" float __cdecl asinf(float);
 extern "C" float __cdecl acosf(float);
+extern "C" float __cdecl sqrtf(float);
+extern "C" float __cdecl fmodf(float, float);
+#pragma intrinsic(sqrtf)
 
 #define HK_NULL 0
 #define HK_FORCE_INLINE __forceinline
