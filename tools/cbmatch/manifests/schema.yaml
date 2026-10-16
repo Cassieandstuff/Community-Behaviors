@@ -1404,12 +1404,15 @@ units:
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialTracks", va: 0x140c2fa30 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::sampleIndividualTransformTracks", va: 0x140c2fce0 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::sampleIndividualFloatTracks", va: 0x140c2ff80 }
-      - { name: "CB::schema::hkaInterleavedUncompressedAnimation::transformTrack", va: 0x140c30210 }
+      # STRUCTURAL, vanilla computes the quaternion product q0·q1 twice where 24247 CSEs it (see parked.yaml):
+      # - { name: "CB::schema::hkaInterleavedUncompressedAnimation::transformTrack", va: 0x140c30210 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getNumOriginalFrames", va: 0x140c30390 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getNumDataChunks", va: 0x140c303b0 }
-      - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getDataChunks", va: 0x140c303d0 }
+      # STRUCTURAL, vanilla keeps (2·n)·48 unfolded where 24247 folds it to n·96 (see parked.yaml):
+      # - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getDataChunks", va: 0x140c303d0 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getMaxSizeOfCombinedDataChunks", va: 0x140c30450 }
-      - { name: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks", va: 0x140c30480 }
+      # STRUCTURAL, 24247 turns every aligned move unaligned once a loop in the function auto-vectorizes, and hoists 1 - t (see parked.yaml):
+      # - { name: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks", va: 0x140c30480 }
       - { name: "??1hkaInterleavedUncompressedAnimation@schema@CB@@UEAA@XZ", va: 0x140bde9b0 }
       - { name: "??_GhkaInterleavedUncompressedAnimation@schema@CB@@UEAAPEAXI@Z", va: 0x140bdee50 }
   - source: ../../../schema/Havok/Animation/Animation/Quantized/hkaQuantizedAnimation.cpp
@@ -1433,7 +1436,8 @@ units:
       - { name: "CB::schema::hkaSplineCompressedAnimation::getNumDataChunks", va: 0x140c32a70 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::getDataChunks", va: 0x140c32a80 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::getMaxSizeOfCombinedDataChunks", va: 0x140c32b10 }
-      - { name: "CB::schema::hkaSplineCompressedAnimation::samplePartialWithDataChunks", va: 0x140c32b60 }
+      # STRUCTURAL, vanilla keeps the address-taken data cursor in a dead stack-argument slot (see parked.yaml):
+      # - { name: "CB::schema::hkaSplineCompressedAnimation::samplePartialWithDataChunks", va: 0x140c32b60 }
       - { name: "??1hkaSplineCompressedAnimation@schema@CB@@UEAA@XZ", va: 0x140c32e30 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::sampleRotation", va: 0x140c32fa0 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::sampleTranslation", va: 0x140c33000 }
