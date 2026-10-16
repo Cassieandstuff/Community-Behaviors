@@ -7,18 +7,35 @@
 
 namespace CB { namespace schema
 {
-    /// @note The data stream opens with this header; the frames follow at m_frameDataOffset, m_frameSize bytes each.
-    ///       Field names are provisional (read from the sampler's offsets).
+    /// @note The data stream opens with this header, then one weight byte per bone and per float track (indices into
+    ///       hkaQuantizedAnimation::s_weightTable); the frames follow at m_frameDataOffset, m_frameSize bytes each. Static
+    ///       elements (constant over the clip) are stored once: their component indices at m_staticIndicesOffset, their
+    ///       values at m_staticValuesOffset. Dynamic ones are u16 per frame, decoded as q · scale + offset. A component
+    ///       index counts hkReals into the pose (a rotation's counts hkVector4s). Field names are provisional (read from
+    ///       the sampler's offsets); which of the two scalar counts is translation and which scale is not known.
     struct hkaQuantizedAnimationHeader
     {
-        hkUint16 m_frameDataOffset;   ///< +0x00 — where frame 0 starts
-        hkUint16 m_numBones;          ///< +0x02 — transform tracks
-        hkUint16 m_numFloats;         ///< +0x04 — float tracks
-        hkUint16 m_numFrames;         ///< +0x06
-        hkReal   m_duration;          ///< +0x08
-        hkUint16 m_pad0c[8];          ///< +0x0c
-        hkUint16 m_frameSize;         ///< +0x1c — bytes per frame
+        hkUint16 m_frameDataOffset;          ///< +0x00 — where frame 0 starts
+        hkUint16 m_numBones;                 ///< +0x02 — transform tracks
+        hkUint16 m_numFloats;                ///< +0x04 — float tracks
+        hkUint16 m_numFrames;                ///< +0x06
+        hkReal   m_duration;                 ///< +0x08
+        hkUint16 m_numStaticTranslations;    ///< +0x0c — scalar components
+        hkUint16 m_numStaticRotations;       ///< +0x0e
+        hkUint16 m_numStaticScales;          ///< +0x10 — scalar components
+        hkUint16 m_numStaticFloats;          ///< +0x12
+        hkUint16 m_numDynamicTranslations;   ///< +0x14 — scalar components
+        hkUint16 m_numDynamicRotations;      ///< +0x16
+        hkUint16 m_numDynamicScales;         ///< +0x18 — scalar components
+        hkUint16 m_numDynamicFloats;         ///< +0x1a
+        hkUint16 m_frameSize;                ///< +0x1c — bytes per frame
+        hkUint16 m_staticIndicesOffset;      ///< +0x1e
+        hkUint16 m_dynamicIndicesOffset;     ///< +0x20
+        hkUint16 m_staticValuesOffset;       ///< +0x22
+        hkUint16 m_dynamicOffsetsOffset;     ///< +0x24
+        hkUint16 m_dynamicScalesOffset;      ///< +0x26
     };
+    static_assert(sizeof(hkaQuantizedAnimationHeader) == 0x28, "hkaQuantizedAnimationHeader size");
 
     /// @note Only whole-pose sampling: sampleIndividualTransformTracks / sampleIndividualFloatTracks do nothing.
     class hkaQuantizedAnimation : public hkaAnimation
@@ -78,6 +95,33 @@ namespace CB { namespace schema
                                  hkReal* poseWeightsOut, hkReal* floatWeightsOut, const hkQsTransform* referencePose, const hkReal* referenceFloats,
                                  hkQsTransform* poseBufferA, hkQsTransform* poseBufferB, hkReal* floatBufferA, hkReal* floatBufferB, hkReal delta,
                                  bool additive, hkReal weightThreshold);
+
+        /// @brief out[indices[i]] = values[i] for `count` components.
+        /// @note Name provisional (0x140c31c30).
+        static void scatterScalars(hkReal* out, const hkUint16* indices, const hkReal* values, int count);
+        /// @brief Unpacks `count` 48-bit quaternions (three u16 each, four at a time) to out[indices[i]].
+        /// @note Name provisional (0x140c31cf0).
+        static void scatterQuaternions(hkVector4* out, const hkUint16* indices, const hkUint16* packed, int count);
+        /// @brief out[indices[i]] = quantized[i] · scales[i] + offsets[i] for `count` components.
+        /// @note Name provisional (0x140c31ce0): forwards to decodeDynamicScalars.
+        static void sampleDynamicScalars(hkReal* out, const hkUint16* indices, const hkReal* offsets, const hkReal* scales, const hkUint16* quantized,
+                                         int count);
+
+        /// @note Out of line in another unit, behind Havok's key-code check (0x140c8b030). Name provisional.
+        static void decodeDynamicScalars(hkReal* out, const hkUint16* indices, const hkReal* offsets, const hkReal* scales, const hkUint16* quantized,
+                                         int count);
+        /// @brief Unpacks four consecutive 48-bit quaternions.
+        /// @note Out of line in another unit (0x140c974f0). Name provisional.
+        static void unpackQuaternions4(hkVector4* q0, hkVector4* q1, hkVector4* q2, hkVector4* q3, const hkUint16* packed);
+        /// @brief Blends `count` transforms (`floats`) of `a` toward `b` by `weight`.
+        /// @note Out of line in another unit (0x140c8b380 / 0x140c8b290). Names and the `mode` argument (always 0 here)
+        ///       provisional.
+        static void blendPose(hkQsTransform* out, const hkQsTransform* a, const hkQsTransform* b, hkSimdReal weight, int count, int mode, bool additive);
+        static void blendFloats(hkReal* out, const hkReal* a, const hkReal* b, hkSimdReal weight, int count, int mode);
+
+        /// @brief A track's weight from its header weight byte.
+        /// @note Name provisional (0x142024b90).
+        static const hkReal s_weightTable[256];
     };
     static_assert(sizeof(hkaQuantizedAnimation) == 0x58, "hkaQuantizedAnimation size");
 } }

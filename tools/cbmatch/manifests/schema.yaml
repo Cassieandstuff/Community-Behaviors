@@ -1426,6 +1426,11 @@ units:
       - { name: "CB::schema::hkaQuantizedAnimation::getNumOriginalFrames", va: 0x140c31370 }
       - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBMM_NM@Z", va: 0x140c31380 }
       - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBM1122M_NM@Z", va: 0x140c31630 }
+      # STRUCTURAL, vanilla keeps the frame index in the dead weightThreshold argument slot and sign-extends the header offsets (see parked.yaml):
+      # - { name: "CB::schema::hkaQuantizedAnimation::sampleFrames", va: 0x140c31770 }
+      - { name: "CB::schema::hkaQuantizedAnimation::scatterScalars", va: 0x140c31c30 }
+      - { name: "CB::schema::hkaQuantizedAnimation::sampleDynamicScalars", va: 0x140c31ce0 }
+      - { name: "CB::schema::hkaQuantizedAnimation::scatterQuaternions", va: 0x140c31cf0 }
       - { name: "??1hkaQuantizedAnimation@schema@CB@@UEAA@XZ", va: 0x140be2160 }
       - { name: "??_GhkaQuantizedAnimation@schema@CB@@UEAAPEAXI@Z", va: 0x140bdeed0 }
   - source: ../../../schema/Havok/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimation.cpp

@@ -84,5 +84,8 @@ namespace CB { namespace schema
         /// @note Name per the Havok SDK; out of line in vanilla (0x140bd47b0).
         static void transformLocalPoseToModelPose(int numTransforms, const hkInt16* parentIndices, const hkQsTransform* poseLocal,
                                                   hkQsTransform* poseModelOut);
+        /// @brief Copies `numBones` transforms and `numFloats` floats (rounded up to a multiple of four) as 16-byte blocks.
+        /// @note Name provisional (0x140bd3ca0); the quantized sampler seeds its outputs with the reference pose through it.
+        static void copyPoseAndFloats(hkQsTransform* poseOut, hkReal* floatsOut, const hkQsTransform* pose, int numBones, const hkReal* floats, int numFloats);
     };
 } }
