@@ -64,6 +64,8 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void addMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(s.m_real, a.m_quad)); }
         HK_FORCE_INLINE void addMul4(const hkVector4& a, hkSimdReal s) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, s.m_real)); }
         HK_FORCE_INLINE void subMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_sub_ps(m_quad, _mm_mul_ps(s.m_real, a.m_quad)); }
+        HK_FORCE_INLINE void subMul4(const hkVector4& a, hkSimdReal s) { m_quad = _mm_sub_ps(m_quad, _mm_mul_ps(a.m_quad, s.m_real)); }
+        HK_FORCE_INLINE void setMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_mul_ps(s.m_real, a.m_quad); }
 
         /// @note Shuffle constants 0xc9 / 0xd2 in this operand order are what vanilla's cross product compiles to.
         HK_FORCE_INLINE void setCross(const hkVector4& a, const hkVector4& b)
@@ -267,6 +269,31 @@ namespace CB { namespace schema
             w.sub4(q0.m_vec.dot3(q1.m_vec));
             m_vec.setXYZ_W(vec, w);
         }
+
+        /// @brief q0 · q1⁻¹: the rotation taking q1 to q0.
+        /// @note w is the four-lane dot product, re-broadcast.
+        HK_FORCE_INLINE void setMulInverse(const hkQuaternion& q0, const hkQuaternion& q1)
+        {
+            hkVector4 vec;
+            vec.setCross(q1.m_vec, q0.m_vec);
+            vec.subMul4(q1.m_vec, hkSimdReal(q0.getReal()));
+            vec.addMul4(q0.m_vec, hkSimdReal(q1.getReal()));
+            const hkQuadReal w = q0.m_vec.dot4(q1.m_vec).m_real;
+            m_vec.setXYZ_W(vec, hkVector4(_mm_shuffle_ps(w, w, _MM_SHUFFLE(0, 0, 0, 0))));
+        }
+
+        /// @brief The rotation angle in radians, in [0, 2pi].
+        HK_FORCE_INLINE hkReal getAngle() const;
+        /// @brief Whether the axis is long enough to normalize (|xyz| > HK_REAL_EPSILON).
+        HK_FORCE_INLINE bool hasValidAxis() const { return m_vec.length3().getReal() > HK_REAL_EPSILON; }
+        /// @brief The unit rotation axis, flipped so the angle is in [0, pi] when w is negative.
+        /// @pre hasValidAxis().
+        HK_FORCE_INLINE void getAxis(hkVector4& axisOut) const
+        {
+            axisOut = m_vec;
+            axisOut.normalize3();
+            if (_mm_movemask_ps(_mm_cmplt_ps(m_vec.m_quad, _mm_setzero_ps())) & 8) axisOut.setNeg4(axisOut);
+        }
     };
 
     HK_FORCE_INLINE void hkVector4::setRotatedDir(const hkQuaternion& quat, const hkVector4& direction)
@@ -361,6 +388,9 @@ namespace CB { namespace schema
         }
         /// @note Out of line in vanilla.
         hkBool isApproximatelyEqual(const hkQsTransform& other, hkReal epsilon) const;
+        /// @brief The rigid transform `transform` with unit scale.
+        /// @note Out of line in vanilla (0x140a8de50).
+        void setFromTransformNoScale(const hkTransform& transform);
 
         HK_FORCE_INLINE void setInverse(const hkQsTransform& t)
         {
@@ -471,6 +501,16 @@ namespace CB { namespace schema
     };
 
     HK_FORCE_INLINE void hkVector4::normalize3() { mul4(hkMath::sqrtInverse(lengthSquared3())); }
+
+    /// @note hkMath::acos spelled inline: vanilla inlines it here (hkaRagdollInstance) though other units call the
+    ///       out-of-line copy (0x140b078e0).
+    HK_FORCE_INLINE hkReal hkQuaternion::getAngle() const
+    {
+        hkReal angle = hkMath::fabs(getReal());
+        if (hkMath::fabs(angle) >= 1.0f) angle = (angle > 0.0f) ? 0.0f : HK_REAL_PI;
+        else                             angle = ::acosf(angle);
+        return angle * 2.0f;
+    }
     /// @note The length is a scalar product (`mulss`): callers read it through getReal. The squared length is computed
     ///       twice (vanilla repeats the dot product for the inverse).
     HK_FORCE_INLINE hkSimdReal hkVector4::normalizeWithLength3()

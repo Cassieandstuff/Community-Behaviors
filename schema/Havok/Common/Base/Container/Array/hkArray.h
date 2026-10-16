@@ -10,11 +10,13 @@ namespace CB { namespace schema
     template <bool IS_POD> struct hkArrayIsPod {};
     /// @brief Whether containers may treat T as plain old data: the compiler's __is_pod, or a type that says so with
     ///        HK_DECLARE_POD_TYPE() (Havok's marker for structs whose members, such as hkBool, have constructors).
+    /// @note Not an enum: Havok's trait lists the POD types explicitly and enums are not among them, so vanilla fills an
+    ///       hkArray of an enum through the null-checked placement new (hkaDetectRagdollPenetration's bone states).
     template <class T> struct hkIsPodType
     {
         template <class U> static char test(typename U::hkIsPodTypeTag*);
         template <class U> static int  test(...);
-        static const bool result = __is_pod(T) || sizeof(test<T>(0)) == 1;
+        static const bool result = (__is_pod(T) && !__is_enum(T)) || sizeof(test<T>(0)) == 1;
     };
     /// @note Havok declares hkBool POD (it has a constructor, so __is_pod says no): vanilla fills and copies an
     ///       hkArray<hkBool> as raw bytes.

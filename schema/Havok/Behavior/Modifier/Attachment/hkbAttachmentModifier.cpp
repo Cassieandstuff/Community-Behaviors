@@ -102,19 +102,19 @@ namespace CB { namespace schema
 
         m_attacheeRB = attacheeHandle->m_rigidBody;
         if (m_attacheeRB) {
-            if (m_attacheeRB->m_world == HK_NULL) {
+            if (m_attacheeRB->getWorld() == HK_NULL) {
                 m_attacheeRB = HK_NULL;
                 return;
             }
-            if (attacherHandle->m_rigidBody && attacherHandle->m_rigidBody->m_world == HK_NULL) return;
+            if (attacherHandle->m_rigidBody && attacherHandle->m_rigidBody->getWorld() == HK_NULL) return;
 
-            m_attacheeRB->m_world->lock();
+            m_attacheeRB->getWorld()->lock();
             if (m_attachmentSetup->m_attachmentType == hkbAttachmentSetup::ATTACHMENT_TYPE_KEYFRAME_RIGID_BODY) {
                 hkpRigidBody* rb = m_attacheeRB;
-                if (rb->m_motionType != hkpRigidBody::MOTION_KEYFRAMED || rb->m_objectQualityType != hkpRigidBody::HK_COLLIDABLE_QUALITY_KEYFRAMED) {
-                    m_oldMotionType = rb->m_motionType;
-                    rb->setMotionType(hkpRigidBody::MOTION_KEYFRAMED, hkpRigidBody::HK_ENTITY_ACTIVATION_DO_ACTIVATE);
-                    rb->m_objectQualityType = hkpRigidBody::HK_COLLIDABLE_QUALITY_KEYFRAMED;
+                if (rb->getMotionType() != hkpMotion::MOTION_KEYFRAMED || rb->getQualityType() != HK_COLLIDABLE_QUALITY_KEYFRAMED) {
+                    m_oldMotionType = static_cast<hkUint8>(rb->getMotionType());
+                    rb->setMotionType(hkpMotion::MOTION_KEYFRAMED, HK_ENTITY_ACTIVATION_DO_ACTIVATE);
+                    rb->getCollidableRw()->setQualityType(HK_COLLIDABLE_QUALITY_KEYFRAMED);
                 }
             }
 
@@ -122,23 +122,24 @@ namespace CB { namespace schema
             hkbCharacter* attacheeCharacter = m_attacheeHandle->m_character;
             if (attacheeCharacter && attacheeCharacter->m_ragdollDriver) attacheeCharacter->m_ragdollDriver->addAttachedRigidBody(rb);
 
-            const hkUint32 filterInfo = rb->m_collisionFilterInfo;
+            const hkUint32 filterInfo = rb->getCollisionFilterInfo();
             m_oldFilterInfo           = filterInfo;
             if (m_attacheeLayer == -1) {
                 const hkpRigidBody* attacherRB = m_attacherHandle->m_rigidBody;
                 if (attacherRB) {
-                    const hkUint32 attacherInfo = attacherRB->m_collisionFilterInfo;
+                    const hkUint32 attacherInfo = attacherRB->getCollisionFilterInfo();
                     const int      subSystemId  = hkpGroupFilter::getSubSystemIdFromFilterInfo(attacherInfo);
-                    rb->m_collisionFilterInfo   = hkpGroupFilter::calcFilterInfo(hkpGroupFilter::getLayerFromFilterInfo(filterInfo),
-                                                                                 hkpGroupFilter::getSystemGroupFromFilterInfo(attacherInfo), subSystemId, subSystemId);
+                    rb->getCollidableRw()->setCollisionFilterInfo(hkpGroupFilter::calcFilterInfo(hkpGroupFilter::getLayerFromFilterInfo(filterInfo),
+                                                                                                 hkpGroupFilter::getSystemGroupFromFilterInfo(attacherInfo),
+                                                                                                 subSystemId, subSystemId));
                 }
             } else {
-                rb->m_collisionFilterInfo = hkpGroupFilter::calcFilterInfo(m_attacheeLayer, hkpGroupFilter::getSystemGroupFromFilterInfo(filterInfo),
+                rb->getCollidableRw()->setCollisionFilterInfo(hkpGroupFilter::calcFilterInfo(m_attacheeLayer, hkpGroupFilter::getSystemGroupFromFilterInfo(filterInfo),
                                                                            hkpGroupFilter::getSubSystemIdFromFilterInfo(filterInfo),
-                                                                           hkpGroupFilter::getSubSystemDontCollideWithFromFilterInfo(filterInfo));
+                                                                           hkpGroupFilter::getSubSystemDontCollideWithFromFilterInfo(filterInfo)));
             }
             context.getWorld()->updateCollisionFilterOnEntity(rb, 0, 1);
-            m_attacheeRB->m_world->unlock();
+            m_attacheeRB->getWorld()->unlock();
         }
 
         hkbAttachmentSetup* setup = m_attachmentSetup;
@@ -167,17 +168,17 @@ namespace CB { namespace schema
         if (rb) {
             hkbCharacter* attacheeCharacter = m_attachment->m_attacheeHandle.m_character;
             if (attacheeCharacter && attacheeCharacter->m_ragdollDriver) attacheeCharacter->m_ragdollDriver->removeAttachedRigidBody(rb);
-            if (rb->m_world) {
-                rb->m_world->lock();
+            if (rb->getWorld()) {
+                rb->getWorld()->lock();
                 if (m_attachmentSetup->m_attachmentType == hkbAttachmentSetup::ATTACHMENT_TYPE_KEYFRAME_RIGID_BODY && m_oldMotionType != 0 &&
-                    (rb->m_motionType == hkpRigidBody::MOTION_KEYFRAMED || rb->m_objectQualityType != hkpRigidBody::HK_COLLIDABLE_QUALITY_MOVING)) {
-                    rb->setMotionType(m_oldMotionType, hkpRigidBody::HK_ENTITY_ACTIVATION_DO_ACTIVATE);
-                    rb->m_objectQualityType = hkpRigidBody::HK_COLLIDABLE_QUALITY_MOVING;
+                    (rb->getMotionType() == hkpMotion::MOTION_KEYFRAMED || rb->getQualityType() != HK_COLLIDABLE_QUALITY_MOVING)) {
+                    rb->setMotionType(m_oldMotionType, HK_ENTITY_ACTIVATION_DO_ACTIVATE);
+                    rb->getCollidableRw()->setQualityType(HK_COLLIDABLE_QUALITY_MOVING);
                 }
-                hkpWorld* world           = rb->m_world;
-                rb->m_collisionFilterInfo = m_oldFilterInfo;
+                hkpWorld* world           = rb->getWorld();
+                rb->getCollidableRw()->setCollisionFilterInfo(m_oldFilterInfo);
                 if (world == context.getWorld()) context.getWorld()->updateCollisionFilterOnEntity(rb, 0, 1);
-                rb->m_world->unlock();
+                rb->getWorld()->unlock();
             }
             m_attacheeRB = HK_NULL;
         }

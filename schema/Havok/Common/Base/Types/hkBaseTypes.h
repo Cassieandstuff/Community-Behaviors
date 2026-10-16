@@ -89,4 +89,14 @@ namespace CB { namespace schema
     {
         int m_finishing;
     };
+
+    /// @brief A simulation time in seconds (hkpWorld::getCurrentTime, hkpMotion::approxTransformAt).
+    typedef hkReal hkTime;
+
+    /// @brief A 16-bit float: the upper half of an IEEE single.
+    class hkHalf
+    {
+    public:
+        hkInt16 m_value;
+    };
 } }
