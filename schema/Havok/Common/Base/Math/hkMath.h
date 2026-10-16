@@ -194,6 +194,30 @@ namespace CB { namespace schema
         return hkSimdReal(_mm_shuffle_ps(neg, neg, _MM_SHUFFLE(0, 0, 0, 0)));
     }
 
+    /// @brief Scalar arithmetic on broadcast reals.
+    /// @note Each result is re-broadcast from lane 0 (`shufps r,r,0` after the packed op), as vanilla's spline
+    ///       evaluators (hkaSplineCompressedAnimation::evaluateSimple2/3) compile.
+    HK_FORCE_INLINE hkSimdReal operator+(hkSimdReal a, hkSimdReal b)
+    {
+        const hkQuadReal r = _mm_add_ps(a.m_real, b.m_real);
+        return hkSimdReal(_mm_shuffle_ps(r, r, _MM_SHUFFLE(0, 0, 0, 0)));
+    }
+    HK_FORCE_INLINE hkSimdReal operator-(hkSimdReal a, hkSimdReal b)
+    {
+        const hkQuadReal r = _mm_sub_ps(a.m_real, b.m_real);
+        return hkSimdReal(_mm_shuffle_ps(r, r, _MM_SHUFFLE(0, 0, 0, 0)));
+    }
+    HK_FORCE_INLINE hkSimdReal operator*(hkSimdReal a, hkSimdReal b)
+    {
+        const hkQuadReal r = _mm_mul_ps(a.m_real, b.m_real);
+        return hkSimdReal(_mm_shuffle_ps(r, r, _MM_SHUFFLE(0, 0, 0, 0)));
+    }
+    HK_FORCE_INLINE hkSimdReal operator/(hkSimdReal a, hkSimdReal b)
+    {
+        const hkQuadReal r = _mm_div_ps(a.m_real, b.m_real);
+        return hkSimdReal(_mm_shuffle_ps(r, r, _MM_SHUFFLE(0, 0, 0, 0)));
+    }
+
     /// @note The zero test is the sign of the negated square (movmskps), as vanilla's.
     HK_FORCE_INLINE void hkVector4::normalize3IfNotZero()
     {

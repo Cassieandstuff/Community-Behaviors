@@ -335,6 +335,8 @@ symbols:
   - { name: hkaSplineCompressedAnimation_ComputePackedNurbsOffsets, kind: func, se: 0, ae: 65636, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::computePackedNurbsOffsets" }  # (base, blockOffsets, block, offset): base + blockOffsets[block] + (offset & 0x7fffffff), null until the key code validates
   - { name: hkaKeyCode_Check, kind: func, se: 0, ae: 67353, vr: 0, cpp: "CB::schema::hkaKeyCode_check" }  # name provisional; Havok animation key-code validation, sets the flag
   - { name: hkaKeyCode_IsValid, kind: data, se: 0, ae: 410071, vr: 0, cpp: "CB::schema::hkaKeyCode_isValid" }  # name provisional; hkBool
+  - { name: hkaSplineCompressedAnimation_ReadKnots, kind: func, se: 0, ae: 65555, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readKnots" }  # name provisional; (data&, n&, p&, quantizedTime, frameDuration, U) -> span
+  - { name: hkaSplineCompressedAnimation_ReadPackedQuaternions, kind: func, se: 0, ae: 65556, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readPackedQuaternions" }  # name provisional
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # the implicit destructor's out-of-line copy: most node destructors end in a tail call to it (hkbSequence's inlines it)
