@@ -624,7 +624,7 @@ symbols:
   - { name: hkbGeneratorSyncInfo_ComputeSyncPointIntervalAmong, kind: func, se: 0, ae: 58545, vr: 0, cpp: "?computeSyncPointInterval@hkbGeneratorSyncInfo@schema@CB@@QEBAXMPEBHHAEAUSyncPointInterval@123@@Z" }  # name provisional; (this, localTime, ids, n, out) — the interval over the given sync point ids only
   - { name: hkMemoryRouter_EasyAlloc, kind: func, se: 0, ae: 57056, vr: 0, cpp: "CB::schema::hkMemoryRouter::easyAlloc" }  # (allocator, nbytes) a block that records its own size
   - { name: hkMemoryRouter_EasyFree, kind: func, se: 0, ae: 57059, vr: 0, cpp: "CB::schema::hkMemoryRouter::easyFree" }  # (allocator, p)
-  - { name: hkbContext_Ctor, kind: func, se: 0, ae: 58315, vr: 0, cpp: "CB::schema::hkbContext::hkbContext" }  # (character, world, attachmentManager, animationCache); names provisional
+  - { name: hkbContext_Ctor, kind: func, se: 0, ae: 58315, vr: 0, cpp: "??0hkbContext@schema@CB@@QEAA@PEAUhkbCharacter@12@PEAVhkpWorld@12@PEAX2@Z" }  # (character, world, attachmentManager, animationCache); names provisional; by mangled name (the copy constructor is pinned too)
   - { name: hkbAnimationBindingSet_Vtable, kind: data, se: 0, ae: 220343, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::`vftable'" }
   - { name: hkbCharacter_Vtable, kind: data, se: 0, ae: 220345, vr: 0, cpp: "CB::schema::hkbCharacter::`vftable'" }
   - { name: hkbCharacter_Dtor, kind: func, se: 0, ae: 58450, vr: 0, cpp: "CB::schema::hkbCharacter::~hkbCharacter" }  # out of line; the scalar deleting destructor calls it
@@ -706,3 +706,28 @@ symbols:
   - { name: hkbRagdollDriver_RemoveAttachedRigidBody, kind: func, se: 0, ae: 58298, vr: 0, cpp: "CB::schema::hkbRagdollDriver::removeAttachedRigidBody" }
   - { name: hkpRigidBody_SetMotionType, kind: func, se: 0, ae: 60908, vr: 0, cpp: "CB::schema::hkpRigidBody::setMotionType" }  # hkp code (not reimplemented); (newState, activation)
   - { name: hkpWorld_UpdateCollisionFilterOnEntity, kind: func, se: 0, ae: 61321, vr: 0, cpp: "CB::schema::hkpWorld::updateCollisionFilterOnEntity" }  # hkp code (not reimplemented)
+  - { name: hkbContext_CopyCtor, kind: func, se: 0, ae: 58314, vr: 0, cpp: "??0hkbContext@schema@CB@@QEAA@AEBU012@@Z" }  # out of line, memberwise
+  - { name: hkaPoseMatchingUtility_Ctor, kind: func, se: 0, ae: 64164, vr: 0, cpp: "??0hkaPoseMatchingUtility@schema@CB@@QEAA@FFFAEBUhkVector4@12@@Z" }  # (root, other, another bone, up)
+  - { name: hkaPoseMatchingUtility_AddCandidatePose, kind: func, se: 0, ae: 64166, vr: 0, cpp: "CB::schema::hkaPoseMatchingUtility::addCandidatePose" }  # name provisional; (poseModel, userData, time) -> index
+  - { name: hkaPoseMatchingUtility_FindBestCandidatePoseIndex, kind: func, se: 0, ae: 64165, vr: 0, cpp: "CB::schema::hkaPoseMatchingUtility::findBestCandidatePoseIndex" }  # name provisional; (poseModel, errorOut) -> index or -1
+  - { name: hkaRagdollInstance_GetPoseModelSpace, kind: func, se: 0, ae: 64153, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getPoseModelSpace" }
+  - { name: hkaSkeletonMapper_MapPose, kind: func, se: 0, ae: 64072, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapPose" }  # (poseAModel, originalPoseBLocal, poseBModelInOut, source)
+  - { name: hkaSkeletonUtils_TransformLocalPoseToModelPose, kind: func, se: 0, ae: 64104, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::transformLocalPoseToModelPose" }
+  - { name: hkbBehaviorGraph_CloneShallow, kind: func, se: 0, ae: 58340, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::cloneShallow" }  # name provisional; (rootGenerator or null)
+  - { name: hkbBehaviorGraph_SetRootGenerator, kind: func, se: 0, ae: 58342, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setRootGenerator" }
+  - { name: hkbBehaviorGraph_GenerateRoot, kind: func, se: 0, ae: 58343, vr: 0, cpp: "?generate@hkbBehaviorGraph@schema@CB@@QEAAXAEBUhkbContext@23@AEAUhkbGeneratorOutput@23@_NM2@Z" }  # the non-virtual root generate; flag names provisional
+  - { name: hkbBehaviorGraph_CtorRootData, kind: func, se: 0, ae: 58325, vr: 0, cpp: "??0hkbBehaviorGraph@schema@CB@@QEAA@PEAVhkbGenerator@12@PEAUhkbBehaviorGraphData@12@@Z" }  # (rootGenerator, data)
+  - { name: hkbBlenderGenerator_Activate, kind: func, se: 0, ae: 59521, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::activate" }
+  - { name: hkbBlenderGenerator_Update, kind: func, se: 0, ae: 59522, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::update" }
+  - { name: hkbBlenderGenerator_Deactivate, kind: func, se: 0, ae: 59523, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::deactivate" }
+  - { name: hkbBlenderGenerator_IsValid, kind: func, se: 0, ae: 59526, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::isValid" }
+  - { name: hkbBlenderGenerator_UpdateSync, kind: func, se: 0, ae: 59530, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::updateSync" }
+  - { name: hkbCharacter_SetBehavior, kind: func, se: 0, ae: 58464, vr: 0, cpp: "CB::schema::hkbCharacter::setBehavior" }
+  - { name: hkbGeneratorOutput_Ctor, kind: func, se: 0, ae: 58472, vr: 0, cpp: "??0hkbGeneratorOutput@schema@CB@@QEAA@HHHHHH@Z" }  # parameter names provisional
+  - { name: hkbPoseMatchingGenerator_Vtable, kind: data, se: 0, ae: 226327, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::`vftable'" }
+  - { name: hkbPoseMatchingGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226332, vr: 0, cpp: "CB::schema::hkbPoseMatchingGeneratorInternalState::`vftable'" }
+  - { name: hkbPoseMatchingGenerator_GetStaticClass, kind: func, se: 0, ae: 58675, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbPoseMatchingGenerator_CopyCtor, kind: func, se: 0, ae: 59572, vr: 0, cpp: "??0hkbPoseMatchingGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbPoseMatchingGenerator_Dtor, kind: func, se: 0, ae: 59573, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::~hkbPoseMatchingGenerator" }
+  - { name: hkbPoseMatchingGenerator_MatchPose, kind: func, se: 0, ae: 59583, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::matchPose" }  # name provisional
+  - { name: hkbRagdollDriver_CopyAndScalePose, kind: func, se: 0, ae: 58300, vr: 0, cpp: "CB::schema::hkbRagdollDriver::copyAndScalePose" }  # name and owner provisional; (toWorldScale, n, in, out, scale)

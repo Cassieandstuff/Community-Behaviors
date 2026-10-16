@@ -20,6 +20,9 @@ namespace CB { namespace schema
         /// @brief The ragdoll bone `rigidBody` drives, -1 if it is not one of the ragdoll's bodies.
         /// @note Out of line in vanilla; name per the Havok SDK.
         int getBoneIndexOfRigidBody(const hkpRigidBody* rigidBody) const;
+        /// @brief The ragdoll's current pose (its bodies' transforms) in the model space `worldFromModel` defines.
+        /// @note Name per the Havok SDK; out of line in vanilla (0x140bd75f0).
+        void getPoseModelSpace(hkQsTransform* poseModelSpaceOut, const hkQsTransform& worldFromModel) const;
         /// @brief The body driving ragdoll bone `boneId`, null if none.
         HK_FORCE_INLINE hkpRigidBody* getRigidBodyOfBone(int boneId) const
         {

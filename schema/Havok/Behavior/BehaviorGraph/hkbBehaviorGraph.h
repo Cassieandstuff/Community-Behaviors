@@ -233,6 +233,17 @@ namespace CB { namespace schema
         /// @note Name from its monitor timer ("hkbBehaviorGraph::copyVariablesToMembersRoot"); the flag is passed through
         ///       to each node's copy unchanged, meaning unknown (hkbSequence::update passes false).
         void copyVariablesToMembers(const hkbContext& context, bool flag);
+        /// @brief A new graph sharing this one's data, id maps and transition data, over `rootGenerator` (this graph's root
+        ///        generator when null), with empty clone maps.
+        /// @note Name provisional; out of line in vanilla (0x140ab2770).
+        hkbBehaviorGraph* cloneShallow(hkbGenerator* rootGenerator);
+        /// @note Out of line in vanilla (0x140ab2db0).
+        void setRootGenerator(hkbGenerator* rootGenerator);
+        /// @brief Generates the active nodes' output into `output` (the root's pass: preGenerate, generateInternal,
+        ///        postGenerate).
+        /// @note Out of line in vanilla (0x140ab2e00); the names of the flags are provisional (hkbPoseMatchingGenerator
+        ///       passes false, 0, false).
+        void generate(const hkbContext& context, hkbGeneratorOutput& output, bool setCharacterPose, hkReal timeOffset, bool doUpdateActiveNodesFirst);
     };
 
     /// @brief The graph's heavy half, compiled apart from hkbBehaviorGraph.cpp.

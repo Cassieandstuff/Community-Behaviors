@@ -80,7 +80,8 @@ namespace CB { namespace schema
     {
         char                             m_pad10[0x20 - 0x10];
         hkRefPtr<hkaSkeleton>            m_animationSkeleton;     ///< +0x20
-        char                             m_pad28[0x38 - 0x28];
+        hkRefPtr<hkaSkeletonMapper>      m_ragdollToAnimationSkeletonMapper;   ///< +0x28
+        hkRefPtr<hkaSkeletonMapper>      m_animationToRagdollSkeletonMapper;   ///< +0x30
         hkRefPtr<hkbAnimationBindingSet> m_animationBindingSet;   ///< +0x38
         hkbCharacterData*                m_data;                  ///< +0x40
 

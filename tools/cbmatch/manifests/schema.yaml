@@ -1034,7 +1034,8 @@ units:
   - source: ../../../schema/Havok/Behavior/Attachment/hkbAttachmentSceneModifier.cpp
     functions:
       - { name: "??0hkbAttachmentSceneModifier@schema@CB@@QEAA@XZ", va: 0x140ae45b0 }
-      - { name: "CB::schema::hkbAttachmentSceneModifier::modify", va: 0x140ae45e0 }
+      # STRUCTURAL, vanilla tests the masked map size signed (jle), 24247 unsigned (see parked.yaml):
+      # - { name: "CB::schema::hkbAttachmentSceneModifier::modify", va: 0x140ae45e0 }
       - { name: "??_GhkbAttachmentSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ae4d90 }
   - source: ../../../schema/Havok/Behavior/Attachment/hkbAttachmentFixupSceneModifier.cpp
     functions:
@@ -1055,3 +1056,24 @@ units:
       - { name: "CB::schema::hkbAttachmentModifier::detach", va: 0x140aeb7e0 }
       - { name: "??1hkbAttachmentModifier@schema@CB@@UEAA@XZ", va: 0x140ac5e60 }
       - { name: "??_GhkbAttachmentModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7500 }
+  - source: ../../../schema/Havok/Behavior/Generator/PoseMatching/hkbPoseMatchingGenerator.cpp
+    functions:
+      - { name: "??0hkbPoseMatchingGenerator@schema@CB@@QEAA@XZ", va: 0x140ae9cf0 }
+      - { name: "??0hkbPoseMatchingGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ae9e40 }
+      - { name: "??1hkbPoseMatchingGenerator@schema@CB@@UEAA@XZ", va: 0x140ae9eb0 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::getClassType", va: 0x140ae9f50 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::activate", va: 0x140ae9f60 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::update", va: 0x140aea4d0 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::handleEvent", va: 0x140aea510 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::deactivate", va: 0x140aea540 }
+      # STRUCTURAL, vanilla compares the bone-flag sum signed (jnl), 24247 unsigned (see parked.yaml):
+      # - { name: "CB::schema::hkbPoseMatchingGenerator::isValid", va: 0x140aea5e0 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::cloneNode", va: 0x140aea760 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::getActiveEvents", va: 0x140aea7b0 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::updateSync", va: 0x140aea7e0 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::matchPose", va: 0x140aea950 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::createInternalState", va: 0x140aead60 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::getInternalState", va: 0x140aeada0 }
+      - { name: "CB::schema::hkbPoseMatchingGenerator::setInternalState", va: 0x140aeade0 }
+      - { name: "??_GhkbPoseMatchingGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140aca680 }
+      - { name: "??_GhkbPoseMatchingGeneratorInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140aca700 }

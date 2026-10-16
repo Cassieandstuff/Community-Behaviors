@@ -36,6 +36,8 @@ namespace CB { namespace schema
         /// @note Out of line in vanilla (0x140ab0a60). Parameter names provisional: hkbCharacter passes its behavior
         ///       world's +0x138 / +0x130 and a null cache.
         hkbContext(hkbCharacter* character, hkpWorld* world, void* attachmentManager, void* animationCache);
+        /// @note Out of line in vanilla (0x140ab0a00), a memberwise copy.
+        hkbContext(const hkbContext& context);
 
         /// @brief The context's queue, else the character's.
         HK_FORCE_INLINE hkbEventQueue* getEventQueue() const { return m_eventQueue ? m_eventQueue : m_character->m_eventQueue; }

@@ -59,6 +59,23 @@ namespace CB { namespace schema
         hkBool                             m_initSync;                       ///< +0x9c
         hkBool                             m_doSubtractiveBlend;             ///< +0x9d
 
+        /// @note Inline: vanilla's only default construction is inlined into hkbPoseMatchingGenerator's.
+        HK_FORCE_INLINE hkbBlenderGenerator()
+        :   m_referencePoseWeightThreshold(0.0f),
+            m_blendParameter(0.0f),
+            m_minCyclicBlendParameter(0.0f),
+            m_maxCyclicBlendParameter(1.0f),
+            m_indexOfSyncMasterChild(-1),
+            m_flags(0),
+            m_subtractLastChild(false),
+            m_endIntervalWeight(0.0f),
+            m_numActiveChildren(0),
+            m_beginIntervalIndex(0),
+            m_endIntervalIndex(0),
+            m_initSync(false),
+            m_doSubtractiveBlend(false)
+        {
+        }
         /// @brief The cloneNode copy: clones every child (see hkbBlenderGeneratorChild's copy).
         hkbBlenderGenerator(const hkbBlenderGenerator& gen);
         /// @brief Releases each child and its generator, unless a packfile placed this blender (it holds none then).

@@ -55,5 +55,10 @@ namespace CB { namespace schema
         void addAttachedRigidBody(hkpRigidBody* rigidBody);
         /// @note Name per the Havok SDK.
         void removeAttachedRigidBody(hkpRigidBody* rigidBody);
+        /// @brief Copies `numTransforms` transforms and scales them by `scale` times one of two global unit scales
+        ///        (`toWorldScale` picks which: presumably Skyrim's game-to-Havok unit conversion and its inverse).
+        /// @note Name, owner and parameter names provisional; out of line in vanilla (0x140aaec40), called by the ragdoll
+        ///       driver, hkbGetUpModifier and hkbPoseMatchingGenerator (which passes false and 1).
+        static void copyAndScalePose(bool toWorldScale, int numTransforms, const hkQsTransform* poseIn, hkQsTransform* poseOut, hkReal scale);
     };
 } }

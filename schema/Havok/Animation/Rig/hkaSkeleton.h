@@ -54,5 +54,9 @@ namespace CB { namespace schema
         /// @brief Bone `boneIndex`'s model-space transform: its local transform composed up the parent chain.
         /// @note Name provisional.
         static void transformLocalBoneToModelBone(int boneIndex, const hkInt16* parentIndices, const hkQsTransform* poseLocal, hkQsTransform& boneModelOut);
+        /// @brief A whole local-space pose to model space, parents first.
+        /// @note Name per the Havok SDK; out of line in vanilla (0x140bd47b0).
+        static void transformLocalPoseToModelPose(int numTransforms, const hkInt16* parentIndices, const hkQsTransform* poseLocal,
+                                                  hkQsTransform* poseModelOut);
     };
 } }

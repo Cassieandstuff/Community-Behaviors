@@ -27,7 +27,8 @@ namespace CB { namespace schema
             ///       number the attribute track 11.
             TRACK_ATTRIBUTES                            = 10
         };
-        enum TrackFlags { TRACK_FLAG_ADDITIVE_POSE = 1 };
+        /// @note PALETTE and SPARSE per the Havok SDK (activate of hkbPoseMatchingGenerator empties those tracks).
+        enum TrackFlags { TRACK_FLAG_ADDITIVE_POSE = 1, TRACK_FLAG_PALETTE = 2, TRACK_FLAG_SPARSE = 4 };
 
         struct TrackHeader
         {
@@ -54,6 +55,16 @@ namespace CB { namespace schema
 
         Tracks* m_tracks;
         bool    m_deleteTracks;
+
+        /// @brief An output owning a fresh track buffer laid out for these counts.
+        /// @note Out of line in vanilla (0x140abdf40). Parameter names provisional: hkbPoseMatchingGenerator passes
+        ///       (numBones, 0, 0, 0, 0x15, 0).
+        hkbGeneratorOutput(int numBones, int numFloatSlots, int numAttributes, int numRagdollBones, int numTracks, int flags);
+        /// @brief Frees the track buffer when the output owns it.
+        HK_FORCE_INLINE ~hkbGeneratorOutput()
+        {
+            if (m_deleteTracks) hkDeallocate(m_tracks);
+        }
 
         HK_FORCE_INLINE int            getNumTracks() const { return m_tracks->m_masterHeader.m_numTracks; }
         HK_FORCE_INLINE bool           isValid(int track) const { return getNumTracks() > track; }
