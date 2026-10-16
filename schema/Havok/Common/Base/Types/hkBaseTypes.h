@@ -56,6 +56,9 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkBool() {}
         HK_FORCE_INLINE hkBool(bool b) { m_bool = static_cast<char>(b); }
         HK_FORCE_INLINE operator bool() const { return m_bool != 0; }
+        /// @note Havok's own: assigning a bool through it (not a temporary hkBool) keeps vanilla's store before the next
+        ///       member's load (`m_a = !m_b; m_c = !m_d;` in BSIsActiveModifier::activate), and made nine other VARIANTs EXACT.
+        HK_FORCE_INLINE hkBool& operator=(bool e) { m_bool = static_cast<char>(e); return *this; }
     };
 
     /// @brief Havok's enum stored in a narrower integer.
