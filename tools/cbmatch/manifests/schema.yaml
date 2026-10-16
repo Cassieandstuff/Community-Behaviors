@@ -35,6 +35,8 @@ units:
       - { name: "CB::schema::hkbTimerModifier::getInternalState", va: 0x140afed90 }
       - { name: "CB::schema::hkbTimerModifier::setInternalState", va: 0x140afeda0 }
       - { name: "??_GhkbTimerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb330 }
+      - { name: "??_GhkbTimerModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140acb3d0 }
+      - { name: "??_GhkbModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140aca0a0 }
   - source: ../../../schema/Havok/Behavior/Modifier/SetWorldFromModel/hkbSetWorldFromModelModifier.cpp
     functions:
       - { name: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@XZ", va: 0x140afe940 }
@@ -50,6 +52,7 @@ units:
       - { name: "CB::schema::hkbTransformVectorModifier::cloneNode", va: 0x140afeee0 }
       - { name: "CB::schema::hkbTransformVectorModifier::modify", va: 0x140afef30 }
       - { name: "CB::schema::hkbTransformVectorModifier::createInternalState", va: 0x140afef40 }
+      - { name: "??_GhkbTransformVectorModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140acb4f0 }
       - { name: "CB::schema::hkbTransformVectorModifier::getInternalState", va: 0x140afef80 }
       - { name: "CB::schema::hkbTransformVectorModifier::setInternalState", va: 0x140afefa0 }
       - { name: "??_GhkbTransformVectorModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acb460 }
@@ -223,6 +226,8 @@ units:
       - { name: "CB::schema::hkbClipGenerator::getLocalTime", va: 0x140acf780 }
       - { name: "??0hkbClipGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140ad1260 }
       - { name: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z", va: 0x140accfa0 }
+      - { name: "??_GhkbClipTriggerArray@schema@CB@@UEAAPEAXI@Z", va: 0x140ac80e0 }
+      - { name: "??1hkbClipTriggerArray@schema@CB@@UEAA@XZ", va: 0x140ac65e0 }
   - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorOpaque.cpp
     functions:
       - { name: "CB::schema::hkbClipGenerator::computeUsableDuration", va: 0x140acf340 }
@@ -230,6 +235,7 @@ units:
   - source: ../../../schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorSecondUnit.cpp
     functions:
       - { name: "CB::schema::hkbClipGenerator::createInternalState", va: 0x140b030c0 }
+      - { name: "??_GhkbClipGeneratorInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8010 }
       # STOPPED (STRUCTURAL, awaiting a VARIANT-rule decision): the copy loop counts up (`inc; cmp; jl`) where 24247
       # counts down (`sub 1; jnz`), no spelling found that keeps it up.
       # - { name: "CB::schema::hkbClipGenerator::getInternalState", va: 0x140b03110 }
@@ -249,6 +255,8 @@ units:
       - { name: "CB::schema::hkbSequence::update", va: 0x140affef0 }
       - { name: "CB::schema::hkbSequence::cloneNode", va: 0x140b00140 }
       - { name: "CB::schema::hkbSequence::createInternalState", va: 0x140b00190 }
+      - { name: "??_GhkbSequenceInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140acaee0 }
+      - { name: "??1hkbSequenceInternalState@schema@CB@@UEAA@XZ", va: 0x140ac6f90 }
       - { name: "CB::schema::hkbSequence::getInternalState", va: 0x140b00210 }
       - { name: "CB::schema::hkbSequence::setInternalState", va: 0x140b004d0 }
   - source: ../../../schema/Havok/Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
@@ -307,6 +315,9 @@ units:
   - source: ../../../schema/Havok/Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp
     functions:
       - { name: "??0hkbExpressionDataArray@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aed990 }
+      - { name: "??_GhkbExpressionDataArray@schema@CB@@UEAAPEAXI@Z", va: 0x140ac91e0 }
+      - { name: "??1hkbExpressionDataArray@schema@CB@@UEAA@XZ", va: 0x140ac68e0 }
+      - { name: "??1hkbCompiledExpressionSet@schema@CB@@UEAA@XZ", va: 0x140ac6690 }
       - { name: "??0hkbEvaluateExpressionModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aedc70 }
       - { name: "CB::schema::hkbEvaluateExpressionModifier::getClassType", va: 0x140aedd50 }
       - { name: "CB::schema::hkbEvaluateExpressionModifier::update", va: 0x140aedd60 }
@@ -416,6 +427,7 @@ units:
       - { name: "??0hkbBlenderGeneratorChild@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ae6e60 }
       - { name: "CB::schema::hkbBlenderGeneratorChild::collectBindables", va: 0x140ae6f80 }
       - { name: "??0hkbBoneWeightArray@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ae6fc0 }
+      - { name: "??_GhkbBoneWeightArray@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7ce0 }
       - { name: "??0hkbBlenderGenerator@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ae7130 }
       - { name: "??1hkbBlenderGenerator@schema@CB@@UEAA@XZ", va: 0x140ae72c0 }
       - { name: "CB::schema::hkbBlenderGenerator::getClassType", va: 0x140ae7460 }
@@ -532,6 +544,7 @@ units:
       - { name: "CB::schema::hkbManualSelectorGenerator::setGenerator", va: 0x140ae94e0 }
       - { name: "CB::schema::hkbManualSelectorGenerator::computeCurrentGeneratorIndex", va: 0x140ae95a0 }
       - { name: "CB::schema::hkbManualSelectorGenerator::createInternalState", va: 0x140ae95d0 }
+      - { name: "??_GhkbManualSelectorGeneratorInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9ec0 }
       - { name: "CB::schema::hkbManualSelectorGenerator::getInternalState", va: 0x140ae9610 }
       - { name: "CB::schema::hkbManualSelectorGenerator::setInternalState", va: 0x140ae9620 }
       - { name: "??_GhkbManualSelectorGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9e40 }
@@ -573,6 +586,7 @@ units:
       - { name: "??_GBSTweenerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9faa0 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSIStateManagerModifier/BSIStateManagerModifier.cpp
     functions:
+      - { name: "??_GhkbStateListener@schema@CB@@UEAAPEAXI@Z", va: 0x140acb100 }
       - { name: "??0BSIStateManagerModifier@schema@CB@@QEAA@XZ", va: 0x140b95f30 }
       - { name: "??0BSIStateManagerModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b95fe0 }
       - { name: "CB::schema::BSIStateManagerModifier::getClassType", va: 0x140b96060 }
@@ -630,6 +644,7 @@ units:
       - { name: "CB::schema::hkbDelayedModifier::updateSync", va: 0x140aed350 }
       - { name: "CB::schema::hkbDelayedModifier::isDelayElapsed", va: 0x140aed3a0 }
       - { name: "CB::schema::hkbDelayedModifier::createInternalState", va: 0x140aed3e0 }
+      - { name: "??_GhkbDelayedModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac88b0 }
       - { name: "CB::schema::hkbDelayedModifier::getInternalState", va: 0x140aed420 }
       - { name: "CB::schema::hkbDelayedModifier::setInternalState", va: 0x140aed440 }
       - { name: "??_GhkbDelayedModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8810 }
@@ -646,6 +661,7 @@ units:
       - { name: "CB::schema::hkbEventDrivenModifier::modify", va: 0x140aef8c0 }
       - { name: "CB::schema::hkbEventDrivenModifier::updateSync", va: 0x140aef8e0 }
       - { name: "CB::schema::hkbEventDrivenModifier::createInternalState", va: 0x140aef930 }
+      - { name: "??_GhkbEventDrivenModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8d00 }
       - { name: "CB::schema::hkbEventDrivenModifier::getInternalState", va: 0x140aef970 }
       - { name: "CB::schema::hkbEventDrivenModifier::setInternalState", va: 0x140aef980 }
       - { name: "??_GhkbEventDrivenModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8c60 }
@@ -669,6 +685,7 @@ units:
       - { name: "CB::schema::hkbDampingModifier::cloneNode", va: 0x140aecd90 }
       - { name: "CB::schema::hkbDampingModifier::modify", va: 0x140aecde0 }
       - { name: "CB::schema::hkbDampingModifier::createInternalState", va: 0x140aece70 }
+      - { name: "??_GhkbDampingModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8780 }
       - { name: "CB::schema::hkbDampingModifier::getInternalState", va: 0x140aeceb0 }
       - { name: "CB::schema::hkbDampingModifier::setInternalState", va: 0x140aecef0 }
       - { name: "??_GhkbDampingModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac86f0 }
@@ -683,6 +700,7 @@ units:
       - { name: "CB::schema::hkbComputeDirectionModifier::cloneNode", va: 0x140aec6b0 }
       - { name: "CB::schema::hkbComputeDirectionModifier::modify", va: 0x140aec700 }
       - { name: "CB::schema::hkbComputeDirectionModifier::createInternalState", va: 0x140aec740 }
+      - { name: "??_GhkbComputeDirectionModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8390 }
       - { name: "CB::schema::hkbComputeDirectionModifier::getInternalState", va: 0x140aec780 }
       - { name: "CB::schema::hkbComputeDirectionModifier::setInternalState", va: 0x140aec7b0 }
       - { name: "??_GhkbComputeDirectionModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8300 }
@@ -699,6 +717,7 @@ units:
       - { name: "CB::schema::hkbDetectCloseToGroundModifier::cloneNode", va: 0x140aed720 }
       - { name: "CB::schema::hkbDetectCloseToGroundModifier::modify", va: 0x140aed770 }
       - { name: "CB::schema::hkbDetectCloseToGroundModifier::createInternalState", va: 0x140aed930 }
+      - { name: "??_GhkbDetectCloseToGroundModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac89e0 }
       - { name: "CB::schema::hkbDetectCloseToGroundModifier::getInternalState", va: 0x140aed970 }
       - { name: "CB::schema::hkbDetectCloseToGroundModifier::setInternalState", va: 0x140aed980 }
       - { name: "??_GhkbDetectCloseToGroundModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8940 }
@@ -720,6 +739,7 @@ units:
       - { name: "CB::schema::hkbLookAtModifier::cloneNode", va: 0x140af9800 }
       # - { name: "CB::schema::hkbLookAtModifier::modify", va: 0x140af9850 }  # parked: 24247 leaves a dead 16-byte frame slot after the inlined hkaPose (see parked.yaml)
       - { name: "CB::schema::hkbLookAtModifier::createInternalState", va: 0x140afa0c0 }
+      - { name: "??_GhkbLookAtModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9db0 }
       - { name: "CB::schema::hkbLookAtModifier::getInternalState", va: 0x140afa100 }
       - { name: "CB::schema::hkbLookAtModifier::setInternalState", va: 0x140afa130 }
       - { name: "??_GhkbLookAtModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9d20 }
@@ -800,6 +820,7 @@ units:
       - { name: "CB::schema::hkbGeneratorTransitionEffect::getToGeneratorBlendInTime", va: 0x140b02c80 }
       - { name: "CB::schema::hkbGeneratorTransitionEffect::updateToGeneratorState", va: 0x140b02cb0 }
       - { name: "CB::schema::hkbGeneratorTransitionEffect::createInternalState", va: 0x140b02d20 }
+      - { name: "??_GhkbGeneratorTransitionEffectInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9560 }
       - { name: "CB::schema::hkbGeneratorTransitionEffect::getInternalState", va: 0x140b02d60 }
       - { name: "CB::schema::hkbGeneratorTransitionEffect::setInternalState", va: 0x140b02dd0 }
       - { name: "??_GhkbGeneratorTransitionEffect@schema@CB@@UEAAPEAXI@Z", va: 0x140ac94c0 }
@@ -836,6 +857,7 @@ units:
       - { name: "CB::schema::hkbBlendingTransitionEffect::isStarting", va: 0x140b01ff0 }
       - { name: "CB::schema::hkArray<CB::schema::hkQsTransform>::_append", va: 0x140b02000 }
       - { name: "CB::schema::hkbBlendingTransitionEffect::createInternalState", va: 0x140b020c0 }
+      - { name: "??_GhkbBlendingTransitionEffectInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7b50 }
       - { name: "CB::schema::hkbBlendingTransitionEffect::getInternalState", va: 0x140b02110 }
       - { name: "CB::schema::hkbBlendingTransitionEffect::setInternalState", va: 0x140b02210 }
       - { name: "??_GhkbBlendingTransitionEffect@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7a80 }
@@ -873,6 +895,10 @@ units:
       - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@XZ", va: 0x140ab0e70 }
       - { name: "??0hkbBehaviorGraph@schema@CB@@QEAA@PEAVhkbGenerator@12@PEAUhkbBehaviorGraphData@12@@Z", va: 0x140ab1000 }
       - { name: "??1hkbBehaviorGraph@schema@CB@@UEAA@XZ", va: 0x140ab11d0 }
+      - { name: "??_GhkbVariableValueSet@schema@CB@@UEAAPEAXI@Z", va: 0x140ab7b70 }
+      - { name: "??_GhkbGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140ab79a0 }
+      - { name: "??_GhkbBindable@schema@CB@@UEAAPEAXI@Z", va: 0x140ab7920 }
+      - { name: "??1hkbVariableValueSet@schema@CB@@UEAA@XZ", va: 0x140ab7710 }
       - { name: "CB::schema::hkbBehaviorGraph::getClassType", va: 0x140ab1770 }
       - { name: "CB::schema::hkbBehaviorGraph::calcContentStatistics", va: 0x140ab2210 }
       - { name: "CB::schema::hkbBehaviorGraph::activate", va: 0x140ab1780 }
@@ -914,6 +940,7 @@ units:
   - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateMachine.cpp
     functions:
       - { name: "??0hkbStateMachine@schema@CB@@QEAA@XZ", va: 0x140ad75b0 }
+      - { name: "??_GhkbNodeInternalStateInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ab7ac0 }
       - { name: "??0hkbStateMachine@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z", va: 0x140ad7740 }
       - { name: "??1hkbStateMachine@schema@CB@@UEAA@XZ", va: 0x140ad7be0 }
       - { name: "CB::schema::hkbStateMachine::getClassType", va: 0x140ad7ee0 }
@@ -967,6 +994,8 @@ units:
   - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateMachineSecondUnit.cpp
     functions:
       - { name: "CB::schema::hkbStateMachine::createInternalState", va: 0x140b038e0 }
+      - { name: "??_GhkbStateMachineInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140acb190 }
+      - { name: "??1hkbStateMachineInternalState@schema@CB@@UEAA@XZ", va: 0x140ac7190 }
       # STRUCTURAL: byte-array copy loops count up in vanilla, down in 24247 (see parked.yaml):
       # - { name: "CB::schema::hkbStateMachine::getInternalState", va: 0x140b03960 }
       # STRUCTURAL: byte-array copy loops count up in vanilla, down in 24247 (see parked.yaml):
@@ -1077,3 +1106,90 @@ units:
       - { name: "CB::schema::hkbPoseMatchingGenerator::setInternalState", va: 0x140aeade0 }
       - { name: "??_GhkbPoseMatchingGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140aca680 }
       - { name: "??_GhkbPoseMatchingGeneratorInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140aca700 }
+  - source: ../../../schema/Havok/Behavior/Node/hkbNode.cpp
+    functions:
+      - { name: "CB::schema::hkbBindable::collectBindables", va: 0x140ac1640 }
+      - { name: "??_GhkbBindableCollector@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1900 }
+      - { name: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z", va: 0x140ac1960 }
+      - { name: "CB::schema::hkbNode::isValid", va: 0x140ac19f0 }
+      - { name: "CB::schema::hkbNode::cloneNode", va: 0x140ac1a00 }
+      - { name: "CB::schema::hkbNode::createInternalState", va: 0x140ac1b00 }
+      - { name: "CB::schema::hkbNode::isTransitionEffect", va: 0x140ac1b10 }
+      - { name: "CB::schema::hkbNode::collectActiveVariables", va: 0x140ac1b20 }
+      - { name: "CB::schema::hkbNode::BoundVariablesCollector::collectBindable", va: 0x140ac1b70 }
+      - { name: "??_GBoundVariablesCollector@hkbNode@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1bf0 }
+      - { name: "??_GhkbNode@schema@CB@@UEAAPEAXI@Z", va: 0x140ab7a30 }
+      - { name: "CB::schema::hkbNode::activate", va: 0x140ab7d00 }
+      - { name: "CB::schema::hkbNode::deactivate", va: 0x140ab7d10 }
+      - { name: "CB::schema::hkbNode::getActiveEvents", va: 0x140ab7d20 }
+      - { name: "CB::schema::hkbNode::getActiveVariables", va: 0x140ab7d30 }
+      - { name: "CB::schema::hkbNode::getChildren", va: 0x140ab7d40 }
+      - { name: "CB::schema::hkbNode::getInternalState", va: 0x140ab7d50 }
+      - { name: "CB::schema::hkbNode::getInternalStateUser", va: 0x140ab7d60 }
+      - { name: "CB::schema::hkbNode::getMaxNumChildren", va: 0x140ab7d70 }
+      - { name: "CB::schema::hkbNode::handleEvent", va: 0x140ab7d80 }
+      - { name: "CB::schema::hkbNode::vfn22", va: 0x140ab7da0 }
+      - { name: "CB::schema::hkbNode::vfn21", va: 0x140ab7dc0 }
+      - { name: "CB::schema::hkbNode::precompute", va: 0x140ab7dd0 }
+      - { name: "CB::schema::hkbNode::setInternalState", va: 0x140ab7de0 }
+      - { name: "CB::schema::hkbNode::setInternalStateUser", va: 0x140ab7df0 }
+      - { name: "CB::schema::hkbNode::update", va: 0x140ab7e10 }
+  - source: ../../../schema/Havok/Behavior/Generator/hkbGenerator.cpp
+    functions:
+      - { name: "CB::schema::hkbGenerator::vfn21", va: 0x140ab7db0 }
+      - { name: "CB::schema::hkbGenerator::startEcho", va: 0x140ab7e00 }
+      - { name: "CB::schema::hkbGenerator::canRecycleOutput", va: 0x140ac1c50 }
+      - { name: "CB::schema::hkbGenerator::updateSync", va: 0x140ac1c60 }
+      - { name: "CB::schema::hkbGenerator::setElapsedTime", va: 0x140ac1c80 }
+  - source: ../../../schema/Havok/Behavior/Modifier/hkbModifier.cpp
+    functions:
+      - { name: "CB::schema::hkbModifier::modify", va: 0x140accc20 }
+      - { name: "CB::schema::hkbModifier::updateSync", va: 0x140accc30 }
+  - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateListener.cpp
+    functions:
+      - { name: "CB::schema::hkbStateListener::onEnter", va: 0x140accc40 }
+      - { name: "CB::schema::hkbStateListener::onExit", va: 0x140accc50 }
+      - { name: "CB::schema::hkbStateListener::onUpdate", va: 0x140accc60 }
+      - { name: "CB::schema::hkbStateListener::clone", va: 0x140b011f0 }
+  - source: ../../../schema/Havok/Common/Base/Object/hkReferencedObjectBethesdaCopy.cpp
+    flags: [/O2, /Ob1, /GS-, /fp:fast, /EHsc]
+    functions:
+      - { name: "??_GhkBaseObject@schema@CB@@UEAAPEAXI@Z", va: 0x1402b0730 }
+      - { name: "??_GhkReferencedObject@schema@CB@@UEAAPEAXI@Z", va: 0x1402b0760 }
+  - source: ../../../schema/Havok/Behavior/Event/hkbEventPayload.cpp
+    functions:
+      - { name: "CB::schema::hkbStringEventPayload::getClassType", va: 0x140ae5860 }
+      - { name: "??_GhkbEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8d90 }
+      - { name: "??_GhkbRealEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca980 }
+      - { name: "??_GhkbIntEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9b40 }
+      - { name: "??_GhkbStringEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140acb2a0 }
+  - source: ../../../schema/Havok/Behavior/Event/hkbNamedEventPayload.cpp
+    functions:
+      - { name: "??_GhkbNamedEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca430 }
+      - { name: "??_GhkbNamedRealEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca550 }
+      - { name: "??_GhkbNamedIntEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca4c0 }
+      - { name: "??_GhkbNamedStringEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca5e0 }
+  - source: ../../../schema/Havok/Behavior/Event/hkbEventPayloadList.cpp
+    functions:
+      - { name: "??1hkbEventPayloadList@schema@CB@@UEAA@XZ", va: 0x140ae5870 }
+      - { name: "??_GhkbEventPayloadList@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8e20 }
+  - source: ../../../schema/Havok/Behavior/Event/hkbCameraShakeEventPayload.cpp
+    functions:
+      - { name: "??_GhkbCameraShakeEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bc50 }
+  - source: ../../../schema/Havok/Behavior/Event/hkbParticleSystemEventPayload.cpp
+    functions:
+      - { name: "??_GhkbParticleSystemEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c090 }
+  - source: ../../../schema/Havok/Behavior/Condition/hkbStringCondition.cpp
+    functions:
+      - { name: "CB::schema::hkbStringCondition::isTrue", va: 0x140ae6e40 }
+      - { name: "??_GhkbStringCondition@schema@CB@@UEAAPEAXI@Z", va: 0x140acb210 }
+      - { name: "??_GhkbCondition@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8660 }
+  - source: ../../../schema/Havok/Behavior/Condition/hkbExpressionCondition.cpp
+    functions:
+      - { name: "CB::schema::hkbExpressionCondition::isTrue", va: 0x140ae6b50 }
+      - { name: "??_GhkbExpressionCondition@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9130 }
+  - source: ../../../schema/Havok/Behavior/StateMachine/hkbTestStateChooser.cpp
+    functions:
+      - { name: "CB::schema::hkbTestStateChooser::chooseStateId", va: 0x140f0c630 }
+      - { name: "??_GhkbTestStateChooser@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c5a0 }
+      - { name: "??_GhkbStateChooser@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c510 }

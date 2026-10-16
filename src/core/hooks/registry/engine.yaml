@@ -731,3 +731,13 @@ symbols:
   - { name: hkbPoseMatchingGenerator_Dtor, kind: func, se: 0, ae: 59573, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::~hkbPoseMatchingGenerator" }
   - { name: hkbPoseMatchingGenerator_MatchPose, kind: func, se: 0, ae: 59583, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::matchPose" }  # name provisional
   - { name: hkbRagdollDriver_CopyAndScalePose, kind: func, se: 0, ae: 58300, vr: 0, cpp: "CB::schema::hkbRagdollDriver::copyAndScalePose" }  # name and owner provisional; (toWorldScale, n, in, out, scale)
+  # --- Base classes, data classes, event payloads (hkbNode, hkbGenerator, hkbModifier, hkbStateListener, ...) ---
+  - { name: hkClass_GetName, kind: func, se: 0, ae: 57621, vr: 0, cpp: "CB::schema::hkClass::getName" }
+  - { name: hkClass_GetObjectSize, kind: func, se: 0, ae: 57645, vr: 0, cpp: "CB::schema::hkClass::getObjectSize" }
+  - { name: hkbBindableCollector_Vtable, kind: data, se: 0, ae: 220369, vr: 0, cpp: "CB::schema::hkbBindableCollector::`vftable'" }
+  - { name: hkbNode_BoundVariablesCollector_Vtable, kind: data, se: 0, ae: 220373, vr: 0, cpp: "CB::schema::hkbNode::BoundVariablesCollector::`vftable'" }  # RTTI hkbNode::BoundVariablesCollector
+  - { name: hkbStringEventPayload_GetStaticClass, kind: func, se: 0, ae: 58553, vr: 0, cpp: "CB::schema::hkbStringEventPayload::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbEventPayloadList_Vtable, kind: data, se: 0, ae: 226148, vr: 0, cpp: "CB::schema::hkbEventPayloadList::`vftable'" }
+  - { name: hkbEventPayloadList_Dtor, kind: func, se: 0, ae: 59476, vr: 0, cpp: "??1hkbEventPayloadList@schema@CB@@UEAA@XZ" }  # releases each payload; the scalar deleting destructor calls it
+  - { name: hkbStringCondition_EvaluateFunction, kind: data, se: 0, ae: 408433, vr: 0, cpp: "CB::schema::hkbStringCondition::s_evaluateFunction" }  # name provisional; isTrue's callback, never written in the exe
+  - { name: hkbStringCondition_DefaultResult, kind: data, se: 0, ae: 385123, vr: 0, cpp: "CB::schema::hkbStringCondition::s_defaultResult" }  # name provisional; isTrue's result without a callback

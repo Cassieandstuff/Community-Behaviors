@@ -8,7 +8,11 @@ namespace CB { namespace schema
 {
     class hkbNode;
 
-    struct hkbEventPayload : hkReferencedObject {};
+    struct hkbEventPayload : hkReferencedObject
+    {
+        HK_FORCE_INLINE hkbEventPayload() {}
+        HK_FORCE_INLINE hkbEventPayload(hkFinishLoadedObjectFlag flag) : hkReferencedObject(flag) {}
+    };
 
     struct hkbEventBase
     {

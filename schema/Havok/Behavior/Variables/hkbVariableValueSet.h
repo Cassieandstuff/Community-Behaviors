@@ -18,7 +18,8 @@ namespace CB { namespace schema
     public:
         hkArray<hkbVariableValue>    m_wordVariableValues;      ///< +0x10
         hkArray<hkVector4>           m_quadVariableValues;      ///< +0x20
-        hkArray<hkReferencedObject*> m_variantVariableValues;   ///< +0x30
+        /// @note Reference-holding: vanilla's destructor (0x140ab7710) releases each element, last first.
+        hkArray< hkRefPtr<hkReferencedObject> > m_variantVariableValues;   ///< +0x30
 
         /// @brief Copies every value (the variant ones referenced).
         /// @note Out of line in vanilla (0x140ac1dd0).

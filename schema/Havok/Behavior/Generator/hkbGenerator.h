@@ -18,6 +18,9 @@ namespace CB { namespace schema
         /// @note Inline with no vtable store of its own: vanilla's clone copies call hkbNode's directly.
         HK_FORCE_INLINE hkbGenerator(const hkbGenerator& gen) : hkbNode(gen) {}
 
+        /// @note hkbGenerator's returns true (hkbNode's false): slot 21 tells generators from other nodes.
+        virtual bool vfn21();                                                          ///< slot 21
+
         virtual void generate(const hkbContext& context, const hkbGeneratorOutput** activeChildrenOutput, hkbGeneratorOutput& output,
                               hkReal timeOffset) = 0;                                  ///< slot 23
         /// @note hkbGenerator's returns false.

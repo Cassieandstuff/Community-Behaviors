@@ -18,27 +18,45 @@ namespace CB { namespace schema
     public:
         virtual void collectBindable(hkbBindable* bindable) = 0;   ///< slot 0
         virtual ~hkbBindableCollector() {}                        ///< slot 1
+
+        /// @brief The class allocator: the deleting destructors free the static size (8 here, 0x10 for hkbNode's
+        ///        local collector), with no recorded size.
+        HK_FORCE_INLINE void* operator new(hkUlong nbytes) { return hkMemoryRouter::getInstance().heap().blockAlloc(static_cast<int>(nbytes)); }
+        HK_FORCE_INLINE void  operator delete(void* p, hkUlong nbytes) { hkMemoryRouter::getInstance().heap().blockFree(p, static_cast<int>(nbytes)); }
     };
 
     struct hkbNodeInternalStateInfo;
 
     struct hkbVariableBindingSet : hkReferencedObject
     {
-        /// @note 0x28 bytes, starting with its hkStringPtr m_memberPath; the rest is not declared yet.
+        /// @note 0x28 bytes, laid out per the reflected hkbVariableBindingSetBinding.
         struct Binding;
 
-        hkArray<Binding> m_bindings;   ///< +0x10
+        hkArray<Binding> m_bindings;                 ///< +0x10
+        hkInt32          m_indexOfBindingToEnable;   ///< +0x20
+        hkBool           m_hasOutputBinding;         ///< +0x24
 
         /// @brief The binding whose member path is `memberPath` (exact compare), else null.
         const Binding* findBindingByMemberPath(const char* memberPath) const;
     };
 
-    /// @note Only the member path is identified (BSCyclicBlendTransitionGenerator::handleEvent walks the bindings
-    ///       comparing it, 0x28 apart).
+    /// @note BSCyclicBlendTransitionGenerator::handleEvent walks the bindings comparing the member path, 0x28 apart.
     struct hkbVariableBindingSet::Binding
     {
-        hkStringPtr m_memberPath;    ///< +0x00
-        hkUint8     m_pad8[0x20];
+        /// @note Havok's BindingType: a graph variable (0) or a character property (1).
+        enum BindingType { BINDING_TYPE_VARIABLE = 0, BINDING_TYPE_CHARACTER_PROPERTY = 1 };
+
+        hkStringPtr    m_memberPath;              ///< +0x00
+        const hkClass* m_memberClass;             ///< +0x08 (not serialized)
+        hkInt32        m_offsetInObjectPlusOne;   ///< +0x10
+        hkInt32        m_offsetInArrayPlusOne;    ///< +0x14
+        hkInt32        m_rootVariableIndex;       ///< +0x18
+        hkInt32        m_variableIndex;           ///< +0x1c
+        hkInt8         m_bitIndex;                ///< +0x20
+        hkInt8         m_bindingType;             ///< +0x21
+        hkUint8        m_memberType;              ///< +0x22
+        hkInt8         m_variableType;            ///< +0x23
+        hkInt8         m_flags;                   ///< +0x24
     };
 
     /// @note The destructor is implicit: under /Ob1 VS2015 inlines it into some node destructors (hkbSequence's) and
@@ -140,6 +158,16 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkbNode(hkFinishLoadedObjectFlag flag) : hkbBindable(flag), m_name(flag) { m_id = -1; }
         /// @brief The clone copy (cloneNode); marks the SOURCE node as cloned.
         hkbNode(const hkbNode& node);
+
+        /// @brief Gathers the variable indices of the variable bindings collectBindables reaches (vanilla RTTI:
+        ///        hkbNode::BoundVariablesCollector).
+        class BoundVariablesCollector;
+
+        /// @brief Adds the variables bound to the node or its bindables, then the ones getActiveVariables reports, into
+        ///        `activeVariables` (index → true).
+        /// @note Name provisional (0x140ac1b20); the Havok SDK's own split is likely a non-virtual getActiveVariables over
+        ///       a virtual getActiveVariablesSpecial (slot 20 here), unverified — slot 20 keeps its current name.
+        void collectActiveVariables(hkPointerMap<int, bool>& activeVariables);
 
         virtual void activate(const hkbContext& context);                      ///< slot 4
         virtual void update(const hkbContext& context, hkReal timestep);       ///< slot 5
