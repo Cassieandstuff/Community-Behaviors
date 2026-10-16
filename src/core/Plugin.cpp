@@ -15,6 +15,7 @@
 
 #include <core/hooks/points/HookPoint.h>
 #include <core/hooks/registry/Registry.h>
+#include <core/hooks/takeover/Takeover.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
@@ -451,6 +452,7 @@ namespace CB {
             // DebugOverlay needs kDataLoaded timing (SMF isn't up at plugin load).
             CB::core::debug::InstallTrace();   // arm [Debug] bRuntimeTrace before the present hook is live
             CB::core::debug::Install();         // DebugOverlay SMF HUD element + menu toggle
+            CB::core::hooks::RecheckTakeover(); // every plugin has hooked by now: hand back what they patched
         }
     }
 
@@ -464,6 +466,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     LOG_INFO("Community Behaviors v{} loading — runtime behavior compiler.",
              SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."));
     CB::core::hooks::engine::LogAvailability();
+
+    // The Havok runtime takeover goes FIRST, before any of CB's own hooks: those (and every later plugin's) then layer
+    // on top of its entry jumps rather than being bypassed by them.
+    CB::core::hooks::InstallTakeover();
 
     // Behavior + character + project DELIVERY is BYTE-SUBSTITUTION (ByteServe): MinHook the
     // BSResourceAssetLoader::Func3 typed-hkx resolver (FUN_140ba88b0) and swap each owned vanilla

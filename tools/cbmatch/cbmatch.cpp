@@ -6,6 +6,7 @@
 ///       needed at match time.
 
 #include <RymlInclude.h>
+#include <codec/image/RuntimeImage.h>
 #include <disk/Disk.h>
 #include <exec/Parallel.h>
 #include <text/Text.h>
@@ -38,6 +39,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -492,6 +494,15 @@ struct CoffFunction {
         Bytes                       literal;
     };
     std::map<std::uint32_t, Target>        targets;  ///< reloc offset → the symbol it refers to
+    /// @brief The function's .pdata entries, function-relative; `info` indexes `unwindData`.
+    struct Unwind { std::uint32_t begin = 0, end = 0, info = 0; };
+    std::vector<Unwind>                    unwinds;
+    /// @brief The UNWIND_INFO records the entries point at, 4-aligned, exception handlers stripped (nothing throws
+    ///        through engine code, and a handler's data would point back into the object).
+    Bytes                                  unwindData;
+    /// @brief A chained record's parent RUNTIME_FUNCTION, left zero in unwindData: (its offset there, the parent's index
+    ///        in `unwinds`).
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> chains;
 };
 
 std::mutex g_dbghelp;   // dbghelp is single-threaded
@@ -561,6 +572,8 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
     }
 
     std::vector<CoffFunction> out;
+    struct Span { int section; std::uint32_t begin, end; };
+    std::vector<Span> spans;   ///< parallel to `out`
     for (auto& [section, syms] : funcsBySection) {
         const std::size_t sh       = secTab + std::size_t(section - 1) * 40u;
         const auto        rawSize  = rd<std::uint32_t>(b, sh + 16);
@@ -604,7 +617,87 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
                 f.targets[at - begin] = std::move(t);
             }
             out.push_back(std::move(f));
+            spans.push_back({ section, begin, end });
         }
+    }
+
+    // Unwind data: every .pdata entry's three image-relative fields are relocations (function begin, end, UNWIND_INFO);
+    // a chained UNWIND_INFO ends in its parent's RUNTIME_FUNCTION, relocated the same way.
+    auto sectionName = [&](int section) {
+        const char* p = reinterpret_cast<const char*>(b.data() + secTab + std::size_t(section - 1) * 40u);
+        return std::string(p, strnlen(p, 8));
+    };
+    struct Place { int section = 0; std::uint32_t offset = 0; };
+    std::map<std::pair<int, std::uint32_t>, Place> relocAt;   ///< (section, field offset) → where the field points
+    for (int s = 1; s <= nSections; ++s) {
+        const std::string name = sectionName(s);
+        if (name != ".pdata" && name != ".xdata") continue;
+        const std::size_t sh     = secTab + std::size_t(s - 1) * 40u;
+        const auto        rawPtr = rd<std::uint32_t>(b, sh + 20);
+        const auto        relPtr = rd<std::uint32_t>(b, sh + 24);
+        const auto        nRel   = rd<std::uint16_t>(b, sh + 32);
+        for (std::uint32_t r = 0; r < nRel; ++r) {
+            const std::size_t ro  = relPtr + r * 10u;
+            const auto        at  = rd<std::uint32_t>(b, ro);
+            const auto        sym = rd<std::uint32_t>(b, ro + 4);
+            if (rd<std::uint16_t>(b, ro + 8) != IMAGE_REL_AMD64_ADDR32NB || sym >= nSymbols) continue;
+            relocAt[{ s, at }] = { symSection[sym], symValue[sym] + rd<std::uint32_t>(b, rawPtr + at) };
+        }
+    }
+    auto owner = [&](const Place& p) -> std::optional<std::size_t> {
+        for (std::size_t k = 0; k < spans.size(); ++k)
+            if (spans[k].section == p.section && p.offset >= spans[k].begin && p.offset < spans[k].end) return k;
+        return std::nullopt;
+    };
+    struct Entry { std::size_t fn; std::uint32_t begin, end; Place info; };
+    std::vector<Entry> entries;
+    for (int s = 1; s <= nSections; ++s) {
+        if (sectionName(s) != ".pdata") continue;
+        const auto size = rd<std::uint32_t>(b, secTab + std::size_t(s - 1) * 40u + 16);
+        for (std::uint32_t e = 0; e + 12 <= size; e += 12) {
+            const auto bg = relocAt.find({ s, e }), en = relocAt.find({ s, e + 4 }), in = relocAt.find({ s, e + 8 });
+            if (bg == relocAt.end() || en == relocAt.end() || in == relocAt.end()) continue;
+            const auto fn = owner(bg->second);
+            if (!fn) continue;
+            entries.push_back({ *fn, bg->second.offset - spans[*fn].begin, en->second.offset - spans[*fn].begin, in->second });
+        }
+    }
+    std::sort(entries.begin(), entries.end(), [](const Entry& x, const Entry& y) { return std::tie(x.fn, x.begin) < std::tie(y.fn, y.begin); });
+    std::set<std::size_t> broken;
+    for (const auto& e : entries) {
+        CoffFunction& f = out[e.fn];
+        const std::size_t sh     = secTab + std::size_t(e.info.section - 1) * 40u;
+        const auto        rawPtr = rd<std::uint32_t>(b, sh + 20);
+        const auto        rawSz  = rd<std::uint32_t>(b, sh + 16);
+        if (e.info.section <= 0 || e.info.offset + 4 > rawSz) { broken.insert(e.fn); continue; }
+        const std::uint8_t* u      = b.data() + rawPtr + e.info.offset;
+        const std::uint8_t  flags  = u[0] >> 3;
+        const std::uint32_t codes  = 2u * ((u[2] + 1u) & ~1u);
+        const bool          chain  = (flags & UNW_FLAG_CHAININFO) != 0;
+        if (e.info.offset + 4 + codes + (chain ? 12 : 0) > rawSz) { broken.insert(e.fn); continue; }
+        f.unwindData.resize((f.unwindData.size() + 3) & ~std::size_t(3));
+        const auto info = static_cast<std::uint32_t>(f.unwindData.size());
+        f.unwindData.insert(f.unwindData.end(), u, u + 4 + codes);
+        f.unwindData[info] = static_cast<std::uint8_t>((u[0] & 7) | ((flags & UNW_FLAG_CHAININFO) << 3));
+        if (chain) {
+            // The parent is the entry whose UNWIND_INFO the chained RUNTIME_FUNCTION names.
+            const auto parent = relocAt.find({ e.info.section, e.info.offset + 4 + codes + 8 });
+            std::optional<std::uint32_t> index;
+            if (parent != relocAt.end())
+                for (std::size_t k = 0; k < entries.size(); ++k)
+                    if (entries[k].fn == e.fn && entries[k].info.section == parent->second.section && entries[k].info.offset == parent->second.offset)
+                        index = static_cast<std::uint32_t>(std::count_if(entries.begin(), entries.begin() + std::ptrdiff_t(k),
+                                                                         [&](const Entry& x) { return x.fn == e.fn; }));
+            if (!index) { broken.insert(e.fn); continue; }
+            f.chains.emplace_back(static_cast<std::uint32_t>(f.unwindData.size()), *index);
+            f.unwindData.insert(f.unwindData.end(), 12, std::uint8_t(0));
+        }
+        f.unwinds.push_back({ e.begin, e.end, info });
+    }
+    for (const std::size_t k : broken) {
+        out[k].unwinds.clear();
+        out[k].unwindData.clear();
+        out[k].chains.clear();
     }
     return out;
 }
@@ -3407,13 +3500,26 @@ public:
     std::string stubName(std::uint64_t a) const { const auto it = stubNames_.find(a); return it == stubNames_.end() ? std::string() : it->second; }
 };
 
-/// @brief Copies our function's bytes with every relocation applied for code placed at `base`: engine symbols from
-///        engine.yaml, compiler constants and string literals at vanilla's copy (the instruction alignment says which),
-///        imports at the exe's slot. Returns why not, or empty.
-std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Bytes& vanilla, std::uint64_t va, const EngineSymbols& syms,
-                         const PeImage& pe, Bytes& code, std::map<std::uint64_t, Signature>& callees)
+/// @brief One reference of our function, placed: where it points, independent of where the code will sit.
+struct PlacedRef {
+    std::uint32_t at = 0;     ///< the patched field's offset in the code
+    std::uint16_t type = 0;   ///< IMAGE_REL_AMD64_REL32[_k] or IMAGE_REL_AMD64_ADDR64
+    bool          own = false;   ///< target is an offset into the code itself (__ImageBase, a constant appended to it)
+    std::uint64_t target = 0;    ///< own: that offset; else the absolute address in the exe as loaded at pe.imageBase
+    std::int64_t  addend = 0;    ///< COFF keeps it in the field
+};
+
+/// @brief Where every reference of our function points: engine symbols from engine.yaml, compiler constants and string
+///        literals at vanilla's copy (the instruction alignment says which), imports at the exe's slot. `code` gets our
+///        bytes with jump-table entries filled in and any constant vanilla has no copy of appended. Returns why not, or
+///        empty.
+/// @note The one resolution both --diff (relocateOurs) and the in-game runtime image (--emit-image) use, so the code that
+///       runs in the game is placed exactly as the code --diff ran.
+std::string placeReferences(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va, const EngineSymbols& syms, const PeImage& pe,
+                            Bytes& code, std::vector<PlacedRef>& refs, std::map<std::uint64_t, Signature>* callees)
 {
     code = ours.bytes;
+    refs.clear();
     std::map<std::uint32_t, std::uint64_t> viaVanilla;
     const auto a = disassemble(codeOnly(ours, oursLayout(ours).codeEnd).bytes);
     const auto b = disassemble(Bytes(vanilla.begin(), vanilla.begin() + vanillaLayout(vanilla, va, pe.imageBase).codeEnd));
@@ -3427,7 +3533,7 @@ std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Byt
             for (std::uint32_t o = x.off; o < x.off + x.ins.length; ++o) if (ours.targets.count(o)) viaVanilla[o] = *t;
         }
     // Image-relative references into this function (jump tables and their entries) resolve against an __ImageBase of
-    // `base`, so each is just the function offset; `lea r, [__ImageBase]` gets `base` itself.
+    // the code's own start, so each is just the function offset; `lea r, [__ImageBase]` gets that start itself.
     for (const auto& [at, t] : ours.targets) {
         if (t.type == IMAGE_REL_AMD64_ADDR32NB && t.local) {
             const auto v = static_cast<std::uint32_t>(*t.local);
@@ -3436,8 +3542,9 @@ std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Byt
     }
     for (const auto& [at, t] : ours.targets) {
         std::optional<std::uint64_t> target;
+        bool                         own = false;
         if (t.type == IMAGE_REL_AMD64_ADDR32NB && t.local) continue;
-        if (t.mangled == "__ImageBase") target = base;
+        if (t.mangled == "__ImageBase") target = 0, own = true;
         auto                         it = syms.byCpp.find(t.name);
         if (it == syms.byCpp.end()) it = syms.byCpp.find(t.mangled);
         const auto vv = viaVanilla.find(at);
@@ -3467,32 +3574,55 @@ std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Byt
             // after the code, most-significant byte first in the name.
             const std::string digits = t.mangled.substr(t.mangled.find('@') + 1);
             code.resize(roundUp(code.size(), 16));
-            target = base + code.size();
+            target = code.size();
+            own    = true;
             for (std::size_t k = digits.size() / 2; k-- > 0;)
                 code.push_back(static_cast<std::uint8_t>(std::stoul(digits.substr(k * 2, 2), nullptr, 16)));
         }
         if (!target) return "cannot place reference " + t.name + " at +0x" + hex(at);
-        if (t.mangled.rfind("?", 0) == 0 && !callees.count(*target))
-            if (Signature cs = parseSignature(t.mangled); cs.text.find('(') != std::string::npos) callees.emplace(*target, std::move(cs));
+        if (callees && !own && t.mangled.rfind("?", 0) == 0 && !callees->count(*target))
+            if (Signature cs = parseSignature(t.mangled); cs.text.find('(') != std::string::npos) callees->emplace(*target, std::move(cs));
+        PlacedRef r{ at, t.type, own, *target, 0 };
         switch (t.type) {
             case IMAGE_REL_AMD64_REL32: case IMAGE_REL_AMD64_REL32_1: case IMAGE_REL_AMD64_REL32_2:
-            case IMAGE_REL_AMD64_REL32_3: case IMAGE_REL_AMD64_REL32_4: case IMAGE_REL_AMD64_REL32_5: {
-                const std::int64_t addend = rd<std::int32_t>(code, at);
-                const std::int64_t value  = std::int64_t(*target) + addend - std::int64_t(base + at + 4 + (t.type - IMAGE_REL_AMD64_REL32));
-                if (value < INT32_MIN || value > INT32_MAX) return "reference " + t.name + " out of rel32 reach";
-                const auto v32 = static_cast<std::int32_t>(value);
-                std::memcpy(code.data() + at, &v32, 4);
+            case IMAGE_REL_AMD64_REL32_3: case IMAGE_REL_AMD64_REL32_4: case IMAGE_REL_AMD64_REL32_5:
+                r.addend = rd<std::int32_t>(code, at);
                 break;
-            }
-            case IMAGE_REL_AMD64_ADDR64: {
-                const std::uint64_t v = *target + rd<std::uint64_t>(code, at);
-                std::memcpy(code.data() + at, &v, 8);
+            case IMAGE_REL_AMD64_ADDR64:
+                r.addend = rd<std::int64_t>(code, at);
                 break;
-            }
             default: return "relocation type " + std::to_string(t.type) + " (" + t.name + ") not supported";
         }
+        refs.push_back(r);
     }
     return {};
+}
+
+/// @brief Writes every placed reference into `code` for code sitting at `base`. Returns why not, or empty.
+std::string applyReferences(Bytes& code, const std::vector<PlacedRef>& refs, std::uint64_t base)
+{
+    for (const auto& r : refs) {
+        const std::uint64_t target = r.own ? base + r.target : r.target;
+        if (r.type == IMAGE_REL_AMD64_ADDR64) {
+            const std::uint64_t v = target + std::uint64_t(r.addend);
+            std::memcpy(code.data() + r.at, &v, 8);
+            continue;
+        }
+        const std::int64_t value = std::int64_t(target) + r.addend - std::int64_t(base + r.at + 4 + (r.type - IMAGE_REL_AMD64_REL32));
+        if (value < INT32_MIN || value > INT32_MAX) return "reference at +0x" + hex(r.at) + " out of rel32 reach";
+        const auto v32 = static_cast<std::int32_t>(value);
+        std::memcpy(code.data() + r.at, &v32, 4);
+    }
+    return {};
+}
+
+/// @brief Copies our function's bytes with every relocation applied for code placed at `base`. Returns why not, or empty.
+std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Bytes& vanilla, std::uint64_t va, const EngineSymbols& syms,
+                         const PeImage& pe, Bytes& code, std::map<std::uint64_t, Signature>& callees)
+{
+    std::vector<PlacedRef> refs;
+    if (auto why = placeReferences(ours, vanilla, va, syms, pe, code, refs, &callees); !why.empty()) return why;
+    return applyReferences(code, refs, base);
 }
 
 struct DiffReport {
@@ -3657,6 +3787,37 @@ bool globMatch(std::string_view pattern, std::string_view s)
         return false;
     }
     return !s.empty() && pattern.front() == s.front() && globMatch(pattern.substr(1), s.substr(1));
+}
+
+/// @brief The exe's file version as its version resource spells it ("1.6.1170.0"), or empty without one.
+std::string fileVersion(const fs::path& exe)
+{
+    DWORD      handle = 0;
+    const DWORD size  = GetFileVersionInfoSizeW(exe.c_str(), &handle);
+    if (size == 0) return {};
+    std::vector<std::uint8_t> data(size);
+    VS_FIXEDFILEINFO*         info = nullptr;
+    UINT                      len  = 0;
+    if (!GetFileVersionInfoW(exe.c_str(), 0, size, data.data()) || !VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&info), &len) ||
+        !info)
+        return {};
+    return std::to_string(HIWORD(info->dwFileVersionMS)) + "." + std::to_string(LOWORD(info->dwFileVersionMS)) + "." +
+           std::to_string(HIWORD(info->dwFileVersionLS)) + "." + std::to_string(LOWORD(info->dwFileVersionLS));
+}
+
+/// @brief The class an undecorated member name belongs to (`CB::schema::hkbClipGenerator::activate` → hkbClipGenerator),
+///        or the name's own namespace path for a free function; template arguments stay whole.
+std::string classOf(std::string name)
+{
+    if (name.rfind("CB::schema::", 0) == 0) name.erase(0, 12);
+    std::size_t last = std::string::npos;
+    int         depth = 0;
+    for (std::size_t k = 0; k + 1 < name.size(); ++k) {
+        if (name[k] == '<') ++depth;
+        else if (name[k] == '>') --depth;
+        else if (depth == 0 && name[k] == ':' && name[k + 1] == ':') last = k;
+    }
+    return last == std::string::npos ? std::string("(free)") : name.substr(0, last);
 }
 
 /// @brief A function as .pdata bounds it: chained unwind entries (a function's later fragments) fold into it.
@@ -4075,6 +4236,8 @@ void usage()
         "  --diff <seeds>       run each REGALLOC/VARIANT function and vanilla side by side under emulation on <seeds>\n"
         "                       synthetic inputs, comparing calls, memory writes and results (covers VARIANT's blind spots)\n"
         "  --diff-seed <n>      run only seed <n> of --diff, printing every stubbed call and forced pointer\n"
+        "  --emit-image <file>  write the runtime image: every passing function's code and references, keyed by the vanilla\n"
+        "                       function it replaces, for the plugin's takeover installer (needs a full run and the registry)\n"
         "\n"
         "manifest:\n"
         "  runtimes:   { ae: { exe: <exe>, addresslib: <versionlib-*.bin>, pins: ae } }   # or name: <exe>; ${VAR} = env\n"
@@ -4112,6 +4275,7 @@ struct Options {
     unsigned    jobs = 0;
     std::size_t diffSeeds = 0;
     std::optional<std::uint64_t> diffSeed;   ///< --diff-seed: just this one, traced
+    fs::path    emitImage;   ///< --emit-image: the runtime image of every passing function
 };
 
 int run(const Options& opt)
@@ -4393,6 +4557,88 @@ int run(const Options& opt)
         }
     }
 
+    if (!opt.emitImage.empty()) {
+        if (!syms) throw std::runtime_error("--emit-image needs the registry and the runtime's Address Library to place references");
+        if (!opt.only.empty()) throw std::runtime_error("--emit-image needs a full run (no --only)");
+        namespace img = CB::engine::codec::image;
+        img::Image image;
+        image.exeVersion = fileVersion(exePath);
+        if (image.exeVersion.empty()) throw std::runtime_error("--emit-image: " + exePath.string() + " has no version resource");
+        std::map<std::uint64_t, std::string> inventoryClass;
+        if (!m.inventory.file.empty() && fs::exists(m.inventory.file))
+            for (const auto& [name, list] : loadInventory(m.inventory).classes)
+                for (const auto& f : list) inventoryClass.emplace(f.va, name);
+        std::map<std::string, std::uint32_t> classIndex;
+        std::set<std::uint64_t>              placed;
+        std::size_t                          failed = 0;
+        struct Source { const CoffFunction* ours; Bytes vanilla; std::uint64_t va; };
+        std::vector<Source>                  sources;   ///< parallel to image.functions
+        for (const auto& r : rows) {
+            const bool pass = r.best.status == Status::Exact ||
+                              ((opt.allowRegalloc || opt.allowVariant) && r.best.status == Status::Regalloc) ||
+                              (opt.allowVariant && r.best.status == Status::Variant);
+            if (!pass || !r.best.ours || (r.diff && r.diff->diverged) || !placed.insert(r.va).second) continue;
+            const auto rva = static_cast<std::uint32_t>(r.va - pe.imageBase);
+            const auto off = pe.fileOffset(rva, r.best.vanillaLen);
+            if (!off) { ++failed; std::printf("image: %s left out: vanilla's bytes are not in the file image\n", r.name.c_str()); continue; }
+            const Bytes vanilla(pe.bytes.begin() + *off, pe.bytes.begin() + *off + r.best.vanillaLen);
+            img::Function          f;
+            std::vector<PlacedRef> refs;
+            if (auto why = placeReferences(*r.best.ours, vanilla, r.va, *syms, pe, f.code, refs, nullptr); !why.empty()) {
+                ++failed;
+                std::printf("image: %s left out: %s\n", r.name.c_str(), why.c_str());
+                continue;
+            }
+            for (const auto& p : refs) {
+                img::Ref ref;
+                ref.at     = p.at;
+                ref.kind   = p.type == IMAGE_REL_AMD64_ADDR64 ? img::RefKind::Addr64 : img::RefKind::Rel32;
+                ref.delta  = static_cast<std::uint8_t>(p.type == IMAGE_REL_AMD64_ADDR64 ? 0 : p.type - IMAGE_REL_AMD64_REL32);
+                ref.own    = p.own;
+                ref.target = static_cast<std::uint32_t>(p.own ? p.target : p.target - pe.imageBase);
+                ref.addend = p.addend;
+                std::fill_n(f.code.begin() + p.at, ref.kind == img::RefKind::Rel32 ? 4 : 8, std::uint8_t(0));
+                f.refs.push_back(ref);
+            }
+            for (const auto& u : r.best.ours->unwinds) f.unwinds.push_back({ u.begin, u.end, u.info });
+            f.unwindData = r.best.ours->unwindData;
+            for (const auto& [at, parent] : r.best.ours->chains) f.chains.push_back({ at, parent });
+            const auto  ic  = inventoryClass.find(r.va);
+            std::string cls = ic != inventoryClass.end() ? ic->second : classOf(r.best.ours->name);
+            const auto [it, added] = classIndex.emplace(cls, static_cast<std::uint32_t>(image.classes.size()));
+            if (added) image.classes.push_back(cls);
+            f.classIndex    = it->second;
+            f.name          = r.best.ours->name;
+            f.vanillaRva    = rva;
+            f.vanillaLength = static_cast<std::uint32_t>(vanilla.size());
+            f.vanillaHash   = img::Fnv1a64(vanilla.data(), vanilla.size());
+            f.status        = static_cast<std::uint8_t>(r.best.status == Status::Exact ? 0 : r.best.status == Status::Regalloc ? 1 : 2);
+            image.functions.push_back(std::move(f));
+            sources.push_back({ r.best.ours, vanilla, r.va });
+        }
+        // The image must reproduce what --diff ran: decode what was encoded, place every function at --diff's address
+        // and compare it with relocateOurs there.
+        const Bytes encoded = img::Encode(image);
+        std::string err;
+        const auto  decoded = img::Decode(encoded, &err);
+        if (!decoded) throw std::runtime_error("the image does not decode: " + err);
+        const std::uint64_t at = (pe.imageBase - 0x01000000ull) & ~(kPage - 1);
+        for (std::size_t k = 0; k < decoded->functions.size(); ++k) {
+            const auto& f = decoded->functions[k];
+            Bytes       ran(f.code.size()), expected;
+            std::map<std::uint64_t, Signature> callees;
+            const auto  why  = img::Relocate(f, ran.data(), at, pe.imageBase);
+            const auto  why2 = relocateOurs(*sources[k].ours, at, sources[k].vanilla, sources[k].va, *syms, pe, expected, callees);
+            if (!why.empty() || !why2.empty() || ran != expected)
+                throw std::runtime_error("the image's " + f.name + " does not place as --diff runs it" + (why.empty() ? "" : ": " + why));
+        }
+        if (!CB::engine::disk::WriteFile(opt.emitImage, std::span<const std::uint8_t>(encoded), {}, &err)) throw std::runtime_error("cannot write the image: " + err);
+        std::size_t codeBytes = 0;
+        for (const auto& f : image.functions) codeBytes += f.code.size();
+        std::printf("\nimage: %zu functions (%zu bytes of code) across %zu classes for %s -> %s; %zu left out\n", image.functions.size(), codeBytes,
+                    image.classes.size(), image.exeVersion.c_str(), opt.emitImage.string().c_str(), failed);
+    }
+
     if (!opt.report.empty()) {
         nlohmann::json j;
         j["runtime"] = runtime;
@@ -4445,6 +4691,7 @@ int main(int argc, char** argv)
         else if (a == "--coverage") opt.coverageAll = true;
         else if (a == "--diff") opt.diffSeeds = std::stoul(next());
         else if (a == "--diff-seed") opt.diffSeed = std::stoull(next());
+        else if (a == "--emit-image") opt.emitImage = next();
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }

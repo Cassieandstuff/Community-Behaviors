@@ -11,7 +11,7 @@ find_path(UNICORN_INCLUDE_DIR unicorn/unicorn.h REQUIRED)
 find_library(UNICORN_LIBRARY unicorn REQUIRED)
 
 target_include_directories(cbmatch PRIVATE "${UNICORN_INCLUDE_DIR}")
-target_link_libraries(cbmatch PRIVATE engine Zydis::Zydis nlohmann_json::nlohmann_json dbghelp "${UNICORN_LIBRARY}")
+target_link_libraries(cbmatch PRIVATE engine Zydis::Zydis nlohmann_json::nlohmann_json dbghelp version "${UNICORN_LIBRARY}")
 
 set_target_properties(cbmatch PROPERTIES
     CXX_STANDARD 23
