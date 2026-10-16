@@ -636,3 +636,18 @@ symbols:
   - { name: hkbPhysicsUtils_GetClosestPoints, kind: func, se: 0, ae: 59430, vr: 0, cpp: "CB::schema::hkbPhysicsUtils::getClosestPoints" }  # name provisional; (world, filterInfo, position, tolerance, radius, collector)
   - { name: hkpAllCdPointCollector_Vtable, kind: data, se: 0, ae: 196331, vr: 0, cpp: "CB::schema::hkpAllCdPointCollector::`vftable'" }
   - { name: hkbCharacter_SetWorldFromModel, kind: func, se: 0, ae: 58461, vr: 0, cpp: "CB::schema::hkbCharacter::setWorldFromModel" }  # (worldFromModel, deleteWorldFromModel)
+  - { name: BSDecomposeVectorModifier_Vtable, kind: data, se: 0, ae: 232670, vr: 0, cpp: "CB::schema::BSDecomposeVectorModifier::`vftable'" }
+  - { name: BSDecomposeVectorModifier_CloneCtor, kind: func, se: 0, ae: 63187, vr: 0, cpp: "??0BSDecomposeVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSGetTimeStepModifier_Vtable, kind: data, se: 0, ae: 232691, vr: 0, cpp: "CB::schema::BSGetTimeStepModifier::`vftable'" }
+  - { name: BSGetTimeStepModifier_CloneCtor, kind: func, se: 0, ae: 63236, vr: 0, cpp: "??0BSGetTimeStepModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSInterpValueModifier_Vtable, kind: data, se: 0, ae: 232693, vr: 0, cpp: "CB::schema::BSInterpValueModifier::`vftable'" }
+  - { name: BSInterpValueModifier_CloneCtor, kind: func, se: 0, ae: 63245, vr: 0, cpp: "??0BSInterpValueModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSInterpValueModifier_GetStaticClass, kind: func, se: 0, ae: 62980, vr: 0, cpp: "CB::schema::BSInterpValueModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSIsActiveModifier_Vtable, kind: data, se: 0, ae: 232695, vr: 0, cpp: "CB::schema::BSIsActiveModifier::`vftable'" }
+  - { name: BSIsActiveModifier_CloneCtor, kind: func, se: 0, ae: 63254, vr: 0, cpp: "??0BSIsActiveModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSSpeedSamplerModifier_Vtable, kind: data, se: 0, ae: 232717, vr: 0, cpp: "CB::schema::BSSpeedSamplerModifier::`vftable'" }
+  - { name: BSSpeedSamplerModifier_CloneCtor, kind: func, se: 0, ae: 63307, vr: 0, cpp: "??0BSSpeedSamplerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSISpeedSamplerDB_Instance, kind: data, se: 0, ae: 409304, vr: 0, cpp: "CB::schema::BSISpeedSamplerDB::s_instance" }  # name provisional; the game's BSSpeedSamplerDBManager (as its BSISpeedSamplerDB base), installed by the animation-cache startup; BSSpeedSamplerModifier::update calls its slot 1
+  - { name: hkbAttributeModifier_Vtable, kind: data, se: 0, ae: 226350, vr: 0, cpp: "CB::schema::hkbAttributeModifier::`vftable'" }
+  - { name: hkbAttributeModifier_CloneCtor, kind: func, se: 0, ae: 59602, vr: 0, cpp: "??0hkbAttributeModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbAttributeModifierUtils_Modify, kind: func, se: 0, ae: 60050, vr: 0, cpp: "CB::schema::hkbAttributeModifierUtils::modify" }  # name provisional; (modifier, inOut, behavior attributeIdMap, root attributeIdMap); modify tail-jumps to it

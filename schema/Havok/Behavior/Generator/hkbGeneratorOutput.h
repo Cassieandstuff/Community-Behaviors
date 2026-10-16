@@ -21,7 +21,11 @@ namespace CB { namespace schema
             TRACK_RIGID_BODY_RAGDOLL_BLEND_TIME         = 5,
             TRACK_POWERED_RAGDOLL_CONTROLS              = 6,
             TRACK_POWERED_RAGDOLL_WORLD_FROM_MODEL_MODE = 7,
-            TRACK_KEYFRAMED_RAGDOLL_BONES               = 8
+            TRACK_KEYFRAMED_RAGDOLL_BONES               = 8,
+            /// @brief One float per attribute id (the character's root graph's ids), written by hkbAttributeModifier.
+            /// @note The index is vanilla's (hkbAttributeModifierUtils::modify tests `numTracks > 10`); later Havok SDKs
+            ///       number the attribute track 11.
+            TRACK_ATTRIBUTES                            = 10
         };
         enum TrackFlags { TRACK_FLAG_ADDITIVE_POSE = 1 };
 
