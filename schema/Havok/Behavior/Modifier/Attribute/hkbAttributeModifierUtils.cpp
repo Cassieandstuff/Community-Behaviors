@@ -9,6 +9,8 @@ namespace CB { namespace schema
 {
     namespace
     {
+        /// @note hkbSymbolIdMap::convertInternalId's body, inlined here in vanilla where hkbEvaluateExpressionModifier calls
+        ///       the out-of-line copy. A helper of its own (not the same statements in the loop): that gives vanilla's prologue.
         HK_FORCE_INLINE int convertId(const hkbSymbolIdMap* fromMap, const hkbSymbolIdMap* toMap, int id)
         {
             if (fromMap != toMap) {
