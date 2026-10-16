@@ -128,6 +128,11 @@ namespace CB { namespace schema
         {
             m_quad = _mm_shuffle_ps(xyz.m_quad, _mm_unpackhi_ps(xyz.m_quad, w.m_quad), _MM_SHUFFLE(3, 0, 1, 0));
         }
+        /// @brief xyz from `xyz`, w kept.
+        HK_FORCE_INLINE void setXYZ(const hkVector4& xyz) { setXYZ_W(xyz, *this); }
+        /// @brief Component-wise maximum / minimum.
+        HK_FORCE_INLINE void setMax4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_max_ps(a.m_quad, b.m_quad); }
+        HK_FORCE_INLINE void setMin4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_min_ps(a.m_quad, b.m_quad); }
 
         HK_FORCE_INLINE void setRotatedDir(const hkQuaternion& quat, const hkVector4& direction);
         /// @brief Rotates `direction` by the inverse of `quat`.

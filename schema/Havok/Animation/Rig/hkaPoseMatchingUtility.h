@@ -40,5 +40,10 @@ namespace CB { namespace schema
         /// @brief The candidate closest to `poseModelSpace` (-1 with none), and its error (1 - |signature dot|).
         /// @note Name provisional; out of line in vanilla (0x140bd8a00).
         int findBestCandidatePoseIndex(const hkQsTransform* poseModelSpace, hkReal& errorOut);
+        /// @brief The reference frames the three matching bones span in an animation pose and a ragdoll pose (model
+        ///        space): the world-from-models that would line the two up.
+        /// @note Name provisional; out of line in vanilla (0x140bd8b30), called by hkbGetUpModifier::modify.
+        void computeReferenceFrame(const hkQsTransform* animPoseModelSpace, const hkQsTransform* ragdollPoseModelSpace, hkQsTransform& animWorldFromModelOut,
+                                   hkQsTransform& ragdollWorldFromModelOut);
     };
 } }

@@ -898,6 +898,17 @@ symbols:
   - { name: hkaDetectRagdollPenetration_DetectPenetration, kind: func, se: 0, ae: 80067, vr: 0, cpp: "CB::schema::hkaDetectRagdollPenetration::detectPenetration" }  # (pose, penetrationsOut) -> hkBool through memory; not reimplemented yet
   - { name: hkaRagdollRaycastInterface_Vtable, kind: data, se: 0, ae: 239024, vr: 0, cpp: "CB::schema::hkaRagdollRaycastInterface::`vftable'" }  # [dtor, castRay pure]; Skyrim's implementation is bhkRagdollPenetrationUtil
   - { name: hkaFootPlacementIkSolver_Vtable, kind: data, se: 0, ae: 218958, vr: 0, cpp: "CB::schema::hkaFootPlacementIkSolver::`vftable'" }
+  # --- hkbGetUpModifier + BSLimbIKModifier (schema/Havok/Behavior/Modifier/{GetUp,BSLimbIK}) ---
+  - { name: hkbGetUpModifier_Vtable, kind: data, se: 0, ae: 226500, vr: 0, cpp: "CB::schema::hkbGetUpModifier::`vftable'" }
+  - { name: hkbGetUpModifierInternalState_Vtable, kind: data, se: 0, ae: 226504, vr: 0, cpp: "CB::schema::hkbGetUpModifierInternalState::`vftable'" }
+  - { name: hkbGetUpModifier_CopyCtor, kind: func, se: 0, ae: 59761, vr: 0, cpp: "??0hkbGetUpModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbRotationUtils_RotateToAlignUp, kind: func, se: 0, ae: 59321, vr: 0, cpp: "CB::schema::hkbRotationUtils::rotateToAlignUp" }  # name and owner provisional; (targetRot, currentRot, targetUp, currentUp, out, fraction, epsilon)
+  - { name: hkbGeneratorOutputUtils_GetPoseModelSpace, kind: func, se: 0, ae: 58476, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getPoseModelSpace" }  # name provisional; (output, skeleton, poseModelOut)
+  - { name: hkaPoseMatchingUtility_ComputeReferenceFrame, kind: func, se: 0, ae: 64167, vr: 0, cpp: "CB::schema::hkaPoseMatchingUtility::computeReferenceFrame" }  # name provisional; (animPoseMS, ragdollPoseMS, animWorldFromModelOut, ragdollWorldFromModelOut)
+  - { name: BSLimbIKModifier_Vtable, kind: data, se: 0, ae: 232697, vr: 0, cpp: "CB::schema::BSLimbIKModifier::`vftable'" }
+  - { name: BSLimbIKModifier_GetStaticClass, kind: func, se: 0, ae: 62985, vr: 0, cpp: "CB::schema::BSLimbIKModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSLimbIKModifier_CopyCtor, kind: func, se: 0, ae: 63265, vr: 0, cpp: "??0BSLimbIKModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSILimbIKModifierSingleton_Instance, kind: data, se: 0, ae: 409303, vr: 0, cpp: "CB::schema::BSILimbIKModifierSingleton::s_instance" }  # name provisional; BSTSingletonSDM<BSLimbIKModifierUtility>, installed by the animation-cache startup; modify casts through it
   # --- Havok physics (hkp): declared in schema/Havok/Physics, never reimplemented ---
   - { name: hkpEntity_Activate, kind: func, se: 0, ae: 60849, vr: 0, cpp: "CB::schema::hkpEntity::activate" }
   - { name: hkpRigidBody_SetPositionAndRotation, kind: func, se: 0, ae: 60898, vr: 0, cpp: "CB::schema::hkpRigidBody::setPositionAndRotation" }

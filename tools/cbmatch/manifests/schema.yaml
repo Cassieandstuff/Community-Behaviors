@@ -796,6 +796,20 @@ units:
       - { name: "??0BSDirectAtModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b99f00 }
       - { name: "??1BSDirectAtModifier@schema@CB@@UEAA@XZ", va: 0x140b9a040 }
       - { name: "??_GBSDirectAtModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9a0b0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSLimbIK/BSLimbIKModifier.cpp
+    functions:
+      - { name: "??0BSLimbIKModifier@schema@CB@@QEAA@XZ", va: 0x140b9bd30 }
+      - { name: "??0BSLimbIKModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b9bdd0 }
+      - { name: "CB::schema::BSLimbIKModifier::getClassType", va: 0x140b9be30 }
+      - { name: "CB::schema::BSLimbIKModifier::activate", va: 0x140b9be40 }
+      - { name: "CB::schema::BSLimbIKModifier::deactivate", va: 0x140b9be50 }
+      - { name: "CB::schema::BSLimbIKModifier::isValid", va: 0x140b9be60 }
+      - { name: "CB::schema::BSLimbIKModifier::cloneNode", va: 0x140b9beb0 }
+      - { name: "CB::schema::BSLimbIKModifier::update", va: 0x140b9bf00 }
+      # STRUCTURAL: a CSE'd quaternion product and loop-invariant SIMD hoisting differ (see parked.yaml):
+      # - { name: "CB::schema::BSLimbIKModifier::modify", va: 0x140b9bf10 }
+      - { name: "??0BSLimbIKModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9d080 }
+      - { name: "??_GBSLimbIKModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9d100 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSDirectAt/BSDirectAtModifierUtils.cpp
     functions:
       # - { name: "CB::schema::BSDirectAtModifierUtils::modifyInternal", va: 0x140ba1200 }  # parked: vanilla calls the hkBitField destructor out of line (see parked.yaml)
@@ -1276,7 +1290,23 @@ units:
       - { name: "CB::schema::hkbGeneratorSyncInfo::mirror", va: 0x140ac2770 }
   - source: ../../../schema/Havok/Behavior/Modifier/GetUp/hkbGetUpModifier.cpp
     functions:
+      - { name: "??0hkbGetUpModifier@schema@CB@@QEAA@XZ", va: 0x140af5980 }
+      - { name: "??0hkbGetUpModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af5a20 }
+      - { name: "CB::schema::hkbGetUpModifier::activate", va: 0x140af5a80 }
+      - { name: "CB::schema::hkbGetUpModifier::update", va: 0x140af5aa0 }
+      # STRUCTURAL: the bone-flag sum compares signed in vanilla, unsigned in 24247 (see parked.yaml):
+      # - { name: "CB::schema::hkbGetUpModifier::isValid", va: 0x140af5ac0 }
+      - { name: "CB::schema::hkbGetUpModifier::cloneNode", va: 0x140af5c70 }
+      # STRUCTURAL: the ragdoll pointer spilled vs the setup spilled - register allocation (see parked.yaml):
+      # - { name: "CB::schema::hkbGetUpModifier::modify", va: 0x140af5cc0 }
+      - { name: "CB::schema::hkbGetUpModifier::createInternalState", va: 0x140af6260 }
+      - { name: "CB::schema::hkbGetUpModifier::getInternalState", va: 0x140af62a0 }
+      - { name: "CB::schema::hkbGetUpModifier::setInternalState", va: 0x140af62c0 }
+      - { name: "??_GhkbGetUpModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac96a0 }
       - { name: "??_GhkbGetUpModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9730 }
+  - source: ../../../schema/Havok/Behavior/Utils/hkbRotationUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbRotationUtils::rotateToAlignUp", va: 0x140ad5880 }
   - source: ../../../schema/Havok/Behavior/Modifier/CharacterController/hkbCharacterControllerModifier.cpp
     functions:
       - { name: "??_GhkbCharacterControllerModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7f00 }

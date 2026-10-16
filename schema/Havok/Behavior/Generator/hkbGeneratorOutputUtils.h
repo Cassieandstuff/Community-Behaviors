@@ -27,6 +27,10 @@ namespace CB { namespace schema
         ///        partition bits leave unset, and bones past the output's count, come from the reference pose.
         /// @note 0x140abe3e0; the IK modifiers (look-at, foot, hand, limb) load their hkaPose with it.
         static void getFilledPoseLocal(const hkbGeneratorOutput& output, const hkaSkeleton* skeleton, hkQsTransform* poseLocalOut);
+        /// @brief The output's pose in model space into `poseModelOut` (the skeleton's bone count), unset bones from the
+        ///        reference pose.
+        /// @note 0x140abe2a0; hkbGetUpModifier reads the animation pose with it.
+        static void getPoseModelSpace(const hkbGeneratorOutput& output, const hkaSkeleton* skeleton, hkQsTransform* poseModelOut);
         /// @brief Sets every partition bit after the output's pose (all bones set), the pose untouched.
         /// @note 0x140abe0e0; the IK modifiers call it after writing their whole pose back.
         static void markPoseDense(hkbGeneratorOutput& output);

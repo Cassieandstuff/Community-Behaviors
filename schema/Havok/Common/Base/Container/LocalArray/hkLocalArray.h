@@ -19,7 +19,7 @@ namespace CB { namespace schema
         }
         HK_FORCE_INLINE ~hkLocalArray()
         {
-            if (this->m_data == m_localMemory) this->m_size = 0;
+            if (m_localMemory == this->m_data) this->m_size = 0;
             hkDeallocateStack<T>(m_localMemory, m_initialCapacity);
         }
 
