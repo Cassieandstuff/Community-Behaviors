@@ -157,6 +157,14 @@ namespace CB { namespace schema
             const hkQuadReal eps     = _mm_set1_ps(epsilon);
             return (_mm_movemask_ps(_mm_cmple_ps(diff, eps)) & 7) == 7;
         }
+        /// @brief Whether all four components lie within `epsilon` of `v`'s.
+        HK_FORCE_INLINE bool equals4(const hkVector4& v, hkReal epsilon) const
+        {
+            const hkQuadReal absMask = _mm_castsi128_ps(_mm_set1_epi32(0x7fffffff));
+            const hkQuadReal diff    = _mm_and_ps(_mm_sub_ps(m_quad, v.m_quad), absMask);
+            const hkQuadReal eps     = _mm_set1_ps(epsilon);
+            return (_mm_movemask_ps(_mm_cmple_ps(diff, eps)) & 0xf) == 0xf;
+        }
     };
 
     extern const hkVector4 g_vectorConstant0001;        ///< (0,0,0,1) — Havok's vector-constant table

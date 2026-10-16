@@ -1385,6 +1385,7 @@ units:
   - source: ../../../schema/Havok/Animation/Motion/Default/hkaDefaultAnimatedReferenceFrame.cpp
     functions:
       - { name: "CB::schema::hkaDefaultAnimatedReferenceFrame::getReferenceFrame", va: 0x140c36b60 }
+      - { name: "CB::schema::hkaDefaultAnimatedReferenceFrame::getDeltaReferenceFrame", va: 0x140c36c40 }
       - { name: "CB::schema::hkaDefaultAnimatedReferenceFrame::getDuration", va: 0x140c37430 }
   - source: ../../../schema/Havok/Animation/Rig/hkaMirroredSkeleton.cpp
     functions:

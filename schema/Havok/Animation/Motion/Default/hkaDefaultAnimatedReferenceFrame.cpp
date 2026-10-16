@@ -28,6 +28,52 @@ namespace CB { namespace schema
         motionOut.m_scale.setAll(1.0f);
     }
 
+    /// @note Each wrap applies one whole cropped cycle (start → end) to the next-time motion: forward loops compose it on,
+    ///       backward loops take it off.
+    void hkaDefaultAnimatedReferenceFrame::getDeltaReferenceFrame(hkReal time, hkReal nextTime, int loops, hkQsTransform& deltaMotionOut,
+                                                                  hkReal cropStartAmount, hkReal cropEndAmount) const
+    {
+        const hkReal cropEnd = m_duration - cropEndAmount;
+        if (cropStartAmount >= cropEnd) {
+            deltaMotionOut.setIdentity();
+            return;
+        }
+
+        hkQsTransform motionNow;
+        getReferenceFrame(time, motionNow);
+        hkQsTransform motionNext;
+        getReferenceFrame(nextTime, motionNext);
+
+        if (loops != 0) {
+            hkQsTransform motionEnd;
+            getReferenceFrame(cropEnd, motionEnd);
+            hkQsTransform cycleMotion;
+            if (cropStartAmount != 0.0f) {
+                hkQsTransform motionStart;
+                getReferenceFrame(cropStartAmount, motionStart);
+                cycleMotion.setMulInverseMul(motionStart, motionEnd);
+            } else {
+                cycleMotion = motionEnd;
+            }
+
+            const int numLoops = (loops < 0) ? -loops : loops;
+            if (numLoops != 0) {
+                const bool sameRotation = cycleMotion.m_rotation.m_vec.equals4(motionNext.m_rotation.m_vec, 1e-3f);
+                for (int i = numLoops; i != 0; i--) {
+                    if (loops < 0) {
+                        motionNext.setMulInverseMul(cycleMotion, motionNext);
+                    } else {
+                        motionNext.setMul(cycleMotion, motionNext);
+                        if (sameRotation) motionNext.m_rotation = cycleMotion.m_rotation;
+                    }
+                }
+            }
+        }
+
+        deltaMotionOut.setMulInverseMul(motionNow, motionNext);
+        deltaMotionOut.m_scale.setAll(1.0f);
+    }
+
     hkReal hkaDefaultAnimatedReferenceFrame::getDuration() const
     {
         return m_duration;
