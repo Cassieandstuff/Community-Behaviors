@@ -971,3 +971,29 @@ symbols:
   - { name: hkbKeyframeBonesModifierUtils_Modify, kind: func, se: 0, ae: 60071, vr: 0, cpp: "CB::schema::hkbKeyframeBonesModifierUtils::modify" }  # name provisional; (mod, inOut)
   - { name: hkAlgorithm_QuickSortRecursiveInt, kind: func, se: 0, ae: 60072, vr: 0, cpp: "CB::schema::hkAlgorithm::quickSortRecursive<int,CB::schema::hkAlgorithm::less<int> >" }  # the int instance, emitted in hkbKeyframeBonesModifierUtils's unit
   - { name: hkMap_IntInt_CtorWithStorage, kind: func, se: 0, ae: 57172, vr: 0, cpp: "CB::schema::hkMap<int,int>::hkMap<int,int>" }  # name provisional; (ptr, sizeInBytes): only calls hkPointerMapStorage's storage ctor (57197)
+  - { name: hkbCharacterControllerModifier_Vtable, kind: data, se: 0, ae: 226358, vr: 0, cpp: "CB::schema::hkbCharacterControllerModifier::`vftable'" }
+  - { name: hkbCharacterControllerModifier_CloneCtor, kind: func, se: 0, ae: 59606, vr: 0, cpp: "??0hkbCharacterControllerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbCharacterControllerModifierInternalState_Vtable, kind: data, se: 0, ae: 226366, vr: 0, cpp: "CB::schema::hkbCharacterControllerModifierInternalState::`vftable'" }
+  - { name: hkRotation_Set, kind: func, se: 0, ae: 57081, vr: 0, cpp: "CB::schema::hkRotation::set" }  # (const hkQuaternion&)
+  - { name: hkRotation_Renormalize, kind: func, se: 0, ae: 57085, vr: 0, cpp: "CB::schema::hkRotation::renormalize" }  # through a quaternion
+  - { name: hkTransform_IdentityStorage, kind: data, se: 0, ae: 407384, vr: 0, cpp: "CB::schema::hkTransform_identityStorage" }  # hkTransform::getIdentity()
+  - { name: hkbProxyModifier_Vtable, kind: data, se: 0, ae: 226556, vr: 0, cpp: "CB::schema::hkbProxyModifier::`vftable'" }
+  - { name: hkbProxyModifier_CloneCtor, kind: func, se: 0, ae: 59827, vr: 0, cpp: "??0hkbProxyModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbProxyModifier_ComputeDesiredVelocity, kind: func, se: 0, ae: 59835, vr: 0, cpp: "CB::schema::hkbProxyModifier::computeDesiredVelocity" }  # name provisional
+  - { name: hkbProxyModifier_IntegrateProxy, kind: func, se: 0, ae: 59836, vr: 0, cpp: "CB::schema::hkbProxyModifier::integrateProxy" }  # name provisional
+  - { name: hkbProxyModifier_UpdateTranslation, kind: func, se: 0, ae: 59837, vr: 0, cpp: "CB::schema::hkbProxyModifier::updateTranslation" }  # name provisional
+  - { name: hkbProxyModifier_UpdateRotation, kind: func, se: 0, ae: 59838, vr: 0, cpp: "CB::schema::hkbProxyModifier::updateRotation" }  # name provisional
+  - { name: BSIRagdollContactListenerModifierSingleton_Instance, kind: data, se: 0, ae: 409508, vr: 0, cpp: "CB::schema::BSIRagdollContactListenerModifierSingleton::s_instance" }  # name provisional; the game's listener handler, null = none
+  - { name: BSRagdollContactListenerModifier_SetListenersActive, kind: func, se: 0, ae: 63077, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::setListenersActive" }  # name provisional; activate/deactivate tail-jump to it
+  - { name: BSRagdollContactListenerModifier_Dtor, kind: func, se: 0, ae: 63084, vr: 0, cpp: "??1BSRagdollContactListenerModifier@schema@CB@@UEAA@XZ" }
+  - { name: BSRagdollContactListenerModifier_GetStaticClass, kind: func, se: 0, ae: 62998, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSRagdollContactListenerModifier_AddListeners, kind: func, se: 0, ae: 63093, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::addListeners" }  # name provisional
+  - { name: BSRagdollContactListenerModifier_RemoveListeners, kind: func, se: 0, ae: 63094, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::removeListeners" }  # name provisional
+  - { name: BSRagdollContactListenerModifier_CloneCtor, kind: func, se: 0, ae: 63095, vr: 0, cpp: "??0BSRagdollContactListenerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSRagdollContactListenerModifier_ContactListenerVtable, kind: data, se: 0, ae: 232624, vr: 0, cpp: "??_7BSRagdollContactListenerModifier@schema@CB@@6BhkpContactListener@12@@" }  # the hkpContactListener base's (+0x50)
+  - { name: hkpContactListener_Vtable, kind: data, se: 0, ae: 196236, vr: 0, cpp: "CB::schema::hkpContactListener::`vftable'" }  # restamped by the listeners' destructors
+  - { name: BSRagdollContactListenerModifier_Vtable, kind: data, se: 0, ae: 232622, vr: 0, cpp: "??_7BSRagdollContactListenerModifier@schema@CB@@6BhkbModifier@12@@" }  # by mangled name: the class has two
+  - { name: BSIRagdollContactListenerModifierSingleton_Vtable, kind: data, se: 0, ae: 232620, vr: 0, cpp: "CB::schema::BSIRagdollContactListenerModifierSingleton::`vftable'" }
+  - { name: BSIRagdollContactListenerModifierSingleton_Dtor, kind: func, se: 0, ae: 63080, vr: 0, cpp: "??1BSIRagdollContactListenerModifierSingleton@schema@CB@@UEAA@XZ" }
+  - { name: CRT_OperatorDeleteSized, kind: func, se: 0, ae: 109588, vr: 0, cpp: "??3@YAXPEAX_K@Z" }  # the CRT's operator delete(void*, size_t): plain (non-Havok) classes' deleting destructors
+  - { name: BSRagdollContactListenerModifier_VectorDeletingDtor, kind: func, se: 0, ae: 63097, vr: 0, cpp: "??_EBSRagdollContactListenerModifier@schema@CB@@UEAAPEAXI@Z" }  # MSVC folds ??_E into ??_G (0x140b95eb0); the hkpContactListener adjustor thunk jumps to it

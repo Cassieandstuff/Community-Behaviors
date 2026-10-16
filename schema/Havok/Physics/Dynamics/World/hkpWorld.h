@@ -13,9 +13,10 @@ namespace CB { namespace schema
     class hkpRayHitCollector;
     class hkpCdPointCollector;
     struct hkpWorldRayCastInput;
-    struct hkpCollisionInput;
+    /// @note Opaque (only passed through).
+    struct hkpCollisionInput {};
     /// @note Opaque: an hkpCollisionInput whose m_tolerance sits at +0x10.
-    struct hkpProcessCollisionInput;
+    struct hkpProcessCollisionInput : hkpCollisionInput {};
 
     /// @note Havok SDK enum; only success is named here.
     enum hkpStepResult { HK_STEP_RESULT_SUCCESS = 0 };

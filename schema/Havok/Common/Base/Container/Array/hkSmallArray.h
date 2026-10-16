@@ -17,5 +17,13 @@ namespace CB { namespace schema
         HK_FORCE_INLINE int      getSize() const { return m_size; }
         HK_FORCE_INLINE T&       operator[](int i) { return m_data[i]; }
         HK_FORCE_INLINE const T& operator[](int i) const { return m_data[i]; }
+        /// @brief The first index holding `t`, -1 if none.
+        HK_FORCE_INLINE int indexOf(const T& t) const
+        {
+            for (int i = 0; i < m_size; i++) {
+                if (m_data[i] == t) return i;
+            }
+            return -1;
+        }
     };
 } }

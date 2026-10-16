@@ -23,5 +23,15 @@ namespace CB { namespace schema
         hkVector4                        m_surfaceVelocity;         ///< +0x20
         hkReal                           m_surfaceDistanceExcess;   ///< +0x30
         hkBool                           m_surfaceIsDynamic;        ///< +0x34
+
+        /// @note Havok's defaults (supported, on a z-up floor), as hkbProxyModifier::modify's inlined copy stores them.
+        HK_FORCE_INLINE hkpSurfaceInfo()
+        :   m_supportedState(SUPPORTED),
+            m_surfaceDistanceExcess(0.0f),
+            m_surfaceIsDynamic(false)
+        {
+            m_surfaceNormal.set(0.0f, 0.0f, 1.0f);
+            m_surfaceVelocity.setZero4();
+        }
     };
 } }

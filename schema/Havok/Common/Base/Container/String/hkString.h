@@ -127,6 +127,13 @@ namespace CB { namespace schema
                 s += 4;
             }
         }
+        /// @brief Copies `numWords` 4-byte words from `src` to `dst`, each read just before it is written.
+        static HK_FORCE_INLINE void memCpy4(void* dst, const void* src, int numWords)
+        {
+            const hkUint32* s = static_cast<const hkUint32*>(src);
+            hkUint32*       d = static_cast<hkUint32*>(dst);
+            for (int i = 0; i < numWords; i++) d[i] = s[i];
+        }
         /// @brief Fills `numWords` 4-byte words of `dst` with `value`.
         /// @note Counted down from numWords - 1, as vanilla tests it (`lea eax,[n-1]; test; js` before the rep stosd).
         static HK_FORCE_INLINE void memSet4(void* dst, const int value, int numWords)

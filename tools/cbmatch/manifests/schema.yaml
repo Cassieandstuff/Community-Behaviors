@@ -344,6 +344,28 @@ units:
       - { name: "??0hkbCompiledExpressionSet@schema@CB@@QEAA@XZ", va: 0x140b05510 }
       - { name: "??_GhkbCompiledExpressionSet@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8280 }
       - { name: "CB::schema::hkbCompiledExpressionSet::getActiveVariables", va: 0x140b06d10 }
+  - source: ../../../schema/Havok/Behavior/Modifier/BSRagdollContactListenerModifier/BSRagdollContactListenerModifier.cpp
+    functions:
+      - { name: "CB::schema::BSRagdollContactListenerModifier::setListenersActive", va: 0x140b95230 }
+      - { name: "??0BSIRagdollContactListenerModifierSingleton@schema@CB@@QEAA@XZ", va: 0x140b95270 }
+      - { name: "??1BSIRagdollContactListenerModifierSingleton@schema@CB@@UEAA@XZ", va: 0x140b95290 }
+      - { name: "??_GBSIRagdollContactListenerModifierSingleton@schema@CB@@UEAAPEAXI@Z", va: 0x140b952a0 }
+      - { name: "??0BSRagdollContactListenerModifier@schema@CB@@QEAA@XZ", va: 0x140b952e0 }
+      - { name: "??0BSRagdollContactListenerModifier@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140b95390 }
+      - { name: "??1BSRagdollContactListenerModifier@schema@CB@@UEAA@XZ", va: 0x140b95420 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::getClassType", va: 0x140b954e0 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::collectBindables", va: 0x140b954f0 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::cloneNode", va: 0x140b95530 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::activate", va: 0x140b95580 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::deactivate", va: 0x140b955a0 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::isValid", va: 0x140b955c0 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::update", va: 0x140b95950 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::contactPointCallback", va: 0x140b95a50 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::addListeners", va: 0x140b95ae0 }
+      - { name: "CB::schema::BSRagdollContactListenerModifier::removeListeners", va: 0x140b95ca0 }
+      - { name: "??0BSRagdollContactListenerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b95d70 }
+      - { name: "??_EBSRagdollContactListenerModifier@schema@CB@@WFA@EAAPEAXI@Z", va: 0x140b95ea4 }
+      - { name: "??_GBSRagdollContactListenerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b95eb0 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSTimerModifier/BSTimerModifier.cpp
     functions:
       - { name: "??0BSTimerModifier@schema@CB@@QEAA@XZ", va: 0x140b9f1b0 }
@@ -1361,6 +1383,30 @@ units:
   - source: ../../../schema/Havok/Behavior/Modifier/CharacterController/hkbCharacterControllerModifier.cpp
     functions:
       - { name: "??_GhkbCharacterControllerModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7f00 }
+      - { name: "??0hkbCharacterControllerModifier@schema@CB@@QEAA@XZ", va: 0x140aebb50 }
+      - { name: "??0hkbCharacterControllerModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aebc20 }
+      - { name: "CB::schema::hkbCharacterControllerModifier::activate", va: 0x140aebcb0 }
+      - { name: "CB::schema::hkbCharacterControllerModifier::update", va: 0x140aebd20 }
+      - { name: "CB::schema::hkbCharacterControllerModifier::cloneNode", va: 0x140aebd60 }
+      # - { name: "CB::schema::hkbCharacterControllerModifier::modify", va: 0x140aebdb0 }  # parked: commutative operand order + setInverse mask xor
+      - { name: "CB::schema::hkbCharacterControllerModifier::createInternalState", va: 0x140aec250 }
+      - { name: "CB::schema::hkbCharacterControllerModifier::getInternalState", va: 0x140aec290 }
+      - { name: "CB::schema::hkbCharacterControllerModifier::setInternalState", va: 0x140aec2c0 }
+      - { name: "??_GhkbCharacterControllerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7e70 }
+  - source: ../../../schema/Havok/Behavior/Modifier/Proxy/hkbProxyModifier.cpp
+    functions:
+      - { name: "??0hkbProxyModifier@schema@CB@@QEAA@XZ", va: 0x140afa4d0 }
+      - { name: "??0hkbProxyModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afa660 }
+      - { name: "CB::schema::hkbProxyModifier::activate", va: 0x140afa780 }
+      - { name: "CB::schema::hkbProxyModifier::update", va: 0x140afaae0 }
+      - { name: "CB::schema::hkbProxyModifier::deactivate", va: 0x140afab00 }
+      - { name: "CB::schema::hkbProxyModifier::cloneNode", va: 0x140afab90 }
+      - { name: "CB::schema::hkbProxyModifier::modify", va: 0x140afabe0 }
+      # - { name: "CB::schema::hkbProxyModifier::computeDesiredVelocity", va: 0x140afadc0 }  # parked: setInverse mask xor + commutative operand order
+      - { name: "CB::schema::hkbProxyModifier::integrateProxy", va: 0x140afb0c0 }
+      - { name: "CB::schema::hkbProxyModifier::updateTranslation", va: 0x140afb260 }
+      # - { name: "CB::schema::hkbProxyModifier::updateRotation", va: 0x140afb3e0 }  # parked: one commutative mulps
+      - { name: "??_GhkbProxyModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140aca8d0 }
   - source: ../../../schema/Havok/Behavior/Modifier/EventsFromRange/hkbEventRangeDataArray.cpp
     functions:
       - { name: "??1hkbEventRangeDataArray@schema@CB@@UEAA@XZ", va: 0x140ac67c0 }

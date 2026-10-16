@@ -73,5 +73,6 @@ namespace CB { namespace schema
         HK_FORCE_INLINE const hkpMaterial& getMaterial() const { return m_material; }
         HK_FORCE_INLINE hkUint32           getUid() const { return m_uid; }
         HK_FORCE_INLINE hkLocalFrame*      getLocalFrame() const { return m_localFrame; }
+        HK_FORCE_INLINE const hkSmallArray<hkpContactListener*>& getContactListeners() const { return m_contactListeners; }
     };
 } }

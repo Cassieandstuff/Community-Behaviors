@@ -11,6 +11,9 @@ namespace CB { namespace schema
     {
         hkVector4 m_position;
         hkVector4 m_separatingNormal;
+
+        /// @brief The separation along the normal (negative = penetrating), kept in the normal's w.
+        HK_FORCE_INLINE hkReal getDistance() const { return m_separatingNormal(3); }
     };
 
     /// @note 0x40 bytes.

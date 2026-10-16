@@ -120,4 +120,26 @@ namespace CB { namespace schema
     {
         hkMap(void* ptr, int sizeInBytes);
     };
+
+    /// @brief An hkPointerMap over a caller's hkAllocateStack block, which it empties and returns to the stack when it
+    ///        goes (then the map's own destructor runs).
+    /// @note Name provisional (a vanilla shape, not a Havok name seen): the block's pointer and size sit right after the
+    ///       map, in memory, and the block is freed before the map's destructor — what isValid of
+    ///       BSRagdollContactListenerModifier compiles to (plain locals keep both in registers instead).
+    template <class K, class V> struct hkLocalPointerMap : hkPointerMap<K, V>
+    {
+        char* m_storage;       ///< +0x10
+        int   m_sizeInBytes;   ///< +0x18
+
+        /// @pre `storage` is the latest live hkAllocateStack<char>(`sizeInBytes`) block.
+        HK_FORCE_INLINE hkLocalPointerMap(char* storage, int sizeInBytes)
+        :   hkPointerMap<K, V>(storage, sizeInBytes), m_storage(storage), m_sizeInBytes(sizeInBytes)
+        {
+        }
+        HK_FORCE_INLINE ~hkLocalPointerMap()
+        {
+            this->clearAndDeallocate();
+            hkDeallocateStack(m_storage, m_sizeInBytes);
+        }
+    };
 } }

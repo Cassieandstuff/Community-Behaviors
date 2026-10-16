@@ -63,6 +63,8 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void addMul4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, b.m_quad)); }
         HK_FORCE_INLINE void addMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(s.m_real, a.m_quad)); }
         HK_FORCE_INLINE void addMul4(const hkVector4& a, hkSimdReal s) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, s.m_real)); }
+        /// @brief a + b * r.
+        HK_FORCE_INLINE void setAddMul4(const hkVector4& a, const hkVector4& b, hkSimdReal r) { m_quad = _mm_add_ps(a.m_quad, _mm_mul_ps(b.m_quad, r.m_real)); }
         HK_FORCE_INLINE void subMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_sub_ps(m_quad, _mm_mul_ps(s.m_real, a.m_quad)); }
         HK_FORCE_INLINE void subMul4(const hkVector4& a, hkSimdReal s) { m_quad = _mm_sub_ps(m_quad, _mm_mul_ps(a.m_quad, s.m_real)); }
         HK_FORCE_INLINE void setMul4(hkSimdReal s, const hkVector4& a) { m_quad = _mm_mul_ps(s.m_real, a.m_quad); }
@@ -449,6 +451,13 @@ namespace CB { namespace schema
         hkVector4 m_col0;
         hkVector4 m_col1;
         hkVector4 m_col2;
+
+        /// @brief The rotation `q` represents.
+        /// @note Out of line in vanilla (0x140a89b70).
+        void set(const hkQuaternion& q);
+        /// @brief Re-orthonormalizes the columns (through a quaternion).
+        /// @note Out of line in vanilla (0x140a89d90).
+        void renormalize();
     };
 
     /// @brief A 4x4 matrix as four columns.
@@ -460,12 +469,16 @@ namespace CB { namespace schema
         hkVector4 m_col3;
     };
 
+    /// @brief The identity transform hkTransform::getIdentity() reads (writable data, filled at startup).
+    extern const hkQuadReal hkTransform_identityStorage[4];
+
     /// @brief A rigid transform: rotation, then translation (+0x30).
     struct hkTransform
     {
         hkRotation m_rotation;
         hkVector4  m_translation;
 
+        static HK_FORCE_INLINE const hkTransform& getIdentity() { return reinterpret_cast<const hkTransform&>(hkTransform_identityStorage); }
         HK_FORCE_INLINE const hkVector4& getTranslation() const { return m_translation; }
     };
 
