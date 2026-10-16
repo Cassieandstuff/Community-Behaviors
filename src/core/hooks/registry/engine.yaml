@@ -862,3 +862,66 @@ symbols:
   - { name: hkbDefaultRaycastInterface_Vtable, kind: data, se: 0, ae: 227029, vr: 0, cpp: "??_7hkbDefaultRaycastInterface@schema@CB@@6BhkReferencedObject@12@@" }  # by mangled name: the class has two
   - { name: hkbDefaultRaycastInterface_RaycastVtable, kind: data, se: 0, ae: 227031, vr: 0, cpp: "??_7hkbDefaultRaycastInterface@schema@CB@@6BhkaRaycastInterface@12@@" }  # the hkaRaycastInterface base's (+0x10)
   - { name: hkbDefaultRaycastInterface_VectorDeletingDtor, kind: func, se: 0, ae: 60085, vr: 0, cpp: "??_EhkbDefaultRaycastInterface@schema@CB@@UEAAPEAXI@Z" }  # the vtable's slot 0 (MSVC resolves ??_E to the scalar ??_G when nothing deletes arrays); the +0x10 adjustor thunk jumps to it
+  # --- Havok animation: hkaRagdollInstance (schema/Havok/Animation/Ragdoll/Instance) and hkaSkeletonUtils ---
+  - { name: hkaSkeletonUtils_GetModelSpaceScale, kind: func, se: 0, ae: 64140, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::getModelSpaceScale" }  # (skeleton, poseLocal, bone, scaleOut): product of the local scales up the parent chain
+  - { name: hkaRagdollInstance_Vtable, kind: data, se: 0, ae: 232978, vr: 0, cpp: "CB::schema::hkaRagdollInstance::`vftable'" }
+  - { name: hkaRagdollInstance_Ctor, kind: func, se: 0, ae: 64144, vr: 0, cpp: "??0hkaRagdollInstance@schema@CB@@QEAA@AEBU?$hkArray@PEAVhkpRigidBody@schema@CB@@@12@AEBU?$hkArray@PEAVhkpConstraintInstance@schema@CB@@@12@PEBUhkaSkeleton@12@@Z" }  # (rigidBodies, constraints, skeleton): body i drives bone i
+  - { name: hkaRagdollInstance_CtorWithMap, kind: func, se: 0, ae: 64145, vr: 0, cpp: "??0hkaRagdollInstance@schema@CB@@QEAA@AEBU?$hkArray@PEAVhkpRigidBody@schema@CB@@@12@AEBU?$hkArray@PEAVhkpConstraintInstance@schema@CB@@@12@PEBUhkaSkeleton@12@AEBU?$hkArray@H@12@@Z" }  # (rigidBodies, constraints, skeleton, boneToRigidBodyMap)
+  - { name: hkaRagdollInstance_Dtor, kind: func, se: 0, ae: 64146, vr: 0, cpp: "??1hkaRagdollInstance@schema@CB@@UEAA@XZ" }
+  - { name: hkaRagdollInstance_Clone, kind: func, se: 0, ae: 64147, vr: 0, cpp: "CB::schema::hkaRagdollInstance::clone" }  # vtable slot 3; (cloningMode)
+  - { name: hkaRagdollInstance_GetPoseWorldSpace, kind: func, se: 0, ae: 64148, vr: 0, cpp: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@@Z" }  # (poseOut): worldFromModel = identity
+  - { name: hkaRagdollInstance_GetPoseWorldSpaceFrom, kind: func, se: 0, ae: 64149, vr: 0, cpp: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@AEBU423@PEBU423@@Z" }  # (poseOut, worldFromModel, localPoseForUnmappedBones or null)
+  - { name: hkaRagdollInstance_GetApproxCurrentPoseWorldSpace, kind: func, se: 0, ae: 64150, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getApproxCurrentPoseWorldSpace" }  # name provisional; at the world's current time
+  - { name: hkaRagdollInstance_GetApproxPoseWorldSpaceAt, kind: func, se: 0, ae: 64151, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getApproxPoseWorldSpaceAt" }  # name provisional; (time, poseOut)
+  - { name: hkaRagdollInstance_SetPoseWorldSpace, kind: func, se: 0, ae: 64152, vr: 0, cpp: "CB::schema::hkaRagdollInstance::setPoseWorldSpace" }  # teleports the bodies, zeroes their velocities
+  - { name: hkaRagdollInstance_SetPoseModelSpace, kind: func, se: 0, ae: 64155, vr: 0, cpp: "CB::schema::hkaRagdollInstance::setPoseModelSpace" }  # (poseModel, worldFromModel)
+  - { name: hkaRagdollInstance_SetPoseModelSpaceKeyframed, kind: func, se: 0, ae: 64156, vr: 0, cpp: "CB::schema::hkaRagdollInstance::setPoseModelSpaceKeyframed" }  # name provisional; (prevPoseModel, prevWorldFromModel, poseModel, worldFromModel, timestep): teleports and sets the velocities that got it there
+  - { name: hkaRagdollInstance_AddToWorld, kind: func, se: 0, ae: 64157, vr: 0, cpp: "CB::schema::hkaRagdollInstance::addToWorld" }  # (world, hkBool updateFilter) -> hkResult in eax
+  - { name: hkaRagdollInstance_RemoveFromWorld, kind: func, se: 0, ae: 64158, vr: 0, cpp: "CB::schema::hkaRagdollInstance::removeFromWorld" }  # -> hkResult in eax
+  - { name: hkaRagdollInstance_GetBoneWorldSpace, kind: func, se: 0, ae: 64159, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getBoneWorldSpace" }  # name provisional; (bone, out), recursive
+  - { name: hkaRagdollInstance_GetApproxBoneWorldSpaceAt, kind: func, se: 0, ae: 64160, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getApproxBoneWorldSpaceAt" }  # name provisional; (bone, time, out), recursive
+  - { name: hkaRagdollInstance_FinishCtor, kind: func, se: 0, ae: 64161, vr: 0, cpp: "??0hkaRagdollInstance@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
+  - { name: hkaRagdollInstance_Init, kind: func, se: 0, ae: 64162, vr: 0, cpp: "CB::schema::hkaRagdollInstance::init" }  # name provisional; references the skeleton, copies + references bodies and constraints
+  - { name: hkQsTransform_SetFromTransformNoScale, kind: func, se: 0, ae: 57244, vr: 0, cpp: "CB::schema::hkQsTransform::setFromTransformNoScale" }
+  - { name: hkaDetectRagdollPenetration_Vtable, kind: data, se: 0, ae: 240809, vr: 0, cpp: "CB::schema::hkaDetectRagdollPenetration::`vftable'" }
+  - { name: hkaDetectRagdollPenetration_DetectPenetration, kind: func, se: 0, ae: 80067, vr: 0, cpp: "CB::schema::hkaDetectRagdollPenetration::detectPenetration" }  # (pose, penetrationsOut) -> hkBool through memory; not reimplemented yet
+  - { name: hkaRagdollRaycastInterface_Vtable, kind: data, se: 0, ae: 239024, vr: 0, cpp: "CB::schema::hkaRagdollRaycastInterface::`vftable'" }  # [dtor, castRay pure]; Skyrim's implementation is bhkRagdollPenetrationUtil
+  - { name: hkaFootPlacementIkSolver_Vtable, kind: data, se: 0, ae: 218958, vr: 0, cpp: "CB::schema::hkaFootPlacementIkSolver::`vftable'" }
+  # --- Havok physics (hkp): declared in schema/Havok/Physics, never reimplemented ---
+  - { name: hkpEntity_Activate, kind: func, se: 0, ae: 60849, vr: 0, cpp: "CB::schema::hkpEntity::activate" }
+  - { name: hkpRigidBody_SetPositionAndRotation, kind: func, se: 0, ae: 60898, vr: 0, cpp: "CB::schema::hkpRigidBody::setPositionAndRotation" }
+  - { name: hkpMotion_ApproxTransformAt, kind: func, se: 0, ae: 60966, vr: 0, cpp: "CB::schema::hkpMotion::approxTransformAt" }  # (time in xmm1, transformOut)
+  - { name: hkpConstraintInstance_Clone, kind: func, se: 0, ae: 61568, vr: 0, cpp: "CB::schema::hkpConstraintInstance::clone" }  # (entityA, entityB, cloningMode)
+  - { name: hkpWorld_GetCurrentTime, kind: func, se: 0, ae: 61420, vr: 0, cpp: "CB::schema::hkpWorld::getCurrentTime" }  # m_simulation->m_currentTime (+0x24)
+  - { name: hkpWorld_AddEntityBatch, kind: func, se: 0, ae: 61306, vr: 0, cpp: "CB::schema::hkpWorld::addEntityBatch" }  # (entities, count, activation)
+  - { name: hkpWorld_RemoveEntityBatch, kind: func, se: 0, ae: 61307, vr: 0, cpp: "CB::schema::hkpWorld::removeEntityBatch" }  # (entities, count)
+  - { name: hkpWorld_AddConstraint, kind: func, se: 0, ae: 61308, vr: 0, cpp: "CB::schema::hkpWorld::addConstraint" }  # -> the constraint
+  - { name: hkpWorld_RemoveConstraint, kind: func, se: 0, ae: 61309, vr: 0, cpp: "CB::schema::hkpWorld::removeConstraint" }  # -> hkBool through memory
+  - { name: hkpWorld_CastRay, kind: func, se: 0, ae: 61400, vr: 0, cpp: "CB::schema::hkpWorld::castRay" }  # (input, collector)
+  - { name: hkpWorld_GetClosestPoints, kind: func, se: 0, ae: 61404, vr: 0, cpp: "CB::schema::hkpWorld::getClosestPoints" }  # (collA, collisionInput, collector)
+  - { name: hkpWorld_AddPhantom, kind: func, se: 0, ae: 61314, vr: 0, cpp: "CB::schema::hkpWorld::addPhantom" }
+  - { name: hkpWorld_RemovePhantom, kind: func, se: 0, ae: 61316, vr: 0, cpp: "CB::schema::hkpWorld::removePhantom" }
+  - { name: hkpEntity_AddContactListener, kind: func, se: 0, ae: 60844, vr: 0, cpp: "CB::schema::hkpEntity::addContactListener" }
+  - { name: hkpEntity_RemoveContactListener, kind: func, se: 0, ae: 60845, vr: 0, cpp: "CB::schema::hkpEntity::removeContactListener" }
+  - { name: hkpClosestRayHitCollector_Vtable, kind: data, se: 0, ae: 196363, vr: 0, cpp: "CB::schema::hkpClosestRayHitCollector::`vftable'" }
+  - { name: hkpClosestRayHitCollector_AddRayHit, kind: func, se: 0, ae: 60338, vr: 0, cpp: "CB::schema::hkpClosestRayHitCollector::addRayHit" }  # slot 0
+  - { name: hkpAllRayHitCollector_Vtable, kind: data, se: 0, ae: 239022, vr: 0, cpp: "CB::schema::hkpAllRayHitCollector::`vftable'" }
+  - { name: hkpCdPointCollector_Vtable, kind: data, se: 0, ae: 196329, vr: 0, cpp: "CB::schema::hkpCdPointCollector::`vftable'" }  # restamped by hkpAllCdPointCollector's destructor
+  - { name: hkpCapsuleShape_Ctor, kind: func, se: 0, ae: 60374, vr: 0, cpp: "??0hkpCapsuleShape@schema@CB@@QEAA@AEBUhkVector4@12@0M@Z" }  # (vertexA, vertexB, radius in xmm3)
+  - { name: hkpAabbPhantom_SetAabb, kind: func, se: 0, ae: 60949, vr: 0, cpp: "CB::schema::hkpAabbPhantom::setAabb" }
+  - { name: hkpAabbPhantom_CastRay, kind: func, se: 0, ae: 60941, vr: 0, cpp: "CB::schema::hkpAabbPhantom::castRay" }  # (input, collector)
+  - { name: hkpShapePhantom_SetTransform, kind: func, se: 0, ae: 61652, vr: 0, cpp: "CB::schema::hkpShapePhantom::setTransform" }
+  - { name: hkpShapePhantom_SetPosition, kind: func, se: 0, ae: 61653, vr: 0, cpp: "CB::schema::hkpShapePhantom::setPosition" }  # (position, extraTolerance in xmm2)
+  - { name: hkpSimpleShapePhantom_Ctor, kind: func, se: 0, ae: 61535, vr: 0, cpp: "??0hkpSimpleShapePhantom@schema@CB@@QEAA@PEBVhkpShape@12@AEBUhkTransform@12@I@Z" }  # (shape, transform, filterInfo)
+  - { name: hkpCachingShapePhantom_Ctor, kind: func, se: 0, ae: 61658, vr: 0, cpp: "??0hkpCachingShapePhantom@schema@CB@@QEAA@PEBVhkpShape@12@AEBUhkTransform@12@I@Z" }  # (shape, transform, filterInfo)
+  - { name: hkpCharacterProxyCinfo_Vtable, kind: data, se: 0, ae: 226935, vr: 0, cpp: "CB::schema::hkpCharacterProxyCinfo::`vftable'" }
+  - { name: hkpCharacterProxy_Ctor, kind: func, se: 0, ae: 62628, vr: 0, cpp: "??0hkpCharacterProxy@schema@CB@@QEAA@AEBVhkpCharacterProxyCinfo@12@@Z" }
+  - { name: hkpCharacterProxy_UpdateFromCinfo, kind: func, se: 0, ae: 62631, vr: 0, cpp: "CB::schema::hkpCharacterProxy::updateFromCinfo" }
+  - { name: hkpCharacterProxy_Integrate, kind: func, se: 0, ae: 62632, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrate" }  # (stepInfo, gravity)
+  - { name: hkpCharacterProxy_CheckSupport, kind: func, se: 0, ae: 62634, vr: 0, cpp: "CB::schema::hkpCharacterProxy::checkSupport" }  # (direction, surfaceInfo)
+  - { name: hkpCharacterProxy_CheckSupportWithCollector, kind: func, se: 0, ae: 62635, vr: 0, cpp: "CB::schema::hkpCharacterProxy::checkSupportWithCollector" }
+  - { name: hkpCharacterProxy_GetPosition, kind: func, se: 0, ae: 62638, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getPosition" }
+  - { name: hkpCharacterProxy_SetPosition, kind: func, se: 0, ae: 62639, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setPosition" }
+  - { name: hkpCharacterProxy_GetLinearVelocity, kind: func, se: 0, ae: 62640, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getLinearVelocity" }
+  - { name: hkpCharacterProxy_SetLinearVelocity, kind: func, se: 0, ae: 62641, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setLinearVelocity" }
+  - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # parameter list partly unconfirmed (see the header)

@@ -28,10 +28,10 @@ namespace CB { namespace schema
         /// @note Name provisional; out of line in vanilla.
         void setWorld(hkpWorld* world);
 
-        /// @brief Casts against m_world with a closest-hit collector; a convex root shape's radius is taken off the hit
-        ///        fraction.
-        /// @note Out of line in vanilla (0x140b102c0, slot 1 of the hkaRaycastInterface vtable); not reimplemented yet
-        ///       (it needs hkpWorldRayCastInput/Output and hkpClosestRayHitCollector from the physics declarations).
+        /// @brief Casts against m_world with a closest-hit collector; a hit whose normal faces down against gravity
+        ///        (up·normal < m_minUpDotNormal) is dropped, and a convex-translate root shape's radius is taken off the
+        ///        hit fraction.
+        /// @note Slot 1 of the hkaRaycastInterface vtable (0x140b102c0).
         virtual hkBool castRay(const hkVector4& fromWS, const hkVector4& toWS, hkUint32 collisionFilterInfo, hkReal& hitFractionOut,
                                hkVector4& normalWSOut);
     };

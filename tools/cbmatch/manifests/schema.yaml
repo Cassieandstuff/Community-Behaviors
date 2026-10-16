@@ -1521,9 +1521,47 @@ units:
       - { name: "CB::schema::hkbDefaultRaycastInterface::setWorld", va: 0x140b105c0 }
       - { name: "??_EhkbDefaultRaycastInterface@schema@CB@@WBA@EAAPEAXI@Z", va: 0x140b105c8 }
       - { name: "??_GhkbDefaultRaycastInterface@schema@CB@@UEAAPEAXI@Z", va: 0x140b105e0 }
+      - { name: "CB::schema::hkbDefaultRaycastInterface::castRay", va: 0x140b102c0 }
       - { name: "?castRay@hkaRaycastInterface@schema@CB@@UEAA?AUhkBool@23@AEBUhkVector4@23@0IAEAMAEAU523@@Z", va: 0x140a83880 }
       - { name: "?castRay@hkaRaycastInterface@schema@CB@@UEAA?AUhkBool@23@AEBUhkVector4@23@0AEAMAEAU523@@Z", va: 0x140a83870 }
   - source: ../../../schema/Havok/Animation/Ik/FootPlacement/hkaRaycastInterfaceBethesdaCopy.cpp
     flags: [/O2, /Ob1, /GS-, /fp:fast, /EHsc]
     functions:
       - { name: "??_GhkaRaycastInterface@schema@CB@@UEAAPEAXI@Z", va: 0x1405445f0 }
+  - source: ../../../schema/Havok/Animation/Rig/hkaSkeletonUtils.cpp
+    functions:
+      - { name: "CB::schema::hkaSkeletonUtils::getModelSpaceScale", va: 0x140bd62a0 }
+  - source: ../../../schema/Havok/Animation/Ragdoll/Instance/hkaRagdollInstance.cpp
+    functions:
+      - { name: "??0hkaRagdollInstance@schema@CB@@QEAA@AEBU?$hkArray@PEAVhkpRigidBody@schema@CB@@@12@AEBU?$hkArray@PEAVhkpConstraintInstance@schema@CB@@@12@PEBUhkaSkeleton@12@@Z", va: 0x140bd6a40 }
+      - { name: "??0hkaRagdollInstance@schema@CB@@QEAA@AEBU?$hkArray@PEAVhkpRigidBody@schema@CB@@@12@AEBU?$hkArray@PEAVhkpConstraintInstance@schema@CB@@@12@PEBUhkaSkeleton@12@AEBU?$hkArray@H@12@@Z", va: 0x140bd6b20 }
+      - { name: "??1hkaRagdollInstance@schema@CB@@UEAA@XZ", va: 0x140bd6c30 }
+      - { name: "CB::schema::hkaRagdollInstance::clone", va: 0x140bd6d80 }
+      - { name: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@@Z", va: 0x140bd71a0 }
+      # - { name: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@AEBU423@PEBU423@@Z", va: 0x140bd71c0 }  # parked: vanilla shares the quaternion product setMul computes twice elsewhere (see parked.yaml)
+      - { name: "CB::schema::hkaRagdollInstance::getApproxCurrentPoseWorldSpace", va: 0x140bd7430 }
+      - { name: "CB::schema::hkaRagdollInstance::getApproxPoseWorldSpaceAt", va: 0x140bd7490 }
+      - { name: "CB::schema::hkaRagdollInstance::setPoseWorldSpace", va: 0x140bd7500 }
+      # - { name: "CB::schema::hkaRagdollInstance::getPoseModelSpace", va: 0x140bd75f0 }  # parked: setInverse's conjugate scheduled late with a register mask (see parked.yaml)
+      - { name: "CB::schema::hkaRagdollInstance::setPoseModelSpace", va: 0x140bd7870 }
+      # - { name: "CB::schema::hkaRagdollInstance::setPoseModelSpaceKeyframed", va: 0x140bd7b00 }  # parked: one dead broadcast shufps before length3's sqrtss (see parked.yaml)
+      - { name: "CB::schema::hkaRagdollInstance::addToWorld", va: 0x140bd8180 }
+      - { name: "CB::schema::hkaRagdollInstance::removeFromWorld", va: 0x140bd8250 }
+      - { name: "CB::schema::hkaRagdollInstance::getBoneWorldSpace", va: 0x140bd8300 }
+      - { name: "CB::schema::hkaRagdollInstance::getApproxBoneWorldSpaceAt", va: 0x140bd8510 }
+      - { name: "??0hkaRagdollInstance@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140bd8730 }
+      - { name: "CB::schema::hkaRagdollInstance::init", va: 0x140bd8750 }
+      - { name: "??_GhkaRagdollInstance@schema@CB@@UEAAPEAXI@Z", va: 0x140bd8940 }
+  - source: ../../../schema/Havok/Animation/Ragdoll/PenetrationDetection/hkaDetectRagdollPenetration.cpp
+    functions:
+      - { name: "??0hkaDetectRagdollPenetration@schema@CB@@QEAA@AEBUSetup@012@@Z", va: 0x140eff7c0 }
+      - { name: "??_GhkaDetectRagdollPenetration@schema@CB@@UEAAPEAXI@Z", va: 0x140effcb0 }
+  # Bethesda's copy (C++ exceptions on) is the one vanilla linked; see the file note.
+  - source: ../../../schema/Havok/Animation/Ragdoll/PenetrationDetection/hkaRagdollRaycastInterfaceEhUnit.cpp
+    flags: [/EHsc]
+    functions:
+      - { name: "??_GhkaRagdollRaycastInterface@schema@CB@@UEAAPEAXI@Z", va: 0x140e9bfb0 }
+  - source: ../../../schema/Havok/Animation/Ik/FootPlacement/hkaFootPlacementIkSolver.cpp
+    functions:
+      # - { name: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z", va: 0x140a83970 }  # parked: vanilla stores 16-byte members with movups (see parked.yaml)
+      - { name: "??_GhkaFootPlacementIkSolver@schema@CB@@UEAAPEAXI@Z", va: 0x140a84ba0 }

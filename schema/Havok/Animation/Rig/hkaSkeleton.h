@@ -87,5 +87,8 @@ namespace CB { namespace schema
         /// @brief Copies `numBones` transforms and `numFloats` floats (rounded up to a multiple of four) as 16-byte blocks.
         /// @note Name provisional (0x140bd3ca0); the quantized sampler seeds its outputs with the reference pose through it.
         static void copyPoseAndFloats(hkQsTransform* poseOut, hkReal* floatsOut, const hkQsTransform* pose, int numBones, const hkReal* floats, int numFloats);
+        /// @brief Bone `boneId`'s model-space scale: the product of the local scales up its parent chain.
+        /// @note Name per the Havok SDK; the ragdoll instance gives a body-driven bone this scale.
+        static void getModelSpaceScale(const hkaSkeleton& skeleton, const hkQsTransform* poseLocal, int boneId, hkVector4& scaleOut);
     };
 } }
