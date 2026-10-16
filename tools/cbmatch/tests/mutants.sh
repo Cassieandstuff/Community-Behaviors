@@ -95,7 +95,7 @@ mutant m2_dropped_call         "$clip" 's/^            resetAtEnd();$/          
 mutant m3_wrong_arg            "$clip" 's/addTrigger(t, hkbEvent(internalId, payload, HK_NULL), false, false, true);/addTrigger(t, hkbEvent(internalId, payload, HK_NULL), false, true, true);/'
 mutant m4_wrong_const          "$clip" 's/new hkaDefaultAnimationControl(HK_NULL, true, 2)/new hkaDefaultAnimationControl(HK_NULL, true, 3)/'
 mutant m5_inverted_compare     "$clip" 's/if (t >= 0\.0f \&\& t <= duration)/if (t > 0.0f \&\& t <= duration)/'
-mutant m6_extra_store          "$clip" 's/^            m_binding = m_animationControl->m_binding;$/            m_binding = m_animationControl->m_binding; m_userData = 0;/'
+mutant m6_extra_store          "$clip" 's/^\(            m_binding = const_cast<hkaAnimationBinding\*>(m_animationControl->getAnimationBinding());\)$/\1 m_userData = 0;/'
 mutant m7_wrong_callee         "$clip" 's/^            resetAtEnd();$/            fn_140ad11f0();/'
 mutant u1_wrong_load_field     "$clip" 's/echo\.m_weight += timestep \* echo\.m_dwdt;/echo.m_weight += timestep * echo.m_offsetLocalTime;/'
 mutant u2_dropped_store        "$clip" 's/^            m_time += dt;$/            \/\/ m_time += dt dropped/'
