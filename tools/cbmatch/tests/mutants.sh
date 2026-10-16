@@ -9,7 +9,9 @@
 # The gated families (o, z, v) are functions VARIANT only through rules A/E/I, which hold only if --diff confirms them:
 # their mutants change dataflow those rules let through structurally and must come out STRUCTURAL because they diverge.
 # Controls (x_*) compile the same functions unmutated: they must come out VARIANT with no divergence, or a harness that
-# diverges on everything would pass.
+# diverges on everything would pass. The control-only families (l, n) guard harness abilities: l a leaf without .pdata
+# (vanilla's length scanned from its own code), n a function --diff can only run by finding a string literal by content
+# (and n1, a changed literal, must fail).
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
@@ -19,7 +21,8 @@
 # (rule A: locals in the argument area), o hkbRotateCharacterModifierUtils::modify (rule E: shuffles), q
 # hkbRagdollDriver::reset (a reference's offset into its symbol), h hkbManualSelectorGenerator::update (rule H),
 # v hkbEvaluateExpressionModifier's copy constructor (rule I: a duplicated return tail), w
-# hkbSenseHandleModifier::collectCharacterLocalFrames (rule J: register setup; a wrong slot still fails). A mutant of a
+# hkbSenseHandleModifier::collectCharacterLocalFrames (rule J: register setup; a wrong slot still fails),
+# n hkbStateMachine::activate, l hkbEventDrivenModifier::handleEvent. A mutant of a
 # header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -30,6 +33,7 @@ havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
 expectVariant=" u3 t3 c1 k2 y2 h1 "
 gated=" o z v "
+controlOnly=" l n "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -59,6 +63,8 @@ target() {
             fn=copyConstructor va=0x140aedc70 full="??0hkbEvaluateExpressionModifier@schema@CB@@QEAA@AEBV012@@Z" ;;
         w*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
             fn=collectCharacterLocalFrames va=0x140afe570 ;;
+        n*) cls=hkbStateMachine src=Behavior/StateMachine/hkbStateMachine.cpp fn=activate va=0x140ad7f70 ;;
+        l*) cls=hkbEventDrivenModifier src=Behavior/Modifier/EventDriven/hkbEventDrivenModifier.cpp fn=handleEvent va=0x140aef790 ;;
         o*) cls=hkbRotateCharacterModifierUtils src=Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp
             fn=modify va=0x140b0ee80 ;;
         j*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
@@ -142,7 +148,9 @@ mutant h1_flag_cleared        "$selector" 's/rootBehavior->m_updateActiveNodes =
 mutant h2_flag_store_dropped  "$selector" 's/rootBehavior->m_updateActiveNodes = rootBehavior->m_updateActiveNodes | true;/(void)rootBehavior;/'
 expression="Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp"
 mutant v2_own_compiled_set    "$expression" 's/m_compiledExpressionSet(mod\.m_compiledExpressionSet)/m_compiledExpressionSet(m_compiledExpressionSet)/'
-mutant w1_wrong_transform     "$sense" 's/sensorPosBS\.setTransformedInversePos(worldFromBone, sensorPosWS);/sensorPosBS.setTransformedInversePos(boneModelSpace, sensorPosWS);/'
+machine="Behavior/StateMachine/hkbStateMachine.cpp"
+mutant n1_changed_warning     "$machine" 's/has no event set\./has no event./'
+mutant w1_wrong_transform    "$sense" 's/sensorPosBS\.setTransformedInversePos(worldFromBone, sensorPosWS);/sensorPosBS.setTransformedInversePos(boneModelSpace, sensorPosWS);/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {
@@ -151,7 +159,7 @@ control() {
   - { source: \"$havok/$src\", flags: [], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
     names="$names x_$fn"
 }
-for family in $expectVariant $gated; do control "$family"; done
+for family in $expectVariant $gated $controlOnly; do control "$family"; done
 
 cat > "$work/mutants.yaml" <<EOF
 runtimes:

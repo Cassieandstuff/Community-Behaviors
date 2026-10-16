@@ -310,6 +310,21 @@ struct PeImage {
         }
         return end;
     }
+
+    /// @brief Where the first function with a .pdata entry after `rva` begins: a bound on a leaf (no entry of its own).
+    std::optional<std::uint32_t> nextFunctionStart(std::uint32_t rva) const
+    {
+        const std::size_t count = pdataSize / 12;
+        const auto        base  = fileOffset(pdataRva, pdataSize);
+        if (!base || count == 0) return std::nullopt;
+        std::size_t lo = 0, hi = count;
+        while (lo < hi) {
+            const std::size_t mid = (lo + hi) / 2;
+            if (rd<std::uint32_t>(bytes, *base + mid * 12) <= rva) lo = mid + 1; else hi = mid;
+        }
+        if (lo >= count) return std::nullopt;
+        return rd<std::uint32_t>(bytes, *base + lo * 12);
+    }
 };
 
 PeImage loadPe(const fs::path& path)
@@ -473,6 +488,8 @@ struct CoffFunction {
         /// @brief The offset into the symbol the reference addresses (COFF keeps it in the patched field): a member of
         ///        a constant object, `symbol+0x10`.
         std::int64_t                addend = 0;
+        /// @brief A string literal's bytes (`??_C@` symbols), so --diff can find vanilla's copy by content.
+        Bytes                       literal;
     };
     std::map<std::uint32_t, Target>        targets;  ///< reloc offset → the symbol it refers to
 };
@@ -571,6 +588,13 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
                 CoffFunction::Target t{ names[sym], undecorate(names[sym]), rd<std::uint16_t>(b, ro + 8), std::nullopt };
                 if (width == 4) t.addend = rd<std::int32_t>(b, rawPtr + at);
                 else if (width == 8) t.addend = rd<std::int64_t>(b, rawPtr + at);
+                if (t.mangled.rfind("??_C@", 0) == 0 && symSection[sym] > 0 && symSection[sym] <= nSections) {
+                    const std::size_t lsh   = secTab + std::size_t(symSection[sym] - 1) * 40u;
+                    const auto        lsize = rd<std::uint32_t>(b, lsh + 16);
+                    const auto        lptr  = rd<std::uint32_t>(b, lsh + 20);
+                    if (symValue[sym] < lsize && std::size_t(lptr) + lsize <= b.size())
+                        t.literal.assign(b.begin() + lptr + symValue[sym], b.begin() + lptr + lsize);
+                }
                 // A reference into this same section (a jump table, its entries): resolve it to a function offset. COFF
                 // keeps the addend in the field itself.
                 if (symSection[sym] == section && width == 4) {
@@ -713,6 +737,45 @@ std::optional<std::vector<Insn>> disassemble(const Bytes& bytes)
         out.push_back(std::move(i));
     }
     return out;
+}
+
+/// @brief The length of a function without a .pdata entry (a leaf: no frame to unwind), read from its own code: it ends
+///        at the first `ret` or `jmp` lying past every forward branch target seen before it. nullopt: no such exit
+///        within `limit` bytes, or undecodable bytes on the way.
+/// @note Taking the length from our build instead cuts vanilla short whenever vanilla is the longer of the two.
+/// @note Targets at or past the function's padding (the first `int3`) are other functions (a tail jump to a helper), so
+///       they extend nothing; `limit` is also bounded by the next function with a .pdata entry.
+std::optional<std::size_t> scannedLength(const std::uint8_t* code, std::size_t limit)
+{
+    ZydisDecoder dec;
+    ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+    for (std::size_t off = 0; off < limit;) {
+        ZydisDecodedInstruction ins;
+        ZydisDecodedOperand     ops[ZYDIS_MAX_OPERAND_COUNT];
+        if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec, code + off, limit - off, &ins, ops))) break;
+        if (ins.mnemonic == ZYDIS_MNEMONIC_INT3) { limit = off; break; }
+        off += ins.length;
+    }
+    std::size_t reach = 0;   ///< the furthest forward branch target so far
+    for (std::size_t off = 0; off < limit;) {
+        ZydisDecodedInstruction ins;
+        ZydisDecodedOperand     ops[ZYDIS_MAX_OPERAND_COUNT];
+        if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec, code + off, limit - off, &ins, ops))) return std::nullopt;
+        const std::size_t next = off + ins.length;
+        const auto        cat  = ins.meta.category;
+        if (cat == ZYDIS_CATEGORY_COND_BR || cat == ZYDIS_CATEGORY_UNCOND_BR)
+            for (std::uint8_t k = 0; k < ins.operand_count_visible; ++k)
+                if (ops[k].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ops[k].imm.is_relative) {
+                    const auto target = static_cast<std::int64_t>(next) + ops[k].imm.value.s;
+                    if (target > static_cast<std::int64_t>(off) && target < static_cast<std::int64_t>(limit))
+                        reach = std::max(reach, static_cast<std::size_t>(target));
+                }
+        // An indirect jump (a switch's dispatch, its cases after it) gives no reach to scan by.
+        if (cat == ZYDIS_CATEGORY_UNCOND_BR && !(ops[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ops[0].imm.is_relative)) return std::nullopt;
+        if ((cat == ZYDIS_CATEGORY_RET || cat == ZYDIS_CATEGORY_UNCOND_BR) && next > reach) return next;
+        off = next;
+    }
+    return std::nullopt;
 }
 
 bool sameRegClass(ZydisRegister a, ZydisRegister b) { return ZydisRegisterGetClass(a) == ZydisRegisterGetClass(b); }
@@ -3006,6 +3069,16 @@ std::string relocateOurs(const CoffFunction& ours, std::uint64_t base, const Byt
             const bool literal = t.mangled.rfind("??_C@", 0) == 0 || t.name == "`string'";
             if ((self && self->empty()) || literal) target = vv->second;
         }
+        if (!target && !t.literal.empty() && b) {
+            // A string literal the alignment didn't line up (a build scheduled its load elsewhere): vanilla's copy is the
+            // one some RIP-relative operand of this function points at with exactly these bytes.
+            for (const Insn& y : *b) {
+                const auto addr = absoluteTarget(y, va + y.off);
+                if (!addr || *addr < pe.imageBase) continue;
+                const auto off = pe.fileOffset(static_cast<std::uint32_t>(*addr - pe.imageBase), t.literal.size());
+                if (off && std::equal(t.literal.begin(), t.literal.end(), pe.bytes.begin() + *off)) { target = *addr; break; }
+            }
+        }
         if (!target && (t.mangled.rfind("__real@", 0) == 0 || t.mangled.rfind("__xmm@", 0) == 0)) {
             // A compiler constant no vanilla instruction lines up with: its name spells its bytes, so place our own copy
             // after the code, most-significant byte first in the name.
@@ -3732,7 +3805,14 @@ int run(const Options& opt)
                         mt.detail = hits.empty() ? "symbol not found in the object" : "ambiguous name; give the mangled symbol";
                     } else {
                         const CoffFunction& ours = *hits.front();
-                        const std::size_t   len  = end ? std::size_t(*end - rva) : ours.bytes.size();
+                        std::optional<std::size_t> scanned;
+                        if (!end)
+                            if (const auto at = pe.fileOffset(rva, 1)) {
+                                std::size_t limit = std::min<std::size_t>(0x4000, pe.bytes.size() - *at);
+                                if (const auto next = pe.nextFunctionStart(rva)) limit = std::min<std::size_t>(limit, *next - rva);
+                                scanned = scannedLength(pe.bytes.data() + *at, limit);
+                            }
+                        const std::size_t   len  = end ? std::size_t(*end - rva) : scanned ? *scanned : ours.bytes.size();
                         const auto          off  = pe.fileOffset(rva, len);
                         if (!off) {
                             mt.detail = "address 0x" + hex(row.va) + " is not in the exe's file image";
@@ -3754,7 +3834,7 @@ int run(const Options& opt)
                             }
                             mt.toolchain = tc;
                             mt.ours      = &ours;
-                            if (!end) mt.detail += (mt.detail.empty() ? "" : "; ") + std::string("no .pdata entry, length assumed from ours");
+                            if (!end && !scanned) mt.detail += (mt.detail.empty() ? "" : "; ") + std::string("no .pdata entry, length assumed from ours");
                         }
                     }
                 }
