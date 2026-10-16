@@ -56,6 +56,76 @@ units:
   - source: ../../../schema/Havok/Behavior/Modifier/TransformVector/hkbTransformVectorModifierUtils.cpp
     functions:
       - { name: "CB::schema::hkbTransformVectorModifierUtils::computeVectorOut", va: 0x140b0f2e0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/CombineTransforms/hkbCombineTransformsModifier.cpp
+    functions:
+      - { name: "??0hkbCombineTransformsModifier@schema@CB@@QEAA@XZ", va: 0x140aec2f0 }
+      - { name: "??0hkbCombineTransformsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aec3c0 }
+      - { name: "CB::schema::hkbCombineTransformsModifier::activate", va: 0x140aec470 }
+      - { name: "CB::schema::hkbCombineTransformsModifier::cloneNode", va: 0x140aec490 }
+      - { name: "CB::schema::hkbCombineTransformsModifier::modify", va: 0x140aec4e0 }
+      - { name: "CB::schema::hkbCombineTransformsModifier::createInternalState", va: 0x140aec4f0 }
+      - { name: "CB::schema::hkbCombineTransformsModifier::getInternalState", va: 0x140aec530 }
+      - { name: "CB::schema::hkbCombineTransformsModifier::setInternalState", va: 0x140aec550 }
+      - { name: "??_GhkbCombineTransformsModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8160 }
+      - { name: "??_GhkbCombineTransformsModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac81f0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/CombineTransforms/hkbCombineTransformsModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbCombineTransformsModifierUtils::modify", va: 0x140b0cc90 }
+      - { name: "CB::schema::hkbCombineTransformsModifierUtils::multiply", va: 0x140b0cd70 }
+  - source: ../../../schema/Havok/Behavior/Modifier/ComputeRotationFromAxisAngle/hkbComputeRotationFromAxisAngleModifier.cpp
+    functions:
+      - { name: "??0hkbComputeRotationFromAxisAngleModifier@schema@CB@@QEAA@XZ", va: 0x140aec7d0 }
+      - { name: "??0hkbComputeRotationFromAxisAngleModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aec860 }
+      - { name: "CB::schema::hkbComputeRotationFromAxisAngleModifier::activate", va: 0x140aec8c0 }
+      - { name: "CB::schema::hkbComputeRotationFromAxisAngleModifier::cloneNode", va: 0x140aec8e0 }
+      - { name: "CB::schema::hkbComputeRotationFromAxisAngleModifier::modify", va: 0x140aec930 }
+      - { name: "CB::schema::hkbComputeRotationFromAxisAngleModifier::createInternalState", va: 0x140aec950 }
+      - { name: "CB::schema::hkbComputeRotationFromAxisAngleModifier::getInternalState", va: 0x140aec990 }
+      - { name: "CB::schema::hkbComputeRotationFromAxisAngleModifier::setInternalState", va: 0x140aec9a0 }
+      - { name: "??_GhkbComputeRotationFromAxisAngleModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8420 }
+      - { name: "??_GhkbComputeRotationFromAxisAngleModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac84b0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/ComputeRotationToTarget/hkbComputeRotationToTargetModifier.cpp
+    functions:
+      - { name: "??0hkbComputeRotationToTargetModifier@schema@CB@@QEAA@XZ", va: 0x140aec9b0 }
+      - { name: "??0hkbComputeRotationToTargetModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aeca70 }
+      - { name: "CB::schema::hkbComputeRotationToTargetModifier::activate", va: 0x140aecb10 }
+      - { name: "CB::schema::hkbComputeRotationToTargetModifier::cloneNode", va: 0x140aecb30 }
+      - { name: "CB::schema::hkbComputeRotationToTargetModifier::modify", va: 0x140aecb80 }
+      - { name: "CB::schema::hkbComputeRotationToTargetModifier::createInternalState", va: 0x140aecb90 }
+      - { name: "CB::schema::hkbComputeRotationToTargetModifier::getInternalState", va: 0x140aecbd0 }
+      - { name: "CB::schema::hkbComputeRotationToTargetModifier::setInternalState", va: 0x140aecbe0 }
+      - { name: "??_GhkbComputeRotationToTargetModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8540 }
+      - { name: "??_GhkbComputeRotationToTargetModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac85d0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/ComputeRotationToTarget/hkbComputeRotationToTargetModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbComputeRotationToTargetModifierUtils::modify", va: 0x140b0d100 }
+  - source: ../../../schema/Havok/Behavior/Modifier/GetWorldFromModel/hkbGetWorldFromModelModifier.cpp
+    functions:
+      - { name: "??0hkbGetWorldFromModelModifier@schema@CB@@QEAA@XZ", va: 0x140af62e0 }
+      - { name: "??0hkbGetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af6360 }
+      - { name: "CB::schema::hkbGetWorldFromModelModifier::cloneNode", va: 0x140af63c0 }
+      - { name: "CB::schema::hkbGetWorldFromModelModifier::modify", va: 0x140af6410 }
+      - { name: "CB::schema::hkbGetWorldFromModelModifier::createInternalState", va: 0x140af6440 }
+      - { name: "CB::schema::hkbGetWorldFromModelModifier::getInternalState", va: 0x140af6480 }
+      - { name: "CB::schema::hkbGetWorldFromModelModifier::setInternalState", va: 0x140af64a0 }
+      - { name: "??_GhkbGetWorldFromModelModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac97c0 }
+      - { name: "??_GhkbGetWorldFromModelModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9850 }
+  - source: ../../../schema/Havok/Behavior/Modifier/MoveCharacter/hkbMoveCharacterModifier.cpp
+    functions:
+      - { name: "??0hkbMoveCharacterModifier@schema@CB@@QEAA@XZ", va: 0x140afa300 }
+      - { name: "??0hkbMoveCharacterModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afa380 }
+      - { name: "CB::schema::hkbMoveCharacterModifier::activate", va: 0x140afa3e0 }
+      - { name: "CB::schema::hkbMoveCharacterModifier::update", va: 0x140afa3f0 }
+      - { name: "CB::schema::hkbMoveCharacterModifier::cloneNode", va: 0x140afa410 }
+      - { name: "CB::schema::hkbMoveCharacterModifier::modify", va: 0x140afa460 }
+      - { name: "CB::schema::hkbMoveCharacterModifier::createInternalState", va: 0x140afa470 }
+      - { name: "CB::schema::hkbMoveCharacterModifier::getInternalState", va: 0x140afa4b0 }
+      - { name: "CB::schema::hkbMoveCharacterModifier::setInternalState", va: 0x140afa4c0 }
+      - { name: "??_GhkbMoveCharacterModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140aca310 }
+      - { name: "??_GhkbMoveCharacterModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140aca3a0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/MoveCharacter/hkbMoveCharacterModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbMoveCharacterModifierUtils::modify", va: 0x140b0df70 }
   - source: ../../../schema/Havok/Behavior/Modifier/Twist/hkbTwistModifier.cpp
     functions:
       - { name: "??0hkbTwistModifier@schema@CB@@QEAA@XZ", va: 0x140afefb0 }

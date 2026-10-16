@@ -235,6 +235,7 @@ symbols:
   - { name: hkQuaternion_SetAxisAngle, kind: func, se: 0, ae: 57098, vr: 0, cpp: "CB::schema::hkQuaternion::setAxisAngle" }  # (axis, angle): sin/cos of the half angle
   - { name: hkQuaternion_Set, kind: func, se: 0, ae: 57099, vr: 0, cpp: "CB::schema::hkQuaternion::set" }  # (const hkRotation&)
   - { name: hkQuaternion_SetSlerp, kind: func, se: 0, ae: 57103, vr: 0, cpp: "CB::schema::hkQuaternion::setSlerp" }  # (q0, q1, t) t as a float in xmm3; lerp above cos 0.999
+  - { name: hkQuaternion_SetShortestRotation, kind: func, se: 0, ae: 25781, vr: 0, cpp: "CB::schema::hkQuaternion::setShortestRotation" }  # (from, to); the copy at 0x1403f3120 is a COMDAT kept from Bethesda's code (unaligned loads)
   - { name: hkVector4_SetTransformedPos, kind: func, se: 0, ae: 57213, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
   - { name: hkVector4_SetTransformedPosQs, kind: func, se: 0, ae: 57217, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkQsTransform@23@AEBU123@@Z" }  # (hkQsTransform, v): out of line
   - { name: hkVector4_SetTransformedInversePos, kind: func, se: 0, ae: 57214, vr: 0, cpp: "?setTransformedInversePos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
@@ -306,6 +307,15 @@ symbols:
   - { name: hkbComputeDirectionModifier_CloneCtor, kind: func, se: 0, ae: 59623, vr: 0, cpp: "??0hkbComputeDirectionModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbComputeDirectionModifierUtils_Modify, kind: func, se: 0, ae: 60053, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifierUtils::modify" }  # name provisional; (up, forward, right, inOut, modifier)
   - { name: hkbDetectCloseToGroundModifier_CloneCtor, kind: func, se: 0, ae: 59673, vr: 0, cpp: "??0hkbDetectCloseToGroundModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbCombineTransformsModifier_CloneCtor, kind: func, se: 0, ae: 59615, vr: 0, cpp: "??0hkbCombineTransformsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbCombineTransformsModifierUtils_Modify, kind: func, se: 0, ae: 60051, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifierUtils::modify" }  # name provisional; (modifier) modify tail-jumps to it
+  - { name: hkbCombineTransformsModifierUtils_Multiply, kind: func, se: 0, ae: 60052, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifierUtils::multiply" }  # name provisional; (tA, rA, tB, rB, tOut, rOut) = (tA + rA·tB, rA·rB)
+  - { name: hkbComputeRotationFromAxisAngleModifier_CloneCtor, kind: func, se: 0, ae: 59631, vr: 0, cpp: "??0hkbComputeRotationFromAxisAngleModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbComputeRotationToTargetModifier_CloneCtor, kind: func, se: 0, ae: 59639, vr: 0, cpp: "??0hkbComputeRotationToTargetModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbComputeRotationToTargetModifierUtils_Modify, kind: func, se: 0, ae: 60054, vr: 0, cpp: "CB::schema::hkbComputeRotationToTargetModifierUtils::modify" }  # name provisional; (modifier) modify tail-jumps to it
+  - { name: hkbGetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59771, vr: 0, cpp: "??0hkbGetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbMoveCharacterModifier_CloneCtor, kind: func, se: 0, ae: 59818, vr: 0, cpp: "??0hkbMoveCharacterModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbMoveCharacterModifierUtils_Modify, kind: func, se: 0, ae: 60068, vr: 0, cpp: "CB::schema::hkbMoveCharacterModifierUtils::modify" }  # name provisional; (modifier, inOut) modify tail-jumps to it
   - { name: hkbCharacter_GetRaycastInterface, kind: func, se: 0, ae: 58463, vr: 0, cpp: "CB::schema::hkbCharacter::getRaycastInterface" }  # +0x70, else the behavior world's (+0x78 -> +0x148)
   - { name: hkbContext_GetWorldUpWS, kind: func, se: 0, ae: 58317, vr: 0, cpp: "CB::schema::hkbContext::getWorldUpWS" }  # behavior world +0x120, else project data +0x10
   - { name: hkbGeneratorOutputUtils_GetBoneModelSpace, kind: func, se: 0, ae: 58480, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getBoneModelSpace" }  # name provisional; (bone, output, skeleton, out) composes up the parent chain
@@ -449,6 +459,16 @@ symbols:
   - { name: hkbComputeDirectionModifierInternalState_Vtable, kind: data, se: 278434, ae: 226382, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifierInternalState::`vftable'" }
   - { name: hkbDetectCloseToGroundModifier_Vtable, kind: data, se: 278462, ae: 226420, vr: 0, cpp: "CB::schema::hkbDetectCloseToGroundModifier::`vftable'" }
   - { name: hkbDetectCloseToGroundModifierInternalState_Vtable, kind: data, se: 278465, ae: 226424, vr: 0, cpp: "CB::schema::hkbDetectCloseToGroundModifierInternalState::`vftable'" }
+  - { name: hkbCombineTransformsModifier_Vtable, kind: data, se: 278425, ae: 226370, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifier::`vftable'" }
+  - { name: hkbCombineTransformsModifierInternalState_Vtable, kind: data, se: 278428, ae: 226374, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifierInternalState::`vftable'" }
+  - { name: hkbComputeRotationFromAxisAngleModifier_Vtable, kind: data, se: 278437, ae: 226386, vr: 0, cpp: "CB::schema::hkbComputeRotationFromAxisAngleModifier::`vftable'" }
+  - { name: hkbComputeRotationFromAxisAngleModifierInternalState_Vtable, kind: data, se: 278440, ae: 226390, vr: 0, cpp: "CB::schema::hkbComputeRotationFromAxisAngleModifierInternalState::`vftable'" }
+  - { name: hkbComputeRotationToTargetModifier_Vtable, kind: data, se: 278443, ae: 226394, vr: 0, cpp: "CB::schema::hkbComputeRotationToTargetModifier::`vftable'" }
+  - { name: hkbComputeRotationToTargetModifierInternalState_Vtable, kind: data, se: 278446, ae: 226398, vr: 0, cpp: "CB::schema::hkbComputeRotationToTargetModifierInternalState::`vftable'" }
+  - { name: hkbGetWorldFromModelModifier_Vtable, kind: data, se: 278534, ae: 226508, vr: 0, cpp: "CB::schema::hkbGetWorldFromModelModifier::`vftable'" }
+  - { name: hkbGetWorldFromModelModifierInternalState_Vtable, kind: data, se: 278537, ae: 226512, vr: 0, cpp: "CB::schema::hkbGetWorldFromModelModifierInternalState::`vftable'" }
+  - { name: hkbMoveCharacterModifier_Vtable, kind: data, se: 278566, ae: 226548, vr: 0, cpp: "CB::schema::hkbMoveCharacterModifier::`vftable'" }
+  - { name: hkbMoveCharacterModifierInternalState_Vtable, kind: data, se: 278569, ae: 226552, vr: 0, cpp: "CB::schema::hkbMoveCharacterModifierInternalState::`vftable'" }
   - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
   - { name: BSTimerModifier_Vtable, kind: data, se: 282073, ae: 232720, vr: 0, cpp: "CB::schema::BSTimerModifier::`vftable'" }
   - { name: BSEventOnDeactivateModifier_Vtable, kind: data, se: 282048, ae: 232685, vr: 0, cpp: "CB::schema::BSEventOnDeactivateModifier::`vftable'" }
@@ -558,6 +578,7 @@ symbols:
   - { name: BSLookAtModifierBoneData_ResetCurrentFwdAxis, kind: func, se: 0, ae: 63269, vr: 0, cpp: "CB::schema::BSLookAtModifierBoneData::resetCurrentFwdAxis" }  # name provisional; currentFwdAxisLS = fwdAxisLS
   - { name: BSLookAtModifierUtils_ModifyInternal, kind: func, se: 0, ae: 63350, vr: 0, cpp: "CB::schema::BSLookAtModifierUtils::modifyInternal" }  # (modifier, pose, inOut, context-or-null); name from its warning string
   - { name: hkVector4_IsNormalized3, kind: func, se: 0, ae: 57221, vr: 0, cpp: "CB::schema::hkVector4::isNormalized3" }  # (epsilon) -> hkBool through a hidden pointer
+  - { name: hkVector4_IsOk3, kind: func, se: 0, ae: 57219, vr: 0, cpp: "CB::schema::hkVector4::isOk3" }  # () -> hkBool through a hidden pointer: x, y, z all finite
   - { name: BSComputeGainForTimeStep, kind: func, se: 0, ae: 63349, vr: 0, cpp: "CB::schema::BSComputeGainForTimeStep" }  # name provisional; clamp(gain * timeStep * 30, 0, 1), shared by the BS look-at/IK/interp modifiers
   - { name: BSLookAtModifierUtils_ModifyBone, kind: func, se: 0, ae: 63351, vr: 0, cpp: "CB::schema::BSLookAtModifierUtils::modifyBone" }  # name provisional; (modifier, bone, pose, lookAt, targetMS, limitAngle) -> angle asked
   - { name: hkErrStream_Ctor, kind: func, se: 0, ae: 57207, vr: 0, cpp: "CB::schema::hkErrStream::hkErrStream" }  # (buf, bufSize) the HK_WARN text stream

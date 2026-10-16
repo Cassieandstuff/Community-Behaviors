@@ -144,6 +144,9 @@ namespace CB { namespace schema
         /// @brief Whether the xyz length is 1 within `epsilon`.
         /// @note Out of line in vanilla (0x140a8d170); returns the hkBool through a hidden pointer.
         hkBool isNormalized3(hkReal epsilon = 1e-4f) const;
+        /// @brief Whether x, y and z are all finite.
+        /// @note Out of line in vanilla (0x140a8d110); returns the hkBool through a hidden pointer.
+        hkBool isOk3() const;
 
         /// @brief Whether x, y and z each lie within `epsilon` of `v`'s.
         HK_FORCE_INLINE bool equals3(const hkVector4& v, hkReal epsilon) const
@@ -215,6 +218,10 @@ namespace CB { namespace schema
         ///        parallel inputs blend linearly.
         /// @note Out of line in vanilla (0x140a8ab10); `t` arrives as a float (xmm3).
         void setSlerp(const hkQuaternion& q0, const hkQuaternion& q1, hkReal t);
+        /// @brief The shortest-arc rotation taking the unit vector `from` onto the unit vector `to`.
+        /// @note Out of line in vanilla: its one copy (0x1403f3120, unaligned loads) is a COMDAT the linker kept from
+        ///       Bethesda's code, called by hkbComputeRotationToTargetModifierUtils.
+        void setShortestRotation(const hkVector4& from, const hkVector4& to);
 
         HK_FORCE_INLINE void setMul(const hkQuaternion& q0, const hkQuaternion& q1)
         {
