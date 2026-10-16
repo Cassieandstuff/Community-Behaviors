@@ -325,6 +325,16 @@ symbols:
   - { name: hkaQuantizedAnimation_SampleFullPose, kind: func, se: 0, ae: 65518, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@QEBAXPEAUhkQsTransform@23@PEAM11M_NM@Z" }  # name provisional; (poseOut, floatsOut, poseWeightsOut, floatWeightsOut, time, additive, weightThreshold) const
   - { name: hkaQuantizedAnimation_SampleFullPoseData, kind: func, se: 0, ae: 65525, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBMM_NM@Z" }  # name provisional; static, over the data stream; allocates the scratch
   - { name: hkaQuantizedAnimation_SampleFullPoseBuffers, kind: func, se: 0, ae: 65526, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBM1122M_NM@Z" }  # name provisional; static, with caller scratch: frame and delta from time, then the frame-pair sampler
+  - { name: hkaSplineCompressedAnimation_Dtor, kind: func, se: 0, ae: 65548, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::~hkaSplineCompressedAnimation" }  # the scalar deleting destructor (slot 0) calls it
+  - { name: hkaSplineCompressedAnimation_SampleRotation, kind: func, se: 0, ae: 65549, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleRotation" }  # name provisional; (blockTime, quantizedTime, mask, quantization, data&, out) then 4-aligns data
+  - { name: hkaSplineCompressedAnimation_SampleTranslation, kind: func, se: 0, ae: 65550, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleTranslation" }  # name provisional
+  - { name: hkaSplineCompressedAnimation_SampleScale, kind: func, se: 0, ae: 65551, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleScale" }  # name provisional
+  - { name: hkaSplineCompressedAnimation_SampleFloat, kind: func, se: 0, ae: 65552, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleFloat" }  # name provisional
+  - { name: hkaSplineCompressedAnimation_ReadNurbsCurve, kind: func, se: 0, ae: 65553, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readNurbsCurve" }  # name provisional; (data&, quantizedTime, frameDuration, time, mask, quantization, default, out)
+  - { name: hkaSplineCompressedAnimation_ReadNurbsQuaternion, kind: func, se: 0, ae: 65554, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readNurbsQuaternion" }  # name provisional; (data&, quantizedTime, frameDuration, time, mask, quantization, out)
+  - { name: hkaSplineCompressedAnimation_ComputePackedNurbsOffsets, kind: func, se: 0, ae: 65636, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::computePackedNurbsOffsets" }  # (base, blockOffsets, block, offset): base + blockOffsets[block] + (offset & 0x7fffffff), null until the key code validates
+  - { name: hkaKeyCode_Check, kind: func, se: 0, ae: 67353, vr: 0, cpp: "CB::schema::hkaKeyCode_check" }  # name provisional; Havok animation key-code validation, sets the flag
+  - { name: hkaKeyCode_IsValid, kind: data, se: 0, ae: 410071, vr: 0, cpp: "CB::schema::hkaKeyCode_isValid" }  # name provisional; hkBool
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # the implicit destructor's out-of-line copy: most node destructors end in a tail call to it (hkbSequence's inlines it)
@@ -496,6 +506,7 @@ symbols:
   - { name: hkbHandle_Vtable, kind: data, se: 278245, ae: 226152, vr: 0, cpp: "CB::schema::hkbHandle::`vftable'" }
   - { name: hkaInterleavedUncompressedAnimation_Vtable, kind: data, se: 0, ae: 233268, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::`vftable'" }
   - { name: hkaQuantizedAnimation_Vtable, kind: data, se: 0, ae: 233272, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::`vftable'" }
+  - { name: hkaSplineCompressedAnimation_Vtable, kind: data, se: 0, ae: 233278, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::`vftable'" }
   - { name: hkbSenseHandleModifier_Vtable, kind: data, se: 278615, ae: 226606, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::`vftable'" }
   - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
   - { name: hkbTwistModifier_Vtable, kind: data, se: 278639, ae: 226636, vr: 0, cpp: "CB::schema::hkbTwistModifier::`vftable'" }

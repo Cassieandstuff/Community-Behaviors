@@ -1423,3 +1423,23 @@ units:
       - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBMM_NM@Z", va: 0x140c31380 }
       - { name: "??1hkaQuantizedAnimation@schema@CB@@UEAA@XZ", va: 0x140be2160 }
       - { name: "??_GhkaQuantizedAnimation@schema@CB@@UEAAPEAXI@Z", va: 0x140bdeed0 }
+  - source: ../../../schema/Havok/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimation.cpp
+    functions:
+      - { name: "CB::schema::hkaSplineCompressedAnimation::sampleTracks", va: 0x140c32280 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::samplePartialTracks", va: 0x140c322c0 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::sampleIndividualTransformTracks", va: 0x140c325d0 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::sampleIndividualFloatTracks", va: 0x140c32860 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::getNumOriginalFrames", va: 0x140c32a60 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::getNumDataChunks", va: 0x140c32a70 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::getDataChunks", va: 0x140c32a80 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::getMaxSizeOfCombinedDataChunks", va: 0x140c32b10 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::samplePartialWithDataChunks", va: 0x140c32b60 }
+      - { name: "??1hkaSplineCompressedAnimation@schema@CB@@UEAA@XZ", va: 0x140c32e30 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::sampleRotation", va: 0x140c32fa0 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::sampleTranslation", va: 0x140c33000 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::sampleScale", va: 0x140c33080 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::sampleFloat", va: 0x140c33100 }
+      - { name: "??_GhkaSplineCompressedAnimation@schema@CB@@UEAAPEAXI@Z", va: 0x140bdef50 }
+  - source: ../../../schema/Havok/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimationKeyCode.cpp
+    functions:
+      - { name: "CB::schema::hkaSplineCompressedAnimation::computePackedNurbsOffsets", va: 0x140c38450 }
