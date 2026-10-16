@@ -22,7 +22,9 @@
 # hkbRagdollDriver::reset (a reference's offset into its symbol), h hkbManualSelectorGenerator::update (rule H),
 # v hkbEvaluateExpressionModifier's copy constructor (rule I: a duplicated return tail), w
 # hkbSenseHandleModifier::collectCharacterLocalFrames (rule J: register setup; a wrong slot still fails),
-# n hkbStateMachine::activate, l hkbEventDrivenModifier::handleEvent. A mutant of a
+# n hkbStateMachine::activate, l hkbEventDrivenModifier::handleEvent, f hkbGetUpModifier::isValid (rule K: a sum of
+# 0/1 flags compared signed vs unsigned; a changed bound still fails), i hkbProxyModifier::updateRotation (rule N:
+# commutative operands swapped; a wrong field still fails). A mutant of a
 # header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -33,7 +35,7 @@ havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
 expectVariant=" u3 t3 c1 k2 y2 h1 "
 gated=" o z v "
-controlOnly=" l n "
+controlOnly=" l n f i "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -64,6 +66,8 @@ target() {
         w*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
             fn=collectCharacterLocalFrames va=0x140afe570 ;;
         n*) cls=hkbStateMachine src=Behavior/StateMachine/hkbStateMachine.cpp fn=activate va=0x140ad7f70 ;;
+        f*) cls=hkbGetUpModifier src=Behavior/Modifier/GetUp/hkbGetUpModifier.cpp fn=isValid va=0x140af5ac0 ;;
+        i*) cls=hkbProxyModifier src=Behavior/Modifier/Proxy/hkbProxyModifier.cpp fn=updateRotation va=0x140afb3e0 ;;
         l*) cls=hkbEventDrivenModifier src=Behavior/Modifier/EventDriven/hkbEventDrivenModifier.cpp fn=handleEvent va=0x140aef790 ;;
         o*) cls=hkbRotateCharacterModifierUtils src=Behavior/Modifier/RotateCharacter/hkbRotateCharacterModifierUtils.cpp
             fn=modify va=0x140b0ee80 ;;
@@ -150,7 +154,11 @@ expression="Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.c
 mutant v2_own_compiled_set    "$expression" 's/m_compiledExpressionSet(mod\.m_compiledExpressionSet)/m_compiledExpressionSet(m_compiledExpressionSet)/'
 machine="Behavior/StateMachine/hkbStateMachine.cpp"
 mutant n1_changed_warning     "$machine" 's/has no event set\./has no event./'
-mutant w1_wrong_transform    "$sense" 's/sensorPosBS\.setTransformedInversePos(worldFromBone, sensorPosWS);/sensorPosBS.setTransformedInversePos(boneModelSpace, sensorPosWS);/'
+getup="Behavior/Modifier/GetUp/hkbGetUpModifier.cpp"
+mutant f1_flag_count_bound    "$getup" 's/if (boneValid\[0\] + boneValid\[1\] + boneValid\[2\] < 3) {/if (boneValid[0] + boneValid[1] + boneValid[2] < 2) {/'
+proxy="Behavior/Modifier/Proxy/hkbProxyModifier.cpp"
+mutant i1_wrong_contact_field "$proxy" 's/hits\[i\]\.m_contact\.m_separatingNormal/hits[i].m_contact.m_position/'
+mutant w1_wrong_transform   "$sense" 's/sensorPosBS\.setTransformedInversePos(worldFromBone, sensorPosWS);/sensorPosBS.setTransformedInversePos(boneModelSpace, sensorPosWS);/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {

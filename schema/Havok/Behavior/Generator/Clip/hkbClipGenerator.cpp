@@ -49,7 +49,7 @@ namespace CB { namespace schema
                 hkbAnimationBindingSet*          bindingSet = context.m_character->getAnimationBindingSet();
                 hkbAnimationBindingWithTriggers* bwt =
                     (m_animationBindingIndex < bindingSet->m_bindings.getSize()) ? bindingSet->m_bindings[m_animationBindingIndex] : HK_NULL;
-                hkaAnimationBinding* binding = bwt ? bwt->m_binding.val() : HK_NULL;
+                hkaAnimationBinding* binding = bwt ? bwt->m_binding : HK_NULL;
 
                 if (m_animationControl) {
                     m_animationControl->setBinding(binding);

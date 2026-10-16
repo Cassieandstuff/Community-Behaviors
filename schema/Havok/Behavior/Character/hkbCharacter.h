@@ -38,7 +38,8 @@ namespace CB { namespace schema
             hkbEventProperty m_event;   ///< +0x8
         };
 
-        hkRefPtr<hkaAnimationBinding> m_binding;    ///< +0x10
+        /// @note Not reference-counted: vanilla's destructor only nulls it (no test, no release).
+        hkaAnimationBinding*          m_binding;    ///< +0x10
         hkArray<Trigger>              m_triggers;   ///< +0x18
 
         /// @brief Drops the binding without releasing it, then the triggers.

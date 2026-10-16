@@ -190,8 +190,9 @@ still belongs in the session scratchpad dir.)
   per translation unit and diffs every listed function against the exe (EXACT / REGALLOC / VARIANT, references
   checked against engine.yaml); `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
   under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow. A VARIANT that
-  needs rule A (local stack slots rearranged), E (SIMD rescheduled), I (a duplicated return tail) or J (register
-  setup rescheduled) runs `--diff` always and fails unless it agrees.
+  needs rule A (local stack slots rearranged), E (SIMD rescheduled), I (a duplicated return tail), J (register
+  setup rescheduled), N (commutative SIMD operands swapped), R (a SIMD value recomputed), O (a load folded into its
+  use) or U (unaligned vs aligned moves) runs `--diff` always and fails unless it agrees.
   `tools/cbmatch/tests/mutants.sh` proves the gate rejects broken copies (STRUCTURAL, or VARIANT plus a `--diff`
   divergence for the documented blind spots), with unmutated controls that must agree.
   Run both after any schema/Havok or cbmatch change. A full run ends with coverage against

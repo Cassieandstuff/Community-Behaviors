@@ -79,7 +79,7 @@ namespace CB { namespace schema
             hkbAnimationBindingSet*          bindingSet = context.m_character->getAnimationBindingSet();
             hkbAnimationBindingWithTriggers* bwt =
                 (clip->m_animationBindingIndex < bindingSet->m_bindings.getSize()) ? bindingSet->m_bindings[clip->m_animationBindingIndex] : HK_NULL;
-            const hkaAnimationBinding* loaded = bwt ? bwt->m_binding.val() : HK_NULL;
+            const hkaAnimationBinding* loaded = bwt ? bwt->m_binding : HK_NULL;
             animation                         = loaded ? loaded->m_animation : hkRefPtr<hkaAnimation>();
             queued                            = true;
         }

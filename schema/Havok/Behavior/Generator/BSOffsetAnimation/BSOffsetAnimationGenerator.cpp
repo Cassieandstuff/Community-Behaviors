@@ -159,7 +159,7 @@ namespace CB { namespace schema
         hkbCharacter*                    character  = context.m_character;
         hkbAnimationBindingSet*          bindingSet = character ? character->getAnimationBindingSet() : HK_NULL;
         hkbAnimationBindingWithTriggers* bwt        = (bindingSet && index < bindingSet->m_bindings.getSize()) ? bindingSet->m_bindings[index] : HK_NULL;
-        const hkaAnimationBinding*       binding    = bwt ? bwt->m_binding.val() : HK_NULL;
+        const hkaAnimationBinding*       binding    = bwt ? bwt->m_binding : HK_NULL;
         hkaAnimation*                    animation  = binding ? binding->m_animation : hkRefPtr<hkaAnimation>();
 
         if (!animation || binding->m_blendHint != hkaAnimationBinding::ADDITIVE) {

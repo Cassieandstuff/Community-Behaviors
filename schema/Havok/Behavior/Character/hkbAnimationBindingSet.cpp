@@ -8,7 +8,7 @@ namespace CB { namespace schema
     /// @note The binding is not released: vanilla only nulls the pointer before the members are destroyed.
     hkbAnimationBindingWithTriggers::~hkbAnimationBindingWithTriggers()
     {
-        m_binding.m_pntr = HK_NULL;
+        m_binding = HK_NULL;
     }
 
     hkbAnimationBindingSet::~hkbAnimationBindingSet()
