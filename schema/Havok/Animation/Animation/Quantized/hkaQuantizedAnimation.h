@@ -51,6 +51,11 @@ namespace CB { namespace schema
         ///       meaning is provisional too).
         void sampleFullPose(hkQsTransform* poseOut, hkReal* floatsOut, hkReal* poseWeightsOut, hkReal* floatWeightsOut, hkReal time, bool additive,
                             hkReal weightThreshold) const;
+        /// @brief sampleFullPose with caller-supplied scratch (see the static overload).
+        /// @note Name provisional; no code callers left in vanilla (0x140c30960).
+        void sampleFullPose(hkQsTransform* poseOut, hkReal* floatsOut, hkReal* poseWeightsOut, hkReal* floatWeightsOut, hkQsTransform* poseBufferA,
+                            hkQsTransform* poseBufferB, hkReal* floatBufferA, hkReal* floatBufferB, hkReal time, bool additive,
+                            hkReal weightThreshold) const;
 
         /// @brief sampleFullPose over a raw data stream, with the skeleton's reference pose and floats for the tracks the
         ///        data leaves out; scratch buffers come from the temp allocator.
@@ -65,6 +70,14 @@ namespace CB { namespace schema
                                    const hkQsTransform* referencePose, const hkReal* referenceFloats, hkQsTransform* poseBufferA,
                                    hkQsTransform* poseBufferB, hkReal* floatBufferA, hkReal* floatBufferB, hkReal time, bool additive,
                                    hkReal weightThreshold);
+        /// @brief Decodes the frame pair `frameA`/`frameB` and blends it by `delta`: a delta within `weightThreshold` of 0
+        ///        or 1 decodes only the nearer frame, straight into the output; otherwise both go into the scratch buffers
+        ///        and are blended. Tracks the frames leave out keep the reference pose; the weights come from the header.
+        /// @note Name provisional; out of line in vanilla (0x140c31770).
+        static void sampleFrames(const hkUint8* data, const hkUint8* frameA, const hkUint8* frameB, hkQsTransform* poseOut, hkReal* floatsOut,
+                                 hkReal* poseWeightsOut, hkReal* floatWeightsOut, const hkQsTransform* referencePose, const hkReal* referenceFloats,
+                                 hkQsTransform* poseBufferA, hkQsTransform* poseBufferB, hkReal* floatBufferA, hkReal* floatBufferB, hkReal delta,
+                                 bool additive, hkReal weightThreshold);
     };
     static_assert(sizeof(hkaQuantizedAnimation) == 0x58, "hkaQuantizedAnimation size");
 } }

@@ -1419,11 +1419,13 @@ units:
     functions:
       - { name: "CB::schema::hkaQuantizedAnimation::sampleTracks", va: 0x140c30a00 }
       - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@QEBAXPEAUhkQsTransform@23@PEAM11M_NM@Z", va: 0x140c308f0 }
+      - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@QEBAXPEAUhkQsTransform@23@PEAM110011M_NM@Z", va: 0x140c30960 }
       - { name: "CB::schema::hkaQuantizedAnimation::samplePartialTracks", va: 0x140c30e70 }
       - { name: "CB::schema::hkaQuantizedAnimation::sampleIndividualTransformTracks", va: 0x140c31350 }
       - { name: "CB::schema::hkaQuantizedAnimation::sampleIndividualFloatTracks", va: 0x140c31360 }
       - { name: "CB::schema::hkaQuantizedAnimation::getNumOriginalFrames", va: 0x140c31370 }
       - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBMM_NM@Z", va: 0x140c31380 }
+      - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBM1122M_NM@Z", va: 0x140c31630 }
       - { name: "??1hkaQuantizedAnimation@schema@CB@@UEAA@XZ", va: 0x140be2160 }
       - { name: "??_GhkaQuantizedAnimation@schema@CB@@UEAAPEAXI@Z", va: 0x140bdeed0 }
   - source: ../../../schema/Havok/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimation.cpp

@@ -15,6 +15,14 @@ namespace CB { namespace schema
                        m_skeleton->m_referenceFloats.begin(), time, additive, weightThreshold);
     }
 
+    void hkaQuantizedAnimation::sampleFullPose(hkQsTransform* poseOut, hkReal* floatsOut, hkReal* poseWeightsOut, hkReal* floatWeightsOut,
+                                               hkQsTransform* poseBufferA, hkQsTransform* poseBufferB, hkReal* floatBufferA, hkReal* floatBufferB,
+                                               hkReal time, bool additive, hkReal weightThreshold) const
+    {
+        sampleFullPose(m_data.begin(), poseOut, floatsOut, poseWeightsOut, floatWeightsOut, m_skeleton->m_referencePose.begin(),
+                       m_skeleton->m_referenceFloats.begin(), poseBufferA, poseBufferB, floatBufferA, floatBufferB, time, additive, weightThreshold);
+    }
+
     void hkaQuantizedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const
     {
         const hkaQuantizedAnimationHeader* header       = reinterpret_cast<const hkaQuantizedAnimationHeader*>(m_data.begin());
@@ -100,5 +108,31 @@ namespace CB { namespace schema
         hkTempArray<hkReal>        floatBufferB(HK_NEXT_MULTIPLE_OF(4, header->m_numFloats));
         sampleFullPose(data, poseOut, floatsOut, poseWeightsOut, floatWeightsOut, referencePose, referenceFloats, poseBufferA.begin(),
                        poseBufferB.begin(), floatBufferA.begin(), floatBufferB.begin(), time, additive, weightThreshold);
+    }
+
+    void hkaQuantizedAnimation::sampleFullPose(const hkUint8* data, hkQsTransform* poseOut, hkReal* floatsOut, hkReal* poseWeightsOut,
+                                               hkReal* floatWeightsOut, const hkQsTransform* referencePose, const hkReal* referenceFloats,
+                                               hkQsTransform* poseBufferA, hkQsTransform* poseBufferB, hkReal* floatBufferA, hkReal* floatBufferB, hkReal time,
+                                               bool additive, hkReal weightThreshold)
+    {
+        const hkaQuantizedAnimationHeader* header = reinterpret_cast<const hkaQuantizedAnimationHeader*>(data);
+
+        const hkUint32 maxFrameIndex = header->m_numFrames - 1;
+        const hkReal   frameFloat    = (time / header->m_duration) * maxFrameIndex;
+        hkUint32       frame         = static_cast<hkUint32>(frameFloat);
+        hkReal         delta;
+        if (frame > maxFrameIndex - 1) {
+            frame = maxFrameIndex - 1;
+            delta = 1.0f;
+        } else {
+            delta = frameFloat - static_cast<hkReal>(frame);
+            if (delta < 0.0f) delta = 0.0f;
+            else if (delta >= 1.0f) delta = 1.0f;
+        }
+
+        const int frameOffsetA = header->m_frameDataOffset + header->m_frameSize * frame;
+        const int frameOffsetB = header->m_frameDataOffset + header->m_frameSize * (frame + 1);
+        sampleFrames(data, data + frameOffsetA, data + frameOffsetB, poseOut, floatsOut, poseWeightsOut, floatWeightsOut, referencePose, referenceFloats,
+                     poseBufferA, poseBufferB, floatBufferA, floatBufferB, delta, additive, weightThreshold);
     }
 } }
