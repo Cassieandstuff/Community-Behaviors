@@ -83,4 +83,11 @@ namespace CB { namespace schema
     {
         if (m_ragdoll) m_attachedRigidBodyToIndexMap.remove(rigidBody);
     }
+
+    void hkbRagdollDriver::extractRagdollPose(const hkbContext& context, hkbGeneratorOutput& inOut, bool computeWorldFromModel,
+                                              int poseMatchingBone0, int poseMatchingBone1, int poseMatchingBone2)
+    {
+        extractRagdollPoseInternal(context, inOut, 0.0f, 0.0f, false, computeWorldFromModel, poseMatchingBone0, poseMatchingBone1,
+                                   poseMatchingBone2);
+    }
 } }

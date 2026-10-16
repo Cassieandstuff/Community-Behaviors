@@ -947,3 +947,27 @@ symbols:
   - { name: hkpCharacterProxy_GetLinearVelocity, kind: func, se: 0, ae: 62640, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getLinearVelocity" }
   - { name: hkpCharacterProxy_SetLinearVelocity, kind: func, se: 0, ae: 62641, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setLinearVelocity" }
   - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # parameter list partly unconfirmed (see the header)
+  # --- ragdoll control modifiers (schema/Havok/Behavior/Modifier/{ExtractRagdollPose,KeyframeBones,PoweredRagdollControls,RigidBodyRagdollControls}) ---
+  - { name: hkbRagdollDriver_ExtractRagdollPose, kind: func, se: 0, ae: 58289, vr: 0, cpp: "CB::schema::hkbRagdollDriver::extractRagdollPose" }  # (context, inOut, computeWorldFromModel, bone0..2)
+  - { name: hkbRagdollDriver_ExtractRagdollPoseInternal, kind: func, se: 0, ae: 58311, vr: 0, cpp: "CB::schema::hkbRagdollDriver::extractRagdollPoseInternal" }  # name provisional; not reimplemented yet
+  - { name: hkbExtractRagdollPoseModifier_Vtable, kind: data, se: 0, ae: 226574, vr: 0, cpp: "CB::schema::hkbExtractRagdollPoseModifier::`vftable'" }
+  - { name: hkbExtractRagdollPoseModifier_CopyCtor, kind: func, se: 0, ae: 59842, vr: 0, cpp: "??0hkbExtractRagdollPoseModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbBoneIndexArray_CopyCtor, kind: func, se: 0, ae: 59855, vr: 0, cpp: "??0hkbBoneIndexArray@schema@CB@@QEAA@AEBV012@@Z" }  # inline, not inlined (/Ob1); the ragdoll control modifiers' clone copies call it
+  - { name: hkbPoweredRagdollControlsModifier_Vtable, kind: data, se: 0, ae: 226586, vr: 0, cpp: "CB::schema::hkbPoweredRagdollControlsModifier::`vftable'" }
+  - { name: hkbPoweredRagdollControlsModifier_CopyCtor, kind: func, se: 0, ae: 59857, vr: 0, cpp: "??0hkbPoweredRagdollControlsModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbPoweredRagdollControlsModifierUtils_Modify, kind: func, se: 0, ae: 60069, vr: 0, cpp: "CB::schema::hkbPoweredRagdollControlsModifierUtils::modify" }  # name provisional; modify tail-jumps to it
+  - { name: hkbRigidBodyRagdollControlsModifier_Vtable, kind: data, se: 0, ae: 226592, vr: 0, cpp: "CB::schema::hkbRigidBodyRagdollControlsModifier::`vftable'" }
+  - { name: hkbRigidBodyRagdollControlsModifier_CopyCtor, kind: func, se: 0, ae: 59863, vr: 0, cpp: "??0hkbRigidBodyRagdollControlsModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbRigidBodyRagdollControlsModifierUtils_Modify, kind: func, se: 0, ae: 60070, vr: 0, cpp: "CB::schema::hkbRigidBodyRagdollControlsModifierUtils::modify" }  # name provisional; (mod, inOut)
+  - { name: hkbGeneratorOutputUtils_CopyPaletteTrack, kind: func, se: 0, ae: 59287, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copyPaletteTrack" }  # name provisional; (source, dest)
+  - { name: hkbGeneratorOutputUtils_CopySparseTrack, kind: func, se: 0, ae: 59288, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copySparseTrack" }  # name provisional; (source, dest)
+  - { name: hkbGeneratorOutputUtils_BlendPaletteTrack, kind: func, se: 0, ae: 59306, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::blendPaletteTrack" }  # name provisional; (source, weight, dest by value, weightsBuffer, flag)
+  - { name: hkbGeneratorOutputUtils_BlendSparseTrack, kind: func, se: 0, ae: 59307, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::blendSparseTrack" }  # name provisional; (source, weight, dest by value, weightsBuffer, flag)
+  - { name: hkbBoneIndexArray_Vtable, kind: data, se: 0, ae: 226191, vr: 0, cpp: "CB::schema::hkbBoneIndexArray::`vftable'" }
+  - { name: hkbKeyframeBonesModifier_Vtable, kind: data, se: 0, ae: 226578, vr: 0, cpp: "CB::schema::hkbKeyframeBonesModifier::`vftable'" }
+  - { name: hkbKeyframeBonesModifier_CopyCtor, kind: func, se: 0, ae: 59847, vr: 0, cpp: "??0hkbKeyframeBonesModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbKeyframeBonesModifier_Dtor, kind: func, se: 0, ae: 58984, vr: 0, cpp: "??1hkbKeyframeBonesModifier@schema@CB@@UEAA@XZ" }  # implicit; out of line among the type registry's functions
+  - { name: hkbKeyframeBonesModifier_StaticClass, kind: data, se: 0, ae: 408133, vr: 0, cpp: "CB::schema::hkbKeyframeBonesModifierClass" }  # hkClass object
+  - { name: hkbKeyframeBonesModifierUtils_Modify, kind: func, se: 0, ae: 60071, vr: 0, cpp: "CB::schema::hkbKeyframeBonesModifierUtils::modify" }  # name provisional; (mod, inOut)
+  - { name: hkAlgorithm_QuickSortRecursiveInt, kind: func, se: 0, ae: 60072, vr: 0, cpp: "CB::schema::hkAlgorithm::quickSortRecursive<int,CB::schema::hkAlgorithm::less<int> >" }  # the int instance, emitted in hkbKeyframeBonesModifierUtils's unit
+  - { name: hkMap_IntInt_CtorWithStorage, kind: func, se: 0, ae: 57172, vr: 0, cpp: "CB::schema::hkMap<int,int>::hkMap<int,int>" }  # name provisional; (ptr, sizeInBytes): only calls hkPointerMapStorage's storage ctor (57197)

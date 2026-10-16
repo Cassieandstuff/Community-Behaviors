@@ -960,6 +960,57 @@ units:
       - { name: "??0hkbRagdollDriver@schema@CB@@QEAA@PEAUhkbCharacter@12@_N@Z", va: 0x140aac560 }
       - { name: "??1hkbRagdollDriver@schema@CB@@UEAA@XZ", va: 0x140aac630 }
       - { name: "??_GhkbRagdollDriver@schema@CB@@UEAAPEAXI@Z", va: 0x140ab0900 }
+      - { name: "CB::schema::hkbRagdollDriver::extractRagdollPose", va: 0x140aacb40 }
+  - source: ../../../schema/Havok/Behavior/Modifier/ExtractRagdollPose/hkbExtractRagdollPoseModifier.cpp
+    functions:
+      - { name: "??0hkbExtractRagdollPoseModifier@schema@CB@@QEAA@XZ", va: 0x140afb7a0 }
+      - { name: "??0hkbExtractRagdollPoseModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afb820 }
+      - { name: "CB::schema::hkbExtractRagdollPoseModifier::calcContentStatistics", va: 0x140afb890 }
+      # - { name: "CB::schema::hkbExtractRagdollPoseModifier::isValid", va: 0x140afb8a0 }   # parked: bool-sum signed/unsigned compare
+      - { name: "CB::schema::hkbExtractRagdollPoseModifier::cloneNode", va: 0x140afba10 }
+      - { name: "CB::schema::hkbExtractRagdollPoseModifier::modify", va: 0x140afba80 }
+      - { name: "??_GhkbExtractRagdollPoseModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9260 }
+  - source: ../../../schema/Havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifier.cpp
+    functions:
+      # - { name: "??0hkbKeyframeBonesModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afbb10 }   # parked: copy-construct loop walks the source, not the destination
+      - { name: "CB::schema::hkbKeyframeBonesModifier::calcContentStatistics", va: 0x140afbcf0 }
+      - { name: "CB::schema::hkbKeyframeBonesModifier::collectBindables", va: 0x140afbd40 }
+      - { name: "CB::schema::hkbKeyframeBonesModifier::activate", va: 0x140afbd80 }
+      # - { name: "CB::schema::hkbKeyframeBonesModifier::isValid", va: 0x140afbdb0 }   # parked: map storage/size in stack slots vs callee-saved registers
+      - { name: "CB::schema::hkbKeyframeBonesModifier::cloneNode", va: 0x140afc270 }
+      - { name: "CB::schema::hkbKeyframeBonesModifier::modify", va: 0x140afc2f0 }
+      - { name: "CB::schema::hkbKeyframeBonesModifier::addKeyframedBone", va: 0x140afc390 }
+      - { name: "??0hkbBoneIndexArray@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afc460 }
+      - { name: "??1hkbKeyframeBonesModifier@schema@CB@@UEAA@XZ", va: 0x140ac6c10 }
+      - { name: "??_GhkbKeyframeBonesModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9ca0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifierUtils.cpp
+    functions:
+      # - { name: "CB::schema::hkbKeyframeBonesModifierUtils::modify", va: 0x140b0e830 }   # parked: capacity reloaded from its spill slot vs kept in a register
+      - { name: "CB::schema::hkAlgorithm::quickSortRecursive<int,CB::schema::hkAlgorithm::less<int> >", va: 0x140b0edb0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/PoweredRagdollControls/hkbPoweredRagdollControlsModifier.cpp
+    functions:
+      - { name: "??0hkbPoweredRagdollControlsModifier@schema@CB@@QEAA@XZ", va: 0x140afc560 }
+      - { name: "??0hkbPoweredRagdollControlsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afc620 }
+      - { name: "CB::schema::hkbPoweredRagdollControlsModifier::collectBindables", va: 0x140afc7c0 }
+      # - { name: "CB::schema::hkbPoweredRagdollControlsModifier::isValid", va: 0x140afc820 }   # parked: bool-sum signed/unsigned compare
+      - { name: "CB::schema::hkbPoweredRagdollControlsModifier::cloneNode", va: 0x140afc9d0 }
+      - { name: "CB::schema::hkbPoweredRagdollControlsModifier::modify", va: 0x140afca60 }
+      - { name: "??_GhkbPoweredRagdollControlsModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140aca790 }
+  - source: ../../../schema/Havok/Behavior/Modifier/RigidBodyRagdollControls/hkbRigidBodyRagdollControlsModifier.cpp
+    functions:
+      - { name: "??0hkbRigidBodyRagdollControlsModifier@schema@CB@@QEAA@XZ", va: 0x140afca70 }
+      - { name: "??0hkbRigidBodyRagdollControlsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afcb40 }
+      - { name: "CB::schema::hkbRigidBodyRagdollControlsModifier::collectBindables", va: 0x140afcc70 }
+      - { name: "CB::schema::hkbRigidBodyRagdollControlsModifier::cloneNode", va: 0x140afccc0 }
+      - { name: "CB::schema::hkbRigidBodyRagdollControlsModifier::modify", va: 0x140afcd40 }
+      - { name: "??_GhkbRigidBodyRagdollControlsModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140acac10 }
+  - source: ../../../schema/Havok/Behavior/Modifier/RigidBodyRagdollControls/hkbRigidBodyRagdollControlsModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbRigidBodyRagdollControlsModifierUtils::modify", va: 0x140b0e600 }
+  - source: ../../../schema/Havok/Behavior/Generator/hkbGeneratorOutputUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbGeneratorOutputUtils::copyPaletteTrack", va: 0x140ad1de0 }
+      - { name: "CB::schema::hkbGeneratorOutputUtils::copySparseTrack", va: 0x140ad1ec0 }
   - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateMachine.cpp
     functions:
       - { name: "??0hkbStateMachine@schema@CB@@QEAA@XZ", va: 0x140ad75b0 }

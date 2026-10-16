@@ -15,6 +15,18 @@ namespace CB { namespace schema
     /// @brief How the ragdoll's world-from-model is found (reflected; 8 bytes).
     struct hkbWorldFromModelModeData
     {
+        /// @note Names and values per the Havok SDK: hkbPoweredRagdollControlsModifier::isValid checks the pose matching
+        ///       bones under 2 (COMPUTE), its constructor defaults to 3 (NONE), and the driver's extractRagdollPoseInternal
+        ///       treats 4 (RAGDOLL) apart.
+        enum WorldFromModelMode
+        {
+            WORLD_FROM_MODEL_MODE_USE_OLD   = 0,
+            WORLD_FROM_MODEL_MODE_USE_INPUT = 1,
+            WORLD_FROM_MODEL_MODE_COMPUTE   = 2,
+            WORLD_FROM_MODEL_MODE_NONE      = 3,
+            WORLD_FROM_MODEL_MODE_RAGDOLL   = 4
+        };
+
         hkInt16 m_poseMatchingBone0;   ///< +0x0
         hkInt16 m_poseMatchingBone1;   ///< +0x2
         hkInt16 m_poseMatchingBone2;   ///< +0x4
@@ -88,6 +100,18 @@ namespace CB { namespace schema
         /// @brief Feeds the simulated ragdoll back into the generated pose, after the physics step.
         /// @note Name per the Havok SDK; out of line in vanilla (0x140aae7b0), called by hkbRagdollSceneModifier.
         void postPhysics(const hkbContext& context, hkbGeneratorOutput& inOut);
+        /// @brief Replaces the pose in `inOut` with the ragdoll's (hkbExtractRagdollPoseModifier).
+        /// @note Name per the Havok SDK; out of line in vanilla (0x140aacb40).
+        void extractRagdollPose(const hkbContext& context, hkbGeneratorOutput& inOut, bool computeWorldFromModel, int poseMatchingBone0,
+                                int poseMatchingBone1, int poseMatchingBone2);
+        /// @brief extractRagdollPose's body: maps the ragdoll pose into `inOut`, computing the world-from-model from the three
+        ///        pose matching bones when asked (-1 takes m_worldFromModelModeDataInUse's).
+        /// @note Name and parameter names provisional; out of line in vanilla (0x140ab0070), not reimplemented.
+        ///       extractRagdollPose passes weights 0 and `blend` false; under `blend` the body compares the first weight with
+        ///       m_timeRigidBodyControllerActive and the second with m_timePoweredControllerActive.
+        void extractRagdollPoseInternal(const hkbContext& context, hkbGeneratorOutput& inOut, hkReal rigidBodyWeight, hkReal poweredWeight,
+                                        bool blend, bool computeWorldFromModel, int poseMatchingBone0, int poseMatchingBone1,
+                                        int poseMatchingBone2);
         /// @brief Registers `rigidBody` as attached, when it is one of the ragdoll's bodies.
         /// @note Name per the Havok SDK.
         void addAttachedRigidBody(hkpRigidBody* rigidBody);

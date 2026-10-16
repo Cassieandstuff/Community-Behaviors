@@ -39,5 +39,23 @@ namespace CB { namespace schema
         /// @note Out of line in vanilla (0x140ad2e30); hkbGeneratorTransitionEffect's generate blends its stage's two
         ///       children with it.
         static void blendGeneratorOutputs(const hkbGeneratorOutput& a, const hkbGeneratorOutput& b, hkReal weight, hkbGeneratorOutput& out);
+        /// @brief Copies a palette track (per-bone palette indices after the data) into `dest`.
+        /// @note Out of line in vanilla (0x140ad1de0): blendPaletteTrack at weight 1 over a stack buffer of a float per
+        ///       source bone. hkbRigidBodyRagdollControlsModifierUtils::modify calls it.
+        static void copyPaletteTrack(const hkbGeneratorOutput::ConstTrack& source, hkbGeneratorOutput::Track& dest);
+        /// @brief Copies a sparse track into `dest`.
+        /// @note Out of line in vanilla (0x140ad1ec0): blendSparseTrack at weight 1 over a stack buffer of a float per
+        ///       source element. hkbKeyframeBonesModifierUtils::modify calls it.
+        static void copySparseTrack(const hkbGeneratorOutput::ConstTrack& source, hkbGeneratorOutput::Track& dest);
+        /// @brief Blends `source` into `dest` by `weight`; `weightsBuffer` is scratch for the per-element weights.
+        /// @note Out of line in vanilla (0x140ad37b0); not reimplemented. The last parameter's meaning is unknown (the
+        ///       copies pass true).
+        static void blendPaletteTrack(const hkbGeneratorOutput::ConstTrack& source, hkReal weight, hkbGeneratorOutput::Track dest,
+                                      hkReal* weightsBuffer, bool flag);
+        /// @brief Blends `source` into `dest` by `weight`; `weightsBuffer` is scratch for the per-element weights.
+        /// @note Out of line in vanilla (0x140ad3fe0); not reimplemented. The last parameter's meaning is unknown (the
+        ///       copies pass true).
+        static void blendSparseTrack(const hkbGeneratorOutput::ConstTrack& source, hkReal weight, hkbGeneratorOutput::Track dest,
+                                     hkReal* weightsBuffer, bool flag);
     };
 } }

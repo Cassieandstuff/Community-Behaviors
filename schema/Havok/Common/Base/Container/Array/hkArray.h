@@ -215,6 +215,13 @@ namespace CB { namespace schema
             hkArrayUtil::constructWithCopy(m_data + m_size, 1, t, hkArrayIsPod<hkIsPodType<T>::result != 0>());
             m_size++;
         }
+        /// @brief Appends `t` without a capacity check.
+        /// @pre The array has room for it.
+        HK_FORCE_INLINE void pushBackUnchecked(const T& t)
+        {
+            m_data[m_size] = t;
+            m_size++;
+        }
         /// @brief Appends one element left unconstructed and returns it.
         HK_FORCE_INLINE T& expandOne()
         {

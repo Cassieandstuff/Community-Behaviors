@@ -22,6 +22,9 @@ namespace CB { namespace schema
             TRACK_POWERED_RAGDOLL_CONTROLS              = 6,
             TRACK_POWERED_RAGDOLL_WORLD_FROM_MODEL_MODE = 7,
             TRACK_KEYFRAMED_RAGDOLL_BONES               = 8,
+            /// @brief hkbKeyframeBonesModifier's keyframe targets (a sparse track of hkQsTransforms).
+            /// @note Name per the Havok SDK.
+            TRACK_KEYFRAME_TARGETS                      = 9,
             /// @brief One float per attribute id (the character's root graph's ids), written by hkbAttributeModifier.
             /// @note The index is vanilla's (hkbAttributeModifierUtils::modify tests `numTracks > 10`); later Havok SDKs
             ///       number the attribute track 11.
@@ -59,6 +62,26 @@ namespace CB { namespace schema
             TrackHeader       m_trackHeaders[1];
         };
 
+        /// @brief One track: its header and its data.
+        /// @note Name per the Havok SDK.
+        struct Track
+        {
+            TrackHeader* m_header;
+            void*        m_data;
+
+            HK_FORCE_INLINE Track(TrackHeader* header, void* data) : m_header(header), m_data(data) {}
+        };
+        /// @brief A read-only Track.
+        /// @note Name per the Havok SDK.
+        struct ConstTrack
+        {
+            const TrackHeader* m_header;
+            const void*        m_data;
+
+            HK_FORCE_INLINE ConstTrack(const TrackHeader* header, const void* data) : m_header(header), m_data(data) {}
+            HK_FORCE_INLINE ConstTrack(const Track& track) : m_header(track.m_header), m_data(track.m_data) {}
+        };
+
         Tracks* m_tracks;
         bool    m_deleteTracks;
 
@@ -85,6 +108,7 @@ namespace CB { namespace schema
         }
         HK_FORCE_INLINE TrackHeader&   getTrackHeader(int track) { return m_tracks->m_trackHeaders[track]; }
         HK_FORCE_INLINE void*          getTrackData(int track) { return reinterpret_cast<char*>(m_tracks) + m_tracks->m_trackHeaders[track].m_dataOffset; }
+        HK_FORCE_INLINE Track          accessTrack(int track) { return Track(&m_tracks->m_trackHeaders[track], getTrackData(track)); }
         HK_FORCE_INLINE int            getNumPoseLocal() const { return isValid(TRACK_POSE) ? m_tracks->m_trackHeaders[TRACK_POSE].m_numData : 0; }
         HK_FORCE_INLINE hkQsTransform* accessPoseLocal() { return static_cast<hkQsTransform*>(getTrackData(TRACK_POSE)); }
         HK_FORCE_INLINE hkQsTransform& accessWorldFromModel() { return *static_cast<hkQsTransform*>(getTrackData(TRACK_WORLD_FROM_MODEL)); }

@@ -111,4 +111,13 @@ namespace CB { namespace schema
             return res;
         }
     };
+
+    /// @brief An hkPointerMap whose storage constructor is out of line.
+    /// @note Name provisional (Havok's hkMap used directly, presumably): hkbKeyframeBonesModifierUtils::modify builds its
+    ///       map over stack storage through 0x140a8c0f0, which only calls hkPointerMapStorage's storage constructor
+    ///       (0x140a8c620, the one hkPointerMap inlines) and returns the map.
+    template <class K, class V> struct hkMap : hkPointerMap<K, V>
+    {
+        hkMap(void* ptr, int sizeInBytes);
+    };
 } }
