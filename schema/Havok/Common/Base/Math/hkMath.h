@@ -58,6 +58,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void mul4(hkSimdReal s) { m_quad = _mm_mul_ps(m_quad, s.m_real); }
         HK_FORCE_INLINE void add4(const hkVector4& a) { m_quad = _mm_add_ps(m_quad, a.m_quad); }
         HK_FORCE_INLINE void sub4(hkSimdReal s) { m_quad = _mm_sub_ps(m_quad, s.m_real); }
+        HK_FORCE_INLINE void sub4(const hkVector4& a) { m_quad = _mm_sub_ps(m_quad, a.m_quad); }
         HK_FORCE_INLINE void setSub4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_sub_ps(a.m_quad, b.m_quad); }
         HK_FORCE_INLINE void setAdd4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(a.m_quad, b.m_quad); }
         HK_FORCE_INLINE void addMul4(const hkVector4& a, const hkVector4& b) { m_quad = _mm_add_ps(m_quad, _mm_mul_ps(a.m_quad, b.m_quad)); }
@@ -264,6 +265,10 @@ namespace CB { namespace schema
         /// @note Out of line in vanilla: its one copy (0x1403f3120, unaligned loads) is a COMDAT the linker kept from
         ///       Bethesda's code, called by hkbComputeRotationToTargetModifierUtils.
         void setShortestRotation(const hkVector4& from, const hkVector4& to);
+        /// @brief q0 · q1, component by component (no SIMD shuffles); `q1` may alias this.
+        /// @note Name provisional: an out-of-line quaternion product (0x140a88040) that foot IK, hkaSkeletonMapperUtils and
+        ///       others call where the inline setMul is not used; its Havok name is unknown.
+        void setMulOutOfLine(const hkQuaternion& q0, const hkQuaternion& q1);
 
         HK_FORCE_INLINE void setMul(const hkQuaternion& q0, const hkQuaternion& q1)
         {

@@ -29,6 +29,9 @@ namespace CB { namespace schema
             /// @note The index is vanilla's (hkbAttributeModifierUtils::modify tests `numTracks > 10`); later Havok SDKs
             ///       number the attribute track 11.
             TRACK_ATTRIBUTES                            = 10,
+            /// @brief One hkbFootIkControlData, written by hkbFootIkControlsModifier.
+            /// @note The index is vanilla's (hkbFootIkControlsModifierUtils::modify tests `numTracks > 11`).
+            TRACK_FOOT_IK_CONTROLS                      = 11,
             /// @brief One hkbCharacterControllerControlData, written by hkbCharacterControllerModifier.
             /// @note The index is vanilla's (the modifier tests `numTracks > 12`).
             TRACK_CHARACTER_CONTROLLER_CONTROL_DATA     = 12,

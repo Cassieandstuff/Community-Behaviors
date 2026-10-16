@@ -1611,7 +1611,46 @@ units:
       - { name: "??0hkbFootIkDriver@schema@CB@@QEAA@XZ", va: 0x140ab7e20 }
       - { name: "??1hkbFootIkDriver@schema@CB@@UEAA@XZ", va: 0x140ab7e70 }
       - { name: "CB::schema::hkbFootIkDriver::reset", va: 0x140ab9df0 }
+      - { name: "CB::schema::hkbFootIkDriver::getInternalLegData", va: 0x140ab9ec0 }
       - { name: "??_GhkbFootIkDriver@schema@CB@@UEAAPEAXI@Z", va: 0x140abccb0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/FootIk/hkbFootIkControlsModifier.cpp
+    functions:
+      - { name: "??0hkbFootIkControlsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af01b0 }
+      - { name: "CB::schema::hkbFootIkControlsModifier::cloneNode", va: 0x140af02d0 }
+      - { name: "CB::schema::hkbFootIkControlsModifier::activate", va: 0x140af0340 }
+      - { name: "CB::schema::hkbFootIkControlsModifier::update", va: 0x140af0380 }
+      - { name: "CB::schema::hkbFootIkControlsModifier::modify", va: 0x140af0500 }
+      - { name: "??1hkbFootIkControlsModifier@schema@CB@@UEAA@XZ", va: 0x140ac6980 }
+      - { name: "??_GhkbFootIkControlsModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac92f0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/FootIk/hkbFootIkModifier.cpp
+    functions:
+      - { name: "??0hkbFootIkModifier@schema@CB@@QEAA@XZ", va: 0x140af05e0 }
+      - { name: "??0hkbFootIkModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af0720 }
+      - { name: "??1hkbFootIkModifier@schema@CB@@UEAA@XZ", va: 0x140af0970 }
+      - { name: "CB::schema::hkbFootIkModifier::activate", va: 0x140af0b10 }
+      - { name: "CB::schema::hkbFootIkModifier::update", va: 0x140af0cd0 }
+      - { name: "CB::schema::hkbFootIkModifier::deactivate", va: 0x140af0ee0 }
+      - { name: "CB::schema::hkbFootIkModifier::isValid", va: 0x140af0fa0 }
+      - { name: "CB::schema::hkbFootIkModifier::cloneNode", va: 0x140af1250 }
+      # STRUCTURAL, inlined hkaPose local-space sync differs (see parked.yaml):
+      # - { name: "CB::schema::hkbFootIkModifier::modify", va: 0x140af12a0 }
+      - { name: "CB::schema::hkbFootIkModifier::setup", va: 0x140af2f90 }
+      # STRUCTURAL, dead broadcast shufps in hasValidAxis (see parked.yaml):
+      # - { name: "CB::schema::hkbFootIkModifier::orientHips", va: 0x140af3230 }
+      - { name: "CB::schema::hkbFootIkModifier::alignWorldFromModelUpWithGroundNormal", va: 0x140af3760 }
+      # STRUCTURAL, a dead store vanilla keeps and shared stack slots (see parked.yaml):
+      # - { name: "CB::schema::hkbFootIkModifier::computeGroundNormal", va: 0x140af3a80 }
+      # STRUCTURAL, rules A/E unconfirmable: --diff faults on the stubbed hkMatrixNm (see parked.yaml):
+      # - { name: "CB::schema::hkbFootIkModifier::fitPlane", va: 0x140af4870 }
+      - { name: "CB::schema::hkbFootIkModifier::fitLine", va: 0x140af4f40 }
+      - { name: "CB::schema::hkbFootIkModifier::computeAverage", va: 0x140af51a0 }
+      - { name: "??0Leg@hkbFootIkModifier@schema@CB@@QEAA@AEBU0123@@Z", va: 0x140af5200 }
+      - { name: "??4Leg@hkbFootIkModifier@schema@CB@@QEAAAEAU0123@AEBU0123@@Z", va: 0x140af5320 }
+      - { name: "??_GhkbFootIkModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9440 }
+  - source: ../../../schema/Havok/Behavior/Modifier/FootIk/hkbFootIkControlsModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbFootIkControlsModifierUtils::modify", va: 0x140b0d4c0 }
+      - { name: "CB::schema::hkbFootIkControlsModifierUtils::copyLegs", va: 0x140b0d540 }
   - source: ../../../schema/Havok/Behavior/Driver/FootIk/hkbFootIkDriverInfo.cpp
     functions:
       - { name: "??_GhkbFootIkDriverInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9370 }

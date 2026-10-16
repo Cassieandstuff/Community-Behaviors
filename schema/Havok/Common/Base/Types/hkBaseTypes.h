@@ -18,6 +18,7 @@ extern "C" double __cdecl fabs(double);
 #pragma intrinsic(fabs)
 extern "C" float __cdecl asinf(float);
 extern "C" float __cdecl acosf(float);
+extern "C" float __cdecl cosf(float);
 extern "C" float __cdecl sqrtf(float);
 extern "C" float __cdecl fmodf(float, float);
 #pragma intrinsic(sqrtf)

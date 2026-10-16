@@ -43,4 +43,9 @@ namespace CB { namespace schema
         m_isGroundPositionValid  = false;
         m_real4C                 = 0.0f;
     }
+
+    const hkArray<hkbFootIkDriver::InternalLegData>& hkbFootIkDriver::getInternalLegData() const
+    {
+        return m_internalLegData;
+    }
 } }

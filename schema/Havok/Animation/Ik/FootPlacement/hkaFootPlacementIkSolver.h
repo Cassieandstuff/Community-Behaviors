@@ -7,6 +7,9 @@
 
 namespace CB { namespace schema
 {
+    class hkaPose;
+    class hkaRaycastInterface;
+
     /// @note 0xf0 bytes. The Setup field names follow the Havok SDK; the solver's own members after m_setup are
     ///       provisional (the constructor's stores are all that is confirmed).
     class hkaFootPlacementIkSolver : public hkReferencedObject
@@ -33,6 +36,45 @@ namespace CB { namespace schema
             hkReal             m_raycastDistanceUp;          ///< +0x6c
             hkReal             m_raycastDistanceDown;        ///< +0x70
             hkBool             m_useFootLocking;             ///< +0x74
+
+            /// @brief No skeleton or bones (-1), zero vectors, and the Havok SDK defaults for the heights, knee limits and ray
+            ///        distances.
+            /// @note Out of line in vanilla (0x140a83890).
+            Setup();
+        };
+
+        /// @brief One step's inputs.
+        /// @note 0xa0 bytes. Names follow the Havok SDK except m_hipIkGain (provisional: doFootPlacement passes it to
+        ///       hkaTwoJointsIkSolver as the first joint's gain; hkbFootIkModifier leaves it 0).
+        struct Input
+        {
+            hkQsTransform              m_originalAnkleTransformMS;   ///< +0x00
+            hkQsTransform              m_worldFromModel;             ///< +0x30
+            hkBool                     m_footPlacementOn;            ///< +0x60
+            const hkaRaycastInterface* m_raycastInterface;           ///< +0x68
+            hkReal                     m_onOffGain;                  ///< +0x70
+            hkReal                     m_groundAscendingGain;        ///< +0x74
+            hkReal                     m_groundDescendingGain;       ///< +0x78
+            hkReal                     m_footPlantedGain;            ///< +0x7c
+            hkReal                     m_footRaisedGain;             ///< +0x80
+            hkReal                     m_footUnlockGain;             ///< +0x84
+            hkReal                     m_hipIkGain;                  ///< +0x88
+            hkUint32                   m_collisionFilterInfo;        ///< +0x8c
+            hkBool                     m_useCollisionFilterInfo;     ///< +0x90
+
+            /// @brief Placement on, no raycast interface, the Havok SDK default gains (0.2 on/off, else 1; the hip 0),
+            ///        no collision filter.
+            /// @note Out of line in vanilla (0x140a83910).
+            Input();
+        };
+        /// @brief One step's results.
+        /// @note 0x20 bytes. m_groundNormalWS is provisional (doFootPlacement writes the solver's previous ground normal
+        ///       there).
+        struct Output
+        {
+            hkVector4 m_groundNormalWS;   ///< +0x00
+            hkReal    m_verticalError;    ///< +0x10
+            hkBool    m_hitSomething;     ///< +0x14
         };
 
         Setup     m_setup;                          ///< +0x10
@@ -47,5 +89,10 @@ namespace CB { namespace schema
         hkVector4 m_footUnlockedPositionMS;         ///< +0xe0
 
         hkaFootPlacementIkSolver(const Setup& setup);
+
+        /// @brief Casts for the ground under the leg and bends it (through hkaTwoJointsIkSolver) to place the foot,
+        ///        writing the result into `poseInOut` (model space).
+        /// @note Out of line in vanilla (0x140a83a20).
+        void doFootPlacement(const Input& input, Output& output, hkaPose& poseInOut);
     };
 } }

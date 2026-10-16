@@ -104,5 +104,33 @@ namespace CB { namespace schema
             if (!isFlagOn(boneIdx, F_BONE_MODEL_DIRTY)) return m_modelPose[boneIdx];
             return calculateBoneModelSpace(boneIdx);
         }
+        /// @brief Brings every descendant of `boneIdx` (the bones after it whose parent chain reaches it) into local
+        ///        space and marks it model-dirty, so a change to the bone's local transform carries them along.
+        /// @note Two passes, as the Havok SDK's: F_BONE_INTERNAL_FLAG1 marks the subtree, then is swapped for
+        ///       F_BONE_MODEL_DIRTY. The bone keeps its own mark; setBoneLocalSpace overwrites its flags.
+        HK_FORCE_INLINE void makeAllChildrenLocalSpace(int boneIdx) const
+        {
+            const int numBones = m_skeleton->m_bones.getSize();
+            m_boneFlags[boneIdx] |= F_BONE_INTERNAL_FLAG1;
+            for (int i = boneIdx + 1; i < numBones; i++) {
+                const hkInt16 parentIdx = m_skeleton->m_parentIndices[i];
+                if (parentIdx != -1 && isFlagOn(parentIdx, F_BONE_INTERNAL_FLAG1)) {
+                    getBoneLocalSpace(i);
+                    m_boneFlags[i] |= F_BONE_INTERNAL_FLAG1;
+                    m_modelInSync = false;
+                }
+            }
+            for (int i = boneIdx + 1; i < numBones; i++) {
+                if (isFlagOn(i, F_BONE_INTERNAL_FLAG1)) m_boneFlags[i] = (m_boneFlags[i] & ~F_BONE_INTERNAL_FLAG1) | F_BONE_MODEL_DIRTY;
+            }
+        }
+        /// @brief Sets a bone's local transform; its descendants keep their local transforms (their model ones follow).
+        HK_FORCE_INLINE void setBoneLocalSpace(int boneIdx, const hkQsTransform& boneLocal)
+        {
+            makeAllChildrenLocalSpace(boneIdx);
+            m_localPose[boneIdx] = boneLocal;
+            m_boneFlags[boneIdx] = F_BONE_MODEL_DIRTY;
+            m_modelInSync        = false;
+        }
     };
 } }

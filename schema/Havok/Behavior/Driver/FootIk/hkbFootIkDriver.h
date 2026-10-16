@@ -46,5 +46,7 @@ namespace CB { namespace schema
         /// @brief Runs foot IK on `generatorOutput`'s pose.
         /// @note Name provisional; out of line in vanilla (0x140ab7f30), called by hkbFootIkSceneModifier.
         void doFootIk(const hkbContext& context, hkbGeneratorOutput& generatorOutput);
+        /// @note Out of line in vanilla (0x140ab9ec0); hkbFootIkControlsModifier reads the legs through it.
+        const hkArray<InternalLegData>& getInternalLegData() const;
     };
 } }
