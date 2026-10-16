@@ -26,6 +26,11 @@ namespace CB { namespace schema
     {
     public:
         hkArray<hkbEventRangeData> m_eventData;   ///< +0x10, by increasing upper bound
+
+        HK_FORCE_INLINE hkbEventRangeDataArray() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here (hkbEventRangeDataArray.cpp),
+        ///       it also brings the class's vtable and scalar deleting destructor into that unit.
+        hkbEventRangeDataArray(hkFinishLoadedObjectFlag flag);
     };
 
     class hkbEventsFromRangeModifierInternalState : public hkReferencedObject

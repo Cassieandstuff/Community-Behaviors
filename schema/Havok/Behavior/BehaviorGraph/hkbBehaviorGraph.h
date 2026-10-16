@@ -185,6 +185,10 @@ namespace CB { namespace schema
         /// @brief A unique id for a node cloned at runtime (from the pool, else the next one).
         /// @note Name provisional. Out of line (0x140ab4700); the state machine ids the transition effects it clones.
         hkInt16 getUniqueId();
+        /// @brief The external event id `externalId` maps to under mirroring (m_mirroredExternalIdMap); itself when the graph
+        ///        has no mirroring table.
+        /// @note Name provisional; out of line in vanilla (0x140ab3500).
+        int getMirroredExternalId(int externalId);
         /// @brief Creates the variable value set from the graph data's initial values, if the data declares variables
         ///        and there is no set yet.
         /// @note Name provisional; out of line in vanilla (0x140ab32b0).

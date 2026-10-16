@@ -925,6 +925,7 @@ units:
       - { name: "??1?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ", va: 0x140ab7500 }
       - { name: "??_GhkbBehaviorGraph@schema@CB@@UEAAPEAXI@Z", va: 0x140ab78a0 }
       - { name: "CB::schema::hkbBehaviorGraph::vfn22", va: 0x140ab7d90 }
+      - { name: "CB::schema::hkbBehaviorGraph::getStateListenerClone", va: 0x140ab40c0 }
       - { name: "CB::schema::hkbBehaviorGraph::staticClass", va: 0x140ac2a20 }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriver.cpp
     functions:
@@ -1248,6 +1249,7 @@ units:
     functions:
       - { name: "??1hkbCharacterSetup@schema@CB@@UEAA@XZ", va: 0x140ae5970 }
       - { name: "??_GhkbCharacterSetup@schema@CB@@UEAAPEAXI@Z", va: 0x140ae5d00 }
+      - { name: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper", va: 0x140ae5c10 }
   - source: ../../../schema/Havok/Behavior/Sequence/hkbSequencedData.cpp
     functions:
       - { name: "CB::schema::hkbEventSequencedData::apply", va: 0x140b00a10 }
@@ -1263,3 +1265,16 @@ units:
     functions:
       - { name: "??1hkbSequenceStringData@schema@CB@@UEAA@XZ", va: 0x140ac7090 }
       - { name: "??_GhkbSequenceStringData@schema@CB@@UEAAPEAXI@Z", va: 0x140acaf60 }
+  - source: ../../../schema/Havok/Behavior/Generator/hkbGeneratorSyncInfo.cpp
+    functions:
+      - { name: "CB::schema::hkbGeneratorSyncInfo::mirror", va: 0x140ac2770 }
+  - source: ../../../schema/Havok/Behavior/Modifier/GetUp/hkbGetUpModifier.cpp
+    functions:
+      - { name: "??_GhkbGetUpModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9730 }
+  - source: ../../../schema/Havok/Behavior/Modifier/CharacterController/hkbCharacterControllerModifier.cpp
+    functions:
+      - { name: "??_GhkbCharacterControllerModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7f00 }
+  - source: ../../../schema/Havok/Behavior/Modifier/EventsFromRange/hkbEventRangeDataArray.cpp
+    functions:
+      - { name: "??1hkbEventRangeDataArray@schema@CB@@UEAA@XZ", va: 0x140ac67c0 }
+      - { name: "??_GhkbEventRangeDataArray@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8ea0 }

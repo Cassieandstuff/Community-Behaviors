@@ -6,6 +6,7 @@
 #include <Behavior/Event/hkbEventQueue.h>
 #include <Behavior/Generator/hkbGeneratorOutputUtils.h>
 #include <Behavior/Modifier/hkbModifier.h>
+#include <Behavior/StateMachine/hkbStateListener.h>
 #include <Common/Base/Memory/hkMemory.h>
 #include <Common/Base/Memory/Util/Stats/hkStatisticsCollector.h>
 
@@ -384,6 +385,24 @@ namespace CB { namespace schema
         m_activeNodeTemplateToIndexMap = HK_NULL;
         delete m_activeNodesChildrenIndices;
         m_activeNodesChildrenIndices = HK_NULL;
+    }
+
+    hkbStateListener* hkbBehaviorGraph::getStateListenerClone(hkbStateListener* listener)
+    {
+        hkbStateListener* clone = HK_NULL;
+        if (m_stateListenerTemplateToCloneMap) {
+            clone = static_cast<hkbStateListener*>(m_stateListenerTemplateToCloneMap->getWithDefault(listener, HK_NULL));
+        }
+        if (clone == HK_NULL) {
+            clone = listener->clone();
+            if (clone == HK_NULL) return HK_NULL;
+            if (m_stateListenerTemplateToCloneMap == HK_NULL) {
+                m_stateListenerTemplateToCloneMap = new hkPointerMap<const hkReferencedObject*, hkReferencedObject*>;
+            }
+            m_stateListenerTemplateToCloneMap->insert(listener, clone);
+        }
+        clone->addReference();
+        return clone;
     }
 
     bool hkbBehaviorGraph::vfn22()

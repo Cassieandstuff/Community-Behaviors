@@ -765,3 +765,5 @@ symbols:
   - { name: hkbCharacterSetup_Dtor, kind: func, se: 0, ae: 59478, vr: 0, cpp: "??1hkbCharacterSetup@schema@CB@@UEAA@XZ" }
   - { name: hkbCharacterStringData_Dtor, kind: func, se: 0, ae: 58974, vr: 0, cpp: "??1hkbCharacterStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
   - { name: hkbSequenceStringData_Dtor, kind: func, se: 0, ae: 58988, vr: 0, cpp: "??1hkbSequenceStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraph_GetMirroredExternalId, kind: func, se: 0, ae: 58354, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getMirroredExternalId" }  # name provisional; m_mirroredExternalIdMap[id], or id without a table
+  - { name: hkbEventRangeDataArray_Dtor, kind: func, se: 0, ae: 58978, vr: 0, cpp: "??1hkbEventRangeDataArray@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
