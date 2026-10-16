@@ -26,7 +26,7 @@ namespace CB::core::hooks {
             std::array<std::uint8_t, 5> original{};
             std::array<std::uint8_t, 5> jump{};
             /// @brief Vanilla's bytes past the jump as they stood at install: a later change is someone else's patch.
-            std::uint64_t               tailHash = 0;
+            std::vector<std::uint8_t>   body;
         };
 
         struct State {
@@ -43,6 +43,40 @@ namespace CB::core::hooks {
         std::uint64_t Hash(std::uintptr_t at, std::size_t n)
         {
             return CB::engine::codec::image::Fnv1a64(reinterpret_cast<const std::uint8_t*>(at), n);
+        }
+
+        /// @return the module holding `a` and the offset into it ("OpenAnimationReplacer.dll+0x1234"), or the bare address.
+        std::string ModuleOf(std::uintptr_t a)
+        {
+            HMODULE mod = nullptr;
+            wchar_t path[MAX_PATH]{};
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(a), &mod) &&
+                GetModuleFileNameW(mod, path, MAX_PATH))
+                return std::format("{}+0x{:X}", std::filesystem::path(path).filename().string(), a - reinterpret_cast<std::uintptr_t>(mod));
+            return std::format("0x{:X}", a);
+        }
+
+        /// @return where another plugin's patch sits in `in`'s body and, for a rewritten call/jmp rel32, the module it now
+        ///         reaches (through an SKSE trampoline's `jmp [rip]` stub if that is what it calls).
+        std::string DescribePatch(const Installed& in)
+        {
+            const auto* now = reinterpret_cast<const std::uint8_t*>(in.at + 5);
+            std::size_t k   = 0;
+            while (k < in.body.size() && now[k] == in.body[k]) ++k;
+            if (k == in.body.size()) return "body unchanged";
+            const std::size_t off = 5 + k;
+            for (std::size_t o = off > 9 ? off - 4 : 5; o < off; ++o) {
+                const std::uint8_t op = *reinterpret_cast<const std::uint8_t*>(in.at + o);
+                if (op != 0xE8 && op != 0xE9) continue;
+                std::int32_t disp;
+                std::memcpy(&disp, reinterpret_cast<const void*>(in.at + o + 1), 4);
+                std::uintptr_t dst = in.at + o + 5 + disp;
+                const auto*    stub = reinterpret_cast<const std::uint8_t*>(dst);
+                if (stub[0] == 0xFF && stub[1] == 0x25 && stub[2] == 0 && stub[3] == 0 && stub[4] == 0 && stub[5] == 0)
+                    std::memcpy(&dst, stub + 6, 8);
+                return std::format("{} at +0x{:X} now reaches {}", op == 0xE8 ? "call" : "jmp", o, ModuleOf(dst));
+            }
+            return std::format("first change at +0x{:X}", off);
         }
 
         std::set<std::string, std::less<>> SplitList(std::string_view s)
@@ -106,7 +140,7 @@ namespace CB::core::hooks {
                 in.jump[0]     = 0xE9;
                 const auto r32 = static_cast<std::int32_t>(rel);
                 std::memcpy(in.jump.data() + 1, &r32, 4);
-                in.tailHash = Hash(at + 5, r.vanillaLength - 5);
+                in.body.assign(reinterpret_cast<const std::uint8_t*>(at + 5), reinterpret_cast<const std::uint8_t*>(at + r.vanillaLength));
                 REL::safe_write(at, in.jump.data(), in.jump.size());
                 st.live.push_back(in);
             }
@@ -125,18 +159,18 @@ namespace CB::core::hooks {
         std::size_t restored = 0, wrapped = 0, lost = 0;
         for (const auto& in : st.live) {
             const bool ours = std::memcmp(reinterpret_cast<const void*>(in.at), in.jump.data(), 5) == 0;
-            const bool tail = Hash(in.at + 5, in.length - 5) == in.tailHash;
+            const bool tail = std::memcmp(reinterpret_cast<const void*>(in.at + 5), in.body.data(), in.body.size()) == 0;
             if (ours && tail) continue;
             if (!ours && tail) {
                 ++wrapped;   // an entry detour on top of the jump: it still reaches CB's code
                 continue;
             }
             if (ours) {
-                LOG_WARN("havok runtime: {}'s vanilla body was patched after CB loaded — vanilla (with that patch) runs it", in.name);
+                LOG_WARN("havok runtime: {}'s vanilla body was patched after CB loaded ({}) — vanilla (with that patch) runs it", in.name, DescribePatch(in));
                 REL::safe_write(in.at, in.original.data(), in.original.size());
                 ++restored;
             } else {
-                LOG_WARN("havok runtime: {} was patched at its entry and in its body after CB loaded — left as is", in.name);
+                LOG_WARN("havok runtime: {} was patched at its entry and in its body after CB loaded ({}) — left as is", in.name, DescribePatch(in));
                 ++lost;
             }
         }
