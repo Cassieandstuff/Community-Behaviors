@@ -6,6 +6,8 @@
 
 namespace CB { namespace schema
 {
+    struct hkbContext;
+
     /// @note Names provisional (struct and methods): three out-of-line functions compiled together (0x140b04070,
     ///       0x140b04440, 0x140b045b0) that take a handle first; hkbEvaluateHandleModifier and a scene modifier call them.
     struct hkbHandleUtils
@@ -20,5 +22,11 @@ namespace CB { namespace schema
         static void getExtrapolatedWorldFromHandle(const hkbHandle& handle, hkTransform& worldFromHandle, hkReal timeStep);
         /// @brief Whether both handles name the same target (frame, body, character and bone).
         static bool areEqual(const hkbHandle& a, const hkbHandle& b);
+        /// @brief Points `handleOut` at the first local frame named `localFrameName` near one of the character's
+        ///        skeleton local frames (an hkbClosestLocalFrameCollector query over each); cleared when none is found.
+        /// @return Whether one was found.
+        /// @note Name provisional; out of line in vanilla (0x140b04790), beside the three above. hkbHandIkModifier::activate
+        ///       and the hand IK driver call it.
+        static bool getHandleFromLocalFrameName(const hkbContext& context, const char* localFrameName, hkbHandle& handleOut);
     };
 } }

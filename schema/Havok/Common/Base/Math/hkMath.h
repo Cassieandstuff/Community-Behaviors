@@ -282,6 +282,18 @@ namespace CB { namespace schema
             m_vec.setXYZ_W(vec, hkVector4(_mm_shuffle_ps(w, w, _MM_SHUFFLE(0, 0, 0, 0))));
         }
 
+        /// @brief q0⁻¹ · q1: the rotation taking q0 to q1, in q0's frame.
+        /// @note w is the four-lane dot product, re-broadcast (as setMulInverse's).
+        HK_FORCE_INLINE void setInverseMul(const hkQuaternion& q0, const hkQuaternion& q1)
+        {
+            hkVector4 vec;
+            vec.setCross(q1.m_vec, q0.m_vec);
+            vec.addMul4(hkSimdReal(q0.getReal()), q1.m_vec);
+            vec.subMul4(hkSimdReal(q1.getReal()), q0.m_vec);
+            const hkQuadReal w = q0.m_vec.dot4(q1.m_vec).m_real;
+            m_vec.setXYZ_W(vec, hkVector4(_mm_shuffle_ps(w, w, _MM_SHUFFLE(0, 0, 0, 0))));
+        }
+
         /// @brief The rotation angle in radians, in [0, 2pi].
         HK_FORCE_INLINE hkReal getAngle() const;
         /// @brief Whether the axis is long enough to normalize (|xyz| > HK_REAL_EPSILON).

@@ -1515,6 +1515,32 @@ units:
     functions:
       - { name: "CB::schema::hkbHandIkFixupSceneModifier::modify", va: 0x140ae4bd0 }
       - { name: "??_GhkbHandIkFixupSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1410 }
+  - source: ../../../schema/Havok/Behavior/Modifier/HandIkControls/hkbHandIkControlsModifier.cpp
+    functions:
+      - { name: "??0hkbHandIkControlsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af64c0 }
+      - { name: "CB::schema::hkbHandIkControlsModifier::deactivate", va: 0x140af6c60 }
+      - { name: "CB::schema::hkbHandIkControlsModifier::isValid", va: 0x140af6cd0 }
+      - { name: "CB::schema::hkbHandIkControlsModifier::cloneNode", va: 0x140af6e20 }
+      - { name: "CB::schema::hkbHandIkControlsModifier::modify", va: 0x140af6e90 }
+      - { name: "??_GhkbHandIkControlsModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac98e0 }
+  - source: ../../../schema/Havok/Behavior/Modifier/HandIkControls/hkbHandIkControlsModifierUtils.cpp
+    functions:
+      - { name: "CB::schema::hkbHandIkControlsModifierUtils::modify", va: 0x140b0d900 }
+  - source: ../../../schema/Havok/Behavior/Modifier/HandIk/hkbHandIkModifier.cpp
+    functions:
+      - { name: "??0hkbHandIkModifier@schema@CB@@QEAA@XZ", va: 0x140af6ea0 }
+      - { name: "??0hkbHandIkModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af6f30 }
+      - { name: "CB::schema::hkbHandIkModifier::calcContentStatistics", va: 0x140af8250 }
+      - { name: "CB::schema::hkbHandIkModifier::activate", va: 0x140af71b0 }
+      - { name: "CB::schema::hkbHandIkModifier::update", va: 0x140af7350 }
+      - { name: "CB::schema::hkbHandIkModifier::isValid", va: 0x140af7460 }
+      - { name: "CB::schema::hkbHandIkModifier::cloneNode", va: 0x140af76e0 }
+      # STRUCTURAL, 24247 CSEs the control track's header into the track-offset induction variable, which then takes elbowIndex's register (see parked.yaml):
+      # - { name: "CB::schema::hkbHandIkModifier::modify", va: 0x140af7730 }
+      # STRUCTURAL, vanilla keeps a dead broadcast shufps before the sqrtss of length3 (see parked.yaml):
+      # - { name: "CB::schema::hkbHandIkModifier::alignHandNormal", va: 0x140af8c30 }
+      - { name: "??1hkbHandIkModifier@schema@CB@@UEAA@XZ", va: 0x140ac6af0 }
+      - { name: "??_GhkbHandIkModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9a30 }
   - source: ../../../schema/Havok/Behavior/Utils/hkbDefaultRaycastInterface.cpp
     functions:
       - { name: "??0hkbDefaultRaycastInterface@schema@CB@@QEAA@PEAVhkpWorld@12@@Z", va: 0x140b10280 }

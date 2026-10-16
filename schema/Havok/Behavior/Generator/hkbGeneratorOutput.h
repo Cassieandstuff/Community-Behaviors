@@ -25,7 +25,13 @@ namespace CB { namespace schema
             /// @brief One float per attribute id (the character's root graph's ids), written by hkbAttributeModifier.
             /// @note The index is vanilla's (hkbAttributeModifierUtils::modify tests `numTracks > 10`); later Havok SDKs
             ///       number the attribute track 11.
-            TRACK_ATTRIBUTES                            = 10
+            TRACK_ATTRIBUTES                            = 10,
+            /// @brief One hkbHandIkControlData per hand (four hands): the blendable hand IK controls.
+            /// @note 13-16 and 17-20 are vanilla's (hkbHandIkControlsModifier writes both families at track + hand index);
+            ///       21 tracks in all, the count hkbPoseMatchingGenerator asks for.
+            TRACK_HAND_IK_CONTROLS_0                    = 13,
+            /// @brief The same controls again, copied rather than blended.
+            TRACK_HAND_IK_CONTROLS_NON_BLENDABLE_0      = 17
         };
         /// @note PALETTE and SPARSE per the Havok SDK (activate of hkbPoseMatchingGenerator empties those tracks).
         enum TrackFlags { TRACK_FLAG_ADDITIVE_POSE = 1, TRACK_FLAG_PALETTE = 2, TRACK_FLAG_SPARSE = 4 };

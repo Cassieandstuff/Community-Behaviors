@@ -70,6 +70,9 @@ namespace CB { namespace schema
         hkArray<hkQsTransform>& accessUnsyncedPoseLocalSpace();
         /// @brief The local pose, every dirty bone recomputed from model space first.
         const hkArray<hkQsTransform>& getSyncedPoseLocalSpace() const;
+        /// @brief The local pose for writing, synced first; every bone's model transform is marked dirty.
+        /// @note Out of line in vanilla (0x140a85ca0).
+        hkArray<hkQsTransform>& accessSyncedPoseLocalSpace();
         /// @brief A bone's model transform for writing; with PROPAGATE its descendants keep their model transforms.
         hkQsTransform& accessBoneModelSpace(int boneIdx, PropagateOrNot propagateOrNot = DONT_PROPAGATE);
         /// @brief Recomputes a dirty bone's model transform (up its parent chain) and returns it.

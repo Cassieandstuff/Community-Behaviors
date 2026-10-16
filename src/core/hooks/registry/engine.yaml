@@ -761,6 +761,17 @@ symbols:
   - { name: hkbAttributeModifier_Vtable, kind: data, se: 0, ae: 226350, vr: 0, cpp: "CB::schema::hkbAttributeModifier::`vftable'" }
   - { name: hkbAttributeModifier_CloneCtor, kind: func, se: 0, ae: 59602, vr: 0, cpp: "??0hkbAttributeModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbAttributeModifierUtils_Modify, kind: func, se: 0, ae: 60050, vr: 0, cpp: "CB::schema::hkbAttributeModifierUtils::modify" }  # name provisional; (modifier, inOut, behavior attributeIdMap, root attributeIdMap); modify tail-jumps to it
+  - { name: hkbHandIkControlsModifier_Vtable, kind: data, se: 0, ae: 226519, vr: 0, cpp: "CB::schema::hkbHandIkControlsModifier::`vftable'" }
+  - { name: hkbHandIkControlsModifier_CloneCtor, kind: func, se: 0, ae: 59777, vr: 0, cpp: "??0hkbHandIkControlsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbHandIkControlsModifierUtils_Modify, kind: func, se: 0, ae: 60066, vr: 0, cpp: "CB::schema::hkbHandIkControlsModifierUtils::modify" }  # name provisional; (modifier, inOut) copies each enabled hand's controls into its two hand IK tracks; modify tail-jumps to it
+  - { name: hkbHandIkModifier_Vtable, kind: data, se: 0, ae: 226525, vr: 0, cpp: "CB::schema::hkbHandIkModifier::`vftable'" }
+  - { name: hkbHandIkModifier_StaticClass, kind: data, se: 0, ae: 408068, vr: 0, cpp: "CB::schema::hkbHandIkModifierClass" }  # hkClass object
+  - { name: hkbHandIkModifier_CloneCtor, kind: func, se: 0, ae: 59783, vr: 0, cpp: "??0hkbHandIkModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbHandIkModifier_Dtor, kind: func, se: 0, ae: 58983, vr: 0, cpp: "CB::schema::hkbHandIkModifier::~hkbHandIkModifier" }  # out-of-line copy of the implicit destructor; the scalar deleting destructor calls it
+  - { name: hkbHandIkModifier_SolveArm, kind: func, se: 0, ae: 59790, vr: 0, cpp: "CB::schema::hkbHandIkModifier::solveArm" }  # name provisional; (hand, three gains, targetPositionMS, targetRotationMS, pose) builds a two-joint IK setup and solves it
+  - { name: hkbHandIkModifier_AlignHandNormal, kind: func, se: 0, ae: 59792, vr: 0, cpp: "CB::schema::hkbHandIkModifier::alignHandNormal" }  # name provisional; (hand, fraction, targetNormalMS, worldFromModel (unused), pose) turns the wrist's back-hand normal toward the target
+  - { name: hkbHandleUtils_GetHandleFromLocalFrameName, kind: func, se: 0, ae: 60015, vr: 0, cpp: "CB::schema::hkbHandleUtils::getHandleFromLocalFrameName" }  # name provisional; (context, localFrameName, handleOut) -> found; hand IK modifier activate and the hand IK driver call it
+  - { name: hkaPose_AccessSyncedPoseLocalSpace, kind: func, se: 0, ae: 56990, vr: 0, cpp: "CB::schema::hkaPose::accessSyncedPoseLocalSpace" }
   - { name: hkbAttachmentSetup_Vtable, kind: data, se: 0, ae: 226126, vr: 0, cpp: "CB::schema::hkbAttachmentSetup::`vftable'" }
   - { name: hkbAttachmentSceneModifier_Vtable, kind: data, se: 0, ae: 226860, vr: 0, cpp: "CB::schema::hkbAttachmentSceneModifier::`vftable'" }
   - { name: hkbAttachmentFixupSceneModifier_Vtable, kind: data, se: 0, ae: 226862, vr: 0, cpp: "CB::schema::hkbAttachmentFixupSceneModifier::`vftable'" }
