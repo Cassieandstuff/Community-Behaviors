@@ -23,7 +23,7 @@ namespace CB { namespace schema
                        m_skeleton->m_referenceFloats.begin(), poseBufferA, poseBufferB, floatBufferA, floatBufferB, time, additive, weightThreshold);
     }
 
-    void hkaQuantizedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const
+    void hkaQuantizedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, hkaChunkCache* cache) const
     {
         const hkaQuantizedAnimationHeader* header       = reinterpret_cast<const hkaQuantizedAnimationHeader*>(m_data.begin());
         const hkUint32                     numBones     = header->m_numBones;
@@ -51,7 +51,7 @@ namespace CB { namespace schema
     }
 
     void hkaQuantizedAnimation::samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut,
-                                                    hkUint32 maxNumFloatTracks, hkReal* floatTracksOut, void* cache) const
+                                                    hkUint32 maxNumFloatTracks, hkReal* floatTracksOut, hkaChunkCache* cache) const
     {
         const hkaQuantizedAnimationHeader* header       = reinterpret_cast<const hkaQuantizedAnimationHeader*>(m_data.begin());
         const hkUint32                     numBones     = header->m_numBones;

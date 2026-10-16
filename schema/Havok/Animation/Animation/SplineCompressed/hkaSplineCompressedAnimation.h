@@ -53,9 +53,9 @@ namespace CB { namespace schema
         /// @note User-declared, as vanilla's re-stamps the vtable (0x140c32e30).
         virtual ~hkaSplineCompressedAnimation();   ///< slot 0
 
-        virtual void sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const;   ///< slot 3
+        virtual void sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, hkaChunkCache* cache) const;   ///< slot 3
         virtual void samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut, hkUint32 maxNumFloatTracks,
-                                         hkReal* floatTracksOut, void* cache) const;   ///< slot 4
+                                         hkReal* floatTracksOut, hkaChunkCache* cache) const;   ///< slot 4
         /// @note A track outside [0, m_numberOfTransformTracks) gets an all-zero transform.
         virtual void sampleIndividualTransformTracks(hkReal time, const hkInt16* tracks, hkUint32 numTracks,
                                                      hkQsTransform* transformOut) const;   ///< slot 6

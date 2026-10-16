@@ -18,10 +18,10 @@ namespace CB { namespace schema
         :   hkaAnimation(flag), m_transforms(flag), m_floats(flag) {}
         hkaInterleavedUncompressedAnimation(const hkaInterleavedUncompressedAnimation& other);
 
-        virtual void sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const;   ///< slot 3
+        virtual void sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, hkaChunkCache* cache) const;   ///< slot 3
         /// @note At or past the duration it copies the last frame (no interpolation).
         virtual void samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut, hkUint32 maxNumFloatTracks,
-                                         hkReal* floatTracksOut, void* cache) const;   ///< slot 4
+                                         hkReal* floatTracksOut, hkaChunkCache* cache) const;   ///< slot 4
         /// @note A track outside [0, m_numberOfTransformTracks) leaves its output untouched.
         virtual void sampleIndividualTransformTracks(hkReal time, const hkInt16* tracks, hkUint32 numTracks,
                                                      hkQsTransform* transformOut) const;   ///< slot 6

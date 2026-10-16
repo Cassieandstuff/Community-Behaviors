@@ -4,13 +4,13 @@
 
 namespace CB { namespace schema
 {
-    void hkaSplineCompressedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const
+    void hkaSplineCompressedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, hkaChunkCache* cache) const
     {
         samplePartialTracks(time, m_numberOfTransformTracks, transformTracksOut, m_numberOfFloatTracks, floatTracksOut, cache);
     }
 
     void hkaSplineCompressedAnimation::samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut,
-                                                           hkUint32 maxNumFloatTracks, hkReal* floatTracksOut, void* cache) const
+                                                           hkUint32 maxNumFloatTracks, hkReal* floatTracksOut, hkaChunkCache* cache) const
     {
         HK_TIMER_BEGIN("SampleSpline");
 

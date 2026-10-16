@@ -52,10 +52,10 @@ namespace CB { namespace schema
         virtual ~hkaQuantizedAnimation();   ///< slot 0
 
         /// @brief Samples the whole pose, then writes out only the tracks with a positive weight, packed.
-        virtual void sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const;   ///< slot 3
+        virtual void sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, hkaChunkCache* cache) const;   ///< slot 3
         /// @brief sampleTracks, stopping after `maxNumTransformTracks` / `maxNumFloatTracks` written tracks.
         virtual void samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut, hkUint32 maxNumFloatTracks,
-                                         hkReal* floatTracksOut, void* cache) const;   ///< slot 4
+                                         hkReal* floatTracksOut, hkaChunkCache* cache) const;   ///< slot 4
         /// @note Unsupported: does nothing.
         virtual void sampleIndividualTransformTracks(hkReal time, const hkInt16* tracks, hkUint32 numTracks,
                                                      hkQsTransform* transformOut) const;   ///< slot 6

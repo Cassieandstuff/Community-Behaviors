@@ -318,7 +318,6 @@ symbols:
   - { name: hkaMirroredSkeleton_MirrorBone, kind: func, se: 0, ae: 64362, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorBone" }  # name provisional; (transform&, bone, isAdditive) mirrors one bone in place
   # Havok animation samplers (Interleaved / Quantized / SplineCompressed) and the hkaAnimation members they call
   - { name: hkaAnimation_CopyCtor, kind: func, se: 0, ae: 65505, vr: 0, cpp: "??0hkaAnimation@schema@CB@@QEAA@AEBU012@@Z" }  # every sampler copy constructor calls it
-  - { name: hkaAnimation_Dtor, kind: func, se: 0, ae: 64318, vr: 0, cpp: "CB::schema::hkaAnimation::~hkaAnimation" }  # out of line; the samplers' destructors end in it
   - { name: hkaInterleavedUncompressedAnimation_Dtor, kind: func, se: 0, ae: 64321, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::~hkaInterleavedUncompressedAnimation" }  # the scalar deleting destructor (slot 0) calls it
   - { name: hkaInterleavedUncompressedAnimation_SamplePartialWithDataChunks, kind: func, se: 0, ae: 65517, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks" }  # samplePartialTracks calls it
   - { name: hkaQuantizedAnimation_Dtor, kind: func, se: 0, ae: 64419, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::~hkaQuantizedAnimation" }  # the scalar deleting destructor (slot 0) calls it
@@ -516,9 +515,6 @@ symbols:
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
   - { name: hkbModifier_Vtable, kind: data, se: 278385, ae: 226321, vr: 0, cpp: "CB::schema::hkbModifier::`vftable'" }
   - { name: hkbHandle_Vtable, kind: data, se: 278245, ae: 226152, vr: 0, cpp: "CB::schema::hkbHandle::`vftable'" }
-  - { name: hkaInterleavedUncompressedAnimation_Vtable, kind: data, se: 0, ae: 233268, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::`vftable'" }
-  - { name: hkaQuantizedAnimation_Vtable, kind: data, se: 0, ae: 233272, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::`vftable'" }
-  - { name: hkaSplineCompressedAnimation_Vtable, kind: data, se: 0, ae: 233278, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::`vftable'" }
   - { name: hkbSenseHandleModifier_Vtable, kind: data, se: 278615, ae: 226606, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::`vftable'" }
   - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
   - { name: hkbTwistModifier_Vtable, kind: data, se: 278639, ae: 226636, vr: 0, cpp: "CB::schema::hkbTwistModifier::`vftable'" }

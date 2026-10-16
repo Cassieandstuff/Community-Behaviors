@@ -11,13 +11,13 @@ namespace CB { namespace schema
         m_floats     = other.m_floats;
     }
 
-    void hkaInterleavedUncompressedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const
+    void hkaInterleavedUncompressedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, hkaChunkCache* cache) const
     {
         samplePartialTracks(time, m_numberOfTransformTracks, transformTracksOut, m_numberOfFloatTracks, floatTracksOut, cache);
     }
 
     void hkaInterleavedUncompressedAnimation::samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut,
-                                                                  hkUint32 maxNumFloatTracks, hkReal* floatTracksOut, void* cache) const
+                                                                  hkUint32 maxNumFloatTracks, hkReal* floatTracksOut, hkaChunkCache* cache) const
     {
         HK_TIMER_BEGIN("samplePose");
 
