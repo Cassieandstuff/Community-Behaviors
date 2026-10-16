@@ -65,6 +65,7 @@ namespace CB { namespace schema
             return reinterpret_cast<Iterator>(hkLong(i));
         }
         HK_FORCE_INLINE bool    isValid(Iterator it) const { return int(hkLong(it)) <= m_hashMod; }
+        HK_FORCE_INLINE hkUlong getKey(Iterator it) const { return static_cast<const Pair*>(m_elem)[int(hkLong(it))].m_key; }
         HK_FORCE_INLINE hkUlong getValue(Iterator it) const { return static_cast<const Pair*>(m_elem)[int(hkLong(it))].m_value; }
         /// @brief Where `key` is (an invalid iterator when absent).
         Iterator findKey(hkUlong key) const;
@@ -95,6 +96,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE Iterator getIterator() const { return m_map.getIterator(); }
         HK_FORCE_INLINE Iterator getNext(Iterator it) const { return m_map.getNext(it); }
         HK_FORCE_INLINE bool     isValid(Iterator it) const { return m_map.isValid(it); }
+        HK_FORCE_INLINE K        getKey(Iterator it) const { return K(m_map.getKey(it)); }
         HK_FORCE_INLINE V        getValue(Iterator it) const { return V(m_map.getValue(it)); }
         HK_FORCE_INLINE Iterator findKey(K key) const { return m_map.findKey(hkUlong(key)); }
         HK_FORCE_INLINE void     remove(Iterator it) { m_map.remove(it); }

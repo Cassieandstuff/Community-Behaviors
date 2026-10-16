@@ -3,8 +3,11 @@
 #pragma once
 
 #include <Animation/Animation/hkaAnimationBinding.h>
+#include <Animation/Ik/FootPlacement/hkaRaycastInterface.h>
 #include <Animation/Mapper/hkaSkeletonMapper.h>
 #include <Animation/Rig/hkaSkeleton.h>
+#include <Behavior/Driver/FootIk/hkbFootIkDriverInfo.h>
+#include <Behavior/Driver/HandIk/hkbHandIkDriverInfo.h>
 #include <Behavior/Event/hkbEvent.h>
 #include <Behavior/Project/hkbProjectData.h>
 #include <Behavior/Variables/hkbVariableInfo.h>
@@ -24,17 +27,6 @@ namespace CB { namespace schema
     struct hkbEventQueue;
     struct hkbWorld;
     class hkaRagdollInstance;
-
-    /// @brief Casts the rays behavior nodes ask for (the game implements it).
-    /// @note Only the slot vanilla's callers use is declared; slot 0 is the destructor.
-    class hkbRaycastInterface
-    {
-    public:
-        virtual ~hkbRaycastInterface();
-        /// @brief Whether the ray from `from` to `to` hits; the hit's fraction along it and its normal.
-        virtual hkBool castRay(const hkVector4& from, const hkVector4& to, hkUint32 collisionFilterInfo, hkReal& hitFractionOut,
-                               hkVector4& normalWSOut) = 0;   ///< slot 1
-    };
 
     class hkbAnimationBindingWithTriggers : public hkReferencedObject
     {
@@ -94,10 +86,6 @@ namespace CB { namespace schema
         hkbCharacterStringData(hkFinishLoadedObjectFlag flag);
     };
 
-    /// @note Held by the character data only; not declared further.
-    class hkbFootIkDriverInfo : public hkReferencedObject {};
-    /// @note Held by the character data only; not declared further.
-    class hkbHandIkDriverInfo : public hkReferencedObject {};
     /// @note Held by the character data only; not declared further.
     class hkbMirroredSkeletonInfo : public hkReferencedObject {};
 
@@ -192,7 +180,7 @@ namespace CB { namespace schema
         hkRefPtr<hkbBehaviorGraph>             m_behaviorGraph;               ///< +0x58
         hkRefPtr<hkbProjectData>               m_projectData;                 ///< +0x60
         hkRefPtr<hkbAnimationBindingSet>       m_animationBindingSet;         ///< +0x68
-        hkbRaycastInterface*                   m_raycastInterface;            ///< +0x70
+        hkaRaycastInterface*                   m_raycastInterface;            ///< +0x70
         hkbWorld*                              m_world;                       ///< +0x78
         hkbEventQueue*                         m_eventQueue;                  ///< +0x80
         hkQsTransform*                         m_worldFromModel;              ///< +0x88
@@ -239,7 +227,7 @@ namespace CB { namespace schema
         void setPoseLocal(hkQsTransform* poseLocal, bool deletePoseLocal);
         /// @brief The character's own raycast interface, else its world's.
         /// @note Out of line in vanilla (0x140abdba0).
-        hkbRaycastInterface* getRaycastInterface() const;
+        hkaRaycastInterface* getRaycastInterface() const;
         /// @brief Swaps the behavior graph, then tells every world listener (handing it the old graph).
         void setBehavior(hkbBehaviorGraph* behavior);
         /// @brief Points m_poseLocal at `numPoseLocal` transforms; ownership (m_deletePoseLocal) is left as it is.

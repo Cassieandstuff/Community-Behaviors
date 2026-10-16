@@ -1,5 +1,5 @@
 /// @file
-/// @brief hkbRagdollDriver: only what the behavior nodes and hkbCharacter call.
+/// @brief hkbRagdollDriver: drives a character's ragdoll toward its animated pose and feeds the simulated pose back.
 #pragma once
 
 #include <Common/Base/hkBase.h>
@@ -8,37 +8,69 @@ namespace CB { namespace schema
 {
     class hkaRagdollInstance;
     class hkpRigidBody;
+    struct hkbCharacter;
+    struct hkbContext;
+    struct hkbGeneratorOutput;
 
-    /// @note Member names below +0x88 and the reset state are provisional (read off reset() and setRagdoll()).
+    /// @brief How the ragdoll's world-from-model is found (reflected; 8 bytes).
+    struct hkbWorldFromModelModeData
+    {
+        hkInt16 m_poseMatchingBone0;   ///< +0x0
+        hkInt16 m_poseMatchingBone1;   ///< +0x2
+        hkInt16 m_poseMatchingBone2;   ///< +0x4
+        hkInt8  m_mode;                ///< +0x6
+    };
+
+    /// @note 0xd0 bytes. Member names are provisional except m_attachedRigidBodyToIndexMap and m_ragdoll (read off the
+    ///       constructor, the destructor, reset(), setRagdoll() and the scene modifier's calls).
     class hkbRagdollDriver : public hkReferencedObject
     {
     public:
-        /// @note Copied into m_mode by reset().
-        hkInt32             m_defaultMode;                  ///< +0x10
-        char                m_pad14[0x20 - 0x14];
+        /// @note Copied into m_mode by the constructor and reset(); postPhysics compares the two as floats (a duration
+        ///       and its elapsed part, presumably), so the names and the integer type are open.
+        hkInt32                   m_defaultMode;                     ///< +0x10
+        /// @note Starts as bones -1, mode 0.
+        hkbWorldFromModelModeData m_worldFromModelModeData;          ///< +0x14
+        /// @brief When set, setRagdoll takes the outgoing ragdoll out of its physics world.
+        hkBool                    m_removeRagdollFromWorld;          ///< +0x1c
+        hkBool                    m_flag1D;                          ///< +0x1d
         /// @note Reset to identity by reset().
-        hkQsTransform       m_lastWorldFromModel;           ///< +0x20
-        char                m_pad50[0x70 - 0x50];
+        hkQsTransform             m_lastWorldFromModel;              ///< +0x20
+        /// @note A copy of m_worldFromModelModeData at construction.
+        hkbWorldFromModelModeData m_worldFromModelModeDataInUse;     ///< +0x50
+        /// @note Sized to the ragdoll's bone count and zeroed by setRagdoll.
+        hkArray<hkUint32>         m_boneWords;                       ///< +0x58
+        hkInt32                   m_int68;                           ///< +0x68
         /// @brief Rigid bodies attached to the ragdoll (hkbAttachmentModifier adds the attachee's body).
         /// @note Name per the Havok SDK; the value stored is 1.
         hkPointerMap<hkpRigidBody*, int> m_attachedRigidBodyToIndexMap;   ///< +0x70
-        char                m_pad80[0x88 - 0x80];
-        hkaRagdollInstance* m_ragdoll;                      ///< +0x88
-        char                m_pad90[0xa0 - 0x90];
+        hkbCharacter*             m_character;                       ///< +0x80
+        hkaRagdollInstance*       m_ragdoll;                         ///< +0x88
+        /// @brief An hkMemoryRouter::easyAlloc block freeRagdollPoseWS frees.
+        void*                     m_ragdollPoseWS;                   ///< +0x90
+        /// @brief A heap block of 0x70 bytes setRagdoll destroys with the old ragdoll.
+        void*                     m_ragdollController;               ///< +0x98
         /// @brief An hkMemoryRouter::easyAlloc block reset() frees.
-        void*               m_scratch;                      ///< +0xa0
+        void*                     m_scratch;                         ///< +0xa0
         /// @brief A heap block of m_numLastPoseLocal transforms reset() frees.
-        hkQsTransform*      m_lastPoseLocal;                ///< +0xa8
-        hkInt32             m_numLastPoseLocal;             ///< +0xb0
-        hkReal              m_timeRigidBodyControllerActive;   ///< +0xb4
-        hkReal              m_timePoweredControllerActive;     ///< +0xb8
-        hkInt32             m_counter;                      ///< +0xbc
-        hkInt32             m_mode;                         ///< +0xc0
+        hkQsTransform*            m_lastPoseLocal;                   ///< +0xa8
+        hkInt32                   m_numLastPoseLocal;                ///< +0xb0
+        hkReal                    m_timeRigidBodyControllerActive;   ///< +0xb4
+        hkReal                    m_timePoweredControllerActive;     ///< +0xb8
+        hkInt32                   m_counter;                         ///< +0xbc
+        hkInt32                   m_mode;                            ///< +0xc0
         /// @note Raised by setRagdoll and reset.
-        hkBool              m_ragdollChanged;               ///< +0xc4
-        hkBool              m_flagC5;                       ///< +0xc5
-        char                m_padC6[0xc7 - 0xc6];
-        hkBool              m_flagsC7[4];                   ///< +0xc7
+        hkBool                    m_ragdollChanged;                  ///< +0xc4
+        hkBool                    m_flagC5;                          ///< +0xc5
+        /// @note Raised by the constructor; postPhysics does nothing while it is clear.
+        hkBool                    m_enabled;                         ///< +0xc6
+        hkBool                    m_flagsC7[4];                      ///< +0xc7
+        hkBool                    m_flagCB;                          ///< +0xcb
+
+        /// @note The Havok SDK's parameter order; the second's name is provisional.
+        hkbRagdollDriver(hkbCharacter* character, bool removeRagdollFromWorld);
+        /// @brief Lets the ragdoll go, then frees the pose buffers.
+        ~hkbRagdollDriver();
 
         /// @note Out of line in vanilla (returns +0x88).
         hkaRagdollInstance* getRagdoll() const;
@@ -50,6 +82,12 @@ namespace CB { namespace schema
         /// @brief Frees the easyAlloc block at +0x90.
         /// @note Name provisional; out of line in vanilla (0x140aaff00).
         void freeRagdollPoseWS();
+        /// @brief Drives the ragdoll toward the generated pose, before the physics step.
+        /// @note Name per the Havok SDK; out of line in vanilla (0x140aacbe0), called by hkbRagdollSceneModifier.
+        void driveToPose(hkReal timestep, const hkbContext& context, hkbGeneratorOutput& generatorOutput);
+        /// @brief Feeds the simulated ragdoll back into the generated pose, after the physics step.
+        /// @note Name per the Havok SDK; out of line in vanilla (0x140aae7b0), called by hkbRagdollSceneModifier.
+        void postPhysics(const hkbContext& context, hkbGeneratorOutput& inOut);
         /// @brief Registers `rigidBody` as attached, when it is one of the ragdoll's bodies.
         /// @note Name per the Havok SDK.
         void addAttachedRigidBody(hkpRigidBody* rigidBody);

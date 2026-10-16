@@ -7,7 +7,7 @@
 namespace CB { namespace schema
 {
     class hkbBehaviorGraph;
-    class hkbRaycastInterface;
+    class hkaRaycastInterface;
     class hkpWorld;
     struct hkbCharacter;
 
@@ -35,7 +35,7 @@ namespace CB { namespace schema
         void*                    m_attachmentManager;      ///< +0x130
         hkpWorld*                m_physicsWorld;           ///< +0x138
         char                     m_pad140[0x148 - 0x140];
-        hkbRaycastInterface*     m_raycastInterface;       ///< +0x148
+        hkaRaycastInterface*     m_raycastInterface;       ///< +0x148
 
         /// @note Out of line in vanilla (0x140abf4c0).
         const hkArray<hkbWorldListener*>& getListeners();

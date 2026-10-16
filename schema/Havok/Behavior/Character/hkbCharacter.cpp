@@ -140,7 +140,7 @@ namespace CB { namespace schema
         m_deletePoseLocal = deletePoseLocal;
     }
 
-    hkbRaycastInterface* hkbCharacter::getRaycastInterface() const
+    hkaRaycastInterface* hkbCharacter::getRaycastInterface() const
     {
         if (m_raycastInterface == HK_NULL && m_world) return m_world->m_raycastInterface;
         return m_raycastInterface;

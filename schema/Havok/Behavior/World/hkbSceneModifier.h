@@ -7,14 +7,35 @@
 namespace CB { namespace schema
 {
     struct hkbCharacter;
+    struct hkbContext;
+    struct hkbGeneratorOutput;
 
     /// @brief The characters a scene pass sees.
-    /// @note Only what the reimplemented code reads: the character map (16-byte pairs, the value not identified) and a
-    ///       flag the ragdoll scene modifier tests at +0x10. Names provisional.
+    /// @note Names provisional.
     struct hkbSceneCharacters
     {
-        hkPointerMap<hkbCharacter*, void*> m_characters;   ///< +0x00
-        hkBool                             m_flag10;       ///< +0x10
+        /// @brief What a scene pass hands a character's drivers: the character's output this frame and its context.
+        struct CharacterInfo
+        {
+            hkbGeneratorOutput* m_generatorOutput;   ///< +0x00
+            const hkbContext*   m_context;           ///< +0x08
+        };
+
+        hkPointerMap<hkbCharacter*, CharacterInfo*> m_characters;            ///< +0x00
+        /// @brief Raised by the character controller pass once it has stepped the physics world, so the ragdoll pass
+        ///        does not step it a second time.
+        hkBool                                      m_physicsWorldStepped;   ///< +0x10
+    };
+
+    class hkpWorld;
+
+    /// @brief Steps a physics world in place of hkpWorld::stepDeltaTime, for the scene passes that step physics
+    ///        (ragdoll, character controller).
+    /// @note Name and slot name provisional: an interface with no RTTI in the exe, called through slot 0.
+    class hkbPhysicsWorldStepper
+    {
+    public:
+        virtual void stepPhysicsWorld(hkpWorld* world, hkReal timestep) = 0;   ///< slot 0
     };
 
     /// @note hkbWorld's constructor builds its scene modifiers (attachment, ragdoll, character controller, foot/hand IK and

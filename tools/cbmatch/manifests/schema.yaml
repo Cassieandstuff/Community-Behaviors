@@ -929,7 +929,10 @@ units:
       - { name: "CB::schema::hkbBehaviorGraph::staticClass", va: 0x140ac2a20 }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriver.cpp
     functions:
+      - { name: "??0hkbHandIkDriver@schema@CB@@QEAA@XZ", va: 0x140adf7c0 }
       - { name: "CB::schema::hkbHandIkDriver::reset", va: 0x140ae0830 }
+      - { name: "??1hkbHandIkDriver@schema@CB@@UEAA@XZ", va: 0x140ae19d0 }
+      - { name: "??_GhkbHandIkDriver@schema@CB@@UEAAPEAXI@Z", va: 0x140ae1a60 }
   - source: ../../../schema/Havok/Behavior/Modifier/hkbModifierUtils.cpp
     functions:
       - { name: "CB::schema::hkbModifier::updateModifier", va: 0x140ad4da0 }
@@ -940,6 +943,9 @@ units:
       - { name: "CB::schema::hkbRagdollDriver::reset", va: 0x140aaea40 }
       - { name: "CB::schema::hkbRagdollDriver::addAttachedRigidBody", va: 0x140aaeba0 }
       - { name: "CB::schema::hkbRagdollDriver::removeAttachedRigidBody", va: 0x140aaebf0 }
+      - { name: "??0hkbRagdollDriver@schema@CB@@QEAA@PEAUhkbCharacter@12@_N@Z", va: 0x140aac560 }
+      - { name: "??1hkbRagdollDriver@schema@CB@@UEAA@XZ", va: 0x140aac630 }
+      - { name: "??_GhkbRagdollDriver@schema@CB@@UEAAPEAXI@Z", va: 0x140ab0900 }
   - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateMachine.cpp
     functions:
       - { name: "??0hkbStateMachine@schema@CB@@QEAA@XZ", va: 0x140ad75b0 }
@@ -1463,3 +1469,61 @@ units:
   - source: ../../../schema/Havok/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimationKeyCode.cpp
     functions:
       - { name: "CB::schema::hkaSplineCompressedAnimation::computePackedNurbsOffsets", va: 0x140c38450 }
+  - source: ../../../schema/Havok/Behavior/Utils/hkbClosestLocalFrameCollector.cpp
+    functions:
+      - { name: "??0hkbClosestLocalFrameCollector@schema@CB@@QEAA@PEBD@Z", va: 0x140b0d5d0 }
+      - { name: "CB::schema::hkbClosestLocalFrameCollector::addFrame", va: 0x140b0d650 }
+      - { name: "CB::schema::hkbClosestLocalFrameCollector::setRigidBody", va: 0x140b0d780 }
+      - { name: "CB::schema::hkbClosestLocalFrameCollector::setCharacterAndBone", va: 0x140b0d7a0 }
+      - { name: "CB::schema::hkbClosestLocalFrameCollector::setMinDistance", va: 0x140b0d7c0 }
+      - { name: "CB::schema::hkbClosestLocalFrameCollector::setLocalFrameGroup", va: 0x140b0d7d0 }
+      - { name: "??_GhkbClosestLocalFrameCollector@schema@CB@@UEAAPEAXI@Z", va: 0x140b0d870 }
+      - { name: "??_GhkLocalFrameCollector@schema@CB@@UEAAPEAXI@Z", va: 0x140b0d7e0 }
+  - source: ../../../schema/Havok/Behavior/Driver/FootIk/hkbFootIkDriver.cpp
+    functions:
+      - { name: "??0hkbFootIkDriver@schema@CB@@QEAA@XZ", va: 0x140ab7e20 }
+      - { name: "??1hkbFootIkDriver@schema@CB@@UEAA@XZ", va: 0x140ab7e70 }
+      - { name: "CB::schema::hkbFootIkDriver::reset", va: 0x140ab9df0 }
+      - { name: "??_GhkbFootIkDriver@schema@CB@@UEAAPEAXI@Z", va: 0x140abccb0 }
+  - source: ../../../schema/Havok/Behavior/Driver/FootIk/hkbFootIkDriverInfo.cpp
+    functions:
+      - { name: "??_GhkbFootIkDriverInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9370 }
+  - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriverInfo.cpp
+    functions:
+      - { name: "??1hkbHandIkDriverInfo@schema@CB@@UEAA@XZ", va: 0x140ac6a50 }
+      - { name: "??_GhkbHandIkDriverInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ac99b0 }
+  - source: ../../../schema/Havok/Behavior/Driver/Ragdoll/hkbRagdollSceneModifier.cpp
+    functions:
+      - { name: "??0hkbRagdollSceneModifier@schema@CB@@QEAA@XZ", va: 0x140ae4670 }
+      - { name: "CB::schema::hkbRagdollSceneModifier::modify", va: 0x140ae46a0 }
+      - { name: "??_GhkbRagdollSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ae4eb0 }
+  - source: ../../../schema/Havok/Behavior/Driver/CharacterController/hkbCharacterControllerSceneModifier.cpp
+    functions:
+      - { name: "??0hkbCharacterControllerSceneModifier@schema@CB@@QEAA@XZ", va: 0x140ae4840 }
+      - { name: "CB::schema::hkbCharacterControllerSceneModifier::modify", va: 0x140ae4870 }
+      - { name: "??_GhkbCharacterControllerSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ae4e20 }
+  - source: ../../../schema/Havok/Behavior/Driver/FootIk/hkbFootIkSceneModifier.cpp
+    functions:
+      - { name: "CB::schema::hkbFootIkSceneModifier::modify", va: 0x140ae4a50 }
+      - { name: "??_GhkbFootIkSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1380 }
+      - { name: "??_GhkbSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1530 }
+  - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkSceneModifier.cpp
+    functions:
+      - { name: "CB::schema::hkbHandIkSceneModifier::modify", va: 0x140ae4b00 }
+      - { name: "??_GhkbHandIkSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac14a0 }
+  - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkFixupSceneModifier.cpp
+    functions:
+      - { name: "CB::schema::hkbHandIkFixupSceneModifier::modify", va: 0x140ae4bd0 }
+      - { name: "??_GhkbHandIkFixupSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1410 }
+  - source: ../../../schema/Havok/Behavior/Utils/hkbDefaultRaycastInterface.cpp
+    functions:
+      - { name: "??0hkbDefaultRaycastInterface@schema@CB@@QEAA@PEAVhkpWorld@12@@Z", va: 0x140b10280 }
+      - { name: "CB::schema::hkbDefaultRaycastInterface::setWorld", va: 0x140b105c0 }
+      - { name: "??_EhkbDefaultRaycastInterface@schema@CB@@WBA@EAAPEAXI@Z", va: 0x140b105c8 }
+      - { name: "??_GhkbDefaultRaycastInterface@schema@CB@@UEAAPEAXI@Z", va: 0x140b105e0 }
+      - { name: "?castRay@hkaRaycastInterface@schema@CB@@UEAA?AUhkBool@23@AEBUhkVector4@23@0IAEAMAEAU523@@Z", va: 0x140a83880 }
+      - { name: "?castRay@hkaRaycastInterface@schema@CB@@UEAA?AUhkBool@23@AEBUhkVector4@23@0AEAMAEAU523@@Z", va: 0x140a83870 }
+  - source: ../../../schema/Havok/Animation/Ik/FootPlacement/hkaRaycastInterfaceBethesdaCopy.cpp
+    flags: [/O2, /Ob1, /GS-, /fp:fast, /EHsc]
+    functions:
+      - { name: "??_GhkaRaycastInterface@schema@CB@@UEAAPEAXI@Z", va: 0x1405445f0 }

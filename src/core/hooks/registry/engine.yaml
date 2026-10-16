@@ -842,3 +842,23 @@ symbols:
   - { name: hkbSequenceStringData_Dtor, kind: func, se: 0, ae: 58988, vr: 0, cpp: "??1hkbSequenceStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
   - { name: hkbBehaviorGraph_GetMirroredExternalId, kind: func, se: 0, ae: 58354, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getMirroredExternalId" }  # name provisional; m_mirroredExternalIdMap[id], or id without a table
   - { name: hkbEventRangeDataArray_Dtor, kind: func, se: 0, ae: 58978, vr: 0, cpp: "??1hkbEventRangeDataArray@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  # --- wave 6 drivers: behavior-side physics plumbing (drivers, scene modifiers, raycast interface, frame collector) ---
+  - { name: hkbClosestLocalFrameCollector_Vtable, kind: data, se: 0, ae: 227023, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::`vftable'" }
+  - { name: hkbRagdollDriver_Vtable, kind: data, se: 0, ae: 220245, vr: 0, cpp: "CB::schema::hkbRagdollDriver::`vftable'" }
+  - { name: hkbRagdollDriver_Dtor, kind: func, se: 0, ae: 58281, vr: 0, cpp: "??1hkbRagdollDriver@schema@CB@@UEAA@XZ" }
+  - { name: hkbFootIkDriver_Vtable, kind: data, se: 0, ae: 220334, vr: 0, cpp: "CB::schema::hkbFootIkDriver::`vftable'" }
+  - { name: hkbFootIkDriver_Dtor, kind: func, se: 0, ae: 58422, vr: 0, cpp: "??1hkbFootIkDriver@schema@CB@@UEAA@XZ" }
+  - { name: hkbHandIkDriver_Vtable, kind: data, se: 0, ae: 226847, vr: 0, cpp: "CB::schema::hkbHandIkDriver::`vftable'" }
+  - { name: hkbHandIkDriver_Dtor, kind: func, se: 0, ae: 59428, vr: 0, cpp: "??1hkbHandIkDriver@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbHandIkDriverInfo_Dtor, kind: func, se: 0, ae: 58982, vr: 0, cpp: "??1hkbHandIkDriverInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbRagdollDriver_DriveToPose, kind: func, se: 0, ae: 58291, vr: 0, cpp: "CB::schema::hkbRagdollDriver::driveToPose" }  # (timestep, context, generatorOutput); called by hkbRagdollSceneModifier
+  - { name: hkbRagdollDriver_PostPhysics, kind: func, se: 0, ae: 58293, vr: 0, cpp: "CB::schema::hkbRagdollDriver::postPhysics" }  # (context, inOut); called by hkbRagdollSceneModifier
+  - { name: hkpWorld_StepDeltaTime, kind: func, se: 0, ae: 61410, vr: 0, cpp: "CB::schema::hkpWorld::stepDeltaTime" }  # hkp code (not reimplemented)
+  - { name: hkbRagdollSceneModifier_Vtable, kind: data, se: 0, ae: 226864, vr: 0, cpp: "CB::schema::hkbRagdollSceneModifier::`vftable'" }
+  - { name: hkbCharacterControllerSceneModifier_Vtable, kind: data, se: 0, ae: 226866, vr: 0, cpp: "CB::schema::hkbCharacterControllerSceneModifier::`vftable'" }
+  - { name: hkbFootIkDriver_DoFootIk, kind: func, se: 0, ae: 58423, vr: 0, cpp: "CB::schema::hkbFootIkDriver::doFootIk" }  # name provisional; (context, generatorOutput); called by hkbFootIkSceneModifier
+  - { name: hkbHandIkDriver_Drive, kind: func, se: 0, ae: 59421, vr: 0, cpp: "CB::schema::hkbHandIkDriver::drive" }  # name provisional; (context, generatorOutput, timestep, isFixup); called by the hand IK scene modifiers
+  - { name: hkaRaycastInterface_Vtable, kind: data, se: 0, ae: 205116, vr: 0, cpp: "CB::schema::hkaRaycastInterface::`vftable'" }
+  - { name: hkbDefaultRaycastInterface_Vtable, kind: data, se: 0, ae: 227029, vr: 0, cpp: "??_7hkbDefaultRaycastInterface@schema@CB@@6BhkReferencedObject@12@@" }  # by mangled name: the class has two
+  - { name: hkbDefaultRaycastInterface_RaycastVtable, kind: data, se: 0, ae: 227031, vr: 0, cpp: "??_7hkbDefaultRaycastInterface@schema@CB@@6BhkaRaycastInterface@12@@" }  # the hkaRaycastInterface base's (+0x10)
+  - { name: hkbDefaultRaycastInterface_VectorDeletingDtor, kind: func, se: 0, ae: 60085, vr: 0, cpp: "??_EhkbDefaultRaycastInterface@schema@CB@@UEAAPEAXI@Z" }  # the vtable's slot 0 (MSVC resolves ??_E to the scalar ??_G when nothing deletes arrays); the +0x10 adjustor thunk jumps to it

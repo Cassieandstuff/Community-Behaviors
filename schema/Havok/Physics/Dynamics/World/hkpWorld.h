@@ -8,6 +8,9 @@ namespace CB { namespace schema
 {
     class hkpRigidBody;
 
+    /// @note Havok SDK enum; only success is named here.
+    enum hkpStepResult { HK_STEP_RESULT_SUCCESS = 0 };
+
     class hkpWorld : public hkReferencedObject
     {
     public:
@@ -22,5 +25,8 @@ namespace CB { namespace schema
         /// @note Out of line in vanilla (hkp code, not reimplemented); parameters per the Havok SDK (an
         ///       hkpUpdateCollisionFilterOnEntityMode and an hkpUpdateCollectionFilterMode).
         void updateCollisionFilterOnEntity(hkpRigidBody* entity, int updateMode, int updateShapeCollectionFilter);
+        /// @brief Advances the simulation by `physicsDeltaTime`.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        hkpStepResult stepDeltaTime(hkReal physicsDeltaTime);
     };
 } }

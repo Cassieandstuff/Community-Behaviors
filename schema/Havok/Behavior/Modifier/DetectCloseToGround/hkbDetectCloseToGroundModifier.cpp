@@ -87,7 +87,7 @@ namespace CB { namespace schema
     /// @note The ragdoll path assumes the bone has a rigid body (a -1 map entry reads through null), as vanilla does.
     void hkbDetectCloseToGroundModifier::modify(const hkbContext& context, hkbGeneratorOutput& inOut)
     {
-        hkbRaycastInterface* raycastInterface = context.m_character->getRaycastInterface();
+        hkaRaycastInterface* raycastInterface = context.m_character->getRaycastInterface();
         if (m_animBoneIndex < inOut.getNumPoseLocal()) {
             hkReal    hitFraction = HK_REAL_MAX;
             hkVector4 from;
