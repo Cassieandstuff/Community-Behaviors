@@ -51,7 +51,9 @@ src/                         CB's code. src/ is the plugin's private include roo
                              renders; Settings — settings.ini loaded once, read via FlagOn(id); DebugOverlay;
                              RuntimeTrace — the per-frame graph-variable watch)
     hooks/                   the engine symbol registry (registry/engine.yaml → per-runtime Address Library
-                             pins) + the shared hook-point layer features subscribe to (<core/hooks/hookslib.h>)
+                             pins) + the shared hook-point layer features subscribe to (<core/hooks/hookslib.h>);
+                             takeover/ = runs the reimplemented Havok in place of vanilla's (the runtime image,
+                             relocated at load; every replaced function dispatches through a cell features override)
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
                              converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
                              or REL/ include. The folder IS the include root (<common/…> <interface/…>
@@ -62,14 +64,18 @@ src/                         CB's code. src/ is the plugin's private include roo
   converter/                 the GLFW+ImGui Behavior Converter (BehaviorConverter.exe, CB::converter::);
                              platform/ = native dialogs, known folders, zip
 common/                      what features build against; common/ is their include root:
-  feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::)
+  feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::);
+                             havok/ = the function palette, GENERATED (cbmatch --emit-palette): every function the
+                             takeover replaces as a typed cell (CB::feature::havok::<class>::<fn>::Subscribe / Call).
+                             Plugin-only (it includes core). schema/Havok stays pristine; changes are overrides here
   config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
 schema/                      the class schema as DATA — one YAML per class in family folders (generators/,
                              modifiers/, …; vanilla hk*, Bethesda BS*, CB* custom classes told apart by prefix);
                              metadata/ holds enums, merge semantics, debug probes and the adsf/asdsf descriptors.
                              templates/ = the converter's Nemesis-ingest XML oracles. Havok/ = the reimplemented
                              Havok runtime (CB::schema::), laid out like Havok's source tree (Common/Base, Animation,
-                             Behavior; below them the exe's __FILE__ paths), built only by tools/cbmatch (VS2015).
+                             Behavior; below them the exe's __FILE__ paths), compiled by tools/cbmatch (VS2015) into
+                             the runtime image; its headers also compile into the plugin, typing the palette.
                              Deployed as data only (staging drops .h/.cpp): plugin → Data/community_behaviors/schema
                              (no templates/), converter → <exe>/schema.
 tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch (byte-matches schema/Havok against
@@ -197,6 +203,10 @@ still belongs in the session scratchpad dir.)
   divergence for the documented blind spots), with unmutated controls that must agree.
   Run both after any schema/Havok or cbmatch change. A full run ends with coverage against
   `tools/cbmatch/inventory.yaml` (regenerate with `--inventory`; `--todo <Class>` lists what's left).
+  The same full run regenerates the takeover's outputs: `--emit-image <file>` (deployed to
+  `Data/community_behaviors/runtime/havok-runtime.cbimg`; pinned to the exact exe build) and
+  `--emit-palette common/feature-sdk/havok` (checked in) — always together, so the palette lists exactly what the
+  image installs.
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
 
