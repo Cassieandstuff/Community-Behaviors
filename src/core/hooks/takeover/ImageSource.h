@@ -22,6 +22,7 @@ namespace CB::core::hooks {
 
         [[nodiscard]] const char*              Name() const noexcept override { return "image"; }
         [[nodiscard]] std::vector<std::string> Classes() const override { return image_.classes; }
+        [[nodiscard]] std::size_t              Count() const noexcept override { return image_.functions.size(); }
         [[nodiscard]] std::vector<Replacement> Provide(std::string_view cls) override;
 
     private:
@@ -31,10 +32,7 @@ namespace CB::core::hooks {
         [[nodiscard]] std::byte* Take(std::size_t size, std::size_t align);
 
         CB::engine::codec::image::Image image_;
-        /// @brief The arena's start, just past the exe's image: the unwind tables' image base.
-        /// @note Not an SKSE::Trampoline: that only promises ±2 GB of the end of .text, and a block near that window's
-        ///       edge leaves the exe's later sections (.data, TLS slots) out of rel32 reach — 856 of 1307 functions on the
-        ///       first launch.
+        /// @brief The arena's start (AllocateNearExe): the unwind tables' image base.
         std::byte*                      base_ = nullptr;
         std::byte*                      next_ = nullptr;
         std::size_t                     left_ = 0;

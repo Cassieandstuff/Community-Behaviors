@@ -32,6 +32,8 @@ namespace CB::core::hooks {
         virtual ~ICodeSource() = default;
         [[nodiscard]] virtual const char* Name() const noexcept = 0;
         [[nodiscard]] virtual std::vector<std::string> Classes() const = 0;
+        /// @return how many functions the source can provide, over all its classes.
+        [[nodiscard]] virtual std::size_t Count() const noexcept = 0;
         /// @return `cls`'s replacements, placed and ready to run.
         /// @post The source owns the code, for the life of the process.
         [[nodiscard]] virtual std::vector<Replacement> Provide(std::string_view cls) = 0;
