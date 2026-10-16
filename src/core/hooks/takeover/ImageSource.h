@@ -31,8 +31,11 @@ namespace CB::core::hooks {
         [[nodiscard]] std::byte* Take(std::size_t size, std::size_t align);
 
         CB::engine::codec::image::Image image_;
-        SKSE::Trampoline                arena_{ "CB Havok runtime" };
-        std::byte*                      base_ = nullptr;   ///< the arena's start: the unwind tables' image base
+        /// @brief The arena's start, just past the exe's image: the unwind tables' image base.
+        /// @note Not an SKSE::Trampoline: that only promises ±2 GB of the end of .text, and a block near that window's
+        ///       edge leaves the exe's later sections (.data, TLS slots) out of rel32 reach — 856 of 1307 functions on the
+        ///       first launch.
+        std::byte*                      base_ = nullptr;
         std::byte*                      next_ = nullptr;
         std::size_t                     left_ = 0;
         /// @brief One registered RUNTIME_FUNCTION table per provided class.
