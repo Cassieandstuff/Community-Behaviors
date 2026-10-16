@@ -741,3 +741,27 @@ symbols:
   - { name: hkbEventPayloadList_Dtor, kind: func, se: 0, ae: 59476, vr: 0, cpp: "??1hkbEventPayloadList@schema@CB@@UEAA@XZ" }  # releases each payload; the scalar deleting destructor calls it
   - { name: hkbStringCondition_EvaluateFunction, kind: data, se: 0, ae: 408433, vr: 0, cpp: "CB::schema::hkbStringCondition::s_evaluateFunction" }  # name provisional; isTrue's callback, never written in the exe
   - { name: hkbStringCondition_DefaultResult, kind: data, se: 0, ae: 385123, vr: 0, cpp: "CB::schema::hkbStringCondition::s_defaultResult" }  # name provisional; isTrue's result without a callback
+  - { name: hkbVariableBindingSet_Vtable, kind: data, se: 0, ae: 226150, vr: 0, cpp: "CB::schema::hkbVariableBindingSet::`vftable'" }
+  - { name: hkbVariableBindingSet_Dtor, kind: func, se: 0, ae: 59466, vr: 0, cpp: "??1hkbVariableBindingSet@schema@CB@@UEAA@XZ" }  # removes every binding unless packfile-placed
+  - { name: hkbVariableValueSet_Dtor, kind: func, se: 0, ae: 58392, vr: 0, cpp: "??1hkbVariableValueSet@schema@CB@@UEAA@XZ" }
+  - { name: hkbSequenceInternalState_Dtor, kind: func, se: 0, ae: 58987, vr: 0, cpp: "??1hkbSequenceInternalState@schema@CB@@UEAA@XZ" }
+  - { name: hkbStateMachineInternalState_Dtor, kind: func, se: 0, ae: 58989, vr: 0, cpp: "??1hkbStateMachineInternalState@schema@CB@@UEAA@XZ" }
+  - { name: hkbClipTriggerArray_Dtor, kind: func, se: 0, ae: 58975, vr: 0, cpp: "??1hkbClipTriggerArray@schema@CB@@UEAA@XZ" }
+  - { name: hkbExpressionDataArray_Dtor, kind: func, se: 0, ae: 58980, vr: 0, cpp: "??1hkbExpressionDataArray@schema@CB@@UEAA@XZ" }
+  - { name: hkbCompiledExpressionSet_Vtable, kind: data, se: 0, ae: 226224, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::`vftable'" }
+  - { name: hkbCompiledExpressionSet_Dtor, kind: func, se: 0, ae: 58976, vr: 0, cpp: "??1hkbCompiledExpressionSet@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbSymbolIdMap_Dtor, kind: func, se: 0, ae: 60118, vr: 0, cpp: "??1hkbSymbolIdMap@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraphData_Vtable, kind: data, se: 0, ae: 226179, vr: 0, cpp: "CB::schema::hkbBehaviorGraphData::`vftable'" }
+  - { name: hkbBehaviorGraphData_Dtor, kind: func, se: 0, ae: 59498, vr: 0, cpp: "??1hkbBehaviorGraphData@schema@CB@@UEAA@XZ" }  # releases the initial values, then the members
+  - { name: hkbBehaviorGraphStringData_Dtor, kind: func, se: 0, ae: 58972, vr: 0, cpp: "??1hkbBehaviorGraphStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraphInternalState_Dtor, kind: func, se: 0, ae: 58971, vr: 0, cpp: "??1hkbBehaviorGraphInternalState@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraphInternalStateInfo_Dtor, kind: func, se: 0, ae: 80347, vr: 0, cpp: "??1hkbBehaviorGraphInternalStateInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbProjectStringData_Dtor, kind: func, se: 0, ae: 58985, vr: 0, cpp: "??1hkbProjectStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbAnimationBindingSet_Clear, kind: func, se: 0, ae: 59418, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::clear" }  # name provisional; releases every binding, size 0
+  - { name: hkbAnimationBindingWithTriggers_Vtable, kind: data, se: 0, ae: 226845, vr: 0, cpp: "CB::schema::hkbAnimationBindingWithTriggers::`vftable'" }
+  - { name: hkbAnimationBindingWithTriggers_Dtor, kind: func, se: 0, ae: 59416, vr: 0, cpp: "??1hkbAnimationBindingWithTriggers@schema@CB@@UEAA@XZ" }  # nulls the (non-owned) binding, releases the trigger payloads
+  - { name: hkbCharacterData_Dtor, kind: func, se: 0, ae: 59507, vr: 0, cpp: "??1hkbCharacterData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterSetup_Vtable, kind: data, se: 0, ae: 226868, vr: 0, cpp: "CB::schema::hkbCharacterSetup::`vftable'" }
+  - { name: hkbCharacterSetup_Dtor, kind: func, se: 0, ae: 59478, vr: 0, cpp: "??1hkbCharacterSetup@schema@CB@@UEAA@XZ" }
+  - { name: hkbCharacterStringData_Dtor, kind: func, se: 0, ae: 58974, vr: 0, cpp: "??1hkbCharacterStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbSequenceStringData_Dtor, kind: func, se: 0, ae: 58988, vr: 0, cpp: "??1hkbSequenceStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy

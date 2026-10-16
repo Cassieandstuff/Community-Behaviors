@@ -32,7 +32,7 @@ namespace CB { namespace schema
                 if (m_directMap) {
                     if (id >= 0) id = m_symbolIdMap->m_internalToExternalMap.m_data[id];
                 } else {
-                    if (id >= 0) id = static_cast<int>(m_symbolIdMap->m_externalToInternalMap.getWithDefault(id + 1, hkUlong(-1)));
+                    if (id >= 0) id = static_cast<int>(m_symbolIdMap->m_externalToInternalMap.m_map.getWithDefault(id + 1, hkUlong(-1)));
                 }
             }
             return id;
@@ -47,7 +47,7 @@ namespace CB { namespace schema
                 return (id >= 0) ? m_symbolIdMap->m_internalToExternalMap.m_data[id] : id;
             }
             const int id = e.m_id;
-            return (id >= 0) ? static_cast<int>(m_symbolIdMap->m_externalToInternalMap.getWithDefault(id + 1, hkUlong(-1))) : id;
+            return (id >= 0) ? static_cast<int>(m_symbolIdMap->m_externalToInternalMap.m_map.getWithDefault(id + 1, hkUlong(-1))) : id;
         }
     };
 } }

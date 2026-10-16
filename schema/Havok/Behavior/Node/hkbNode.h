@@ -38,6 +38,13 @@ namespace CB { namespace schema
 
         /// @brief The binding whose member path is `memberPath` (exact compare), else null.
         const Binding* findBindingByMemberPath(const char* memberPath) const;
+
+        /// @brief Removes binding `index` (the last one takes its place), keeping m_indexOfBindingToEnable on its binding.
+        HK_FORCE_INLINE void removeBinding(int index);
+
+        /// @brief Removes every binding, last first, unless the set was placed by a packfile load (no allocated size).
+        /// @note Out of line in vanilla (0x140ae4f40, Behavior/Variables/hkbVariableBindingSet.cpp).
+        ~hkbVariableBindingSet();
     };
 
     /// @note BSCyclicBlendTransitionGenerator::handleEvent walks the bindings comparing the member path, 0x28 apart.
@@ -58,6 +65,16 @@ namespace CB { namespace schema
         hkInt8         m_variableType;            ///< +0x23
         hkInt8         m_flags;                   ///< +0x24
     };
+
+    HK_FORCE_INLINE void hkbVariableBindingSet::removeBinding(int index)
+    {
+        m_bindings.removeAt(index);
+        if (index == m_indexOfBindingToEnable) {
+            m_indexOfBindingToEnable = -1;
+        } else if (m_indexOfBindingToEnable == m_bindings.getSize()) {
+            m_indexOfBindingToEnable = index;
+        }
+    }
 
     /// @note The destructor is implicit: under /Ob1 VS2015 inlines it into some node destructors (hkbSequence's) and
     ///       calls the out-of-line copy from others (the clip's, the timer's) — the same split vanilla shows. A

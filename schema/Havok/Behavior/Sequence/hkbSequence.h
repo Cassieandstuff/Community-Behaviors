@@ -12,8 +12,18 @@ namespace CB { namespace schema
 {
     extern const hkClass hkbSequenceClass;
 
-    /// @note Only its reference count is touched here; members not identified.
-    class hkbSequenceStringData : public hkReferencedObject {};
+    /// @note 0x30 bytes; member names after the Havok SDK (unreflected here), the types per the destructor (0x140ac7090).
+    class hkbSequenceStringData : public hkReferencedObject
+    {
+    public:
+        hkArray<hkStringPtr> m_eventNames;      ///< +0x10
+        hkArray<hkStringPtr> m_variableNames;   ///< +0x20
+
+        HK_FORCE_INLINE hkbSequenceStringData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here (hkbSequenceStringData.cpp),
+        ///       it also brings the class's vtable and scalar deleting destructor into that unit.
+        hkbSequenceStringData(hkFinishLoadedObjectFlag flag);
+    };
 
     struct hkbSequenceInternalState : hkReferencedObject
     {

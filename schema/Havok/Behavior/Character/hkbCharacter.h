@@ -7,6 +7,8 @@
 #include <Animation/Rig/hkaSkeleton.h>
 #include <Behavior/Event/hkbEvent.h>
 #include <Behavior/Project/hkbProjectData.h>
+#include <Behavior/Variables/hkbVariableInfo.h>
+#include <Behavior/Variables/hkbVariableValueSet.h>
 
 namespace CB { namespace schema
 {
@@ -34,17 +36,22 @@ namespace CB { namespace schema
                                hkVector4& normalWSOut) = 0;   ///< slot 1
     };
 
-    struct hkbAnimationBindingWithTriggers : hkReferencedObject
+    class hkbAnimationBindingWithTriggers : public hkReferencedObject
     {
-        /// @note 0x18 bytes.
+    public:
+        /// @note 0x18 bytes: the event payload is reference-holding (the destructor releases it).
         struct Trigger
         {
-            hkReal       m_time;
-            hkbEventBase m_event;
+            hkReal           m_time;    ///< +0x0
+            hkbEventProperty m_event;   ///< +0x8
         };
 
         hkRefPtr<hkaAnimationBinding> m_binding;    ///< +0x10
         hkArray<Trigger>              m_triggers;   ///< +0x18
+
+        /// @brief Drops the binding without releasing it, then the triggers.
+        /// @note Out of line in vanilla (0x140adf5a0, Behavior/Character/hkbAnimationBindingSet.cpp).
+        ~hkbAnimationBindingWithTriggers();
     };
 
     /// @note Vanilla's scalar deleting destructor (0x140abddb0) sits in hkbCharacter's TU, emitted there by
@@ -52,38 +59,99 @@ namespace CB { namespace schema
     ///       constructor: that `new hkbAnimationBindingSet()` value-initializes, zeroing the block first.
     struct hkbAnimationBindingSet : hkReferencedObject
     {
+        /// @note Reference-holding raw pointers: clear releases each.
         hkArray<hkbAnimationBindingWithTriggers*> m_bindings;   ///< +0x10, indexed by hkbClipGenerator::m_animationBindingIndex
 
-        /// @note Out of line in vanilla (0x140adf660); not reimplemented.
+        /// @note Out of line in vanilla (0x140adf660, Behavior/Character/hkbAnimationBindingSet.cpp).
         virtual ~hkbAnimationBindingSet();   ///< slot 0
+
+        /// @brief Releases every binding and empties the list (keeping its storage).
+        /// @note Name provisional; out of line in vanilla (0x140adf6d0).
+        void clear();
     };
 
+    /// @note 0xc0 bytes.
     struct hkbCharacterStringData : hkReferencedObject
     {
-        char        m_pad10[0xa0 - 0x10];
-        hkStringPtr m_name;   ///< +0xa0
+        hkArray<hkStringPtr> m_deformableSkinNames;                  ///< +0x10
+        hkArray<hkStringPtr> m_rigidSkinNames;                       ///< +0x20
+        hkArray<hkStringPtr> m_animationNames;                       ///< +0x30
+        hkArray<hkStringPtr> m_animationFilenames;                   ///< +0x40
+        hkArray<hkStringPtr> m_characterPropertyNames;               ///< +0x50
+        hkArray<hkStringPtr> m_retargetingSkeletonMapperFilenames;   ///< +0x60
+        hkArray<hkStringPtr> m_lodNames;                             ///< +0x70
+        hkArray<hkStringPtr> m_mirroredSyncPointSubstringsA;         ///< +0x80
+        hkArray<hkStringPtr> m_mirroredSyncPointSubstringsB;         ///< +0x90
+        hkStringPtr          m_name;                                 ///< +0xa0
+        hkStringPtr          m_rigName;                              ///< +0xa8
+        hkStringPtr          m_ragdollName;                          ///< +0xb0
+        hkStringPtr          m_behaviorFilename;                     ///< +0xb8
+
+        HK_FORCE_INLINE hkbCharacterStringData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here
+        ///       (Behavior/Character/hkbCharacterStringData.cpp), it also brings the class's vtable and scalar deleting
+        ///       destructor into that unit.
+        hkbCharacterStringData(hkFinishLoadedObjectFlag flag);
     };
 
+    /// @note Held by the character data only; not declared further.
+    class hkbFootIkDriverInfo : public hkReferencedObject {};
+    /// @note Held by the character data only; not declared further.
+    class hkbHandIkDriverInfo : public hkReferencedObject {};
+    /// @note Held by the character data only; not declared further.
+    class hkbMirroredSkeletonInfo : public hkReferencedObject {};
+
+    /// @note 0xb0 bytes.
     struct hkbCharacterData : hkReferencedObject
     {
-        char                    m_pad10[0x30 - 0x10];
-        hkVector4               m_modelUpMS;        ///< +0x30
-        hkVector4               m_modelForwardMS;   ///< +0x40
-        hkVector4               m_modelRightMS;     ///< +0x50
-        char                    m_pad60[0x98 - 0x60];
-        hkbCharacterStringData* m_stringData;       ///< +0x98
-        char                    m_padA0[0xa8 - 0xa0];
-        hkReal                  m_scale;            ///< +0xa8
+        /// @note 0x18 bytes.
+        struct CharacterControllerInfo
+        {
+            hkReal                       m_capsuleHeight;              ///< +0x0
+            hkReal                       m_capsuleRadius;              ///< +0x4
+            hkUint32                     m_collisionFilterInfo;        ///< +0x8
+            /// @note Havok's hkpCharacterControllerCinfo (physics; not declared here).
+            hkRefPtr<hkReferencedObject> m_characterControllerCinfo;   ///< +0x10
+        };
+
+        CharacterControllerInfo           m_characterControllerInfo;   ///< +0x10
+        hkVector4                         m_modelUpMS;                 ///< +0x30
+        hkVector4                         m_modelForwardMS;            ///< +0x40
+        hkVector4                         m_modelRightMS;              ///< +0x50
+        hkArray<hkbVariableInfo>          m_characterPropertyInfos;    ///< +0x60
+        hkArray<hkInt32>                  m_numBonesPerLod;            ///< +0x70
+        hkRefPtr<hkbVariableValueSet>     m_characterPropertyValues;   ///< +0x80
+        hkRefPtr<hkbFootIkDriverInfo>     m_footIkDriverInfo;          ///< +0x88
+        hkRefPtr<hkbHandIkDriverInfo>     m_handIkDriverInfo;          ///< +0x90
+        hkRefPtr<hkbCharacterStringData>  m_stringData;                ///< +0x98
+        hkRefPtr<hkbMirroredSkeletonInfo> m_mirroredSkeletonInfo;      ///< +0xa0
+        hkReal                            m_scale;                     ///< +0xa8
+        hkInt16                           m_numHands;                  ///< +0xac
+        hkInt16                           m_numFloatSlots;             ///< +0xae
+
+        HK_FORCE_INLINE hkbCharacterData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here
+        ///       (Behavior/Character/hkbCharacterData.cpp), it also brings the class's vtable and scalar deleting
+        ///       destructor into that unit.
+        hkbCharacterData(hkFinishLoadedObjectFlag flag);
     };
 
+    /// @note 0x58 bytes.
     struct hkbCharacterSetup : hkReferencedObject
     {
-        char                             m_pad10[0x20 - 0x10];
-        hkRefPtr<hkaSkeleton>            m_animationSkeleton;     ///< +0x20
-        hkRefPtr<hkaSkeletonMapper>      m_ragdollToAnimationSkeletonMapper;   ///< +0x28
-        hkRefPtr<hkaSkeletonMapper>      m_animationToRagdollSkeletonMapper;   ///< +0x30
-        hkRefPtr<hkbAnimationBindingSet> m_animationBindingSet;   ///< +0x38
-        hkbCharacterData*                m_data;                  ///< +0x40
+        hkArray< hkRefPtr<hkaSkeletonMapper> > m_retargetingSkeletonMappers;          ///< +0x10
+        hkRefPtr<hkaSkeleton>                  m_animationSkeleton;                   ///< +0x20
+        hkRefPtr<hkaSkeletonMapper>            m_ragdollToAnimationSkeletonMapper;    ///< +0x28
+        hkRefPtr<hkaSkeletonMapper>            m_animationToRagdollSkeletonMapper;    ///< +0x30
+        hkRefPtr<hkbAnimationBindingSet>       m_animationBindingSet;                 ///< +0x38
+        hkRefPtr<hkbCharacterData>             m_data;                                ///< +0x40
+        /// @brief Built lazily by getMirroredSkeleton from the character data's mirroring info.
+        hkRefPtr<hkaMirroredSkeleton>          m_mirroredSkeleton;                    ///< +0x48
+        /// @note Name after the Havok SDK, unverified; released by the destructor.
+        hkRefPtr<hkReferencedObject>           m_characterPropertyIdMap;              ///< +0x50
+
+        /// @note Out of line in vanilla (0x140ae5970, Behavior/Character/hkbCharacterSetup.cpp); the body is empty.
+        ~hkbCharacterSetup();
 
         /// @note Name provisional.
         const hkaSkeletonMapper* getRetargetingSkeletonMapper(const char* rigName);

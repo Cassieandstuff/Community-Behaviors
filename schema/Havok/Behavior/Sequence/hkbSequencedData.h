@@ -15,6 +15,9 @@ namespace CB { namespace schema
     class hkbSequencedData : public hkReferencedObject
     {
     public:
+        HK_FORCE_INLINE hkbSequencedData() {}
+        HK_FORCE_INLINE hkbSequencedData(hkFinishLoadedObjectFlag flag) : hkReferencedObject(flag) {}
+
         /// @brief Plays the samples whose time is reached by `time`, starting at `nextSampleIndex` and advancing it: the
         ///        event timeline raises its events into `eventQueue` (sent by `sequence`), the variable timelines set
         ///        their variable (through `variableIdMap` when the sequence has one).
@@ -34,6 +37,14 @@ namespace CB { namespace schema
         };
 
         hkArray<SequencedEvent> m_events;   ///< +0x10
+
+        HK_FORCE_INLINE hkbEventSequencedData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here, it also brings the
+        ///       class's vtable and scalar deleting destructor into hkbSequencedData.cpp.
+        hkbEventSequencedData(hkFinishLoadedObjectFlag flag);
+
+        virtual void apply(hkbSequence* sequence, const hkbContext& context, hkReal time, hkbEventQueue* eventQueue,
+                           hkbSymbolIdMap* variableIdMap, int& nextSampleIndex);   ///< slot 3
     };
 
     class hkbRealVariableSequencedData : public hkbSequencedData
@@ -47,6 +58,14 @@ namespace CB { namespace schema
 
         hkArray<Sample> m_samples;         ///< +0x10
         hkInt32         m_variableIndex;   ///< +0x20
+
+        HK_FORCE_INLINE hkbRealVariableSequencedData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here, it also brings the
+        ///       class's vtable and scalar deleting destructor into hkbSequencedData.cpp.
+        hkbRealVariableSequencedData(hkFinishLoadedObjectFlag flag);
+
+        virtual void apply(hkbSequence* sequence, const hkbContext& context, hkReal time, hkbEventQueue* eventQueue,
+                           hkbSymbolIdMap* variableIdMap, int& nextSampleIndex);   ///< slot 3
     };
 
     class hkbBoolVariableSequencedData : public hkbSequencedData
@@ -60,6 +79,14 @@ namespace CB { namespace schema
 
         hkArray<Sample> m_samples;         ///< +0x10
         hkInt32         m_variableIndex;   ///< +0x20
+
+        HK_FORCE_INLINE hkbBoolVariableSequencedData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here, it also brings the
+        ///       class's vtable and scalar deleting destructor into hkbSequencedData.cpp.
+        hkbBoolVariableSequencedData(hkFinishLoadedObjectFlag flag);
+
+        virtual void apply(hkbSequence* sequence, const hkbContext& context, hkReal time, hkbEventQueue* eventQueue,
+                           hkbSymbolIdMap* variableIdMap, int& nextSampleIndex);   ///< slot 3
     };
 
     class hkbIntVariableSequencedData : public hkbSequencedData
@@ -73,5 +100,13 @@ namespace CB { namespace schema
 
         hkArray<Sample> m_samples;         ///< +0x10
         hkInt32         m_variableIndex;   ///< +0x20
+
+        HK_FORCE_INLINE hkbIntVariableSequencedData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here, it also brings the
+        ///       class's vtable and scalar deleting destructor into hkbSequencedData.cpp.
+        hkbIntVariableSequencedData(hkFinishLoadedObjectFlag flag);
+
+        virtual void apply(hkbSequence* sequence, const hkbContext& context, hkReal time, hkbEventQueue* eventQueue,
+                           hkbSymbolIdMap* variableIdMap, int& nextSampleIndex);   ///< slot 3
     };
 } }

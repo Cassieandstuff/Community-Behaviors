@@ -22,6 +22,11 @@ namespace CB { namespace schema
         hkArray<hkStringPtr> m_attributeNames;           ///< +0x20
         hkArray<hkStringPtr> m_variableNames;            ///< +0x30
         hkArray<hkStringPtr> m_characterPropertyNames;   ///< +0x40
+
+        HK_FORCE_INLINE hkbBehaviorGraphStringData() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here (hkbBehaviorGraphStringData.cpp),
+        ///       it also brings the class's vtable and scalar deleting destructor into that unit.
+        hkbBehaviorGraphStringData(hkFinishLoadedObjectFlag flag);
     };
 
     struct hkbBehaviorGraphData : hkReferencedObject
@@ -33,7 +38,8 @@ namespace CB { namespace schema
         /// @brief Per-variable bounds (empty when no variable has any).
         hkArray<hkbVariableValue>            m_wordMinVariableValues;    ///< +0x50
         hkArray<hkbVariableValue>            m_wordMaxVariableValues;    ///< +0x60
-        hkRefPtr<hkbVariableValueSet>        m_variableInitialValues;    ///< +0x70
+        /// @note Owned outright (a raw pointer): the destructor releases it unconditionally.
+        hkbVariableValueSet*                 m_variableInitialValues;    ///< +0x70
         hkRefPtr<hkbBehaviorGraphStringData> m_stringData;   ///< +0x78
 
         /// @note An id past the table reads as no flags.
@@ -49,6 +55,9 @@ namespace CB { namespace schema
             const hkUint32 flags = (id < m_eventInfos.getSize()) ? m_eventInfos[id].m_flags : 0;
             return (flags & hkbEventInfo::FLAG_SYNC_POINT) != 0;
         }
+
+        /// @note Out of line in vanilla (0x140ae61f0, hkbBehaviorGraphData.cpp).
+        ~hkbBehaviorGraphData();
     };
 
     /// @brief A graph's saved state: one record per node that has internal state, plus the variable values.
@@ -65,8 +74,14 @@ namespace CB { namespace schema
 
     struct hkbBehaviorGraphInternalState : hkReferencedObject
     {
-        hkArray<hkbNodeInternalStateInfo*> m_nodeInternalStateInfos;   ///< +0x10
-        hkbVariableValueSet*            m_variableValueSet;         ///< +0x20
+        hkArray< hkRefPtr<hkbNodeInternalStateInfo> > m_nodeInternalStateInfos;   ///< +0x10
+        hkRefPtr<hkbVariableValueSet>                 m_variableValueSet;         ///< +0x20
+
+        HK_FORCE_INLINE hkbBehaviorGraphInternalState() {}
+        /// @note Vanilla inlines it into the type registry's finish function; out of line here
+        ///       (hkbBehaviorGraphInternalState.cpp), it also brings the class's vtable and scalar deleting destructor
+        ///       into that unit.
+        hkbBehaviorGraphInternalState(hkFinishLoadedObjectFlag flag);
     };
 
     class hkbStateMachine;
