@@ -7,6 +7,7 @@
 namespace CB { namespace schema
 {
     class hkaRagdollInstance;
+    class hkpRigidBody;
 
     /// @note Member names below +0x88 and the reset state are provisional (read off reset() and setRagdoll()).
     class hkbRagdollDriver : public hkReferencedObject
@@ -17,7 +18,11 @@ namespace CB { namespace schema
         char                m_pad14[0x20 - 0x14];
         /// @note Reset to identity by reset().
         hkQsTransform       m_lastWorldFromModel;           ///< +0x20
-        char                m_pad50[0x88 - 0x50];
+        char                m_pad50[0x70 - 0x50];
+        /// @brief Rigid bodies attached to the ragdoll (hkbAttachmentModifier adds the attachee's body).
+        /// @note Name per the Havok SDK; the value stored is 1.
+        hkPointerMap<hkpRigidBody*, int> m_attachedRigidBodyToIndexMap;   ///< +0x70
+        char                m_pad80[0x88 - 0x80];
         hkaRagdollInstance* m_ragdoll;                      ///< +0x88
         char                m_pad90[0xa0 - 0x90];
         /// @brief An hkMemoryRouter::easyAlloc block reset() frees.
@@ -45,5 +50,10 @@ namespace CB { namespace schema
         /// @brief Frees the easyAlloc block at +0x90.
         /// @note Name provisional; out of line in vanilla (0x140aaff00).
         void freeRagdollPoseWS();
+        /// @brief Registers `rigidBody` as attached, when it is one of the ragdoll's bodies.
+        /// @note Name per the Havok SDK.
+        void addAttachedRigidBody(hkpRigidBody* rigidBody);
+        /// @note Name per the Havok SDK.
+        void removeAttachedRigidBody(hkpRigidBody* rigidBody);
     };
 } }

@@ -2,6 +2,8 @@
 /// @brief hkbRagdollDriver, reimplemented against vanilla (AE 1.6.1170) — only what hkbCharacter calls so far.
 #include <Behavior/Driver/Ragdoll/hkbRagdollDriver.h>
 
+#include <Animation/Ragdoll/Instance/hkaRagdollInstance.h>
+
 namespace CB { namespace schema
 {
     void hkbRagdollDriver::reset()
@@ -28,5 +30,17 @@ namespace CB { namespace schema
         m_flagsC7[1]                    = false;
         m_flagsC7[2]                    = false;
         m_flagsC7[3]                    = false;
+    }
+
+    void hkbRagdollDriver::addAttachedRigidBody(hkpRigidBody* rigidBody)
+    {
+        if (m_ragdoll) {
+            if (m_ragdoll->getBoneIndexOfRigidBody(rigidBody) != -1) m_attachedRigidBodyToIndexMap.insert(rigidBody, 1);
+        }
+    }
+
+    void hkbRagdollDriver::removeAttachedRigidBody(hkpRigidBody* rigidBody)
+    {
+        if (m_ragdoll) m_attachedRigidBodyToIndexMap.remove(rigidBody);
     }
 } }

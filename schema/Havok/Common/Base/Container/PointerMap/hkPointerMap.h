@@ -37,6 +37,8 @@ namespace CB { namespace schema
         /// @brief The bytes the map's storage holds.
         /// @note Name provisional; out of line in vanilla (0x140a8c4f0).
         int      getMemSize() const;
+        /// @brief The number of keys (m_numElems without its DONT_DEALLOCATE bit).
+        HK_FORCE_INLINE int getSize() const { return m_numElems & 0x7fffffff; }
 
         /// @brief Iteration over the occupied slots: an iterator is a slot index (sign-extended into a pointer-sized
         ///        handle, as Havok's hkMap::Iterator), valid while <= m_hashMod.
@@ -88,6 +90,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE ~hkPointerMap() { m_map.clearAndDeallocate(hkContainerHeapAllocator::s_alloc); }
 
         HK_FORCE_INLINE void     clear() { m_map.clear(); }
+        HK_FORCE_INLINE int      getSize() const { return m_map.getSize(); }
         typedef hkPointerMapStorage::Iterator Iterator;
         HK_FORCE_INLINE Iterator getIterator() const { return m_map.getIterator(); }
         HK_FORCE_INLINE Iterator getNext(Iterator it) const { return m_map.getNext(it); }

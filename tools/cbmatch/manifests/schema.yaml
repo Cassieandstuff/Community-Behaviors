@@ -909,6 +909,8 @@ units:
   - source: ../../../schema/Havok/Behavior/Driver/Ragdoll/hkbRagdollDriver.cpp
     functions:
       - { name: "CB::schema::hkbRagdollDriver::reset", va: 0x140aaea40 }
+      - { name: "CB::schema::hkbRagdollDriver::addAttachedRigidBody", va: 0x140aaeba0 }
+      - { name: "CB::schema::hkbRagdollDriver::removeAttachedRigidBody", va: 0x140aaebf0 }
   - source: ../../../schema/Havok/Behavior/StateMachine/hkbStateMachine.cpp
     functions:
       - { name: "??0hkbStateMachine@schema@CB@@QEAA@XZ", va: 0x140ad75b0 }
@@ -1024,3 +1026,32 @@ units:
   - source: ../../../schema/Havok/Behavior/Modifier/Attribute/hkbAttributeModifierUtils.cpp
     functions:
       - { name: "CB::schema::hkbAttributeModifierUtils::modify", va: 0x140b0cbb0 }
+  - source: ../../../schema/Havok/Behavior/Attachment/hkbAttachmentSetup.cpp
+    functions:
+      - { name: "??0hkbAttachmentSetup@schema@CB@@QEAA@XZ", va: 0x140b0cb30 }
+      - { name: "??0hkbAttachmentSetup@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b0cb70 }
+      - { name: "??_GhkbAttachmentSetup@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7580 }
+  - source: ../../../schema/Havok/Behavior/Attachment/hkbAttachmentSceneModifier.cpp
+    functions:
+      - { name: "??0hkbAttachmentSceneModifier@schema@CB@@QEAA@XZ", va: 0x140ae45b0 }
+      - { name: "CB::schema::hkbAttachmentSceneModifier::modify", va: 0x140ae45e0 }
+      - { name: "??_GhkbAttachmentSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ae4d90 }
+  - source: ../../../schema/Havok/Behavior/Attachment/hkbAttachmentFixupSceneModifier.cpp
+    functions:
+      - { name: "??0hkbAttachmentFixupSceneModifier@schema@CB@@QEAA@XZ", va: 0x140ae4610 }
+      - { name: "CB::schema::hkbAttachmentFixupSceneModifier::modify", va: 0x140ae4640 }
+      - { name: "??_GhkbAttachmentFixupSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ae4d00 }
+  - source: ../../../schema/Havok/Behavior/Modifier/Attachment/hkbAttachmentModifier.cpp
+    functions:
+      - { name: "??0hkbAttachmentModifier@schema@CB@@QEAA@XZ", va: 0x140aeb0c0 }
+      - { name: "??0hkbAttachmentModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140aeb190 }
+      - { name: "CB::schema::hkbAttachmentModifier::calcContentStatistics", va: 0x140aeb2b0 }
+      - { name: "CB::schema::hkbAttachmentModifier::activate", va: 0x140aeb340 }
+      - { name: "CB::schema::hkbAttachmentModifier::deactivate", va: 0x140aeb360 }
+      - { name: "CB::schema::hkbAttachmentModifier::update", va: 0x140aeb3c0 }
+      - { name: "CB::schema::hkbAttachmentModifier::setAttachmentSetup", va: 0x140aeb3e0 }
+      - { name: "CB::schema::hkbAttachmentModifier::cloneNode", va: 0x140aeb430 }
+      - { name: "CB::schema::hkbAttachmentModifier::attach", va: 0x140aeb480 }
+      - { name: "CB::schema::hkbAttachmentModifier::detach", va: 0x140aeb7e0 }
+      - { name: "??1hkbAttachmentModifier@schema@CB@@UEAA@XZ", va: 0x140ac5e60 }
+      - { name: "??_GhkbAttachmentModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7500 }

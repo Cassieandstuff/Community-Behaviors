@@ -8,6 +8,8 @@ namespace CB { namespace schema
 {
     class hkpWorld;
     class hkbNode;
+    struct hkbAttachmentManager;
+    struct hkbSymbolIdMap;
 
     struct hkbContext
     {
@@ -20,7 +22,8 @@ namespace CB { namespace schema
         mutable hkUint8   m_flags;            ///< +0x30
         char              m_pad31[0x38 - 0x31];
         hkpWorld*         m_world;            ///< +0x38
-        char              m_pad40[0x48 - 0x40];
+        /// @note Name provisional (the constructor's third argument).
+        hkbAttachmentManager* m_attachmentManager; ///< +0x40
         void*             m_animationCache;   ///< +0x48
 
         /// @brief The m_flags bit a node raises when its set of active children changes during handleEvent
@@ -42,6 +45,14 @@ namespace CB { namespace schema
         /// @brief The behavior world's up vector, else the character's project data's.
         /// @note Out of line in vanilla (0x140ab0ad0).
         const hkVector4& getWorldUpWS() const;
+        /// @brief The context's attachment manager, else the character's behavior world's (null without either).
+        /// @note Name provisional. Out of line in vanilla (0x140ab0af0).
+        hkbAttachmentManager* getAttachmentManager() const;
+        /// @brief Queues `e` for `character` (another character's graph): its id is taken external through `eventIdMap`,
+        ///        then internal to `character`'s graph. Under a multithreaded step (the context's +0x20 buffer) the event
+        ///        is buffered instead, with its external id.
+        /// @note Name provisional. Out of line in vanilla (0x140ab0bc0); it rewrites `e.m_id`.
+        void sendEventToCharacter(hkbEvent& e, hkbCharacter* character, const hkbSymbolIdMap* eventIdMap) const;
         /// @brief Whether `node` is active: in the context's node-to-index map when it has one, else in the root graph's
         ///        active nodes (the root graph itself counts while the graph is active).
         /// @note Name provisional. Out of line in vanilla (0x140ab0b40).

@@ -17,6 +17,9 @@ namespace CB { namespace schema
         hkRefPtr<const hkaSkeleton> m_skeleton;             ///< +0x40
 
         HK_FORCE_INLINE const hkaSkeleton* getSkeleton() const { return m_skeleton; }
+        /// @brief The ragdoll bone `rigidBody` drives, -1 if it is not one of the ragdoll's bodies.
+        /// @note Out of line in vanilla; name per the Havok SDK.
+        int getBoneIndexOfRigidBody(const hkpRigidBody* rigidBody) const;
         /// @brief The body driving ragdoll bone `boneId`, null if none.
         HK_FORCE_INLINE hkpRigidBody* getRigidBodyOfBone(int boneId) const
         {

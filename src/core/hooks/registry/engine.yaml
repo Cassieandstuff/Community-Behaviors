@@ -686,3 +686,23 @@ symbols:
   - { name: hkbAttributeModifier_Vtable, kind: data, se: 0, ae: 226350, vr: 0, cpp: "CB::schema::hkbAttributeModifier::`vftable'" }
   - { name: hkbAttributeModifier_CloneCtor, kind: func, se: 0, ae: 59602, vr: 0, cpp: "??0hkbAttributeModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
   - { name: hkbAttributeModifierUtils_Modify, kind: func, se: 0, ae: 60050, vr: 0, cpp: "CB::schema::hkbAttributeModifierUtils::modify" }  # name provisional; (modifier, inOut, behavior attributeIdMap, root attributeIdMap); modify tail-jumps to it
+  - { name: hkbAttachmentSetup_Vtable, kind: data, se: 0, ae: 226126, vr: 0, cpp: "CB::schema::hkbAttachmentSetup::`vftable'" }
+  - { name: hkbAttachmentSceneModifier_Vtable, kind: data, se: 0, ae: 226860, vr: 0, cpp: "CB::schema::hkbAttachmentSceneModifier::`vftable'" }
+  - { name: hkbAttachmentFixupSceneModifier_Vtable, kind: data, se: 0, ae: 226862, vr: 0, cpp: "CB::schema::hkbAttachmentFixupSceneModifier::`vftable'" }
+  - { name: hkbAttachmentManager_Update, kind: func, se: 0, ae: 59434, vr: 0, cpp: "CB::schema::hkbAttachmentManager::update" }  # name provisional; (timestep, sceneCharacters, isFixup)
+  - { name: hkaRagdollInstance_GetBoneIndexOfRigidBody, kind: func, se: 0, ae: 58313, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getBoneIndexOfRigidBody" }  # an out-of-line copy among hkbRagdollDriver's functions (0x140ab0980)
+  - { name: hkbAttachmentManager_AttachHandles, kind: func, se: 0, ae: 59432, vr: 0, cpp: "CB::schema::hkbAttachmentManager::attachHandles" }  # name provisional; (world, setup, handles[2]) -> instance
+  - { name: hkbAttachmentManager_Detach, kind: func, se: 0, ae: 59433, vr: 0, cpp: "CB::schema::hkbAttachmentManager::detach" }  # name provisional; (world, instance), frees it
+  - { name: hkbAttachmentModifier_Vtable, kind: data, se: 0, ae: 226346, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::`vftable'" }
+  - { name: hkbAttachmentModifier_StaticClass, kind: data, se: 0, ae: 407810, vr: 0, cpp: "CB::schema::hkbAttachmentModifierClass" }  # hkClass object
+  - { name: hkbAttachmentModifier_CopyCtor, kind: func, se: 0, ae: 59593, vr: 0, cpp: "??0hkbAttachmentModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbAttachmentModifier_Dtor, kind: func, se: 0, ae: 58970, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::~hkbAttachmentModifier" }  # implicit, out of line among the type registrations
+  - { name: hkbAttachmentModifier_Attach, kind: func, se: 0, ae: 59600, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::attach" }  # name provisional; update tail-jumps to it
+  - { name: hkbAttachmentModifier_Detach, kind: func, se: 0, ae: 59601, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::detach" }  # name provisional
+  - { name: hkbAttachmentSetup_CopyCtor, kind: func, se: 0, ae: 60049, vr: 0, cpp: "??0hkbAttachmentSetup@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbContext_GetAttachmentManager, kind: func, se: 0, ae: 58318, vr: 0, cpp: "CB::schema::hkbContext::getAttachmentManager" }  # name provisional; context +0x40, else the behavior world's +0x130
+  - { name: hkbContext_SendEventToCharacter, kind: func, se: 0, ae: 58321, vr: 0, cpp: "CB::schema::hkbContext::sendEventToCharacter" }  # name provisional; (event&, character, eventIdMap)
+  - { name: hkbRagdollDriver_AddAttachedRigidBody, kind: func, se: 0, ae: 58297, vr: 0, cpp: "CB::schema::hkbRagdollDriver::addAttachedRigidBody" }
+  - { name: hkbRagdollDriver_RemoveAttachedRigidBody, kind: func, se: 0, ae: 58298, vr: 0, cpp: "CB::schema::hkbRagdollDriver::removeAttachedRigidBody" }
+  - { name: hkpRigidBody_SetMotionType, kind: func, se: 0, ae: 60908, vr: 0, cpp: "CB::schema::hkpRigidBody::setMotionType" }  # hkp code (not reimplemented); (newState, activation)
+  - { name: hkpWorld_UpdateCollisionFilterOnEntity, kind: func, se: 0, ae: 61321, vr: 0, cpp: "CB::schema::hkpWorld::updateCollisionFilterOnEntity" }  # hkp code (not reimplemented)

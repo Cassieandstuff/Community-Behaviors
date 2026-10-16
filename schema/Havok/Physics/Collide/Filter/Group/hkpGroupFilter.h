@@ -22,5 +22,16 @@ namespace CB { namespace schema
         /// @brief Whether objects with these collision filter infos (layer + system group) may collide.
         /// @note Out of line in vanilla; the hkBool comes back through memory.
         hkBool isCollisionEnabled(hkUint32 infoA, hkUint32 infoB) const;
+
+        /// @brief A collision filter info: layer in bits 0-4, subsystem id 5-9, the subsystem it does not collide with
+        ///        10-14, system group from bit 16.
+        static HK_FORCE_INLINE hkUint32 calcFilterInfo(int layer, int systemGroup = 0, int subSystemId = 0, int subSystemDontCollideWith = 0)
+        {
+            return hkUint32((systemGroup << 16) | (subSystemDontCollideWith << 10) | (subSystemId << 5) | layer);
+        }
+        static HK_FORCE_INLINE int getLayerFromFilterInfo(hkUint32 filterInfo) { return filterInfo & 0x1f; }
+        static HK_FORCE_INLINE int getSystemGroupFromFilterInfo(hkUint32 filterInfo) { return filterInfo >> 16; }
+        static HK_FORCE_INLINE int getSubSystemIdFromFilterInfo(hkUint32 filterInfo) { return (filterInfo >> 5) & 0x1f; }
+        static HK_FORCE_INLINE int getSubSystemDontCollideWithFromFilterInfo(hkUint32 filterInfo) { return (filterInfo >> 10) & 0x1f; }
     };
 } }

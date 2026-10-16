@@ -6,6 +6,8 @@
 
 namespace CB { namespace schema
 {
+    class hkpRigidBody;
+
     class hkpWorld : public hkReferencedObject
     {
     public:
@@ -16,5 +18,9 @@ namespace CB { namespace schema
         /// @note Names provisional. Skyrim's versions enter/leave a global critical section and count in +0x130.
         void lock();
         void unlock();
+        /// @brief Re-runs the collision filter over `entity`'s collision pairs after its filter info changed.
+        /// @note Out of line in vanilla (hkp code, not reimplemented); parameters per the Havok SDK (an
+        ///       hkpUpdateCollisionFilterOnEntityMode and an hkpUpdateCollectionFilterMode).
+        void updateCollisionFilterOnEntity(hkpRigidBody* entity, int updateMode, int updateShapeCollectionFilter);
     };
 } }
