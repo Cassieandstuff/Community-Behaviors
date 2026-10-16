@@ -94,7 +94,26 @@ namespace CB { namespace schema
         virtual hkUint32 getNumAnnotations(hkReal startTime, hkReal deltaTime) const;   ///< slot 14
         /// @brief Copies up to `maxAnnotations` of those annotations, track by track, into `annotationsOut`; how many.
         virtual hkUint32 getAnnotations(hkReal startTime, hkReal deltaTime, TrackAnnotation* annotationsOut, hkUint32 maxAnnotations) const;   ///< slot 15
+
+        /// @brief The frame `time` falls in and how far (0–1) it lies toward the next one.
+        /// @note `time` at the very end gives the last frame pair with delta 1.
+        HK_FORCE_INLINE void getFrameAndDelta(hkReal time, hkUint32& frameOut, hkReal& deltaOut) const;
     };
+
+    HK_FORCE_INLINE void hkaAnimation::getFrameAndDelta(hkReal time, hkUint32& frameOut, hkReal& deltaOut) const
+    {
+        const hkUint32 maxFrameIndex = getNumOriginalFrames() - 1;
+        const hkReal   frameFloat    = (time / m_duration) * maxFrameIndex;
+        frameOut                     = static_cast<hkUint32>(frameFloat);
+        if (frameOut > maxFrameIndex - 1) {
+            frameOut = maxFrameIndex - 1;
+            deltaOut = 1.0f;
+            return;
+        }
+        deltaOut = frameFloat - static_cast<hkReal>(frameOut);
+        if (deltaOut < 0.0f) deltaOut = 0.0f;
+        else if (deltaOut >= 1.0f) deltaOut = 1.0f;
+    }
 
     /// @note hkaAnimation.inl: emitted (COMDAT) wherever the vtable is; the error ids and line numbers are vanilla's.
     inline void hkaAnimation::samplePartialTracks(hkReal, hkUint32, hkQsTransform*, hkUint32, hkReal*, hkaChunkCache*) const

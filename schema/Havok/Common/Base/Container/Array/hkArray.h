@@ -239,6 +239,38 @@ namespace CB { namespace schema
         hkArrayUtil::constructWithArray(m_data + m_size, numElemsToAppend, a, hkArrayIsPod<hkIsPodType<T>::result != 0>());
         m_size = newSize;
     }
+    /// @brief Havok's hkArray<T, hkContainerTempAllocator>: `n` elements whose storage comes from the temp allocator.
+    /// @note A subclass rather than hkArray's allocator argument, so hkArray<T>'s mangled names (pinned in engine.yaml)
+    ///       stay as they are. Its destructor hands the block back to the temp allocator and leaves the base nothing to
+    ///       free.
+    template <class T> struct hkTempArray : hkArray<T>
+    {
+        HK_FORCE_INLINE explicit hkTempArray(int n)
+        {
+            int capacity = 0;
+            T*  data     = HK_NULL;
+            if (n) {
+                int numBytes = n * int(sizeof(T));
+                hkMemoryAllocator& a = hkContainerTempAllocator::s_alloc;
+                data                 = static_cast<T*>(a.bufAlloc(numBytes));
+                capacity     = numBytes / int(sizeof(T));
+            }
+            this->m_data             = data;
+            this->m_size             = n;
+            this->m_capacityAndFlags = capacity ? capacity : int(hkArray<T>::DONT_DEALLOCATE_FLAG);
+        }
+        HK_FORCE_INLINE ~hkTempArray()
+        {
+            this->m_size = 0;
+            if (this->m_capacityAndFlags >= 0) {
+                hkMemoryAllocator& a = hkContainerTempAllocator::s_alloc;
+                a.bufFree(this->m_data, this->getCapacity() * int(sizeof(T)));
+            }
+            this->m_data             = HK_NULL;
+            this->m_capacityAndFlags = hkArray<T>::DONT_DEALLOCATE_FLAG;
+        }
+    };
+
     /// @brief An array with room for N elements in place (no allocation until it outgrows them).
     template <class T, unsigned N> struct hkInplaceArray : hkArray<T>
     {

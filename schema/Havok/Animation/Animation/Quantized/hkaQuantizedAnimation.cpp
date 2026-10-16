@@ -1,0 +1,104 @@
+/// @file
+/// @brief hkaQuantizedAnimation, reimplemented against vanilla (AE 1.6.1170).
+#include <Animation/Animation/Quantized/hkaQuantizedAnimation.h>
+
+namespace CB { namespace schema
+{
+    hkaQuantizedAnimation::~hkaQuantizedAnimation()
+    {
+    }
+
+    void hkaQuantizedAnimation::sampleFullPose(hkQsTransform* poseOut, hkReal* floatsOut, hkReal* poseWeightsOut, hkReal* floatWeightsOut, hkReal time,
+                                               bool additive, hkReal weightThreshold) const
+    {
+        sampleFullPose(m_data.begin(), poseOut, floatsOut, poseWeightsOut, floatWeightsOut, m_skeleton->m_referencePose.begin(),
+                       m_skeleton->m_referenceFloats.begin(), time, additive, weightThreshold);
+    }
+
+    void hkaQuantizedAnimation::sampleTracks(hkReal time, hkQsTransform* transformTracksOut, hkReal* floatTracksOut, void* cache) const
+    {
+        const hkaQuantizedAnimationHeader* header       = reinterpret_cast<const hkaQuantizedAnimationHeader*>(m_data.begin());
+        const hkUint32                     numBones     = header->m_numBones;
+        const hkUint32                     numFloats    = header->m_numFloats;
+        const int                          numBonesPad  = HK_NEXT_MULTIPLE_OF(4, numBones);
+        const int                          numFloatsPad = HK_NEXT_MULTIPLE_OF(4, numFloats);
+
+        hkTempArray<hkQsTransform> pose(numBonesPad);
+        hkTempArray<hkReal>        poseWeights(numBonesPad);
+        hkTempArray<hkReal>        floats(numFloatsPad);
+        hkTempArray<hkReal>        floatWeights(numFloatsPad);
+        sampleFullPose(pose.begin(), floats.begin(), poseWeights.begin(), floatWeights.begin(), time, false, 0.001f);
+
+        for (hkUint32 i = 0; i < numBones; i++) {
+            if (poseWeights[i] > 0.0f) {
+                *transformTracksOut++ = pose[i];
+            }
+        }
+        for (hkUint32 i = 0; i < numFloats; i++) {
+            if (floatWeights[i] > 0.0f) {
+                *floatTracksOut = floats[i];
+                floatTracksOut++;
+            }
+        }
+    }
+
+    void hkaQuantizedAnimation::samplePartialTracks(hkReal time, hkUint32 maxNumTransformTracks, hkQsTransform* transformTracksOut,
+                                                    hkUint32 maxNumFloatTracks, hkReal* floatTracksOut, void* cache) const
+    {
+        const hkaQuantizedAnimationHeader* header       = reinterpret_cast<const hkaQuantizedAnimationHeader*>(m_data.begin());
+        const hkUint32                     numBones     = header->m_numBones;
+        const hkUint32                     numFloats    = header->m_numFloats;
+        const int                          numBonesPad  = HK_NEXT_MULTIPLE_OF(4, numBones);
+        const int                          numFloatsPad = HK_NEXT_MULTIPLE_OF(4, numFloats);
+
+        hkTempArray<hkQsTransform> pose(numBonesPad);
+        hkTempArray<hkReal>        poseWeights(numBonesPad);
+        hkTempArray<hkReal>        floats(numFloatsPad);
+        hkTempArray<hkReal>        floatWeights(numFloatsPad);
+        sampleFullPose(pose.begin(), floats.begin(), poseWeights.begin(), floatWeights.begin(), time, false, 0.001f);
+
+        hkUint32 numSampled = 0;
+        for (hkUint32 i = 0; i < numBones; i++) {
+            if (numSampled >= maxNumTransformTracks) break;
+            if (poseWeights[i] > 0.0f) {
+                *transformTracksOut++ = pose[i];
+                numSampled++;
+            }
+        }
+        numSampled = 0;
+        for (hkUint32 i = 0; i < numFloats; i++) {
+            if (floatWeights[i] > 0.0f && numSampled < maxNumFloatTracks) {
+                *floatTracksOut = floats[i];
+                floatTracksOut++;
+                numSampled++;
+            }
+        }
+    }
+
+    void hkaQuantizedAnimation::sampleIndividualTransformTracks(hkReal time, const hkInt16* tracks, hkUint32 numTracks, hkQsTransform* transformOut) const
+    {
+    }
+
+    void hkaQuantizedAnimation::sampleIndividualFloatTracks(hkReal time, const hkInt16* tracks, hkUint32 numTracks, hkReal* out) const
+    {
+    }
+
+    int hkaQuantizedAnimation::getNumOriginalFrames() const
+    {
+        return reinterpret_cast<const hkaQuantizedAnimationHeader*>(m_data.begin())->m_numFrames;
+    }
+
+    void hkaQuantizedAnimation::sampleFullPose(const hkUint8* data, hkQsTransform* poseOut, hkReal* floatsOut, hkReal* poseWeightsOut,
+                                               hkReal* floatWeightsOut, const hkQsTransform* referencePose, const hkReal* referenceFloats, hkReal time,
+                                               bool additive, hkReal weightThreshold)
+    {
+        const hkaQuantizedAnimationHeader* header = reinterpret_cast<const hkaQuantizedAnimationHeader*>(data);
+
+        hkTempArray<hkQsTransform> poseBufferA(HK_NEXT_MULTIPLE_OF(4, header->m_numBones));
+        hkTempArray<hkQsTransform> poseBufferB(HK_NEXT_MULTIPLE_OF(4, header->m_numBones));
+        hkTempArray<hkReal>        floatBufferA(HK_NEXT_MULTIPLE_OF(4, header->m_numFloats));
+        hkTempArray<hkReal>        floatBufferB(HK_NEXT_MULTIPLE_OF(4, header->m_numFloats));
+        sampleFullPose(data, poseOut, floatsOut, poseWeightsOut, floatWeightsOut, referencePose, referenceFloats, poseBufferA.begin(),
+                       poseBufferB.begin(), floatBufferA.begin(), floatBufferB.begin(), time, additive, weightThreshold);
+    }
+} }

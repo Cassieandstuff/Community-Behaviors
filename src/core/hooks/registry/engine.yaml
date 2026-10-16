@@ -316,6 +316,15 @@ symbols:
   - { name: hkaSkeletonUtils_TransformLocalBoneToModelBone, kind: func, se: 0, ae: 64105, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::transformLocalBoneToModelBone" }  # name provisional; (bone, parentIndices, poseLocal, out) composed up the parent chain
   - { name: hkaMirroredSkeleton_GetBonePair, kind: func, se: 0, ae: 64369, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::getBonePair" }  # (bone): the mirror partner from +0x10, -1 for a negative bone
   - { name: hkaMirroredSkeleton_MirrorBone, kind: func, se: 0, ae: 64362, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorBone" }  # name provisional; (transform&, bone, isAdditive) mirrors one bone in place
+  # Havok animation samplers (Interleaved / Quantized / SplineCompressed) and the hkaAnimation members they call
+  - { name: hkaAnimation_CopyCtor, kind: func, se: 0, ae: 65505, vr: 0, cpp: "??0hkaAnimation@schema@CB@@QEAA@AEBU012@@Z" }  # every sampler copy constructor calls it
+  - { name: hkaAnimation_Dtor, kind: func, se: 0, ae: 64318, vr: 0, cpp: "CB::schema::hkaAnimation::~hkaAnimation" }  # out of line; the samplers' destructors end in it
+  - { name: hkaInterleavedUncompressedAnimation_Dtor, kind: func, se: 0, ae: 64321, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::~hkaInterleavedUncompressedAnimation" }  # the scalar deleting destructor (slot 0) calls it
+  - { name: hkaInterleavedUncompressedAnimation_SamplePartialWithDataChunks, kind: func, se: 0, ae: 65517, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks" }  # samplePartialTracks calls it
+  - { name: hkaQuantizedAnimation_Dtor, kind: func, se: 0, ae: 64419, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::~hkaQuantizedAnimation" }  # the scalar deleting destructor (slot 0) calls it
+  - { name: hkaQuantizedAnimation_SampleFullPose, kind: func, se: 0, ae: 65518, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@QEBAXPEAUhkQsTransform@23@PEAM11M_NM@Z" }  # name provisional; (poseOut, floatsOut, poseWeightsOut, floatWeightsOut, time, additive, weightThreshold) const
+  - { name: hkaQuantizedAnimation_SampleFullPoseData, kind: func, se: 0, ae: 65525, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBMM_NM@Z" }  # name provisional; static, over the data stream; allocates the scratch
+  - { name: hkaQuantizedAnimation_SampleFullPoseBuffers, kind: func, se: 0, ae: 65526, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBM1122M_NM@Z" }  # name provisional; static, with caller scratch: frame and delta from time, then the frame-pair sampler
   # Havok behavior
   - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
   - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # the implicit destructor's out-of-line copy: most node destructors end in a tail call to it (hkbSequence's inlines it)
@@ -485,6 +494,8 @@ symbols:
   - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
   - { name: hkbModifier_Vtable, kind: data, se: 278385, ae: 226321, vr: 0, cpp: "CB::schema::hkbModifier::`vftable'" }
   - { name: hkbHandle_Vtable, kind: data, se: 278245, ae: 226152, vr: 0, cpp: "CB::schema::hkbHandle::`vftable'" }
+  - { name: hkaInterleavedUncompressedAnimation_Vtable, kind: data, se: 0, ae: 233268, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::`vftable'" }
+  - { name: hkaQuantizedAnimation_Vtable, kind: data, se: 0, ae: 233272, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::`vftable'" }
   - { name: hkbSenseHandleModifier_Vtable, kind: data, se: 278615, ae: 226606, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::`vftable'" }
   - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
   - { name: hkbTwistModifier_Vtable, kind: data, se: 278639, ae: 226636, vr: 0, cpp: "CB::schema::hkbTwistModifier::`vftable'" }
