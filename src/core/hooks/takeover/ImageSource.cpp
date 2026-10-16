@@ -101,7 +101,7 @@ namespace CB::core::hooks {
                 std::memcpy(unwind + c.at, &parent, sizeof parent);
             }
             for (const auto& u : f.unwinds) table.push_back(entryOf(u));
-            out.push_back({ f.name, f.vanillaRva, f.vanillaLength, f.vanillaHash, at });
+            out.push_back({ f.name, f.mangled, f.vanillaRva, f.vanillaLength, f.vanillaHash, at });
         }
         // Placed in address order, so the table is sorted as the unwinder's binary search needs.
         if (!table.empty() && !RtlAddFunctionTable(table.data(), static_cast<DWORD>(table.size()), reinterpret_cast<DWORD64>(base_)))

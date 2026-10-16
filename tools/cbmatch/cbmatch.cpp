@@ -38,6 +38,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <set>
 #include <span>
 #include <stdexcept>
@@ -4238,6 +4239,8 @@ void usage()
         "  --diff-seed <n>      run only seed <n> of --diff, printing every stubbed call and forced pointer\n"
         "  --emit-image <file>  write the runtime image: every passing function's code and references, keyed by the vanilla\n"
         "                       function it replaces, for the plugin's takeover installer (needs a full run and the registry)\n"
+        "  --emit-palette <dir> write the function palette: one typed cell per passing function, a header per class\n"
+        "                       (with --emit-image, exactly the image's functions)\n"
         "\n"
         "manifest:\n"
         "  runtimes:   { ae: { exe: <exe>, addresslib: <versionlib-*.bin>, pins: ae } }   # or name: <exe>; ${VAR} = env\n"
@@ -4267,6 +4270,285 @@ void usage()
         "byte index tables identical, every case target on corresponding code. Exit code 0 only when every function is EXACT.");
 }
 
+// ── the function palette ─────────────────────────────────────────────────────────────────────────────────────────
+
+/// @brief A function's C++ prototype, read back from its mangled symbol.
+struct Prototype {
+    bool                     member = false, isStatic = false, isConst = false;
+    std::string              full, ret, owner, method;
+    std::vector<std::string> params;
+};
+
+std::string trimmed(std::string_view s) { return std::string(CB::engine::text::Trim(s)); }
+
+/// @return the prototype, or nullopt with `why` when the palette can't type it (variadic, a function-pointer parameter,
+///         a compiler thunk).
+std::optional<Prototype> readPrototype(const std::string& mangled, std::string& why)
+{
+    Prototype p;
+    {
+        std::lock_guard lk(g_dbghelp);
+        char buf[4096];
+        if (!UnDecorateSymbolName(mangled.c_str(), buf, sizeof buf, UNDNAME_NO_MS_KEYWORDS)) return why = "cannot undecorate", std::nullopt;
+        p.full = buf;
+    }
+    std::string s = trimmed(p.full);
+    if (s.find("[thunk]") != std::string::npos || s.find("`adjustor") != std::string::npos) return why = "a compiler thunk", std::nullopt;
+    for (const char* a : { "public: ", "protected: ", "private: " })
+        if (s.rfind(a, 0) == 0) p.member = true, s.erase(0, std::strlen(a));
+    if (s.rfind("static ", 0) == 0) p.isStatic = true, s.erase(0, 7);
+    if (s.rfind("virtual ", 0) == 0) s.erase(0, 8);
+    s = trimmed(s);
+    if (s.size() > 5 && s.compare(s.size() - 5, 5, "const") == 0 && s[s.size() - 6] != ':') p.isConst = true, s = trimmed(s.substr(0, s.size() - 5));
+    if (s.empty() || s.back() != ')') return why = "no parameter list in '" + p.full + "'", std::nullopt;
+    std::size_t open = std::string::npos;
+    for (std::size_t i = s.size(), depth = 0; i-- > 0;) {
+        if (s[i] == ')') ++depth;
+        else if (s[i] == '(' && --depth == 0) { open = i; break; }
+    }
+    if (open == std::string::npos) return why = "unbalanced '" + p.full + "'", std::nullopt;
+    const std::string params = s.substr(open + 1, s.size() - open - 2);
+    const std::string head   = s.substr(0, open);
+    // The qualified name ends the head; a backticked special name (`scalar deleting destructor') is one token.
+    std::size_t i = head.size();
+    if (!head.empty() && head.back() == '\'') i = head.rfind('`');
+    for (int depth = 0; i > 0; --i) {
+        const char c = head[i - 1];
+        if (c == '>') ++depth;
+        else if (c == '<') --depth;
+        else if (c == ' ' && depth == 0) break;
+    }
+    std::string qualified = head.substr(i);
+    p.ret                 = trimmed(head.substr(0, i));
+    if (p.ret.size() >= 8 && p.ret.compare(p.ret.size() - 8, 8, "operator") == 0) {   // "operator new": the space is the name's
+        const std::size_t sp = p.ret.find_last_of(' ');
+        qualified = p.ret.substr(sp == std::string::npos ? 0 : sp + 1) + " " + qualified;
+        p.ret     = sp == std::string::npos ? std::string() : trimmed(p.ret.substr(0, sp));
+    }
+    std::size_t split = std::string::npos;
+    for (std::size_t k = 0, depth = 0; k + 1 < qualified.size(); ++k) {
+        if (qualified[k] == '<') ++depth;
+        else if (qualified[k] == '>') --depth;
+        else if (qualified[k] == '`') break;
+        else if (depth == 0 && qualified[k] == ':' && qualified[k + 1] == ':') split = k;
+    }
+    if (split == std::string::npos) return why = "an unqualified name", std::nullopt;
+    p.owner  = qualified.substr(0, split);
+    p.method = qualified.substr(split + 2);
+    std::string cur;
+    int         depth = 0;
+    for (const char c : params) {
+        if (c == '<' || c == '(') ++depth;
+        if (c == '>' || c == ')') --depth;
+        if (c == ',' && depth == 0) p.params.push_back(trimmed(cur)), cur.clear();
+        else cur += c;
+    }
+    if (!trimmed(cur).empty() && trimmed(cur) != "void") p.params.push_back(trimmed(cur));
+    for (const auto& q : p.params) {
+        if (q.find("...") != std::string::npos) return why = "variadic", std::nullopt;
+        if (q.find('(') != std::string::npos) return why = "a function-pointer parameter", std::nullopt;
+    }
+    return p;
+}
+
+/// @return the signature a free function with the object first must have to be ABI-identical to the member function.
+/// @note MSVC x64: a constructor returns `this`; an instance member returning a class by value takes a hidden pointer
+///       to the result right after `this` and returns it (a free function returns small ones in rax instead).
+std::string cellSignature(const Prototype& p)
+{
+    std::string       ret  = p.ret;
+    if (ret.empty()) ret = p.method.front() == '~' ? "void" : p.owner + " *";
+    std::vector<std::string> args;
+    const bool instance = p.member && !p.isStatic;
+    if (instance) args.push_back((p.isConst ? "const " : "") + p.owner + " *");
+    const bool udt = (ret.rfind("class ", 0) == 0 || ret.rfind("struct ", 0) == 0 || ret.rfind("union ", 0) == 0) && ret.back() != '*' &&
+                     ret.back() != '&';
+    if (instance && udt) {
+        args.push_back(ret + " *");
+        ret += " *";
+    }
+    args.insert(args.end(), p.params.begin(), p.params.end());
+    std::string sig = ret + "(";
+    for (std::size_t k = 0; k < args.size(); ++k) sig += (k ? ", " : "") + args[k];
+    return sig + ")";
+}
+
+/// @return the last `::` component of a qualified name, skipping the `::`s inside template arguments.
+std::string leafOf(const std::string& q)
+{
+    std::size_t split = std::string::npos;
+    for (std::size_t k = 0, depth = 0; k + 1 < q.size(); ++k) {
+        if (q[k] == '<') ++depth;
+        else if (q[k] == '>') --depth;
+        else if (depth == 0 && q[k] == ':' && q[k + 1] == ':') split = k;
+    }
+    return split == std::string::npos ? q : q.substr(split + 2);
+}
+
+/// @return a name as an author reads it: no elaborated-type keywords, no namespace qualifiers inside template
+///         arguments (`hkQueue<struct CB::schema::hkbEvent>` → `hkQueue<hkbEvent>`).
+std::string readableOf(std::string s)
+{
+    for (const char* w : { "struct ", "class ", "enum ", "union " })
+        for (std::size_t at; (at = s.find(w)) != std::string::npos;) s.erase(at, std::strlen(w));
+    static const std::regex qualifier(R"([A-Za-z_]\w*::)");
+    return std::regex_replace(s, qualifier, "");
+}
+
+std::string identifierOf(std::string_view s)
+{
+    std::string out;
+    for (const char c : s) out += (std::isalnum(static_cast<unsigned char>(c)) || c == '_') ? c : '_';
+    while (out.find("__") != std::string::npos) out.erase(out.find("__"), 1);
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    if (!out.empty() && std::isdigit(static_cast<unsigned char>(out[0]))) out.insert(0, "_");
+    return out;
+}
+
+/// @return the palette's name for a method: ctor, dtor, scalarDeletingDtor, operatorAssign…, else the method itself.
+std::string paletteName(const Prototype& p)
+{
+    static const std::set<std::string> keywords = { "new", "delete", "default", "register", "class", "struct", "union", "enum", "template",
+                                                    "typename", "operator", "and", "or", "not", "xor", "bool", "int", "char", "float", "this" };
+    const std::string cls = leafOf(p.owner);
+    if (p.method == cls || p.method.rfind(cls + "<", 0) == 0) return "ctor";
+    if (!p.method.empty() && p.method[0] == '~') return "dtor";
+    if (p.method == "`scalar deleting destructor'") return "scalarDeletingDtor";
+    if (p.method == "`vector deleting destructor'") return "vectorDeletingDtor";
+    static const std::map<std::string, std::string> ops = { { "operator=", "operatorAssign" },     { "operator==", "operatorEq" },
+                                                           { "operator!=", "operatorNe" },         { "operator[]", "operatorIndex" },
+                                                           { "operator()", "operatorCall" },       { "operator new", "operatorNew" },
+                                                           { "operator delete", "operatorDelete" }, { "operator<", "operatorLt" } };
+    if (const auto it = ops.find(p.method); it != ops.end()) return it->second;
+    std::string id = identifierOf(readableOf(p.method));
+    if (keywords.count(id)) id += '_';
+    return id;
+}
+
+/// @return a parameter's bare type name, for telling overloads apart (`class CB::schema::hkbContext const &` → hkbContext).
+std::string paramTag(std::string q)
+{
+    q = readableOf(q);
+    for (const char* w : { "const", "volatile", "class ", "struct ", "union ", "enum " })
+        for (std::size_t at; (at = q.find(w)) != std::string::npos;) q.erase(at, std::strlen(w));
+    q = trimmed(q);
+    while (!q.empty() && (q.back() == '&' || q.back() == '*' || q.back() == ' ')) q.pop_back();
+    const std::size_t colon = q.rfind("::");
+    return identifierOf(colon == std::string::npos ? q : q.substr(colon + 2));
+}
+
+struct PaletteEntry {
+    std::string   mangled, status;
+    std::uint64_t va = 0, id = 0;
+    fs::path      unitSource;   ///< the TU, relative to the schema/Havok include root
+};
+
+/// @brief Writes the function palette: one header per top-level class (beside where schema/Havok defines it), each
+///        a struct of typed cells, plus Palette.h including them all. Returns how many functions it typed.
+std::size_t emitPalette(const fs::path& out, const fs::path& schemaRoot, const std::vector<PaletteEntry>& entries)
+{
+    // Where each top-level class is defined, so its palette sits in the matching place and includes that header.
+    std::map<std::string, fs::path> definedIn;
+    // Classes first, then namespaces (hkAlgorithm, the *Utils groups), so a class wins where both appear.
+    const std::regex defines(R"((?:^|\n)\s*(?:class|struct)\s+(?:alignas\([^)]*\)\s+)?([A-Za-z_]\w*)\s*(?:final\s*)?(?::[^;{]*)?\{)");
+    const std::regex namespaces(R"((?:^|\n)\s*namespace\s+([A-Za-z_]\w*)\s*\{)");
+    for (const std::regex* re : { &defines, &namespaces })
+        for (const auto& e : fs::recursive_directory_iterator(schemaRoot)) {
+            if (e.path().extension() != ".h") continue;
+            const auto text = CB::engine::disk::ReadFile(e.path()).value_or("");
+            for (std::sregex_iterator it(text.begin(), text.end(), *re), end; it != end; ++it)
+                if ((*it)[1] != "CB" && (*it)[1] != "schema") definedIn.emplace((*it)[1].str(), fs::relative(e.path(), schemaRoot));
+        }
+
+    struct Cell { std::string ident, sig, mangled, readable, full, status; std::uint64_t va, id; std::vector<std::string> params; };
+    struct Node { std::map<std::string, Node> children; std::vector<Cell> cells; };
+    std::map<std::string, Node>                  tops;
+    std::map<std::string, std::set<fs::path>>    includes;
+    std::size_t                                  typed = 0;
+    for (const auto& e : entries) {
+        std::string why;
+        const auto  p = readPrototype(e.mangled, why);
+        if (!p) { std::printf("palette: %s left out: %s\n", undecorate(e.mangled).c_str(), why.c_str()); continue; }
+        std::string path = p->owner;
+        if (path.rfind("CB::schema::", 0) != 0 && path != "CB::schema") { std::printf("palette: %s left out: outside CB::schema\n", p->full.c_str()); continue; }
+        path = path == "CB::schema" ? "Free" : path.substr(12);
+        std::vector<std::string> parts;
+        for (std::size_t k = 0, depth = 0, start = 0; k <= path.size(); ++k) {
+            if (k < path.size() && path[k] == '<') ++depth;
+            else if (k < path.size() && path[k] == '>') --depth;
+            else if (k == path.size() || (depth == 0 && path.compare(k, 2, "::") == 0)) {
+                parts.push_back(identifierOf(readableOf(path.substr(start, k - start))));
+                start = k + 2;
+                if (k < path.size()) ++k;
+            }
+        }
+        Node* node = &tops[parts[0]];
+        for (std::size_t k = 1; k < parts.size(); ++k) node = &node->children[parts[k]];
+        node->cells.push_back({ paletteName(*p), cellSignature(*p), e.mangled, undecorate(e.mangled), p->full, e.status, e.va, e.id, p->params });
+        auto& inc = includes[parts[0]];
+        if (const auto d = definedIn.find(parts[0]); d != definedIn.end()) inc.insert(d->second);
+        const fs::path sibling = fs::path(e.unitSource).replace_extension(".h");
+        if (fs::exists(schemaRoot / sibling)) inc.insert(sibling);
+        ++typed;
+    }
+
+    // Overloads: the parameter types tell them apart; a tie left over (const and non-const) takes a counter.
+    std::function<void(Node&)> disambiguate = [&](Node& n) {
+        std::map<std::string, std::size_t> uses;
+        for (const auto& c : n.cells) ++uses[c.ident];
+        std::map<std::string, std::size_t> seen;
+        for (auto& c : n.cells) {
+            if (uses[c.ident] < 2) continue;
+            std::string tag;
+            for (const auto& q : c.params) tag += "_" + paramTag(q);
+            c.ident += tag.empty() ? "_void" : tag;
+        }
+        for (auto& c : n.cells) if (const auto k = seen[c.ident]++; k) c.ident += "_" + std::to_string(k + 1);
+        for (auto& [_, child] : n.children) disambiguate(child);
+    };
+    for (auto& [_, n] : tops) disambiguate(n);
+
+    std::function<void(std::string&, const std::string&, const Node&, int)> emitNode = [&](std::string& s, const std::string& name, const Node& n, int indent) {
+        const std::string pad(std::size_t(indent) * 4, ' ');
+        s += pad + "struct " + name + " {\n";
+        for (const auto& [childName, child] : n.children) emitNode(s, childName, child, indent + 1);
+        for (const auto& c : n.cells) {
+            s += pad + "    /// @brief `" + c.full + "` — vanilla 0x" + hex(c.va) + ", " + c.status + "\n";
+            s += pad + "    struct " + c.ident + " : ::CB::core::hooks::Cell<" + c.ident + ", " + c.sig + "> {\n";
+            s += pad + "        static constexpr const char*   mangled = \"" + c.mangled + "\";\n";
+            s += pad + "        static constexpr const char*   name    = \"" + c.readable + "\";\n";
+            s += pad + "        static constexpr std::uint64_t id      = " + std::to_string(c.id) + ";\n";
+            s += pad + "    };\n";
+        }
+        s += pad + "};\n";
+    };
+
+    fs::remove_all(out);
+    std::vector<fs::path> written;
+    for (const auto& [name, n] : tops) {
+        const auto     d   = definedIn.find(name);
+        const fs::path rel = d != definedIn.end() ? d->second.parent_path() / (name + ".h") : fs::path(name + ".h");
+        std::string    s   = "#pragma once\n\n/// @file\n/// @brief GENERATED by tools/cbmatch --emit-palette — do not edit. " + name +
+                        "'s functions CB runs: `Subscribe` to override one, `Call` to call it as any caller would.\n\n"
+                        "#include <core/hooks/takeover/Cell.h>\n\n";
+        for (const auto& inc : includes[name]) s += "#include <" + inc.generic_string() + ">\n";
+        s += "\n#include <cstdint>\n\nnamespace CB::feature::havok {\n\n";
+        emitNode(s, name, n, 1);
+        s += "\n}  // namespace CB::feature::havok\n";
+        std::string err;
+        fs::create_directories((out / rel).parent_path());
+        if (!CB::engine::disk::WriteFile(out / rel, s, {}, &err)) throw std::runtime_error("cannot write the palette: " + err);
+        written.push_back(rel);
+    }
+    std::string all = "#pragma once\n\n/// @file\n/// @brief GENERATED by tools/cbmatch --emit-palette — do not edit. Every reimplemented Havok function, by class.\n\n";
+    for (const auto& w : written) all += "#include <feature-sdk/havok/" + w.generic_string() + ">\n";
+    std::string err;
+    if (!CB::engine::disk::WriteFile(out / "Palette.h", all, {}, &err)) throw std::runtime_error("cannot write the palette: " + err);
+    std::printf("palette: %zu functions over %zu classes -> %s (from %zu class definitions under %s)\n", typed, tops.size(), out.string().c_str(),
+                definedIn.size(), schemaRoot.string().c_str());
+    return typed;
+}
+
 struct Options {
     fs::path    manifest, exe, work, report;
     std::string runtime, only, todo;
@@ -4276,6 +4558,7 @@ struct Options {
     std::size_t diffSeeds = 0;
     std::optional<std::uint64_t> diffSeed;   ///< --diff-seed: just this one, traced
     fs::path    emitImage;   ///< --emit-image: the runtime image of every passing function
+    fs::path    emitPalette; ///< --emit-palette: the typed cell headers features build against
 };
 
 int run(const Options& opt)
@@ -4322,7 +4605,7 @@ int run(const Options& opt)
         compiled[j]      = compileUnit(m, unit, m.toolchains[job.toolchain].second, dir);
     }, { .threads = opt.jobs });
 
-    struct Row { std::string name; std::uint64_t va = 0; Match best; std::vector<std::pair<std::string, Match>> all; std::optional<DiffReport> diff; };
+    struct Row { std::string name; std::uint64_t va = 0; std::size_t unit = 0; Match best; std::vector<std::pair<std::string, Match>> all; std::optional<DiffReport> diff; };
     std::vector<Row> rows;
     bool             gatePassed = true;
 
@@ -4331,6 +4614,7 @@ int run(const Options& opt)
             if (!opt.only.empty() && fn.name.find(opt.only) == std::string::npos) continue;
             Row row;
             row.name = fn.name;
+            row.unit = u;
             const auto vaIt = fn.va.find(runtime);
             if (vaIt == fn.va.end()) { row.best.detail = "no address for runtime " + runtime; rows.push_back(std::move(row)); gatePassed = false; continue; }
             row.va = vaIt->second;
@@ -4557,6 +4841,7 @@ int run(const Options& opt)
         }
     }
 
+    std::set<std::uint64_t> inImage;   ///< vas the image placed (the palette then lists exactly those)
     if (!opt.emitImage.empty()) {
         if (!syms) throw std::runtime_error("--emit-image needs the registry and the runtime's Address Library to place references");
         if (!opt.only.empty()) throw std::runtime_error("--emit-image needs a full run (no --only)");
@@ -4609,12 +4894,14 @@ int run(const Options& opt)
             if (added) image.classes.push_back(cls);
             f.classIndex    = it->second;
             f.name          = r.best.ours->name;
+            f.mangled       = r.best.ours->mangled;
             f.vanillaRva    = rva;
             f.vanillaLength = static_cast<std::uint32_t>(vanilla.size());
             f.vanillaHash   = img::Fnv1a64(vanilla.data(), vanilla.size());
             f.status        = static_cast<std::uint8_t>(r.best.status == Status::Exact ? 0 : r.best.status == Status::Regalloc ? 1 : 2);
             image.functions.push_back(std::move(f));
             sources.push_back({ r.best.ours, vanilla, r.va });
+            inImage.insert(r.va);
         }
         // The image must reproduce what --diff ran: decode what was encoded, place every function at --diff's address
         // and compare it with relocateOurs there.
@@ -4637,6 +4924,30 @@ int run(const Options& opt)
         for (const auto& f : image.functions) codeBytes += f.code.size();
         std::printf("\nimage: %zu functions (%zu bytes of code) across %zu classes for %s -> %s; %zu left out\n", image.functions.size(), codeBytes,
                     image.classes.size(), image.exeVersion.c_str(), opt.emitImage.string().c_str(), failed);
+    }
+
+    if (!opt.emitPalette.empty()) {
+        if (!syms) throw std::runtime_error("--emit-palette needs the registry and the runtime's Address Library for the ids");
+        fs::path root;
+        for (const auto& inc : m.includes) {
+            // An include on another drive comes back empty, not "..": both mean the sources are not under it.
+            const fs::path rel = m.units.empty() ? fs::path() : m.units.front().source.lexically_relative(inc);
+            if (!rel.empty() && rel.native().rfind(L"..", 0) != 0) root = inc;
+        }
+        if (root.empty()) throw std::runtime_error("--emit-palette: no manifest include holds the unit sources");
+        std::vector<PaletteEntry> entries;
+        std::set<std::uint64_t>   seen;
+        for (const auto& r : rows) {
+            const bool pass = r.best.status == Status::Exact ||
+                              ((opt.allowRegalloc || opt.allowVariant) && r.best.status == Status::Regalloc) ||
+                              (opt.allowVariant && r.best.status == Status::Variant);
+            if (!pass || !r.best.ours || (r.diff && r.diff->diverged) || !seen.insert(r.va).second) continue;
+            if (!opt.emitImage.empty() && !inImage.count(r.va)) continue;
+            const auto id = syms->idByOffset.find(r.va - pe.imageBase);
+            entries.push_back({ r.best.ours->mangled, statusName(r.best.status), r.va, id == syms->idByOffset.end() ? 0 : id->second,
+                                m.units[r.unit].source.lexically_relative(root) });
+        }
+        emitPalette(opt.emitPalette, root, entries);
     }
 
     if (!opt.report.empty()) {
@@ -4692,6 +5003,7 @@ int main(int argc, char** argv)
         else if (a == "--diff") opt.diffSeeds = std::stoul(next());
         else if (a == "--diff-seed") opt.diffSeed = std::stoull(next());
         else if (a == "--emit-image") opt.emitImage = next();
+        else if (a == "--emit-palette") opt.emitPalette = next();
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }

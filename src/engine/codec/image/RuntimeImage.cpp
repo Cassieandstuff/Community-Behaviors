@@ -7,7 +7,7 @@ namespace CB::engine::codec::image {
     namespace {
 
         constexpr char          kMagic[4] = { 'C', 'B', 'R', 'I' };
-        constexpr std::uint32_t kFormat   = 1;
+        constexpr std::uint32_t kFormat   = 2;
 
         struct Writer {
             std::vector<std::uint8_t> out;
@@ -99,6 +99,7 @@ namespace CB::engine::codec::image {
         for (const auto& f : image.functions) {
             w.pod(f.classIndex);
             w.str(f.name);
+            w.str(f.mangled);
             w.pod(f.vanillaRva);
             w.pod(f.vanillaLength);
             w.pod(f.vanillaHash);
@@ -147,6 +148,7 @@ namespace CB::engine::codec::image {
             Function f;
             f.classIndex    = r.pod<std::uint32_t>();
             f.name          = r.str();
+            f.mangled       = r.str();
             f.vanillaRva    = r.pod<std::uint32_t>();
             f.vanillaLength = r.pod<std::uint32_t>();
             f.vanillaHash   = r.pod<std::uint64_t>();

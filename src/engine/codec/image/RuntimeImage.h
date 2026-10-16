@@ -31,6 +31,7 @@ namespace CB::engine::codec::image {
     struct Function {
         std::uint32_t    classIndex = 0;   ///< into Image::classes
         std::string      name;             ///< undecorated, for logs
+        std::string      mangled;          ///< the compiler's symbol: exact identity, overloads included
         std::uint32_t    vanillaRva = 0;
         std::uint32_t    vanillaLength = 0;
         /// @brief FNV-1a 64 over vanilla's bytes as the exe file holds them.

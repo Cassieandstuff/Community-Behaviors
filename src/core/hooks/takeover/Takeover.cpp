@@ -25,6 +25,7 @@ namespace CB::core::hooks {
 
         struct Installed {
             std::string_view            name;
+            std::string_view            mangled;
             std::uintptr_t              at = 0;
             std::uint32_t               length = 0;
             std::array<std::uint8_t, 5> original{};
@@ -100,14 +101,14 @@ namespace CB::core::hooks {
 
     }  // namespace
 
-    std::uintptr_t* FindCell(std::string_view name, std::string* why)
+    std::uintptr_t* FindCell(std::string_view mangled, std::string* why)
     {
         std::uintptr_t* found = nullptr;
         std::size_t     hits  = 0;
         for (const auto& in : Takeover().live)
-            if (in.name == name) found = in.cell, ++hits;
+            if (in.mangled == mangled) found = in.cell, ++hits;
         if (hits == 1) return found;
-        if (why) *why = hits == 0 ? "not installed by the takeover" : "names " + std::to_string(hits) + " functions (an overload)";
+        if (why) *why = hits == 0 ? "not installed by the takeover" : "names " + std::to_string(hits) + " installed functions";
         return nullptr;
     }
 
@@ -165,7 +166,7 @@ namespace CB::core::hooks {
                     constexpr std::uint8_t kJmpRip[6] = { 0xFF, 0x25, 0, 0, 0, 0 };
                     std::memcpy(stub, kJmpRip, sizeof kJmpRip);
                     std::memcpy(stub + 6, &r.entry, 8);
-                    Installed in{ r.name, at, r.vanillaLength };
+                    Installed in{ r.name, r.mangled, at, r.vanillaLength };
                     in.cell = reinterpret_cast<std::uintptr_t*>(stub + 6);
                     in.impl = r.entry;
                     std::memcpy(in.original.data(), reinterpret_cast<const void*>(at), 5);

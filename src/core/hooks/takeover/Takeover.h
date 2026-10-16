@@ -18,6 +18,7 @@ namespace CB::core::hooks {
     /// @brief One vanilla function a code source replaces, with its replacement ready to run.
     struct Replacement {
         std::string_view name;
+        std::string_view mangled;
         std::uint32_t    vanillaRva = 0;
         std::uint32_t    vanillaLength = 0;
         /// @brief FNV-1a 64 of vanilla's bytes as shipped: a loaded function that hashes otherwise was patched by

@@ -41,7 +41,12 @@ extern "C" void __cdecl __debugbreak(void);
 /// @brief Global placement new, as `<new>` declares it.
 /// @note MSVC null-checks its result, which vanilla's hkArray::pushBack carries. hkReferencedObject declares its own,
 ///       `__assume`-ing the target non-null, for the in-place constructions that have no check.
+/// @note Guarded by the CRT's own macro: the bare VS2015 build has no `<new>` and defines it here; the plugin (whose
+///       function palette includes these headers) already has `<new>`'s.
+#ifndef __PLACEMENT_NEW_INLINE
+#define __PLACEMENT_NEW_INLINE
 HK_FORCE_INLINE void* operator new(size_t, void* p) throw() { return p; }
+#endif
 
 namespace CB { namespace schema
 {
