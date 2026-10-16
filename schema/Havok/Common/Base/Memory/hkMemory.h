@@ -73,6 +73,12 @@ namespace CB { namespace schema
         /// @brief Frees an easyAlloc block.
         /// @note Out of line in vanilla (0x140a896a0).
         static void  easyFree(hkMemoryAllocator& b, void* p);
+        /// @brief A block aligned to `align` bytes (the alignment padding recorded in front of it).
+        /// @note Out of line in vanilla (0x140a895a0).
+        static void* alignedAlloc(hkMemoryAllocator& b, int nbytes, int align);
+        /// @brief Frees an alignedAlloc block.
+        /// @note Out of line in vanilla (0x140a89610).
+        static void  alignedFree(hkMemoryAllocator& b, void* p);
     };
     static_assert(sizeof(hkLifoAllocator) == 0x50, "hkLifoAllocator size");
 
@@ -87,6 +93,18 @@ namespace CB { namespace schema
     HK_FORCE_INLINE void hkDeallocate(T* p)
     {
         hkMemoryRouter::easyFree(hkMemoryRouter::getInstance().heap(), p);
+    }
+    /// @brief `n` T's from the thread's heap, aligned to `alignment` bytes.
+    template <typename T>
+    HK_FORCE_INLINE T* hkAlignedAllocate(int alignment, int n)
+    {
+        return static_cast<T*>(hkMemoryRouter::alignedAlloc(hkMemoryRouter::getInstance().heap(), n * int(sizeof(T)), alignment));
+    }
+    /// @brief Frees an hkAlignedAllocate block.
+    template <typename T>
+    HK_FORCE_INLINE void hkAlignedDeallocate(T* p)
+    {
+        hkMemoryRouter::alignedFree(hkMemoryRouter::getInstance().heap(), p);
     }
     /// @brief Frees a heap block of `n` T's (blockFree with the size the caller knows).
     template <typename T>

@@ -102,7 +102,7 @@ namespace CB { namespace schema
                 hkError::getInstance().message(hkError::MESSAGE_WARNING, 0xa781b89f, buf.cString(), "Generator\\Clip\\hkbClipGenerator.cpp", 0x122);
             }
 
-            m_binding = m_animationControl->m_binding;
+            m_binding = const_cast<hkaAnimationBinding*>(m_animationControl->getAnimationBinding());
 
             hkaAnimationBinding* binding = m_binding;
             hkbCharacterSetup*   setup   = context.m_character->m_setup;
@@ -470,8 +470,8 @@ namespace CB { namespace schema
 
         if (gen.m_animationControl) {
             m_animationControl.setAndDontIncrementRefCount(
-                new hkaDefaultAnimationControl((gen.m_userData == 0) ? gen.m_animationControl->m_binding.val() : HK_NULL, true, 2));
-            m_binding   = gen.m_animationControl->m_binding;
+                new hkaDefaultAnimationControl((gen.m_userData == 0) ? gen.m_animationControl->getAnimationBinding() : HK_NULL, true, 2));
+            m_binding   = const_cast<hkaAnimationBinding*>(gen.m_animationControl->getAnimationBinding());
             m_localTime = m_animationControl->m_localTime;
         }
 
@@ -817,7 +817,7 @@ namespace CB { namespace schema
     ///       fresh `i < size` test rather than `!isClip`, the control re-read through m_animationControl around
     ///       getFutureTime, and the normalize pass dividing by a literal 1 (the echo weights already sum to 1).
     void hkbClipGenerator::sampleAnimation(const hkbContext& context, hkQsTransform* poseLocal, int numPoseLocal, hkReal* floatSlots,
-                                           int numFloatSlots, void* animationCache, hkBitField& partitionsSampled)
+                                           int numFloatSlots, hkaChunkCache* animationCache, hkBitField& partitionsSampled)
     {
         const hkaAnimationBinding* binding   = m_animationControl->m_binding;
         const hkaAnimation*        animation = binding ? binding->m_animation : hkRefPtr<hkaAnimation>();

@@ -15,5 +15,15 @@ namespace CB { namespace schema
         hkArray<hkInt16>       m_transformTrackToBoneIndices;    ///< +0x20, empty = track i drives bone i
         hkArray<hkInt16>       m_floatTrackToFloatSlotIndices;   ///< +0x30, empty = track i drives slot i
         hkInt8                 m_blendHint;                      ///< +0x40
+
+        HK_FORCE_INLINE hkaAnimationBinding() {}
+        HK_FORCE_INLINE hkaAnimationBinding(hkFinishLoadedObjectFlag flag)
+        :   hkReferencedObject(flag),
+            m_originalSkeletonName(flag),
+            m_animation(flag),
+            m_transformTrackToBoneIndices(flag),
+            m_floatTrackToFloatSlotIndices(flag)
+        {
+        }
     };
 } }

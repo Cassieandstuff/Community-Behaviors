@@ -21,6 +21,9 @@ extern "C" float __cdecl acosf(float);
 extern "C" float __cdecl sqrtf(float);
 extern "C" float __cdecl fmodf(float, float);
 #pragma intrinsic(sqrtf)
+/// @brief HK_BREAKPOINT: the `int3` an HK_ERROR site executes when the error handler asks for a break.
+extern "C" void __cdecl __debugbreak(void);
+#pragma intrinsic(__debugbreak)
 
 #define HK_NULL 0
 #define HK_FORCE_INLINE __forceinline

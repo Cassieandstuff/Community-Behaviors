@@ -47,6 +47,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void setAll(float a) { m_quad = _mm_set1_ps(a); }
         /// @brief Component `i`, through memory.
         HK_FORCE_INLINE hkReal& operator()(int i) { return m_quad.m128_f32[i]; }
+        HK_FORCE_INLINE const hkReal& operator()(int i) const { return m_quad.m128_f32[i]; }
         HK_FORCE_INLINE void set(hkReal x, hkReal y, hkReal z, hkReal w = 0.0f) { m_quad = _mm_setr_ps(x, y, z, w); }
 
         HK_FORCE_INLINE hkSimdReal getSimdAt3() const { return hkSimdReal(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(3, 3, 3, 3))); }
@@ -369,6 +370,15 @@ namespace CB { namespace schema
         hkVector4 m_col0;
         hkVector4 m_col1;
         hkVector4 m_col2;
+    };
+
+    /// @brief A 4x4 matrix as four columns.
+    struct hkMatrix4
+    {
+        hkVector4 m_col0;
+        hkVector4 m_col1;
+        hkVector4 m_col2;
+        hkVector4 m_col3;
     };
 
     /// @brief A rigid transform: rotation, then translation (+0x30).

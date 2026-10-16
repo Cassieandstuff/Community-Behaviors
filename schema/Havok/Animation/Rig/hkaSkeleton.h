@@ -2,6 +2,7 @@
 /// @brief hkaSkeleton, the mirrored skeleton and the skeleton utilities.
 #pragma once
 
+#include <Common/Base/Container/StringMap/hkStringMap.h>
 #include <Common/Base/Types/Geometry/LocalFrame/hkLocalFrame.h>
 
 namespace CB { namespace schema
@@ -28,10 +29,35 @@ namespace CB { namespace schema
         hkArray<hkReal>           m_referenceFloats;   ///< +0x48
         hkArray<hkStringPtr>      m_floatSlots;        ///< +0x58
         hkArray<LocalFrameOnBone> m_localFrames;       ///< +0x68
+
+        HK_FORCE_INLINE hkaSkeleton() {}
+        HK_FORCE_INLINE hkaSkeleton(hkFinishLoadedObjectFlag flag)
+        :   hkReferencedObject(flag),
+            m_name(flag),
+            m_parentIndices(flag),
+            m_bones(flag),
+            m_referencePose(flag),
+            m_referenceFloats(flag),
+            m_floatSlots(flag),
+            m_localFrames(flag)
+        {
+        }
     };
 
     struct hkaMirroredSkeleton : hkReferencedObject
     {
+        /// @note Member names after m_bonePairMap provisional; the two tables are hkAlignedAllocate blocks it owns.
+        hkInt16*             m_bonePairMap;      ///< +0x10, bone → mirror partner
+        const hkaSkeleton*   m_skeleton;         ///< +0x18
+        const hkInt16*       m_parentIndices;    ///< +0x20, the skeleton's
+        int                  m_numBones;         ///< +0x28
+        /// @brief One per bone plus one, identity until set: the rotation that mirrors each bone.
+        hkQuaternion*        m_boneMirrorRotations;   ///< +0x30
+        /// @brief Bone name → its mirror partner's name, both ways.
+        hkStringMap<const char*> m_bonePairNameMap;   ///< +0x38
+
+        virtual ~hkaMirroredSkeleton();
+
         void mirrorExtractedMotion(hkQsTransform& motion) const;
         /// @brief The bone's mirror partner; -1 for a negative index.
         hkInt16 getBonePair(hkInt16 bone) const;

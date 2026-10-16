@@ -68,7 +68,7 @@ namespace CB { namespace schema
     {
         bool                       found     = false;
         hkbClipGenerator*          clip      = m_pClipGenerator;
-        const hkaAnimationBinding* binding   = (clip && clip->m_animationControl) ? clip->m_animationControl->m_binding.val() : HK_NULL;
+        const hkaAnimationBinding* binding   = (clip && clip->m_animationControl) ? clip->m_animationControl->getAnimationBinding() : HK_NULL;
         hkaAnimation*              animation = binding ? binding->m_animation : hkRefPtr<hkaAnimation>();
         bool                       queued    = false;
         int                        status    = 1;
@@ -190,7 +190,7 @@ namespace CB { namespace schema
 
         hkbClipGenerator* clip = static_cast<hkbClipGenerator*>(m_pClipGenerator);
         if (m_sAnimationBindingIndex == -1 && !m_pLocalSyncBinding) {
-            const hkaAnimationBinding* binding  = clip->m_animationControl ? clip->m_animationControl->m_binding.val() : HK_NULL;
+            const hkaAnimationBinding* binding  = clip->m_animationControl ? clip->m_animationControl->getAnimationBinding() : HK_NULL;
             hkbCharacterSetup*         setup    = context.m_character->m_setup;
             const hkaSkeleton*         skeleton = setup ? setup->m_animationSkeleton : hkRefPtr<hkaSkeleton>();
             if (binding) m_pLocalSyncBinding = createLocalSyncBinding(skeleton, binding, m_SyncAnimPrefix);
@@ -247,7 +247,7 @@ namespace CB { namespace schema
         hkbClipGenerator* clip = static_cast<hkbClipGenerator*>(m_pClipGenerator);
         if (clip) {
             if (m_pSyncScene) {
-                const hkaAnimationBinding* binding  = clip->m_animationControl ? clip->m_animationControl->m_binding.val() : HK_NULL;
+                const hkaAnimationBinding* binding  = clip->m_animationControl ? clip->m_animationControl->getAnimationBinding() : HK_NULL;
                 const hkReal               duration = (binding && binding->m_animation) ? binding->m_animation->m_duration : 0.0f;
                 if (clip->getLocalTime() < duration * 0.2f) m_pSyncScene->onCharacterInterrupted(context.m_character);
             }
@@ -287,7 +287,7 @@ namespace CB { namespace schema
         const bool valid = (clip != HK_NULL);
         bool       found = false;
         if (clip) {
-            const hkaAnimationBinding* binding   = clip->m_animationControl ? clip->m_animationControl->m_binding.val() : HK_NULL;
+            const hkaAnimationBinding* binding   = clip->m_animationControl ? clip->m_animationControl->getAnimationBinding() : HK_NULL;
             const hkaAnimation*        animation = binding ? binding->m_animation : hkRefPtr<hkaAnimation>();
             if (animation) {
                 const int numTracks = animation->m_annotationTracks.getSize();

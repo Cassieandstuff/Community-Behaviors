@@ -178,7 +178,7 @@ namespace CB { namespace schema
         ///        echo's time (its offset ahead of the clip) with the clip itself taking the remaining weight. Retargets
         ///        through m_mapperData, mirrors under FLAG_MIRROR, and limits the tracks to the character's LOD.
         void sampleAnimation(const hkbContext& context, hkQsTransform* poseLocal, int numPoseLocal, hkReal* floatSlots, int numFloatSlots,
-                             void* animationCache, hkBitField& partitionsSampled);
+                             hkaChunkCache* animationCache, hkBitField& partitionsSampled);
 
         void setAnimationControl(hkaDefaultAnimationControl* animationControl);
         /// @brief Takes the binding at m_animationBindingIndex from the character's binding set (null when out of range or

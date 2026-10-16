@@ -260,9 +260,54 @@ symbols:
   - { name: hkVectorConstants_0001, kind: data, se: 0, ae: 219033, vr: 0, cpp: "CB::schema::g_vectorConstants0001" }  # (0,0,0,1) in hkVectorConstant_Zero's table (not hkVectorConstant_0001's); name provisional
   # Havok animation
   - { name: hkaSkeletonUtils_ScalePose, kind: func, se: 0, ae: 64092, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::scalePose" }  # name provisional; (scale, pose, count)
-  - { name: hkaDefaultAnimationControl_Ctor, kind: func, se: 0, ae: 64170, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::hkaDefaultAnimationControl" }  # (binding, ease, maxCycles)
+  - { name: hkaDefaultAnimationControl_Ctor, kind: func, se: 0, ae: 64170, vr: 0, cpp: "??0hkaDefaultAnimationControl@schema@CB@@QEAA@PEBUhkaAnimationBinding@12@UhkBool@12@H@Z" }  # (binding, ease, maxCycles)
   - { name: hkaDefaultAnimationControlMapperData_Ctor, kind: func, se: 0, ae: 64184, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControlMapperData::hkaDefaultAnimationControlMapperData" }
-  - { name: hkaDefaultAnimationControl_SetBinding, kind: func, se: 0, ae: 64390, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::setBinding" }  # name provisional
+  - { name: hkaAnimationControl_SetBinding, kind: func, se: 0, ae: 64390, vr: 0, cpp: "CB::schema::hkaAnimationControl::setBinding" }  # not reference-counted; resets every track weight to 0xff
+  - { name: hkaAnimationControl_Vtable, kind: data, se: 0, ae: 233519, vr: 0, cpp: "CB::schema::hkaAnimationControl::`vftable'" }
+  - { name: hkaAnimationControl_Dtor, kind: func, se: 0, ae: 64387, vr: 0, cpp: "CB::schema::hkaAnimationControl::~hkaAnimationControl" }  # tells each listener (controlDeletedCallback)
+  - { name: hkaAnimationControl_HasExtractedMotion, kind: func, se: 0, ae: 64397, vr: 0, cpp: "CB::schema::hkaAnimationControl::hasExtractedMotion" }  # name provisional
+  - { name: hkaAnimationControl_GetExtractedMotionDeltaCropped, kind: func, se: 0, ae: 64405, vr: 0, cpp: "?getExtractedMotionDeltaReferenceFrame@hkaAnimationControl@schema@CB@@QEBAXMAEAUhkQsTransform@23@MM@Z" }  # (deltaTime, out, cropStart, cropEnd); identity without extracted motion
+  - { name: hkaAnimationControl_Ctor, kind: func, se: 0, ae: 64386, vr: 0, cpp: "CB::schema::hkaAnimationControl::hkaAnimationControl" }  # (binding); the default control's constructors call it
+  - { name: hkaDefaultAnimationControl_Vtable, kind: data, se: 0, ae: 232980, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::`vftable'" }
+  - { name: hkaDefaultAnimationControl_Dtor, kind: func, se: 0, ae: 64172, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::~hkaDefaultAnimationControl" }
+  - { name: hkaDefaultAnimationControl_GetSkeletonMapper, kind: func, se: 0, ae: 64175, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::getSkeletonMapper" }  # name provisional
+  - { name: hkaDefaultAnimationControl_SetSkeletonMapper, kind: func, se: 0, ae: 64176, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::setSkeletonMapper" }  # name provisional; null plays unmapped
+  - { name: hkaDefaultAnimationControlMapperData_Vtable, kind: data, se: 0, ae: 232982, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControlMapperData::`vftable'" }
+  - { name: hkaDefaultAnimationControlMapperData_Dtor, kind: func, se: 0, ae: 64185, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControlMapperData::~hkaDefaultAnimationControlMapperData" }
+  - { name: hkaSkeletonMapper_ComputeTrackMappings, kind: func, se: 0, ae: 64077, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::computeTrackMappings" }  # name provisional; (binding, boneToTrackA, boneToTrackB, trackToBoneB)
+  - { name: hkaSkeletonMapper_Vtable, kind: data, se: 0, ae: 232947, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::`vftable'" }
+  - { name: hkaSkeletonMapper_Dtor, kind: func, se: 0, ae: 64071, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::~hkaSkeletonMapper" }
+  - { name: hkaSkeletonMapperData_FinishCtor, kind: func, se: 0, ae: 65252, vr: 0, cpp: "CB::schema::hkaSkeletonMapperData::hkaSkeletonMapperData" }
+  - { name: hkaSkeletonMapperData_Dtor, kind: func, se: 0, ae: 65253, vr: 0, cpp: "CB::schema::hkaSkeletonMapperData::~hkaSkeletonMapperData" }
+  - { name: hkaAnimation_Vtable, kind: data, se: 0, ae: 233263, vr: 0, cpp: "CB::schema::hkaAnimation::`vftable'" }
+  - { name: hkaAnimation_Dtor, kind: func, se: 0, ae: 64318, vr: 0, cpp: "CB::schema::hkaAnimation::~hkaAnimation" }
+  - { name: hkaAnnotationTrack_Dtor, kind: func, se: 0, ae: 64320, vr: 0, cpp: "CB::schema::hkaAnnotationTrack::~hkaAnnotationTrack" }
+  - { name: hkaAnnotationTrack_CopyCtor, kind: func, se: 0, ae: 67215, vr: 0, cpp: "??0hkaAnnotationTrack@schema@CB@@QEAA@AEBU012@@Z" }  # out of line, in another unit
+  - { name: hkaAnnotationTrack_Assign, kind: func, se: 0, ae: 65506, vr: 0, cpp: "CB::schema::hkaAnnotationTrack::operator=" }
+  - { name: hkaAnimationBinding_Vtable, kind: data, se: 0, ae: 232725, vr: 0, cpp: "CB::schema::hkaAnimationBinding::`vftable'" }
+  - { name: hkaAnimationBinding_Dtor, kind: func, se: 0, ae: 63338, vr: 0, cpp: "CB::schema::hkaAnimationBinding::~hkaAnimationBinding" }
+  - { name: hkaAnimationContainer_Vtable, kind: data, se: 0, ae: 233336, vr: 0, cpp: "CB::schema::hkaAnimationContainer::`vftable'" }
+  - { name: hkaAnimationContainer_Dtor, kind: func, se: 0, ae: 64319, vr: 0, cpp: "CB::schema::hkaAnimationContainer::~hkaAnimationContainer" }
+  - { name: hkaAnimationPreviewColorContainer_Vtable, kind: data, se: 0, ae: 233289, vr: 0, cpp: "CB::schema::hkaAnimationPreviewColorContainer::`vftable'" }
+  - { name: hkaAnimationPreviewColorContainer_Dtor, kind: func, se: 0, ae: 65597, vr: 0, cpp: "CB::schema::hkaAnimationPreviewColorContainer::~hkaAnimationPreviewColorContainer" }
+  - { name: hkaBoneAttachment_Vtable, kind: data, se: 0, ae: 233328, vr: 0, cpp: "CB::schema::hkaBoneAttachment::`vftable'" }
+  - { name: hkaDefaultAnimatedReferenceFrame_Vtable, kind: data, se: 0, ae: 233315, vr: 0, cpp: "CB::schema::hkaDefaultAnimatedReferenceFrame::`vftable'" }
+  - { name: hkaFootstepAnalysisInfo_Vtable, kind: data, se: 0, ae: 234935, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfo::`vftable'" }
+  - { name: hkaFootstepAnalysisInfo_FinishCtor, kind: func, se: 0, ae: 65611, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfo::hkaFootstepAnalysisInfo" }
+  - { name: hkaFootstepAnalysisInfo_Dtor, kind: func, se: 0, ae: 65612, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfo::~hkaFootstepAnalysisInfo" }
+  - { name: hkaFootstepAnalysisInfoContainer_Vtable, kind: data, se: 0, ae: 233320, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfoContainer::`vftable'" }
+  - { name: hkaFootstepAnalysisInfoContainer_Dtor, kind: func, se: 0, ae: 65633, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfoContainer::~hkaFootstepAnalysisInfoContainer" }
+  - { name: hkaMeshBinding_Vtable, kind: data, se: 0, ae: 234927, vr: 0, cpp: "CB::schema::hkaMeshBinding::`vftable'" }
+  - { name: hkaMeshBinding_Dtor, kind: func, se: 0, ae: 65600, vr: 0, cpp: "CB::schema::hkaMeshBinding::~hkaMeshBinding" }
+  - { name: hkaMeshBinding_FinishCtor, kind: func, se: 0, ae: 65601, vr: 0, cpp: "??0hkaMeshBinding@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
+  - { name: hkaMirroredSkeleton_Vtable, kind: data, se: 0, ae: 233499, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::`vftable'" }
+  - { name: hkaMirroredSkeleton_Dtor, kind: func, se: 0, ae: 64359, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::~hkaMirroredSkeleton" }
+  - { name: hkaSkeleton_Vtable, kind: data, se: 0, ae: 232866, vr: 0, cpp: "CB::schema::hkaSkeleton::`vftable'" }
+  - { name: hkaSkeleton_Dtor, kind: func, se: 0, ae: 63740, vr: 0, cpp: "CB::schema::hkaSkeleton::~hkaSkeleton" }  # the linked copy is a Bethesda unit's (C++ exceptions on)
+  - { name: hkaInterleavedUncompressedAnimation_Vtable, kind: data, se: 0, ae: 233268, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::`vftable'" }
+  - { name: hkaQuantizedAnimation_Vtable, kind: data, se: 0, ae: 233272, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::`vftable'" }
+  - { name: hkaSplineCompressedAnimation_Vtable, kind: data, se: 0, ae: 233278, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::`vftable'" }
+  - { name: hkMemoryRouter_AlignedFree, kind: func, se: 0, ae: 57055, vr: 0, cpp: "CB::schema::hkMemoryRouter::alignedFree" }  # (allocator, p) frees an alignedAlloc block
   - { name: hkaSkeletonMapper_MapExtractedMotion, kind: func, se: 0, ae: 64076, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapExtractedMotion" }  # (in, out): applies the mapper's extracted-motion mapping
   - { name: hkaMirroredSkeleton_MirrorExtractedMotion, kind: func, se: 0, ae: 64361, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorExtractedMotion" }  # (motion&)
   - { name: hkaSkeletonMapper_MapPoseLocalSpace, kind: func, se: 0, ae: 64074, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapPoseLocalSpace" }  # (poseA, poseBInOut, boneToTrackA, boneToTrackB, additive); parameter names provisional

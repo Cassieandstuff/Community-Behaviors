@@ -7,6 +7,7 @@
 namespace CB { namespace schema
 {
     class hkpWorld;
+    class hkaChunkCache;
     class hkbNode;
     struct hkbAttachmentManager;
     struct hkbSymbolIdMap;
@@ -24,7 +25,7 @@ namespace CB { namespace schema
         hkpWorld*         m_world;            ///< +0x38
         /// @note Name provisional (the constructor's third argument).
         hkbAttachmentManager* m_attachmentManager; ///< +0x40
-        void*             m_animationCache;   ///< +0x48
+        hkaChunkCache*    m_animationCache;   ///< +0x48
 
         /// @brief The m_flags bit a node raises when its set of active children changes during handleEvent
         ///        (hkbEventDrivenModifier, hkbStateMachine, BSCyclicBlendTransitionGenerator).

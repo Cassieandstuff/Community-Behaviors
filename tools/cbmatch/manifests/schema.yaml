@@ -1278,3 +1278,121 @@ units:
     functions:
       - { name: "??1hkbEventRangeDataArray@schema@CB@@UEAA@XZ", va: 0x140ac67c0 }
       - { name: "??_GhkbEventRangeDataArray@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8ea0 }
+  - source: ../../../schema/Havok/Animation/Playback/Control/hkaAnimationControl.cpp
+    functions:
+      # STRUCTURAL: hkArray::reserve(16) compares signed in vanilla, unsigned in 24247 (see parked.yaml):
+      # - { name: "??0hkaAnimationControl@schema@CB@@QEAA@PEBUhkaAnimationBinding@12@@Z", va: 0x140be07a0 }
+      - { name: "??1hkaAnimationControl@schema@CB@@UEAA@XZ", va: 0x140be0950 }
+      - { name: "CB::schema::hkaAnimationControl::sampleTracks", va: 0x140be0a60 }
+      - { name: "CB::schema::hkaAnimationControl::samplePartialTracks", va: 0x140be0aa0 }
+      # STRUCTURAL: hkArray::reserve(16) compares signed in vanilla, unsigned in 24247 (see parked.yaml):
+      # - { name: "CB::schema::hkaAnimationControl::setBinding", va: 0x140be0af0 }
+      - { name: "CB::schema::hkaAnimationControl::addListener", va: 0x140be0c30 }
+      - { name: "CB::schema::hkaAnimationControl::hasExtractedMotion", va: 0x140be0cf0 }
+      - { name: "?getExtractedMotionDeltaReferenceFrame@hkaAnimationControl@schema@CB@@UEBAXMAEAUhkQsTransform@23@@Z", va: 0x140be0d10 }
+      - { name: "CB::schema::hkaAnimationControl::getNumTransformTracks", va: 0x140be0d30 }
+      - { name: "CB::schema::hkaAnimationControl::getNumFloatTracks", va: 0x140be0d50 }
+      - { name: "CB::schema::hkaAnimationControl::getNumTransformTrackToBoneIndices", va: 0x140be0d70 }
+      - { name: "CB::schema::hkaAnimationControl::getTransformTrackToBoneIndices", va: 0x140be0d80 }
+      - { name: "CB::schema::hkaAnimationControl::getNumFloatTrackToFloatSlotIndices", va: 0x140be0d90 }
+      - { name: "CB::schema::hkaAnimationControl::getFloatTrackToFloatSlotIndices", va: 0x140be0da0 }
+      - { name: "?getExtractedMotionDeltaReferenceFrame@hkaAnimationControl@schema@CB@@QEBAXMAEAUhkQsTransform@23@MM@Z", va: 0x140be0db0 }
+      - { name: "??_GhkaAnimationControl@schema@CB@@UEAAPEAXI@Z", va: 0x140be0e60 }
+  - source: ../../../schema/Havok/Animation/Playback/Control/Default/hkaDefaultAnimationControl.cpp
+    functions:
+      - { name: "??0hkaDefaultAnimationControl@schema@CB@@QEAA@PEBUhkaAnimationBinding@12@UhkBool@12@H@Z", va: 0x140bd9200 }
+      - { name: "??0hkaDefaultAnimationControl@schema@CB@@QEAA@AEBU012@@Z", va: 0x140bd92e0 }
+      - { name: "??1hkaDefaultAnimationControl@schema@CB@@UEAA@XZ", va: 0x140bd93b0 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::update", va: 0x140bd9440 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::getFutureTime", va: 0x140bd9750 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::getSkeletonMapper", va: 0x140bd9880 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::setSkeletonMapper", va: 0x140bd98a0 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::getNumTransformTracks", va: 0x140bd9930 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::getNumFloatTracks", va: 0x140bd9960 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::getNumTransformTrackToBoneIndices", va: 0x140bd9980 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::getTransformTrackToBoneIndices", va: 0x140bd99a0 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::sampleTracks", va: 0x140bd99c0 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::samplePartialTracks", va: 0x140bd9b80 }
+      - { name: "CB::schema::hkaDefaultAnimationControl::getExtractedMotionDeltaReferenceFrame", va: 0x140bd9bd0 }
+      - { name: "CB::schema::hkaDefaultAnimationControlMapperData::hkaDefaultAnimationControlMapperData", va: 0x140bd9c60 }
+      - { name: "??1hkaDefaultAnimationControlMapperData@schema@CB@@UEAA@XZ", va: 0x140bd9d10 }
+      - { name: "??_GhkaDefaultAnimationControl@schema@CB@@UEAAPEAXI@Z", va: 0x140bd9df0 }
+      - { name: "??_GhkaDefaultAnimationControlMapperData@schema@CB@@UEAAPEAXI@Z", va: 0x140bd9e70 }
+  - source: ../../../schema/Havok/Animation/Animation/hkaAnimation.cpp
+    functions:
+      - { name: "??0hkaAnimation@schema@CB@@QEAA@AEBU012@@Z", va: 0x140c2f520 }
+      - { name: "CB::schema::hkaAnimation::clearAllCacheKeys", va: 0x140c2f240 }
+      - { name: "CB::schema::hkaAnimation::getNumAnnotations", va: 0x140c2f250 }
+      - { name: "CB::schema::hkaAnimation::getAnnotations", va: 0x140c2f370 }
+      - { name: "??4hkaAnnotationTrack@schema@CB@@QEAAAEAU012@AEBU012@@Z", va: 0x140c2f6b0 }
+      - { name: "??1hkaAnnotationTrack@schema@CB@@QEAA@XZ", va: 0x140bde910 }
+      - { name: "??1hkaAnimation@schema@CB@@UEAA@XZ", va: 0x140bde640 }
+      - { name: "??_GhkaAnimation@schema@CB@@UEAAPEAXI@Z", va: 0x140bdead0 }
+      - { name: "CB::schema::hkaAnimation::samplePartialTracks", va: 0x140bdf210 }
+      - { name: "CB::schema::hkaAnimation::getNumDataChunks", va: 0x140bdf080 }
+      - { name: "CB::schema::hkaAnimation::getDataChunks", va: 0x140bdefd0 }
+      - { name: "CB::schema::hkaAnimation::getMaxSizeOfCombinedDataChunks", va: 0x140bdf070 }
+      - { name: "CB::schema::hkaAnimation::getExtractedMotionReferenceFrame", va: 0x140bdf060 }
+      - { name: "CB::schema::hkaAnimation::getExtractedMotionDeltaReferenceFrame", va: 0x140bdf050 }
+  - source: ../../../schema/Havok/Animation/hkaAnimationTypeRegistration.cpp
+    functions:
+      - { name: "??1hkaAnimationBinding@schema@CB@@UEAA@XZ", va: 0x140ba0510 }
+      - { name: "??_GhkaAnimationBinding@schema@CB@@UEAAPEAXI@Z", va: 0x140ba0600 }
+      - { name: "??1hkaAnimationContainer@schema@CB@@UEAA@XZ", va: 0x140bde6f0 }
+      - { name: "??_GhkaAnimatedReferenceFrame@schema@CB@@UEAAPEAXI@Z", va: 0x140bdea40 }
+      - { name: "??_GhkaAnimationContainer@schema@CB@@UEAAPEAXI@Z", va: 0x140bdeb50 }
+      - { name: "??_GhkaAnimationPreviewColorContainer@schema@CB@@UEAAPEAXI@Z", va: 0x140bdebd0 }
+      - { name: "??_GhkaBoneAttachment@schema@CB@@UEAAPEAXI@Z", va: 0x140bdec50 }
+      - { name: "??_GhkaDefaultAnimatedReferenceFrame@schema@CB@@UEAAPEAXI@Z", va: 0x140bded00 }
+      - { name: "??_GhkaFootstepAnalysisInfoContainer@schema@CB@@UEAAPEAXI@Z", va: 0x140bdedd0 }
+      - { name: "CB::schema::getVtablehkaAnimationBinding", va: 0x140bdf090 }
+      - { name: "CB::schema::getVtablehkaAnimationContainer", va: 0x140bdf0c0 }
+      - { name: "CB::schema::getVtablehkaAnimationPreviewColorContainer", va: 0x140bdf0d0 }
+      - { name: "CB::schema::getVtablehkaBoneAttachment", va: 0x140bdf0e0 }
+      - { name: "CB::schema::getVtablehkaDefaultAnimatedReferenceFrame", va: 0x140bdf120 }
+      - { name: "CB::schema::getVtablehkaFootstepAnalysisInfo", va: 0x140bdf130 }
+      - { name: "CB::schema::getVtablehkaFootstepAnalysisInfoContainer", va: 0x140bdf150 }
+      - { name: "CB::schema::getVtablehkaInterleavedUncompressedAnimation", va: 0x140bdf160 }
+      - { name: "CB::schema::getVtablehkaMeshBinding", va: 0x140bdf170 }
+      - { name: "CB::schema::getVtablehkaQuantizedAnimation", va: 0x140bdf190 }
+      - { name: "CB::schema::getVtablehkaSkeleton", va: 0x140bdf1a0 }
+      - { name: "CB::schema::getVtablehkaSkeletonMapper", va: 0x140bdf1d0 }
+      - { name: "CB::schema::getVtablehkaSplineCompressedAnimation", va: 0x140bdf200 }
+  - source: ../../../schema/Havok/Animation/Deform/Skinning/hkaMeshBinding.cpp
+    functions:
+      - { name: "??0hkaMeshBinding@schema@CB@@QEAA@XZ", va: 0x140c36430 }
+      - { name: "??1hkaMeshBinding@schema@CB@@UEAA@XZ", va: 0x140c364a0 }
+      - { name: "??0hkaMeshBinding@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140c365f0 }
+      - { name: "??_GhkaMeshBinding@schema@CB@@UEAAPEAXI@Z", va: 0x140c36620 }
+  - source: ../../../schema/Havok/Animation/Animation/hkaAnimationPreviewColorContainer.cpp
+    functions:
+      - { name: "??1hkaAnimationPreviewColorContainer@schema@CB@@UEAA@XZ", va: 0x140c36370 }
+  - source: ../../../schema/Havok/Animation/Animation/hkaFootstepAnalysisInfo.cpp
+    functions:
+      - { name: "??0hkaFootstepAnalysisInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140c37cc0 }
+      - { name: "??1hkaFootstepAnalysisInfo@schema@CB@@UEAA@XZ", va: 0x140c37ce0 }
+      - { name: "??1hkaFootstepAnalysisInfoContainer@schema@CB@@UEAA@XZ", va: 0x140c381d0 }
+      - { name: "??_GhkaFootstepAnalysisInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140c383d0 }
+  - source: ../../../schema/Havok/Animation/Mapper/hkaSkeletonMapper.cpp
+    functions:
+      - { name: "??1hkaSkeletonMapper@schema@CB@@UEAA@XZ", va: 0x140bcffc0 }
+      - { name: "CB::schema::hkaSkeletonMapper::computeTrackMappings", va: 0x140bd1540 }
+      - { name: "??_GhkaSkeletonMapper@schema@CB@@UEAAPEAXI@Z", va: 0x140bd2c60 }
+  - source: ../../../schema/Havok/Animation/Mapper/hkaSkeletonMapperData.cpp
+    functions:
+      - { name: "??0hkaSkeletonMapperData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", va: 0x140c2a900 }
+      - { name: "??1hkaSkeletonMapperData@schema@CB@@QEAA@XZ", va: 0x140c2a910 }
+  - source: ../../../schema/Havok/Animation/Motion/Default/hkaDefaultAnimatedReferenceFrame.cpp
+    functions:
+      - { name: "CB::schema::hkaDefaultAnimatedReferenceFrame::getReferenceFrame", va: 0x140c36b60 }
+      - { name: "CB::schema::hkaDefaultAnimatedReferenceFrame::getDuration", va: 0x140c37430 }
+  - source: ../../../schema/Havok/Animation/Rig/hkaMirroredSkeleton.cpp
+    functions:
+      - { name: "??1hkaMirroredSkeleton@schema@CB@@UEAA@XZ", va: 0x140bdf420 }
+      - { name: "??_GhkaMirroredSkeleton@schema@CB@@UEAAPEAXI@Z", va: 0x140be0720 }
+  # Bethesda's copies (C++ exceptions on) are the ones vanilla linked; see the file note.
+  - source: ../../../schema/Havok/Animation/Rig/hkaSkeletonEhUnit.cpp
+    flags: [/EHsc]
+    functions:
+      - { name: "??1hkaSkeleton@schema@CB@@UEAA@XZ", va: 0x140bbc830 }
+      - { name: "??_GhkaSkeleton@schema@CB@@UEAAPEAXI@Z", va: 0x140bbd000 }
