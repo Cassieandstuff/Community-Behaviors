@@ -6,6 +6,13 @@
 
 namespace CB { namespace schema
 {
+    /// @brief A property's value as Havok reflects it: one 64-bit word.
+    /// @note hkpProperty keeps it as a raw hkUlong (matched code reads it as one).
+    struct hkpPropertyValue
+    {
+        hkUlong m_data;   ///< +0x00
+    };
+
     /// @brief A world object's user property: a key and a 64-bit value.
     /// @note 0x10 bytes (schema/physics/hkpProperty.yaml); m_value is the hkpPropertyValue union, held raw.
     struct hkpProperty

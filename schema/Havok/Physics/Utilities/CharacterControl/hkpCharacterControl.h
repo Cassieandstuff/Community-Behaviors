@@ -1,11 +1,18 @@
 /// @file
-/// @brief hkpSurfaceInfo: what a character controller's support query found under it.
+/// @brief hkpSurfaceInfo: what a character controller's support query found under it; hkpCharacterControllerCinfo, the
+///        base of a character controller's construction info.
 #pragma once
 
 #include <Common/Base/hkBase.h>
 
 namespace CB { namespace schema
 {
+    /// @brief Seeded from Havok's reflection (size 0x10): no members of its own; the proxy and rigid-body controllers'
+    ///        construction info derive from it.
+    class hkpCharacterControllerCinfo : public hkReferencedObject
+    {
+    };
+
     /// @note 0x40 bytes.
     struct hkpSurfaceInfo
     {
