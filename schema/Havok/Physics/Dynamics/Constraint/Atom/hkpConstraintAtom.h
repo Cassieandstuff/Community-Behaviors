@@ -306,6 +306,7 @@ namespace CB { namespace schema
         hkUint8            m_pad14[0x18 - 0x14];
         hkpConstraintAtom* m_child;              ///< +0x18
         hkUint32           m_pad[2];             ///< +0x20
+        hkUint8            m_pad28[0x30 - 0x28];
 
         HK_FORCE_INLINE hkpModifierConstraintAtom(AtomType type, int size)
         {
@@ -364,29 +365,5 @@ namespace CB { namespace schema
     struct hkpViscousSurfaceModifierConstraintAtom : public hkpModifierConstraintAtom
     {
     public:
-    };
-
-    /// @brief A contact constraint's atom: its header, then the contact points (0x20 each, the reserved count), then
-    ///        their property records (striding bytes each).
-    /// @note Per Havok's reflection (size 0x30); m_info (+0x10, an hkpSimpleContactConstraintDataInfo) is not declared.
-    struct __declspec(align(16)) hkpSimpleContactConstraintAtom : public hkpConstraintAtom
-    {
-    public:
-        hkUint16 m_sizeOfAllAtoms;                   ///< +0x02
-        hkUint16 m_numContactPoints;                 ///< +0x04
-        hkUint16 m_numReservedContactPoints;         ///< +0x06
-        hkUint8  m_numUserDatasForBodyA;             ///< +0x08
-        hkUint8  m_numUserDatasForBodyB;             ///< +0x09
-        hkUint8  m_contactPointPropertiesStriding;   ///< +0x0a
-        hkUint8  m_pad0b;
-        hkUint16 m_maxNumContactPoints;              ///< +0x0c
-        hkUint8  m_pad0e[0x30 - 0x0e];
-
-        HK_FORCE_INLINE hkContactPoint* getContactPoints() const { return reinterpret_cast<hkContactPoint*>(const_cast<hkpSimpleContactConstraintAtom*>(this) + 1); }
-        /// @brief Contact `index`'s property record (after all the reserved contact points).
-        HK_FORCE_INLINE hkUint8* getContactPointPropertiesStream(int index) const
-        {
-            return reinterpret_cast<hkUint8*>(getContactPoints() + m_numReservedContactPoints) + index * m_contactPointPropertiesStriding;
-        }
     };
 } }

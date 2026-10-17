@@ -21,8 +21,10 @@ namespace CB { namespace schema
         hkUint32 m_data[5];   ///< +0xc
     };
 
-    /// @brief Seeded from Havok's reflection (size 0x30).
-    struct hkpSimpleContactConstraintAtom : public hkpConstraintAtom
+    /// @brief A contact constraint's atom: its header, then the contact points (0x20 each, the reserved count), then
+    ///        their property records (striding bytes each).
+    /// @note Per Havok's reflection (size 0x30).
+    struct __declspec(align(16)) hkpSimpleContactConstraintAtom : public hkpConstraintAtom
     {
     public:
         hkUint16 m_sizeOfAllAtoms;   ///< +0x2
@@ -33,5 +35,12 @@ namespace CB { namespace schema
         hkUint8 m_contactPointPropertiesStriding;   ///< +0xa
         hkUint16 m_maxNumContactPoints;   ///< +0xc
         hkpSimpleContactConstraintDataInfo m_info;   ///< +0x10
+
+        HK_FORCE_INLINE hkContactPoint* getContactPoints() const { return reinterpret_cast<hkContactPoint*>(const_cast<hkpSimpleContactConstraintAtom*>(this) + 1); }
+        /// @brief Contact `index`'s property record (after all the reserved contact points).
+        HK_FORCE_INLINE hkUint8* getContactPointPropertiesStream(int index) const
+        {
+            return reinterpret_cast<hkUint8*>(getContactPoints() + m_numReservedContactPoints) + index * m_contactPointPropertiesStriding;
+        }
     };
 } }

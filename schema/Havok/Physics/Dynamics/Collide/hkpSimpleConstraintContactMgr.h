@@ -5,6 +5,7 @@
 #include <Physics/Dynamics/Collide/hkpDynamicsContactMgr.h>
 #include <Physics/Dynamics/Constraint/hkpConstraintInstance.h>
 #include <Physics/Dynamics/Constraint/Atom/hkpConstraintAtom.h>
+#include <Physics/Dynamics/Constraint/Contact/hkpSimpleContactConstraintAtom.h>
 
 namespace CB { namespace schema
 {

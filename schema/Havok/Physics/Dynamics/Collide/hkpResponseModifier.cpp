@@ -3,7 +3,7 @@
 #include <Physics/Dynamics/Collide/hkpResponseModifier.h>
 #include <Physics/Dynamics/Collide/hkpDynamicsContactMgr.h>
 #include <Physics/Dynamics/Constraint/hkpConstraintInstance.h>
-#include <Physics/Dynamics/World/Simulation/hkpSimulationIsland.h>
+#include <Physics/Dynamics/World/hkpSimulationIsland.h>
 #include <Physics/Dynamics/World/Util/hkpWorldConstraintUtil.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Common/Base/Monitor/hkMonitorStream.h>

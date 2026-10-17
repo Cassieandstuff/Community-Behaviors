@@ -7,7 +7,7 @@
 #include <Physics/Dynamics/Motion/Rigid/hkpKeyframedRigidMotion.h>
 #include <Common/Base/Container/Array/hkSmallArray.h>
 #include <Common/Base/Types/Geometry/LocalFrame/hkLocalFrame.h>
-#include <Physics/Dynamics/World/Simulation/hkpSimulationIsland.h>
+#include <Physics/Dynamics/World/hkpSimulationIsland.h>
 
 namespace CB { namespace schema
 {
