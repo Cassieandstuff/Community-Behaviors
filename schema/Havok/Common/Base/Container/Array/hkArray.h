@@ -149,6 +149,14 @@ namespace CB { namespace schema
         HK_FORCE_INLINE int      getCapacity() const { return m_capacityAndFlags & CAPACITY_MASK; }
         HK_FORCE_INLINE T&       operator[](int i) { return m_data[i]; }
         HK_FORCE_INLINE const T& operator[](int i) const { return m_data[i]; }
+        /// @brief The first index holding `t`, -1 if none.
+        HK_FORCE_INLINE int indexOf(const T& t) const
+        {
+            for (int i = 0; i < m_size; i++) {
+                if (m_data[i] == t) return i;
+            }
+            return -1;
+        }
         /// @brief The last index holding `t`, -1 if none (searched from the end).
         HK_FORCE_INLINE int lastIndexOf(const T& t) const
         {

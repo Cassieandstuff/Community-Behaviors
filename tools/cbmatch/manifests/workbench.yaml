@@ -33,9 +33,6 @@ units:
   - source: ../workbench/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorUtils.cpp
     functions:
       - { name: "CB::schema::BSOffsetAnimationGeneratorUtils::applyOffsets", va: 0x140ba0fb0 }
-  - source: ../workbench/Behavior/Modifier/LookAt/hkbLookAtModifierWorkbench.cpp
-    functions:
-      - { name: "CB::schema::hkbLookAtModifier::modify", va: 0x140af9850 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSLookAt/BSLookAtModifierUtils.cpp
     functions:
       - { name: "CB::schema::BSLookAtModifierUtils::modifyBone", va: 0x140ba2ba0 }
@@ -45,9 +42,6 @@ units:
   - source: ../../../schema/Havok/Behavior/Modifier/BSDirectAt/BSDirectAtModifierUtils.cpp
     functions:
       - { name: "CB::schema::BSDirectAtModifierUtils::modifyInternal", va: 0x140ba1200 }
-  - source: ../../../schema/Havok/Behavior/BehaviorGraph/hkbBehaviorGraph.cpp
-    functions:
-      - { name: "CB::schema::hkbBehaviorGraph::activateWithInternalState", va: 0x140ab4a00 }
   - source: ../../../schema/Havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifier.cpp
     functions:
       - { name: "??0hkbKeyframeBonesModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afbb10 }
@@ -83,7 +77,6 @@ units:
     functions:
       - { name: "CB::schema::hkaSplineCompressedAnimation::samplePartialWithDataChunks", va: 0x140c32b60 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::readKnots", va: 0x140c33810 }
-      - { name: "CB::schema::hkaSplineCompressedAnimation::evaluate", va: 0x140c33ab0 }
   - source: ../workbench/Behavior/Modifier/FootIk/hkbFootIkModifierWorkbench.cpp
     functions:
       - { name: "CB::schema::hkbFootIkModifier::modify", va: 0x140af12a0 }
@@ -95,15 +88,11 @@ units:
       - { name: "CB::schema::hkbHandIkModifier::modify", va: 0x140af7730 }
   - source: ../workbench/Animation/Ragdoll/Instance/hkaRagdollInstanceWorkbench.cpp
     functions:
-      - { name: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@AEBU423@PEBU423@@Z", va: 0x140bd71c0 }
       - { name: "CB::schema::hkaRagdollInstance::getPoseModelSpace", va: 0x140bd75f0 }
       - { name: "CB::schema::hkaRagdollInstance::setPoseModelSpaceKeyframed", va: 0x140bd7b00 }
   - source: ../../../schema/Havok/Animation/Ik/FootPlacement/hkaFootPlacementIkSolver.cpp
     functions:
       - { name: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z", va: 0x140a83970 }
-  - source: ../workbench/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifierWorkbench.cpp
-    functions:
-      - { name: "CB::schema::hkbKeyframeBonesModifier::isValid", va: 0x140afbdb0 }
   - source: ../workbench/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyWorkbench.cpp
     functions:
       - { name: "CB::schema::hkpCharacterRigidBody::getSupportInfo", va: 0x140b7c0d0 }

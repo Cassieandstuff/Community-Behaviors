@@ -41,6 +41,42 @@ namespace CB { namespace schema
         for (int i = 0; i < m_keyframeInfo.getSize(); i++) m_keyframeInfo[i].m_isValid = false;
     }
 
+    /// @note A bone list bound to a variable is left out (its contents are not known yet).
+    /// @note The duplicate check runs in an hkLocalPointerMap: vanilla keeps the stack block's pointer and size in memory
+    ///       beside the map and reloads them at each free.
+    bool hkbKeyframeBonesModifier::isValid(hkStringPtr& errorString) const
+    {
+        int numBones = 0;
+        if (m_variableBindingSet == HK_NULL) numBones = m_keyframeInfo.getSize();
+        if (m_keyframedBonesList && m_keyframedBonesList->m_variableBindingSet == HK_NULL) numBones += m_keyframedBonesList->m_boneIndices.getSize();
+
+        if (numBones > 0) {
+            hkLocalArray<hkInt16> boneIndices(numBones);
+            if (m_variableBindingSet == HK_NULL) {
+                for (int i = 0; i < m_keyframeInfo.getSize(); i++) boneIndices.pushBack(m_keyframeInfo[i].m_boneIndex);
+            }
+            if (m_keyframedBonesList && m_keyframedBonesList->m_variableBindingSet == HK_NULL) {
+                for (int i = 0; i < m_keyframedBonesList->m_boneIndices.getSize(); i++) boneIndices.pushBack(m_keyframedBonesList->m_boneIndices[i]);
+            }
+
+            const int mapSize = hkPointerMap<int, int>::getSizeInBytesFor(numBones);
+            char*     storage = hkAllocateStack<char>(mapSize);
+            hkLocalPointerMap<int, int> boneSet(storage, mapSize);
+            for (int i = 0; i < boneIndices.getSize(); i++) {
+                if (boneIndices[i] == -1) {
+                    errorString = "Unspecified bone index.";
+                    return false;
+                }
+                if (boneSet.getWithDefault(boneIndices[i], -1) != -1) {
+                    errorString = "Duplicate bone index.";
+                    return false;
+                }
+                boneSet.insert(boneIndices[i], 1);
+            }
+        }
+        return true;
+    }
+
     hkbNode* hkbKeyframeBonesModifier::cloneNode(hkbBehaviorGraph& rootBehavior) const
     {
         if (m_variableBindingSet == HK_NULL && (m_keyframedBonesList == HK_NULL || m_keyframedBonesList->m_variableBindingSet == HK_NULL)) {

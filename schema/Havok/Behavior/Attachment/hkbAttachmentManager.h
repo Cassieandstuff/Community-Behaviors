@@ -31,6 +31,8 @@ namespace CB { namespace schema
 
         hkArray<hkbAttachmentInstance*> m_attachments;   ///< +0x00
 
+        HK_FORCE_INLINE void operator delete(void* p, hkUlong nbytes) { hkMemoryRouter::getInstance().heap().blockFree(p, static_cast<int>(nbytes)); }
+
         /// @brief Advances every attachment by `timestep`: blends the rigid-body ones in, and moves the
         ///        set-world-from-model ones into registration (`isFixup`: the second pass, after the characters
         ///        generate, which does not advance the blend).
@@ -42,5 +44,15 @@ namespace CB { namespace schema
         /// @brief Releases `attachment` and frees it.
         /// @note Name and parameter names provisional; out of line in vanilla (0x140ae1ed0).
         void detach(hkpWorld* world, hkbAttachmentInstance* attachment);
+        /// @brief Detaches every attachment (with no world: their constraints are only released).
+        ~hkbAttachmentManager();
+
+    private:
+        /// @brief Takes `attachment`'s constraint out of `world` (when both are set) and releases it.
+        /// @note Name provisional; out of line in vanilla (0x140ae3760).
+        void removeConstraint(hkpWorld* world, hkbAttachmentInstance* attachment);
+        /// @brief Removes `attachment` from the list, keeping the order of the rest.
+        /// @note Name provisional; out of line in vanilla (0x140ae20e0).
+        void removeAttachment(hkbAttachmentInstance* attachment);
     };
 } }

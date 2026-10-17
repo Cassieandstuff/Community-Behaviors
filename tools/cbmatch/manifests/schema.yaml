@@ -751,6 +751,7 @@ units:
       - { name: "CB::schema::hkbLookAtModifier::activate", va: 0x140af9720 }
       - { name: "CB::schema::hkbLookAtModifier::isValid", va: 0x140af9750 }
       - { name: "CB::schema::hkbLookAtModifier::cloneNode", va: 0x140af9800 }
+      - { name: "CB::schema::hkbLookAtModifier::modify", va: 0x140af9850 }
       - { name: "CB::schema::hkbLookAtModifier::createInternalState", va: 0x140afa0c0 }
       - { name: "??_GhkbLookAtModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9db0 }
       - { name: "CB::schema::hkbLookAtModifier::getInternalState", va: 0x140afa100 }
@@ -951,8 +952,7 @@ units:
       - { name: "CB::schema::hkbBehaviorGraph::vfn22", va: 0x140ab7d90 }
       - { name: "CB::schema::hkbBehaviorGraph::getStateListenerClone", va: 0x140ab40c0 }
       - { name: "CB::schema::hkbBehaviorGraph::staticClass", va: 0x140ac2a20 }
-    drivers:
-      - { name: "CB::schema::hkbBehaviorGraph::activateWithInternalState", why: "parked (workbench.yaml tracks it), kept in its unit: its body makes the unit emit hkbVariableValueSet's listed destructors" }
+      - { name: "CB::schema::hkbBehaviorGraph::activateWithInternalState", va: 0x140ab4a00 }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriver.cpp
     functions:
       - { name: "??0hkbHandIkDriver@schema@CB@@QEAA@XZ", va: 0x140adf7c0 }
@@ -987,6 +987,7 @@ units:
       - { name: "CB::schema::hkbKeyframeBonesModifier::calcContentStatistics", va: 0x140afbcf0 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::collectBindables", va: 0x140afbd40 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::activate", va: 0x140afbd80 }
+      - { name: "CB::schema::hkbKeyframeBonesModifier::isValid", va: 0x140afbdb0 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::cloneNode", va: 0x140afc270 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::modify", va: 0x140afc2f0 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::addKeyframedBone", va: 0x140afc390 }
@@ -1329,6 +1330,92 @@ units:
       - { name: "??_GhkbBehaviorGraphInternalStateInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bb50 }
     drivers:
       - { name: "??0hkbBehaviorGraphInternalStateInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+  - source: ../../../schema/Havok/Behavior/VisualDebugger/hkbVisualDebuggerData.cpp
+    functions:
+      - { name: "??1hkbAuxiliaryNodeInfo@schema@CB@@UEAA@XZ", va: 0x140f0b410 }
+      - { name: "??_GhkbAuxiliaryNodeInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0ba10 }
+      - { name: "??_GhkbBehaviorEventsInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0ba90 }
+      - { name: "??1hkbBehaviorInfo@schema@CB@@UEAA@XZ", va: 0x140f0b5d0 }
+      - { name: "??_GhkbBehaviorInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bbd0 }
+      - { name: "??1hkbCharacterAddedInfo@schema@CB@@UEAA@XZ", va: 0x140f0b680 }
+      - { name: "??_GhkbCharacterAddedInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bce0 }
+      - { name: "??_GhkbCharacterControlCommand@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bd60 }
+      - { name: "??_GhkbCharacterInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bdf0 }
+      - { name: "??1hkbCharacterSkinInfo@schema@CB@@UEAA@XZ", va: 0x140f0b700 }
+      - { name: "??_GhkbCharacterSkinInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0be80 }
+      - { name: "??1hkbCharacterSteppedInfo@schema@CB@@UEAA@XZ", va: 0x140f0b7a0 }
+      - { name: "??_GhkbCharacterSteppedInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bf00 }
+      - { name: "??_GhkbEventRaisedInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bf80 }
+      - { name: "??1hkbLinkedSymbolInfo@schema@CB@@UEAA@XZ", va: 0x140f0b840 }
+      - { name: "??_GhkbLinkedSymbolInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c010 }
+      - { name: "??_GhkbRaiseEventCommand@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c120 }
+      - { name: "??1hkbSetBehaviorCommand@schema@CB@@UEAA@XZ", va: 0x140f0b940 }
+      - { name: "??_GhkbSetBehaviorCommand@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c1b0 }
+      - { name: "??_GhkbSetLocalTimeOfClipGeneratorCommand@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c230 }
+      - { name: "??_GhkbSetNodePropertyCommand@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c2c0 }
+      - { name: "??_GhkbSetWordVariableCommand@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c360 }
+      - { name: "??_GhkbSimulationControlCommand@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c3f0 }
+      - { name: "??_GhkbSimulationStateInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c480 }
+    drivers:
+      - { name: "??0hkbAuxiliaryNodeInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbBehaviorEventsInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbBehaviorInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbCharacterAddedInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbCharacterControlCommand@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbCharacterInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbCharacterSkinInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbCharacterSteppedInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbEventRaisedInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbLinkedSymbolInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbRaiseEventCommand@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbSetBehaviorCommand@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbSetLocalTimeOfClipGeneratorCommand@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbSetNodePropertyCommand@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbSetWordVariableCommand@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbSimulationControlCommand@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+      - { name: "??0hkbSimulationStateInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+  - source: ../../../schema/Havok/Behavior/Utils/hkbHandle.cpp
+    functions:
+      - { name: "??_GhkbHandle@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9ab0 }
+    drivers:
+      - { name: "??0hkbHandle@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+  - source: ../../../schema/Havok/Behavior/Character/hkbMirroredSkeletonInfo.cpp
+    functions:
+      - { name: "??_GhkbMirroredSkeletonInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9fe0 }
+    drivers:
+      - { name: "??0hkbMirroredSkeletonInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+  - source: ../../../schema/Havok/Behavior/Generator/hkbRegisteredGenerator.cpp
+    functions:
+      - { name: "??_GhkbRegisteredGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140acab70 }
+    drivers:
+      - { name: "??0hkbRegisteredGenerator@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+  - source: ../../../schema/Havok/Behavior/VisualDebugger/Client/hkbBehaviorClient.cpp
+    functions:
+      - { name: "??1hkbClientCharacterState@schema@CB@@UEAA@XZ", va: 0x140f3e5b0 }
+      - { name: "??_GhkbClientCharacterState@schema@CB@@UEAAPEAXI@Z", va: 0x140f41090 }
+      - { name: "??1hkbBehaviorClient@schema@CB@@UEAA@XZ", va: 0x140f3e910 }
+      - { name: "??_GhkbBehaviorClient@schema@CB@@UEAAPEAXI@Z", va: 0x140f41010 }
+      - { name: "??_GhkRemoteObjectClientSideListener@schema@CB@@UEAAPEAXI@Z", va: 0x140f40fb0 }
+    drivers:
+      - { name: "??0hkbClientCharacterState@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor" }
+  - source: ../../../schema/Havok/Behavior/Attachment/hkbAttachmentManager.cpp
+    functions:
+      - { name: "??1hkbAttachmentManager@schema@CB@@QEAA@XZ", va: 0x140ae1d00 }
+      - { name: "CB::schema::hkbAttachmentManager::detach", va: 0x140ae1ed0 }
+      - { name: "CB::schema::hkbAttachmentManager::removeConstraint", va: 0x140ae3760 }
+      - { name: "CB::schema::hkbAttachmentManager::removeAttachment", va: 0x140ae20e0 }
+  - source: ../../../schema/Havok/Behavior/World/hkbWorld.cpp
+    functions:
+      - { name: "??1hkbWorld@schema@CB@@UEAA@XZ", va: 0x140abef40 }
+      - { name: "CB::schema::hkbWorld::removeCharacter", va: 0x140abf270 }
+      - { name: "??_GhkbWorld@schema@CB@@UEAAPEAXI@Z", va: 0x140ac15c0 }
+  - source: ../devices/Behavior/Utils/hkbAssetLoaderEhUnit.cpp
+    flags: [/EHsc]
+    functions:
+      - { name: "??1hkbAssetLoader@schema@CB@@UEAA@XZ", va: 0x140bc6d00 }
+      - { name: "??_GhkbAssetLoader@schema@CB@@UEAAPEAXI@Z", va: 0x140bc7680 }
+    drivers:
+      - { name: "CB::schema::hkbAssetLoaderEhUnit_newAssetLoader", why: "constructs an implementation, so the interface's vtable and destructors come out" }
   - source: ../../../schema/Havok/Behavior/Project/hkbProjectData.cpp
     functions:
       - { name: "??_GhkbProjectData@schema@CB@@UEAAPEAXI@Z", va: 0x140ae6050 }
@@ -1603,6 +1690,7 @@ units:
       - { name: "CB::schema::hkaSplineCompressedAnimation::sampleFloat", va: 0x140c33100 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::readNurbsQuaternion", va: 0x140c336f0 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::readPackedQuaternions", va: 0x140c339d0 }
+      - { name: "CB::schema::hkaSplineCompressedAnimation::evaluate", va: 0x140c33ab0 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::evaluateSimple1", va: 0x140c33cc0 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::evaluateSimple2", va: 0x140c33d20 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::evaluateSimple3", va: 0x140c33e30 }
@@ -1737,6 +1825,7 @@ units:
       - { name: "CB::schema::hkaRaycastInterfaceBethesdaCopy_instantiate", why: "instantiates the vtable, so the deleting destructor comes out of this unit" }
   - source: ../../../schema/Havok/Animation/Rig/hkaSkeletonUtils.cpp
     functions:
+      - { name: "CB::schema::hkaSkeletonUtils::findLastUsedTrack", va: 0x140bd3be0 }
       - { name: "CB::schema::hkaSkeletonUtils::getModelSpaceScale", va: 0x140bd62a0 }
   - source: ../../../schema/Havok/Animation/Ragdoll/Instance/hkaRagdollInstance.cpp
     functions:
@@ -1745,6 +1834,7 @@ units:
       - { name: "??1hkaRagdollInstance@schema@CB@@UEAA@XZ", va: 0x140bd6c30 }
       - { name: "CB::schema::hkaRagdollInstance::clone", va: 0x140bd6d80 }
       - { name: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@@Z", va: 0x140bd71a0 }
+      - { name: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@AEBU423@PEBU423@@Z", va: 0x140bd71c0 }
       - { name: "CB::schema::hkaRagdollInstance::getApproxCurrentPoseWorldSpace", va: 0x140bd7430 }
       - { name: "CB::schema::hkaRagdollInstance::getApproxPoseWorldSpaceAt", va: 0x140bd7490 }
       - { name: "CB::schema::hkaRagdollInstance::setPoseWorldSpace", va: 0x140bd7500 }

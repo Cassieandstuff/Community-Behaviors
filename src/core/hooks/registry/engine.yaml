@@ -709,6 +709,13 @@ symbols:
   - { name: hkbHandIkDriver_Reset, kind: func, se: 0, ae: 59422, vr: 0, cpp: "CB::schema::hkbHandIkDriver::reset" }
   - { name: hkbRagdollDriver_Reset, kind: func, se: 0, ae: 58294, vr: 0, cpp: "CB::schema::hkbRagdollDriver::reset" }
   - { name: hkbWorld_GetListeners, kind: func, se: 0, ae: 58495, vr: 0, cpp: "CB::schema::hkbWorld::getListeners" }  # returns &m_listeners (+0x30)
+  - { name: hkbWorld_Vtable, kind: data, se: 0, ae: 220348, vr: 0, cpp: "CB::schema::hkbWorld::`vftable'" }
+  - { name: hkbWorld_Dtor, kind: func, se: 0, ae: 58482, vr: 0, cpp: "CB::schema::hkbWorld::~hkbWorld" }  # the scalar deleting destructor calls it
+  - { name: hkbWorld_RemoveCharacter, kind: func, se: 0, ae: 58485, vr: 0, cpp: "CB::schema::hkbWorld::removeCharacter" }  # name provisional; (character, deactivate)
+  - { name: hkbSymbolLinker_Dtor, kind: func, se: 0, ae: 58515, vr: 0, cpp: "CB::schema::hkbSymbolLinker::~hkbSymbolLinker" }  # name provisional; the behavior world's four linkers (not reimplemented)
+  - { name: hkbCharacter_Deactivate, kind: func, se: 0, ae: 58455, vr: 0, cpp: "CB::schema::hkbCharacter::deactivate" }
+  - { name: hkbAssetLoader_Vtable, kind: data, se: 0, ae: 232916, vr: 0, cpp: "CB::schema::hkbAssetLoader::`vftable'" }
+  - { name: hkbAssetLoader_Dtor, kind: func, se: 0, ae: 63915, vr: 0, cpp: "??1hkbAssetLoader@schema@CB@@UEAA@XZ" }  # a COMDAT from a Bethesda /EHsc unit
   - { name: hkbAnimationBindingSet_Dtor, kind: func, se: 0, ae: 59417, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::~hkbAnimationBindingSet" }  # out of line; the scalar deleting destructor (in hkbCharacter.cpp) calls it
   - { name: hkbBehaviorGraph_Dtor, kind: func, se: 0, ae: 58326, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::~hkbBehaviorGraph" }  # out of line; the scalar deleting destructor calls it
   - { name: hkbBehaviorGraph_InitVariableValueSet, kind: func, se: 0, ae: 58346, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::initVariableValueSet" }  # name provisional; activate calls it when the graph has data
@@ -722,7 +729,7 @@ symbols:
   - { name: hkPointerMap_Clear, kind: func, se: 0, ae: 57183, vr: 0, cpp: "CB::schema::hkPointerMapStorage::clear" }  # name provisional; every key to empty, keeps the storage
   - { name: hkPointerMap_CtorWithStorage, kind: func, se: 0, ae: 57197, vr: 0, cpp: "??0hkPointerMapStorage@schema@CB@@QEAA@PEAXH@Z" }  # name provisional; (ptr, sizeInBytes) over caller-owned storage
   - { name: hkPointerMap_GetSizeInBytesFor, kind: func, se: 0, ae: 57194, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getSizeInBytesFor" }  # name provisional; (numKeys)
-  - { name: hkbVariableValueSet_Assign, kind: func, se: 0, ae: 58542, vr: 0, cpp: "??4hkbVariableValueSet@schema@CB@@QEAAAEAU012@AEBU012@@Z" }  # operator=: copies the word/quad values, references the variants
+  - { name: hkbVariableValueSet_Assign, kind: func, se: 0, ae: 58542, vr: 0, cpp: "??4hkbVariableValueSet@schema@CB@@QEAAAEAV012@AEBV012@@Z" }  # operator=: copies the word/quad values, references the variants
   - { name: hkbVariableValueSet_Vtable, kind: data, se: 0, ae: 220282, vr: 0, cpp: "CB::schema::hkbVariableValueSet::`vftable'" }
   - { name: hkbBindable_CopyVariablesToMembers, kind: func, se: 0, ae: 58522, vr: 0, cpp: "CB::schema::hkbBindable::copyVariablesToMembers" }  # name provisional; (context, fromMembers) -> nonzero when bound
   - { name: hkbModifier_ActivateModifier, kind: func, se: 0, ae: 59312, vr: 0, cpp: "CB::schema::hkbModifier::activateModifier" }  # name provisional; (context, modifier, info) activates unless the record says active
@@ -779,6 +786,9 @@ symbols:
   - { name: hkaRagdollInstance_GetBoneIndexOfRigidBody, kind: func, se: 0, ae: 58313, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getBoneIndexOfRigidBody" }  # an out-of-line copy among hkbRagdollDriver's functions (0x140ab0980)
   - { name: hkbAttachmentManager_AttachHandles, kind: func, se: 0, ae: 59432, vr: 0, cpp: "CB::schema::hkbAttachmentManager::attachHandles" }  # name provisional; (world, setup, handles[2]) -> instance
   - { name: hkbAttachmentManager_Detach, kind: func, se: 0, ae: 59433, vr: 0, cpp: "CB::schema::hkbAttachmentManager::detach" }  # name provisional; (world, instance), frees it
+  - { name: hkbAttachmentManager_RemoveConstraint, kind: func, se: 0, ae: 59440, vr: 0, cpp: "CB::schema::hkbAttachmentManager::removeConstraint" }  # name provisional; (world, instance)
+  - { name: hkbAttachmentManager_RemoveAttachment, kind: func, se: 0, ae: 59436, vr: 0, cpp: "CB::schema::hkbAttachmentManager::removeAttachment" }  # name provisional; (instance), order kept
+  - { name: hkbAttachmentManager_Dtor, kind: func, se: 0, ae: 59431, vr: 0, cpp: "??1hkbAttachmentManager@schema@CB@@QEAA@XZ" }  # detaches everything (no world)
   - { name: hkbAttachmentModifier_Vtable, kind: data, se: 0, ae: 226346, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::`vftable'" }
   - { name: hkbAttachmentModifier_StaticClass, kind: data, se: 0, ae: 407810, vr: 0, cpp: "CB::schema::hkbAttachmentModifierClass" }  # hkClass object
   - { name: hkbAttachmentModifier_CopyCtor, kind: func, se: 0, ae: 59593, vr: 0, cpp: "??0hkbAttachmentModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
@@ -842,6 +852,19 @@ symbols:
   - { name: hkbBehaviorGraphStringData_Dtor, kind: func, se: 0, ae: 58972, vr: 0, cpp: "??1hkbBehaviorGraphStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
   - { name: hkbBehaviorGraphInternalState_Dtor, kind: func, se: 0, ae: 58971, vr: 0, cpp: "??1hkbBehaviorGraphInternalState@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
   - { name: hkbBehaviorGraphInternalStateInfo_Dtor, kind: func, se: 0, ae: 80347, vr: 0, cpp: "??1hkbBehaviorGraphInternalStateInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbAuxiliaryNodeInfo_Dtor, kind: func, se: 0, ae: 80346, vr: 0, cpp: "??1hkbAuxiliaryNodeInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorInfo_Dtor, kind: func, se: 0, ae: 80348, vr: 0, cpp: "??1hkbBehaviorInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterAddedInfo_Dtor, kind: func, se: 0, ae: 80349, vr: 0, cpp: "??1hkbCharacterAddedInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterSkinInfo_Dtor, kind: func, se: 0, ae: 80350, vr: 0, cpp: "??1hkbCharacterSkinInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterSteppedInfo_Dtor, kind: func, se: 0, ae: 80351, vr: 0, cpp: "??1hkbCharacterSteppedInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbLinkedSymbolInfo_Dtor, kind: func, se: 0, ae: 80352, vr: 0, cpp: "??1hkbLinkedSymbolInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbSetBehaviorCommand_Dtor, kind: func, se: 0, ae: 80353, vr: 0, cpp: "??1hkbSetBehaviorCommand@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbClientCharacterState_Dtor, kind: func, se: 0, ae: 81025, vr: 0, cpp: "??1hkbClientCharacterState@schema@CB@@UEAA@XZ" }  # the destructor (it deletes the node-state map)
+  - { name: hkbClientCharacterState_Vtable, kind: data, se: 0, ae: 241537, vr: 0, cpp: "CB::schema::hkbClientCharacterState::`vftable'" }  # the destructor stores it
+  - { name: hkbBehaviorClient_Vtable, kind: data, se: 0, ae: 241539, vr: 0, cpp: "??_7hkbBehaviorClient@schema@CB@@6BhkReferencedObject@12@@" }
+  - { name: hkRemoteObjectClientSideListener_Vtable, kind: data, se: 0, ae: 241535, vr: 0, cpp: "CB::schema::hkRemoteObjectClientSideListener::`vftable'" }
+  - { name: hkbBehaviorClient_ListenerVtable, kind: data, se: 0, ae: 241541, vr: 0, cpp: "??_7hkbBehaviorClient@schema@CB@@6BhkRemoteObjectClientSideListener@12@@" }  # the listener base's (+0x10)
+  - { name: hkbBehaviorClient_Dtor, kind: func, se: 0, ae: 81027, vr: 0, cpp: "??1hkbBehaviorClient@schema@CB@@UEAA@XZ" }  # stores both vtables first
   - { name: hkbProjectStringData_Dtor, kind: func, se: 0, ae: 58985, vr: 0, cpp: "??1hkbProjectStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
   - { name: hkbAnimationBindingSet_Clear, kind: func, se: 0, ae: 59418, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::clear" }  # name provisional; releases every binding, size 0
   - { name: hkbAnimationBindingWithTriggers_Vtable, kind: data, se: 0, ae: 226845, vr: 0, cpp: "CB::schema::hkbAnimationBindingWithTriggers::`vftable'" }

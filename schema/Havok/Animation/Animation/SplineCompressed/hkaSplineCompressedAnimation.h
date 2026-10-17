@@ -120,10 +120,11 @@ namespace CB { namespace schema
         /// @note Name provisional.
         static int readKnots(const hkUint8*& dataInOut, int& n, int& p, hkUint8 quantizedTime, hkReal frameDuration, hkReal* U);
         /// @brief The knot span of `u` in the n + p + 2 knots `U` (the NURBS Book's A2.1, binary search).
+        /// @note The low end is tested against U[0], not A2.1's U[p], as vanilla does (0x140c33979; equal for clamped knots).
         static HK_FORCE_INLINE int findSpan(int n, int p, hkUint8 u, const hkUint8* U)
         {
             if (u >= U[n + 1]) return n;
-            if (u <= U[p]) return p;
+            if (u <= U[0]) return p;
             int low  = p;
             int high = n + 1;
             int mid  = (low + high) / 2;

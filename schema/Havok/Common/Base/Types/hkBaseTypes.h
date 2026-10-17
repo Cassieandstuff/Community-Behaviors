@@ -12,6 +12,7 @@
 
 typedef unsigned long DWORD;
 extern "C" __declspec(dllimport) void* __stdcall TlsGetValue(DWORD dwTlsIndex);
+extern "C" __declspec(dllimport) void __stdcall DeleteCriticalSection(void* lpCriticalSection);
 extern "C" unsigned __int64 __rdtsc();
 #pragma intrinsic(__rdtsc)
 extern "C" double __cdecl fabs(double);

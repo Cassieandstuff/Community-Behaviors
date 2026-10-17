@@ -92,6 +92,9 @@ namespace CB { namespace schema
     public:
         hkVector4        m_mirrorAxis;    ///< +0x10
         hkArray<hkInt16> m_bonePairMap;   ///< +0x20
+
+        HK_FORCE_INLINE hkbMirroredSkeletonInfo() {}
+        hkbMirroredSkeletonInfo(hkFinishLoadedObjectFlag flag);
     };
 
     /// @note 0xb0 bytes.

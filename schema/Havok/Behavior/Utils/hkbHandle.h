@@ -21,6 +21,7 @@ namespace CB { namespace schema
         hkInt16       m_animationBoneIndex;   ///< +0x28
 
         HK_FORCE_INLINE hkbHandle() {}
+        hkbHandle(hkFinishLoadedObjectFlag flag);
 
         /// @brief Points the handle at nothing.
         /// @note Name provisional.

@@ -63,31 +63,4 @@ namespace CB { namespace schema
         return span;
     }
 
-    void hkaSplineCompressedAnimation::evaluate(hkReal u, int p, const hkReal* U, const hkVector4* P, hkVector4& out)
-    {
-        hkReal N[MAX_DEGREE + 1];
-        hkReal right[MAX_DEGREE + 1];
-        hkReal left[MAX_DEGREE + 1];
-
-        N[0] = 1.0f;
-        for (int j = 1; j <= p; j++) {
-            left[j]      = u - U[p - j];
-            right[j]     = U[p + j - 1] - u;
-            hkReal saved = 0.0f;
-            for (int r = 0; r < j; r++) {
-                const hkReal temp = N[r] / (right[r + 1] + left[j - r]);
-                N[r]              = saved + right[r + 1] * temp;
-                saved             = left[j - r] * temp;
-            }
-            N[j] = saved;
-        }
-
-        hkVector4 sum;
-        sum.setZero4();
-        for (int i = 0; i <= p; i++) {
-            sum.addMul4(hkSimdReal(N[i]), P[i]);
-        }
-        out = sum;
-    }
-
 } }

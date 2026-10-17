@@ -341,14 +341,15 @@ namespace CB { namespace schema
     }
 
 
-    /// @note The saved records are keyed by node id in a map over stack storage; it is emptied before the storage goes
-    ///       back, and again by its destructor.
+    /// @note The saved records are keyed by node id in a map over stack storage (an hkLocalPointerMap: vanilla keeps the
+    ///       block's pointer and size in memory beside the map and reloads them for the free); it is emptied before the
+    ///       storage goes back, and again by its destructor.
     void hkbBehaviorGraph::activateWithInternalState(const hkbContext& context, const hkbBehaviorGraphInternalState& internalState)
     {
         const int numInfos = internalState.m_nodeInternalStateInfos.getSize();
         const int mapSize  = hkPointerMap<int, const hkbNodeInternalStateInfo*>::getSizeInBytesFor(numInfos);
         char*     storage  = hkAllocateStack<char>(mapSize);
-        hkPointerMap<int, const hkbNodeInternalStateInfo*> nodeIdToInternalState(storage, mapSize);
+        hkLocalPointerMap<int, const hkbNodeInternalStateInfo*> nodeIdToInternalState(storage, mapSize);
         for (int i = 0; i < numInfos; i++) {
             const hkbNodeInternalStateInfo* info = internalState.m_nodeInternalStateInfos[i];
             nodeIdToInternalState.insert(info->m_nodeId, info);
@@ -365,9 +366,6 @@ namespace CB { namespace schema
         m_isActive                     = true;
         hkbBehaviorGraphUtils::updateActiveNodes(*this, context, &nodeIdToInternalState);
         const_cast<hkbContext&>(context).m_behavior = HK_NULL;
-
-        nodeIdToInternalState.clearAndDeallocate();
-        hkDeallocateStack(storage, mapSize);
     }
 
     void hkbBehaviorGraph::deleteActiveNodes()

@@ -10,26 +10,6 @@
 
 namespace CB { namespace schema
 {
-    void hkaRagdollInstance::getPoseWorldSpace(hkQsTransform* poseWorldSpaceOut, const hkQsTransform& worldFromModel,
-                                               const hkQsTransform* localSpacePoseForUnmappedBones) const
-    {
-        if (localSpacePoseForUnmappedBones == HK_NULL) localSpacePoseForUnmappedBones = m_skeleton->m_referencePose.begin();
-
-        for (int b = 0; b < m_skeleton->m_bones.getSize(); b++) {
-            const hkpRigidBody* rb = getRigidBodyOfBone(b);
-            if (rb) {
-                poseWorldSpaceOut[b].setFromTransformNoScale(rb->getTransform());
-                hkaSkeletonUtils::getModelSpaceScale(*m_skeleton, m_skeleton->m_referencePose.begin(), b, poseWorldSpaceOut[b].m_scale);
-            } else {
-                const int     parent = m_skeleton->m_parentIndices[b];
-                hkQsTransform parentWorldSpace;
-                if (parent >= 0) parentWorldSpace = poseWorldSpaceOut[parent];
-                else             parentWorldSpace = worldFromModel;
-                poseWorldSpaceOut[b].setMul(parentWorldSpace, localSpacePoseForUnmappedBones[b]);
-            }
-        }
-    }
-
     void hkaRagdollInstance::getPoseModelSpace(hkQsTransform* poseModelSpaceOut, const hkQsTransform& worldFromModel) const
     {
         getPoseWorldSpace(poseModelSpaceOut);
