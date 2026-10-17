@@ -6,19 +6,25 @@
 
 namespace CB { namespace schema
 {
-    /// @note The type tag (+0x38) is all that is read; 2 is the Havok SDK's HK_FILTER_GROUP.
+    /// @note The type tag (+0x38) is all behavior code reads; 2 is the Havok SDK's HK_FILTER_GROUP.
     class hkpCollisionFilter : public hkReferencedObject
     {
     public:
         enum hkpFilterType { HK_FILTER_UNKNOWN = 0, HK_FILTER_NULL = 1, HK_FILTER_GROUP = 2 };
 
-        char    m_pad10[0x38 - 0x10];
-        hkInt32 m_type;   ///< +0x38 — hkpFilterType
+        char     m_pad10[0x30 - 0x10];
+        hkUint32 m_prepad[2];    ///< +0x30
+        hkInt32  m_type;         ///< +0x38 — hkpFilterType
+        hkUint32 m_postpad[3];   ///< +0x3c
     };
 
     class hkpGroupFilter : public hkpCollisionFilter
     {
     public:
+        hkInt32   m_nextFreeSystemGroup;        ///< +0x48
+        hkUint32  m_collisionLookupTable[32];   ///< +0x4c
+        hkVector4 m_pad256[4];                  ///< +0xd0
+
         /// @brief Whether objects with these collision filter infos (layer + system group) may collide.
         /// @note Out of line in vanilla; the hkBool comes back through memory.
         hkBool isCollisionEnabled(hkUint32 infoA, hkUint32 infoB) const;

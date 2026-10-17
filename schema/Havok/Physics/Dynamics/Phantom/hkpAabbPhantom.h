@@ -10,13 +10,13 @@ namespace CB { namespace schema
     class hkpRayHitCollector;
     struct hkpWorldRayCastInput;
 
-    /// @note vtable 0x14196c158. Only m_aabb is confirmed (hkaDetectRagdollPenetration); the overlap list after it is
-    ///       per the Havok SDK.
+    /// @note vtable 0x14196c158.
     class hkpAabbPhantom : public hkpPhantom
     {
     public:
         hkAabb                  m_aabb;                     ///< +0xf0
         hkArray<hkpCollidable*> m_overlappingCollidables;   ///< +0x110
+        hkBool                  m_orderDirty;               ///< +0x120
 
         /// @brief Moves the phantom to `newAabb` and updates the broad phase.
         void setAabb(const hkAabb& newAabb);

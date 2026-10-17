@@ -2,6 +2,7 @@
 /// @brief hkpMotion: a body's dynamic state (motion state, velocities, mass, deactivation) and the motion-type hierarchy.
 #pragma once
 
+#include <Common/Base/Object/hkReferencedObject.h>
 #include <Common/Base/Types/Physics/MotionState/hkMotionState.h>
 
 namespace CB { namespace schema
