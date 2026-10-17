@@ -22,6 +22,11 @@ namespace CB { namespace schema
     class bhkWorld;
     class hkpRigidBody;
     class hkpCollidable;
+    class hkpWorldObject;
+    class hkpCapsuleShape;
+    class bhkCharacterController;
+    struct hkContactPoint;
+    struct hkRootCdPoint;
 
     /// @brief What turns a character toward where it is going.
     /// @note Only the slots the controller calls are named.
@@ -31,11 +36,24 @@ namespace CB { namespace schema
         virtual ~bhkICharOrientationController();   ///< slot 0
         virtual void Unk_01();
         virtual void Unk_02();
-        virtual void Unk_03();
-        virtual void Unk_04();
+        /// @brief Told of a contact TryStep let the character step up onto.
+        /// @note Name provisional; empty in the biped controller.
+        virtual void OnStep(const hkRootCdPoint& point);   ///< slot 3
+        /// @brief Where the step test probes from: writes `position` (the character's position on entry) and returns
+        ///        which of the controller's points it took, or -1 to have TryStep raise `position` by the step height.
+        /// @param capsule The character's capsule, null when its shape is not one.
+        /// @note Name provisional; the biped controller returns -1 (its position untouched).
+        virtual int GetStepProbe(bhkCharacterController* ctrl, const hkpCapsuleShape* capsule, const hkVector4& contactPosition,
+                                 hkVector4& position);   ///< slot 4
         virtual void Unk_05();
-        virtual void Unk_06();
-        virtual void Unk_07();
+        /// @brief Told that `ctrl` pushed `other` at `contact` (PushCharacter).
+        /// @note Name provisional; empty in the biped controller.
+        virtual void OnPushCharacter(bhkCharacterController* ctrl, const hkContactPoint& contact, bhkCharacterController* other);   ///< slot 6
+        /// @brief Whether a contact `maxHeight` or more above the probe (at height `contactZ`, against probe point
+        ///        `probe`) is too high to step onto; may set `stepUp`.
+        /// @note Name provisional; the biped controller always rejects; the quadruped one measures from its probe
+        ///       point, rejecting above `maxHeight` and setting `stepUp` below it.
+        virtual bool RejectStep(bhkCharacterController* ctrl, float maxHeight, float contactZ, int probe, bool& stepUp);   ///< slot 7
         virtual void Unk_08();
         /// @brief Resets the controller (ResetContactState calls it).
         virtual void Reset();                         ///< slot 9 — name provisional
@@ -103,6 +121,26 @@ namespace CB { namespace schema
         /// @brief Clears kTryStep and the support normal, and resets the orientation controller.
         /// @note Name provisional; out of line in vanilla (0x140ea0320).
         void ResetContactState();
+        /// @brief The step-up test a contact callback runs on a contact too steep to stand on: whether the character
+        ///        may step up onto `point`'s body B (the contacted body; A is the character's).
+        /// @note Name provisional; out of line in vanilla (0x140ea22e0).
+        bool TryStep(const hkRootCdPoint& point);
+        /// @brief Reads the surface under `point` (a contact with body B) into m_contactLayer, m_contactVelocity and
+        ///        m_surfaceMaterial, and sets kOnStairs (flag bit 24) by the material; a no-op once m_surfaceMaterial is
+        ///        set.
+        /// @note Name provisional; out of line in vanilla (0x140ea21a0).
+        void UpdateContactMaterial(const hkRootCdPoint& point);
+        /// @brief Pushes `other` (a character this one touches at `contact`, its normal pointing from `other`) along
+        ///        the contact's horizontal normal at this character's horizontal speed, unless `other` outranks this one
+        ///        (m_pushPriority) or is kNotPushable (flag bit 14); records `other`'s body as the bumped character.
+        /// @note Name provisional; out of line in vanilla (0x140ea13a0).
+        void PushCharacter(bhkCharacterController* other, const hkContactPoint& contact);
+        /// @brief The controller `object` belongs to (its Havok property 1002), null if none.
+        /// @note Name provisional; out of line in vanilla (0x140ea0e20).
+        static bhkCharacterController* GetControllerFromCollidable(const hkpWorldObject* object);
+        /// @brief The value of `object`'s Havok property `key` (read under the world lock), 0 if it has none.
+        /// @note Name provisional; out of line in vanilla (0x140ea0cf0).
+        static hkUlong GetHavokProperty(hkUint32 key, const hkpWorldObject* object);
         /// @brief The base half of building a controller from `cinfo` (flags, state, shapes, bounds).
         /// @note Name provisional; out of line in vanilla (0x140ea17e0).
         void InitFromCinfo(const bhkCharacterControllerCinfo& cinfo);
@@ -154,13 +192,17 @@ namespace CB { namespace schema
         /// @brief Where the body sits from the character's position, in the body's frame (GetPositionImpl and
         ///        SetPositionImpl rotate it by the body's rotation).
         hkVector4      m_centerOffset;      ///< +0xc0
-        hkUint8        m_padd0[0xe0 - 0xd0];
+        /// @brief How far other characters pushed this one (each PushCharacter adds its push), in Havok units.
+        /// @note Name per CommonLibSSE (which places it at +0xe0).
+        hkVector4      m_pushDelta;         ///< +0xd0
         /// @brief Where InAir's stuck recovery put the character on the ground (see m_fakeSupport).
         /// @note Name per CommonLibSSE (which places it at +0xf0).
         hkVector4      m_fakeSupportStart;  ///< +0xe0
         /// @brief The character's up direction (the rigid-body controller builds its Havok body with it).
         hkVector4      m_up;                ///< +0xf0
-        hkUint8        m_pad100[0x110 - 0x100];
+        /// @brief The linear velocity of the rigid body behind the contact UpdateContactMaterial read, zero for none.
+        /// @note Name provisional.
+        hkVector4      m_contactVelocity;   ///< +0x100
         /// @brief The support query's surface normal (CheckSupportImpl copies it from m_surfaceInfo).
         hkVector4      m_supportNorm;       ///< +0x110
         BSBound        m_collisionBound;         ///< +0x120
@@ -201,14 +243,29 @@ namespace CB { namespace schema
         float          m_swimFloatHeight;   ///< +0x25c
         /// @note Name per CommonLibSSE; Swimming scales the float depth by it.
         float          m_actorHeight;       ///< +0x260
-        hkUint8        m_pad264[0x270 - 0x264];
+        hkUint8        m_pad264[0x268 - 0x264];
+        /// @brief How many times other characters pushed this one.
+        /// @note Name per CommonLibSSE.
+        hkUint32       m_pushCount;         ///< +0x268
+        hkUint8        m_pad26c[0x270 - 0x26c];
         /// @brief A counted Bethesda physics object (InitFromCinfo moves it into the cinfo's world).
         NiPointer<bhkSerializable> m_unk270;   ///< +0x270
         /// @brief Which of m_shapes is in use (2 or more: none).
         hkInt32        m_shapeIndex;        ///< +0x278
         hkUint8        m_pad27c[0x280 - 0x27c];
         NiPointer<bhkShape> m_shapes[2];    ///< +0x280
-        hkUint8        m_pad290[0x2b0 - 0x290];
+        /// @brief The character's radius, in Havok units (TryStep probes with the body's own radius when it is a
+        ///        capsule).
+        /// @note Name provisional.
+        float          m_radius;            ///< +0x290
+        hkUint8        m_pad294[0x2a0 - 0x294];
+        /// @brief While it is 2, PushCharacter pushes 20 Havok units/s harder.
+        /// @note Meaning unknown.
+        hkUint32       m_unk2a0;            ///< +0x2a0
+        /// @brief A character pushes only characters whose priority is at most its own.
+        /// @note Name provisional.
+        hkUint32       m_pushPriority;      ///< +0x2a4
+        hkUint8        m_pad2a8[0x2b0 - 0x2a8];
         hkRefPtr<hkpRigidBody> m_supportBody;                 ///< +0x2b0
         hkUint8        m_pad2b8[0x2c0 - 0x2b8];
         hkRefPtr<hkpRigidBody> m_bumpedBody;                  ///< +0x2c0
@@ -218,7 +275,18 @@ namespace CB { namespace schema
         /// @brief OnGround's unsupported cast sets kAllowJumpNoContact (flag bit 4) when its hit's normal z is below it.
         /// @note Name per CommonLibSSE.
         float          m_zNormal;           ///< +0x300
-        hkUint8        m_pad304[0x314 - 0x304];
+        /// @brief The material under the contact UpdateContactMaterial read (0 until one does).
+        /// @note Name provisional.
+        hkUint32       m_surfaceMaterial;     ///< +0x304
+        /// @brief That contact's collision layer.
+        /// @note Name provisional.
+        hkUint32       m_contactLayer;        ///< +0x308
+        /// @brief How high the character steps up, in Havok units.
+        /// @note Name provisional.
+        float          m_stepHeight;          ///< +0x30c
+        /// @brief How far past its radius TryStep probes for the step's face, in Havok units.
+        /// @note Name provisional.
+        float          m_stepProbeDistance;   ///< +0x310
         /// @brief How many character-controller bodies (layer 30) of m_systemGroup the controller touches.
         hkUint32       m_numCharacterContacts;   ///< +0x314
         /// @brief The collision system group the controller counts contacts of, 0 for any.

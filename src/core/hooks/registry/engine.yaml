@@ -1176,6 +1176,12 @@ symbols:
   - { name: bhkCharacterController_IsLayerCounted, kind: func, se: 0, ae: 78312, vr: 0, cpp: "CB::schema::bhkCharacterController::IsLayerCounted" }  # name provisional
   - { name: bhkCharacterController_IsSlopeBlocking, kind: func, se: 0, ae: 78311, vr: 0, cpp: "CB::schema::bhkCharacterController::IsSlopeBlocking" }  # name provisional; (meshShape, checkMaterial, default, shapeKey)
   - { name: bhkGetMeshShape, kind: func, se: 0, ae: 77986, vr: 0, cpp: "CB::schema::bhkGetMeshShape" }  # name provisional
+  - { name: bhkCharacterController_GetHavokProperty, kind: func, se: 0, ae: 78295, vr: 0, cpp: "CB::schema::bhkCharacterController::GetHavokProperty" }  # name provisional; (key, worldObject), read-locked
+  - { name: bhkGetShapeCollection, kind: func, se: 0, ae: 77983, vr: 0, cpp: "CB::schema::bhkGetShapeCollection" }  # name provisional
+  - { name: bhkIsStairsMaterial, kind: func, se: 0, ae: 78008, vr: 0, cpp: "CB::schema::bhkIsStairsMaterial" }  # name provisional; calls the game-installed material predicate (0x14328ded0) if set
+  - { name: bhkShape_GetMaterialID, kind: func, se: 0, ae: 78676, vr: 0, cpp: "CB::schema::bhkShape::GetMaterialID" }
+  - { name: hkCollideCapsuleUtilCapsVsTri, kind: func, se: 0, ae: 67080, vr: 0, cpp: "CB::schema::hkCollideCapsuleUtilCapsVsTri" }
+  - { name: hkCollideTriangleUtil_SetupPointTriangleDistanceCache, kind: func, se: 0, ae: 67076, vr: 0, cpp: "CB::schema::hkCollideTriangleUtil::setupPointTriangleDistanceCache" }
   # Bethesda's character-controller states (bhkCharacterState*)
   - { name: bhkCharacterController_CommitWantedState, kind: func, se: 0, ae: 78280, vr: 0, cpp: "CB::schema::bhkCharacterController::CommitWantedState" }  # name provisional; enters wantState (+0x21c) if != 0xb, then clears it; every state's Simulate commits through it
   - { name: bhkCharacterController_AccumulateFallTime, kind: func, se: 0, ae: 78281, vr: 0, cpp: "CB::schema::bhkCharacterController::AccumulateFallTime" }  # name provisional; fallTime += step dt

@@ -108,3 +108,8 @@ units:
     flags: [/EHsc, /Ob2]
     functions:
       - { name: "CB::schema::bhkCharacterController::GetFallDistance", va: 0x140e9eec0 }
+      - { name: "CB::schema::bhkCharacterController::ResetContactState", va: 0x140ea0320 }
+      - { name: "CB::schema::bhkCharacterController::GetControllerFromCollidable", va: 0x140ea0e20 }
+      - { name: "CB::schema::bhkCharacterController::PushCharacter", va: 0x140ea13a0 }
+      - { name: "CB::schema::bhkCharacterController::UpdateContactMaterial", va: 0x140ea21a0 }
+      - { name: "CB::schema::bhkCharacterController::TryStep", va: 0x140ea22e0 }
