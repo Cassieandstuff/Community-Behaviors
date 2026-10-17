@@ -33,6 +33,9 @@ inventory:
   schema: ../../../schema
   include: ["hkb*", "hka*", "hkpCharacter*", "ahkpCharacter*", "bhkChar*", "hkCharControllerShape"]
   exclude: ["hkp*"]
+  # Members reached only from out-of-scope code: Actor::Move drives the controller's per-frame update.
+  roots:
+    - { class: bhkCharacterController, va: 0x140e9f170 }   # UpdatePhysics
 units:
   - source: ../../../schema/Havok/Behavior/Modifier/Timer/hkbTimerModifier.cpp
     functions:
