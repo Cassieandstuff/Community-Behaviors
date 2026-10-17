@@ -42,6 +42,12 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkbLookAtModifier::cloneNode";
             static constexpr std::uint64_t id      = 59807;
         };
+        /// @brief `public: virtual void CB::schema::hkbLookAtModifier::modify(struct CB::schema::hkbContext const &,struct CB::schema::hkbGeneratorOutput &)` — vanilla 0x140af9850, VARIANT
+        struct modify : ::CB::core::hooks::Cell<modify, void(CB::schema::hkbLookAtModifier *, struct CB::schema::hkbContext const &, struct CB::schema::hkbGeneratorOutput &)> {
+            static constexpr const char*   mangled = "?modify@hkbLookAtModifier@schema@CB@@UEAAXAEBUhkbContext@23@AEAUhkbGeneratorOutput@23@@Z";
+            static constexpr const char*   name    = "CB::schema::hkbLookAtModifier::modify";
+            static constexpr std::uint64_t id      = 59808;
+        };
         /// @brief `public: virtual struct CB::schema::hkReferencedObject * CB::schema::hkbLookAtModifier::createInternalState(void)` — vanilla 0x140afa0c0, EXACT
         struct createInternalState : ::CB::core::hooks::Cell<createInternalState, struct CB::schema::hkReferencedObject *(CB::schema::hkbLookAtModifier *)> {
             static constexpr const char*   mangled = "?createInternalState@hkbLookAtModifier@schema@CB@@UEAAPEAUhkReferencedObject@23@XZ";

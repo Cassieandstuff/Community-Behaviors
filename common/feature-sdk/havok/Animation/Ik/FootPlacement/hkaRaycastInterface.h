@@ -25,7 +25,7 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkaRaycastInterface::castRay";
             static constexpr std::uint64_t id      = 56972;
         };
-        /// @brief `public: virtual void * CB::schema::hkaRaycastInterface::`scalar deleting destructor'(unsigned int)` — vanilla 0x1405445f0, VARIANT
+        /// @brief `public: virtual void * CB::schema::hkaRaycastInterface::`scalar deleting destructor'(unsigned int)` — vanilla 0x1405445f0, EXACT
         struct scalarDeletingDtor : ::CB::core::hooks::Cell<scalarDeletingDtor, void *(CB::schema::hkaRaycastInterface *, unsigned int)> {
             static constexpr const char*   mangled = "??_GhkaRaycastInterface@schema@CB@@UEAAPEAXI@Z";
             static constexpr const char*   name    = "CB::schema::hkaRaycastInterface::`scalar deleting destructor'";

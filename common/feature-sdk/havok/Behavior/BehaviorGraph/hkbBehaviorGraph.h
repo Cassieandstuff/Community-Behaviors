@@ -168,6 +168,12 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkbBehaviorGraph::staticClass";
             static constexpr std::uint64_t id      = 58554;
         };
+        /// @brief `public: void CB::schema::hkbBehaviorGraph::activateWithInternalState(struct CB::schema::hkbContext const &,struct CB::schema::hkbBehaviorGraphInternalState const &)` — vanilla 0x140ab4a00, VARIANT
+        struct activateWithInternalState : ::CB::core::hooks::Cell<activateWithInternalState, void(CB::schema::hkbBehaviorGraph *, struct CB::schema::hkbContext const &, struct CB::schema::hkbBehaviorGraphInternalState const &)> {
+            static constexpr const char*   mangled = "?activateWithInternalState@hkbBehaviorGraph@schema@CB@@QEAAXAEBUhkbContext@23@AEBUhkbBehaviorGraphInternalState@23@@Z";
+            static constexpr const char*   name    = "CB::schema::hkbBehaviorGraph::activateWithInternalState";
+            static constexpr std::uint64_t id      = 58373;
+        };
     };
 
 }  // namespace CB::feature::havok

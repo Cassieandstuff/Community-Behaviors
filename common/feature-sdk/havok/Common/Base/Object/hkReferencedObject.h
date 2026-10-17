@@ -12,7 +12,7 @@
 namespace CB::feature::havok {
 
     struct hkReferencedObject {
-        /// @brief `public: virtual void * CB::schema::hkReferencedObject::`scalar deleting destructor'(unsigned int)` — vanilla 0x1402b0760, VARIANT
+        /// @brief `public: virtual void * CB::schema::hkReferencedObject::`scalar deleting destructor'(unsigned int)` — vanilla 0x1402b0760, EXACT
         struct scalarDeletingDtor : ::CB::core::hooks::Cell<scalarDeletingDtor, void *(CB::schema::hkReferencedObject *, unsigned int)> {
             static constexpr const char*   mangled = "??_GhkReferencedObject@schema@CB@@UEAAPEAXI@Z";
             static constexpr const char*   name    = "CB::schema::hkReferencedObject::`scalar deleting destructor'";

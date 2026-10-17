@@ -12,7 +12,7 @@
 namespace CB::feature::havok {
 
     struct hkaRagdollRaycastInterface {
-        /// @brief `public: virtual void * CB::schema::hkaRagdollRaycastInterface::`scalar deleting destructor'(unsigned int)` — vanilla 0x140e9bfb0, VARIANT
+        /// @brief `public: virtual void * CB::schema::hkaRagdollRaycastInterface::`scalar deleting destructor'(unsigned int)` — vanilla 0x140e9bfb0, EXACT
         struct scalarDeletingDtor : ::CB::core::hooks::Cell<scalarDeletingDtor, void *(CB::schema::hkaRagdollRaycastInterface *, unsigned int)> {
             static constexpr const char*   mangled = "??_GhkaRagdollRaycastInterface@schema@CB@@UEAAPEAXI@Z";
             static constexpr const char*   name    = "CB::schema::hkaRagdollRaycastInterface::`scalar deleting destructor'";

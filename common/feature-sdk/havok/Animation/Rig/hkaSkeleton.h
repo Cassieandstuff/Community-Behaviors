@@ -18,7 +18,7 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkaSkeleton::~hkaSkeleton";
             static constexpr std::uint64_t id      = 63740;
         };
-        /// @brief `public: virtual void * CB::schema::hkaSkeleton::`scalar deleting destructor'(unsigned int)` — vanilla 0x140bbd000, VARIANT
+        /// @brief `public: virtual void * CB::schema::hkaSkeleton::`scalar deleting destructor'(unsigned int)` — vanilla 0x140bbd000, EXACT
         struct scalarDeletingDtor : ::CB::core::hooks::Cell<scalarDeletingDtor, void *(CB::schema::hkaSkeleton *, unsigned int)> {
             static constexpr const char*   mangled = "??_GhkaSkeleton@schema@CB@@UEAAPEAXI@Z";
             static constexpr const char*   name    = "CB::schema::hkaSkeleton::`scalar deleting destructor'";

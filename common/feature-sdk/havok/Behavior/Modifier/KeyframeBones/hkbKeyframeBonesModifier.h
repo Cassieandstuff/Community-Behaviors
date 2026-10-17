@@ -30,6 +30,12 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkbKeyframeBonesModifier::activate";
             static constexpr std::uint64_t id      = 59850;
         };
+        /// @brief `public: virtual bool CB::schema::hkbKeyframeBonesModifier::isValid(class CB::schema::hkStringPtr &)const ` — vanilla 0x140afbdb0, VARIANT
+        struct isValid : ::CB::core::hooks::Cell<isValid, bool(const CB::schema::hkbKeyframeBonesModifier *, class CB::schema::hkStringPtr &)> {
+            static constexpr const char*   mangled = "?isValid@hkbKeyframeBonesModifier@schema@CB@@UEBA_NAEAVhkStringPtr@23@@Z";
+            static constexpr const char*   name    = "CB::schema::hkbKeyframeBonesModifier::isValid";
+            static constexpr std::uint64_t id      = 59851;
+        };
         /// @brief `public: virtual class CB::schema::hkbNode * CB::schema::hkbKeyframeBonesModifier::cloneNode(class CB::schema::hkbBehaviorGraph &)const ` — vanilla 0x140afc270, EXACT
         struct cloneNode : ::CB::core::hooks::Cell<cloneNode, class CB::schema::hkbNode *(const CB::schema::hkbKeyframeBonesModifier *, class CB::schema::hkbBehaviorGraph &)> {
             static constexpr const char*   mangled = "?cloneNode@hkbKeyframeBonesModifier@schema@CB@@UEBAPEAVhkbNode@23@AEAVhkbBehaviorGraph@23@@Z";

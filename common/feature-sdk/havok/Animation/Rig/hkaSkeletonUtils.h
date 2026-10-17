@@ -12,6 +12,12 @@
 namespace CB::feature::havok {
 
     struct hkaSkeletonUtils {
+        /// @brief `public: static int CB::schema::hkaSkeletonUtils::findLastUsedTrack(short const *,struct CB::schema::hkBool const *,int,int)` — vanilla 0x140bd3be0, EXACT
+        struct findLastUsedTrack : ::CB::core::hooks::Cell<findLastUsedTrack, int(short const *, struct CB::schema::hkBool const *, int, int)> {
+            static constexpr const char*   mangled = "?findLastUsedTrack@hkaSkeletonUtils@schema@CB@@SAHPEBFPEBUhkBool@23@HH@Z";
+            static constexpr const char*   name    = "CB::schema::hkaSkeletonUtils::findLastUsedTrack";
+            static constexpr std::uint64_t id      = 64091;
+        };
         /// @brief `public: static void CB::schema::hkaSkeletonUtils::getModelSpaceScale(struct CB::schema::hkaSkeleton const &,struct CB::schema::hkQsTransform const *,int,struct CB::schema::hkVector4 &)` — vanilla 0x140bd62a0, VARIANT
         struct getModelSpaceScale : ::CB::core::hooks::Cell<getModelSpaceScale, void(struct CB::schema::hkaSkeleton const &, struct CB::schema::hkQsTransform const *, int, struct CB::schema::hkVector4 &)> {
             static constexpr const char*   mangled = "?getModelSpaceScale@hkaSkeletonUtils@schema@CB@@SAXAEBUhkaSkeleton@23@PEBUhkQsTransform@23@HAEAUhkVector4@23@@Z";

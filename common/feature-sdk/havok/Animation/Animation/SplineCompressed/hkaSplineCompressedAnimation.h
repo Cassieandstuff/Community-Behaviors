@@ -90,6 +90,12 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkaSplineCompressedAnimation::sampleFloat";
             static constexpr std::uint64_t id      = 65552;
         };
+        /// @brief `public: static void CB::schema::hkaSplineCompressedAnimation::evaluate(float,int,float const *,struct CB::schema::hkVector4 const *,struct CB::schema::hkVector4 &)` — vanilla 0x140c33ab0, EXACT
+        struct evaluate : ::CB::core::hooks::Cell<evaluate, void(float, int, float const *, struct CB::schema::hkVector4 const *, struct CB::schema::hkVector4 &)> {
+            static constexpr const char*   mangled = "?evaluate@hkaSplineCompressedAnimation@schema@CB@@SAXMHPEBMPEBUhkVector4@23@AEAU423@@Z";
+            static constexpr const char*   name    = "CB::schema::hkaSplineCompressedAnimation::evaluate";
+            static constexpr std::uint64_t id      = 65557;
+        };
         /// @brief `public: static void CB::schema::hkaSplineCompressedAnimation::evaluateSimple1(float,int,float const *,struct CB::schema::hkVector4 const *,struct CB::schema::hkVector4 &)` — vanilla 0x140c33cc0, EXACT
         struct evaluateSimple1 : ::CB::core::hooks::Cell<evaluateSimple1, void(float, int, float const *, struct CB::schema::hkVector4 const *, struct CB::schema::hkVector4 &)> {
             static constexpr const char*   mangled = "?evaluateSimple1@hkaSplineCompressedAnimation@schema@CB@@SAXMHPEBMPEBUhkVector4@23@AEAU423@@Z";

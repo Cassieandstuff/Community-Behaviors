@@ -37,10 +37,16 @@ namespace CB::feature::havok {
             static constexpr std::uint64_t id      = 64147;
         };
         /// @brief `public: void CB::schema::hkaRagdollInstance::getPoseWorldSpace(struct CB::schema::hkQsTransform *)const ` — vanilla 0x140bd71a0, EXACT
-        struct getPoseWorldSpace : ::CB::core::hooks::Cell<getPoseWorldSpace, void(const CB::schema::hkaRagdollInstance *, struct CB::schema::hkQsTransform *)> {
+        struct getPoseWorldSpace_hkQsTransform : ::CB::core::hooks::Cell<getPoseWorldSpace_hkQsTransform, void(const CB::schema::hkaRagdollInstance *, struct CB::schema::hkQsTransform *)> {
             static constexpr const char*   mangled = "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@@Z";
             static constexpr const char*   name    = "CB::schema::hkaRagdollInstance::getPoseWorldSpace";
             static constexpr std::uint64_t id      = 64148;
+        };
+        /// @brief `public: void CB::schema::hkaRagdollInstance::getPoseWorldSpace(struct CB::schema::hkQsTransform *,struct CB::schema::hkQsTransform const &,struct CB::schema::hkQsTransform const *)const ` — vanilla 0x140bd71c0, VARIANT
+        struct getPoseWorldSpace_hkQsTransform_hkQsTransform_hkQsTransform : ::CB::core::hooks::Cell<getPoseWorldSpace_hkQsTransform_hkQsTransform_hkQsTransform, void(const CB::schema::hkaRagdollInstance *, struct CB::schema::hkQsTransform *, struct CB::schema::hkQsTransform const &, struct CB::schema::hkQsTransform const *)> {
+            static constexpr const char*   mangled = "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@AEBU423@PEBU423@@Z";
+            static constexpr const char*   name    = "CB::schema::hkaRagdollInstance::getPoseWorldSpace";
+            static constexpr std::uint64_t id      = 64149;
         };
         /// @brief `public: void CB::schema::hkaRagdollInstance::getApproxCurrentPoseWorldSpace(struct CB::schema::hkQsTransform *)const ` — vanilla 0x140bd7430, EXACT
         struct getApproxCurrentPoseWorldSpace : ::CB::core::hooks::Cell<getApproxCurrentPoseWorldSpace, void(const CB::schema::hkaRagdollInstance *, struct CB::schema::hkQsTransform *)> {
