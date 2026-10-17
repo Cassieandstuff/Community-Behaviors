@@ -32,11 +32,13 @@
 
 // resolve — the .hky document + the load-order merge + the merged graph
 #include "codec/serialization/HkyArchive.h"
+#include "codec/serialization/HavokIo.h"
 #include "interface/UnitSource.h"
 #include "decompile/BehaviorDecompile.h"
 
 // schema — the Havok class-schema registry (merge classifier / model interpreter)
 #include "interface/reflection/HavokSchema.h"
+#include "interface/HavokEnums.h"
 
 // anim — decode/compile/export animations (schema-native; the CB pipeline itself)
 #include "interface/AnimationDef.h"
@@ -47,6 +49,7 @@
 // animdata — the animationdata (motion / root-motion) model + its YAML sidecar
 #include "interface/AnimationData.h"
 #include "codec/format/AnimDataYaml.h"
+#include "interface/MotionSample.h"
 
 // skeleton — decode/compile/export skeletons (schema-native codec; anim + ragdoll)
 #include "interface/SkeletonData.h"
@@ -65,8 +68,14 @@ namespace resolve {
     using Graph       = CB::engine::decompile::ParsedHky;       // a parsed / merged graph (schema objects + FormIDs)
     using GraphEdit   = CB::engine::decompile::GraphEdit;       // the editing view the compile-time features receive
     using PatchStats  = CB::engine::decompile::HkyPatchStats;
+    using Object      = CB::engine::codec::io::SchemaObject;    // one graph object: typed field reads by schema name
+    using FieldValue  = CB::engine::codec::io::FieldValue;      // a field's raw store (vec4 / qstransform bytes, …)
+    using CharacterStrings = CB::engine::decompile::CharacterStrings;  // a character unit's name / rig / behavior
 
     using CB::engine::decompile::ParseHkyReflective;           // one unit → Graph
+    using CB::engine::codec::io::AsSchema;                     // graph pointer → Object (or null)
+    using CB::engine::codec::io::FindVariant;                  // root container → the named variant's Object
+    using CB::engine::decompile::ReadCharacterStrings;         // character unit → its strings, no rig needed
     using CB::engine::decompile::MergeLayersReflective;        // layers (base first) → the merged Graph
     using CB::engine::decompile::MergeHkyPatch;                // apply one patch unit onto a Graph
     using CB::engine::decompile::SerializeGraph;               // Graph → packfile bytes
@@ -77,6 +86,17 @@ namespace resolve {
 // ── cb::schema ───────────────────────────────────────────────────────────────
 namespace schema {
     using Registry = CB::engine::schema::SchemaRegistry;         // load Havok/ → classify/size/interpret classes
+
+    // The process-wide registry the anim + skeleton codecs read. Point it at the deployed tree
+    // (Data/community_behaviors/schema) before the first decode; it loads once and enforces the version stamp.
+    using CB::engine::schema::SetSharedSchemaDir;
+    using CB::engine::schema::SharedSchemaDir;
+    using CB::engine::schema::SharedRegistry;
+    using CB::engine::schema::SharedRegistryError;
+
+    // Enum value tables by enum name (a field's schema `enum:`), e.g. EnumTable("PlaybackMode").at("MODE_LOOPING").
+    // Case-sensitive Havok data; unknown enum names return an empty table.
+    using CB::engine::common::enums::EnumTable;
 }  // namespace schema
 
 // ── cb::anim ─────────────────────────────────────────────────────────────────
@@ -85,9 +105,22 @@ namespace anim {
     using YamlLoader      = CB::engine::anim::AnimationYamlLoader;  // animation.yaml ↔ Def
     using CompileResult   = CB::engine::anim::AnimCompileResult;    // compile → packfile bytes
     using DecompileResult = CB::engine::anim::AnimDecompileResult;  // .hkx bytes → animation.yaml
+    using Decoded         = CB::engine::anim::DecodedAnimation;     // .hkx bytes → in-memory poses + annotations
+    using Pose            = CB::engine::codec::spline::DecodedPose; // one track's local T / R (xyzw) / S at a frame
+
+    // The Def model's parts, under their engine names (a tool fills these to author a clip).
+    using CB::engine::anim::Vec3Keyframe;
+    using CB::engine::anim::QuatKeyframe;
+    using CB::engine::anim::FloatKeyframe;
+    using CB::engine::anim::AnimTrackDef;
+    using CB::engine::anim::AnimFloatTrackDef;
+    using CB::engine::anim::AnimAnnotation;
+    using CB::engine::anim::AnimAnnotationTrackDef;
+    using CB::engine::anim::AnimCompressionParams;
 
     using CB::engine::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
     using CB::engine::anim::CompileAnimationToFile;  // Def → .hkx file
+    using CB::engine::anim::DecodeAnimation;         // .hkx bytes → Decoded (spline or interleaved)
     using CB::engine::anim::DecompileAnimation;      // .hkx bytes → animation.yaml (the export leg)
 }  // namespace anim
 
@@ -99,6 +132,8 @@ namespace animdata {
     using CB::engine::animdata::ParseMotionSidecar;  // sidecar text → MotionRecord
     using CB::engine::animdata::EmitMotionYaml;      // project + roster → the combined motion.yaml
     using CB::engine::animdata::ParseMotionYaml;     // motion.yaml text → MotionRecord[]
+    using CB::engine::animdata::LabelSample;         // a verbatim motion sample → its axis-labeled YAML form
+    using CB::engine::animdata::UnlabelSample;       // axis-labeled sample → verbatim (also reads the bare form)
 }  // namespace animdata
 
 // ── cb::skeleton ───────────────────────────────────────────────────────────────
@@ -106,6 +141,7 @@ namespace skeleton {
     using Data          = CB::engine::skeleton::SkeletonData;          // the plain skeleton model
     using BoneData      = CB::engine::skeleton::SkeletonBoneData;
     using Physics       = CB::engine::skeleton::BonePhysics;           // authored ragdoll knobs on a bone
+    using Joint         = CB::engine::skeleton::BoneJoint;             // a ragdoll bone's constraint to its parent
     using Bumper        = CB::engine::skeleton::SkeletonBumper;
     using BoneAdd       = CB::engine::skeleton::SkeletonBoneAdd;       // one bone-add layer entry
     using CompileResult = CB::engine::skeleton::SkeletonCompileResult;

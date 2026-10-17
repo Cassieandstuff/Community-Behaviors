@@ -16,8 +16,8 @@
 #   CB_REGEN_SOURCE       — root of <Name>.hky regen source folders (arms the derived-bundle regen)
 #   SCT_BASE_MASTER_DIR   — short D-drive path for the unpacked-master diff tree
 #
-# Consumer contract (subproject): the consumer's toolchain must provide `ryml`
-# (find_package(ryml CONFIG) — the engine modules' YAML front-end). Link `cb::CB-API`.
+# Consumer contract (subproject): the consumer's toolchain must provide `ryml` + `lz4`
+# (find_package CONFIG — the YAML front-end + the animation-cache codec). Link `cb::CB-API`.
 # ============================================================================
 cmake_minimum_required(VERSION 3.25)
 project(CommunityBehaviors VERSION 0.5.2 LANGUAGES CXX C
@@ -57,19 +57,20 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 # Candidate-frozen, not frozen: burn -rc.N as the last classes settle, then cut 1.0.0. While either side is
 # a prerelease the gate is exact-match-or-refuse (CheckSchemaCompat).
 set(CB_SCHEMA_VERSION "1.0.0-rc.2")
-include(Schema)   # the SCHEMA.yaml stamp + cb_stage_schema() / cb_install_schema()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Schema.cmake")   # the SCHEMA.yaml stamp + cb_stage_schema() / cb_install_schema()
 
 # ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
 # src/engine is CB's shared reflection engine (one `engine` target). cb::CB-API (<CB-API.h>) is the curated
 # public contract a consumer links; it PUBLIC-pulls the engine, so linking it is all a consumer needs.
-include(SctSources)   # sct_collect_sources() — the underscore-exclusion source glob
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SctSources.cmake")   # sct_collect_sources() — the underscore-exclusion source glob
 add_subdirectory(src/engine)
 add_subdirectory(API)              # the single public API facade (<CB-API.h>): resolve + anim + schema
 
 # ── Install / export rules for the cb-api surface ────────────────────────────────
-# So a consumer can `find_package(cb-api)` (vcpkg, or a manual cmake --install). Inert unless someone
-# actually installs — FetchContent (add_subdirectory) ignores these; vcpkg's vcpkg_cmake_install() runs them.
+# So a consumer can `find_package(cb-api)` (vcpkg, or a manual cmake --install). Top-level only: a FetchContent
+# consumer's own `cmake --install` must not also install CB's headers, schema and package config.
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
+if(PROJECT_IS_TOP_LEVEL)
 include(CMakePackageConfigHelpers)
 install(TARGETS cb-api engine
         EXPORT  cb-api-targets
@@ -103,12 +104,13 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/cb-api-config-version.cmake"
     DESTINATION share/cb-api)
+endif()
 
 # When consumed as a subproject, the resolution surface is all we expose — stop here so a consumer
 # never configures the plugin / converter / tools / CommonLibSSE.
 if(NOT CB_STANDALONE)
     message(STATUS "Community Behaviors: consumed as a subproject — exposing cb-api + the engine "
-                   "only (plugin, converter, tools, CommonLibSSE skipped). Consumer must provide ryml.")
+                   "only (plugin, converter, tools, CommonLibSSE skipped). Consumer must provide ryml + lz4.")
     return()
 endif()
 

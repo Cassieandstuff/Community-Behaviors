@@ -83,7 +83,8 @@ tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch 
                              being matched (manifests/workbench.yaml, failures expected); cbmatch/devices/ = matching
                              devices, not Havok files
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
-                             (cb-api-check). On hold — nothing consumes it yet. Nothing private goes in include/.
+                             (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by
+                             commit) — a change there bumps its pin. Nothing private goes in include/.
 ```
 
 ## Namespacing (follows the folder) — directive

@@ -2832,6 +2832,34 @@ GraphEdit::Add GraphEdit::AddVariable(std::string_view name, std::string_view ty
     return Add::Added;
 }
 
+GraphEdit::Add GraphEdit::AddQuadVariable(std::string_view name, std::string_view type, const float (&quad)[4],
+                                          std::string& err) {
+    io::SchemaObject* gd = GraphData();
+    if (!gd) { err = "no behavior graph data"; return Add::Failed; }
+    const auto& types = en::EnumTable("VariableType");
+    const auto t = types.find(std::string(type));
+    if (t == types.end()) { err = "unknown variable type '" + std::string(type) + "'"; return Add::Failed; }
+    if (!isQuadType(t->second)) { err = std::string(name) + ": '" + std::string(type) + "' is not a quad type"; return Add::Failed; }
+    if (VariableIndex(name)) return Add::Exists;
+    io::SchemaObject* sd = stringDataOf(*gd, m_reg, m_graph.objects);
+    io::FieldValue& vsv = gd->FieldRef("variableInitialValues");
+    if (!vsv.obj) { auto o = makeObj(m_reg, "hkbVariableValueSet"); m_graph.objects.push_back(o); vsv.obj = o; }
+    auto* vs = dynamic_cast<io::SchemaObject*>(vsv.obj.get());
+    auto info = makeObj(m_reg, "hkbVariableInfo"), role = makeObj(m_reg, "hkbRoleAttribute"), value = makeObj(m_reg, "hkbVariableValue");
+    if (!sd || !vs || !info || !role || !value) { err = "vocabulary classes missing from the schema"; return Add::Failed; }
+    for (const auto& o : { info, role, value }) m_graph.objects.push_back(o);
+    std::vector<std::uint8_t>& quads = vs->FieldRef("quadVariableValues").raw;
+    info->SetInt("type", static_cast<std::int8_t>(t->second));
+    info->FieldRef("role").obj = role;
+    value->SetInt("value", static_cast<std::int32_t>(quads.size() / sizeof(quad)));
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(quad);
+    quads.insert(quads.end(), bytes, bytes + sizeof(quad));
+    sd->FieldRef("variableNames").strs.emplace_back(name);
+    gd->FieldRef("variableInfos").objs.push_back(info);
+    vs->FieldRef("wordVariableValues").objs.push_back(value);
+    return Add::Added;
+}
+
 GraphEdit::Add GraphEdit::AddEvent(std::string_view name, std::string& err) {
     io::SchemaObject* gd = GraphData();
     if (!gd) { err = "no behavior graph data"; return Add::Failed; }
