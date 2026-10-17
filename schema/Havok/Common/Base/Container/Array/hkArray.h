@@ -308,4 +308,22 @@ namespace CB { namespace schema
             this->m_capacityAndFlags = int(N) | hkArray<T>::DONT_DEALLOCATE_FLAG;
         }
     };
+
+    /// @brief Havok's hkInplaceArray<T, N, hkContainerTempAllocator>: once it outgrows its N elements in place, its
+    ///        storage comes from the temp allocator.
+    /// @note A subclass for the same reason as hkTempArray; its destructor hands an outgrown block back to the temp
+    ///       allocator and leaves the base nothing to free.
+    template <class T, unsigned N> struct hkTempInplaceArray : hkInplaceArray<T, N>
+    {
+        HK_FORCE_INLINE ~hkTempInplaceArray()
+        {
+            this->m_size = 0;
+            if (this->m_capacityAndFlags >= 0) {
+                hkMemoryAllocator& a = hkContainerTempAllocator::s_alloc;
+                a.bufFree(this->m_data, this->getCapacity() * int(sizeof(T)));
+            }
+            this->m_data             = HK_NULL;
+            this->m_capacityAndFlags = hkArray<T>::DONT_DEALLOCATE_FLAG;
+        }
+    };
 } }

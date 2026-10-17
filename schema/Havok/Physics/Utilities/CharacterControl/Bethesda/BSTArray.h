@@ -43,6 +43,10 @@ namespace CB { namespace schema
         /// @brief Allocates room for `capacity` elements of `elemSize` bytes (nothing for 0).
         /// @note Out of line in vanilla.
         bool InitialReserve(IAllocatorFunctor& allocator, hkUint32 capacity, hkUint32 elemSize);
+        /// @brief Grows the array by one element (through `allocator` when `capacity` is used up), uninitialized.
+        /// @return The new element's index, 0xffffffff if the allocation failed.
+        /// @note Name provisional; out of line in vanilla (0x140cc6890).
+        hkUint32 PrepareForPush(IAllocatorFunctor& allocator, hkUint32 capacity, hkUint32 elemSize);
 
         hkUint32 m_size;   ///< +0x00
         hkUint32 m_pad04;
@@ -98,6 +102,16 @@ namespace CB { namespace schema
 
         HK_FORCE_INLINE hkUint32 GetSize() const { return m_size; }
         HK_FORCE_INLINE T&       operator[](hkUint32 i) { return static_cast<T*>(m_data)[i]; }
+        /// @brief Appends `value`, dropping it if the array cannot grow.
+        HK_FORCE_INLINE void PushBack(const T& value)
+        {
+            hkUint32 index;
+            {
+                BSTArrayAllocatorFunctor<BSScrapArrayAllocator> allocator(this);
+                index = PrepareForPush(allocator, m_capacity, sizeof(T));
+            }
+            if (index != 0xffffffffu) static_cast<T*>(m_data)[index] = value;
+        }
     };
 
     /// @note 0x18 bytes.

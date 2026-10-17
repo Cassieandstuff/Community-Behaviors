@@ -113,3 +113,37 @@ units:
       - { name: "CB::schema::bhkCharacterController::PushCharacter", va: 0x140ea13a0 }
       - { name: "CB::schema::bhkCharacterController::UpdateContactMaterial", va: 0x140ea21a0 }
       - { name: "CB::schema::bhkCharacterController::TryStep", va: 0x140ea22e0 }
+      - { name: "CB::schema::bhkCharacterController::SetSupportBody", va: 0x140ea0560 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyControllerWorkbench.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??0bhkCharProxyControllerCinfo@schema@CB@@QEAA@XZ", va: 0x140ed0540 }
+      - { name: "??1bhkCharProxyControllerCinfo@schema@CB@@UEAA@XZ", va: 0x140ed0670 }
+      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_02", va: 0x140ed06a0 }
+      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_03", va: 0x140ed06b0 }
+      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_04", va: 0x140ed06c0 }
+      - { name: "CB::schema::bhkCharProxyControllerCinfo::SetPosition", va: 0x140ed06d0 }
+      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_05", va: 0x140ed06f0 }
+      - { name: "CB::schema::bhkCharProxyController::contactPointAddedCallback", va: 0x140ed1540 }
+      - { name: "CB::schema::bhkCharProxyController::contactPointRemovedCallback", va: 0x140ed15e0 }
+      - { name: "CB::schema::bhkCharProxyController::objectInteractionCallback", va: 0x140ed1620 }
+      - { name: "CB::schema::bhkCharProxyController::characterInteractionCallback", va: 0x140ed1640 }
+      - { name: "CB::schema::bhkCharProxyController::GetRigidBody", va: 0x140ed1bb0 }
+      - { name: "CB::schema::bhkCharProxyController::SetWorld", va: 0x140ed1bd0 }
+      - { name: "CB::schema::bhkCharProxyController::GetHavokWorld", va: 0x140ed1c60 }
+      - { name: "CB::schema::bhkCharProxyController::GetVDBAlpha", va: 0x140ed1c90 }
+      - { name: "CB::schema::bhkCharProxyController::SetPositionImpl", va: 0x140ed1ca0 }
+      - { name: "CB::schema::bhkCharProxyController::GetPositionImpl", va: 0x140ed1dc0 }
+      - { name: "CB::schema::bhkCharProxyController::GetTransformImpl", va: 0x140ed1ed0 }
+      - { name: "CB::schema::bhkCharProxyController::SetTransformImpl", va: 0x140ed1f20 }
+      - { name: "CB::schema::bhkCharProxyController::GetLinearVelocityImpl", va: 0x140ed1fc0 }
+      - { name: "CB::schema::bhkCharProxyController::SetLinearVelocityImpl", va: 0x140ed2000 }
+      - { name: "CB::schema::bhkCharProxyController::GetCollisionFilterInfo", va: 0x140ed2020 }
+      - { name: "CB::schema::bhkCharProxyController::SetCollisionFilterInfo", va: 0x140ed20b0 }
+      - { name: "CB::schema::bhkCharProxyController::Unk_0B", va: 0x140ed2130 }
+      - { name: "CB::schema::bhkCharProxyController::Unk_0C", va: 0x140ed22c0 }
+      - { name: "CB::schema::bhkCharProxyController::CheckSupportImpl", va: 0x140ed2330 }
+      - { name: "CB::schema::bhkCharProxyController::GetContactCollidables", va: 0x140ed2440 }
+      - { name: "CB::schema::bhkCharProxyController::Unk_0A", va: 0x140ed2520 }
+      - { name: "CB::schema::bhkCharProxyController::RotateImpl", va: 0x140ed2680 }
+      - { name: "??_GbhkCharProxyControllerCinfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ed2950 }

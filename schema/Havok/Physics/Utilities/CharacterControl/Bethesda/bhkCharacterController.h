@@ -27,6 +27,8 @@ namespace CB { namespace schema
     class bhkCharacterController;
     struct hkContactPoint;
     struct hkRootCdPoint;
+    struct hkpCharacterObjectInteractionEvent;
+    struct hkpCharacterObjectInteractionResult;
 
     /// @brief What turns a character toward where it is going.
     /// @note Only the slots the controller calls are named.
@@ -142,6 +144,14 @@ namespace CB { namespace schema
         /// @brief The value of `object`'s Havok property `key` (read under the world lock), 0 if it has none.
         /// @note Name provisional; out of line in vanilla (0x140ea0cf0).
         static hkUlong GetHavokProperty(hkUint32 key, const hkpWorldObject* object);
+        /// @brief Makes `body` (referenced; null for none) the support body.
+        /// @note Name provisional; out of line in vanilla (0x140ea0560).
+        void SetSupportBody(hkpRigidBody* body);
+        /// @brief Scales the impulse the proxy would give the body it pushes (by the body's collision layer, its mass
+        ///        and the impulse), lets the orientation controller see it under kNoFriction, and keeps the body as
+        ///        m_bumpedBody when it is the hardest push yet.
+        /// @note Name provisional; out of line in vanilla (0x140ea1600).
+        void HandleObjectInteraction(const hkpCharacterObjectInteractionEvent& input, hkpCharacterObjectInteractionResult& output);
         /// @brief The base half of building a controller from `cinfo` (flags, state, shapes, bounds).
         /// @note Name provisional; out of line in vanilla (0x140ea17e0).
         void InitFromCinfo(const bhkCharacterControllerCinfo& cinfo);

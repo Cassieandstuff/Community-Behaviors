@@ -226,4 +226,9 @@ namespace CB { namespace schema
         if (canStep) m_orientationCtrl->OnStep(point);
         return canStep;
     }
+
+    void bhkCharacterController::SetSupportBody(hkpRigidBody* body)
+    {
+        m_supportBody = body;
+    }
 } }

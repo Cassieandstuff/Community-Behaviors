@@ -998,7 +998,7 @@ symbols:
   - { name: hkpCharacterProxy_SetPosition, kind: func, se: 0, ae: 62639, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setPosition" }
   - { name: hkpCharacterProxy_GetLinearVelocity, kind: func, se: 0, ae: 62640, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getLinearVelocity" }
   - { name: hkpCharacterProxy_SetLinearVelocity, kind: func, se: 0, ae: 62641, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setLinearVelocity" }
-  - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # parameter list partly unconfirmed (see the header)
+  - { name: hkpCharacterProxy_IntegrateImplementation, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateImplementation" }  # parameter list partly unconfirmed (see the header)
   - { name: hkpMotion_GetMass, kind: func, se: 0, ae: 60959, vr: 0, cpp: "CB::schema::hkpMotion::getMass" }  # 1 / m_inertiaAndMassInv.w, 0 for an infinite mass
   - { name: hkpResponseModifier_SetInvMassScalingForContact, kind: func, se: 0, ae: 62282, vr: 0, cpp: "CB::schema::hkpResponseModifier::setInvMassScalingForContact" }  # (manager, body, constraintOwner, factor)
   - { name: hkpLinkedCollidable_GetCollisionEntriesSorted, kind: func, se: 0, ae: 64577, vr: 0, cpp: "CB::schema::hkpLinkedCollidable::getCollisionEntriesSorted" }
@@ -1202,3 +1202,18 @@ symbols:
   - { name: bhkCharacterController_ApplyInitialVelocity, kind: func, se: 0, ae: 78283, vr: 0, cpp: "CB::schema::bhkCharacterController::ApplyInitialVelocity" }  # name provisional; outVelocity += velocityTime * initialVelocity while velocityTime > 0 (not chasing/following a ragdoll), else zeroes initialVelocity
   - { name: bhkCharacterStateOnGround_Vtable, kind: data, se: 0, ae: 240833, vr: 0, cpp: "CB::schema::bhkCharacterStateOnGround::`vftable'" }
   - { name: bhkCharacterStateSwimming_Vtable, kind: data, se: 0, ae: 240836, vr: 0, cpp: "CB::schema::bhkCharacterStateSwimming::`vftable'" }
+  - { name: BSTArrayBase_PrepareForPush, kind: func, se: 0, ae: 68163, vr: 0, cpp: "CB::schema::BSTArrayBase::PrepareForPush" }  # name provisional; (allocator, capacity, elemSize) -> new index or -1
+  - { name: bhkCharProxyController_Down, kind: data, se: 0, ae: 411559, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_down" }  # (0,0,-1,0), set by a static initializer
+  - { name: bhkCharProxyControllerCinfo_Vtable, kind: data, se: 0, ae: 240556, vr: 0, cpp: "CB::schema::bhkCharProxyControllerCinfo::`vftable'" }
+  - { name: bhkCharacterCollisionHandler_Singleton, kind: data, se: 0, ae: 404487, vr: 0, cpp: "CB::schema::bhkCharacterCollisionHandler::s_singleton" }  # name provisional
+  - { name: bhkCharacterController_HandleObjectInteraction, kind: func, se: 0, ae: 78304, vr: 0, cpp: "CB::schema::bhkCharacterController::HandleObjectInteraction" }  # name provisional; (input, output)
+  - { name: bhkCharacterController_PushCharacter, kind: func, se: 0, ae: 78303, vr: 0, cpp: "CB::schema::bhkCharacterController::PushCharacter" }  # name provisional; (other, contact)
+  - { name: bhkCharacterPointCollector_FlushEvents, kind: func, se: 0, ae: 80510, vr: 0, cpp: "CB::schema::bhkCharacterPointCollector::FlushEvents" }  # name provisional
+  - { name: bhkCharacterProxy_ReleaseContacts, kind: func, se: 0, ae: 80541, vr: 0, cpp: "CB::schema::bhkCharacterProxy::ReleaseContacts" }  # name provisional
+  - { name: bhkCharacterProxyCinfo_Vtable, kind: data, se: 0, ae: 240551, vr: 0, cpp: "CB::schema::bhkCharacterProxyCinfo::`vftable'" }
+  - { name: bhkWorldObject_GetCollidableRw, kind: func, se: 0, ae: 77793, vr: 0, cpp: "CB::schema::bhkWorldObject::GetCollidableRw" }  # name provisional; takes and drops the write lock
+  - { name: bhkWorldObject_UpdateCollisionFilter, kind: func, se: 0, ae: 77794, vr: 0, cpp: "CB::schema::bhkWorldObject::UpdateCollisionFilter" }  # name provisional
+  - { name: hkpAllCdBodyPairCollector_Vtable, kind: data, se: 0, ae: 196410, vr: 0, cpp: "CB::schema::hkpAllCdBodyPairCollector::`vftable'" }
+  - { name: hkpCharacterProxy_GetManifold, kind: func, se: 0, ae: 62637, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getManifold" }
+  - { name: hkpCharacterProxy_GetShapePhantom, kind: func, se: 0, ae: 62642, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getShapePhantom" }
+  - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62633, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # (stepInfo, gravity, castCollector, startPointCollector): integrateImplementation with a null command
