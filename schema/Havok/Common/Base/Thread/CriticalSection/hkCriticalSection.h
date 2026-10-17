@@ -11,6 +11,6 @@ namespace CB { namespace schema
     {
         hkUint8 m_section[0x28];
 
-        HK_FORCE_INLINE ~hkCriticalSection() { DeleteCriticalSection(m_section); }
+        HK_FORCE_INLINE ~hkCriticalSection() { DeleteCriticalSection(reinterpret_cast<_RTL_CRITICAL_SECTION*>(m_section)); }
     };
 } }

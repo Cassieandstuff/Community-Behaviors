@@ -12,7 +12,9 @@
 
 typedef unsigned long DWORD;
 extern "C" __declspec(dllimport) void* __stdcall TlsGetValue(DWORD dwTlsIndex);
-extern "C" __declspec(dllimport) void __stdcall DeleteCriticalSection(void* lpCriticalSection);
+/// @note Declared with <windows.h>'s own parameter type, so the plugin (which includes it) sees one function.
+struct _RTL_CRITICAL_SECTION;
+extern "C" __declspec(dllimport) void __stdcall DeleteCriticalSection(_RTL_CRITICAL_SECTION* lpCriticalSection);
 extern "C" unsigned __int64 __rdtsc();
 #pragma intrinsic(__rdtsc)
 extern "C" double __cdecl fabs(double);
