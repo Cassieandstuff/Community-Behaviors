@@ -18,6 +18,12 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkpCharacterRigidBody::hkpCharacterRigidBody";
             static constexpr std::uint64_t id      = 62447;
         };
+        /// @brief `public: virtual CB::schema::hkpCharacterRigidBody::~hkpCharacterRigidBody(void)` — vanilla 0x140b7bd80, EXACT
+        struct dtor : ::CB::core::hooks::Cell<dtor, void(CB::schema::hkpCharacterRigidBody *)> {
+            static constexpr const char*   mangled = "??1hkpCharacterRigidBody@schema@CB@@UEAA@XZ";
+            static constexpr const char*   name    = "CB::schema::hkpCharacterRigidBody::~hkpCharacterRigidBody";
+            static constexpr std::uint64_t id      = 62448;
+        };
         /// @brief `public: virtual void * CB::schema::hkpCharacterRigidBody::`scalar deleting destructor'(unsigned int)` — vanilla 0x140b7cf20, EXACT
         struct scalarDeletingDtor : ::CB::core::hooks::Cell<scalarDeletingDtor, void *(CB::schema::hkpCharacterRigidBody *, unsigned int)> {
             static constexpr const char*   mangled = "??_GhkpCharacterRigidBody@schema@CB@@UEAAPEAXI@Z";

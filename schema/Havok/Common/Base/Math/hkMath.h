@@ -148,8 +148,6 @@ namespace CB { namespace schema
         /// @brief 1/v for x, y and z (rcpps plus one Newton-Raphson step); w is 0.
         /// @note w is set to 1 before the estimate so it cannot overflow, then masked off.
         HK_FORCE_INLINE void setReciprocal3(const hkVector4& v);
-        /// @brief t·v (rotation then translation), and its inverse.
-        /// @note Out of line in vanilla (Havok's non-underscore transform family).
         /// @brief The inline forms of setRotatedDir / setTransformedPos and their inverses (Havok's underscore
         ///        variants), for units whose vanilla inlines them.
         HK_FORCE_INLINE void _setRotatedDir(const hkRotation& r, const hkVector4& v);
@@ -161,6 +159,11 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void setInt24W(int value) { reinterpret_cast<hkInt32*>(this)[3] = value | 0x3f000000; }
         HK_FORCE_INLINE int  getInt24W() const { return reinterpret_cast<const hkInt32*>(this)[3] & ~0x3f000000; }
 
+        /// @brief r·v (xyz of the three columns; w combines theirs too).
+        /// @note Out of line in vanilla (0x140a8cdb0).
+        void setRotatedDir(const hkRotation& r, const hkVector4& v);
+        /// @brief t·v (rotation then translation), and its inverse.
+        /// @note Out of line in vanilla (Havok's non-underscore transform family).
         void setTransformedPos(const hkTransform& t, const hkVector4& v);
         void setTransformedInversePos(const hkTransform& t, const hkVector4& v);
         void setTransformedPos(const hkQsTransform& t, const hkVector4& v);

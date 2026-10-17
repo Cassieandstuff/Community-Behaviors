@@ -5,6 +5,7 @@
 
 #include <core/hooks/takeover/Cell.h>
 
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.h>
 #include <Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.h>
 
 #include <cstdint>
@@ -53,6 +54,12 @@ namespace CB::feature::havok {
             static constexpr const char*   mangled = "?considerCollisionEntryForMassModification@hkpCharacterRigidBodyListener@schema@CB@@UEAAXPEBVhkpWorld@23@PEAVhkpCharacterRigidBody@23@AEBUCollisionEntry@hkpLinkedCollidable@23@PEAVhkpSimpleConstraintContactMgr@23@AEBU?$hkArray@G@23@@Z";
             static constexpr const char*   name    = "CB::schema::hkpCharacterRigidBodyListener::considerCollisionEntryForMassModification";
             static constexpr std::uint64_t id      = 80573;
+        };
+        /// @brief `public: virtual void * CB::schema::hkpCharacterRigidBodyListener::`scalar deleting destructor'(unsigned int)` — vanilla 0x140ed5890, EXACT
+        struct scalarDeletingDtor : ::CB::core::hooks::Cell<scalarDeletingDtor, void *(CB::schema::hkpCharacterRigidBodyListener *, unsigned int)> {
+            static constexpr const char*   mangled = "??_GhkpCharacterRigidBodyListener@schema@CB@@UEAAPEAXI@Z";
+            static constexpr const char*   name    = "CB::schema::hkpCharacterRigidBodyListener::`scalar deleting destructor'";
+            static constexpr std::uint64_t id      = 79216;
         };
     };
 

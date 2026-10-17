@@ -96,3 +96,8 @@ units:
   - source: ../workbench/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyWorkbench.cpp
     functions:
       - { name: "CB::schema::hkpCharacterRigidBody::getSupportInfo", va: 0x140b7c0d0 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyControllerWorkbench.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharRigidBodyController::characterCallback", va: 0x140ed30c0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::considerCollisionEntryForSlope", va: 0x140ed3710 }

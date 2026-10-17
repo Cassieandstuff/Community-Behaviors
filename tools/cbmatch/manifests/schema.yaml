@@ -1921,3 +1921,67 @@ units:
       - { name: "?applyForce@hkpCharacterMotion@schema@CB@@UEAAXMAEBUhkVector4@23@@Z", va: 0x140b4d120 }
       - { name: "?applyForce@hkpCharacterMotion@schema@CB@@UEAAXMAEBUhkVector4@23@0@Z", va: 0x140b4d150 }
       - { name: "CB::schema::hkpCharacterMotion::applyTorque", va: 0x140b4d180 }
+  # Bethesda's character controller: engine code, built with C++ exceptions on and /Ob2 (see the file note).
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharRigidBodyController::bhkCharRigidBodyController", va: 0x140ed2ee0 }
+      - { name: "??1bhkCharRigidBodyController@schema@CB@@UEAA@XZ", va: 0x140ed2f90 }
+      - { name: "CB::schema::bhkCharRigidBodyController::Init", va: 0x140ed3bc0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::SetWorld", va: 0x140ed3ec0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::GetRigidBody", va: 0x140ed3ea0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::GetHavokWorld", va: 0x140ed3f70 }
+      - { name: "CB::schema::bhkCharRigidBodyController::GetVDBAlpha", va: 0x140ed3fa0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::SetPositionImpl", va: 0x140ed3fb0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::GetPositionImpl", va: 0x140ed42f0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::GetTransformImpl", va: 0x140ed44d0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::SetTransformImpl", va: 0x140ed4560 }
+      - { name: "CB::schema::bhkCharRigidBodyController::GetLinearVelocityImpl", va: 0x140ed4620 }
+      - { name: "CB::schema::bhkCharRigidBodyController::SetLinearVelocityImpl", va: 0x140ed4660 }
+      - { name: "CB::schema::bhkCharRigidBodyController::GetCollisionFilterInfo", va: 0x140ed4710 }
+      - { name: "CB::schema::bhkCharRigidBodyController::SetCollisionFilterInfo", va: 0x140ed47c0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::Unk_0A", va: 0x140ed4f00 }
+      - { name: "CB::schema::bhkCharRigidBodyController::Unk_0B", va: 0x140ed4870 }
+      - { name: "CB::schema::bhkCharRigidBodyController::Unk_0C", va: 0x140ed4a00 }
+      - { name: "CB::schema::bhkCharRigidBodyController::CheckSupportImpl", va: 0x140ed4a10 }
+      - { name: "CB::schema::bhkCharRigidBodyController::RotateImpl", va: 0x140ed4ff0 }
+      - { name: "CB::schema::bhkCharRigidBodyController::ProcessCharacterContacts", va: 0x140ed5360 }
+      - { name: "??_GbhkCharRigidBodyController@schema@CB@@UEAAPEAXI@Z", va: 0x140ed55a0 }
+      - { name: "??_EbhkCharRigidBodyController@schema@CB@@WDDA@EAAPEAXI@Z", va: 0x140ed558c }
+      - { name: "??_GhkpCharacterRigidBodyListener@schema@CB@@UEAAPEAXI@Z", va: 0x140ed5890 }
+      - { name: "??0bhkCharRigidBodyControllerCinfo@schema@CB@@QEAA@XZ", va: 0x140ed2d60 }
+      - { name: "??_GbhkCharacterRigidBodyCinfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ed5800 }
+      - { name: "CB::schema::bhkCharRigidBodyControllerCinfo::Unk_02", va: 0x140ed2e80 }
+      - { name: "CB::schema::bhkCharRigidBodyControllerCinfo::Unk_03", va: 0x140ed2e90 }
+      - { name: "CB::schema::bhkCharRigidBodyControllerCinfo::Unk_04", va: 0x140ed2ea0 }
+      - { name: "CB::schema::bhkCharRigidBodyControllerCinfo::SetPosition", va: 0x140ed2eb0 }
+      - { name: "CB::schema::bhkCharRigidBodyControllerCinfo::Unk_05", va: 0x140ed2ed0 }
+      - { name: "??_GbhkCharRigidBodyControllerCinfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ed5720 }
+      - { name: "??_GbhkCharacterRigidBody@schema@CB@@UEAAPEAXI@Z", va: 0x140ed57c0 }
+      - { name: "CB::schema::bhkCharacterRigidBody::GetRTTI", va: 0x140ed5920 }
+      - { name: "CB::schema::bhkCharacterRigidBody::GetCinfoSize", va: 0x140ed5930 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterRigidBody.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharacterRigidBody::LoadBinary", va: 0x140f191e0 }
+      - { name: "CB::schema::bhkCharacterRigidBody::LinkObject", va: 0x140f19220 }
+      - { name: "CB::schema::bhkCharacterRigidBody::RegisterStreamables", va: 0x140f19230 }
+      - { name: "CB::schema::bhkCharacterRigidBody::SaveBinary", va: 0x140f19240 }
+      - { name: "CB::schema::bhkCharacterRigidBody::CreateObject", va: 0x140f19250 }
+      - { name: "??1bhkCharacterRigidBody@schema@CB@@UEAA@XZ", va: 0x140f19310 }
+      - { name: "CB::schema::bhkCharacterRigidBody::CreateClone", va: 0x140f19390 }
+      - { name: "CB::schema::bhkCharacterRigidBody::GetCinfo", va: 0x140f19480 }
+      - { name: "CB::schema::bhkCharacterRigidBody::FreeCinfo", va: 0x140f195f0 }
+      - { name: "CB::schema::bhkCharacterRigidBody::CreateFromCinfo", va: 0x140f196b0 }
+      - { name: "CB::schema::bhkCharacterRigidBody::GetWorld1", va: 0x140f197c0 }
+      - { name: "CB::schema::bhkCharacterRigidBody::GetWorld2", va: 0x140f197f0 }
+      - { name: "CB::schema::bhkCharacterRigidBody::AdjustRefCount", va: 0x140f19800 }
+      - { name: "??_GahkpCharacterRigidBody@schema@CB@@UEAAPEAXI@Z", va: 0x140f198c0 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??1bhkCharacterControllerCinfo@schema@CB@@UEAA@XZ", va: 0x140e9ccf0 }
+      - { name: "??_GbhkCharacterControllerCinfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ea3b50 }
+      - { name: "??1bhkCharacterController@schema@CB@@UEAA@XZ", va: 0x140e9e060 }
+      - { name: "??_GbhkCharacterController@schema@CB@@UEAAPEAXI@Z", va: 0x140ea3ac0 }
+      - { name: "?DestroyEntry@?$BSTHashMap@V?$NiPointer@VbhkRigidBody@schema@CB@@@schema@CB@@PEAX@schema@CB@@SAXPEAX0@Z", va: 0x140ea4b40 }

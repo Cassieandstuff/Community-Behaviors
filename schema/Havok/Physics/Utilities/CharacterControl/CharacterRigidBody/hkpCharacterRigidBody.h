@@ -81,6 +81,12 @@ namespace CB { namespace schema
         virtual void postSimulationCallback(hkpWorld* world);   ///< hkpWorldPostSimulationListener slot 1
 
         hkpRigidBody*    getRigidBody() const;
+        /// @brief Takes a reference to `listener` and registers this body as a post-simulation listener of its world.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void             setListener(hkpCharacterRigidBodyListener* listener);
+        /// @brief Releases the listener and unregisters this body from its world's post-simulation listeners.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void             removeListener();
         void             setLinearAccelerationToMassModifier(const hkVector4& newAcc);
         /// @brief Sets the body's velocity (activating it) unless it is already that within 0.001 per axis; the change
         ///        over `timestep` becomes the mass modifier's acceleration.

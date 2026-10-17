@@ -6,6 +6,9 @@
 
 namespace CB { namespace schema
 {
+    /// @brief hkUFloat8's decoding table: the hkReal each of the 256 packed values stands for.
+    extern const hkReal hkUFloat8_intToReal[256];
+
     /// @note 0xb0 bytes (schema/physics/hkMotionState.yaml).
     class hkMotionState
     {
@@ -24,5 +27,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE const hkTransform&      getTransform() const { return m_transform; }
         HK_FORCE_INLINE hkTransform&            getTransform() { return m_transform; }
         HK_FORCE_INLINE const hkSweptTransform& getSweptTransform() const { return m_sweptTransform; }
+        /// @brief The packed (hkUFloat8) maximum angular velocity, decoded.
+        HK_FORCE_INLINE hkReal getMaxAngularVelocity() const { return hkUFloat8_intToReal[m_maxAngularVelocity]; }
     };
 } }

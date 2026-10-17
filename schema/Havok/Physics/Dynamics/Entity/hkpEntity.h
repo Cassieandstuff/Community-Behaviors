@@ -82,6 +82,9 @@ namespace CB { namespace schema
         /// @brief Wakes the entity's simulation island.
         /// @note Out of line in vanilla (hkp code, not reimplemented).
         void activate();
+        /// @brief Whether the entity's simulation island is active.
+        /// @note Out of line in vanilla (hkp code, not reimplemented); returns the hkBool through a hidden pointer.
+        hkBool isActive() const;
         /// @brief Registers `cl` for this entity's contact points (reusing a null slot, else appending).
         void addContactListener(hkpContactListener* cl);
         /// @brief Unregisters `cl` (its slot is nulled, not removed).

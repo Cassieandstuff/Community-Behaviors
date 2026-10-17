@@ -154,6 +154,10 @@ namespace CB { namespace schema
         /// @brief The simulation's current time.
         /// @note Returns the float in xmm0.
         hkTime getCurrentTime() const;
+        /// @brief Whether the simulation stands at its last step (the current time equals the psi time), so there is
+        ///        nothing to interpolate.
+        /// @note Name provisional; out of line in vanilla (0x140b3e550). Returns a plain bool (in al).
+        bool isSimulationAtPsi() const;
         /// @brief Adds `numEntities` entities at once; `initialActivationState` is an hkpEntityActivation.
         void addEntityBatch(hkpEntity* const* entityBatch, int numEntities, int initialActivationState);
         /// @brief Removes `numEntities` entities at once.

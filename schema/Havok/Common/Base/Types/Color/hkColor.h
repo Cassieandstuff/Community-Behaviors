@@ -13,5 +13,11 @@ namespace CB { namespace schema
     {
     public:
         hkUint8 m_pad0x0[0x1];
+
+        typedef hkUint32 Argb;
+
+        /// @brief Packs the channels (each 0..1) as 0xAARRGGBB.
+        /// @note Out of line in vanilla (0x140a8b050).
+        static Argb rgbFromFloats(const hkReal red, const hkReal green, const hkReal blue, const hkReal alpha = 1.0f);
     };
 } }

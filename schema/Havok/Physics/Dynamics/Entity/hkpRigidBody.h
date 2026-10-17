@@ -28,6 +28,15 @@ namespace CB { namespace schema
         /// @brief Sets the inverse inertia in the body's space (a zero matrix: infinite inertia, the body never rotates).
         /// @note Out of line in vanilla (hkp code, not reimplemented): forwards to the motion's slot 8.
         void setInertiaInvLocal(const hkMatrix3& inertiaInv);
+        /// @brief Teleports the body to `transform` without touching its velocities.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void setTransform(const hkTransform& transform);
+        /// @brief Teleports the body (its centre of mass follows) to `position` without touching its velocities.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void setPosition(const hkVector4& position);
+        /// @brief Sets the friction of the body's material.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void setFriction(hkReal newFriction);
 
         HK_FORCE_INLINE hkpMotion*             getRigidMotion() const { return const_cast<hkpMaxSizeMotion*>(&m_motion); }
         HK_FORCE_INLINE hkpMotion::MotionType  getMotionType() const { return m_motion.getType(); }
@@ -35,6 +44,8 @@ namespace CB { namespace schema
         HK_FORCE_INLINE const hkVector4&       getPosition() const { return m_motion.getPosition(); }
         HK_FORCE_INLINE const hkQuaternion&    getRotation() const { return m_motion.getRotation(); }
         HK_FORCE_INLINE const hkVector4&       getCenterOfMassInWorld() const { return m_motion.getCenterOfMassInWorld(); }
+        HK_FORCE_INLINE const hkVector4&       getCenterOfMassLocal() const { return m_motion.getCenterOfMassLocal(); }
+        HK_FORCE_INLINE hkReal                 getMaxAngularVelocity() const { return m_motion.getMotionState()->getMaxAngularVelocity(); }
         HK_FORCE_INLINE const hkVector4&       getLinearVelocity() const { return m_motion.getLinearVelocity(); }
         HK_FORCE_INLINE const hkVector4&       getAngularVelocity() const { return m_motion.getAngularVelocity(); }
         HK_FORCE_INLINE hkUint32               getCollisionFilterInfo() const { return m_collidable.getCollisionFilterInfo(); }

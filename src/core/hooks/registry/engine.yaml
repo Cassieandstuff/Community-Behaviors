@@ -1010,6 +1010,8 @@ symbols:
   - { name: hkpCharacterRigidBody_Vtable, kind: data, se: 0, ae: 229857, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkReferencedObject@12@@" }  # by mangled name: the class has three
   - { name: hkpCharacterRigidBody_EntityListenerVtable, kind: data, se: 0, ae: 229859, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkpEntityListener@12@@" }  # the hkpEntityListener base's (+0x10)
   - { name: hkpCharacterRigidBody_PostSimulationListenerVtable, kind: data, se: 0, ae: 229861, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkpWorldPostSimulationListener@12@@" }  # the hkpWorldPostSimulationListener base's (+0x18)
+  - { name: hkpEntityListener_Vtable, kind: data, se: 0, ae: 190135, vr: 0, cpp: "??_7hkpEntityListener@schema@CB@@6B@" }  # RTTI-verified; destructors reset to it
+  - { name: hkpWorldPostSimulationListener_Vtable, kind: data, se: 0, ae: 207480, vr: 0, cpp: "??_7hkpWorldPostSimulationListener@schema@CB@@6B@" }  # RTTI-verified; destructors reset to it
   - { name: hkpCharacterRigidBody_Dtor, kind: func, se: 0, ae: 62448, vr: 0, cpp: "??1hkpCharacterRigidBody@schema@CB@@UEAA@XZ" }
   - { name: hkpCharacterRigidBody_SetLinearAccelerationToMassModifier, kind: func, se: 0, ae: 62455, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setLinearAccelerationToMassModifier" }
   - { name: hkpRigidBody_Ctor, kind: func, se: 0, ae: 60887, vr: 0, cpp: "CB::schema::hkpRigidBody::hkpRigidBody" }  # (cinfo)
@@ -1080,3 +1082,97 @@ symbols:
   - { name: BSIRagdollContactListenerModifierSingleton_Dtor, kind: func, se: 0, ae: 63080, vr: 0, cpp: "??1BSIRagdollContactListenerModifierSingleton@schema@CB@@UEAA@XZ" }
   - { name: CRT_OperatorDeleteSized, kind: func, se: 0, ae: 109588, vr: 0, cpp: "??3@YAXPEAX_K@Z" }  # the CRT's operator delete(void*, size_t): plain (non-Havok) classes' deleting destructors
   - { name: BSRagdollContactListenerModifier_VectorDeletingDtor, kind: func, se: 0, ae: 63097, vr: 0, cpp: "??_EBSRagdollContactListenerModifier@schema@CB@@UEAAPEAXI@Z" }  # MSVC folds ??_E into ??_G (0x140b95eb0); the hkpContactListener adjustor thunk jumps to it
+  - { name: MemoryManager_Deallocate, kind: func, se: 0, ae: 68117, vr: 0, cpp: "CB::schema::MemoryManager::Deallocate" }  # the engine heap (Bethesda classes' operator delete)
+  - { name: MemoryManager_InitSingleton, kind: func, se: 0, ae: 68121, vr: 0, cpp: "CB::schema::MemoryManager::InitSingleton" }  # name provisional
+  - { name: MemoryManager_Singleton, kind: data, se: 0, ae: 400188, vr: 0, cpp: "CB::schema::MemoryManager::s_singleton" }
+  - { name: MemoryManager_SingletonState, kind: data, se: 0, ae: 400190, vr: 0, cpp: "CB::schema::MemoryManager::s_singletonState" }  # 2 once constructed
+  - { name: bhkWorld_HavokWorldEnterRead, kind: func, se: 0, ae: 77926, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldEnterRead" }  # name provisional; no-op unless bUseWorldLock:HAVOK
+  - { name: bhkWorld_HavokWorldExitRead, kind: func, se: 0, ae: 77927, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldExitRead" }  # name provisional
+  - { name: bhkWorld_HavokWorldEnterWrite, kind: func, se: 0, ae: 77928, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldEnterWrite" }  # name provisional
+  - { name: bhkWorld_HavokWorldExitWrite, kind: func, se: 0, ae: 77929, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldExitWrite" }  # name provisional
+  - { name: bhkSetDebugDisplayColor, kind: func, se: 0, ae: 78642, vr: 0, cpp: "CB::schema::bhkSetDebugDisplayColor" }  # name provisional; empty in the shipped exe
+  - { name: hkColor_RgbFromFloats, kind: func, se: 0, ae: 57108, vr: 0, cpp: "CB::schema::hkColor::rgbFromFloats" }
+  - { name: hkpCharacterRigidBody_GetRigidBody, kind: func, se: 0, ae: 62451, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::getRigidBody" }
+  - { name: hkpCharacterRigidBody_GetLinearVelocity, kind: func, se: 0, ae: 62457, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::getLinearVelocity" }
+  - { name: hkpCharacterRigidBody_SetLinearVelocity, kind: func, se: 0, ae: 62456, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setLinearVelocity" }  # (newVel, timestep)
+  - { name: bhkCharacterController_Dtor, kind: func, se: 0, ae: 78258, vr: 0, cpp: "??1bhkCharacterController@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterPointCollector_Dtor, kind: func, se: 0, ae: 80507, vr: 0, cpp: "??1bhkCharacterPointCollector@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterRigidBody_Dtor, kind: func, se: 0, ae: 80555, vr: 0, cpp: "??1bhkCharacterRigidBody@schema@CB@@UEAA@XZ" }
+  - { name: hkpCharacterRigidBody_RemoveListener, kind: func, se: 0, ae: 62450, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::removeListener" }
+  - { name: hkpRigidBody_SetTransform, kind: func, se: 0, ae: 60899, vr: 0, cpp: "CB::schema::hkpRigidBody::setTransform" }
+  - { name: bUseCharRBExtrapolation_HAVOK, kind: data, se: 0, ae: 389429, vr: 0, cpp: "CB::schema::bUseCharRBExtrapolation_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: hkVector4_SetRotatedDir, kind: func, se: 0, ae: 57212, vr: 0, cpp: "?setRotatedDir@hkVector4@schema@CB@@QEAAXAEBUhkRotation@23@AEBU123@@Z" }  # (hkRotation, v): out of line
+  - { name: hkpWorld_IsSimulationAtPsi, kind: func, se: 0, ae: 61416, vr: 0, cpp: "CB::schema::hkpWorld::isSimulationAtPsi" }  # name provisional
+  - { name: bhkWorld_StepDeltaTime, kind: data, se: 0, ae: 389089, vr: 0, cpp: "CB::schema::bhkWorld::s_stepDeltaTime" }  # name provisional; the time this physics step advances (0 below 1 ms)
+  - { name: hkpRigidBody_SetPosition, kind: func, se: 0, ae: 60896, vr: 0, cpp: "CB::schema::hkpRigidBody::setPosition" }
+  - { name: bhkCharRigidBodyController_Vtable, kind: data, se: 0, ae: 240580, vr: 0, cpp: "??_7bhkCharRigidBodyController@schema@CB@@6BbhkCharacterController@12@@" }
+  - { name: bhkCharRigidBodyController_ListenerVtable, kind: data, se: 0, ae: 240583, vr: 0, cpp: "??_7bhkCharRigidBodyController@schema@CB@@6BhkpCharacterRigidBodyListener@12@@" }  # the hkpCharacterRigidBodyListener base's (+0x330)
+  - { name: bhkCharRigidBodyController_ProcessCharacterContacts, kind: func, se: 0, ae: 79207, vr: 0, cpp: "CB::schema::bhkCharRigidBodyController::ProcessCharacterContacts" }  # name provisional
+  - { name: bhkCharacterController_ResetContactState, kind: func, se: 0, ae: 78279, vr: 0, cpp: "CB::schema::bhkCharacterController::ResetContactState" }  # name provisional
+  - { name: hkpEntity_IsActive, kind: func, se: 0, ae: 60853, vr: 0, cpp: "CB::schema::hkpEntity::isActive" }  # hkBool through a hidden pointer
+  - { name: hkpRigidBody_SetFriction, kind: func, se: 0, ae: 60912, vr: 0, cpp: "CB::schema::hkpRigidBody::setFriction" }
+  - { name: bhkCharRigidBodyController_HorizontalSum, kind: data, se: 0, ae: 411656, vr: 0, cpp: "CB::schema::bhkCharRigidBodyController::s_horizontalSum" }  # (1,1,0,0), set by a static initializer
+  - { name: hkUFloat8_IntToReal, kind: data, se: 0, ae: 219043, vr: 0, cpp: "CB::schema::hkUFloat8_intToReal" }  # hkUFloat8's 256-entry decoding table
+  - { name: hkpCharacterRigidBody_SetAngularVelocity, kind: func, se: 0, ae: 62458, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setAngularVelocity" }
+  - { name: BSTEventSource_bhkCharacterMoveFinishEvent_SendEvent, kind: func, se: 0, ae: 38322, vr: 0, cpp: "CB::schema::BSTEventSource<CB::schema::bhkCharacterMoveFinishEvent>::SendEvent" }
+  - { name: bhkCharRigidBodyControllerCinfo_Vtable, kind: data, se: 0, ae: 240578, vr: 0, cpp: "CB::schema::bhkCharRigidBodyControllerCinfo::`vftable'" }
+  - { name: bhkCharacterControllerCinfo_Dtor, kind: func, se: 0, ae: 78252, vr: 0, cpp: "??1bhkCharacterControllerCinfo@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterRigidBody_RTTI, kind: data, se: 0, ae: 411923, vr: 0, cpp: "CB::schema::bhkCharacterRigidBody::ms_RTTI" }  # the NiRTTI record
+  - { name: hkpCharacterRigidBodyListener_CharacterCallback, kind: func, se: 0, ae: 80567, vr: 0, cpp: "CB::schema::hkpCharacterRigidBodyListener::characterCallback" }
+  - { name: BSTArrayBase_Ctor, kind: func, se: 0, ae: 68160, vr: 0, cpp: "??0BSTArrayBase@schema@CB@@QEAA@XZ" }
+  - { name: BSTArrayHeapAllocator_Ctor, kind: func, se: 0, ae: 68167, vr: 0, cpp: "??0BSTArrayHeapAllocator@schema@CB@@QEAA@XZ" }
+  - { name: MemoryManager_Allocate, kind: func, se: 0, ae: 68115, vr: 0, cpp: "CB::schema::MemoryManager::Allocate" }  # (size, alignment, alignmentRequired)
+  - { name: bhkCharRigidBodyController_Init, kind: func, se: 0, ae: 79188, vr: 0, cpp: "CB::schema::bhkCharRigidBodyController::Init" }  # name provisional
+  - { name: bhkCharacterController_AddHavokProperty, kind: func, se: 0, ae: 78271, vr: 0, cpp: "CB::schema::bhkCharacterController::AddHavokProperty" }  # name provisional
+  - { name: bhkCharacterController_InitFromCinfo, kind: func, se: 0, ae: 78305, vr: 0, cpp: "CB::schema::bhkCharacterController::InitFromCinfo" }  # name provisional
+  - { name: bhkCharacterController_Ctor, kind: func, se: 0, ae: 78257, vr: 0, cpp: "??0bhkCharacterController@schema@CB@@QEAA@AEBVbhkCharacterControllerCinfo@12@@Z" }
+  - { name: bhkCharacterPointCollector_Ctor, kind: func, se: 0, ae: 80506, vr: 0, cpp: "??0bhkCharacterPointCollector@schema@CB@@QEAA@PEAX@Z" }
+  - { name: bhkCharacterRigidBody_Vtable, kind: data, se: 0, ae: 240566, vr: 0, cpp: "CB::schema::bhkCharacterRigidBody::`vftable'" }
+  - { name: bhkCharacterRigidBody_InstanceCount, kind: data, se: 0, ae: 411922, vr: 0, cpp: "CB::schema::bhkCharacterRigidBody::s_instanceCount" }  # name provisional
+  - { name: bhkEntity_Vtable, kind: data, se: 0, ae: 190241, vr: 0, cpp: "CB::schema::bhkEntity::`vftable'" }
+  - { name: bhkEntity_InstanceCount, kind: data, se: 0, ae: 411591, vr: 0, cpp: "CB::schema::bhkEntity::s_instanceCount" }  # name provisional
+  - { name: bhkRefObject_Ctor, kind: func, se: 0, ae: 78647, vr: 0, cpp: "??0bhkRefObject@schema@CB@@QEAA@XZ" }
+  - { name: bhkRigidBody_Vtable, kind: data, se: 0, ae: 190275, vr: 0, cpp: "CB::schema::bhkRigidBody::`vftable'" }
+  - { name: bhkRigidBody_InstanceCount, kind: data, se: 0, ae: 411543, vr: 0, cpp: "CB::schema::bhkRigidBody::s_instanceCount" }  # name provisional
+  - { name: bhkWorldObject_Ctor, kind: func, se: 0, ae: 77791, vr: 0, cpp: "??0bhkWorldObject@schema@CB@@QEAA@XZ" }
+  - { name: hkpCharacterRigidBody_SetListener, kind: func, se: 0, ae: 62449, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setListener" }
+  - { name: MemoryManager_GetThreadScrapHeap, kind: func, se: 0, ae: 68088, vr: 0, cpp: "CB::schema::MemoryManager::GetThreadScrapHeap" }  # (name = null: the default)
+  - { name: ScrapHeap_Allocate, kind: func, se: 0, ae: 68144, vr: 0, cpp: "CB::schema::ScrapHeap::Allocate" }  # (size, alignment)
+  - { name: ScrapHeap_Deallocate, kind: func, se: 0, ae: 68146, vr: 0, cpp: "CB::schema::ScrapHeap::Deallocate" }
+  - { name: TlsIndex, kind: data, se: 0, ae: 415542, vr: 0, cpp: "_tls_index" }  # the CRT's: thread_local accesses index the TLS array with it
+  - { name: bhkSerializable_LoadBinary, kind: func, se: 0, ae: 78653, vr: 0, cpp: "CB::schema::bhkSerializable::LoadBinary" }
+  - { name: bhkSerializable_LinkObject, kind: func, se: 0, ae: 78654, vr: 0, cpp: "CB::schema::bhkSerializable::LinkObject" }
+  - { name: bhkSerializable_RegisterStreamables, kind: func, se: 0, ae: 78655, vr: 0, cpp: "CB::schema::bhkSerializable::RegisterStreamables" }
+  - { name: bhkSerializable_SaveBinary, kind: func, se: 0, ae: 78656, vr: 0, cpp: "CB::schema::bhkSerializable::SaveBinary" }
+  - { name: bhkSerializable_Dtor, kind: func, se: 0, ae: 78658, vr: 0, cpp: "??1bhkSerializable@schema@CB@@UEAA@XZ" }
+  - { name: bhkSerializable_CopyMembers, kind: func, se: 0, ae: 78657, vr: 0, cpp: "CB::schema::bhkSerializable::CopyMembers" }  # name provisional
+  - { name: bhkSerializable_LockSerialize, kind: func, se: 0, ae: 78664, vr: 0, cpp: "CB::schema::bhkSerializable::LockSerialize" }  # name provisional
+  - { name: bhkSerializable_UnlockSerialize, kind: func, se: 0, ae: 78665, vr: 0, cpp: "CB::schema::bhkSerializable::UnlockSerialize" }  # name provisional
+  - { name: bhkSerializable_Unk30, kind: func, se: 0, ae: 78662, vr: 0, cpp: "CB::schema::bhkSerializable::Unk_30" }  # vtable slot 48
+  - { name: bhkRefObject_AdjustRefCount, kind: func, se: 0, ae: 78650, vr: 0, cpp: "CB::schema::bhkRefObject::AdjustRefCount" }
+  - { name: NiStream_ReadLinkID, kind: func, se: 0, ae: 70359, vr: 0, cpp: "CB::schema::NiStream::ReadLinkID" }  # name provisional
+  - { name: ahkpCharacterRigidBody_Vtable, kind: data, se: 0, ae: 241440, vr: 0, cpp: "??_7ahkpCharacterRigidBody@schema@CB@@6BhkReferencedObject@12@@" }
+  - { name: bhkCharacterRigidBodyCinfo_Vtable, kind: data, se: 0, ae: 240564, vr: 0, cpp: "CB::schema::bhkCharacterRigidBodyCinfo::`vftable'" }
+  - { name: hkpCharacterRigidBodyCinfo_Vtable, kind: data, se: 0, ae: 230727, vr: 0, cpp: "CB::schema::hkpCharacterRigidBodyCinfo::`vftable'" }
+  - { name: hkpCharacterRigidBody_Ctor, kind: func, se: 0, ae: 62447, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::hkpCharacterRigidBody" }
+  - { name: ahkpCharacterRigidBody_EntityListenerVtable, kind: data, se: 0, ae: 241442, vr: 0, cpp: "??_7ahkpCharacterRigidBody@schema@CB@@6BhkpEntityListener@12@@" }  # the hkpEntityListener base's (+0x10)
+  - { name: ahkpCharacterRigidBody_PostSimulationListenerVtable, kind: data, se: 0, ae: 241444, vr: 0, cpp: "??_7ahkpCharacterRigidBody@schema@CB@@6BhkpWorldPostSimulationListener@12@@" }  # the hkpWorldPostSimulationListener base's (+0x18)
+  - { name: NiPointer_bhkShape_Dtor, kind: func, se: 0, ae: 78018, vr: 0, cpp: "CB::schema::NiPointer<CB::schema::bhkShape>::~NiPointer<CB::schema::bhkShape>" }  # its address goes to the array-destructor iterator
+  - { name: bhkCharacterControllerCinfo_Vtable, kind: data, se: 0, ae: 239065, vr: 0, cpp: "CB::schema::bhkCharacterControllerCinfo::`vftable'" }
+  - { name: CRT_EhVectorDestructorIterator, kind: func, se: 0, ae: 109621, vr: 0, cpp: "`eh vector destructor iterator'" }  # destroys a member array whose element destructor may throw
+  - { name: bhkCharacterControllerCinfo_Ctor, kind: func, se: 0, ae: 78251, vr: 0, cpp: "??0bhkCharacterControllerCinfo@schema@CB@@QEAA@_N0@Z" }  # (createStateManager, unkA5), names provisional
+  - { name: BSTHashMap_DamageImpacts_DestroyEntry, kind: func, se: 0, ae: 78361, vr: 0, cpp: "CB::schema::BSTHashMap<CB::schema::NiPointer<CB::schema::bhkRigidBody>,void * __ptr64>::DestroyEntry" }  # empty; its address goes to Clear
+  - { name: BSTScatterTableBase_Clear_DamageImpacts, kind: func, se: 0, ae: 78314, vr: 0, cpp: "CB::schema::BSTScatterTableBase::Clear" }  # name provisional; the damage-impact map's instance
+  - { name: NiExtraData_Dtor, kind: func, se: 0, ae: 70862, vr: 0, cpp: "??1NiExtraData@schema@CB@@UEAA@XZ" }
+  - { name: NiRefObject_Objects, kind: data, se: 0, ae: 410493, vr: 0, cpp: "CB::schema::NiRefObject::ms_objects" }  # live NiRefObject count
+  - { name: bhkCharacterController_ClearDamageImpacts, kind: func, se: 0, ae: 78294, vr: 0, cpp: "CB::schema::bhkCharacterController::ClearDamageImpacts" }  # name provisional
+  - { name: bhkCharacterController_Vtable, kind: data, se: 0, ae: 239067, vr: 0, cpp: "CB::schema::bhkCharacterController::`vftable'" }
+  - { name: BSScrapArrayAllocator_Deallocate, kind: func, se: 0, ae: 68175, vr: 0, cpp: "CB::schema::BSScrapArrayAllocator::Deallocate" }
+  - { name: BSTArrayAllocatorFunctor_BSScrapArrayAllocator_Vtable, kind: data, se: 0, ae: 187172, vr: 0, cpp: "CB::schema::BSTArrayAllocatorFunctor<CB::schema::BSScrapArrayAllocator>::`vftable'" }
+  - { name: BSTArrayBase_IAllocatorFunctor_Vtable, kind: data, se: 0, ae: 186364, vr: 0, cpp: "CB::schema::BSTArrayBase::IAllocatorFunctor::`vftable'" }
+  - { name: BSTArrayBase_InitialReserve, kind: func, se: 0, ae: 68162, vr: 0, cpp: "CB::schema::BSTArrayBase::InitialReserve" }  # (allocator, capacity, elemSize)
+  - { name: BSTArrayBase_Dtor, kind: func, se: 0, ae: 68166, vr: 0, cpp: "??1BSTArrayBase@schema@CB@@QEAA@XZ" }  # empty
+  - { name: NiPoint3_Zero, kind: data, se: 0, ae: 410468, vr: 0, cpp: "CB::schema::NiPoint3::ZERO" }
+  - { name: bhkCharacterController_IsLayerCounted, kind: func, se: 0, ae: 78312, vr: 0, cpp: "CB::schema::bhkCharacterController::IsLayerCounted" }  # name provisional
+  - { name: bhkCharacterController_IsSlopeBlocking, kind: func, se: 0, ae: 78311, vr: 0, cpp: "CB::schema::bhkCharacterController::IsSlopeBlocking" }  # name provisional; (meshShape, checkMaterial, default, shapeKey)
+  - { name: bhkGetMeshShape, kind: func, se: 0, ae: 77986, vr: 0, cpp: "CB::schema::bhkGetMeshShape" }  # name provisional
