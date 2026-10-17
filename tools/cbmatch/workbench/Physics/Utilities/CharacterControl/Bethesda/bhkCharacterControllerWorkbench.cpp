@@ -146,23 +146,22 @@ namespace CB { namespace schema
             const hkpShapeType typeA  = shapeA->getType();
             if (typeA == HK_SHAPE_CAPSULE) radius = static_cast<const hkpCapsuleShape*>(shapeA)->getRadius();
             hkVector4    contact  = point.m_contact.m_position;
-            const hkReal contactZ = contact(2);
+            const hkReal contactZ = contact.getComponent<2>().getReal();
             hkVector4    position;
+            hkVector4    to;
             GetPositionImpl(position, true);
             const int probe = m_orientationCtrl->GetStepProbe(this, typeA == HK_SHAPE_CAPSULE ? static_cast<const hkpCapsuleShape*>(shapeA) : HK_NULL,
                                                               contact, position);
-            hkVector4 horizontal;
-            horizontal.setSub4(position, contact);
-            horizontal(2) = 0.0f;
-            hkVector4 direction = horizontal;
+            hkVector4 direction;
+            direction.setSub4(position, contact);
+            direction(2) = 0.0f;
             direction.normalize3();
             const hkReal facing = point.m_contact.m_separatingNormal.dot3(direction).getReal();
             if (facing < 0.0f && !hkpGetRigidBody(point.m_rootCollidableA)) reject = true;
             const hkReal stepHeight = m_stepHeight;
             if (probe == -1) position(2) += stepHeight;
-            const hkReal probeZ = position(2);
-            contact(2)          = probeZ;
-            const hkReal height = contactZ - probeZ;
+            contact(2) = position.getComponent<2>().getReal();
+            const hkReal height = contactZ - position.getComponent<2>().getReal();
             bool         stepUp = height > 0.0f;
             const hkReal maxHeight = stepHeight * (1.0f / 3.0f);
             if (height > maxHeight && !reject) reject = m_orientationCtrl->RejectStep(this, maxHeight, contactZ, probe, stepUp);
@@ -179,8 +178,8 @@ namespace CB { namespace schema
                     hkVector4 segment[2];
                     segment[0] = contact;
                     segment[1] = contact;
-                    segment[1](0) -= direction(0) * m_stepProbeDistance;
-                    segment[1](1) -= direction(1) * m_stepProbeDistance;
+                    segment[1](0) -= direction.getComponent<0>().getReal() * m_stepProbeDistance;
+                    segment[1](1) -= direction.getComponent<1>().getReal() * m_stepProbeDistance;
                     hkContactPoint points[3];
                     hkCollideCapsuleUtilCapsVsTri(segment, 0.05f, vertices, triangle->getRadius(), cache, 0.0f, 0, points, HK_NULL);
                     if (points[0].getDistance() < 0.0f || points[1].getDistance() < 0.0f) return false;
@@ -188,7 +187,7 @@ namespace CB { namespace schema
                 } else {
                     hkpShapeRayCastInput  input;
                     hkpShapeRayCastOutput output;
-                    hkVector4             to    = position;
+                    to = position;
                     const hkReal          reach = radius + m_stepProbeDistance;
                     to(0) -= direction.getComponent<0>().getReal() * reach;
                     to(1) -= direction.getComponent<1>().getReal() * reach;
