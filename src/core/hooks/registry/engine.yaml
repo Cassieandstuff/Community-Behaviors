@@ -1217,3 +1217,26 @@ symbols:
   - { name: hkpCharacterProxy_GetManifold, kind: func, se: 0, ae: 62637, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getManifold" }
   - { name: hkpCharacterProxy_GetShapePhantom, kind: func, se: 0, ae: 62642, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getShapePhantom" }
   - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62633, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # (stepInfo, gravity, castCollector, startPointCollector): integrateImplementation with a null command
+  - { name: bhkCharacterProxy_RTTI, kind: data, se: 0, ae: 411921, vr: 0, cpp: "CB::schema::bhkCharacterProxy::ms_RTTI" }  # the NiRTTI record
+  - { name: bhkCharacterProxy_Dtor, kind: func, se: 0, ae: 80534, vr: 0, cpp: "??1bhkCharacterProxy@schema@CB@@UEAA@XZ" }
+  - { name: hkpCharacterProxyListener_Vtable, kind: data, se: 0, ae: 240549, vr: 0, cpp: "CB::schema::hkpCharacterProxyListener::`vftable'" }
+  - { name: BSScrapArray_NiPointer_bhkCharProxyController_Resize, kind: func, se: 0, ae: 79170, vr: 0, cpp: "CB::schema::BSScrapArray<CB::schema::NiPointer<CB::schema::bhkCharProxyController> >::Resize" }  # a COMDAT of the proxy controller's unit
+  - { name: BSTArrayAllocatorFunctor_BSTSmallArrayHeapAllocator160_Vtable, kind: data, se: 0, ae: 209876, vr: 0, cpp: "CB::schema::BSTArrayAllocatorFunctor<CB::schema::BSTSmallArrayHeapAllocator<160> >::`vftable'" }
+  - { name: BSTArrayBase_MoveItems, kind: func, se: 0, ae: 68161, vr: 0, cpp: "CB::schema::BSTArrayBase::MoveItems" }  # name provisional; (data, dstIndex, srcIndex, count, elemSize): a memmove
+  - { name: bhkCachingShapePhantom_CreateFromCinfo, kind: func, se: 0, ae: 79113, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::CreateFromCinfo" }  # vtable slot 46
+  - { name: bhkCachingShapePhantom_Vtable, kind: data, se: 0, ae: 240544, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::`vftable'" }
+  - { name: bhkCachingShapePhantom_InstanceCount, kind: data, se: 0, ae: 411652, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::s_instanceCount" }  # name provisional
+  - { name: bhkCharProxyController_Init, kind: func, se: 0, ae: 79136, vr: 0, cpp: "CB::schema::bhkCharProxyController::Init" }  # name provisional
+  - { name: bhkCharProxyController_Vtable, kind: data, se: 0, ae: 240558, vr: 0, cpp: "??_7bhkCharProxyController@schema@CB@@6BhkpCharacterProxyListener@12@@" }  # the hkpCharacterProxyListener base's (+0x00)
+  - { name: bhkCharProxyController_Controllers, kind: data, se: 0, ae: 389426, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_controllers" }  # name provisional; BSTSmallArray<bhkCharProxyController*, 20>
+  - { name: bhkCharProxyController_ControllersLock, kind: data, se: 0, ae: 411654, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_controllersLock" }  # name provisional; BSSpinLock
+  - { name: bhkCharProxyController_Dtor, kind: func, se: 0, ae: 79129, vr: 0, cpp: "??1bhkCharProxyController@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterProxy_Vtable, kind: data, se: 0, ae: 240553, vr: 0, cpp: "CB::schema::bhkCharacterProxy::`vftable'" }
+  - { name: bhkCharacterProxy_InstanceCount, kind: data, se: 0, ae: 411920, vr: 0, cpp: "CB::schema::bhkCharacterProxy::s_instanceCount" }  # name provisional
+  - { name: bhkPhantom_Vtable, kind: data, se: 0, ae: 190243, vr: 0, cpp: "CB::schema::bhkPhantom::`vftable'" }
+  - { name: bhkPhantom_InstanceCount, kind: data, se: 0, ae: 411593, vr: 0, cpp: "CB::schema::bhkPhantom::s_instanceCount" }  # name provisional
+  - { name: bhkShapePhantom_Vtable, kind: data, se: 0, ae: 190281, vr: 0, cpp: "CB::schema::bhkShapePhantom::`vftable'" }
+  - { name: hkpCharacterProxy_AddCharacterProxyListener, kind: func, se: 0, ae: 62644, vr: 0, cpp: "CB::schema::hkpCharacterProxy::addCharacterProxyListener" }
+  - { name: hkpCharacterProxy_RemoveCharacterProxyListener, kind: func, se: 0, ae: 62645, vr: 0, cpp: "CB::schema::hkpCharacterProxy::removeCharacterProxyListener" }
+  - { name: bhkCharProxyController_ControllerVtable, kind: data, se: 0, ae: 240560, vr: 0, cpp: "??_7bhkCharProxyController@schema@CB@@6BbhkCharacterController@12@@" }  # the bhkCharacterController base's (+0x10)
+  - { name: bhkShapePhantom_InstanceCount, kind: data, se: 0, ae: 411604, vr: 0, cpp: "CB::schema::bhkShapePhantom::s_instanceCount" }  # name provisional

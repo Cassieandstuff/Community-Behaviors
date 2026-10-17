@@ -36,15 +36,24 @@ namespace CB { namespace schema
     };
 
     /// @brief What a bhkShapePhantom's Havok phantom is built from.
-    /// @note Name and layout past the shape provisional (Init fills it on the stack; 0x88 bytes there).
+    /// @note 0x70 bytes. Name and layout past the shape provisional (only Init, which builds one on the stack, is seen).
     struct bhkShapePhantomCinfo
     {
+        HK_FORCE_INLINE bhkShapePhantomCinfo() : m_shape(HK_NULL), m_unk10(2)
+        {
+            hkRotation& rotation = m_transform.m_rotation;
+            rotation.m_col0(0) = 1.0f; rotation.m_col0(1) = 0.0f; rotation.m_col0(2) = 0.0f; rotation.m_col0(3) = 0.0f;
+            rotation.m_col1(0) = 0.0f; rotation.m_col1(1) = 1.0f; rotation.m_col1(2) = 0.0f; rotation.m_col1(3) = 0.0f;
+            rotation.m_col2(0) = 0.0f; rotation.m_col2(1) = 0.0f; rotation.m_col2(2) = 1.0f; rotation.m_col2(3) = 0.0f;
+            m_transform.m_translation.setZero4();
+        }
+
         hkUint32       m_collisionFilterInfo;   ///< +0x00
         const hkpShape* m_shape;                ///< +0x08
         /// @note Init stores 2.
         hkUint8        m_unk10;                 ///< +0x10
         hkArray<void*> m_unk18;                 ///< +0x18
-        /// @note Init stores the identity rotation with a zero translation.
+        /// @note Init stores the identity rotation (as scalar stores, not vectors) and a zero translation.
         hkTransform    m_transform;             ///< +0x30
     };
 
@@ -61,6 +70,7 @@ namespace CB { namespace schema
         }
 
         virtual void CreateFromCinfo(hkSerializableCinfo* cinfo);   ///< slot 46
+        virtual hkSerializableCinfo* GetCinfo(bool& created);       ///< slot 47
 
         /// @brief The wrapped Havok phantom (the referenced object).
         HK_FORCE_INLINE hkpCachingShapePhantom* GetPhantom() const { return static_cast<hkpCachingShapePhantom*>(m_referencedObject); }

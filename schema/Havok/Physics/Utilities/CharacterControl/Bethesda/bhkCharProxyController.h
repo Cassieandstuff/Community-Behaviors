@@ -8,6 +8,8 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterProxy.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCachingShapePhantom.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkWorld.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/BSSpinLock.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/BSTArray.h>
 #include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxyListener.h>
 
 namespace CB { namespace schema
@@ -73,11 +75,16 @@ namespace CB { namespace schema
 
         /// @brief Copies s_controllers into `controllers` (referenced), under s_controllersLock.
         /// @note Name provisional.
-        static void GetControllers(BSTArray<NiPointer<bhkCharProxyController> >& controllers);
+        static void GetControllers(BSScrapArray<NiPointer<bhkCharProxyController> >& controllers);
 
         /// @brief (0, 0, -1, 0): the direction CheckSupportImpl queries the support in.
         /// @note Name provisional; set by a static initializer.
         static hkVector4 s_down;
+        /// @brief Every live proxy controller.
+        /// @note Name provisional. Guarded by s_controllersLock.
+        static BSTSmallArray<bhkCharProxyController*, 20> s_controllers;
+        /// @note Name provisional.
+        static BSSpinLock s_controllersLock;
 
         bhkCharacterProxy                  m_characterProxy;   ///< +0x340
         /// @brief The shape phantom the proxy moves.

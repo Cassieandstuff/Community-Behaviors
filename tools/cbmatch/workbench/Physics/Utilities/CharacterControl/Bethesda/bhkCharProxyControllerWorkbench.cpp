@@ -239,3 +239,49 @@ namespace CB { namespace schema
         SetTransformImpl(transform);
     }
 } }
+
+namespace CB { namespace schema
+{
+    bhkCharProxyController::bhkCharProxyController(bhkCharProxyControllerCinfo& cinfo)
+    :   bhkCharacterController(cinfo),
+        m_highSpeed(false)
+    {
+        Init(cinfo);
+        BSSpinLockGuard guard(s_controllersLock);
+        s_controllers.PushBack(this);
+    }
+
+    bhkCharProxyController::~bhkCharProxyController()
+    {
+        {
+            BSSpinLockGuard guard(s_controllersLock);
+            bhkCharProxyController* self = this;
+            s_controllers.RemoveFast(self);
+        }
+        if (IsInWorld()) m_characterProxy.RemoveListener(this);
+    }
+
+    void bhkCharProxyController::GetControllers(BSScrapArray<NiPointer<bhkCharProxyController> >& controllers)
+    {
+        BSSpinLockGuard guard(s_controllersLock);
+        controllers.Clear();
+        controllers.Resize(s_controllers.GetSize());
+        for (hkUint32 i = 0; i < s_controllers.GetSize(); ++i) controllers[i] = s_controllers[i];
+    }
+
+    void bhkCharProxyController::Init(bhkCharProxyControllerCinfo& cinfo)
+    {
+        InitFromCinfo(cinfo);
+        bhkShape* shape = m_shapeIndex < 2 ? NiPointer<bhkShape>(m_shapes[m_shapeIndex]) : NiPointer<bhkShape>();
+        bhkShapePhantomCinfo phantomCinfo;
+        phantomCinfo.m_collisionFilterInfo = cinfo.m_collisionFilterInfo;
+        phantomCinfo.m_shape               = shape->GetShape();
+        m_shapePhantom = new bhkCachingShapePhantom(phantomCinfo);
+        if (cinfo.m_world) m_shapePhantom->MoveToWorld(cinfo.m_world);
+        cinfo.m_proxyCinfo.m_shapePhantom = m_shapePhantom->GetPhantom();
+        hkSerializableCinfo& proxyCinfo = cinfo.m_proxyCinfo;
+        m_characterProxy.CreateFromCinfo(&proxyCinfo);
+        m_characterProxy.AddListener(this);
+        AddHavokProperty(1002, reinterpret_cast<hkUlong>(static_cast<bhkCharacterController*>(this)));
+    }
+} }

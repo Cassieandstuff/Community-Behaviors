@@ -105,6 +105,25 @@ namespace CB { namespace schema
             }
         }
 
+        /// @brief Adds `listener` to the wrapped proxy (nothing before one is built), under the world's write lock.
+        HK_FORCE_INLINE void AddListener(hkpCharacterProxyListener* listener)
+        {
+            hkpCharacterProxy* proxy = GetCharacterProxy();
+            if (proxy) {
+                bhkWorldLock lock(GetBhkWorld(), 1);
+                proxy->addCharacterProxyListener(listener);
+            }
+        }
+        /// @brief Removes `listener` from the wrapped proxy (nothing before one is built), under the world's write lock.
+        HK_FORCE_INLINE void RemoveListener(hkpCharacterProxyListener* listener)
+        {
+            hkpCharacterProxy* proxy = GetCharacterProxy();
+            if (proxy) {
+                bhkWorldLock lock(GetBhkWorld(), 1);
+                proxy->removeCharacterProxyListener(listener);
+            }
+        }
+
         /// @brief The start-point collector the proxy integrates and checks support with (it tracks the bodies the
         ///        proxy starts out overlapping).
         bhkCharacterPointCollector m_ignoredCollisionStartCollector;   ///< +0x20
