@@ -6,6 +6,10 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyControllerCinfo.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/Setting.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
+#include <Physics/Collide/Agent3/Machine/Nn/hkpAgentNnTrack.h>
+#include <Physics/Collide/Agent/hkpProcessCollisionOutput.h>
+#include <Physics/Dynamics/Collide/hkpSimpleConstraintContactMgr.h>
+#include <Physics/Dynamics/World/hkpWorld.h>
 
 namespace CB { namespace schema
 {
@@ -14,6 +18,57 @@ namespace CB { namespace schema
         m_ignoredCollisionStartCollector(HK_NULL)
     {
         Init(cinfo);
+    }
+
+    void bhkCharRigidBodyController::considerCollisionEntryForSlope(const hkpWorld* world, hkpCharacterRigidBody* characterRB,
+                                                                    const hkpLinkedCollidable::CollisionEntry& entry, hkpSimpleConstraintContactMgr* mgr,
+                                                                    hkArray<hkContactPointId>& contactPointIds)
+    {
+        const hkpCdBody* bodyA = entry.m_agentEntry->getCollidableA();
+        const hkpCdBody* bodyB = entry.m_agentEntry->getCollidableB();
+        const hkReal     sign  = (hkpGetRigidBody(entry.m_agentEntry->getCollidableA()) == characterRB->m_character) ? 1.0f : -1.0f;
+
+        const int numContactPoints = contactPointIds.getSize();
+        for (int i = 0; i < numContactPoints; i++) {
+            const hkContactPointId& id = contactPointIds[i];
+            if (mgr->getContactPointProperties(id)->isDisabled()) continue;
+
+            const hkContactPoint*                 cp    = mgr->getContactPoint(id);
+            const hkpSimpleContactConstraintAtom* atom  = mgr->m_contactConstraintAtom;
+            bool                                  walkable = false;
+            const hkpCdBody*                      other = (bodyA == characterRB->getRigidBody()->getCollidable()) ? bodyB : bodyA;
+            const hkpContactPointProperties*      props = mgr->getContactPointProperties(id);
+            if (!atom) {
+                walkable = false;
+            } else if (props) {
+                const hkUint8   numUserDatas = (other == bodyA) ? atom->m_numUserDatasForBodyA : atom->m_numUserDatasForBodyB;
+                const hkUint32* userData     = reinterpret_cast<const hkUint32*>(reinterpret_cast<const hkUint8*>(props) +
+                                                                     ((other == bodyA) ? 0x20 : 0x20 + 4 * atom->m_numUserDatasForBodyA));
+                const hkUint32  shapeKey     = (numUserDatas && userData) ? *userData : 0xffffffff;
+                walkable = !IsSlopeBlocking(bhkGetMeshShape(other->getShape()), true, true, shapeKey);
+            }
+
+            hkVector4    normal      = cp->m_separatingNormal;
+            const hkReal normalDotUp = characterRB->m_up.dot3(normal).getReal();
+            const hkReal signedDotUp = normalDotUp * sign;
+            if ((signedDotUp > 0.01f) && (signedDotUp < characterRB->m_maxSlopeCosine) && !walkable) {
+                hkpCharacterRigidBody::VertPointInfo info;
+                info.m_vertPoint.m_position = cp->m_position;
+                info.m_vertPoint.m_position.setInt24W(hkpCharacterRigidBody::VERTICAL_POINT_TAG);
+                normal.addMul4(hkSimdReal(-signedDotUp), characterRB->m_up);
+                normal.normalize3();
+                info.m_vertPoint.m_separatingNormal = normal;
+                info.m_vertPoint.m_separatingNormal(3) = hkMath::min2(cp->getDistance(), 0.0f);
+                info.m_mgr = mgr;
+
+                hkpProcessCollisionOutput output(characterRB->m_character->getSimulationIsland());
+                const hkContactPointId newId = mgr->addContactPoint(*bodyA, *bodyB, *world->m_collisionInput, output, HK_NULL, info.m_vertPoint);
+                if (newId != HK_INVALID_CONTACT_POINT) {
+                    characterRB->m_verticalContactPoints.pushBack(info);
+                    contactPointIds.pushBack(newId);
+                }
+            }
+        }
     }
 
     void bhkCharRigidBodyController::Init(bhkCharRigidBodyControllerCinfo& cinfo)

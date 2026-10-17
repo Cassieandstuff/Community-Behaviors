@@ -100,4 +100,3 @@ units:
     flags: [/EHsc, /Ob2]
     functions:
       - { name: "CB::schema::bhkCharRigidBodyController::characterCallback", va: 0x140ed30c0 }
-      - { name: "CB::schema::bhkCharRigidBodyController::considerCollisionEntryForSlope", va: 0x140ed3710 }

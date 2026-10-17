@@ -974,7 +974,7 @@ struct Match {
     std::vector<UnmappedRef> refsUnmapped;
 
     const CoffFunction*      ours = nullptr;   ///< the compiled function this result is for (outlives the Match)
-    bool                     needsDiff = false;   ///< VARIANT only through a rule --diff must confirm (A E I J N R O U L)
+    bool                     needsDiff = false;   ///< VARIANT only through a rule --diff must confirm (A E I J N R O U M L)
 };
 
 std::string targetNote(const CoffFunction& f, const Insn& i)
@@ -1363,6 +1363,9 @@ Frame frameOf(const std::vector<Insn>& all)
         else
             value.reset();
     };
+    /// A frame over a page is allocated `mov eax, N; call __chkstk; sub rsp, rax` (__chkstk preserves rax): the
+    /// constant rax holds is the frame size.
+    std::optional<std::int64_t> raxConstant;
     for (const auto& i : all) {
         f.depth[i.off] = depth;
         if (r11) f.r11[i.off] = *r11;
@@ -1371,7 +1374,13 @@ Frame frameOf(const std::vector<Insn>& all)
         track(i, ZYDIS_REGISTER_RAX, rax);
         const auto& op0  = i.ops[0];
         const bool  rsp0 = op0.type == ZYDIS_OPERAND_TYPE_REGISTER && op0.reg.value == ZYDIS_REGISTER_RSP;
-        const auto  imm  = i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE ? std::int64_t(i.ops[1].imm.value.s) : 0;
+        auto        imm  = i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE ? std::int64_t(i.ops[1].imm.value.s) : 0;
+        if (rsp0 && i.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER && enclosing(i.ops[1].reg.value) == ZYDIS_REGISTER_RAX && raxConstant)
+            imm = *raxConstant;
+        if (writesRegister(i, ZYDIS_REGISTER_RAX))
+            raxConstant = (i.ins.mnemonic == ZYDIS_MNEMONIC_MOV && i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
+                              ? std::optional<std::int64_t>(std::int64_t(i.ops[1].imm.value.u))
+                              : std::nullopt;
         switch (i.ins.mnemonic) {
             case ZYDIS_MNEMONIC_PUSH: depth += 8; break;
             case ZYDIS_MNEMONIC_POP:  depth -= 8; break;
@@ -1823,6 +1832,77 @@ int canonicalizeFoldedLoads(std::vector<Insn>& insns)
     return folded;
 }
 
+/// @brief Rule M (needs --diff): `mov r, [m]` … `lea r2, [r+1]` (or `inc r` / `add r, 1`, r2 = r) … `mov [m], r2` is
+///        `inc [m]`: the same increment of the same memory, done in registers or in place as a build chooses (an
+///        hkArray's size after a pushBack). Rewrites the store as the increment and drops the load and the add when,
+///        between load and store, nothing else writes memory, writes r (or r2 after the add), calls or branches. A join
+///        in between is allowed: vanilla's placement-new null check jumps to the add with the count it loaded before
+///        the copy; the value a joining path brings, like any store's source, is --diff's to confirm. Returns how many it folded.
+int canonicalizeReadModifyWrite(std::vector<Insn>& insns)
+{
+    auto gpr = [](const ZydisDecodedOperand& op) {
+        if (op.type != ZYDIS_OPERAND_TYPE_REGISTER) return false;
+        const auto cls = ZydisRegisterGetClass(op.reg.value);
+        return cls == ZYDIS_REGCLASS_GPR32 || cls == ZYDIS_REGCLASS_GPR64;
+    };
+    auto sameMemory = [](const ZydisDecodedOperand& a, const ZydisDecodedOperand& b) {
+        return a.type == ZYDIS_OPERAND_TYPE_MEMORY && b.type == ZYDIS_OPERAND_TYPE_MEMORY && a.mem.type == ZYDIS_MEMOP_TYPE_MEM &&
+               b.mem.type == ZYDIS_MEMOP_TYPE_MEM && a.size == b.size && a.mem.base == b.mem.base && a.mem.index == b.mem.index &&
+               a.mem.scale == b.mem.scale && a.mem.disp.value == b.mem.disp.value && a.mem.segment == b.mem.segment;
+    };
+    auto barrier = [](const Insn& i) {
+        const auto cat = i.ins.meta.category;
+        return cat == ZYDIS_CATEGORY_CALL || cat == ZYDIS_CATEGORY_COND_BR || cat == ZYDIS_CATEGORY_UNCOND_BR || cat == ZYDIS_CATEGORY_RET;
+    };
+    std::vector<bool> drop(insns.size(), false);
+    int folded = 0;
+    for (std::size_t k = 0; k < insns.size(); ++k) {
+        const Insn& l = insns[k];
+        if (l.ins.mnemonic != ZYDIS_MNEMONIC_MOV || !gpr(l.ops[0]) || l.ops[1].type != ZYDIS_OPERAND_TYPE_MEMORY ||
+            l.ops[1].mem.type != ZYDIS_MEMOP_TYPE_MEM)
+            continue;
+        const ZydisRegister r     = l.ops[0].reg.value;
+        ZydisRegister       value = ZYDIS_REGISTER_NONE;   ///< the register holding [m] + 1, once the add is seen
+        std::size_t         add = 0, store = 0;
+        for (std::size_t m = k + 1; m < insns.size() && m <= k + 6; ++m) {
+            const Insn& i = insns[m];
+            if (barrier(i)) break;
+            if (!add) {
+                const bool lea = i.ins.mnemonic == ZYDIS_MNEMONIC_LEA && gpr(i.ops[0]) && i.ops[1].mem.base == enclosing(r) &&
+                                 i.ops[1].mem.index == ZYDIS_REGISTER_NONE && i.ops[1].mem.disp.value == 1;
+                const bool inc = (i.ins.mnemonic == ZYDIS_MNEMONIC_INC && gpr(i.ops[0]) && i.ops[0].reg.value == r) ||
+                                 (i.ins.mnemonic == ZYDIS_MNEMONIC_ADD && gpr(i.ops[0]) && i.ops[0].reg.value == r &&
+                                  i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE && i.ops[1].imm.value.u == 1);
+                if (lea || inc) { add = m; value = i.ops[0].reg.value; continue; }
+                if (writtenMemory(i) || writesRegister(i, r)) break;
+                continue;
+            }
+            if (const auto* w = writtenMemory(i)) {
+                if (i.ins.mnemonic == ZYDIS_MNEMONIC_MOV && gpr(i.ops[1]) && enclosing(i.ops[1].reg.value) == enclosing(value) &&
+                    i.ops[1].size == l.ops[0].size && sameMemory(*w, l.ops[1]))
+                    store = m;
+                break;
+            }
+            if (writesRegister(i, value)) break;
+        }
+        if (!store) continue;
+        Insn& s           = insns[store];
+        s.ins.mnemonic    = ZYDIS_MNEMONIC_INC;
+        s.ins.operand_count_visible = 1;
+        s.ops[0].actions  = ZYDIS_OPERAND_ACTION_READ | ZYDIS_OPERAND_ACTION_WRITE;
+        s.ops[1]          = ZydisDecodedOperand{};
+        drop[k] = drop[add] = true;
+        ++folded;
+    }
+    if (folded) {
+        std::vector<Insn> kept;
+        for (std::size_t k = 0; k < insns.size(); ++k)
+            if (!drop[k]) kept.push_back(insns[k]);
+        insns.swap(kept);
+    }
+    return folded;
+}
+
 /// @brief A side's basic blocks in layout order, each [begin, end) over its instructions, with its successors (block
 ///        indices; a jump-only block is passed through to where it jumps). nullopt: an indirect jump (a switch), whose
 ///        edges can't be read.
@@ -1983,6 +2063,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     canonicalizeFrameBase(b);
     const bool ruleU = canonicalizeUnaligned(a) != canonicalizeUnaligned(b);
     const bool ruleO = canonicalizeFoldedLoads(a) != canonicalizeFoldedLoads(b);
+    const bool ruleM = canonicalizeReadModifyWrite(a) != canonicalizeReadModifyWrite(b);
 
     // Unpaired effects are matched as a set within each stretch between two aligned calls: a compiler may reorder
     // independent stores, never across a call.
@@ -2027,6 +2108,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     struct Read { ZydisMnemonic mnemonic; std::uint16_t size; std::int64_t slot; bool stack; bool used = false; };
     std::vector<Read>                  spareA, spareB;
     std::vector<std::pair<Read, Read>> crossed;
+    std::vector<std::pair<bool, bool>> crossedPrivate;   ///< (ours, vanilla): the read is a private local (rule A)
     std::vector<std::pair<std::uint32_t, std::uint32_t>> crossedAt;   ///< (ours, vanilla) offsets of each crossed pair
     auto readOf = [](const Insn& i, const Frame& f) -> std::optional<Read> {
         if (hasEffect(i)) return std::nullopt;
@@ -2201,12 +2283,30 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     };
     const std::vector<std::int64_t> takenA = takenSlots(liveA, frameA), takenB = takenSlots(liveB, frameB);
     const std::set<std::int64_t>    readBackA = readBackSlots(liveA, frameA), readBackB = readBackSlots(liveB, frameB);
+    // Rule A on incoming stack arguments: the callee owns its parameter area (x64 ABI), and a build may reuse a slot
+    // whose argument it has already loaded. Only accesses after the function's first write to the slot are its own;
+    // a read before it is the argument, compared as any read.
+    auto firstWrites = [](const std::vector<Insn>& all, const Frame& f) {
+        std::map<std::int64_t, std::uint32_t> first;
+        for (const auto& i : all)
+            if (const auto* w = writtenMemory(i); w && i.ins.mnemonic != ZYDIS_MNEMONIC_CALL)
+                if (const auto s = slotOf(*w, i, f); s && *s >= 0x28) first.emplace(*s, i.off);
+        return first;
+    };
+    const auto firstWriteA = firstWrites(liveA, frameA), firstWriteB = firstWrites(liveB, frameB);
     auto privateLocal = [&](const std::vector<Insn>& side, std::size_t k, const ZydisDecodedOperand& op, const Frame& f,
                             const std::vector<std::int64_t>& taken, const std::set<std::uint64_t>&) {
         if (op.type != ZYDIS_OPERAND_TYPE_MEMORY) return false;
         const auto s = slotOf(op, side[k], f);
         if (!s) return false;
         const bool ours = &side == &liveA;
+        if (*s >= 0x28) {
+            const auto& first = ours ? firstWriteA : firstWriteB;
+            const auto  w     = first.find(*s);
+            for (const auto t : taken)
+                if (*s >= t && *s < t + 0x40) return false;
+            return w != first.end() && side[k].off >= w->second;
+        }
         if (*s >= 0) return homeSlot(op, side[k], f) && !(ours ? homeEscapesA : homeEscapesB);
         for (const auto t : taken)
             if (*s >= t && *s < t + 0x40) return false;
@@ -2368,6 +2468,16 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
                        i.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE;
             };
             if (frameAdjust(x) && frameAdjust(y) && x.ins.mnemonic == y.ins.mnemonic) { ++aligned; continue; }
+            // A frame over a page: `mov eax, N; call __chkstk; sub rsp, rax` — N is the frame size likewise.
+            auto probedSize = [](const std::vector<Insn>& side, long k) {
+                const auto at = std::size_t(k);
+                return at + 2 < side.size() && side[at].ins.mnemonic == ZYDIS_MNEMONIC_MOV && side[at].ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                       side[at].ops[0].reg.value == ZYDIS_REGISTER_EAX && side[at].ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
+                       side[at + 1].ins.mnemonic == ZYDIS_MNEMONIC_CALL && side[at + 2].ins.mnemonic == ZYDIS_MNEMONIC_SUB &&
+                       side[at + 2].ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && side[at + 2].ops[0].reg.value == ZYDIS_REGISTER_RSP &&
+                       side[at + 2].ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER && side[at + 2].ops[1].reg.value == ZYDIS_REGISTER_RAX;
+            };
+            if (probedSize(liveA, ia) && probedSize(liveB, ib)) { ++aligned; continue; }
             if (const auto* wx = writtenMemory(x), *wy = writtenMemory(y);
                 wx && wy && x.ins.mnemonic == y.ins.mnemonic && privateLocal(liveA, std::size_t(ia), *wx, frameA, takenA, targetsA) &&
                 privateLocal(liveB, std::size_t(ib), *wy, frameB, takenB, targetsB)) {
@@ -2432,6 +2542,8 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             }
             if (readsDiffer) {
                 crossed.emplace_back(*readOf(x, frameA), *readOf(y, frameB));
+                crossedPrivate.emplace_back(privateLocalRead(liveA, std::size_t(ia), frameA, takenA, targetsA),
+                                            privateLocalRead(liveB, std::size_t(ib), frameB, takenB, targetsB));
                 crossedAt.emplace_back(x.off, y.off);
                 ++glue;
                 continue;
@@ -2522,7 +2634,10 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             it->used = true;
             return true;
         };
-        if (!take(spareB, rx) || !take(spareA, ry)) {
+        // a private local's read is register allocation (rule A): it needs no partner; the other side's read still does
+        const auto [privateX, privateY] = crossedPrivate[k];
+        if (privateX || privateY) ruleA = true;
+        if ((!privateX && !take(spareB, rx)) || (!privateY && !take(spareA, ry))) {
             why = "ours +0x" + hex(crossedAt[k].first) + " reads another field than vanilla +0x" + hex(crossedAt[k].second) +
                   ", and no unpaired read on the other side makes it a reordering";
             return false;
@@ -2585,7 +2700,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             return false;
         }
     }
-    needsDiff = ruleA || ruleE || ruleI || ruleJ || ruleN || ruleR || ruleO || ruleU || reorderBlocks;
+    needsDiff = ruleA || ruleE || ruleI || ruleJ || ruleN || ruleR || ruleO || ruleU || ruleM || reorderBlocks;
     why = std::to_string(aligned) + " aligned, " + std::to_string(glue) + " unpaired side-effect-free, " +
           std::to_string(effectsA.size()) + " store(s) with a different source";
     if (deadCount) why += ", " + std::to_string(deadCount) + " provably dead";
@@ -2597,6 +2712,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     if (ruleR) why += ", a SIMD value recomputed (rule R)";
     if (ruleO) why += ", a load folded into its use (rule O)";
     if (ruleU) why += ", unaligned vs aligned moves (rule U)";
+    if (ruleM) why += ", an increment done in memory or in registers (rule M)";
     if (reorderBlocks) why += ", whole blocks laid out in another order (rule L)";
     return true;
 }
@@ -3518,7 +3634,30 @@ private:
             if (pc >= begin && pc < end && !(pc >= start_ && pc < end_)) return;
         if (pc == start_ && entered_) stub(pc);
         else if (pc >= start_ && pc < end_) { entered_ = true; inside(pc, size); }
+        else if (pc != kSentinel && stackProbe(pc)) returnFromProbe();
         else if (pc != kSentinel && !enterLeaf(pc)) stub(pc);
+    }
+
+    /// @brief Whether `pc` is the CRT's __chkstk (by its opening bytes), which a frame over a page calls with the size
+    ///        in rax before `sub rsp, rax`.
+    /// @note It only touches the new frame's pages (the emulated stack is mapped whole) and preserves every register, so
+    ///       it returns at once and is not a call: as a stub it junked rax (the frame size), and run for real it reads the
+    ///       TEB's stack limit through gs, which the emulator has no TEB for — both sides faulted alike on every seed.
+    bool stackProbe(std::uint64_t pc)
+    {
+        static constexpr std::uint8_t kChkstk[] = { 0x48, 0x83, 0xEC, 0x10, 0x4C, 0x89, 0x14, 0x24, 0x4C, 0x89, 0x5C, 0x24, 0x08, 0x4D, 0x33, 0xDB };
+        if (pc < pe_.imageBase || pc >= pe_.imageBase + span_) return false;
+        const auto at = pe_.fileOffset(static_cast<std::uint32_t>(pc - pe_.imageBase), sizeof kChkstk);
+        return at && std::memcmp(&pe_.bytes[*at], kChkstk, sizeof kChkstk) == 0;
+    }
+
+    void returnFromProbe()
+    {
+        const std::uint64_t rsp = readReg(UC_X86_REG_RSP);
+        std::uint64_t       ret = 0;
+        uc_mem_read(uc_, rsp, &ret, 8);
+        writeReg(UC_X86_REG_RSP, rsp + 8);
+        writeReg(UC_X86_REG_RIP, ret);
     }
 
     /// @brief Whether `pc` starts one of the exe's leaf functions, which then runs for real instead of as a stub.
@@ -4404,8 +4543,9 @@ void usage()
         "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT; a VARIANT that needs rule A\n"
         "                       (local stack slots), E (SIMD schedule), I (a duplicated return tail), J (register setup\n"
         "                       schedule), N (commutative SIMD operands swapped), R (a SIMD value recomputed), O (a load\n"
-        "                       folded into its use), U (unaligned vs aligned moves) or L (whole blocks laid out in another\n"
-        "                       order, the edges kept) always runs --diff (>= 256 seeds)\n"
+        "                       folded into its use), U (unaligned vs aligned moves), M (an increment in memory or in\n"
+        "                       registers) or L (whole blocks laid out in another order, the edges kept) always runs --diff\n"
+        "                       (>= 256 seeds)\n"
         "                       and is STRUCTURAL if a seed diverges or none agrees\n"
         "  --suggest            print engine.yaml lines (with Address Library ids) for unmapped references\n"
         "  --inventory          (re)generate the manifest's inventory from the exe instead of matching\n"
@@ -5569,7 +5709,7 @@ int run(const Options& opt)
         }
         if (!why.empty()) {
             r.best.status = Status::Structural;
-            r.best.detail = "--diff-gated rule (A, E, I, J, N, R, O, U) unconfirmed: " + why + "\n" + r.best.detail;
+            r.best.detail = "--diff-gated rule (A, E, I, J, N, R, O, U, M, L) unconfirmed: " + why + "\n" + r.best.detail;
         }
     }
     if (opt.diffSeeds || opt.diffSeed) {

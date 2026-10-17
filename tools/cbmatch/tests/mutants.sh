@@ -26,7 +26,11 @@
 # 0/1 flags compared signed vs unsigned; a changed bound still fails), i hkbProxyModifier::updateRotation (rule N:
 # commutative operands swapped; a wrong field still fails), L hkpCharacterRigidBodyListener::discardVerticalPoints (rule L:
 # whole blocks laid out in another order; an inverted test or a dropped break changes the edges and must fail on them
-# alone, since --diff barely enters its loops). A mutant of a
+# alone, since --diff barely enters its loops), B bhkCharRigidBodyController::considerCollisionEntryForSlope (gated: rules
+# A on incoming stack-argument slots, M, and a __chkstk frame; B1 inverts the walkable test and must diverge. Taking
+# Havok's -normalDotUp for Bethesda's -signedDotUp is NOT caught: seeds that enter the contact loop exhaust the forcing
+# rounds before the vertical-plane block, so --diff never compares its math). A family's `uflags` are its unit's
+# manifest flags (B: /EHsc /Ob2). A mutant of a
 # header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -36,7 +40,7 @@ repo=$(cd "$(dirname "$0")/../../.." && pwd -W)
 havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
 expectVariant=" u3 t3 c1 k2 y2 h1 "
-gated=" o z v "
+gated=" o z v B "
 controlOnly=" l n f i L "
 
 mkdir -p "$work"
@@ -47,7 +51,7 @@ names=""
 
 # target <name>: the class, source file, function and vanilla address a name's family letter stands for.
 target() {
-    cls=hkbClipGenerator src=$clip full=""
+    cls=hkbClipGenerator src=$clip full="" uflags=""
     case "$1" in
         m*) fn=activate va=0x140acd750 ;;           u*) fn=update va=0x140acde40 ;;
         d*) fn=deactivate va=0x140ace1e0 ;;         g*) fn=generate va=0x140ace400 ;;
@@ -77,6 +81,8 @@ target() {
             fn=senseInRigidBodies va=0x140afdbf0 ;;
         L*) cls=hkpCharacterRigidBodyListener src=Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.cpp
             fn=discardVerticalPoints va=0x140f19a50 ;;
+        B*) cls=bhkCharRigidBodyController src=Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.cpp
+            fn=considerCollisionEntryForSlope va=0x140ed3710 uflags="/EHsc, /Ob2" ;;
     esac
 }
 
@@ -86,10 +92,10 @@ mutant() {
     target "$name"
     case "$file" in
         *.cpp) out="$work/mut/$name.cpp"
-               source="$out" flags="[]" ;;
+               source="$out" flags="[$uflags]" ;;
         *)     out="$work/mut/$name/$file"
                mkdir -p "$(dirname "$out")"
-               source="$havok/$src" flags="[\"/I$work/mut/$name\"]" ;;
+               source="$havok/$src" flags="[\"/I$work/mut/$name\"${uflags:+, $uflags}]" ;;
     esac
     sed "$expr" "$havok/$file" > "$out"
     if cmp -s "$out" "$havok/$file"; then echo "UNCHANGED: $name (its pattern no longer matches $file)"; exit 1; fi
@@ -166,12 +172,14 @@ mutant w1_wrong_transform   "$sense" 's/sensorPosBS\.setTransformedInversePos(wo
 listener="Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.cpp"
 mutant L1_inverted_match      "$listener" 's/positionEqual)) == 0xf) {/positionEqual)) != 0xf) {/'
 mutant L2_dropped_break       "$listener" 's/^                        break;$/                        \/\/ break dropped/'
+bslope="Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.cpp"
+mutant B1_walkable_inverted   "$bslope" 's/walkable = !IsSlopeBlocking(/walkable = IsSlopeBlocking(/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {
     target "$1"
     units="$units
-  - { source: \"$havok/$src\", flags: [], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
+  - { source: \"$havok/$src\", flags: [$uflags], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
     names="$names x_$fn"
 }
 for family in $expectVariant $gated $controlOnly; do control "$family"; done

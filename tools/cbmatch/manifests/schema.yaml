@@ -1927,6 +1927,7 @@ units:
     functions:
       - { name: "CB::schema::bhkCharRigidBodyController::bhkCharRigidBodyController", va: 0x140ed2ee0 }
       - { name: "??1bhkCharRigidBodyController@schema@CB@@UEAA@XZ", va: 0x140ed2f90 }
+      - { name: "CB::schema::bhkCharRigidBodyController::considerCollisionEntryForSlope", va: 0x140ed3710 }
       - { name: "CB::schema::bhkCharRigidBodyController::Init", va: 0x140ed3bc0 }
       - { name: "CB::schema::bhkCharRigidBodyController::SetWorld", va: 0x140ed3ec0 }
       - { name: "CB::schema::bhkCharRigidBodyController::GetRigidBody", va: 0x140ed3ea0 }
