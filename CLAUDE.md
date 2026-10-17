@@ -201,10 +201,12 @@ still belongs in the session scratchpad dir.)
   out-of-line definition that is neither listed (and passing) nor a unit's declared `drivers:` entry. A body
   graduates from the workbench into its schema unit once it passes; `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
   under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow. A VARIANT that
-  needs rule A (local stack slots rearranged), E (SIMD rescheduled), I (a duplicated return tail), J (register
-  setup rescheduled), N (commutative SIMD operands swapped), R (a SIMD value recomputed), O (a load folded into its
-  use), U (unaligned vs aligned moves) or L (whole blocks laid out in another order — a second pass, accepted only
-  when every edge and every test's direction pairs) runs `--diff` always and fails unless it agrees.
+  needs rule A (local stack slots rearranged — the home area, and incoming stack-argument slots after the function's
+  first write to them), E (SIMD rescheduled), I (a duplicated return tail), J (register setup rescheduled), N
+  (commutative SIMD operands swapped), R (a SIMD value recomputed), O (a load folded into its use), U (unaligned vs
+  aligned moves), M (an increment done in memory or in registers) or L (whole blocks laid out in another order — a
+  second pass, accepted only when every edge and every test's direction pairs) runs `--diff` always and fails unless
+  it agrees.
   `tools/cbmatch/tests/mutants.sh` proves the gate rejects broken copies (STRUCTURAL, or VARIANT plus a `--diff`
   divergence for the documented blind spots), with unmutated controls that must agree.
   Run both after any schema/Havok or cbmatch change. A full run ends with coverage against
