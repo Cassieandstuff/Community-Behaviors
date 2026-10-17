@@ -6,6 +6,7 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkWorld.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/NiMatrix3.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCollisionBox.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/NiAVObject.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.h>
 #include <Common/Base/Monitor/hkMonitorStream.h>
 

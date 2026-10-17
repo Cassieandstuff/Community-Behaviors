@@ -1251,3 +1251,7 @@ symbols:
   - { name: NiMatrix3_EulerAnglesToAxesZXY, kind: func, se: 0, ae: 70233, vr: 0, cpp: "CB::schema::NiMatrix3::EulerAnglesToAxesZXY" }  # (z, x, y) radians
   - { name: CRT_sincosf, kind: func, se: 0, ae: 109629, vr: 0, cpp: "__libm_sse2_sincosf_" }  # the CRT's combined sinf/cosf (sin in xmm0[0], cos in xmm0[1])
   - { name: CharacterHorizontal, kind: data, se: 0, ae: 411556, vr: 0, cpp: "CB::schema::g_characterHorizontal" }  # name provisional; (1, 1, 0, 0), set by a static initializer
+  - { name: bhkCollisionBox_Frozen, kind: data, se: 0, ae: 411738, vr: 0, cpp: "CB::schema::bhkCollisionBox::s_frozen" }  # name provisional; set: no box follows its controller
+  - { name: bhkGetNiObject, kind: func, se: 0, ae: 77805, vr: 0, cpp: "CB::schema::bhkGetNiObject" }  # name provisional; (hkpWorldObject*, key; 0 means 1) -> the node property, null without one
+  - { name: bhkShapePhantom_SetTransform, kind: func, se: 0, ae: 78770, vr: 0, cpp: "CB::schema::bhkShapePhantom::SetTransform" }  # name provisional; hkpShapePhantom::setTransform under the world write lock
+  - { name: bhkShapePhantom_SetPosition, kind: func, se: 0, ae: 78771, vr: 0, cpp: "CB::schema::bhkShapePhantom::SetPosition" }  # name provisional; hkpShapePhantom::setPosition under the world write lock

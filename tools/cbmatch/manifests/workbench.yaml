@@ -172,3 +172,7 @@ units:
     functions:
       - { name: "CB::schema::bhkCharacterController::UpdateHeading", va: 0x140ea0500 }
       - { name: "CB::schema::bhkCharacterController::UpdatePhysics", va: 0x140e9f170 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCollisionBoxWorkbench.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCollisionBox::UpdateFromController", va: 0x140f035b0 }
