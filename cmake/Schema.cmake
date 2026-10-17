@@ -8,11 +8,11 @@
 # generated stamp over the copied tree:
 #
 #   cb_stage_schema(TARGET <t> DEST <dir> [EXCLUDE <name>...] [CLEAN <path>...] [COMMENT <text>])
-#       POST_BUILD clear-then-copy of schema/ into <dir> (minus EXCLUDE'd top-level entries) + the stamp.
+#       POST_BUILD clear-then-copy of schema/ into <dir> (minus EXCLUDE'd top-level entries and C++ sources) + the stamp.
 #       Clear-then-copy so a stale tree can't leave duplicate class definitions the recursive loader would
 #       double-register. CLEAN = extra paths removed alongside <dir> (retired legacy layouts).
 #   cb_install_schema(DESTINATION <dir> [EXCLUDE <name>...])
-#       install() rule for the same tree + stamp.
+#       install() rule for the same tree (C++ sources excluded) + stamp.
 #
 # Don't ship schema/ any other way: the runtime treats an ABSENT stamp as CB's own unstamped tree and lets it
 # through, so a ship path that skips the stamp silently disarms the foreign-tree gate (SharedRegistry.cpp).
@@ -40,7 +40,8 @@ function(cb_stage_schema)
         set(S_COMMENT "Staging schema/ -> ${S_DEST}")
     endif()
 
-    # Entry by entry so an excluded top-level folder is never copied at all.
+    # Entry by entry so an excluded top-level folder is never copied at all; CopySchemaData leaves C++ sources
+    # (schema/Havok's reimplemented runtime) out of what ships.
     file(GLOB _entries CONFIGURE_DEPENDS LIST_DIRECTORIES true "${CB_SCHEMA_SOURCE_DIR}/*")
     set(_copy "")
     foreach(_e IN LISTS _entries)
@@ -48,11 +49,7 @@ function(cb_stage_schema)
         if(_n IN_LIST S_EXCLUDE)
             continue()
         endif()
-        if(IS_DIRECTORY "${_e}")
-            list(APPEND _copy COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_e}" "${S_DEST}/${_n}")
-        else()
-            list(APPEND _copy COMMAND "${CMAKE_COMMAND}" -E copy "${_e}" "${S_DEST}/")
-        endif()
+        list(APPEND _copy COMMAND "${CMAKE_COMMAND}" "-DSRC=${_e}" "-DDST=${S_DEST}" -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/CopySchemaData.cmake")
     endforeach()
 
     add_custom_command(TARGET ${S_TARGET} POST_BUILD
@@ -73,6 +70,7 @@ function(cb_install_schema)
     foreach(_x IN LISTS S_EXCLUDE)
         list(APPEND _excl PATTERN "${_x}" EXCLUDE)
     endforeach()
-    install(DIRECTORY "${CB_SCHEMA_SOURCE_DIR}/" DESTINATION "${S_DESTINATION}" ${_excl})
+    install(DIRECTORY "${CB_SCHEMA_SOURCE_DIR}/" DESTINATION "${S_DESTINATION}" ${_excl}
+            PATTERN "*.h" EXCLUDE PATTERN "*.hpp" EXCLUDE PATTERN "*.inl" EXCLUDE PATTERN "*.cpp" EXCLUDE)
     install(FILES "${CB_SCHEMA_STAMP}" DESTINATION "${S_DESTINATION}")
 endfunction()

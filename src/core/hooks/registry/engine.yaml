@@ -13,6 +13,11 @@
 #          was verified in both builds: hash-identical, relocation-only, or benign same-function changes)
 #   vr     Address Library ID for VR (0 = not yet verified → unavailable on VR). Never inferred from se:
 #          CommonLib's 2-argument RelocationID silently reuses the SE id on VR; the registry always passes 3.
+#   cpp    (optional) the C++ name — undecorated, or mangled when overloaded — that CB's CommonLib-free
+#          reimplementation (schema/) uses for this symbol. tools/cbmatch checks every relocation in a matched
+#          function against it, so a call to the wrong function or a load of the wrong global fails the match.
+#          Symbols reimplemented code references live here even when CommonLib also has them (it can't use
+#          CommonLib); those reuse CommonLib's ids, cross-checked.
 #
 # Provenance: matched in Ghidra (RE-LAB, all three builds labeled) — vtable slot, unique string, call-graph
 # position or global role; fuzzy hashes only proposed candidates. Cross-checked against CommonLib where they
@@ -76,7 +81,9 @@ symbols:
 
   # --- hkbClipGenerator ---
   - { name: hkbClipGenerator_Ctor, kind: func, se: 58597, ae: 59247, vr: 0 }
-  - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0 }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
+  - { name: hkbClipGenerator_CloneCtor, kind: func, se: 0, ae: 59249, vr: 0, cpp: "??0hkbClipGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # hkbClipGenerator(const hkbClipGenerator&) — cloneNode's shallow copy
+  - { name: hkbClipGenerator_Dtor, kind: func, se: 0, ae: 59250, vr: 0, cpp: "CB::schema::hkbClipGenerator::~hkbClipGenerator" }  # the scalar deleting destructor (vtable slot 0, 140ad1310) calls it
+  - { name: hkbClipGenerator_GetStaticClass, kind: func, se: 58044, ae: 58650, vr: 0, cpp: "CB::schema::hkbClipGenerator::staticClass" }  # the EXACT-class test's getter (LoadClips, root-motion visitor, BSOffset)
   - { name: hkbClipGenerator_Activate, kind: func, se: 58602, ae: 59252, vr: 0 }  # vtable slot 4
   - { name: hkbClipGenerator_Update, kind: func, se: 58603, ae: 59253, vr: 0 }  # vtable slot 5
   - { name: hkbClipGenerator_Deactivate, kind: func, se: 58604, ae: 59254, vr: 0 }  # vtable slot 7
@@ -84,20 +91,48 @@ symbols:
   - { name: hkbClipGenerator_Generate, kind: func, se: 58607, ae: 59257, vr: 0 }  # vtable slot 23
   - { name: hkbClipGenerator_SetAnimationControl, kind: func, se: 58612, ae: 59262, vr: 0 }  # attaches +0x88 (refptr)
   - { name: hkbClipGenerator_RebindFromSetByIndex, kind: func, se: 58616, ae: 59267, vr: 0 }  # reads bindings[+0x70] without a -1 guard
-  - { name: hkbClipGenerator_GetExtractedMotionDelta, kind: func, se: 58623, ae: 59274, vr: 0 }
-  - { name: hkbClipGenerator_SampleAnimation, kind: func, se: 58627, ae: 59278, vr: 0 }
-  - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0 }  # hkClass object
+  - { name: hkbClipGenerator_GetExtractedMotionDelta, kind: func, se: 58623, ae: 59274, vr: 0, cpp: "CB::schema::hkbClipGenerator::getExtractedMotionDelta" }
+  - { name: hkbClipGenerator_SampleAnimation, kind: func, se: 58627, ae: 59278, vr: 0, cpp: "CB::schema::hkbClipGenerator::sampleAnimation" }
+  - { name: hkbClipGenerator_ComputeUsableDuration, kind: func, se: 0, ae: 59263, vr: 0, cpp: "CB::schema::hkbClipGenerator::computeUsableDuration" }  # name provisional
+  - { name: hkbClipGenerator_ComputeEffectivePlaybackSpeed, kind: func, se: 0, ae: 59275, vr: 0, cpp: "CB::schema::hkbClipGenerator::computeEffectivePlaybackSpeed" }  # name provisional; speed x usable/enforced duration, negated on a backward ping-pong
+  - { name: hkbClipGenerator_ComputeStartTime, kind: func, se: 0, ae: 59276, vr: 0, cpp: "CB::schema::hkbClipGenerator::computeStartTime" }  # name provisional; m_startTime rescaled by usable/enforced duration, capped at the duration
+  - { name: hkbClipGenerator_SortTriggers, kind: func, se: 0, ae: 59277, vr: 0, cpp: "CB::schema::hkbClipGenerator::sortTriggers" }  # name provisional; bubble-sorts m_triggers by resolved local time (resetAtEnd tail)
+  - { name: hkbClipGenerator_AddTrigger, kind: func, se: 0, ae: 59264, vr: 0, cpp: "CB::schema::hkbClipGenerator::addTrigger" }  # (localTime, event, relativeToEnd, acyclic, isAnnotation)
+  - { name: hkbClipGenerator_ProcessTriggers, kind: func, se: 0, ae: 59270, vr: 0, cpp: "CB::schema::hkbClipGenerator::processTriggers" }  # name provisional; update's trigger dispatch: splits a step into per-loop ranges for processTriggersInRange
+  - { name: hkbClipGenerator_ProcessTriggersInRange, kind: func, se: 0, ae: 59272, vr: 0, cpp: "CB::schema::hkbClipGenerator::processTriggersInRange" }  # name provisional; (from, to, atEnd, queue, context) — fires the triggers one pass crosses
+  - { name: hkbClipGenerator_ProcessAcyclicTriggers, kind: func, se: 0, ae: 59271, vr: 0, cpp: "CB::schema::hkbClipGenerator::processAcyclicTriggers" }  # name provisional; fires acyclic triggers whose time falls in [from, to) of the elapsed clip time
+  - { name: hkbClipGenerator_AdvanceLocalTime, kind: func, se: 0, ae: 59273, vr: 0, cpp: "CB::schema::hkbClipGenerator::advanceLocalTime" }  # name provisional; (timestep, &prev, &local, &loops, &atEnd)
+  - { name: hkbClipGenerator_ResetAtEnd, kind: func, se: 0, ae: 59279, vr: 0, cpp: "CB::schema::hkbClipGenerator::resetAtEnd" }  # name provisional; tail of activate, update when atEnd: pushes crops to the control, positions local time, resets motion
+  - { name: hkbClipGenerator_Fn140ad11e0, kind: func, se: 0, ae: 59280, vr: 0, cpp: "CB::schema::hkbClipGenerator::fn_140ad11e0" }  # name unknown; clears m_ignoreStartTime (deactivate, 140acee60)
+  - { name: hkbClipGenerator_Fn140ad11f0, kind: func, se: 0, ae: 59281, vr: 0, cpp: "CB::schema::hkbClipGenerator::fn_140ad11f0" }  # name unknown; update, before advancing time: re-derives m_atEnd from the effective speed
+  - { name: hkbClipGenerator_ClipLoader, kind: data, se: 520994, ae: 407512, vr: 0, cpp: "CB::schema::g_animationClipLoader" }  # the loader pointer activate/update/deactivate call (CommonLib AnimationFileManagerSingleton::GetSingleton)
+  - { name: hkbClipGenerator_MaxEchos, kind: data, se: 0, ae: 385121, vr: 0, cpp: "CB::schema::hkbClipGenerator::s_maxEchos" }  # hkInt8 = 2; name provisional; startEcho caps the echo array at it
+  - { name: hkbClipGenerator_CopySampledPose, kind: func, se: 0, ae: 60005, vr: 0, cpp: "CB::schema::hkbClipGenerator::copySampledPose" }  # name provisional; sampleAnimation's track→bone copy (second clip unit)
+  - { name: hkbClipGenerator_CopySampledFloats, kind: func, se: 0, ae: 60006, vr: 0, cpp: "CB::schema::hkbClipGenerator::copySampledFloats" }  # name provisional; sampleAnimation's float track→slot copy
+  - { name: hkbClipGenerator_BlendSampledFloats, kind: func, se: 0, ae: 60007, vr: 0, cpp: "CB::schema::hkbClipGenerator::blendSampledFloats" }  # name provisional; sampleAnimation's weighted float track accumulate (echo path)
+  - { name: hkbClipGenerator_GetLocalTime, kind: func, se: 0, ae: 59269, vr: 0, cpp: "CB::schema::hkbClipGenerator::getLocalTime" }  # name provisional; BSSynchronizedClipGenerator::deactivate calls it
+  - { name: hkbClipTriggerArray_CopyCtor, kind: func, se: 0, ae: 59246, vr: 0, cpp: "??0hkbClipTriggerArray@schema@CB@@QEAA@AEBU012@@Z" }
+  - { name: hkbGeneratorOutputUtils_MakePoseDense, kind: func, se: 0, ae: 59301, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::makePoseDense" }  # name provisional; (output, referencePose): fills the unsampled pose bones from the reference pose (identity when null), sets every partition bit
+  - { name: hkbClipGenerator_StaticClass, kind: data, se: 521225, ae: 407743, vr: 0, cpp: "CB::schema::hkbClipGeneratorClass" }  # hkClass object
+  - { name: hkbGeneratorSyncInfo_Mirror, kind: func, se: 0, ae: 58547, vr: 0, cpp: "CB::schema::hkbGeneratorSyncInfo::mirror" }  # name provisional; mirrors each sync point's event id, sets m_isMirrored (clip updateSync under FLAG_MIRROR)
 
   # --- Bethesda generators: paired (BSSynchronizedClipGenerator), offset, tweener ---
   - { name: BSSynchronizedClipGenerator_FinishCtor, kind: func, se: 62108, ae: 63044, vr: 0 }
   - { name: BSSync_AppendSceneBindingSlots, kind: func, se: 63017, ae: 63942, vr: 0 }  # appends one binding slot per BSSync; stores its int16 index at +0x128
   - { name: BSSync_FillSceneBindingSlot, kind: func, se: 62391, ae: 63332, vr: 0 }
-  - { name: BSSync_ActivateChildWithSceneIndex, kind: func, se: 62125, ae: 63061, vr: 0 }  # swaps +0x128 into the child's +0x70, activates, restores
-  - { name: BSSync_ResolveSceneRole, kind: func, se: 62122, ae: 63058, vr: 0 }  # reads the child clip's +0x70
+  - { name: BSSync_ActivateChildWithSceneIndex, kind: func, se: 62125, ae: 63061, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::activateClipGenerator" }  # name provisional; swaps +0x128 into the child's +0x70, activates, restores
+  - { name: BSSync_ResolveSceneRole, kind: func, se: 62122, ae: 63058, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::sampleSyncMark" }  # name provisional; reads the child clip's +0x70; samples the role's annotation track into the start mark
+  - { name: BSSynchronizedClipGenerator_CloneCtor, kind: func, se: 0, ae: 63045, vr: 0, cpp: "??0BSSynchronizedClipGenerator@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z" }  # (other, rootBehavior) — cloneNode tail-jumps to it
+  - { name: BSSynchronizedClipGenerator_Dtor, kind: func, se: 0, ae: 63046, vr: 0, cpp: "??1BSSynchronizedClipGenerator@schema@CB@@UEAA@XZ" }  # the scalar deleting destructor (vtable slot 0, 140b94fe0) calls it
+  - { name: BSSynchronizedClipGenerator_GetStaticClass, kind: func, se: 0, ae: 62959, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSSync_BuildEventMap, kind: func, se: 0, ae: 63059, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::buildEventMap" }  # name provisional; activate: prefixed event id -> unprefixed into +0x120
+  - { name: BSSync_RemapEvents, kind: func, se: 0, ae: 63060, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::remapEvents" }  # name provisional; update: (firstEvent, queue) re-raises the clip's prefixed events unprefixed
+  - { name: BSSync_CreateLocalSyncBinding, kind: func, se: 0, ae: 63334, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::createLocalSyncBinding" }  # name provisional; (skeleton, binding, prefix) -> new hkaAnimationBinding into +0x118
+  - { name: BSSync_GenerateSynchronized, kind: func, se: 0, ae: 63335, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::generate" }  # name provisional; generate's body (context, skeleton, activeChildrenOutput, output, timeOffset)
   - { name: BSSynchronizedClipGenerator_StaticClass, kind: data, se: 522834, ae: 409352, vr: 0 }
   - { name: BSSynchronizedClipGenerator_TypeInfo, kind: data, se: 522835, ae: 409353, vr: 0 }
   - { name: BSOffsetAnimationGenerator_Activate, kind: func, se: 62209, ae: 63148, vr: 0 }  # exact-class check on its offset clip
-  - { name: BSTweenerModifier_Modify, kind: func, se: 62384, ae: 63325, vr: 0 }  # writes worldFromModel
+  - { name: BSTweenerModifier_Modify, kind: func, se: 62384, ae: 63325, vr: 0, cpp: "CB::schema::BSTweenerModifier::modify" }  # writes worldFromModel
 
   # --- Behavior-graph traversal, update and root motion ---
   - { name: ActiveNodeVisitor_Walk, kind: func, se: 64198, ae: 65232, vr: 0 }  # weighted active-clip walker (root motion and others)
@@ -111,7 +146,7 @@ symbols:
   - { name: BShkbAnimationGraph_SendTransformDeltaEvent, kind: func, se: 62847, ae: 63783, vr: 0 }
   - { name: hkbCharacter_GraphExportFill, kind: func, se: 64119, ae: 65148, vr: 0 }  # two exact-class sites; purpose not fully mapped
   - { name: hkbBehaviorGraph_CollectInternalState, kind: func, se: 57799, ae: 58372, vr: 0 }
-  - { name: hkbBehaviorGraph_CollectUsedBindingIndices, kind: func, se: 57800, ae: 58373, vr: 0 }  # sets a bit at each clip's +0x70
+  - { name: hkbBehaviorGraph_CollectUsedBindingIndices, kind: func, se: 57800, ae: 58373, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::activateWithInternalState" }  # = hkbBehaviorGraph::activateWithInternalState (context, state): builds a bit field of the saved nodes ids (+0x70 of each saved record), restores the variables, re-activates
   - { name: hkbBehaviorGraph_UsedBindingIndicesCaller, kind: func, se: 57881, ae: 58454, vr: 0 }
   - { name: hkbBehaviorGraph_CloneFixups, kind: func, se: 59440, ae: 60115, vr: 0 }  # per-character clone; finds clone nodes by offset
   - { name: hkbVariableBindingSet_CopyVariableOrMember, kind: func, se: 59343, ae: 60016, vr: 0 }
@@ -127,14 +162,16 @@ symbols:
   # --- Havok type system + packfile loading ---
   - { name: hkDefaultBuiltinTypeRegistry_AddType, kind: func, se: 59462, ae: 60137, vr: 0 }  # the ONE call that registers a custom class at runtime
   - { name: hkDefaultBuiltinTypeRegistry_Reinitialize, kind: func, se: 59458, ae: 60133, vr: 0 }  # rebuilds the registries from the static lists (would drop runtime adds)
-  - { name: hkBuiltinTypeRegistry_Instance, kind: data, se: 521918, ae: 408436, vr: 0 }
+  - { name: hkBuiltinTypeRegistry_Instance, kind: data, se: 521918, ae: 408436, vr: 0, cpp: "CB::schema::hkBuiltinTypeRegistry::s_instance" }
   - { name: hkTypeInfoRegistry_Global, kind: data, se: 523166, ae: 409702, vr: 0 }
   - { name: hkVtableClassRegistry_Global, kind: data, se: 523167, ae: 409703, vr: 0 }
   - { name: hkClassNameRegistry_Global, kind: data, se: 523168, ae: 409704, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedTypeInfos, kind: data, se: 289776, ae: 239390, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedClasses, kind: data, se: 289777, ae: 239939, vr: 0 }
-  - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0 }
-  - { name: hkClass_IsSuperClass, kind: func, se: 57166, ae: 57626, vr: 0 }  # parent-chain strcmp
+  - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0, cpp: "CB::schema::hkbGeneratorClass" }
+  - { name: hkbModifier_StaticClass, kind: data, se: 0, ae: 408229, vr: 0, cpp: "CB::schema::hkbModifierClass" }
+  - { name: hkbSequence_StaticClass, kind: data, se: 0, ae: 408264, vr: 0, cpp: "CB::schema::hkbSequenceClass" }
+  - { name: hkClass_IsSuperClass, kind: func, se: 57166, ae: 57626, vr: 0, cpp: "CB::schema::hkClass::isSuperClass" }  # parent-chain strcmp
   - { name: hkNativePackfileUtils_ApplyVirtualFixups, kind: func, se: 64110, ae: 65139, vr: 0 }  # finishes objects by case-sensitive class NAME
   - { name: hkSerializeUtil_ClassSignaturesUpToDate, kind: func, se: 63862, ae: 64867, vr: 0 }
   - { name: hkDefaultBuiltinTypeRegistry_RegisterStaticLists, kind: func, se: 59477, ae: 60152, vr: 0 }  # walks the static lists into the registries
@@ -146,3 +183,1016 @@ symbols:
 
   # --- Misc ---
   - { name: LoadPluginBSA, kind: func, se: 13673, ae: 13786, vr: 0 }
+
+  # --- Referenced by CB's reimplementation (schema/), checked by tools/cbmatch ---
+  # Havok base library
+  - { name: hkReferencedObject_AddReference, kind: func, se: 56606, ae: 57010, vr: 0, cpp: "CB::schema::hkReferencedObject::addReference" }
+  - { name: hkReferencedObject_RemoveReference, kind: func, se: 56607, ae: 57011, vr: 0, cpp: "CB::schema::hkReferencedObject::removeReference" }
+  - { name: hkReferencedObject_CalcContentStatistics, kind: func, se: 0, ae: 57022, vr: 0, cpp: "CB::schema::hkReferencedObject::calcContentStatistics" }  # vtable slot 2; overrides tail-call it with their parent class
+  - { name: hkStatisticsCollectorUtil_AddDeclaredMembers, kind: func, se: 0, ae: 57261, vr: 0, cpp: "CB::schema::hkStatisticsCollectorUtil::addDeclaredMembers" }  # name provisional; (obj, class, collector) reflective member walk
+  - { name: hkStatisticsCollector_AddNormalChunk, kind: func, se: 0, ae: 57582, vr: 0, cpp: "CB::schema::hkStatisticsCollector::addNormalChunk" }  # addChunk(1, ...), sizing an allocatedSize of 0 from the heap
+  - { name: hkStatisticsCollector_GetAllocatedSize, kind: func, se: 0, ae: 57585, vr: 0, cpp: "CB::schema::hkStatisticsCollector::getAllocatedSize" }  # name provisional; (p, size): the heap's allocated size (allocator slot 9), size itself for null
+  - { name: hkArrayUtil_Reserve, kind: func, se: 0, ae: 57048, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserve" }
+  - { name: hkArrayUtil_ReserveMore, kind: func, se: 0, ae: 57049, vr: 0, cpp: "CB::schema::hkArrayUtil::_reserveMore" }  # (allocator, array, sizeElem): grow when size == capacity (hkArray::pushBack)
+  - { name: hkString_StrCmp, kind: func, se: 0, ae: 57118, vr: 0, cpp: "CB::schema::hkString::strCmp" }
+  - { name: hkString_StrNcmp, kind: func, se: 0, ae: 57119, vr: 0, cpp: "CB::schema::hkString::strNcmp" }
+  - { name: hkString_StrLen, kind: func, se: 0, ae: 57124, vr: 0, cpp: "CB::schema::hkString::strLen" }
+  - { name: hkStringBuf_CtorCStr, kind: func, se: 0, ae: 57458, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@PEBD@Z" }  # hkStringBuf(const char*) — out of line
+  - { name: hkStringBuf_AppendCStr, kind: func, se: 0, ae: 57485, vr: 0, cpp: "CB::schema::hkStringBuf::operator+=" }  # (const char*)
+  - { name: hkPointerMap_Get, kind: func, se: 0, ae: 57187, vr: 0, cpp: "CB::schema::hkPointerMapStorage::get" }  # name provisional; (key, out) → hkResult
+  - { name: hkPointerMap_Insert, kind: func, se: 0, ae: 57198, vr: 0, cpp: "CB::schema::hkPointerMapStorage::insert" }  # name provisional; (allocator, key, value)
+  - { name: hkPointerMap_ClearAndDeallocate, kind: func, se: 0, ae: 57184, vr: 0, cpp: "CB::schema::hkPointerMapStorage::clearAndDeallocate" }  # name provisional; (allocator)
+  - { name: hkPointerMap_Dtor, kind: func, se: 0, ae: 57174, vr: 0, cpp: "CB::schema::hkPointerMapStorage::~hkPointerMapStorage" }  # name provisional; empty, out of line
+  - { name: hkString_MemCpy, kind: func, se: 0, ae: 57148, vr: 0, cpp: "CB::schema::hkString::memCpy" }  # out-of-line; zero-extends the int size into memcpy
+  - { name: hkString_MemSet, kind: func, se: 0, ae: 57150, vr: 0, cpp: "CB::schema::hkString::memSet" }  # (dst, value, nbytes)
+  - { name: hkLifoAllocator_AllocateFromNewSlab, kind: func, se: 0, ae: 57039, vr: 0, cpp: "CB::schema::hkLifoAllocator::allocateFromNewSlab" }  # the stack allocator's slow path: a block that does not fit the current slab
+  - { name: hkLifoAllocator_SlowBlockFree, kind: func, se: 0, ae: 57041, vr: 0, cpp: "CB::schema::hkLifoAllocator::slowBlockFree" }  # (p, 16-rounded size): a free that is not the top of the current slab
+  - { name: hkPointerMap_GetWithDefault, kind: func, se: 0, ae: 57195, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getWithDefault" }  # name provisional
+  - { name: hkStringPtr_DefaultCtor, kind: func, se: 0, ae: 57224, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@XZ" }  # the null string; default node constructors call it
+  - { name: hkStringPtr_CopyCtor, kind: func, se: 0, ae: 57228, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@_N@Z" }  # (other, bool) — flag meaning unknown; node clone copies pass false
+  - { name: hkStringPtr_Copy, kind: func, se: 0, ae: 57227, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@AEBV012@@Z" }  # hkStringPtr(const hkStringPtr&) — the plain copy
+  - { name: hkStringPtr_Dtor, kind: func, se: 0, ae: 57230, vr: 0, cpp: "CB::schema::hkStringPtr::~hkStringPtr" }
+  - { name: hkStringPtr_FinishCtor, kind: func, se: 0, ae: 57229, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
+  - { name: hkStringPtr_AssignCStr, kind: func, se: 0, ae: 57231, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@PEBD@Z" }  # operator=(const char*)
+  - { name: hkStringBuf_Printf, kind: func, se: 0, ae: 57483, vr: 0, cpp: "CB::schema::hkStringBuf::printf" }
+  - { name: hkStringBuf_CtorStringPtr, kind: func, se: 0, ae: 57459, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@AEBVhkStringPtr@12@@Z" }  # hkStringBuf(const hkStringPtr&)
+  - { name: hkStringPtr_Printf, kind: func, se: 0, ae: 57234, vr: 0, cpp: "CB::schema::hkStringPtr::printf" }  # (fmt, ...) formats into a buffer, then assigns
+  - { name: hkStringPtr_GetLength, kind: func, se: 0, ae: 57233, vr: 0, cpp: "CB::schema::hkStringPtr::getLength" }  # 0 for the null string, else strLen
+  - { name: hkString_BeginsWith, kind: func, se: 0, ae: 57131, vr: 0, cpp: "CB::schema::hkString::beginsWith" }  # (str, prefix) -> hkBool, returned through memory
+  - { name: hkString_Sprintf, kind: func, se: 0, ae: 57117, vr: 0, cpp: "CB::schema::hkString::sprintf" }  # (buf, fmt, ...) unbounded
+  - { name: hkStringPtr_Assign, kind: func, se: 0, ae: 57232, vr: 0, cpp: "??4hkStringPtr@schema@CB@@QEAAAEAV012@AEBV012@@Z" }  # operator=(const hkStringPtr&)
+  - { name: hkStringBuf_CtorCStrLen, kind: func, se: 0, ae: 57461, vr: 0, cpp: "??0hkStringBuf@schema@CB@@QEAA@PEBDH@Z" }  # hkStringBuf(const char*, int len)
+  - { name: hkStringBuf_IndexOfString, kind: func, se: 0, ae: 57466, vr: 0, cpp: "?indexOf@hkStringBuf@schema@CB@@QEBAHPEBDHH@Z" }  # (str, start, end) via strstr, -1 if absent
+  - { name: hkStringBuf_IndexOfChar, kind: func, se: 0, ae: 57465, vr: 0, cpp: "?indexOf@hkStringBuf@schema@CB@@QEBAHDHH@Z" }  # (char, start, end), -1 if absent
+  - { name: hkStringBuf_Replace, kind: func, se: 0, ae: 57499, vr: 0, cpp: "CB::schema::hkStringBuf::replace" }  # (from, to, REPLACE_ONE/ALL)
+  - { name: hkStringBuf_ChompStart, kind: func, se: 0, ae: 57488, vr: 0, cpp: "CB::schema::hkStringBuf::chompStart" }  # drops the first n characters
+  - { name: hkStringBuf_Slice, kind: func, se: 0, ae: 57490, vr: 0, cpp: "CB::schema::hkStringBuf::slice" }  # (start, length) keeps that substring
+  - { name: hkCachedHashMap_StringMap_Ctor, kind: func, se: 0, ae: 57751, vr: 0, cpp: "??0?$hkCachedHashMap@UhkStringMapOperations@schema@CB@@@schema@CB@@QEAA@UhkStringMapOperations@12@@Z" }  # hkStringMap's body; 16 empty slots
+  - { name: hkCachedHashMap_StringMap_Dtor, kind: func, se: 0, ae: 57752, vr: 0, cpp: "??1?$hkCachedHashMap@UhkStringMapOperations@schema@CB@@@schema@CB@@QEAA@XZ" }
+  - { name: hkCachedHashMap_StringMap_Insert, kind: func, se: 0, ae: 57771, vr: 0, cpp: "CB::schema::hkCachedHashMap<CB::schema::hkStringMapOperations>::insert" }  # (key, value); keys are not copied
+  - { name: hkCachedHashMap_StringMap_Get, kind: func, se: 0, ae: 57761, vr: 0, cpp: "CB::schema::hkCachedHashMap<CB::schema::hkStringMapOperations>::get" }  # (key, out) -> hkResult
+  - { name: hkQsTransform_IsApproximatelyEqual, kind: func, se: 0, ae: 57252, vr: 0, cpp: "CB::schema::hkQsTransform::isApproximatelyEqual" }  # (other, epsilon) -> hkBool
+  - { name: hkQuaternion_SetAxisAngle, kind: func, se: 0, ae: 57098, vr: 0, cpp: "CB::schema::hkQuaternion::setAxisAngle" }  # (axis, angle): sin/cos of the half angle
+  - { name: hkQuaternion_Set, kind: func, se: 0, ae: 57099, vr: 0, cpp: "CB::schema::hkQuaternion::set" }  # (const hkRotation&)
+  - { name: hkQuaternion_SetSlerp, kind: func, se: 0, ae: 57103, vr: 0, cpp: "CB::schema::hkQuaternion::setSlerp" }  # (q0, q1, t) t as a float in xmm3; lerp above cos 0.999
+  - { name: hkQuaternion_SetShortestRotation, kind: func, se: 0, ae: 25781, vr: 0, cpp: "CB::schema::hkQuaternion::setShortestRotation" }  # (from, to); the copy at 0x1403f3120 is a COMDAT kept from Bethesda's code (unaligned loads)
+  - { name: hkVector4_SetTransformedPos, kind: func, se: 0, ae: 57213, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
+  - { name: hkVector4_SetTransformedPosQs, kind: func, se: 0, ae: 57217, vr: 0, cpp: "?setTransformedPos@hkVector4@schema@CB@@QEAAXAEBUhkQsTransform@23@AEBU123@@Z" }  # (hkQsTransform, v): out of line
+  - { name: hkVector4_SetTransformedInversePos, kind: func, se: 0, ae: 57214, vr: 0, cpp: "?setTransformedInversePos@hkVector4@schema@CB@@QEAAXAEBUhkTransform@23@AEBU123@@Z" }  # (hkTransform, v): out of line
+  - { name: hkVector4_SetTransformedInversePosQs, kind: func, se: 0, ae: 57218, vr: 0, cpp: "?setTransformedInversePos@hkVector4@schema@CB@@QEAAXAEBUhkQsTransform@23@AEBU123@@Z" }  # (hkQsTransform, v): out of line
+  - { name: hkLocalFrame_GetTransformToRoot, kind: func, se: 0, ae: 57739, vr: 0, cpp: "CB::schema::hkLocalFrame::getTransformToRoot" }  # recursive over getParentFrame (slot 8), composes getLocalTransform (slot 3)
+  - { name: hkContainerTempAllocator_Instance, kind: data, se: 0, ae: 383827, vr: 0, cpp: "CB::schema::hkContainerTempAllocator::s_alloc" }
+  - { name: hkContainerHeapAllocator_Instance, kind: data, se: 510713, ae: 383828, vr: 0, cpp: "CB::schema::hkContainerHeapAllocator::s_alloc" }
+  - { name: GlobalSizedDelete, kind: func, se: 0, ae: 82484, vr: 0, cpp: "__global_delete" }  # operator delete(void*, size_t) — the ::delete path of every deleting destructor
+  - { name: CRT_asinf, kind: func, se: 0, ae: 109724, vr: 0, cpp: "asinf" }  # the CRT asinf (hkMath::asin inside (-1, 1))
+  - { name: hkMemoryRouter_TlsIndex, kind: data, se: 520865, ae: 407383, vr: 0, cpp: "CB::schema::hkMemoryRouter_s_memoryRouter" }
+  - { name: hkError_Instance, kind: data, se: 0, ae: 407389, vr: 0, cpp: "CB::schema::hkError::s_instance" }
+  - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "CB::schema::hkMonitorStream_s_tls" }
+  - { name: hkVectorConstant_0001, kind: data, se: 0, ae: 219019, vr: 0, cpp: "CB::schema::g_vectorConstant0001" }  # (0,0,0,1) — quaternion identity
+  - { name: hkVectorConstant_MinusHalf, kind: data, se: 0, ae: 219020, vr: 0, cpp: "CB::schema::g_vectorConstantMinusHalf" }  # -0.5 x4
+  - { name: hkVectorConstant_Zero, kind: data, se: 0, ae: 219024, vr: 0, cpp: "CB::schema::g_vectorConstantZero" }
+  - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "CB::schema::g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
+  - { name: hkVectorConstant_One, kind: data, se: 0, ae: 219027, vr: 0, cpp: "CB::schema::g_vectorConstantOne" }  # 1 x4, beside hkVectorConstant_Zero
+  - { name: hkQuadReal_Zero, kind: data, se: 0, ae: 219013, vr: 0, cpp: "CB::schema::g_quadRealZero" }  # 0 x4 in the table hkVectorConstant_0001 sits in (not hkVectorConstant_Zero); name provisional
+  - { name: hkQuadReal_Inv2, kind: data, se: 0, ae: 219011, vr: 0, cpp: "CB::schema::g_quadRealInv2" }  # 0.5 x4 in hkQuadReal_Zero's table; name provisional
+  - { name: hkQuadReal_3, kind: data, se: 0, ae: 219012, vr: 0, cpp: "CB::schema::g_quadReal3" }  # 3 x4 in hkQuadReal_Zero's table; name provisional
+  - { name: hkMath_Atan2fApproximation, kind: func, se: 0, ae: 57396, vr: 0, cpp: "CB::schema::hkMath::atan2fApproximation" }  # (y, x) polynomial atan2, radians
+  - { name: hkVectorConstants_0001, kind: data, se: 0, ae: 219033, vr: 0, cpp: "CB::schema::g_vectorConstants0001" }  # (0,0,0,1) in hkVectorConstant_Zero's table (not hkVectorConstant_0001's); name provisional
+  # Havok animation
+  - { name: hkaSkeletonUtils_ScalePose, kind: func, se: 0, ae: 64092, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::scalePose" }  # name provisional; (scale, pose, count)
+  - { name: hkaDefaultAnimationControl_Ctor, kind: func, se: 0, ae: 64170, vr: 0, cpp: "??0hkaDefaultAnimationControl@schema@CB@@QEAA@PEBUhkaAnimationBinding@12@UhkBool@12@H@Z" }  # (binding, ease, maxCycles)
+  - { name: hkaDefaultAnimationControlMapperData_Ctor, kind: func, se: 0, ae: 64184, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControlMapperData::hkaDefaultAnimationControlMapperData" }
+  - { name: hkaAnimationControl_SetBinding, kind: func, se: 0, ae: 64390, vr: 0, cpp: "CB::schema::hkaAnimationControl::setBinding" }  # not reference-counted; resets every track weight to 0xff
+  - { name: hkaAnimationControl_Vtable, kind: data, se: 0, ae: 233519, vr: 0, cpp: "CB::schema::hkaAnimationControl::`vftable'" }
+  - { name: hkaAnimationControl_Dtor, kind: func, se: 0, ae: 64387, vr: 0, cpp: "CB::schema::hkaAnimationControl::~hkaAnimationControl" }  # tells each listener (controlDeletedCallback)
+  - { name: hkaAnimationControl_HasExtractedMotion, kind: func, se: 0, ae: 64397, vr: 0, cpp: "CB::schema::hkaAnimationControl::hasExtractedMotion" }  # name provisional
+  - { name: hkaAnimationControl_GetExtractedMotionDeltaCropped, kind: func, se: 0, ae: 64405, vr: 0, cpp: "?getExtractedMotionDeltaReferenceFrame@hkaAnimationControl@schema@CB@@QEBAXMAEAUhkQsTransform@23@MM@Z" }  # (deltaTime, out, cropStart, cropEnd); identity without extracted motion
+  - { name: hkaAnimationControl_Ctor, kind: func, se: 0, ae: 64386, vr: 0, cpp: "CB::schema::hkaAnimationControl::hkaAnimationControl" }  # (binding); the default control's constructors call it
+  - { name: hkaDefaultAnimationControl_Vtable, kind: data, se: 0, ae: 232980, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::`vftable'" }
+  - { name: hkaDefaultAnimationControl_Dtor, kind: func, se: 0, ae: 64172, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::~hkaDefaultAnimationControl" }
+  - { name: hkaDefaultAnimationControl_GetSkeletonMapper, kind: func, se: 0, ae: 64175, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::getSkeletonMapper" }  # name provisional
+  - { name: hkaDefaultAnimationControl_SetSkeletonMapper, kind: func, se: 0, ae: 64176, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControl::setSkeletonMapper" }  # name provisional; null plays unmapped
+  - { name: hkaDefaultAnimationControlMapperData_Vtable, kind: data, se: 0, ae: 232982, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControlMapperData::`vftable'" }
+  - { name: hkaDefaultAnimationControlMapperData_Dtor, kind: func, se: 0, ae: 64185, vr: 0, cpp: "CB::schema::hkaDefaultAnimationControlMapperData::~hkaDefaultAnimationControlMapperData" }
+  - { name: hkaSkeletonMapper_ComputeTrackMappings, kind: func, se: 0, ae: 64077, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::computeTrackMappings" }  # name provisional; (binding, boneToTrackA, boneToTrackB, trackToBoneB)
+  - { name: hkaSkeletonMapper_Vtable, kind: data, se: 0, ae: 232947, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::`vftable'" }
+  - { name: hkaSkeletonMapper_Dtor, kind: func, se: 0, ae: 64071, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::~hkaSkeletonMapper" }
+  - { name: hkaSkeletonMapperData_FinishCtor, kind: func, se: 0, ae: 65252, vr: 0, cpp: "CB::schema::hkaSkeletonMapperData::hkaSkeletonMapperData" }
+  - { name: hkaSkeletonMapperData_Dtor, kind: func, se: 0, ae: 65253, vr: 0, cpp: "CB::schema::hkaSkeletonMapperData::~hkaSkeletonMapperData" }
+  - { name: hkaAnimation_Vtable, kind: data, se: 0, ae: 233263, vr: 0, cpp: "CB::schema::hkaAnimation::`vftable'" }
+  - { name: hkaAnimation_Dtor, kind: func, se: 0, ae: 64318, vr: 0, cpp: "CB::schema::hkaAnimation::~hkaAnimation" }
+  - { name: hkaAnnotationTrack_Dtor, kind: func, se: 0, ae: 64320, vr: 0, cpp: "CB::schema::hkaAnnotationTrack::~hkaAnnotationTrack" }
+  - { name: hkaAnnotationTrack_CopyCtor, kind: func, se: 0, ae: 67215, vr: 0, cpp: "??0hkaAnnotationTrack@schema@CB@@QEAA@AEBU012@@Z" }  # out of line, in another unit
+  - { name: hkaAnnotationTrack_Assign, kind: func, se: 0, ae: 65506, vr: 0, cpp: "CB::schema::hkaAnnotationTrack::operator=" }
+  - { name: hkaAnimationBinding_Vtable, kind: data, se: 0, ae: 232725, vr: 0, cpp: "CB::schema::hkaAnimationBinding::`vftable'" }
+  - { name: hkaAnimationBinding_Dtor, kind: func, se: 0, ae: 63338, vr: 0, cpp: "CB::schema::hkaAnimationBinding::~hkaAnimationBinding" }
+  - { name: hkaAnimationContainer_Vtable, kind: data, se: 0, ae: 233336, vr: 0, cpp: "CB::schema::hkaAnimationContainer::`vftable'" }
+  - { name: hkaAnimationContainer_Dtor, kind: func, se: 0, ae: 64319, vr: 0, cpp: "CB::schema::hkaAnimationContainer::~hkaAnimationContainer" }
+  - { name: hkaAnimationPreviewColorContainer_Vtable, kind: data, se: 0, ae: 233289, vr: 0, cpp: "CB::schema::hkaAnimationPreviewColorContainer::`vftable'" }
+  - { name: hkaAnimationPreviewColorContainer_Dtor, kind: func, se: 0, ae: 65597, vr: 0, cpp: "CB::schema::hkaAnimationPreviewColorContainer::~hkaAnimationPreviewColorContainer" }
+  - { name: hkaBoneAttachment_Vtable, kind: data, se: 0, ae: 233328, vr: 0, cpp: "CB::schema::hkaBoneAttachment::`vftable'" }
+  - { name: hkaDefaultAnimatedReferenceFrame_Vtable, kind: data, se: 0, ae: 233315, vr: 0, cpp: "CB::schema::hkaDefaultAnimatedReferenceFrame::`vftable'" }
+  - { name: hkaFootstepAnalysisInfo_Vtable, kind: data, se: 0, ae: 234935, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfo::`vftable'" }
+  - { name: hkaFootstepAnalysisInfo_FinishCtor, kind: func, se: 0, ae: 65611, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfo::hkaFootstepAnalysisInfo" }
+  - { name: hkaFootstepAnalysisInfo_Dtor, kind: func, se: 0, ae: 65612, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfo::~hkaFootstepAnalysisInfo" }
+  - { name: hkaFootstepAnalysisInfoContainer_Vtable, kind: data, se: 0, ae: 233320, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfoContainer::`vftable'" }
+  - { name: hkaFootstepAnalysisInfoContainer_Dtor, kind: func, se: 0, ae: 65633, vr: 0, cpp: "CB::schema::hkaFootstepAnalysisInfoContainer::~hkaFootstepAnalysisInfoContainer" }
+  - { name: hkaMeshBinding_Vtable, kind: data, se: 0, ae: 234927, vr: 0, cpp: "CB::schema::hkaMeshBinding::`vftable'" }
+  - { name: hkaMeshBinding_Dtor, kind: func, se: 0, ae: 65600, vr: 0, cpp: "CB::schema::hkaMeshBinding::~hkaMeshBinding" }
+  - { name: hkaMeshBinding_FinishCtor, kind: func, se: 0, ae: 65601, vr: 0, cpp: "??0hkaMeshBinding@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
+  - { name: hkaMirroredSkeleton_Vtable, kind: data, se: 0, ae: 233499, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::`vftable'" }
+  - { name: hkaMirroredSkeleton_Dtor, kind: func, se: 0, ae: 64359, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::~hkaMirroredSkeleton" }
+  - { name: hkaSkeleton_Vtable, kind: data, se: 0, ae: 232866, vr: 0, cpp: "CB::schema::hkaSkeleton::`vftable'" }
+  - { name: hkaSkeleton_Dtor, kind: func, se: 0, ae: 63740, vr: 0, cpp: "CB::schema::hkaSkeleton::~hkaSkeleton" }  # the linked copy is a Bethesda unit's (C++ exceptions on)
+  - { name: hkaInterleavedUncompressedAnimation_Vtable, kind: data, se: 0, ae: 233268, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::`vftable'" }
+  - { name: hkaQuantizedAnimation_Vtable, kind: data, se: 0, ae: 233272, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::`vftable'" }
+  - { name: hkaSplineCompressedAnimation_Vtable, kind: data, se: 0, ae: 233278, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::`vftable'" }
+  - { name: hkMemoryRouter_AlignedFree, kind: func, se: 0, ae: 57055, vr: 0, cpp: "CB::schema::hkMemoryRouter::alignedFree" }  # (allocator, p) frees an alignedAlloc block
+  - { name: hkaSkeletonMapper_MapExtractedMotion, kind: func, se: 0, ae: 64076, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapExtractedMotion" }  # (in, out): applies the mapper's extracted-motion mapping
+  - { name: hkaMirroredSkeleton_MirrorExtractedMotion, kind: func, se: 0, ae: 64361, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorExtractedMotion" }  # (motion&)
+  - { name: hkaSkeletonMapper_MapPoseLocalSpace, kind: func, se: 0, ae: 64074, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapPoseLocalSpace" }  # (poseA, poseBInOut, boneToTrackA, boneToTrackB, additive); parameter names provisional
+  - { name: hkaSkeletonUtils_FindLastUsedTrack, kind: func, se: 0, ae: 64091, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::findLastUsedTrack" }  # name provisional; highest track below numTracks driving a bone below numBones, else -1
+  - { name: hkaSkeletonUtils_GetBoneChain, kind: func, se: 0, ae: 64132, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::getBoneChain" }  # (skeleton, start, end, bonesOut) -> hkBool through memory; start..end, start first
+  - { name: hkaSkeletonUtils_TransformLocalBoneToModelBone, kind: func, se: 0, ae: 64105, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::transformLocalBoneToModelBone" }  # name provisional; (bone, parentIndices, poseLocal, out) composed up the parent chain
+  - { name: hkaMirroredSkeleton_GetBonePair, kind: func, se: 0, ae: 64369, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::getBonePair" }  # (bone): the mirror partner from +0x10, -1 for a negative bone
+  - { name: hkaMirroredSkeleton_MirrorBone, kind: func, se: 0, ae: 64362, vr: 0, cpp: "CB::schema::hkaMirroredSkeleton::mirrorBone" }  # name provisional; (transform&, bone, isAdditive) mirrors one bone in place
+  # Havok animation samplers (Interleaved / Quantized / SplineCompressed) and the hkaAnimation members they call
+  - { name: hkaAnimation_CopyCtor, kind: func, se: 0, ae: 65505, vr: 0, cpp: "??0hkaAnimation@schema@CB@@QEAA@AEBU012@@Z" }  # every sampler copy constructor calls it
+  - { name: hkaInterleavedUncompressedAnimation_Dtor, kind: func, se: 0, ae: 64321, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::~hkaInterleavedUncompressedAnimation" }  # the scalar deleting destructor (slot 0) calls it
+  - { name: hkaInterleavedUncompressedAnimation_SamplePartialWithDataChunks, kind: func, se: 0, ae: 65517, vr: 0, cpp: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks" }  # samplePartialTracks calls it
+  - { name: hkaQuantizedAnimation_Dtor, kind: func, se: 0, ae: 64419, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::~hkaQuantizedAnimation" }  # the scalar deleting destructor (slot 0) calls it
+  - { name: hkaQuantizedAnimation_SampleFullPose, kind: func, se: 0, ae: 65518, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@QEBAXPEAUhkQsTransform@23@PEAM11M_NM@Z" }  # name provisional; (poseOut, floatsOut, poseWeightsOut, floatWeightsOut, time, additive, weightThreshold) const
+  - { name: hkaQuantizedAnimation_SampleFullPoseData, kind: func, se: 0, ae: 65525, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBMM_NM@Z" }  # name provisional; static, over the data stream; allocates the scratch
+  - { name: hkaQuantizedAnimation_SampleFullPoseBuffers, kind: func, se: 0, ae: 65526, vr: 0, cpp: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBM1122M_NM@Z" }  # name provisional; static, with caller scratch: frame and delta from time, then the frame-pair sampler
+  - { name: hkaQuantizedAnimation_SampleFrames, kind: func, se: 0, ae: 65527, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::sampleFrames" }  # name provisional; decodes and blends one frame pair
+  - { name: hkaQuantizedAnimation_ScatterScalars, kind: func, se: 0, ae: 65528, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::scatterScalars" }  # name provisional
+  - { name: hkaQuantizedAnimation_SampleDynamicScalars, kind: func, se: 0, ae: 65529, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::sampleDynamicScalars" }  # name provisional; a tail call to decodeDynamicScalars
+  - { name: hkaQuantizedAnimation_ScatterQuaternions, kind: func, se: 0, ae: 65530, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::scatterQuaternions" }  # name provisional
+  - { name: hkaQuantizedAnimation_DecodeDynamicScalars, kind: func, se: 0, ae: 67216, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::decodeDynamicScalars" }  # name provisional; another unit, key-code guarded (flag 0x1431ca588)
+  - { name: hkaQuantizedAnimation_BlendFloats, kind: func, se: 0, ae: 67217, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::blendFloats" }  # name provisional; (out, a, b, weight, count, mode)
+  - { name: hkaQuantizedAnimation_BlendPose, kind: func, se: 0, ae: 67220, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::blendPose" }  # name provisional; (out, a, b, weight, count, mode, additive)
+  - { name: hkaQuantizedAnimation_UnpackQuaternions4, kind: func, se: 0, ae: 67245, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::unpackQuaternions4" }  # name provisional; four 48-bit quaternions
+  - { name: hkaSkeletonUtils_CopyPoseAndFloats, kind: func, se: 0, ae: 64094, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::copyPoseAndFloats" }  # name provisional; 16-byte block copy of pose + floats (rounded to 4)
+  - { name: hkaQuantizedAnimation_WeightTable, kind: data, se: 0, ae: 386491, vr: 0, cpp: "CB::schema::hkaQuantizedAnimation::s_weightTable" }  # name provisional; float[256] indexed by a track weight byte
+  - { name: hkaSplineCompressedAnimation_Dtor, kind: func, se: 0, ae: 65548, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::~hkaSplineCompressedAnimation" }  # the scalar deleting destructor (slot 0) calls it
+  - { name: hkaSplineCompressedAnimation_SampleRotation, kind: func, se: 0, ae: 65549, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleRotation" }  # name provisional; (blockTime, quantizedTime, mask, quantization, data&, out) then 4-aligns data
+  - { name: hkaSplineCompressedAnimation_SampleTranslation, kind: func, se: 0, ae: 65550, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleTranslation" }  # name provisional
+  - { name: hkaSplineCompressedAnimation_SampleScale, kind: func, se: 0, ae: 65551, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleScale" }  # name provisional
+  - { name: hkaSplineCompressedAnimation_SampleFloat, kind: func, se: 0, ae: 65552, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::sampleFloat" }  # name provisional
+  - { name: hkaSplineCompressedAnimation_ReadNurbsCurve, kind: func, se: 0, ae: 65553, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readNurbsCurve" }  # name provisional; (data&, quantizedTime, frameDuration, time, mask, quantization, default, out)
+  - { name: hkaSplineCompressedAnimation_ReadNurbsQuaternion, kind: func, se: 0, ae: 65554, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readNurbsQuaternion" }  # name provisional; (data&, quantizedTime, frameDuration, time, mask, quantization, out)
+  - { name: hkaSplineCompressedAnimation_ComputePackedNurbsOffsets, kind: func, se: 0, ae: 65636, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::computePackedNurbsOffsets" }  # (base, blockOffsets, block, offset): base + blockOffsets[block] + (offset & 0x7fffffff), null until the key code validates
+  - { name: hkaKeyCode_Check, kind: func, se: 0, ae: 67353, vr: 0, cpp: "CB::schema::hkaKeyCode_check" }  # name provisional; Havok animation key-code validation, sets the flag
+  - { name: hkaKeyCode_IsValid, kind: data, se: 0, ae: 410071, vr: 0, cpp: "CB::schema::hkaKeyCode_isValid" }  # name provisional; hkBool
+  - { name: hkaSplineCompressedAnimation_ReadKnots, kind: func, se: 0, ae: 65555, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readKnots" }  # name provisional; (data&, n&, p&, quantizedTime, frameDuration, U) -> span
+  - { name: hkaSplineCompressedAnimation_ReadPackedQuaternions, kind: func, se: 0, ae: 65556, vr: 0, cpp: "CB::schema::hkaSplineCompressedAnimation::readPackedQuaternions" }  # name provisional
+  # Havok behavior
+  - { name: hkbNode_CloneCtor, kind: func, se: 0, ae: 58529, vr: 0, cpp: "??0hkbNode@schema@CB@@QEAA@AEBV012@@Z" }  # hkbNode(const hkbNode&) — the clone copy; marks the source node as cloned
+  - { name: hkbBindable_Dtor, kind: func, se: 0, ae: 58391, vr: 0, cpp: "CB::schema::hkbBindable::~hkbBindable" }  # the implicit destructor's out-of-line copy: most node destructors end in a tail call to it (hkbSequence's inlines it)
+  - { name: hkbSenseHandleModifier_CloneCtor, kind: func, se: 0, ae: 59877, vr: 0, cpp: "??0hkbSenseHandleModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbSenseHandleModifier_Dtor, kind: func, se: 0, ae: 58986, vr: 0, cpp: "??1hkbSenseHandleModifier@schema@CB@@UEAA@XZ" }  # COMDAT in the type-registration block; the deleting destructor calls it
+  - { name: hkbSenseHandleModifier_ComputeSensorPosWS, kind: func, se: 0, ae: 59884, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::computeSensorPosWS" }  # name provisional
+  - { name: hkbSenseHandleModifier_ComputeMinMaxDistances, kind: func, se: 0, ae: 59885, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::computeMinMaxDistances" }  # name provisional
+  - { name: hkbSenseHandleModifier_SenseInRigidBodies, kind: func, se: 0, ae: 59886, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::senseInRigidBodies" }  # name provisional; sensing modes 0-5
+  - { name: hkbSenseHandleModifier_SenseInSkeletons, kind: func, se: 0, ae: 59887, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::senseInSkeletons" }  # name provisional; sensing modes 6-8
+  - { name: hkbSenseHandleModifier_SenseInLocalFrameGroup, kind: func, se: 0, ae: 59888, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::senseInLocalFrameGroup" }  # name provisional; sensing mode 9
+  - { name: hkbSenseHandleModifier_ProcessSensedHandle, kind: func, se: 0, ae: 59890, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::processSensedHandle" }  # name provisional; publishes m_handleOut, picks the range
+  - { name: hkbSenseHandleModifier_GetRigidBodiesThatCollide, kind: func, se: 0, ae: 59891, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::getRigidBodiesThatCollide" }  # static; senseInRigidBodies' per-mode query
+  - { name: hkbContext_GetWorld, kind: func, se: 0, ae: 58316, vr: 0, cpp: "CB::schema::hkbContext::getWorld" }  # out of line
+  - { name: hkpWorld_Lock, kind: func, se: 0, ae: 61335, vr: 0, cpp: "CB::schema::hkpWorld::lock" }  # name provisional
+  - { name: hkpWorld_Unlock, kind: func, se: 0, ae: 61337, vr: 0, cpp: "CB::schema::hkpWorld::unlock" }  # name provisional
+  - { name: hkbSenseHandleModifier_CollectCharacterLocalFrames, kind: func, se: 0, ae: 59889, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::collectCharacterLocalFrames" }  # name provisional; every skeleton local frame, in its bone space
+  - { name: hkbTimerModifier_CloneCtor, kind: func, se: 0, ae: 59897, vr: 0, cpp: "??0hkbTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTimerModifier(const hkbTimerModifier&) — cloneNode tail-jumps to it
+  - { name: hkbSetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59893, vr: 0, cpp: "??0hkbSetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbTransformVectorModifier_CloneCtor, kind: func, se: 0, ae: 59905, vr: 0, cpp: "??0hkbTransformVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbTransformVectorModifierUtils_ComputeVectorOut, kind: func, se: 0, ae: 60074, vr: 0, cpp: "CB::schema::hkbTransformVectorModifierUtils::computeVectorOut" }  # name provisional; activate/modify tail-jump to it; body (0x140b0f2e0) outside the class's TU
+  - { name: hkbTwistModifier_CloneCtor, kind: func, se: 0, ae: 59913, vr: 0, cpp: "??0hkbTwistModifier@schema@CB@@QEAA@AEBV012@@Z" }  # hkbTwistModifier(const hkbTwistModifier&) - cloneNode tail-jumps to it
+  - { name: hkbTwistModifier_Dtor, kind: func, se: 0, ae: 58990, vr: 0, cpp: "??1hkbTwistModifier@schema@CB@@UEAA@XZ" }  # out of line (in the type-registration block); the deleting destructor calls it
+  - { name: hkbTwistModifierUtils_ModifyInternal, kind: func, se: 0, ae: 60075, vr: 0, cpp: "CB::schema::hkbTwistModifierUtils::modifyInternal" }  # name provisional; (twist, inOut, referencePose) - the twist itself, compiled far from the twist
+  - { name: hkbVariableBindingSet_FindBindingByMemberPath, kind: func, se: 0, ae: 59472, vr: 0, cpp: "CB::schema::hkbVariableBindingSet::findBindingByMemberPath" }  # (memberPath) -> Binding* or null; exact strCmp over the 0x28-byte bindings
+  - { name: hkbSequence_CloneCtor, kind: func, se: 0, ae: 59920, vr: 0, cpp: "??0hkbSequence@schema@CB@@QEAA@AEBV012@@Z" }  # hkbSequence(const hkbSequence&) — cloneNode tail-jumps to it
+  - { name: hkbSequence_Dtor, kind: func, se: 0, ae: 59921, vr: 0, cpp: "CB::schema::hkbSequence::~hkbSequence" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbBehaviorGraph_CopyVariablesToMembers, kind: func, se: 0, ae: 58382, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::copyVariablesToMembers" }  # (context, flag); monitor timer "hkbBehaviorGraph::copyVariablesToMembersRoot"
+  - { name: hkbRotateCharacterModifier_CloneCtor, kind: func, se: 0, ae: 59868, vr: 0, cpp: "??0hkbRotateCharacterModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbRotateCharacterModifierUtils_Modify, kind: func, se: 0, ae: 60073, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierUtils::modify" }  # name provisional; (modifier, characterWorldFromModel, modelUp, worldFromModel) applies and clears m_angle
+  - { name: hkbMirrorModifier_CloneCtor, kind: func, se: 0, ae: 59813, vr: 0, cpp: "??0hkbMirrorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbMirrorModifierUtils_Modify, kind: func, se: 0, ae: 60067, vr: 0, cpp: "CB::schema::hkbMirrorModifierUtils::modify" }  # name provisional; (modifier, mirroredSkeleton, referencePose, worldFromModel, inOut) mirrors the pose and the world-from-model
+  - { name: hkbDampingModifier_CloneCtor, kind: func, se: 0, ae: 59647, vr: 0, cpp: "??0hkbDampingModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbDampingModifierUtils_Modify, kind: func, se: 0, ae: 60055, vr: 0, cpp: "CB::schema::hkbDampingModifierUtils::modify" }  # name provisional; (modifier) one PID step of the scalar and vector channels
+  - { name: hkbComputeDirectionModifier_CloneCtor, kind: func, se: 0, ae: 59623, vr: 0, cpp: "??0hkbComputeDirectionModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbComputeDirectionModifierUtils_Modify, kind: func, se: 0, ae: 60053, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifierUtils::modify" }  # name provisional; (up, forward, right, inOut, modifier)
+  - { name: hkbDetectCloseToGroundModifier_CloneCtor, kind: func, se: 0, ae: 59673, vr: 0, cpp: "??0hkbDetectCloseToGroundModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbCombineTransformsModifier_CloneCtor, kind: func, se: 0, ae: 59615, vr: 0, cpp: "??0hkbCombineTransformsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbCombineTransformsModifierUtils_Modify, kind: func, se: 0, ae: 60051, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifierUtils::modify" }  # name provisional; (modifier) modify tail-jumps to it
+  - { name: hkbCombineTransformsModifierUtils_Multiply, kind: func, se: 0, ae: 60052, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifierUtils::multiply" }  # name provisional; (tA, rA, tB, rB, tOut, rOut) = (tA + rA·tB, rA·rB)
+  - { name: hkbComputeRotationFromAxisAngleModifier_CloneCtor, kind: func, se: 0, ae: 59631, vr: 0, cpp: "??0hkbComputeRotationFromAxisAngleModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbComputeRotationToTargetModifier_CloneCtor, kind: func, se: 0, ae: 59639, vr: 0, cpp: "??0hkbComputeRotationToTargetModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbComputeRotationToTargetModifierUtils_Modify, kind: func, se: 0, ae: 60054, vr: 0, cpp: "CB::schema::hkbComputeRotationToTargetModifierUtils::modify" }  # name provisional; (modifier) modify tail-jumps to it
+  - { name: hkbGetWorldFromModelModifier_CloneCtor, kind: func, se: 0, ae: 59771, vr: 0, cpp: "??0hkbGetWorldFromModelModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbMoveCharacterModifier_CloneCtor, kind: func, se: 0, ae: 59818, vr: 0, cpp: "??0hkbMoveCharacterModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbMoveCharacterModifierUtils_Modify, kind: func, se: 0, ae: 60068, vr: 0, cpp: "CB::schema::hkbMoveCharacterModifierUtils::modify" }  # name provisional; (modifier, inOut) modify tail-jumps to it
+  - { name: hkbCharacter_GetRaycastInterface, kind: func, se: 0, ae: 58463, vr: 0, cpp: "CB::schema::hkbCharacter::getRaycastInterface" }  # +0x70, else the behavior world's (+0x78 -> +0x148)
+  - { name: hkbContext_GetWorldUpWS, kind: func, se: 0, ae: 58317, vr: 0, cpp: "CB::schema::hkbContext::getWorldUpWS" }  # behavior world +0x120, else project data +0x10
+  - { name: hkbGeneratorOutputUtils_GetBoneModelSpace, kind: func, se: 0, ae: 58480, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getBoneModelSpace" }  # name provisional; (bone, output, skeleton, out) composes up the parent chain
+  - { name: hkbRagdollDriver_GetRagdoll, kind: func, se: 0, ae: 58286, vr: 0, cpp: "CB::schema::hkbRagdollDriver::getRagdoll" }  # name provisional; returns +0x88
+  - { name: hkQueue_hkbEvent_SetCapacity, kind: func, se: 0, ae: 58323, vr: 0, cpp: "CB::schema::hkQueue<CB::schema::hkbEvent>::setCapacity" }
+  - { name: hkbBehaviorGraph_GetNodeTemplate, kind: func, se: 0, ae: 58364, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeTemplate" }  # name provisional; the event sender
+  - { name: hkbBehaviorGraph_GetNodeClone, kind: func, se: 0, ae: 58359, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getNodeClone" }  # name provisional; template node -> this graph's clone
+  - { name: hkbStateMachine_GetStaticClass, kind: func, se: 0, ae: 58901, vr: 0, cpp: "CB::schema::hkbStateMachine::staticClass" }
+  - { name: hkbStateMachine_GetStateIndex, kind: func, se: 0, ae: 59372, vr: 0, cpp: "CB::schema::hkbStateMachine::getStateIndex" }  # stateId -> index in m_states, -1 for none
+  - { name: hkbStateMachine_Vtable, kind: data, se: 0, ae: 226812, vr: 0, cpp: "CB::schema::hkbStateMachine::`vftable'" }
+  - { name: hkbStateMachineClass, kind: data, se: 0, ae: 408354, vr: 0, cpp: "CB::schema::hkbStateMachineClass" }  # the reflected hkClass
+  - { name: hkbStateMachine_CloneCtor, kind: func, se: 0, ae: 59330, vr: 0, cpp: "??0hkbStateMachine@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z" }  # (sm, rootBehavior) — cloneNode's copy
+  - { name: hkbStateMachine_Dtor, kind: func, se: 0, ae: 59331, vr: 0, cpp: "CB::schema::hkbStateMachine::~hkbStateMachine" }
+  - { name: hkbStateMachine_ActiveTransitionInfo_Dtor, kind: func, se: 0, ae: 59350, vr: 0, cpp: "CB::schema::hkbStateMachine::ActiveTransitionInfo::~ActiveTransitionInfo" }
+  - { name: hkbStateMachine_TransitionInfoArray_Vtable, kind: data, se: 0, ae: 226702, vr: 0, cpp: "CB::schema::hkbStateMachine::TransitionInfoArray::`vftable'" }
+  - { name: hkbStateMachine_EventPropertyArray_Vtable, kind: data, se: 0, ae: 226704, vr: 0, cpp: "CB::schema::hkbStateMachine::EventPropertyArray::`vftable'" }
+  - { name: hkbStateMachine_StateInfo_Vtable, kind: data, se: 0, ae: 226706, vr: 0, cpp: "CB::schema::hkbStateMachine::StateInfo::`vftable'" }
+  - { name: hkbStateMachine_StateInfo_CopyCtor, kind: func, se: 0, ae: 59352, vr: 0, cpp: "??0StateInfo@hkbStateMachine@schema@CB@@QEAA@AEBV0123@AEBU?$hkArray@PEAVhkbStateListener@schema@CB@@@23@@Z" }  # (stateInfo, listeners)
+  - { name: hkbStateMachine_EndTransitions, kind: func, se: 0, ae: 59384, vr: 0, cpp: "CB::schema::hkbStateMachine::endTransitions" }  # name provisional; (index, context)
+  - { name: hkbStateMachine_HandleEventInternal, kind: func, se: 0, ae: 59385, vr: 0, cpp: "CB::schema::hkbStateMachine::handleEventInternal" }  # name provisional; (context, eventId)
+  - { name: hkbStateMachine_RemoveTransitions, kind: func, se: 0, ae: 59389, vr: 0, cpp: "CB::schema::hkbStateMachine::removeTransitions" }  # name provisional; static (toStateId, transitions)
+  - { name: hkbStateMachine_GetActiveGenerator, kind: func, se: 0, ae: 59402, vr: 0, cpp: "CB::schema::hkbStateMachine::getActiveGenerator" }  # name provisional
+  - { name: hkbStateMachine_InitRuntimeData, kind: func, se: 0, ae: 59407, vr: 0, cpp: "CB::schema::hkbStateMachine::initRuntimeData" }  # name provisional
+  - { name: hkbStateMachine_GetActiveEventsOfTransitions, kind: func, se: 0, ae: 59408, vr: 0, cpp: "CB::schema::hkbStateMachine::getActiveEventsOfTransitions" }  # name provisional; static (transitions, activeEvents)
+  - { name: hkbStateMachine_ExitCurrentState, kind: func, se: 0, ae: 59411, vr: 0, cpp: "CB::schema::hkbStateMachine::exitCurrentState" }  # name provisional
+  - { name: hkbBehaviorGraph_GetStateListenerClone, kind: func, se: 0, ae: 58361, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getStateListenerClone" }  # name provisional; clones through hkbStateListener::clone once, remembered in +0xf0
+  - { name: hkStringPtr_CtorCStr, kind: func, se: 0, ae: 57225, vr: 0, cpp: "??0hkStringPtr@schema@CB@@QEAA@PEBD@Z" }  # hkStringPtr(const char*)
+  - { name: hkPointerMap_GetMemSize, kind: func, se: 0, ae: 57191, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getMemSize" }  # name provisional; bytes of the element storage
+  - { name: hkbStateMachine_TransitionToState, kind: func, se: 0, ae: 59369, vr: 0, cpp: "CB::schema::hkbStateMachine::transitionToState" }  # name provisional; (toStateId, context, immediate, forceIfNoTransition, isReturnToPreviousState)
+  - { name: hkbStateMachine_IsInterruptible, kind: func, se: 0, ae: 59377, vr: 0, cpp: "CB::schema::hkbStateMachine::isInterruptible" }  # name provisional
+  - { name: hkbStateMachine_GetTransitions, kind: func, se: 0, ae: 59380, vr: 0, cpp: "CB::schema::hkbStateMachine::getTransitions" }  # name provisional; collects TransitionInfoReferences
+  - { name: hkbStateMachine_FindTransitions, kind: func, se: 0, ae: 59381, vr: 0, cpp: "CB::schema::hkbStateMachine::findTransitions" }  # name provisional; collects ProspectiveTransitionInfos
+  - { name: hkbStateMachine_BeginTransitions, kind: func, se: 0, ae: 59382, vr: 0, cpp: "CB::schema::hkbStateMachine::beginTransitions" }  # name provisional
+  - { name: hkbStateMachine_BeginTransition, kind: func, se: 0, ae: 59383, vr: 0, cpp: "CB::schema::hkbStateMachine::beginTransition" }  # name provisional; (context, prospective, isReturnToPreviousState)
+  - { name: hkbStateMachine_RemoveTransitionsToState, kind: func, se: 0, ae: 59388, vr: 0, cpp: "CB::schema::hkbStateMachine::removeTransitionsToState" }  # name provisional
+  - { name: hkbStateMachine_SetCurrentState, kind: func, se: 0, ae: 59390, vr: 0, cpp: "CB::schema::hkbStateMachine::setCurrentState" }  # name provisional
+  - { name: hkbStateMachine_WriteSyncVariable, kind: func, se: 0, ae: 59399, vr: 0, cpp: "CB::schema::hkbStateMachine::writeSyncVariable" }  # name provisional
+  - { name: hkbStateMachine_ChooseStartStateId, kind: func, se: 0, ae: 59405, vr: 0, cpp: "CB::schema::hkbStateMachine::chooseStartStateId" }  # name provisional
+  - { name: hkPointerMap_FindKey, kind: func, se: 0, ae: 57185, vr: 0, cpp: "CB::schema::hkPointerMapStorage::findKey" }  # name provisional; key -> iterator
+  - { name: hkPointerMap_RemoveIterator, kind: func, se: 0, ae: 57202, vr: 0, cpp: "?remove@hkPointerMapStorage@schema@CB@@QEAAXPEAUIteratorTag@23@@Z" }  # name provisional; remove(iterator)
+  - { name: hkPointerMap_RemoveKey, kind: func, se: 0, ae: 57201, vr: 0, cpp: "?remove@hkPointerMapStorage@schema@CB@@QEAA?AW4hkResult@23@_K@Z" }  # name provisional; remove(key) -> hkResult
+  - { name: hkbBehaviorGraph_GetUniqueId, kind: func, se: 0, ae: 58370, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getUniqueId" }  # name provisional; an id for a node cloned at runtime
+  - { name: hkbNodeInternalStateInfo_Vtable, kind: data, se: 0, ae: 220289, vr: 0, cpp: "CB::schema::hkbNodeInternalStateInfo::`vftable'" }
+  - { name: hkbStateMachine_SetCurrentStateId, kind: func, se: 0, ae: 59409, vr: 0, cpp: "CB::schema::hkbStateMachine::setCurrentStateId" }  # name provisional; id + its index (shifted) into m_sCurrentStateIndexAndEntered
+  - { name: hkbStateMachineInternalState_Vtable, kind: data, se: 0, ae: 226734, vr: 0, cpp: "CB::schema::hkbStateMachineInternalState::`vftable'" }
+  - { name: hkbCharacterSetup_GetRetargetingSkeletonMapper, kind: func, se: 0, ae: 59482, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getRetargetingSkeletonMapper" }  # name provisional
+  - { name: hkbCharacterSetup_GetMirroredSkeleton, kind: func, se: 0, ae: 59480, vr: 0, cpp: "CB::schema::hkbCharacterSetup::getMirroredSkeleton" }  # builds the hkaMirroredSkeleton lazily into setup+0x48
+  - { name: hkbCharacter_GetPoseLocal, kind: func, se: 0, ae: 58458, vr: 0, cpp: "CB::schema::hkbCharacter::getPoseLocal" }  # +0x90, filled from the reference pose on first use
+  - { name: hkbClosestLocalFrameCollector_SetCharacterAndBone, kind: func, se: 0, ae: 60061, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setCharacterAndBone" }  # name provisional
+  - { name: hkbClosestLocalFrameCollector_SetMinDistance, kind: func, se: 0, ae: 60062, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setMinDistance" }  # name provisional; +0x78
+  - { name: hkbClosestLocalFrameCollector_SetLocalFrameGroup, kind: func, se: 0, ae: 60063, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setLocalFrameGroup" }  # name provisional; +0x88
+  - { name: hkbClosestLocalFrameCollector_Ctor, kind: func, se: 0, ae: 60058, vr: 0, cpp: "??0hkbClosestLocalFrameCollector@schema@CB@@QEAA@PEBD@Z" }  # (localFrameName)
+  - { name: hkbClosestLocalFrameCollector_SetRigidBody, kind: func, se: 0, ae: 60060, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::setRigidBody" }  # name provisional
+  - { name: hkpGroupFilter_IsCollisionEnabled, kind: func, se: 0, ae: 60401, vr: 0, cpp: "?isCollisionEnabled@hkpGroupFilter@schema@CB@@QEBA?AUhkBool@23@II@Z" }  # (infoA, infoB) -> hkBool through memory
+  - { name: hkbBehaviorGraph_GetVariableValueSet, kind: func, se: 0, ae: 63851, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getVariableValueSet" }  # name provisional
+  - { name: hkbModifier_CallModify, kind: func, se: 0, ae: 59309, vr: 0, cpp: "CB::schema::hkbModifier::callModify" }  # name provisional; (context, modifier, inOut) runs a child modifier through its active clone
+  - { name: hkbGeneratorOutputUtils_CopyGeneratorOutput, kind: func, se: 0, ae: 59295, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copyGeneratorOutput" }  # name provisional; (src, dst); a one-jmp thunk to 0x140ad1390
+  - { name: hkbModifierWrapper_Ctor, kind: func, se: 0, ae: 59654, vr: 0, cpp: "??0hkbModifierWrapper@schema@CB@@QEAA@XZ" }  # out of line; the subclasses' default constructors call it
+  - { name: hkbModifierWrapper_CloneCtor, kind: func, se: 0, ae: 59655, vr: 0, cpp: "??0hkbModifierWrapper@schema@CB@@QEAA@AEBV012@@Z" }  # the subclasses' clone copies call it
+  - { name: hkbModifierList_CloneCtor, kind: func, se: 0, ae: 59793, vr: 0, cpp: "??0hkbModifierList@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbModifierList_Dtor, kind: func, se: 0, ae: 59794, vr: 0, cpp: "??1hkbModifierList@schema@CB@@UEAA@XZ" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbModifierList_GetStaticClass, kind: func, se: 0, ae: 58801, vr: 0, cpp: "CB::schema::hkbModifierList::staticClass" }  # getClassType tail-jumps to it; hkbModifierGenerator::updateSync calls it
+  - { name: hkbModifierGenerator_CloneCtor, kind: func, se: 0, ae: 59561, vr: 0, cpp: "??0hkbModifierGenerator@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbModifierGenerator_GetStaticClass, kind: func, se: 0, ae: 58672, vr: 0, cpp: "CB::schema::hkbModifierGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbDelayedModifier_CloneCtor, kind: func, se: 0, ae: 59661, vr: 0, cpp: "??0hkbDelayedModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbDelayedModifier_IsDelayElapsed, kind: func, se: 0, ae: 59668, vr: 0, cpp: "CB::schema::hkbDelayedModifier::isDelayElapsed" }  # name provisional
+  - { name: hkbEventDrivenModifier_CloneCtor, kind: func, se: 0, ae: 59709, vr: 0, cpp: "??0hkbEventDrivenModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbEventDrivenModifier_GetStaticClass, kind: func, se: 0, ae: 58750, vr: 0, cpp: "CB::schema::hkbEventDrivenModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbModifierList_StaticClass, kind: data, se: 0, ae: 408075, vr: 0, cpp: "CB::schema::hkbModifierListClass" }  # hkClass object
+  - { name: BSCRC32_Pointer, kind: func, se: 0, ae: 68221, vr: 0, cpp: "BSCRC32_Pointer" }  # name provisional; CRC of a pointer value (BSTScatterTable hash)
+  # Bethesda behavior classes
+  - { name: BSSynchronizedClipGeneratorUtils_GenerateClip, kind: func, se: 0, ae: 63336, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::generateClip" }  # name provisional; the clip's generate, or the reference pose while it loads
+  - { name: BSSynchronizedClipGeneratorUtils_ApplyMotionFromRoot, kind: func, se: 0, ae: 63337, vr: 0, cpp: "CB::schema::BSSynchronizedClipGeneratorUtils::applyMotionFromRoot" }  # name provisional; (skeleton, output, markWS)
+  - { name: BSSynchronizedClipGenerator_EmptyString, kind: data, se: 0, ae: 385925, vr: 0, cpp: "CB::schema::g_bssyncEmptyString" }  # name provisional; const char* → "", an unset prefix
+  - { name: BSSynchronizedClipGenerator_PairEndEvent, kind: data, se: 0, ae: 385926, vr: 0, cpp: "CB::schema::g_bssyncPairEndEvent" }  # name provisional; const char* → "PairEnd"
+  - { name: BSTimerModifier_CloneCtor, kind: func, se: 0, ae: 63315, vr: 0, cpp: "??0BSTimerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSTimerModifier_GetStaticClass, kind: func, se: 0, ae: 63003, vr: 0, cpp: "CB::schema::BSTimerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSEventOnDeactivateModifier_CloneCtor, kind: func, se: 0, ae: 63221, vr: 0, cpp: "??0BSEventOnDeactivateModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSModifyOnceModifier_CloneCtor, kind: func, se: 0, ae: 63292, vr: 0, cpp: "??0BSModifyOnceModifier@schema@CB@@QEAA@AEBV012@AEAVhkbBehaviorGraph@12@@Z" }  # (other, rootBehavior) — cloneNode tail-jumps to it; clones both modifiers
+  - { name: BSModifyOnceModifier_Dtor, kind: func, se: 0, ae: 63284, vr: 0, cpp: "??1BSModifyOnceModifier@schema@CB@@UEAA@XZ" }  # out of line; deletes the modifiers it cloned; the scalar deleting destructor calls it
+  - { name: BSEventEveryNEventsModifier_CloneCtor, kind: func, se: 0, ae: 63214, vr: 0, cpp: "??0BSEventEveryNEventsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSEventEveryNEventsModifier_CalculateNumberOfEventsBeforeSend, kind: func, se: 0, ae: 63213, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::calculateNumberOfEventsBeforeSend" }  # name provisional; draws the next N from the behavior graph's pseudo-random generator
+  - { name: BSEventEveryNEventsModifier_GetStaticClass, kind: func, se: 0, ae: 62970, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSEventOnFalseToTrueModifier_GetStaticClass, kind: func, se: 0, ae: 62975, vr: 0, cpp: "CB::schema::BSEventOnFalseToTrueModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSEventOnFalseToTrueModifier_CloneCtor, kind: func, se: 0, ae: 63229, vr: 0, cpp: "??0BSEventOnFalseToTrueModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSEventOnFalseToTrueModifier_Dtor, kind: func, se: 0, ae: 63230, vr: 0, cpp: "??1BSEventOnFalseToTrueModifier@schema@CB@@UEAA@XZ" }  # the scalar deleting destructor calls it
+  - { name: BSPassByTargetTriggerModifier_GetStaticClass, kind: func, se: 0, ae: 62995, vr: 0, cpp: "CB::schema::BSPassByTargetTriggerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSPassByTargetTriggerModifier_CloneCtor, kind: func, se: 0, ae: 63301, vr: 0, cpp: "??0BSPassByTargetTriggerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSIPassByTargetTriggerModifierSingleton_Singleton, kind: data, se: 0, ae: 409507, vr: 0, cpp: "CB::schema::BSIPassByTargetTriggerModifierSingleton::ms_pSingleton" }  # name provisional; the game installs BSPassByTargetTriggerModifierInterface at startup
+  - { name: BSTweenerModifier_GetStaticClass, kind: func, se: 0, ae: 63006, vr: 0, cpp: "CB::schema::BSTweenerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSTweenerModifier_CloneCtor, kind: func, se: 0, ae: 63327, vr: 0, cpp: "??0BSTweenerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSTweenerModifier_InterpolateRotation, kind: func, se: 0, ae: 63326, vr: 0, cpp: "CB::schema::BSTweenerModifier::interpolateRotation" }  # name provisional; modify calls it
+  - { name: BSIStateManagerModifier_GetStaticClass, kind: func, se: 0, ae: 63009, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSIStateManagerModifier_CloneCtor, kind: func, se: 0, ae: 63107, vr: 0, cpp: "??0BSIStateManagerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSIStateManagerModifier_Dtor, kind: func, se: 0, ae: 63101, vr: 0, cpp: "??1BSIStateManagerModifier@schema@CB@@UEAA@XZ" }  # the scalar deleting destructor calls it
+  - { name: BSIStateManagerModifier_OnStateEntered, kind: func, se: 0, ae: 63106, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::onStateEntered" }  # name provisional; the listener's onEnter calls it on the manager's clone
+  - { name: hkbGetHandleOnBoneModifier_CloneCtor, kind: func, se: 0, ae: 59755, vr: 0, cpp: "??0hkbGetHandleOnBoneModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbEvaluateHandleModifier_CloneCtor, kind: func, se: 0, ae: 59702, vr: 0, cpp: "??0hkbEvaluateHandleModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbHandleUtils_GetWorldFromHandle, kind: func, se: 0, ae: 60011, vr: 0, cpp: "CB::schema::hkbHandleUtils::getWorldFromHandle" }  # name provisional; (handle, worldFromHandleOut, worldFromModel, poseLocal, numPoseLocal), nulls = the character's own
+  - { name: hkbHandleUtils_GetExtrapolatedWorldFromHandle, kind: func, se: 0, ae: 60012, vr: 0, cpp: "CB::schema::hkbHandleUtils::getExtrapolatedWorldFromHandle" }  # name provisional; (handle, worldFromHandleOut, timeStep) rigid body motion read ahead under the world lock
+  - { name: hkbHandleUtils_AreEqual, kind: func, se: 0, ae: 60013, vr: 0, cpp: "CB::schema::hkbHandleUtils::areEqual" }  # name provisional; frame, body, character and bone all equal
+  - { name: hkbEventsFromRangeModifier_CloneCtor, kind: func, se: 0, ae: 59723, vr: 0, cpp: "??0hkbEventsFromRangeModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbEventsFromRangeModifier_Dtor, kind: func, se: 0, ae: 58979, vr: 0, cpp: "??1hkbEventsFromRangeModifier@schema@CB@@UEAA@XZ" }  # COMDAT in the type-registration block; the deleting destructor calls it
+  - { name: hkbSymbolIdMap_ConvertInternalId, kind: func, se: 0, ae: 59323, vr: 0, cpp: "CB::schema::hkbSymbolIdMap::convertInternalId" }  # name provisional; static (fromMap, toMap, id) through the external id
+  - { name: hkbCompiledExpressionSet_Ctor, kind: func, se: 0, ae: 60023, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::hkbCompiledExpressionSet" }
+  - { name: hkbCompiledExpressionSet_Compile, kind: func, se: 0, ae: 60024, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::compile" }  # name provisional; (expression, variableMap, characterPropertyMap, errorString) -> bool; the native expression compiler
+  - { name: hkbCompiledExpressionSet_Evaluate, kind: func, se: 0, ae: 60025, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::evaluate" }  # name provisional; (context, index, result&) -> bool; hkbExpressionCondition shares it
+  - { name: hkbCompiledExpressionSet_GetActiveVariables, kind: func, se: 0, ae: 60026, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::getActiveVariables" }  # name provisional; variable tokens of every expression
+  - { name: hkbExpressionDataArray_CopyCtor, kind: func, se: 0, ae: 59682, vr: 0, cpp: "??0hkbExpressionDataArray@schema@CB@@QEAA@AEBV012@@Z" }  # the clone's deep copy
+  - { name: hkbEvaluateExpressionModifier_CloneCtor, kind: func, se: 0, ae: 59684, vr: 0, cpp: "??0hkbEvaluateExpressionModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbEvaluateExpressionModifier_Dtor, kind: func, se: 0, ae: 58977, vr: 0, cpp: "??1hkbEvaluateExpressionModifier@schema@CB@@UEAA@XZ" }  # COMDAT in the type-registration block; the deleting destructor calls it
+  - { name: hkbEvaluateExpressionModifier_GetStaticClass, kind: func, se: 0, ae: 58735, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbEvaluateExpressionModifier_ParseAssignment, kind: func, se: 0, ae: 59694, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::parseAssignment" }  # name provisional; splits `event if ...` / `variable = ...`
+  - { name: hkbEvaluateExpressionModifier_FindEventIndex, kind: func, se: 0, ae: 59695, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::findEventIndex" }  # name provisional; exact strCmp over the behavior's event names
+  - { name: hkbEvaluateExpressionModifier_SetVariable, kind: func, se: 0, ae: 59696, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::setVariable" }  # name provisional; (index, context, value) typed + clamped into the root graph
+  - { name: hkbEvaluateExpressionModifier_TrimWhitespace, kind: func, se: 0, ae: 59697, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::trimWhitespace" }  # name provisional; spaces only
+  - { name: hkbEvaluateExpressionModifier_IsValidErrorBuffer, kind: data, se: 0, ae: 408434, vr: 0, cpp: "?s_errorBuffer@?M@??isValid@hkbEvaluateExpressionModifier@schema@CB@@UEBA_NAEAVhkStringPtr@34@@Z@4PADA" }  # isValid's static char[1024]
+  # Vtables CB's constructors stamp (vanilla's — D1 rewrites them in place); SE ids from CommonLib's VTABLE_*
+  - { name: hkBaseObject_Vtable, kind: data, se: 234864, ae: 190054, vr: 0, cpp: "CB::schema::hkBaseObject::`vftable'" }  # the vtable a destructor chain ends on (inlined ~hkbBindable)
+  - { name: hkbNode_Vtable, kind: data, se: 275297, ae: 220251, vr: 0, cpp: "CB::schema::hkbNode::`vftable'" }
+  - { name: hkbClipGenerator_Vtable, kind: data, se: 278766, ae: 226785, vr: 0, cpp: "CB::schema::hkbClipGenerator::`vftable'" }
+  - { name: hkbClipTriggerArray_Vtable, kind: data, se: 278358, ae: 226289, vr: 0, cpp: "CB::schema::hkbClipTriggerArray::`vftable'" }
+  - { name: hkbModifier_Vtable, kind: data, se: 278385, ae: 226321, vr: 0, cpp: "CB::schema::hkbModifier::`vftable'" }
+  - { name: hkbHandle_Vtable, kind: data, se: 278245, ae: 226152, vr: 0, cpp: "CB::schema::hkbHandle::`vftable'" }
+  - { name: hkbSenseHandleModifier_Vtable, kind: data, se: 278615, ae: 226606, vr: 0, cpp: "CB::schema::hkbSenseHandleModifier::`vftable'" }
+  - { name: hkbTimerModifier_Vtable, kind: data, se: 278627, ae: 226620, vr: 0, cpp: "CB::schema::hkbTimerModifier::`vftable'" }
+  - { name: hkbTwistModifier_Vtable, kind: data, se: 278639, ae: 226636, vr: 0, cpp: "CB::schema::hkbTwistModifier::`vftable'" }
+  - { name: hkbClipGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226305, vr: 0, cpp: "CB::schema::hkbClipGeneratorInternalState::`vftable'" }
+  - { name: hkbTimerModifierInternalState_Vtable, kind: data, se: 278630, ae: 226624, vr: 0, cpp: "CB::schema::hkbTimerModifierInternalState::`vftable'" }
+  - { name: hkbSetWorldFromModelModifier_Vtable, kind: data, se: 278624, ae: 226616, vr: 0, cpp: "CB::schema::hkbSetWorldFromModelModifier::`vftable'" }
+  - { name: hkbTransformVectorModifier_Vtable, kind: data, se: 278633, ae: 226628, vr: 0, cpp: "CB::schema::hkbTransformVectorModifier::`vftable'" }
+  - { name: hkbTransformVectorModifierInternalState_Vtable, kind: data, se: 278636, ae: 226632, vr: 0, cpp: "CB::schema::hkbTransformVectorModifierInternalState::`vftable'" }
+  - { name: hkbSequence_Vtable, kind: data, se: 278658, ae: 226657, vr: 0, cpp: "CB::schema::hkbSequence::`vftable'" }
+  - { name: hkbSequenceInternalState_Vtable, kind: data, se: 278661, ae: 226661, vr: 0, cpp: "CB::schema::hkbSequenceInternalState::`vftable'" }
+  - { name: hkbRotateCharacterModifier_Vtable, kind: data, se: 278609, ae: 226598, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifier::`vftable'" }
+  - { name: hkbRotateCharacterModifierInternalState_Vtable, kind: data, se: 278612, ae: 226602, vr: 0, cpp: "CB::schema::hkbRotateCharacterModifierInternalState::`vftable'" }
+  - { name: hkbMirrorModifier_Vtable, kind: data, se: 278563, ae: 226544, vr: 0, cpp: "CB::schema::hkbMirrorModifier::`vftable'" }
+  - { name: hkbDampingModifier_Vtable, kind: data, se: 278449, ae: 226402, vr: 0, cpp: "CB::schema::hkbDampingModifier::`vftable'" }
+  - { name: hkbDampingModifierInternalState_Vtable, kind: data, se: 278452, ae: 226406, vr: 0, cpp: "CB::schema::hkbDampingModifierInternalState::`vftable'" }
+  - { name: hkbComputeDirectionModifier_Vtable, kind: data, se: 278431, ae: 226378, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifier::`vftable'" }
+  - { name: hkbComputeDirectionModifierInternalState_Vtable, kind: data, se: 278434, ae: 226382, vr: 0, cpp: "CB::schema::hkbComputeDirectionModifierInternalState::`vftable'" }
+  - { name: hkbDetectCloseToGroundModifier_Vtable, kind: data, se: 278462, ae: 226420, vr: 0, cpp: "CB::schema::hkbDetectCloseToGroundModifier::`vftable'" }
+  - { name: hkbDetectCloseToGroundModifierInternalState_Vtable, kind: data, se: 278465, ae: 226424, vr: 0, cpp: "CB::schema::hkbDetectCloseToGroundModifierInternalState::`vftable'" }
+  - { name: hkbCombineTransformsModifier_Vtable, kind: data, se: 278425, ae: 226370, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifier::`vftable'" }
+  - { name: hkbCombineTransformsModifierInternalState_Vtable, kind: data, se: 278428, ae: 226374, vr: 0, cpp: "CB::schema::hkbCombineTransformsModifierInternalState::`vftable'" }
+  - { name: hkbComputeRotationFromAxisAngleModifier_Vtable, kind: data, se: 278437, ae: 226386, vr: 0, cpp: "CB::schema::hkbComputeRotationFromAxisAngleModifier::`vftable'" }
+  - { name: hkbComputeRotationFromAxisAngleModifierInternalState_Vtable, kind: data, se: 278440, ae: 226390, vr: 0, cpp: "CB::schema::hkbComputeRotationFromAxisAngleModifierInternalState::`vftable'" }
+  - { name: hkbComputeRotationToTargetModifier_Vtable, kind: data, se: 278443, ae: 226394, vr: 0, cpp: "CB::schema::hkbComputeRotationToTargetModifier::`vftable'" }
+  - { name: hkbComputeRotationToTargetModifierInternalState_Vtable, kind: data, se: 278446, ae: 226398, vr: 0, cpp: "CB::schema::hkbComputeRotationToTargetModifierInternalState::`vftable'" }
+  - { name: hkbGetWorldFromModelModifier_Vtable, kind: data, se: 278534, ae: 226508, vr: 0, cpp: "CB::schema::hkbGetWorldFromModelModifier::`vftable'" }
+  - { name: hkbGetWorldFromModelModifierInternalState_Vtable, kind: data, se: 278537, ae: 226512, vr: 0, cpp: "CB::schema::hkbGetWorldFromModelModifierInternalState::`vftable'" }
+  - { name: hkbMoveCharacterModifier_Vtable, kind: data, se: 278566, ae: 226548, vr: 0, cpp: "CB::schema::hkbMoveCharacterModifier::`vftable'" }
+  - { name: hkbMoveCharacterModifierInternalState_Vtable, kind: data, se: 278569, ae: 226552, vr: 0, cpp: "CB::schema::hkbMoveCharacterModifierInternalState::`vftable'" }
+  - { name: BSSynchronizedClipGenerator_Vtable, kind: data, se: 281992, ae: 232610, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::`vftable'" }
+  - { name: BSTimerModifier_Vtable, kind: data, se: 282073, ae: 232720, vr: 0, cpp: "CB::schema::BSTimerModifier::`vftable'" }
+  - { name: BSEventOnDeactivateModifier_Vtable, kind: data, se: 282048, ae: 232685, vr: 0, cpp: "CB::schema::BSEventOnDeactivateModifier::`vftable'" }
+  - { name: BSModifyOnceModifier_Vtable, kind: data, se: 282067, ae: 232711, vr: 0, cpp: "CB::schema::BSModifyOnceModifier::`vftable'" }
+  - { name: BSEventEveryNEventsModifier_Vtable, kind: data, se: 282042, ae: 232678, vr: 0, cpp: "CB::schema::BSEventEveryNEventsModifier::`vftable'" }
+  - { name: BSEventOnFalseToTrueModifier_Vtable, kind: data, se: 282050, ae: 232688, vr: 0, cpp: "CB::schema::BSEventOnFalseToTrueModifier::`vftable'" }
+  - { name: BSPassByTargetTriggerModifier_Vtable, kind: data, se: 282069, ae: 232714, vr: 0, cpp: "CB::schema::BSPassByTargetTriggerModifier::`vftable'" }
+  - { name: BSTweenerModifier_Vtable, kind: data, se: 282074, ae: 232722, vr: 0, cpp: "CB::schema::BSTweenerModifier::`vftable'" }
+  - { name: BSIStateManagerModifier_Vtable, kind: data, se: 282001, ae: 232627, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::`vftable'" }
+  - { name: BSIStateManagerModifier_StateListener_Vtable, kind: data, se: 281681, ae: 232295, vr: 0, cpp: "CB::schema::BSIStateManagerModifier::BSIStateManagerStateListener::`vftable'" }
+  - { name: BSSynchronizedClipGenerator_DefaultSyncScene_Vtable, kind: data, se: 0, ae: 232608, vr: 0, cpp: "CB::schema::BSSynchronizedClipGenerator::hkbDefaultSynchronizedScene::`vftable'" }  # activate's fallback scene
+  - { name: hkbReferencePoseGenerator_Vtable, kind: data, se: 278396, ae: 226336, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::`vftable'" }
+  - { name: hkbReferencePoseGenerator_GetStaticClass, kind: func, se: 0, ae: 58681, vr: 0, cpp: "CB::schema::hkbReferencePoseGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBehaviorReferenceGenerator_Vtable, kind: data, se: 278344, ae: 226271, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::`vftable'" }
+  - { name: hkbBehaviorReferenceGenerator_GetStaticClass, kind: func, se: 0, ae: 58636, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBehaviorReferenceGenerator_Dtor, kind: func, se: 0, ae: 59235, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGenerator::~hkbBehaviorReferenceGenerator" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbBehaviorReferenceGenerator_StaticClass, kind: data, se: 0, ae: 407705, vr: 0, cpp: "CB::schema::hkbBehaviorReferenceGeneratorClass" }  # hkClass object
+  - { name: hkbGenerator_UpdateSync, kind: func, se: 0, ae: 58538, vr: 0, cpp: "CB::schema::hkbGenerator::updateSync" }  # vtable slot 25 (no sync points); overrides without a child tail-call it
+  - { name: BSiStateTaggingGenerator_Vtable, kind: data, se: 282032, ae: 232663, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::`vftable'" }
+  - { name: BSiStateTaggingGenerator_GetStaticClass, kind: func, se: 0, ae: 62953, vr: 0, cpp: "CB::schema::BSiStateTaggingGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSiStateTaggingGenerator_CloneCtor, kind: func, se: 0, ae: 63174, vr: 0, cpp: "??0BSiStateTaggingGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbManualSelectorGenerator_Vtable, kind: data, se: 278379, ae: 226313, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::`vftable'" }
+  - { name: hkbManualSelectorGeneratorInternalState_Vtable, kind: data, se: 278382, ae: 226317, vr: 0, cpp: "CB::schema::hkbManualSelectorGeneratorInternalState::`vftable'" }
+  - { name: hkbManualSelectorGenerator_GetStaticClass, kind: func, se: 0, ae: 58666, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbManualSelectorGenerator_CloneCtor, kind: func, se: 0, ae: 59542, vr: 0, cpp: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbManualSelectorGenerator_Dtor, kind: func, se: 0, ae: 59543, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::~hkbManualSelectorGenerator" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbManualSelectorGenerator_ComputeCurrentGeneratorIndex, kind: func, se: 0, ae: 59555, vr: 0, cpp: "CB::schema::hkbManualSelectorGenerator::computeCurrentGeneratorIndex" }  # name provisional; the selected index clamped into [0, last child] (activate, update)
+  - { name: hkbBlenderGenerator_Vtable, kind: data, se: 0, ae: 226277, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::`vftable'" }
+  - { name: hkbBlenderGeneratorChild_Vtable, kind: data, se: 0, ae: 226275, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorChild::`vftable'" }
+  - { name: hkbBlenderGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226285, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorInternalState::`vftable'" }
+  - { name: hkbBoneWeightArray_Vtable, kind: data, se: 0, ae: 226195, vr: 0, cpp: "CB::schema::hkbBoneWeightArray::`vftable'" }
+  - { name: hkbBlenderGenerator_GetStaticClass, kind: func, se: 0, ae: 58639, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBlenderGenerator_CloneCtor, kind: func, se: 0, ae: 59517, vr: 0, cpp: "??0hkbBlenderGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it; hkbPoseMatchingGenerator's clone too
+  - { name: hkbBlenderGenerator_Dtor, kind: func, se: 0, ae: 59518, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::~hkbBlenderGenerator" }  # out of line; the scalar deleting destructor (and hkbPoseMatchingGenerator's) calls it
+  - { name: hkbBlenderGenerator_UpdateActiveChildren, kind: func, se: 0, ae: 59534, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::updateActiveChildren" }  # name provisional; activate/update: true when a child turned on or off
+  - { name: hkbBlenderGenerator_ComputeBlendInterval, kind: func, se: 0, ae: 59535, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::computeBlendInterval" }  # name provisional; parametric blends: begin/end child + end weight
+  - { name: hkbBlenderGenerator_SortChildren, kind: func, se: 0, ae: 59537, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::sortChildren" }  # name provisional; bubble sort of child indices by m_weight
+  - { name: hkbBlenderGeneratorChild_CloneCtor, kind: func, se: 0, ae: 59514, vr: 0, cpp: "??0hkbBlenderGeneratorChild@schema@CB@@QEAA@AEBV012@@Z" }  # the blender's clone copies each child through it
+  - { name: hkbBlenderGeneratorInternalState_Dtor, kind: func, se: 0, ae: 58973, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorInternalState::~hkbBlenderGeneratorInternalState" }  # implicit; COMDAT in the type-registration block, the deleting destructor calls it
+  - { name: hkbBoneWeightArray_CopyCtor, kind: func, se: 0, ae: 59516, vr: 0, cpp: "??0hkbBoneWeightArray@schema@CB@@QEAA@AEBV012@@Z" }  # inline, not inlined (/Ob1); the blender child's clone calls it
+  - { name: hkbBlenderGeneratorUtils_GenerateInternal, kind: func, se: 0, ae: 60039, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::generateInternal" }  # monitor timer "hkbBlenderGeneratorUtils::generateInternal"; generate tail-jumps to it
+  - { name: hkbBlenderGeneratorUtils_ComputeChildWeight, kind: func, se: 0, ae: 60040, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::computeChildWeight" }  # name provisional; (blender, childIndex) clamped/smoothstepped weight or parametric share
+  - { name: hkbBlenderGeneratorUtils_FindCommonSyncPointIds, kind: func, se: 0, ae: 60045, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::findCommonSyncPointIds" }  # name provisional; (syncInfos, n, idsOut) -> count
+  - { name: hkbBlenderGeneratorUtils_ComputeSyncInfo, kind: func, se: 0, ae: 60046, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::computeSyncInfo" }  # name provisional; (syncInfos, n, weights, threshold, initSync, out); shared with hkbBlendingTransitionEffect
+  - { name: hkbGeneratorSyncInfo_ComputeSyncPointInterval, kind: func, se: 0, ae: 58544, vr: 0, cpp: "?computeSyncPointInterval@hkbGeneratorSyncInfo@schema@CB@@QEBAXMAEAUSyncPointInterval@123@@Z" }  # name provisional; (this, localTime, out{beginId, endId, fraction})
+  - { name: hkbGeneratorSyncInfo_ComputeLocalTime, kind: func, se: 0, ae: 58546, vr: 0, cpp: "CB::schema::hkbGeneratorSyncInfo::computeLocalTime" }  # name provisional; (this, interval, localTimeOut) -> hkResult
+  - { name: hkbBehaviorGraph_SetNodeLocalTime, kind: func, se: 0, ae: 58357, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setNodeLocalTime" }  # name provisional; (node, localTime): setElapsedTime on its clone, carried down to synced active descendants
+  - { name: hkbModifierWrapper_Vtable, kind: data, se: 278455, ae: 226410, vr: 0, cpp: "CB::schema::hkbModifierWrapper::`vftable'" }
+  - { name: hkbModifierList_Vtable, kind: data, se: 278554, ae: 226532, vr: 0, cpp: "CB::schema::hkbModifierList::`vftable'" }
+  - { name: hkbModifierGenerator_Vtable, kind: data, se: 278386, ae: 226323, vr: 0, cpp: "CB::schema::hkbModifierGenerator::`vftable'" }
+  - { name: hkbDelayedModifier_Vtable, kind: data, se: 278456, ae: 226412, vr: 0, cpp: "CB::schema::hkbDelayedModifier::`vftable'" }
+  - { name: hkbDelayedModifierInternalState_Vtable, kind: data, se: 278459, ae: 226416, vr: 0, cpp: "CB::schema::hkbDelayedModifierInternalState::`vftable'" }
+  - { name: hkbEventDrivenModifier_Vtable, kind: data, se: 278488, ae: 226452, vr: 0, cpp: "CB::schema::hkbEventDrivenModifier::`vftable'" }
+  - { name: hkbEventDrivenModifierInternalState_Vtable, kind: data, se: 278491, ae: 226456, vr: 0, cpp: "CB::schema::hkbEventDrivenModifierInternalState::`vftable'" }
+  - { name: hkbTransitionEffect_Vtable, kind: data, se: 0, ae: 226154, vr: 0, cpp: "CB::schema::hkbTransitionEffect::`vftable'" }
+  - { name: hkbModifierGenerator_StaticClass, kind: data, se: 0, ae: 407778, vr: 0, cpp: "CB::schema::hkbModifierGeneratorClass" }  # hkClass object (hkbModifierGenerator::staticClass returns it)
+  - { name: hkbBehaviorGraph_StartEcho, kind: func, se: 0, ae: 58358, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::startEcho" }  # name provisional; (echoDuration, node): startEcho (slot 27) on every active generator from node down (transition effects' self transitions)
+  - { name: hkbContext_IsNodeActive, kind: func, se: 0, ae: 58319, vr: 0, cpp: "CB::schema::hkbContext::isNodeActive" }  # name provisional; the context's node-to-index map, else the root graph's active-node map
+  - { name: hkbBindable_Vtable, kind: data, se: 275296, ae: 220249, vr: 0, cpp: "CB::schema::hkbBindable::`vftable'" }  # the inline hkbBindable copy stamps it
+  - { name: BSBoneSwitchGenerator_Vtable, kind: data, se: 282006, ae: 232633, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::`vftable'" }
+  - { name: BSBoneSwitchGenerator_GetStaticClass, kind: func, se: 0, ae: 62942, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSBoneSwitchGenerator_CloneCtor, kind: func, se: 0, ae: 63120, vr: 0, cpp: "??0BSBoneSwitchGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSBoneSwitchGenerator_Dtor, kind: func, se: 0, ae: 63111, vr: 0, cpp: "CB::schema::BSBoneSwitchGenerator::~BSBoneSwitchGenerator" }  # out of line; the scalar deleting destructor calls it
+  - { name: BSBoneSwitchGeneratorBoneData_Vtable, kind: data, se: 282011, ae: 232639, vr: 0, cpp: "CB::schema::BSBoneSwitchGeneratorBoneData::`vftable'" }
+  - { name: BSBoneSwitchGeneratorBoneData_CloneCtor, kind: func, se: 0, ae: 63125, vr: 0, cpp: "??0BSBoneSwitchGeneratorBoneData@schema@CB@@QEAA@AEBV012@@Z" }  # the generator's clone copy calls it per child
+  - { name: BSBoneSwitchGeneratorUtils_Generate, kind: func, se: 0, ae: 63343, vr: 0, cpp: "CB::schema::BSBoneSwitchGeneratorUtils::generate" }  # name provisional; generate tail-jumps to it (writes each child's weighted bones over the default pose)
+  - { name: BSOffsetAnimationGenerator_Vtable, kind: data, se: 282023, ae: 232653, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::`vftable'" }
+  - { name: BSOffsetAnimationGenerator_GetStaticClass, kind: func, se: 0, ae: 62950, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSOffsetAnimationGenerator_CloneCtor, kind: func, se: 0, ae: 63160, vr: 0, cpp: "??0BSOffsetAnimationGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSOffsetAnimationGenerator_Dtor, kind: func, se: 0, ae: 63161, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::~BSOffsetAnimationGenerator" }  # implicit, out of line; the scalar deleting destructor calls it
+  - { name: BSOffsetAnimationGenerator_SampleOffset, kind: func, se: 0, ae: 63158, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::sampleOffset" }  # name provisional; picks the offset frame from the variable and samples it (activate, update)
+  - { name: BSOffsetAnimationGenerator_SampleBoneOffsets, kind: func, se: 0, ae: 63159, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::sampleBoneOffsets" }  # name provisional; samples the tracks and maps the non-identity ones to bones
+  - { name: BSOffsetAnimationGenerator_ComputeNumChildren, kind: func, se: 0, ae: 63163, vr: 0, cpp: "CB::schema::BSOffsetAnimationGenerator::computeNumChildren" }  # name provisional; getMaxNumChildren tail-calls it, getChildren calls it
+  - { name: BSOffsetAnimationGeneratorUtils_ApplyOffsets, kind: func, se: 0, ae: 63344, vr: 0, cpp: "CB::schema::BSOffsetAnimationGeneratorUtils::applyOffsets" }  # name provisional; generate calls it (multiplies the sampled offsets onto the pose)
+  - { name: BSCyclicBlendTransitionGenerator_Vtable, kind: data, se: 282012, ae: 232641, vr: 0, cpp: "CB::schema::BSCyclicBlendTransitionGenerator::`vftable'" }
+  - { name: BSCyclicBlendTransitionGenerator_GetStaticClass, kind: func, se: 0, ae: 62947, vr: 0, cpp: "CB::schema::BSCyclicBlendTransitionGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSCyclicBlendTransitionGenerator_CloneCtor, kind: func, se: 0, ae: 63143, vr: 0, cpp: "??0BSCyclicBlendTransitionGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSCyclicBlendTransitionGenerator_GetBlenderClone, kind: func, se: 0, ae: 63141, vr: 0, cpp: "CB::schema::BSCyclicBlendTransitionGenerator::getBlenderClone" }  # name provisional; the graph's clone of a generator that is exactly an hkbBlenderGenerator
+  - { name: BSCyclicBlendTransitionGenerator_ComputeNumChildren, kind: func, se: 0, ae: 63142, vr: 0, cpp: "CB::schema::BSCyclicBlendTransitionGenerator::computeNumChildren" }  # name provisional; getMaxNumChildren tail-calls it, getChildren calls it
+  - { name: hkbBlendingTransitionEffect_Ctor, kind: func, se: 0, ae: 59943, vr: 0, cpp: "??0hkbBlendingTransitionEffect@schema@CB@@QEAA@XZ" }  # out of line; BSCyclicBlendTransitionGenerator::activate news one
+  - { name: hkbBlendingTransitionEffect_UpdateInternal, kind: func, se: 0, ae: 59961, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::updateInternal" }  # name provisional; (context, timestep, syncNode) - update (slot 5) passes the effect itself
+  - { name: hkbBlendingTransitionEffect_UpdateSyncInternal, kind: func, se: 0, ae: 59960, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::updateSyncInternal" }  # name provisional; (context, syncNode) - updateSync (slot 25) passes the effect itself
+  - { name: hkbBehaviorGraph_GetOrCreateNodeClone, kind: func, se: 0, ae: 58360, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getOrCreateNodeClone" }  # name provisional; getNodeClone that clones (and maps) a template not cloned yet
+  - { name: hkbContext_FlagActiveNodesChanged, kind: data, se: 0, ae: 220247, vr: 0, cpp: "CB::schema::hkbContext::FLAG_ACTIVE_NODES_CHANGED" }  # name provisional; the byte constant 2 at 0x141941229 that handleEvent ORs into hkbContext::m_flags
+  - { name: hkbGetHandleOnBoneModifier_Vtable, kind: data, se: 278525, ae: 226496, vr: 0, cpp: "CB::schema::hkbGetHandleOnBoneModifier::`vftable'" }
+  - { name: hkbEvaluateHandleModifier_Vtable, kind: data, se: 278481, ae: 226444, vr: 0, cpp: "CB::schema::hkbEvaluateHandleModifier::`vftable'" }
+  - { name: hkbEventsFromRangeModifier_Vtable, kind: data, se: 278495, ae: 226462, vr: 0, cpp: "CB::schema::hkbEventsFromRangeModifier::`vftable'" }
+  - { name: hkbEventsFromRangeModifierInternalState_Vtable, kind: data, se: 278502, ae: 226470, vr: 0, cpp: "CB::schema::hkbEventsFromRangeModifierInternalState::`vftable'" }
+  - { name: hkbExpressionDataArray_Vtable, kind: data, se: 278468, ae: 226428, vr: 0, cpp: "CB::schema::hkbExpressionDataArray::`vftable'" }
+  - { name: hkbEvaluateExpressionModifier_Vtable, kind: data, se: 278469, ae: 226430, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifier::`vftable'" }
+  - { name: hkbEvaluateExpressionModifierInternalState_Vtable, kind: data, se: 278478, ae: 226440, vr: 0, cpp: "CB::schema::hkbEvaluateExpressionModifierInternalState::`vftable'" }
+  - { name: hkbLookAtModifier_Vtable, kind: data, se: 0, ae: 226536, vr: 0, cpp: "CB::schema::hkbLookAtModifier::`vftable'" }
+  - { name: hkbLookAtModifierInternalState_Vtable, kind: data, se: 0, ae: 226540, vr: 0, cpp: "CB::schema::hkbLookAtModifierInternalState::`vftable'" }
+  - { name: hkbLookAtModifier_CloneCtor, kind: func, se: 0, ae: 59804, vr: 0, cpp: "??0hkbLookAtModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkaPose_Dtor, kind: func, se: 0, ae: 58443, vr: 0, cpp: "CB::schema::hkaPose::~hkaPose" }  # out of line; frees the four arrays
+  - { name: hkaPose_AccessUnsyncedPoseLocalSpace, kind: func, se: 0, ae: 56992, vr: 0, cpp: "CB::schema::hkaPose::accessUnsyncedPoseLocalSpace" }  # marks every bone model-dirty, local in sync
+  - { name: hkaPose_GetSyncedPoseLocalSpace, kind: func, se: 0, ae: 56982, vr: 0, cpp: "CB::schema::hkaPose::getSyncedPoseLocalSpace" }
+  - { name: hkaPose_AccessBoneModelSpace, kind: func, se: 0, ae: 56989, vr: 0, cpp: "CB::schema::hkaPose::accessBoneModelSpace" }  # (bone, PropagateOrNot)
+  - { name: hkaPose_CalculateBoneModelSpace, kind: func, se: 0, ae: 56999, vr: 0, cpp: "CB::schema::hkaPose::calculateBoneModelSpace" }  # getBoneModelSpace's dirty path
+  - { name: hkaPose_AccessBoneLocalSpace, kind: func, se: 0, ae: 56988, vr: 0, cpp: "CB::schema::hkaPose::accessBoneLocalSpace" }  # (bone) syncs it, marks its descendants model-dirty
+  - { name: BGSGamebryoSequenceGenerator_Vtable, kind: data, se: 0, ae: 230942, vr: 0, cpp: "CB::schema::BGSGamebryoSequenceGenerator::`vftable'" }
+  - { name: BGSGamebryoSequenceGenerator_GetStaticClass, kind: func, se: 0, ae: 62956, vr: 0, cpp: "CB::schema::BGSGamebryoSequenceGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: BGSGamebryoSequenceGenerator_CloneCtor, kind: func, se: 0, ae: 62937, vr: 0, cpp: "??0BGSGamebryoSequenceGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BGSGamebryoSequenceGenerator_Dtor, kind: func, se: 0, ae: 62928, vr: 0, cpp: "CB::schema::BGSGamebryoSequenceGenerator::~BGSGamebryoSequenceGenerator" }  # user-declared (re-stamps the vtable); the deleting destructor calls it
+  - { name: IGamebryoSequenceGeneratorHolderSingleton_Instance, kind: data, se: 0, ae: 409305, vr: 0, cpp: "CB::schema::IGamebryoSequenceGeneratorHolderSingleton::s_instance" }  # BSTSingletonSDM<BGSGamebryoSequenceGeneratorHolderSingleton>; plays the Gamebryo sequences
+  - { name: BSDirectAtModifier_Vtable, kind: data, se: 0, ae: 232672, vr: 0, cpp: "CB::schema::BSDirectAtModifier::`vftable'" }
+  - { name: BSDirectAtModifier_CloneCtor, kind: func, se: 0, ae: 63196, vr: 0, cpp: "??0BSDirectAtModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSDirectAtModifier_Dtor, kind: func, se: 0, ae: 63197, vr: 0, cpp: "CB::schema::BSDirectAtModifier::~BSDirectAtModifier" }  # out of line; the deleting destructor calls it
+  - { name: BSDirectAtModifierInterface_Instance, kind: data, se: 0, ae: 409506, vr: 0, cpp: "CB::schema::BSDirectAtModifierInterface::s_instance" }  # BSTSingletonSDM<BSDirectAtModifierInterface>; update asks it for the target
+  - { name: BSDirectAtModifierUtils_ModifyInternal, kind: func, se: 0, ae: 63345, vr: 0, cpp: "CB::schema::BSDirectAtModifierUtils::modifyInternal" }  # name provisional; (modifier, skeleton, worldFromModel, upWS, inOut)
+  - { name: BSDirectAtModifierUtils_ComputeHeadingDelta, kind: func, se: 0, ae: 63346, vr: 0, cpp: "CB::schema::BSDirectAtModifierUtils::computeHeadingDelta" }  # name provisional; atan2(x, y) difference wrapped to [-pi, pi]
+  - { name: BSDirectAtModifierUtils_ComputePitchDelta, kind: func, se: 0, ae: 63347, vr: 0, cpp: "CB::schema::BSDirectAtModifierUtils::computePitchDelta" }  # name provisional; elevation difference wrapped to [-pi, pi]
+  - { name: hkaLookAtIkSolver_Solve, kind: func, se: 0, ae: 64407, vr: 0, cpp: "CB::schema::hkaLookAtIkSolver::solve" }  # (setup, targetMS, gain, boneModelSpace, range) -> hkBool inside limits
+  - { name: hkbGeneratorOutputUtils_GetFilledPoseLocal, kind: func, se: 0, ae: 58478, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getFilledPoseLocal" }  # name provisional; (output, skeleton, poseOut) output pose, unset bones from the reference pose
+  - { name: hkbGeneratorOutputUtils_MarkPoseDense, kind: func, se: 0, ae: 58474, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::markPoseDense" }  # name provisional; sets every pose partition bit
+  - { name: BSLookAtModifier_Vtable, kind: data, se: 0, ae: 232704, vr: 0, cpp: "CB::schema::BSLookAtModifier::`vftable'" }
+  - { name: BSLookAtModifier_GetStaticClass, kind: func, se: 0, ae: 62988, vr: 0, cpp: "CB::schema::BSLookAtModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSLookAtModifier_CloneCtor, kind: func, se: 0, ae: 63279, vr: 0, cpp: "??0BSLookAtModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSLookAtModifier_Dtor, kind: func, se: 0, ae: 63280, vr: 0, cpp: "CB::schema::BSLookAtModifier::~BSLookAtModifier" }  # out of line; the deleting destructor calls it
+  - { name: BSLookAtModifierBoneData_ResetCurrentFwdAxis, kind: func, se: 0, ae: 63269, vr: 0, cpp: "CB::schema::BSLookAtModifierBoneData::resetCurrentFwdAxis" }  # name provisional; currentFwdAxisLS = fwdAxisLS
+  - { name: BSLookAtModifierUtils_ModifyInternal, kind: func, se: 0, ae: 63350, vr: 0, cpp: "CB::schema::BSLookAtModifierUtils::modifyInternal" }  # (modifier, pose, inOut, context-or-null); name from its warning string
+  - { name: hkVector4_IsNormalized3, kind: func, se: 0, ae: 57221, vr: 0, cpp: "CB::schema::hkVector4::isNormalized3" }  # (epsilon) -> hkBool through a hidden pointer
+  - { name: hkVector4_IsOk3, kind: func, se: 0, ae: 57219, vr: 0, cpp: "CB::schema::hkVector4::isOk3" }  # () -> hkBool through a hidden pointer: x, y, z all finite
+  - { name: BSComputeGainForTimeStep, kind: func, se: 0, ae: 63349, vr: 0, cpp: "CB::schema::BSComputeGainForTimeStep" }  # name provisional; clamp(gain * timeStep * 30, 0, 1), shared by the BS look-at/IK/interp modifiers
+  - { name: BSLookAtModifierUtils_ModifyBone, kind: func, se: 0, ae: 63351, vr: 0, cpp: "CB::schema::BSLookAtModifierUtils::modifyBone" }  # name provisional; (modifier, bone, pose, lookAt, targetMS, limitAngle) -> angle asked
+  - { name: hkErrStream_Ctor, kind: func, se: 0, ae: 57207, vr: 0, cpp: "CB::schema::hkErrStream::hkErrStream" }  # (buf, bufSize) the HK_WARN text stream
+  - { name: hkOstream_PrintCStr, kind: func, se: 0, ae: 57518, vr: 0, cpp: "CB::schema::hkOstream::operator<<" }  # operator<<(const char*)
+  - { name: hkOstream_Dtor, kind: func, se: 0, ae: 57513, vr: 0, cpp: "CB::schema::hkOstream::~hkOstream" }
+  - { name: hkMath_Acos, kind: func, se: 0, ae: 60037, vr: 0, cpp: "CB::schema::hkMath::acos" }  # out-of-line copy: 0 at >= 1, pi at <= -1, else acosf
+  - { name: CRT_acosf, kind: func, se: 0, ae: 109723, vr: 0, cpp: "acosf" }  # the CRT acosf
+  - { name: CRT_fmodf, kind: func, se: 0, ae: 109714, vr: 0, cpp: "fmodf" }  # the CRT fmodf (BGSGamebryoSequenceGenerator::update wraps looping time)
+  - { name: hkbTransitionEffect_DefaultCtor, kind: func, se: 0, ae: 59487, vr: 0, cpp: "??0hkbTransitionEffect@schema@CB@@QEAA@XZ" }  # out of line; the effects' default constructors call it
+  - { name: hkbTransitionEffect_CloneCtor, kind: func, se: 0, ae: 59488, vr: 0, cpp: "??0hkbTransitionEffect@schema@CB@@QEAA@AEBV012@@Z" }  # out of line; the effects' clone copies call it
+  - { name: hkbTransitionEffect_ApplySelfTransitionMode, kind: func, se: 0, ae: 59490, vr: 0, cpp: "CB::schema::hkbTransitionEffect::applySelfTransitionMode" }  # name provisional; restarts an already-active to-generator per m_selfTransitionMode
+  - { name: hkbTransitionEffect_GetEventMode, kind: func, se: 0, ae: 59491, vr: 0, cpp: "CB::schema::hkbTransitionEffect::getEventMode" }  # m_eventMode, else m_defaultEventMode
+  - { name: hkbGeneratorOutputUtils_BlendGeneratorOutputs, kind: func, se: 0, ae: 59303, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::blendGeneratorOutputs" }  # name provisional; (a, b, weight, out): out = a blended toward b by weight
+  - { name: hkbGeneratorTransitionEffect_Vtable, kind: data, se: 0, ae: 226748, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffect::`vftable'" }
+  - { name: hkbGeneratorTransitionEffect_CloneCtor, kind: func, se: 0, ae: 59974, vr: 0, cpp: "??0hkbGeneratorTransitionEffect@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbGeneratorTransitionEffect_UpdateToGeneratorState, kind: func, se: 0, ae: 59991, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffect::updateToGeneratorState" }  # name provisional
+  - { name: hkbGeneratorTransitionEffectInternalState_Vtable, kind: data, se: 0, ae: 226752, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffectInternalState::`vftable'" }
+  - { name: hkbGeneratorTransitionEffectUtils_GenerateInternal, kind: func, se: 0, ae: 60077, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffectUtils::generateInternal" }  # name provisional; generate tail-jumps to it
+  - { name: hkbGeneratorTransitionEffectUtils_ComputeBlendDurations, kind: func, se: 0, ae: 60078, vr: 0, cpp: "CB::schema::hkbGeneratorTransitionEffectUtils::computeBlendDurations" }  # name provisional; the blend durations scaled to fit the transition generator's cycle
+  - { name: hkbTransitionEffect_IsGeneratorActive, kind: func, se: 0, ae: 59492, vr: 0, cpp: "CB::schema::hkbTransitionEffect::isGeneratorActive" }  # name provisional; isNodeActive through modifier-generator / behavior-reference wrappers
+  - { name: hkbBlendingTransitionEffect_Vtable, kind: data, se: 0, ae: 226738, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::`vftable'" }
+  - { name: hkbBlendingTransitionEffectInternalState_Vtable, kind: data, se: 0, ae: 226744, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffectInternalState::`vftable'" }
+  - { name: hkbBlendingTransitionEffect_GetStaticClass, kind: func, se: 0, ae: 58927, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBlendingTransitionEffect_CloneCtor, kind: func, se: 0, ae: 59944, vr: 0, cpp: "??0hkbBlendingTransitionEffect@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbBlendingTransitionEffect_ComputeTimeRemaining, kind: func, se: 0, ae: 59962, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffect::computeTimeRemaining" }  # name provisional; (duration, fromSyncInfo) per m_endMode
+  - { name: hkArray_hkQsTransform_Append, kind: func, se: 0, ae: 59969, vr: 0, cpp: "CB::schema::hkArray<CB::schema::hkQsTransform>::_append" }  # hkArrayBase::_append instance (alloc, src, n)
+  - { name: hkbBlendingTransitionEffectUtils_GenerateInternal, kind: func, se: 0, ae: 60076, vr: 0, cpp: "CB::schema::hkbBlendingTransitionEffectUtils::generateInternal" }  # monitor string "hkbBlendingTransitionEffectUtils::generateInternal"
+  - { name: hkbBlendCurveUtils_ApplyBlendCurve, kind: func, se: 0, ae: 58448, vr: 0, cpp: "CB::schema::hkbBlendCurveUtils::applyBlendCurve" }  # (curve, t): smoothstep / linear / half-curves, clamped to [0, 1]
+  - { name: hkbBlenderGeneratorUtils_ComputeSyncedLocalTime, kind: func, se: 0, ae: 60047, vr: 0, cpp: "CB::schema::hkbBlenderGeneratorUtils::computeSyncedLocalTime" }  # name provisional; (localTime, syncInfo, childSyncInfo) — the child's local time in step over their common sync points
+  - { name: hkbGeneratorSyncInfo_ComputeSyncPointIntervalAmong, kind: func, se: 0, ae: 58545, vr: 0, cpp: "?computeSyncPointInterval@hkbGeneratorSyncInfo@schema@CB@@QEBAXMPEBHHAEAUSyncPointInterval@123@@Z" }  # name provisional; (this, localTime, ids, n, out) — the interval over the given sync point ids only
+  - { name: hkMemoryRouter_EasyAlloc, kind: func, se: 0, ae: 57056, vr: 0, cpp: "CB::schema::hkMemoryRouter::easyAlloc" }  # (allocator, nbytes) a block that records its own size
+  - { name: hkMemoryRouter_EasyFree, kind: func, se: 0, ae: 57059, vr: 0, cpp: "CB::schema::hkMemoryRouter::easyFree" }  # (allocator, p)
+  - { name: hkbContext_Ctor, kind: func, se: 0, ae: 58315, vr: 0, cpp: "??0hkbContext@schema@CB@@QEAA@PEAUhkbCharacter@12@PEAVhkpWorld@12@PEAX2@Z" }  # (character, world, attachmentManager, animationCache); names provisional; by mangled name (the copy constructor is pinned too)
+  - { name: hkbAnimationBindingSet_Vtable, kind: data, se: 0, ae: 220343, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::`vftable'" }
+  - { name: hkbCharacter_Vtable, kind: data, se: 0, ae: 220345, vr: 0, cpp: "CB::schema::hkbCharacter::`vftable'" }
+  - { name: hkbCharacter_Dtor, kind: func, se: 0, ae: 58450, vr: 0, cpp: "CB::schema::hkbCharacter::~hkbCharacter" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbCharacter_InitPoseLocal, kind: func, se: 0, ae: 58466, vr: 0, cpp: "CB::schema::hkbCharacter::initPoseLocal" }  # name provisional; copies the reference pose into an owned +0x90
+  - { name: hkbCharacter_DeletePoseLocal, kind: func, se: 0, ae: 58467, vr: 0, cpp: "CB::schema::hkbCharacter::deletePoseLocal" }  # name provisional
+  - { name: hkbFootIkDriver_Reset, kind: func, se: 0, ae: 58427, vr: 0, cpp: "CB::schema::hkbFootIkDriver::reset" }
+  - { name: hkbHandIkDriver_Reset, kind: func, se: 0, ae: 59422, vr: 0, cpp: "CB::schema::hkbHandIkDriver::reset" }
+  - { name: hkbRagdollDriver_Reset, kind: func, se: 0, ae: 58294, vr: 0, cpp: "CB::schema::hkbRagdollDriver::reset" }
+  - { name: hkbWorld_GetListeners, kind: func, se: 0, ae: 58495, vr: 0, cpp: "CB::schema::hkbWorld::getListeners" }  # returns &m_listeners (+0x30)
+  - { name: hkbWorld_Vtable, kind: data, se: 0, ae: 220348, vr: 0, cpp: "CB::schema::hkbWorld::`vftable'" }
+  - { name: hkbWorld_Dtor, kind: func, se: 0, ae: 58482, vr: 0, cpp: "CB::schema::hkbWorld::~hkbWorld" }  # the scalar deleting destructor calls it
+  - { name: hkbWorld_RemoveCharacter, kind: func, se: 0, ae: 58485, vr: 0, cpp: "CB::schema::hkbWorld::removeCharacter" }  # name provisional; (character, deactivate)
+  - { name: hkbSymbolLinker_Dtor, kind: func, se: 0, ae: 58515, vr: 0, cpp: "CB::schema::hkbSymbolLinker::~hkbSymbolLinker" }  # name provisional; the behavior world's four linkers (not reimplemented)
+  - { name: hkbCharacter_Deactivate, kind: func, se: 0, ae: 58455, vr: 0, cpp: "CB::schema::hkbCharacter::deactivate" }
+  - { name: hkbAssetLoader_Vtable, kind: data, se: 0, ae: 232916, vr: 0, cpp: "CB::schema::hkbAssetLoader::`vftable'" }
+  - { name: hkbAssetLoader_Dtor, kind: func, se: 0, ae: 63915, vr: 0, cpp: "??1hkbAssetLoader@schema@CB@@UEAA@XZ" }  # a COMDAT from a Bethesda /EHsc unit
+  - { name: hkbAnimationBindingSet_Dtor, kind: func, se: 0, ae: 59417, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::~hkbAnimationBindingSet" }  # out of line; the scalar deleting destructor (in hkbCharacter.cpp) calls it
+  - { name: hkbBehaviorGraph_Dtor, kind: func, se: 0, ae: 58326, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::~hkbBehaviorGraph" }  # out of line; the scalar deleting destructor calls it
+  - { name: hkbBehaviorGraph_InitVariableValueSet, kind: func, se: 0, ae: 58346, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::initVariableValueSet" }  # name provisional; activate calls it when the graph has data
+  - { name: hkbBehaviorGraph_HandleEventInternal, kind: func, se: 0, ae: 58377, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::handleEventInternal" }  # name provisional; the root's event pass (slot 6 forwards to it)
+  - { name: hkbBehaviorGraph_GetStaticClass, kind: func, se: 0, ae: 58554, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbBehaviorGraph_StaticClass, kind: data, se: 0, ae: 407521, vr: 0, cpp: "CB::schema::hkbBehaviorGraphClass" }  # hkClass object
+  - { name: hkbBehaviorGraphUtils_UpdateActiveNodes, kind: func, se: 0, ae: 60079, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::updateActiveNodes" }  # name provisional; (graph, context, nodeIdToInternalState or null)
+  - { name: hkbBehaviorGraph_Vtable, kind: data, se: 0, ae: 220287, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::`vftable'" }
+  - { name: hkbBehaviorGraph_DeleteActiveNodes, kind: func, se: 0, ae: 58385, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::deleteActiveNodes" }  # name provisional; releases the clones, frees the active-node tables
+  - { name: hkbBehaviorGraph_ReleaseUniqueId, kind: func, se: 0, ae: 58371, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::releaseUniqueId" }  # name provisional
+  - { name: hkPointerMap_Clear, kind: func, se: 0, ae: 57183, vr: 0, cpp: "CB::schema::hkPointerMapStorage::clear" }  # name provisional; every key to empty, keeps the storage
+  - { name: hkPointerMap_CtorWithStorage, kind: func, se: 0, ae: 57197, vr: 0, cpp: "??0hkPointerMapStorage@schema@CB@@QEAA@PEAXH@Z" }  # name provisional; (ptr, sizeInBytes) over caller-owned storage
+  - { name: hkPointerMap_GetSizeInBytesFor, kind: func, se: 0, ae: 57194, vr: 0, cpp: "CB::schema::hkPointerMapStorage::getSizeInBytesFor" }  # name provisional; (numKeys)
+  - { name: hkbVariableValueSet_Assign, kind: func, se: 0, ae: 58542, vr: 0, cpp: "??4hkbVariableValueSet@schema@CB@@QEAAAEAV012@AEBV012@@Z" }  # operator=: copies the word/quad values, references the variants
+  - { name: hkbVariableValueSet_Vtable, kind: data, se: 0, ae: 220282, vr: 0, cpp: "CB::schema::hkbVariableValueSet::`vftable'" }
+  - { name: hkbBindable_CopyVariablesToMembers, kind: func, se: 0, ae: 58522, vr: 0, cpp: "CB::schema::hkbBindable::copyVariablesToMembers" }  # name provisional; (context, fromMembers) -> nonzero when bound
+  - { name: hkbModifier_ActivateModifier, kind: func, se: 0, ae: 59312, vr: 0, cpp: "CB::schema::hkbModifier::activateModifier" }  # name provisional; (context, modifier, info) activates unless the record says active
+  - { name: hkbModifier_DeactivateModifier, kind: func, se: 0, ae: 59313, vr: 0, cpp: "CB::schema::hkbModifier::deactivateModifier" }  # name provisional; -> whether it was active
+  - { name: hkQueue_hkbEvent_Ctor, kind: func, se: 0, ae: 58388, vr: 0, cpp: "??0?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ" }  # out of line (hkbBehaviorGraph::update's throwaway queue)
+  - { name: hkbBehaviorGraph_ComputeTimesteps, kind: func, se: 0, ae: 58383, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::computeTimesteps" }  # name provisional; (timestep, timestepsOut)
+  - { name: hkQueue_hkbEvent_Dtor, kind: func, se: 0, ae: 58389, vr: 0, cpp: "??1?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ" }  # out of line; frees m_capacity events
+  - { name: hkbModifier_UpdateModifier, kind: func, se: 0, ae: 59311, vr: 0, cpp: "CB::schema::hkbModifier::updateModifier" }  # name provisional; (context, modifier, timestep, info): the graph update's per-modifier step
+  - { name: hkbBehaviorGraph_SetData, kind: func, se: 0, ae: 58345, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setData" }
+  - { name: hkbBehaviorGraph_SetEventIdMap, kind: func, se: 0, ae: 58350, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setEventIdMap" }
+  - { name: hkbBehaviorGraph_SetAttributeIdMap, kind: func, se: 0, ae: 58351, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setAttributeIdMap" }
+  - { name: hkbBehaviorGraph_SetVariableIdMap, kind: func, se: 0, ae: 58352, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setVariableIdMap" }
+  - { name: hkbBehaviorGraph_SetCharacterPropertyIdMap, kind: func, se: 0, ae: 58353, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setCharacterPropertyIdMap" }
+  - { name: hkbBehaviorGraph_SetGlobalTransitionData, kind: func, se: 0, ae: 58367, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setGlobalTransitionData" }  # name provisional (+0xb0)
+  - { name: hkbBehaviorGraph_DeletePartitionMemory, kind: func, se: 0, ae: 58386, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::deletePartitionMemory" }  # name provisional
+  - { name: hkbBehaviorGraphUtils_CollectNodes, kind: func, se: 0, ae: 59317, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::collectNodes" }  # name provisional; (root, rootBehavior, flags, nodesOut, ?)
+  - { name: hkbBehaviorGraphUtils_FreeCloneBlock, kind: func, se: 0, ae: 60122, vr: 0, cpp: "CB::schema::hkbBehaviorGraphUtils::freeCloneBlock" }  # name provisional
+  - { name: hkQsTransform_IdentityStorage, kind: data, se: 0, ae: 407391, vr: 0, cpp: "CB::schema::hkQsTransform_identityStorage" }  # hkQsTransform::getIdentity()
+  - { name: hkbRagdollDriver_SetRagdoll, kind: func, se: 0, ae: 58285, vr: 0, cpp: "CB::schema::hkbRagdollDriver::setRagdoll" }  # (ragdoll) referenced; tears down the old one's state
+  - { name: hkbRagdollDriver_FreeRagdollPoseWS, kind: func, se: 0, ae: 58309, vr: 0, cpp: "CB::schema::hkbRagdollDriver::freeRagdollPoseWS" }  # name provisional; easyFree of +0x90
+  - { name: hkbPhysicsUtils_GetClosestPoints, kind: func, se: 0, ae: 59430, vr: 0, cpp: "CB::schema::hkbPhysicsUtils::getClosestPoints" }  # name provisional; (world, filterInfo, position, tolerance, radius, collector)
+  - { name: hkpAllCdPointCollector_Vtable, kind: data, se: 0, ae: 196331, vr: 0, cpp: "CB::schema::hkpAllCdPointCollector::`vftable'" }
+  - { name: hkbCharacter_SetWorldFromModel, kind: func, se: 0, ae: 58461, vr: 0, cpp: "CB::schema::hkbCharacter::setWorldFromModel" }  # (worldFromModel, deleteWorldFromModel)
+  - { name: BSDecomposeVectorModifier_Vtable, kind: data, se: 0, ae: 232670, vr: 0, cpp: "CB::schema::BSDecomposeVectorModifier::`vftable'" }
+  - { name: BSDecomposeVectorModifier_CloneCtor, kind: func, se: 0, ae: 63187, vr: 0, cpp: "??0BSDecomposeVectorModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSGetTimeStepModifier_Vtable, kind: data, se: 0, ae: 232691, vr: 0, cpp: "CB::schema::BSGetTimeStepModifier::`vftable'" }
+  - { name: BSGetTimeStepModifier_CloneCtor, kind: func, se: 0, ae: 63236, vr: 0, cpp: "??0BSGetTimeStepModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSInterpValueModifier_Vtable, kind: data, se: 0, ae: 232693, vr: 0, cpp: "CB::schema::BSInterpValueModifier::`vftable'" }
+  - { name: BSInterpValueModifier_CloneCtor, kind: func, se: 0, ae: 63245, vr: 0, cpp: "??0BSInterpValueModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSInterpValueModifier_GetStaticClass, kind: func, se: 0, ae: 62980, vr: 0, cpp: "CB::schema::BSInterpValueModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSIsActiveModifier_Vtable, kind: data, se: 0, ae: 232695, vr: 0, cpp: "CB::schema::BSIsActiveModifier::`vftable'" }
+  - { name: BSIsActiveModifier_CloneCtor, kind: func, se: 0, ae: 63254, vr: 0, cpp: "??0BSIsActiveModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSSpeedSamplerModifier_Vtable, kind: data, se: 0, ae: 232717, vr: 0, cpp: "CB::schema::BSSpeedSamplerModifier::`vftable'" }
+  - { name: BSSpeedSamplerModifier_CloneCtor, kind: func, se: 0, ae: 63307, vr: 0, cpp: "??0BSSpeedSamplerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: BSISpeedSamplerDB_Instance, kind: data, se: 0, ae: 409304, vr: 0, cpp: "CB::schema::BSISpeedSamplerDB::s_instance" }  # name provisional; the game's BSSpeedSamplerDBManager (as its BSISpeedSamplerDB base), installed by the animation-cache startup; BSSpeedSamplerModifier::update calls its slot 1
+  - { name: hkbAttributeModifier_Vtable, kind: data, se: 0, ae: 226350, vr: 0, cpp: "CB::schema::hkbAttributeModifier::`vftable'" }
+  - { name: hkbAttributeModifier_CloneCtor, kind: func, se: 0, ae: 59602, vr: 0, cpp: "??0hkbAttributeModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbAttributeModifierUtils_Modify, kind: func, se: 0, ae: 60050, vr: 0, cpp: "CB::schema::hkbAttributeModifierUtils::modify" }  # name provisional; (modifier, inOut, behavior attributeIdMap, root attributeIdMap); modify tail-jumps to it
+  - { name: hkbHandIkControlsModifier_Vtable, kind: data, se: 0, ae: 226519, vr: 0, cpp: "CB::schema::hkbHandIkControlsModifier::`vftable'" }
+  - { name: hkbHandIkControlsModifier_CloneCtor, kind: func, se: 0, ae: 59777, vr: 0, cpp: "??0hkbHandIkControlsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbHandIkControlsModifierUtils_Modify, kind: func, se: 0, ae: 60066, vr: 0, cpp: "CB::schema::hkbHandIkControlsModifierUtils::modify" }  # name provisional; (modifier, inOut) copies each enabled hand's controls into its two hand IK tracks; modify tail-jumps to it
+  - { name: hkbHandIkModifier_Vtable, kind: data, se: 0, ae: 226525, vr: 0, cpp: "CB::schema::hkbHandIkModifier::`vftable'" }
+  - { name: hkbHandIkModifier_StaticClass, kind: data, se: 0, ae: 408068, vr: 0, cpp: "CB::schema::hkbHandIkModifierClass" }  # hkClass object
+  - { name: hkbHandIkModifier_CloneCtor, kind: func, se: 0, ae: 59783, vr: 0, cpp: "??0hkbHandIkModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbHandIkModifier_Dtor, kind: func, se: 0, ae: 58983, vr: 0, cpp: "CB::schema::hkbHandIkModifier::~hkbHandIkModifier" }  # out-of-line copy of the implicit destructor; the scalar deleting destructor calls it
+  - { name: hkbHandIkModifier_SolveArm, kind: func, se: 0, ae: 59790, vr: 0, cpp: "CB::schema::hkbHandIkModifier::solveArm" }  # name provisional; (hand, three gains, targetPositionMS, targetRotationMS, pose) builds a two-joint IK setup and solves it
+  - { name: hkbHandIkModifier_AlignHandNormal, kind: func, se: 0, ae: 59792, vr: 0, cpp: "CB::schema::hkbHandIkModifier::alignHandNormal" }  # name provisional; (hand, fraction, targetNormalMS, worldFromModel (unused), pose) turns the wrist's back-hand normal toward the target
+  - { name: hkbHandleUtils_GetHandleFromLocalFrameName, kind: func, se: 0, ae: 60015, vr: 0, cpp: "CB::schema::hkbHandleUtils::getHandleFromLocalFrameName" }  # name provisional; (context, localFrameName, handleOut) -> found; hand IK modifier activate and the hand IK driver call it
+  - { name: hkaPose_AccessSyncedPoseLocalSpace, kind: func, se: 0, ae: 56990, vr: 0, cpp: "CB::schema::hkaPose::accessSyncedPoseLocalSpace" }
+  - { name: hkbAttachmentSetup_Vtable, kind: data, se: 0, ae: 226126, vr: 0, cpp: "CB::schema::hkbAttachmentSetup::`vftable'" }
+  - { name: hkbAttachmentSceneModifier_Vtable, kind: data, se: 0, ae: 226860, vr: 0, cpp: "CB::schema::hkbAttachmentSceneModifier::`vftable'" }
+  - { name: hkbAttachmentFixupSceneModifier_Vtable, kind: data, se: 0, ae: 226862, vr: 0, cpp: "CB::schema::hkbAttachmentFixupSceneModifier::`vftable'" }
+  - { name: hkbAttachmentManager_Update, kind: func, se: 0, ae: 59434, vr: 0, cpp: "CB::schema::hkbAttachmentManager::update" }  # name provisional; (timestep, sceneCharacters, isFixup)
+  - { name: hkaRagdollInstance_GetBoneIndexOfRigidBody, kind: func, se: 0, ae: 58313, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getBoneIndexOfRigidBody" }  # an out-of-line copy among hkbRagdollDriver's functions (0x140ab0980)
+  - { name: hkbAttachmentManager_AttachHandles, kind: func, se: 0, ae: 59432, vr: 0, cpp: "CB::schema::hkbAttachmentManager::attachHandles" }  # name provisional; (world, setup, handles[2]) -> instance
+  - { name: hkbAttachmentManager_Detach, kind: func, se: 0, ae: 59433, vr: 0, cpp: "CB::schema::hkbAttachmentManager::detach" }  # name provisional; (world, instance), frees it
+  - { name: hkbAttachmentManager_RemoveConstraint, kind: func, se: 0, ae: 59440, vr: 0, cpp: "CB::schema::hkbAttachmentManager::removeConstraint" }  # name provisional; (world, instance)
+  - { name: hkbAttachmentManager_RemoveAttachment, kind: func, se: 0, ae: 59436, vr: 0, cpp: "CB::schema::hkbAttachmentManager::removeAttachment" }  # name provisional; (instance), order kept
+  - { name: hkbAttachmentManager_Dtor, kind: func, se: 0, ae: 59431, vr: 0, cpp: "??1hkbAttachmentManager@schema@CB@@QEAA@XZ" }  # detaches everything (no world)
+  - { name: hkbAttachmentModifier_Vtable, kind: data, se: 0, ae: 226346, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::`vftable'" }
+  - { name: hkbAttachmentModifier_StaticClass, kind: data, se: 0, ae: 407810, vr: 0, cpp: "CB::schema::hkbAttachmentModifierClass" }  # hkClass object
+  - { name: hkbAttachmentModifier_CopyCtor, kind: func, se: 0, ae: 59593, vr: 0, cpp: "??0hkbAttachmentModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbAttachmentModifier_Dtor, kind: func, se: 0, ae: 58970, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::~hkbAttachmentModifier" }  # implicit, out of line among the type registrations
+  - { name: hkbAttachmentModifier_Attach, kind: func, se: 0, ae: 59600, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::attach" }  # name provisional; update tail-jumps to it
+  - { name: hkbAttachmentModifier_Detach, kind: func, se: 0, ae: 59601, vr: 0, cpp: "CB::schema::hkbAttachmentModifier::detach" }  # name provisional
+  - { name: hkbAttachmentSetup_CopyCtor, kind: func, se: 0, ae: 60049, vr: 0, cpp: "??0hkbAttachmentSetup@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbContext_GetAttachmentManager, kind: func, se: 0, ae: 58318, vr: 0, cpp: "CB::schema::hkbContext::getAttachmentManager" }  # name provisional; context +0x40, else the behavior world's +0x130
+  - { name: hkbContext_SendEventToCharacter, kind: func, se: 0, ae: 58321, vr: 0, cpp: "CB::schema::hkbContext::sendEventToCharacter" }  # name provisional; (event&, character, eventIdMap)
+  - { name: hkbRagdollDriver_AddAttachedRigidBody, kind: func, se: 0, ae: 58297, vr: 0, cpp: "CB::schema::hkbRagdollDriver::addAttachedRigidBody" }
+  - { name: hkbRagdollDriver_RemoveAttachedRigidBody, kind: func, se: 0, ae: 58298, vr: 0, cpp: "CB::schema::hkbRagdollDriver::removeAttachedRigidBody" }
+  - { name: hkpRigidBody_SetMotionType, kind: func, se: 0, ae: 60908, vr: 0, cpp: "CB::schema::hkpRigidBody::setMotionType" }  # hkp code (not reimplemented); (newState, activation)
+  - { name: hkpWorld_UpdateCollisionFilterOnEntity, kind: func, se: 0, ae: 61321, vr: 0, cpp: "CB::schema::hkpWorld::updateCollisionFilterOnEntity" }  # hkp code (not reimplemented)
+  - { name: hkbContext_CopyCtor, kind: func, se: 0, ae: 58314, vr: 0, cpp: "??0hkbContext@schema@CB@@QEAA@AEBU012@@Z" }  # out of line, memberwise
+  - { name: hkaPoseMatchingUtility_Ctor, kind: func, se: 0, ae: 64164, vr: 0, cpp: "??0hkaPoseMatchingUtility@schema@CB@@QEAA@FFFAEBUhkVector4@12@@Z" }  # (root, other, another bone, up)
+  - { name: hkaPoseMatchingUtility_AddCandidatePose, kind: func, se: 0, ae: 64166, vr: 0, cpp: "CB::schema::hkaPoseMatchingUtility::addCandidatePose" }  # name provisional; (poseModel, userData, time) -> index
+  - { name: hkaPoseMatchingUtility_FindBestCandidatePoseIndex, kind: func, se: 0, ae: 64165, vr: 0, cpp: "CB::schema::hkaPoseMatchingUtility::findBestCandidatePoseIndex" }  # name provisional; (poseModel, errorOut) -> index or -1
+  - { name: hkaRagdollInstance_GetPoseModelSpace, kind: func, se: 0, ae: 64153, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getPoseModelSpace" }
+  - { name: hkaSkeletonMapper_MapPose, kind: func, se: 0, ae: 64072, vr: 0, cpp: "CB::schema::hkaSkeletonMapper::mapPose" }  # (poseAModel, originalPoseBLocal, poseBModelInOut, source)
+  - { name: hkaSkeletonUtils_TransformLocalPoseToModelPose, kind: func, se: 0, ae: 64104, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::transformLocalPoseToModelPose" }
+  - { name: hkbBehaviorGraph_CloneShallow, kind: func, se: 0, ae: 58340, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::cloneShallow" }  # name provisional; (rootGenerator or null)
+  - { name: hkbBehaviorGraph_SetRootGenerator, kind: func, se: 0, ae: 58342, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::setRootGenerator" }
+  - { name: hkbBehaviorGraph_GenerateRoot, kind: func, se: 0, ae: 58343, vr: 0, cpp: "?generate@hkbBehaviorGraph@schema@CB@@QEAAXAEBUhkbContext@23@AEAUhkbGeneratorOutput@23@_NM2@Z" }  # the non-virtual root generate; flag names provisional
+  - { name: hkbBehaviorGraph_CtorRootData, kind: func, se: 0, ae: 58325, vr: 0, cpp: "??0hkbBehaviorGraph@schema@CB@@QEAA@PEAVhkbGenerator@12@PEAUhkbBehaviorGraphData@12@@Z" }  # (rootGenerator, data)
+  - { name: hkbBlenderGenerator_Activate, kind: func, se: 0, ae: 59521, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::activate" }
+  - { name: hkbBlenderGenerator_Update, kind: func, se: 0, ae: 59522, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::update" }
+  - { name: hkbBlenderGenerator_Deactivate, kind: func, se: 0, ae: 59523, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::deactivate" }
+  - { name: hkbBlenderGenerator_IsValid, kind: func, se: 0, ae: 59526, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::isValid" }
+  - { name: hkbBlenderGenerator_UpdateSync, kind: func, se: 0, ae: 59530, vr: 0, cpp: "CB::schema::hkbBlenderGenerator::updateSync" }
+  - { name: hkbCharacter_SetBehavior, kind: func, se: 0, ae: 58464, vr: 0, cpp: "CB::schema::hkbCharacter::setBehavior" }
+  - { name: hkbGeneratorOutput_Ctor, kind: func, se: 0, ae: 58472, vr: 0, cpp: "??0hkbGeneratorOutput@schema@CB@@QEAA@HHHHHH@Z" }  # parameter names provisional
+  - { name: hkbPoseMatchingGenerator_Vtable, kind: data, se: 0, ae: 226327, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::`vftable'" }
+  - { name: hkbPoseMatchingGeneratorInternalState_Vtable, kind: data, se: 0, ae: 226332, vr: 0, cpp: "CB::schema::hkbPoseMatchingGeneratorInternalState::`vftable'" }
+  - { name: hkbPoseMatchingGenerator_GetStaticClass, kind: func, se: 0, ae: 58675, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbPoseMatchingGenerator_CopyCtor, kind: func, se: 0, ae: 59572, vr: 0, cpp: "??0hkbPoseMatchingGenerator@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbPoseMatchingGenerator_Dtor, kind: func, se: 0, ae: 59573, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::~hkbPoseMatchingGenerator" }
+  - { name: hkbPoseMatchingGenerator_MatchPose, kind: func, se: 0, ae: 59583, vr: 0, cpp: "CB::schema::hkbPoseMatchingGenerator::matchPose" }  # name provisional
+  - { name: hkbRagdollDriver_CopyAndScalePose, kind: func, se: 0, ae: 58300, vr: 0, cpp: "CB::schema::hkbRagdollDriver::copyAndScalePose" }  # name and owner provisional; (toWorldScale, n, in, out, scale)
+  # --- Base classes, data classes, event payloads (hkbNode, hkbGenerator, hkbModifier, hkbStateListener, ...) ---
+  - { name: hkClass_GetName, kind: func, se: 0, ae: 57621, vr: 0, cpp: "CB::schema::hkClass::getName" }
+  - { name: hkClass_GetObjectSize, kind: func, se: 0, ae: 57645, vr: 0, cpp: "CB::schema::hkClass::getObjectSize" }
+  - { name: hkbBindableCollector_Vtable, kind: data, se: 0, ae: 220369, vr: 0, cpp: "CB::schema::hkbBindableCollector::`vftable'" }
+  - { name: hkbNode_BoundVariablesCollector_Vtable, kind: data, se: 0, ae: 220373, vr: 0, cpp: "CB::schema::hkbNode::BoundVariablesCollector::`vftable'" }  # RTTI hkbNode::BoundVariablesCollector
+  - { name: hkbStringEventPayload_GetStaticClass, kind: func, se: 0, ae: 58553, vr: 0, cpp: "CB::schema::hkbStringEventPayload::staticClass" }  # getClassType tail-jumps to it
+  - { name: hkbEventPayloadList_Vtable, kind: data, se: 0, ae: 226148, vr: 0, cpp: "CB::schema::hkbEventPayloadList::`vftable'" }
+  - { name: hkbEventPayloadList_Dtor, kind: func, se: 0, ae: 59476, vr: 0, cpp: "??1hkbEventPayloadList@schema@CB@@UEAA@XZ" }  # releases each payload; the scalar deleting destructor calls it
+  - { name: hkbStringCondition_EvaluateFunction, kind: data, se: 0, ae: 408433, vr: 0, cpp: "CB::schema::hkbStringCondition::s_evaluateFunction" }  # name provisional; isTrue's callback, never written in the exe
+  - { name: hkbStringCondition_DefaultResult, kind: data, se: 0, ae: 385123, vr: 0, cpp: "CB::schema::hkbStringCondition::s_defaultResult" }  # name provisional; isTrue's result without a callback
+  - { name: hkbVariableBindingSet_Vtable, kind: data, se: 0, ae: 226150, vr: 0, cpp: "CB::schema::hkbVariableBindingSet::`vftable'" }
+  - { name: hkbVariableBindingSet_Dtor, kind: func, se: 0, ae: 59466, vr: 0, cpp: "??1hkbVariableBindingSet@schema@CB@@UEAA@XZ" }  # removes every binding unless packfile-placed
+  - { name: hkbVariableValueSet_Dtor, kind: func, se: 0, ae: 58392, vr: 0, cpp: "??1hkbVariableValueSet@schema@CB@@UEAA@XZ" }
+  - { name: hkbSequenceInternalState_Dtor, kind: func, se: 0, ae: 58987, vr: 0, cpp: "??1hkbSequenceInternalState@schema@CB@@UEAA@XZ" }
+  - { name: hkbStateMachineInternalState_Dtor, kind: func, se: 0, ae: 58989, vr: 0, cpp: "??1hkbStateMachineInternalState@schema@CB@@UEAA@XZ" }
+  - { name: hkbClipTriggerArray_Dtor, kind: func, se: 0, ae: 58975, vr: 0, cpp: "??1hkbClipTriggerArray@schema@CB@@UEAA@XZ" }
+  - { name: hkbExpressionDataArray_Dtor, kind: func, se: 0, ae: 58980, vr: 0, cpp: "??1hkbExpressionDataArray@schema@CB@@UEAA@XZ" }
+  - { name: hkbCompiledExpressionSet_Vtable, kind: data, se: 0, ae: 226224, vr: 0, cpp: "CB::schema::hkbCompiledExpressionSet::`vftable'" }
+  - { name: hkbCompiledExpressionSet_Dtor, kind: func, se: 0, ae: 58976, vr: 0, cpp: "??1hkbCompiledExpressionSet@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbSymbolIdMap_Dtor, kind: func, se: 0, ae: 60118, vr: 0, cpp: "??1hkbSymbolIdMap@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraphData_Vtable, kind: data, se: 0, ae: 226179, vr: 0, cpp: "CB::schema::hkbBehaviorGraphData::`vftable'" }
+  - { name: hkbBehaviorGraphData_Dtor, kind: func, se: 0, ae: 59498, vr: 0, cpp: "??1hkbBehaviorGraphData@schema@CB@@UEAA@XZ" }  # releases the initial values, then the members
+  - { name: hkbBehaviorGraphStringData_Dtor, kind: func, se: 0, ae: 58972, vr: 0, cpp: "??1hkbBehaviorGraphStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraphInternalState_Dtor, kind: func, se: 0, ae: 58971, vr: 0, cpp: "??1hkbBehaviorGraphInternalState@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraphInternalStateInfo_Dtor, kind: func, se: 0, ae: 80347, vr: 0, cpp: "??1hkbBehaviorGraphInternalStateInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbAuxiliaryNodeInfo_Dtor, kind: func, se: 0, ae: 80346, vr: 0, cpp: "??1hkbAuxiliaryNodeInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorInfo_Dtor, kind: func, se: 0, ae: 80348, vr: 0, cpp: "??1hkbBehaviorInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterAddedInfo_Dtor, kind: func, se: 0, ae: 80349, vr: 0, cpp: "??1hkbCharacterAddedInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterSkinInfo_Dtor, kind: func, se: 0, ae: 80350, vr: 0, cpp: "??1hkbCharacterSkinInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterSteppedInfo_Dtor, kind: func, se: 0, ae: 80351, vr: 0, cpp: "??1hkbCharacterSteppedInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbLinkedSymbolInfo_Dtor, kind: func, se: 0, ae: 80352, vr: 0, cpp: "??1hkbLinkedSymbolInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbSetBehaviorCommand_Dtor, kind: func, se: 0, ae: 80353, vr: 0, cpp: "??1hkbSetBehaviorCommand@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbClientCharacterState_Dtor, kind: func, se: 0, ae: 81025, vr: 0, cpp: "??1hkbClientCharacterState@schema@CB@@UEAA@XZ" }  # the destructor (it deletes the node-state map)
+  - { name: hkbClientCharacterState_Vtable, kind: data, se: 0, ae: 241537, vr: 0, cpp: "CB::schema::hkbClientCharacterState::`vftable'" }  # the destructor stores it
+  - { name: hkbBehaviorClient_Vtable, kind: data, se: 0, ae: 241539, vr: 0, cpp: "??_7hkbBehaviorClient@schema@CB@@6BhkReferencedObject@12@@" }
+  - { name: hkRemoteObjectClientSideListener_Vtable, kind: data, se: 0, ae: 241535, vr: 0, cpp: "CB::schema::hkRemoteObjectClientSideListener::`vftable'" }
+  - { name: hkbBehaviorClient_ListenerVtable, kind: data, se: 0, ae: 241541, vr: 0, cpp: "??_7hkbBehaviorClient@schema@CB@@6BhkRemoteObjectClientSideListener@12@@" }  # the listener base's (+0x10)
+  - { name: hkbBehaviorClient_Dtor, kind: func, se: 0, ae: 81027, vr: 0, cpp: "??1hkbBehaviorClient@schema@CB@@UEAA@XZ" }  # stores both vtables first
+  - { name: hkbProjectStringData_Dtor, kind: func, se: 0, ae: 58985, vr: 0, cpp: "??1hkbProjectStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbAnimationBindingSet_Clear, kind: func, se: 0, ae: 59418, vr: 0, cpp: "CB::schema::hkbAnimationBindingSet::clear" }  # name provisional; releases every binding, size 0
+  - { name: hkbAnimationBindingWithTriggers_Vtable, kind: data, se: 0, ae: 226845, vr: 0, cpp: "CB::schema::hkbAnimationBindingWithTriggers::`vftable'" }
+  - { name: hkbAnimationBindingWithTriggers_Dtor, kind: func, se: 0, ae: 59416, vr: 0, cpp: "??1hkbAnimationBindingWithTriggers@schema@CB@@UEAA@XZ" }  # nulls the (non-owned) binding, releases the trigger payloads
+  - { name: hkbCharacterData_Dtor, kind: func, se: 0, ae: 59507, vr: 0, cpp: "??1hkbCharacterData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbCharacterSetup_Vtable, kind: data, se: 0, ae: 226868, vr: 0, cpp: "CB::schema::hkbCharacterSetup::`vftable'" }
+  - { name: hkbCharacterSetup_Dtor, kind: func, se: 0, ae: 59478, vr: 0, cpp: "??1hkbCharacterSetup@schema@CB@@UEAA@XZ" }
+  - { name: hkbCharacterStringData_Dtor, kind: func, se: 0, ae: 58974, vr: 0, cpp: "??1hkbCharacterStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbSequenceStringData_Dtor, kind: func, se: 0, ae: 58988, vr: 0, cpp: "??1hkbSequenceStringData@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbBehaviorGraph_GetMirroredExternalId, kind: func, se: 0, ae: 58354, vr: 0, cpp: "CB::schema::hkbBehaviorGraph::getMirroredExternalId" }  # name provisional; m_mirroredExternalIdMap[id], or id without a table
+  - { name: hkbEventRangeDataArray_Dtor, kind: func, se: 0, ae: 58978, vr: 0, cpp: "??1hkbEventRangeDataArray@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  # --- wave 6 drivers: behavior-side physics plumbing (drivers, scene modifiers, raycast interface, frame collector) ---
+  - { name: hkbClosestLocalFrameCollector_Vtable, kind: data, se: 0, ae: 227023, vr: 0, cpp: "CB::schema::hkbClosestLocalFrameCollector::`vftable'" }
+  - { name: hkbRagdollDriver_Vtable, kind: data, se: 0, ae: 220245, vr: 0, cpp: "CB::schema::hkbRagdollDriver::`vftable'" }
+  - { name: hkbRagdollDriver_Dtor, kind: func, se: 0, ae: 58281, vr: 0, cpp: "??1hkbRagdollDriver@schema@CB@@UEAA@XZ" }
+  - { name: hkbFootIkDriver_Vtable, kind: data, se: 0, ae: 220334, vr: 0, cpp: "CB::schema::hkbFootIkDriver::`vftable'" }
+  - { name: hkbFootIkDriver_Dtor, kind: func, se: 0, ae: 58422, vr: 0, cpp: "??1hkbFootIkDriver@schema@CB@@UEAA@XZ" }
+  - { name: hkbHandIkDriver_Vtable, kind: data, se: 0, ae: 226847, vr: 0, cpp: "CB::schema::hkbHandIkDriver::`vftable'" }
+  - { name: hkbHandIkDriver_Dtor, kind: func, se: 0, ae: 59428, vr: 0, cpp: "??1hkbHandIkDriver@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbHandIkDriverInfo_Dtor, kind: func, se: 0, ae: 58982, vr: 0, cpp: "??1hkbHandIkDriverInfo@schema@CB@@UEAA@XZ" }  # the implicit destructor's out-of-line copy
+  - { name: hkbRagdollDriver_DriveToPose, kind: func, se: 0, ae: 58291, vr: 0, cpp: "CB::schema::hkbRagdollDriver::driveToPose" }  # (timestep, context, generatorOutput); called by hkbRagdollSceneModifier
+  - { name: hkbRagdollDriver_PostPhysics, kind: func, se: 0, ae: 58293, vr: 0, cpp: "CB::schema::hkbRagdollDriver::postPhysics" }  # (context, inOut); called by hkbRagdollSceneModifier
+  - { name: hkpWorld_StepDeltaTime, kind: func, se: 0, ae: 61410, vr: 0, cpp: "CB::schema::hkpWorld::stepDeltaTime" }  # hkp code (not reimplemented)
+  - { name: hkbRagdollSceneModifier_Vtable, kind: data, se: 0, ae: 226864, vr: 0, cpp: "CB::schema::hkbRagdollSceneModifier::`vftable'" }
+  - { name: hkbCharacterControllerSceneModifier_Vtable, kind: data, se: 0, ae: 226866, vr: 0, cpp: "CB::schema::hkbCharacterControllerSceneModifier::`vftable'" }
+  - { name: hkbFootIkDriver_DoFootIk, kind: func, se: 0, ae: 58423, vr: 0, cpp: "CB::schema::hkbFootIkDriver::doFootIk" }  # name provisional; (context, generatorOutput); called by hkbFootIkSceneModifier
+  - { name: hkbFootIkDriver_GetInternalLegData, kind: func, se: 0, ae: 58430, vr: 0, cpp: "CB::schema::hkbFootIkDriver::getInternalLegData" }
+  - { name: hkbFootIkControlsModifier_Vtable, kind: data, se: 0, ae: 226476, vr: 0, cpp: "CB::schema::hkbFootIkControlsModifier::`vftable'" }
+  - { name: hkbFootIkControlsModifier_CloneCtor, kind: func, se: 0, ae: 59731, vr: 0, cpp: "??0hkbFootIkControlsModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode tail-jumps to it
+  - { name: hkbFootIkControlsModifier_Dtor, kind: func, se: 0, ae: 58981, vr: 0, cpp: "??1hkbFootIkControlsModifier@schema@CB@@UEAA@XZ" }
+  - { name: hkbFootIkControlsModifierUtils_Modify, kind: func, se: 0, ae: 60056, vr: 0, cpp: "CB::schema::hkbFootIkControlsModifierUtils::modify" }  # name provisional; (modifier, inOut, driver legs, numLegs)
+  - { name: hkbFootIkControlsModifierUtils_CopyLegs, kind: func, se: 0, ae: 60057, vr: 0, cpp: "CB::schema::hkbFootIkControlsModifierUtils::copyLegs" }  # name provisional; (modifier, driver legs, numLegs)
+  - { name: hkbFootIkModifier_Vtable, kind: data, se: 0, ae: 226484, vr: 0, cpp: "CB::schema::hkbFootIkModifier::`vftable'" }
+  - { name: hkbFootIkModifier_CloneCtor, kind: func, se: 0, ae: 59737, vr: 0, cpp: "??0hkbFootIkModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbFootIkModifier_Dtor, kind: func, se: 0, ae: 59738, vr: 0, cpp: "??1hkbFootIkModifier@schema@CB@@UEAA@XZ" }
+  - { name: hkbFootIkModifierLeg_CopyCtor, kind: func, se: 0, ae: 59752, vr: 0, cpp: "??0Leg@hkbFootIkModifier@schema@CB@@QEAA@AEBU0123@@Z" }  # implicit, out of line (hkArray copy)
+  - { name: hkbFootIkModifierLeg_Assign, kind: func, se: 0, ae: 59753, vr: 0, cpp: "??4Leg@hkbFootIkModifier@schema@CB@@QEAAAEAU0123@AEBU0123@@Z" }  # implicit, out of line (hkArray copy)
+  - { name: hkaFootPlacementIkSolverSetup_Ctor, kind: func, se: 0, ae: 56974, vr: 0, cpp: "??0Setup@hkaFootPlacementIkSolver@schema@CB@@QEAA@XZ" }
+  - { name: hkaFootPlacementIkSolver_Ctor, kind: func, se: 0, ae: 56976, vr: 0, cpp: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z" }
+  - { name: BSIFootIkRaycastInterfaceDB_Instance, kind: data, se: 0, ae: 407511, vr: 0, cpp: "CB::schema::BSIFootIkRaycastInterfaceDB::s_instance" }  # name provisional; BGSFootIkRaycastInterfaceDB's singleton, or null
+  - { name: CRT_cosf, kind: func, se: 0, ae: 109720, vr: 0, cpp: "cosf" }  # the CRT cosf
+  - { name: hkbFootIkModifier_ComputeAverage, kind: func, se: 0, ae: 59751, vr: 0, cpp: "CB::schema::hkbFootIkModifier::computeAverage" }  # name provisional
+  - { name: hkMatrixNm_SetSize, kind: func, se: 0, ae: 64215, vr: 0, cpp: "CB::schema::hkMatrixNm::setSize" }  # (numRows, numCols)
+  - { name: hkMatrixNm_Invert, kind: func, se: 0, ae: 64210, vr: 0, cpp: "CB::schema::hkMatrixNm::invert" }  # hkResult; in place
+  - { name: hkbFootIkModifier_ComputeGroundNormal, kind: func, se: 0, ae: 59748, vr: 0, cpp: "CB::schema::hkbFootIkModifier::computeGroundNormal" }  # name provisional; (context, worldFromModel, upWS, normalOut)
+  - { name: hkbFootIkModifier_Setup, kind: func, se: 0, ae: 59745, vr: 0, cpp: "CB::schema::hkbFootIkModifier::setup" }  # name provisional; (context, skeleton) builds the legs' solvers
+  - { name: hkbFootIkModifier_OrientHips, kind: func, se: 0, ae: 59746, vr: 0, cpp: "CB::schema::hkbFootIkModifier::orientHips" }  # name provisional; (context, inOut, pose, upWS, gain)
+  - { name: hkbFootIkModifier_AlignWorldFromModelUpWithGroundNormal, kind: func, se: 0, ae: 59747, vr: 0, cpp: "CB::schema::hkbFootIkModifier::alignWorldFromModelUpWithGroundNormal" }  # name provisional; (context, upWS, inOut, gain)
+  - { name: hkbFootIkModifier_FitPlane, kind: func, se: 0, ae: 59749, vr: 0, cpp: "CB::schema::hkbFootIkModifier::fitPlane" }  # name provisional; (points, n, upWS, normalOut) -> bool
+  - { name: hkbFootIkModifier_FitLine, kind: func, se: 0, ae: 59750, vr: 0, cpp: "CB::schema::hkbFootIkModifier::fitLine" }  # name provisional; (points, n, axis, upWS, directionOut) -> bool
+  - { name: hkQuaternion_SetMulOutOfLine, kind: func, se: 0, ae: 57007, vr: 0, cpp: "CB::schema::hkQuaternion::setMulOutOfLine" }  # name provisional; scalar q0*q1 (this may alias q1); foot IK, hkaSkeletonMapperUtils, ...
+  - { name: hkaTwoJointsIkSolver_Solve, kind: func, se: 0, ae: 57005, vr: 0, cpp: "CB::schema::hkaTwoJointsIkSolver::solve" }  # (setup, poseInOut) -> hkBool (hidden pointer); hkbHandIkModifier, hkaFootPlacementIkSolver
+  - { name: hkaFootPlacementIkSolverInput_Ctor, kind: func, se: 0, ae: 56975, vr: 0, cpp: "??0Input@hkaFootPlacementIkSolver@schema@CB@@QEAA@XZ" }
+  - { name: hkaFootPlacementIkSolver_DoFootPlacement, kind: func, se: 0, ae: 56977, vr: 0, cpp: "CB::schema::hkaFootPlacementIkSolver::doFootPlacement" }  # (input, output, poseInOut)
+  - { name: hkbFootIkGains_ComputeGainFraction, kind: func, se: 0, ae: 59325, vr: 0, cpp: "CB::schema::hkbFootIkGains::computeGainFraction" }  # name and owner provisional; clamp(gain * timestep * 30, 0, 1)
+  - { name: hkbHandIkDriver_Drive, kind: func, se: 0, ae: 59421, vr: 0, cpp: "CB::schema::hkbHandIkDriver::drive" }  # name provisional; (context, generatorOutput, timestep, isFixup); called by the hand IK scene modifiers
+  - { name: hkaRaycastInterface_Vtable, kind: data, se: 0, ae: 205116, vr: 0, cpp: "CB::schema::hkaRaycastInterface::`vftable'" }
+  - { name: hkbDefaultRaycastInterface_Vtable, kind: data, se: 0, ae: 227029, vr: 0, cpp: "??_7hkbDefaultRaycastInterface@schema@CB@@6BhkReferencedObject@12@@" }  # by mangled name: the class has two
+  - { name: hkbDefaultRaycastInterface_RaycastVtable, kind: data, se: 0, ae: 227031, vr: 0, cpp: "??_7hkbDefaultRaycastInterface@schema@CB@@6BhkaRaycastInterface@12@@" }  # the hkaRaycastInterface base's (+0x10)
+  - { name: hkbDefaultRaycastInterface_VectorDeletingDtor, kind: func, se: 0, ae: 60085, vr: 0, cpp: "??_EhkbDefaultRaycastInterface@schema@CB@@UEAAPEAXI@Z" }  # the vtable's slot 0 (MSVC resolves ??_E to the scalar ??_G when nothing deletes arrays); the +0x10 adjustor thunk jumps to it
+  # --- Havok animation: hkaRagdollInstance (schema/Havok/Animation/Ragdoll/Instance) and hkaSkeletonUtils ---
+  - { name: hkaSkeletonUtils_GetModelSpaceScale, kind: func, se: 0, ae: 64140, vr: 0, cpp: "CB::schema::hkaSkeletonUtils::getModelSpaceScale" }  # (skeleton, poseLocal, bone, scaleOut): product of the local scales up the parent chain
+  - { name: hkaRagdollInstance_Vtable, kind: data, se: 0, ae: 232978, vr: 0, cpp: "CB::schema::hkaRagdollInstance::`vftable'" }
+  - { name: hkaRagdollInstance_Ctor, kind: func, se: 0, ae: 64144, vr: 0, cpp: "??0hkaRagdollInstance@schema@CB@@QEAA@AEBU?$hkArray@PEAVhkpRigidBody@schema@CB@@@12@AEBU?$hkArray@PEAVhkpConstraintInstance@schema@CB@@@12@PEBUhkaSkeleton@12@@Z" }  # (rigidBodies, constraints, skeleton): body i drives bone i
+  - { name: hkaRagdollInstance_CtorWithMap, kind: func, se: 0, ae: 64145, vr: 0, cpp: "??0hkaRagdollInstance@schema@CB@@QEAA@AEBU?$hkArray@PEAVhkpRigidBody@schema@CB@@@12@AEBU?$hkArray@PEAVhkpConstraintInstance@schema@CB@@@12@PEBUhkaSkeleton@12@AEBU?$hkArray@H@12@@Z" }  # (rigidBodies, constraints, skeleton, boneToRigidBodyMap)
+  - { name: hkaRagdollInstance_Dtor, kind: func, se: 0, ae: 64146, vr: 0, cpp: "??1hkaRagdollInstance@schema@CB@@UEAA@XZ" }
+  - { name: hkaRagdollInstance_Clone, kind: func, se: 0, ae: 64147, vr: 0, cpp: "CB::schema::hkaRagdollInstance::clone" }  # vtable slot 3; (cloningMode)
+  - { name: hkaRagdollInstance_GetPoseWorldSpace, kind: func, se: 0, ae: 64148, vr: 0, cpp: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@@Z" }  # (poseOut): worldFromModel = identity
+  - { name: hkaRagdollInstance_GetPoseWorldSpaceFrom, kind: func, se: 0, ae: 64149, vr: 0, cpp: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@AEBU423@PEBU423@@Z" }  # (poseOut, worldFromModel, localPoseForUnmappedBones or null)
+  - { name: hkaRagdollInstance_GetApproxCurrentPoseWorldSpace, kind: func, se: 0, ae: 64150, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getApproxCurrentPoseWorldSpace" }  # name provisional; at the world's current time
+  - { name: hkaRagdollInstance_GetApproxPoseWorldSpaceAt, kind: func, se: 0, ae: 64151, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getApproxPoseWorldSpaceAt" }  # name provisional; (time, poseOut)
+  - { name: hkaRagdollInstance_SetPoseWorldSpace, kind: func, se: 0, ae: 64152, vr: 0, cpp: "CB::schema::hkaRagdollInstance::setPoseWorldSpace" }  # teleports the bodies, zeroes their velocities
+  - { name: hkaRagdollInstance_SetPoseModelSpace, kind: func, se: 0, ae: 64155, vr: 0, cpp: "CB::schema::hkaRagdollInstance::setPoseModelSpace" }  # (poseModel, worldFromModel)
+  - { name: hkaRagdollInstance_SetPoseModelSpaceKeyframed, kind: func, se: 0, ae: 64156, vr: 0, cpp: "CB::schema::hkaRagdollInstance::setPoseModelSpaceKeyframed" }  # name provisional; (prevPoseModel, prevWorldFromModel, poseModel, worldFromModel, timestep): teleports and sets the velocities that got it there
+  - { name: hkaRagdollInstance_AddToWorld, kind: func, se: 0, ae: 64157, vr: 0, cpp: "CB::schema::hkaRagdollInstance::addToWorld" }  # (world, hkBool updateFilter) -> hkResult in eax
+  - { name: hkaRagdollInstance_RemoveFromWorld, kind: func, se: 0, ae: 64158, vr: 0, cpp: "CB::schema::hkaRagdollInstance::removeFromWorld" }  # -> hkResult in eax
+  - { name: hkaRagdollInstance_GetBoneWorldSpace, kind: func, se: 0, ae: 64159, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getBoneWorldSpace" }  # name provisional; (bone, out), recursive
+  - { name: hkaRagdollInstance_GetApproxBoneWorldSpaceAt, kind: func, se: 0, ae: 64160, vr: 0, cpp: "CB::schema::hkaRagdollInstance::getApproxBoneWorldSpaceAt" }  # name provisional; (bone, time, out), recursive
+  - { name: hkaRagdollInstance_FinishCtor, kind: func, se: 0, ae: 64161, vr: 0, cpp: "??0hkaRagdollInstance@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z" }
+  - { name: hkaRagdollInstance_Init, kind: func, se: 0, ae: 64162, vr: 0, cpp: "CB::schema::hkaRagdollInstance::init" }  # name provisional; references the skeleton, copies + references bodies and constraints
+  - { name: hkQsTransform_SetFromTransformNoScale, kind: func, se: 0, ae: 57244, vr: 0, cpp: "CB::schema::hkQsTransform::setFromTransformNoScale" }
+  - { name: hkaDetectRagdollPenetration_Vtable, kind: data, se: 0, ae: 240809, vr: 0, cpp: "CB::schema::hkaDetectRagdollPenetration::`vftable'" }
+  - { name: hkaDetectRagdollPenetration_DetectPenetration, kind: func, se: 0, ae: 80067, vr: 0, cpp: "CB::schema::hkaDetectRagdollPenetration::detectPenetration" }  # (pose, penetrationsOut) -> hkBool through memory; not reimplemented yet
+  - { name: hkaRagdollRaycastInterface_Vtable, kind: data, se: 0, ae: 239024, vr: 0, cpp: "CB::schema::hkaRagdollRaycastInterface::`vftable'" }  # [dtor, castRay pure]; Skyrim's implementation is bhkRagdollPenetrationUtil
+  - { name: hkaFootPlacementIkSolver_Vtable, kind: data, se: 0, ae: 218958, vr: 0, cpp: "CB::schema::hkaFootPlacementIkSolver::`vftable'" }
+  # --- hkbGetUpModifier + BSLimbIKModifier (schema/Havok/Behavior/Modifier/{GetUp,BSLimbIK}) ---
+  - { name: hkbGetUpModifier_Vtable, kind: data, se: 0, ae: 226500, vr: 0, cpp: "CB::schema::hkbGetUpModifier::`vftable'" }
+  - { name: hkbGetUpModifierInternalState_Vtable, kind: data, se: 0, ae: 226504, vr: 0, cpp: "CB::schema::hkbGetUpModifierInternalState::`vftable'" }
+  - { name: hkbGetUpModifier_CopyCtor, kind: func, se: 0, ae: 59761, vr: 0, cpp: "??0hkbGetUpModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbRotationUtils_RotateToAlignUp, kind: func, se: 0, ae: 59321, vr: 0, cpp: "CB::schema::hkbRotationUtils::rotateToAlignUp" }  # name and owner provisional; (targetRot, currentRot, targetUp, currentUp, out, fraction, epsilon)
+  - { name: hkbGeneratorOutputUtils_GetPoseModelSpace, kind: func, se: 0, ae: 58476, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::getPoseModelSpace" }  # name provisional; (output, skeleton, poseModelOut)
+  - { name: hkaPoseMatchingUtility_ComputeReferenceFrame, kind: func, se: 0, ae: 64167, vr: 0, cpp: "CB::schema::hkaPoseMatchingUtility::computeReferenceFrame" }  # name provisional; (animPoseMS, ragdollPoseMS, animWorldFromModelOut, ragdollWorldFromModelOut)
+  - { name: BSLimbIKModifier_Vtable, kind: data, se: 0, ae: 232697, vr: 0, cpp: "CB::schema::BSLimbIKModifier::`vftable'" }
+  - { name: BSLimbIKModifier_GetStaticClass, kind: func, se: 0, ae: 62985, vr: 0, cpp: "CB::schema::BSLimbIKModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSLimbIKModifier_CopyCtor, kind: func, se: 0, ae: 63265, vr: 0, cpp: "??0BSLimbIKModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSILimbIKModifierSingleton_Instance, kind: data, se: 0, ae: 409303, vr: 0, cpp: "CB::schema::BSILimbIKModifierSingleton::s_instance" }  # name provisional; BSTSingletonSDM<BSLimbIKModifierUtility>, installed by the animation-cache startup; modify casts through it
+  # --- Havok physics (hkp): declared in schema/Havok/Physics, never reimplemented ---
+  - { name: hkpEntity_Activate, kind: func, se: 0, ae: 60849, vr: 0, cpp: "CB::schema::hkpEntity::activate" }
+  - { name: hkpRigidBody_SetPositionAndRotation, kind: func, se: 0, ae: 60898, vr: 0, cpp: "CB::schema::hkpRigidBody::setPositionAndRotation" }
+  - { name: hkpMotion_ApproxTransformAt, kind: func, se: 0, ae: 60966, vr: 0, cpp: "CB::schema::hkpMotion::approxTransformAt" }  # (time in xmm1, transformOut)
+  - { name: hkpConstraintInstance_Clone, kind: func, se: 0, ae: 61568, vr: 0, cpp: "CB::schema::hkpConstraintInstance::clone" }  # (entityA, entityB, cloningMode)
+  - { name: hkpWorld_GetCurrentTime, kind: func, se: 0, ae: 61420, vr: 0, cpp: "CB::schema::hkpWorld::getCurrentTime" }  # m_simulation->m_currentTime (+0x24)
+  - { name: hkpWorld_AddEntityBatch, kind: func, se: 0, ae: 61306, vr: 0, cpp: "CB::schema::hkpWorld::addEntityBatch" }  # (entities, count, activation)
+  - { name: hkpWorld_RemoveEntityBatch, kind: func, se: 0, ae: 61307, vr: 0, cpp: "CB::schema::hkpWorld::removeEntityBatch" }  # (entities, count)
+  - { name: hkpWorld_AddConstraint, kind: func, se: 0, ae: 61308, vr: 0, cpp: "CB::schema::hkpWorld::addConstraint" }  # -> the constraint
+  - { name: hkpWorld_RemoveConstraint, kind: func, se: 0, ae: 61309, vr: 0, cpp: "CB::schema::hkpWorld::removeConstraint" }  # -> hkBool through memory
+  - { name: hkpWorld_CastRay, kind: func, se: 0, ae: 61400, vr: 0, cpp: "CB::schema::hkpWorld::castRay" }  # (input, collector)
+  - { name: hkpWorld_GetClosestPoints, kind: func, se: 0, ae: 61404, vr: 0, cpp: "CB::schema::hkpWorld::getClosestPoints" }  # (collA, collisionInput, collector)
+  - { name: hkpWorld_AddPhantom, kind: func, se: 0, ae: 61314, vr: 0, cpp: "CB::schema::hkpWorld::addPhantom" }
+  - { name: hkpWorld_RemovePhantom, kind: func, se: 0, ae: 61316, vr: 0, cpp: "CB::schema::hkpWorld::removePhantom" }
+  - { name: hkpEntity_AddContactListener, kind: func, se: 0, ae: 60844, vr: 0, cpp: "CB::schema::hkpEntity::addContactListener" }
+  - { name: hkpEntity_RemoveContactListener, kind: func, se: 0, ae: 60845, vr: 0, cpp: "CB::schema::hkpEntity::removeContactListener" }
+  - { name: hkpClosestRayHitCollector_Vtable, kind: data, se: 0, ae: 196363, vr: 0, cpp: "CB::schema::hkpClosestRayHitCollector::`vftable'" }
+  - { name: hkpClosestRayHitCollector_AddRayHit, kind: func, se: 0, ae: 60338, vr: 0, cpp: "CB::schema::hkpClosestRayHitCollector::addRayHit" }  # slot 0
+  - { name: hkpAllRayHitCollector_Vtable, kind: data, se: 0, ae: 239022, vr: 0, cpp: "CB::schema::hkpAllRayHitCollector::`vftable'" }
+  - { name: hkpCdPointCollector_Vtable, kind: data, se: 0, ae: 196329, vr: 0, cpp: "CB::schema::hkpCdPointCollector::`vftable'" }  # restamped by hkpAllCdPointCollector's destructor
+  - { name: hkpCapsuleShape_Ctor, kind: func, se: 0, ae: 60374, vr: 0, cpp: "??0hkpCapsuleShape@schema@CB@@QEAA@AEBUhkVector4@12@0M@Z" }  # (vertexA, vertexB, radius in xmm3)
+  - { name: hkpAabbPhantom_SetAabb, kind: func, se: 0, ae: 60949, vr: 0, cpp: "CB::schema::hkpAabbPhantom::setAabb" }
+  - { name: hkpAabbPhantom_CastRay, kind: func, se: 0, ae: 60941, vr: 0, cpp: "CB::schema::hkpAabbPhantom::castRay" }  # (input, collector)
+  - { name: hkpShapePhantom_SetTransform, kind: func, se: 0, ae: 61652, vr: 0, cpp: "CB::schema::hkpShapePhantom::setTransform" }
+  - { name: hkpShapePhantom_SetPosition, kind: func, se: 0, ae: 61653, vr: 0, cpp: "CB::schema::hkpShapePhantom::setPosition" }  # (position, extraTolerance in xmm2)
+  - { name: hkpSimpleShapePhantom_Ctor, kind: func, se: 0, ae: 61535, vr: 0, cpp: "??0hkpSimpleShapePhantom@schema@CB@@QEAA@PEBVhkpShape@12@AEBUhkTransform@12@I@Z" }  # (shape, transform, filterInfo)
+  - { name: hkpCachingShapePhantom_Ctor, kind: func, se: 0, ae: 61658, vr: 0, cpp: "??0hkpCachingShapePhantom@schema@CB@@QEAA@PEBVhkpShape@12@AEBUhkTransform@12@I@Z" }  # (shape, transform, filterInfo)
+  - { name: hkpCharacterProxyCinfo_Vtable, kind: data, se: 0, ae: 226935, vr: 0, cpp: "CB::schema::hkpCharacterProxyCinfo::`vftable'" }
+  - { name: hkpCharacterProxy_Ctor, kind: func, se: 0, ae: 62628, vr: 0, cpp: "??0hkpCharacterProxy@schema@CB@@QEAA@AEBVhkpCharacterProxyCinfo@12@@Z" }
+  - { name: hkpCharacterProxy_UpdateFromCinfo, kind: func, se: 0, ae: 62631, vr: 0, cpp: "CB::schema::hkpCharacterProxy::updateFromCinfo" }
+  - { name: hkpCharacterProxy_Integrate, kind: func, se: 0, ae: 62632, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrate" }  # (stepInfo, gravity)
+  - { name: hkpCharacterProxy_CheckSupport, kind: func, se: 0, ae: 62634, vr: 0, cpp: "CB::schema::hkpCharacterProxy::checkSupport" }  # (direction, surfaceInfo)
+  - { name: hkpCharacterProxy_CheckSupportWithCollector, kind: func, se: 0, ae: 62635, vr: 0, cpp: "CB::schema::hkpCharacterProxy::checkSupportWithCollector" }
+  - { name: hkpCharacterProxy_GetPosition, kind: func, se: 0, ae: 62638, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getPosition" }
+  - { name: hkpCharacterProxy_SetPosition, kind: func, se: 0, ae: 62639, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setPosition" }
+  - { name: hkpCharacterProxy_GetLinearVelocity, kind: func, se: 0, ae: 62640, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getLinearVelocity" }
+  - { name: hkpCharacterProxy_SetLinearVelocity, kind: func, se: 0, ae: 62641, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setLinearVelocity" }
+  - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # parameter list partly unconfirmed (see the header)
+  - { name: hkpMotion_GetMass, kind: func, se: 0, ae: 60959, vr: 0, cpp: "CB::schema::hkpMotion::getMass" }  # 1 / m_inertiaAndMassInv.w, 0 for an infinite mass
+  - { name: hkpResponseModifier_SetInvMassScalingForContact, kind: func, se: 0, ae: 62282, vr: 0, cpp: "CB::schema::hkpResponseModifier::setInvMassScalingForContact" }  # (manager, body, constraintOwner, factor)
+  - { name: hkpLinkedCollidable_GetCollisionEntriesSorted, kind: func, se: 0, ae: 64577, vr: 0, cpp: "CB::schema::hkpLinkedCollidable::getCollisionEntriesSorted" }
+  - { name: hkpWorld_InternalExecutePendingOperations, kind: func, se: 0, ae: 61434, vr: 0, cpp: "CB::schema::hkpWorld::internal_executePendingOperations" }
+  - { name: hkpWorld_InternalExecutePendingBodyOperations, kind: func, se: 0, ae: 61435, vr: 0, cpp: "CB::schema::hkpWorld::internal_executePendingBodyOperations" }
+  - { name: hkpCharacterRigidBodyListener_DiscardVerticalPoints, kind: func, se: 0, ae: 80568, vr: 0, cpp: "CB::schema::hkpCharacterRigidBodyListener::discardVerticalPoints" }  # parked in the workbench; characterCallback calls it
+  - { name: hkpCharacterRigidBodyListener_ProcessActualPointsForAllEntries, kind: func, se: 0, ae: 80569, vr: 0, cpp: "?processActualPoints@hkpCharacterRigidBodyListener@schema@CB@@QEAAXPEAVhkpWorld@23@PEAVhkpCharacterRigidBody@23@@Z" }  # the (world, characterRB) overload, by mangled name
+  - { name: CRT_chkstk, kind: func, se: 0, ae: 109626, vr: 0, cpp: "__chkstk" }  # the stack probe a frame over a page calls
+  - { name: hkpCharacterRigidBody_Vtable, kind: data, se: 0, ae: 229857, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkReferencedObject@12@@" }  # by mangled name: the class has three
+  - { name: hkpCharacterRigidBody_EntityListenerVtable, kind: data, se: 0, ae: 229859, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkpEntityListener@12@@" }  # the hkpEntityListener base's (+0x10)
+  - { name: hkpCharacterRigidBody_PostSimulationListenerVtable, kind: data, se: 0, ae: 229861, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkpWorldPostSimulationListener@12@@" }  # the hkpWorldPostSimulationListener base's (+0x18)
+  - { name: hkpEntityListener_Vtable, kind: data, se: 0, ae: 190135, vr: 0, cpp: "??_7hkpEntityListener@schema@CB@@6B@" }  # RTTI-verified; destructors reset to it
+  - { name: hkpWorldPostSimulationListener_Vtable, kind: data, se: 0, ae: 207480, vr: 0, cpp: "??_7hkpWorldPostSimulationListener@schema@CB@@6B@" }  # RTTI-verified; destructors reset to it
+  - { name: hkpCharacterRigidBody_Dtor, kind: func, se: 0, ae: 62448, vr: 0, cpp: "??1hkpCharacterRigidBody@schema@CB@@UEAA@XZ" }
+  - { name: hkpCharacterRigidBody_SetLinearAccelerationToMassModifier, kind: func, se: 0, ae: 62455, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setLinearAccelerationToMassModifier" }
+  - { name: hkpRigidBody_Ctor, kind: func, se: 0, ae: 60887, vr: 0, cpp: "CB::schema::hkpRigidBody::hkpRigidBody" }  # (cinfo)
+  - { name: hkpRigidBody_SetInertiaInvLocal, kind: func, se: 0, ae: 60894, vr: 0, cpp: "CB::schema::hkpRigidBody::setInertiaInvLocal" }  # forwards to the motion's slot 8
+  - { name: hkpRigidBodyCinfo_Ctor, kind: func, se: 0, ae: 61755, vr: 0, cpp: "CB::schema::hkpRigidBodyCinfo::hkpRigidBodyCinfo" }
+  - { name: hkpWorldObject_SetProperty, kind: func, se: 0, ae: 61479, vr: 0, cpp: "CB::schema::hkpWorldObject::setProperty" }  # (key, value)
+  - { name: hkpWorldObject_RemoveProperty, kind: func, se: 0, ae: 61480, vr: 0, cpp: "CB::schema::hkpWorldObject::removeProperty" }  # (key) -> the value through a hidden pointer
+  - { name: hkpEntity_AddEntityListener, kind: func, se: 0, ae: 60840, vr: 0, cpp: "CB::schema::hkpEntity::addEntityListener" }
+  - { name: hkpEntity_RemoveEntityListener, kind: func, se: 0, ae: 60841, vr: 0, cpp: "CB::schema::hkpEntity::removeEntityListener" }
+  - { name: hkpWorld_AddWorldPostSimulationListener, kind: func, se: 0, ae: 61366, vr: 0, cpp: "CB::schema::hkpWorld::addWorldPostSimulationListener" }
+  - { name: hkpWorld_RemoveWorldPostSimulationListener, kind: func, se: 0, ae: 61367, vr: 0, cpp: "CB::schema::hkpWorld::removeWorldPostSimulationListener" }
+  - { name: hkpCharacterContext_Vtable, kind: data, se: 0, ae: 229844, vr: 0, cpp: "CB::schema::hkpCharacterContext::`vftable'" }
+  - { name: hkpCharacterContext_Dtor, kind: func, se: 0, ae: 62426, vr: 0, cpp: "CB::schema::hkpCharacterContext::~hkpCharacterContext" }
+  - { name: hkpCharacterStateManager_Vtable, kind: data, se: 0, ae: 229855, vr: 0, cpp: "CB::schema::hkpCharacterStateManager::`vftable'" }
+  - { name: hkpCharacterStateManager_Dtor, kind: func, se: 0, ae: 62443, vr: 0, cpp: "CB::schema::hkpCharacterStateManager::~hkpCharacterStateManager" }
+  - { name: hkpCharacterStateManager_GetState, kind: func, se: 0, ae: 62445, vr: 0, cpp: "CB::schema::hkpCharacterStateManager::getState" }
+  - { name: hkpWorldConstraintUtil_AddModifier, kind: func, se: 0, ae: 62252, vr: 0, cpp: "CB::schema::hkpWorldConstraintUtil::addModifier" }  # (instance, constraintOwner, modifier)
+  - { name: hkpWorldConstraintUtil_FindModifier, kind: func, se: 0, ae: 62254, vr: 0, cpp: "CB::schema::hkpWorldConstraintUtil::findModifier" }  # (instance, atom type) -> the modifier or null
+  - { name: hkSimplexSolverSolve, kind: func, se: 0, ae: 64909, vr: 0, cpp: "CB::schema::hkSimplexSolverSolve" }  # (input, output)
+  - { name: hkpLinkedCollidable_GetCollisionEntriesNonDeterministic, kind: func, se: 0, ae: 64578, vr: 0, cpp: "CB::schema::hkpLinkedCollidable::getCollisionEntriesNonDeterministic" }
+  # --- ragdoll control modifiers (schema/Havok/Behavior/Modifier/{ExtractRagdollPose,KeyframeBones,PoweredRagdollControls,RigidBodyRagdollControls}) ---
+  - { name: hkbRagdollDriver_ExtractRagdollPose, kind: func, se: 0, ae: 58289, vr: 0, cpp: "CB::schema::hkbRagdollDriver::extractRagdollPose" }  # (context, inOut, computeWorldFromModel, bone0..2)
+  - { name: hkbRagdollDriver_ExtractRagdollPoseInternal, kind: func, se: 0, ae: 58311, vr: 0, cpp: "CB::schema::hkbRagdollDriver::extractRagdollPoseInternal" }  # name provisional; not reimplemented yet
+  - { name: hkbExtractRagdollPoseModifier_Vtable, kind: data, se: 0, ae: 226574, vr: 0, cpp: "CB::schema::hkbExtractRagdollPoseModifier::`vftable'" }
+  - { name: hkbExtractRagdollPoseModifier_CopyCtor, kind: func, se: 0, ae: 59842, vr: 0, cpp: "??0hkbExtractRagdollPoseModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbBoneIndexArray_CopyCtor, kind: func, se: 0, ae: 59855, vr: 0, cpp: "??0hkbBoneIndexArray@schema@CB@@QEAA@AEBV012@@Z" }  # inline, not inlined (/Ob1); the ragdoll control modifiers' clone copies call it
+  - { name: hkbPoweredRagdollControlsModifier_Vtable, kind: data, se: 0, ae: 226586, vr: 0, cpp: "CB::schema::hkbPoweredRagdollControlsModifier::`vftable'" }
+  - { name: hkbPoweredRagdollControlsModifier_CopyCtor, kind: func, se: 0, ae: 59857, vr: 0, cpp: "??0hkbPoweredRagdollControlsModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbPoweredRagdollControlsModifierUtils_Modify, kind: func, se: 0, ae: 60069, vr: 0, cpp: "CB::schema::hkbPoweredRagdollControlsModifierUtils::modify" }  # name provisional; modify tail-jumps to it
+  - { name: hkbRigidBodyRagdollControlsModifier_Vtable, kind: data, se: 0, ae: 226592, vr: 0, cpp: "CB::schema::hkbRigidBodyRagdollControlsModifier::`vftable'" }
+  - { name: hkbRigidBodyRagdollControlsModifier_CopyCtor, kind: func, se: 0, ae: 59863, vr: 0, cpp: "??0hkbRigidBodyRagdollControlsModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbRigidBodyRagdollControlsModifierUtils_Modify, kind: func, se: 0, ae: 60070, vr: 0, cpp: "CB::schema::hkbRigidBodyRagdollControlsModifierUtils::modify" }  # name provisional; (mod, inOut)
+  - { name: hkbGeneratorOutputUtils_CopyPaletteTrack, kind: func, se: 0, ae: 59287, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copyPaletteTrack" }  # name provisional; (source, dest)
+  - { name: hkbGeneratorOutputUtils_CopySparseTrack, kind: func, se: 0, ae: 59288, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::copySparseTrack" }  # name provisional; (source, dest)
+  - { name: hkbGeneratorOutputUtils_BlendPaletteTrack, kind: func, se: 0, ae: 59306, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::blendPaletteTrack" }  # name provisional; (source, weight, dest by value, weightsBuffer, flag)
+  - { name: hkbGeneratorOutputUtils_BlendSparseTrack, kind: func, se: 0, ae: 59307, vr: 0, cpp: "CB::schema::hkbGeneratorOutputUtils::blendSparseTrack" }  # name provisional; (source, weight, dest by value, weightsBuffer, flag)
+  - { name: hkbBoneIndexArray_Vtable, kind: data, se: 0, ae: 226191, vr: 0, cpp: "CB::schema::hkbBoneIndexArray::`vftable'" }
+  - { name: hkbKeyframeBonesModifier_Vtable, kind: data, se: 0, ae: 226578, vr: 0, cpp: "CB::schema::hkbKeyframeBonesModifier::`vftable'" }
+  - { name: hkbKeyframeBonesModifier_CopyCtor, kind: func, se: 0, ae: 59847, vr: 0, cpp: "??0hkbKeyframeBonesModifier@schema@CB@@QEAA@AEBV012@@Z" }
+  - { name: hkbKeyframeBonesModifier_Dtor, kind: func, se: 0, ae: 58984, vr: 0, cpp: "??1hkbKeyframeBonesModifier@schema@CB@@UEAA@XZ" }  # implicit; out of line among the type registry's functions
+  - { name: hkbKeyframeBonesModifier_StaticClass, kind: data, se: 0, ae: 408133, vr: 0, cpp: "CB::schema::hkbKeyframeBonesModifierClass" }  # hkClass object
+  - { name: hkbKeyframeBonesModifierUtils_Modify, kind: func, se: 0, ae: 60071, vr: 0, cpp: "CB::schema::hkbKeyframeBonesModifierUtils::modify" }  # name provisional; (mod, inOut)
+  - { name: hkAlgorithm_QuickSortRecursiveInt, kind: func, se: 0, ae: 60072, vr: 0, cpp: "CB::schema::hkAlgorithm::quickSortRecursive<int,CB::schema::hkAlgorithm::less<int> >" }  # the int instance, emitted in hkbKeyframeBonesModifierUtils's unit
+  - { name: hkMap_IntInt_CtorWithStorage, kind: func, se: 0, ae: 57172, vr: 0, cpp: "CB::schema::hkMap<int,int>::hkMap<int,int>" }  # name provisional; (ptr, sizeInBytes): only calls hkPointerMapStorage's storage ctor (57197)
+  - { name: hkbCharacterControllerModifier_Vtable, kind: data, se: 0, ae: 226358, vr: 0, cpp: "CB::schema::hkbCharacterControllerModifier::`vftable'" }
+  - { name: hkbCharacterControllerModifier_CloneCtor, kind: func, se: 0, ae: 59606, vr: 0, cpp: "??0hkbCharacterControllerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbCharacterControllerModifierInternalState_Vtable, kind: data, se: 0, ae: 226366, vr: 0, cpp: "CB::schema::hkbCharacterControllerModifierInternalState::`vftable'" }
+  - { name: hkRotation_Set, kind: func, se: 0, ae: 57081, vr: 0, cpp: "CB::schema::hkRotation::set" }  # (const hkQuaternion&)
+  - { name: hkRotation_Renormalize, kind: func, se: 0, ae: 57085, vr: 0, cpp: "CB::schema::hkRotation::renormalize" }  # through a quaternion
+  - { name: hkTransform_IdentityStorage, kind: data, se: 0, ae: 407384, vr: 0, cpp: "CB::schema::hkTransform_identityStorage" }  # hkTransform::getIdentity()
+  - { name: hkbProxyModifier_Vtable, kind: data, se: 0, ae: 226556, vr: 0, cpp: "CB::schema::hkbProxyModifier::`vftable'" }
+  - { name: hkbProxyModifier_CloneCtor, kind: func, se: 0, ae: 59827, vr: 0, cpp: "??0hkbProxyModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: hkbProxyModifier_ComputeDesiredVelocity, kind: func, se: 0, ae: 59835, vr: 0, cpp: "CB::schema::hkbProxyModifier::computeDesiredVelocity" }  # name provisional
+  - { name: hkbProxyModifier_IntegrateProxy, kind: func, se: 0, ae: 59836, vr: 0, cpp: "CB::schema::hkbProxyModifier::integrateProxy" }  # name provisional
+  - { name: hkbProxyModifier_UpdateTranslation, kind: func, se: 0, ae: 59837, vr: 0, cpp: "CB::schema::hkbProxyModifier::updateTranslation" }  # name provisional
+  - { name: hkbProxyModifier_UpdateRotation, kind: func, se: 0, ae: 59838, vr: 0, cpp: "CB::schema::hkbProxyModifier::updateRotation" }  # name provisional
+  - { name: BSIRagdollContactListenerModifierSingleton_Instance, kind: data, se: 0, ae: 409508, vr: 0, cpp: "CB::schema::BSIRagdollContactListenerModifierSingleton::s_instance" }  # name provisional; the game's listener handler, null = none
+  - { name: BSRagdollContactListenerModifier_SetListenersActive, kind: func, se: 0, ae: 63077, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::setListenersActive" }  # name provisional; activate/deactivate tail-jump to it
+  - { name: BSRagdollContactListenerModifier_Dtor, kind: func, se: 0, ae: 63084, vr: 0, cpp: "??1BSRagdollContactListenerModifier@schema@CB@@UEAA@XZ" }
+  - { name: BSRagdollContactListenerModifier_GetStaticClass, kind: func, se: 0, ae: 62998, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::staticClass" }  # getClassType tail-jumps to it
+  - { name: BSRagdollContactListenerModifier_AddListeners, kind: func, se: 0, ae: 63093, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::addListeners" }  # name provisional
+  - { name: BSRagdollContactListenerModifier_RemoveListeners, kind: func, se: 0, ae: 63094, vr: 0, cpp: "CB::schema::BSRagdollContactListenerModifier::removeListeners" }  # name provisional
+  - { name: BSRagdollContactListenerModifier_CloneCtor, kind: func, se: 0, ae: 63095, vr: 0, cpp: "??0BSRagdollContactListenerModifier@schema@CB@@QEAA@AEBV012@@Z" }  # cloneNode calls it
+  - { name: BSRagdollContactListenerModifier_ContactListenerVtable, kind: data, se: 0, ae: 232624, vr: 0, cpp: "??_7BSRagdollContactListenerModifier@schema@CB@@6BhkpContactListener@12@@" }  # the hkpContactListener base's (+0x50)
+  - { name: hkpContactListener_Vtable, kind: data, se: 0, ae: 196236, vr: 0, cpp: "CB::schema::hkpContactListener::`vftable'" }  # restamped by the listeners' destructors
+  - { name: BSRagdollContactListenerModifier_Vtable, kind: data, se: 0, ae: 232622, vr: 0, cpp: "??_7BSRagdollContactListenerModifier@schema@CB@@6BhkbModifier@12@@" }  # by mangled name: the class has two
+  - { name: BSIRagdollContactListenerModifierSingleton_Vtable, kind: data, se: 0, ae: 232620, vr: 0, cpp: "CB::schema::BSIRagdollContactListenerModifierSingleton::`vftable'" }
+  - { name: BSIRagdollContactListenerModifierSingleton_Dtor, kind: func, se: 0, ae: 63080, vr: 0, cpp: "??1BSIRagdollContactListenerModifierSingleton@schema@CB@@UEAA@XZ" }
+  - { name: CRT_OperatorDeleteSized, kind: func, se: 0, ae: 109588, vr: 0, cpp: "??3@YAXPEAX_K@Z" }  # the CRT's operator delete(void*, size_t): plain (non-Havok) classes' deleting destructors
+  - { name: BSRagdollContactListenerModifier_VectorDeletingDtor, kind: func, se: 0, ae: 63097, vr: 0, cpp: "??_EBSRagdollContactListenerModifier@schema@CB@@UEAAPEAXI@Z" }  # MSVC folds ??_E into ??_G (0x140b95eb0); the hkpContactListener adjustor thunk jumps to it
+  - { name: MemoryManager_Deallocate, kind: func, se: 0, ae: 68117, vr: 0, cpp: "CB::schema::MemoryManager::Deallocate" }  # the engine heap (Bethesda classes' operator delete)
+  - { name: MemoryManager_InitSingleton, kind: func, se: 0, ae: 68121, vr: 0, cpp: "CB::schema::MemoryManager::InitSingleton" }  # name provisional
+  - { name: MemoryManager_Singleton, kind: data, se: 0, ae: 400188, vr: 0, cpp: "CB::schema::MemoryManager::s_singleton" }
+  - { name: MemoryManager_SingletonState, kind: data, se: 0, ae: 400190, vr: 0, cpp: "CB::schema::MemoryManager::s_singletonState" }  # 2 once constructed
+  - { name: bhkWorld_HavokWorldEnterRead, kind: func, se: 0, ae: 77926, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldEnterRead" }  # name provisional; no-op unless bUseWorldLock:HAVOK
+  - { name: bhkWorld_HavokWorldExitRead, kind: func, se: 0, ae: 77927, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldExitRead" }  # name provisional
+  - { name: bhkWorld_HavokWorldEnterWrite, kind: func, se: 0, ae: 77928, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldEnterWrite" }  # name provisional
+  - { name: bhkWorld_HavokWorldExitWrite, kind: func, se: 0, ae: 77929, vr: 0, cpp: "CB::schema::bhkWorld::HavokWorldExitWrite" }  # name provisional
+  - { name: bhkSetDebugDisplayColor, kind: func, se: 0, ae: 78642, vr: 0, cpp: "CB::schema::bhkSetDebugDisplayColor" }  # name provisional; empty in the shipped exe
+  - { name: hkColor_RgbFromFloats, kind: func, se: 0, ae: 57108, vr: 0, cpp: "CB::schema::hkColor::rgbFromFloats" }
+  - { name: hkpCharacterRigidBody_GetRigidBody, kind: func, se: 0, ae: 62451, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::getRigidBody" }
+  - { name: hkpCharacterRigidBody_GetLinearVelocity, kind: func, se: 0, ae: 62457, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::getLinearVelocity" }
+  - { name: hkpCharacterRigidBody_SetLinearVelocity, kind: func, se: 0, ae: 62456, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setLinearVelocity" }  # (newVel, timestep)
+  - { name: bhkCharacterController_Dtor, kind: func, se: 0, ae: 78258, vr: 0, cpp: "??1bhkCharacterController@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterPointCollector_Dtor, kind: func, se: 0, ae: 80507, vr: 0, cpp: "??1bhkCharacterPointCollector@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterRigidBody_Dtor, kind: func, se: 0, ae: 80555, vr: 0, cpp: "??1bhkCharacterRigidBody@schema@CB@@UEAA@XZ" }
+  - { name: hkpCharacterRigidBody_RemoveListener, kind: func, se: 0, ae: 62450, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::removeListener" }
+  - { name: hkpRigidBody_SetTransform, kind: func, se: 0, ae: 60899, vr: 0, cpp: "CB::schema::hkpRigidBody::setTransform" }
+  - { name: bUseCharRBExtrapolation_HAVOK, kind: data, se: 0, ae: 389429, vr: 0, cpp: "CB::schema::bUseCharRBExtrapolation_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: hkVector4_SetRotatedDir, kind: func, se: 0, ae: 57212, vr: 0, cpp: "?setRotatedDir@hkVector4@schema@CB@@QEAAXAEBUhkRotation@23@AEBU123@@Z" }  # (hkRotation, v): out of line
+  - { name: hkpWorld_IsSimulationAtPsi, kind: func, se: 0, ae: 61416, vr: 0, cpp: "CB::schema::hkpWorld::isSimulationAtPsi" }  # name provisional
+  - { name: bhkWorld_StepDeltaTime, kind: data, se: 0, ae: 389089, vr: 0, cpp: "CB::schema::bhkWorld::s_stepDeltaTime" }  # name provisional; the time this physics step advances (0 below 1 ms)
+  - { name: hkpRigidBody_SetPosition, kind: func, se: 0, ae: 60896, vr: 0, cpp: "CB::schema::hkpRigidBody::setPosition" }
+  - { name: bhkCharRigidBodyController_Vtable, kind: data, se: 0, ae: 240580, vr: 0, cpp: "??_7bhkCharRigidBodyController@schema@CB@@6BbhkCharacterController@12@@" }
+  - { name: bhkCharRigidBodyController_ListenerVtable, kind: data, se: 0, ae: 240583, vr: 0, cpp: "??_7bhkCharRigidBodyController@schema@CB@@6BhkpCharacterRigidBodyListener@12@@" }  # the hkpCharacterRigidBodyListener base's (+0x330)
+  - { name: bhkCharRigidBodyController_ProcessCharacterContacts, kind: func, se: 0, ae: 79207, vr: 0, cpp: "CB::schema::bhkCharRigidBodyController::ProcessCharacterContacts" }  # name provisional
+  - { name: bhkCharacterController_ResetContactState, kind: func, se: 0, ae: 78279, vr: 0, cpp: "CB::schema::bhkCharacterController::ResetContactState" }  # name provisional
+  - { name: hkpEntity_IsActive, kind: func, se: 0, ae: 60853, vr: 0, cpp: "CB::schema::hkpEntity::isActive" }  # hkBool through a hidden pointer
+  - { name: hkpRigidBody_SetFriction, kind: func, se: 0, ae: 60912, vr: 0, cpp: "CB::schema::hkpRigidBody::setFriction" }
+  - { name: bhkCharRigidBodyController_HorizontalSum, kind: data, se: 0, ae: 411656, vr: 0, cpp: "CB::schema::bhkCharRigidBodyController::s_horizontalSum" }  # (1,1,0,0), set by a static initializer
+  - { name: hkUFloat8_IntToReal, kind: data, se: 0, ae: 219043, vr: 0, cpp: "CB::schema::hkUFloat8_intToReal" }  # hkUFloat8's 256-entry decoding table
+  - { name: hkpCharacterRigidBody_SetAngularVelocity, kind: func, se: 0, ae: 62458, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setAngularVelocity" }
+  - { name: BSTEventSource_bhkCharacterMoveFinishEvent_SendEvent, kind: func, se: 0, ae: 38322, vr: 0, cpp: "CB::schema::BSTEventSource<CB::schema::bhkCharacterMoveFinishEvent>::SendEvent" }
+  - { name: bhkCharRigidBodyControllerCinfo_Vtable, kind: data, se: 0, ae: 240578, vr: 0, cpp: "CB::schema::bhkCharRigidBodyControllerCinfo::`vftable'" }
+  - { name: bhkCharacterControllerCinfo_Dtor, kind: func, se: 0, ae: 78252, vr: 0, cpp: "??1bhkCharacterControllerCinfo@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterRigidBody_RTTI, kind: data, se: 0, ae: 411923, vr: 0, cpp: "CB::schema::bhkCharacterRigidBody::ms_RTTI" }  # the NiRTTI record
+  - { name: hkpCharacterRigidBodyListener_CharacterCallback, kind: func, se: 0, ae: 80567, vr: 0, cpp: "CB::schema::hkpCharacterRigidBodyListener::characterCallback" }
+  - { name: BSTArrayBase_Ctor, kind: func, se: 0, ae: 68160, vr: 0, cpp: "??0BSTArrayBase@schema@CB@@QEAA@XZ" }
+  - { name: BSTArrayHeapAllocator_Ctor, kind: func, se: 0, ae: 68167, vr: 0, cpp: "??0BSTArrayHeapAllocator@schema@CB@@QEAA@XZ" }
+  - { name: MemoryManager_Allocate, kind: func, se: 0, ae: 68115, vr: 0, cpp: "CB::schema::MemoryManager::Allocate" }  # (size, alignment, alignmentRequired)
+  - { name: bhkCharRigidBodyController_Init, kind: func, se: 0, ae: 79188, vr: 0, cpp: "CB::schema::bhkCharRigidBodyController::Init" }  # name provisional
+  - { name: bhkCharacterController_AddHavokProperty, kind: func, se: 0, ae: 78271, vr: 0, cpp: "CB::schema::bhkCharacterController::AddHavokProperty" }  # name provisional
+  - { name: bhkCharacterController_InitFromCinfo, kind: func, se: 0, ae: 78305, vr: 0, cpp: "CB::schema::bhkCharacterController::InitFromCinfo" }  # name provisional
+  - { name: bhkCharacterController_Ctor, kind: func, se: 0, ae: 78257, vr: 0, cpp: "??0bhkCharacterController@schema@CB@@QEAA@AEBVbhkCharacterControllerCinfo@12@@Z" }
+  - { name: bhkCharacterPointCollector_Ctor, kind: func, se: 0, ae: 80506, vr: 0, cpp: "??0bhkCharacterPointCollector@schema@CB@@QEAA@PEAX@Z" }
+  - { name: bhkCharacterRigidBody_Vtable, kind: data, se: 0, ae: 240566, vr: 0, cpp: "CB::schema::bhkCharacterRigidBody::`vftable'" }
+  - { name: bhkCharacterRigidBody_InstanceCount, kind: data, se: 0, ae: 411922, vr: 0, cpp: "CB::schema::bhkCharacterRigidBody::s_instanceCount" }  # name provisional
+  - { name: bhkEntity_Vtable, kind: data, se: 0, ae: 190241, vr: 0, cpp: "CB::schema::bhkEntity::`vftable'" }
+  - { name: bhkEntity_InstanceCount, kind: data, se: 0, ae: 411591, vr: 0, cpp: "CB::schema::bhkEntity::s_instanceCount" }  # name provisional
+  - { name: bhkRefObject_Ctor, kind: func, se: 0, ae: 78647, vr: 0, cpp: "??0bhkRefObject@schema@CB@@QEAA@XZ" }
+  - { name: bhkRigidBody_Vtable, kind: data, se: 0, ae: 190275, vr: 0, cpp: "CB::schema::bhkRigidBody::`vftable'" }
+  - { name: bhkRigidBody_InstanceCount, kind: data, se: 0, ae: 411543, vr: 0, cpp: "CB::schema::bhkRigidBody::s_instanceCount" }  # name provisional
+  - { name: bhkWorldObject_Ctor, kind: func, se: 0, ae: 77791, vr: 0, cpp: "??0bhkWorldObject@schema@CB@@QEAA@XZ" }
+  - { name: hkpCharacterRigidBody_SetListener, kind: func, se: 0, ae: 62449, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setListener" }
+  - { name: MemoryManager_GetThreadScrapHeap, kind: func, se: 0, ae: 68088, vr: 0, cpp: "CB::schema::MemoryManager::GetThreadScrapHeap" }  # (name = null: the default)
+  - { name: ScrapHeap_Allocate, kind: func, se: 0, ae: 68144, vr: 0, cpp: "CB::schema::ScrapHeap::Allocate" }  # (size, alignment)
+  - { name: ScrapHeap_Deallocate, kind: func, se: 0, ae: 68146, vr: 0, cpp: "CB::schema::ScrapHeap::Deallocate" }
+  - { name: TlsIndex, kind: data, se: 0, ae: 415542, vr: 0, cpp: "_tls_index" }  # the CRT's: thread_local accesses index the TLS array with it
+  - { name: bhkSerializable_LoadBinary, kind: func, se: 0, ae: 78653, vr: 0, cpp: "CB::schema::bhkSerializable::LoadBinary" }
+  - { name: bhkSerializable_LinkObject, kind: func, se: 0, ae: 78654, vr: 0, cpp: "CB::schema::bhkSerializable::LinkObject" }
+  - { name: bhkSerializable_RegisterStreamables, kind: func, se: 0, ae: 78655, vr: 0, cpp: "CB::schema::bhkSerializable::RegisterStreamables" }
+  - { name: bhkSerializable_SaveBinary, kind: func, se: 0, ae: 78656, vr: 0, cpp: "CB::schema::bhkSerializable::SaveBinary" }
+  - { name: bhkSerializable_Dtor, kind: func, se: 0, ae: 78658, vr: 0, cpp: "??1bhkSerializable@schema@CB@@UEAA@XZ" }
+  - { name: bhkSerializable_CopyMembers, kind: func, se: 0, ae: 78657, vr: 0, cpp: "CB::schema::bhkSerializable::CopyMembers" }  # name provisional
+  - { name: bhkSerializable_LockSerialize, kind: func, se: 0, ae: 78664, vr: 0, cpp: "CB::schema::bhkSerializable::LockSerialize" }  # name provisional
+  - { name: bhkSerializable_UnlockSerialize, kind: func, se: 0, ae: 78665, vr: 0, cpp: "CB::schema::bhkSerializable::UnlockSerialize" }  # name provisional
+  - { name: bhkSerializable_Unk30, kind: func, se: 0, ae: 78662, vr: 0, cpp: "CB::schema::bhkSerializable::Unk_30" }  # vtable slot 48
+  - { name: bhkRefObject_AdjustRefCount, kind: func, se: 0, ae: 78650, vr: 0, cpp: "CB::schema::bhkRefObject::AdjustRefCount" }
+  - { name: NiStream_ReadLinkID, kind: func, se: 0, ae: 70359, vr: 0, cpp: "CB::schema::NiStream::ReadLinkID" }  # name provisional
+  - { name: ahkpCharacterRigidBody_Vtable, kind: data, se: 0, ae: 241440, vr: 0, cpp: "??_7ahkpCharacterRigidBody@schema@CB@@6BhkReferencedObject@12@@" }
+  - { name: bhkCharacterRigidBodyCinfo_Vtable, kind: data, se: 0, ae: 240564, vr: 0, cpp: "CB::schema::bhkCharacterRigidBodyCinfo::`vftable'" }
+  - { name: hkpCharacterRigidBodyCinfo_Vtable, kind: data, se: 0, ae: 230727, vr: 0, cpp: "CB::schema::hkpCharacterRigidBodyCinfo::`vftable'" }
+  - { name: hkpCharacterRigidBody_Ctor, kind: func, se: 0, ae: 62447, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::hkpCharacterRigidBody" }
+  - { name: ahkpCharacterRigidBody_EntityListenerVtable, kind: data, se: 0, ae: 241442, vr: 0, cpp: "??_7ahkpCharacterRigidBody@schema@CB@@6BhkpEntityListener@12@@" }  # the hkpEntityListener base's (+0x10)
+  - { name: ahkpCharacterRigidBody_PostSimulationListenerVtable, kind: data, se: 0, ae: 241444, vr: 0, cpp: "??_7ahkpCharacterRigidBody@schema@CB@@6BhkpWorldPostSimulationListener@12@@" }  # the hkpWorldPostSimulationListener base's (+0x18)
+  - { name: NiPointer_bhkShape_Dtor, kind: func, se: 0, ae: 78018, vr: 0, cpp: "CB::schema::NiPointer<CB::schema::bhkShape>::~NiPointer<CB::schema::bhkShape>" }  # its address goes to the array-destructor iterator
+  - { name: bhkCharacterControllerCinfo_Vtable, kind: data, se: 0, ae: 239065, vr: 0, cpp: "CB::schema::bhkCharacterControllerCinfo::`vftable'" }
+  - { name: CRT_EhVectorDestructorIterator, kind: func, se: 0, ae: 109621, vr: 0, cpp: "`eh vector destructor iterator'" }  # destroys a member array whose element destructor may throw
+  - { name: bhkCharacterControllerCinfo_Ctor, kind: func, se: 0, ae: 78251, vr: 0, cpp: "??0bhkCharacterControllerCinfo@schema@CB@@QEAA@_N0@Z" }  # (createStateManager, unkA5), names provisional
+  - { name: BSTHashMap_DamageImpacts_DestroyEntry, kind: func, se: 0, ae: 78361, vr: 0, cpp: "CB::schema::BSTHashMap<CB::schema::NiPointer<CB::schema::bhkRigidBody>,void * __ptr64>::DestroyEntry" }  # empty; its address goes to Clear
+  - { name: BSTScatterTableBase_Clear_DamageImpacts, kind: func, se: 0, ae: 78314, vr: 0, cpp: "CB::schema::BSTScatterTableBase::Clear" }  # name provisional; the damage-impact map's instance
+  - { name: NiExtraData_Dtor, kind: func, se: 0, ae: 70862, vr: 0, cpp: "??1NiExtraData@schema@CB@@UEAA@XZ" }
+  - { name: NiRefObject_Objects, kind: data, se: 0, ae: 410493, vr: 0, cpp: "CB::schema::NiRefObject::ms_objects" }  # live NiRefObject count
+  - { name: bhkCharacterController_ClearDamageImpacts, kind: func, se: 0, ae: 78294, vr: 0, cpp: "CB::schema::bhkCharacterController::ClearDamageImpacts" }  # name provisional
+  - { name: bhkCharacterController_Vtable, kind: data, se: 0, ae: 239067, vr: 0, cpp: "CB::schema::bhkCharacterController::`vftable'" }
+  - { name: BSScrapArrayAllocator_Deallocate, kind: func, se: 0, ae: 68175, vr: 0, cpp: "CB::schema::BSScrapArrayAllocator::Deallocate" }
+  - { name: BSTArrayAllocatorFunctor_BSScrapArrayAllocator_Vtable, kind: data, se: 0, ae: 187172, vr: 0, cpp: "CB::schema::BSTArrayAllocatorFunctor<CB::schema::BSScrapArrayAllocator>::`vftable'" }
+  - { name: BSTArrayBase_IAllocatorFunctor_Vtable, kind: data, se: 0, ae: 186364, vr: 0, cpp: "CB::schema::BSTArrayBase::IAllocatorFunctor::`vftable'" }
+  - { name: BSTArrayBase_InitialReserve, kind: func, se: 0, ae: 68162, vr: 0, cpp: "CB::schema::BSTArrayBase::InitialReserve" }  # (allocator, capacity, elemSize)
+  - { name: BSTArrayBase_Dtor, kind: func, se: 0, ae: 68166, vr: 0, cpp: "??1BSTArrayBase@schema@CB@@QEAA@XZ" }  # empty
+  - { name: NiPoint3_Zero, kind: data, se: 0, ae: 410468, vr: 0, cpp: "CB::schema::NiPoint3::ZERO" }
+  - { name: bhkCharacterController_IsLayerCounted, kind: func, se: 0, ae: 78312, vr: 0, cpp: "CB::schema::bhkCharacterController::IsLayerCounted" }  # name provisional
+  - { name: bhkCharacterController_IsSlopeBlocking, kind: func, se: 0, ae: 78311, vr: 0, cpp: "CB::schema::bhkCharacterController::IsSlopeBlocking" }  # name provisional; (meshShape, checkMaterial, default, shapeKey)
+  - { name: bhkGetMeshShape, kind: func, se: 0, ae: 77986, vr: 0, cpp: "CB::schema::bhkGetMeshShape" }  # name provisional
+  # Bethesda's character-controller states (bhkCharacterState*)
+  - { name: bhkCharacterController_CommitWantedState, kind: func, se: 0, ae: 78280, vr: 0, cpp: "CB::schema::bhkCharacterController::CommitWantedState" }  # name provisional; enters wantState (+0x21c) if != 0xb, then clears it; every state's Simulate commits through it
+  - { name: bhkCharacterController_AccumulateFallTime, kind: func, se: 0, ae: 78281, vr: 0, cpp: "CB::schema::bhkCharacterController::AccumulateFallTime" }  # name provisional; fallTime += step dt
+  - { name: bhkCharacterController_GetFallDistance, kind: func, se: 0, ae: 78269, vr: 0, cpp: "CB::schema::bhkCharacterController::GetFallDistance" }  # name provisional; max(fallStartHeight - z, 0), game units
+  - { name: bhkWorld_GetGravity, kind: func, se: 0, ae: 77838, vr: 0, cpp: "CB::schema::bhkWorld::GetGravity" }  # name provisional; read-locked hkpWorld gravity, zero without one
+  - { name: bhkWorld_WorldScaleInverse, kind: data, se: 0, ae: 187407, vr: 0, cpp: "CB::schema::bhkWorld::s_worldScaleInverse" }  # 69.99125 (Havok -> game units)
+  - { name: fInAirFallingCharGravityMult_HAVOK, kind: data, se: 0, ae: 389443, vr: 0, cpp: "CB::schema::fInAirFallingCharGravityMult_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: CharacterUp, kind: data, se: 0, ae: 411558, vr: 0, cpp: "CB::schema::g_characterUp" }  # name provisional; the up vector the states steer and fall by
+  - { name: fJumpMoveBase_Cached, kind: data, se: 0, ae: 411554, vr: 0, cpp: "CB::schema::g_fJumpMoveBase" }  # name provisional; copy of the fJumpMoveBase game setting
+  - { name: fJumpMoveMult_Cached, kind: data, se: 0, ae: 389159, vr: 0, cpp: "CB::schema::g_fJumpMoveMult" }  # name provisional; copy of the fJumpMoveMult game setting
+  - { name: hkpCharacterMovementUtil_CalculateMovement, kind: func, se: 0, ae: 81002, vr: 0, cpp: "CB::schema::hkpCharacterMovementUtil::calculateMovement" }
+  - { name: bhkCharacterStateInAir_Vtable, kind: data, se: 0, ae: 240826, vr: 0, cpp: "CB::schema::bhkCharacterStateInAir::`vftable'" }
+  - { name: hkpCharacterContext_GetState, kind: func, se: 0, ae: 62427, vr: 0, cpp: "CB::schema::hkpCharacterContext::getState" }
+  - { name: bhkCharacterStateJumping_Vtable, kind: data, se: 0, ae: 240828, vr: 0, cpp: "CB::schema::bhkCharacterStateJumping::`vftable'" }
+  - { name: bUseUnsupportedCast_HAVOK, kind: data, se: 0, ae: 389446, vr: 0, cpp: "CB::schema::bUseUnsupportedCast_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: fUnsupportedGravMult_HAVOK, kind: data, se: 0, ae: 389449, vr: 0, cpp: "CB::schema::fUnsupportedGravMult_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: fUnsupportCastLength_HAVOK, kind: data, se: 0, ae: 389452, vr: 0, cpp: "CB::schema::fUnsupportCastLength_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: bhkCharacterController_ApplyInitialVelocity, kind: func, se: 0, ae: 78283, vr: 0, cpp: "CB::schema::bhkCharacterController::ApplyInitialVelocity" }  # name provisional; outVelocity += velocityTime * initialVelocity while velocityTime > 0 (not chasing/following a ragdoll), else zeroes initialVelocity
+  - { name: bhkCharacterStateOnGround_Vtable, kind: data, se: 0, ae: 240833, vr: 0, cpp: "CB::schema::bhkCharacterStateOnGround::`vftable'" }
+  - { name: bhkCharacterStateSwimming_Vtable, kind: data, se: 0, ae: 240836, vr: 0, cpp: "CB::schema::bhkCharacterStateSwimming::`vftable'" }

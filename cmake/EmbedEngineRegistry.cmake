@@ -5,8 +5,9 @@
 # Invoked as a script:  cmake -DREGISTRY_YAML=<file> -DOUT_H=<file> -P EmbedEngineRegistry.cmake
 #
 # Every symbol is ONE line of a fixed shape:
-#   - { name: Ident, kind: func|call|data, se: <pin>, ae: <pin>, vr: <pin> }   # optional note
+#   - { name: Ident, kind: func|call|data, se: <pin>, ae: <pin>, vr: <pin>[, cpp: "<C++ name>"] }   # optional note
 # where <pin> = <AddressLibraryID> or <AddressLibraryID>+0x<hexOffset> (offsets only on `call`), 0 = unavailable.
+# `cpp` is read by tools/cbmatch (the symbol reimplemented code references); the codegen ignores it.
 # A line-oriented regex parse keeps codegen tool-free (no build-time Python), like EmbedEnums.cmake.
 
 if(NOT DEFINED REGISTRY_YAML OR NOT DEFINED OUT_H)
@@ -18,7 +19,7 @@ endif()
 file(STRINGS "${REGISTRY_YAML}" _lines)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
-set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*}")
+set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*cpp:[ ]*\"[^\"]*\")?[ ]*}")
 
 set(_defs "")
 set(_all "")

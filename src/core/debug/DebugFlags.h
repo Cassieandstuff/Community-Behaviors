@@ -65,6 +65,14 @@ namespace CB::core::debug {
           "Serial animation compile",
           "Compile native animations one at a time instead of across a worker pool — an escape hatch for "
           "a machine that shows trouble with the parallel compile (its output is byte-identical)." },
+        { "havok_runtime", FlagKind::IniBool, "HavokRuntime", "bEnable", true, true,
+          "Havok runtime takeover",
+          "Run CB's reimplemented Havok behavior runtime in place of vanilla's (per class: [HavokRuntime] "
+          "<Class>=off, or sOnly=<Class>,...). Inert without community_behaviors/runtime/havok-runtime.cbimg." },
+        { "havok_activate_counter", FlagKind::IniBool, "Debug", "bHavokActivateCounter", true, true,
+          "Clip activate counter",
+          "Count hkbClipGenerator::activate calls through the Havok runtime's cell table, logging at every power "
+          "of two — the proof that features can override reimplemented Havok functions. Observes only." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
