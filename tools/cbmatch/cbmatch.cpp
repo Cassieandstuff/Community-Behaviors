@@ -41,6 +41,7 @@
 #include <regex>
 #include <set>
 #include <span>
+#include <thread>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -4263,6 +4264,8 @@ void usage()
         "                       function it replaces, for the plugin's takeover installer (needs a full run and the registry)\n"
         "  --extract-classes <file> write Havok's own reflection (every hkClass the exe constructs: parent, size, enums,\n"
         "                       members with offsets, types and flags) as YAML, then stop\n"
+        "  --check-layout       prove the schema headers against that reflection: sizeof and every named member's offset,\n"
+        "                       asserted in generated units compiled with the manifest's toolchain (--only <class> narrows)\n"
         "  --strict             fail on any out-of-line definition no manifest line covers (unverified code in the tree;\n"
         "                       the schema/ gate runs with it, the workbench without)\n"
         "  --emit-palette <dir> write the function palette: one typed cell per passing function, a header per class\n"
@@ -4553,6 +4556,149 @@ void writeClasses(const fs::path& out, const std::vector<ReflectedClass>& classe
     if (!CB::engine::disk::WriteFile(out, s, {}, &err)) throw std::runtime_error("cannot write " + out.string() + ": " + err);
 }
 
+/// @return where each class (then each namespace) is first defined under the schema root, as a path relative to it.
+/// @note A regex scan, not a parse: it finds `class|struct Name … {` and `namespace Name {`, nested ones included.
+std::map<std::string, fs::path> classDefinitions(const fs::path& schemaRoot)
+{
+    std::map<std::string, fs::path> definedIn;
+    // Classes first, then namespaces (hkAlgorithm, the *Utils groups), so a class wins where both appear.
+    const std::regex defines(R"((?:^|\n)\s*(?:class|struct)\s+(?:alignas\([^)]*\)\s+)?(?:__declspec\((?:[^()]|\([^()]*\))*\)\s+)?([A-Za-z_]\w*)\s*(?:final\s*)?(?::[^;{]*)?\{)");
+    const std::regex namespaces(R"((?:^|\n)\s*namespace\s+([A-Za-z_]\w*)\s*\{)");
+    for (const std::regex* re : { &defines, &namespaces })
+        for (const auto& e : fs::recursive_directory_iterator(schemaRoot)) {
+            if (e.path().extension() != ".h") continue;
+            const auto text = CB::engine::disk::ReadFile(e.path()).value_or("");
+            for (std::sregex_iterator it(text.begin(), text.end(), *re), end; it != end; ++it)
+                if ((*it)[1] != "CB" && (*it)[1] != "schema") definedIn.emplace((*it)[1].str(), fs::relative(e.path(), schemaRoot));
+        }
+    return definedIn;
+}
+
+/// @return the manifest include that holds its unit sources (schema/Havok), or empty.
+fs::path schemaRootOf(const Manifest& m)
+{
+    fs::path root;
+    for (const auto& inc : m.includes) {
+        // An include on another drive comes back empty, not "..": both mean the sources are not under it.
+        const fs::path rel = m.units.empty() ? fs::path() : m.units.front().source.lexically_relative(inc);
+        if (!rel.empty() && rel.native().rfind(L"..", 0) != 0) root = inc;
+    }
+    return root;
+}
+
+/// @brief Proves schema headers against Havok's own reflection: for every reflected class a header defines, a generated
+///        unit asserts sizeof and each member's offset (`m_<name>`), compiled with the manifest's toolchain; the
+///        compiler's errors are the verdict. Returns the exit code (0 when no named member or size disagrees).
+/// @note Havok names a nested class by concatenation (hkbClipGenerator::Echo is hkbClipGeneratorEcho): a reflected name
+///       no header defines is tried as an outer class plus a nested one its header defines.
+/// @note Only what the header NAMES is checked against Havok; a reflected member the header does not name is listed
+///       (it may sit in explicit padding), never failed.
+int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, const fs::path& work, unsigned jobs, const std::string& only)
+{
+    const fs::path root = schemaRootOf(m);
+    if (root.empty()) throw std::runtime_error("--check-layout: no manifest include holds the unit sources");
+    const auto definedIn = classDefinitions(root);
+    struct Check { const ReflectedClass* rc; std::string type; fs::path header; };
+    std::vector<Check> checks;
+    std::size_t noHeader = 0;
+    for (const auto& rc : classes) {
+        if (!only.empty() && rc.name.find(only) == std::string::npos) continue;
+        if (const auto d = definedIn.find(rc.name); d != definedIn.end()) {
+            checks.push_back({ &rc, "CB::schema::" + rc.name, d->second });
+            continue;
+        }
+        // Outer + nested: the longest defined prefix whose own header also defines the remainder (several classes nest a
+        // struct of the same name, so the global map's first definition is not enough).
+        bool found = false;
+        for (std::size_t k = rc.name.size() - 1; k > 0 && !found; --k) {
+            const auto outer = definedIn.find(rc.name.substr(0, k));
+            if (outer == definedIn.end()) continue;
+            const auto        text = CB::engine::disk::ReadFile(root / outer->second).value_or("");
+            const std::regex  nested("(?:class|struct)\\s+(?:__declspec\\((?:[^()]|\\([^()]*\\))*\\)\\s+)?" + rc.name.substr(k) + "\\s*(?::[^;{]*)?\\{");
+            if (std::regex_search(text, nested)) {
+                checks.push_back({ &rc, "CB::schema::" + rc.name.substr(0, k) + "::" + rc.name.substr(k), outer->second });
+                found = true;
+            }
+        }
+        if (!found) ++noHeader;
+    }
+    if (m.toolchains.empty()) throw std::runtime_error("--check-layout needs a toolchain");
+    const fs::path cl = m.toolchains.front().second;
+
+    struct Verdict { std::vector<std::string> wrong, unnamed; bool compiled = false; std::string log, firstError; };
+    std::vector<Verdict> verdicts(checks.size());
+    CB::engine::exec::ParallelFor(checks.size(), [&](std::size_t k) {
+        const Check& c   = checks[k];
+        const fs::path d = work / "layout" / std::to_string(k);
+        fs::create_directories(d);
+        // Access does not change MSVC's layout; opening it lets the asserts name private members.
+        std::string src = "#define private public\n#define protected public\n#include <" + c.header.generic_string() + ">\n"
+                          "#define CB_OFFSETOF(s, m) ((unsigned long long)&reinterpret_cast<char const volatile&>((((s*)0)->m)))\n";
+        src += "static_assert(sizeof(" + c.type + ") == 0x" + hex(c.rc->size) + ", \"CBLAYOUT|size|0x" + hex(c.rc->size) + "\");\n";
+        for (const auto& mb : c.rc->members)
+            src += "static_assert(CB_OFFSETOF(" + c.type + ", m_" + mb.name + ") == 0x" + hex(mb.offset) + ", \"CBLAYOUT|m_" + mb.name +
+                   "|0x" + hex(mb.offset) + "\");\n";
+        std::string err;
+        if (!CB::engine::disk::WriteFile(d / "check.cpp", src, {}, &err)) { verdicts[k].log = err; return; }
+        UnitSpec unit;
+        unit.source = d / "check.cpp";
+        // A file just written can be locked a moment (a scanner opening it): cl then reports C1083, permission denied.
+        auto res = compileUnit(m, unit, cl, d);
+        for (int retry = 0; retry < 5 && res.log.find("C1083") != std::string::npos && res.log.find("Permission denied") != std::string::npos; ++retry) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200 * (retry + 1)));
+            res = compileUnit(m, unit, cl, d);
+        }
+        Verdict& v = verdicts[k];
+        v.log      = res.log;
+        bool other = false;
+        for (const auto line : CB::engine::text::SplitLines(res.log)) {
+            const std::string l(line);
+            if (const auto at = l.find("CBLAYOUT|"); at != std::string::npos) {
+                const auto rest = l.substr(at + 9);
+                const auto bar  = rest.find('|');
+                std::string what = rest.substr(0, bar), want = rest.substr(bar + 1);
+                while (!want.empty() && (want.back() == '"' || want.back() == ' ' || want.back() == '\r')) want.pop_back();
+                v.wrong.push_back(what == "size" ? "sizeof is not " + want : what + " is not at " + want);
+            } else if (const auto nm = l.find("is not a member of"); nm != std::string::npos) {
+                const auto q1 = l.find('\''), q2 = l.find('\'', q1 + 1);
+                if (q1 != std::string::npos && q2 != std::string::npos) v.unnamed.push_back(l.substr(q1 + 1, q2 - q1 - 1));
+            } else if (l.find(" error ") != std::string::npos || l.find("error C") != std::string::npos) {
+                if (!other) v.firstError = std::string(CB::engine::text::Trim(l.substr(l.find("error"))));
+                other = true;
+            }
+        }
+        v.compiled = res.ok || !v.wrong.empty() || !v.unnamed.empty() || !other;
+        std::sort(v.unnamed.begin(), v.unnamed.end());
+        v.unnamed.erase(std::unique(v.unnamed.begin(), v.unnamed.end()), v.unnamed.end());
+    }, { .threads = jobs });
+
+    std::size_t proven = 0, wrongClasses = 0, broken = 0, partial = 0;
+    for (std::size_t k = 0; k < checks.size(); ++k) {
+        const auto& c = checks[k];
+        const auto& v = verdicts[k];
+        if (!v.compiled) {
+            ++broken;
+            std::printf("%-44s BROKEN, the check does not compile: %s\n", c.rc->name.c_str(), v.firstError.c_str());
+            continue;
+        }
+        if (!v.wrong.empty()) ++wrongClasses;
+        else if (!v.unnamed.empty()) ++partial;
+        else ++proven;
+        if (v.wrong.empty() && v.unnamed.empty()) continue;
+        std::printf("%-44s %s\n", c.rc->name.c_str(), v.wrong.empty() ? "named members proven" : "WRONG");
+        for (const auto& w : v.wrong) std::printf("    WRONG    %s\n", w.c_str());
+        if (!v.unnamed.empty()) {
+            std::printf("    unnamed  ");
+            for (std::size_t q = 0; q < v.unnamed.size(); ++q) std::printf("%s%s", q ? ", " : "", v.unnamed[q].c_str());
+            std::printf("\n");
+        }
+    }
+    std::printf("\nlayout: %zu reflected classes with a header: %zu fully proven, %zu proven where named (some Havok members unnamed), "
+                "%zu WRONG, %zu checks broken; %zu reflected classes have no header yet\n",
+                checks.size(), proven, partial, wrongClasses, broken, noHeader);
+    return wrongClasses || broken ? 1 : 0;
+}
+
 // ── the function palette ─────────────────────────────────────────────────────────────────────────────────────────
 
 /// @brief A function's C++ prototype, read back from its mangled symbol.
@@ -4731,17 +4877,7 @@ struct PaletteEntry {
 std::size_t emitPalette(const fs::path& out, const fs::path& schemaRoot, const std::vector<PaletteEntry>& entries)
 {
     // Where each top-level class is defined, so its palette sits in the matching place and includes that header.
-    std::map<std::string, fs::path> definedIn;
-    // Classes first, then namespaces (hkAlgorithm, the *Utils groups), so a class wins where both appear.
-    const std::regex defines(R"((?:^|\n)\s*(?:class|struct)\s+(?:alignas\([^)]*\)\s+)?([A-Za-z_]\w*)\s*(?:final\s*)?(?::[^;{]*)?\{)");
-    const std::regex namespaces(R"((?:^|\n)\s*namespace\s+([A-Za-z_]\w*)\s*\{)");
-    for (const std::regex* re : { &defines, &namespaces })
-        for (const auto& e : fs::recursive_directory_iterator(schemaRoot)) {
-            if (e.path().extension() != ".h") continue;
-            const auto text = CB::engine::disk::ReadFile(e.path()).value_or("");
-            for (std::sregex_iterator it(text.begin(), text.end(), *re), end; it != end; ++it)
-                if ((*it)[1] != "CB" && (*it)[1] != "schema") definedIn.emplace((*it)[1].str(), fs::relative(e.path(), schemaRoot));
-        }
+    const std::map<std::string, fs::path> definedIn = classDefinitions(schemaRoot);
 
     struct Cell { std::string ident, sig, mangled, readable, full, status; std::uint64_t va, id; std::vector<std::string> params; };
     struct Node { std::map<std::string, Node> children; std::vector<Cell> cells; };
@@ -4844,6 +4980,7 @@ struct Options {
     fs::path    emitImage;   ///< --emit-image: the runtime image of every passing function
     fs::path    emitPalette; ///< --emit-palette: the typed cell headers features build against
     fs::path    extractClasses;   ///< --extract-classes: Havok's own reflection, read from the exe
+    bool        checkLayoutFlag = false;   ///< --check-layout: prove schema headers against Havok's own reflection
 };
 
 int run(const Options& opt)
@@ -4866,6 +5003,12 @@ int run(const Options& opt)
     }
     if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
+    if (opt.checkLayoutFlag) {
+        std::uint64_t ctor = 0;
+        const auto    classes = extractClasses(pe, ctor);
+        const fs::path dir = opt.work.empty() ? fs::temp_directory_path() / "cbmatch" / "layout" : opt.work;
+        return checkLayout(m, classes, dir, opt.jobs, opt.only);
+    }
     if (!opt.extractClasses.empty()) {
         std::uint64_t ctor    = 0;
         const auto    classes = extractClasses(pe, ctor);
@@ -5256,12 +5399,7 @@ int run(const Options& opt)
 
     if (!opt.emitPalette.empty()) {
         if (!syms) throw std::runtime_error("--emit-palette needs the registry and the runtime's Address Library for the ids");
-        fs::path root;
-        for (const auto& inc : m.includes) {
-            // An include on another drive comes back empty, not "..": both mean the sources are not under it.
-            const fs::path rel = m.units.empty() ? fs::path() : m.units.front().source.lexically_relative(inc);
-            if (!rel.empty() && rel.native().rfind(L"..", 0) != 0) root = inc;
-        }
+        const fs::path root = schemaRootOf(m);
         if (root.empty()) throw std::runtime_error("--emit-palette: no manifest include holds the unit sources");
         std::vector<PaletteEntry> entries;
         std::set<std::uint64_t>   seen;
@@ -5334,6 +5472,7 @@ int main(int argc, char** argv)
         else if (a == "--emit-palette") opt.emitPalette = next();
         else if (a == "--strict") opt.strict = true;
         else if (a == "--extract-classes") opt.extractClasses = next();
+        else if (a == "--check-layout") opt.checkLayoutFlag = true;
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }
