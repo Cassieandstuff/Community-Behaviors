@@ -4005,11 +4005,12 @@ int buildInventory(const Manifest& m, const RuntimeSpec& rt)
     if (!m.inventory.schema.empty())
         for (const auto& e : fs::recursive_directory_iterator(m.inventory.schema))
             if (e.is_regular_file() && e.path().extension() == ".yaml") schemaClasses.insert(e.path().stem().string());
+    // An explicit include wins over an exclude (hkpCharacter* is in while the rest of hkp* stays out); the schema's own
+    // classes come in unless excluded.
     auto inScope = [&](const std::string& name) {
-        for (const auto& x : m.inventory.exclude) if (globMatch(x, name)) return false;
-        if (schemaClasses.count(name)) return true;
         for (const auto& g : m.inventory.include) if (globMatch(g, name)) return true;
-        return false;
+        for (const auto& x : m.inventory.exclude) if (globMatch(x, name)) return false;
+        return schemaClasses.count(name) != 0;
     };
 
     const auto fns     = exeFunctions(pe);

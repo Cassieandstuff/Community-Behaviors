@@ -5,7 +5,7 @@
 # ret / jmp. Not found: functions reached only through data outside every class's range (finish-loaded
 # constructors, callbacks).
 runtime: ae
-summary: { classes: 222, functions: 1236, shared: 154 }
+summary: { classes: 256, functions: 1441, shared: 190 }
 classes:
   BGSGamebryoSequenceGenerator:
     parent: hkbGenerator
@@ -333,10 +333,234 @@ classes:
       - { va: 0x140b98e10, size: 154, slot: 25, id: 63173 }
       - { va: 0x140b98eb0, size: 70, via: tu, id: 63174 }
       - { va: 0x140b98f00, size: 137, slot: 0, id: 63175 }
+  ahkpCharacterProxy:
+    parent: hkpCharacterProxy
+    vtable: 0x1419fb460
+    functions:
+      - { va: 0x140f19150, size: 139, slot: 0, id: 80549 }
+  ahkpCharacterRigidBody:
+    parent: hkpCharacterRigidBody
+    vtable: 0x1419fb650
+    functions:
+      - { va: 0x140f198c0, size: 139, slot: 0, id: 80566 }
+  bhkCharControllerShape:
+    parent: bhkConvexVerticesShape
+    vtable: 0x1419f7528
+    functions:
+      - { va: 0x140ee84e0, size: 53, via: call, id: 79541 }
+      - { va: 0x140f02e90, size: 257, slot: 46, id: 80113 }
+      - { va: 0x140f03450, size: 52, slot: 0, id: 80116 }
+      - { va: 0x140f03520, size: 8, slot: 2, id: 80118 }
+  bhkCharProxyController:
+    parent: hkpCharacterProxyListener
+    vtable: 0x1419edfb8
+    functions:
+      - { va: 0x140ea0560, size: 64, via: call, id: 78286 }
+      - { va: 0x140ed0b40, size: 2540, slot: 1, id: 79130 }
+      - { va: 0x140ed1540, size: 144, slot: 2, id: 79131 }
+      - { va: 0x140ed15e0, size: 57, slot: 3, id: 79132 }
+      - { va: 0x140ed1620, size: 15, slot: 5, id: 79133 }
+      - { va: 0x140ed1640, size: 102, slot: 4, id: 79134 }
+      - { va: 0x140ed28c0, size: 133, slot: 0, id: 79161 }
+  bhkCharProxyControllerCinfo:
+    parent: bhkCharacterControllerCinfo
+    vtable: 0x1419edf80
+    functions:
+      - { va: 0x140b81a50, size: 99, via: call, id: 62645 }
+      - { va: 0x140ed06a0, size: 9, slot: 2, id: 79123 }
+      - { va: 0x140ed06b0, size: 9, slot: 3, id: 79124 }
+      - { va: 0x140ed06c0, size: 9, slot: 4, id: 79125 }
+      - { va: 0x140ed06d0, size: 11, slot: 1, id: 79126 }
+      - { va: 0x140ed06f0, size: 9, slot: 5, id: 79127 }
+      - { va: 0x140ed0700, size: 458, via: tu, id: 79128 }
+      - { va: 0x140ed08d0, size: 613, via: tu, id: 79129 }
+      - { va: 0x140ed2950, size: 157, slot: 0, id: 79162 }
+  bhkCharRigidBodyController:
+    parent: bhkCharacterController
+    vtable: 0x1419ee668
+    functions:
+      - { va: 0x140ed3ea0, size: 19, slot: 16, id: 79189 }
+      - { va: 0x140ed3ec0, size: 157, slot: 14, id: 79190 }
+      - { va: 0x140ed3f70, size: 42, slot: 15, id: 79191 }
+      - { va: 0x140ed3fa0, size: 9, slot: 17, id: 79192 }
+      - { va: 0x140ed3fb0, size: 816, slot: 3, id: 79193 }
+      - { va: 0x140ed42f0, size: 465, slot: 2, id: 79194 }
+      - { va: 0x140ed44d0, size: 124, slot: 4, id: 79195 }
+      - { va: 0x140ed4560, size: 186, slot: 5, id: 79196 }
+      - { va: 0x140ed4620, size: 54, slot: 6, id: 79197 }
+      - { va: 0x140ed4660, size: 160, slot: 7, id: 79198 }
+      - { va: 0x140ed4710, size: 168, slot: 8, id: 79199 }
+      - { va: 0x140ed47c0, size: 166, slot: 9, id: 79200 }
+      - { va: 0x140ed4870, size: 382, slot: 11, id: 79201 }
+      - { va: 0x140ed4a00, size: 3, slot: 12, id: 79202 }
+      - { va: 0x140ed4a10, size: 199, slot: 13, id: 79203 }
+      - { va: 0x140ed4ae0, size: 1039, slot: 18, id: 79204 }
+      - { va: 0x140ed4f00, size: 232, slot: 10, id: 79205 }
+      - { va: 0x140ed4ff0, size: 863, slot: 19, id: 79206 }
+      - { va: 0x140ed55a0, size: 376, slot: 0, id: 79212 }
+  bhkCharRigidBodyControllerCinfo:
+    parent: bhkCharacterControllerCinfo
+    vtable: 0x1419ee630
+    functions:
+      - { va: 0x140ed2e80, size: 4, slot: 2, id: 79178 }
+      - { va: 0x140ed2e90, size: 4, slot: 3, id: 79179 }
+      - { va: 0x140ed2ea0, size: 3, slot: 4, id: 79180 }
+      - { va: 0x140ed2eb0, size: 11, slot: 1, id: 79181 }
+      - { va: 0x140ed2ed0, size: 9, slot: 5, id: 79182 }
+      - { va: 0x140ed2ee0, size: 170, via: tu, id: 79183 }
+      - { va: 0x140ed2f90, size: 283, via: tu, id: 79184 }
+      - { va: 0x140ed30c0, size: 213, via: tu, id: 79185 }
+      - { va: 0x140ed31a0, size: 1381, via: tu, id: 79186 }
+      - { va: 0x140ed3710, size: 1181, via: tu, id: 79187 }
+      - { va: 0x140ed3bc0, size: 722, via: tu, id: 79188 }
+      - { va: 0x140ed5720, size: 157, slot: 0, id: 79213 }
+      - { va: 0x140ed5940, size: 15, via: call, id: 79219 }
+  bhkCharacterCollisionHandler:
+    vtable: 0x1418b06c8
+    functions:
+      - { va: 0x140780630, size: 54, slot: 0, id: 41660 }
+  bhkCharacterController:
+    parent: NiRefObject
+    vtable: 0x1419e4338
+    functions:
+      - { va: 0x140ea3ac0, size: 133, slot: 0, id: 78342 }
+  bhkCharacterControllerCinfo:
+    vtable: 0x1419e4300
+    functions:
+      - { va: 0x140ea3b50, size: 327, slot: 0, id: 78343 }
+  bhkCharacterPointCollector:
+    parent: hkpAllCdPointCollector
+    vtable: 0x1419fb220
+    functions:
+      - { va: 0x140f177f0, size: 765, slot: 1, id: 80508 }
+      - { va: 0x140f17b00, size: 15, slot: 2, id: 80509 }
+      - { va: 0x140f17b20, size: 541, via: tu, id: 80510 }
+      - { va: 0x140f17d50, size: 576, via: tu, id: 80511 }
+      - { va: 0x140f17fa0, size: 126, via: tu, id: 80512 }
+      - { va: 0x140f18180, size: 43, via: tu, id: 80517 }
+      - { va: 0x140f181b0, size: 336, slot: 0, id: 80518 }
+  bhkCharacterProxy:
+    parent: bhkSerializable
+    vtable: 0x1419edde8
+    functions:
+      - { va: 0x140b803c0, size: 260, via: call, id: 62630 }
+      - { va: 0x140ed29f0, size: 52, slot: 0, id: 79163 }
+      - { va: 0x140ed2be0, size: 8, slot: 2, id: 79168 }
+      - { va: 0x140ed2bf0, size: 6, slot: 44, id: 79169 }
+      - { va: 0x140f185f0, size: 99, slot: 24, id: 80529 }
+      - { va: 0x140f18660, size: 103, slot: 25, id: 80530 }
+      - { va: 0x140f186d0, size: 77, slot: 26, id: 80531 }
+      - { va: 0x140f18730, size: 73, slot: 27, id: 80532 }
+      - { va: 0x140f18780, size: 196, via: tu, id: 80533 }
+      - { va: 0x140f18850, size: 132, via: tu, id: 80534 }
+      - { va: 0x140f188e0, size: 234, slot: 23, id: 80535 }
+      - { va: 0x140f189d0, size: 362, slot: 47, id: 80536 }
+      - { va: 0x140f18b40, size: 187, slot: 43, id: 80537 }
+      - { va: 0x140f18c10, size: 400, slot: 46, id: 80538 }
+      - { va: 0x140f18db0, size: 39, slot: 39, id: 80539 }
+      - { va: 0x140f18de0, size: 10, slot: 40, id: 80540 }
+      - { va: 0x140f18df0, size: 294, via: tu, id: 80541 }
+      - { va: 0x140f18f20, size: 218, slot: 38, id: 80542 }
+  bhkCharacterProxyCinfo:
+    parent: hkSerializableCinfo
+    vtable: 0x1419eddc8
+    functions:
+      - { va: 0x140ed2a30, size: 136, slot: 0, id: 79164 }
+  bhkCharacterRigidBody:
+    parent: bhkSerializable
+    vtable: 0x1419ee450
+    functions:
+      - { va: 0x140b30140, size: 14, via: call, id: 60894 }
+      - { va: 0x140b7bbc0, size: 441, via: call, id: 62447 }
+      - { va: 0x140ed57c0, size: 52, slot: 0, id: 79214 }
+      - { va: 0x140ed5920, size: 8, slot: 2, id: 79217 }
+      - { va: 0x140ed5930, size: 6, slot: 44, id: 79218 }
+      - { va: 0x140f191e0, size: 45, slot: 24, id: 80550 }
+      - { va: 0x140f19220, size: 5, slot: 25, id: 80551 }
+      - { va: 0x140f19230, size: 5, slot: 26, id: 80552 }
+      - { va: 0x140f19240, size: 5, slot: 27, id: 80553 }
+      - { va: 0x140f19250, size: 184, via: tu, id: 80554 }
+      - { va: 0x140f19310, size: 122, via: tu, id: 80555 }
+      - { va: 0x140f19390, size: 222, slot: 23, id: 80556 }
+      - { va: 0x140f19480, size: 352, slot: 47, id: 80557 }
+      - { va: 0x140f195f0, size: 184, slot: 43, id: 80558 }
+      - { va: 0x140f196b0, size: 262, slot: 46, id: 80559 }
+      - { va: 0x140f197c0, size: 39, slot: 39, id: 80560 }
+      - { va: 0x140f197f0, size: 10, slot: 40, id: 80561 }
+      - { va: 0x140f19800, size: 29, slot: 38, id: 80562 }
+  bhkCharacterRigidBodyCinfo:
+    parent: hkSerializableCinfo
+    vtable: 0x1419ee430
+    functions:
+      - { va: 0x140ed5800, size: 136, slot: 0, id: 79215 }
+  bhkCharacterState:
+    parent: hkpCharacterState
+    vtable: 0x1419e42b0
+    functions:
+      - { va: 0x140ea37e0, size: 372, via: call, id: 78340 }
+      - { va: 0x140ea3ca0, size: 136, slot: 0, id: 78344 }
+      - { va: 0x140ea4020, size: 1508, via: tu, id: 78352 }
+      - { va: 0x140ea4610, size: 63, via: tu, id: 78353 }
+      - { va: 0x140ea4650, size: 97, via: tu, id: 78354 }
+      - { va: 0x140ea4700, size: 174, via: tu, id: 78359 }
+      - { va: 0x140ea47b0, size: 905, via: tu, id: 78360 }
+      - { va: 0x140ea4b40, size: 3, via: tu, id: 78361 }
+      - { va: 0x140ea4b60, size: 717, via: tu, id: 78363 }
+      - { va: 0x140ea4e30, size: 3, slot: 7, id: 78364 }
+      - { va: 0x140ea4e40, size: 3, slot: 6, id: 78365 }
+  bhkCharacterStateClimbing:
+    parent: bhkCharacterState
+    vtable: 0x1419e4440
+    functions:
+      - { va: 0x140ea3d30, size: 136, slot: 0, id: 78345 }
+      - { va: 0x140f01e90, size: 6, slot: 3, id: 80092 }
+      - { va: 0x140f01ea0, size: 17, slot: 8, id: 80093 }
+  bhkCharacterStateFlying:
+    parent: bhkCharacterState
+    vtable: 0x1419e4490
+    functions:
+      - { va: 0x140ea3dc0, size: 136, slot: 0, id: 78346 }
+      - { va: 0x140f01ee0, size: 6, slot: 3, id: 80094 }
+      - { va: 0x140f01ef0, size: 3, slot: 8, id: 80095 }
+  bhkCharacterStateInAir:
+    parent: bhkCharacterState
+    vtable: 0x1419f70b8
+    functions:
+      - { va: 0x140ea0380, size: 25, via: call, id: 78281 }
+      - { va: 0x140f01f30, size: 6, slot: 3, id: 80097 }
+      - { va: 0x140f01f40, size: 686, slot: 8, id: 80098 }
+      - { va: 0x140f021f0, size: 136, slot: 0, id: 80099 }
+  bhkCharacterStateJumping:
+    parent: bhkCharacterState
+    vtable: 0x1419f7130
+    functions:
+      - { va: 0x140f022a0, size: 6, slot: 3, id: 80101 }
+      - { va: 0x140f022b0, size: 470, slot: 8, id: 80102 }
+      - { va: 0x140f02490, size: 136, slot: 0, id: 80103 }
+  bhkCharacterStateOnGround:
+    parent: bhkCharacterState
+    vtable: 0x1419f72f8
+    functions:
+      - { va: 0x140f02540, size: 3, slot: 3, id: 80105 }
+      - { va: 0x140f02550, size: 1303, slot: 8, id: 80106 }
+      - { va: 0x140f02a70, size: 136, slot: 0, id: 80107 }
+  bhkCharacterStateSwimming:
+    parent: bhkCharacterState
+    vtable: 0x1419f7378
+    functions:
+      - { va: 0x140f02b20, size: 6, slot: 3, id: 80109 }
+      - { va: 0x140f02b30, size: 665, slot: 8, id: 80110 }
+      - { va: 0x140f02dd0, size: 136, slot: 0, id: 80111 }
   hkBaseObject:
     vtable: 0x1417a76b8
     functions:
       - { va: 0x1402b0730, size: 43, slot: 0, id: 18824 }
+  hkCharControllerShape:
+    parent: hkpConvexVerticesShape
+    vtable: 0x1419f7488
+    functions:
+      - { va: 0x140f02e60, size: 38, slot: 18, id: 80112 }
+      - { va: 0x140f03490, size: 139, slot: 0, id: 80117 }
   hkMemoryResourceContainer:
     parent: hkResourceContainer
     vtable: 0x141967128
@@ -2110,6 +2334,120 @@ classes:
       - { va: 0x140abf270, size: 208, via: call, id: 58485 }
       - { va: 0x140ac15c0, size: 125, slot: 0, id: 58520 }
       - { va: 0x140ae1d00, size: 121, via: call, id: 59431 }
+  hkpCharacterContext:
+    parent: hkReferencedObject
+    vtable: 0x141976d80
+    functions:
+      - { va: 0x140b7b0b0, size: 125, slot: 0, id: 62431 }
+  hkpCharacterControllerCinfo:
+    parent: hkReferencedObject
+    vtable: 0x1419654c0
+    functions:
+      - { va: 0x140afb680, size: 133, slot: 0, id: 59839 }
+  hkpCharacterMotion:
+    parent: hkpMotion
+    vtable: 0x14196bf20
+    functions:
+      - { va: 0x140b2f6c0, size: 133, slot: 0, id: 60877 }
+      - { va: 0x140b4ce70, size: 48, slot: 5, id: 61743 }
+      - { va: 0x140b4ced0, size: 45, slot: 6, id: 61744 }
+      - { va: 0x140b4cf10, size: 59, slot: 7, id: 61745 }
+      - { va: 0x140b4cf60, size: 39, slot: 8, id: 61746 }
+      - { va: 0x140b4cf90, size: 37, slot: 9, id: 61747 }
+      - { va: 0x140b4cfc0, size: 37, slot: 10, id: 61748 }
+      - { va: 0x140b4cff0, size: 139, slot: 18, id: 61749 }
+      - { va: 0x140b4d090, size: 92, slot: 20, id: 61750 }
+      - { va: 0x140b4d100, size: 25, slot: 21, id: 61751 }
+      - { va: 0x140b4d120, size: 40, slot: 23, id: 61752 }
+      - { va: 0x140b4d150, size: 42, slot: 22, id: 61753 }
+      - { va: 0x140b4d180, size: 39, slot: 24, id: 61754 }
+  hkpCharacterProxy:
+    parent: hkReferencedObject
+    vtable: 0x14197b2c0
+    functions:
+      - { va: 0x140b82d00, size: 2159, slot: 3, id: 62647 }
+      - { va: 0x140b83580, size: 1322, via: tu, id: 62648 }
+      - { va: 0x140b83ab0, size: 443, slot: 4, id: 62649 }
+      - { va: 0x140b83c80, size: 546, via: tu, id: 62650 }
+      - { va: 0x140b83eb0, size: 80, via: tu, id: 62651 }
+      - { va: 0x140b83f10, size: 80, via: tu, id: 62652 }
+      - { va: 0x140b83f70, size: 102, via: tu, id: 62653 }
+      - { va: 0x140b83fe0, size: 101, via: tu, id: 62654 }
+      - { va: 0x140b84050, size: 101, via: tu, id: 62655 }
+      - { va: 0x140b840c0, size: 193, via: tu, id: 62656 }
+      - { va: 0x140b84190, size: 444, via: tu, id: 62657 }
+      - { va: 0x140b84360, size: 262, via: tu, id: 62658 }
+      - { va: 0x140b84470, size: 335, slot: 2, id: 62659 }
+      - { va: 0x140b845d0, size: 592, via: tu, id: 62660 }
+      - { va: 0x140b84830, size: 374, via: tu, id: 62661 }
+      - { va: 0x140b849b0, size: 176, via: tu, id: 62662 }
+      - { va: 0x140b84a70, size: 114, via: tu, id: 62663 }
+      - { va: 0x140b84af0, size: 142, via: tu, id: 62664 }
+      - { va: 0x140b84ba0, size: 125, slot: 0, id: 62667 }
+      - { va: 0x140b84ed0, size: 314, via: call, id: 62670 }
+      - { va: 0x140b85010, size: 41, via: call, id: 62671 }
+  hkpCharacterProxyCinfo:
+    parent: hkpCharacterControllerCinfo
+    vtable: 0x1419654e0
+    functions:
+      - { va: 0x140afb710, size: 133, slot: 0, id: 59840 }
+  hkpCharacterProxyListener:
+    vtable: 0x1419edd90
+    functions:
+      - { va: 0x140ed2ac0, size: 100, slot: 0, id: 79165 }
+      - { va: 0x140ed2b30, size: 67, via: tu, id: 79166 }
+      - { va: 0x140ed2b80, size: 92, via: tu, id: 79167 }
+      - { va: 0x140ed2c00, size: 265, via: tu, id: 79170 }
+      - { va: 0x140ed2d10, size: 3, slot: 4, id: 79171 }
+      - { va: 0x140ed2d20, size: 3, slot: 2, id: 79172 }
+      - { va: 0x140ed2d30, size: 3, slot: 3, id: 79173 }
+      - { va: 0x140ed2d40, size: 3, slot: 5, id: 79174 }
+      - { va: 0x140ed2d50, size: 3, slot: 1, id: 79175 }
+  hkpCharacterRigidBody:
+    parent: hkReferencedObject
+    vtable: 0x141976e30
+    functions:
+      - { va: 0x140b7bf00, size: 452, slot: 3, id: 62452 }
+      - { va: 0x140b7c0d0, size: 2538, slot: 4, id: 62453 }
+      - { va: 0x140b7cac0, size: 530, slot: 5, id: 62454 }
+      - { va: 0x140b7cce0, size: 8, via: tu, id: 62455 }
+      - { va: 0x140b7ccf0, size: 137, via: tu, id: 62456 }
+      - { va: 0x140b7cd80, size: 11, via: tu, id: 62457 }
+      - { va: 0x140b7cda0, size: 90, via: tu, id: 62458 }
+      - { va: 0x140b7ce40, size: 78, via: tu, id: 62460 }
+      - { va: 0x140b7cea0, size: 59, via: tu, id: 62461 }
+      - { va: 0x140b7cf20, size: 125, slot: 0, id: 62465 }
+  hkpCharacterRigidBodyCinfo:
+    parent: hkpCharacterControllerCinfo
+    vtable: 0x14197a728
+    functions:
+      - { va: 0x140b7f510, size: 133, slot: 0, id: 62581 }
+  hkpCharacterRigidBodyListener:
+    parent: hkReferencedObject
+    vtable: 0x1419ee5e8
+    functions:
+      - { va: 0x140b6a310, size: 389, via: call, id: 62282 }
+      - { va: 0x140ed5890, size: 136, slot: 0, id: 79216 }
+      - { va: 0x140f19950, size: 242, slot: 3, id: 80567 }
+      - { va: 0x140f19a50, size: 835, via: tu, id: 80568 }
+      - { va: 0x140f19da0, size: 562, via: tu, id: 80569 }
+      - { va: 0x140f19fe0, size: 137, slot: 4, id: 80570 }
+      - { va: 0x140f1a070, size: 995, slot: 5, id: 80571 }
+      - { va: 0x140f1a460, size: 909, slot: 6, id: 80572 }
+      - { va: 0x140f1a800, size: 574, slot: 7, id: 80573 }
+  hkpCharacterState:
+    parent: hkReferencedObject
+    vtable: 0x1419e4268
+    functions:
+      - { va: 0x140ea3f90, size: 136, slot: 0, id: 78351 }
+      - { va: 0x140f01e70, size: 3, slot: 4, id: 80090 }
+      - { va: 0x140f01e80, size: 3, slot: 5, id: 80091 }
+  hkpCharacterStateManager:
+    parent: hkReferencedObject
+    vtable: 0x141976e10
+    functions:
+      - { va: 0x140b7ba70, size: 105, via: call, id: 62443 }
+      - { va: 0x140b7bb40, size: 125, slot: 0, id: 62446 }
   hkxAttributeHolder:
     parent: hkReferencedObject
     vtable: 0x141995a68
@@ -2276,9 +2614,45 @@ shared:
   - { va: 0x140b0c450, size: 1453, id: 60046, classes: [hkbBlenderGenerator, hkbBlendingTransitionEffect] }
   - { va: 0x140b198b0, size: 354, id: 60247, classes: [hkMemoryResourceContainer, hkMemoryResourceHandle] }
   - { va: 0x140b3d4a0, size: 1440, id: 61404, classes: [hkbCharacter, hkbProxyModifier] }
+  - { va: 0x140b7bd80, size: 216, id: 62448, classes: [ahkpCharacterRigidBody, hkpCharacterRigidBody] }
+  - { va: 0x140b800c0, size: 150, id: 62628, classes: [bhkCharacterProxy, hkbProxyModifier] }
+  - { va: 0x140b80160, size: 587, id: 62629, classes: [ahkpCharacterProxy, hkpCharacterProxy] }
   - { va: 0x140ba2060, size: 24, id: 63349, classes: [BSDirectAtModifier, BSInterpValueModifier, BSLimbIKModifier, BSLookAtModifier] }
   - { va: 0x140bd1520, size: 24, id: 64076, classes: [hkaDefaultAnimationControl, hkbClipGenerator] }
   - { va: 0x140bde640, size: 166, id: 64318, classes: [hkaAnimation, hkaInterleavedUncompressedAnimation, hkaQuantizedAnimation, hkaSplineCompressedAnimation] }
   - { va: 0x140bdf4c0, size: 11, id: 64361, classes: [hkbClipGenerator, hkbMirrorModifier] }
   - { va: 0x140bdf4e0, size: 482, id: 64362, classes: [hkbClipGenerator, hkbMirrorModifier] }
   - { va: 0x140be0950, size: 263, id: 64387, classes: [hkaAnimationControl, hkaDefaultAnimationControl] }
+  - { va: 0x140e9ccf0, size: 248, id: 78252, classes: [bhkCharProxyControllerCinfo, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140e9dcd0, size: 903, id: 78257, classes: [bhkCharProxyControllerCinfo, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140e9e060, size: 455, id: 78258, classes: [bhkCharProxyControllerCinfo, bhkCharRigidBodyController, bhkCharRigidBodyControllerCinfo, bhkCharacterController] }
+  - { va: 0x140ea0320, size: 31, id: 78279, classes: [bhkCharProxyController, bhkCharRigidBodyController] }
+  - { va: 0x140ea0470, size: 72, id: 78283, classes: [bhkCharacterStateOnGround, bhkCharacterStateSwimming] }
+  - { va: 0x140ea0e20, size: 13, id: 78299, classes: [bhkCharProxyController, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140ea13a0, size: 595, id: 78303, classes: [bhkCharProxyController, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140ea21a0, size: 304, id: 78309, classes: [bhkCharProxyController, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140ea22e0, size: 2217, id: 78310, classes: [bhkCharProxyController, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140ed16b0, size: 443, id: 79135, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed1880, size: 805, id: 79136, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed1bd0, size: 127, id: 79138, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed1c60, size: 42, id: 79139, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed1ca0, size: 269, id: 79141, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed1dc0, size: 261, id: 79142, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed1f20, size: 145, id: 79144, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed1fc0, size: 54, id: 79145, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2020, size: 137, id: 79147, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed20b0, size: 109, id: 79148, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2130, size: 391, id: 79149, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed22c0, size: 100, id: 79150, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2330, size: 260, id: 79151, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2440, size: 211, id: 79152, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2520, size: 334, id: 79153, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2690, size: 184, id: 79155, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2750, size: 184, id: 79156, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2810, size: 48, id: 79157, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed2840, size: 92, id: 79158, classes: [bhkCharProxyController, bhkCharProxyControllerCinfo] }
+  - { va: 0x140ed5360, size: 379, id: 79207, classes: [bhkCharRigidBodyController, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140ed54f0, size: 144, id: 79209, classes: [bhkCharRigidBodyController, bhkCharRigidBodyControllerCinfo] }
+  - { va: 0x140f02fa0, size: 570, id: 80114, classes: [bhkCharControllerShape, hkCharControllerShape] }
+  - { va: 0x140f031e0, size: 612, id: 80115, classes: [bhkCharControllerShape, hkCharControllerShape] }
+  - { va: 0x140f3d670, size: 728, id: 81002, classes: [bhkCharacterStateInAir, bhkCharacterStateOnGround, bhkCharacterStateSwimming] }

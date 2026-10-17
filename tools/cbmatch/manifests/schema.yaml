@@ -19,16 +19,19 @@ runtimes:
 registry: ../../../src/core/hooks/registry/engine.yaml
 toolchains:
   vs2015: "${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
+  # Bethesda's engine code (and the Havok classes it compiled into its own units) is VS2017 15.9 (cl 19.16.27054);
+  # every unit tries both and keeps the better result per function.
+  vs2017: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe"
 # /Ob1: Havok's build inlines only `inline` functions — vanilla calls small same-file helpers that /Ob2 would inline.
 flags: [/O2, /Ob1, /GS-, /fp:fast]
 includes: [../../../schema/Havok, "${VS140COMNTOOLS}../../VC/include"]
 # What there is to match: `cbmatch --inventory` regenerates the file from the exe; coverage prints after a full run.
-# Physics (hkp*) is a later pass (D4).
+# Physics: the character controller (hkpCharacter*, Bethesda's bhkChar*) is in scope; the rest of hkp* is a later pass (D4).
 inventory:
   file: ../inventory.yaml
   parked: ../parked.yaml
   schema: ../../../schema
-  include: ["hkb*", "hka*"]
+  include: ["hkb*", "hka*", "hkpCharacter*", "ahkpCharacter*", "bhkChar*", "hkCharControllerShape"]
   exclude: ["hkp*"]
 units:
   - source: ../../../schema/Havok/Behavior/Modifier/Timer/hkbTimerModifier.cpp
@@ -1769,3 +1772,6 @@ units:
       - { name: "??_GhkaFootPlacementIkSolver@schema@CB@@UEAAPEAXI@Z", va: 0x140a84ba0 }
     drivers:
       - { name: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z", why: "parked (workbench.yaml tracks it), kept in its unit: the class's only constructor, so the only emitter of the vtable and the listed deleting destructor" }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.cpp
+    functions:
+      - { name: "CB::schema::hkpCharacterRigidBodyListener::processActualPoints", va: 0x140f19fe0 }
