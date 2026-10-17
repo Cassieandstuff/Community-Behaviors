@@ -180,36 +180,6 @@ namespace CB { namespace schema
         m_echoNextUpdate = false;
     }
 
-    void hkbStateMachine::update(const hkbContext& context, hkReal timestep)
-    {
-        if (!m_isActive) return;
-
-        HK_TIMER_BEGIN_LIST("hkbStateMachine::update", "UpdateStateListeners");
-        hkbBehaviorGraph* rootBehavior = context.m_character->m_behaviorGraph;
-        m_states[m_sCurrentStateIndexAndEntered >> 1]->updateListeners(context, timestep, this);
-        m_timeInState += timestep;
-
-        HK_TIMER_SPLIT_LIST("UpdateActiveTransitions");
-        updateActiveTransitions(context);
-
-        HK_TIMER_SPLIT_LIST("UpdateTransitions");
-        const bool fromGeneratorAtEnd = isFromGeneratorAtEnd(rootBehavior, timestep);
-        processDelayedTransitions(context, fromGeneratorAtEnd);
-
-        hkbEventQueue* queue = context.getEventQueue();
-        if (m_stateOrTransitionChanged) {
-            if (m_eventToSendWhenStateOrTransitionChanges.m_id != -1) {
-                const hkbEventProperty e(m_eventToSendWhenStateOrTransitionChanges.m_id, m_eventToSendWhenStateOrTransitionChanges.m_payload);
-                hkbEvent               event(e.getId(), e.getPayload(), context.m_character->m_behaviorGraph->getNodeTemplate(this));
-                event.m_id = queue->toExternal(event.m_id);
-                queue->enqueue(event);
-            }
-            rootBehavior->m_stateOrTransitionChanged = true;
-            m_stateOrTransitionChanged               = false;
-        }
-        HK_TIMER_END_LIST();
-    }
-
     void hkbStateMachine::handleEvent(const hkbContext& context, const hkbEvent e)
     {
         handleEventInternal(context, e.getId());
@@ -225,31 +195,6 @@ namespace CB { namespace schema
             m_wildcardTransitionFlags.reserveExactly(0);
             m_isActive = false;
         }
-    }
-
-    int hkbStateMachine::getMaxNumChildren(GetChildrenFlags flags)
-    {
-        if (flags & FLAG_ACTIVE_ONLY) return 1;
-
-        const int numStates   = m_states.getSize();
-        int       numChildren = numStates;
-        for (int i = 0; i < numStates; i++) {
-            const TransitionInfoArray* transitions = m_states[i]->m_transitions;
-            if (transitions) {
-                const int numTransitions = transitions->m_transitions.getSize();
-                for (int j = 0; j < numTransitions; j++) {
-                    if (transitions->m_transitions[j].m_transition) numChildren++;
-                }
-            }
-        }
-        const TransitionInfoArray* wildcards = m_wildcardTransitions;
-        if (wildcards) {
-            const int numTransitions = wildcards->m_transitions.getSize();
-            for (int j = 0; j < numTransitions; j++) {
-                if (wildcards->m_transitions[j].m_transition) numChildren++;
-            }
-        }
-        return numChildren;
     }
 
     void hkbStateMachine::getChildren(GetChildrenFlags flags, ChildrenInfo& childrenInfo)

@@ -176,38 +176,6 @@ namespace CB { namespace schema
         }
     }
 
-    void hkbProxyModifier::computeDesiredVelocity(const hkbContext& context, const hkQsTransform& worldFromModel, hkVector4& desiredVelocityOut)
-    {
-        if (m_ignoreIncomingTranslation) {
-            desiredVelocityOut = m_characterProxy->getLinearVelocity();
-        }
-        else {
-            hkQsTransform motion;
-            motion.setMulInverseMul(*context.m_character->m_worldFromModel, worldFromModel);
-            hkVector4 velocity;
-            velocity.setRotatedDir(worldFromModel.m_rotation, motion.m_translation);
-            desiredVelocityOut.setMul4(hkSimdReal(1.0f / m_timestep), velocity);
-        }
-
-        hkVector4 linearVelocity;
-        if (m_linearVelocityMode == LINEAR_VELOCITY_MODE_WORLD) {
-            linearVelocity = m_linearVelocity;
-        }
-        else {
-            linearVelocity.setRotatedDir(worldFromModel.m_rotation, m_linearVelocity);
-        }
-        desiredVelocityOut.add4(linearVelocity);
-
-        if (m_includeDownwardMomentum && !m_ignoreIncomingTranslation) {
-            const hkVector4& up            = context.getWorldUpWS();
-            hkReal           verticalSpeed = up.dot3(m_characterProxy->getLinearVelocity()).getReal();
-            if (verticalSpeed >= 0.0f) verticalSpeed = 0.0f;
-            desiredVelocityOut.addMul4(hkSimdReal(verticalSpeed), up);
-        }
-
-        desiredVelocityOut.addMul4(context.getWorld()->getGravity(), hkSimdReal(m_timestep));
-    }
-
     void hkbProxyModifier::integrateProxy(const hkbContext& context, const hkVector4& desiredVelocity)
     {
         hkVector4 velocity;

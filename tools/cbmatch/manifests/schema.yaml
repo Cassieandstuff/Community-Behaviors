@@ -1,5 +1,11 @@
 # cbmatch manifest: the schema tree's reimplemented Havok runtime (schema/Havok) against vanilla.
-#   cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant
+#   cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant --diff 256 --strict
+#
+# Proven code only. --strict fails on any out-of-line definition a unit compiles that no line here covers: a function
+# is either listed (and must pass) or a unit's declared driver (compiled only so the unit emits what it lists — a
+# vtable, a header's inline copy; never matched, never in the image or the palette). Functions still being matched
+# live in tools/cbmatch/workbench (manifests/workbench.yaml); units that are matching devices rather than Havok files
+# live in tools/cbmatch/devices.
 #
 # One unit per translation unit: a TU boundary changes the code MSVC emits (what a caller may assume about a callee
 # it can see), so units mirror the files vanilla was built from, not one per function.
@@ -211,9 +217,6 @@ units:
       - { name: "CB::schema::hkbClipGenerator::getExtractedMotionDelta", va: 0x140acfff0 }
       - { name: "CB::schema::hkbClipGenerator::setElapsedTime", va: 0x140acecd0 }
       - { name: "CB::schema::hkbClipGenerator::startEcho", va: 0x140acee60 }
-      # sampleAnimation (0x140ad0730): STRUCTURAL - its lea'd out-argument locals sit at other offsets (rule A covers only
-      # slots whose address never escapes).
-      # - { name: "CB::schema::hkbClipGenerator::sampleAnimation", va: 0x140ad0730 }
       - { name: "CB::schema::hkbClipGenerator::sortTriggers", va: 0x140ad0290 }
       - { name: "CB::schema::hkbClipGenerator::updateSync", va: 0x140ace930 }
       - { name: "??1hkbClipGenerator@schema@CB@@UEAA@XZ", va: 0x140acd620 }
@@ -236,10 +239,6 @@ units:
     functions:
       - { name: "CB::schema::hkbClipGenerator::createInternalState", va: 0x140b030c0 }
       - { name: "??_GhkbClipGeneratorInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8010 }
-      # STOPPED (STRUCTURAL, awaiting a VARIANT-rule decision): the copy loop counts up (`inc; cmp; jl`) where 24247
-      # counts down (`sub 1; jnz`), no spelling found that keeps it up.
-      # - { name: "CB::schema::hkbClipGenerator::getInternalState", va: 0x140b03110 }
-      # - { name: "CB::schema::hkbClipGenerator::setInternalState", va: 0x140b03250 }
       - { name: "CB::schema::hkbClipGenerator::copySampledPose", va: 0x140b03380 }
       - { name: "CB::schema::hkbClipGenerator::copySampledFloats", va: 0x140b03550 }
       - { name: "CB::schema::hkbClipGenerator::blendSampledFloats", va: 0x140b036a0 }
@@ -330,8 +329,6 @@ units:
       - { name: "CB::schema::hkbEvaluateExpressionModifier::setInternalStateUser", va: 0x140aee850 }
       - { name: "CB::schema::hkbEvaluateExpressionModifier::parseAssignment", va: 0x140aee8c0 }
       - { name: "CB::schema::hkbEvaluateExpressionModifier::findEventIndex", va: 0x140aeeb30 }
-      # STRUCTURAL: vanilla tail-duplicates the int32 case's store (see tools/cbmatch/parked.yaml):
-      # - { name: "CB::schema::hkbEvaluateExpressionModifier::setVariable", va: 0x140aeebc0 }
       - { name: "CB::schema::hkbEvaluateExpressionModifier::trimWhitespace", va: 0x140aeedd0 }
       - { name: "CB::schema::hkbEvaluateExpressionModifier::createInternalState", va: 0x140aeee50 }
       - { name: "CB::schema::hkbEvaluateExpressionModifier::getInternalState", va: 0x140aeeea0 }
@@ -465,12 +462,8 @@ units:
       - { name: "CB::schema::hkbBlenderGenerator::cloneNode", va: 0x140ae79d0 }
       - { name: "CB::schema::hkbBlenderGenerator::generate", va: 0x140ae7a20 }
       - { name: "CB::schema::hkbBlenderGenerator::canRecycleOutput", va: 0x140ae7a60 }
-      # STRUCTURAL, local stack slots laid out differently (rule A; see parked.yaml):
-      # - { name: "CB::schema::hkbBlenderGenerator::updateSync", va: 0x140ae7a80 }
       - { name: "CB::schema::hkbBlenderGenerator::startEcho", va: 0x140ae8130 }
       - { name: "CB::schema::hkbBlenderGenerator::setChildGenerator", va: 0x140ae8140 }
-      # STRUCTURAL, 24247 CSEs the weight array's address where vanilla re-derives it (see parked.yaml):
-      # - { name: "CB::schema::hkbBlenderGenerator::setChildBoneWeight", va: 0x140ae8290 }
       - { name: "CB::schema::hkbBlenderGenerator::updateActiveChildren", va: 0x140ae8420 }
       - { name: "CB::schema::hkbBlenderGenerator::computeBlendInterval", va: 0x140ae8510 }
       - { name: "CB::schema::hkbBlenderGenerator::computeCommonSyncPointIds", va: 0x140ae87c0 }
@@ -545,10 +538,6 @@ units:
       - { name: "??1BSOffsetAnimationGenerator@schema@CB@@UEAA@XZ", va: 0x140b989e0 }
       - { name: "??_GBSOffsetAnimationGenerator@schema@CB@@UEAAPEAXI@Z", va: 0x140b98a90 }
       - { name: "CB::schema::BSOffsetAnimationGenerator::computeNumChildren", va: 0x140b98b10 }
-  - source: ../../../schema/Havok/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorUtils.cpp
-    functions:
-      # STRUCTURAL even with rule E: vanilla keeps the bone loop top-tested, 24247 rotates it behind a size guard (see parked.yaml):
-      # - { name: "CB::schema::BSOffsetAnimationGeneratorUtils::applyOffsets", va: 0x140ba0fb0 }
   - source: ../../../schema/Havok/Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp
     functions:
       - { name: "??0hkbManualSelectorGenerator@schema@CB@@QEAA@XZ", va: 0x140ae8e70 }
@@ -759,7 +748,6 @@ units:
       - { name: "CB::schema::hkbLookAtModifier::activate", va: 0x140af9720 }
       - { name: "CB::schema::hkbLookAtModifier::isValid", va: 0x140af9750 }
       - { name: "CB::schema::hkbLookAtModifier::cloneNode", va: 0x140af9800 }
-      # - { name: "CB::schema::hkbLookAtModifier::modify", va: 0x140af9850 }  # parked: 24247 leaves a dead 16-byte frame slot after the inlined hkaPose (see parked.yaml)
       - { name: "CB::schema::hkbLookAtModifier::createInternalState", va: 0x140afa0c0 }
       - { name: "??_GhkbLookAtModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9db0 }
       - { name: "CB::schema::hkbLookAtModifier::getInternalState", va: 0x140afa100 }
@@ -786,7 +774,8 @@ units:
     functions:
       - { name: "CB::schema::BSComputeGainForTimeStep", va: 0x140ba2060 }
       - { name: "CB::schema::BSLookAtModifierUtils::modifyInternal", va: 0x140ba2090 }
-      # - { name: "CB::schema::BSLookAtModifierUtils::modifyBone", va: 0x140ba2ba0 }  # parked: constants hoisted into different xmm registers (see parked.yaml)
+    drivers:
+      - { name: "CB::schema::BSLookAtModifierUtils::modifyBone", why: "parked (workbench.yaml tracks it), kept in its unit: its body is the codegen context the listed modifyInternal matches in (a callee VS2015 can see)" }
   - source: ../../../schema/Havok/Behavior/Generator/BGSGamebryoSequence/BGSGamebryoSequenceGenerator.cpp
     functions:
       - { name: "??0BGSGamebryoSequenceGenerator@schema@CB@@QEAA@XZ", va: 0x140b928e0 }
@@ -826,16 +815,15 @@ units:
       - { name: "CB::schema::BSLimbIKModifier::isValid", va: 0x140b9be60 }
       - { name: "CB::schema::BSLimbIKModifier::cloneNode", va: 0x140b9beb0 }
       - { name: "CB::schema::BSLimbIKModifier::update", va: 0x140b9bf00 }
-      # STRUCTURAL: a CSE'd quaternion product and loop-invariant SIMD hoisting differ (see parked.yaml):
-      # - { name: "CB::schema::BSLimbIKModifier::modify", va: 0x140b9bf10 }
       - { name: "??0BSLimbIKModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140b9d080 }
       - { name: "??_GBSLimbIKModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140b9d100 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSDirectAt/BSDirectAtModifierUtils.cpp
     functions:
-      # - { name: "CB::schema::BSDirectAtModifierUtils::modifyInternal", va: 0x140ba1200 }  # parked: vanilla calls the hkBitField destructor out of line (see parked.yaml)
       - { name: "CB::schema::BSDirectAtModifierUtils::computeHeadingDelta", va: 0x140ba1f00 }
       - { name: "CB::schema::BSDirectAtModifierUtils::computePitchDelta", va: 0x140ba1f70 }
       - { name: "??1hkBitField@schema@CB@@QEAA@XZ", va: 0x140ba2000 }
+    drivers:
+      - { name: "CB::schema::BSDirectAtModifierUtils::modifyInternal", why: "parked (workbench.yaml tracks it), kept in its unit: its body makes the unit emit the listed ~hkBitField" }
   - source: ../../../schema/Havok/Behavior/TransitionEffect/Generator/hkbGeneratorTransitionEffect.cpp
     functions:
       - { name: "??0hkbGeneratorTransitionEffect@schema@CB@@QEAA@XZ", va: 0x140b02310 }
@@ -953,7 +941,6 @@ units:
       - { name: "CB::schema::hkbBehaviorGraph::setCharacterPropertyIdMap", va: 0x140ab34b0 }
       - { name: "CB::schema::hkbBehaviorGraph::setGlobalTransitionData", va: 0x140ab44b0 }
       - { name: "CB::schema::hkbBehaviorGraph::releaseUniqueId", va: 0x140ab4740 }
-      # - { name: "CB::schema::hkbBehaviorGraph::activateWithInternalState", va: 0x140ab4a00 }  # parked: spilled storage size/pointer vs 24247 callee-saved registers
       - { name: "CB::schema::hkbBehaviorGraph::deleteActiveNodes", va: 0x140ab7090 }
       - { name: "??0?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ", va: 0x140ab74d0 }
       - { name: "??1?$hkQueue@UhkbEvent@schema@CB@@@schema@CB@@QEAA@XZ", va: 0x140ab7500 }
@@ -961,6 +948,8 @@ units:
       - { name: "CB::schema::hkbBehaviorGraph::vfn22", va: 0x140ab7d90 }
       - { name: "CB::schema::hkbBehaviorGraph::getStateListenerClone", va: 0x140ab40c0 }
       - { name: "CB::schema::hkbBehaviorGraph::staticClass", va: 0x140ac2a20 }
+    drivers:
+      - { name: "CB::schema::hkbBehaviorGraph::activateWithInternalState", why: "parked (workbench.yaml tracks it), kept in its unit: its body makes the unit emit hkbVariableValueSet's listed destructors" }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriver.cpp
     functions:
       - { name: "??0hkbHandIkDriver@schema@CB@@QEAA@XZ", va: 0x140adf7c0 }
@@ -992,21 +981,22 @@ units:
       - { name: "??_GhkbExtractRagdollPoseModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9260 }
   - source: ../../../schema/Havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifier.cpp
     functions:
-      # - { name: "??0hkbKeyframeBonesModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afbb10 }   # parked: copy-construct loop walks the source, not the destination
       - { name: "CB::schema::hkbKeyframeBonesModifier::calcContentStatistics", va: 0x140afbcf0 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::collectBindables", va: 0x140afbd40 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::activate", va: 0x140afbd80 }
-      # - { name: "CB::schema::hkbKeyframeBonesModifier::isValid", va: 0x140afbdb0 }   # parked: map storage/size in stack slots vs callee-saved registers
       - { name: "CB::schema::hkbKeyframeBonesModifier::cloneNode", va: 0x140afc270 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::modify", va: 0x140afc2f0 }
       - { name: "CB::schema::hkbKeyframeBonesModifier::addKeyframedBone", va: 0x140afc390 }
       - { name: "??0hkbBoneIndexArray@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afc460 }
       - { name: "??1hkbKeyframeBonesModifier@schema@CB@@UEAA@XZ", va: 0x140ac6c10 }
       - { name: "??_GhkbKeyframeBonesModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9ca0 }
+    drivers:
+      - { name: "??0hkbKeyframeBonesModifier@schema@CB@@QEAA@AEBV012@@Z", why: "parked (workbench.yaml tracks it), kept in its unit: its body makes the unit emit the listed destructors and hkbBoneIndexArray's copy constructor" }
   - source: ../../../schema/Havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifierUtils.cpp
     functions:
-      # - { name: "CB::schema::hkbKeyframeBonesModifierUtils::modify", va: 0x140b0e830 }   # parked: capacity reloaded from its spill slot vs kept in a register
       - { name: "CB::schema::hkAlgorithm::quickSortRecursive<int,CB::schema::hkAlgorithm::less<int> >", va: 0x140b0edb0 }
+    drivers:
+      - { name: "CB::schema::hkbKeyframeBonesModifierUtils::modify", why: "parked (workbench.yaml tracks it), kept in its unit: its body instantiates the listed hkAlgorithm::quickSortRecursive<int, less<int>>" }
   - source: ../../../schema/Havok/Behavior/Modifier/PoweredRagdollControls/hkbPoweredRagdollControlsModifier.cpp
     functions:
       - { name: "??0hkbPoweredRagdollControlsModifier@schema@CB@@QEAA@XZ", va: 0x140afc560 }
@@ -1040,12 +1030,8 @@ units:
       - { name: "CB::schema::hkbStateMachine::getClassType", va: 0x140ad7ee0 }
       - { name: "CB::schema::hkbStateMachine::collectBindables", va: 0x140ad7ef0 }
       - { name: "CB::schema::hkbStateMachine::activate", va: 0x140ad7f70 }
-      # STRUCTURAL: a local event store moved across the getNodeTemplate call (see parked.yaml):
-      # - { name: "CB::schema::hkbStateMachine::update", va: 0x140ad82c0 }
       - { name: "CB::schema::hkbStateMachine::handleEvent", va: 0x140ad8570 }
       - { name: "CB::schema::hkbStateMachine::deactivate", va: 0x140ad8580 }
-      # STRUCTURAL: 24247 if-converts the counting increments to cmov (see parked.yaml):
-      # - { name: "CB::schema::hkbStateMachine::getMaxNumChildren", va: 0x140ad8620 }
       - { name: "CB::schema::hkbStateMachine::getChildren", va: 0x140ad86d0 }
       - { name: "CB::schema::hkbStateMachine::isValid", va: 0x140ad8990 }
       - { name: "CB::schema::hkbStateMachine::cloneNode", va: 0x140ad8e50 }
@@ -1089,10 +1075,6 @@ units:
       - { name: "CB::schema::hkbStateMachine::createInternalState", va: 0x140b038e0 }
       - { name: "??_GhkbStateMachineInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140acb190 }
       - { name: "??1hkbStateMachineInternalState@schema@CB@@UEAA@XZ", va: 0x140ac7190 }
-      # STRUCTURAL: byte-array copy loops count up in vanilla, down in 24247 (see parked.yaml):
-      # - { name: "CB::schema::hkbStateMachine::getInternalState", va: 0x140b03960 }
-      # STRUCTURAL: byte-array copy loops count up in vanilla, down in 24247 (see parked.yaml):
-      # - { name: "CB::schema::hkbStateMachine::setInternalState", va: 0x140b03ce0 }
   - source: ../../../schema/Havok/Behavior/Modifier/BSDecomposeVectorModifier/BSDecomposeVectorModifier.cpp
     functions:
       - { name: "??0BSDecomposeVectorModifier@schema@CB@@QEAA@XZ", va: 0x140b998f0 }
@@ -1242,11 +1224,13 @@ units:
       - { name: "CB::schema::hkbStateListener::onExit", va: 0x140accc50 }
       - { name: "CB::schema::hkbStateListener::onUpdate", va: 0x140accc60 }
       - { name: "CB::schema::hkbStateListener::clone", va: 0x140b011f0 }
-  - source: ../../../schema/Havok/Common/Base/Object/hkReferencedObjectBethesdaCopy.cpp
+  - source: ../devices/Common/Base/Object/hkReferencedObjectBethesdaCopy.cpp
     flags: [/O2, /Ob1, /GS-, /fp:fast, /EHsc]
     functions:
       - { name: "??_GhkBaseObject@schema@CB@@UEAAPEAXI@Z", va: 0x1402b0730 }
       - { name: "??_GhkReferencedObject@schema@CB@@UEAAPEAXI@Z", va: 0x1402b0760 }
+    drivers:
+      - { name: "CB::schema::hkReferencedObjectBethesdaCopy_instantiate", why: "instantiates both vtables, so the deleting destructors come out of this unit" }
   - source: ../../../schema/Havok/Behavior/Event/hkbEventPayload.cpp
     functions:
       - { name: "CB::schema::hkbStringEventPayload::getClassType", va: 0x140ae5860 }
@@ -1254,36 +1238,57 @@ units:
       - { name: "??_GhkbRealEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca980 }
       - { name: "??_GhkbIntEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9b40 }
       - { name: "??_GhkbStringEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140acb2a0 }
+    drivers:
+      - { name: "??0hkbIntEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbRealEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbStringEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Event/hkbNamedEventPayload.cpp
     functions:
       - { name: "??_GhkbNamedEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca430 }
       - { name: "??_GhkbNamedRealEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca550 }
       - { name: "??_GhkbNamedIntEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca4c0 }
       - { name: "??_GhkbNamedStringEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140aca5e0 }
+    drivers:
+      - { name: "??0hkbNamedEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbNamedIntEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbNamedRealEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbNamedStringEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Event/hkbEventPayloadList.cpp
     functions:
       - { name: "??1hkbEventPayloadList@schema@CB@@UEAA@XZ", va: 0x140ae5870 }
       - { name: "??_GhkbEventPayloadList@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8e20 }
+    drivers:
+      - { name: "??0hkbEventPayloadList@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Event/hkbCameraShakeEventPayload.cpp
     functions:
       - { name: "??_GhkbCameraShakeEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bc50 }
+    drivers:
+      - { name: "??0hkbCameraShakeEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Event/hkbParticleSystemEventPayload.cpp
     functions:
       - { name: "??_GhkbParticleSystemEventPayload@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c090 }
+    drivers:
+      - { name: "??0hkbParticleSystemEventPayload@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Condition/hkbStringCondition.cpp
     functions:
       - { name: "CB::schema::hkbStringCondition::isTrue", va: 0x140ae6e40 }
       - { name: "??_GhkbStringCondition@schema@CB@@UEAAPEAXI@Z", va: 0x140acb210 }
       - { name: "??_GhkbCondition@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8660 }
+    drivers:
+      - { name: "??0hkbStringCondition@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Condition/hkbExpressionCondition.cpp
     functions:
       - { name: "CB::schema::hkbExpressionCondition::isTrue", va: 0x140ae6b50 }
       - { name: "??_GhkbExpressionCondition@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9130 }
+    drivers:
+      - { name: "??0hkbExpressionCondition@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/StateMachine/hkbTestStateChooser.cpp
     functions:
       - { name: "CB::schema::hkbTestStateChooser::chooseStateId", va: 0x140f0c630 }
       - { name: "??_GhkbTestStateChooser@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c5a0 }
       - { name: "??_GhkbStateChooser@schema@CB@@UEAAPEAXI@Z", va: 0x140f0c510 }
+    drivers:
+      - { name: "??0hkbTestStateChooser@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Variables/hkbVariableBindingSet.cpp
     functions:
       - { name: "??1hkbVariableBindingSet@schema@CB@@UEAA@XZ", va: 0x140ae4f40 }
@@ -1291,10 +1296,14 @@ units:
   - source: ../../../schema/Havok/Behavior/Utils/hkbBoneIndexArray.cpp
     functions:
       - { name: "??_GhkbBoneIndexArray@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7c20 }
+    drivers:
+      - { name: "??0hkbBoneIndexArray@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Utils/hkbSymbolIdMap.cpp
     functions:
       - { name: "??1hkbSymbolIdMap@schema@CB@@UEAA@XZ", va: 0x140b13550 }
       - { name: "??_GhkbSymbolIdMap@schema@CB@@UEAAPEAXI@Z", va: 0x140b135d0 }
+    drivers:
+      - { name: "??0hkbSymbolIdMap@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/BehaviorGraph/hkbBehaviorGraphData.cpp
     functions:
       - { name: "??1hkbBehaviorGraphData@schema@CB@@UEAA@XZ", va: 0x140ae61f0 }
@@ -1303,21 +1312,31 @@ units:
     functions:
       - { name: "??1hkbBehaviorGraphStringData@schema@CB@@UEAA@XZ", va: 0x140ac5fa0 }
       - { name: "??_GhkbBehaviorGraphStringData@schema@CB@@UEAAPEAXI@Z", va: 0x140ac77e0 }
+    drivers:
+      - { name: "??0hkbBehaviorGraphStringData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/BehaviorGraph/hkbBehaviorGraphInternalState.cpp
     functions:
       - { name: "??1hkbBehaviorGraphInternalState@schema@CB@@UEAA@XZ", va: 0x140ac5ef0 }
       - { name: "??_GhkbBehaviorGraphInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7760 }
+    drivers:
+      - { name: "??0hkbBehaviorGraphInternalState@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/BehaviorGraph/hkbBehaviorGraphInternalStateInfo.cpp
     functions:
       - { name: "??1hkbBehaviorGraphInternalStateInfo@schema@CB@@UEAA@XZ", va: 0x140f0b4b0 }
       - { name: "??_GhkbBehaviorGraphInternalStateInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140f0bb50 }
+    drivers:
+      - { name: "??0hkbBehaviorGraphInternalStateInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Project/hkbProjectData.cpp
     functions:
       - { name: "??_GhkbProjectData@schema@CB@@UEAAPEAXI@Z", va: 0x140ae6050 }
+    drivers:
+      - { name: "??0hkbProjectData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Project/hkbProjectStringData.cpp
     functions:
       - { name: "??1hkbProjectStringData@schema@CB@@UEAA@XZ", va: 0x140ac6c90 }
       - { name: "??_GhkbProjectStringData@schema@CB@@UEAAPEAXI@Z", va: 0x140aca850 }
+    drivers:
+      - { name: "??0hkbProjectStringData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Character/hkbAnimationBindingSet.cpp
     functions:
       - { name: "??1hkbAnimationBindingWithTriggers@schema@CB@@UEAA@XZ", va: 0x140adf5a0 }
@@ -1328,10 +1347,14 @@ units:
     functions:
       - { name: "??1hkbCharacterData@schema@CB@@UEAA@XZ", va: 0x140ae6970 }
       - { name: "??_GhkbCharacterData@schema@CB@@UEAAPEAXI@Z", va: 0x140ae6a90 }
+    drivers:
+      - { name: "??0hkbCharacterData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Character/hkbCharacterStringData.cpp
     functions:
       - { name: "??1hkbCharacterStringData@schema@CB@@UEAA@XZ", va: 0x140ac61f0 }
       - { name: "??_GhkbCharacterStringData@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7f90 }
+    drivers:
+      - { name: "??0hkbCharacterStringData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Character/hkbCharacterSetup.cpp
     functions:
       - { name: "??1hkbCharacterSetup@schema@CB@@UEAA@XZ", va: 0x140ae5970 }
@@ -1348,10 +1371,17 @@ units:
       - { name: "??_GhkbRealVariableSequencedData@schema@CB@@UEAAPEAXI@Z", va: 0x140acaa10 }
       - { name: "??_GhkbBoolVariableSequencedData@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7da0 }
       - { name: "??_GhkbIntVariableSequencedData@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9bd0 }
+    drivers:
+      - { name: "??0hkbBoolVariableSequencedData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbEventSequencedData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbIntVariableSequencedData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
+      - { name: "??0hkbRealVariableSequencedData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Sequence/hkbSequenceStringData.cpp
     functions:
       - { name: "??1hkbSequenceStringData@schema@CB@@UEAA@XZ", va: 0x140ac7090 }
       - { name: "??_GhkbSequenceStringData@schema@CB@@UEAAPEAXI@Z", va: 0x140acaf60 }
+    drivers:
+      - { name: "??0hkbSequenceStringData@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Generator/hkbGeneratorSyncInfo.cpp
     functions:
       - { name: "CB::schema::hkbGeneratorSyncInfo::mirror", va: 0x140ac2770 }
@@ -1363,13 +1393,13 @@ units:
       - { name: "CB::schema::hkbGetUpModifier::update", va: 0x140af5aa0 }
       - { name: "CB::schema::hkbGetUpModifier::isValid", va: 0x140af5ac0 }
       - { name: "CB::schema::hkbGetUpModifier::cloneNode", va: 0x140af5c70 }
-      # STRUCTURAL: the ragdoll pointer spilled vs the setup spilled - register allocation (see parked.yaml):
-      # - { name: "CB::schema::hkbGetUpModifier::modify", va: 0x140af5cc0 }
       - { name: "CB::schema::hkbGetUpModifier::createInternalState", va: 0x140af6260 }
       - { name: "CB::schema::hkbGetUpModifier::getInternalState", va: 0x140af62a0 }
       - { name: "CB::schema::hkbGetUpModifier::setInternalState", va: 0x140af62c0 }
       - { name: "??_GhkbGetUpModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac96a0 }
       - { name: "??_GhkbGetUpModifierInternalState@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9730 }
+    drivers:
+      - { name: "??0hkbGetUpModifierInternalState@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Utils/hkbRotationUtils.cpp
     functions:
       - { name: "CB::schema::hkbRotationUtils::rotateToAlignUp", va: 0x140ad5880 }
@@ -1381,11 +1411,12 @@ units:
       - { name: "CB::schema::hkbCharacterControllerModifier::activate", va: 0x140aebcb0 }
       - { name: "CB::schema::hkbCharacterControllerModifier::update", va: 0x140aebd20 }
       - { name: "CB::schema::hkbCharacterControllerModifier::cloneNode", va: 0x140aebd60 }
-      # - { name: "CB::schema::hkbCharacterControllerModifier::modify", va: 0x140aebdb0 }  # parked: commutative operand order + setInverse mask xor
       - { name: "CB::schema::hkbCharacterControllerModifier::createInternalState", va: 0x140aec250 }
       - { name: "CB::schema::hkbCharacterControllerModifier::getInternalState", va: 0x140aec290 }
       - { name: "CB::schema::hkbCharacterControllerModifier::setInternalState", va: 0x140aec2c0 }
       - { name: "??_GhkbCharacterControllerModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac7e70 }
+    drivers:
+      - { name: "??0hkbCharacterControllerModifierInternalState@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Modifier/Proxy/hkbProxyModifier.cpp
     functions:
       - { name: "??0hkbProxyModifier@schema@CB@@QEAA@XZ", va: 0x140afa4d0 }
@@ -1395,7 +1426,6 @@ units:
       - { name: "CB::schema::hkbProxyModifier::deactivate", va: 0x140afab00 }
       - { name: "CB::schema::hkbProxyModifier::cloneNode", va: 0x140afab90 }
       - { name: "CB::schema::hkbProxyModifier::modify", va: 0x140afabe0 }
-      # - { name: "CB::schema::hkbProxyModifier::computeDesiredVelocity", va: 0x140afadc0 }  # parked: setInverse mask xor + commutative operand order
       - { name: "CB::schema::hkbProxyModifier::integrateProxy", va: 0x140afb0c0 }
       - { name: "CB::schema::hkbProxyModifier::updateTranslation", va: 0x140afb260 }
       - { name: "CB::schema::hkbProxyModifier::updateRotation", va: 0x140afb3e0 }
@@ -1404,6 +1434,8 @@ units:
     functions:
       - { name: "??1hkbEventRangeDataArray@schema@CB@@UEAA@XZ", va: 0x140ac67c0 }
       - { name: "??_GhkbEventRangeDataArray@schema@CB@@UEAAPEAXI@Z", va: 0x140ac8ea0 }
+    drivers:
+      - { name: "??0hkbEventRangeDataArray@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Animation/Playback/Control/hkaAnimationControl.cpp
     functions:
       - { name: "??0hkaAnimationControl@schema@CB@@QEAA@PEBUhkaAnimationBinding@12@@Z", va: 0x140be07a0 }
@@ -1516,11 +1548,13 @@ units:
       - { name: "??1hkaMirroredSkeleton@schema@CB@@UEAA@XZ", va: 0x140bdf420 }
       - { name: "??_GhkaMirroredSkeleton@schema@CB@@UEAAPEAXI@Z", va: 0x140be0720 }
   # Bethesda's copies (C++ exceptions on) are the ones vanilla linked; see the file note.
-  - source: ../../../schema/Havok/Animation/Rig/hkaSkeletonEhUnit.cpp
+  - source: ../devices/Animation/Rig/hkaSkeletonEhUnit.cpp
     flags: [/EHsc]
     functions:
       - { name: "??1hkaSkeleton@schema@CB@@UEAA@XZ", va: 0x140bbc830 }
       - { name: "??_GhkaSkeleton@schema@CB@@UEAAPEAXI@Z", va: 0x140bbd000 }
+    drivers:
+      - { name: "CB::schema::hkaSkeletonEhUnit_newSkeleton", why: "constructs one, so ~hkaSkeleton and its deleting destructor come out under /EHsc" }
   - source: ../../../schema/Havok/Animation/Animation/Interleaved/hkaInterleavedUncompressedAnimation.cpp
     functions:
       - { name: "??0hkaInterleavedUncompressedAnimation@schema@CB@@QEAA@AEBV012@@Z", va: 0x140c2f800 }
@@ -1528,15 +1562,9 @@ units:
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialTracks", va: 0x140c2fa30 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::sampleIndividualTransformTracks", va: 0x140c2fce0 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::sampleIndividualFloatTracks", va: 0x140c2ff80 }
-      # STRUCTURAL, vanilla computes the quaternion product q0·q1 twice where 24247 CSEs it (see parked.yaml):
-      # - { name: "CB::schema::hkaInterleavedUncompressedAnimation::transformTrack", va: 0x140c30210 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getNumOriginalFrames", va: 0x140c30390 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getNumDataChunks", va: 0x140c303b0 }
-      # STRUCTURAL, vanilla keeps (2·n)·48 unfolded where 24247 folds it to n·96 (see parked.yaml):
-      # - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getDataChunks", va: 0x140c303d0 }
       - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getMaxSizeOfCombinedDataChunks", va: 0x140c30450 }
-      # STRUCTURAL, 24247 turns every aligned move unaligned once a loop in the function auto-vectorizes, and hoists 1 - t (see parked.yaml):
-      # - { name: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks", va: 0x140c30480 }
       - { name: "??1hkaInterleavedUncompressedAnimation@schema@CB@@UEAA@XZ", va: 0x140bde9b0 }
       - { name: "??_GhkaInterleavedUncompressedAnimation@schema@CB@@UEAAPEAXI@Z", va: 0x140bdee50 }
   - source: ../../../schema/Havok/Animation/Animation/Quantized/hkaQuantizedAnimation.cpp
@@ -1550,8 +1578,6 @@ units:
       - { name: "CB::schema::hkaQuantizedAnimation::getNumOriginalFrames", va: 0x140c31370 }
       - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBMM_NM@Z", va: 0x140c31380 }
       - { name: "?sampleFullPose@hkaQuantizedAnimation@schema@CB@@SAXPEBEPEAUhkQsTransform@23@PEAM22PEBU423@PEBM1122M_NM@Z", va: 0x140c31630 }
-      # STRUCTURAL, vanilla keeps the frame index in the dead weightThreshold argument slot and sign-extends the header offsets (see parked.yaml):
-      # - { name: "CB::schema::hkaQuantizedAnimation::sampleFrames", va: 0x140c31770 }
       - { name: "CB::schema::hkaQuantizedAnimation::scatterScalars", va: 0x140c31c30 }
       - { name: "CB::schema::hkaQuantizedAnimation::sampleDynamicScalars", va: 0x140c31ce0 }
       - { name: "CB::schema::hkaQuantizedAnimation::scatterQuaternions", va: 0x140c31cf0 }
@@ -1567,19 +1593,13 @@ units:
       - { name: "CB::schema::hkaSplineCompressedAnimation::getNumDataChunks", va: 0x140c32a70 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::getDataChunks", va: 0x140c32a80 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::getMaxSizeOfCombinedDataChunks", va: 0x140c32b10 }
-      # STRUCTURAL, vanilla keeps the address-taken data cursor in a dead stack-argument slot (see parked.yaml):
-      # - { name: "CB::schema::hkaSplineCompressedAnimation::samplePartialWithDataChunks", va: 0x140c32b60 }
       - { name: "??1hkaSplineCompressedAnimation@schema@CB@@UEAA@XZ", va: 0x140c32e30 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::sampleRotation", va: 0x140c32fa0 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::sampleTranslation", va: 0x140c33000 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::sampleScale", va: 0x140c33080 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::sampleFloat", va: 0x140c33100 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::readNurbsQuaternion", va: 0x140c336f0 }
-      # STRUCTURAL, 24247 proves the u16/u8 header counts non-negative and halves with shr where vanilla divides signed (see parked.yaml):
-      # - { name: "CB::schema::hkaSplineCompressedAnimation::readKnots", va: 0x140c33810 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::readPackedQuaternions", va: 0x140c339d0 }
-      # STRUCTURAL, the right-knot pointer is biased differently (see parked.yaml):
-      # - { name: "CB::schema::hkaSplineCompressedAnimation::evaluate", va: 0x140c33ab0 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::evaluateSimple1", va: 0x140c33cc0 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::evaluateSimple2", va: 0x140c33d20 }
       - { name: "CB::schema::hkaSplineCompressedAnimation::evaluateSimple3", va: 0x140c33e30 }
@@ -1623,16 +1643,8 @@ units:
       - { name: "CB::schema::hkbFootIkModifier::deactivate", va: 0x140af0ee0 }
       - { name: "CB::schema::hkbFootIkModifier::isValid", va: 0x140af0fa0 }
       - { name: "CB::schema::hkbFootIkModifier::cloneNode", va: 0x140af1250 }
-      # STRUCTURAL, inlined hkaPose local-space sync differs (see parked.yaml):
-      # - { name: "CB::schema::hkbFootIkModifier::modify", va: 0x140af12a0 }
       - { name: "CB::schema::hkbFootIkModifier::setup", va: 0x140af2f90 }
-      # STRUCTURAL, dead broadcast shufps in hasValidAxis (see parked.yaml):
-      # - { name: "CB::schema::hkbFootIkModifier::orientHips", va: 0x140af3230 }
       - { name: "CB::schema::hkbFootIkModifier::alignWorldFromModelUpWithGroundNormal", va: 0x140af3760 }
-      # STRUCTURAL, a dead store vanilla keeps and shared stack slots (see parked.yaml):
-      # - { name: "CB::schema::hkbFootIkModifier::computeGroundNormal", va: 0x140af3a80 }
-      # STRUCTURAL, rules A/E unconfirmable: --diff faults on the stubbed hkMatrixNm (see parked.yaml):
-      # - { name: "CB::schema::hkbFootIkModifier::fitPlane", va: 0x140af4870 }
       - { name: "CB::schema::hkbFootIkModifier::fitLine", va: 0x140af4f40 }
       - { name: "CB::schema::hkbFootIkModifier::computeAverage", va: 0x140af51a0 }
       - { name: "??0Leg@hkbFootIkModifier@schema@CB@@QEAA@AEBU0123@@Z", va: 0x140af5200 }
@@ -1645,10 +1657,14 @@ units:
   - source: ../../../schema/Havok/Behavior/Driver/FootIk/hkbFootIkDriverInfo.cpp
     functions:
       - { name: "??_GhkbFootIkDriverInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9370 }
+    drivers:
+      - { name: "??0hkbFootIkDriverInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkDriverInfo.cpp
     functions:
       - { name: "??1hkbHandIkDriverInfo@schema@CB@@UEAA@XZ", va: 0x140ac6a50 }
       - { name: "??_GhkbHandIkDriverInfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ac99b0 }
+    drivers:
+      - { name: "??0hkbHandIkDriverInfo@schema@CB@@QEAA@UhkFinishLoadedObjectFlag@12@@Z", why: "the finish constructor: emits the vtable, so the listed deleting destructor (vanilla inlines it into its loader)" }
   - source: ../../../schema/Havok/Behavior/Driver/Ragdoll/hkbRagdollSceneModifier.cpp
     functions:
       - { name: "??0hkbRagdollSceneModifier@schema@CB@@QEAA@XZ", va: 0x140ae4670 }
@@ -1664,14 +1680,20 @@ units:
       - { name: "CB::schema::hkbFootIkSceneModifier::modify", va: 0x140ae4a50 }
       - { name: "??_GhkbFootIkSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1380 }
       - { name: "??_GhkbSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1530 }
+    drivers:
+      - { name: "??0hkbFootIkSceneModifier@schema@CB@@QEAA@XZ", why: "emits the vtable, so the listed deleting destructor (no standalone vanilla copy)" }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkSceneModifier.cpp
     functions:
       - { name: "CB::schema::hkbHandIkSceneModifier::modify", va: 0x140ae4b00 }
       - { name: "??_GhkbHandIkSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac14a0 }
+    drivers:
+      - { name: "??0hkbHandIkSceneModifier@schema@CB@@QEAA@XZ", why: "emits the vtable, so the listed deleting destructor (no standalone vanilla copy)" }
   - source: ../../../schema/Havok/Behavior/Driver/HandIk/hkbHandIkFixupSceneModifier.cpp
     functions:
       - { name: "CB::schema::hkbHandIkFixupSceneModifier::modify", va: 0x140ae4bd0 }
       - { name: "??_GhkbHandIkFixupSceneModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac1410 }
+    drivers:
+      - { name: "??0hkbHandIkFixupSceneModifier@schema@CB@@QEAA@XZ", why: "emits the vtable, so the listed deleting destructor (no standalone vanilla copy)" }
   - source: ../../../schema/Havok/Behavior/Modifier/HandIkControls/hkbHandIkControlsModifier.cpp
     functions:
       - { name: "??0hkbHandIkControlsModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140af64c0 }
@@ -1692,8 +1714,6 @@ units:
       - { name: "CB::schema::hkbHandIkModifier::update", va: 0x140af7350 }
       - { name: "CB::schema::hkbHandIkModifier::isValid", va: 0x140af7460 }
       - { name: "CB::schema::hkbHandIkModifier::cloneNode", va: 0x140af76e0 }
-      # STRUCTURAL, 24247 CSEs the control track's header into the track-offset induction variable, which then takes elbowIndex's register (see parked.yaml):
-      # - { name: "CB::schema::hkbHandIkModifier::modify", va: 0x140af7730 }
       - { name: "CB::schema::hkbHandIkModifier::alignHandNormal", va: 0x140af8c30 }
       - { name: "??1hkbHandIkModifier@schema@CB@@UEAA@XZ", va: 0x140ac6af0 }
       - { name: "??_GhkbHandIkModifier@schema@CB@@UEAAPEAXI@Z", va: 0x140ac9a30 }
@@ -1706,10 +1726,12 @@ units:
       - { name: "CB::schema::hkbDefaultRaycastInterface::castRay", va: 0x140b102c0 }
       - { name: "?castRay@hkaRaycastInterface@schema@CB@@UEAA?AUhkBool@23@AEBUhkVector4@23@0IAEAMAEAU523@@Z", va: 0x140a83880 }
       - { name: "?castRay@hkaRaycastInterface@schema@CB@@UEAA?AUhkBool@23@AEBUhkVector4@23@0AEAMAEAU523@@Z", va: 0x140a83870 }
-  - source: ../../../schema/Havok/Animation/Ik/FootPlacement/hkaRaycastInterfaceBethesdaCopy.cpp
+  - source: ../devices/Animation/Ik/FootPlacement/hkaRaycastInterfaceBethesdaCopy.cpp
     flags: [/O2, /Ob1, /GS-, /fp:fast, /EHsc]
     functions:
       - { name: "??_GhkaRaycastInterface@schema@CB@@UEAAPEAXI@Z", va: 0x1405445f0 }
+    drivers:
+      - { name: "CB::schema::hkaRaycastInterfaceBethesdaCopy_instantiate", why: "instantiates the vtable, so the deleting destructor comes out of this unit" }
   - source: ../../../schema/Havok/Animation/Rig/hkaSkeletonUtils.cpp
     functions:
       - { name: "CB::schema::hkaSkeletonUtils::getModelSpaceScale", va: 0x140bd62a0 }
@@ -1720,13 +1742,10 @@ units:
       - { name: "??1hkaRagdollInstance@schema@CB@@UEAA@XZ", va: 0x140bd6c30 }
       - { name: "CB::schema::hkaRagdollInstance::clone", va: 0x140bd6d80 }
       - { name: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@@Z", va: 0x140bd71a0 }
-      # - { name: "?getPoseWorldSpace@hkaRagdollInstance@schema@CB@@QEBAXPEAUhkQsTransform@23@AEBU423@PEBU423@@Z", va: 0x140bd71c0 }  # parked: vanilla shares the quaternion product setMul computes twice elsewhere (see parked.yaml)
       - { name: "CB::schema::hkaRagdollInstance::getApproxCurrentPoseWorldSpace", va: 0x140bd7430 }
       - { name: "CB::schema::hkaRagdollInstance::getApproxPoseWorldSpaceAt", va: 0x140bd7490 }
       - { name: "CB::schema::hkaRagdollInstance::setPoseWorldSpace", va: 0x140bd7500 }
-      # - { name: "CB::schema::hkaRagdollInstance::getPoseModelSpace", va: 0x140bd75f0 }  # parked: setInverse's conjugate scheduled late with a register mask (see parked.yaml)
       - { name: "CB::schema::hkaRagdollInstance::setPoseModelSpace", va: 0x140bd7870 }
-      # - { name: "CB::schema::hkaRagdollInstance::setPoseModelSpaceKeyframed", va: 0x140bd7b00 }  # parked: one dead broadcast shufps before length3's sqrtss (see parked.yaml)
       - { name: "CB::schema::hkaRagdollInstance::addToWorld", va: 0x140bd8180 }
       - { name: "CB::schema::hkaRagdollInstance::removeFromWorld", va: 0x140bd8250 }
       - { name: "CB::schema::hkaRagdollInstance::getBoneWorldSpace", va: 0x140bd8300 }
@@ -1739,11 +1758,14 @@ units:
       - { name: "??0hkaDetectRagdollPenetration@schema@CB@@QEAA@AEBUSetup@012@@Z", va: 0x140eff7c0 }
       - { name: "??_GhkaDetectRagdollPenetration@schema@CB@@UEAAPEAXI@Z", va: 0x140effcb0 }
   # Bethesda's copy (C++ exceptions on) is the one vanilla linked; see the file note.
-  - source: ../../../schema/Havok/Animation/Ragdoll/PenetrationDetection/hkaRagdollRaycastInterfaceEhUnit.cpp
+  - source: ../devices/Animation/Ragdoll/PenetrationDetection/hkaRagdollRaycastInterfaceEhUnit.cpp
     flags: [/EHsc]
     functions:
       - { name: "??_GhkaRagdollRaycastInterface@schema@CB@@UEAAPEAXI@Z", va: 0x140e9bfb0 }
+    drivers:
+      - { name: "CB::schema::hkaRagdollRaycastInterfaceEhUnit_newRaycastInterface", why: "constructs an implementation, so the interface's vtable and deleting destructor come out" }
   - source: ../../../schema/Havok/Animation/Ik/FootPlacement/hkaFootPlacementIkSolver.cpp
     functions:
-      # - { name: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z", va: 0x140a83970 }  # parked: vanilla stores 16-byte members with movups (see parked.yaml)
       - { name: "??_GhkaFootPlacementIkSolver@schema@CB@@UEAAPEAXI@Z", va: 0x140a84ba0 }
+    drivers:
+      - { name: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z", why: "parked (workbench.yaml tracks it), kept in its unit: the class's only constructor, so the only emitter of the vtable and the listed deleting destructor" }

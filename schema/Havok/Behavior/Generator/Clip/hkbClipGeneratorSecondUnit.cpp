@@ -18,38 +18,6 @@ namespace CB { namespace schema
         return new hkbClipGeneratorInternalState;
     }
 
-    void hkbClipGenerator::getInternalState(hkReferencedObject& _internalState) const
-    {
-        hkbClipGeneratorInternalState& internalState = static_cast<hkbClipGeneratorInternalState&>(_internalState);
-
-        internalState.m_extractedMotion                    = m_extractedMotion;
-        internalState.m_echos                              = m_echos;
-        internalState.m_localTime                          = m_localTime;
-        internalState.m_time                               = m_time;
-        internalState.m_previousUserControlledTimeFraction = m_previousUserControlledTimeFraction;
-        internalState.m_bufferSize                         = m_bufferSize;
-        internalState.m_echoBufferSize                     = m_echoBufferSize;
-        internalState.m_atEnd                              = m_atEnd;
-        internalState.m_ignoreStartTime                    = m_ignoreStartTime;
-        internalState.m_pingPongBackward                   = m_pingPongBackward;
-    }
-
-    void hkbClipGenerator::setInternalState(const hkReferencedObject& _internalState)
-    {
-        const hkbClipGeneratorInternalState& internalState = static_cast<const hkbClipGeneratorInternalState&>(_internalState);
-
-        m_extractedMotion                    = internalState.m_extractedMotion;
-        m_echos                              = internalState.m_echos;
-        m_localTime                          = internalState.m_localTime;
-        m_time                               = internalState.m_time;
-        m_previousUserControlledTimeFraction = internalState.m_previousUserControlledTimeFraction;
-        m_bufferSize                         = internalState.m_bufferSize;
-        m_echoBufferSize                     = internalState.m_echoBufferSize;
-        m_atEnd                              = internalState.m_atEnd;
-        m_ignoreStartTime                    = internalState.m_ignoreStartTime;
-        m_pingPongBackward                   = internalState.m_pingPongBackward;
-    }
-
     /// @note Vanilla keeps the loop-invariant `identity`/`mirror` tests as materialized bools (setz/setnz, spilled),
     ///       24247 folds them back into re-testing the loaded size/pointer (bool, hkBool and in-loop forms all tried;
     ///       rules G and A accept it). The mirror/else-if split is what reproduces vanilla's duplicated bound check.

@@ -82,6 +82,9 @@ struct UnitSpec {
     std::vector<std::string>  defines;
     std::vector<std::string>  toolchains;   ///< empty = every toolchain
     std::vector<FunctionSpec> functions;
+    /// @brief Out-of-line functions the unit compiles only to make it emit what it lists (a vtable, a header's inline copy):
+    ///        never matched, never in the image or the palette; --strict accepts them (name → why).
+    std::map<std::string, std::string> drivers;
 };
 
 struct RuntimeSpec {
@@ -253,6 +256,12 @@ Manifest loadManifest(const fs::path& path)
             }
             unit.functions.push_back(std::move(fn));
         }
+        if (has(u, "drivers"))
+            for (const auto d : u["drivers"].children()) {
+                const std::string name = val(d["name"]);
+                if (name.empty() || !has(d, "why")) throw std::runtime_error("a driver in " + unit.source.string() + " needs a name and a why");
+                unit.drivers[name] = val(d["why"]);
+            }
         m.units.push_back(std::move(unit));
     }
     if (m.toolchains.empty()) throw std::runtime_error("manifest names no toolchains");
@@ -495,6 +504,10 @@ struct CoffFunction {
         Bytes                       literal;
     };
     std::map<std::uint32_t, Target>        targets;  ///< reloc offset → the symbol it refers to
+    /// @brief Its COMDAT selection (/Gy gives every function a section): IMAGE_COMDAT_SELECT_ANY marks an inline or
+    ///        template copy from a header, NODUPLICATES a function this TU defines out of line. 0 = not COMDAT.
+    std::uint8_t                           comdat = 0;
+    bool                                   internal = false;   ///< file-local (static / anonymous namespace)
     /// @brief The function's .pdata entries, function-relative; `info` indexes `unwindData`.
     struct Unwind { std::uint32_t begin = 0, end = 0, info = 0; };
     std::vector<Unwind>                    unwinds;
@@ -556,6 +569,8 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
     std::vector<std::uint32_t> symValue(nSymbols, 0);
     struct Sym { std::uint32_t index, value; };
     std::map<int, std::vector<Sym>> funcsBySection;
+    std::map<int, std::uint8_t>     selectionOf;   ///< COMDAT section → its selection (IMAGE_COMDAT_SELECT_*)
+    std::vector<bool>               internalSym(nSymbols, false);
     for (std::uint32_t i = 0; i < nSymbols; ++i) {
         const std::size_t s = symTab + i * 18u;
         names[i]            = symName(s);
@@ -566,6 +581,11 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
         const auto aux      = rd<std::uint8_t>(b, s + 17);
         symSection[i]       = section;
         symValue[i]         = value;
+        internalSym[i]      = storage == IMAGE_SYM_CLASS_STATIC;
+        // A COMDAT section's definition symbol: its aux record carries the selection (byte 14).
+        if (storage == IMAGE_SYM_CLASS_STATIC && aux >= 1 && value == 0 && section > 0 && section <= nSections &&
+            (rd<std::uint32_t>(b, secTab + std::size_t(section - 1) * 40u + 36) & IMAGE_SCN_LNK_COMDAT))
+            selectionOf[section] = rd<std::uint8_t>(b, s + 18 + 14);
         if (section > 0 && section <= nSections && (type >> 4) == IMAGE_SYM_DTYPE_FUNCTION &&
             (storage == IMAGE_SYM_CLASS_EXTERNAL || storage == IMAGE_SYM_CLASS_STATIC))
             funcsBySection[section].push_back({ i, value });
@@ -591,6 +611,8 @@ std::vector<CoffFunction> loadCoffFunctions(const fs::path& path)
             f.name    = undecorate(f.mangled);
             f.bytes.assign(b.begin() + rawPtr + begin, b.begin() + rawPtr + end);
             f.mask.assign(f.bytes.size(), false);
+            f.comdat   = selectionOf.count(section) ? selectionOf[section] : 0;
+            f.internal = internalSym[syms[k].index];
             for (std::uint32_t r = 0; r < nRelocs; ++r) {
                 const std::size_t ro    = relPtr + r * 10u;
                 const auto        at    = rd<std::uint32_t>(b, ro);
@@ -4239,6 +4261,8 @@ void usage()
         "  --diff-seed <n>      run only seed <n> of --diff, printing every stubbed call and forced pointer\n"
         "  --emit-image <file>  write the runtime image: every passing function's code and references, keyed by the vanilla\n"
         "                       function it replaces, for the plugin's takeover installer (needs a full run and the registry)\n"
+        "  --strict             fail on any out-of-line definition no manifest line covers (unverified code in the tree;\n"
+        "                       the schema/ gate runs with it, the workbench without)\n"
         "  --emit-palette <dir> write the function palette: one typed cell per passing function, a header per class\n"
         "                       (with --emit-image, exactly the image's functions)\n"
         "\n"
@@ -4253,6 +4277,8 @@ void usage()
         "      defines: [NAME=1]                        # optional; also flags:, toolchains: [vs2015]\n"
         "      functions:\n"
         "        - { name: \"hkbTimerModifier::update\", va: { ae: 0x140afebd0 } }\n"
+        "      drivers:                                 # optional: compiled only so the unit emits what it lists\n"
+        "        - { name: \"hkbTimerModifier::hkbTimerModifier\", why: \"emits the vtable, so ??_G\" }\n"
         "  inventory:                                   # optional: what there is to match, for --inventory/--todo/coverage\n"
         "    file:    inventory.yaml                    # generated\n"
         "    parked:  parked.yaml                       # hand-kept: parked: [ { va: 0x..., why: \"...\" } ]\n"
@@ -4554,6 +4580,7 @@ struct Options {
     std::string runtime, only, todo;
     bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false, suggest = false;
     bool        inventory = false, coverageAll = false;
+    bool        strict = false;   ///< --strict: an out-of-line definition no manifest line covers fails the gate
     unsigned    jobs = 0;
     std::size_t diffSeeds = 0;
     std::optional<std::uint64_t> diffSeed;   ///< --diff-seed: just this one, traced
@@ -4797,6 +4824,39 @@ int run(const Options& opt)
         }
     }
 
+    // Out-of-line definitions the manifest does not list: code a unit compiles that no gate has proven. Inline and
+    // template copies from headers (COMDAT select-any) are proven by the functions they are inlined into.
+    if (opt.only.empty()) {
+        std::vector<std::pair<std::string, std::string>> unlisted;
+        std::set<std::string>                            reported;
+        for (std::size_t j = 0; j < jobs.size(); ++j) {
+            if (!compiled[j].ok) continue;
+            const UnitSpec& unit = m.units[jobs[j].unit];
+            std::set<std::string> listed;
+            for (const auto& fn : unit.functions) listed.insert(fn.name);
+            for (const auto& [name, _] : unit.drivers) listed.insert(name);
+            for (const auto& f : compiled[j].functions)
+                if (f.comdat == IMAGE_COMDAT_SELECT_ANY) listed.insert(f.name);   // an inline copy's funclets are proven with it
+            // An unwind funclet ("`Parent'::`1'::dtor$0") belongs to its parent function.
+            auto parentOf = [](const std::string& n) {
+                const auto open = n.find('`'), close = n.find('\'');
+                return open == 0 && close != std::string::npos ? n.substr(1, close - 1) : std::string();
+            };
+            for (const auto& f : compiled[j].functions) {
+                if (f.comdat == IMAGE_COMDAT_SELECT_ANY || listed.count(f.name) || listed.count(f.mangled)) continue;
+                if (const auto parent = parentOf(f.name); !parent.empty() && listed.count(parent)) continue;
+                if (reported.insert(unit.source.string() + "|" + f.mangled).second)
+                    unlisted.emplace_back(unit.source.filename().string(), f.name + (f.internal ? " (file-local)" : "") + "  " + f.mangled);
+            }
+        }
+        if (!unlisted.empty()) {
+            std::printf("\n%zu out-of-line definitions no manifest line covers (unverified code%s):\n", unlisted.size(),
+                        opt.strict ? "; --strict fails on them" : "");
+            for (const auto& [unit, name] : unlisted) std::printf("  %-48s %s\n", unit.c_str(), name.c_str());
+            if (opt.strict) gatePassed = false;
+        }
+    }
+
     // Coverage: this run's statuses over the inventory (a partial run would undercount, so only after a full one).
     if (!m.inventory.file.empty() && fs::exists(m.inventory.file) && opt.only.empty()) {
         const Inventory               inv = loadInventory(m.inventory);
@@ -5004,6 +5064,7 @@ int main(int argc, char** argv)
         else if (a == "--diff-seed") opt.diffSeed = std::stoull(next());
         else if (a == "--emit-image") opt.emitImage = next();
         else if (a == "--emit-palette") opt.emitPalette = next();
+        else if (a == "--strict") opt.strict = true;
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }
