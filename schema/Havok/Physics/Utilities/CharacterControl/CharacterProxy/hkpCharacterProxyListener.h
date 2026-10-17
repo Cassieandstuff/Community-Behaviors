@@ -8,7 +8,7 @@
 namespace CB { namespace schema
 {
     class hkpCharacterProxy;
-    class hkpSimplexSolverInput;
+    struct hkSimplexSolverInput;
     struct hkpCharacterObjectInteractionEvent;
     struct hkpCharacterObjectInteractionResult;
 
@@ -26,7 +26,7 @@ namespace CB { namespace schema
 
         /// @brief Lets the listener edit the simplex solver's planes built from the proxy's manifold.
         virtual void processConstraintsCallback(const hkpCharacterProxy* proxy, const hkArray<hkRootCdPoint>& manifold,
-                                                hkpSimplexSolverInput& input) {}                                          ///< slot 1
+                                                hkSimplexSolverInput& input) {}                                          ///< slot 1
         virtual void contactPointAddedCallback(const hkpCharacterProxy* proxy, const hkRootCdPoint& point) {}             ///< slot 2
         virtual void contactPointRemovedCallback(const hkpCharacterProxy* proxy, const hkRootCdPoint& point) {}           ///< slot 3
         /// @brief The proxy touched another character proxy.

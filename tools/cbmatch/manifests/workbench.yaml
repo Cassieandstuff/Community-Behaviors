@@ -124,6 +124,7 @@ units:
       - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_04", va: 0x140ed06c0 }
       - { name: "CB::schema::bhkCharProxyControllerCinfo::SetPosition", va: 0x140ed06d0 }
       - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_05", va: 0x140ed06f0 }
+      - { name: "CB::schema::bhkCharProxyController::processConstraintsCallback", va: 0x140ed0b40 }
       - { name: "CB::schema::bhkCharProxyController::contactPointAddedCallback", va: 0x140ed1540 }
       - { name: "CB::schema::bhkCharProxyController::contactPointRemovedCallback", va: 0x140ed15e0 }
       - { name: "CB::schema::bhkCharProxyController::objectInteractionCallback", va: 0x140ed1620 }

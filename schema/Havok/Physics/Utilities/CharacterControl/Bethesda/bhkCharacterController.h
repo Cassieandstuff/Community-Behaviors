@@ -64,9 +64,10 @@ namespace CB { namespace schema
         virtual void Unk_01();
         /// @brief UpdatePhysics calls it on `controller` before each support check.
         virtual void Unk_02(bhkCharacterController* controller);   ///< slot 2
-        /// @brief Told of a contact TryStep let the character step up onto.
+        /// @brief Told of a contact the character stands on: one the proxy controller's constraints callback takes as
+        ///        support (outside the support check), or one TryStep lets it step up onto.
         /// @note Name provisional; empty in the biped controller.
-        virtual void OnStep(const hkRootCdPoint& point);   ///< slot 3
+        virtual void OnSupportContact(const hkRootCdPoint& point);   ///< slot 3
         /// @brief Where the step test probes from: may move `position` (the character's position on entry) and returns
         ///        which of the controller's points it took, or -1 to have TryStep raise `position` by the step height.
         /// @param capsule The character's capsule, null when its shape is not one.
@@ -179,6 +180,11 @@ namespace CB { namespace schema
         ///        m_bumpedBody when it is the hardest push yet.
         /// @note Name provisional; out of line in vanilla (0x140ea1600).
         void HandleObjectInteraction(const hkpCharacterObjectInteractionEvent& input, hkpCharacterObjectInteractionResult& output);
+        /// @note Out of line in vanilla (0x140ea0dc0); `body` may be null.
+        static bool IsHurtfulBody(hkpRigidBody* body);
+        /// @brief Records a contact at `point` with a hurtful body.
+        /// @note Out of line in vanilla (0x140ea10b0).
+        void ProcessHurtfulBody(hkpRigidBody* body, const hkContactPoint* point);
         /// @brief The base half of building a controller from `cinfo` (flags, state, shapes, bounds).
         /// @note Name provisional; out of line in vanilla (0x140ea17e0).
         void InitFromCinfo(const bhkCharacterControllerCinfo& cinfo);
@@ -279,9 +285,10 @@ namespace CB { namespace schema
         hkUint8        m_pad198[0x1a0 - 0x198];
         hkpSurfaceInfo m_surfaceInfo;       ///< +0x1a0
         hkpCharacterContext m_context;      ///< +0x1e0
-        /// @brief CHARACTER_FLAGS: bit 3 kNoFriction, 4 kAllowJumpNoContact, 7 kHitFlags,
-        ///        8 kSupport, 10 kCanJump, 11 kChaseBip, 12 kFollowRagdoll, 13 kJumping, 17 kNoSim (not simulated), 23
-        ///        kShouldersUnderWater (names per CommonLibSSE).
+        /// @brief CHARACTER_FLAGS: bit 2 kTryStep, 3 kNoFriction, 4 kAllowJumpNoContact, 5 kStuckQuad, 7 kHitFlags,
+        ///        8 kSupport, 9 kHasPotentialSupportManifold, 10 kCanJump, 11 kChaseBip, 12 kFollowRagdoll, 13 kJumping,
+        ///        16 kCheckSupport, 17 kNoSim (not simulated), 19 kOnStilts, 21 kRecordHits, 23 kShouldersUnderWater,
+        ///        27 kNoCharacterCollisions, 29 kPossiblePathObstacle (names per CommonLibSSE).
         hkUint32       m_flags;             ///< +0x218
         /// @brief The state the next CommitWantedState enters; HK_CHARACTER_MAX_STATE_ID (0xb) for no request.
         hkpCharacterStateType m_wantState;   ///< +0x21c
@@ -349,7 +356,10 @@ namespace CB { namespace schema
         /// @brief A character pushes only characters whose priority is at most its own.
         /// @note Name provisional.
         hkUint32       m_pushPriority;      ///< +0x2a4
-        hkUint8        m_pad2a8[0x2b0 - 0x2a8];
+        /// @brief How many manifold points the proxy controller's last constraints callback counted as support.
+        /// @note Name per CommonLibSSE.
+        hkInt32        m_supportCount;      ///< +0x2a8
+        hkUint8        m_pad2ac[0x2b0 - 0x2ac];
         hkRefPtr<hkpRigidBody> m_supportBody;                 ///< +0x2b0
         /// @note Name per CommonLibSSE; UpdatePhysics zeroes it with m_bumpedBody.
         float          m_bumpedForce;       ///< +0x2b8
@@ -378,9 +388,11 @@ namespace CB { namespace schema
         hkUint32       m_numCharacterContacts;   ///< +0x314
         /// @brief The collision system group the controller counts contacts of, 0 for any.
         hkUint32       m_systemGroup;            ///< +0x318
-        /// @brief When set, a supported surface does not give the character support (kSupport).
-        /// @note Name provisional.
-        bool           m_ignoreSupport;     ///< +0x31c
+        /// @brief Set by the proxy controller's constraints callback when every point it counted as support was one it
+        ///        also gave a vertical plane (a step TryStep refused); a supported surface then gives no kSupport in
+        ///        UpdatePhysics (the support-manifold flag, bit 9, still does).
+        /// @note Name provisional (CommonLibSSE: unk31C).
+        bool           m_onlyWallContacts;  ///< +0x31c
         /// @brief When set, each counted character contact stops the controller (zero velocity).
         bool           m_stopOnCharacterContact;   ///< +0x31d
         /// @brief Set by InAir's stuck recovery: OnGround then keeps the character grounded until it is 0.9144 Havok
@@ -392,4 +404,9 @@ namespace CB { namespace schema
         bool           m_updatePitch;       ///< +0x31f
         hkUint8        m_pad320[0x330 - 0x320];
     };
+
+    /// @brief Whether `type` moves a body by itself: dynamic, or sphere, box or thin-box inertia (not keyframed, fixed
+    ///        or character).
+    /// @note Name provisional; out of line in vanilla (0x140e94a00), which takes the type by reference.
+    bool bhkIsDynamicMotionType(const hkpMotion::MotionType& type);
 } }

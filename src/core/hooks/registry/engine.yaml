@@ -1255,3 +1255,12 @@ symbols:
   - { name: bhkGetNiObject, kind: func, se: 0, ae: 77805, vr: 0, cpp: "CB::schema::bhkGetNiObject" }  # name provisional; (hkpWorldObject*, key; 0 means 1) -> the node property, null without one
   - { name: bhkShapePhantom_SetTransform, kind: func, se: 0, ae: 78770, vr: 0, cpp: "CB::schema::bhkShapePhantom::SetTransform" }  # name provisional; hkpShapePhantom::setTransform under the world write lock
   - { name: bhkShapePhantom_SetPosition, kind: func, se: 0, ae: 78771, vr: 0, cpp: "CB::schema::bhkShapePhantom::SetPosition" }  # name provisional; hkpShapePhantom::setPosition under the world write lock
+  - { name: bhkCharacterController_TryStep, kind: func, se: 0, ae: 78310, vr: 0, cpp: "CB::schema::bhkCharacterController::TryStep" }  # (point) -> whether the character can step onto it
+  - { name: bhkCharacterController_UpdateContactMaterial, kind: func, se: 0, ae: 78309, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdateContactMaterial" }  # name provisional; (point)
+  - { name: bhkCharacterController_GetControllerFromCollidable, kind: func, se: 0, ae: 78299, vr: 0, cpp: "CB::schema::bhkCharacterController::GetControllerFromCollidable" }  # (world object) -> its property 1002, the controller
+  - { name: bhkCharacterController_IsHurtfulBody, kind: func, se: 0, ae: 78298, vr: 0, cpp: "CB::schema::bhkCharacterController::IsHurtfulBody" }  # (body, may be null)
+  - { name: bhkCharacterController_ProcessHurtfulBody, kind: func, se: 0, ae: 78302, vr: 0, cpp: "CB::schema::bhkCharacterController::ProcessHurtfulBody" }  # (body, contact point)
+  - { name: bhkCharacterController_SetSupportBody, kind: func, se: 0, ae: 78286, vr: 0, cpp: "CB::schema::bhkCharacterController::SetSupportBody" }  # m_supportBody = body (hkRefPtr assignment)
+  - { name: bhkIsDynamicMotionType, kind: func, se: 0, ae: 78109, vr: 0, cpp: "CB::schema::bhkIsDynamicMotionType" }  # name provisional; (const MotionType&) -> dynamic / sphere / box / thin-box inertia
+  - { name: fMoveLimitMass_Cached, kind: data, se: 0, ae: 389158, vr: 0, cpp: "CB::schema::g_fMoveLimitMass" }  # name provisional; copy of fMoveLimitMass:HAVOK
+  - { name: bhkCollisionFilter_Singleton, kind: data, se: 0, ae: 400562, vr: 0, cpp: "CB::schema::bhkCollisionFilter::s_singleton" }  # the game's collision filter (a pointer)

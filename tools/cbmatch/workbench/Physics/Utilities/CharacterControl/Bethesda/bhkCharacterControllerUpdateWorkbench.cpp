@@ -207,7 +207,7 @@ namespace CB { namespace schema
                     CheckSupportImpl();
                     hkUint32 flags = m_flags & ~0x10000u;
                     m_flags        = flags;
-                    const bool supported = m_surfaceInfo.m_supportedState == hkpSurfaceInfo::SUPPORTED && !m_ignoreSupport;
+                    const bool supported = m_surfaceInfo.m_supportedState == hkpSurfaceInfo::SUPPORTED && !m_onlyWallContacts;
                     if (IsFlagSet(13)) {
                         if ((supported || IsFlagSet(9)) && m_outVelocity(2) > 0.0f) {
                             hkVector4        direction = velocity;

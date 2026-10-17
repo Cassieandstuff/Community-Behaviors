@@ -1,11 +1,25 @@
 /// @file
 /// @brief bhkCharProxyController (and its cinfo), being matched against vanilla (AE 1.6.1170).
 /// @note Bethesda's engine code: built with C++ exceptions on and /Ob2, as the rigid-body controller's unit.
+/// @note processConstraintsCallback passes as VARIANT (no --diff-gated rule; --diff cannot run it: the emulator cannot
+///       place the thread-local t_memoryContext). Spellings it depends on: kTryStep cleared through the controller base
+///       pointer (vanilla's read-modify-write in memory, the flags reloaded for the kCheckSupport test); the capsule
+///       tops in sibling scopes (vanilla's frame shares their slot with the loop's plane); m_previousState read
+///       before hkpCharacterContext::getState; the phantom layers 14 / 30 as a switch.
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyControllerCinfo.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterCollisionHandler.h>
 #include <Physics/Collide/Query/Collector/BodyPairCollector/hkpAllCdBodyPairCollector.h>
 #include <Physics/Dynamics/World/hkpWorld.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCollisionFilter.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/Setting.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterState.h>
+#include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxy.h>
+#include <Physics/ConstraintSolver/Simplex/hkpSimplexSolver.h>
+#include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
+#include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
+#include <Physics/Dynamics/Phantom/hkpShapePhantom.h>
+#include <Physics/Dynamics/Entity/hkpRigidBody.h>
 
 namespace CB { namespace schema
 {
@@ -283,5 +297,194 @@ namespace CB { namespace schema
         m_characterProxy.CreateFromCinfo(&proxyCinfo);
         m_characterProxy.AddListener(this);
         AddHavokProperty(1002, reinterpret_cast<hkUlong>(static_cast<bhkCharacterController*>(this)));
+    }
+} }
+
+namespace CB { namespace schema
+{
+    void bhkCharProxyController::processConstraintsCallback(const hkpCharacterProxy* proxy, const hkArray<hkRootCdPoint>& manifold,
+                                                            hkSimplexSolverInput& input)
+    {
+        MemoryContextScope context(0x32);
+        ResetContactState();
+        m_supportNorm.setZero4();
+        static_cast<bhkCharacterController*>(this)->m_flags &= ~4u;
+        if (IsFlagSet(16)) SetSupportBody(HK_NULL);
+        m_supportCount = 0;
+        int  numVertical        = 0;
+        int  numVerticalCounted = 0;
+        bool haveNormal         = false;
+        m_supportNorm           = g_characterUp;
+
+        hkVector4 capsuleTopA;
+        hkVector4 capsuleTopB;
+        hkReal    capsuleRadiusSq = 0.0f;
+        bool      haveCapsules    = false;
+        if ((m_flags & 0x80020) == 0x80000) {
+            const hkpShapePhantom* phantom = m_shapePhantom->GetPhantom();
+            if (phantom && m_shapes[0]) {
+                const hkpShape* shape = m_shapes[0]->GetShape();
+                if (shape && shape->getType() == HK_SHAPE_LIST) {
+                    const hkpListShape* list = static_cast<const hkpListShape*>(shape);
+                    if (list->getNumChildShapes() == 3) {
+                        const hkpShape* child = list->m_childInfo[1].m_shape;
+                        if (child && child->getType() == HK_SHAPE_CAPSULE) {
+                            const hkpCapsuleShape* capsule = static_cast<const hkpCapsuleShape*>(child);
+                            {
+                                hkVector4 top = capsule->m_vertexA;
+                                top(2) += capsule->getRadius();
+                                capsuleTopA.setTransformedPos(phantom->getTransform(), top);
+                            }
+                            child = list->m_childInfo[2].m_shape;
+                            if (child && child->getType() == HK_SHAPE_CAPSULE) {
+                                capsule = static_cast<const hkpCapsuleShape*>(child);
+                                hkVector4 top = capsule->m_vertexA;
+                                top(2) += capsule->getRadius();
+                                capsuleTopB.setTransformedPos(phantom->getTransform(), top);
+                                haveCapsules    = true;
+                                capsuleRadiusSq = capsule->getRadius() * capsule->getRadius() * 0.110889f;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const int numPoints  = hkMath::min2(input.m_numConstraints, manifold.getSize());
+        bool      animStatic = false;
+        for (int i = 0; i < numPoints; i++) {
+            hkSurfaceConstraintInfo& constraint = input.m_constraints[i];
+            const hkRootCdPoint&     point      = manifold[i];
+            hkpRigidBody* const      body       = hkpGetRigidBody(point.m_rootCollidableB);
+            const hkUint32           filterInfo = point.m_rootCollidableB->getCollisionFilterInfo();
+            if ((m_flags & 0x210000) == 0x210000 && IsHurtfulBody(body)) ProcessHurtfulBody(body, &point.m_contact);
+            const hkUint32 layer = filterInfo & 0x7f;
+            animStatic |= (layer == 2);
+            bool      addVertical = !IsFlagSet(11);
+            hkReal    normalZ     = point.m_contact.m_separatingNormal.getComponent<2>().getReal();
+            hkVector4 plane       = constraint.m_plane;
+
+            if (body) {
+                switch (layer) {
+                case 2: {
+                    const hkpMotion::MotionType type = body->getMotionType();
+                    if (type == hkpMotion::MOTION_KEYFRAMED || type == hkpMotion::MOTION_FIXED) constraint.m_extraDownStaticFriction = 0.577f;
+                    break;
+                }
+                case 4:
+                case 5:
+                case 6:
+                    if (bhkIsDynamicMotionType(body->getMotionType())) {
+                        if (body->getMass() < g_fMoveLimitMass) {
+                            constraint.m_plane.setZero4();
+                            constraint.m_velocity.setZero4();
+                        }
+                        if (!IsFlagSet(16)) {
+                            plane.set(0.0f, 0.0f, 1.0f, 0.0f);
+                            normalZ = 1.0f;
+                        }
+                        addVertical = false;
+                    }
+                    break;
+                case 10:
+                    if (bhkIsDynamicMotionType(body->getMotionType())) {
+                        if (!IsFlagSet(16)) {
+                            plane.set(0.0f, 0.0f, 1.0f, 0.0f);
+                            normalZ                      = 1.0f;
+                            constraint.m_dynamicFriction = 0.0f;
+                            constraint.m_velocity.setZero4();
+                        }
+                        addVertical = false;
+                        break;
+                    }
+                default:
+                    if (haveCapsules && !IsFlagSet(5)) {
+                        hkVector4 toA;
+                        toA.setSub4(point.m_contact.m_position, capsuleTopA);
+                        hkVector4 toB;
+                        if (toA.lengthSquared3().getReal() < capsuleRadiusSq ||
+                            (toB.setSub4(point.m_contact.m_position, capsuleTopB), toB.lengthSquared3().getReal() < capsuleRadiusSq)) {
+                            m_flags |= 0x20;
+                        }
+                    }
+                    break;
+                case 30: {
+                    bhkCharacterController* other = GetControllerFromCollidable(body);
+                    if (other) {
+                        constraint.m_plane(2) = 0.0f;
+                        constraint.m_plane.normalize3IfNotZero();
+                        PushCharacter(other, point.m_contact);
+                        if (bhkCharacterCollisionHandler::s_singleton) bhkCharacterCollisionHandler::s_singleton->HandleCharacterCollision(this, other);
+                    }
+                    break;
+                }
+                }
+
+                if (layer != 30 && normalZ >= 0.0f) {
+                    if (normalZ < m_zNormal) {
+                        if (!TryStep(point)) {
+                            const bool counted = (!addVertical && !IsFlagSet(11)) || normalZ >= 0.2f;
+                            if (numVertical < 4 && addVertical) {
+                                hkSurfaceConstraintInfo& vertical = input.m_constraints[input.m_numConstraints];
+                                vertical = constraint;
+                                vertical.m_velocity.setZero4();
+                                vertical.m_plane(2) = 0.0f;
+                                vertical.m_plane.mul4(hkMath::sqrtInverseOfSplat(vertical.m_plane.lengthSquared3()));
+                                input.m_numConstraints++;
+                                numVertical++;
+                                if (counted) numVerticalCounted++;
+                            }
+                            if (!counted) continue;
+                        } else if (!m_highSpeed) {
+                            if (!(m_flags & 0x1800)) constraint.m_dynamicFriction = 0.0f;
+                            m_flags |= 4;
+                            const hkpCharacterStateType previous = m_context.m_previousState;
+                            if (m_context.getState() == previous) m_flags |= 0x400;
+                            plane(2) = 1.0f;
+                            plane.mul4(hkMath::sqrtInverseOfSplat(plane.lengthSquared3()));
+                            constraint.m_plane = plane;
+                        }
+                    } else {
+                        if (!IsFlagSet(16)) m_orientationCtrl->OnSupportContact(point);
+                        const hkpCharacterStateType previous = m_context.m_previousState;
+                        if (m_context.getState() == previous) m_flags |= 0x400;
+                        if (!IsFlagSet(3)) constraint.m_extraDownStaticFriction = 5.7700005f;
+                    }
+
+                    m_flags |= 0x200;
+                    m_supportCount++;
+                    UpdateContactMaterial(manifold[i]);
+                    if (haveNormal) plane.add4(m_supportNorm);
+                    else            haveNormal = true;
+                    m_supportNorm = plane;
+                    if (IsFlagSet(16)) SetSupportBody(body);
+                }
+            } else if (bhkCollisionFilter::GetSingleton()->m_sensorField & (1ull << layer)) {
+                constraint.m_velocity.setZero4();
+            } else {
+                switch (layer) {
+                case 14:
+                    if (IsFlagSet(16)) constraint.m_velocity.setZero4();
+                    break;
+                case 30: {
+                    bhkCharacterController* other =
+                        GetControllerFromCollidable(static_cast<const hkpWorldObject*>(point.m_rootCollidableB->getOwner()));
+                    if (other && (other->m_flags & 0x8000000)) {
+                        constraint.m_plane.setZero4();
+                        constraint.m_velocity.setZero4();
+                    } else {
+                        constraint.m_plane(2) = 0.0f;
+                        constraint.m_plane.normalize3IfNotZero();
+                    }
+                    break;
+                }
+                }
+            }
+        }
+
+        if (animStatic) m_flags |= 0x20000000;
+        else            m_flags &= ~0x20000000u;
+        m_onlyWallContacts = (m_supportCount == numVerticalCounted);
+        m_supportNorm.normalize3IfNotZero();
     }
 } }

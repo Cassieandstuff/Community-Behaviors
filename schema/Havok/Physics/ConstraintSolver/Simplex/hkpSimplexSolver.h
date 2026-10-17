@@ -10,6 +10,8 @@ namespace CB { namespace schema
     /// @brief One plane the solver moves against.
     /// @note 0x40 bytes (hkpCharacterRigidBody::getSupportInfo's stride); POD as Havok declares it (vanilla's setSize
     ///       constructs nothing). Not reflected; members per the Havok SDK, the ones getSupportInfo writes.
+    ///       Members end at +0x34, the rest is alignment padding: a copy moves the members alone
+    ///       (bhkCharProxyController::processConstraintsCallback's vertical planes).
     struct hkSurfaceConstraintInfo
     {
         HK_DECLARE_POD_TYPE();
@@ -22,7 +24,6 @@ namespace CB { namespace schema
         hkReal    m_dynamicFriction;           ///< +0x2c
         /// @brief Which plane wins a conflict: higher first.
         int       m_priority;                  ///< +0x30
-        hkUint8   m_pad34[0x40 - 0x34];
     };
 
     /// @brief What the solver reports per plane.

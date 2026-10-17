@@ -29,7 +29,7 @@ namespace CB { namespace schema
         virtual ~bhkCharProxyController();
 
         virtual void processConstraintsCallback(const hkpCharacterProxy* proxy, const hkArray<hkRootCdPoint>& manifold,
-                                                hkpSimplexSolverInput& input);
+                                                hkSimplexSolverInput& input);
         /// @brief Counts a new character-controller contact (layer 30) of the controller's own collision group, if it
         ///        has one, stopping the controller when m_stopOnCharacterContact.
         virtual void contactPointAddedCallback(const hkpCharacterProxy* proxy, const hkRootCdPoint& point);

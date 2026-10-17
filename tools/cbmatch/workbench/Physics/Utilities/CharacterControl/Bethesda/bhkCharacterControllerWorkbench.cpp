@@ -223,7 +223,7 @@ namespace CB { namespace schema
                 }
             }
         }
-        if (canStep) m_orientationCtrl->OnStep(point);
+        if (canStep) m_orientationCtrl->OnSupportContact(point);
         return canStep;
     }
 
