@@ -87,6 +87,21 @@ namespace CB::core::hooks {
             return std::format("first change at +0x{:X}", off);
         }
 
+        /// @brief Whether a function shorter than the 5-byte jump can take it anyway: the jump stays inside the function's
+        ///        16-byte alignment slot, and every byte it covers past the function is the int3 padding MSVC fills that
+        ///        slot with (never executed, never jumped into).
+        /// @note All 70 sub-5-byte functions in the inventory qualify (34 empty `ret 0`, 30 constant returns, 6 getters):
+        ///       empty virtuals such as bhkCharacterState::update are the seams features most want. Non-int3 bytes there
+        ///       mean someone else's code or data, and the function stays vanilla.
+        bool FitsInPadding(std::uintptr_t at, std::uint32_t length)
+        {
+            if (((at + length + 15) & ~std::uintptr_t(15)) < at + 5) return false;
+            const auto* p = reinterpret_cast<const std::uint8_t*>(at);
+            for (std::uint32_t k = length; k < 5; ++k)
+                if (p[k] != 0xCC) return false;
+            return true;
+        }
+
         std::set<std::string, std::less<>> SplitList(std::string_view s)
         {
             std::set<std::string, std::less<>> out;
@@ -132,7 +147,7 @@ namespace CB::core::hooks {
             const std::string only = debug::Value(kSection, "sOnly");
             const auto        keep = SplitList(only);
             const std::uintptr_t exe = REL::Module::get().base();
-            std::size_t classes = 0, off = 0, patched = 0, tooShort = 0;
+            std::size_t classes = 0, off = 0, patched = 0, tooShort = 0, padded = 0;
             for (const auto& cls : image->Classes()) {
                 const std::string choice = debug::Value(kSection, cls, image->Name());
                 if ((!keep.empty() && !keep.contains(cls)) || choice == "off") {
@@ -146,11 +161,14 @@ namespace CB::core::hooks {
                 }
                 ++classes;
                 for (const auto& r : image->Provide(cls)) {
-                    if (r.vanillaLength < 5) {
-                        ++tooShort;
-                        continue;
-                    }
                     const std::uintptr_t at = exe + r.vanillaRva;
+                    if (r.vanillaLength < 5) {
+                        if (!FitsInPadding(at, r.vanillaLength)) {
+                            ++tooShort;
+                            continue;
+                        }
+                        ++padded;
+                    }
                     if (Hash(at, r.vanillaLength) != r.vanillaHash) {
                         LOG_INFO("havok runtime: {} is not as shipped (another plugin's hook?) — vanilla runs it", r.name);
                         ++patched;
@@ -173,16 +191,17 @@ namespace CB::core::hooks {
                     in.jump[0]     = 0xE9;
                     const auto r32 = static_cast<std::int32_t>(rel);
                     std::memcpy(in.jump.data() + 1, &r32, 4);
-                    in.body.assign(reinterpret_cast<const std::uint8_t*>(at + 5), reinterpret_cast<const std::uint8_t*>(at + r.vanillaLength));
+                    if (r.vanillaLength > 5)
+                        in.body.assign(reinterpret_cast<const std::uint8_t*>(at + 5), reinterpret_cast<const std::uint8_t*>(at + r.vanillaLength));
                     REL::safe_write(at, in.jump.data(), in.jump.size());
                     st.live.push_back(in);
                 }
             }
             FlushInstructionCache(GetCurrentProcess(), nullptr, 0);
             st.sources.push_back(std::move(image));
-            LOG_INFO("havok runtime: {} functions now run CB's code across {} classes; {} classes left to vanilla by settings, {} functions "
-                     "patched by someone else, {} too short to jump",
-                     st.live.size(), classes, off, patched, tooShort);
+            LOG_INFO("havok runtime: {} functions now run CB's code across {} classes ({} short ones jumping into their alignment padding); "
+                     "{} classes left to vanilla by settings, {} functions patched by someone else, {} too short to jump",
+                     st.live.size(), classes, padded, off, patched, tooShort);
         }
 
     }  // namespace
