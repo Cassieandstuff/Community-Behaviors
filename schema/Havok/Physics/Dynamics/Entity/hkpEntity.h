@@ -35,6 +35,23 @@ namespace CB { namespace schema
             hkUint8  m_userFilter;    ///< +0x0b
         };
 
+        /// @brief Seeded from Havok's reflection (size 0x10, version 1).
+        struct SmallArraySerializeOverrideType
+        {
+        public:
+            void* m_data;   ///< +0x0, not serialized
+            hkUint16 m_size;   ///< +0x8
+            hkUint16 m_capacityAndFlags;   ///< +0xa
+        };
+
+        /// @brief Seeded from Havok's reflection (size 0x20).
+        struct ExtendedListeners
+        {
+        public:
+            SmallArraySerializeOverrideType m_activationListeners;   ///< +0x0, not serialized
+            SmallArraySerializeOverrideType m_entityListeners;   ///< +0x10, not serialized
+        };
+
         hkpMaterial                            m_material;                               ///< +0xd0
         void*                                  m_limitContactImpulseUtilAndFlag;         ///< +0xe0
         hkReal                                 m_damageMultiplier;                       ///< +0xe8

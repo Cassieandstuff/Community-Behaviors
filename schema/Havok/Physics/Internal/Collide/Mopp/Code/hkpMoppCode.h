@@ -20,6 +20,14 @@ namespace CB { namespace schema
     class hkpMoppCode : public hkReferencedObject
     {
     public:
+        /// @brief Seeded from Havok's reflection (size 0x8).
+        struct ReindexedTerminal
+        {
+        public:
+            hkUint32 m_origShapeKey;   ///< +0x0
+            hkUint32 m_reindexedShapeKey;   ///< +0x4
+        };
+
         enum BuildType
         {
             BUILT_WITH_CHUNK_SUBDIVISION = 0,

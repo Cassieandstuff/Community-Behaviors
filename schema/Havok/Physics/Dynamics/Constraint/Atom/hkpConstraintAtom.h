@@ -176,4 +176,177 @@ namespace CB { namespace schema
         hkReal m_maxAngle;   ///< +0xc
         hkReal m_angularLimitsTauFactor;   ///< +0x10
     };
+
+    /// @brief Seeded from Havok's reflection (size 0x4).
+    struct hkpAngConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkUint8 m_firstConstrainedAxis;   ///< +0x2
+        hkUint8 m_numConstrainedAxes;   ///< +0x3
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x10).
+    struct hkpCogWheelConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkReal m_cogWheelRadiusA;   ///< +0x4
+        hkReal m_cogWheelRadiusB;   ///< +0x8
+        hkBool m_isScrew;   ///< +0xc
+        hkInt8 m_memOffsetToInitialAngleOffset;   ///< +0xd
+        hkInt8 m_memOffsetToPrevAngle;   ///< +0xe
+        hkInt8 m_memOffsetToRevolutionCounter;   ///< +0xf
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x4).
+    struct hkpLinConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkUint8 m_axisIndex;   ///< +0x2
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x8).
+    struct hkpLinFrictionConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkUint8 m_isEnabled;   ///< +0x2
+        hkUint8 m_frictionAxis;   ///< +0x3
+        hkReal m_maxFrictionForce;   ///< +0x4
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0xc).
+    struct hkpLinLimitConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkUint8 m_axisIndex;   ///< +0x2
+        hkReal m_min;   ///< +0x4
+        hkReal m_max;   ///< +0x8
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x18).
+    struct hkpLinMotorConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkBool m_isEnabled;   ///< +0x2
+        hkUint8 m_motorAxis;   ///< +0x3
+        hkInt16 m_initializedOffset;   ///< +0x4
+        hkInt16 m_previousTargetPositionOffset;   ///< +0x6
+        hkReal m_targetPosition;   ///< +0x8
+        hkpConstraintMotor* m_motor;   ///< +0x10
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0xc).
+    struct hkpLinSoftConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkUint8 m_axisIndex;   ///< +0x2
+        hkReal m_tau;   ///< +0x4
+        hkReal m_damping;   ///< +0x8
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x4).
+    struct hkpOverwritePivotConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkUint8 m_copyToPivotBFromPivotA;   ///< +0x2
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x40).
+    struct hkpPulleyConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkVector4 m_fixedPivotAinWorld;   ///< +0x10
+        hkVector4 m_fixedPivotBinWorld;   ///< +0x20
+        hkReal m_ropeLength;   ///< +0x30
+        hkReal m_leverageOnBodyB;   ///< +0x34
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0xc).
+    struct hkpRackAndPinionConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkReal m_pinionRadiusOrScrewPitch;   ///< +0x4
+        hkBool m_isScrew;   ///< +0x8
+        hkInt8 m_memOffsetToInitialAngleOffset;   ///< +0x9
+        hkInt8 m_memOffsetToPrevAngle;   ///< +0xa
+        hkInt8 m_memOffsetToRevolutionCounter;   ///< +0xb
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x70).
+    struct hkpSetLocalRotationsConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkRotation m_rotationA;   ///< +0x10
+        hkRotation m_rotationB;   ///< +0x40
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x30).
+    struct hkpSetLocalTranslationsConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkVector4 m_translationA;   ///< +0x10
+        hkVector4 m_translationB;   ///< +0x20
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x8).
+    struct hkpStiffSpringConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkReal m_length;   ///< +0x4
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x30).
+    struct hkpModifierConstraintAtom : public hkpConstraintAtom
+    {
+    public:
+        hkUint8 m_pad0x2[0xe];
+        hkUint16 m_modifierAtomSize;   ///< +0x10
+        hkUint16 m_childSize;   ///< +0x12
+        hkpConstraintAtom* m_child;   ///< +0x18
+        hkUint32 m_pad[2];   ///< +0x20
+        hkUint8 m_pad0x28[0x8];
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x50).
+    struct hkpCenterOfMassChangerModifierConstraintAtom : public hkpModifierConstraintAtom
+    {
+    public:
+        hkVector4 m_displacementA;   ///< +0x30
+        hkVector4 m_displacementB;   ///< +0x40
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x30).
+    struct hkpIgnoreModifierConstraintAtom : public hkpModifierConstraintAtom
+    {
+    public:
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x50, version 1).
+    struct hkpMassChangerModifierConstraintAtom : public hkpModifierConstraintAtom
+    {
+    public:
+        hkVector4 m_factorA;   ///< +0x30
+        hkVector4 m_factorB;   ///< +0x40
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x40).
+    struct hkpMovingSurfaceModifierConstraintAtom : public hkpModifierConstraintAtom
+    {
+    public:
+        hkVector4 m_velocity;   ///< +0x30
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x40).
+    struct hkpSoftContactModifierConstraintAtom : public hkpModifierConstraintAtom
+    {
+    public:
+        hkReal m_tau;   ///< +0x30
+        hkReal m_maxAcceleration;   ///< +0x34
+        hkUint8 m_pad0x38[0x8];
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x30).
+    struct hkpViscousSurfaceModifierConstraintAtom : public hkpModifierConstraintAtom
+    {
+    public:
+    };
 } }

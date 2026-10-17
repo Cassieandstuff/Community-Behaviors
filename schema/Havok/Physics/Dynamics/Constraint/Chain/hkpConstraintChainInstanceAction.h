@@ -1,0 +1,20 @@
+#pragma once
+
+/// @file
+/// @brief Layouts seeded from Havok's own reflection in the exe (tools/cbmatch --seed-headers): Havok's member names,
+///        the gaps as explicit padding; tools/cbmatch --check-layout proves every named member.
+
+#include <Common/Base/hkBase.h>
+#include <Physics/Dynamics/Action/hkpAction.h>
+
+namespace CB { namespace schema
+{
+    class hkpConstraintChainInstance;
+
+    /// @brief Seeded from Havok's reflection (size 0x38).
+    class hkpConstraintChainInstanceAction : public hkpAction
+    {
+    public:
+        hkpConstraintChainInstance* m_constraintInstance;   ///< +0x30
+    };
+} }
