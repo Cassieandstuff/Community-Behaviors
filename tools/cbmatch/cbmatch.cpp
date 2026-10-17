@@ -4261,6 +4261,8 @@ void usage()
         "  --diff-seed <n>      run only seed <n> of --diff, printing every stubbed call and forced pointer\n"
         "  --emit-image <file>  write the runtime image: every passing function's code and references, keyed by the vanilla\n"
         "                       function it replaces, for the plugin's takeover installer (needs a full run and the registry)\n"
+        "  --extract-classes <file> write Havok's own reflection (every hkClass the exe constructs: parent, size, enums,\n"
+        "                       members with offsets, types and flags) as YAML, then stop\n"
         "  --strict             fail on any out-of-line definition no manifest line covers (unverified code in the tree;\n"
         "                       the schema/ gate runs with it, the workbench without)\n"
         "  --emit-palette <dir> write the function palette: one typed cell per passing function, a header per class\n"
@@ -4294,6 +4296,261 @@ void usage()
         "With a registry, a relocation that points somewhere other than its engine.yaml address makes the function\n"
         "STRUCTURAL whatever its bytes say. A switch's jump tables (after the code) are compared apart from the instructions:\n"
         "byte index tables identical, every case target on corresponding code. Exit code 0 only when every function is EXACT.");
+}
+
+// ── Havok's own reflection, read from the exe ────────────────────────────────────────────────────────────────────
+
+/// @brief One class as the exe's hkClass constructor call declares it.
+/// @note Havok 2010 x64 layouts: hkClassMember is 0x28 bytes (name, class, enum, type u8, subtype u8, cArraySize u16,
+///       flags u16, offset u16, attributes); hkClassEnum is 0x28 (name, items, numItems, attributes, flags) with
+///       0x10-byte items (value i32, name).
+struct ReflectedClass {
+    std::string   name, parent;
+    std::uint64_t at = 0;   ///< the hkClass object (zero-initialized data, built at startup)
+    std::uint32_t size = 0, flags = 0, version = 0;
+    struct Member { std::string name, cls, enm; std::uint8_t type = 0, subtype = 0; std::uint16_t cArraySize = 0, flags = 0, offset = 0; };
+    struct Enum { std::string name; std::vector<std::pair<std::string, std::int32_t>> items; };
+    std::vector<Member> members;
+    std::vector<Enum>   enums;
+};
+
+const char* hkTypeName(std::uint8_t t)
+{
+    static const char* names[] = { "VOID",    "BOOL",       "CHAR",       "INT8",       "UINT8",      "INT16",       "UINT16",   "INT32",
+                                   "UINT32",  "INT64",      "UINT64",     "REAL",       "VECTOR4",    "QUATERNION",  "MATRIX3",  "ROTATION",
+                                   "QSTRANSFORM", "MATRIX4", "TRANSFORM", "ZERO",       "POINTER",    "FUNCTIONPOINTER", "ARRAY", "INPLACEARRAY",
+                                   "ENUM",    "STRUCT",     "SIMPLEARRAY", "HOMOGENEOUSARRAY", "VARIANT", "CSTRING",   "ULONG",    "FLAGS",
+                                   "HALF",    "STRINGPTR",  "RELARRAY" };
+    return t < std::size(names) ? names[t] : "?";
+}
+
+/// @brief Every hkClass the exe constructs at startup, from the arguments of each call to hkClass::hkClass.
+/// @note The constructor is found, not pinned: it is the call target most often reached with `lea rcx` pointing into
+///       zero-initialized data (the class object). Each call site's arguments are recovered by interpreting its
+///       function's straight-line setup (lea/mov/xor/and into registers and the outgoing argument slots).
+std::vector<ReflectedClass> extractClasses(const PeImage& pe, std::uint64_t& ctorOut)
+{
+    const PeImage::Section* text = nullptr;
+    for (const auto& s : pe.sections) if (s.executable() && (!text || s.rawSize > text->rawSize)) text = &s;
+    if (!text) throw std::runtime_error("no code section");
+    auto inBss = [&](std::uint64_t a) {
+        if (a < pe.imageBase) return false;
+        const auto rva = static_cast<std::uint32_t>(a - pe.imageBase);
+        for (const auto& s : pe.sections) if (rva >= s.va + s.rawSize && rva < s.va + s.vsize) return true;
+        return false;
+    };
+    const std::uint8_t* code = pe.bytes.data() + text->raw;
+    // Anchors: class names that are certainly reflected. Their `lea rdx, [name]` is the constructor's second argument,
+    // so the next call is the constructor; the anchors vote.
+    std::set<std::uint64_t> anchors;
+    for (const char* n : { "hkReferencedObject", "hkbClipGenerator", "hkbStateMachine", "hkaSkeleton", "hkbBehaviorGraph" }) {
+        const std::string needle = std::string(n) + '\0';
+        for (const auto& s : pe.sections) {
+            if (s.executable()) continue;
+            const auto* base = pe.bytes.data() + s.raw;
+            for (const auto* p = std::search(base, base + s.rawSize, needle.begin(), needle.end()); p != base + s.rawSize;
+                 p = std::search(p + 1, base + s.rawSize, needle.begin(), needle.end()))
+                if (p == base || p[-1] == 0) anchors.insert(pe.imageBase + s.va + (p - base));
+        }
+    }
+    std::map<std::uint64_t, std::size_t> votes;
+    for (std::uint32_t o = 0; o + 7 <= text->rawSize; ++o) {
+        if (code[o] != 0x48 || code[o + 1] != 0x8D || code[o + 2] != 0x15) continue;
+        std::int32_t lea;
+        std::memcpy(&lea, code + o + 3, 4);
+        if (!anchors.count(pe.imageBase + text->va + o + 7 + lea)) continue;
+        for (std::uint32_t k = o + 7; k + 5 <= text->rawSize && k < o + 0x40; ++k) {
+            if (code[k] != 0xE8) continue;
+            std::int32_t rel;
+            std::memcpy(&rel, code + k + 1, 4);
+            ++votes[pe.imageBase + text->va + k + 5 + rel];
+            break;
+        }
+    }
+    if (votes.empty()) throw std::runtime_error("no hkClass constructor found from the anchor class names");
+    const auto ctor = std::max_element(votes.begin(), votes.end(), [](auto& a, auto& b) { return a.second < b.second; })->first;
+    ctorOut = ctor;
+
+    auto read = [&](std::uint64_t a, std::size_t n) -> const std::uint8_t* {
+        if (a < pe.imageBase) return nullptr;
+        const auto off = pe.fileOffset(static_cast<std::uint32_t>(a - pe.imageBase), n);
+        return off ? pe.bytes.data() + *off : nullptr;
+    };
+    auto u64 = [&](std::uint64_t a) { const auto* p = read(a, 8); std::uint64_t v = 0; if (p) std::memcpy(&v, p, 8); return v; };
+    auto cstr = [&](std::uint64_t a) -> std::string {
+        const auto* p = read(a, 1);
+        if (!p) return {};
+        std::string s;
+        for (std::size_t k = 0; k < 256 && read(a + k, 1) && p[k]; ++k) s += static_cast<char>(p[k]);
+        return s;
+    };
+    // The function containing an address, from .pdata (chained entries fold into their first).
+    auto functionStart = [&](std::uint32_t rva) -> std::optional<std::uint32_t> {
+        const auto base = pe.fileOffset(pe.pdataRva, pe.pdataSize);
+        if (!base) return std::nullopt;
+        std::size_t lo = 0, hi = pe.pdataSize / 12;
+        while (lo < hi) {
+            const std::size_t mid = (lo + hi) / 2;
+            const auto begin = rd<std::uint32_t>(pe.bytes, *base + mid * 12), end = rd<std::uint32_t>(pe.bytes, *base + mid * 12 + 4);
+            if (rva < begin) hi = mid;
+            else if (rva >= end) lo = mid + 1;
+            else return begin;
+        }
+        return std::nullopt;
+    };
+
+    struct Call { std::array<std::optional<std::uint64_t>, 14> arg; };
+    std::vector<Call> calls;
+    std::set<std::uint32_t> visited;
+    for (std::uint32_t o = 0; o + 5 <= text->rawSize; ++o) {
+        if (code[o] != 0xE8) continue;
+        std::int32_t rel;
+        std::memcpy(&rel, code + o + 1, 4);
+        if (pe.imageBase + text->va + o + 5 + rel != ctor) continue;
+        const auto start = functionStart(text->va + o);
+        if (!start || !visited.insert(*start).second) continue;
+        // Interpret the whole function linearly: initializers are straight-line, one call per class.
+        const auto fnOff = pe.fileOffset(*start, 1);
+        const auto end   = pe.functionEnd(*start);
+        if (!fnOff || !end) continue;
+        const Bytes body(pe.bytes.begin() + *fnOff, pe.bytes.begin() + *fnOff + (*end - *start));
+        const auto  insns = disassemble(body);
+        if (!insns) continue;
+        std::map<ZydisRegister, std::uint64_t> reg;   // largest-enclosing register → known value
+        std::map<std::int64_t, std::uint64_t>  slot;  // [rsp+d] → known value
+        auto full = [](ZydisRegister r) { return ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, r); };
+        auto valueOf = [&](const Insn& i, const ZydisDecodedOperand& op) -> std::optional<std::uint64_t> {
+            if (op.type == ZYDIS_OPERAND_TYPE_IMMEDIATE) return op.imm.value.u & (op.size == 32 ? 0xFFFFFFFFull : ~0ull);
+            if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
+                const auto it = reg.find(full(op.reg.value));
+                if (it == reg.end()) return std::nullopt;
+                return op.size == 32 ? it->second & 0xFFFFFFFFull : it->second;
+            }
+            (void)i;
+            return std::nullopt;
+        };
+        for (const Insn& i : *insns) {
+            const auto va = pe.imageBase + *start + i.off;
+            const auto m  = i.ins.mnemonic;
+            if (m == ZYDIS_MNEMONIC_CALL) {
+                if (const auto t = absoluteTarget(i, va); t && *t == ctor) {
+                    Call c;
+                    static const ZydisRegister regs[4] = { ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9 };
+                    for (int k = 0; k < 4; ++k) if (reg.count(regs[k])) c.arg[k] = reg[regs[k]];
+                    for (int k = 4; k < 14; ++k) if (slot.count(0x20 + (k - 4) * 8)) c.arg[k] = slot[0x20 + (k - 4) * 8];
+                    calls.push_back(c);
+                }
+                for (auto r : { ZYDIS_REGISTER_RAX, ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9, ZYDIS_REGISTER_R10,
+                                ZYDIS_REGISTER_R11 })
+                    reg.erase(r);
+                continue;
+            }
+            const auto& d = i.ops[0];
+            if (i.ins.operand_count_visible < 2) continue;
+            const auto& s = i.ops[1];
+            if (d.type == ZYDIS_OPERAND_TYPE_REGISTER) {
+                const auto r = full(d.reg.value);
+                std::optional<std::uint64_t> v;
+                if (m == ZYDIS_MNEMONIC_LEA && s.mem.base == ZYDIS_REGISTER_RIP) v = absoluteTarget(i, va);
+                else if (m == ZYDIS_MNEMONIC_LEA && s.mem.index == ZYDIS_REGISTER_NONE && reg.count(full(s.mem.base)))
+                    v = (reg[full(s.mem.base)] + std::uint64_t(s.mem.disp.value)) & (d.size == 32 ? 0xFFFFFFFFull : ~0ull);   // `lea r9d, [rcx+0x20]`: a constant built from a zeroed register
+                else if (m == ZYDIS_MNEMONIC_MOV) v = valueOf(i, s);
+                else if (m == ZYDIS_MNEMONIC_XOR && s.type == ZYDIS_OPERAND_TYPE_REGISTER && full(s.reg.value) == r) v = 0;
+                if (v) reg[r] = *v; else reg.erase(r);
+            } else if (d.type == ZYDIS_OPERAND_TYPE_MEMORY && d.mem.base == ZYDIS_REGISTER_RSP && d.mem.index == ZYDIS_REGISTER_NONE) {
+                const std::int64_t at = d.mem.disp.value;
+                std::optional<std::uint64_t> v;
+                if (m == ZYDIS_MNEMONIC_MOV) v = valueOf(i, s);
+                else if (m == ZYDIS_MNEMONIC_AND && s.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && s.imm.value.u == 0) v = 0;
+                if (v) slot[at] = d.size == 32 ? (*v & 0xFFFFFFFFull) : *v; else slot.erase(at);
+            }
+        }
+    }
+
+    // Arguments: this, name, parent, size, interfaces, #interfaces, enums, #enums, members, #members, defaults,
+    // attributes, flags, version.
+    std::map<std::uint64_t, std::string> nameAt;
+    for (const auto& c : calls) if (c.arg[0] && c.arg[1]) nameAt[*c.arg[0]] = cstr(*c.arg[1]);
+    auto decodeEnum = [&](std::uint64_t e) {
+        ReflectedClass::Enum out;
+        out.name           = cstr(u64(e));
+        const auto items   = u64(e + 8);
+        const auto* n      = read(e + 0x10, 4);
+        const std::int32_t count = n ? *reinterpret_cast<const std::int32_t*>(n) : 0;
+        for (std::int32_t k = 0; k < count && k < 4096; ++k) {
+            const auto* v = read(items + k * 0x10, 4);
+            out.items.emplace_back(cstr(u64(items + k * 0x10 + 8)), v ? *reinterpret_cast<const std::int32_t*>(v) : 0);
+        }
+        return out;
+    };
+    std::vector<ReflectedClass> out;
+    for (const auto& c : calls) {
+        if (!c.arg[0] || !c.arg[1]) continue;
+        ReflectedClass rc;
+        rc.at      = *c.arg[0];
+        rc.name    = cstr(*c.arg[1]);
+        rc.parent  = c.arg[2] && *c.arg[2] ? (nameAt.count(*c.arg[2]) ? nameAt[*c.arg[2]] : "?0x" + hex(*c.arg[2])) : "";
+        rc.size    = static_cast<std::uint32_t>(c.arg[3].value_or(0));
+        rc.flags   = static_cast<std::uint32_t>(c.arg[12].value_or(0));
+        rc.version = static_cast<std::uint32_t>(c.arg[13].value_or(0));
+        for (std::uint64_t k = 0; c.arg[6] && k < c.arg[7].value_or(0) && k < 1024; ++k) rc.enums.push_back(decodeEnum(*c.arg[6] + k * 0x28));
+        for (std::uint64_t k = 0; c.arg[8] && k < c.arg[9].value_or(0) && k < 4096; ++k) {
+            const auto m = *c.arg[8] + k * 0x28;
+            const auto* raw = read(m, 0x28);
+            if (!raw) break;
+            ReflectedClass::Member mb;
+            mb.name    = cstr(u64(m));
+            const auto cls = u64(m + 8), enm = u64(m + 0x10);
+            mb.cls     = cls ? (nameAt.count(cls) ? nameAt[cls] : "?0x" + hex(cls)) : "";
+            mb.enm     = enm ? decodeEnum(enm).name : "";
+            mb.type    = raw[0x18];
+            mb.subtype = raw[0x19];
+            std::memcpy(&mb.cArraySize, raw + 0x1a, 2);
+            std::memcpy(&mb.flags, raw + 0x1c, 2);
+            std::memcpy(&mb.offset, raw + 0x1e, 2);
+            rc.members.push_back(std::move(mb));
+        }
+        out.push_back(std::move(rc));
+    }
+    std::sort(out.begin(), out.end(), [](const ReflectedClass& a, const ReflectedClass& b) { return a.name < b.name; });
+    return out;
+}
+
+/// @brief Writes the extracted classes as YAML (one document, classes by name).
+void writeClasses(const fs::path& out, const std::vector<ReflectedClass>& classes, std::uint64_t ctor)
+{
+    std::string s = "# Havok's own reflection as the exe declares it: every hkClass::hkClass call (0x" + hex(ctor) + ").\n"
+                    "# GENERATED by tools/cbmatch --extract-classes. Offsets are the member offsets inside the class (parent first).\n"
+                    "classes:\n";
+    for (const auto& c : classes) {
+        s += "  " + c.name + ":\n";
+        if (!c.parent.empty()) s += "    parent: " + c.parent + "\n";
+        s += "    size: 0x" + hex(c.size) + "\n";
+        if (c.version) s += "    version: " + std::to_string(c.version) + "\n";
+        if (c.flags) s += "    flags: 0x" + hex(c.flags) + "\n";
+        if (!c.enums.empty()) {
+            s += "    enums:\n";
+            for (const auto& e : c.enums) {
+                s += "      " + e.name + ": {";
+                for (std::size_t k = 0; k < e.items.size(); ++k) s += (k ? ", " : " ") + e.items[k].first + ": " + std::to_string(e.items[k].second);
+                s += " }\n";
+            }
+        }
+        if (!c.members.empty()) {
+            s += "    members:\n";
+            for (const auto& m : c.members) {
+                s += "      - { name: " + m.name + ", offset: 0x" + hex(m.offset) + ", type: " + hkTypeName(m.type);
+                if (m.subtype) s += ", subtype: " + std::string(hkTypeName(m.subtype));
+                if (!m.cls.empty()) s += ", class: " + m.cls;
+                if (!m.enm.empty()) s += ", enum: " + m.enm;
+                if (m.cArraySize) s += ", carray: " + std::to_string(m.cArraySize);
+                if (m.flags) s += ", flags: 0x" + hex(m.flags);
+                s += " }\n";
+            }
+        }
+    }
+    std::string err;
+    if (!CB::engine::disk::WriteFile(out, s, {}, &err)) throw std::runtime_error("cannot write " + out.string() + ": " + err);
 }
 
 // ── the function palette ─────────────────────────────────────────────────────────────────────────────────────────
@@ -4586,6 +4843,7 @@ struct Options {
     std::optional<std::uint64_t> diffSeed;   ///< --diff-seed: just this one, traced
     fs::path    emitImage;   ///< --emit-image: the runtime image of every passing function
     fs::path    emitPalette; ///< --emit-palette: the typed cell headers features build against
+    fs::path    extractClasses;   ///< --extract-classes: Havok's own reflection, read from the exe
 };
 
 int run(const Options& opt)
@@ -4608,6 +4866,16 @@ int run(const Options& opt)
     }
     if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
+    if (!opt.extractClasses.empty()) {
+        std::uint64_t ctor    = 0;
+        const auto    classes = extractClasses(pe, ctor);
+        writeClasses(opt.extractClasses, classes, ctor);
+        std::size_t members = 0;
+        for (const auto& c : classes) members += c.members.size();
+        std::printf("extract: hkClass::hkClass at 0x%s; %zu classes, %zu members -> %s\n", hex(ctor).c_str(), classes.size(), members,
+                    opt.extractClasses.string().c_str());
+        return 0;
+    }
 
     std::optional<EngineSymbols> syms;
     if (!m.registry.empty() && rt && !rt->addressLibrary.empty())
@@ -5065,6 +5333,7 @@ int main(int argc, char** argv)
         else if (a == "--emit-image") opt.emitImage = next();
         else if (a == "--emit-palette") opt.emitPalette = next();
         else if (a == "--strict") opt.strict = true;
+        else if (a == "--extract-classes") opt.extractClasses = next();
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }
