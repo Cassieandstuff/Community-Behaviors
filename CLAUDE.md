@@ -79,7 +79,9 @@ schema/                      the class schema as DATA — one YAML per class in 
                              Deployed as data only (staging drops .h/.cpp): plugin → Data/community_behaviors/schema
                              (no templates/), converter → <exe>/schema.
 tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch (byte-matches schema/Havok against
-                             the exe), x64dbg-autoattach, blender-control-rig
+                             the exe), x64dbg-autoattach, blender-control-rig. cbmatch/workbench/ = functions still
+                             being matched (manifests/workbench.yaml, failures expected); cbmatch/devices/ = matching
+                             devices, not Havok files
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). On hold — nothing consumes it yet. Nothing private goes in include/.
 ```
@@ -192,9 +194,11 @@ still belongs in the session scratchpad dir.)
   on vanilla's stored `floatBlockOffsets` for every vanilla clip (5937/5937), and every clip recompiled by CB must
   store exactly where the decoder finds its float section. Run it after any spline compressor change. (Nothing to
   bump: compiled animations are keyed on the plugin DLL's hash, so every rebuild recompiles them once.)
-- **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant` compiles schema/Havok
-  per translation unit and diffs every listed function against the exe (EXACT / REGALLOC / VARIANT, references
-  checked against engine.yaml); `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
+- **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant --diff 256 --strict`
+  compiles schema/Havok per translation unit and diffs every listed function against the exe (EXACT / REGALLOC /
+  VARIANT, references checked against engine.yaml). schema/ holds proven code only: `--strict` fails on any
+  out-of-line definition that is neither listed (and passing) nor a unit's declared `drivers:` entry. A body
+  graduates from the workbench into its schema unit once it passes; `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
   under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow. A VARIANT that
   needs rule A (local stack slots rearranged), E (SIMD rescheduled), I (a duplicated return tail), J (register
   setup rescheduled), N (commutative SIMD operands swapped), R (a SIMD value recomputed), O (a load folded into its
