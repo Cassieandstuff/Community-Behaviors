@@ -9,10 +9,25 @@
 
 namespace CB { namespace schema
 {
+    struct bhkPickData;
+
     /// @note Opaque beyond its vtable.
     class bhkWorld : public bhkSerializable
     {
     public:
+        virtual void Unk_32();                           ///< slot 50
+        /// @brief Casts `pickData`'s ray against the world into its output.
+        /// @note Name per CommonLibSSE.
+        virtual bool PickObject(bhkPickData& pickData);   ///< slot 51
+
+        /// @brief Havok units to game units (a game unit is 1/69.99125 of a Havok unit).
+        /// @note Name provisional; a constant in vanilla's .rdata.
+        static const float s_worldScaleInverse;
+
+        /// @brief The Havok world's gravity (read under the world lock), zero when the world has none.
+        /// @note Name provisional; out of line in vanilla (0x140e84230).
+        const hkVector4& GetGravity() const;
+
         /// @brief The time the physics step about to run (or running) advances, in seconds; 0 when the frame's
         ///        accumulated time is below 1 ms.
         /// @note Name provisional.

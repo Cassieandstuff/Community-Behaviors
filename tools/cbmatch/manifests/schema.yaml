@@ -1986,3 +1986,57 @@ units:
       - { name: "??1bhkCharacterController@schema@CB@@UEAA@XZ", va: 0x140e9e060 }
       - { name: "??_GbhkCharacterController@schema@CB@@UEAAPEAXI@Z", va: 0x140ea3ac0 }
       - { name: "?DestroyEntry@?$BSTHashMap@V?$NiPointer@VbhkRigidBody@schema@CB@@@schema@CB@@PEAX@schema@CB@@SAXPEAX0@Z", va: 0x140ea4b40 }
+      - { name: "CB::schema::bhkCharacterController::CommitWantedState", va: 0x140ea0350 }
+      - { name: "CB::schema::bhkCharacterController::AccumulateFallTime", va: 0x140ea0380 }
+      - { name: "CB::schema::bhkCharacterController::ApplyInitialVelocity", va: 0x140ea0470 }
+  # Bethesda's character-controller states, one unit per class as vanilla lays them out (0x140f01e70..0x140f02e58).
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateClimbing.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharacterStateClimbing::getType", va: 0x140f01e90 }
+      - { name: "CB::schema::bhkCharacterStateClimbing::Simulate", va: 0x140f01ea0 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateFlying.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharacterStateFlying::getType", va: 0x140f01ee0 }
+      - { name: "CB::schema::bhkCharacterStateFlying::Simulate", va: 0x140f01ef0 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateInAir.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??0bhkCharacterStateInAir@schema@CB@@QEAA@XZ", va: 0x140f01f00 }
+      - { name: "CB::schema::bhkCharacterStateInAir::getType", va: 0x140f01f30 }
+      - { name: "CB::schema::bhkCharacterStateInAir::Simulate", va: 0x140f01f40 }
+      - { name: "??_GbhkCharacterStateInAir@schema@CB@@UEAAPEAXI@Z", va: 0x140f021f0 }
+      - { name: "CB::schema::hkpCharacterState::enterState", va: 0x140f01e70 }
+      - { name: "CB::schema::hkpCharacterState::leaveState", va: 0x140f01e80 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateJumping.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??0bhkCharacterStateJumping@schema@CB@@QEAA@XZ", va: 0x140f02280 }
+      - { name: "CB::schema::bhkCharacterStateJumping::getType", va: 0x140f022a0 }
+      - { name: "CB::schema::bhkCharacterStateJumping::Simulate", va: 0x140f022b0 }
+      - { name: "??_GbhkCharacterStateJumping@schema@CB@@UEAAPEAXI@Z", va: 0x140f02490 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateOnGround.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??0bhkCharacterStateOnGround@schema@CB@@QEAA@XZ", va: 0x140f02520 }
+      - { name: "CB::schema::bhkCharacterStateOnGround::getType", va: 0x140f02540 }
+      - { name: "??_GbhkCharacterStateOnGround@schema@CB@@UEAAPEAXI@Z", va: 0x140f02a70 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateSwimming.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??0bhkCharacterStateSwimming@schema@CB@@QEAA@XZ", va: 0x140f02b00 }
+      - { name: "CB::schema::bhkCharacterStateSwimming::getType", va: 0x140f02b20 }
+      - { name: "CB::schema::bhkCharacterStateSwimming::Simulate", va: 0x140f02b30 }
+      - { name: "??_GbhkCharacterStateSwimming@schema@CB@@UEAAPEAXI@Z", va: 0x140f02dd0 }
+  - source: ../devices/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateBethesdaCopy.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??_GhkpCharacterState@schema@CB@@UEAAPEAXI@Z", va: 0x140ea3f90 }
+      - { name: "??_GbhkCharacterState@schema@CB@@UEAAPEAXI@Z", va: 0x140ea3ca0 }
+      - { name: "??_GbhkCharacterStateClimbing@schema@CB@@UEAAPEAXI@Z", va: 0x140ea3d30 }
+      - { name: "??_GbhkCharacterStateFlying@schema@CB@@UEAAPEAXI@Z", va: 0x140ea3dc0 }
+      - { name: "CB::schema::bhkCharacterState::update", va: 0x140ea4e40 }
+      - { name: "CB::schema::bhkCharacterState::change", va: 0x140ea4e30 }
+    drivers:
+      - { name: "CB::schema::bhkCharacterStateBethesdaCopy_instantiate", why: "instantiates the climbing and flying states' vtables (and their bases'), so the listed copies come out of this unit (vanilla inlines the two states into bhkCharacterControllerCinfo's constructor)" }

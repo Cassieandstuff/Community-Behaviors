@@ -49,6 +49,13 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkReal& operator()(int i) { return m_quad.m128_f32[i]; }
         HK_FORCE_INLINE const hkReal& operator()(int i) const { return m_quad.m128_f32[i]; }
         HK_FORCE_INLINE void set(hkReal x, hkReal y, hkReal z, hkReal w = 0.0f) { m_quad = _mm_setr_ps(x, y, z, w); }
+        /// @note Interleaves (x, z) with (y, w): the unpcklps tree vanilla's Bethesda states compile.
+        HK_FORCE_INLINE void set(hkSimdReal x, hkSimdReal y, hkSimdReal z, hkSimdReal w)
+        {
+            m_quad = _mm_unpacklo_ps(_mm_unpacklo_ps(x.m_real, z.m_real), _mm_unpacklo_ps(y.m_real, w.m_real));
+        }
+        /// @brief Component `I`, broadcast.
+        template <int I> HK_FORCE_INLINE hkSimdReal getComponent() const { return hkSimdReal(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(I, I, I, I))); }
 
         HK_FORCE_INLINE hkSimdReal getSimdAt3() const { return hkSimdReal(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(3, 3, 3, 3))); }
         HK_FORCE_INLINE float      getW() const { return _mm_cvtss_f32(_mm_shuffle_ps(m_quad, m_quad, _MM_SHUFFLE(3, 3, 3, 3))); }
@@ -126,6 +133,7 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void normalize3();
         /// @brief normalize3, returning the length it divided by (0 for a zero vector).
         HK_FORCE_INLINE hkSimdReal normalizeWithLength3();
+        HK_FORCE_INLINE hkSimdReal normalizeWithLength3OfSplat();
 
         /// @brief xyz from `xyz`, w from lane 3 of `w`.
         HK_FORCE_INLINE void setXYZ_W(const hkVector4& xyz, const hkVector4& w)
@@ -603,6 +611,17 @@ namespace CB { namespace schema
             const hkQuadReal inv    = _mm_andnot_ps(isZero, _mm_mul_ss(he, _mm_sub_ss(_mm_set_ss(3.0f), ree)));
             return hkSimdReal(_mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0, 0, 0, 0)));
         }
+        /// @brief sqrtInverse of an `r` already in every lane: no broadcast first, as Bethesda's character states
+        ///        compile it.
+        static HK_FORCE_INLINE hkSimdReal sqrtInverseOfSplat(hkSimdReal r)
+        {
+            const hkQuadReal e      = _mm_rsqrt_ss(r.m_real);
+            const hkQuadReal isZero = _mm_cmpeq_ss(r.m_real, _mm_set_ss(0.0f));
+            const hkQuadReal he     = _mm_mul_ss(_mm_set_ss(0.5f), e);
+            const hkQuadReal ree    = _mm_mul_ss(_mm_mul_ss(r.m_real, e), e);
+            const hkQuadReal inv    = _mm_andnot_ps(isZero, _mm_mul_ss(he, _mm_sub_ss(_mm_set_ss(3.0f), ree)));
+            return hkSimdReal(_mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0, 0, 0, 0)));
+        }
     };
 
     HK_FORCE_INLINE void hkVector4::normalize3() { mul4(hkMath::sqrtInverse(lengthSquared3())); }
@@ -622,6 +641,14 @@ namespace CB { namespace schema
     {
         const hkSimdReal len2   = lengthSquared3();
         const hkSimdReal invLen = hkMath::sqrtInverse(lengthSquared3());
+        m_quad                  = _mm_mul_ps(m_quad, invLen.m_real);
+        return hkSimdReal(_mm_mul_ss(len2.m_real, invLen.m_real));
+    }
+    /// @note Bethesda's character states' copy: one squared length, inverted as it is (sqrtInverseOfSplat).
+    HK_FORCE_INLINE hkSimdReal hkVector4::normalizeWithLength3OfSplat()
+    {
+        const hkSimdReal len2   = lengthSquared3();
+        const hkSimdReal invLen = hkMath::sqrtInverseOfSplat(len2);
         m_quad                  = _mm_mul_ps(m_quad, invLen.m_real);
         return hkSimdReal(_mm_mul_ss(len2.m_real, invLen.m_real));
     }

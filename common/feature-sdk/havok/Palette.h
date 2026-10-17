@@ -42,6 +42,13 @@
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterControllerCinfo.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterRigidBody.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterRigidBodyCinfo.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterState.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateClimbing.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateFlying.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateInAir.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateJumping.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateOnGround.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateSwimming.h>
 #include <feature-sdk/havok/Common/Base/Algorithm/Sort/hkAlgorithm.h>
 #include <feature-sdk/havok/hkArray_hkQsTransform.h>
 #include <feature-sdk/havok/Common/Base/Object/hkBaseObject.h>
@@ -269,5 +276,6 @@
 #include <feature-sdk/havok/Physics/Dynamics/Motion/Rigid/hkpCharacterMotion.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBody.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/StateMachine/hkpCharacterState.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.h>
 #include <feature-sdk/havok/Physics/Dynamics/Collide/hkpResponseModifier.h>

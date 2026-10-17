@@ -1176,3 +1176,23 @@ symbols:
   - { name: bhkCharacterController_IsLayerCounted, kind: func, se: 0, ae: 78312, vr: 0, cpp: "CB::schema::bhkCharacterController::IsLayerCounted" }  # name provisional
   - { name: bhkCharacterController_IsSlopeBlocking, kind: func, se: 0, ae: 78311, vr: 0, cpp: "CB::schema::bhkCharacterController::IsSlopeBlocking" }  # name provisional; (meshShape, checkMaterial, default, shapeKey)
   - { name: bhkGetMeshShape, kind: func, se: 0, ae: 77986, vr: 0, cpp: "CB::schema::bhkGetMeshShape" }  # name provisional
+  # Bethesda's character-controller states (bhkCharacterState*)
+  - { name: bhkCharacterController_CommitWantedState, kind: func, se: 0, ae: 78280, vr: 0, cpp: "CB::schema::bhkCharacterController::CommitWantedState" }  # name provisional; enters wantState (+0x21c) if != 0xb, then clears it; every state's Simulate commits through it
+  - { name: bhkCharacterController_AccumulateFallTime, kind: func, se: 0, ae: 78281, vr: 0, cpp: "CB::schema::bhkCharacterController::AccumulateFallTime" }  # name provisional; fallTime += step dt
+  - { name: bhkCharacterController_GetFallDistance, kind: func, se: 0, ae: 78269, vr: 0, cpp: "CB::schema::bhkCharacterController::GetFallDistance" }  # name provisional; max(fallStartHeight - z, 0), game units
+  - { name: bhkWorld_GetGravity, kind: func, se: 0, ae: 77838, vr: 0, cpp: "CB::schema::bhkWorld::GetGravity" }  # name provisional; read-locked hkpWorld gravity, zero without one
+  - { name: bhkWorld_WorldScaleInverse, kind: data, se: 0, ae: 187407, vr: 0, cpp: "CB::schema::bhkWorld::s_worldScaleInverse" }  # 69.99125 (Havok -> game units)
+  - { name: fInAirFallingCharGravityMult_HAVOK, kind: data, se: 0, ae: 389443, vr: 0, cpp: "CB::schema::fInAirFallingCharGravityMult_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: CharacterUp, kind: data, se: 0, ae: 411558, vr: 0, cpp: "CB::schema::g_characterUp" }  # name provisional; the up vector the states steer and fall by
+  - { name: fJumpMoveBase_Cached, kind: data, se: 0, ae: 411554, vr: 0, cpp: "CB::schema::g_fJumpMoveBase" }  # name provisional; copy of the fJumpMoveBase game setting
+  - { name: fJumpMoveMult_Cached, kind: data, se: 0, ae: 389159, vr: 0, cpp: "CB::schema::g_fJumpMoveMult" }  # name provisional; copy of the fJumpMoveMult game setting
+  - { name: hkpCharacterMovementUtil_CalculateMovement, kind: func, se: 0, ae: 81002, vr: 0, cpp: "CB::schema::hkpCharacterMovementUtil::calculateMovement" }
+  - { name: bhkCharacterStateInAir_Vtable, kind: data, se: 0, ae: 240826, vr: 0, cpp: "CB::schema::bhkCharacterStateInAir::`vftable'" }
+  - { name: hkpCharacterContext_GetState, kind: func, se: 0, ae: 62427, vr: 0, cpp: "CB::schema::hkpCharacterContext::getState" }
+  - { name: bhkCharacterStateJumping_Vtable, kind: data, se: 0, ae: 240828, vr: 0, cpp: "CB::schema::bhkCharacterStateJumping::`vftable'" }
+  - { name: bUseUnsupportedCast_HAVOK, kind: data, se: 0, ae: 389446, vr: 0, cpp: "CB::schema::bUseUnsupportedCast_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: fUnsupportedGravMult_HAVOK, kind: data, se: 0, ae: 389449, vr: 0, cpp: "CB::schema::fUnsupportedGravMult_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: fUnsupportCastLength_HAVOK, kind: data, se: 0, ae: 389452, vr: 0, cpp: "CB::schema::fUnsupportCastLength_HAVOK" }  # the INI Setting object (value at +8)
+  - { name: bhkCharacterController_ApplyInitialVelocity, kind: func, se: 0, ae: 78283, vr: 0, cpp: "CB::schema::bhkCharacterController::ApplyInitialVelocity" }  # name provisional; outVelocity += velocityTime * initialVelocity while velocityTime > 0 (not chasing/following a ragdoll), else zeroes initialVelocity
+  - { name: bhkCharacterStateOnGround_Vtable, kind: data, se: 0, ae: 240833, vr: 0, cpp: "CB::schema::bhkCharacterStateOnGround::`vftable'" }
+  - { name: bhkCharacterStateSwimming_Vtable, kind: data, se: 0, ae: 240836, vr: 0, cpp: "CB::schema::bhkCharacterStateSwimming::`vftable'" }

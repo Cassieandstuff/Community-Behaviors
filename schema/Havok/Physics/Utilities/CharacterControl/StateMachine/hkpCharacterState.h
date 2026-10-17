@@ -30,15 +30,15 @@ namespace CB { namespace schema
     };
 
     /// @note 0x10 bytes (no members of its own). Vtable per vanilla 0x1419e4268: slots 3, 6 and 7 pure; enterState and
-    ///       leaveState empty. Slots 4..7 are proven by hkpCharacterContext's calls.
+    ///       leaveState empty (0x140f01e70, 0x140f01e80). Slots 4..7 are proven by hkpCharacterContext's calls.
     class hkpCharacterState : public hkReferencedObject
     {
     public:
         virtual hkpCharacterStateType getType() const = 0;   ///< slot 3
         virtual void enterState(hkpCharacterContext& context, hkpCharacterStateType prevState, const hkpCharacterInput& input,
-                                hkpCharacterOutput& output);   ///< slot 4
+                                hkpCharacterOutput& output) {}   ///< slot 4
         virtual void leaveState(hkpCharacterContext& context, hkpCharacterStateType nextState, const hkpCharacterInput& input,
-                                hkpCharacterOutput& output);   ///< slot 5
+                                hkpCharacterOutput& output) {}   ///< slot 5
         /// @brief This step's behaviour in the state.
         virtual void update(hkpCharacterContext& context, const hkpCharacterInput& input, hkpCharacterOutput& output) = 0;   ///< slot 6
         /// @brief The transitions out of the state.

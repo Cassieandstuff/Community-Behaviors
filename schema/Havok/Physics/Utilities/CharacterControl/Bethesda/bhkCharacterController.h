@@ -123,16 +123,41 @@ namespace CB { namespace schema
         /// @note Name and the two flags' meaning provisional (vanilla passes true, true); out of line in vanilla
         ///       (0x140ea2b90).
         static bool IsSlopeBlocking(const hkpShape* shape, bool checkMaterial, bool defaultResult, hkUint32 shapeKey);
+        /// @brief Enters m_wantState, if one is requested, and clears the request.
+        /// @note Name provisional; out of line in vanilla (0x140ea0350). It stores the context's current state
+        ///       directly: no leaveState / enterState runs. Every state's Simulate but Flying's commits through it.
+        void CommitWantedState();
+        /// @brief Adds this step's time to m_fallTime.
+        /// @note Name provisional; out of line in vanilla (0x140ea0380).
+        void AccumulateFallTime();
+        /// @brief How far (game units) the character is below m_fallStartHeight, 0 if above it or with no fall start.
+        /// @note Name provisional; out of line in vanilla (0x140e9eec0).
+        float GetFallDistance();
+        /// @brief Adds m_initialVelocity scaled by m_velocityTime to the output velocity while m_velocityTime is positive
+        ///        (not when chasing or following a ragdoll); zeroes m_initialVelocity once it is not.
+        /// @note Name provisional; out of line in vanilla (0x140ea0470).
+        void ApplyInitialVelocity();
 
-        hkUint8        m_pad68[0x80 - 0x68];
+        hkUint8        m_pad68[0x70 - 0x68];
+        /// @brief The character's forward direction (the states steer in its frame).
+        hkVector4      m_forward;           ///< +0x70
         hkStepInfo     m_stepInfo;          ///< +0x80
         /// @brief The velocity the controller drives the body toward.
         hkVector4      m_outVelocity;       ///< +0x90
-        hkUint8        m_pada0[0xc0 - 0xa0];
+        /// @brief A velocity added each grounded or swimming step while m_velocityTime is positive (scaled by it), zeroed
+        ///        once it is not.
+        /// @note Name per CommonLibSSE.
+        hkVector4      m_initialVelocity;   ///< +0xa0
+        /// @brief The movement the character asks for, in its own frame: y along m_forward, x to its side, z up.
+        /// @note Name per CommonLibSSE.
+        hkVector4      m_velocityMod;       ///< +0xb0
         /// @brief Where the body sits from the character's position, in the body's frame (GetPositionImpl and
         ///        SetPositionImpl rotate it by the body's rotation).
         hkVector4      m_centerOffset;      ///< +0xc0
-        hkUint8        m_padd0[0xf0 - 0xd0];
+        hkUint8        m_padd0[0xe0 - 0xd0];
+        /// @brief Where InAir's stuck recovery put the character on the ground (see m_fakeSupport).
+        /// @note Name per CommonLibSSE (which places it at +0xf0).
+        hkVector4      m_fakeSupportStart;  ///< +0xe0
         /// @brief The character's up direction (the rigid-body controller builds its Havok body with it).
         hkVector4      m_up;                ///< +0xf0
         hkUint8        m_pad100[0x110 - 0x100];
@@ -145,9 +170,38 @@ namespace CB { namespace schema
         hkUint8        m_pad198[0x1a0 - 0x198];
         hkpSurfaceInfo m_surfaceInfo;       ///< +0x1a0
         hkpCharacterContext m_context;      ///< +0x1e0
-        /// @brief CHARACTER_FLAGS: bit 3 kNoFriction, 8 kSupport, 10 kCanJump, 17 kNoSim (not simulated).
+        /// @brief CHARACTER_FLAGS: bit 3 kNoFriction, 4 kAllowJumpNoContact, 7 kHitFlags,
+        ///        8 kSupport, 10 kCanJump, 11 kChaseBip, 12 kFollowRagdoll, 13 kJumping, 17 kNoSim (not simulated), 23
+        ///        kShouldersUnderWater (names per CommonLibSSE).
         hkUint32       m_flags;             ///< +0x218
-        hkUint8        m_pad21c[0x270 - 0x21c];
+        /// @brief The state the next CommitWantedState enters; HK_CHARACTER_MAX_STATE_ID (0xb) for no request.
+        hkpCharacterStateType m_wantState;   ///< +0x21c
+        /// @brief How much of m_initialVelocity to add this step (see ApplyInitialVelocity).
+        /// @note Name per CommonLibSSE.
+        float          m_velocityTime;      ///< +0x220
+        hkUint8        m_pad224[0x230 - 0x224];
+        /// @brief The air-control skill: InAir steers only while it is positive.
+        /// @note Name per CommonLibSSE.
+        float          m_acrobatics;        ///< +0x230
+        hkUint8        m_pad234[0x238 - 0x234];
+        /// @brief The water surface's height, in Havok units.
+        /// @note Name per CommonLibSSE.
+        float          m_waterHeight;       ///< +0x238
+        /// @brief The height a jump reaches (its sign ignored), in Havok units.
+        float          m_jumpHeight;        ///< +0x23c
+        /// @brief The highest point of the current fall, in game units.
+        float          m_fallStartHeight;   ///< +0x240
+        /// @brief Seconds in the air (InAir adds each step's time and zeroes it as it leaves).
+        float          m_fallTime;          ///< +0x244
+        /// @brief The character's gravity multiplier.
+        float          m_gravity;           ///< +0x248
+        hkUint8        m_pad24c[0x25c - 0x24c];
+        /// @brief Swimming treats the character as submerged from 0.5 up (and floats it higher by it).
+        /// @note Name per CommonLibSSE.
+        float          m_swimFloatHeight;   ///< +0x25c
+        /// @note Name per CommonLibSSE; Swimming scales the float depth by it.
+        float          m_actorHeight;       ///< +0x260
+        hkUint8        m_pad264[0x270 - 0x264];
         /// @brief A counted Bethesda physics object (InitFromCinfo moves it into the cinfo's world).
         NiPointer<bhkSerializable> m_unk270;   ///< +0x270
         /// @brief Which of m_shapes is in use (2 or more: none).
@@ -161,7 +215,10 @@ namespace CB { namespace schema
         hkRefPtr<hkpRigidBody> m_bumpedCharCollisionObject;   ///< +0x2c8
         /// @brief Per CommonLibSSE, damage impacts by body (the value a DamageImpactData*).
         BSTHashMap<NiPointer<bhkRigidBody>, void*> m_damageImpacts;   ///< +0x2d0
-        hkUint8        m_pad300[0x314 - 0x300];
+        /// @brief OnGround's unsupported cast sets kAllowJumpNoContact (flag bit 4) when its hit's normal z is below it.
+        /// @note Name per CommonLibSSE.
+        float          m_zNormal;           ///< +0x300
+        hkUint8        m_pad304[0x314 - 0x304];
         /// @brief How many character-controller bodies (layer 30) of m_systemGroup the controller touches.
         hkUint32       m_numCharacterContacts;   ///< +0x314
         /// @brief The collision system group the controller counts contacts of, 0 for any.
@@ -169,6 +226,10 @@ namespace CB { namespace schema
         hkUint8        m_pad31c[0x31d - 0x31c];
         /// @brief When set, each counted character contact stops the controller (zero velocity).
         bool           m_stopOnCharacterContact;   ///< +0x31d
-        hkUint8        m_pad31e[0x330 - 0x31e];
+        /// @brief Set by InAir's stuck recovery: OnGround then keeps the character grounded until it is 0.9144 Havok
+        ///        units from m_fakeSupportStart or a state is requested.
+        /// @note Name provisional.
+        bool           m_fakeSupport;       ///< +0x31e
+        hkUint8        m_pad31f[0x330 - 0x31f];
     };
 } }

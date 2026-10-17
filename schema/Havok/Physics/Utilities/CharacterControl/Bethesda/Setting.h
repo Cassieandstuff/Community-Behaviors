@@ -31,4 +31,15 @@ namespace CB { namespace schema
     /// @brief bUseCharRBExtrapolation:HAVOK — read a rigid-body character's transform at the world's current time
     ///        (interpolated within the step) rather than as of the last step.
     extern Setting bUseCharRBExtrapolation_HAVOK;
+    /// @brief bUseUnsupportedCast:HAVOK — on losing support, cast down fUnsupportCastLength:HAVOK before leaving the
+    ///        ground (bhkCharacterStateOnGround::Simulate).
+    extern Setting bUseUnsupportedCast_HAVOK;
+    /// @brief fUnsupportCastLength:HAVOK — that cast's length, in Havok units.
+    extern Setting fUnsupportCastLength_HAVOK;
+    /// @brief fUnsupportedGravMult:HAVOK — the gravity multiplier while the cast holds an unsupported character on the
+    ///        ground.
+    extern Setting fUnsupportedGravMult_HAVOK;
+    /// @brief fInAirFallingCharGravityMult:HAVOK — the gravity multiplier once an airborne character is below the
+    ///        highest point it reached.
+    extern Setting fInAirFallingCharGravityMult_HAVOK;
 } }

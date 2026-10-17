@@ -24,6 +24,12 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::bhkCharRigidBodyController::~bhkCharRigidBodyController";
             static constexpr std::uint64_t id      = 79184;
         };
+        /// @brief `public: virtual void CB::schema::bhkCharRigidBodyController::considerCollisionEntryForSlope(class CB::schema::hkpWorld const *,class CB::schema::hkpCharacterRigidBody *,struct CB::schema::hkpLinkedCollidable::CollisionEntry const &,class CB::schema::hkpSimpleConstraintContactMgr *,struct CB::schema::hkArray<unsigned short> &)` — vanilla 0x140ed3710, VARIANT
+        struct considerCollisionEntryForSlope : ::CB::core::hooks::Cell<considerCollisionEntryForSlope, void(CB::schema::bhkCharRigidBodyController *, class CB::schema::hkpWorld const *, class CB::schema::hkpCharacterRigidBody *, struct CB::schema::hkpLinkedCollidable::CollisionEntry const &, class CB::schema::hkpSimpleConstraintContactMgr *, struct CB::schema::hkArray<unsigned short> &)> {
+            static constexpr const char*   mangled = "?considerCollisionEntryForSlope@bhkCharRigidBodyController@schema@CB@@UEAAXPEBVhkpWorld@23@PEAVhkpCharacterRigidBody@23@AEBUCollisionEntry@hkpLinkedCollidable@23@PEAVhkpSimpleConstraintContactMgr@23@AEAU?$hkArray@G@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharRigidBodyController::considerCollisionEntryForSlope";
+            static constexpr std::uint64_t id      = 79187;
+        };
         /// @brief `public: void CB::schema::bhkCharRigidBodyController::Init(class CB::schema::bhkCharRigidBodyControllerCinfo &)` — vanilla 0x140ed3bc0, VARIANT
         struct Init : ::CB::core::hooks::Cell<Init, void(CB::schema::bhkCharRigidBodyController *, class CB::schema::bhkCharRigidBodyControllerCinfo &)> {
             static constexpr const char*   mangled = "?Init@bhkCharRigidBodyController@schema@CB@@QEAAXAEAVbhkCharRigidBodyControllerCinfo@23@@Z";

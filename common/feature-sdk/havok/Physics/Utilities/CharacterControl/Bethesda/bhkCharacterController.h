@@ -18,6 +18,24 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::bhkCharacterController::`scalar deleting destructor'";
             static constexpr std::uint64_t id      = 78342;
         };
+        /// @brief `public: void CB::schema::bhkCharacterController::CommitWantedState(void)` — vanilla 0x140ea0350, EXACT
+        struct CommitWantedState : ::CB::core::hooks::Cell<CommitWantedState, void(CB::schema::bhkCharacterController *)> {
+            static constexpr const char*   mangled = "?CommitWantedState@bhkCharacterController@schema@CB@@QEAAXXZ";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::CommitWantedState";
+            static constexpr std::uint64_t id      = 78280;
+        };
+        /// @brief `public: void CB::schema::bhkCharacterController::AccumulateFallTime(void)` — vanilla 0x140ea0380, EXACT
+        struct AccumulateFallTime : ::CB::core::hooks::Cell<AccumulateFallTime, void(CB::schema::bhkCharacterController *)> {
+            static constexpr const char*   mangled = "?AccumulateFallTime@bhkCharacterController@schema@CB@@QEAAXXZ";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::AccumulateFallTime";
+            static constexpr std::uint64_t id      = 78281;
+        };
+        /// @brief `public: void CB::schema::bhkCharacterController::ApplyInitialVelocity(void)` — vanilla 0x140ea0470, EXACT
+        struct ApplyInitialVelocity : ::CB::core::hooks::Cell<ApplyInitialVelocity, void(CB::schema::bhkCharacterController *)> {
+            static constexpr const char*   mangled = "?ApplyInitialVelocity@bhkCharacterController@schema@CB@@QEAAXXZ";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::ApplyInitialVelocity";
+            static constexpr std::uint64_t id      = 78283;
+        };
     };
 
 }  // namespace CB::feature::havok

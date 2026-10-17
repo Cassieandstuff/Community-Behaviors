@@ -100,3 +100,11 @@ units:
     flags: [/EHsc, /Ob2]
     functions:
       - { name: "CB::schema::bhkCharRigidBodyController::characterCallback", va: 0x140ed30c0 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateOnGroundWorkbench.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharacterStateOnGround::Simulate", va: 0x140f02550 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterControllerWorkbench.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharacterController::GetFallDistance", va: 0x140e9eec0 }
