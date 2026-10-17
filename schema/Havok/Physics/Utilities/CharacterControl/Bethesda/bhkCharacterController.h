@@ -39,7 +39,7 @@ namespace CB { namespace schema
         /// @brief Told of a contact TryStep let the character step up onto.
         /// @note Name provisional; empty in the biped controller.
         virtual void OnStep(const hkRootCdPoint& point);   ///< slot 3
-        /// @brief Where the step test probes from: writes `position` (the character's position on entry) and returns
+        /// @brief Where the step test probes from: may move `position` (the character's position on entry) and returns
         ///        which of the controller's points it took, or -1 to have TryStep raise `position` by the step height.
         /// @param capsule The character's capsule, null when its shape is not one.
         /// @note Name provisional; the biped controller returns -1 (its position untouched).
@@ -130,9 +130,10 @@ namespace CB { namespace schema
         ///        set.
         /// @note Name provisional; out of line in vanilla (0x140ea21a0).
         void UpdateContactMaterial(const hkRootCdPoint& point);
-        /// @brief Pushes `other` (a character this one touches at `contact`, its normal pointing from `other`) along
-        ///        the contact's horizontal normal at this character's horizontal speed, unless `other` outranks this one
-        ///        (m_pushPriority) or is kNotPushable (flag bit 14); records `other`'s body as the bumped character.
+        /// @brief Records `other`'s body as m_bumpedCharCollisionObject, then, unless `other` outranks this one
+        ///        (m_pushPriority) or is kNotPushable (flag bit 14), pushes it against `contact`'s horizontal normal by a
+        ///        quarter of this character's horizontal speed: the push goes into its m_pushDelta (and m_pushCount), and
+        ///        100 times it becomes its m_initialVelocity (m_velocityTime 0.01) when faster than the one it has.
         /// @note Name provisional; out of line in vanilla (0x140ea13a0).
         void PushCharacter(bhkCharacterController* other, const hkContactPoint& contact);
         /// @brief The controller `object` belongs to (its Havok property 1002), null if none.
@@ -259,7 +260,7 @@ namespace CB { namespace schema
         /// @note Name provisional.
         float          m_radius;            ///< +0x290
         hkUint8        m_pad294[0x2a0 - 0x294];
-        /// @brief While it is 2, PushCharacter pushes 20 Havok units/s harder.
+        /// @brief While it is 2, PushCharacter adds 20 to the speed it pushes with (before scaling it by -0.25).
         /// @note Meaning unknown.
         hkUint32       m_unk2a0;            ///< +0x2a0
         /// @brief A character pushes only characters whose priority is at most its own.
