@@ -8,12 +8,18 @@
 
 namespace CB { namespace schema
 {
-    struct hkRootLevelContainerNamedVariant;
-
     /// @brief Seeded from Havok's reflection (size 0x10).
     struct hkRootLevelContainer
     {
     public:
-        hkArray<hkRootLevelContainerNamedVariant> m_namedVariants;   ///< +0x0
+        /// @brief Seeded from Havok's reflection, which names it hkRootLevelContainerNamedVariant (size 0x18).
+        struct NamedVariant
+        {
+            hkStringPtr         m_name;        ///< +0x0
+            hkStringPtr         m_className;   ///< +0x8
+            hkReferencedObject* m_variant;     ///< +0x10
+        };
+
+        hkArray<NamedVariant> m_namedVariants;   ///< +0x0
     };
 } }

@@ -4616,7 +4616,9 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
             const auto outer = definedIn.find(rc.name.substr(0, k));
             if (outer == definedIn.end()) continue;
             const auto        text = CB::engine::disk::ReadFile(root / outer->second).value_or("");
-            const std::regex  nested("(?:class|struct)\\s+(?:__declspec\\((?:[^()]|\\([^()]*\\))*\\)\\s+)?" + rc.name.substr(k) + "\\s*(?::[^;{]*)?\\{");
+            // Inside the outer class, or defined out of it (`struct hkbVariableBindingSet::Binding { … }`).
+            const std::regex  nested("(?:class|struct)\\s+(?:__declspec\\((?:[^()]|\\([^()]*\\))*\\)\\s+)?(?:" + rc.name.substr(0, k) + "::)?" +
+                                     rc.name.substr(k) + "\\s*(?::[^;{]*)?\\{");
             if (std::regex_search(text, nested)) {
                 checks.push_back({ &rc, "CB::schema::" + rc.name.substr(0, k) + "::" + rc.name.substr(k), outer->second });
                 found = true;
