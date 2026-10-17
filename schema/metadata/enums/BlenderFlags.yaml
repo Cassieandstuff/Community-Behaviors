@@ -1,13 +1,15 @@
-# Ported from HavokEnums.h (BlenderFlags). Havok reflection enum -- item names/values are
-# CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+# Havok reflection enum (hkbBlenderGenerator::BlenderFlags) -- item names/values are CASE-SENSITIVE and feed both
+# .hky name rendering and the class signature CRC.
+# Values are Havok's own, read from the exe's reflection (tools/cbmatch --extract-classes): bits 2 and 128 have no
+# name (a set one renders as a hex remainder). The earlier table here was shifted one bit (SMOOTH=2 ... FORCE_DENSE_POSE=32)
+# and named FLAG_IS_PARAMETRIC, BLEND_MOTION_OF_ADDITIVE_ANIMATIONS and USE_VELOCITY_SYNCHRONIZATION, which Havok
+# does not: bundles written with it carry those names and must be regenerated.
 name:  BlenderFlags
 flags: true
 items:
   - { name: FLAG_SYNC                                       , value: 1 }
-  - { name: FLAG_SMOOTH_GENERATOR_WEIGHTS                   , value: 2 }
-  - { name: FLAG_DONT_DEACTIVATE_CHILDREN_WITH_ZERO_WEIGHTS , value: 4 }
-  - { name: FLAG_PARAMETRIC_BLEND                           , value: 8 }
-  - { name: FLAG_IS_PARAMETRIC                              , value: 16 }
-  - { name: FLAG_FORCE_DENSE_POSE                           , value: 32 }
-  - { name: FLAG_BLEND_MOTION_OF_ADDITIVE_ANIMATIONS        , value: 64 }
-  - { name: FLAG_USE_VELOCITY_SYNCHRONIZATION               , value: 128 }
+  - { name: FLAG_SMOOTH_GENERATOR_WEIGHTS                   , value: 4 }
+  - { name: FLAG_DONT_DEACTIVATE_CHILDREN_WITH_ZERO_WEIGHTS , value: 8 }
+  - { name: FLAG_PARAMETRIC_BLEND                           , value: 16 }
+  - { name: FLAG_IS_PARAMETRIC_BLEND_CYCLIC                 , value: 32 }
+  - { name: FLAG_FORCE_DENSE_POSE                           , value: 64 }
