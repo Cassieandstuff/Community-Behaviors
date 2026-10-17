@@ -4602,6 +4602,7 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
     struct Check { const ReflectedClass* rc; std::string type; fs::path header; };
     std::vector<Check> checks;
     std::size_t noHeader = 0;
+    std::set<std::string> unheaded;
     for (const auto& rc : classes) {
         if (!only.empty() && rc.name.find(only) == std::string::npos) continue;
         if (const auto d = definedIn.find(rc.name); d != definedIn.end()) {
@@ -4621,7 +4622,7 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
                 found = true;
             }
         }
-        if (!found) ++noHeader;
+        if (!found) ++noHeader, unheaded.insert(rc.name);
     }
     if (m.toolchains.empty()) throw std::runtime_error("--check-layout needs a toolchain");
     const fs::path cl = m.toolchains.front().second;
@@ -4668,7 +4669,9 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
                 other = true;
             }
         }
-        v.compiled = res.ok || !v.wrong.empty() || !v.unnamed.empty() || !other;
+        // Any error besides the asserts' own (an undefined base, a missing include) makes the asserts meaningless: the
+        // compiler recovers by dropping what it could not resolve, and the offsets it then reports describe another class.
+        v.compiled = !other;
         std::sort(v.unnamed.begin(), v.unnamed.end());
         v.unnamed.erase(std::unique(v.unnamed.begin(), v.unnamed.end()), v.unnamed.end());
     }, { .threads = jobs });
@@ -4716,10 +4719,245 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
             printUnnamed(verdicts[k]);
         }
     }
+    std::string list;
+    for (const auto& n : unheaded) list += n + "\n";
+    fs::create_directories(work);
+    std::string err;
+    CB::engine::disk::WriteFile(work / "unheaded.txt", list, {}, &err);
     std::printf("\nlayout: %zu reflected classes with a header: %zu fully proven, %zu proven where named (some Havok members unnamed), "
-                "%zu WRONG, %zu checks broken; %zu reflected classes have no header yet\n",
-                byName.size(), proven, partial, wrongClasses, broken, noHeader);
+                "%zu WRONG, %zu checks broken; %zu reflected classes have no header yet (%s)\n",
+                byName.size(), proven, partial, wrongClasses, broken, unheaded.size(), (work / "unheaded.txt").string().c_str());
     return wrongClasses || broken ? 1 : 0;
+}
+
+/// @brief Seeds schema headers from Havok's own reflection: each mapped class becomes a declaration with Havok's member
+///        names, mapped onto the schema's types, the gaps between reflected members as explicit padding, and its enums.
+///        `map` lines: `Class<TAB>path/relative/to/schema/Havok.h` (several classes may share a header; they are emitted
+///        parents and by-value members first). Writes under `out`; --check-layout then proves what it named.
+/// @note A member whose type the schema lacks (hkFlags' enum view, hkVariant, hkRelArray, hkMatrix3, simple and
+///       homogeneous arrays, in-place arrays) becomes padding of its size: never a guessed type.
+int seedHeaders(const Manifest& m, const std::vector<ReflectedClass>& classes, const fs::path& map, const fs::path& out)
+{
+    const fs::path root = schemaRootOf(m);
+    const auto     definedIn = classDefinitions(root);
+    std::map<std::string, const ReflectedClass*> byName;
+    for (const auto& c : classes) byName.emplace(c.name, &c);   // the first description of a name stands for it
+    auto text = CB::engine::disk::ReadFile(map, { .stripBom = true });
+    if (!text) throw std::runtime_error("cannot read " + map.string());
+    std::map<std::string, fs::path> target;
+    std::vector<std::string>        order;
+    for (const auto line : CB::engine::text::SplitLines(*text)) {
+        const std::string l(CB::engine::text::Trim(line));
+        if (l.empty() || l[0] == '#') continue;
+        const auto tab = l.find_first_of("\t ");
+        if (tab == std::string::npos) throw std::runtime_error("map line needs a class and a header: " + l);
+        const std::string cls = l.substr(0, tab);
+        if (!byName.count(cls)) throw std::runtime_error("map names " + cls + ", which the exe does not reflect");
+        target[cls] = fs::path(std::string(CB::engine::text::Trim(std::string_view(l).substr(tab + 1))));
+        order.push_back(cls);
+    }
+    // Every base and by-value member type must be defined somewhere or seeded too: a class whose base the compiler
+    // cannot see is laid out without it, so nothing about it could be right.
+    std::set<std::string> missing;
+    for (const auto& cls : order) {
+        const auto* c = byName[cls];
+        std::vector<std::string> deps = { c->parent };
+        for (const auto& mb : c->members) if (mb.type == 25 && !mb.cls.empty()) deps.push_back(mb.cls);
+        for (const auto& d : deps)
+            if (!d.empty() && !definedIn.count(d) && !target.count(d)) missing.insert(d);
+    }
+    if (!missing.empty()) {
+        std::string list;
+        for (const auto& d : missing) list += " " + d;
+        throw std::runtime_error("--seed-headers: these bases or by-value member types have no header and are not in the map:" + list);
+    }
+    auto refCounted = [&](const std::string& cls) {
+        for (const ReflectedClass* c = byName.count(cls) ? byName[cls] : nullptr; c; c = byName.count(c->parent) ? byName[c->parent] : nullptr)
+            if (c->name == "hkReferencedObject" || c->name == "hkBaseObject") return true;
+        return false;
+    };
+    auto key = [&](const std::string& cls) { return refCounted(cls) ? "class" : "struct"; };
+    struct Ty { std::string cpp; std::uint32_t size = 0, align = 1; std::string fwd, needs; };
+    auto scalar = [](std::uint8_t t) -> std::optional<Ty> {
+        switch (t) {
+            case 1: return Ty{ "hkBool", 1, 1 };   case 2: return Ty{ "char", 1, 1 };       case 3: return Ty{ "hkInt8", 1, 1 };
+            case 4: return Ty{ "hkUint8", 1, 1 };  case 5: return Ty{ "hkInt16", 2, 2 };    case 6: return Ty{ "hkUint16", 2, 2 };
+            case 7: return Ty{ "hkInt32", 4, 4 };  case 8: return Ty{ "hkUint32", 4, 4 };   case 9: return Ty{ "hkLong", 8, 8 };
+            case 10: return Ty{ "hkUlong", 8, 8 }; case 11: return Ty{ "hkReal", 4, 4 };    case 12: return Ty{ "hkVector4", 16, 16 };
+            case 13: return Ty{ "hkQuaternion", 16, 16 }; case 15: return Ty{ "hkRotation", 48, 16 };
+            case 16: return Ty{ "hkQsTransform", 48, 16 }; case 17: return Ty{ "hkMatrix4", 64, 16 }; case 18: return Ty{ "hkTransform", 64, 16 };
+            case 29: return Ty{ "const char*", 8, 8 }; case 30: return Ty{ "hkUlong", 8, 8 }; case 32: return Ty{ "hkHalf", 2, 2 };
+            case 33: return Ty{ "hkStringPtr", 8, 8 };
+            default: return std::nullopt;
+        }
+    };
+    // Sizes of the types the schema lacks, so they can stand as padding.
+    auto opaqueSize = [&](const ReflectedClass::Member& mb) -> std::pair<std::uint32_t, std::uint32_t> {
+        switch (mb.type) {
+            case 14: return { 48, 16 };   // MATRIX3
+            case 21: return { 8, 8 };     // FUNCTIONPOINTER
+            case 26: return { 16, 8 };    // SIMPLEARRAY: data, size
+            case 27: return { 24, 8 };    // HOMOGENEOUSARRAY: class, data, size
+            case 28: return { 16, 8 };    // VARIANT: object, class
+            case 34: return { 4, 2 };     // RELARRAY: size, offset
+            case 24: case 31: case 19: { const auto s = scalar(mb.subtype); return { s ? s->size : 1, s ? s->align : 1 }; }
+            default: return { 0, 1 };
+        }
+    };
+    auto typeOf = [&](const ReflectedClass& owner, const ReflectedClass::Member& mb) -> std::optional<Ty> {
+        std::optional<Ty> t;
+        if (mb.type == 20) {   // POINTER
+            if (mb.subtype == 25 && !mb.cls.empty()) t = Ty{ mb.cls + "*", 8, 8, std::string(key(mb.cls)) + " " + mb.cls + ";" };
+            else if (mb.subtype == 2) t = Ty{ "char*", 8, 8 };
+            else t = Ty{ "void*", 8, 8 };
+        } else if (mb.type == 22) {   // ARRAY
+            std::string el;
+            std::string fwd;
+            if ((mb.subtype == 25 || mb.subtype == 20) && !mb.cls.empty()) {
+                el  = mb.cls + (mb.subtype == 20 ? "*" : "");
+                fwd = std::string(key(mb.cls)) + " " + mb.cls + ";";
+            } else if (const auto s = scalar(mb.subtype)) el = s->cpp;
+            if (!el.empty()) t = Ty{ "hkArray<" + el + ">", 16, 8, fwd };
+        } else if (mb.type == 24) {   // ENUM: hkEnum over the class's own enum, else its storage (some carry no enum at all)
+            const auto s = scalar(mb.subtype);
+            const bool own = !mb.enm.empty() && std::any_of(owner.enums.begin(), owner.enums.end(), [&](const auto& e) { return e.name == mb.enm; });
+            if (s) t = own ? Ty{ "hkEnum<" + mb.enm + ", " + s->cpp + ">", s->size, s->align } : Ty{ s->cpp, s->size, s->align };
+        } else if (mb.type == 31) {   // FLAGS: the storage, the enum named in the note
+            if (const auto s = scalar(mb.subtype)) t = *s;
+        } else if (mb.type == 25 && !mb.cls.empty() && byName.count(mb.cls)) {   // STRUCT by value
+            const auto* c = byName[mb.cls];
+            std::uint32_t al = 4;
+            for (const auto& x : c->members) if (const auto s = scalar(x.type)) al = std::max(al, s->align);
+            t = Ty{ mb.cls, c->size, al, {}, mb.cls };
+        } else {
+            t = scalar(mb.type);
+        }
+        if (t && mb.cArraySize) t->size *= mb.cArraySize;
+        return t;
+    };
+
+    /// @brief A class's alignment as MSVC lays it out: its vtable, its parent's, and its members' (padding included).
+    std::map<std::string, std::uint32_t> alignMemo;
+    std::function<std::uint32_t(const std::string&)> alignOf = [&](const std::string& cls) -> std::uint32_t {
+        if (const auto it = alignMemo.find(cls); it != alignMemo.end()) return it->second;
+        std::uint32_t al = refCounted(cls) ? 8 : 1;
+        if (const auto c = byName.find(cls); c != byName.end()) {
+            if (!c->second->parent.empty()) al = std::max(al, alignOf(c->second->parent));
+            for (const auto& mb : c->second->members) {
+                if (mb.type == 25 && !mb.cls.empty()) { al = std::max(al, alignOf(mb.cls)); continue; }
+                if (const auto t = typeOf(*c->second, mb)) al = std::max(al, t->align);
+                else al = std::max(al, opaqueSize(mb).second);
+            }
+        }
+        return alignMemo[cls] = al;
+    };
+
+    // Emission order per header: a class after its parent and its by-value members when they share the header.
+    std::map<fs::path, std::vector<std::string>> perHeader;
+    for (const auto& cls : order) perHeader[target[cls]].push_back(cls);
+    std::size_t written = 0, padded = 0;
+    for (auto& [header, list] : perHeader) {
+        std::vector<std::string> sorted;
+        std::set<std::string>    done;
+        std::function<void(const std::string&)> visit = [&](const std::string& cls) {
+            if (done.count(cls)) return;
+            done.insert(cls);
+            const auto* c = byName[cls];
+            if (target.count(c->parent) && target[c->parent] == header) visit(c->parent);
+            for (const auto& mb : c->members) if (mb.type == 25 && target.count(mb.cls) && target[mb.cls] == header) visit(mb.cls);
+            sorted.push_back(cls);
+        };
+        for (const auto& cls : list) visit(cls);
+
+        std::set<std::string> includes = { "Common/Base/hkBase.h" };
+        std::set<std::string> fwds;
+        std::string           body;
+        for (const auto& cls : sorted) {
+            const auto& c = *byName[cls];
+            for (const auto& dep : { c.parent }) {
+                if (dep.empty() || (target.count(dep) && target[dep] == header)) continue;
+                if (const auto d = definedIn.find(dep); d != definedIn.end()) includes.insert(d->second.generic_string());
+                else if (target.count(dep)) includes.insert(target[dep].generic_string());
+            }
+            std::string decl = "    /// @brief Seeded from Havok's reflection (size 0x" + hex(c.size) + (c.version ? ", version " + std::to_string(c.version) : "") + ").\n";
+            decl += "    " + std::string(key(cls)) + " " + cls + (c.parent.empty() ? "" : " : public " + c.parent) + "\n    {\n    public:\n";
+            for (const auto& e : c.enums) {
+                decl += "        enum " + e.name + "\n        {\n";
+                for (const auto& [n, v] : e.items) decl += "            " + n + " = " + std::to_string(v) + ",\n";
+                decl += "        };\n";
+            }
+            std::uint32_t at = c.parent.empty() ? (refCounted(cls) ? 8u : 0u) : (byName.count(c.parent) ? byName[c.parent]->size : 0u);
+            auto pad = [&](std::uint32_t to, std::uint32_t nextAlign) {
+                if (to <= at) return;
+                const std::uint32_t aligned = (at + nextAlign - 1) / nextAlign * nextAlign;
+                if (aligned == to) { at = to; return; }   // the compiler's own alignment hole
+                decl += "        hkUint8 m_pad0x" + hex(at) + "[0x" + hex(to - at) + "];\n";
+                at = to;
+            };
+            std::vector<const ReflectedClass::Member*> members;
+            for (const auto& mb : c.members) members.push_back(&mb);
+            std::stable_sort(members.begin(), members.end(), [](auto* a, auto* b) { return a->offset < b->offset; });
+            const std::uint32_t classAlign = alignOf(cls);
+            for (const auto* mb : members) {
+                auto t = typeOf(c, *mb);
+                if (t && mb->type == 25) t->align = alignOf(mb->cls);
+                if (!t) {
+                    // Padding keeps the member's alignment (a 16-aligned MATRIX3 stays 16-aligned), so the class and
+                    // everything after it lay out as Havok's do.
+                    const auto [sz, al] = opaqueSize(*mb);
+                    if (!sz) throw std::runtime_error(cls + "::" + mb->name + ": no size for type " + hkTypeName(mb->type));
+                    const std::uint32_t total = sz * std::max<std::uint32_t>(1, mb->cArraySize);
+                    const auto [unit, unitSize] = al >= 16 && total % 16 == 0 ? std::pair<const char*, std::uint32_t>{ "hkVector4", 16 }
+                                                : al >= 8 && total % 8 == 0   ? std::pair<const char*, std::uint32_t>{ "hkUlong", 8 }
+                                                : al >= 4 && total % 4 == 0   ? std::pair<const char*, std::uint32_t>{ "hkUint32", 4 }
+                                                : al >= 2 && total % 2 == 0   ? std::pair<const char*, std::uint32_t>{ "hkUint16", 2 }
+                                                                              : std::pair<const char*, std::uint32_t>{ "hkUint8", 1 };
+                    pad(mb->offset, unitSize);
+                    decl += "        " + std::string(unit) + " m_pad0x" + hex(mb->offset) + "[" + std::to_string(total / unitSize) + "];   ///< " + mb->name +
+                            " (" + hkTypeName(mb->type) + ", a type the schema lacks)\n";
+                    at = mb->offset + total;
+                    ++padded;
+                    continue;
+                }
+                pad(mb->offset, t->align);
+                if (!t->fwd.empty() && !(target.count(mb->cls) && target[mb->cls] == header) && !definedIn.count(mb->cls)) fwds.insert(t->fwd);
+                if (!t->needs.empty() && !(target.count(t->needs) && target[t->needs] == header)) {
+                    if (const auto d = definedIn.find(t->needs); d != definedIn.end()) includes.insert(d->second.generic_string());
+                    else if (target.count(t->needs)) includes.insert(target[t->needs].generic_string());
+                }
+                if (!t->fwd.empty() && definedIn.count(mb->cls)) includes.insert(definedIn.at(mb->cls).generic_string());
+                std::string name = "m_" + mb->name;
+                std::string ty   = t->cpp;
+                const std::string arr = mb->cArraySize ? "[" + std::to_string(mb->cArraySize) + "]" : "";
+                std::string note = "+0x" + hex(mb->offset);
+                if (mb->type == 31 && !mb->enm.empty()) note += ", flags of " + mb->enm;
+                if (mb->type == 24 && !mb->enm.empty() && ty.rfind("hkEnum", 0) != 0) note += ", an " + mb->enm;
+                if (mb->flags & 0x400) note += ", not serialized";
+                decl += "        " + ty + " " + name + arr + ";   ///< " + note + "\n";
+                at = mb->offset + t->size;
+            }
+            const std::uint32_t aligned = (at + classAlign - 1) / classAlign * classAlign;
+            if (c.size > aligned) decl += "        hkUint8 m_pad0x" + hex(at) + "[0x" + hex(c.size - at) + "];\n";
+            decl += "    };\n\n";
+            body += decl;
+        }
+        std::string s = "#pragma once\n\n/// @file\n/// @brief Layouts seeded from Havok's own reflection in the exe (tools/cbmatch --seed-headers): Havok's member names,\n"
+                        "///        the gaps as explicit padding; tools/cbmatch --check-layout proves every named member.\n\n";
+        for (const auto& inc : includes) if (fs::path(inc) != header) s += "#include <" + inc + ">\n";
+        s += "\nnamespace CB { namespace schema\n{\n";
+        for (const auto& f : fwds) s += "    " + f + "\n";
+        if (!fwds.empty()) s += "\n";
+        s += body;
+        while (s.size() > 1 && s[s.size() - 1] == '\n' && s[s.size() - 2] == '\n') s.pop_back();
+        s += "} }\n";
+        std::string err;
+        fs::create_directories((out / header).parent_path());
+        if (!CB::engine::disk::WriteFile(out / header, s, {}, &err)) throw std::runtime_error("cannot write " + (out / header).string() + ": " + err);
+        written += sorted.size();
+    }
+    std::printf("seed: %zu classes in %zu headers under %s (%zu members of types the schema lacks stand as padding)\n", written, perHeader.size(),
+                out.string().c_str(), padded);
+    return 0;
 }
 
 // ── the function palette ─────────────────────────────────────────────────────────────────────────────────────────
@@ -5004,6 +5242,7 @@ struct Options {
     fs::path    emitPalette; ///< --emit-palette: the typed cell headers features build against
     fs::path    extractClasses;   ///< --extract-classes: Havok's own reflection, read from the exe
     bool        checkLayoutFlag = false;   ///< --check-layout: prove schema headers against Havok's own reflection
+    fs::path    seedMap, seedOut;   ///< --seed-headers <map> <out>: seed schema headers from Havok's reflection
 };
 
 int run(const Options& opt)
@@ -5026,6 +5265,10 @@ int run(const Options& opt)
     }
     if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
+    if (!opt.seedMap.empty()) {
+        std::uint64_t ctor = 0;
+        return seedHeaders(m, extractClasses(pe, ctor), opt.seedMap, opt.seedOut);
+    }
     if (opt.checkLayoutFlag) {
         std::uint64_t ctor = 0;
         const auto    classes = extractClasses(pe, ctor);
@@ -5504,6 +5747,7 @@ int main(int argc, char** argv)
         else if (a == "--strict") opt.strict = true;
         else if (a == "--extract-classes") opt.extractClasses = next();
         else if (a == "--check-layout") opt.checkLayoutFlag = true;
+        else if (a == "--seed-headers") { opt.seedMap = next(); opt.seedOut = next(); }
         else if (!a.empty() && a[0] == '-') { std::fprintf(stderr, "cbmatch: unknown option %s\n", a.c_str()); return 2; }
         else if (opt.manifest.empty()) opt.manifest = a;
         else { std::fprintf(stderr, "cbmatch: more than one manifest given\n"); return 2; }
