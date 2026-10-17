@@ -29,6 +29,31 @@ namespace CB { namespace schema
     struct hkRootCdPoint;
     struct hkpCharacterObjectInteractionEvent;
     struct hkpCharacterObjectInteractionResult;
+    class bhkCollisionBox;
+
+    /// @brief What the actor asks of its character controller for one frame (bhkCharacterController::UpdatePhysics).
+    /// @note Name provisional; 0x24 bytes as far as UpdatePhysics reads it. UpdatePhysics writes some of it back.
+    struct bhkCharacterMoveData
+    {
+        /// @brief The frame's time, in seconds (UpdatePhysics divides it among the sub-steps).
+        float    m_deltaTime;   ///< +0x00
+        float    m_pitch;       ///< +0x04
+        float    m_roll;        ///< +0x08
+        /// @brief The character's heading (radians about the up axis); UpdatePhysics stores it back turned by m_rotMod.
+        float    m_heading;     ///< +0x0c
+        /// @brief The movement asked for this frame, in game units, in the character's frame (y forward, x to its
+        ///        side, z up); UpdatePhysics divides it among the sub-steps.
+        NiPoint3 m_movement;    ///< +0x10
+        /// @brief The movement speed in percent (UpdatePhysics stores it as a fraction in m_speedPct).
+        float    m_speedPct;    ///< +0x1c
+        /// @brief Forces the support query each step, even standing still on the ground.
+        /// @note Name provisional.
+        bool     m_forceSupportCheck;   ///< +0x20
+    };
+
+    /// @brief (1, 1, 0, 0): its dot product with a velocity sums the horizontal components.
+    /// @note Name provisional; a global set by a static initializer.
+    extern hkVector4 g_characterHorizontal;
 
     /// @brief What turns a character toward where it is going.
     /// @note Only the slots the controller calls are named.
@@ -37,7 +62,8 @@ namespace CB { namespace schema
     public:
         virtual ~bhkICharOrientationController();   ///< slot 0
         virtual void Unk_01();
-        virtual void Unk_02();
+        /// @brief UpdatePhysics calls it on `controller` before each support check.
+        virtual void Unk_02(bhkCharacterController* controller);   ///< slot 2
         /// @brief Told of a contact TryStep let the character step up onto.
         /// @note Name provisional; empty in the biped controller.
         virtual void OnStep(const hkRootCdPoint& point);   ///< slot 3
@@ -56,7 +82,8 @@ namespace CB { namespace schema
         /// @note Name provisional; the biped controller always rejects; the quadruped one measures from its probe
         ///       point, rejecting above `maxHeight` and setting `stepUp` below it.
         virtual bool RejectStep(bhkCharacterController* ctrl, float maxHeight, float contactZ, int probe, bool& stepUp);   ///< slot 7
-        virtual void Unk_08();
+        /// @brief UpdatePhysics calls it on `controller` while m_calculatePitchTimer runs (see m_updatePitch).
+        virtual void Unk_08(bhkCharacterController* controller);   ///< slot 8
         /// @brief Resets the controller (ResetContactState calls it).
         virtual void Reset();                         ///< slot 9 — name provisional
         /// @brief Whether the character controller owns (and deletes) it.
@@ -186,6 +213,31 @@ namespace CB { namespace schema
         ///        (not when chasing or following a ragdoll); zeroes m_initialVelocity once it is not.
         /// @note Name provisional; out of line in vanilla (0x140ea0470).
         void ApplyInitialVelocity();
+        /// @brief `heading` turned by m_rotMod over this step's share of m_rotModTime (which it spends, while m_rotMod
+        ///        drops by 0.05); m_rotMod zeroed and `heading` unchanged once m_rotModTime is spent.
+        /// @note Name provisional; out of line in vanilla (0x140ea0500).
+        float UpdateHeading(float heading, float deltaTime);
+        /// @brief One frame of the character's physics: flying moves the body straight to `data`'s movement; any
+        ///        other state runs one or two sub-steps of velocity, support query and state Simulate (a controller
+        ///        flagged kNoSim only moves its position).
+        /// @return 0, 3 when the last sub-step's Unk_0B failed, 2 when kHitDamage is set.
+        /// @note Name per the community; out of line in vanilla (0x140e9f170). Actor's per-frame move calls it.
+        hkUint32 UpdatePhysics(bhkCharacterMoveData& data);
+        /// @note Name provisional; out of line in vanilla (0x140ea0170), not reimplemented.
+        void UpdateSlopeTilt(float deltaTime);
+        /// @brief Turns the controller's body to `orientation` (with the pitch and roll it is flagged for).
+        /// @note Name provisional; out of line in vanilla (0x140ea06e0), not reimplemented.
+        void SetOrientation(const hkQuaternion& orientation);
+
+        /// @brief UpdatePhysics stores bhkCharacterMoveData::m_speedPct divided by it (0.01) in m_speedPct.
+        /// @note Name provisional; a variable in vanilla's .data.
+        static float s_speedPctDivisor;
+        /// @brief A movement shorter than its square root (10, squared game units) never takes a second sub-step.
+        /// @note Name provisional; a variable in vanilla's .data.
+        static float s_singleStepLengthSq;
+        /// @brief What m_calculatePitchTimer restarts at (5 seconds).
+        /// @note Name provisional; a variable in vanilla's .data.
+        static float s_calculatePitchTime;
 
         hkUint8        m_pad68[0x70 - 0x68];
         /// @brief The character's forward direction (the states steer in its frame).
@@ -203,7 +255,8 @@ namespace CB { namespace schema
         /// @brief Where the body sits from the character's position, in the body's frame (GetPositionImpl and
         ///        SetPositionImpl rotate it by the body's rotation).
         hkVector4      m_centerOffset;      ///< +0xc0
-        /// @brief How far other characters pushed this one (each PushCharacter adds its push), in Havok units.
+        /// @brief How far other characters pushed this one (each PushCharacter adds its push), in Havok units; zeroed
+        ///        (with m_pushCount) once the character asks to move.
         /// @note Name per CommonLibSSE (which places it at +0xe0).
         hkVector4      m_pushDelta;         ///< +0xd0
         /// @brief Where InAir's stuck recovery put the character on the ground (see m_fakeSupport).
@@ -218,7 +271,10 @@ namespace CB { namespace schema
         hkVector4      m_supportNorm;       ///< +0x110
         BSBound        m_collisionBound;         ///< +0x120
         BSBound        m_bumperCollisionBound;   ///< +0x150
-        hkUint8        m_pad180[0x190 - 0x180];
+        /// @brief The body's velocity in game units per second, as of the last step.
+        /// @note Name provisional.
+        NiPoint3       m_gameVelocity;      ///< +0x180
+        hkUint8        m_pad18c[0x190 - 0x18c];
         bhkICharOrientationController* m_orientationCtrl;   ///< +0x190
         hkUint8        m_pad198[0x1a0 - 0x198];
         hkpSurfaceInfo m_surfaceInfo;       ///< +0x1a0
@@ -232,11 +288,22 @@ namespace CB { namespace schema
         /// @brief How much of m_initialVelocity to add this step (see ApplyInitialVelocity).
         /// @note Name per CommonLibSSE.
         float          m_velocityTime;      ///< +0x220
-        hkUint8        m_pad224[0x230 - 0x224];
+        /// @brief The heading change UpdateHeading adds per second while m_rotModTime is positive.
+        /// @note Name per CommonLibSSE.
+        float          m_rotMod;            ///< +0x224
+        /// @brief How long m_rotMod still turns the character, in seconds.
+        /// @note Name per CommonLibSSE.
+        float          m_rotModTime;        ///< +0x228
+        /// @brief Seconds the orientation controller still updates the pitch for (reset to 5 when the character moves
+        ///        or turns).
+        /// @note Name per CommonLibSSE.
+        float          m_calculatePitchTimer;   ///< +0x22c
         /// @brief The air-control skill: InAir steers only while it is positive.
         /// @note Name per CommonLibSSE.
         float          m_acrobatics;        ///< +0x230
-        hkUint8        m_pad234[0x238 - 0x234];
+        /// @brief The center offset's height (UpdatePhysics copies it into m_centerOffset's z).
+        /// @note Name per CommonLibSSE.
+        float          m_center;            ///< +0x234
         /// @brief The water surface's height, in Havok units.
         /// @note Name per CommonLibSSE.
         float          m_waterHeight;       ///< +0x238
@@ -248,14 +315,20 @@ namespace CB { namespace schema
         float          m_fallTime;          ///< +0x244
         /// @brief The character's gravity multiplier.
         float          m_gravity;           ///< +0x248
-        hkUint8        m_pad24c[0x25c - 0x24c];
+        /// @note Names per CommonLibSSE; the flying update stores the frame's pitch and roll in them.
+        float          m_pitchAngle;        ///< +0x24c
+        float          m_rollAngle;         ///< +0x250
+        /// @note Name per CommonLibSSE; UpdatePhysics caps it at 1 before the pitch update.
+        float          m_pitchMult;         ///< +0x254
+        hkUint8        m_pad258[0x25c - 0x258];
         /// @brief Swimming treats the character as submerged from 0.5 up (and floats it higher by it).
         /// @note Name per CommonLibSSE.
         float          m_swimFloatHeight;   ///< +0x25c
         /// @note Name per CommonLibSSE; Swimming scales the float depth by it.
         float          m_actorHeight;       ///< +0x260
-        hkUint8        m_pad264[0x268 - 0x264];
-        /// @brief How many times other characters pushed this one.
+        /// @note Name per CommonLibSSE; UpdatePhysics stores bhkCharacterMoveData::m_speedPct / 0.01 in it.
+        float          m_speedPct;          ///< +0x264
+        /// @brief How many times other characters pushed this one (nonzero while m_pushDelta holds a push).
         /// @note Name per CommonLibSSE.
         hkUint32       m_pushCount;         ///< +0x268
         hkUint8        m_pad26c[0x270 - 0x26c];
@@ -278,7 +351,9 @@ namespace CB { namespace schema
         hkUint32       m_pushPriority;      ///< +0x2a4
         hkUint8        m_pad2a8[0x2b0 - 0x2a8];
         hkRefPtr<hkpRigidBody> m_supportBody;                 ///< +0x2b0
-        hkUint8        m_pad2b8[0x2c0 - 0x2b8];
+        /// @note Name per CommonLibSSE; UpdatePhysics zeroes it with m_bumpedBody.
+        float          m_bumpedForce;       ///< +0x2b8
+        hkUint8        m_pad2bc[0x2c0 - 0x2bc];
         hkRefPtr<hkpRigidBody> m_bumpedBody;                  ///< +0x2c0
         hkRefPtr<hkpRigidBody> m_bumpedCharCollisionObject;   ///< +0x2c8
         /// @brief Per CommonLibSSE, damage impacts by body (the value a DamageImpactData*).
@@ -286,7 +361,8 @@ namespace CB { namespace schema
         /// @brief OnGround's unsupported cast sets kAllowJumpNoContact (flag bit 4) when its hit's normal z is below it.
         /// @note Name per CommonLibSSE.
         float          m_zNormal;           ///< +0x300
-        /// @brief The material under the contact UpdateContactMaterial read (0 until one does).
+        /// @brief The material under the contact UpdateContactMaterial read (0 until one does; UpdatePhysics zeroes it
+        ///        and m_contactLayer each simulated frame of a controller without a rigid body).
         /// @note Name provisional.
         hkUint32       m_surfaceMaterial;     ///< +0x304
         /// @brief That contact's collision layer.
@@ -302,13 +378,18 @@ namespace CB { namespace schema
         hkUint32       m_numCharacterContacts;   ///< +0x314
         /// @brief The collision system group the controller counts contacts of, 0 for any.
         hkUint32       m_systemGroup;            ///< +0x318
-        hkUint8        m_pad31c[0x31d - 0x31c];
+        /// @brief When set, a supported surface does not give the character support (kSupport).
+        /// @note Name provisional.
+        bool           m_ignoreSupport;     ///< +0x31c
         /// @brief When set, each counted character contact stops the controller (zero velocity).
         bool           m_stopOnCharacterContact;   ///< +0x31d
         /// @brief Set by InAir's stuck recovery: OnGround then keeps the character grounded until it is 0.9144 Havok
         ///        units from m_fakeSupportStart or a state is requested.
         /// @note Name provisional.
         bool           m_fakeSupport;       ///< +0x31e
-        hkUint8        m_pad31f[0x330 - 0x31f];
+        /// @brief Lets the orientation controller update the pitch while m_calculatePitchTimer runs.
+        /// @note Name provisional.
+        bool           m_updatePitch;       ///< +0x31f
+        hkUint8        m_pad320[0x330 - 0x320];
     };
 } }

@@ -1240,3 +1240,14 @@ symbols:
   - { name: hkpCharacterProxy_RemoveCharacterProxyListener, kind: func, se: 0, ae: 62645, vr: 0, cpp: "CB::schema::hkpCharacterProxy::removeCharacterProxyListener" }
   - { name: bhkCharProxyController_ControllerVtable, kind: data, se: 0, ae: 240560, vr: 0, cpp: "??_7bhkCharProxyController@schema@CB@@6BbhkCharacterController@12@@" }  # the bhkCharacterController base's (+0x10)
   - { name: bhkShapePhantom_InstanceCount, kind: data, se: 0, ae: 411604, vr: 0, cpp: "CB::schema::bhkShapePhantom::s_instanceCount" }  # name provisional
+  - { name: bhkCharacterController_UpdatePhysics, kind: func, se: 0, ae: 78275, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdatePhysics" }  # (moveData) -> 0 / 2 kHitDamage / 3; Actor's per-frame move
+  - { name: bhkCharacterController_UpdateHeading, kind: func, se: 0, ae: 78285, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdateHeading" }  # name provisional; (heading, dt) -> heading + rotMod * min(rotModTime, dt)
+  - { name: bhkCharacterController_UpdateSlopeTilt, kind: func, se: 0, ae: 78278, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdateSlopeTilt" }  # name provisional; (dt)
+  - { name: bhkCharacterController_SetOrientation, kind: func, se: 0, ae: 78292, vr: 0, cpp: "CB::schema::bhkCharacterController::SetOrientation" }  # name provisional; (const hkQuaternion&), with the flagged pitch / roll
+  - { name: bhkCharacterController_CalculatePitchTime, kind: data, se: 0, ae: 389162, vr: 0, cpp: "CB::schema::bhkCharacterController::s_calculatePitchTime" }  # name provisional; 5.0, what calculatePitchTimer restarts at
+  - { name: bhkCharacterController_SingleStepLengthSq, kind: data, se: 0, ae: 389163, vr: 0, cpp: "CB::schema::bhkCharacterController::s_singleStepLengthSq" }  # name provisional; 10.0
+  - { name: bhkCharacterController_SpeedPctDivisor, kind: data, se: 0, ae: 389164, vr: 0, cpp: "CB::schema::bhkCharacterController::s_speedPctDivisor" }  # name provisional; 0.01
+  - { name: bhkCollisionBox_UpdateFromController, kind: func, se: 0, ae: 80121, vr: 0, cpp: "CB::schema::bhkCollisionBox::UpdateFromController" }  # name provisional; follows the controller's body (node world transform / position)
+  - { name: NiMatrix3_EulerAnglesToAxesZXY, kind: func, se: 0, ae: 70233, vr: 0, cpp: "CB::schema::NiMatrix3::EulerAnglesToAxesZXY" }  # (z, x, y) radians
+  - { name: CRT_sincosf, kind: func, se: 0, ae: 109629, vr: 0, cpp: "__libm_sse2_sincosf_" }  # the CRT's combined sinf/cosf (sin in xmm0[0], cos in xmm0[1])
+  - { name: CharacterHorizontal, kind: data, se: 0, ae: 411556, vr: 0, cpp: "CB::schema::g_characterHorizontal" }  # name provisional; (1, 1, 0, 0), set by a static initializer

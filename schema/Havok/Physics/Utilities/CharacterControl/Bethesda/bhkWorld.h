@@ -11,7 +11,7 @@ namespace CB { namespace schema
 {
     struct bhkPickData;
 
-    /// @note Opaque beyond its vtable.
+    /// @note 0xc600 bytes; opaque but for the members the character controller reads.
     class bhkWorld : public bhkSerializable
     {
     public:
@@ -39,6 +39,12 @@ namespace CB { namespace schema
         void HavokWorldExitWrite();
         void HavokWorldEnterRead();
         void HavokWorldExitRead();
+
+        hkUint8  m_pad20[0xc5ec - 0x20];
+        /// @brief While nonzero, a character controller flagged kComputeTiltPreIntegrate skips its frame.
+        /// @note Name provisional (CommonLibSSE's unkC5EC).
+        hkUint32 m_unkc5ec;   ///< +0xc5ec
+        hkUint8  m_padc5f0[0xc600 - 0xc5f0];
     };
 
     /// @note 0x440 bytes.

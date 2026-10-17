@@ -30,6 +30,18 @@ namespace CB { namespace schema
         float y;   ///< +0x04
         float z;   ///< +0x08
 
+        HK_FORCE_INLINE NiPoint3() {}
+        /// @note Its arguments evaluate right to left (z first), as vanilla's do.
+        HK_FORCE_INLINE NiPoint3(float px, float py, float pz) : x(px), y(py), z(pz) {}
+        /// @note User-defined, as Gamebryo's: a copy then moves float by float (movss), not as a block (movsd + mov).
+        HK_FORCE_INLINE NiPoint3& operator=(const NiPoint3& p)
+        {
+            x = p.x;
+            y = p.y;
+            z = p.z;
+            return *this;
+        }
+
         /// @brief (0, 0, 0).
         static const NiPoint3 ZERO;
     };
