@@ -12,7 +12,7 @@
 namespace CB::feature::havok {
 
     struct hkbFootIkControlsModifier {
-        /// @brief `public: CB::schema::hkbFootIkControlsModifier::hkbFootIkControlsModifier(class CB::schema::hkbFootIkControlsModifier const &)` — vanilla 0x140af01b0, REGALLOC
+        /// @brief `public: CB::schema::hkbFootIkControlsModifier::hkbFootIkControlsModifier(class CB::schema::hkbFootIkControlsModifier const &)` — vanilla 0x140af01b0, EXACT
         struct ctor : ::CB::core::hooks::Cell<ctor, CB::schema::hkbFootIkControlsModifier *(CB::schema::hkbFootIkControlsModifier *, class CB::schema::hkbFootIkControlsModifier const &)> {
             static constexpr const char*   mangled = "??0hkbFootIkControlsModifier@schema@CB@@QEAA@AEBV012@@Z";
             static constexpr const char*   name    = "CB::schema::hkbFootIkControlsModifier::hkbFootIkControlsModifier";

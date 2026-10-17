@@ -18,7 +18,7 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::hkbHandIkModifier::hkbHandIkModifier";
             static constexpr std::uint64_t id      = 59782;
         };
-        /// @brief `public: CB::schema::hkbHandIkModifier::hkbHandIkModifier(class CB::schema::hkbHandIkModifier const &)` — vanilla 0x140af6f30, EXACT
+        /// @brief `public: CB::schema::hkbHandIkModifier::hkbHandIkModifier(class CB::schema::hkbHandIkModifier const &)` — vanilla 0x140af6f30, REGALLOC
         struct ctor_hkbHandIkModifier : ::CB::core::hooks::Cell<ctor_hkbHandIkModifier, CB::schema::hkbHandIkModifier *(CB::schema::hkbHandIkModifier *, class CB::schema::hkbHandIkModifier const &)> {
             static constexpr const char*   mangled = "??0hkbHandIkModifier@schema@CB@@QEAA@AEBV012@@Z";
             static constexpr const char*   name    = "CB::schema::hkbHandIkModifier::hkbHandIkModifier";
