@@ -4267,7 +4267,8 @@ void usage()
         "  --check-layout       prove the schema headers against that reflection: sizeof and every named member's offset,\n"
         "                       asserted in generated units compiled with the manifest's toolchain (--only <class> narrows)\n"
         "  --strict             fail on any out-of-line definition no manifest line covers (unverified code in the tree;\n"
-        "                       the schema/ gate runs with it, the workbench without)\n"
+        "                       the schema/ gate runs with it, the workbench without), and on any header --check-layout\n"
+        "                       finds WRONG or broken\n"
         "  --emit-palette <dir> write the function palette: one typed cell per passing function, a header per class\n"
         "                       (with --emit-image, exactly the image's functions)\n"
         "\n"
@@ -4672,30 +4673,52 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
         v.unnamed.erase(std::unique(v.unnamed.begin(), v.unnamed.end()), v.unnamed.end());
     }, { .threads = jobs });
 
+    // Havok keeps older descriptions of some classes for loading old packfiles (hkClass itself has four): a header passes
+    // when it matches one of its class's descriptions — the best one stands for the class.
+    std::map<std::string, std::vector<std::size_t>> byName;
+    for (std::size_t k = 0; k < checks.size(); ++k) byName[checks[k].rc->name].push_back(k);
+    auto printUnnamed = [](const Verdict& v) {
+        if (v.unnamed.empty()) return;
+        std::printf("    unnamed  ");
+        for (std::size_t q = 0; q < v.unnamed.size(); ++q) std::printf("%s%s", q ? ", " : "", v.unnamed[q].c_str());
+        std::printf("\n");
+    };
     std::size_t proven = 0, wrongClasses = 0, broken = 0, partial = 0;
-    for (std::size_t k = 0; k < checks.size(); ++k) {
-        const auto& c = checks[k];
-        const auto& v = verdicts[k];
-        if (!v.compiled) {
-            ++broken;
-            std::printf("%-44s BROKEN, the check does not compile: %s\n", c.rc->name.c_str(), v.firstError.c_str());
+    for (const auto& [name, ks] : byName) {
+        std::optional<std::size_t> best;
+        for (const std::size_t k : ks)
+            if (verdicts[k].compiled && verdicts[k].wrong.empty() && (!best || verdicts[k].unnamed.size() < verdicts[*best].unnamed.size())) best = k;
+        const std::string versions = ks.size() > 1 ? " (" + std::to_string(ks.size()) + " descriptions)" : "";
+        if (best) {
+            const Verdict& v = verdicts[*best];
+            if (v.unnamed.empty()) {
+                ++proven;
+                if (ks.size() > 1)
+                    std::printf("%-44s proven against its 0x%s-byte description%s\n", name.c_str(), hex(checks[*best].rc->size).c_str(), versions.c_str());
+                continue;
+            }
+            ++partial;
+            std::printf("%-44s named members proven%s\n", name.c_str(), versions.c_str());
+            printUnnamed(v);
             continue;
         }
-        if (!v.wrong.empty()) ++wrongClasses;
-        else if (!v.unnamed.empty()) ++partial;
-        else ++proven;
-        if (v.wrong.empty() && v.unnamed.empty()) continue;
-        std::printf("%-44s %s\n", c.rc->name.c_str(), v.wrong.empty() ? "named members proven" : "WRONG");
-        for (const auto& w : v.wrong) std::printf("    WRONG    %s\n", w.c_str());
-        if (!v.unnamed.empty()) {
-            std::printf("    unnamed  ");
-            for (std::size_t q = 0; q < v.unnamed.size(); ++q) std::printf("%s%s", q ? ", " : "", v.unnamed[q].c_str());
-            std::printf("\n");
+        if (std::all_of(ks.begin(), ks.end(), [&](std::size_t k) { return !verdicts[k].compiled; })) {
+            ++broken;
+            std::printf("%-44s BROKEN, the check does not compile: %s\n", name.c_str(), verdicts[ks.front()].firstError.c_str());
+            continue;
+        }
+        ++wrongClasses;
+        std::printf("%-44s WRONG%s\n", name.c_str(), versions.c_str());
+        for (const std::size_t k : ks) {
+            if (!verdicts[k].compiled) continue;
+            if (ks.size() > 1) std::printf("  against the 0x%s-byte description:\n", hex(checks[k].rc->size).c_str());
+            for (const auto& w : verdicts[k].wrong) std::printf("    WRONG    %s\n", w.c_str());
+            printUnnamed(verdicts[k]);
         }
     }
     std::printf("\nlayout: %zu reflected classes with a header: %zu fully proven, %zu proven where named (some Havok members unnamed), "
                 "%zu WRONG, %zu checks broken; %zu reflected classes have no header yet\n",
-                checks.size(), proven, partial, wrongClasses, broken, noHeader);
+                byName.size(), proven, partial, wrongClasses, broken, noHeader);
     return wrongClasses || broken ? 1 : 0;
 }
 
@@ -5266,6 +5289,14 @@ int run(const Options& opt)
             for (const auto& [unit, name] : unlisted) std::printf("  %-48s %s\n", unit.c_str(), name.c_str());
             if (opt.strict) gatePassed = false;
         }
+    }
+
+    // --strict also proves the headers: every reflected class a schema header defines must match Havok's own layout.
+    if (opt.strict && opt.only.empty()) {
+        std::uint64_t ctor = 0;
+        const auto    classes = extractClasses(pe, ctor);
+        std::printf("\n");
+        if (checkLayout(m, classes, work / "layout", opt.jobs, {}) != 0) gatePassed = false;
     }
 
     // Coverage: this run's statuses over the inventory (a partial run would undercount, so only after a full one).
