@@ -974,7 +974,7 @@ struct Match {
     std::vector<UnmappedRef> refsUnmapped;
 
     const CoffFunction*      ours = nullptr;   ///< the compiled function this result is for (outlives the Match)
-    bool                     needsDiff = false;   ///< VARIANT only through rule A or E: --diff must confirm it
+    bool                     needsDiff = false;   ///< VARIANT only through a rule --diff must confirm (A E I J N R O U L)
 };
 
 std::string targetNote(const CoffFunction& f, const Insn& i)
@@ -1823,8 +1823,144 @@ int canonicalizeFoldedLoads(std::vector<Insn>& insns)
     return folded;
 }
 
+/// @brief A side's basic blocks in layout order, each [begin, end) over its instructions, with its successors (block
+///        indices; a jump-only block is passed through to where it jumps). nullopt: an indirect jump (a switch), whose
+///        edges can't be read.
+struct BasicBlocks {
+    std::vector<std::pair<std::size_t, std::size_t>> range;
+    std::vector<std::set<std::size_t>>               next;
+    /// A block ending in a jcc: its condition family and where it goes when the condition holds / fails (resolved like
+    /// next), so a test whose branches were swapped can't pass as layout.
+    struct Branch { const char* family; std::size_t whenTrue, whenFalse; };
+    std::vector<std::optional<Branch>>               branch;
+};
+
+std::optional<BasicBlocks> basicBlocks(const std::vector<Insn>& side)
+{
+    BasicBlocks              out;
+    std::set<std::uint64_t>  leaders{ side.empty() ? 0u : side.front().off };
+    for (std::size_t k = 0; k < side.size(); ++k) {
+        const auto cat = side[k].ins.meta.category;
+        if (cat != ZYDIS_CATEGORY_COND_BR && cat != ZYDIS_CATEGORY_UNCOND_BR && cat != ZYDIS_CATEGORY_RET) continue;
+        if (cat != ZYDIS_CATEGORY_RET) {
+            const auto t = absoluteTarget(side[k], side[k].off);
+            if (!t) return std::nullopt;
+            leaders.insert(*t);
+        }
+        if (k + 1 < side.size()) leaders.insert(side[k + 1].off);
+    }
+    std::map<std::uint64_t, std::size_t> blockAt;
+    for (std::size_t k = 0; k < side.size(); ++k) {
+        if (leaders.count(side[k].off)) {
+            if (!out.range.empty()) out.range.back().second = k;
+            blockAt[side[k].off] = out.range.size();
+            out.range.emplace_back(k, side.size());
+        }
+    }
+    std::vector<std::set<std::size_t>> direct(out.range.size());
+    for (std::size_t b = 0; b < out.range.size(); ++b) {
+        const Insn& last = side[out.range[b].second - 1];
+        const auto  cat  = last.ins.meta.category;
+        if (cat == ZYDIS_CATEGORY_COND_BR || cat == ZYDIS_CATEGORY_UNCOND_BR) {
+            const auto t = blockAt.find(*absoluteTarget(last, last.off));
+            if (t != blockAt.end()) direct[b].insert(t->second);   // else a tail jump out of the function
+        }
+        if (cat != ZYDIS_CATEGORY_UNCOND_BR && cat != ZYDIS_CATEGORY_RET && b + 1 < out.range.size()) direct[b].insert(b + 1);
+    }
+    auto jumpOnly = [&](std::size_t b) {
+        return out.range[b].second - out.range[b].first == 1 && side[out.range[b].first].ins.meta.category == ZYDIS_CATEGORY_UNCOND_BR &&
+               direct[b].size() == 1;
+    };
+    auto resolve = [&](std::size_t s) {
+        for (std::size_t hops = 0; jumpOnly(s) && hops < out.range.size(); ++hops) s = *direct[s].begin();
+        return s;
+    };
+    out.next.resize(out.range.size());
+    out.branch.resize(out.range.size());
+    for (std::size_t b = 0; b < out.range.size(); ++b) {
+        for (const std::size_t s : direct[b]) out.next[b].insert(resolve(s));
+        const Insn& last = side[out.range[b].second - 1];
+        if (last.ins.meta.category != ZYDIS_CATEGORY_COND_BR || b + 1 >= out.range.size()) continue;
+        const auto t = blockAt.find(*absoluteTarget(last, last.off));
+        if (t == blockAt.end()) continue;
+        bool positive = false;
+        switch (last.ins.mnemonic) {
+            case ZYDIS_MNEMONIC_JB: case ZYDIS_MNEMONIC_JBE: case ZYDIS_MNEMONIC_JZ: case ZYDIS_MNEMONIC_JS:
+            case ZYDIS_MNEMONIC_JL: case ZYDIS_MNEMONIC_JLE: case ZYDIS_MNEMONIC_JO: case ZYDIS_MNEMONIC_JP: positive = true; break;
+            default: break;
+        }
+        const std::size_t taken = resolve(t->second), fall = resolve(b + 1);
+        out.branch[b] = BasicBlocks::Branch{ conditionFamily(last.ins.mnemonic), positive ? taken : fall, positive ? fall : taken };
+    }
+    return out;
+}
+
+/// @brief Rule L: our instructions in vanilla's block order — each of our blocks placed where the vanilla block it
+///        pairs with sits — when the pairing keeps the control flow: the entry blocks pair, and every edge between
+///        paired blocks exists on both sides. Blocks that pair with nothing follow the block that preceded them.
+///        nullopt (with `why`) when the edges differ or nothing moves.
+/// @note Blocks pair greedily by aligned-instruction score, best first; a block is never split.
+std::optional<std::vector<std::size_t>> vanillaBlockOrder(const std::vector<Insn>& a, const std::vector<Insn>& b, std::string& why)
+{
+    const auto ba = basicBlocks(a), bb = basicBlocks(b);
+    if (!ba || !bb) { why = "an indirect jump: block edges unreadable"; return std::nullopt; }
+    auto slice = [](const std::vector<Insn>& side, std::pair<std::size_t, std::size_t> r) {
+        return std::vector<Insn>(side.begin() + long(r.first), side.begin() + long(r.second));
+    };
+    struct Pairing { unsigned score; std::size_t x, y; };
+    std::vector<Pairing> pairings;
+    for (std::size_t x = 0; x < ba->range.size(); ++x) {
+        const auto sx = slice(a, ba->range[x]);
+        for (std::size_t y = 0; y < bb->range.size(); ++y) {
+            const auto sy    = slice(b, bb->range[y]);
+            unsigned   score = 0;
+            for (const auto& [ix, iy] : alignInstructions(sx, sy))
+                if (ix >= 0 && iy >= 0) score += matchScore(sx[std::size_t(ix)], sy[std::size_t(iy)]);
+            // a lone jump pairs with any jump: only blocks with substance place the others
+            if (score > 2) pairings.push_back({ score, x, y });
+        }
+    }
+    std::stable_sort(pairings.begin(), pairings.end(), [](const Pairing& p, const Pairing& q) { return p.score > q.score; });
+    std::vector<long> toB(ba->range.size(), -1), toA(bb->range.size(), -1);
+    for (const auto& p : pairings)
+        if (toB[p.x] < 0 && toA[p.y] < 0) toB[p.x] = long(p.y), toA[p.y] = long(p.x);
+    if (toB.empty() || toB[0] != 0) { why = "the entry blocks don't pair"; return std::nullopt; }
+    for (std::size_t x = 0; x < ba->range.size(); ++x) {
+        if (toB[x] < 0) continue;
+        const auto y = std::size_t(toB[x]);
+        for (const std::size_t s : ba->next[x])
+            if (toB[s] >= 0 && !bb->next[y].count(std::size_t(toB[s]))) {
+                why = "ours +0x" + hex(a[ba->range[x].first].off) + " reaches a block vanilla's counterpart doesn't";
+                return std::nullopt;
+            }
+        for (const std::size_t t : bb->next[y])
+            if (toA[t] >= 0 && !ba->next[x].count(std::size_t(toA[t]))) {
+                why = "vanilla +0x" + hex(b[bb->range[y].first].off) + " reaches a block ours' counterpart doesn't";
+                return std::nullopt;
+            }
+        const auto& jx = ba->branch[x];
+        const auto& jy = bb->branch[y];
+        if (!jx || !jy || !jx->family || !jy->family || std::strcmp(jx->family, jy->family) != 0) continue;
+        auto agrees = [&](std::size_t sx, std::size_t sy) { return toB[sx] < 0 || toA[sy] < 0 || std::size_t(toB[sx]) == sy; };
+        if (!agrees(jx->whenTrue, jy->whenTrue) || !agrees(jx->whenFalse, jy->whenFalse)) {
+            why = "ours +0x" + hex(a[ba->range[x].first].off) + " branches the other way on its '" + jx->family + "' test";
+            return std::nullopt;
+        }
+    }
+    std::vector<std::size_t> blocks;
+    for (std::size_t y = 0; y < bb->range.size(); ++y)
+        if (toA[y] >= 0) blocks.push_back(std::size_t(toA[y]));
+    for (std::size_t x = 1; x < ba->range.size(); ++x)
+        if (toB[x] < 0) blocks.insert(std::find(blocks.begin(), blocks.end(), x - 1) + 1, x);
+    if (std::is_sorted(blocks.begin(), blocks.end())) { why = "the blocks are already in vanilla's order"; return std::nullopt; }
+    std::vector<std::size_t> order;
+    for (const std::size_t x : blocks)
+        for (std::size_t k = ba->range[x].first; k < ba->range[x].second; ++k) order.push_back(k);
+    return order;
+}
+
 bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursInsns, const std::vector<Insn>& vanillaInsns, std::uint64_t va,
-                       const PeImage& pe, std::string& why, bool& needsDiff)
+                       const PeImage& pe, std::string& why, bool& needsDiff, bool reorderBlocks = false)
 {
     std::vector<Insn> a = oursInsns;
     std::vector<Insn> b = vanillaInsns;
@@ -2172,7 +2308,20 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             }
         return excused;
     };
-    const auto rows = alignInstructions(liveA, liveB);
+    // Rule L (needs --diff): a build placed whole blocks in another order. The second pass aligns ours laid out in
+    // vanilla's block order (vanillaBlockOrder keeps the control flow), every other check unchanged; rows keep our
+    // own indices, so only their order — and with it which stretch between calls an effect falls in — follows vanilla.
+    std::vector<std::pair<long, long>> rows;
+    if (reorderBlocks) {
+        std::string blockWhy;
+        const auto  order = vanillaBlockOrder(liveA, liveB, blockWhy);
+        if (!order) { why = "blocks not reorderable: " + blockWhy; return false; }
+        std::vector<Insn> laid;
+        for (const std::size_t k : *order) laid.push_back(liveA[k]);
+        for (const auto& [ia, ib] : alignInstructions(laid, liveB)) rows.emplace_back(ia >= 0 ? long((*order)[std::size_t(ia)]) : -1, ib);
+    } else {
+        rows = alignInstructions(liveA, liveB);
+    }
     std::vector<bool> pairedA(liveA.size(), false), pairedB(liveB.size(), false);
     for (const auto& [ia, ib] : rows)
         if (ia >= 0 && ib >= 0) pairedA[std::size_t(ia)] = pairedB[std::size_t(ib)] = true;
@@ -2436,7 +2585,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
             return false;
         }
     }
-    needsDiff = ruleA || ruleE || ruleI || ruleJ || ruleN || ruleR || ruleO || ruleU;
+    needsDiff = ruleA || ruleE || ruleI || ruleJ || ruleN || ruleR || ruleO || ruleU || reorderBlocks;
     why = std::to_string(aligned) + " aligned, " + std::to_string(glue) + " unpaired side-effect-free, " +
           std::to_string(effectsA.size()) + " store(s) with a different source";
     if (deadCount) why += ", " + std::to_string(deadCount) + " provably dead";
@@ -2448,6 +2597,7 @@ bool variantEquivalent(const CoffFunction& ours, const std::vector<Insn>& oursIn
     if (ruleR) why += ", a SIMD value recomputed (rule R)";
     if (ruleO) why += ", a load folded into its use (rule O)";
     if (ruleU) why += ", unaligned vs aligned moves (rule U)";
+    if (reorderBlocks) why += ", whole blocks laid out in another order (rule L)";
     return true;
 }
 
@@ -2626,11 +2776,13 @@ Match classify(const CoffFunction& ours, const Bytes& vanilla, std::uint64_t va,
         if (regallocWhy.empty()) { m.status = Status::Regalloc; return m; }
     }
     std::string variantWhy;
-    if (variantEquivalent(ours, *a, *b, va, pe, variantWhy, m.needsDiff)) {
+    std::string blockWhy;
+    if (variantEquivalent(ours, *a, *b, va, pe, variantWhy, m.needsDiff) ||
+        (variantEquivalent(ours, *a, *b, va, pe, blockWhy, m.needsDiff, true) && (variantWhy = blockWhy, true))) {
         m.status = Status::Variant;
         m.detail = regallocWhy + "; " + variantWhy;
     } else {
-        m.detail = regallocWhy + "; not VARIANT: " + variantWhy;
+        m.detail = regallocWhy + "; not VARIANT: " + variantWhy + "; with vanilla's block order: " + blockWhy;
     }
     return m;
 }
@@ -4252,7 +4404,8 @@ void usage()
         "  --allow-variant      exit 0 when every function is EXACT, REGALLOC or VARIANT; a VARIANT that needs rule A\n"
         "                       (local stack slots), E (SIMD schedule), I (a duplicated return tail), J (register setup\n"
         "                       schedule), N (commutative SIMD operands swapped), R (a SIMD value recomputed), O (a load\n"
-        "                       folded into its use) or U (unaligned vs aligned moves) always runs --diff (>= 256 seeds)\n"
+        "                       folded into its use), U (unaligned vs aligned moves) or L (whole blocks laid out in another\n"
+        "                       order, the edges kept) always runs --diff (>= 256 seeds)\n"
         "                       and is STRUCTURAL if a seed diverges or none agrees\n"
         "  --suggest            print engine.yaml lines (with Address Library ids) for unmapped references\n"
         "  --inventory          (re)generate the manifest's inventory from the exe instead of matching\n"

@@ -24,7 +24,9 @@
 # hkbSenseHandleModifier::collectCharacterLocalFrames (rule J: register setup; a wrong slot still fails),
 # n hkbStateMachine::activate, l hkbEventDrivenModifier::handleEvent, f hkbGetUpModifier::isValid (rule K: a sum of
 # 0/1 flags compared signed vs unsigned; a changed bound still fails), i hkbProxyModifier::updateRotation (rule N:
-# commutative operands swapped; a wrong field still fails). A mutant of a
+# commutative operands swapped; a wrong field still fails), L hkpCharacterRigidBodyListener::discardVerticalPoints (rule L:
+# whole blocks laid out in another order; an inverted test or a dropped break changes the edges and must fail on them
+# alone, since --diff barely enters its loops). A mutant of a
 # header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -35,7 +37,7 @@ havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
 expectVariant=" u3 t3 c1 k2 y2 h1 "
 gated=" o z v "
-controlOnly=" l n f i "
+controlOnly=" l n f i L "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -73,6 +75,8 @@ target() {
             fn=modify va=0x140b0ee80 ;;
         j*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
             fn=senseInRigidBodies va=0x140afdbf0 ;;
+        L*) cls=hkpCharacterRigidBodyListener src=Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.cpp
+            fn=discardVerticalPoints va=0x140f19a50 ;;
     esac
 }
 
@@ -159,6 +163,9 @@ mutant f1_flag_count_bound    "$getup" 's/if (boneValid\[0\] + boneValid\[1\] + 
 proxy="Behavior/Modifier/Proxy/hkbProxyModifier.cpp"
 mutant i1_wrong_contact_field "$proxy" 's/hits\[i\]\.m_contact\.m_separatingNormal/hits[i].m_contact.m_position/'
 mutant w1_wrong_transform   "$sense" 's/sensorPosBS\.setTransformedInversePos(worldFromBone, sensorPosWS);/sensorPosBS.setTransformedInversePos(boneModelSpace, sensorPosWS);/'
+listener="Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.cpp"
+mutant L1_inverted_match      "$listener" 's/positionEqual)) == 0xf) {/positionEqual)) != 0xf) {/'
+mutant L2_dropped_break       "$listener" 's/^                        break;$/                        \/\/ break dropped/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {

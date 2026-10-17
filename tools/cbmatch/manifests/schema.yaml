@@ -1777,6 +1777,7 @@ units:
       - { name: "?processActualPoints@hkpCharacterRigidBodyListener@schema@CB@@UEAAXPEBVhkpWorld@23@PEAVhkpCharacterRigidBody@23@AEBUCollisionEntry@hkpLinkedCollidable@23@PEAVhkpSimpleConstraintContactMgr@23@AEAU?$hkArray@G@23@@Z", va: 0x140f19fe0 }
       - { name: "?processActualPoints@hkpCharacterRigidBodyListener@schema@CB@@QEAAXPEAVhkpWorld@23@PEAVhkpCharacterRigidBody@23@@Z", va: 0x140f19da0 }
       - { name: "CB::schema::hkpCharacterRigidBodyListener::characterCallback", va: 0x140f19950 }
+      - { name: "CB::schema::hkpCharacterRigidBodyListener::discardVerticalPoints", va: 0x140f19a50 }
       - { name: "CB::schema::hkpCharacterRigidBodyListener::unweldContactPoints", va: 0x140f1a070 }
       - { name: "CB::schema::hkpCharacterRigidBodyListener::considerCollisionEntryForSlope", va: 0x140f1a460 }
       - { name: "CB::schema::hkpCharacterRigidBodyListener::considerCollisionEntryForMassModification", va: 0x140f1a800 }
