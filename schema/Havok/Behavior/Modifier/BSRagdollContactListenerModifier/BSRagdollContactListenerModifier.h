@@ -33,17 +33,17 @@ namespace CB { namespace schema
 
     /// @brief Listens to the ragdoll bodies of m_bones while active; a contact with anything else (penetrating) makes the
     ///        next update raise m_contactEvent.
-    /// @note 0x88 bytes. Member names are the class's reflected names except m_rigidBodies (unreflected; name
-    ///       provisional). The contact listener sits at +0x50. Every constructor sets bit 1 of m_userData.
+    /// @note 0x88 bytes. Member names are the class's reflected names. The contact listener sits at +0x50. Every
+    ///       constructor sets bit 1 of m_userData.
     class BSRagdollContactListenerModifier : public hkbModifier, public hkpContactListener
     {
     public:
-        hkbEventProperty            m_contactEvent;   ///< +0x58
-        hkRefPtr<hkbBoneIndexArray> m_bones;          ///< +0x68
+        hkbEventProperty            m_contactEvent;         ///< +0x58
+        hkRefPtr<hkbBoneIndexArray> m_bones;                ///< +0x68
         /// @brief Raised by the contact callback, consumed (cleared) by update.
-        hkBool                      m_throwEvent;     ///< +0x70
+        hkBool                      m_throwEvent;           ///< +0x70
         /// @brief The bodies this modifier listens to (each holds a reference).
-        hkArray<hkpRigidBody*>      m_rigidBodies;    ///< +0x78
+        hkArray<hkpRigidBody*>      m_ragdollRigidBodies;   ///< +0x78
 
         BSRagdollContactListenerModifier();
         BSRagdollContactListenerModifier(hkFinishLoadedObjectFlag flag);
@@ -73,7 +73,7 @@ namespace CB { namespace schema
         ///        bodies to keyframed-reporting quality so they report contacts).
         /// @note Name provisional; out of line in vanilla (0x140b95ae0).
         void addListeners(const hkbContext& context);
-        /// @brief Stops listening to (and releases) every body in m_rigidBodies.
+        /// @brief Stops listening to (and releases) every body in m_ragdollRigidBodies.
         /// @note Name provisional; out of line in vanilla (0x140b95ca0).
         void removeListeners();
     };

@@ -115,7 +115,7 @@ namespace CB { namespace schema
 
     void hkbBehaviorGraph::setEventIdMap(hkbSymbolIdMap* eventIdMap)
     {
-        m_eventIDMap = eventIdMap;
+        m_eventIdMap = eventIdMap;
     }
 
     void hkbBehaviorGraph::setAttributeIdMap(hkbSymbolIdMap* attributeIdMap)
@@ -164,7 +164,7 @@ namespace CB { namespace schema
                                 hkStatisticsCollector::getAllocatedSize(map.m_elem, size));
             collector->addArray("activeNodesChildrenIndices", *m_activeNodesChildrenIndices, hkStatisticsCollector::MEMORY_RUNTIME);
         }
-        collector->addReferencedObject("eventIdMap", m_eventIDMap);
+        collector->addReferencedObject("eventIdMap", m_eventIdMap);
         collector->addReferencedObject("attributeIdMap", m_attributeIdMap);
         collector->addReferencedObject("variableIdMap", m_variableIdMap);
         if (m_variableValueSet) collector->addReferencedObject("variableValueSet", m_variableValueSet);
@@ -215,7 +215,7 @@ namespace CB { namespace schema
                 if (info.m_ignoreEvents) {
                     ctx.m_eventQueue = &ignoredEvents;
                 } else {
-                    queue->m_symbolIdMap = info.m_behavior->m_eventIDMap;
+                    queue->m_symbolIdMap = info.m_behavior->m_eventIdMap;
                     queue->m_directMap   = true;
                 }
                 if (!(node->m_userData & 1)) {
@@ -275,7 +275,7 @@ namespace CB { namespace schema
                 hkbNode* node = (*m_activeNodes)[i].m_nodeClone;
                 if ((*m_activeNodes)[i].m_isActive) {
                     ctx.m_behavior       = (*m_activeNodes)[i].m_behavior;
-                    queue->m_symbolIdMap = ctx.m_behavior->m_eventIDMap;
+                    queue->m_symbolIdMap = ctx.m_behavior->m_eventIdMap;
                     queue->m_directMap   = true;
                     node->deactivate(context);
                     releaseUniqueId(node->m_id);

@@ -12,8 +12,6 @@ namespace CB { namespace schema
     class hkaSplineCompressedAnimation : public hkaAnimation
     {
     public:
-        /// @brief How a block's track is stored: which components are animated (spline), constant (static) or
-        ///        identity, and with how many bits.
         /// @brief The highest curve degree a block stores (evaluate's scratch is sized for it).
         enum { MAX_DEGREE = 3 };
 
@@ -21,6 +19,19 @@ namespace CB { namespace schema
         {
             enum RotationQuantization { POLAR32, THREECOMP40, THREECOMP48, THREECOMP24, STRAIGHT16, UNCOMPRESSED };
             enum ScalarQuantization { BITS8, BITS16 };
+
+            hkReal                                m_rotationTolerance;             ///< +0x00
+            hkReal                                m_translationTolerance;          ///< +0x04
+            hkReal                                m_scaleTolerance;                ///< +0x08
+            hkReal                                m_floatingTolerance;             ///< +0x0c
+            hkUint16                              m_rotationDegree;                ///< +0x10
+            hkUint16                              m_translationDegree;             ///< +0x12
+            hkUint16                              m_scaleDegree;                   ///< +0x14
+            hkUint16                              m_floatingDegree;                ///< +0x16
+            hkEnum<RotationQuantization, hkUint8> m_rotationQuantizationType;      ///< +0x18
+            hkEnum<ScalarQuantization, hkUint8>   m_translationQuantizationType;   ///< +0x19
+            hkEnum<ScalarQuantization, hkUint8>   m_scaleQuantizationType;         ///< +0x1a
+            hkEnum<ScalarQuantization, hkUint8>   m_floatQuantizationType;         ///< +0x1b
         };
 
         /// @brief One transform track's masks within a block.

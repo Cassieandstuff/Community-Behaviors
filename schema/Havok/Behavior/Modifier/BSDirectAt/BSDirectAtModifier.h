@@ -20,9 +20,8 @@ namespace CB { namespace schema
         static BSDirectAtModifierInterface* s_instance;
     };
 
-    /// @note Member names are the class's reflected names (the exe's hkClass strings); m_pUnknown and
-    ///       m_boneChainIndices are reflected unnamed, their names are provisional. The `slot N` annotations are vanilla's
-    ///       vtable slots. The destructor is implicit: vanilla's (0x140b9a040) stamps no vtable.
+    /// @note Member names are the class's reflected names (the exe's hkClass strings). The `slot N` annotations are
+    ///       vanilla's vtable slots. The destructor is implicit: vanilla's (0x140b9a040) stamps no vtable.
     class BSDirectAtModifier : public hkbModifier
     {
     public:
@@ -48,7 +47,7 @@ namespace CB { namespace schema
         hkReal            m_currentPitchOffset;       ///< +0x9c
         hkReal            m_timeStep;                 ///< +0xa0, the last update's
         /// @note Nulled by the constructors and deactivate; nothing in the class or its Utils reads it.
-        void*             m_pUnknown;                 ///< +0xa8
+        void*             m_pSkeletonMemory;          ///< +0xa8
         /// @brief Whether BSDirectAtModifierInterface supplied a target this frame (else m_targetLocation is aimed at).
         hkBool            m_hasTarget;                ///< +0xb0
         hkVector4         m_directAtTargetLocation;   ///< +0xc0, the interface's target (world space)
@@ -58,7 +57,7 @@ namespace CB { namespace schema
         BSDirectAtModifier();
         /// @note Called by the class's packfile finish function (in the type-registration block).
         BSDirectAtModifier(hkFinishLoadedObjectFlag flag);
-        /// @brief The cloneNode copy: everything but m_pUnknown and the bone chain.
+        /// @brief The cloneNode copy: everything but m_pSkeletonMemory and the bone chain.
         BSDirectAtModifier(const BSDirectAtModifier& mod);
 
         virtual void     activate(const hkbContext& context);                          ///< slot 4

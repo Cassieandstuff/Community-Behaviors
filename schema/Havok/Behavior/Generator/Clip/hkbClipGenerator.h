@@ -38,20 +38,20 @@ namespace CB { namespace schema
     class hkbClipGenerator : public hkbGenerator
     {
     public:
-        /// @note Bit 0x8 is the schema's FLAG_FORCE_DENSE_POSE: generate fills the unsampled bones from the reference pose
-        ///       under it (hkbGeneratorOutputUtils::makePoseDense); the enumerator keeps its old name FLAG_MIRROR_POSE, which
-        ///       tools/cbmatch/tests/mutants.sh spells. 0x4 (FLAG_MIRROR) mirrors the extracted motion, and sampleAnimation
-        ///       scatters the sampled tracks through the mirrored skeleton under it.
-        enum
+        /// @note Under FLAG_FORCE_DENSE_POSE generate fills the unsampled bones from the reference pose
+        ///       (hkbGeneratorOutputUtils::makePoseDense). Under FLAG_MIRROR the extracted motion is mirrored, and
+        ///       sampleAnimation scatters the sampled tracks through the mirrored skeleton. Under
+        ///       FLAG_DONT_CONVERT_ANNOTATIONS_TO_TRIGGERS activate does not add the binding's triggers to m_triggers.
+        enum ClipFlags
         {
-            FLAG_CONTINUE_MOTION_AT_END = 0x1,
-            FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE = 0x2,
-            FLAG_MIRROR                 = 0x4,
-            FLAG_MIRROR_POSE            = 0x8,
-            FLAG_DONT_MERGE_ANNOTATIONS = 0x10,
-            FLAG_IGNORE_MOTION          = 0x20,
+            FLAG_CONTINUE_MOTION_AT_END               = 0x1,
+            FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE    = 0x2,
+            FLAG_MIRROR                               = 0x4,
+            FLAG_FORCE_DENSE_POSE                     = 0x8,
+            FLAG_DONT_CONVERT_ANNOTATIONS_TO_TRIGGERS = 0x10,
+            FLAG_IGNORE_MOTION                        = 0x20,
         };
-        enum { MODE_SINGLE_PLAY = 0, MODE_LOOPING = 1, MODE_USER_CONTROLLED = 2, MODE_PING_PONG = 3 };
+        enum PlaybackMode { MODE_SINGLE_PLAY = 0, MODE_LOOPING = 1, MODE_USER_CONTROLLED = 2, MODE_PING_PONG = 3, MODE_COUNT = 4 };
 
         /// @brief An entry of m_animDatas.
         /// @note 0xe0 bytes; contents not identified yet (the schema has the array as serialize-ignored, untyped).

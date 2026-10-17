@@ -107,11 +107,11 @@ namespace CB { namespace schema
                     effect->m_timeInTransition    = timeInTransition;
                     effect->m_timeRemaining       = effect->m_duration - timeInTransition;
                 }
-                context.m_flags |= hkbContext::FLAG_ACTIVE_NODES_CHANGED;
+                context.m_eventTriggeredTransition |= hkbContext::FLAG_ACTIVE_NODES_CHANGED;
             }
         } else if (m_currentMode == MODE_NONE && e.m_id == m_EventToFreezeBlendValue.m_id) {
             m_currentMode = MODE_FREEZE;
-            context.m_flags |= hkbContext::FLAG_ACTIVE_NODES_CHANGED;
+            context.m_eventTriggeredTransition |= hkbContext::FLAG_ACTIVE_NODES_CHANGED;
             bool                   bound    = false;
             hkbBlenderGenerator*   blender  = getBlenderClone(context, m_pBlenderGenerator);
             hkbVariableBindingSet* bindings = blender ? blender->m_variableBindingSet.val() : HK_NULL;

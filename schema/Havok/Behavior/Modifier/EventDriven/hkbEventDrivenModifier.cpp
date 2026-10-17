@@ -58,7 +58,7 @@ namespace CB { namespace schema
 
         hkbBehaviorGraph* rootBehavior    = context.m_character->m_behaviorGraph;
         rootBehavior->m_updateActiveNodes = true;
-        context.m_flags |= hkbContext::FLAG_ACTIVE_NODES_CHANGED;
+        context.m_eventTriggeredTransition |= hkbContext::FLAG_ACTIVE_NODES_CHANGED;
     }
 
     hkbNode* hkbEventDrivenModifier::cloneNode(hkbBehaviorGraph& rootBehavior) const

@@ -58,7 +58,7 @@ namespace CB { namespace schema
                         new hkaDefaultAnimationControl((binding && binding->m_animation) ? binding : HK_NULL, true, 2));
                 }
 
-                if (!(m_flags & FLAG_DONT_MERGE_ANNOTATIONS)) {
+                if (!(m_flags & FLAG_DONT_CONVERT_ANNOTATIONS_TO_TRIGGERS)) {
                     const int numTriggers = bwt ? bwt->m_triggers.getSize() : 0;
                     if (numTriggers > 0) {
                         if (m_triggers) m_triggers.setAndDontIncrementRefCount(new hkbClipTriggerArray(*m_triggers));
@@ -73,7 +73,7 @@ namespace CB { namespace schema
                             if (t >= 0.0f && t <= duration) {
                                 const int        externalId = trig.m_event.getId();
                                 hkbEventPayload* payload    = trig.m_event.getPayload();
-                                hkbSymbolIdMap*  map        = context.m_behavior->m_eventIDMap;
+                                hkbSymbolIdMap*  map        = context.m_behavior->m_eventIdMap;
                                 const int        internalId = map ? map->getInternal(externalId) : externalId;
 
                                 if (internalId == -1) {
@@ -257,7 +257,7 @@ namespace CB { namespace schema
             hkaSkeletonUtils::scalePose(scale, pose, output.getNumPoseLocal());
             if (!isAdditive) pose[0].m_scale.mul4(hkSimdReal(scale));
 
-            if (m_flags & FLAG_MIRROR_POSE)
+            if (m_flags & FLAG_FORCE_DENSE_POSE)
                 hkbGeneratorOutputUtils::makePoseDense(output, isAdditive ? HK_NULL : context.m_character->m_setup->m_animationSkeleton->m_referencePose.m_data);
 
             output.getTrackHeader(hkbGeneratorOutput::TRACK_POSE).m_onFraction = 1.0f;
@@ -305,7 +305,7 @@ namespace CB { namespace schema
             if (m_triggers) {
                 const int                   numTriggers      = m_triggers->m_triggers.getSize();
                 const hkbBehaviorGraphData* graphData        = context.m_behavior->m_data;
-                const hkbSymbolIdMap*       eventIDMap       = context.m_behavior->m_eventIDMap;
+                const hkbSymbolIdMap*       eventIDMap       = context.m_behavior->m_eventIdMap;
                 const hkReal                invPlaybackSpeed = 1.0f / hkMath::fabs(m_playbackSpeed);
                 for (int i = 0; i < numTriggers; i++) {
                     if (syncInfo.m_numSyncPoints >= hkbGeneratorSyncInfo::MAX_SYNC_POINTS) break;

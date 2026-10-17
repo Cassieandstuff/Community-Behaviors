@@ -149,7 +149,7 @@ namespace CB { namespace schema
         hkbAttachmentInstance* attachment = context.getAttachmentManager()->attachHandles(context.getWorld(), setup, handles);
         m_attachment                      = attachment;
 
-        const hkbSymbolIdMap* eventIdMap = context.m_behavior->m_eventIDMap;
+        const hkbSymbolIdMap* eventIdMap = context.m_behavior->m_eventIdMap;
         if (m_sendToAttacheeOnAttach.m_id != -1 && attachment->m_attacheeHandle.m_character) {
             hkbEvent e(m_sendToAttacheeOnAttach.m_id, m_sendToAttacheeOnAttach.getPayload(), HK_NULL);
             context.sendEventToCharacter(e, attachment->m_attacheeHandle.m_character, eventIdMap);
@@ -184,7 +184,7 @@ namespace CB { namespace schema
         }
 
         hkbAttachmentInstance* attachment = m_attachment;
-        const hkbSymbolIdMap*  eventIdMap = context.m_behavior->m_eventIDMap;
+        const hkbSymbolIdMap*  eventIdMap = context.m_behavior->m_eventIdMap;
         hkbCharacter*          attachee   = attachment->m_attacheeHandle.m_character;
         if (m_sendToAttacheeOnDetach.m_id != -1 && attachee) {
             hkbEvent e(m_sendToAttacheeOnDetach.m_id, m_sendToAttacheeOnDetach.getPayload(), HK_NULL);

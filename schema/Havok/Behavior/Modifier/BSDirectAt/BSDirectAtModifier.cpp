@@ -28,7 +28,7 @@ namespace CB { namespace schema
         m_currentHeadingOffset(0.0f),
         m_currentPitchOffset(0.0f),
         m_timeStep(0.0f),
-        m_pUnknown(HK_NULL),
+        m_pSkeletonMemory(HK_NULL),
         m_hasTarget(false),
         m_directAtTargetLocation(0.0f, 0.0f, 0.0f, 0.0f)
     {
@@ -38,7 +38,7 @@ namespace CB { namespace schema
     :   hkbModifier(flag),
         m_boneChainIndices(flag)
     {
-        m_pUnknown = HK_NULL;
+        m_pSkeletonMemory = HK_NULL;
     }
 
     BSDirectAtModifier::BSDirectAtModifier(const BSDirectAtModifier& mod)
@@ -63,7 +63,7 @@ namespace CB { namespace schema
         m_currentHeadingOffset(mod.m_currentHeadingOffset),
         m_currentPitchOffset(mod.m_currentPitchOffset),
         m_timeStep(mod.m_timeStep),
-        m_pUnknown(HK_NULL),
+        m_pSkeletonMemory(HK_NULL),
         m_hasTarget(mod.m_hasTarget),
         m_directAtTargetLocation(mod.m_directAtTargetLocation)
     {
@@ -97,7 +97,7 @@ namespace CB { namespace schema
         m_currentPitchOffset   = 0.0f;
         m_timeStep             = 0.0f;
         m_currentHeadingOffset = 0.0f;
-        m_pUnknown             = HK_NULL;
+        m_pSkeletonMemory             = HK_NULL;
     }
 
     hkbNode* BSDirectAtModifier::cloneNode(hkbBehaviorGraph& rootBehavior) const

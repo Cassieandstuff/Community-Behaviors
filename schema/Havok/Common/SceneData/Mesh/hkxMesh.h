@@ -6,6 +6,14 @@
 
 namespace CB { namespace schema
 {
-    /// @note Opaque so far: only held by reference (hkaMeshBinding).
-    class hkxMesh : public hkReferencedObject {};
+    class hkxMeshSection;
+
+    class hkxMesh : public hkReferencedObject
+    {
+    public:
+        class UserChannelInfo;
+
+        hkArray<hkRefPtr<hkxMeshSection>>  m_sections;           ///< +0x10
+        hkArray<hkRefPtr<UserChannelInfo>> m_userChannelInfos;   ///< +0x20
+    };
 } }

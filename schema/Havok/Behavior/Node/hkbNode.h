@@ -168,6 +168,7 @@ namespace CB { namespace schema
         hkStringPtr m_name;         ///< +0x38
         hkInt16     m_id;           ///< +0x40
         hkInt8      m_cloneState;   ///< +0x42
+        hkBool      m_padNode[1];   ///< +0x43
 
         /// @note Inlined into the node classes' default constructors, where its vtable store survives (the out-of-line
         ///       hkStringPtr constructor could read it); the earlier bases' stores die.

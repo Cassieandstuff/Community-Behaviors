@@ -629,7 +629,7 @@ namespace CB { namespace schema
         if (m_isActive && !immediate) {
             if (isInterruptible(rootBehavior)) {
                 hkArray<ProspectiveTransitionInfo> transitions;
-                findTransitions(rootBehavior, -1, m_currentStateId, toStateId, true, false, context.m_behavior->m_eventIDMap, context, transitions);
+                findTransitions(rootBehavior, -1, m_currentStateId, toStateId, true, false, context.m_behavior->m_eventIdMap, context, transitions);
                 if (transitions.getSize() > 0) {
                     beginTransitions(context, transitions, -1, true, isReturnToPreviousState);
                     return;
@@ -639,9 +639,9 @@ namespace CB { namespace schema
         }
         endTransitions(m_activeTransitions.getSize() - 1, context);
         m_delayedTransitions.clear();
-        m_stateOrTransitionChanged        = true;
-        rootBehavior->m_updateActiveNodes = rootBehavior->m_updateActiveNodes | true;
-        context.m_flags                   = 1;
+        m_stateOrTransitionChanged         = true;
+        rootBehavior->m_updateActiveNodes  = rootBehavior->m_updateActiveNodes | true;
+        context.m_eventTriggeredTransition = 1;
         setCurrentState(toStateId, isReturnToPreviousState, context, false);
         writeSyncVariable(context, toStateId);
     }

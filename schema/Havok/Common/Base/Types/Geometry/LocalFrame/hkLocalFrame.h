@@ -8,8 +8,11 @@ namespace CB { namespace schema
 {
     class hkLocalFrame;
 
-    /// @note Opaque so far: only compared and passed along.
-    class hkLocalFrameGroup : public hkReferencedObject {};
+    class hkLocalFrameGroup : public hkReferencedObject
+    {
+    public:
+        hkStringPtr m_name;   ///< +0x10
+    };
 
     /// @brief Receives the frames hkLocalFrame::getNearbyFrames finds.
     class hkLocalFrameCollector : public hkReferencedObject

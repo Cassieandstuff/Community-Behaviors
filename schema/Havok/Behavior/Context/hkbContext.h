@@ -11,24 +11,26 @@ namespace CB { namespace schema
     class hkbNode;
     struct hkbAttachmentManager;
     struct hkbSymbolIdMap;
+    class hkbGeneratorOutputListener;
 
     struct hkbContext
     {
-        hkbCharacter*     m_character;        ///< +0x00
-        hkbBehaviorGraph* m_behavior;         ///< +0x08
-        void*             m_nodeToIndexMap;   ///< +0x10
-        hkbEventQueue*    m_eventQueue;       ///< +0x18
-        char              m_pad20[0x30 - 0x20];
-        /// @note Name provisional: bits callbacks raise through the const context (hence mutable).
-        mutable hkUint8   m_flags;            ///< +0x30
-        char              m_pad31[0x38 - 0x31];
-        hkpWorld*         m_world;            ///< +0x38
-        /// @note Name provisional (the constructor's third argument).
-        hkbAttachmentManager* m_attachmentManager; ///< +0x40
-        hkaChunkCache*    m_animationCache;   ///< +0x48
+        hkbCharacter*               m_character;                  ///< +0x00
+        hkbBehaviorGraph*           m_behavior;                   ///< +0x08
+        void*                       m_nodeToIndexMap;             ///< +0x10
+        hkbEventQueue*              m_eventQueue;                 ///< +0x18
+        void*                       m_sharedEventQueue;           ///< +0x20
+        hkbGeneratorOutputListener* m_generatorOutputListener;    ///< +0x28
+        /// @note Reflected as a bool, but used as bits: a transition sets it to 1, and nodes OR in
+        ///       FLAG_ACTIVE_NODES_CHANGED through the const context (hence mutable, and a byte rather than hkBool).
+        mutable hkUint8             m_eventTriggeredTransition;   ///< +0x30
+        char                        m_pad31[0x38 - 0x31];
+        hkpWorld*                   m_world;                      ///< +0x38
+        hkbAttachmentManager*       m_attachmentManager;          ///< +0x40
+        hkaChunkCache*              m_animationCache;             ///< +0x48
 
-        /// @brief The m_flags bit a node raises when its set of active children changes during handleEvent
-        ///        (hkbEventDrivenModifier, hkbStateMachine, BSCyclicBlendTransitionGenerator).
+        /// @brief The m_eventTriggeredTransition bit a node raises when its set of active children changes during
+        ///        handleEvent (hkbEventDrivenModifier, hkbStateMachine, BSCyclicBlendTransitionGenerator).
         /// @note Name provisional. A constant vanilla reads from memory (0x141941229 = 2), so it is declared, not defined,
         ///       here; its neighbour 0x141941228 = 1 is another such bit.
         static const hkUint8 FLAG_ACTIVE_NODES_CHANGED;
@@ -52,8 +54,8 @@ namespace CB { namespace schema
         /// @note Name provisional. Out of line in vanilla (0x140ab0af0).
         hkbAttachmentManager* getAttachmentManager() const;
         /// @brief Queues `e` for `character` (another character's graph): its id is taken external through `eventIdMap`,
-        ///        then internal to `character`'s graph. Under a multithreaded step (the context's +0x20 buffer) the event
-        ///        is buffered instead, with its external id.
+        ///        then internal to `character`'s graph. Under a multithreaded step (m_sharedEventQueue) the event is
+        ///        buffered instead, with its external id.
         /// @note Name provisional. Out of line in vanilla (0x140ab0bc0); it rewrites `e.m_id`.
         void sendEventToCharacter(hkbEvent& e, hkbCharacter* character, const hkbSymbolIdMap* eventIdMap) const;
         /// @brief Whether `node` is active: in the context's node-to-index map when it has one, else in the root graph's

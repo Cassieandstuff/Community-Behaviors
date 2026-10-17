@@ -44,7 +44,7 @@ namespace CB { namespace schema
         m_lookAtCameraY(0.0f),
         m_lookAtCameraZ(0.0f),
         m_timeStep(0.0f),
-        m_pUnknown(HK_NULL)
+        m_pSkeletonMemory(HK_NULL)
     {
         m_userData = 0;
     }
@@ -56,7 +56,7 @@ namespace CB { namespace schema
         m_targetOutOfLimitEvent(flag)
     {
         m_targetOutsideLimits = false;
-        m_pUnknown            = HK_NULL;
+        m_pSkeletonMemory            = HK_NULL;
         m_userData            = 0;
     }
 
@@ -77,7 +77,7 @@ namespace CB { namespace schema
         m_lookAtCameraY(mod.m_lookAtCameraY),
         m_lookAtCameraZ(mod.m_lookAtCameraZ),
         m_timeStep(mod.m_timeStep),
-        m_pUnknown(HK_NULL)
+        m_pSkeletonMemory(HK_NULL)
     {
         m_userData = 0;
         m_bones    = mod.m_bones;
@@ -113,7 +113,7 @@ namespace CB { namespace schema
 
     void BSLookAtModifier::deactivate(const hkbContext& context)
     {
-        m_pUnknown            = HK_NULL;
+        m_pSkeletonMemory            = HK_NULL;
         m_targetOutsideLimits = false;
     }
 

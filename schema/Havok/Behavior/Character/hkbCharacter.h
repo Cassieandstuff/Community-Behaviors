@@ -87,8 +87,12 @@ namespace CB { namespace schema
         hkbCharacterStringData(hkFinishLoadedObjectFlag flag);
     };
 
-    /// @note Held by the character data only; not declared further.
-    class hkbMirroredSkeletonInfo : public hkReferencedObject {};
+    class hkbMirroredSkeletonInfo : public hkReferencedObject
+    {
+    public:
+        hkVector4        m_mirrorAxis;    ///< +0x10
+        hkArray<hkInt16> m_bonePairMap;   ///< +0x20
+    };
 
     /// @note 0xb0 bytes.
     struct hkbCharacterData : hkReferencedObject

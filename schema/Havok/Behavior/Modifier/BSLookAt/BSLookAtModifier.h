@@ -53,9 +53,8 @@ namespace CB { namespace schema
         hkReal                            m_timeStep;                     ///< +0xc8, the last update's
         /// @brief Whether every bone and eye bone index is inside the skeleton (activate checks; modify needs it).
         hkBool                            m_ballBonesValid;               ///< +0xcc
-        /// @note Name provisional: reflected as an untyped pointer; the constructors and deactivate null it, nothing in
-        ///       the class or its Utils reads it.
-        void*                             m_pUnknown;                     ///< +0xd0
+        /// @note Nulled by the constructors and deactivate; nothing in the class or its Utils reads it.
+        void*                             m_pSkeletonMemory;              ///< +0xd0
 
         BSLookAtModifier();
         /// @note Called by the class's packfile finish function (in the type-registration block).

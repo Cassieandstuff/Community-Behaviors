@@ -117,7 +117,7 @@ namespace CB { namespace schema
         ///        hkbNodeInfo::m_childrenIndicesStart.
         hkArray<int>*                  m_activeNodesChildrenIndices;   ///< +0xa8
         hkRefPtr<hkbGlobalTransitionData> m_globalTransitionData; ///< +0xb0
-        hkRefPtr<hkbSymbolIdMap>       m_eventIDMap;   ///< +0xb8
+        hkRefPtr<hkbSymbolIdMap>       m_eventIdMap;   ///< +0xb8
         hkRefPtr<hkbSymbolIdMap>       m_attributeIdMap;          ///< +0xc0
         hkRefPtr<hkbSymbolIdMap>       m_variableIdMap;           ///< +0xc8
         hkRefPtr<hkbSymbolIdMap>       m_characterPropertyIdMap;  ///< +0xd0

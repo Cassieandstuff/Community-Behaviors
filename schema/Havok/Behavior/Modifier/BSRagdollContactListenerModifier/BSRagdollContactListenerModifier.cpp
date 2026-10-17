@@ -129,7 +129,7 @@ namespace CB { namespace schema
     void BSRagdollContactListenerModifier::contactPointCallback(const hkpContactPointEvent& event)
     {
         if (event.m_contactPoint->getDistance() < 0.0f) {
-            if (m_rigidBodies.lastIndexOf(event.m_bodies[0]) == -1 || m_rigidBodies.lastIndexOf(event.m_bodies[1]) == -1) m_throwEvent = true;
+            if (m_ragdollRigidBodies.lastIndexOf(event.m_bodies[0]) == -1 || m_ragdollRigidBodies.lastIndexOf(event.m_bodies[1]) == -1) m_throwEvent = true;
         }
     }
 
@@ -140,7 +140,7 @@ namespace CB { namespace schema
 
         if (m_bones && context.m_character && context.m_character->m_ragdollDriver && context.m_character->m_ragdollDriver->getRagdoll()
             && context.getWorld()) {
-            m_rigidBodies.reserveExactly(m_bones->m_boneIndices.getSize());
+            m_ragdollRigidBodies.reserveExactly(m_bones->m_boneIndices.getSize());
             for (int i = 0; i < m_bones->m_boneIndices.getSize(); i++) {
                 hkbRagdollDriver*   driver  = context.m_character->m_ragdollDriver;
                 hkaRagdollInstance* ragdoll = (driver == HK_NULL) ? HK_NULL : driver->getRagdoll();
@@ -155,7 +155,7 @@ namespace CB { namespace schema
                     }
                     body->addContactListener(this);
                     body->addReference();
-                    m_rigidBodies.pushBack(body);
+                    m_ragdollRigidBodies.pushBack(body);
                 }
             }
         }
@@ -164,15 +164,15 @@ namespace CB { namespace schema
     /// @note The release goes through the array slot again (vanilla re-reads it after removeContactListener).
     void BSRagdollContactListenerModifier::removeListeners()
     {
-        for (int i = 0; i < m_rigidBodies.getSize(); i++) {
-            hkpRigidBody* body = m_rigidBodies[i];
+        for (int i = 0; i < m_ragdollRigidBodies.getSize(); i++) {
+            hkpRigidBody* body = m_ragdollRigidBodies[i];
             if (body) {
                 hkpContactListener* listener = this;
                 if (body->getContactListeners().indexOf(listener) != -1) body->removeContactListener(listener);
-                m_rigidBodies[i]->removeReference();
+                m_ragdollRigidBodies[i]->removeReference();
             }
         }
-        m_rigidBodies.clear();
+        m_ragdollRigidBodies.clear();
     }
 
     BSRagdollContactListenerModifier::BSRagdollContactListenerModifier(const BSRagdollContactListenerModifier& mod)

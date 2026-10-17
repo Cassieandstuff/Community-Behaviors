@@ -127,7 +127,7 @@ mutant c2_strict_lower_bound   "$clip" 's/\&\& fromTime <= trig\.m_localTime \&\
 mutant c3_guard_constant       "$clip" 's/if (numTriggers <= 0) return;/if (numTriggers <= 1) return;/'
 mutant c4_dropped_acyclic_test "$clip" 's/if (trig\.m_acyclic\.m_bool \&\& graphData \&\& /if (graphData \&\& /'
 mutant e1_no_local_copy        "$clip" 's/m_mapperData->m_mapper->mapExtractedMotion(motion, out);/m_mapperData->m_mapper->mapExtractedMotion(out, out);/'
-mutant e2_wrong_mirror_bit     "$clip" 's/if (m_flags \& FLAG_MIRROR) context/if (m_flags \& FLAG_MIRROR_POSE) context/'
+mutant e2_wrong_mirror_bit     "$clip" 's/if (m_flags \& FLAG_MIRROR) context/if (m_flags \& FLAG_FORCE_DENSE_POSE) context/'
 mutant e3_scaled_wrong_field   "$clip" 's/out\.m_translation\.mul4(hkSimdReal(context/out.m_scale.mul4(hkSimdReal(context/'
 mutant e4_dropped_ignore_test  "$clip" 's/if (animation \&\& !(m_flags \& FLAG_IGNORE_MOTION) \&\& /if (animation \&\& /'
 mutant s1_wrong_half_cycle_bit "$clip" 's/!(m_flags \& FLAG_SYNC_HALF_CYCLE_IN_PING_PONG_MODE)/!(m_flags \& FLAG_MIRROR)/'

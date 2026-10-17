@@ -15,7 +15,8 @@ namespace CB { namespace schema
     class hkbModifier : public hkbNode
     {
     public:
-        hkBool m_enable;   ///< +0x48
+        hkBool m_enable;           ///< +0x48
+        hkBool m_padModifier[3];   ///< +0x49
 
         HK_FORCE_INLINE hkbModifier() : m_enable(true) {}
         HK_FORCE_INLINE hkbModifier(hkFinishLoadedObjectFlag flag) : hkbNode(flag) {}
