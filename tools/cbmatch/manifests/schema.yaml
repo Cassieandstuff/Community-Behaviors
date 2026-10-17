@@ -1774,4 +1774,59 @@ units:
       - { name: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z", why: "parked (workbench.yaml tracks it), kept in its unit: the class's only constructor, so the only emitter of the vtable and the listed deleting destructor" }
   - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.cpp
     functions:
-      - { name: "CB::schema::hkpCharacterRigidBodyListener::processActualPoints", va: 0x140f19fe0 }
+      - { name: "?processActualPoints@hkpCharacterRigidBodyListener@schema@CB@@UEAAXPEBVhkpWorld@23@PEAVhkpCharacterRigidBody@23@AEBUCollisionEntry@hkpLinkedCollidable@23@PEAVhkpSimpleConstraintContactMgr@23@AEAU?$hkArray@G@23@@Z", va: 0x140f19fe0 }
+      - { name: "?processActualPoints@hkpCharacterRigidBodyListener@schema@CB@@QEAAXPEAVhkpWorld@23@PEAVhkpCharacterRigidBody@23@@Z", va: 0x140f19da0 }
+      - { name: "CB::schema::hkpCharacterRigidBodyListener::characterCallback", va: 0x140f19950 }
+      - { name: "CB::schema::hkpCharacterRigidBodyListener::unweldContactPoints", va: 0x140f1a070 }
+      - { name: "CB::schema::hkpCharacterRigidBodyListener::considerCollisionEntryForSlope", va: 0x140f1a460 }
+      - { name: "CB::schema::hkpCharacterRigidBodyListener::considerCollisionEntryForMassModification", va: 0x140f1a800 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBody.cpp
+    functions:
+      - { name: "??0hkpCharacterRigidBody@schema@CB@@QEAA@AEBVhkpCharacterRigidBodyCinfo@12@@Z", va: 0x140b7bbc0 }
+      - { name: "??1hkpCharacterRigidBody@schema@CB@@UEAA@XZ", va: 0x140b7bd80 }
+      - { name: "??_GhkpCharacterRigidBody@schema@CB@@UEAAPEAXI@Z", va: 0x140b7cf20 }
+      - { name: "CB::schema::hkpCharacterRigidBody::getRigidBody", va: 0x140b7bef0 }
+      - { name: "CB::schema::hkpCharacterRigidBody::checkSupport", va: 0x140b7bf00 }
+      - { name: "CB::schema::hkpCharacterRigidBody::getGround", va: 0x140b7cac0 }
+      - { name: "CB::schema::hkpCharacterRigidBody::setLinearAccelerationToMassModifier", va: 0x140b7cce0 }
+      - { name: "CB::schema::hkpCharacterRigidBody::setLinearVelocity", va: 0x140b7ccf0 }
+      - { name: "CB::schema::hkpCharacterRigidBody::getLinearVelocity", va: 0x140b7cd80 }
+      - { name: "CB::schema::hkpCharacterRigidBody::setAngularVelocity", va: 0x140b7cda0 }
+      - { name: "CB::schema::hkpCharacterRigidBody::entityAddedCallback", va: 0x140b7ce40 }
+      - { name: "CB::schema::hkpCharacterRigidBody::entityRemovedCallback", va: 0x140b7cea0 }
+      - { name: "CB::schema::hkpCharacterRigidBody::postSimulationCallback", va: 0x140b7cef0 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.cpp
+    functions:
+      - { name: "??0hkpCharacterStateManager@schema@CB@@QEAA@XZ", va: 0x140b7ba30 }
+      - { name: "??1hkpCharacterStateManager@schema@CB@@UEAA@XZ", va: 0x140b7ba70 }
+      - { name: "CB::schema::hkpCharacterStateManager::registerState", va: 0x140b7bae0 }
+      - { name: "CB::schema::hkpCharacterStateManager::getState", va: 0x140b7bb30 }
+      - { name: "??_GhkpCharacterStateManager@schema@CB@@UEAAPEAXI@Z", va: 0x140b7bb40 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/StateMachine/hkpCharacterContext.cpp
+    functions:
+      - { name: "??0hkpCharacterContext@schema@CB@@QEAA@PEBVhkpCharacterStateManager@12@W4hkpCharacterStateType@12@@Z", va: 0x140b7adc0 }
+      - { name: "??1hkpCharacterContext@schema@CB@@UEAA@XZ", va: 0x140b7ae20 }
+      - { name: "CB::schema::hkpCharacterContext::getState", va: 0x140b7ae60 }
+      - { name: "CB::schema::hkpCharacterContext::setState", va: 0x140b7ae70 }
+      - { name: "CB::schema::hkpCharacterContext::update", va: 0x140b7af10 }
+      - { name: "CB::schema::hkpCharacterContext::setCharacterType", va: 0x140b7b080 }
+      - { name: "CB::schema::hkpCharacterContext::setFilterEnable", va: 0x140b7b090 }
+      - { name: "CB::schema::hkpCharacterContext::setFilterParameters", va: 0x140b7b0a0 }
+      - { name: "??_GhkpCharacterContext@schema@CB@@UEAAPEAXI@Z", va: 0x140b7b0b0 }
+  - source: ../../../schema/Havok/Physics/Dynamics/Collide/hkpResponseModifier.cpp
+    functions:
+      - { name: "CB::schema::hkpResponseModifier::setInvMassScalingForContact", va: 0x140b6a310 }
+  - source: ../../../schema/Havok/Physics/Dynamics/Motion/Rigid/hkpCharacterMotion.cpp
+    functions:
+      - { name: "CB::schema::hkpCharacterMotion::getInertiaLocal", va: 0x140b4ce70 }
+      - { name: "CB::schema::hkpCharacterMotion::getInertiaWorld", va: 0x140b4ced0 }
+      - { name: "CB::schema::hkpCharacterMotion::setInertiaLocal", va: 0x140b4cf10 }
+      - { name: "CB::schema::hkpCharacterMotion::setInertiaInvLocal", va: 0x140b4cf60 }
+      - { name: "CB::schema::hkpCharacterMotion::getInertiaInvLocal", va: 0x140b4cf90 }
+      - { name: "CB::schema::hkpCharacterMotion::getInertiaInvWorld", va: 0x140b4cfc0 }
+      - { name: "CB::schema::hkpCharacterMotion::getProjectedPointVelocity", va: 0x140b4cff0 }
+      - { name: "CB::schema::hkpCharacterMotion::applyPointImpulse", va: 0x140b4d090 }
+      - { name: "CB::schema::hkpCharacterMotion::applyAngularImpulse", va: 0x140b4d100 }
+      - { name: "?applyForce@hkpCharacterMotion@schema@CB@@UEAAXMAEBUhkVector4@23@@Z", va: 0x140b4d120 }
+      - { name: "?applyForce@hkpCharacterMotion@schema@CB@@UEAAXMAEBUhkVector4@23@0@Z", va: 0x140b4d150 }
+      - { name: "CB::schema::hkpCharacterMotion::applyTorque", va: 0x140b4d180 }

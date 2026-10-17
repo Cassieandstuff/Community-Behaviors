@@ -32,6 +32,8 @@ extern "C" void __cdecl __debugbreak(void);
 #define HK_DECLARE_POD_TYPE() typedef void hkIsPodTypeTag
 #define HK_NEXT_MULTIPLE_OF(ALIGNMENT, VALUE) (((VALUE) + ((ALIGNMENT)-1)) & (~((ALIGNMENT)-1)))
 #define HK_REAL_MAX 3.40282e+38f
+/// @brief Havok's "very large" real (bits 0x5f7ffff0, 2^64 - 2^44): what an infinite inertia reads back as.
+#define HK_REAL_HIGH 1.8446726e+019f
 #define HK_REAL_EPSILON 1.192092896e-07f
 #define HK_REAL_PI 3.14159265358979f
 #define HK_REAL_DEG_TO_RAD (HK_REAL_PI / 180.0f)

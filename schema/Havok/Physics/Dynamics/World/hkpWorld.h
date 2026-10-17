@@ -13,6 +13,7 @@ namespace CB { namespace schema
     class hkpConstraintInstance;
     class hkpRayHitCollector;
     class hkpCdPointCollector;
+    class hkpWorldPostSimulationListener;
     struct hkpWorldRayCastInput;
     /// @note Opaque (only passed through).
     struct hkpCollisionInput {};
@@ -120,6 +121,24 @@ namespace CB { namespace schema
 
         HK_FORCE_INLINE const hkVector4& getGravity() const { return m_gravity; }
         HK_FORCE_INLINE const hkpProcessCollisionInput* getCollisionInput() const { return m_collisionInput; }
+
+        /// @brief Defers every mutator into the pending-operation queue until the matching unlock.
+        HK_FORCE_INLINE void lockCriticalOperations() { m_criticalOperationsLockCount++; }
+        /// @brief Releases lockCriticalOperations; the last release runs what was queued meanwhile (unless blocked).
+        HK_FORCE_INLINE void unlockAndAttemptToExecutePendingOperations()
+        {
+            if (--m_criticalOperationsLockCount == 0 && !m_blockExecutingPendingOperations) {
+                if (m_pendingOperationsCount) internal_executePendingOperations();
+                if (m_pendingOperationQueueCount == 1 && m_pendingBodyOperationsCount) internal_executePendingBodyOperations();
+            }
+        }
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void internal_executePendingOperations();
+        void internal_executePendingBodyOperations();
+        /// @brief Registers / unregisters `worldListener` to run after every simulation step.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void addWorldPostSimulationListener(hkpWorldPostSimulationListener* worldListener);
+        void removeWorldPostSimulationListener(hkpWorldPostSimulationListener* worldListener);
 
         /// @brief Takes / releases the world lock around reading or changing world objects.
         /// @note Names provisional. Skyrim's versions enter/leave a global critical section and count in m_isLocked.

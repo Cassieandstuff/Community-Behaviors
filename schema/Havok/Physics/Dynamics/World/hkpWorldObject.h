@@ -44,5 +44,11 @@ namespace CB { namespace schema
             }
             return 0;
         }
+        /// @brief Sets the property under `key`.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void             setProperty(hkUint32 key, hkpPropertyValue value);
+        /// @brief Removes the property under `key`, returning its value.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        hkpPropertyValue removeProperty(hkUint32 key);
     };
 } }

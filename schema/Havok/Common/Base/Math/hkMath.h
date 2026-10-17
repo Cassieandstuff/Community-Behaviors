@@ -98,7 +98,8 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkSimdReal length3() const { return hkSimdReal(_mm_sqrt_ss(lengthSquared3().m_real)); }
         HK_FORCE_INLINE hkSimdReal lengthSquared4() const { return dot4(*this); }
         /// @brief Scales to unit length (rsqrtps plus one Newton-Raphson step) unless the xyz length is zero.
-        HK_FORCE_INLINE void normalize3IfNotZero();
+        /// @return Whether it scaled (callers that test it skip their use of the vector in the branch, as vanilla).
+        HK_FORCE_INLINE bool normalize3IfNotZero();
 
         /// @brief (1 − t)·a + t·b.
         HK_FORCE_INLINE void setInterpolate4(const hkVector4& a, const hkVector4& b, hkSimdReal t)
@@ -142,11 +143,24 @@ namespace CB { namespace schema
         HK_FORCE_INLINE void setRotatedInverseDir(const hkQuaternion& quat, const hkVector4& direction);
         /// @note Flips the sign bits (xor with -0 x4).
         HK_FORCE_INLINE void setNeg4(const hkVector4& v) { m_quad = _mm_xor_ps(v.m_quad, _mm_castsi128_ps(_mm_set1_epi32(int(0x80000000)))); }
+        /// @brief -x, -y, -z, w kept.
+        HK_FORCE_INLINE void setNeg3(const hkVector4& v) { m_quad = _mm_xor_ps(v.m_quad, _mm_setr_ps(-0.0f, -0.0f, -0.0f, 0.0f)); }
         /// @brief 1/v for x, y and z (rcpps plus one Newton-Raphson step); w is 0.
         /// @note w is set to 1 before the estimate so it cannot overflow, then masked off.
         HK_FORCE_INLINE void setReciprocal3(const hkVector4& v);
         /// @brief t·v (rotation then translation), and its inverse.
         /// @note Out of line in vanilla (Havok's non-underscore transform family).
+        /// @brief The inline forms of setRotatedDir / setTransformedPos and their inverses (Havok's underscore
+        ///        variants), for units whose vanilla inlines them.
+        HK_FORCE_INLINE void _setRotatedDir(const hkRotation& r, const hkVector4& v);
+        HK_FORCE_INLINE void _setRotatedInverseDir(const hkRotation& r, const hkVector4& v);
+        HK_FORCE_INLINE void _setTransformedPos(const hkTransform& t, const hkVector4& v);
+        HK_FORCE_INLINE void _setTransformedInversePos(const hkTransform& t, const hkVector4& v);
+
+        /// @brief Stores a 24-bit tag in w: its bits OR 0x3f000000, a float in [0.5, 2).
+        HK_FORCE_INLINE void setInt24W(int value) { reinterpret_cast<hkInt32*>(this)[3] = value | 0x3f000000; }
+        HK_FORCE_INLINE int  getInt24W() const { return reinterpret_cast<const hkInt32*>(this)[3] & ~0x3f000000; }
+
         void setTransformedPos(const hkTransform& t, const hkVector4& v);
         void setTransformedInversePos(const hkTransform& t, const hkVector4& v);
         void setTransformedPos(const hkQsTransform& t, const hkVector4& v);
@@ -229,7 +243,7 @@ namespace CB { namespace schema
     }
 
     /// @note The zero test is the sign of the negated square (movmskps), as vanilla's.
-    HK_FORCE_INLINE void hkVector4::normalize3IfNotZero()
+    HK_FORCE_INLINE bool hkVector4::normalize3IfNotZero()
     {
         const hkSimdReal lengthSquared = lengthSquared3();
         if (_mm_movemask_ps((-lengthSquared).m_real) & 1) {
@@ -237,7 +251,9 @@ namespace CB { namespace schema
             const hkQuadReal ree    = _mm_mul_ps(_mm_mul_ps(lengthSquared.m_real, e), e);
             const hkQuadReal invLen = _mm_mul_ps(_mm_sub_ps(g_quadReal3.m_quad, ree), _mm_mul_ps(e, g_quadRealInv2.m_quad));
             m_quad = _mm_mul_ps(_mm_shuffle_ps(invLen, invLen, _MM_SHUFFLE(0, 0, 0, 0)), m_quad);
+            return true;
         }
+        return false;
     }
 
     struct hkQuaternion
@@ -465,6 +481,21 @@ namespace CB { namespace schema
         void renormalize();
     };
 
+    /// @brief A 3x3 matrix as three columns.
+    struct hkMatrix3
+    {
+        hkVector4 m_col0;
+        hkVector4 m_col1;
+        hkVector4 m_col2;
+
+        HK_FORCE_INLINE void setZero()
+        {
+            m_col0.setZero4();
+            m_col1.setZero4();
+            m_col2.setZero4();
+        }
+    };
+
     /// @brief A 4x4 matrix as four columns.
     struct hkMatrix4
     {
@@ -486,6 +517,42 @@ namespace CB { namespace schema
         static HK_FORCE_INLINE const hkTransform& getIdentity() { return reinterpret_cast<const hkTransform&>(hkTransform_identityStorage); }
         HK_FORCE_INLINE const hkVector4& getTranslation() const { return m_translation; }
     };
+
+    HK_FORCE_INLINE void hkVector4::_setRotatedDir(const hkRotation& r, const hkVector4& v)
+    {
+        const hkQuadReal b0 = _mm_shuffle_ps(v.m_quad, v.m_quad, _MM_SHUFFLE(0, 0, 0, 0));
+        const hkQuadReal b1 = _mm_shuffle_ps(v.m_quad, v.m_quad, _MM_SHUFFLE(1, 1, 1, 1));
+        const hkQuadReal b2 = _mm_shuffle_ps(v.m_quad, v.m_quad, _MM_SHUFFLE(2, 2, 2, 2));
+        m_quad = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r.m_col0.m_quad, b0), _mm_mul_ps(r.m_col1.m_quad, b1)), _mm_mul_ps(r.m_col2.m_quad, b2));
+    }
+    /// @note Transposes the columns (Havok's HK_TRANSPOSE3: unpcklps/unpckhps/movlhps/movhlps), then rotates.
+    HK_FORCE_INLINE void hkVector4::_setRotatedInverseDir(const hkRotation& r, const hkVector4& v)
+    {
+        hkQuadReal       c0  = r.m_col0.m_quad;
+        hkQuadReal       c1  = r.m_col1.m_quad;
+        const hkQuadReal c2  = r.m_col2.m_quad;
+        hkQuadReal       tmp = _mm_unpacklo_ps(c0, c1);
+        const hkQuadReal t2  = _mm_shuffle_ps(_mm_unpackhi_ps(c0, c1), c2, _MM_SHUFFLE(3, 2, 1, 0));
+        c0  = _mm_movelh_ps(tmp, c2);
+        tmp = _mm_movehl_ps(c0, tmp);
+        c1  = _mm_shuffle_ps(tmp, c2, _MM_SHUFFLE(3, 1, 1, 0));
+        const hkQuadReal b0 = _mm_shuffle_ps(v.m_quad, v.m_quad, _MM_SHUFFLE(0, 0, 0, 0));
+        const hkQuadReal b1 = _mm_shuffle_ps(v.m_quad, v.m_quad, _MM_SHUFFLE(1, 1, 1, 1));
+        const hkQuadReal b2 = _mm_shuffle_ps(v.m_quad, v.m_quad, _MM_SHUFFLE(2, 2, 2, 2));
+        m_quad = _mm_add_ps(_mm_add_ps(_mm_mul_ps(c0, b0), _mm_mul_ps(c1, b1)), _mm_mul_ps(t2, b2));
+    }
+    HK_FORCE_INLINE void hkVector4::_setTransformedPos(const hkTransform& t, const hkVector4& v)
+    {
+        hkVector4 rotated;
+        rotated._setRotatedDir(t.m_rotation, v);
+        m_quad = _mm_add_ps(rotated.m_quad, t.m_translation.m_quad);
+    }
+    HK_FORCE_INLINE void hkVector4::_setTransformedInversePos(const hkTransform& t, const hkVector4& v)
+    {
+        hkVector4 local;
+        local.setSub4(v, t.m_translation);
+        _setRotatedInverseDir(t.m_rotation, local);
+    }
 
     struct hkMath
     {

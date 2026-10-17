@@ -7,11 +7,13 @@
 #include <Physics/Dynamics/Motion/Rigid/hkpKeyframedRigidMotion.h>
 #include <Common/Base/Container/Array/hkSmallArray.h>
 #include <Common/Base/Types/Geometry/LocalFrame/hkLocalFrame.h>
+#include <Physics/Dynamics/World/Simulation/hkpSimulationIsland.h>
 
 namespace CB { namespace schema
 {
     class hkpConstraintInstance;
     class hkpContactListener;
+    class hkpEntityListener;
     struct hkConstraintInternal;
 
     /// @brief Whether adding (or changing) an entity wakes it.
@@ -62,7 +64,7 @@ namespace CB { namespace schema
         hkSmallArray<hkConstraintInternal>     m_constraintsMaster;                      ///< +0x100
         hkArray<hkpConstraintInstance*>        m_constraintsSlave;                       ///< +0x110
         hkArray<hkUint8>                       m_constraintRuntime;                      ///< +0x120
-        void*                                  m_simulationIsland;                       ///< +0x130 — hkpSimulationIsland*
+        hkpSimulationIsland*                   m_simulationIsland;                       ///< +0x130
         hkInt8                                 m_autoRemoveLevel;                        ///< +0x138
         hkUint8                                m_numShapeKeysInContactPointProperties;   ///< +0x139
         hkUint8                                m_responseModifierFlags;                  ///< +0x13a
@@ -84,6 +86,10 @@ namespace CB { namespace schema
         void addContactListener(hkpContactListener* cl);
         /// @brief Unregisters `cl` (its slot is nulled, not removed).
         void removeContactListener(hkpContactListener* cl);
+        /// @brief Registers / unregisters `el` for this entity's add, remove, shape, motion-type and delete events.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        void addEntityListener(hkpEntityListener* el);
+        void removeEntityListener(hkpEntityListener* el);
 
         HK_FORCE_INLINE hkpMotion*         getMotion() { return &m_motion; }
         HK_FORCE_INLINE const hkpMotion*   getMotion() const { return &m_motion; }
@@ -91,5 +97,6 @@ namespace CB { namespace schema
         HK_FORCE_INLINE hkUint32           getUid() const { return m_uid; }
         HK_FORCE_INLINE hkLocalFrame*      getLocalFrame() const { return m_localFrame; }
         HK_FORCE_INLINE const hkSmallArray<hkpContactListener*>& getContactListeners() const { return m_contactListeners; }
+        HK_FORCE_INLINE hkpSimulationIsland* getSimulationIsland() const { return m_simulationIsland; }
     };
 } }

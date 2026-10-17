@@ -976,6 +976,37 @@ symbols:
   - { name: hkpCharacterProxy_GetLinearVelocity, kind: func, se: 0, ae: 62640, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getLinearVelocity" }
   - { name: hkpCharacterProxy_SetLinearVelocity, kind: func, se: 0, ae: 62641, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setLinearVelocity" }
   - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # parameter list partly unconfirmed (see the header)
+  - { name: hkpMotion_GetMass, kind: func, se: 0, ae: 60959, vr: 0, cpp: "CB::schema::hkpMotion::getMass" }  # 1 / m_inertiaAndMassInv.w, 0 for an infinite mass
+  - { name: hkpResponseModifier_SetInvMassScalingForContact, kind: func, se: 0, ae: 62282, vr: 0, cpp: "CB::schema::hkpResponseModifier::setInvMassScalingForContact" }  # (manager, body, constraintOwner, factor)
+  - { name: hkpLinkedCollidable_GetCollisionEntriesSorted, kind: func, se: 0, ae: 64577, vr: 0, cpp: "CB::schema::hkpLinkedCollidable::getCollisionEntriesSorted" }
+  - { name: hkpWorld_InternalExecutePendingOperations, kind: func, se: 0, ae: 61434, vr: 0, cpp: "CB::schema::hkpWorld::internal_executePendingOperations" }
+  - { name: hkpWorld_InternalExecutePendingBodyOperations, kind: func, se: 0, ae: 61435, vr: 0, cpp: "CB::schema::hkpWorld::internal_executePendingBodyOperations" }
+  - { name: hkpCharacterRigidBodyListener_DiscardVerticalPoints, kind: func, se: 0, ae: 80568, vr: 0, cpp: "CB::schema::hkpCharacterRigidBodyListener::discardVerticalPoints" }  # parked in the workbench; characterCallback calls it
+  - { name: hkpCharacterRigidBodyListener_ProcessActualPointsForAllEntries, kind: func, se: 0, ae: 80569, vr: 0, cpp: "?processActualPoints@hkpCharacterRigidBodyListener@schema@CB@@QEAAXPEAVhkpWorld@23@PEAVhkpCharacterRigidBody@23@@Z" }  # the (world, characterRB) overload, by mangled name
+  - { name: CRT_chkstk, kind: func, se: 0, ae: 109626, vr: 0, cpp: "__chkstk" }  # the stack probe a frame over a page calls
+  - { name: hkpCharacterRigidBody_Vtable, kind: data, se: 0, ae: 229857, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkReferencedObject@12@@" }  # by mangled name: the class has three
+  - { name: hkpCharacterRigidBody_EntityListenerVtable, kind: data, se: 0, ae: 229859, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkpEntityListener@12@@" }  # the hkpEntityListener base's (+0x10)
+  - { name: hkpCharacterRigidBody_PostSimulationListenerVtable, kind: data, se: 0, ae: 229861, vr: 0, cpp: "??_7hkpCharacterRigidBody@schema@CB@@6BhkpWorldPostSimulationListener@12@@" }  # the hkpWorldPostSimulationListener base's (+0x18)
+  - { name: hkpCharacterRigidBody_Dtor, kind: func, se: 0, ae: 62448, vr: 0, cpp: "??1hkpCharacterRigidBody@schema@CB@@UEAA@XZ" }
+  - { name: hkpCharacterRigidBody_SetLinearAccelerationToMassModifier, kind: func, se: 0, ae: 62455, vr: 0, cpp: "CB::schema::hkpCharacterRigidBody::setLinearAccelerationToMassModifier" }
+  - { name: hkpRigidBody_Ctor, kind: func, se: 0, ae: 60887, vr: 0, cpp: "CB::schema::hkpRigidBody::hkpRigidBody" }  # (cinfo)
+  - { name: hkpRigidBody_SetInertiaInvLocal, kind: func, se: 0, ae: 60894, vr: 0, cpp: "CB::schema::hkpRigidBody::setInertiaInvLocal" }  # forwards to the motion's slot 8
+  - { name: hkpRigidBodyCinfo_Ctor, kind: func, se: 0, ae: 61755, vr: 0, cpp: "CB::schema::hkpRigidBodyCinfo::hkpRigidBodyCinfo" }
+  - { name: hkpWorldObject_SetProperty, kind: func, se: 0, ae: 61479, vr: 0, cpp: "CB::schema::hkpWorldObject::setProperty" }  # (key, value)
+  - { name: hkpWorldObject_RemoveProperty, kind: func, se: 0, ae: 61480, vr: 0, cpp: "CB::schema::hkpWorldObject::removeProperty" }  # (key) -> the value through a hidden pointer
+  - { name: hkpEntity_AddEntityListener, kind: func, se: 0, ae: 60840, vr: 0, cpp: "CB::schema::hkpEntity::addEntityListener" }
+  - { name: hkpEntity_RemoveEntityListener, kind: func, se: 0, ae: 60841, vr: 0, cpp: "CB::schema::hkpEntity::removeEntityListener" }
+  - { name: hkpWorld_AddWorldPostSimulationListener, kind: func, se: 0, ae: 61366, vr: 0, cpp: "CB::schema::hkpWorld::addWorldPostSimulationListener" }
+  - { name: hkpWorld_RemoveWorldPostSimulationListener, kind: func, se: 0, ae: 61367, vr: 0, cpp: "CB::schema::hkpWorld::removeWorldPostSimulationListener" }
+  - { name: hkpCharacterContext_Vtable, kind: data, se: 0, ae: 229844, vr: 0, cpp: "CB::schema::hkpCharacterContext::`vftable'" }
+  - { name: hkpCharacterContext_Dtor, kind: func, se: 0, ae: 62426, vr: 0, cpp: "CB::schema::hkpCharacterContext::~hkpCharacterContext" }
+  - { name: hkpCharacterStateManager_Vtable, kind: data, se: 0, ae: 229855, vr: 0, cpp: "CB::schema::hkpCharacterStateManager::`vftable'" }
+  - { name: hkpCharacterStateManager_Dtor, kind: func, se: 0, ae: 62443, vr: 0, cpp: "CB::schema::hkpCharacterStateManager::~hkpCharacterStateManager" }
+  - { name: hkpCharacterStateManager_GetState, kind: func, se: 0, ae: 62445, vr: 0, cpp: "CB::schema::hkpCharacterStateManager::getState" }
+  - { name: hkpWorldConstraintUtil_AddModifier, kind: func, se: 0, ae: 62252, vr: 0, cpp: "CB::schema::hkpWorldConstraintUtil::addModifier" }  # (instance, constraintOwner, modifier)
+  - { name: hkpWorldConstraintUtil_FindModifier, kind: func, se: 0, ae: 62254, vr: 0, cpp: "CB::schema::hkpWorldConstraintUtil::findModifier" }  # (instance, atom type) -> the modifier or null
+  - { name: hkSimplexSolverSolve, kind: func, se: 0, ae: 64909, vr: 0, cpp: "CB::schema::hkSimplexSolverSolve" }  # (input, output)
+  - { name: hkpLinkedCollidable_GetCollisionEntriesNonDeterministic, kind: func, se: 0, ae: 64578, vr: 0, cpp: "CB::schema::hkpLinkedCollidable::getCollisionEntriesNonDeterministic" }
   # --- ragdoll control modifiers (schema/Havok/Behavior/Modifier/{ExtractRagdollPose,KeyframeBones,PoweredRagdollControls,RigidBodyRagdollControls}) ---
   - { name: hkbRagdollDriver_ExtractRagdollPose, kind: func, se: 0, ae: 58289, vr: 0, cpp: "CB::schema::hkbRagdollDriver::extractRagdollPose" }  # (context, inOut, computeWorldFromModel, bone0..2)
   - { name: hkbRagdollDriver_ExtractRagdollPoseInternal, kind: func, se: 0, ae: 58311, vr: 0, cpp: "CB::schema::hkbRagdollDriver::extractRagdollPoseInternal" }  # name provisional; not reimplemented yet

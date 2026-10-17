@@ -14,6 +14,13 @@ namespace CB { namespace schema
 
         /// @brief The separation along the normal (negative = penetrating), kept in the normal's w.
         HK_FORCE_INLINE hkReal getDistance() const { return m_separatingNormal(3); }
+        /// @brief The same contact seen from the other body: the position moves onto that body's surface, the normal
+        ///        turns around.
+        HK_FORCE_INLINE void flip()
+        {
+            m_position.addMul4(m_separatingNormal.getSimdAt3(), m_separatingNormal);
+            m_separatingNormal.setNeg3(m_separatingNormal);
+        }
     };
 
     /// @note 0x40 bytes.

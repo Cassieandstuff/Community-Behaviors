@@ -11,6 +11,11 @@ namespace CB { namespace schema
     struct hkpPropertyValue
     {
         hkUlong m_data;   ///< +0x00
+
+        /// @note User-declared, as Havok's: that makes it returned through a hidden pointer (hkpWorldObject::removeProperty).
+        HK_FORCE_INLINE hkpPropertyValue() {}
+        /// @brief Sign-extends `i` into the word.
+        HK_FORCE_INLINE hkpPropertyValue(int i) : m_data(static_cast<hkUlong>(static_cast<hkLong>(i))) {}
     };
 
     /// @brief A world object's user property: a key and a 64-bit value.

@@ -104,3 +104,9 @@ units:
   - source: ../workbench/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifierWorkbench.cpp
     functions:
       - { name: "CB::schema::hkbKeyframeBonesModifier::isValid", va: 0x140afbdb0 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListenerWorkbench.cpp
+    functions:
+      - { name: "CB::schema::hkpCharacterRigidBodyListener::discardVerticalPoints", va: 0x140f19a50 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyWorkbench.cpp
+    functions:
+      - { name: "CB::schema::hkpCharacterRigidBody::getSupportInfo", va: 0x140b7c0d0 }

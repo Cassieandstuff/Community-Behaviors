@@ -11,8 +11,9 @@ namespace CB { namespace schema
     struct hkMatrix3;
 
     /// @note 0x140 bytes (schema/physics/hkpMotion.yaml). Virtual slots per the Havok SDK; 16 (setLinearVelocity) and 17
-    ///       (setAngularVelocity) are confirmed by hkaRagdollInstance, the rest are not. Havok's pure virtuals are
-    ///       declared plain: hkpEntity embeds the motion by value, which an abstract class cannot be.
+    ///       (setAngularVelocity) are confirmed by hkaRagdollInstance, 5..10, 18 and 20..24 by hkpCharacterMotion's
+    ///       overrides (their vtable slots), the rest are not. Havok's pure virtuals are declared plain: hkpEntity embeds
+    ///       the motion by value, which an abstract class cannot be.
     class hkpMotion : public hkReferencedObject
     {
     public:
@@ -58,6 +59,15 @@ namespace CB { namespace schema
         virtual void setTransform(const hkTransform& transform);                           ///< slot 15
         virtual void setLinearVelocity(const hkVector4& newVel);                           ///< slot 16
         virtual void setAngularVelocity(const hkVector4& newVel);                          ///< slot 17
+        /// @brief The velocity of the body at `p` along `normal`, and the inverse virtual mass there.
+        virtual void getProjectedPointVelocity(const hkVector4& p, const hkVector4& normal, hkReal& velOut, hkReal& invVirtMassOut) const;   ///< slot 18
+        virtual void applyLinearImpulse(const hkVector4& imp);                             ///< slot 19
+        virtual void applyPointImpulse(const hkVector4& imp, const hkVector4& p);          ///< slot 20
+        virtual void applyAngularImpulse(const hkVector4& imp);                            ///< slot 21
+        /// @note Declared in Havok's order: MSVC lays overloaded virtuals out in reverse, so the point overload is slot 22.
+        virtual void applyForce(const hkReal deltaTime, const hkVector4& force);                        ///< slot 23
+        virtual void applyForce(const hkReal deltaTime, const hkVector4& force, const hkVector4& p);   ///< slot 22
+        virtual void applyTorque(const hkReal deltaTime, const hkVector4& torque);                      ///< slot 24
 
         HK_FORCE_INLINE MotionType           getType() const { return static_cast<MotionType>(m_type); }
         HK_FORCE_INLINE const hkMotionState* getMotionState() const { return &m_motionState; }
@@ -70,6 +80,9 @@ namespace CB { namespace schema
         HK_FORCE_INLINE const hkVector4&     getLinearVelocity() const { return m_linearVelocity; }
         HK_FORCE_INLINE const hkVector4&     getAngularVelocity() const { return m_angularVelocity; }
 
+        /// @brief 1 / the inverse mass (+0xdc), 0 for an infinite mass.
+        /// @note Out of line in vanilla (hkp code, not reimplemented).
+        hkReal getMass() const;
         /// @brief The transform at `time`, interpolated (approximately) within the last step's swept transform.
         /// @note Out of line in vanilla (hkp code, not reimplemented).
         void approxTransformAt(hkTime time, hkTransform& transformOut) const;

@@ -164,6 +164,15 @@ namespace CB { namespace schema
     };
 
     /// @brief One qword: a single move.
+    /// @note Elements narrower than a qword copy as one element (vanilla: a word move for an hkArray<hkUint16>::removeAt).
+    template <> HK_FORCE_INLINE void hkMemUtil::memCpyOne<2>(void* dst, const void* src)
+    {
+        *static_cast<hkUint16*>(dst) = *static_cast<const hkUint16*>(src);
+    }
+    template <> HK_FORCE_INLINE void hkMemUtil::memCpyOne<4>(void* dst, const void* src)
+    {
+        *static_cast<hkUint32*>(dst) = *static_cast<const hkUint32*>(src);
+    }
     template <> HK_FORCE_INLINE void hkMemUtil::memCpyOne<8>(void* dst, const void* src)
     {
         *static_cast<unsigned __int64*>(dst) = *static_cast<const unsigned __int64*>(src);
