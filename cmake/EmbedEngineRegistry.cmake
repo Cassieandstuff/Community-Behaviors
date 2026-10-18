@@ -14,9 +14,26 @@ if(NOT DEFINED REGISTRY_YAML OR NOT DEFINED OUT_H)
     message(FATAL_ERROR "EmbedEngineRegistry.cmake: REGISTRY_YAML and OUT_H are required")
 endif()
 
-# file(STRINGS) does not escape ';' — a note containing one splits its line into extra list items. Only
-# the piece starting with "- {" is an entry (notes follow the closing brace), so the tails are skipped.
-file(STRINGS "${REGISTRY_YAML}" _lines)
+# Split into lines WITHOUT letting list semantics touch the text. file(STRINGS) / a raw newline->';' split
+# both leave ';', '\' and '[' ']' live: a ';' splits a line, a trailing '\' escapes the separator, and an
+# unbalanced '[' (a note's "[from, to)") opens a bracket group that swallows every later line into one
+# list element. So those four are swapped for control-character placeholders (never in the yaml) before
+# the split and restored per line.
+file(READ "${REGISTRY_YAML}" _text)
+string(ASCII 1 _escBs)
+string(ASCII 2 _escSc)
+string(ASCII 3 _escLb)
+string(ASCII 4 _escRb)
+string(REPLACE "\r" "" _text "${_text}")
+string(REPLACE "\\" "${_escBs}" _text "${_text}")
+string(REPLACE ";" "${_escSc}" _text "${_text}")
+string(REPLACE "[" "${_escLb}" _text "${_text}")
+string(REPLACE "]" "${_escRb}" _text "${_text}")
+string(REPLACE "\n" ";" _lines "${_text}")
+
+# Every entry line, counted on the raw text independently of the loop below; the two must agree.
+string(REGEX MATCHALL "(^|\n)[ ]*-[ ]*{" _entryStarts "${_text}")
+list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
 set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*cpp:[ ]*\"[^\"]*\")?[ ]*}")
@@ -51,6 +68,10 @@ foreach(_l IN LISTS _lines)
     if(NOT _l MATCHES "^[ ]*-[ ]*{")
         continue()
     endif()
+    string(REPLACE "${_escBs}" "\\" _l "${_l}")
+    string(REPLACE "${_escSc}" ";" _l "${_l}")
+    string(REPLACE "${_escLb}" "[" _l "${_l}")
+    string(REPLACE "${_escRb}" "]" _l "${_l}")
     if(NOT _l MATCHES "${_entry}")
         message(FATAL_ERROR "engine.yaml: malformed symbol line:\n  ${_l}")
     endif()
@@ -83,6 +104,9 @@ endforeach()
 
 if(_n EQUAL 0)
     message(FATAL_ERROR "engine.yaml: no symbols parsed from ${REGISTRY_YAML}")
+endif()
+if(NOT _n EQUAL _expected)
+    message(FATAL_ERROR "engine.yaml: parsed ${_n} symbols but the file has ${_expected} '- {' entry lines")
 endif()
 
 set(_body
