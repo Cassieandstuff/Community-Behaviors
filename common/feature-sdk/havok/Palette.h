@@ -35,11 +35,16 @@
 #include <feature-sdk/havok/Behavior/Modifier/BSTweenerModifier/BSTweenerModifier.h>
 #include <feature-sdk/havok/Behavior/Generator/BSiStateTaggingGenerator/BSiStateTaggingGenerator.h>
 #include <feature-sdk/havok/Free.h>
+#include <feature-sdk/havok/NiPointer_bhkCachingShapePhantom.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/ahkpCharacterRigidBody.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyControllerCinfo.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyControllerCinfo.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterControllerCinfo.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterProxy.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterProxyCinfo.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterRigidBody.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterRigidBodyCinfo.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterState.h>
@@ -49,6 +54,8 @@
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateJumping.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateOnGround.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateSwimming.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCollisionBox.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkShapePhantomCinfo.h>
 #include <feature-sdk/havok/Common/Base/Algorithm/Sort/hkAlgorithm.h>
 #include <feature-sdk/havok/hkArray_hkQsTransform.h>
 #include <feature-sdk/havok/Common/Base/Object/hkBaseObject.h>
@@ -274,6 +281,7 @@
 #include <feature-sdk/havok/Behavior/World/hkbWorld.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/StateMachine/hkpCharacterContext.h>
 #include <feature-sdk/havok/Physics/Dynamics/Motion/Rigid/hkpCharacterMotion.h>
+#include <feature-sdk/havok/Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxyListener.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBody.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyListener.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/StateMachine/hkpCharacterState.h>

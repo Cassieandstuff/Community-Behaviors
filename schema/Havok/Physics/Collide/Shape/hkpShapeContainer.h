@@ -9,11 +9,25 @@
 
 namespace CB { namespace schema
 {
-    /// @brief Seeded from Havok's reflection (size 0x8).
+    /// @brief Scratch room a shape container builds a temporary child shape in (getChildShape).
+    /// @note 0x200 bytes, 16-aligned, as the Havok SDK's.
+    struct __declspec(align(16)) hkpShapeBuffer
+    {
+        hkUint8 m_data[0x200];
+    };
+
+    /// @brief Seeded from Havok's reflection (size 0x8): the vtable alone.
+    /// @note Slots per the Havok SDK; only getChildShape (slot 5) is confirmed (the character controller's step test).
     struct hkpShapeContainer
     {
     public:
-        hkUint8 m_pad0x0[0x8];
+        virtual ~hkpShapeContainer();                                                         ///< slot 0
+        virtual int         getNumChildShapes() const;                                        ///< slot 1
+        virtual hkpShapeKey getFirstKey() const;                                              ///< slot 2
+        virtual hkpShapeKey getNextKey(hkpShapeKey oldKey) const;                             ///< slot 3
+        virtual hkUint32    getCollisionFilterInfo(hkpShapeKey key) const;                    ///< slot 4
+        /// @brief The child at `key`, built in `buffer` when the container keeps none (a mesh's triangle).
+        virtual const hkpShape* getChildShape(hkpShapeKey key, hkpShapeBuffer& buffer) const;   ///< slot 5
     };
 
     /// @brief Seeded from Havok's reflection (size 0x10).

@@ -21,6 +21,11 @@ namespace CB { namespace schema
         ///       introduces the slot.
         virtual void reset();   ///< slot 2
 
+        /// @brief Dispatches the overlap starts and ends recorded since the last call to the bodies' listeners, then
+        ///        drops the ended entries.
+        /// @note Name provisional; out of line in vanilla (0x140f17b20).
+        void FlushEvents();
+
         hkUint8 m_pad220[0x240 - 0x220];
     };
 } }

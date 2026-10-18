@@ -998,7 +998,7 @@ symbols:
   - { name: hkpCharacterProxy_SetPosition, kind: func, se: 0, ae: 62639, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setPosition" }
   - { name: hkpCharacterProxy_GetLinearVelocity, kind: func, se: 0, ae: 62640, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getLinearVelocity" }
   - { name: hkpCharacterProxy_SetLinearVelocity, kind: func, se: 0, ae: 62641, vr: 0, cpp: "CB::schema::hkpCharacterProxy::setLinearVelocity" }
-  - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # parameter list partly unconfirmed (see the header)
+  - { name: hkpCharacterProxy_IntegrateImplementation, kind: func, se: 0, ae: 62646, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateImplementation" }  # parameter list partly unconfirmed (see the header)
   - { name: hkpMotion_GetMass, kind: func, se: 0, ae: 60959, vr: 0, cpp: "CB::schema::hkpMotion::getMass" }  # 1 / m_inertiaAndMassInv.w, 0 for an infinite mass
   - { name: hkpResponseModifier_SetInvMassScalingForContact, kind: func, se: 0, ae: 62282, vr: 0, cpp: "CB::schema::hkpResponseModifier::setInvMassScalingForContact" }  # (manager, body, constraintOwner, factor)
   - { name: hkpLinkedCollidable_GetCollisionEntriesSorted, kind: func, se: 0, ae: 64577, vr: 0, cpp: "CB::schema::hkpLinkedCollidable::getCollisionEntriesSorted" }
@@ -1176,6 +1176,12 @@ symbols:
   - { name: bhkCharacterController_IsLayerCounted, kind: func, se: 0, ae: 78312, vr: 0, cpp: "CB::schema::bhkCharacterController::IsLayerCounted" }  # name provisional
   - { name: bhkCharacterController_IsSlopeBlocking, kind: func, se: 0, ae: 78311, vr: 0, cpp: "CB::schema::bhkCharacterController::IsSlopeBlocking" }  # name provisional; (meshShape, checkMaterial, default, shapeKey)
   - { name: bhkGetMeshShape, kind: func, se: 0, ae: 77986, vr: 0, cpp: "CB::schema::bhkGetMeshShape" }  # name provisional
+  - { name: bhkCharacterController_GetHavokProperty, kind: func, se: 0, ae: 78295, vr: 0, cpp: "CB::schema::bhkCharacterController::GetHavokProperty" }  # name provisional; (key, worldObject), read-locked
+  - { name: bhkGetShapeCollection, kind: func, se: 0, ae: 77983, vr: 0, cpp: "CB::schema::bhkGetShapeCollection" }  # name provisional
+  - { name: bhkIsStairsMaterial, kind: func, se: 0, ae: 78008, vr: 0, cpp: "CB::schema::bhkIsStairsMaterial" }  # name provisional; calls the game-installed material predicate (0x14328ded0) if set
+  - { name: bhkShape_GetMaterialID, kind: func, se: 0, ae: 78676, vr: 0, cpp: "CB::schema::bhkShape::GetMaterialID" }
+  - { name: hkCollideCapsuleUtilCapsVsTri, kind: func, se: 0, ae: 67080, vr: 0, cpp: "CB::schema::hkCollideCapsuleUtilCapsVsTri" }
+  - { name: hkCollideTriangleUtil_SetupPointTriangleDistanceCache, kind: func, se: 0, ae: 67076, vr: 0, cpp: "CB::schema::hkCollideTriangleUtil::setupPointTriangleDistanceCache" }
   # Bethesda's character-controller states (bhkCharacterState*)
   - { name: bhkCharacterController_CommitWantedState, kind: func, se: 0, ae: 78280, vr: 0, cpp: "CB::schema::bhkCharacterController::CommitWantedState" }  # name provisional; enters wantState (+0x21c) if != 0xb, then clears it; every state's Simulate commits through it
   - { name: bhkCharacterController_AccumulateFallTime, kind: func, se: 0, ae: 78281, vr: 0, cpp: "CB::schema::bhkCharacterController::AccumulateFallTime" }  # name provisional; fallTime += step dt
@@ -1196,3 +1202,65 @@ symbols:
   - { name: bhkCharacterController_ApplyInitialVelocity, kind: func, se: 0, ae: 78283, vr: 0, cpp: "CB::schema::bhkCharacterController::ApplyInitialVelocity" }  # name provisional; outVelocity += velocityTime * initialVelocity while velocityTime > 0 (not chasing/following a ragdoll), else zeroes initialVelocity
   - { name: bhkCharacterStateOnGround_Vtable, kind: data, se: 0, ae: 240833, vr: 0, cpp: "CB::schema::bhkCharacterStateOnGround::`vftable'" }
   - { name: bhkCharacterStateSwimming_Vtable, kind: data, se: 0, ae: 240836, vr: 0, cpp: "CB::schema::bhkCharacterStateSwimming::`vftable'" }
+  - { name: BSTArrayBase_PrepareForPush, kind: func, se: 0, ae: 68163, vr: 0, cpp: "CB::schema::BSTArrayBase::PrepareForPush" }  # name provisional; (allocator, capacity, elemSize) -> new index or -1
+  - { name: bhkCharProxyController_Down, kind: data, se: 0, ae: 411559, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_down" }  # (0,0,-1,0), set by a static initializer
+  - { name: bhkCharProxyControllerCinfo_Vtable, kind: data, se: 0, ae: 240556, vr: 0, cpp: "CB::schema::bhkCharProxyControllerCinfo::`vftable'" }
+  - { name: bhkCharacterCollisionHandler_Singleton, kind: data, se: 0, ae: 404487, vr: 0, cpp: "CB::schema::bhkCharacterCollisionHandler::s_singleton" }  # name provisional
+  - { name: bhkCharacterController_HandleObjectInteraction, kind: func, se: 0, ae: 78304, vr: 0, cpp: "CB::schema::bhkCharacterController::HandleObjectInteraction" }  # name provisional; (input, output)
+  - { name: bhkCharacterController_PushCharacter, kind: func, se: 0, ae: 78303, vr: 0, cpp: "CB::schema::bhkCharacterController::PushCharacter" }  # name provisional; (other, contact)
+  - { name: bhkCharacterPointCollector_FlushEvents, kind: func, se: 0, ae: 80510, vr: 0, cpp: "CB::schema::bhkCharacterPointCollector::FlushEvents" }  # name provisional
+  - { name: bhkCharacterProxy_ReleaseContacts, kind: func, se: 0, ae: 80541, vr: 0, cpp: "CB::schema::bhkCharacterProxy::ReleaseContacts" }  # name provisional
+  - { name: bhkCharacterProxyCinfo_Vtable, kind: data, se: 0, ae: 240551, vr: 0, cpp: "CB::schema::bhkCharacterProxyCinfo::`vftable'" }
+  - { name: bhkWorldObject_GetCollidableRw, kind: func, se: 0, ae: 77793, vr: 0, cpp: "CB::schema::bhkWorldObject::GetCollidableRw" }  # name provisional; takes and drops the write lock
+  - { name: bhkWorldObject_UpdateCollisionFilter, kind: func, se: 0, ae: 77794, vr: 0, cpp: "CB::schema::bhkWorldObject::UpdateCollisionFilter" }  # name provisional
+  - { name: hkpAllCdBodyPairCollector_Vtable, kind: data, se: 0, ae: 196410, vr: 0, cpp: "CB::schema::hkpAllCdBodyPairCollector::`vftable'" }
+  - { name: hkpCharacterProxy_GetManifold, kind: func, se: 0, ae: 62637, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getManifold" }
+  - { name: hkpCharacterProxy_GetShapePhantom, kind: func, se: 0, ae: 62642, vr: 0, cpp: "CB::schema::hkpCharacterProxy::getShapePhantom" }
+  - { name: hkpCharacterProxy_IntegrateWithCollectors, kind: func, se: 0, ae: 62633, vr: 0, cpp: "CB::schema::hkpCharacterProxy::integrateWithCollectors" }  # (stepInfo, gravity, castCollector, startPointCollector): integrateImplementation with a null command
+  - { name: bhkCharacterProxy_RTTI, kind: data, se: 0, ae: 411921, vr: 0, cpp: "CB::schema::bhkCharacterProxy::ms_RTTI" }  # the NiRTTI record
+  - { name: bhkCharacterProxy_Dtor, kind: func, se: 0, ae: 80534, vr: 0, cpp: "??1bhkCharacterProxy@schema@CB@@UEAA@XZ" }
+  - { name: hkpCharacterProxyListener_Vtable, kind: data, se: 0, ae: 240549, vr: 0, cpp: "CB::schema::hkpCharacterProxyListener::`vftable'" }
+  - { name: BSScrapArray_NiPointer_bhkCharProxyController_Resize, kind: func, se: 0, ae: 79170, vr: 0, cpp: "CB::schema::BSScrapArray<CB::schema::NiPointer<CB::schema::bhkCharProxyController> >::Resize" }  # a COMDAT of the proxy controller's unit
+  - { name: BSTArrayAllocatorFunctor_BSTSmallArrayHeapAllocator160_Vtable, kind: data, se: 0, ae: 209876, vr: 0, cpp: "CB::schema::BSTArrayAllocatorFunctor<CB::schema::BSTSmallArrayHeapAllocator<160> >::`vftable'" }
+  - { name: BSTArrayBase_MoveItems, kind: func, se: 0, ae: 68161, vr: 0, cpp: "CB::schema::BSTArrayBase::MoveItems" }  # name provisional; (data, dstIndex, srcIndex, count, elemSize): a memmove
+  - { name: bhkCachingShapePhantom_CreateFromCinfo, kind: func, se: 0, ae: 79113, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::CreateFromCinfo" }  # vtable slot 46
+  - { name: bhkCachingShapePhantom_Vtable, kind: data, se: 0, ae: 240544, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::`vftable'" }
+  - { name: bhkCachingShapePhantom_InstanceCount, kind: data, se: 0, ae: 411652, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::s_instanceCount" }  # name provisional
+  - { name: bhkCharProxyController_Init, kind: func, se: 0, ae: 79136, vr: 0, cpp: "CB::schema::bhkCharProxyController::Init" }  # name provisional
+  - { name: bhkCharProxyController_Vtable, kind: data, se: 0, ae: 240558, vr: 0, cpp: "??_7bhkCharProxyController@schema@CB@@6BhkpCharacterProxyListener@12@@" }  # the hkpCharacterProxyListener base's (+0x00)
+  - { name: bhkCharProxyController_Controllers, kind: data, se: 0, ae: 389426, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_controllers" }  # name provisional; BSTSmallArray<bhkCharProxyController*, 20>
+  - { name: bhkCharProxyController_ControllersLock, kind: data, se: 0, ae: 411654, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_controllersLock" }  # name provisional; BSSpinLock
+  - { name: bhkCharProxyController_Dtor, kind: func, se: 0, ae: 79129, vr: 0, cpp: "??1bhkCharProxyController@schema@CB@@UEAA@XZ" }
+  - { name: bhkCharacterProxy_Vtable, kind: data, se: 0, ae: 240553, vr: 0, cpp: "CB::schema::bhkCharacterProxy::`vftable'" }
+  - { name: bhkCharacterProxy_InstanceCount, kind: data, se: 0, ae: 411920, vr: 0, cpp: "CB::schema::bhkCharacterProxy::s_instanceCount" }  # name provisional
+  - { name: bhkPhantom_Vtable, kind: data, se: 0, ae: 190243, vr: 0, cpp: "CB::schema::bhkPhantom::`vftable'" }
+  - { name: bhkPhantom_InstanceCount, kind: data, se: 0, ae: 411593, vr: 0, cpp: "CB::schema::bhkPhantom::s_instanceCount" }  # name provisional
+  - { name: bhkShapePhantom_Vtable, kind: data, se: 0, ae: 190281, vr: 0, cpp: "CB::schema::bhkShapePhantom::`vftable'" }
+  - { name: hkpCharacterProxy_AddCharacterProxyListener, kind: func, se: 0, ae: 62644, vr: 0, cpp: "CB::schema::hkpCharacterProxy::addCharacterProxyListener" }
+  - { name: hkpCharacterProxy_RemoveCharacterProxyListener, kind: func, se: 0, ae: 62645, vr: 0, cpp: "CB::schema::hkpCharacterProxy::removeCharacterProxyListener" }
+  - { name: bhkCharProxyController_ControllerVtable, kind: data, se: 0, ae: 240560, vr: 0, cpp: "??_7bhkCharProxyController@schema@CB@@6BbhkCharacterController@12@@" }  # the bhkCharacterController base's (+0x10)
+  - { name: bhkShapePhantom_InstanceCount, kind: data, se: 0, ae: 411604, vr: 0, cpp: "CB::schema::bhkShapePhantom::s_instanceCount" }  # name provisional
+  - { name: bhkCharacterController_UpdatePhysics, kind: func, se: 0, ae: 78275, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdatePhysics" }  # (moveData) -> 0 / 2 kHitDamage / 3; Actor's per-frame move
+  - { name: bhkCharacterController_UpdateHeading, kind: func, se: 0, ae: 78285, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdateHeading" }  # name provisional; (heading, dt) -> heading + rotMod * min(rotModTime, dt)
+  - { name: bhkCharacterController_UpdateSlopeTilt, kind: func, se: 0, ae: 78278, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdateSlopeTilt" }  # name provisional; (dt)
+  - { name: bhkCharacterController_SetOrientation, kind: func, se: 0, ae: 78292, vr: 0, cpp: "CB::schema::bhkCharacterController::SetOrientation" }  # name provisional; (const hkQuaternion&), with the flagged pitch / roll
+  - { name: bhkCharacterController_CalculatePitchTime, kind: data, se: 0, ae: 389162, vr: 0, cpp: "CB::schema::bhkCharacterController::s_calculatePitchTime" }  # name provisional; 5.0, what calculatePitchTimer restarts at
+  - { name: bhkCharacterController_SingleStepLengthSq, kind: data, se: 0, ae: 389163, vr: 0, cpp: "CB::schema::bhkCharacterController::s_singleStepLengthSq" }  # name provisional; 10.0
+  - { name: bhkCharacterController_SpeedPctDivisor, kind: data, se: 0, ae: 389164, vr: 0, cpp: "CB::schema::bhkCharacterController::s_speedPctDivisor" }  # name provisional; 0.01
+  - { name: bhkCollisionBox_UpdateFromController, kind: func, se: 0, ae: 80121, vr: 0, cpp: "CB::schema::bhkCollisionBox::UpdateFromController" }  # name provisional; follows the controller's body (node world transform / position)
+  - { name: NiMatrix3_EulerAnglesToAxesZXY, kind: func, se: 0, ae: 70233, vr: 0, cpp: "CB::schema::NiMatrix3::EulerAnglesToAxesZXY" }  # (z, x, y) radians
+  - { name: CRT_sincosf, kind: func, se: 0, ae: 109629, vr: 0, cpp: "__libm_sse2_sincosf_" }  # the CRT's combined sinf/cosf (sin in xmm0[0], cos in xmm0[1])
+  - { name: CharacterHorizontal, kind: data, se: 0, ae: 411556, vr: 0, cpp: "CB::schema::g_characterHorizontal" }  # name provisional; (1, 1, 0, 0), set by a static initializer
+  - { name: bhkCollisionBox_Frozen, kind: data, se: 0, ae: 411738, vr: 0, cpp: "CB::schema::bhkCollisionBox::s_frozen" }  # name provisional; set: no box follows its controller
+  - { name: bhkGetNiObject, kind: func, se: 0, ae: 77805, vr: 0, cpp: "CB::schema::bhkGetNiObject" }  # name provisional; (hkpWorldObject*, key; 0 means 1) -> the node property, null without one
+  - { name: bhkShapePhantom_SetTransform, kind: func, se: 0, ae: 78770, vr: 0, cpp: "CB::schema::bhkShapePhantom::SetTransform" }  # name provisional; hkpShapePhantom::setTransform under the world write lock
+  - { name: bhkShapePhantom_SetPosition, kind: func, se: 0, ae: 78771, vr: 0, cpp: "CB::schema::bhkShapePhantom::SetPosition" }  # name provisional; hkpShapePhantom::setPosition under the world write lock
+  - { name: bhkCharacterController_TryStep, kind: func, se: 0, ae: 78310, vr: 0, cpp: "CB::schema::bhkCharacterController::TryStep" }  # (point) -> whether the character can step onto it
+  - { name: bhkCharacterController_UpdateContactMaterial, kind: func, se: 0, ae: 78309, vr: 0, cpp: "CB::schema::bhkCharacterController::UpdateContactMaterial" }  # name provisional; (point)
+  - { name: bhkCharacterController_GetControllerFromCollidable, kind: func, se: 0, ae: 78299, vr: 0, cpp: "CB::schema::bhkCharacterController::GetControllerFromCollidable" }  # (world object) -> its property 1002, the controller
+  - { name: bhkCharacterController_IsHurtfulBody, kind: func, se: 0, ae: 78298, vr: 0, cpp: "CB::schema::bhkCharacterController::IsHurtfulBody" }  # (body, may be null)
+  - { name: bhkCharacterController_ProcessHurtfulBody, kind: func, se: 0, ae: 78302, vr: 0, cpp: "CB::schema::bhkCharacterController::ProcessHurtfulBody" }  # (body, contact point)
+  - { name: bhkCharacterController_SetSupportBody, kind: func, se: 0, ae: 78286, vr: 0, cpp: "CB::schema::bhkCharacterController::SetSupportBody" }  # m_supportBody = body (hkRefPtr assignment)
+  - { name: bhkIsDynamicMotionType, kind: func, se: 0, ae: 78109, vr: 0, cpp: "CB::schema::bhkIsDynamicMotionType" }  # name provisional; (const MotionType&) -> dynamic / sphere / box / thin-box inertia
+  - { name: fMoveLimitMass_Cached, kind: data, se: 0, ae: 389158, vr: 0, cpp: "CB::schema::g_fMoveLimitMass" }  # name provisional; copy of fMoveLimitMass:HAVOK
+  - { name: bhkCollisionFilter_Singleton, kind: data, se: 0, ae: 400562, vr: 0, cpp: "CB::schema::bhkCollisionFilter::s_singleton" }  # the game's collision filter (a pointer)

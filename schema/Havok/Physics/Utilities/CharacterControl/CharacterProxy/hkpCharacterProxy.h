@@ -3,6 +3,7 @@
 #pragma once
 
 #include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxyCinfo.h>
+#include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxyListener.h>
 #include <Physics/Utilities/CharacterControl/hkpCharacterControl.h>
 #include <Physics/Collide/Agent/Query/hkpCdPointCollector.h>
 #include <Physics/Dynamics/Entity/hkpEntityListener.h>
@@ -39,7 +40,7 @@ namespace CB { namespace schema
         hkReal                 m_maxCharacterSpeedForSolver;      ///< +0xb8
         hkReal                 m_characterStrength;               ///< +0xbc
         hkReal                 m_characterMass;                   ///< +0xc0
-        hkArray<void*>         m_listeners;                       ///< +0xc8 — hkpCharacterProxyListener*
+        hkArray<hkpCharacterProxyListener*> m_listeners;          ///< +0xc8
         /// @brief cos(cinfo.m_maxSlope).
         hkReal                 m_maxSlopeCosine;                  ///< +0xd8
         hkReal                 m_penetrationRecoverySpeed;        ///< +0xdc
@@ -55,9 +56,13 @@ namespace CB { namespace schema
         /// @brief Moves the proxy by its velocity over `stepInfo`, sliding along what it touches.
         void integrate(const hkStepInfo& stepInfo, const hkVector4& worldGravity);
         /// @brief integrate with caller-provided collectors.
-        /// @note Parameter list unconfirmed past the gravity: vanilla's integrate passes a null 4th argument, then the
-        ///       two collectors.
-        void integrateWithCollectors(const hkStepInfo& stepInfo, const hkVector4& gravity, void* unknown, hkpAllCdPointCollector& castCollector,
+        /// @note Out of line in vanilla (0x140b80860): it runs integrateImplementation with a null command.
+        void integrateWithCollectors(const hkStepInfo& stepInfo, const hkVector4& gravity, hkpAllCdPointCollector& castCollector,
+                                     hkpAllCdPointCollector& startPointCollector);
+        /// @brief What integrate and integrateWithCollectors run.
+        /// @note Parameter list unconfirmed past the gravity: both callers pass a null 3rd argument (Havok's
+        ///       hkpCharacterProxyIntegrateCommand*), then the two collectors.
+        void integrateImplementation(const hkStepInfo& stepInfo, const hkVector4& gravity, void* command, hkpAllCdPointCollector& castCollector,
                                      hkpAllCdPointCollector& startPointCollector);
         /// @brief Whether (and how) the proxy is supported in `direction`.
         void checkSupport(const hkVector4& direction, hkpSurfaceInfo& ground);
@@ -72,5 +77,14 @@ namespace CB { namespace schema
         const hkVector4& getLinearVelocity() const;
         /// @note Out of line in vanilla.
         void setLinearVelocity(const hkVector4& velocity);
+        /// @note Out of line in vanilla (0x140b813d0).
+        hkpShapePhantom* getShapePhantom();
+        /// @brief The contact points the last integrate kept.
+        /// @note Out of line in vanilla (0x140b81350).
+        hkArray<hkRootCdPoint>& getManifold();
+        /// @note Out of line in vanilla (0x140b819f0).
+        void addCharacterProxyListener(hkpCharacterProxyListener* listener);
+        /// @pre `listener` was added (vanilla's assert is compiled out).
+        void removeCharacterProxyListener(hkpCharacterProxyListener* listener);
     };
 } }

@@ -42,4 +42,8 @@ namespace CB { namespace schema
     /// @brief fInAirFallingCharGravityMult:HAVOK — the gravity multiplier once an airborne character is below the
     ///        highest point it reached.
     extern Setting fInAirFallingCharGravityMult_HAVOK;
+    /// @brief fMoveLimitMass:HAVOK's value (95 by default), as the game caches it apart from the Setting: dynamic
+    ///        clutter, weapons and projectiles lighter than it do not block a proxy character.
+    /// @note Name provisional; a plain float the settings load copies in (0x1401999e0).
+    extern float g_fMoveLimitMass;
 } }

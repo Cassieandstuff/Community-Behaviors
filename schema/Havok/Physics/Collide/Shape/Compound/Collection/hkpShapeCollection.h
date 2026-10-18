@@ -5,12 +5,12 @@
 ///        the gaps as explicit padding; tools/cbmatch --check-layout proves every named member.
 
 #include <Common/Base/hkBase.h>
-#include <Physics/Collide/Shape/hkpShape.h>
+#include <Physics/Collide/Shape/hkpShapeContainer.h>
 
 namespace CB { namespace schema
 {
-    /// @brief Seeded from Havok's reflection (size 0x30).
-    class hkpShapeCollection : public hkpShape
+    /// @brief Seeded from Havok's reflection (size 0x30); the hkpShapeContainer base (its vtable at +0x20) per the Havok SDK.
+    class hkpShapeCollection : public hkpShape, public hkpShapeContainer
     {
     public:
         enum CollectionType
@@ -24,7 +24,6 @@ namespace CB { namespace schema
             COLLECTION_COMPRESSED_MESH = 6,
             COLLECTION_MAX = 7,
         };
-        hkUint8 m_pad0x20[0x8];
         hkBool m_disableWelding;   ///< +0x28
         hkUint8 m_collectionType;   ///< +0x29
     };

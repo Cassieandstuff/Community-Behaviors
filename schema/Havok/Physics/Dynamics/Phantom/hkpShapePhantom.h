@@ -6,6 +6,9 @@
 
 namespace CB { namespace schema
 {
+    class hkpCdPointCollector;
+    class hkpCdBodyPairCollector;
+
     /// @note 0x1a0 bytes; vtable 0x141974a58. Its collidable's motion points at m_motionState.
     class hkpShapePhantom : public hkpPhantom
     {
@@ -14,6 +17,15 @@ namespace CB { namespace schema
 
         /// @note Out of line in vanilla (0x140b49360); calls the hkpWorldObject constructor with BROAD_PHASE_PHANTOM.
         hkpShapePhantom(const hkpShape* shape, const hkTransform& transform);
+
+        /// @note Slots 15–18 per the Havok SDK; only getPenetrations' (slot 18, the last) is confirmed by a matched call.
+        virtual void setPositionAndLinearCast(const hkVector4& position, const void* input, hkpCdPointCollector& castCollector,
+                                              hkpCdPointCollector* startCollector);   ///< slot 15 — input: hkpLinearCastInput
+        virtual void setTransformAndLinearCast(const hkTransform& transform, const void* input, hkpCdPointCollector& castCollector,
+                                               hkpCdPointCollector* startCollector);  ///< slot 16
+        virtual void getClosestPoints(hkpCdPointCollector& collector, const void* input = HK_NULL);       ///< slot 17 — hkpCollisionInput
+        /// @brief Reports every body pair the phantom's shape overlaps to `collector`.
+        virtual void getPenetrations(hkpCdBodyPairCollector& collector, const void* input = HK_NULL);     ///< slot 18 — hkpCollisionInput
 
         /// @brief Moves the phantom and updates the broad phase.
         void setTransform(const hkTransform& transform);

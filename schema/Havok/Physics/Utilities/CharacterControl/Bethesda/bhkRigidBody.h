@@ -10,6 +10,7 @@
 namespace CB { namespace schema
 {
     class hkpAction;
+    class hkpCollidable;
 
     /// @note 0x28 bytes.
     class bhkWorldObject : public bhkSerializable
@@ -17,6 +18,14 @@ namespace CB { namespace schema
     public:
         /// @note Out of line in vanilla (0x140e82130).
         bhkWorldObject();
+
+        /// @brief The wrapped object's collidable for writing (taking and dropping the world's write lock first), null
+        ///        before one is built.
+        /// @note Name provisional; out of line in vanilla (0x140e821b0).
+        hkpCollidable* GetCollidableRw();
+        /// @brief Has the world re-run the collision filter on the wrapped object (nothing outside a world).
+        /// @note Name provisional; out of line in vanilla (0x140e82230).
+        void UpdateCollisionFilter();
 
         hkUint8 m_pad20[0x28 - 0x20];
     };

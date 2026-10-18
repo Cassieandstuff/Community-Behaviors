@@ -36,6 +36,42 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::bhkCharacterController::ApplyInitialVelocity";
             static constexpr std::uint64_t id      = 78283;
         };
+        /// @brief `public: void CB::schema::bhkCharacterController::ResetContactState(void)` — vanilla 0x140ea0320, EXACT
+        struct ResetContactState : ::CB::core::hooks::Cell<ResetContactState, void(CB::schema::bhkCharacterController *)> {
+            static constexpr const char*   mangled = "?ResetContactState@bhkCharacterController@schema@CB@@QEAAXXZ";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::ResetContactState";
+            static constexpr std::uint64_t id      = 78279;
+        };
+        /// @brief `public: static class CB::schema::bhkCharacterController * CB::schema::bhkCharacterController::GetControllerFromCollidable(class CB::schema::hkpWorldObject const *)` — vanilla 0x140ea0e20, EXACT
+        struct GetControllerFromCollidable : ::CB::core::hooks::Cell<GetControllerFromCollidable, class CB::schema::bhkCharacterController *(class CB::schema::hkpWorldObject const *)> {
+            static constexpr const char*   mangled = "?GetControllerFromCollidable@bhkCharacterController@schema@CB@@SAPEAV123@PEBVhkpWorldObject@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::GetControllerFromCollidable";
+            static constexpr std::uint64_t id      = 78299;
+        };
+        /// @brief `public: void CB::schema::bhkCharacterController::PushCharacter(class CB::schema::bhkCharacterController *,struct CB::schema::hkContactPoint const &)` — vanilla 0x140ea13a0, VARIANT
+        struct PushCharacter : ::CB::core::hooks::Cell<PushCharacter, void(CB::schema::bhkCharacterController *, class CB::schema::bhkCharacterController *, struct CB::schema::hkContactPoint const &)> {
+            static constexpr const char*   mangled = "?PushCharacter@bhkCharacterController@schema@CB@@QEAAXPEAV123@AEBUhkContactPoint@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::PushCharacter";
+            static constexpr std::uint64_t id      = 78303;
+        };
+        /// @brief `public: void CB::schema::bhkCharacterController::UpdateContactMaterial(struct CB::schema::hkRootCdPoint const &)` — vanilla 0x140ea21a0, EXACT
+        struct UpdateContactMaterial : ::CB::core::hooks::Cell<UpdateContactMaterial, void(CB::schema::bhkCharacterController *, struct CB::schema::hkRootCdPoint const &)> {
+            static constexpr const char*   mangled = "?UpdateContactMaterial@bhkCharacterController@schema@CB@@QEAAXAEBUhkRootCdPoint@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::UpdateContactMaterial";
+            static constexpr std::uint64_t id      = 78309;
+        };
+        /// @brief `public: void CB::schema::bhkCharacterController::SetSupportBody(class CB::schema::hkpRigidBody *)` — vanilla 0x140ea0560, EXACT
+        struct SetSupportBody : ::CB::core::hooks::Cell<SetSupportBody, void(CB::schema::bhkCharacterController *, class CB::schema::hkpRigidBody *)> {
+            static constexpr const char*   mangled = "?SetSupportBody@bhkCharacterController@schema@CB@@QEAAXPEAVhkpRigidBody@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::SetSupportBody";
+            static constexpr std::uint64_t id      = 78286;
+        };
+        /// @brief `public: float CB::schema::bhkCharacterController::UpdateHeading(float,float)` — vanilla 0x140ea0500, VARIANT
+        struct UpdateHeading : ::CB::core::hooks::Cell<UpdateHeading, float(CB::schema::bhkCharacterController *, float, float)> {
+            static constexpr const char*   mangled = "?UpdateHeading@bhkCharacterController@schema@CB@@QEAAMMM@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterController::UpdateHeading";
+            static constexpr std::uint64_t id      = 78285;
+        };
     };
 
 }  // namespace CB::feature::havok

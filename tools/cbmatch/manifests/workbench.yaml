@@ -108,3 +108,21 @@ units:
     flags: [/EHsc, /Ob2]
     functions:
       - { name: "CB::schema::bhkCharacterController::GetFallDistance", va: 0x140e9eec0 }
+      - { name: "CB::schema::bhkCharacterController::TryStep", va: 0x140ea22e0 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyControllerWorkbench.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??1bhkCharProxyController@schema@CB@@UEAA@XZ", va: 0x140ed08d0 }
+      - { name: "CB::schema::bhkCharProxyController::GetControllers", va: 0x140ed16b0 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??0bhkCharProxyController@schema@CB@@QEAA@AEAVbhkCharProxyControllerCinfo@12@@Z", va: 0x140ed0700 }
+      - { name: "CB::schema::bhkCharProxyController::Init", va: 0x140ed1880 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxyWorkbench.cpp
+    functions:
+      - { name: "CB::schema::hkpCharacterProxy::removeCharacterProxyListener", va: 0x140b81a50 }
+  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterControllerUpdateWorkbench.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "CB::schema::bhkCharacterController::UpdatePhysics", va: 0x140e9f170 }
