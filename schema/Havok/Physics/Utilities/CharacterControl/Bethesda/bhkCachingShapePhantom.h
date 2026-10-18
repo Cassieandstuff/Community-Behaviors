@@ -26,6 +26,13 @@ namespace CB { namespace schema
     public:
         HK_FORCE_INLINE bhkShapePhantom() : m_unk28(false) { ++s_instanceCount; }
 
+        /// @brief Moves the phantom to `transform`, under its world's write lock.
+        /// @note Name provisional; out of line in vanilla (0x140ec16b0).
+        void SetTransform(const hkTransform& transform);
+        /// @brief Moves the phantom's translation to `position`, under its world's write lock.
+        /// @note Name provisional; out of line in vanilla (0x140ec1740).
+        void SetPosition(const hkVector4& position);
+
         /// @note Cleared by the constructors; meaning unknown.
         bool    m_unk28;   ///< +0x28
         hkUint8 m_pad29[0x30 - 0x29];
