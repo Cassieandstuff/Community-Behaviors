@@ -28,6 +28,11 @@ namespace CB { namespace schema
         /// @brief Takes the controller out of s_controllers and stops listening to its proxy.
         virtual ~bhkCharProxyController();
 
+        /// @brief Rebuilds the support state (kHasPotentialSupportManifold, kTryStep, kCanJump, the support count, normal
+        ///        and body) from the proxy's manifold
+        ///        and edits the solver's planes per contact: a contact too steep to stand on gets TryStep's step-up or,
+        ///        refused, a vertical plane (at most four), and the collision layer decides the rest (other characters
+        ///        pushed, light dynamic bodies ignored, sensor layers stopped).
         virtual void processConstraintsCallback(const hkpCharacterProxy* proxy, const hkArray<hkRootCdPoint>& manifold,
                                                 hkSimplexSolverInput& input);
         /// @brief Counts a new character-controller contact (layer 30) of the controller's own collision group, if it
@@ -89,7 +94,8 @@ namespace CB { namespace schema
         bhkCharacterProxy                  m_characterProxy;   ///< +0x340
         /// @brief The shape phantom the proxy moves.
         NiPointer<bhkCachingShapePhantom>  m_shapePhantom;     ///< +0x5a0
-        /// @brief Whether m_outVelocity was above sqrt(500) Havok units a second at the last Unk_0B.
+        /// @brief Whether m_outVelocity was above sqrt(500) Havok units a second at the last Unk_0B. While set, a step
+        ///        TryStep accepts in processConstraintsCallback leaves the plane and the flags as they are.
         /// @note Name provisional.
         bool                               m_highSpeed;        ///< +0x5a8
         hkUint8                            m_pad5a9[0x5b0 - 0x5a9];

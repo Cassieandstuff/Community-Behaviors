@@ -1,7 +1,7 @@
 /// @file
 /// @brief bhkShapePhantom (Bethesda's wrapper of an hkpShapePhantom) and bhkCollisionBox, the box phantom a character
 ///        controller keeps around its body.
-/// @note Not matched here: declared only as far as the character controller's code uses them.
+/// @note Declared only as far as the character controller's code (and UpdateFromController) uses them.
 #pragma once
 
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkRigidBody.h>

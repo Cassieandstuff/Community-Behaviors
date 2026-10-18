@@ -1,6 +1,6 @@
 /// @file
 /// @brief bhkCharacterProxy: Bethesda's wrapper of an hkpCharacterProxy.
-/// @note Not matched here: declared only as far as the proxy character controller's code uses it.
+/// @note Declared only as far as the proxy character controller's code uses it.
 #pragma once
 
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkWorld.h>

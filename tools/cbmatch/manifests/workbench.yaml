@@ -108,72 +108,21 @@ units:
     flags: [/EHsc, /Ob2]
     functions:
       - { name: "CB::schema::bhkCharacterController::GetFallDistance", va: 0x140e9eec0 }
-      - { name: "CB::schema::bhkCharacterController::ResetContactState", va: 0x140ea0320 }
-      - { name: "CB::schema::bhkCharacterController::GetControllerFromCollidable", va: 0x140ea0e20 }
-      - { name: "CB::schema::bhkCharacterController::PushCharacter", va: 0x140ea13a0 }
-      - { name: "CB::schema::bhkCharacterController::UpdateContactMaterial", va: 0x140ea21a0 }
       - { name: "CB::schema::bhkCharacterController::TryStep", va: 0x140ea22e0 }
-      - { name: "CB::schema::bhkCharacterController::SetSupportBody", va: 0x140ea0560 }
   - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyControllerWorkbench.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "??0bhkCharProxyControllerCinfo@schema@CB@@QEAA@XZ", va: 0x140ed0540 }
-      - { name: "??1bhkCharProxyControllerCinfo@schema@CB@@UEAA@XZ", va: 0x140ed0670 }
-      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_02", va: 0x140ed06a0 }
-      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_03", va: 0x140ed06b0 }
-      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_04", va: 0x140ed06c0 }
-      - { name: "CB::schema::bhkCharProxyControllerCinfo::SetPosition", va: 0x140ed06d0 }
-      - { name: "CB::schema::bhkCharProxyControllerCinfo::Unk_05", va: 0x140ed06f0 }
-      - { name: "CB::schema::bhkCharProxyController::processConstraintsCallback", va: 0x140ed0b40 }
-      - { name: "CB::schema::bhkCharProxyController::contactPointAddedCallback", va: 0x140ed1540 }
-      - { name: "CB::schema::bhkCharProxyController::contactPointRemovedCallback", va: 0x140ed15e0 }
-      - { name: "CB::schema::bhkCharProxyController::objectInteractionCallback", va: 0x140ed1620 }
-      - { name: "CB::schema::bhkCharProxyController::characterInteractionCallback", va: 0x140ed1640 }
-      - { name: "CB::schema::bhkCharProxyController::GetRigidBody", va: 0x140ed1bb0 }
-      - { name: "CB::schema::bhkCharProxyController::SetWorld", va: 0x140ed1bd0 }
-      - { name: "CB::schema::bhkCharProxyController::GetHavokWorld", va: 0x140ed1c60 }
-      - { name: "CB::schema::bhkCharProxyController::GetVDBAlpha", va: 0x140ed1c90 }
-      - { name: "CB::schema::bhkCharProxyController::SetPositionImpl", va: 0x140ed1ca0 }
-      - { name: "CB::schema::bhkCharProxyController::GetPositionImpl", va: 0x140ed1dc0 }
-      - { name: "CB::schema::bhkCharProxyController::GetTransformImpl", va: 0x140ed1ed0 }
-      - { name: "CB::schema::bhkCharProxyController::SetTransformImpl", va: 0x140ed1f20 }
-      - { name: "CB::schema::bhkCharProxyController::GetLinearVelocityImpl", va: 0x140ed1fc0 }
-      - { name: "CB::schema::bhkCharProxyController::SetLinearVelocityImpl", va: 0x140ed2000 }
-      - { name: "CB::schema::bhkCharProxyController::GetCollisionFilterInfo", va: 0x140ed2020 }
-      - { name: "CB::schema::bhkCharProxyController::SetCollisionFilterInfo", va: 0x140ed20b0 }
-      - { name: "CB::schema::bhkCharProxyController::Unk_0B", va: 0x140ed2130 }
-      - { name: "CB::schema::bhkCharProxyController::Unk_0C", va: 0x140ed22c0 }
-      - { name: "CB::schema::bhkCharProxyController::CheckSupportImpl", va: 0x140ed2330 }
-      - { name: "CB::schema::bhkCharProxyController::GetContactCollidables", va: 0x140ed2440 }
-      - { name: "CB::schema::bhkCharProxyController::Unk_0A", va: 0x140ed2520 }
-      - { name: "CB::schema::bhkCharProxyController::RotateImpl", va: 0x140ed2680 }
-      - { name: "??_GbhkCharProxyControllerCinfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ed2950 }
-      - { name: "??0bhkCharProxyController@schema@CB@@QEAA@AEAVbhkCharProxyControllerCinfo@12@@Z", va: 0x140ed0700 }
       - { name: "??1bhkCharProxyController@schema@CB@@UEAA@XZ", va: 0x140ed08d0 }
       - { name: "CB::schema::bhkCharProxyController::GetControllers", va: 0x140ed16b0 }
+  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.cpp
+    flags: [/EHsc, /Ob2]
+    functions:
+      - { name: "??0bhkCharProxyController@schema@CB@@QEAA@AEAVbhkCharProxyControllerCinfo@12@@Z", va: 0x140ed0700 }
       - { name: "CB::schema::bhkCharProxyController::Init", va: 0x140ed1880 }
-      - { name: "??_GbhkCharProxyController@schema@CB@@UEAAPEAXI@Z", va: 0x140ed28c0 }
-      - { name: "??_GbhkCharacterProxy@schema@CB@@UEAAPEAXI@Z", va: 0x140ed29f0 }
-      - { name: "??_GbhkCharacterProxyCinfo@schema@CB@@UEAAPEAXI@Z", va: 0x140ed2a30 }
-      - { name: "??_GhkpCharacterProxyListener@schema@CB@@UEAAPEAXI@Z", va: 0x140ed2ac0 }
-      - { name: "CB::schema::bhkCharacterProxy::GetRTTI", va: 0x140ed2be0 }
-      - { name: "CB::schema::bhkCharacterProxy::GetCinfoSize", va: 0x140ed2bf0 }
-      - { name: "CB::schema::hkpCharacterProxyListener::characterInteractionCallback", va: 0x140ed2d10 }
-      - { name: "CB::schema::hkpCharacterProxyListener::contactPointAddedCallback", va: 0x140ed2d20 }
-      - { name: "CB::schema::hkpCharacterProxyListener::contactPointRemovedCallback", va: 0x140ed2d30 }
-      - { name: "CB::schema::hkpCharacterProxyListener::objectInteractionCallback", va: 0x140ed2d40 }
-      - { name: "CB::schema::hkpCharacterProxyListener::processConstraintsCallback", va: 0x140ed2d50 }
-      - { name: "??1?$NiPointer@VbhkCachingShapePhantom@schema@CB@@@schema@CB@@QEAA@XZ", va: 0x140ed2810 }
-      - { name: "??1bhkShapePhantomCinfo@schema@CB@@QEAA@XZ", va: 0x140ed2840 }
   - source: ../workbench/Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxyWorkbench.cpp
     functions:
       - { name: "CB::schema::hkpCharacterProxy::removeCharacterProxyListener", va: 0x140b81a50 }
   - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterControllerUpdateWorkbench.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "CB::schema::bhkCharacterController::UpdateHeading", va: 0x140ea0500 }
       - { name: "CB::schema::bhkCharacterController::UpdatePhysics", va: 0x140e9f170 }
-  - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCollisionBoxWorkbench.cpp
-    flags: [/EHsc, /Ob2]
-    functions:
-      - { name: "CB::schema::bhkCollisionBox::UpdateFromController", va: 0x140f035b0 }

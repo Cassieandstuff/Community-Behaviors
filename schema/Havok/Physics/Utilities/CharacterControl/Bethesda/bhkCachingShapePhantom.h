@@ -1,7 +1,7 @@
 /// @file
 /// @brief bhkPhantom, bhkShapePhantom and bhkCachingShapePhantom: Bethesda's wrappers of an hkpPhantom, an
 ///        hkpShapePhantom and an hkpCachingShapePhantom.
-/// @note Not matched here: declared only as far as the proxy character controller's code uses them.
+/// @note Declared only as far as the proxy character controller's code uses them.
 #pragma once
 
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkRigidBody.h>

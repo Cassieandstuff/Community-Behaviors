@@ -12,18 +12,6 @@
 
 namespace CB { namespace schema
 {
-    float bhkCharacterController::UpdateHeading(float heading, float deltaTime)
-    {
-        if (m_rotModTime > 0.0f) {
-            const float turned = hkMath::min2(m_rotModTime, deltaTime) * m_rotMod + heading;
-            m_rotModTime -= deltaTime;
-            m_rotMod -= 0.05f;
-            return turned;
-        }
-        m_rotMod = 0.0f;
-        return heading;
-    }
-
     namespace
     {
         /// @note By value, with w stored first: vanilla's temporaries for a vector built from three floats.

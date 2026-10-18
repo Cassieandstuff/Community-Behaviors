@@ -25,84 +25,6 @@ namespace CB { namespace schema
         return 0.0f;
     }
 
-    void bhkCharacterController::ResetContactState()
-    {
-        m_flags &= ~4u;
-        m_supportNorm.setZero4();
-        m_orientationCtrl->Reset();
-    }
-
-    bhkCharacterController* bhkCharacterController::GetControllerFromCollidable(const hkpWorldObject* object)
-    {
-        return reinterpret_cast<bhkCharacterController*>(GetHavokProperty(1002, object));
-    }
-
-    void bhkCharacterController::PushCharacter(bhkCharacterController* other, const hkContactPoint& contact)
-    {
-        m_bumpedCharCollisionObject = other->GetRigidBody();
-        if (other->m_pushPriority <= m_pushPriority && !(other->m_flags & 0x4000)) {
-            hkVector4 velocity;
-            other->GetLinearVelocityImpl(velocity);
-            hkVector4 direction = contact.m_separatingNormal;
-            direction(2) = 0.0f;
-            const hkSimdReal lengthSquared = direction.lengthSquared3();
-            if (lengthSquared.getReal() > 0.0f) direction.mul4(hkMath::sqrtInverseOfSplat(lengthSquared));
-            GetLinearVelocityImpl(velocity);
-            velocity(2) = 0.0f;
-            hkReal speed = velocity.length3().getReal();
-            if (m_unk2a0 == 2) speed += 20.0f;
-            speed *= -0.25f;
-            hkVector4 push;
-            push.setMul4(hkSimdReal(speed), direction);
-            other->m_pushDelta.add4(push);
-            ++other->m_pushCount;
-            hkVector4 impulse;
-            impulse(0) = push(0) * bhkWorld::s_worldScaleInverse * 0.0142875f;
-            impulse(1) = push(1) * bhkWorld::s_worldScaleInverse * 0.0142875f;
-            impulse(2) = push(2) * bhkWorld::s_worldScaleInverse * 0.0142875f;
-            impulse(3) = 0.0f;
-            impulse.mul4(hkSimdReal(100.0f));
-            if (impulse.lengthSquared3().getReal() > other->m_initialVelocity.lengthSquared3().getReal()) {
-                other->m_velocityTime    = 0.01f;
-                other->m_initialVelocity = impulse;
-            }
-            m_orientationCtrl->OnPushCharacter(this, contact, other);
-        }
-    }
-
-    void bhkCharacterController::UpdateContactMaterial(const hkRootCdPoint& point)
-    {
-        if (m_surfaceMaterial == 0) {
-            const hkpCollidable* collidable = point.m_rootCollidableB;
-            hkUint32 material = 0;
-            if (collidable) {
-                const hkUint32 layer = static_cast<const hkpCollidable*>(collidable->getRootCdBody())->getCollisionFilterInfo() & 0x7f;
-                m_contactLayer = layer;
-                const hkpRigidBody* body = hkpGetRigidBody(static_cast<const hkpCollidable*>(collidable->getRootCdBody()));
-                m_contactVelocity = body ? body->getLinearVelocity() : hkVector4::getZero();
-                if (point.m_shapeKeyB == HK_INVALID_SHAPE_KEY) {
-                    const hkpShape* shape = collidable->getShape();
-                    if (shape) {
-                        const bhkShape* wrapper = reinterpret_cast<const bhkShape*>(shape->getUserData());
-                        if (wrapper) material = wrapper->m_materialID;
-                    }
-                } else if (layer != 17) {
-                    const bhkShapeCollection* collection = bhkGetShapeCollection(collidable);
-                    if (collection) {
-                        if (collection->GetShape()->getType() == HK_SHAPE_LIST && static_cast<const bhkListShape*>(collection)->m_useListMaterial) {
-                            material = collection->m_materialID;
-                        } else {
-                            material = collection->GetChildMaterialID(point.m_shapeKeyB);
-                        }
-                    }
-                }
-                m_surfaceMaterial = material;
-                if (bhkIsStairsMaterial(material)) m_flags |= 0x1000000;
-                else                               m_flags &= ~0x1000000u;
-            }
-        }
-    }
-
     /// @brief `numVectors` points of `vectorsIn` placed by `t` into `vectorsOut`, last first.
     /// @note Havok's hkVector4Util::transformPoints, inlined here as vanilla has it (the transform held in registers,
     ///       each point (c0·x + c1·y) + (c2·z + t)).
@@ -225,10 +147,5 @@ namespace CB { namespace schema
         }
         if (canStep) m_orientationCtrl->OnSupportContact(point);
         return canStep;
-    }
-
-    void bhkCharacterController::SetSupportBody(hkpRigidBody* body)
-    {
-        m_supportBody = body;
     }
 } }
