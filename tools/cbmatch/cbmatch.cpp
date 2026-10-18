@@ -289,6 +289,9 @@ struct PeImage {
     std::vector<Section>                    sections;
     std::uint32_t                           pdataRva = 0, pdataSize = 0;
     std::map<std::uint64_t, std::string>    importsBySlot;   ///< IAT slot address → imported function name
+    /// @brief The TLS template (the TLS directory's raw data, absolute): every thread's block starts as a copy of it, so
+    ///        a thread_local's offset into the block is its address here minus tlsBegin.
+    std::uint64_t                           tlsBegin = 0, tlsEnd = 0;
 
     std::optional<std::size_t> fileOffset(std::uint32_t rva, std::size_t n) const
     {
@@ -392,6 +395,13 @@ PeImage loadPe(const fs::path& path)
                 if (thunk == 0) break;
                 if (!(thunk >> 63)) pe.importsBySlot[pe.imageBase + iat + k * 8] = cstr(static_cast<std::uint32_t>(thunk) + 2);
             }
+        }
+    }
+    if (nDirs > IMAGE_DIRECTORY_ENTRY_TLS) {
+        const auto tlsRva = rd<std::uint32_t>(b, opt + 112 + IMAGE_DIRECTORY_ENTRY_TLS * 8);
+        if (const auto o = tlsRva ? pe.fileOffset(tlsRva, 16) : std::nullopt) {
+            pe.tlsBegin = rd<std::uint64_t>(b, *o);
+            pe.tlsEnd   = rd<std::uint64_t>(b, *o + 8);
         }
     }
     return pe;
@@ -2767,6 +2777,35 @@ std::optional<std::string> selfCheck(const std::string& name, std::uint64_t targ
     return std::nullopt;
 }
 
+/// @brief A thread_local's offset into every thread's TLS block, which is what its SECREL field holds: engine.yaml pins
+///        its copy in the exe's TLS template, so the offset is that address minus the template's start. nullopt = not
+///        pinned, or pinned outside the template.
+/// @note The block offset does not move with the code, so the field is a constant the image carries as is; the code
+///       reaches the block through the exe's own _tls_index (an ordinary data reference).
+std::optional<std::uint32_t> tlsOffset(const CoffFunction::Target& t, const EngineSymbols& syms, const PeImage& pe)
+{
+    auto it = syms.byCpp.find(t.name);
+    if (it == syms.byCpp.end()) it = syms.byCpp.find(t.mangled);
+    if (it == syms.byCpp.end() || it->second < pe.tlsBegin || it->second >= pe.tlsEnd) return std::nullopt;
+    return static_cast<std::uint32_t>(it->second - pe.tlsBegin);
+}
+
+/// @brief The 32-bit immediate or displacement of `y` in the slot that, in `x`, sits at byte `rel` of the instruction.
+///        nullopt = `x` has no 32-bit field there, or `y` has none in that slot.
+std::optional<std::uint32_t> fieldLike(const Insn& x, std::uint32_t rel, const Insn& y)
+{
+    if (x.ins.raw.disp.size == 32 && x.ins.raw.disp.offset == rel) {
+        if (y.ins.raw.disp.size != 32) return std::nullopt;
+        return static_cast<std::uint32_t>(y.ins.raw.disp.value);
+    }
+    for (int k = 0; k < 2; ++k) {
+        if (x.ins.raw.imm[k].size != 32 || x.ins.raw.imm[k].offset != rel) continue;
+        if (y.ins.raw.imm[k].size != 32) return std::nullopt;
+        return static_cast<std::uint32_t>(y.ins.raw.imm[k].value.u);
+    }
+    return std::nullopt;
+}
+
 void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn>& a, const std::vector<Insn>& b, std::uint64_t va,
                       const EngineSymbols& syms, const PeImage& pe)
 {
@@ -2786,6 +2825,18 @@ void verifyReferences(Match& m, const CoffFunction& ours, const std::vector<Insn
             if (t == ours.targets.end()) continue;
             if (t->second.mangled.rfind("??_C@", 0) == 0 || t->second.name == "`string'") continue;   // string literals
             if (t->second.local) { ++m.refsVerified; continue; }   // into this function (a jump table): checkTables compares it
+            if (t->second.type == IMAGE_REL_AMD64_SECREL) {
+                // A thread_local: no address to compare, but vanilla's paired instruction carries the block offset in
+                // the same field.
+                const auto expect = tlsOffset(t->second, syms, pe);
+                const auto actual = ib < 0 ? std::nullopt : fieldLike(x, o - x.off, b[std::size_t(ib)]);
+                if (!expect || !actual) { ++m.refsUnverifiable; continue; }
+                const auto want = static_cast<std::uint32_t>(*expect + t->second.addend);
+                if (*actual == want) ++m.refsVerified;
+                else m.refsWrong.push_back("thread_local " + t->second.name + " should sit at TLS block +0x" + hex(want) + " but vanilla +0x" +
+                                           hex(b[std::size_t(ib)].off) + " uses +0x" + hex(*actual));
+                continue;
+            }
             const bool constant = t->second.mangled.rfind("__real@", 0) == 0 || t->second.mangled.rfind("__xmm@", 0) == 0;
             if (ib < 0) {
                 if (constant) deferred.push_back({ &x, t->second.mangled, std::string() });   // unverifiable unless found
@@ -3832,7 +3883,8 @@ struct PlacedRef {
 };
 
 /// @brief Where every reference of our function points: engine symbols from engine.yaml, compiler constants and string
-///        literals at vanilla's copy (the instruction alignment says which), imports at the exe's slot. `code` gets our
+///        literals at vanilla's copy (the instruction alignment says which), imports at the exe's slot, thread_locals at
+///        the game's TLS block offset (written into `code`: no PlacedRef, it does not move with the code). `code` gets our
 ///        bytes with jump-table entries filled in and any constant vanilla has no copy of appended. Returns why not, or
 ///        empty.
 /// @note The one resolution both --diff (relocateOurs) and the in-game runtime image (--emit-image) use, so the code that
@@ -3866,6 +3918,13 @@ std::string placeReferences(const CoffFunction& ours, const Bytes& vanilla, std:
         std::optional<std::uint64_t> target;
         bool                         own = false;
         if (t.type == IMAGE_REL_AMD64_ADDR32NB && t.local) continue;
+        if (t.type == IMAGE_REL_AMD64_SECREL) {
+            const auto off = tlsOffset(t, syms, pe);
+            if (!off) return "cannot place thread_local " + t.name + " at +0x" + hex(at) + " (no engine.yaml pin inside the exe's TLS template)";
+            const auto v = static_cast<std::uint32_t>(*off + rd<std::int32_t>(code, at));
+            std::memcpy(code.data() + at, &v, 4);
+            continue;
+        }
         if (t.mangled == "__ImageBase") target = 0, own = true;
         auto                         it = syms.byCpp.find(t.name);
         if (it == syms.byCpp.end()) it = syms.byCpp.find(t.mangled);

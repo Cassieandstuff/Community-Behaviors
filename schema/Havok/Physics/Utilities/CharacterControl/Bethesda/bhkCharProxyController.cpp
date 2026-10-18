@@ -280,8 +280,8 @@ namespace CB { namespace schema
         AddHavokProperty(1002, reinterpret_cast<hkUlong>(static_cast<bhkCharacterController*>(this)));
     }
 
-    /// @note Matches as VARIANT with no --diff-gated rule; --diff cannot run it (the emulator cannot place the
-    ///       thread-local t_memoryContext). Spellings it depends on: kTryStep cleared through the controller base
+    /// @note Matches as VARIANT with no --diff-gated rule; --diff agrees on every seed it runs to the end (t_memoryContext
+    ///       placed at the game's TLS block offset). Spellings it depends on: kTryStep cleared through the controller base
     ///       pointer (vanilla's read-modify-write in memory, the flags reloaded for the kCheckSupport test); the capsule
     ///       tops in sibling scopes (vanilla's frame shares their slot with the loop's plane); m_previousState read
     ///       before hkpCharacterContext::getState; the phantom layers 14 / 30 as a switch.

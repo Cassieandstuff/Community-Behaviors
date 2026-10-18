@@ -55,7 +55,8 @@ namespace CB { namespace schema
     };
 
     /// @brief The calling thread's memory context: the id the engine heap files allocations under.
-    /// @note Name provisional; a thread-local int (the thread's TLS block +0x768).
+    /// @note Name provisional; a thread-local int (the thread's TLS block +0x768, pinned in engine.yaml as
+    ///       MemoryContext, kind tls). Never defined: the runtime image reaches the game's slot through its _tls_index.
     extern __declspec(thread) hkInt32 t_memoryContext;
 
     /// @brief Files the allocations made in its scope under `context`, restoring the thread's previous one after.

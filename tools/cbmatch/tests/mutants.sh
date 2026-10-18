@@ -11,7 +11,8 @@
 # Controls (x_*) compile the same functions unmutated: they must come out VARIANT with no divergence, or a harness that
 # diverges on everything would pass. The control-only families (l, n) guard harness abilities: l a leaf without .pdata
 # (vanilla's length scanned from its own code), n a function --diff can only run by finding a string literal by content
-# (and n1, a changed literal, must fail).
+# (and n1, a changed literal, must fail), P bhkCharProxyController::processConstraintsCallback, a function --diff can
+# only run by placing a thread_local at the game's TLS block offset (and P1, a changed memory context, must fail).
 # Families: m activate, u update, d deactivate, g generate, a advanceLocalTime (x*2 == x+x canonicalization),
 # r resetAtEnd (callee-saved save/restore), t processTriggers (crossed reads), p processTriggersInRange,
 # c processAcyclicTriggers (repeated guard, materialized null test), e getExtractedMotionDelta (crossed stores,
@@ -30,8 +31,8 @@
 # A on incoming stack-argument slots, M, and a __chkstk frame; B1 inverts the walkable test and must diverge. Taking
 # Havok's -normalDotUp for Bethesda's -signedDotUp is NOT caught: seeds that enter the contact loop exhaust the forcing
 # rounds before the vertical-plane block, so --diff never compares its math). A family's `uflags` are its unit's
-# manifest flags (B: /EHsc /Ob2). A mutant of a
-# header is compiled against a shadowing copy of that header (unit /I first).
+# manifest flags (B: /EHsc /Ob2) and its `tc` the one toolchain it is compiled with (vs2015; P: vs2017, where its
+# unit matches). A mutant of a header is compiled against a shadowing copy of that header (unit /I first).
 set -e
 cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
 work=${2:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
@@ -41,7 +42,7 @@ havok="$repo/schema/Havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
 expectVariant=" u3 t3 c1 k2 y2 h1 "
 gated=" o z v B "
-controlOnly=" l n f i L "
+controlOnly=" l n f i L P "
 
 mkdir -p "$work"
 work=$(cd "$work" && pwd -W)
@@ -51,7 +52,7 @@ names=""
 
 # target <name>: the class, source file, function and vanilla address a name's family letter stands for.
 target() {
-    cls=hkbClipGenerator src=$clip full="" uflags=""
+    cls=hkbClipGenerator src=$clip full="" uflags="" tc=vs2015
     case "$1" in
         m*) fn=activate va=0x140acd750 ;;           u*) fn=update va=0x140acde40 ;;
         d*) fn=deactivate va=0x140ace1e0 ;;         g*) fn=generate va=0x140ace400 ;;
@@ -83,6 +84,8 @@ target() {
             fn=discardVerticalPoints va=0x140f19a50 ;;
         B*) cls=bhkCharRigidBodyController src=Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.cpp
             fn=considerCollisionEntryForSlope va=0x140ed3710 uflags="/EHsc, /Ob2" ;;
+        P*) cls=bhkCharProxyController src=Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.cpp
+            fn=processConstraintsCallback va=0x140ed0b40 uflags="/EHsc, /Ob2" tc=vs2017 ;;
     esac
 }
 
@@ -100,7 +103,7 @@ mutant() {
     sed "$expr" "$havok/$file" > "$out"
     if cmp -s "$out" "$havok/$file"; then echo "UNCHANGED: $name (its pattern no longer matches $file)"; exit 1; fi
     units="$units
-  - { source: \"$source\", flags: $flags, functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
+  - { source: \"$source\", flags: $flags, toolchains: [$tc], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
     names="$names $name"
 }
 
@@ -174,12 +177,14 @@ mutant L1_inverted_match      "$listener" 's/positionEqual)) == 0xf) {/positionE
 mutant L2_dropped_break       "$listener" 's/^                        break;$/                        \/\/ break dropped/'
 bslope="Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.cpp"
 mutant B1_walkable_inverted   "$bslope" 's/walkable = !IsSlopeBlocking(/walkable = IsSlopeBlocking(/'
+bproxy="Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.cpp"
+mutant P1_wrong_memory_context "$bproxy" 's/MemoryContextScope context(0x32);/MemoryContextScope context(0x36);/'
 
 # control <family letter>: the family's function compiled from the unmutated source.
 control() {
     target "$1"
     units="$units
-  - { source: \"$havok/$src\", flags: [$uflags], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
+  - { source: \"$havok/$src\", flags: [$uflags], toolchains: [$tc], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
     names="$names x_$fn"
 }
 for family in $expectVariant $gated $controlOnly; do control "$family"; done
@@ -190,6 +195,7 @@ runtimes:
 registry: "$repo/src/core/hooks/registry/engine.yaml"
 toolchains:
   vs2015: "\${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
+  vs2017: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe"
 flags: [/O2, /Ob1, /GS-, /fp:fast]
 includes: ["$havok", "\${VS140COMNTOOLS}../../VC/include"]
 units:$units
