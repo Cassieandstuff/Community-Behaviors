@@ -55,11 +55,41 @@ namespace CB::feature::havok {
             static constexpr const char*   name    = "CB::schema::bhkCharacterRigidBody::SaveBinary";
             static constexpr std::uint64_t id      = 80553;
         };
+        /// @brief `public: static class CB::schema::NiObject * CB::schema::bhkCharacterRigidBody::CreateObject(void)` — vanilla 0x140f19250, EXACT
+        struct CreateObject : ::CB::core::hooks::Cell<CreateObject, class CB::schema::NiObject *()> {
+            static constexpr const char*   mangled = "?CreateObject@bhkCharacterRigidBody@schema@CB@@SAPEAVNiObject@23@XZ";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterRigidBody::CreateObject";
+            static constexpr std::uint64_t id      = 80554;
+        };
         /// @brief `public: virtual CB::schema::bhkCharacterRigidBody::~bhkCharacterRigidBody(void)` — vanilla 0x140f19310, EXACT
         struct dtor : ::CB::core::hooks::Cell<dtor, void(CB::schema::bhkCharacterRigidBody *)> {
             static constexpr const char*   mangled = "??1bhkCharacterRigidBody@schema@CB@@UEAA@XZ";
             static constexpr const char*   name    = "CB::schema::bhkCharacterRigidBody::~bhkCharacterRigidBody";
             static constexpr std::uint64_t id      = 80555;
+        };
+        /// @brief `public: virtual class CB::schema::NiObject * CB::schema::bhkCharacterRigidBody::CreateClone(class CB::schema::NiCloningProcess &)` — vanilla 0x140f19390, EXACT
+        struct CreateClone : ::CB::core::hooks::Cell<CreateClone, class CB::schema::NiObject *(CB::schema::bhkCharacterRigidBody *, class CB::schema::NiCloningProcess &)> {
+            static constexpr const char*   mangled = "?CreateClone@bhkCharacterRigidBody@schema@CB@@UEAAPEAVNiObject@23@AEAVNiCloningProcess@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterRigidBody::CreateClone";
+            static constexpr std::uint64_t id      = 80556;
+        };
+        /// @brief `public: virtual class CB::schema::hkSerializableCinfo * CB::schema::bhkCharacterRigidBody::GetCinfo(bool &)` — vanilla 0x140f19480, EXACT
+        struct GetCinfo : ::CB::core::hooks::Cell<GetCinfo, class CB::schema::hkSerializableCinfo *(CB::schema::bhkCharacterRigidBody *, bool &)> {
+            static constexpr const char*   mangled = "?GetCinfo@bhkCharacterRigidBody@schema@CB@@UEAAPEAVhkSerializableCinfo@23@AEA_N@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterRigidBody::GetCinfo";
+            static constexpr std::uint64_t id      = 80557;
+        };
+        /// @brief `public: virtual void CB::schema::bhkCharacterRigidBody::FreeCinfo(bool)` — vanilla 0x140f195f0, EXACT
+        struct FreeCinfo : ::CB::core::hooks::Cell<FreeCinfo, void(CB::schema::bhkCharacterRigidBody *, bool)> {
+            static constexpr const char*   mangled = "?FreeCinfo@bhkCharacterRigidBody@schema@CB@@UEAAX_N@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterRigidBody::FreeCinfo";
+            static constexpr std::uint64_t id      = 80558;
+        };
+        /// @brief `public: virtual void CB::schema::bhkCharacterRigidBody::CreateFromCinfo(class CB::schema::hkSerializableCinfo *)` — vanilla 0x140f196b0, EXACT
+        struct CreateFromCinfo : ::CB::core::hooks::Cell<CreateFromCinfo, void(CB::schema::bhkCharacterRigidBody *, class CB::schema::hkSerializableCinfo *)> {
+            static constexpr const char*   mangled = "?CreateFromCinfo@bhkCharacterRigidBody@schema@CB@@UEAAXPEAVhkSerializableCinfo@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharacterRigidBody::CreateFromCinfo";
+            static constexpr std::uint64_t id      = 80559;
         };
         /// @brief `public: virtual class CB::schema::hkpWorld * CB::schema::bhkCharacterRigidBody::GetWorld1(void)` — vanilla 0x140f197c0, EXACT
         struct GetWorld1 : ::CB::core::hooks::Cell<GetWorld1, class CB::schema::hkpWorld *(CB::schema::bhkCharacterRigidBody *)> {

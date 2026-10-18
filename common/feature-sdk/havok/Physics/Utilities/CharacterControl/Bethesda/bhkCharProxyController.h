@@ -12,6 +12,12 @@
 namespace CB::feature::havok {
 
     struct bhkCharProxyController {
+        /// @brief `public: virtual void CB::schema::bhkCharProxyController::processConstraintsCallback(class CB::schema::hkpCharacterProxy const *,struct CB::schema::hkArray<struct CB::schema::hkRootCdPoint> const &,struct CB::schema::hkSimplexSolverInput &)` — vanilla 0x140ed0b40, VARIANT
+        struct processConstraintsCallback : ::CB::core::hooks::Cell<processConstraintsCallback, void(CB::schema::bhkCharProxyController *, class CB::schema::hkpCharacterProxy const *, struct CB::schema::hkArray<struct CB::schema::hkRootCdPoint> const &, struct CB::schema::hkSimplexSolverInput &)> {
+            static constexpr const char*   mangled = "?processConstraintsCallback@bhkCharProxyController@schema@CB@@UEAAXPEBVhkpCharacterProxy@23@AEBU?$hkArray@UhkRootCdPoint@schema@CB@@@23@AEAUhkSimplexSolverInput@23@@Z";
+            static constexpr const char*   name    = "CB::schema::bhkCharProxyController::processConstraintsCallback";
+            static constexpr std::uint64_t id      = 79130;
+        };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::contactPointAddedCallback(class CB::schema::hkpCharacterProxy const *,struct CB::schema::hkRootCdPoint const &)` — vanilla 0x140ed1540, VARIANT
         struct contactPointAddedCallback : ::CB::core::hooks::Cell<contactPointAddedCallback, void(CB::schema::bhkCharProxyController *, class CB::schema::hkpCharacterProxy const *, struct CB::schema::hkRootCdPoint const &)> {
             static constexpr const char*   mangled = "?contactPointAddedCallback@bhkCharProxyController@schema@CB@@UEAAXPEBVhkpCharacterProxy@23@AEBUhkRootCdPoint@23@@Z";

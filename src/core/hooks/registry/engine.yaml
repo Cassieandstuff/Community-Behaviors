@@ -5,9 +5,11 @@
 #
 # Fields per symbol (one line each — the codegen parses this fixed shape):
 #   name   C++ identifier (CB::core::hooks::engine::<name>)
-#   kind   func | call | data
+#   kind   func | call | data | tls
 #            func = a function entry; call = a CALL rel32 INSIDE a function (written <id>+0x<offset>,
-#            offsets differ per runtime); data = a global / string / static object.
+#            offsets differ per runtime); data = a global / string / static object; tls = a thread_local,
+#            written <TLS template id>+0x<its offset into every thread's TLS block> (the TLS directory's raw
+#            data is the template; cbmatch places the block offset, checked against vanilla's instruction).
 #   se     Address Library ID for SE 1.5.97          (0 = no verified SE equivalent → unavailable on SE)
 #   ae     Address Library ID for AE (1.6.1170 AND 1.7.104 — AE ids carry across AE versions; every entry
 #          was verified in both builds: hash-identical, relocation-only, or benign same-function changes)
@@ -1140,6 +1142,7 @@ symbols:
   - { name: ScrapHeap_Allocate, kind: func, se: 0, ae: 68144, vr: 0, cpp: "CB::schema::ScrapHeap::Allocate" }  # (size, alignment)
   - { name: ScrapHeap_Deallocate, kind: func, se: 0, ae: 68146, vr: 0, cpp: "CB::schema::ScrapHeap::Deallocate" }
   - { name: TlsIndex, kind: data, se: 0, ae: 415542, vr: 0, cpp: "_tls_index" }  # the CRT's: thread_local accesses index the TLS array with it
+  - { name: MemoryContext, kind: tls, se: 0, ae: 290582+0x768, vr: 0, cpp: "CB::schema::t_memoryContext" }  # name provisional; 290582 = the TLS template's start in both AE builds, block +0x768 in both
   - { name: bhkSerializable_LoadBinary, kind: func, se: 0, ae: 78653, vr: 0, cpp: "CB::schema::bhkSerializable::LoadBinary" }
   - { name: bhkSerializable_LinkObject, kind: func, se: 0, ae: 78654, vr: 0, cpp: "CB::schema::bhkSerializable::LinkObject" }
   - { name: bhkSerializable_RegisterStreamables, kind: func, se: 0, ae: 78655, vr: 0, cpp: "CB::schema::bhkSerializable::RegisterStreamables" }
