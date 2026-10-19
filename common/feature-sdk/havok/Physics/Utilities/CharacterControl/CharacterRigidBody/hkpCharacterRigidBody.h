@@ -73,19 +73,22 @@ namespace CB::feature::havok {
             static constexpr std::uint64_t id      = 62458;
         };
         /// @brief `public: virtual void CB::schema::hkpCharacterRigidBody::entityAddedCallback(class CB::schema::hkpEntity *)` — vanilla 0x140b7ce40, VARIANT
-        struct entityAddedCallback : ::CB::core::hooks::Cell<entityAddedCallback, void(CB::schema::hkpCharacterRigidBody *, class CB::schema::hkpEntity *)> {
+        /// @warning `this` is its hkpEntityListener subobject, not the hkpCharacterRigidBody (MSVC passes a non-primary base's virtuals that base).
+        struct entityAddedCallback : ::CB::core::hooks::Cell<entityAddedCallback, void(CB::schema::hkpEntityListener *, class CB::schema::hkpEntity *)> {
             static constexpr const char*   mangled = "?entityAddedCallback@hkpCharacterRigidBody@schema@CB@@UEAAXPEAVhkpEntity@23@@Z";
             static constexpr const char*   name    = "CB::schema::hkpCharacterRigidBody::entityAddedCallback";
             static constexpr std::uint64_t id      = 62460;
         };
         /// @brief `public: virtual void CB::schema::hkpCharacterRigidBody::entityRemovedCallback(class CB::schema::hkpEntity *)` — vanilla 0x140b7cea0, VARIANT
-        struct entityRemovedCallback : ::CB::core::hooks::Cell<entityRemovedCallback, void(CB::schema::hkpCharacterRigidBody *, class CB::schema::hkpEntity *)> {
+        /// @warning `this` is its hkpEntityListener subobject, not the hkpCharacterRigidBody (MSVC passes a non-primary base's virtuals that base).
+        struct entityRemovedCallback : ::CB::core::hooks::Cell<entityRemovedCallback, void(CB::schema::hkpEntityListener *, class CB::schema::hkpEntity *)> {
             static constexpr const char*   mangled = "?entityRemovedCallback@hkpCharacterRigidBody@schema@CB@@UEAAXPEAVhkpEntity@23@@Z";
             static constexpr const char*   name    = "CB::schema::hkpCharacterRigidBody::entityRemovedCallback";
             static constexpr std::uint64_t id      = 62461;
         };
         /// @brief `public: virtual void CB::schema::hkpCharacterRigidBody::postSimulationCallback(class CB::schema::hkpWorld *)` — vanilla 0x140b7cef0, EXACT
-        struct postSimulationCallback : ::CB::core::hooks::Cell<postSimulationCallback, void(CB::schema::hkpCharacterRigidBody *, class CB::schema::hkpWorld *)> {
+        /// @warning `this` is its hkpWorldPostSimulationListener subobject, not the hkpCharacterRigidBody (MSVC passes a non-primary base's virtuals that base).
+        struct postSimulationCallback : ::CB::core::hooks::Cell<postSimulationCallback, void(CB::schema::hkpWorldPostSimulationListener *, class CB::schema::hkpWorld *)> {
             static constexpr const char*   mangled = "?postSimulationCallback@hkpCharacterRigidBody@schema@CB@@UEAAXPEAVhkpWorld@23@@Z";
             static constexpr const char*   name    = "CB::schema::hkpCharacterRigidBody::postSimulationCallback";
             static constexpr std::uint64_t id      = 62462;

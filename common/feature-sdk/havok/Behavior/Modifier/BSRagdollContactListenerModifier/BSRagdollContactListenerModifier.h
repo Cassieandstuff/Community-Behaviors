@@ -79,7 +79,8 @@ namespace CB::feature::havok {
             static constexpr std::uint64_t id      = 63091;
         };
         /// @brief `public: virtual void CB::schema::BSRagdollContactListenerModifier::contactPointCallback(struct CB::schema::hkpContactPointEvent const &)` — vanilla 0x140b95a50, VARIANT
-        struct contactPointCallback : ::CB::core::hooks::Cell<contactPointCallback, void(CB::schema::BSRagdollContactListenerModifier *, struct CB::schema::hkpContactPointEvent const &)> {
+        /// @warning `this` is its hkpContactListener subobject, not the BSRagdollContactListenerModifier (MSVC passes a non-primary base's virtuals that base).
+        struct contactPointCallback : ::CB::core::hooks::Cell<contactPointCallback, void(CB::schema::hkpContactListener *, struct CB::schema::hkpContactPointEvent const &)> {
             static constexpr const char*   mangled = "?contactPointCallback@BSRagdollContactListenerModifier@schema@CB@@UEAAXAEBUhkpContactPointEvent@23@@Z";
             static constexpr const char*   name    = "CB::schema::BSRagdollContactListenerModifier::contactPointCallback";
             static constexpr std::uint64_t id      = 63092;

@@ -43,109 +43,127 @@ namespace CB::feature::havok {
             static constexpr std::uint64_t id      = 79134;
         };
         /// @brief `public: virtual class CB::schema::hkpRigidBody * CB::schema::bhkCharProxyController::GetRigidBody(void)const ` — vanilla 0x140ed1bb0, EXACT
-        struct GetRigidBody : ::CB::core::hooks::Cell<GetRigidBody, class CB::schema::hkpRigidBody *(const CB::schema::bhkCharProxyController *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetRigidBody : ::CB::core::hooks::Cell<GetRigidBody, class CB::schema::hkpRigidBody *(const CB::schema::bhkCharacterController *)> {
             static constexpr const char*   mangled = "?GetRigidBody@bhkCharProxyController@schema@CB@@UEBAPEAVhkpRigidBody@23@XZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetRigidBody";
             static constexpr std::uint64_t id      = 79137;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::SetWorld(class CB::schema::bhkWorld *)` — vanilla 0x140ed1bd0, EXACT
-        struct SetWorld : ::CB::core::hooks::Cell<SetWorld, void(CB::schema::bhkCharProxyController *, class CB::schema::bhkWorld *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct SetWorld : ::CB::core::hooks::Cell<SetWorld, void(CB::schema::bhkCharacterController *, class CB::schema::bhkWorld *)> {
             static constexpr const char*   mangled = "?SetWorld@bhkCharProxyController@schema@CB@@UEAAXPEAVbhkWorld@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::SetWorld";
             static constexpr std::uint64_t id      = 79138;
         };
         /// @brief `public: virtual class CB::schema::bhkWorld * CB::schema::bhkCharProxyController::GetHavokWorld(void)const ` — vanilla 0x140ed1c60, EXACT
-        struct GetHavokWorld : ::CB::core::hooks::Cell<GetHavokWorld, class CB::schema::bhkWorld *(const CB::schema::bhkCharProxyController *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetHavokWorld : ::CB::core::hooks::Cell<GetHavokWorld, class CB::schema::bhkWorld *(const CB::schema::bhkCharacterController *)> {
             static constexpr const char*   mangled = "?GetHavokWorld@bhkCharProxyController@schema@CB@@UEBAPEAVbhkWorld@23@XZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetHavokWorld";
             static constexpr std::uint64_t id      = 79139;
         };
         /// @brief `public: virtual float CB::schema::bhkCharProxyController::GetVDBAlpha(void)const ` — vanilla 0x140ed1c90, EXACT
-        struct GetVDBAlpha : ::CB::core::hooks::Cell<GetVDBAlpha, float(const CB::schema::bhkCharProxyController *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetVDBAlpha : ::CB::core::hooks::Cell<GetVDBAlpha, float(const CB::schema::bhkCharacterController *)> {
             static constexpr const char*   mangled = "?GetVDBAlpha@bhkCharProxyController@schema@CB@@UEBAMXZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetVDBAlpha";
             static constexpr std::uint64_t id      = 79140;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::SetPositionImpl(struct CB::schema::hkVector4 const &,bool,bool)` — vanilla 0x140ed1ca0, EXACT
-        struct SetPositionImpl : ::CB::core::hooks::Cell<SetPositionImpl, void(CB::schema::bhkCharProxyController *, struct CB::schema::hkVector4 const &, bool, bool)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct SetPositionImpl : ::CB::core::hooks::Cell<SetPositionImpl, void(CB::schema::bhkCharacterController *, struct CB::schema::hkVector4 const &, bool, bool)> {
             static constexpr const char*   mangled = "?SetPositionImpl@bhkCharProxyController@schema@CB@@UEAAXAEBUhkVector4@23@_N1@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::SetPositionImpl";
             static constexpr std::uint64_t id      = 79141;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::GetPositionImpl(struct CB::schema::hkVector4 &,bool)const ` — vanilla 0x140ed1dc0, VARIANT
-        struct GetPositionImpl : ::CB::core::hooks::Cell<GetPositionImpl, void(const CB::schema::bhkCharProxyController *, struct CB::schema::hkVector4 &, bool)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetPositionImpl : ::CB::core::hooks::Cell<GetPositionImpl, void(const CB::schema::bhkCharacterController *, struct CB::schema::hkVector4 &, bool)> {
             static constexpr const char*   mangled = "?GetPositionImpl@bhkCharProxyController@schema@CB@@UEBAXAEAUhkVector4@23@_N@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetPositionImpl";
             static constexpr std::uint64_t id      = 79142;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::GetTransformImpl(struct CB::schema::hkTransform &)const ` — vanilla 0x140ed1ed0, EXACT
-        struct GetTransformImpl : ::CB::core::hooks::Cell<GetTransformImpl, void(const CB::schema::bhkCharProxyController *, struct CB::schema::hkTransform &)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetTransformImpl : ::CB::core::hooks::Cell<GetTransformImpl, void(const CB::schema::bhkCharacterController *, struct CB::schema::hkTransform &)> {
             static constexpr const char*   mangled = "?GetTransformImpl@bhkCharProxyController@schema@CB@@UEBAXAEAUhkTransform@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetTransformImpl";
             static constexpr std::uint64_t id      = 79143;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::SetTransformImpl(struct CB::schema::hkTransform const &)` — vanilla 0x140ed1f20, EXACT
-        struct SetTransformImpl : ::CB::core::hooks::Cell<SetTransformImpl, void(CB::schema::bhkCharProxyController *, struct CB::schema::hkTransform const &)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct SetTransformImpl : ::CB::core::hooks::Cell<SetTransformImpl, void(CB::schema::bhkCharacterController *, struct CB::schema::hkTransform const &)> {
             static constexpr const char*   mangled = "?SetTransformImpl@bhkCharProxyController@schema@CB@@UEAAXAEBUhkTransform@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::SetTransformImpl";
             static constexpr std::uint64_t id      = 79144;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::GetLinearVelocityImpl(struct CB::schema::hkVector4 &)const ` — vanilla 0x140ed1fc0, EXACT
-        struct GetLinearVelocityImpl : ::CB::core::hooks::Cell<GetLinearVelocityImpl, void(const CB::schema::bhkCharProxyController *, struct CB::schema::hkVector4 &)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetLinearVelocityImpl : ::CB::core::hooks::Cell<GetLinearVelocityImpl, void(const CB::schema::bhkCharacterController *, struct CB::schema::hkVector4 &)> {
             static constexpr const char*   mangled = "?GetLinearVelocityImpl@bhkCharProxyController@schema@CB@@UEBAXAEAUhkVector4@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetLinearVelocityImpl";
             static constexpr std::uint64_t id      = 79145;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::SetLinearVelocityImpl(struct CB::schema::hkVector4 const &)` — vanilla 0x140ed2000, EXACT
-        struct SetLinearVelocityImpl : ::CB::core::hooks::Cell<SetLinearVelocityImpl, void(CB::schema::bhkCharProxyController *, struct CB::schema::hkVector4 const &)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct SetLinearVelocityImpl : ::CB::core::hooks::Cell<SetLinearVelocityImpl, void(CB::schema::bhkCharacterController *, struct CB::schema::hkVector4 const &)> {
             static constexpr const char*   mangled = "?SetLinearVelocityImpl@bhkCharProxyController@schema@CB@@UEAAXAEBUhkVector4@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::SetLinearVelocityImpl";
             static constexpr std::uint64_t id      = 79146;
         };
         /// @brief `public: virtual struct CB::schema::CFilter CB::schema::bhkCharProxyController::GetCollisionFilterInfo(void)const ` — vanilla 0x140ed2020, EXACT
-        struct GetCollisionFilterInfo : ::CB::core::hooks::Cell<GetCollisionFilterInfo, struct CB::schema::CFilter *(const CB::schema::bhkCharProxyController *, struct CB::schema::CFilter *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetCollisionFilterInfo : ::CB::core::hooks::Cell<GetCollisionFilterInfo, struct CB::schema::CFilter *(const CB::schema::bhkCharacterController *, struct CB::schema::CFilter *)> {
             static constexpr const char*   mangled = "?GetCollisionFilterInfo@bhkCharProxyController@schema@CB@@UEBA?AUCFilter@23@XZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetCollisionFilterInfo";
             static constexpr std::uint64_t id      = 79147;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::SetCollisionFilterInfo(struct CB::schema::CFilter)` — vanilla 0x140ed20b0, EXACT
-        struct SetCollisionFilterInfo : ::CB::core::hooks::Cell<SetCollisionFilterInfo, void(CB::schema::bhkCharProxyController *, struct CB::schema::CFilter)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct SetCollisionFilterInfo : ::CB::core::hooks::Cell<SetCollisionFilterInfo, void(CB::schema::bhkCharacterController *, struct CB::schema::CFilter)> {
             static constexpr const char*   mangled = "?SetCollisionFilterInfo@bhkCharProxyController@schema@CB@@UEAAXUCFilter@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::SetCollisionFilterInfo";
             static constexpr std::uint64_t id      = 79148;
         };
         /// @brief `public: virtual bool CB::schema::bhkCharProxyController::Unk_0B(void)` — vanilla 0x140ed2130, VARIANT
-        struct Unk_0B : ::CB::core::hooks::Cell<Unk_0B, bool(CB::schema::bhkCharProxyController *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct Unk_0B : ::CB::core::hooks::Cell<Unk_0B, bool(CB::schema::bhkCharacterController *)> {
             static constexpr const char*   mangled = "?Unk_0B@bhkCharProxyController@schema@CB@@UEAA_NXZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::Unk_0B";
             static constexpr std::uint64_t id      = 79149;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::Unk_0C(void)` — vanilla 0x140ed22c0, VARIANT
-        struct Unk_0C : ::CB::core::hooks::Cell<Unk_0C, void(CB::schema::bhkCharProxyController *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct Unk_0C : ::CB::core::hooks::Cell<Unk_0C, void(CB::schema::bhkCharacterController *)> {
             static constexpr const char*   mangled = "?Unk_0C@bhkCharProxyController@schema@CB@@UEAAXXZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::Unk_0C";
             static constexpr std::uint64_t id      = 79150;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::CheckSupportImpl(void)` — vanilla 0x140ed2330, EXACT
-        struct CheckSupportImpl : ::CB::core::hooks::Cell<CheckSupportImpl, void(CB::schema::bhkCharProxyController *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct CheckSupportImpl : ::CB::core::hooks::Cell<CheckSupportImpl, void(CB::schema::bhkCharacterController *)> {
             static constexpr const char*   mangled = "?CheckSupportImpl@bhkCharProxyController@schema@CB@@UEAAXXZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::CheckSupportImpl";
             static constexpr std::uint64_t id      = 79151;
         };
         /// @brief `public: virtual bool CB::schema::bhkCharProxyController::GetContactCollidables(class CB::schema::BSScrapArray<class CB::schema::hkpCollidable *> &)` — vanilla 0x140ed2440, REGALLOC
-        struct GetContactCollidables : ::CB::core::hooks::Cell<GetContactCollidables, bool(CB::schema::bhkCharProxyController *, class CB::schema::BSScrapArray<class CB::schema::hkpCollidable *> &)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct GetContactCollidables : ::CB::core::hooks::Cell<GetContactCollidables, bool(CB::schema::bhkCharacterController *, class CB::schema::BSScrapArray<class CB::schema::hkpCollidable *> &)> {
             static constexpr const char*   mangled = "?GetContactCollidables@bhkCharProxyController@schema@CB@@UEAA_NAEAV?$BSScrapArray@PEAVhkpCollidable@schema@CB@@@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::GetContactCollidables";
             static constexpr std::uint64_t id      = 79152;
         };
         /// @brief `public: virtual bool CB::schema::bhkCharProxyController::Unk_0A(void)` — vanilla 0x140ed2520, EXACT
-        struct Unk_0A : ::CB::core::hooks::Cell<Unk_0A, bool(CB::schema::bhkCharProxyController *)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct Unk_0A : ::CB::core::hooks::Cell<Unk_0A, bool(CB::schema::bhkCharacterController *)> {
             static constexpr const char*   mangled = "?Unk_0A@bhkCharProxyController@schema@CB@@UEAA_NXZ";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::Unk_0A";
             static constexpr std::uint64_t id      = 79153;
         };
         /// @brief `public: virtual void CB::schema::bhkCharProxyController::RotateImpl(struct CB::schema::hkTransform const &)` — vanilla 0x140ed2680, EXACT
-        struct RotateImpl : ::CB::core::hooks::Cell<RotateImpl, void(CB::schema::bhkCharProxyController *, struct CB::schema::hkTransform const &)> {
+        /// @warning `this` is its bhkCharacterController subobject, not the bhkCharProxyController (MSVC passes a non-primary base's virtuals that base).
+        struct RotateImpl : ::CB::core::hooks::Cell<RotateImpl, void(CB::schema::bhkCharacterController *, struct CB::schema::hkTransform const &)> {
             static constexpr const char*   mangled = "?RotateImpl@bhkCharProxyController@schema@CB@@UEAAXAEBUhkTransform@23@@Z";
             static constexpr const char*   name    = "CB::schema::bhkCharProxyController::RotateImpl";
             static constexpr std::uint64_t id      = 79154;

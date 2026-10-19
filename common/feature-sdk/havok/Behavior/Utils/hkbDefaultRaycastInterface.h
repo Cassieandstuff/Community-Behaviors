@@ -31,7 +31,8 @@ namespace CB::feature::havok {
             static constexpr std::uint64_t id      = 60085;
         };
         /// @brief `public: virtual struct CB::schema::hkBool CB::schema::hkbDefaultRaycastInterface::castRay(struct CB::schema::hkVector4 const &,struct CB::schema::hkVector4 const &,unsigned int,float &,struct CB::schema::hkVector4 &)` — vanilla 0x140b102c0, VARIANT
-        struct castRay : ::CB::core::hooks::Cell<castRay, struct CB::schema::hkBool *(CB::schema::hkbDefaultRaycastInterface *, struct CB::schema::hkBool *, struct CB::schema::hkVector4 const &, struct CB::schema::hkVector4 const &, unsigned int, float &, struct CB::schema::hkVector4 &)> {
+        /// @warning `this` is its hkaRaycastInterface subobject, not the hkbDefaultRaycastInterface (MSVC passes a non-primary base's virtuals that base).
+        struct castRay : ::CB::core::hooks::Cell<castRay, struct CB::schema::hkBool *(CB::schema::hkaRaycastInterface *, struct CB::schema::hkBool *, struct CB::schema::hkVector4 const &, struct CB::schema::hkVector4 const &, unsigned int, float &, struct CB::schema::hkVector4 &)> {
             static constexpr const char*   mangled = "?castRay@hkbDefaultRaycastInterface@schema@CB@@UEAA?AUhkBool@23@AEBUhkVector4@23@0IAEAMAEAU523@@Z";
             static constexpr const char*   name    = "CB::schema::hkbDefaultRaycastInterface::castRay";
             static constexpr std::uint64_t id      = 60082;

@@ -5334,7 +5334,7 @@ int seedHeaders(const Manifest& m, const std::vector<ReflectedClass>& classes, c
 
 /// @brief A function's C++ prototype, read back from its mangled symbol.
 struct Prototype {
-    bool                     member = false, isStatic = false, isConst = false;
+    bool                     member = false, isStatic = false, isConst = false, isVirtual = false;
     std::string              full, ret, owner, method;
     std::vector<std::string> params;
 };
@@ -5357,7 +5357,7 @@ std::optional<Prototype> readPrototype(const std::string& mangled, std::string& 
     for (const char* a : { "public: ", "protected: ", "private: " })
         if (s.rfind(a, 0) == 0) p.member = true, s.erase(0, std::strlen(a));
     if (s.rfind("static ", 0) == 0) p.isStatic = true, s.erase(0, 7);
-    if (s.rfind("virtual ", 0) == 0) s.erase(0, 8);
+    if (s.rfind("virtual ", 0) == 0) p.isVirtual = true, s.erase(0, 8);
     s = trimmed(s);
     if (s.size() > 5 && s.compare(s.size() - 5, 5, "const") == 0 && s[s.size() - 6] != ':') p.isConst = true, s = trimmed(s.substr(0, s.size() - 5));
     if (s.empty() || s.back() != ')') return why = "no parameter list in '" + p.full + "'", std::nullopt;
@@ -5412,15 +5412,17 @@ std::optional<Prototype> readPrototype(const std::string& mangled, std::string& 
 }
 
 /// @return the signature a free function with the object first must have to be ABI-identical to the member function.
+/// @param thisType the class `this` points to; empty = the owner. A virtual overriding one from a non-primary base gets
+///        that base's subobject (see thisAdjustors).
 /// @note MSVC x64: a constructor returns `this`; an instance member returning a class by value takes a hidden pointer
 ///       to the result right after `this` and returns it (a free function returns small ones in rax instead).
-std::string cellSignature(const Prototype& p)
+std::string cellSignature(const Prototype& p, const std::string& thisType = {})
 {
     std::string       ret  = p.ret;
     if (ret.empty()) ret = p.method.front() == '~' ? "void" : p.owner + " *";
     std::vector<std::string> args;
     const bool instance = p.member && !p.isStatic;
-    if (instance) args.push_back((p.isConst ? "const " : "") + p.owner + " *");
+    if (instance) args.push_back((p.isConst ? "const " : "") + (thisType.empty() ? p.owner : thisType) + " *");
     const bool udt = (ret.rfind("class ", 0) == 0 || ret.rfind("struct ", 0) == 0 || ret.rfind("union ", 0) == 0) && ret.back() != '*' &&
                      ret.back() != '&';
     if (instance && udt) {
@@ -5503,18 +5505,114 @@ struct PaletteEntry {
     fs::path      unitSource;   ///< the TU, relative to the schema/Havok include root
 };
 
+/// @brief What `this` points to in each virtual the compiler lays out: `Class::method` → the direct base at its this
+///        adjustor ("" = the class itself, "?" = unknown).
+/// @note MSVC passes a virtual the subobject whose vftable holds its slot, so one overriding a non-primary base's virtual
+///       gets that base (bhkCharProxyController's bhkCharacterController virtuals: adjustor 16; vanilla CheckSupportImpl's
+///       `and [rcx+0x218]` is m_flags counted from that base). Read from the compiler's own report
+///       (/d1reportAllClassLayout over one unit including every given header), not re-derived from the class graph.
+/// @note A name whose overloads disagree, or whose adjustor lands on no direct base, maps to "?".
+/// @note `source` is compiled as given: a generated unit of headers, or a unit's own .cpp for a class it defines locally
+///       (hkbNode::BoundVariablesCollector lives in hkbNode.cpp). Results merge into `out`.
+void readThisAdjustors(const Manifest& m, const UnitSpec& source, const fs::path& dir, std::map<std::string, std::string>& out)
+{
+    if (m.toolchains.empty()) throw std::runtime_error("--emit-palette needs a toolchain to read this adjustors");
+    UnitSpec unit = source;
+    unit.flags.push_back("/d1reportAllClassLayout");
+    auto res = compileUnit(m, unit, m.toolchains.front().second, dir);
+    for (int retry = 0; retry < 5 && res.log.find("C1083") != std::string::npos && res.log.find("Permission denied") != std::string::npos; ++retry) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200 * (retry + 1)));
+        res = compileUnit(m, unit, m.toolchains.front().second, dir);
+    }
+    if (!res.ok) throw std::runtime_error("--emit-palette: " + unit.source.string() + " did not compile for its layout (" + (dir / "cl.log").string() + ")");
+
+    static const std::regex header(R"(^(?:class|struct)\s+(.+?)\s+size\(\d+\):$)");
+    static const std::regex directBase(R"(^\s*(\d+)\s*\| \+--- \(base class (.+)\)$)");   // one "| " deep = a direct base
+    static const std::regex adjustor(R"(^(.+)::([^:]+) this adjustor: (\d+)$)");
+    std::map<std::string, std::map<int, std::string>> bases;   // class → offset → its first direct base there
+    std::map<std::string, std::string>                seen;
+    std::string                                       current;
+    for (const auto line : CB::engine::text::SplitLines(res.log)) {
+        const std::string l(CB::engine::text::Trim(line));
+        std::smatch       g;
+        if (std::regex_match(l, g, header)) current = g[1];
+        else if (!current.empty() && std::regex_match(l, g, directBase)) bases[current].emplace(std::stoi(g[1]), g[2]);
+        else if (std::regex_match(l, g, adjustor)) {
+            const std::string cls = g[1], key = cls + "::" + g[2].str();
+            const int         at  = std::stoi(g[3]);
+            std::string       to  = "?";
+            if (at == 0) to.clear();
+            else if (const auto b = bases.find(cls); b != bases.end())
+                if (const auto o = b->second.find(at); o != b->second.end()) to = o->second;
+            const auto [it, fresh] = seen.emplace(key, to);
+            if (!fresh && it->second != to) it->second = "?";
+        }
+    }
+    // A class every unit includes reports the same layout in each; one that disagrees is unknown.
+    for (const auto& [key, to] : seen) {
+        const auto [it, fresh] = out.emplace(key, to);
+        if (!fresh && it->second != to) it->second = "?";
+    }
+}
+
+/// @return `Class::method` → what `this` points to (see readThisAdjustors), from one unit including `headers`, then each
+///          of `fallbacks` (unit sources) for a key the headers left out.
+std::map<std::string, std::string> thisAdjustors(const Manifest& m, const std::set<fs::path>& headers,
+                                                 const std::map<std::string, fs::path>& fallbacks, const fs::path& work)
+{
+    std::map<std::string, std::string> out;
+    std::string                        src;
+    for (const auto& h : headers) src += "#include <" + h.generic_string() + ">\n";
+    const fs::path d = work / "palette-layout";
+    fs::create_directories(d);
+    std::string err;
+    if (!CB::engine::disk::WriteFile(d / "layout.cpp", src, {}, &err)) throw std::runtime_error("cannot write the palette layout unit: " + err);
+    UnitSpec headersUnit;
+    headersUnit.source = d / "layout.cpp";
+    readThisAdjustors(m, headersUnit, d, out);
+
+    std::set<fs::path> sources;
+    for (const auto& [key, source] : fallbacks)
+        if (!out.count(key)) sources.insert(source);
+    std::size_t k = 0;
+    for (const auto& s : sources) {
+        const UnitSpec* spec = nullptr;
+        for (const auto& u : m.units) if (u.source.lexically_normal() == s.lexically_normal()) { spec = &u; break; }
+        UnitSpec unit;
+        if (spec) unit = *spec, unit.functions.clear();
+        unit.source = s;
+        const fs::path ud = d / ("unit" + std::to_string(k++));
+        fs::create_directories(ud);
+        readThisAdjustors(m, unit, ud, out);
+    }
+    return out;
+}
+
+/// @return the name /d1reportAllClassLayout gives a method: {dtor}, __delDtor and __vecDelDtor for the destructors.
+std::string layoutMethodName(const Prototype& p)
+{
+    if (!p.method.empty() && p.method[0] == '~') return "{dtor}";
+    if (p.method == "`scalar deleting destructor'") return "__delDtor";
+    if (p.method == "`vector deleting destructor'") return "__vecDelDtor";
+    return p.method;
+}
+
 /// @brief Writes the function palette: one header per top-level class (beside where schema/Havok defines it), each
 ///        a struct of typed cells, plus Palette.h including them all. Returns how many functions it typed.
-std::size_t emitPalette(const fs::path& out, const fs::path& schemaRoot, const std::vector<PaletteEntry>& entries)
+std::size_t emitPalette(const Manifest& m, const fs::path& out, const fs::path& schemaRoot, const std::vector<PaletteEntry>& entries,
+                        const fs::path& work)
 {
     // Where each top-level class is defined, so its palette sits in the matching place and includes that header.
     const std::map<std::string, fs::path> definedIn = classDefinitions(schemaRoot);
 
-    struct Cell { std::string ident, sig, mangled, readable, full, status; std::uint64_t va, id; std::vector<std::string> params; };
+    struct Cell { std::string ident, sig, mangled, readable, full, status, thisNote; std::uint64_t va, id; std::vector<std::string> params; };
     struct Node { std::map<std::string, Node> children; std::vector<Cell> cells; };
+    struct Typed { const PaletteEntry* e; Prototype p; std::vector<std::string> parts; };
     std::map<std::string, Node>                  tops;
     std::map<std::string, std::set<fs::path>>    includes;
-    std::size_t                                  typed = 0;
+    std::vector<Typed>                           typedEntries;
+    std::set<fs::path>                           virtualHeaders;
+    std::map<std::string, fs::path>              virtualSources;   // Class::method → its unit, for a class a .cpp defines
     for (const auto& e : entries) {
         std::string why;
         const auto  p = readPrototype(e.mangled, why);
@@ -5532,15 +5630,37 @@ std::size_t emitPalette(const fs::path& out, const fs::path& schemaRoot, const s
                 if (k < path.size()) ++k;
             }
         }
-        Node* node = &tops[parts[0]];
-        for (std::size_t k = 1; k < parts.size(); ++k) node = &node->children[parts[k]];
-        node->cells.push_back({ paletteName(*p), cellSignature(*p), e.mangled, undecorate(e.mangled), p->full, e.status, e.va, e.id, p->params });
         auto& inc = includes[parts[0]];
         if (const auto d = definedIn.find(parts[0]); d != definedIn.end()) inc.insert(d->second);
         const fs::path sibling = fs::path(e.unitSource).replace_extension(".h");
         if (fs::exists(schemaRoot / sibling)) inc.insert(sibling);
+        if (p->isVirtual) {
+            virtualHeaders.insert(inc.begin(), inc.end());
+            virtualSources.emplace(p->owner + "::" + layoutMethodName(*p), schemaRoot / e.unitSource);
+        }
+        typedEntries.push_back({ &e, *p, std::move(parts) });
+    }
+
+    const auto adjust = virtualHeaders.empty() ? std::map<std::string, std::string>{} : thisAdjustors(m, virtualHeaders, virtualSources, work);
+    std::size_t typed = 0, rebased = 0;
+    for (const auto& [e, p, parts] : typedEntries) {
+        std::string thisType;
+        if (p.isVirtual) {
+            const auto a = adjust.find(p.owner + "::" + layoutMethodName(p));
+            if (a == adjust.end() || a->second == "?") {
+                std::printf("palette: %s left out: %s\n", p.full.c_str(), a == adjust.end() ? "the compiler reported no this adjustor for it" : "its this adjustor is ambiguous");
+                continue;
+            }
+            thisType = a->second;
+        }
+        Node* node = &tops[parts[0]];
+        for (std::size_t k = 1; k < parts.size(); ++k) node = &node->children[parts[k]];
+        const std::string note = thisType.empty() ? std::string() : "`this` is its " + readableOf(thisType) + " subobject, not the " + readableOf(p.owner);
+        node->cells.push_back({ paletteName(p), cellSignature(p, thisType), e->mangled, undecorate(e->mangled), p.full, e->status, note, e->va, e->id, p.params });
+        rebased += !thisType.empty();
         ++typed;
     }
+    if (rebased) std::printf("palette: %zu virtuals take a base subobject as `this`\n", rebased);
 
     // Overloads: the parameter types tell them apart; a tie left over (const and non-const) takes a counter.
     std::function<void(Node&)> disambiguate = [&](Node& n) {
@@ -5564,6 +5684,7 @@ std::size_t emitPalette(const fs::path& out, const fs::path& schemaRoot, const s
         for (const auto& [childName, child] : n.children) emitNode(s, childName, child, indent + 1);
         for (const auto& c : n.cells) {
             s += pad + "    /// @brief `" + c.full + "` — vanilla 0x" + hex(c.va) + ", " + c.status + "\n";
+            if (!c.thisNote.empty()) s += pad + "    /// @warning " + c.thisNote + " (MSVC passes a non-primary base's virtuals that base).\n";
             s += pad + "    struct " + c.ident + " : ::CB::core::hooks::Cell<" + c.ident + ", " + c.sig + "> {\n";
             s += pad + "        static constexpr const char*   mangled = \"" + c.mangled + "\";\n";
             s += pad + "        static constexpr const char*   name    = \"" + c.readable + "\";\n";
@@ -6057,7 +6178,7 @@ int run(const Options& opt)
             entries.push_back({ r.best.ours->mangled, statusName(r.best.status), r.va, id == syms->idByOffset.end() ? 0 : id->second,
                                 m.units[r.unit].source.lexically_relative(root) });
         }
-        emitPalette(opt.emitPalette, root, entries);
+        emitPalette(m, opt.emitPalette, root, entries, work);
     }
 
     if (!opt.report.empty()) {
