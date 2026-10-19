@@ -4,17 +4,18 @@
 
 #include <core/debug/Settings.h>
 #include <core/hooks/hookslib.h>
+#include <core/hooks/takeover/Live.h>
 #include <core/hooks/takeover/Override.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>
 
 #include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
 #include <Physics/ConstraintSolver/Simplex/hkpSimplexSolver.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Dynamics/Phantom/hkpShapePhantom.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterCollisionHandler.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCollisionFilter.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/Setting.h>
 #include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxy.h>
 
 #include <algorithm>
@@ -42,10 +43,8 @@ namespace CB::feature {
 
         namespace hk  = CB::schema;
         namespace ch  = CB::feature::character;
-        namespace pal = CB::feature::havok;
 
-        using Process = pal::bhkCharProxyController::processConstraintsCallback;
-        using Ctrl    = pal::bhkCharacterController;
+        using Process = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
 
         constexpr hk::hkUint32 kTryStep          = 1u << 2;
         constexpr hk::hkUint32 kStuckQuad        = 1u << 5;
@@ -60,66 +59,17 @@ namespace CB::feature {
         /// @brief How a contact's plane is treated after the layer rules.
         enum class Kind : std::uint8_t { Block, Zeroed, Character };
 
-        /// @brief bhkIsDynamicMotionType (AL 78109) is out of line in the schema, so the plugin keeps its rule (per the
-        ///        registry): dynamic, sphere, box and thin-box inertia.
-        bool IsDynamic(hk::hkpMotion::MotionType t)
-        {
-            return t == hk::hkpMotion::MOTION_DYNAMIC || t == hk::hkpMotion::MOTION_SPHERE_INERTIA || t == hk::hkpMotion::MOTION_BOX_INERTIA
-                || t == hk::hkpMotion::MOTION_THIN_BOX_INERTIA;
-        }
-
-        /// @brief hkpMotion::getMass is out of line in the schema: the inverse mass is m_inertiaAndMassInv's w.
-        float Mass(const hk::hkpRigidBody* body)
-        {
-            const float inv = body->getRigidMotion()->m_inertiaAndMassInv(3);
-            return inv > 0.0f ? 1.0f / inv : 0.0f;
-        }
-
-        /// @brief Bethesda's flatten (z = 0, then normalize3IfNotZero), done here because the schema's normalize reads
-        ///        vanilla's g_quadReal3 / g_quadRealInv2.
-        /// @note The scale covers w too, as vanilla's: the distance becomes d / |n_h|, which is Jolt's corrected
-        ///       distance d / (n_h . n_c) for a unit contact normal.
+        /// @brief Bethesda's flatten, as the matched callback does it: z = 0, then normalize3IfNotZero.
         void Flatten(hk::hkVector4& plane)
         {
-            const float x = plane(0), y = plane(1);
-            const float len2 = x * x + y * y;
-            if (!(len2 > 0.0f)) {
-                plane(2) = 0.0f;
-                return;
-            }
-            const float inv = 1.0f / std::sqrt(len2);
-            plane.set(x * inv, y * inv, 0.0f, plane(3) * inv);
+            plane(2) = 0.0f;
+            plane.normalize3IfNotZero();
         }
 
         void Zero(hk::hkSurfaceConstraintInfo& c)
         {
             c.m_plane.set(0.0f, 0.0f, 0.0f, 0.0f);
             c.m_velocity.set(0.0f, 0.0f, 0.0f, 0.0f);
-        }
-
-        /// @brief Vanilla pins the plugin cannot reach through the schema (out-of-line statics and globals).
-        struct Pins {
-            using IsHurtfulFn      = bool (*)(hk::hkpRigidBody*);
-            using ProcessHurtfulFn = void (*)(hk::bhkCharacterController*, hk::hkpRigidBody*, const hk::hkContactPoint*);
-            IsHurtfulFn                        isHurtful      = nullptr;
-            ProcessHurtfulFn                   processHurtful = nullptr;
-            const float*                       moveLimitMass  = nullptr;
-            hk::bhkCollisionFilter* const*     filter         = nullptr;
-            hk::bhkCharacterCollisionHandler* const* handler  = nullptr;
-        };
-        const Pins& GetPins()
-        {
-            namespace eng = core::hooks::engine;
-            static const Pins p = [] {
-                Pins r;
-                r.isHurtful      = reinterpret_cast<Pins::IsHurtfulFn>(eng::Resolve(eng::bhkCharacterController_IsHurtfulBody));
-                r.processHurtful = reinterpret_cast<Pins::ProcessHurtfulFn>(eng::Resolve(eng::bhkCharacterController_ProcessHurtfulBody));
-                r.moveLimitMass  = reinterpret_cast<const float*>(eng::Resolve(eng::fMoveLimitMass_Cached));
-                r.filter         = reinterpret_cast<hk::bhkCollisionFilter* const*>(eng::Resolve(eng::bhkCollisionFilter_Singleton));
-                r.handler        = reinterpret_cast<hk::bhkCharacterCollisionHandler* const*>(eng::Resolve(eng::bhkCharacterCollisionHandler_Singleton));
-                return r;
-            }();
-            return p;
         }
 
         std::atomic<std::uint32_t> g_logged{ 0 };
@@ -171,16 +121,15 @@ namespace CB::feature {
             const ch::Hull hull = ch::GetHull(ctrl);
             if (!hull.valid) return next(self, proxy, manifold, input);
 
-            const Pins& pins = GetPins();
             const ch::FloorTunables tun;
             ch::FloorVerdict        verdict;
             if (!ch::PublishedVerdict(ctrl, verdict)) return next(self, proxy, manifold, input);
             const bool grounded = verdict.ground == ch::Ground::Grounded;
 
-            Ctrl::ResetContactState::Call(&ctrl);
+            ctrl.ResetContactState();
             ctrl.m_supportNorm.set(0.0f, 0.0f, 0.0f, 0.0f);
             ctrl.m_flags &= ~kTryStep;
-            if (ctrl.IsFlagSet(16)) Ctrl::SetSupportBody::Call(&ctrl, nullptr);
+            if (ctrl.IsFlagSet(16)) ctrl.SetSupportBody(nullptr);
             ctrl.m_supportCount = 0;
 
             /// @note Bethesda's stuck-quad test (kStuckQuad when a contact is near a 3-shape quadruped list's capsule tops),
@@ -216,8 +165,8 @@ namespace CB::feature {
 
             const float keep       = proxy->m_keepDistance;
             const float perch      = hull.radius * tun.perchFraction;
-            const float moveLimit  = pins.moveLimitMass ? *pins.moveLimitMass : 0.0f;
-            const hk::bhkCollisionFilter* filter = pins.filter ? *pins.filter : nullptr;
+            const float moveLimit  = core::hooks::Live<&hk::g_fMoveLimitMass>();
+            const hk::bhkCollisionFilter* filter = core::hooks::Live<&hk::bhkCollisionFilter::s_singleton>();
 
             std::array<Kind, kMaxPoints> kind{};
             bool animStatic = false;
@@ -227,8 +176,8 @@ namespace CB::feature {
                 const hk::hkRootCdPoint&     point = manifold[i];
                 hk::hkpRigidBody* const      body  = hk::hkpGetRigidBody(point.m_rootCollidableB);
                 const hk::hkUint32           layer = point.m_rootCollidableB->getCollisionFilterInfo() & 0x7f;
-                if ((ctrl.m_flags & 0x210000) == 0x210000 && pins.isHurtful && pins.processHurtful && pins.isHurtful(body))
-                    pins.processHurtful(&ctrl, body, &point.m_contact);
+                if ((ctrl.m_flags & 0x210000) == 0x210000 && hk::bhkCharacterController::IsHurtfulBody(body))
+                    ctrl.ProcessHurtfulBody(body, &point.m_contact);
                 animStatic |= (layer == 2);
                 /// @note M3: no static friction; the anti-creep extraDown is granted below to supporting contacts only
                 ///       (Bethesda's 0.577 on animated statics is dropped with the rest).
@@ -241,16 +190,17 @@ namespace CB::feature {
                     if (layer == ch::kCharControllerLayer) {
                         /// @note M9: another character blocks as a flattened plane and never supports.
                         kind[i] = Kind::Character;
-                        hk::bhkCharacterController* other = Ctrl::GetControllerFromCollidable::Call(body);
+                        hk::bhkCharacterController* other = hk::bhkCharacterController::GetControllerFromCollidable(body);
                         if (other) {
                             Flatten(c.m_plane);
-                            Ctrl::PushCharacter::Call(&ctrl, other, point.m_contact);
-                            if (pins.handler && *pins.handler) (*pins.handler)->HandleCharacterCollision(&ctrl, other);
+                            ctrl.PushCharacter(other, point.m_contact);
+                            if (auto* handler = core::hooks::Live<&hk::bhkCharacterCollisionHandler::s_singleton>())
+                                handler->HandleCharacterCollision(&ctrl, other);
                         }
-                    } else if (IsDynamic(body->getMotionType())) {
+                    } else if (hk::bhkIsDynamicMotionType(body->getMotionType())) {
                         /// @note M10: a light body neither blocks nor supports; a heavy one blocks and Havok's object
                         ///       interaction pushes it. Bethesda's forced up normal (standing on clutter) is gone.
-                        if (Mass(body) < moveLimit) {
+                        if (body->getMass() < moveLimit) {
                             Zero(c);
                             kind[i] = Kind::Zeroed;
                         }
@@ -270,7 +220,7 @@ namespace CB::feature {
                     if (ctrl.IsFlagSet(16)) c.m_velocity.set(0.0f, 0.0f, 0.0f, 0.0f);
                 } else if (layer == ch::kCharControllerLayer) {
                     hk::bhkCharacterController* other =
-                        Ctrl::GetControllerFromCollidable::Call(static_cast<const hk::hkpWorldObject*>(point.m_rootCollidableB->getOwner()));
+                        hk::bhkCharacterController::GetControllerFromCollidable(static_cast<const hk::hkpWorldObject*>(point.m_rootCollidableB->getOwner()));
                     if (other && (other->m_flags & kOtherSneakPass)) {
                         Zero(c);
                         kind[i] = Kind::Zeroed;
@@ -319,11 +269,11 @@ namespace CB::feature {
                     if (!ctrl.IsFlagSet(3)) input.m_constraints[i].m_extraDownStaticFriction = kAntiCreep;
                     ++support;
                     if (!ctrl.IsFlagSet(16) && ctrl.m_orientationCtrl) ctrl.m_orientationCtrl->OnSupportContact(point);
-                    Ctrl::UpdateContactMaterial::Call(&ctrl, point);
-                    if (ctrl.IsFlagSet(16)) Ctrl::SetSupportBody::Call(&ctrl, hk::hkpGetRigidBody(point.m_rootCollidableB));
+                    ctrl.UpdateContactMaterial(point);
+                    if (ctrl.IsFlagSet(16)) ctrl.SetSupportBody(hk::hkpGetRigidBody(point.m_rootCollidableB));
                 }
                 if (!support && ctrl.IsFlagSet(16) && verdict.supportBody)
-                    Ctrl::SetSupportBody::Call(&ctrl, hk::hkpGetRigidBody(verdict.supportBody));
+                    ctrl.SetSupportBody(hk::hkpGetRigidBody(verdict.supportBody));
             }
 
             /// @note Jolt's steep-slope rule: a face too steep to walk, above the feet, also blocks as a vertical plane

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <array>
 #include <cmath>

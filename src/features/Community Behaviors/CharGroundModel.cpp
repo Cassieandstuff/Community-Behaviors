@@ -2,7 +2,7 @@
 
 #include <core/debug/Settings.h>
 #include <core/hooks/takeover/Override.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <Physics/ConstraintSolver/Simplex/hkpSimplexSolver.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
@@ -15,7 +15,7 @@
 #include <unordered_map>
 
 /// @file
-/// @brief Jolt CharacterVirtual's ground model on Skyrim's proxy controller, as two palette overrides: support comes
+/// @brief Jolt CharacterVirtual's ground model on Skyrim's proxy controller, as two takeover overrides: support comes
 ///        only from a real supporting contact, and OnGround's unsupported down-cast runs only as Jolt's StickToFloor
 ///        (right after walking off support).
 /// @note The supported bit (kSupport, bit 8) is UpdatePhysics' `(m_surfaceInfo == SUPPORTED && !m_onlyWallContacts) ||
@@ -29,9 +29,8 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::schema;
-        using Process      = havok::bhkCharProxyController::processConstraintsCallback;
+        using Process      = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
         using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
-        using GetVelocity  = havok::bhkCharProxyController::GetLinearVelocityImpl;
 
         constexpr hk::hkUint32 kSupport                     = 1u << 8;
         constexpr hk::hkUint32 kHasPotentialSupportManifold = 1u << 9;
@@ -143,7 +142,7 @@ namespace CB::feature {
                 bool& sticking = g_sticking[key];
                 if (wasSupported) {
                     hk::hkVector4 velocity;
-                    GetVelocity::Call(self, velocity);
+                    self->GetLinearVelocityImpl(velocity);
                     vz       = velocity(2);
                     sticking = vz <= 1.0e-3f;
                 }

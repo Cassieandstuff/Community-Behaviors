@@ -3,7 +3,7 @@
 #include "CharSweep.h"
 
 #include <core/hooks/takeover/Override.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
@@ -88,12 +88,8 @@ namespace CB::feature {
 
         Hit CastDown(hk::bhkWorld* world, hk::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
         {
-            Hit h;
-            /// @note Zeroed storage plus the output's reset is what bhkPickData's constructor leaves; the constructor itself
-            ///       reads vanilla's g_vectorConstantZero, which the plugin does not link.
-            alignas(16) std::array<std::uint8_t, sizeof(hk::bhkPickData)> storage{};
-            auto& pick = *reinterpret_cast<hk::bhkPickData*>(storage.data());
-            pick.m_rayOutput.reset();
+            Hit             h;
+            hk::bhkPickData pick;
             pick.m_rayInput.m_from.set(x, y, fromZ, 0.0f);
             pick.m_rayInput.m_to.set(x, y, toZ, 0.0f);
             pick.m_rayInput.m_filterInfo = filter;
@@ -109,7 +105,6 @@ namespace CB::feature {
             return h;
         }
 
-        using GetVelocity = havok::bhkCharProxyController::GetLinearVelocityImpl;
 
         /// @brief Step 2b's observe check of the sweep helper: the hull swept a quarter second ahead along its horizontal
         ///        velocity, logged whenever its first hit changes.
@@ -120,7 +115,7 @@ namespace CB::feature {
         void ObserveSweep(hk::bhkCharacterController* self, hk::bhkWorld* world, const hk::hkpCollidable* coll)
         {
             hk::hkVector4 v;
-            GetVelocity::Call(self, v);
+            self->GetLinearVelocityImpl(v);
             const float vx = v(0) * kSweepSeconds, vy = v(1) * kSweepSeconds;
             if (vx * vx + vy * vy < 1.0e-4f) return;
             const hk::hkVector4& from = coll->getTransform().getTranslation();

@@ -2,8 +2,6 @@
 
 #include "CharSweep.h"
 
-#include <core/hooks/hookslib.h>
-
 #include <cfloat>
 #include <cstddef>
 #include <cstring>
@@ -85,27 +83,6 @@ namespace CB::feature::character {
         const void* const kCollectorVtable[3] = { reinterpret_cast<const void*>(&CollectorDtor), reinterpret_cast<const void*>(&CollectorAdd),
                                                    reinterpret_cast<const void*>(&CollectorReset) };
 
-        /// @brief The world's read lock, through the pinned out-of-line entry points (the schema's bhkWorldLock would call
-        ///        them as members, which the plugin does not link).
-        class ReadLock {
-        public:
-            explicit ReadLock(hk::bhkWorld* world) : m_world(world)
-            {
-                static const auto enter = reinterpret_cast<void (*)(hk::bhkWorld*)>(core::hooks::engine::Resolve(core::hooks::engine::bhkWorld_HavokWorldEnterRead));
-                if (m_world && enter) enter(m_world);
-            }
-            ~ReadLock()
-            {
-                static const auto exit = reinterpret_cast<void (*)(hk::bhkWorld*)>(core::hooks::engine::Resolve(core::hooks::engine::bhkWorld_HavokWorldExitRead));
-                if (m_world && exit) exit(m_world);
-            }
-            ReadLock(const ReadLock&)            = delete;
-            ReadLock& operator=(const ReadLock&) = delete;
-
-        private:
-            hk::bhkWorld* m_world;
-        };
-
     }  // namespace
 
     namespace {
@@ -131,7 +108,7 @@ namespace CB::feature::character {
             collector.m_ignoreLayers       = ignoreLayers;
             collector.m_self               = self;
 
-            ReadLock lock(world);
+            const hk::bhkWorldLock lock(world, 0);
             havokWorld->linearCast(castA, reinterpret_cast<const hk::hkpLinearCastInput&>(input), reinterpret_cast<hk::hkpCdPointCollector&>(collector),
                                    nullptr);
             return collector.m_best;

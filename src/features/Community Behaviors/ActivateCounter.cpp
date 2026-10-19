@@ -1,6 +1,8 @@
 #include "PCH.h"
 
-#include <feature-sdk/havok/Behavior/Generator/Clip/hkbClipGenerator.h>
+#include <core/hooks/takeover/Override.h>
+
+#include <Behavior/Generator/Clip/hkbClipGenerator.h>
 
 #include <atomic>
 #include <cstdint>
@@ -13,7 +15,7 @@ namespace CB::feature {
 
     namespace {
 
-        using Activate = havok::hkbClipGenerator::activate;
+        using Activate = core::hooks::Override<&CB::schema::hkbClipGenerator::activate>;
 
         /// @note Atomic: behavior graphs update on several job threads at once.
         std::atomic<std::uint64_t> g_activations{ 0 };

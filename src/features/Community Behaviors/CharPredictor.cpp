@@ -5,7 +5,7 @@
 #include "CharSweep.h"
 
 #include <core/hooks/takeover/Override.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <algorithm>
 #include <array>
@@ -29,7 +29,6 @@ namespace CB::feature {
         namespace hk = CB::schema;
         namespace ch = CB::feature::character;
         using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
-        using GetVelocity  = havok::bhkCharProxyController::GetLinearVelocityImpl;
 
         /// @brief Halflife of the velocity spring (P2), seconds.
         /// @warning Must match the halflife the ground-states feature (spec step 3) springs the real velocity with, or the
@@ -426,7 +425,7 @@ namespace CB::feature {
             PushHistory(s, here);
 
             hk::hkVector4 v;
-            GetVelocity::Call(self, v);
+            self->GetLinearVelocityImpl(v);
             const Vec2 velocity{ v(0), v(1) };
             const float vmx = ctrl.m_velocityMod(0), vmy = ctrl.m_velocityMod(1);
             const Vec2  desired{ vmy * tangent.x + vmx * sideAxis.x, vmy * tangent.y + vmx * sideAxis.y };

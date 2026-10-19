@@ -1,7 +1,10 @@
 #include "PCH.h"
 
 #include <core/hooks/hookslib.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <core/hooks/takeover/Override.h>
+
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.h>
 
 #include <Physics/ConstraintSolver/Simplex/hkpSimplexSolver.h>
 #include <Physics/Collide/Shape/Convex/Triangle/hkpTriangleShape.h>
@@ -25,7 +28,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::schema;
-        using Process = havok::bhkCharProxyController::processConstraintsCallback;
+        using Process = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
 
         struct V3 {
             float x = 0, y = 0, z = 0;
@@ -54,15 +57,12 @@ namespace CB::feature {
             unsigned weldingType = 0;
         };
 
-        using GetMeshShape = const hk::hkpShape* (*)(const hk::hkpShape*);
-
         Face FaceOf(const hk::hkRootCdPoint& point)
         {
             Face face;
-            static const auto getMesh = reinterpret_cast<GetMeshShape>(core::hooks::engine::Resolve(core::hooks::engine::bhkGetMeshShape));
-            if (!getMesh || point.m_shapeKeyB == hk::HK_INVALID_SHAPE_KEY) return face;
+            if (point.m_shapeKeyB == hk::HK_INVALID_SHAPE_KEY) return face;
             const hk::hkpShape* root = point.m_rootCollidableB->getShape();
-            const hk::hkpShape* mesh = root ? getMesh(root) : nullptr;
+            const hk::hkpShape* mesh = root ? hk::bhkGetMeshShape(root) : nullptr;
             if (!mesh) return face;
             const hk::hkpShapeContainer* container = mesh->getContainer();
             if (!container) return face;

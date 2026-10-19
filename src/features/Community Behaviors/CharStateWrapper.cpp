@@ -5,12 +5,13 @@
 
 #include <core/debug/Settings.h>
 #include <core/hooks/hookslib.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.h>
+#include <core/hooks/takeover/Override.h>
 
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterState.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkWorld.h>
+#include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
 #include <algorithm>
@@ -26,7 +27,7 @@
 #include <unordered_map>
 
 /// @file
-/// @brief Steps 1, 3, 6 and 7 of the character controller spec. The palette's hkpCharacterStateManager::getState
+/// @brief Steps 1, 3, 6 and 7 of the character controller spec. hkpCharacterStateManager::getState (overridden)
 ///        returns a wrapper for ids 0 to 2 (OnGround, Jumping, InAir); the wrapper's Simulate decides per controller.
 ///        Under char_ground_states the player's proxy controller runs CB's ground states (Grounded / Sliding mapped to
 ///        OnGround, Airborne mapped to InAir, Jumping only a request token); every other controller, and the player
@@ -41,11 +42,8 @@ namespace CB::feature {
 
         namespace hk = CB::schema;
         namespace ch = CB::feature::character;
-        using GetState       = havok::hkpCharacterStateManager::getState;
-        using CommitWanted   = havok::bhkCharacterController::CommitWantedState;
-        using AccumulateFall = havok::bhkCharacterController::AccumulateFallTime;
-        using ApplyInitial   = havok::bhkCharacterController::ApplyInitialVelocity;
-        using SetSupport     = havok::bhkCharacterController::SetSupportBody;
+        namespace eng        = core::hooks::engine;
+        using GetState       = core::hooks::Override<&hk::hkpCharacterStateManager::getState>;
         using SimulateFn     = void (*)(const void* state, hk::bhkCharacterController* controller);
 
         constexpr int kSlots        = 9;   ///< hkReferencedObject 0-2, getType 3, enter/leave 4-5, update/change 6-7, Simulate 8
@@ -166,28 +164,13 @@ namespace CB::feature {
             return s ? s->GetFloat() : def;
         }
 
-        using GravityFn  = const hk::hkVector4& (*)(const hk::bhkWorld*);
-        using MovementFn = void (*)(const hk::hkpMovementUtilInput&, hk::hkVector4&);
-
-        GravityFn Gravity()
-        {
-            static const auto fn = reinterpret_cast<GravityFn>(core::hooks::engine::Resolve(core::hooks::engine::bhkWorld_GetGravity));
-            return fn;
-        }
-        MovementFn Movement()
-        {
-            static const auto fn =
-                reinterpret_cast<MovementFn>(core::hooks::engine::Resolve(core::hooks::engine::hkpCharacterMovementUtil_CalculateMovement));
-            return fn;
-        }
-
         /// @brief The world's gravity (Havok units/s^2), zero without a world.
         void WorldGravity(hk::bhkCharacterController& c, float& gx, float& gy, float& gz)
         {
             gx = gy = gz = 0.0f;
             hk::bhkWorld* world = c.GetHavokWorld();
             if (!world) return;
-            const hk::hkVector4& g = Gravity()(world);
+            const hk::hkVector4& g = world->GetGravity();
             gx = g(0), gy = g(1), gz = g(2);
         }
 
@@ -207,7 +190,7 @@ namespace CB::feature {
             in.m_maxVelocityDelta = 1.0e6f;
             hk::hkVector4 out;
             out.set(0.0f, 0.0f, 0.0f, 0.0f);
-            Movement()(in, out);
+            hk::hkpCharacterMovementUtil::calculateMovement(in, out);
             dx = out(0), dy = out(1);
         }
 
@@ -221,7 +204,7 @@ namespace CB::feature {
         void Commit(hk::bhkCharacterController& c, hk::hkpCharacterStateType state)
         {
             c.m_wantState = state;
-            CommitWanted::Call(&c);
+            c.CommitWantedState();
         }
 
         /// @brief The player's Jump button, from the input event stream (every device, as the player mapped it).
@@ -390,7 +373,7 @@ namespace CB::feature {
             }
             const float k = gravityMult * c.m_gravity * dt;
             c.m_outVelocity.set(ox + gx * k, oy + gy * k, oz + gz * k, 0.0f);
-            AccumulateFall::Call(&c);
+            c.AccumulateFallTime();
             t.airTime += dt;
         }
 
@@ -423,7 +406,7 @@ namespace CB::feature {
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
             c.m_outVelocity.set(hx + surf(0), hy + surf(1), hz + surf(2) + gz * dt, 0.0f);
-            ApplyInitial::Call(&c);
+            c.ApplyInitialVelocity();
         }
 
         /// @brief Sliding: the ground is too steep to stand on. The body's velocity along the plane gains gravity's
@@ -471,7 +454,7 @@ namespace CB::feature {
                 sx *= s, sy *= s, sz *= s;
             }
             c.m_outVelocity.set(sx + gn * nx * dt, sy + gn * ny * dt, sz + gn * nz * dt, 0.0f);
-            ApplyInitial::Call(&c);
+            c.ApplyInitialVelocity();
         }
 
         void LogTransition(const Track& t, Mode to, const char* why, const ch::FloorVerdict& fv, float vz)
@@ -560,13 +543,13 @@ namespace CB::feature {
         {
             if (!fv.supportBody) return;
             hk::hkpRigidBody* body = hk::hkpGetRigidBody(fv.supportBody);
-            if (body && body != c.m_supportBody.m_pntr) SetSupport::Call(&c, body);
+            if (body && body != c.m_supportBody.m_pntr) c.SetSupportBody(body);
         }
 
         /// @brief Runs one managed step through the vanilla state now current (Swimming, Climbing, ...).
         void RunCurrentVanilla(hk::bhkCharacterController& c)
         {
-            const hk::hkpCharacterState* state = GetState::Call(c.m_context.m_stateManager, c.m_context.m_currentState);
+            const hk::hkpCharacterState* state = c.m_context.m_stateManager->getState(c.m_context.m_currentState);
             if (!state) return;
             const auto fn = reinterpret_cast<SimulateFn>((*reinterpret_cast<void* const* const*>(state))[kSimulateSlot]);
             fn(state, &c);
@@ -749,7 +732,8 @@ namespace CB::feature {
         {
             static const bool on = core::debug::FlagOn("char_ground_states");
             if (!on || !controller || !ch::IsManaged(*controller)) return false;
-            static const bool pinned = Gravity() && Movement();
+            /// @note The schema shim calls these through their pins; a runtime without one leaves the player to vanilla.
+            static const bool pinned = eng::Available(eng::bhkWorld_GetGravity) && eng::Available(eng::hkpCharacterMovementUtil_CalculateMovement);
             if (!pinned) return false;
             if (controller->m_flags & kChaseOrRagdoll) return false;
             return controller->GetHavokWorld() != nullptr;

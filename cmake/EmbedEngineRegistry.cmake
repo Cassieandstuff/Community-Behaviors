@@ -36,7 +36,7 @@ string(REGEX MATCHALL "(^|\n)[ ]*-[ ]*{" _entryStarts "${_text}")
 list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
-set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header):[ ]*\"[^\"]*\")*[ ]*}")
+set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig):[ ]*\"[^\"]*\")*[ ]*}")
 
 set(_defs "")
 set(_all "")
@@ -54,8 +54,10 @@ set(_shimAlt "")
 set(_shimFuncs "")
 set(_shimData "")
 set(_shimDataDefs "")
-set(_shimHeaders "")
+set(_identityHeaders "")
+set(_dataHeaders "")
 set(_identity "")
+set(_globals "")
 set(_nf 0)
 set(_nd 0)
 
@@ -120,20 +122,14 @@ foreach(_l IN LISTS _lines)
     math(EXPR _n "${_n}+1")
 
     string(REGEX MATCH "{[^#]*}" _fields "${_l}")
-    foreach(_field cpp mangled this header)
+    foreach(_field cpp mangled this header sig)
         set(_${_field} "")
-        if(_fields MATCHES "${_field}:[ ]*\"([^\"]*)\"")
+        if(_fields MATCHES "[{ ,]${_field}:[ ]*\"([^\"]*)\"")
             set(_${_field} "${CMAKE_MATCH_1}")
         endif()
     endforeach()
     if(NOT _mangled)
         continue()
-    endif()
-    if(NOT _cpp OR NOT _header)
-        message(FATAL_ERROR "engine.yaml: ${_name} has `mangled` but no `cpp` and `header` (the shim needs the declaration)")
-    endif()
-    if(NOT "${_header}" IN_LIST _shimHeaders)
-        list(APPEND _shimHeaders "${_header}")
     endif()
     if(_kind STREQUAL "func")
         math(EXPR _off "${_nf}*8")
@@ -146,21 +142,77 @@ foreach(_l IN LISTS _lines)
         endif()
         string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_shim_${_nf}\")\n")
         string(APPEND _shimFuncs "    &engine::${_name},\n")
-        # The class owning the member: `this` when the image passes a base subobject, else the cpp name's scope.
-        string(REGEX REPLACE "::[A-Za-z_~][A-Za-z0-9_]*$" "" _scope "${_cpp}")
+        math(EXPR _nf "${_nf}+1")
+        # Identity<&fn> (Override's) for a declaration a feature can name: `header` declares it, `sig` is its exact
+        # member-pointer type (so an overloaded name resolves), `this` the base subobject the image passes when a
+        # non-primary base introduced the virtual. Without `header` the row only binds the call.
+        if(NOT _header)
+            continue()
+        endif()
+        # A hand row may have no `cpp`, or keep the decorated name there (cbmatch's key for an overload): spell the C++
+        # name from the decoration (`?name@Class@schema@CB@@…` → CB::schema::Class::name). A special or templated name
+        # can't be spelled: no Identity.
+        if(NOT _cpp OR _cpp MATCHES "^\\?")
+            set(_cpp "${_mangled}")
+            if(_cpp MATCHES "^\\?\\?" OR _cpp MATCHES "\\$" OR NOT _cpp MATCHES "^\\?([^@]+(@[^@]+)*)@@")
+                continue()
+            endif()
+            string(REPLACE "@" ";" _parts "${CMAKE_MATCH_1}")
+            list(REVERSE _parts)
+            list(JOIN _parts "::" _cpp)
+        endif()
+        if(NOT "${_header}" IN_LIST _identityHeaders)
+            list(APPEND _identityHeaders "${_header}")
+        endif()
+        set(_owner "")
+        if(_sig MATCHES "\\(([^()]*)::\\*\\)")
+            set(_owner "${CMAKE_MATCH_1}")
+        elseif(NOT _sig)
+            string(REGEX REPLACE "::[A-Za-z_~][A-Za-z0-9_]*$" "" _owner "${_cpp}")
+            if(_owner STREQUAL "CB::schema")
+                set(_owner "")
+            endif()
+        endif()
         if(_this)
             set(_thisType "::${_this}")
-        elseif(_scope STREQUAL "CB::schema")
-            set(_thisType "void")
+        elseif(_owner)
+            set(_thisType "::${_owner}")
         else()
-            set(_thisType "::${_scope}")
+            set(_thisType "void")
         endif()
-        string(APPEND _identity "template <>\nstruct Identity<&::${_cpp}> {\n    static constexpr const char* mangled = \"${_mangled}\";\n    static constexpr const char* name    = \"${_cpp}\";\n    using This                           = ${_thisType};\n};\n\n")
-        math(EXPR _nf "${_nf}+1")
+        if(_sig)
+            set(_key "static_cast<${_sig}>(&::${_cpp})")
+        else()
+            set(_key "&::${_cpp}")
+        endif()
+        string(APPEND _identity "template <>\nstruct Identity<${_key}> {\n    static constexpr const char* mangled = \"${_mangled}\";\n    static constexpr const char* name    = \"${_cpp}\";\n    using This                           = ${_thisType};\n};\n\n")
     elseif(_kind STREQUAL "data")
-        if(NOT _mangled MATCHES "B$")
-            message(FATAL_ERROR "engine.yaml: ${_name} is mutable data: the shim copies const globals only (a mutable one needs an accessor)")
+        # A const global is copied at load. A mutable one stays unbound (a direct use fails to link) and gets
+        # GlobalIdentity<&global> instead, for Live<&global>() to read the exe's variable through its pin.
+        if(NOT _header OR NOT _cpp)
+            continue()
         endif()
+        # `header` may name several, `|`-separated: the declaring header, then whatever completes the type.
+        string(REPLACE "|" ";" _headers "${_header}")
+        if(NOT _mangled MATCHES "B$")
+            foreach(_h IN LISTS _headers)
+                if(NOT "${_h}" IN_LIST _identityHeaders)
+                    list(APPEND _identityHeaders "${_h}")
+                endif()
+            endforeach()
+            string(APPEND _globals "template <>
+struct GlobalIdentity<&::${_cpp}> {
+    static constexpr const engine::Symbol& symbol = engine::${_name};
+};
+
+")
+            continue()
+        endif()
+        foreach(_h IN LISTS _headers)
+            if(NOT "${_h}" IN_LIST _dataHeaders)
+                list(APPEND _dataHeaders "${_h}")
+            endif()
+        endforeach()
         string(APPEND _shimDataDefs "alignas(alignof(decltype(::${_cpp}))) unsigned char cb_data_${_nd}[sizeof(::${_cpp})];\n")
         string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_data_${_nd}\")\n")
         string(APPEND _shimData "    { &engine::${_name}, cb_data_${_nd}, sizeof(::${_cpp}) },\n")
@@ -214,10 +266,15 @@ if(NOT DEFINED OUT_SHIM_ASM OR NOT DEFINED OUT_SHIM_CPP OR NOT DEFINED OUT_IDENT
     return()
 endif()
 
-set(_includes "")
-foreach(_h IN LISTS _shimHeaders)
-    string(APPEND _includes "#include <${_h}>
-")
+list(SORT _identityHeaders)
+list(SORT _dataHeaders)
+set(_identityIncludes "")
+foreach(_h IN LISTS _identityHeaders)
+    string(APPEND _identityIncludes "#include <${_h}>\n")
+endforeach()
+set(_dataIncludes "")
+foreach(_h IN LISTS _dataHeaders)
+    string(APPEND _dataIncludes "#include <${_h}>\n")
 endforeach()
 if(_nf EQUAL 0)
     set(_shimSlots "cb_shim_slots QWORD 0
@@ -285,7 +342,7 @@ _cb_write("${OUT_SHIM_CPP}"
 #include <core/hooks/registry/Registry.h>
 #include <core/hooks/takeover/SchemaShim.h>
 
-${_includes}
+${_dataIncludes}
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -323,11 +380,16 @@ _cb_write("${OUT_IDENTITY_H}"
 // Identity<&fn> for every shimmed schema function: what Override<&fn> needs beyond the declaration's own type.
 #pragma once
 
-${_includes}
+#include <core/hooks/registry/EngineRegistry.gen.h>
+
+${_identityIncludes}
 namespace CB::core::hooks {
 
 template <auto F>
 struct Identity;
 
-${_identity}} // namespace CB::core::hooks
+template <auto P>
+struct GlobalIdentity;
+
+${_identity}${_globals}} // namespace CB::core::hooks
 ")

@@ -3,7 +3,9 @@
 #include "CharGround.h"
 #include "CharSweep.h"
 
-#include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <core/hooks/takeover/Override.h>
+
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <algorithm>
 #include <cmath>
@@ -27,9 +29,7 @@ namespace CB::feature {
 
         namespace hk = CB::schema;
         namespace ch = CB::feature::character;
-        using Integrate   = havok::bhkCharProxyController::Unk_0B;
-        using GetPosition = havok::bhkCharProxyController::GetPositionImpl;
-        using SetPosition = havok::bhkCharProxyController::SetPositionImpl;
+        using Integrate   = core::hooks::Override<&hk::bhkCharProxyController::Unk_0B>;
 
         constexpr float         kHavokToGame       = 69.99125f;
         constexpr float         kMinRequested      = 0.002f;   ///< Havok units this step; below it nothing is blocked
@@ -162,7 +162,7 @@ namespace CB::feature {
             /// @note SetPositionImpl(pos, false, false) is the inverse of GetPositionImpl(pos, false): both are the proxy's
             ///       own position, so the sweep's offset applies as is. It takes the world write lock and clears the proxy's
             ///       manifold and old displacement (bhkCharacterProxy::SetPosition), as a teleport does.
-            SetPosition::Call(self, Offset(after, dx, dy, a.rise), false, false);
+            self->SetPositionImpl(Offset(after, dx, dy, a.rise), false, false);
             Log(a);
         }
 
@@ -173,12 +173,12 @@ namespace CB::feature {
             const float rx = self->m_outVelocity(0) * dt, ry = self->m_outVelocity(1) * dt;
             const float requested = std::sqrt(rx * rx + ry * ry);
             hk::hkVector4 before;
-            GetPosition::Call(self, before, false);
+            self->GetPositionImpl(before, false);
             const bool result = next(self);
             if (!(requested >= kMinRequested)) return result;
 
             hk::hkVector4 after;
-            GetPosition::Call(self, after, false);
+            self->GetPositionImpl(after, false);
             const float ux = rx / requested, uy = ry / requested;
             const float achieved = (after(0) - before(0)) * ux + (after(1) - before(1)) * uy;
             if (requested - achieved < (std::max)(kMinShortfall, kShortfallFraction * requested)) return result;

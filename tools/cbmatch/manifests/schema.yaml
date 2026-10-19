@@ -3,7 +3,7 @@
 #
 # Proven code only. --strict fails on any out-of-line definition a unit compiles that no line here covers: a function
 # is either listed (and must pass) or a unit's declared driver (compiled only so the unit emits what it lists — a
-# vtable, a header's inline copy; never matched, never in the image or the palette). Functions still being matched
+# vtable, a header's inline copy; never matched, never in the image or the registry). Functions still being matched
 # live in tools/cbmatch/workbench (manifests/workbench.yaml); units that are matching devices rather than Havok files
 # live in tools/cbmatch/devices.
 #

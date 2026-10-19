@@ -84,7 +84,7 @@ struct UnitSpec {
     std::vector<std::string>  toolchains;   ///< empty = every toolchain
     std::vector<FunctionSpec> functions;
     /// @brief Out-of-line functions the unit compiles only to make it emit what it lists (a vtable, a header's inline copy):
-    ///        never matched, never in the image or the palette; --strict accepts them (name → why).
+    ///        never matched, never in the image or the registry; --strict accepts them (name → why).
     std::map<std::string, std::string> drivers;
 };
 
@@ -489,9 +489,15 @@ EngineSymbols loadEngineSymbols(const fs::path& registry, const fs::path& addres
     const c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(*text));
     const auto          root = tree.crootref();
     if (!has(root, "symbols")) throw std::runtime_error(registry.string() + " has no symbols:");
+    /// @note A row with a `mangled` name is found by it alone; one without, by its `cpp` name. A reference names its target
+    ///       undecorated without parameters, so every overload (every constructor of a class) shares one `cpp` name: keyed
+    ///       by it, one overload's row would claim references to the others. A `cpp` name rows place at different
+    ///       addresses keys nothing either.
+    struct Placed { std::string name, cpp, mangled; std::uint64_t at; };
+    std::vector<Placed>                          placed;
+    std::map<std::string, std::set<std::uint64_t>> cppAt;
     for (const auto s : root["symbols"].children()) {
-        if (!has(s, "cpp") || !has(s, pins.c_str())) continue;
-        const std::string cpp = val(s["cpp"]);
+        if ((!has(s, "cpp") && !has(s, "mangled")) || !has(s, pins.c_str())) continue;
         const std::string pin = val(s[c4::to_csubstr(pins.c_str())]);
         const auto        plus = pin.find('+');
         const auto        id = std::stoull(pin.substr(0, plus));
@@ -499,8 +505,20 @@ EngineSymbols loadEngineSymbols(const fs::path& registry, const fs::path& addres
         if (id == 0) continue;
         const auto it = library.find(id);
         if (it == library.end()) throw std::runtime_error("engine.yaml " + val(s["name"]) + ": id " + std::to_string(id) + " is not in " + addressLibrary.string());
-        out.byCpp[cpp]        = imageBase + it->second + off;
-        out.registryName[cpp] = val(s["name"]);
+        Placed p{ val(s["name"]), has(s, "cpp") ? val(s["cpp"]) : std::string(), has(s, "mangled") ? val(s["mangled"]) : std::string(),
+                  imageBase + it->second + off };
+        if (!p.cpp.empty()) cppAt[p.cpp].insert(p.at);
+        placed.push_back(std::move(p));
+    }
+    for (const auto& p : placed) {
+        if (p.mangled.empty() && !p.cpp.empty() && cppAt[p.cpp].size() == 1) {
+            out.byCpp[p.cpp]        = p.at;
+            out.registryName[p.cpp] = p.name;
+        }
+        if (!p.mangled.empty()) {
+            out.byCpp[p.mangled]        = p.at;
+            out.registryName[p.mangled] = p.name;
+        }
     }
     return out;
 }
@@ -4637,7 +4655,8 @@ void usage()
         "  --strict             fail on any out-of-line definition no manifest line covers (unverified code in the tree;\n"
         "                       the schema/ gate runs with it, the workbench without), and on any header --check-layout\n"
         "                       finds WRONG or broken\n"
-        "  --emit-palette <dir> write the function palette: one typed cell per passing function, a header per class\n"
+        "  --emit-registry <engine.yaml> fill the registry's identity fields (mangled, header, sig, this) for every image\n"
+        "                       function and every symbol the image references; needs --emit-image in the same run\n"
         "                       (with --emit-image, exactly the image's functions)\n"
         "\n"
         "manifest:\n"
@@ -5330,18 +5349,18 @@ int seedHeaders(const Manifest& m, const std::vector<ReflectedClass>& classes, c
     return 0;
 }
 
-// ── the function palette ─────────────────────────────────────────────────────────────────────────────────────────
+// ── image functions as C++ declarations ─────────────────────────────────────────────────────────────────────────────────────────
 
 /// @brief A function's C++ prototype, read back from its mangled symbol.
 struct Prototype {
     bool                     member = false, isStatic = false, isConst = false, isVirtual = false;
-    std::string              full, ret, owner, method;
+    std::string              full, ret, owner, method, access;   ///< access: "public", "protected", "private" or "" (free)
     std::vector<std::string> params;
 };
 
 std::string trimmed(std::string_view s) { return std::string(CB::engine::text::Trim(s)); }
 
-/// @return the prototype, or nullopt with `why` when the palette can't type it (variadic, a function-pointer parameter,
+/// @return the prototype, or nullopt with `why` when it can't be typed (variadic, a function-pointer parameter,
 ///         a compiler thunk).
 std::optional<Prototype> readPrototype(const std::string& mangled, std::string& why)
 {
@@ -5355,7 +5374,7 @@ std::optional<Prototype> readPrototype(const std::string& mangled, std::string& 
     std::string s = trimmed(p.full);
     if (s.find("[thunk]") != std::string::npos || s.find("`adjustor") != std::string::npos) return why = "a compiler thunk", std::nullopt;
     for (const char* a : { "public: ", "protected: ", "private: " })
-        if (s.rfind(a, 0) == 0) p.member = true, s.erase(0, std::strlen(a));
+        if (s.rfind(a, 0) == 0) p.member = true, p.access = std::string(a, std::strlen(a) - 2), s.erase(0, std::strlen(a));
     if (s.rfind("static ", 0) == 0) p.isStatic = true, s.erase(0, 7);
     if (s.rfind("virtual ", 0) == 0) p.isVirtual = true, s.erase(0, 8);
     s = trimmed(s);
@@ -5411,30 +5430,6 @@ std::optional<Prototype> readPrototype(const std::string& mangled, std::string& 
     return p;
 }
 
-/// @return the signature a free function with the object first must have to be ABI-identical to the member function.
-/// @param thisType the class `this` points to; empty = the owner. A virtual overriding one from a non-primary base gets
-///        that base's subobject (see thisAdjustors).
-/// @note MSVC x64: a constructor returns `this`; an instance member returning a class by value takes a hidden pointer
-///       to the result right after `this` and returns it (a free function returns small ones in rax instead).
-std::string cellSignature(const Prototype& p, const std::string& thisType = {})
-{
-    std::string       ret  = p.ret;
-    if (ret.empty()) ret = p.method.front() == '~' ? "void" : p.owner + " *";
-    std::vector<std::string> args;
-    const bool instance = p.member && !p.isStatic;
-    if (instance) args.push_back((p.isConst ? "const " : "") + (thisType.empty() ? p.owner : thisType) + " *");
-    const bool udt = (ret.rfind("class ", 0) == 0 || ret.rfind("struct ", 0) == 0 || ret.rfind("union ", 0) == 0) && ret.back() != '*' &&
-                     ret.back() != '&';
-    if (instance && udt) {
-        args.push_back(ret + " *");
-        ret += " *";
-    }
-    args.insert(args.end(), p.params.begin(), p.params.end());
-    std::string sig = ret + "(";
-    for (std::size_t k = 0; k < args.size(); ++k) sig += (k ? ", " : "") + args[k];
-    return sig + ")";
-}
-
 /// @return the last `::` component of a qualified name, skipping the `::`s inside template arguments.
 std::string leafOf(const std::string& q)
 {
@@ -5467,8 +5462,8 @@ std::string identifierOf(std::string_view s)
     return out;
 }
 
-/// @return the palette's name for a method: ctor, dtor, scalarDeletingDtor, operatorAssign…, else the method itself.
-std::string paletteName(const Prototype& p)
+/// @return a readable name for a method: ctor, dtor, scalarDeletingDtor, operatorAssign…, else the method itself.
+std::string memberName(const Prototype& p)
 {
     static const std::set<std::string> keywords = { "new", "delete", "default", "register", "class", "struct", "union", "enum", "template",
                                                     "typename", "operator", "and", "or", "not", "xor", "bool", "int", "char", "float", "this" };
@@ -5499,7 +5494,7 @@ std::string paramTag(std::string q)
     return identifierOf(colon == std::string::npos ? q : q.substr(colon + 2));
 }
 
-struct PaletteEntry {
+struct ImageEntry {
     std::string   mangled, status;
     std::uint64_t va = 0, id = 0;
     fs::path      unitSource;   ///< the TU, relative to the schema/Havok include root
@@ -5516,7 +5511,7 @@ struct PaletteEntry {
 ///       (hkbNode::BoundVariablesCollector lives in hkbNode.cpp). Results merge into `out`.
 void readThisAdjustors(const Manifest& m, const UnitSpec& source, const fs::path& dir, std::map<std::string, std::string>& out)
 {
-    if (m.toolchains.empty()) throw std::runtime_error("--emit-palette needs a toolchain to read this adjustors");
+    if (m.toolchains.empty()) throw std::runtime_error("--emit-registry needs a toolchain to read this adjustors");
     UnitSpec unit = source;
     unit.flags.push_back("/d1reportAllClassLayout");
     auto res = compileUnit(m, unit, m.toolchains.front().second, dir);
@@ -5524,7 +5519,7 @@ void readThisAdjustors(const Manifest& m, const UnitSpec& source, const fs::path
         std::this_thread::sleep_for(std::chrono::milliseconds(200 * (retry + 1)));
         res = compileUnit(m, unit, m.toolchains.front().second, dir);
     }
-    if (!res.ok) throw std::runtime_error("--emit-palette: " + unit.source.string() + " did not compile for its layout (" + (dir / "cl.log").string() + ")");
+    if (!res.ok) throw std::runtime_error("--emit-registry: " + unit.source.string() + " did not compile for its layout (" + (dir / "cl.log").string() + ")");
 
     static const std::regex header(R"(^(?:class|struct)\s+(.+?)\s+size\(\d+\):$)");
     static const std::regex directBase(R"(^\s*(\d+)\s*\| \+--- \(base class (.+)\)$)");   // one "| " deep = a direct base
@@ -5563,10 +5558,10 @@ std::map<std::string, std::string> thisAdjustors(const Manifest& m, const std::s
     std::map<std::string, std::string> out;
     std::string                        src;
     for (const auto& h : headers) src += "#include <" + h.generic_string() + ">\n";
-    const fs::path d = work / "palette-layout";
+    const fs::path d = work / "registry-layout";
     fs::create_directories(d);
     std::string err;
-    if (!CB::engine::disk::WriteFile(d / "layout.cpp", src, {}, &err)) throw std::runtime_error("cannot write the palette layout unit: " + err);
+    if (!CB::engine::disk::WriteFile(d / "layout.cpp", src, {}, &err)) throw std::runtime_error("cannot write the registry layout unit: " + err);
     UnitSpec headersUnit;
     headersUnit.source = d / "layout.cpp";
     readThisAdjustors(m, headersUnit, d, out);
@@ -5597,127 +5592,314 @@ std::string layoutMethodName(const Prototype& p)
     return p.method;
 }
 
-/// @brief Writes the function palette: one header per top-level class (beside where schema/Havok defines it), each
-///        a struct of typed cells, plus Palette.h including them all. Returns how many functions it typed.
-std::size_t emitPalette(const Manifest& m, const fs::path& out, const fs::path& schemaRoot, const std::vector<PaletteEntry>& entries,
-                        const fs::path& work)
+// ── the registry's identity fields (the plugin's schema link shim) ───────────────────────────────────────────────
+
+/// @brief One engine.yaml row as text: its fields in order, quotes kept off, and whatever follows the closing brace.
+struct RegistryRow {
+    std::vector<std::pair<std::string, std::string>> fields;
+    std::string                                      tail;   ///< after `}`: spaces and the note
+
+    std::string get(const std::string& k) const
+    {
+        for (const auto& [key, v] : fields) if (key == k) return v;
+        return {};
+    }
+    void set(const std::string& k, const std::string& v)
+    {
+        for (auto& [key, old] : fields) if (key == k) { old = v; return; }
+        fields.emplace_back(k, v);
+    }
+    void drop(const std::string& k) { std::erase_if(fields, [&](const auto& f) { return f.first == k; }); }
+};
+
+/// @return the row a `  - { … }` line holds, or nullopt for any other line.
+/// @note engine.yaml's rows are one-line flow maps whose quoted values never hold a quote, so a quote-aware scan is a
+///       complete reader for them.
+std::optional<RegistryRow> parseRegistryRow(const std::string& line)
 {
-    // Where each top-level class is defined, so its palette sits in the matching place and includes that header.
+    const std::size_t open = line.find('{');
+    if (open == std::string::npos || line.find_first_not_of(' ') != line.find('-') || line.find('-') > open) return std::nullopt;
+    RegistryRow row;
+    std::size_t i = open + 1;
+    while (i < line.size()) {
+        while (i < line.size() && (line[i] == ' ' || line[i] == ',')) ++i;
+        if (i < line.size() && line[i] == '}') { row.tail = line.substr(i + 1); return row; }
+        const std::size_t colon = line.find(':', i);
+        if (colon == std::string::npos) return std::nullopt;
+        std::string key = trimmed(std::string_view(line).substr(i, colon - i));
+        i = colon + 1;
+        while (i < line.size() && line[i] == ' ') ++i;
+        std::string value;
+        if (i < line.size() && line[i] == '"') {
+            const std::size_t close = line.find('"', i + 1);
+            if (close == std::string::npos) return std::nullopt;
+            value = line.substr(i + 1, close - i - 1);
+            i     = close + 1;
+        } else {
+            const std::size_t end = line.find_first_of(",}", i);
+            if (end == std::string::npos) return std::nullopt;
+            value = trimmed(std::string_view(line).substr(i, end - i));
+            i     = end;
+        }
+        row.fields.emplace_back(std::move(key), std::move(value));
+    }
+    return std::nullopt;
+}
+
+/// @return the row as an engine.yaml line: the pins first and bare, every other value quoted.
+std::string formatRegistryRow(const RegistryRow& row)
+{
+    static const std::vector<std::string> order = { "name", "kind", "se", "ae", "vr", "cpp", "mangled", "this", "header", "sig" };
+    static const std::set<std::string>    bare  = { "name", "kind", "se", "ae", "vr" };
+    std::string s = "  - { ";
+    bool        first = true;
+    auto        put = [&](const std::string& k, const std::string& v) {
+        s += (first ? "" : ", ") + k + ": " + (bare.count(k) ? v : "\"" + v + "\"");
+        first = false;
+    };
+    for (const auto& k : order) if (const auto v = row.get(k); !v.empty() || bare.count(k)) put(k, v);
+    for (const auto& [k, v] : row.fields) if (std::find(order.begin(), order.end(), k) == order.end()) put(k, v);
+    return s + " }" + row.tail;
+}
+
+/// @return the member-pointer type that names exactly this declaration (`R (C::*)(P…) const`, or `R (*)(P…)` for a
+///         static member or a free function), or empty when it can't be named (constructors, destructors).
+std::string memberPointerType(const Prototype& p)
+{
+    if (p.ret.empty() || p.method.empty() || p.method[0] == '~' || p.method[0] == '`') return {};
+    std::string params;
+    for (std::size_t k = 0; k < p.params.size(); ++k) params += (k ? ", " : "") + p.params[k];
+    const bool instance = p.member && !p.isStatic;
+    return p.ret + " (" + (instance ? p.owner + "::" : std::string()) + "*)(" + params + ")" + (instance && p.isConst ? " const" : "");
+}
+
+/// @return the header under `schemaRoot` that declares `cpp` (a class member: where the class is defined; a namespace
+///         global: the first header with an `extern` naming it), or empty.
+fs::path declaringHeader(const fs::path& schemaRoot, const std::map<std::string, fs::path>& definedIn, const std::string& cpp)
+{
+    static const std::string prefix = "CB::schema::";
+    if (cpp.rfind(prefix, 0) != 0) return {};
+    const std::string rest  = cpp.substr(prefix.size());
+    const std::size_t colon = rest.find("::");
+    if (colon != std::string::npos) {
+        const auto d = definedIn.find(rest.substr(0, colon));
+        return d == definedIn.end() ? fs::path() : d->second;
+    }
+    static std::map<fs::path, std::string> texts;
+    if (texts.empty())
+        for (const auto& e : fs::recursive_directory_iterator(schemaRoot))
+            if (e.path().extension() == ".h") texts.emplace(fs::relative(e.path(), schemaRoot), CB::engine::disk::ReadFile(e.path()).value_or(""));
+    const std::regex declares("extern[^;\\n]*\\b" + rest + "\\b");
+    for (const auto& [rel, text] : texts) if (std::regex_search(text, declares)) return rel;
+    return {};
+}
+
+/// @return the headers a data symbol's copy or Live accessor compiles against, `|`-separated: its declaring header, then
+///         the header defining each schema class in its type (a declaring header may only forward-declare it). Empty
+///         for a special symbol (a vftable) or a type no schema header completes.
+std::string dataHeader(const fs::path& schemaRoot, const std::map<std::string, fs::path>& definedIn, const std::string& cpp, const std::string& mangled)
+{
+    if (cpp.empty() || cpp[0] == '?' || cpp.find('`') != std::string::npos || cpp.find('<') != std::string::npos) return {};
+    std::string full;
+    {
+        std::lock_guard lk(g_dbghelp);
+        char buf[2048];
+        if (!UnDecorateSymbolName(mangled.c_str(), buf, sizeof buf, UNDNAME_NO_MS_KEYWORDS)) return {};
+        full = buf;
+    }
+    const std::size_t at = full.rfind(cpp);
+    if (at == std::string::npos) return {};
+    std::string type = trimmed(full.substr(0, at));
+    for (const char* a : { "public: ", "protected: ", "private: ", "static " })
+        if (type.rfind(a, 0) == 0) type.erase(0, std::strlen(a));
+    const fs::path declared = declaringHeader(schemaRoot, definedIn, cpp);
+    if (declared.empty()) return {};
+    if (!type.empty() && (type.back() == '*' || type.back() == '&')) return declared.generic_string();
+    static const std::regex named(R"(CB::schema::([A-Za-z_]\w*))");
+    std::string headers = declared.generic_string();
+    for (std::sregex_iterator it(type.begin(), type.end(), named), end; it != end; ++it) {
+        const auto d = definedIn.find((*it)[1].str());
+        if (d == definedIn.end()) return {};
+        if (d->second != declared && headers.find(d->second.generic_string()) == std::string::npos) headers += "|" + d->second.generic_string();
+    }
+    return headers;
+}
+
+/// @brief Fills engine.yaml's identity fields from this run: every function the image places gets its row (an existing
+///        one found by decorated name, Address Library id or unique name; else a new row in the generated section) with
+///        `mangled`, and, when a feature can name it, `header`, `sig` (the exact member-pointer type, so an overloaded
+///        name resolves) and `this` (the base subobject a virtual from a non-primary base receives). Every registry
+///        symbol the image references gets its `mangled` (and a data symbol its `header`).
+/// @note The plugin's build turns these into its schema link shim (cmake/EmbedEngineRegistry.cmake): each `mangled`
+///       binds the declaration to vanilla's entry, and `header` + `sig` give Override<&fn> its identity.
+/// @note Rows keep their hand-written name, pins, `cpp` and note; the generated section between the markers is
+///       rewritten whole each run.
+std::size_t emitRegistry(const Manifest& m, const fs::path& registry, const fs::path& schemaRoot, const std::vector<ImageEntry>& entries,
+                         const std::map<std::string, std::string>& referenced, const fs::path& work)
+{
     const std::map<std::string, fs::path> definedIn = classDefinitions(schemaRoot);
 
-    struct Cell { std::string ident, sig, mangled, readable, full, status, thisNote; std::uint64_t va, id; std::vector<std::string> params; };
-    struct Node { std::map<std::string, Node> children; std::vector<Cell> cells; };
-    struct Typed { const PaletteEntry* e; Prototype p; std::vector<std::string> parts; };
-    std::map<std::string, Node>                  tops;
-    std::map<std::string, std::set<fs::path>>    includes;
-    std::vector<Typed>                           typedEntries;
-    std::set<fs::path>                           virtualHeaders;
-    std::map<std::string, fs::path>              virtualSources;   // Class::method → its unit, for a class a .cpp defines
+    struct Typed { const ImageEntry* e; Prototype p; fs::path header; };
+    std::vector<Typed>              typedEntries;
+    std::set<fs::path>              virtualHeaders;
+    std::map<std::string, fs::path> virtualSources;
     for (const auto& e : entries) {
         std::string why;
         const auto  p = readPrototype(e.mangled, why);
-        if (!p) { std::printf("palette: %s left out: %s\n", undecorate(e.mangled).c_str(), why.c_str()); continue; }
-        std::string path = p->owner;
-        if (path.rfind("CB::schema::", 0) != 0 && path != "CB::schema") { std::printf("palette: %s left out: outside CB::schema\n", p->full.c_str()); continue; }
-        path = path == "CB::schema" ? "Free" : path.substr(12);
-        std::vector<std::string> parts;
-        for (std::size_t k = 0, depth = 0, start = 0; k <= path.size(); ++k) {
-            if (k < path.size() && path[k] == '<') ++depth;
-            else if (k < path.size() && path[k] == '>') --depth;
-            else if (k == path.size() || (depth == 0 && path.compare(k, 2, "::") == 0)) {
-                parts.push_back(identifierOf(readableOf(path.substr(start, k - start))));
-                start = k + 2;
-                if (k < path.size()) ++k;
+        if (!p) { std::printf("registry: %s left out: %s\n", undecorate(e.mangled).c_str(), why.c_str()); continue; }
+        if (p->owner.rfind("CB::schema::", 0) != 0 && p->owner != "CB::schema") { std::printf("registry: %s left out: outside CB::schema\n", p->full.c_str()); continue; }
+        fs::path header;
+        if (p->owner != "CB::schema") {
+            std::string top = p->owner.substr(12);
+            for (std::size_t k = 0, depth = 0; k < top.size(); ++k) {
+                if (top[k] == '<') ++depth;
+                else if (top[k] == '>') --depth;
+                else if (depth == 0 && top.compare(k, 2, "::") == 0) { top.resize(k); break; }
             }
+            if (const auto lt = top.find('<'); lt != std::string::npos) top.resize(lt);
+            if (const auto d = definedIn.find(top); d != definedIn.end()) header = d->second;
         }
-        auto& inc = includes[parts[0]];
-        if (const auto d = definedIn.find(parts[0]); d != definedIn.end()) inc.insert(d->second);
-        const fs::path sibling = fs::path(e.unitSource).replace_extension(".h");
-        if (fs::exists(schemaRoot / sibling)) inc.insert(sibling);
+        if (header.empty()) {
+            const fs::path sibling = fs::path(e.unitSource).replace_extension(".h");
+            if (fs::exists(schemaRoot / sibling)) header = sibling;
+        }
         if (p->isVirtual) {
-            virtualHeaders.insert(inc.begin(), inc.end());
+            if (!header.empty()) virtualHeaders.insert(header);
             virtualSources.emplace(p->owner + "::" + layoutMethodName(*p), schemaRoot / e.unitSource);
         }
-        typedEntries.push_back({ &e, *p, std::move(parts) });
+        typedEntries.push_back({ &e, *p, header });
     }
-
     const auto adjust = virtualHeaders.empty() ? std::map<std::string, std::string>{} : thisAdjustors(m, virtualHeaders, virtualSources, work);
-    std::size_t typed = 0, rebased = 0;
-    for (const auto& [e, p, parts] : typedEntries) {
-        std::string thisType;
+
+    const auto text = CB::engine::disk::ReadFile(registry);
+    if (!text) throw std::runtime_error("--emit-registry: cannot read " + registry.string());
+    static const std::string kBegin = "  # --- generated by tools/cbmatch --emit-registry: image functions without a hand-written row ---";
+    static const std::string kEnd   = "  # --- end of the generated rows ---";
+    std::vector<std::string> lines;
+    {
+        bool skipping = false;
+        for (const auto l : CB::engine::text::SplitLines(*text)) {
+            const std::string line(l);
+            if (line == kBegin) { skipping = true; continue; }
+            if (line == kEnd) { skipping = false; continue; }
+            if (!skipping) lines.push_back(line);
+        }
+    }
+    while (!lines.empty() && trimmed(lines.back()).empty()) lines.pop_back();
+    std::map<std::string, std::size_t> byMangled, byName, byFuncId;
+    std::map<std::string, std::vector<std::size_t>> byCpp;
+    std::set<std::string> names;
+    for (std::size_t k = 0; k < lines.size(); ++k) {
+        const auto row = parseRegistryRow(lines[k]);
+        if (!row) continue;
+        names.insert(row->get("name"));
+        byName[row->get("name")] = k;
+        if (const auto mg = row->get("mangled"); !mg.empty()) byMangled[mg] = k;
+        if (const auto cpp = row->get("cpp"); !cpp.empty()) byCpp[cpp].push_back(k);
+        if (row->get("kind") == "func" && row->get("ae") != "0" && row->get("ae").find('+') == std::string::npos) byFuncId[row->get("ae")] = k;
+    }
+    std::map<std::string, std::size_t> qualifiedUses;
+    for (const auto& t : typedEntries) ++qualifiedUses[t.p.owner + "::" + t.p.method];
+
+    auto update = [&](std::size_t k, const std::map<std::string, std::string>& set) {
+        auto row = *parseRegistryRow(lines[k]);
+        for (const auto& [key, v] : set) {
+            if (v.empty()) row.drop(key);
+            else row.set(key, v);
+        }
+        lines[k] = formatRegistryRow(row);
+    };
+
+    std::vector<std::string> generated;
+    std::size_t              updated = 0, added = 0, nameable = 0;
+    for (const auto& [e, p, header] : typedEntries) {
+        const std::string qualified = p.owner + "::" + p.method;
+        std::string       thisType;
+        bool              identity = !header.empty();
         if (p.isVirtual) {
             const auto a = adjust.find(p.owner + "::" + layoutMethodName(p));
-            if (a == adjust.end() || a->second == "?") {
-                std::printf("palette: %s left out: %s\n", p.full.c_str(), a == adjust.end() ? "the compiler reported no this adjustor for it" : "its this adjustor is ambiguous");
-                continue;
+            if (a == adjust.end() || a->second == "?") identity = false;
+            else thisType = a->second;
+        }
+        /// @note Override names a declaration from outside its class: only a public member (or a free function) can be named,
+        ///       and only when every class it sits in has a header definition (a class a .cpp defines is incomplete).
+        if (p.member && p.access != "public") identity = false;
+        if (identity && p.owner != "CB::schema") {
+            std::string path = p.owner.substr(12);
+            for (std::size_t k = 0, depth = 0, start = 0; k <= path.size(); ++k) {
+                if (k < path.size() && path[k] == '<') ++depth;
+                else if (k < path.size() && path[k] == '>') --depth;
+                else if (k == path.size() || (depth == 0 && path.compare(k, 2, "::") == 0)) {
+                    std::string part = path.substr(start, k - start);
+                    if (const auto lt = part.find('<'); lt != std::string::npos) part.resize(lt);
+                    if (!definedIn.count(part)) identity = false;
+                    start = k + 2;
+                    if (k < path.size()) ++k;
+                }
             }
-            thisType = a->second;
         }
-        Node* node = &tops[parts[0]];
-        for (std::size_t k = 1; k < parts.size(); ++k) node = &node->children[parts[k]];
-        const std::string note = thisType.empty() ? std::string() : "`this` is its " + readableOf(thisType) + " subobject, not the " + readableOf(p.owner);
-        node->cells.push_back({ paletteName(p), cellSignature(p, thisType), e->mangled, undecorate(e->mangled), p.full, e->status, note, e->va, e->id, p.params });
-        rebased += !thisType.empty();
-        ++typed;
-    }
-    if (rebased) std::printf("palette: %zu virtuals take a base subobject as `this`\n", rebased);
-
-    // Overloads: the parameter types tell them apart; a tie left over (const and non-const) takes a counter.
-    std::function<void(Node&)> disambiguate = [&](Node& n) {
-        std::map<std::string, std::size_t> uses;
-        for (const auto& c : n.cells) ++uses[c.ident];
-        std::map<std::string, std::size_t> seen;
-        for (auto& c : n.cells) {
-            if (uses[c.ident] < 2) continue;
+        const std::string sig = identity ? memberPointerType(p) : std::string();
+        identity              = identity && !sig.empty();
+        nameable += identity;
+        std::map<std::string, std::string> fields = { { "mangled", e->mangled },
+                                                      { "header", identity ? header.generic_string() : std::string() },
+                                                      { "sig", sig },
+                                                      { "this", identity ? thisType : std::string() } };
+        std::optional<std::size_t> at;
+        if (const auto f = byMangled.find(e->mangled); f != byMangled.end()) at = f->second;
+        else if (const auto f2 = byFuncId.find(std::to_string(e->id)); e->id && f2 != byFuncId.end()) at = f2->second;
+        else if (const auto f3 = byCpp.find(qualified); f3 != byCpp.end() && f3->second.size() == 1 && qualifiedUses[qualified] == 1) at = f3->second.front();
+        if (at) {
+            update(*at, fields);
+            ++updated;
+            continue;
+        }
+        std::string name = identifierOf(readableOf(p.owner.size() > 12 ? p.owner.substr(12) : std::string("schema"))) + "_" + memberName(p);
+        if (qualifiedUses[qualified] > 1) {
             std::string tag;
-            for (const auto& q : c.params) tag += "_" + paramTag(q);
-            c.ident += tag.empty() ? "_void" : tag;
+            for (const auto& q : p.params) tag += "_" + paramTag(q);
+            name += tag.empty() ? "_void" : tag;
+            if (p.isConst) name += "_const";
         }
-        for (auto& c : n.cells) if (const auto k = seen[c.ident]++; k) c.ident += "_" + std::to_string(k + 1);
-        for (auto& [_, child] : n.children) disambiguate(child);
-    };
-    for (auto& [_, n] : tops) disambiguate(n);
-
-    std::function<void(std::string&, const std::string&, const Node&, int)> emitNode = [&](std::string& s, const std::string& name, const Node& n, int indent) {
-        const std::string pad(std::size_t(indent) * 4, ' ');
-        s += pad + "struct " + name + " {\n";
-        for (const auto& [childName, child] : n.children) emitNode(s, childName, child, indent + 1);
-        for (const auto& c : n.cells) {
-            s += pad + "    /// @brief `" + c.full + "` — vanilla 0x" + hex(c.va) + ", " + c.status + "\n";
-            if (!c.thisNote.empty()) s += pad + "    /// @warning " + c.thisNote + " (MSVC passes a non-primary base's virtuals that base).\n";
-            s += pad + "    struct " + c.ident + " : ::CB::core::hooks::Cell<" + c.ident + ", " + c.sig + "> {\n";
-            s += pad + "        static constexpr const char*   mangled = \"" + c.mangled + "\";\n";
-            s += pad + "        static constexpr const char*   name    = \"" + c.readable + "\";\n";
-            s += pad + "        static constexpr std::uint64_t id      = " + std::to_string(c.id) + ";\n";
-            s += pad + "    };\n";
-        }
-        s += pad + "};\n";
-    };
-
-    fs::remove_all(out);
-    std::vector<fs::path> written;
-    for (const auto& [name, n] : tops) {
-        const auto     d   = definedIn.find(name);
-        const fs::path rel = d != definedIn.end() ? d->second.parent_path() / (name + ".h") : fs::path(name + ".h");
-        std::string    s   = "#pragma once\n\n/// @file\n/// @brief GENERATED by tools/cbmatch --emit-palette — do not edit. " + name +
-                        "'s functions CB runs: `Subscribe` to override one, `Call` to call it as any caller would.\n\n"
-                        "#include <core/hooks/takeover/Cell.h>\n\n";
-        for (const auto& inc : includes[name]) s += "#include <" + inc.generic_string() + ">\n";
-        s += "\n#include <cstdint>\n\nnamespace CB::feature::havok {\n\n";
-        emitNode(s, name, n, 1);
-        s += "\n}  // namespace CB::feature::havok\n";
-        std::string err;
-        fs::create_directories((out / rel).parent_path());
-        if (!CB::engine::disk::WriteFile(out / rel, s, {}, &err)) throw std::runtime_error("cannot write the palette: " + err);
-        written.push_back(rel);
+        if (e->id == 0) { std::printf("registry: %s left out: no Address Library id\n", p.full.c_str()); continue; }
+        const std::string base = name;
+        for (std::size_t n = 2; names.count(name); ++n) name = base + "_" + std::to_string(n);
+        names.insert(name);
+        RegistryRow row;
+        row.fields = { { "name", name }, { "kind", "func" }, { "se", "0" }, { "ae", std::to_string(e->id) }, { "vr", "0" }, { "cpp", qualified } };
+        for (const auto& [key, v] : fields) if (!v.empty()) row.set(key, v);
+        row.tail = "  # vanilla 0x" + hex(e->va) + ", " + e->status;
+        generated.push_back(formatRegistryRow(row));
+        ++added;
     }
-    std::string all = "#pragma once\n\n/// @file\n/// @brief GENERATED by tools/cbmatch --emit-palette — do not edit. Every reimplemented Havok function, by class.\n\n";
-    for (const auto& w : written) all += "#include <feature-sdk/havok/" + w.generic_string() + ">\n";
+
+    std::size_t refs = 0;
+    for (const auto& [name, mangled] : referenced) {
+        const auto f = byName.find(name);
+        if (f == byName.end()) continue;
+        const auto row = *parseRegistryRow(lines[f->second]);
+        const auto kind = row.get("kind");
+        if (kind != "func" && kind != "data") continue;
+        std::map<std::string, std::string> fields = { { "mangled", mangled } };
+        if (kind == "data") fields["header"] = dataHeader(schemaRoot, definedIn, row.get("cpp"), mangled);
+        if (row.get("mangled") == mangled && row.get("header") == (fields.count("header") ? fields["header"] : row.get("header"))) continue;
+        update(f->second, fields);
+        ++refs;
+    }
+
+    std::sort(generated.begin(), generated.end());
+    std::string out;
+    for (const auto& l : lines) out += l + "\n";
+    if (!generated.empty()) {
+        out += "\n" + kBegin + "\n";
+        for (const auto& l : generated) out += l + "\n";
+        out += kEnd + "\n";
+    }
     std::string err;
-    if (!CB::engine::disk::WriteFile(out / "Palette.h", all, {}, &err)) throw std::runtime_error("cannot write the palette: " + err);
-    std::printf("palette: %zu functions over %zu classes -> %s (from %zu class definitions under %s)\n", typed, tops.size(), out.string().c_str(),
-                definedIn.size(), schemaRoot.string().c_str());
-    return typed;
+    if (!CB::engine::disk::WriteFile(registry, out, {}, &err)) throw std::runtime_error("--emit-registry: cannot write " + registry.string() + ": " + err);
+    std::printf("registry: %zu image functions (%zu nameable by Override) -> %zu rows updated, %zu added; %zu referenced symbols named -> %s\n",
+                typedEntries.size(), nameable, updated, added, refs, registry.string().c_str());
+    return typedEntries.size();
 }
 
 struct Options {
@@ -5730,7 +5912,7 @@ struct Options {
     std::size_t diffSeeds = 0;
     std::optional<std::uint64_t> diffSeed;   ///< --diff-seed: just this one, traced
     fs::path    emitImage;   ///< --emit-image: the runtime image of every passing function
-    fs::path    emitPalette; ///< --emit-palette: the typed cell headers features build against
+    fs::path    emitRegistry; ///< --emit-registry: engine.yaml, whose identity fields the plugin's schema link shim reads
     fs::path    extractClasses;   ///< --extract-classes: Havok's own reflection, read from the exe
     bool        checkLayoutFlag = false;   ///< --check-layout: prove schema headers against Havok's own reflection
     fs::path    seedMap, seedOut;   ///< --seed-headers <map> <out>: seed schema headers from Havok's reflection
@@ -6077,7 +6259,8 @@ int run(const Options& opt)
         }
     }
 
-    std::set<std::uint64_t> inImage;   ///< vas the image placed (the palette then lists exactly those)
+    std::set<std::uint64_t> inImage;   ///< vas the image placed (the registry then names exactly those)
+    std::map<std::string, std::string> referenced;   ///< registry name → the decorated name the image references it by
     if (!opt.emitImage.empty()) {
         if (!syms) throw std::runtime_error("--emit-image needs the registry and the runtime's Address Library to place references");
         if (!opt.only.empty()) throw std::runtime_error("--emit-image needs a full run (no --only)");
@@ -6121,6 +6304,11 @@ int run(const Options& opt)
                 std::fill_n(f.code.begin() + p.at, ref.kind == img::RefKind::Rel32 ? 4 : 8, std::uint8_t(0));
                 f.refs.push_back(ref);
             }
+            for (const auto& [at, t] : r.best.ours->targets) {
+                auto it = syms->byCpp.find(t.name);
+                if (it == syms->byCpp.end()) it = syms->byCpp.find(t.mangled);
+                if (it != syms->byCpp.end() && !t.mangled.empty()) referenced[syms->registryName.at(it->first)] = t.mangled;
+            }
             for (const auto& u : r.best.ours->unwinds) f.unwinds.push_back({ u.begin, u.end, u.info });
             f.unwindData = r.best.ours->unwindData;
             for (const auto& [at, parent] : r.best.ours->chains) f.chains.push_back({ at, parent });
@@ -6162,23 +6350,20 @@ int run(const Options& opt)
                     image.classes.size(), image.exeVersion.c_str(), opt.emitImage.string().c_str(), failed);
     }
 
-    if (!opt.emitPalette.empty()) {
-        if (!syms) throw std::runtime_error("--emit-palette needs the registry and the runtime's Address Library for the ids");
+    if (!opt.emitRegistry.empty()) {
+        if (!syms) throw std::runtime_error("--emit-registry needs the registry and the runtime's Address Library for the ids");
+        if (opt.emitImage.empty()) throw std::runtime_error("--emit-registry needs --emit-image in the same run (it names what the image places)");
         const fs::path root = schemaRootOf(m);
-        if (root.empty()) throw std::runtime_error("--emit-palette: no manifest include holds the unit sources");
-        std::vector<PaletteEntry> entries;
+        if (root.empty()) throw std::runtime_error("--emit-registry: no manifest include holds the unit sources");
+        std::vector<ImageEntry> entries;
         std::set<std::uint64_t>   seen;
         for (const auto& r : rows) {
-            const bool pass = r.best.status == Status::Exact ||
-                              ((opt.allowRegalloc || opt.allowVariant) && r.best.status == Status::Regalloc) ||
-                              (opt.allowVariant && r.best.status == Status::Variant);
-            if (!pass || !r.best.ours || (r.diff && r.diff->diverged) || !seen.insert(r.va).second) continue;
-            if (!opt.emitImage.empty() && !inImage.count(r.va)) continue;
+            if (!inImage.count(r.va) || !r.best.ours || !seen.insert(r.va).second) continue;
             const auto id = syms->idByOffset.find(r.va - pe.imageBase);
             entries.push_back({ r.best.ours->mangled, statusName(r.best.status), r.va, id == syms->idByOffset.end() ? 0 : id->second,
                                 m.units[r.unit].source.lexically_relative(root) });
         }
-        emitPalette(m, opt.emitPalette, root, entries, work);
+        emitRegistry(m, opt.emitRegistry, root, entries, referenced, work);
     }
 
     if (!opt.report.empty()) {
@@ -6234,7 +6419,7 @@ int main(int argc, char** argv)
         else if (a == "--diff") opt.diffSeeds = std::stoul(next());
         else if (a == "--diff-seed") opt.diffSeed = std::stoull(next());
         else if (a == "--emit-image") opt.emitImage = next();
-        else if (a == "--emit-palette") opt.emitPalette = next();
+        else if (a == "--emit-registry") opt.emitRegistry = next();
         else if (a == "--strict") opt.strict = true;
         else if (a == "--extract-classes") opt.extractClasses = next();
         else if (a == "--check-layout") opt.checkLayoutFlag = true;
