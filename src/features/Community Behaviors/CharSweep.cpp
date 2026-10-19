@@ -6,6 +6,7 @@
 
 #include <cfloat>
 #include <cstddef>
+#include <cstring>
 
 namespace CB::feature::character {
 
@@ -47,10 +48,13 @@ namespace CB::feature::character {
             float              m_dx = 0, m_dy = 0, m_dz = 0;   ///< the path, for the moving-away test
             float              m_ignoreAboveNormalZ = 2.0f;
             std::uint64_t      m_ignoreLayers       = 0;
+            const hk::hkpCollidable* m_self         = nullptr;   ///< a stand-in's original, never a hit (SweepFrom)
         };
 
         void* CollectorDtor(ClosestCollector* self, unsigned) { return self; }
 
+        /// @note Skipped hits never lower m_earlyOutDistance: a nearer ignored body (another character, the swept
+        ///       phantom itself) must not hide a real hit beyond it.
         void CollectorAdd(ClosestCollector* self, const CdPoint& point)
         {
             const float d = point.m_contact.getDistance();
@@ -58,13 +62,14 @@ namespace CB::feature::character {
             const hk::hkVector4& n = point.m_contact.m_separatingNormal;
             if (n(0) * self->m_dx + n(1) * self->m_dy + n(2) * self->m_dz >= 0.0f) return;
             if (n(2) > self->m_ignoreAboveNormalZ) return;
-            self->m_earlyOutDistance = d;
             const hk::hkpCdBody* root = point.m_cdBodyB;
             while (root && root->getParent()) root = root->getParent();
+            if (root && root == self->m_self) return;
             if (root && self->m_ignoreLayers) {
                 const unsigned layer = static_cast<const hk::hkpCollidable*>(root)->getCollisionFilterInfo() & 0x7f;
                 if (layer < 64 && ((self->m_ignoreLayers >> layer) & 1u)) return;
             }
+            self->m_earlyOutDistance = d;
             self->m_best.hit      = true;
             self->m_best.fraction = d;
             self->m_best.contact  = point.m_contact;
@@ -103,30 +108,84 @@ namespace CB::feature::character {
 
     }  // namespace
 
+    namespace {
+
+        /// @pre `castA` is `self`'s stand-in (SweepFrom) or the collidable itself (then `self` is null); `from` is castA's
+        ///      translation.
+        SweepHit Cast(hk::bhkWorld* world, const hk::hkpCollidable* castA, const hk::hkpCollidable* self, const hk::hkVector4& from,
+                      const hk::hkVector4& to, float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers)
+        {
+            using LinearCastFn = void (*)(const hk::hkpWorld*, const hk::hkpCollidable*, const LinearCastInput&, ClosestCollector&, void*);
+            static const auto linearCast = reinterpret_cast<LinearCastFn>(core::hooks::engine::Resolve(core::hooks::engine::hkpWorld_LinearCast));
+            if (!world || !castA || !linearCast) return {};
+            const hk::hkpWorld* havokWorld = world->GetWorld2();
+            if (!havokWorld) return {};
+
+            LinearCastInput input{};
+            input.m_to                  = to;
+            input.m_maxExtraPenetration = FLT_EPSILON;
+            input.m_startPointTolerance = startTolerance;
+            ClosestCollector collector{ kCollectorVtable };
+            collector.m_dx                 = to(0) - from(0);
+            collector.m_dy                 = to(1) - from(1);
+            collector.m_dz                 = to(2) - from(2);
+            collector.m_ignoreAboveNormalZ = ignoreAboveNormalZ;
+            collector.m_ignoreLayers       = ignoreLayers;
+            collector.m_self               = self;
+
+            ReadLock lock(world);
+            linearCast(havokWorld, castA, input, collector, nullptr);
+            return collector.m_best;
+        }
+
+        /// @brief A stand-in for a root collidable at another translation: a byte copy of the owner's leading bytes and the
+        ///        collidable, its m_motion pointed at a local transform (the original's rotation, the new translation).
+        /// @note What the cast reads from collA, per the exe: hkpWorldLinearCaster (0x140bea990) reads its shape (+0x00),
+        ///       the shape's type (shape +0x18) and m_motion's transform (+0x10; translation at +0x30) for the path and
+        ///       the swept AABB; its broad-phase callback (0x140beab60) skips a candidate only when it IS collA (pointer
+        ///       compare), then asks the world filter: bhkCollisionFilter's collidable pair test (0x140eb6950) reads only
+        ///       each side's m_collisionFilterInfo (+0x2c), and its shape-collection test (0x140eb6980) walks m_parent
+        ///       (+0x18) to the root and reads the same +0x2c. None of them reach the owner; the owner bytes are copied
+        ///       anyway so m_ownerOffset resolves to a coherent header (vtable, world, user data), never stack garbage.
+        /// @warning The pointer compare no longer matches, so the real collidable (still in the broad phase at its own
+        ///          spot) becomes a candidate: the collector drops it by identity (m_self).
+        struct StandIn {
+            static constexpr std::ptrdiff_t kMaxOwnerBytes = 0x80;
+            alignas(16) std::uint8_t        m_bytes[kMaxOwnerBytes + sizeof(hk::hkpCollidable)];
+            alignas(16) hk::hkTransform     m_transform;
+            hk::hkpCollidable*              m_collidable = nullptr;
+
+            StandIn(const hk::hkpCollidable& original, const hk::hkVector4& from)
+            {
+                std::memcpy(static_cast<void*>(&m_transform), &original.getTransform(), sizeof(m_transform));
+                m_transform.m_translation = from;
+                const std::ptrdiff_t ownerBytes = original.m_ownerOffset < 0 ? -static_cast<std::ptrdiff_t>(original.m_ownerOffset) : 0;
+                std::uint8_t* const  at         = m_bytes + kMaxOwnerBytes;
+                std::memcpy(at - ownerBytes, reinterpret_cast<const std::uint8_t*>(&original) - ownerBytes, ownerBytes + sizeof(hk::hkpCollidable));
+                m_collidable           = reinterpret_cast<hk::hkpCollidable*>(at);
+                m_collidable->m_motion = &m_transform;
+            }
+            StandIn(const StandIn&)            = delete;
+            StandIn& operator=(const StandIn&) = delete;
+        };
+        static_assert(StandIn::kMaxOwnerBytes % 16 == 0 && sizeof(hk::hkpCollidable) == 0x70);
+
+    }  // namespace
+
     SweepHit Sweep(hk::bhkWorld* world, const hk::hkpCollidable* collidable, const hk::hkVector4& to, float startTolerance,
                    float ignoreAboveNormalZ, std::uint64_t ignoreLayers)
     {
-        using LinearCastFn = void (*)(const hk::hkpWorld*, const hk::hkpCollidable*, const LinearCastInput&, ClosestCollector&, void*);
-        static const auto linearCast = reinterpret_cast<LinearCastFn>(core::hooks::engine::Resolve(core::hooks::engine::hkpWorld_LinearCast));
-        if (!world || !collidable || !linearCast) return {};
-        const hk::hkpWorld* havokWorld = world->GetWorld2();
-        if (!havokWorld) return {};
+        if (!collidable) return {};
+        return Cast(world, collidable, nullptr, collidable->getTransform().getTranslation(), to, startTolerance, ignoreAboveNormalZ,
+                    ignoreLayers);
+    }
 
-        LinearCastInput input{};
-        input.m_to                  = to;
-        input.m_maxExtraPenetration = FLT_EPSILON;
-        input.m_startPointTolerance = startTolerance;
-        ClosestCollector collector{ kCollectorVtable };
-        const hk::hkVector4& from = collidable->getTransform().getTranslation();
-        collector.m_dx                 = to(0) - from(0);
-        collector.m_dy                 = to(1) - from(1);
-        collector.m_dz                 = to(2) - from(2);
-        collector.m_ignoreAboveNormalZ = ignoreAboveNormalZ;
-        collector.m_ignoreLayers       = ignoreLayers;
-
-        ReadLock lock(world);
-        linearCast(havokWorld, collidable, input, collector, nullptr);
-        return collector.m_best;
+    SweepHit SweepFrom(hk::bhkWorld* world, const hk::hkpCollidable* collidable, const hk::hkVector4& from, const hk::hkVector4& to,
+                       float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers)
+    {
+        if (!collidable || !collidable->m_motion || !collidable->getShape() || collidable->getParent()) return {};
+        const StandIn standIn(*collidable, from);
+        return Cast(world, standIn.m_collidable, collidable, from, to, startTolerance, ignoreAboveNormalZ, ignoreLayers);
     }
 
 }  // namespace CB::feature::character
