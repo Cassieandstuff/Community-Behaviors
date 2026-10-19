@@ -1,5 +1,7 @@
 #include "PCH.h"
 
+#include "CharSweep.h"
+
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
@@ -106,6 +108,34 @@ namespace CB::feature {
             return h;
         }
 
+        using GetVelocity = havok::bhkCharProxyController::GetLinearVelocityImpl;
+
+        /// @brief Step 2b's observe check of the sweep helper: the hull swept a quarter second ahead along its horizontal
+        ///        velocity, logged whenever its first hit changes.
+        constexpr float kSweepSeconds = 0.25f;
+        int             g_lastSweepKey = -1;
+        std::uint32_t   g_sweepLogged  = 0;
+
+        void ObserveSweep(hk::bhkCharacterController* self, hk::bhkWorld* world, const hk::hkpCollidable* coll)
+        {
+            hk::hkVector4 v;
+            GetVelocity::Call(self, v);
+            const float vx = v(0) * kSweepSeconds, vy = v(1) * kSweepSeconds;
+            if (vx * vx + vy * vy < 1.0e-4f) return;
+            const hk::hkVector4& from = coll->getTransform().getTranslation();
+            const hk::hkVector4  to(from(0) + vx, from(1) + vy, from(2), 0.0f);
+            const character::SweepHit s = character::Sweep(world, coll, to, 0.0f, self->m_zNormal);
+            const int key = s.hit ? 1 + static_cast<int>(s.fraction * 10.0f) * 4 + (s.contact.m_separatingNormal(2) > 0.3f ? 2 : 0) : 0;
+            if (key == g_lastSweepKey || g_sweepLogged >= 2000) return;
+            g_lastSweepKey = key;
+            ++g_sweepLogged;
+            if (!s.hit) LOG_INFO("sweep #{}: {:.3f} ahead, clear", g_sweepLogged, std::sqrt(vx * vx + vy * vy));
+            else
+                LOG_INFO("sweep #{}: {:.3f} ahead, hit at fraction {:.3f} n=({:.2f},{:.2f},{:.2f}) layer {}", g_sweepLogged,
+                         std::sqrt(vx * vx + vy * vy), s.fraction, s.contact.m_separatingNormal(0), s.contact.m_separatingNormal(1),
+                         s.contact.m_separatingNormal(2), s.body ? (s.body->getCollisionFilterInfo() & 0x7f) : 0u);
+        }
+
         std::mutex             g_lock;
         int                    g_lastKey = -1;
         std::uint32_t          g_logged  = 0;
@@ -160,6 +190,7 @@ namespace CB::feature {
             const bool ours    = v.ground == Ground::Grounded;
 
             std::scoped_lock lock(g_lock);
+            ObserveSweep(self, world, coll);
             ++g_runs;
             if (ours == vanilla) ++g_agree;
             if ((g_runs & (g_runs - 1)) == 0)
