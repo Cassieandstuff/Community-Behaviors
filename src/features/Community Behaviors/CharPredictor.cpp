@@ -184,18 +184,48 @@ namespace CB::feature {
             s.ctrl  = ctrl;
         }
 
-        /// @brief The floor height under a displaced hull: the highest walkable hit (Havok units above the displaced
-        ///        feet), 0 when there is none.
-        float FloorRise(const hk::bhkCharacterController& ctrl, const ch::FloorVerdict& v)
+        /// @brief How far the floor rises along a leg (dx, dy) if it keeps the plane of `v`'s ground normal (Havok units).
+        /// @note Clamped to a 60 deg grade: a near-vertical normal would extrapolate the leg into a cliff.
+        float PlaneRise(const ch::FloorVerdict& v, float dx, float dy)
         {
-            float best  = 0.0f;
-            bool  found = false;
+            if (v.ground == ch::Ground::Airborne || v.groundNz < 0.1f) return 0.0f;
+            const float rise  = -(v.groundNx * dx + v.groundNy * dy) / v.groundNz;
+            const float limit = 1.7320508f * std::sqrt(dx * dx + dy * dy);
+            return std::clamp(rise, -limit, limit);
+        }
+
+        /// @brief The highest floor-like hit (walls and characters excluded) above or below the query's feet, or none.
+        bool HighestFloor(const ch::FloorVerdict& v, float& dz)
+        {
+            const ch::FloorTunables tun;
+            bool found = false;
             for (const ch::FloorHit& h : v.hits) {
-                if (!h.hit || h.layer == ch::kCharControllerLayer || h.nz < ctrl.m_zNormal) continue;
-                best  = found ? (std::max)(best, h.dz) : h.dz;
+                if (!h.hit || h.layer == ch::kCharControllerLayer || h.nz < tun.wallNormalZ) continue;
+                dz    = found ? (std::max)(dz, h.dz) : h.dz;
                 found = true;
             }
-            return found ? best : 0.0f;
+            return found;
+        }
+
+        /// @brief The floor under a predicted sample at (x, y), and the height `z` its feet settle at.
+        /// @note Two passes. The first queries at `zEstimate` (the previous sample's floor plane carried along the leg),
+        ///       falling back to `zPrevious` when that finds nothing; the sample settles onto the highest floor-like
+        ///       hit, and the second query, from the settled height, gives the verdict. Querying at the previous
+        ///       sample's height instead put the rays' start under an uphill slope (a few edge hits averaging steep: a
+        ///       false Sliding) or their reach above a downhill one (a false Airborne).
+        ch::FloorVerdict SettleFloor(hk::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zEstimate, float zPrevious,
+                                     float& z)
+        {
+            float            dz    = 0.0f;
+            ch::FloorVerdict first = ch::QueryFloorAt(ctrl, hull, x, y, zEstimate);
+            z                      = zEstimate;
+            if (!HighestFloor(first, dz)) {
+                first = ch::QueryFloorAt(ctrl, hull, x, y, zPrevious);
+                z     = zPrevious;
+                if (!HighestFloor(first, dz)) return first;
+            }
+            z += dz;
+            return ch::QueryFloorAt(ctrl, hull, x, y, z);
         }
 
         /// @brief P2: one critically damped velocity spring toward the desired velocity (held constant in world space),
@@ -263,17 +293,17 @@ namespace CB::feature {
             Vec2                 prev{};
             float                prevZ = 0, prevT = 0;
             bool                 blocked = false;
+            ch::FloorVerdict     prevFloor = ch::QueryFloor(ctrl, hull);
             for (int k = 0; k < kFutureSamples; k++) {
                 Sample& out = tr.future[k];
                 out.time    = kSampleTimes[k];
                 Vec2 at     = blocked ? prev : offset[k];
                 float z     = prevZ;
-                ch::FloorVerdict floor = ch::QueryFloorAt(ctrl, hull, at.x, at.y, z);
+                ch::FloorVerdict floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
                 if (!blocked) {
-                    const float zTo = z + (floor.ground != ch::Ground::Airborne ? FloorRise(ctrl, floor) : 0.0f);
                     hk::hkVector4 from, to;
                     from.set(origin(0) + prev.x, origin(1) + prev.y, origin(2) + prevZ + lift, 0.0f);
-                    to.set(origin(0) + at.x, origin(1) + at.y, origin(2) + zTo + lift, 0.0f);
+                    to.set(origin(0) + at.x, origin(1) + at.y, origin(2) + z + lift, 0.0f);
                     const ch::SweepHit hit = ch::SweepFrom(hull.world, hull.collidable, from, to, kSweepStartTolerance, ctrl.m_zNormal, kIgnoreLayers);
                     if (hit.hit) {
                         const float dx = at.x - prev.x, dy = at.y - prev.y;
@@ -282,10 +312,10 @@ namespace CB::feature {
                         blocked         = true;
                         tr.blockedAt    = prevT + (kSampleTimes[k] - prevT) * hit.fraction;
                         at              = { prev.x + dx * f, prev.y + dy * f };
-                        floor           = ch::QueryFloorAt(ctrl, hull, at.x, at.y, z);
+                        floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
                     }
                 }
-                if (floor.ground != ch::Ground::Airborne) z += FloorRise(ctrl, floor);
+                if (floor.ground != ch::Ground::Airborne) prevFloor = floor;
                 toLocal(at.x, at.y, out);
                 out.up     = z;
                 out.facing = WrapAngle(facing[k] - heading);
