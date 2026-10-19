@@ -86,6 +86,10 @@ namespace CB::core::debug {
           "OnGround's unsupported down-cast (4x gravity toward a floor below) runs only right after the character "
           "walked off support (Jolt's StickToFloor); any other unsupported OnGround goes straight to InAir. Unproven "
           "in game." },
+        { "char_state_wrapper", FlagKind::IniBool, "Character", "bStateWrapper", false, false,
+          "Character state wrappers",
+          "Step 1 of the character controller spec: OnGround, Jumping and InAir run through CB's wrapper states, which "
+          "forward to vanilla and log that they ran for the player. Behaviour stays vanilla. Unproven in game." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
