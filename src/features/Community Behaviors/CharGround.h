@@ -53,8 +53,8 @@ namespace CB::feature::character {
         Ground                   ground    = Ground::Airborne;
         bool                     stickable = false;   ///< a walkable hit within probe depth below the feet (M8)
         float                    stickDz   = 0;       ///< the highest walkable hit below the foot tolerance (negative)
-        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average walkable (or sliding) normal
-        const hk::hkpCollidable* supportBody = nullptr;   ///< a walkable support hit's body
+        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit; Grounded when walkable
+        const hk::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         int                      supportHits = 0, walkableHits = 0;
         std::array<FloorHit, 9>  hits{};   ///< axis, then the ring at the perch radius
     };

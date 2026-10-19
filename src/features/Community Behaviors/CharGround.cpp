@@ -105,7 +105,7 @@ namespace CB::feature::character {
             const float oy = i == 0 ? 0.0f : perch * std::sin(a);
             v.hits[i] = CastDown(hull.world, filter.m_filter, hull.cx + ox, hull.cy + oy, hull.feetZ + hull.radius, hull.feetZ - probe, hull.feetZ);
         }
-        float sx = 0, sy = 0, sz = 0, wx = 0, wy = 0, wz = 0;
+        float sx = 0, sy = 0, sz = 0;
         v.stickDz = -1.0e9f;
         for (const FloorHit& h : v.hits) {
             if (!h.hit || h.layer == kCharControllerLayer || h.nz < t.wallNormalZ) continue;
@@ -115,7 +115,6 @@ namespace CB::feature::character {
                 sx += h.nx, sy += h.ny, sz += h.nz;
                 if (walkable) {
                     ++v.walkableHits;
-                    wx += h.nx, wy += h.ny, wz += h.nz;
                     if (!v.supportBody) v.supportBody = h.body;
                 }
             } else if (walkable) {
@@ -123,10 +122,19 @@ namespace CB::feature::character {
                 v.stickDz   = (std::max)(v.stickDz, h.dz);
             }
         }
-        v.ground = v.walkableHits ? Ground::Grounded : v.supportHits ? Ground::Sliding : Ground::Airborne;
-        const float nx = v.walkableHits ? wx : sx, ny = v.walkableHits ? wy : sy, nz = v.walkableHits ? wz : sz;
-        const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
-        if (len > 1.0e-6f) v.groundNx = nx / len, v.groundNy = ny / len, v.groundNz = nz / len;
+        /// @note Walkability is judged on the AVERAGED normal of every hit under the feet, not on any single ray: the
+        ///       first ground-states capture flipped Grounded / Sliding 172 times (117 within a second) on rough 50-60 deg
+        ///       terrain because one walkable ray among four to seven steep ones decided it.
+        const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
+        if (len > 1.0e-6f) v.groundNx = sx / len, v.groundNy = sy / len, v.groundNz = sz / len;
+        v.ground = v.supportHits == 0 ? Ground::Airborne : v.groundNz >= ctrl.m_zNormal ? Ground::Grounded : Ground::Sliding;
+        if (v.ground == Ground::Grounded && !v.supportBody) {
+            for (const FloorHit& h : v.hits)
+                if (h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ && h.dz >= -t.footTolerance) {
+                    v.supportBody = h.body;
+                    break;
+                }
+        }
         if (!v.stickable) v.stickDz = 0.0f;
         return v;
     }

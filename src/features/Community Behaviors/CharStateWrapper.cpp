@@ -118,7 +118,11 @@ namespace CB::feature {
             bool     springInit = false;
             float    vx = 0, vy = 0, ax = 0, ay = 0;
             ch::Ground lastVerdict = ch::Ground::Airborne;
+            float    steepTime = 0.0f;   ///< how long a Sliding verdict has lasted while Grounded
         };
+
+        /// @brief How long the floor must read too steep before Grounded becomes Sliding (hysteresis).
+        constexpr float kSlideDelay = 0.1f;
 
         /// @note Keyed by controller address; references into an unordered_map survive rehashing, and only one
         ///       thread steps a given controller, so the lock guards lookup only.
@@ -446,13 +450,16 @@ namespace CB::feature {
                     EnterAirborne(c, t, AirEntry::Launched, fv, vz);
                     grounded = false;
                 } else if (fv.ground == ch::Ground::Grounded) {
+                    t.steepTime = 0.0f;
                     if (t.mode != Mode::Grounded) {
                         LogTransition(t, Mode::Grounded, "supported", fv, vz);
                         t.mode       = Mode::Grounded;
                         t.springInit = false;
                     }
                 } else if (fv.ground == ch::Ground::Sliding) {
-                    if (t.mode != Mode::Sliding) {
+                    if (t.mode == Mode::Grounded && (t.steepTime += dt) < kSlideDelay) {
+                        /// @note Hysteresis: a brief steep reading on rough ground keeps the character Grounded.
+                    } else if (t.mode != Mode::Sliding) {
                         LogTransition(t, Mode::Sliding, "too steep", fv, vz);
                         t.mode = Mode::Sliding;
                     }
