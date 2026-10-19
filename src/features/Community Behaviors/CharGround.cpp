@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <mutex>
 
 namespace CB::feature::character {
 
@@ -137,6 +138,27 @@ namespace CB::feature::character {
         }
         if (!v.stickable) v.stickDz = 0.0f;
         return v;
+    }
+
+    namespace {
+        std::mutex                        g_publishLock;
+        const hk::bhkCharacterController* g_publishCtrl = nullptr;
+        FloorVerdict                      g_published;
+    }  // namespace
+
+    void PublishVerdict(const hk::bhkCharacterController& ctrl, const FloorVerdict& v)
+    {
+        std::scoped_lock lock(g_publishLock);
+        g_publishCtrl = &ctrl;
+        g_published   = v;
+    }
+
+    bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out)
+    {
+        std::scoped_lock lock(g_publishLock);
+        if (g_publishCtrl != &ctrl) return false;
+        out = g_published;
+        return true;
     }
 
 }  // namespace CB::feature::character

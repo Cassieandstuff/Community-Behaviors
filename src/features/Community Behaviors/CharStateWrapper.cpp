@@ -92,6 +92,10 @@ namespace CB::feature {
         ///        (Havok units/s) a slide never exceeds.
         constexpr float kSlideControlRate = 0.5f;
         constexpr float kMaxSlideSpeed    = 15.0f;
+        /// @brief Sliding across the fall line: the fraction of the steering speed held there, and the halflife
+        ///        (seconds) of any other cross-slope speed.
+        constexpr float kSlideSteer           = 0.5f;
+        constexpr float kSlideLateralHalflife = 0.15f;
         constexpr hk::hkUint32 kHitFlags  = 1u << 7;   ///< landing: UpdatePhysics returns 2, the fall-damage path
         constexpr hk::hkUint32 kChaseOrRagdoll = 0x1800;   ///< kChaseBip | kFollowRagdoll: left to vanilla
 
@@ -429,21 +433,43 @@ namespace CB::feature {
 
         /// @brief Sliding: the ground is too steep to stand on. The body's velocity along the plane gains gravity's
         ///        in-plane part, the player steers at a reduced rate, and gravity's normal part keeps it on the face.
+        /// @note The current velocity is the proxy's own (GetLinearVelocityImpl), not m_outVelocity: UpdatePhysics zeroes
+        ///       m_outVelocity's z before Simulate whenever the character is not in air and has no movement input, which
+        ///       restarted the slide every step unless the player steered.
+        /// @note Across the fall line the slide springs toward a fraction of the player's steering (zero without input),
+        ///       so velocity carried onto the face turns downhill instead of skating along it.
         void SlideStep(hk::bhkCharacterController& c, const ch::FloorVerdict& fv, float dt)
         {
             const float nx = fv.groundNx, ny = fv.groundNy, nz = fv.groundNz;
-            const hk::hkVector4 v = c.m_outVelocity;
+            hk::hkVector4 v;
+            c.GetLinearVelocityImpl(v);
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
             gx *= c.m_gravity, gy *= c.m_gravity, gz *= c.m_gravity;
             const float gn = gx * nx + gy * ny + gz * nz;
+            const float px = gx - gn * nx, py = gy - gn * ny, pz = gz - gn * nz;
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
-            float sx = v(0) + (gx - gn * nx) * dt + dx * kSlideControlRate * dt;
-            float sy = v(1) + (gy - gn * ny) * dt + dy * kSlideControlRate * dt;
-            float sz = v(2) + (gz - gn * nz) * dt;
+            float sx = v(0) + px * dt;
+            float sy = v(1) + py * dt;
+            float sz = v(2) + pz * dt;
             const float vn = sx * nx + sy * ny + sz * nz;
             sx -= vn * nx, sy -= vn * ny, sz -= vn * nz;
+            const float pl = std::sqrt(px * px + py * py + pz * pz);
+            if (pl > 1.0e-6f) {
+                const float fx = px / pl, fy = py / pl, fz = pz / pl;
+                const float dn = dx * nx + dy * ny;
+                const float qx = dx - dn * nx, qy = dy - dn * ny, qz = -dn * nz;   ///< the steering laid in the face
+                const float qf = qx * fx + qy * fy + qz * fz;
+                const float sf = sx * fx + sy * fy + sz * fz;
+                const float lx = sx - sf * fx, ly = sy - sf * fy, lz = sz - sf * fz;   ///< across the fall line
+                const float tx = (qx - qf * fx) * kSlideSteer, ty = (qy - qf * fy) * kSlideSteer, tz = (qz - qf * fz) * kSlideSteer;
+                const float keep  = std::exp(-0.6931472f / kSlideLateralHalflife * dt);
+                const float along = sf + qf * kSlideControlRate * dt;
+                sx = along * fx + tx + (lx - tx) * keep;
+                sy = along * fy + ty + (ly - ty) * keep;
+                sz = along * fz + tz + (lz - tz) * keep;
+            }
             const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
             if (len > kMaxSlideSpeed) {
                 const float s = kMaxSlideSpeed / len;
@@ -678,6 +704,10 @@ namespace CB::feature {
                                      && !(c.m_flags & ch::kJumping));
             if (canJumpNow) c.m_flags |= ch::kCanJump;
             else            c.m_flags &= ~ch::kCanJump;
+
+            ch::FloorVerdict decided = fv;
+            decided.ground = t.mode == Mode::Grounded ? ch::Ground::Grounded : t.mode == Mode::Sliding ? ch::Ground::Sliding : ch::Ground::Airborne;
+            ch::PublishVerdict(c, decided);
             t.lastState = static_cast<int>(c.m_context.m_currentState);
         }
 

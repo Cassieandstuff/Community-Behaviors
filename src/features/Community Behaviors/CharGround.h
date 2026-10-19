@@ -73,6 +73,16 @@ namespace CB::feature::character {
     /// @brief QueryFloor as if the hull stood displaced by (dx, dy, dz) (a step's landing spot, a predicted sample).
     FloorVerdict QueryFloorAt(hk::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t = {});
 
+    /// @brief Publishes this step's floor verdict for the proxy's constraint planes (step 4) to read during integrate.
+    /// @note The planes cannot query themselves: integrate runs under the world WRITE lock, where a ray pick may
+    ///       deadlock. Two publishers, latest wins: CheckSupportImpl (the raw query) and the ground states' Simulate
+    ///       (their decided mode). Simulate is the one that runs every step: UpdatePhysics skips CheckSupportImpl while
+    ///       an OnGround character stands still, which left the planes on a stale Grounded verdict, its anti-creep
+    ///       friction holding a steep slope's downhill motion.
+    void PublishVerdict(const hk::bhkCharacterController& ctrl, const FloorVerdict& v);
+    /// @brief The verdict last published for `ctrl`; false when none is.
+    bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out);
+
     /// @brief Exact critically damped spring of `x` (rate `v`) toward `goal`, frame-rate independent by construction.
     /// @param halflife seconds for the gap to halve.
     /// @note The spring-damper in its exact form (as in Holden's motion-matching write-ups): y = 2 ln2 / halflife.

@@ -149,35 +149,15 @@ namespace CB::feature {
 
         using CheckSupport = havok::bhkCharProxyController::CheckSupportImpl;
 
-        /// @brief The floor verdict for this step, computed before the proxy's integrate and read by the callback.
-        /// @note Why a cache: the callback runs inside hkpCharacterProxy::integrate, which Bethesda runs under the world
-        ///       WRITE lock; bhkWorld::PickObject there would take the read lock inside it and may deadlock. CheckSupportImpl
-        ///       is where vanilla OnGround already ray-casts, outside that lock. When CheckSupportImpl is skipped (standing
-        ///       still on ground), the previous step's verdict stands.
-        std::mutex                         g_cacheLock;
-        const hk::bhkCharacterController*  g_cacheCtrl = nullptr;
-        ch::FloorVerdict                   g_cacheVerdict;
-
+        /// @brief Publishes the raw floor verdict before the proxy's integrate (see ch::PublishVerdict); the ground
+        ///        states, when on, publish their decided mode after it each step.
         void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
         {
             if (ch::IsManaged(*self)) {
                 const ch::Hull hull = ch::GetHull(*self);
-                if (hull.valid) {
-                    const ch::FloorVerdict v = ch::QueryFloor(*self, hull, ch::FloorTunables{});
-                    std::scoped_lock lock(g_cacheLock);
-                    g_cacheCtrl    = self;
-                    g_cacheVerdict = v;
-                }
+                if (hull.valid) ch::PublishVerdict(*self, ch::QueryFloor(*self, hull, ch::FloorTunables{}));
             }
             next(self);
-        }
-
-        bool CachedVerdict(const hk::bhkCharacterController& ctrl, ch::FloorVerdict& out)
-        {
-            std::scoped_lock lock(g_cacheLock);
-            if (g_cacheCtrl != &ctrl) return false;
-            out = g_cacheVerdict;
-            return true;
         }
 
         /// @brief The spec's constraint planes for the managed controller; any other controller runs Bethesda's.
@@ -193,7 +173,7 @@ namespace CB::feature {
             const Pins& pins = GetPins();
             const ch::FloorTunables tun;
             ch::FloorVerdict        verdict;
-            if (!CachedVerdict(ctrl, verdict)) return next(self, proxy, manifold, input);
+            if (!ch::PublishedVerdict(ctrl, verdict)) return next(self, proxy, manifold, input);
             const bool grounded = verdict.ground == ch::Ground::Grounded;
 
             Ctrl::ResetContactState::Call(&ctrl);
