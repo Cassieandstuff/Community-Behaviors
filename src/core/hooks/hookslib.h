@@ -18,5 +18,6 @@
 #include <core/hooks/factory/Install.h>          // InstallCallDetour
 #include <core/hooks/registry/Registry.h>        // engine symbol registry (engine.yaml → per-runtime Address Library pins)
 #include <core/hooks/points/HookPoint.h>         // the shared hook interface: core-owned seams, subscriber chains
-#include <core/hooks/points/Resource.h>          // resource-loading hook points (ResolveTypedHkx, AdsfOpen, AsdsfOpen)
+#include <core/hooks/points/Movement.h>          // actor movement hook points (MovementControllerFrame)
+#include <core/hooks/points/Resource.h>         // resource-loading hook points (ResolveTypedHkx, AdsfOpen, AsdsfOpen)
 #include <core/hooks/points/SetData.h>           // setdata gate hook points (matcher, weapon producer)

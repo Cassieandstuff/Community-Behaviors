@@ -157,6 +157,7 @@ symbols:
 
   # --- Actor movement ---
   - { name: Actor_ApplyFrameMovement, kind: func, se: 36365, ae: 37356, vr: 0 }  # uses animationDelta only when graph bIsSynced
+  - { name: MovementControllerNPC_ComputeFrameMovement, kind: func, se: 0, ae: 91877, vr: 0 }  # vfunc +0x38, 0x1411f6800 (1.6.1170); its speed feeds graph Speed AND the frame movement
   - { name: Actor_ProcessTransformDeltaEvent, kind: func, se: 36971, ae: 37996, vr: 0 }  # sink at Actor+0xC8 SE / +0xD0 AE
   - { name: IMovementTweenerAgent_Func2, kind: func, se: 41160, ae: 42246, vr: 0 }
   - { name: String_bIsSynced, kind: data, se: 232640, ae: 188574, vr: 0 }

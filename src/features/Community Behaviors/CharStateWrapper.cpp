@@ -291,13 +291,7 @@ namespace CB::feature {
             float pressMemory      = 0.5f;   ///< a launch this long after a press still belongs to it (animation lead-in)
         };
 
-        float SettingFloat(std::string_view key, float def)
-        {
-            const std::string s = core::debug::Value("Character", key);
-            char*             end = nullptr;
-            const float       f   = s.empty() ? def : std::strtof(s.c_str(), &end);
-            return s.empty() || end == s.c_str() ? def : f;
-        }
+        using ch::SettingFloat;
 
         const JumpTunables& Jump()
         {

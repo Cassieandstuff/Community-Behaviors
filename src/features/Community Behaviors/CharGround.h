@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <string_view>
 
 /// @file
 /// @brief Shared pieces of the character controller spec's decision layer: which controllers CB manages, the live
@@ -82,6 +83,9 @@ namespace CB::feature::character {
     void PublishVerdict(const hk::bhkCharacterController& ctrl, const FloorVerdict& v);
     /// @brief The verdict last published for `ctrl`; false when none is.
     bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out);
+
+    /// @brief settings.ini `[Character] key` as a float, `def` when absent or unparsable (callers cache it).
+    float SettingFloat(std::string_view key, float def);
 
     /// @brief Exact critically damped spring of `x` (rate `v`) toward `goal`, frame-rate independent by construction.
     /// @param halflife seconds for the gap to halve.

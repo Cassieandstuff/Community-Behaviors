@@ -7,8 +7,12 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkPickData.h>
 
 #include <algorithm>
+#include <core/debug/Settings.h>
+
 #include <cstdint>
+#include <cstdlib>
 #include <mutex>
+#include <string>
 
 namespace CB::feature::character {
 
@@ -138,6 +142,14 @@ namespace CB::feature::character {
         }
         if (!v.stickable) v.stickDz = 0.0f;
         return v;
+    }
+
+    float SettingFloat(std::string_view key, float def)
+    {
+        const std::string s   = core::debug::Value("Character", key);
+        char*             end = nullptr;
+        const float       f   = s.empty() ? def : std::strtof(s.c_str(), &end);
+        return s.empty() || end == s.c_str() ? def : f;
     }
 
     namespace {
