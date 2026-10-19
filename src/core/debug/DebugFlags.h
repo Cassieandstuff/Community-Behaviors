@@ -90,6 +90,10 @@ namespace CB::core::debug {
           "Character state wrappers",
           "Step 1 of the character controller spec: OnGround, Jumping and InAir run through CB's wrapper states, which "
           "forward to vanilla and log that they ran for the player. Behaviour stays vanilla. Unproven in game." },
+        { "char_floor_query", FlagKind::IniBool, "Character", "bFloorQueryObserve", false, false,
+          "Floor query (observe)",
+          "Step 2 of the character controller spec: run the ray-footprint floor query for the player after vanilla's "
+          "support check and log its verdict against vanilla's. Observes only. Unproven in game." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "

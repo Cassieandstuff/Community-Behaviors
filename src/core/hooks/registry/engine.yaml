@@ -975,6 +975,7 @@ symbols:
   - { name: hkpWorld_RemoveConstraint, kind: func, se: 0, ae: 61309, vr: 0, cpp: "CB::schema::hkpWorld::removeConstraint" }  # -> hkBool through memory
   - { name: hkpWorld_CastRay, kind: func, se: 0, ae: 61400, vr: 0, cpp: "CB::schema::hkpWorld::castRay" }  # (input, collector)
   - { name: hkpWorld_GetClosestPoints, kind: func, se: 0, ae: 61404, vr: 0, cpp: "CB::schema::hkpWorld::getClosestPoints" }  # (collA, collisionInput, collector)
+  - { name: hkpWorld_LinearCast, kind: func, se: 0, ae: 61402, vr: 0, cpp: "CB::schema::hkpWorld::linearCast" }  # (collA, input, castCollector, startCollector); 0x140b3d090
   - { name: hkpWorld_AddPhantom, kind: func, se: 0, ae: 61314, vr: 0, cpp: "CB::schema::hkpWorld::addPhantom" }
   - { name: hkpWorld_RemovePhantom, kind: func, se: 0, ae: 61316, vr: 0, cpp: "CB::schema::hkpWorld::removePhantom" }
   - { name: hkpEntity_AddContactListener, kind: func, se: 0, ae: 60844, vr: 0, cpp: "CB::schema::hkpEntity::addContactListener" }

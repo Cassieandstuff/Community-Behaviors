@@ -15,6 +15,7 @@ namespace CB { namespace schema
     class hkpCdPointCollector;
     class hkpWorldPostSimulationListener;
     struct hkpWorldRayCastInput;
+    struct hkpLinearCastInput;
     /// @note Opaque (only passed through).
     struct hkpCollisionInput {};
     /// @note Opaque: an hkpCollisionInput whose m_tolerance sits at +0x10.
@@ -176,5 +177,11 @@ namespace CB { namespace schema
         /// @brief Reports to `collector` the points of every collidable within `input`'s tolerance of `collA`.
         /// @note Vanilla passes m_collisionInput (an hkpProcessCollisionInput, which is an hkpCollisionInput).
         void getClosestPoints(const hkpCollidable* collA, const hkpCollisionInput& input, hkpCdPointCollector& collector);
+        /// @brief Sweeps `collA` along `input`, reporting the hits along the path to `castCollector` and, when given, the
+        ///        points already touching at the start to `startCollector`.
+        /// @note Out of line in vanilla (0x140b3d090). Parameter list per the Havok SDK, unverified; hkpLinearCastInput
+        ///       is not declared yet.
+        void linearCast(const hkpCollidable* collA, const hkpLinearCastInput& input, hkpCdPointCollector& castCollector,
+                        hkpCdPointCollector* startCollector) const;
     };
 } }
