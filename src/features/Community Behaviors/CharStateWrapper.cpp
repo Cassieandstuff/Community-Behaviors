@@ -12,11 +12,15 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterState.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <mutex>
 #include <unordered_map>
 
@@ -119,6 +123,10 @@ namespace CB::feature {
             float    vx = 0, vy = 0, ax = 0, ay = 0;
             ch::Ground lastVerdict = ch::Ground::Airborne;
             float    steepTime = 0.0f;   ///< how long a Sliding verdict has lasted while Grounded
+            bool     variableJump = false;   ///< this jump was pressed by the player, so its release shapes it
+            bool     hopDecided   = false;   ///< iJumpMode 2: short or full is settled
+            bool     released     = false;   ///< Jump came up during this jump's rise
+            float    launchHeight = 0.0f;    ///< game units, where the jump left the ground
         };
 
         /// @brief How long the floor must read too steep before Grounded becomes Sliding (hysteresis).
@@ -211,6 +219,135 @@ namespace CB::feature {
             CommitWanted::Call(&c);
         }
 
+        /// @brief The player's Jump button, from the input event stream (every device, as the player mapped it).
+        /// @note Registered lazily from the physics step: features have no load-time callback, and the input device
+        ///       manager exists long before the player can step.
+        class JumpInput final : public RE::BSTEventSink<RE::InputEvent*> {
+        public:
+            static JumpInput& Get()
+            {
+                static JumpInput s;
+                return s;
+            }
+
+            void EnsureRegistered()
+            {
+                if (m_registered.load(std::memory_order_acquire)) return;
+                auto* devices = RE::BSInputDeviceManager::GetSingleton();
+                bool  expected = false;
+                if (devices && m_registered.compare_exchange_strong(expected, true)) {
+                    devices->AddEventSink(this);
+                    LOG_INFO("variable jump: listening for the Jump button");
+                }
+            }
+
+            bool Held() const { return m_held.load(std::memory_order_relaxed); }
+
+            /// @brief Seconds since Jump last went down; huge before the first press.
+            float SincePress() const
+            {
+                const std::int64_t at = m_pressNs.load(std::memory_order_relaxed);
+                if (at == 0) return 1.0e9f;
+                return static_cast<float>(Now() - at) * 1.0e-9f;
+            }
+
+            RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*) override
+            {
+                auto* names = RE::UserEvents::GetSingleton();
+                for (RE::InputEvent* e = a_event && names ? *a_event : nullptr; e; e = e->next) {
+                    const RE::ButtonEvent* b = e->AsButtonEvent();
+                    if (!b || b->QUserEvent() != names->jump) continue;
+                    if (b->IsDown()) {
+                        m_pressNs.store(Now(), std::memory_order_relaxed);
+                        m_held.store(true, std::memory_order_relaxed);
+                    } else if (b->IsUp()) {
+                        m_held.store(false, std::memory_order_relaxed);
+                    }
+                }
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+        private:
+            static std::int64_t Now()
+            {
+                return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            }
+
+            std::atomic<bool>         m_registered{ false };
+            std::atomic<bool>         m_held{ false };
+            std::atomic<std::int64_t> m_pressNs{ 0 };
+        };
+
+        /// @brief settings.ini [Character] tunables for char_variable_jump, read once.
+        struct JumpTunables {
+            int   mode             = 1;      ///< 1 = release gravity (continuous), 2 = short / full hop
+            float releaseGravity   = 3.0f;   ///< mode 1: gravity multiplier while rising after release
+            float shortHopFraction = 0.5f;   ///< mode 2: a short hop's height as a fraction of the full jump
+            float shortHopWindow   = 0.1f;   ///< mode 2: release within this many seconds of the press = short hop
+            float pressMemory      = 0.5f;   ///< a launch this long after a press still belongs to it (animation lead-in)
+        };
+
+        float SettingFloat(std::string_view key, float def)
+        {
+            const std::string s = core::debug::Value("Character", key);
+            char*             end = nullptr;
+            const float       f   = s.empty() ? def : std::strtof(s.c_str(), &end);
+            return s.empty() || end == s.c_str() ? def : f;
+        }
+
+        const JumpTunables& Jump()
+        {
+            static const JumpTunables t = [] {
+                JumpTunables j;
+                j.mode             = static_cast<int>(SettingFloat("iJumpMode", 1.0f));
+                j.releaseGravity   = (std::max)(1.0f, SettingFloat("fJumpReleaseGravity", j.releaseGravity));
+                j.shortHopFraction = std::clamp(SettingFloat("fShortHopFraction", j.shortHopFraction), 0.05f, 1.0f);
+                j.shortHopWindow   = (std::max)(0.0f, SettingFloat("fShortHopWindow", j.shortHopWindow));
+                LOG_INFO("variable jump: mode {} release gravity {:.2f} short hop {:.2f} within {:.3f} s", j.mode, j.releaseGravity,
+                         j.shortHopFraction, j.shortHopWindow);
+                return j;
+            }();
+            return t;
+        }
+
+        bool VariableJumpOn()
+        {
+            static const bool on = core::debug::FlagOn("char_variable_jump");
+            return on;
+        }
+
+        /// @brief A player jump's rising step: returns the gravity multiplier and may lower `oz` (Havok units/s).
+        /// @note Full height is vanilla's whenever Jump stays held, so jump-height settings and NPC path jumps (never
+        ///       variable: player only) keep their meaning; releasing only ever shortens the rise.
+        float VariableRise(hk::bhkCharacterController& c, Track& t, float& oz, float height, float g)
+        {
+            const JumpTunables& j    = Jump();
+            JumpInput&          in   = JumpInput::Get();
+            const bool          held = in.Held();
+            if (!held && !t.released) {
+                t.released = true;
+                if (LogBudget())
+                    LOG_INFO("variable jump: released {:.3f} s after the press, risen {:.1f} game units", in.SincePress(), height - t.launchHeight);
+            }
+            if (j.mode == 2) {
+                if (t.hopDecided) return 1.0f;
+                const float since = in.SincePress();
+                if (!held && since <= j.shortHopWindow) {
+                    const float target = std::fabs(c.m_jumpHeight) * j.shortHopFraction;
+                    const float risen  = (height - t.launchHeight) / kGameUnitsPerHavok;
+                    const float left   = (std::max)(0.0f, target - risen);
+                    oz                 = (std::min)(oz, std::sqrt(2.0f * g * left));
+                    t.hopDecided       = true;
+                    if (LogBudget()) LOG_INFO("variable jump: short hop ({:.2f} of {:.2f} Havok units), vz -> {:.2f}", target, std::fabs(c.m_jumpHeight), oz);
+                } else if (since > j.shortHopWindow) {
+                    t.hopDecided = true;
+                    if (LogBudget()) LOG_INFO("variable jump: full hop");
+                }
+                return 1.0f;
+            }
+            return held ? 1.0f : j.releaseGravity;
+        }
+
         /// @brief G7 + G6: one Airborne step. Gravity 1x while rising (above m_fallStartHeight, which it raises),
         ///        fInAirFallingCharGravityMult:HAVOK while falling; air control as the ground spring at the stiffness
         ///        vanilla InAir's gain implies.
@@ -241,6 +378,17 @@ namespace CB::feature {
             }
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
+            if (t.variableJump) {
+                if (oz > 0.0f) {
+                    const float g = std::sqrt(gx * gx + gy * gy + gz * gz) * c.m_gravity;
+                    gravityMult   = (std::max)(gravityMult, VariableRise(c, t, oz, height, g));
+                } else {
+                    t.variableJump = false;
+                    if (LogBudget())
+                        LOG_INFO("variable jump: apex {:.1f} game units above the launch (full {:.1f}){}", height - t.launchHeight,
+                                 std::fabs(c.m_jumpHeight) * kGameUnitsPerHavok, t.released ? "" : ", held throughout");
+                }
+            }
             const float k = gravityMult * c.m_gravity * dt;
             c.m_outVelocity.set(ox + gx * k, oy + gy * k, oz + gz * k, 0.0f);
             AccumulateFall::Call(&c);
@@ -318,6 +466,7 @@ namespace CB::feature {
             t.mode       = Mode::Airborne;
             t.entry      = entry;
             t.airTime    = 0.0f;
+            t.variableJump = false;
             t.ax = t.ay  = 0.0f;
             t.springInit = false;
             if (entry != AirEntry::Jumped && entry != AirEntry::OutOfWater) c.m_fallStartHeight = HeightGame(c);
@@ -364,6 +513,16 @@ namespace CB::feature {
             c.m_flags &= ~ch::kSupport;
             c.m_fallStartHeight = HeightGame(c);
             EnterAirborne(c, t, entry, fv, uz * speed);
+            t.launchHeight = c.m_fallStartHeight;
+            t.hopDecided   = false;
+            t.released     = false;
+            if (entry == AirEntry::Jumped && VariableJumpOn() && ch::IsPlayer(&c)) {
+                const float since = JumpInput::Get().SincePress();
+                t.variableJump    = since <= Jump().pressMemory;
+                if (LogBudget())
+                    LOG_INFO("variable jump: launch {:.3f} s after the press, held {}{}", since, JumpInput::Get().Held(),
+                             t.variableJump ? "" : " - no recent press, full jump");
+            }
             AirStep(c, t, dt, false);
         }
 
@@ -402,6 +561,7 @@ namespace CB::feature {
         {
             Track&      t   = TrackFor(&c);
             const float dt  = c.m_stepInfo.m_deltaTime;
+            if (VariableJumpOn() && ch::IsPlayer(&c)) JumpInput::Get().EnsureRegistered();
             const int   cur = static_cast<int>(c.m_context.m_currentState);
             const int   previousState = t.init ? t.lastState : -1;
 

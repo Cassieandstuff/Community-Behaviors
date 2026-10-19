@@ -107,6 +107,12 @@ namespace CB::core::debug {
           "Step query",
           "Step 5 of the character controller spec: for the player, an up-forward-down sweep steps over obstacles "
           "within step height when the slide falls short. Unproven in game." },
+        { "char_variable_jump", FlagKind::IniBool, "Character", "bVariableJump", false, false,
+          "Variable jump height",
+          "For the player under bGroundStates: releasing Jump early cuts the jump short. iJumpMode=1 (default) "
+          "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
+          "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
+          "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
         { "char_predictor", FlagKind::IniBool, "Character", "bPredictorObserve", false, false,
           "Trajectory predictor (observe)",
           "Step 8 of the character controller spec: predict the player's trajectory (1 s ahead) every step and log "
