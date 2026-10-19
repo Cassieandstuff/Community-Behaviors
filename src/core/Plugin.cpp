@@ -15,6 +15,7 @@
 
 #include <core/hooks/points/HookPoint.h>
 #include <core/hooks/registry/Registry.h>
+#include <core/hooks/takeover/SchemaShim.h>
 #include <core/hooks/takeover/Takeover.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
@@ -466,6 +467,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     LOG_INFO("Community Behaviors v{} loading — runtime behavior compiler.",
              SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."));
     CB::core::hooks::engine::LogAvailability();
+    CB::core::hooks::InstallSchemaShim();
 
     // The Havok runtime takeover goes FIRST, before any of CB's own hooks: those (and every later plugin's) then layer
     // on top of its entry jumps rather than being bypassed by them.

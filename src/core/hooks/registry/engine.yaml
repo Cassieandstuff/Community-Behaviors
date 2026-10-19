@@ -253,7 +253,7 @@ symbols:
   - { name: hkMonitorStream_TlsIndex, kind: data, se: 0, ae: 407394, vr: 0, cpp: "CB::schema::hkMonitorStream_s_tls" }
   - { name: hkVectorConstant_0001, kind: data, se: 0, ae: 219019, vr: 0, cpp: "CB::schema::g_vectorConstant0001" }  # (0,0,0,1) — quaternion identity
   - { name: hkVectorConstant_MinusHalf, kind: data, se: 0, ae: 219020, vr: 0, cpp: "CB::schema::g_vectorConstantMinusHalf" }  # -0.5 x4
-  - { name: hkVectorConstant_Zero, kind: data, se: 0, ae: 219024, vr: 0, cpp: "CB::schema::g_vectorConstantZero" }
+  - { name: hkVectorConstant_Zero, kind: data, se: 0, ae: 219024, vr: 0, cpp: "CB::schema::g_vectorConstantZero", mangled: "?g_vectorConstantZero@schema@CB@@3UhkVector4@12@B", header: "Common/Base/Math/hkMath.h" }
   - { name: hkVectorConstant_Max, kind: data, se: 0, ae: 219037, vr: 0, cpp: "CB::schema::g_vectorConstantMax" }  # HK_REAL_MAX x4 (0x7f7fffee)
   - { name: hkVectorConstant_One, kind: data, se: 0, ae: 219027, vr: 0, cpp: "CB::schema::g_vectorConstantOne" }  # 1 x4, beside hkVectorConstant_Zero
   - { name: hkQuadReal_Zero, kind: data, se: 0, ae: 219013, vr: 0, cpp: "CB::schema::g_quadRealZero" }  # 0 x4 in the table hkVectorConstant_0001 sits in (not hkVectorConstant_Zero); name provisional
@@ -976,7 +976,7 @@ symbols:
   - { name: hkpWorld_RemoveConstraint, kind: func, se: 0, ae: 61309, vr: 0, cpp: "CB::schema::hkpWorld::removeConstraint" }  # -> hkBool through memory
   - { name: hkpWorld_CastRay, kind: func, se: 0, ae: 61400, vr: 0, cpp: "CB::schema::hkpWorld::castRay" }  # (input, collector)
   - { name: hkpWorld_GetClosestPoints, kind: func, se: 0, ae: 61404, vr: 0, cpp: "CB::schema::hkpWorld::getClosestPoints" }  # (collA, collisionInput, collector)
-  - { name: hkpWorld_LinearCast, kind: func, se: 0, ae: 61402, vr: 0, cpp: "CB::schema::hkpWorld::linearCast" }  # (collA, input, castCollector, startCollector); 0x140b3d090
+  - { name: hkpWorld_LinearCast, kind: func, se: 0, ae: 61402, vr: 0, cpp: "CB::schema::hkpWorld::linearCast", mangled: "?linearCast@hkpWorld@schema@CB@@QEBAXPEBVhkpCollidable@23@AEBUhkpLinearCastInput@23@AEAVhkpCdPointCollector@23@PEAV623@@Z", header: "Physics/Dynamics/World/hkpWorld.h" }  # (collA, input, castCollector, startCollector); 0x140b3d090
   - { name: hkpWorld_AddPhantom, kind: func, se: 0, ae: 61314, vr: 0, cpp: "CB::schema::hkpWorld::addPhantom" }
   - { name: hkpWorld_RemovePhantom, kind: func, se: 0, ae: 61316, vr: 0, cpp: "CB::schema::hkpWorld::removePhantom" }
   - { name: hkpEntity_AddContactListener, kind: func, se: 0, ae: 60844, vr: 0, cpp: "CB::schema::hkpEntity::addContactListener" }
@@ -1232,6 +1232,7 @@ symbols:
   - { name: bhkCachingShapePhantom_Vtable, kind: data, se: 0, ae: 240544, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::`vftable'" }
   - { name: bhkCachingShapePhantom_InstanceCount, kind: data, se: 0, ae: 411652, vr: 0, cpp: "CB::schema::bhkCachingShapePhantom::s_instanceCount" }  # name provisional
   - { name: bhkCharProxyController_Init, kind: func, se: 0, ae: 79136, vr: 0, cpp: "CB::schema::bhkCharProxyController::Init" }  # name provisional
+  - { name: bhkCharProxyController_CheckSupportImpl, kind: func, se: 0, ae: 79151, vr: 0, cpp: "CB::schema::bhkCharProxyController::CheckSupportImpl", mangled: "?CheckSupportImpl@bhkCharProxyController@schema@CB@@UEAAXXZ", this: "CB::schema::bhkCharacterController", header: "Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h" }  # slot 13 of the bhkCharacterController base (+0x10): the image passes that subobject
   - { name: bhkCharProxyController_Vtable, kind: data, se: 0, ae: 240558, vr: 0, cpp: "??_7bhkCharProxyController@schema@CB@@6BhkpCharacterProxyListener@12@@" }  # the hkpCharacterProxyListener base's (+0x00)
   - { name: bhkCharProxyController_Controllers, kind: data, se: 0, ae: 389426, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_controllers" }  # name provisional; BSTSmallArray<bhkCharProxyController*, 20>
   - { name: bhkCharProxyController_ControllersLock, kind: data, se: 0, ae: 411654, vr: 0, cpp: "CB::schema::bhkCharProxyController::s_controllersLock" }  # name provisional; BSSpinLock

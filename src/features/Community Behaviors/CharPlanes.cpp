@@ -4,6 +4,7 @@
 
 #include <core/debug/Settings.h>
 #include <core/hooks/hookslib.h>
+#include <core/hooks/takeover/Override.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>
 
@@ -147,7 +148,7 @@ namespace CB::feature {
                      v.groundNx, v.groundNy, v.groundNz, (flags >> 9) & 1, (flags >> 10) & 1);
         }
 
-        using CheckSupport = havok::bhkCharProxyController::CheckSupportImpl;
+        using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief Publishes the raw floor verdict before the proxy's integrate (see ch::PublishVerdict); the ground
         ///        states, when on, publish their decided mode after it each step.

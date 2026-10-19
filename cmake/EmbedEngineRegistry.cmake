@@ -36,12 +36,28 @@ string(REGEX MATCHALL "(^|\n)[ ]*-[ ]*{" _entryStarts "${_text}")
 list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
-set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*cpp:[ ]*\"[^\"]*\")?[ ]*}")
+set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header):[ ]*\"[^\"]*\")*[ ]*}")
 
 set(_defs "")
 set(_all "")
 set(_names "")
 set(_n 0)
+
+# The schema link shim (OUT_SHIM_ASM / OUT_SHIM_CPP / OUT_IDENTITY_H): every row with `mangled` makes that schema
+# declaration usable from the plugin. A func gets a jump stub bound to its decorated name (/alternatename) that
+# lands on vanilla's entry (so in the takeover chain when the image runs it) and an Identity<&fn> for Override; a
+# const data row gets a copy of vanilla's bytes under its decorated name.
+set(_shimStubs "")
+set(_shimSlots "")
+set(_shimMiss "")
+set(_shimAlt "")
+set(_shimFuncs "")
+set(_shimData "")
+set(_shimDataDefs "")
+set(_shimHeaders "")
+set(_identity "")
+set(_nf 0)
+set(_nd 0)
 
 # _cb_pin(<text> <kind> <name> <runtime> <outVar>) -> "{ id, 0xOFF }", validating the call/offset rule.
 function(_cb_pin _text _kind _name _rt _out)
@@ -102,6 +118,56 @@ foreach(_l IN LISTS _lines)
     string(APPEND _defs "inline constexpr Symbol ${_name}{ \"${_name}\", ${_k}, ${_sePin}, ${_aePin}, ${_vrPin} };\n")
     string(APPEND _all "    &${_name},\n")
     math(EXPR _n "${_n}+1")
+
+    string(REGEX MATCH "{[^#]*}" _fields "${_l}")
+    foreach(_field cpp mangled this header)
+        set(_${_field} "")
+        if(_fields MATCHES "${_field}:[ ]*\"([^\"]*)\"")
+            set(_${_field} "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    if(NOT _mangled)
+        continue()
+    endif()
+    if(NOT _cpp OR NOT _header)
+        message(FATAL_ERROR "engine.yaml: ${_name} has `mangled` but no `cpp` and `header` (the shim needs the declaration)")
+    endif()
+    if(NOT "${_header}" IN_LIST _shimHeaders)
+        list(APPEND _shimHeaders "${_header}")
+    endif()
+    if(_kind STREQUAL "func")
+        math(EXPR _off "${_nf}*8")
+        string(APPEND _shimStubs "cb_shim_${_nf} PROC PUBLIC\n    jmp QWORD PTR [cb_shim_slots + ${_off}]\ncb_shim_${_nf} ENDP\n")
+        string(APPEND _shimMiss "cb_shim_miss_${_nf} PROC\n    mov eax, ${_nf}\n    jmp cb_shim_miss_common\ncb_shim_miss_${_nf} ENDP\n")
+        if(_nf EQUAL 0)
+            string(APPEND _shimSlots "cb_shim_slots QWORD cb_shim_miss_${_nf}\n")
+        else()
+            string(APPEND _shimSlots "              QWORD cb_shim_miss_${_nf}\n")
+        endif()
+        string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_shim_${_nf}\")\n")
+        string(APPEND _shimFuncs "    &engine::${_name},\n")
+        # The class owning the member: `this` when the image passes a base subobject, else the cpp name's scope.
+        string(REGEX REPLACE "::[A-Za-z_~][A-Za-z0-9_]*$" "" _scope "${_cpp}")
+        if(_this)
+            set(_thisType "::${_this}")
+        elseif(_scope STREQUAL "CB::schema")
+            set(_thisType "void")
+        else()
+            set(_thisType "::${_scope}")
+        endif()
+        string(APPEND _identity "template <>\nstruct Identity<&::${_cpp}> {\n    static constexpr const char* mangled = \"${_mangled}\";\n    static constexpr const char* name    = \"${_cpp}\";\n    using This                           = ${_thisType};\n};\n\n")
+        math(EXPR _nf "${_nf}+1")
+    elseif(_kind STREQUAL "data")
+        if(NOT _mangled MATCHES "B$")
+            message(FATAL_ERROR "engine.yaml: ${_name} is mutable data: the shim copies const globals only (a mutable one needs an accessor)")
+        endif()
+        string(APPEND _shimDataDefs "alignas(alignof(decltype(::${_cpp}))) unsigned char cb_data_${_nd}[sizeof(::${_cpp})];\n")
+        string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_data_${_nd}\")\n")
+        string(APPEND _shimData "    { &engine::${_name}, cb_data_${_nd}, sizeof(::${_cpp}) },\n")
+        math(EXPR _nd "${_nd}+1")
+    else()
+        message(FATAL_ERROR "engine.yaml: ${_name} has `mangled` but kind '${_kind}' (only func and data are shimmed)")
+    endif()
 endforeach()
 
 if(_n EQUAL 0)
@@ -110,6 +176,17 @@ endif()
 if(NOT _n EQUAL _expected)
     message(FATAL_ERROR "engine.yaml: parsed ${_n} symbols but the file has ${_expected} '- {' entry lines")
 endif()
+
+# _cb_write(<file> <text>): write only on change, so an untouched registry rebuilds nothing.
+function(_cb_write _file _text)
+    if(EXISTS "${_file}")
+        file(READ "${_file}" _old)
+        if(_old STREQUAL _text)
+            return()
+        endif()
+    endif()
+    file(WRITE "${_file}" "${_text}")
+endfunction()
 
 set(_body
 "// GENERATED by cmake/EmbedEngineRegistry.cmake from src/core/hooks/registry/engine.yaml -- DO NOT EDIT.
@@ -131,12 +208,126 @@ inline constexpr std::size_t kCount = ${_n};
 
 } // namespace CB::core::hooks::engine
 ")
+_cb_write("${OUT_H}" "${_body}")
 
-# Write only on change so an untouched registry does not rebuild every TU that includes it.
-if(EXISTS "${OUT_H}")
-    file(READ "${OUT_H}" _old)
-    if(_old STREQUAL _body)
-        return()
-    endif()
+if(NOT DEFINED OUT_SHIM_ASM OR NOT DEFINED OUT_SHIM_CPP OR NOT DEFINED OUT_IDENTITY_H)
+    return()
 endif()
-file(WRITE "${OUT_H}" "${_body}")
+
+set(_includes "")
+foreach(_h IN LISTS _shimHeaders)
+    string(APPEND _includes "#include <${_h}>
+")
+endforeach()
+if(_nf EQUAL 0)
+    set(_shimSlots "cb_shim_slots QWORD 0
+")
+endif()
+set(_nfa ${_nf})
+if(_nfa EQUAL 0)
+    set(_nfa 1)
+endif()
+set(_nda ${_nd})
+if(_nda EQUAL 0)
+    set(_nda 1)
+    set(_shimData "    { nullptr, nullptr, 0 },
+")
+endif()
+
+_cb_write("${OUT_SHIM_ASM}"
+"; GENERATED by cmake/EmbedEngineRegistry.cmake from src/core/hooks/registry/engine.yaml -- DO NOT EDIT.
+; The schema link shim: one jump stub per shimmed function. A slot starts at its miss stub, which resolves the
+; address once (cb_shim_resolve) and jumps on with the caller's arguments untouched.
+EXTERN cb_shim_resolve:PROC
+.data
+ALIGN 8
+PUBLIC cb_shim_slots
+${_shimSlots}
+.code
+${_shimStubs}
+${_shimMiss}
+; eax = slot. Saves the four argument registers and xmm0-3 around the resolve call, then tail-jumps to the target.
+cb_shim_miss_common PROC FRAME
+    push rcx
+    .pushreg rcx
+    push rdx
+    .pushreg rdx
+    push r8
+    .pushreg r8
+    push r9
+    .pushreg r9
+    sub rsp, 104
+    .allocstack 104
+    .endprolog
+    movdqu XMMWORD PTR [rsp + 32], xmm0
+    movdqu XMMWORD PTR [rsp + 48], xmm1
+    movdqu XMMWORD PTR [rsp + 64], xmm2
+    movdqu XMMWORD PTR [rsp + 80], xmm3
+    mov ecx, eax
+    call cb_shim_resolve
+    movdqu xmm0, XMMWORD PTR [rsp + 32]
+    movdqu xmm1, XMMWORD PTR [rsp + 48]
+    movdqu xmm2, XMMWORD PTR [rsp + 64]
+    movdqu xmm3, XMMWORD PTR [rsp + 80]
+    add rsp, 104
+    pop r9
+    pop r8
+    pop rdx
+    pop rcx
+    jmp rax
+cb_shim_miss_common ENDP
+END
+")
+
+_cb_write("${OUT_SHIM_CPP}"
+"// GENERATED by cmake/EmbedEngineRegistry.cmake from src/core/hooks/registry/engine.yaml -- DO NOT EDIT.
+// The schema link shim's C++ half: decorated-name bindings, the per-slot symbols, and the const data copies.
+#include <core/hooks/registry/Registry.h>
+#include <core/hooks/takeover/SchemaShim.h>
+
+${_includes}
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+
+${_shimAlt}
+extern \"C\" {
+extern std::uintptr_t cb_shim_slots[${_nfa}];
+${_shimDataDefs}}
+
+namespace CB::core::hooks::detail {
+
+const engine::Symbol* const kFuncs[${_nfa}] = {
+${_shimFuncs}};
+inline constexpr std::size_t kFuncCount = ${_nf};
+
+const ShimData kData[${_nda}] = {
+${_shimData}};
+inline constexpr std::size_t kDataCount = ${_nd};
+
+} // namespace CB::core::hooks::detail
+
+extern \"C\" std::uintptr_t cb_shim_resolve(unsigned slot)
+{
+    return CB::core::hooks::detail::ResolveShimSlot(slot, CB::core::hooks::detail::kFuncs, CB::core::hooks::detail::kFuncCount, cb_shim_slots);
+}
+
+void CB::core::hooks::InstallSchemaShim()
+{
+    detail::CopyShimData(detail::kData, detail::kDataCount);
+}
+")
+
+_cb_write("${OUT_IDENTITY_H}"
+"// GENERATED by cmake/EmbedEngineRegistry.cmake from src/core/hooks/registry/engine.yaml -- DO NOT EDIT.
+// Identity<&fn> for every shimmed schema function: what Override<&fn> needs beyond the declaration's own type.
+#pragma once
+
+${_includes}
+namespace CB::core::hooks {
+
+template <auto F>
+struct Identity;
+
+${_identity}} // namespace CB::core::hooks
+")

@@ -30,12 +30,8 @@ namespace CB::feature::character {
 
         FloorHit CastDown(hk::bhkWorld* world, hk::hkUint32 filter, float x, float y, float fromZ, float toZ, float feetZ)
         {
-            FloorHit h;
-            /// @note Zeroed storage plus the output's reset is what bhkPickData's constructor leaves; the constructor
-            ///       itself reads vanilla's g_vectorConstantZero, which the plugin does not link.
-            alignas(16) std::array<std::uint8_t, sizeof(hk::bhkPickData)> storage{};
-            auto& pick = *reinterpret_cast<hk::bhkPickData*>(storage.data());
-            pick.m_rayOutput.reset();
+            FloorHit         h;
+            hk::bhkPickData  pick;
             pick.m_rayInput.m_from.set(x, y, fromZ, 0.0f);
             pick.m_rayInput.m_to.set(x, y, toZ, 0.0f);
             pick.m_rayInput.m_filterInfo = filter;

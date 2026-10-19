@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include <core/debug/Settings.h>
+#include <core/hooks/takeover/Override.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <Physics/ConstraintSolver/Simplex/hkpSimplexSolver.h>
@@ -29,7 +30,7 @@ namespace CB::feature {
 
         namespace hk = CB::schema;
         using Process      = havok::bhkCharProxyController::processConstraintsCallback;
-        using CheckSupport = havok::bhkCharProxyController::CheckSupportImpl;
+        using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
         using GetVelocity  = havok::bhkCharProxyController::GetLinearVelocityImpl;
 
         constexpr hk::hkUint32 kSupport                     = 1u << 8;

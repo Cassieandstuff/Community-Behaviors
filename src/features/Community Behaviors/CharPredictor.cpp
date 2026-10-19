@@ -4,6 +4,7 @@
 #include "CharGround.h"
 #include "CharSweep.h"
 
+#include <core/hooks/takeover/Override.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <algorithm>
@@ -27,7 +28,7 @@ namespace CB::feature {
 
         namespace hk = CB::schema;
         namespace ch = CB::feature::character;
-        using CheckSupport = havok::bhkCharProxyController::CheckSupportImpl;
+        using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
         using GetVelocity  = havok::bhkCharProxyController::GetLinearVelocityImpl;
 
         /// @brief Halflife of the velocity spring (P2), seconds.

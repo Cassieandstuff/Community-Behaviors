@@ -169,16 +169,31 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/schem
 # cmake/EmbedEngineRegistry.cmake and <core/hooks/registry/Registry.h>.
 set(_cb_gen_dir "${CMAKE_BINARY_DIR}/generated")
 set(_cb_engine_reg "${_cb_gen_dir}/core/hooks/registry/EngineRegistry.gen.h")
+# The same rows' `mangled` entries also generate the schema link shim and Override's identities
+# (<core/hooks/takeover/SchemaShim.h>, <core/hooks/takeover/Override.h>).
+set(_cb_shim_asm "${_cb_gen_dir}/core/hooks/registry/SchemaShim.gen.asm")
+set(_cb_shim_cpp "${_cb_gen_dir}/core/hooks/registry/SchemaShim.gen.cpp")
+set(_cb_identity "${_cb_gen_dir}/core/hooks/registry/SchemaIdentity.gen.h")
 add_custom_command(
-    OUTPUT  "${_cb_engine_reg}"
+    OUTPUT  "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}"
     COMMAND "${CMAKE_COMMAND}"
             "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml"
             "-DOUT_H=${_cb_engine_reg}"
+            "-DOUT_SHIM_ASM=${_cb_shim_asm}"
+            "-DOUT_SHIM_CPP=${_cb_shim_cpp}"
+            "-DOUT_IDENTITY_H=${_cb_identity}"
             -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
     DEPENDS "${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-    COMMENT "Generating the engine symbol registry from src/core/hooks/registry/engine.yaml"
+    COMMENT "Generating the engine symbol registry and the schema link shim from src/core/hooks/registry/engine.yaml"
     VERBATIM)
-target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}")
+add_custom_target(cb_engine_registry DEPENDS "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}")
+# The shim's asm half builds in its own object library: CommonLib's INTERFACE options (/Zc:preprocessor) reach every
+# source of a target that links it, and ml64 given that option exits cleanly without writing an object.
+enable_language(ASM_MASM)
+add_library(cb_schema_shim_asm OBJECT "${_cb_shim_asm}")
+add_dependencies(cb_schema_shim_asm cb_engine_registry)
+add_dependencies(CommunityBehaviors cb_engine_registry)
+target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}" "${_cb_identity}" "${_cb_shim_cpp}" $<TARGET_OBJECTS:cb_schema_shim_asm>)
 target_include_directories(CommunityBehaviors PRIVATE "${_cb_gen_dir}")
 
 # engine = the shared reflection engine; feature-sdk = the graph-feature SDK

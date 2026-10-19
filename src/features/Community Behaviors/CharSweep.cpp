@@ -115,9 +115,7 @@ namespace CB::feature::character {
         SweepHit Cast(hk::bhkWorld* world, const hk::hkpCollidable* castA, const hk::hkpCollidable* self, const hk::hkVector4& from,
                       const hk::hkVector4& to, float startTolerance, float ignoreAboveNormalZ, std::uint64_t ignoreLayers)
         {
-            using LinearCastFn = void (*)(const hk::hkpWorld*, const hk::hkpCollidable*, const LinearCastInput&, ClosestCollector&, void*);
-            static const auto linearCast = reinterpret_cast<LinearCastFn>(core::hooks::engine::Resolve(core::hooks::engine::hkpWorld_LinearCast));
-            if (!world || !castA || !linearCast) return {};
+            if (!world || !castA) return {};
             const hk::hkpWorld* havokWorld = world->GetWorld2();
             if (!havokWorld) return {};
 
@@ -134,7 +132,8 @@ namespace CB::feature::character {
             collector.m_self               = self;
 
             ReadLock lock(world);
-            linearCast(havokWorld, castA, input, collector, nullptr);
+            havokWorld->linearCast(castA, reinterpret_cast<const hk::hkpLinearCastInput&>(input), reinterpret_cast<hk::hkpCdPointCollector&>(collector),
+                                   nullptr);
             return collector.m_best;
         }
 

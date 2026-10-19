@@ -2,6 +2,7 @@
 
 #include "CharSweep.h"
 
+#include <core/hooks/takeover/Override.h>
 #include <feature-sdk/havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
@@ -28,7 +29,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::schema;
-        using CheckSupport = havok::bhkCharProxyController::CheckSupportImpl;
+        using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         constexpr hk::hkUint32 kSupport                     = 1u << 8;
         constexpr hk::hkUint32 kHasPotentialSupportManifold = 1u << 9;
