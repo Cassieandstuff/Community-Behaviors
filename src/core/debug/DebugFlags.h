@@ -94,6 +94,23 @@ namespace CB::core::debug {
           "Floor query (observe)",
           "Step 2 of the character controller spec: run the ray-footprint floor query for the player after vanilla's "
           "support check and log its verdict against vanilla's. Observes only. Unproven in game." },
+        { "char_ground_states", FlagKind::IniBool, "Character", "bGroundStates", false, false,
+          "Ground states in charge",
+          "Steps 3, 6 and 7 of the character controller spec: for the player, CB's wrapper states run Grounded / "
+          "Sliding / Airborne from the floor query (landing, stick-to-floor, gravity, jump launch, air control, "
+          "velocity springs). Requires bStateWrapper. Unproven in game." },
+        { "char_planes", FlagKind::IniBool, "Character", "bPlanes", false, false,
+          "Constraint planes",
+          "Step 4 of the character controller spec: for the player, the proxy's constraint planes follow the spec's "
+          "edge rule and plane parameters instead of Bethesda's per-contact step and wall tests. Unproven in game." },
+        { "char_step_query", FlagKind::IniBool, "Character", "bStepQuery", false, false,
+          "Step query",
+          "Step 5 of the character controller spec: for the player, an up-forward-down sweep steps over obstacles "
+          "within step height when the slide falls short. Unproven in game." },
+        { "char_predictor", FlagKind::IniBool, "Character", "bPredictorObserve", false, false,
+          "Trajectory predictor (observe)",
+          "Step 8 of the character controller spec: predict the player's trajectory (1 s ahead) every step and log "
+          "its error against where the player actually went. Observes only. Unproven in game." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "

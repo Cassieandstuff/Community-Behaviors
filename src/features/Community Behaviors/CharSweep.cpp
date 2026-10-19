@@ -46,6 +46,7 @@ namespace CB::feature::character {
             SweepHit           m_best;
             float              m_dx = 0, m_dy = 0, m_dz = 0;   ///< the path, for the moving-away test
             float              m_ignoreAboveNormalZ = 2.0f;
+            std::uint64_t      m_ignoreLayers       = 0;
         };
 
         void* CollectorDtor(ClosestCollector* self, unsigned) { return self; }
@@ -60,6 +61,10 @@ namespace CB::feature::character {
             self->m_earlyOutDistance = d;
             const hk::hkpCdBody* root = point.m_cdBodyB;
             while (root && root->getParent()) root = root->getParent();
+            if (root && self->m_ignoreLayers) {
+                const unsigned layer = static_cast<const hk::hkpCollidable*>(root)->getCollisionFilterInfo() & 0x7f;
+                if (layer < 64 && ((self->m_ignoreLayers >> layer) & 1u)) return;
+            }
             self->m_best.hit      = true;
             self->m_best.fraction = d;
             self->m_best.contact  = point.m_contact;
@@ -99,7 +104,7 @@ namespace CB::feature::character {
     }  // namespace
 
     SweepHit Sweep(hk::bhkWorld* world, const hk::hkpCollidable* collidable, const hk::hkVector4& to, float startTolerance,
-                   float ignoreAboveNormalZ)
+                   float ignoreAboveNormalZ, std::uint64_t ignoreLayers)
     {
         using LinearCastFn = void (*)(const hk::hkpWorld*, const hk::hkpCollidable*, const LinearCastInput&, ClosestCollector&, void*);
         static const auto linearCast = reinterpret_cast<LinearCastFn>(core::hooks::engine::Resolve(core::hooks::engine::hkpWorld_LinearCast));
@@ -117,6 +122,7 @@ namespace CB::feature::character {
         collector.m_dy                 = to(1) - from(1);
         collector.m_dz                 = to(2) - from(2);
         collector.m_ignoreAboveNormalZ = ignoreAboveNormalZ;
+        collector.m_ignoreLayers       = ignoreLayers;
 
         ReadLock lock(world);
         linearCast(havokWorld, collidable, input, collector, nullptr);
