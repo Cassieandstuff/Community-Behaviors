@@ -1,0 +1,231 @@
+#include "PCH.h"
+
+#include "CharDebugHud.h"
+
+#include <core/bootstrap/ProgressHud.h>
+#include <core/debug/Settings.h>
+
+#include <imgui.h>
+
+#include <chrono>
+#include <cmath>
+#include <mutex>
+
+/// @file
+/// @brief The character debug HUD (char_debug_hud): the player's floor rays, velocity arrows, predicted trajectory
+///        and a text panel, drawn with ProgressHud's ImGui over the finished frame.
+/// @note Publishers run on the physics thread and the draw on the render thread, so each part is copied under one
+///       lock and stamped; a part older than kStale seconds is not drawn (a load, a menu, a feature switched off).
+
+namespace CB::feature::character::hud {
+
+    namespace {
+
+        constexpr float  kGameUnitsPerHavok = 69.99125f;
+        constexpr double kStale             = 0.5;
+        constexpr float  kArrowSeconds      = 0.5f;   ///< an arrow is where its velocity reaches in this time
+
+        struct Store {
+            std::mutex lock;
+            Controller ctrl;
+            Prediction pred;
+            Ramp       ramp;
+            double     ctrlAt = -1.0e9, predAt = -1.0e9, rampAt = -1.0e9;
+        };
+
+        Store& S()
+        {
+            static Store s;
+            return s;
+        }
+
+        double Now()
+        {
+            return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
+
+        const ImU32 kWalkable = IM_COL32(80, 230, 80, 255);
+        const ImU32 kSteep    = IM_COL32(255, 160, 40, 255);
+        const ImU32 kWall     = IM_COL32(240, 60, 60, 255);
+        const ImU32 kMiss     = IM_COL32(150, 150, 150, 160);
+        const ImU32 kVelocity = IM_COL32(255, 255, 255, 255);
+        const ImU32 kDesired  = IM_COL32(60, 200, 255, 255);
+        const ImU32 kAirborne = IM_COL32(120, 140, 255, 255);
+
+        ImU32 GroundColor(Ground g) { return g == Ground::Grounded ? kWalkable : g == Ground::Sliding ? kSteep : kAirborne; }
+
+        /// @brief World (Havok units) to screen pixels through the world root camera.
+        /// @note NiCamera::WorldPtToScreenPt3 returns the point in the camera's port (0-1, y up); a point behind the
+        ///       camera is skipped.
+        struct Projector {
+            RE::NiCamera* camera = nullptr;
+            ImVec2        size;
+
+            bool operator()(const Point& p, ImVec2& out) const
+            {
+                const RE::NiPoint3 world(p.x * kGameUnitsPerHavok, p.y * kGameUnitsPerHavok, p.z * kGameUnitsPerHavok);
+                float x = 0, y = 0, z = 0;
+                if (!camera->WorldPtToScreenPt3(world, x, y, z, 1.0e-5f) || z <= 0.0f) return false;
+                out = ImVec2(x * size.x, (1.0f - y) * size.y);
+                return true;
+            }
+        };
+
+        void Line(ImDrawList* dl, const Projector& proj, const Point& a, const Point& b, ImU32 color, float thickness)
+        {
+            ImVec2 sa, sb;
+            if (proj(a, sa) && proj(b, sb)) dl->AddLine(sa, sb, color, thickness);
+        }
+
+        void Arrow(ImDrawList* dl, const Projector& proj, const Point& from, const Point& velocity, ImU32 color)
+        {
+            const Point to{ from.x + velocity.x * kArrowSeconds, from.y + velocity.y * kArrowSeconds, from.z + velocity.z * kArrowSeconds };
+            ImVec2 sa, sb;
+            if (!proj(from, sa) || !proj(to, sb)) return;
+            dl->AddLine(sa, sb, color, 3.0f);
+            const float dx = sb.x - sa.x, dy = sb.y - sa.y, len = std::sqrt(dx * dx + dy * dy);
+            if (len < 4.0f) return;
+            const float ux = dx / len, uy = dy / len, head = (std::min)(14.0f, len * 0.4f);
+            dl->AddTriangleFilled(sb, ImVec2(sb.x - ux * head - uy * head * 0.5f, sb.y - uy * head + ux * head * 0.5f),
+                                  ImVec2(sb.x - ux * head + uy * head * 0.5f, sb.y - uy * head - ux * head * 0.5f), color);
+        }
+
+        void Ring(ImDrawList* dl, const Projector& proj, const Point& c, float radius, ImU32 color)
+        {
+            constexpr int kSegments = 24;
+            Point prev{ c.x + radius, c.y, c.z };
+            for (int i = 1; i <= kSegments; i++) {
+                const float a = 6.2831853f * static_cast<float>(i) / kSegments;
+                const Point p{ c.x + radius * std::cos(a), c.y + radius * std::sin(a), c.z };
+                Line(dl, proj, prev, p, color, 1.5f);
+                prev = p;
+            }
+        }
+
+        float HorizontalSpeed(const Point& v) { return std::sqrt(v.x * v.x + v.y * v.y) * kGameUnitsPerHavok; }
+
+        bool Active()
+        {
+            static const bool on = On();
+            if (!on) return false;
+            auto* ui = RE::UI::GetSingleton();
+            if (!ui || ui->GameIsPaused() || !RE::Main::WorldRootCamera()) return false;
+            Store&       s = S();
+            const double now = Now();
+            std::scoped_lock lock(s.lock);
+            return now - s.ctrlAt < kStale || now - s.predAt < kStale;
+        }
+
+        void Draw()
+        {
+            Store&     s = S();
+            Controller c;
+            Prediction p;
+            Ramp       r;
+            bool       haveCtrl, havePred, haveRamp;
+            {
+                const double now = Now();
+                std::scoped_lock lock(s.lock);
+                c = s.ctrl, p = s.pred, r = s.ramp;
+                haveCtrl = now - s.ctrlAt < kStale;
+                havePred = now - s.predAt < kStale;
+                haveRamp = now - s.rampAt < kStale;
+            }
+            const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
+            if (!proj.camera) return;
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
+
+            if (haveCtrl) {
+                Ring(dl, proj, c.feet, c.radius, GroundColor(c.verdict));
+                for (const Ray& ray : c.rays) {
+                    const ImU32 color = !ray.hit ? kMiss : ray.walkable ? kWalkable : ray.wall ? kWall : kSteep;
+                    const Point end   = ray.hit ? Point{ ray.top.x, ray.top.y, ray.hitZ } : ray.bottom;
+                    Line(dl, proj, ray.top, end, color, 1.5f);
+                    ImVec2 at;
+                    if (ray.hit && proj(end, at)) dl->AddCircleFilled(at, 3.0f, color);
+                }
+                const Point chest{ c.feet.x, c.feet.y, c.feet.z + c.height * 0.5f };
+                Arrow(dl, proj, chest, c.desired, kDesired);
+                Arrow(dl, proj, chest, c.velocity, kVelocity);
+            }
+
+            if (havePred) {
+                Point prev = haveCtrl ? c.feet : p.at[0];
+                float prevT = 0.0f;
+                for (int k = 0; k < Prediction::kSamples; k++) {
+                    Line(dl, proj, prev, p.at[k], GroundColor(p.ground[k]), 3.0f);
+                    ImVec2 at;
+                    if (proj(p.at[k], at)) dl->AddCircleFilled(at, 5.0f, GroundColor(p.ground[k]));
+                    if (p.blockedAt >= prevT && p.blockedAt < p.time[k]) {
+                        const float f = (p.blockedAt - prevT) / (std::max)(1.0e-3f, p.time[k] - prevT);
+                        const Point b{ prev.x + (p.at[k].x - prev.x) * f, prev.y + (p.at[k].y - prev.y) * f, prev.z + (p.at[k].z - prev.z) * f };
+                        if (proj(b, at)) {
+                            dl->AddLine(ImVec2(at.x - 8, at.y - 8), ImVec2(at.x + 8, at.y + 8), kWall, 3.0f);
+                            dl->AddLine(ImVec2(at.x - 8, at.y + 8), ImVec2(at.x + 8, at.y - 8), kWall, 3.0f);
+                        }
+                    }
+                    prev  = p.at[k];
+                    prevT = p.time[k];
+                }
+            }
+
+            ImGui::SetNextWindowPos(ImVec2(24.0f, 180.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.55f);
+            ImGui::Begin("##CBCharacterDebug", nullptr,
+                         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
+                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                             ImGuiWindowFlags_NoFocusOnAppearing);
+            ImGui::TextUnformatted("Community Behaviors - character");
+            if (haveCtrl) {
+                ImGui::Text("mode %s   verdict %s   n.z %.2f   support %d/%d", c.mode, Name(c.verdict), c.groundNz, c.supportHits, c.walkableHits);
+                ImGui::Text("steep %.2f s   air %.2f s (%s)", c.steepTime, c.airTime, c.entry);
+                ImGui::Text("speed %.0f   desired %.0f   vz %.0f", HorizontalSpeed(c.velocity), HorizontalSpeed(c.desired), c.velocity.z * kGameUnitsPerHavok);
+                if (c.variableJump) ImGui::Text("variable jump: %s", c.jumpReleased ? "released" : "held");
+            }
+            if (haveRamp) ImGui::Text("ramp %.0f -> %.0f", r.speed, r.target);
+            if (havePred) {
+                if (p.blockedAt >= 0.0f) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedAt);
+                else                     ImGui::Text("iState %d", p.iState);
+            }
+            ImGui::End();
+        }
+
+        [[maybe_unused]] const bool s_registered = [] {
+            if (!On()) return false;
+            core::bootstrap::RegisterOverlay({ "CharDebugHud", &Active, &Draw });
+            return true;
+        }();
+
+    }  // namespace
+
+    bool On()
+    {
+        static const bool on = core::debug::FlagOn("char_debug_hud");
+        return on;
+    }
+
+    void Publish(const Controller& c)
+    {
+        Store& s = S();
+        std::scoped_lock lock(s.lock);
+        s.ctrl   = c;
+        s.ctrlAt = Now();
+    }
+
+    void Publish(const Prediction& p)
+    {
+        Store& s = S();
+        std::scoped_lock lock(s.lock);
+        s.pred   = p;
+        s.predAt = Now();
+    }
+
+    void Publish(const Ramp& r)
+    {
+        Store& s = S();
+        std::scoped_lock lock(s.lock);
+        s.ramp   = r;
+        s.rampAt = Now();
+    }
+
+}  // namespace CB::feature::character::hud

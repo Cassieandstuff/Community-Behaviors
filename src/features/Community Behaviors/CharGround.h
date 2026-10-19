@@ -71,6 +71,8 @@ namespace CB::feature::character {
     ///        height below them, with the controller's own collision filter; characters and walls never count.
     /// @pre Called where vanilla OnGround::Simulate calls PickObject: inside UpdatePhysics, outside the physics step.
     FloorVerdict QueryFloor(hk::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t = {});
+    /// @brief Where the floor query casts ray `i` (0 = the axis, 1-8 = the ring at the perch radius), Havok units.
+    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y);
     /// @brief QueryFloor as if the hull stood displaced by (dx, dy, dz) (a step's landing spot, a predicted sample).
     FloorVerdict QueryFloorAt(hk::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t = {});
 

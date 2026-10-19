@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <vector>
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -83,16 +84,16 @@ namespace CB::core::bootstrap {
             return true;
         }
 
+        std::vector<Overlay>& Overlays()
+        {
+            static std::vector<Overlay> overlays;
+            return overlays;
+        }
+
         // Draw the bar ON TOP of the frame the game just rendered (no clear — the game's frame stays), to the
         // already-bound target. Only while the compile is running.
-        void DrawBar()
+        void DrawBar(std::size_t done, std::size_t total)
         {
-            std::size_t done = 0, total = 0;
-            if (!CB::core::bootstrap::ReadProgress(done, total)) return;   // no compile running → nothing to draw
-
-            ImGui_ImplDX11_NewFrame();
-            ImGui_ImplWin32_NewFrame();
-            ImGui::NewFrame();
 
             // Palette: yellow fill inside a white-outlined track, in a clear panel with a white border.
             const ImVec4 kWhite { 1.00f, 1.00f, 1.00f, 1.00f };
@@ -136,7 +137,23 @@ namespace CB::core::bootstrap {
 
             ImGui::PopStyleVar(5);
             ImGui::PopStyleColor(5);
+        }
 
+        /// @brief One ImGui frame per present, built only when the bar or an overlay has something to draw.
+        void DrawFrame()
+        {
+            std::size_t done = 0, total = 0;
+            const bool  bar = CB::core::bootstrap::ReadProgress(done, total);
+            bool        any = bar;
+            for (const Overlay& o : Overlays()) any = any || (o.active && o.active());
+            if (!any) return;
+
+            ImGui_ImplDX11_NewFrame();
+            ImGui_ImplWin32_NewFrame();
+            ImGui::NewFrame();
+            if (bar) DrawBar(done, total);
+            for (const Overlay& o : Overlays())
+                if (o.active && o.draw && o.active()) o.draw();
             ImGui::Render();
 
             // Draw to the currently-bound target — do NOT bind our own. At this hook point (right after the
@@ -153,9 +170,14 @@ namespace CB::core::bootstrap {
         {
             s_origPresent(a_arg);
             if (s_imguiReady.load(std::memory_order_acquire))
-                DrawBar();
+                DrawFrame();
         }
     }  // namespace
+
+    void RegisterOverlay(const Overlay& overlay)
+    {
+        Overlays().push_back(overlay);
+    }
 
     bool Install()
     {

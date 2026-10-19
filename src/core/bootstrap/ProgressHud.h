@@ -18,4 +18,17 @@ namespace CB::core::bootstrap {
     /// @return false while the swapchain isn't up yet (retry later); true once installed (idempotent).
     bool Install();
 
+    /// @brief Something else drawn with the same ImGui context over the finished frame (a debug HUD).
+    /// @note `active` runs on the render thread every present; `draw` only when it returns true, between
+    ///       ImGui::NewFrame and ImGui::Render, so it may use any ImGui call (windows, draw lists).
+    struct Overlay {
+        const char* who    = "?";
+        bool (*active)()   = nullptr;
+        void (*draw)()     = nullptr;
+    };
+
+    /// @brief Adds an overlay. Call during static initialization or SKSEPluginLoad only: the list is read without a
+    ///        lock once the present hook draws.
+    void RegisterOverlay(const Overlay& overlay);
+
 }  // namespace CB::core::bootstrap

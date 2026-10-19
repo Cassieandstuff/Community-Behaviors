@@ -90,6 +90,14 @@ namespace CB::feature::character {
         return h;
     }
 
+    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y)
+    {
+        const float perch = hull.radius * t.perchFraction;
+        const float a     = 6.2831853f * static_cast<float>(i - 1) / 8.0f;
+        x                 = hull.cx + (i == 0 ? 0.0f : perch * std::cos(a));
+        y                 = hull.cy + (i == 0 ? 0.0f : perch * std::sin(a));
+    }
+
     FloorVerdict QueryFloor(hk::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t)
     {
         return QueryFloorAt(ctrl, hull, 0.0f, 0.0f, 0.0f, t);
@@ -101,14 +109,12 @@ namespace CB::feature::character {
         if (!hullHere.valid) return v;
         Hull hull = hullHere;
         hull.cx += dx, hull.cy += dy, hull.feetZ += dz, hull.topZ += dz;
-        const float       perch  = hull.radius * t.perchFraction;
         const float       probe  = ctrl.m_stepHeight;
         const hk::CFilter filter = ctrl.GetCollisionFilterInfo();
         for (int i = 0; i < static_cast<int>(v.hits.size()); i++) {
-            const float a  = 6.2831853f * static_cast<float>(i - 1) / 8.0f;
-            const float ox = i == 0 ? 0.0f : perch * std::cos(a);
-            const float oy = i == 0 ? 0.0f : perch * std::sin(a);
-            v.hits[i] = CastDown(hull.world, filter.m_filter, hull.cx + ox, hull.cy + oy, hull.feetZ + hull.radius, hull.feetZ - probe, hull.feetZ);
+            float x, y;
+            FloorRayXY(hull, i, t, x, y);
+            v.hits[i] = CastDown(hull.world, filter.m_filter, x, y, hull.feetZ + hull.radius, hull.feetZ - probe, hull.feetZ);
         }
         float sx = 0, sy = 0, sz = 0;
         v.stickDz = -1.0e9f;

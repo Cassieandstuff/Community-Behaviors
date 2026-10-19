@@ -113,13 +113,18 @@ namespace CB::core::debug {
           "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
           "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
           "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
-        { "char_sprint_ramp", FlagKind::IniBool, "Character", "bSprintRamp", false, false,
-          "Sprint acceleration",
-          "For the player: while sprinting, the movement speed the engine hands to both the animation graph and "
-          "physics rises toward sprint speed at fSprintAcceleration (game units/s^2) from fSprintRampBase of it "
-          "(or the run speed before the sprint) instead of jumping there; walking, running and slowing down stay "
-          "instant. The graph's TargetSpeed gets the unramped speed. Off under bAnimationDriven, bSpeedSynced and "
-          "bIsSynced. AE only. Unproven in game." },
+        { "char_speed_ramp", FlagKind::IniBool, "Character", "bSpeedRamp", false, false,
+          "Speed acceleration",
+          "For the player: whenever the movement speed the engine hands to both the animation graph and physics "
+          "rises (walk, run, sprint), it climbs to its target over fRampTime seconds instead of jumping there; "
+          "slowing down stays instant. The graph's TargetSpeed gets the unramped speed. Off under bAnimationDriven, "
+          "bSpeedSynced and bIsSynced. AE only. Unproven in game." },
+        { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
+          "Character debug HUD",
+          "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "
+          "wall, grey miss), the output and desired velocity arrows, the predicted trajectory coloured by ground "
+          "state (needs bPredictorObserve), and a text panel (mode, verdict, timers, ramp speed, iState). Hidden "
+          "while the game is paused." },
         { "char_predictor", FlagKind::IniBool, "Character", "bPredictorObserve", false, false,
           "Trajectory predictor (observe)",
           "Step 8 of the character controller spec: predict the player's trajectory (1 s ahead) every step and log "

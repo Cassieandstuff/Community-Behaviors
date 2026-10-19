@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include "CharDebugHud.h"
 #include "CharGround.h"
 #include "CharSweep.h"
 
@@ -412,6 +413,17 @@ namespace CB::feature {
             std::array<Vec2, kFutureSamples> world{};
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, velocity, desired, iState, world);
             const bool blocked  = tr.blockedAt >= 0.0f;
+            if (ch::hud::On()) {
+                ch::hud::Prediction h;
+                for (int k = 0; k < kFutureSamples && k < ch::hud::Prediction::kSamples; k++) {
+                    h.at[k]     = { world[k].x, world[k].y, hull.feetZ + tr.future[k].up };
+                    h.ground[k] = tr.future[k].ground;
+                    h.time[k]   = kSampleTimes[k];
+                }
+                h.blockedAt = tr.blockedAt;
+                h.iState    = iState;
+                ch::hud::Publish(h);
+            }
 
             if (active) {
                 s.pendingHead = (s.pendingHead + 1) % static_cast<int>(s.pending.size());

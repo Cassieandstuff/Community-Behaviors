@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include "CharDebugHud.h"
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>
@@ -571,6 +572,43 @@ namespace CB::feature {
             fn(state, &c);
         }
 
+        void PublishHud(hk::bhkCharacterController& c, const Track& t, const ch::Hull& hull, const ch::FloorVerdict& fv)
+        {
+            ch::hud::Controller h;
+            const ch::FloorTunables tun;
+            h.feet         = { hull.cx, hull.cy, hull.feetZ };
+            h.radius       = hull.radius;
+            h.height       = hull.topZ - hull.feetZ;
+            h.mode         = Name(t.mode);
+            h.entry        = Name(t.entry);
+            h.verdict      = fv.ground;
+            h.groundNz     = fv.groundNz;
+            h.supportHits  = fv.supportHits;
+            h.walkableHits = fv.walkableHits;
+            h.steepTime    = t.steepTime;
+            h.airTime      = t.airTime;
+            h.variableJump = t.variableJump;
+            h.jumpReleased = t.released;
+            const hk::hkVector4 v = c.m_outVelocity;
+            h.velocity = { v(0), v(1), v(2) };
+            float dx, dy;
+            DesiredHorizontal(c, dx, dy);
+            h.desired = { dx, dy, 0.0f };
+            for (int i = 0; i < static_cast<int>(h.rays.size()); i++) {
+                const ch::FloorHit& hit = fv.hits[i];
+                ch::hud::Ray&       r   = h.rays[i];
+                float x, y;
+                ch::FloorRayXY(hull, i, tun, x, y);
+                r.top      = { x, y, hull.feetZ + hull.radius };
+                r.bottom   = { x, y, hull.feetZ - c.m_stepHeight };
+                r.hit      = hit.hit;
+                r.hitZ     = hull.feetZ + hit.dz;
+                r.walkable = hit.hit && hit.nz >= c.m_zNormal && hit.layer != ch::kCharControllerLayer;
+                r.wall     = hit.hit && (hit.nz < tun.wallNormalZ || hit.layer == ch::kCharControllerLayer);
+            }
+            ch::hud::Publish(h);
+        }
+
         /// @brief CB's Simulate for the player in OnGround / Jumping / InAir.
         /// @note Contract outputs each step: m_outVelocity (Havok units, what the proxy integrates), the committed
         ///       state, kCanJump, kJumping, the support body when Grounded, the fall data (m_fallStartHeight,
@@ -702,6 +740,7 @@ namespace CB::feature {
             ch::FloorVerdict decided = fv;
             decided.ground = t.mode == Mode::Grounded ? ch::Ground::Grounded : t.mode == Mode::Sliding ? ch::Ground::Sliding : ch::Ground::Airborne;
             ch::PublishVerdict(c, decided);
+            if (ch::hud::On() && hull.valid) PublishHud(c, t, hull, fv);
             t.lastState = static_cast<int>(c.m_context.m_currentState);
         }
 
