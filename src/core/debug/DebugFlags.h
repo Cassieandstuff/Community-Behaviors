@@ -73,6 +73,19 @@ namespace CB::core::debug {
           "Clip activate counter",
           "Count hkbClipGenerator::activate calls through the Havok runtime's cell table, logging at every power "
           "of two — the proof that features can override reimplemented Havok functions. Observes only." },
+        { "char_contact_probe", FlagKind::IniBool, "Debug", "bCharContactProbe", false, false,
+          "Player contact probe",
+          "Log the player's character-controller contacts (contact normal, hit triangle face normal, welding, and "
+          "Bethesda's constraint decision) each time the contact set changes. Observes only." },
+        { "char_support_strict", FlagKind::IniBool, "Character", "bStrictSupport", false, false,
+          "Strict ground support",
+          "Only a real supporting contact (a walkable one, or a step the controller accepted) marks a proxy character "
+          "supported; a rejected step or a wall no longer does (Jolt's ground rule). Unproven in game." },
+        { "char_stick_to_floor", FlagKind::IniBool, "Character", "bStickToFloorOnly", false, false,
+          "Stick to floor only after walking off",
+          "OnGround's unsupported down-cast (4x gravity toward a floor below) runs only right after the character "
+          "walked off support (Jolt's StickToFloor); any other unsupported OnGround goes straight to InAir. Unproven "
+          "in game." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
