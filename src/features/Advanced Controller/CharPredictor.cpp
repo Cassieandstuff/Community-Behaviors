@@ -112,6 +112,7 @@ namespace CB::feature {
             float                              hitNz     = 0.0f;    ///< the last surface the path met: its normal z,
             int                                hitLayer  = -1;      ///< collision layer (-1 none or unknown)
             int                                hitSlides = 0;       ///< and how many slides along that leg came before it
+            float                              jumpIn    = -1.0f;   ///< seconds to a pending jump's launch (its wind-up), -1 for none
         };
 
         /// @brief How the predicted character steers.
@@ -165,6 +166,7 @@ namespace CB::feature {
             double                         lastReport = 0, lastDump = -1.0e9;
             std::int32_t                   lastIState = -1;
             bool                           lastBlocked = false;
+            bool                           lastWindup  = false;
         };
 
         std::mutex                 g_lock;
@@ -295,14 +297,16 @@ namespace CB::feature {
         ///       is weak and not modelled).
         /// @note Steep ground: the ground states' own slide (ch::SlideStep from the last resolved point's floor, starting
         ///       from the published slide velocity) and uphill clip (ch::ClipUphill) run here too.
-        /// @param slide the ground states' slide velocity (PublishedSlide), zero without them.
+        /// @param note the ground states' note (PublishedGroundNote): the slide velocity, and a pending jump that launches
+        ///        at note.jumpIn seconds with note.jumpSpeed upward; empty without them.
         /// @param worldOut the future samples' positions in Havok world space, for the gate.
         Trajectory Predict(State& s, hk::bhkCharacterController& ctrl, const ch::Hull& hull, const Vec2& tangent, const Vec2& sideAxis,
-                           const hk::hkVector4& velocity, const Vec2& slide, const Drive& drive, std::int32_t iState,
+                           const hk::hkVector4& velocity, const ch::GroundNote& note, const Drive& drive, std::int32_t iState,
                            std::array<Vec2, kFutureSamples>& worldOut, Path& path)
         {
             Trajectory tr;
             tr.iState     = iState;
+            tr.jumpIn     = note.jumpIn;
             tr.velForward = velocity(0) * tangent.x + velocity(1) * tangent.y;
             tr.velSide    = velocity(0) * sideAxis.x + velocity(1) * sideAxis.y;
             Vec2 want     = drive.desired;
@@ -355,16 +359,26 @@ namespace CB::feature {
             float f = drive.facingModel ? drive.theta : heading, fv = drive.facingModel ? drive.omega : 0.0f;
             float spd = drive.speed;
             /// @note On the ground the velocity is the player's (the spring) plus the slide, as in the ground states.
-            float sx = airborne ? 0.0f : slide.x, sy = airborne ? 0.0f : slide.y;
+            float sx = airborne ? 0.0f : note.slideX, sy = airborne ? 0.0f : note.slideY;
             float vx = velocity(0) - sx, vy = velocity(1) - sy, vz = airborne ? velocity(2) : 0.0f, ax = 0, ay = 0;
             float px = 0, py = 0, z = 0;
             Vec2  prev{};
             float prevZ = 0, prevT = 0;
             bool  blocked = false;
+            bool  launched = false;
             int   sample  = 0;
             for (int i = 0; i < kPathPoints; i++) {
                 for (int k = 0; k < kSubstepsPerPoint; k++) {
                     const float h = kSubstep;
+                    /// @note A jump winding up launches when its wind-up runs out, as the ground states will: the
+                    ///       ground velocity (slide included) carries into the air with the jump's vertical speed.
+                    if (!launched && !airborne && note.jumpIn >= 0.0f && static_cast<float>(i * kSubstepsPerPoint + k) * h >= note.jumpIn) {
+                        launched = true;
+                        airborne = true;
+                        vx += sx, vy += sy;
+                        sx = sy = 0.0f;
+                        vz      = note.jumpSpeed;
+                    }
                     ch::SpringDamperExact(f, fv, facingGoal, kFacingHalflife, h);
                     Vec2 d = want;
                     if (drive.facingModel) {
@@ -514,13 +528,14 @@ namespace CB::feature {
                                    p.side * kGameUnitsPerHavok, p.up * kGameUnitsPerHavok, p.facing * kRadToDeg, ch::Name(p.ground), p.support);
             };
             LOG_INFO("predictor: trajectory ({}) t {:.2f} iState {} vel ({:.0f} fwd, {:.0f} side) desired ({:.0f} fwd, {:.0f} side) | -1/3 s {} | "
-                     "1/3 s {} | 2/3 s {} | 1 s {} | blocked {}",
+                     "1/3 s {} | 2/3 s {} | 1 s {} | blocked {}{}",
                      why, s.clock, tr.iState, tr.velForward * kGameUnitsPerHavok, tr.velSide * kGameUnitsPerHavok,
                      tr.desiredForward * kGameUnitsPerHavok, tr.desiredSide * kGameUnitsPerHavok, fmtSample(tr.past), fmtSample(tr.future[0]),
                      fmtSample(tr.future[1]), fmtSample(tr.future[2]),
                      tr.blockedAt < 0 ? std::string("no")
                                       : std::format("at {:.2f} s (hit n.z {:.2f} layer {} after {} slides)", tr.blockedAt, tr.hitNz, tr.hitLayer,
-                                                    tr.hitSlides));
+                                                    tr.hitSlides),
+                     tr.jumpIn >= 0.0f ? std::format(" | jump in {:.3f} s", tr.jumpIn) : std::string());
         }
 
         /// @brief Scores every pending prediction whose sample time fell inside the last step, against the actual
@@ -647,9 +662,9 @@ namespace CB::feature {
 
             std::array<Vec2, kFutureSamples> world{};
             Path                             path;
-            Vec2 slide{};
-            ch::PublishedSlide(ctrl, slide.x, slide.y);
-            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, slide, drive, iState, world, path);
+            ch::GroundNote note;
+            ch::PublishedGroundNote(ctrl, note);
+            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
             if (ch::hud::On()) {
                 ch::hud::Prediction h;
@@ -683,7 +698,8 @@ namespace CB::feature {
             }
 
             const char* why = nullptr;
-            if (iState != s.lastIState && s.lastIState != -1) why = "iState changed";
+            if (tr.jumpIn >= 0.0f && !s.lastWindup) why = "jump winding up";
+            else if (iState != s.lastIState && s.lastIState != -1) why = "iState changed";
             else if (blocked && !s.lastBlocked) why = "blocked";
             else if (active && s.clock - s.lastDump >= kDumpPeriod) why = "periodic";
             if (why) {
@@ -692,6 +708,7 @@ namespace CB::feature {
             }
             s.lastIState  = iState;
             s.lastBlocked = blocked;
+            s.lastWindup  = tr.jumpIn >= 0.0f;
             Report(s);
         }
 

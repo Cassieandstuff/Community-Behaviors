@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <string>
 #include <mutex>
 #include <unordered_map>
@@ -89,6 +90,8 @@ namespace CB::feature {
         ///       every step; requiring vz <= 0 sent 18 such walk-offs in one session airborne for a few hundredths of a
         ///       second, bouncing the character between ground and air (and the fall animation with it) for up to 2 s.
         constexpr float kStickMaxRise = 0.5f;
+        /// @brief A wind-up with this little left (seconds) is done: the step launches.
+        constexpr float kWindupDone = 1.0e-4f;
         /// @brief G6: the step vanilla InAir's per-step gain was tuned at; the gain becomes a halflife at this rate so
         ///        air control no longer depends on the frame rate.
         /// @note Assumed 60 Hz (vanilla's usual physics step); unverified against bhkWorld's step time.
@@ -132,6 +135,7 @@ namespace CB::feature {
             float    launchHeight = 0.0f;    ///< game units, where the jump left the ground
             float    jumpHeight   = 0.0f;    ///< Havok units, this jump's full height after the support scaling
             float    groundSupport = 1.0f;   ///< support at the last Grounded step: a coyote jump's
+            float    windup        = -1.0f;  ///< seconds left on a pending ground jump's wind-up, -1 for none
         };
 
         /// @brief The fraction of the full jump height a jump from ground of `support` gets: 1 on supporting ground,
@@ -146,6 +150,20 @@ namespace CB::feature {
                 return f;
             }();
             return floor + (1.0f - floor) * std::clamp(support, 0.0f, 1.0f);
+        }
+
+        /// @brief How long a jump from the ground waits before it launches: [Character] fJumpWindup seconds (default
+        ///        0.033, two 60 Hz steps), the character moving on the ground meanwhile.
+        /// @note Why: the takeoff gets a beat an animation (later, motion matching) can fill, and the predictor sees the
+        ///       launch coming (GroundNote::jumpIn). Jumps already off the ground (coyote, out of the water) never wait.
+        float JumpWindup()
+        {
+            static const float w = [] {
+                const float v = std::clamp(ch::SettingFloat("fJumpWindup", 0.033f), 0.0f, 0.5f);
+                LOG_INFO("ground states: a jump from the ground winds up for {:.3f} s", v);
+                return v;
+            }();
+            return w;
         }
 
         /// @note Keyed by controller address; references into an unordered_map survive rehashing, and only one
@@ -215,7 +233,7 @@ namespace CB::feature {
                 bool  expected = false;
                 if (devices && m_registered.compare_exchange_strong(expected, true)) {
                     devices->AddEventSink(this);
-                    LOG_INFO("variable jump: listening for the Jump button");
+                    LOG_INFO("ground states: listening for the Jump button");
                 }
             }
 
@@ -445,6 +463,7 @@ namespace CB::feature {
             t.mode    = to;
             t.entry   = AirEntry::None;
             t.airTime = 0.0f;
+            t.windup  = -1.0f;
             Commit(c, hk::HK_CHARACTER_ON_GROUND);
         }
 
@@ -452,6 +471,26 @@ namespace CB::feature {
         ///        once).
         /// @note The horizontal launch is the Grounded spring's commanded velocity (before the proxy slid it along a
         ///       wall); from the air (coyote, out of water) the body's own.
+        /// @brief The support a jump leaves from: the floor's on the ground (full when stuck to a floor below), the last
+        ///        ground's from the coyote window, full out of the water.
+        float LaunchSupport(const Track& t, AirEntry entry, const ch::FloorVerdict& fv)
+        {
+            if (entry == AirEntry::OutOfWater) return 1.0f;
+            if (t.mode == Mode::Airborne) return t.groundSupport;
+            return fv.ground == ch::Ground::Grounded ? fv.support : 1.0f;
+        }
+
+        /// @brief The jump's vertical launch speed (Havok units/s) from ground of `support`, and its height.
+        float LaunchSpeed(hk::bhkCharacterController& c, float support, float* height = nullptr)
+        {
+            float gx, gy, gz;
+            WorldGravity(c, gx, gy, gz);
+            const float g          = std::sqrt(gx * gx + gy * gy + gz * gz) * c.m_gravity;
+            const float jumpHeight = std::fabs(c.m_jumpHeight) * JumpScale(support);
+            if (height) *height = jumpHeight;
+            return std::sqrt(jumpHeight * 2.0f * g);
+        }
+
         void Launch(hk::bhkCharacterController& c, Track& t, AirEntry entry, const ch::FloorVerdict& fv, float dt)
         {
             const hk::hkVector4 v    = c.m_outVelocity;
@@ -461,21 +500,21 @@ namespace CB::feature {
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
             gx *= c.m_gravity, gy *= c.m_gravity, gz *= c.m_gravity;
-            const float g = std::sqrt(gx * gx + gy * gy + gz * gz);
-            /// @note The support the jump leaves from: the floor's on the ground, the last ground's from the coyote
-            ///       window, full out of the water.
-            const float support = entry == AirEntry::OutOfWater ? 1.0f
-                                : t.mode == Mode::Airborne      ? t.groundSupport
-                                : fv.ground == ch::Ground::Grounded ? fv.support
-                                                                    : 1.0f;
-            const float jumpHeight = std::fabs(c.m_jumpHeight) * JumpScale(support);
-            const float speed      = std::sqrt(jumpHeight * 2.0f * g);
+            const float g          = std::sqrt(gx * gx + gy * gy + gz * gz);
+            const float support    = LaunchSupport(t, entry, fv);
+            float       jumpHeight = 0.0f;
+            const float speed      = LaunchSpeed(c, support, &jumpHeight);
             float ux = 0.0f, uy = 0.0f, uz = 1.0f;
             if (g > 1.0e-6f) ux = -gx / g, uy = -gy / g, uz = -gz / g;
+            /// @note The press-to-launch time measures the whole lead-in: the game's own (input to jump request) plus
+            ///       CB's wind-up.
+            const float sincePress = ch::IsPlayer(&c) ? JumpInput::Get().SincePress() : 1.0e9f;
             if (LogBudget())
                 LOG_INFO("ground states: jump ({}) - launch horizontal ({:.2f}, {:.2f}) vs body ({:.2f}, {:.2f}), vertical {:.2f} (support {:.2f}, "
-                         "height x{:.2f})",
-                         Name(entry), hx, hy, v(0), v(1), speed, support, JumpScale(support));
+                         "height x{:.2f}), {}",
+                         Name(entry), hx, hy, v(0), v(1), speed, support, JumpScale(support),
+                         sincePress < 10.0f ? std::format("{:.3f} s after the press", sincePress) : std::string("no press seen"));
+            t.windup = -1.0f;
             c.m_outVelocity.set(hx + ux * speed, hy + uy * speed, uz * speed, 0.0f);
             c.m_flags |= ch::kJumping;
             c.m_flags &= ~ch::kSupport;
@@ -535,6 +574,7 @@ namespace CB::feature {
             h.walkableHits = fv.walkableHits;
             h.support      = fv.support;
             h.slide        = { t.sx, t.sy, 0.0f };
+            h.jumpIn       = t.mode == Mode::Grounded ? t.windup : -1.0f;
             h.airTime      = t.airTime;
             h.variableJump = t.variableJump;
             h.jumpReleased = t.released;
@@ -568,7 +608,7 @@ namespace CB::feature {
         {
             Track&      t   = TrackFor(&c);
             const float dt  = c.m_stepInfo.m_deltaTime;
-            if (VariableJumpOn() && ch::IsPlayer(&c)) JumpInput::Get().EnsureRegistered();
+            if (ch::IsPlayer(&c)) JumpInput::Get().EnsureRegistered();
             const int   cur = static_cast<int>(c.m_context.m_currentState);
             const int   previousState = t.init ? t.lastState : -1;
 
@@ -578,6 +618,7 @@ namespace CB::feature {
                 t.entry      = t.mode == Mode::Airborne ? AirEntry::Launched : AirEntry::None;
                 t.springInit = false;
                 t.sx = t.sy  = 0.0f;
+                t.windup     = -1.0f;
                 t.airTime    = 0.0f;
                 if (LogBudget())
                     LOG_INFO("ground states: resync to vanilla state {} ({} -> {}{})", cur, Name(before), Name(t.mode), t.init ? "" : ", first step");
@@ -632,11 +673,16 @@ namespace CB::feature {
 
                 if (grounded) {
                     t.groundSupport = fv.ground == ch::Ground::Grounded ? fv.support : 1.0f;
-                    if (want == hk::HK_CHARACTER_JUMPING) {
+                    if (want == hk::HK_CHARACTER_JUMPING && t.windup < 0.0f) {
+                        t.windup = JumpWindup();
+                        if (LogBudget()) LOG_INFO("ground states: jump requested - winding up {:.3f} s", t.windup);
+                    }
+                    if (t.windup >= 0.0f && t.windup <= kWindupDone) {
                         Launch(c, t, AirEntry::Jumped, fv, dt);
                     } else {
                         if (ch::Supported(fv)) SetSupportFrom(c, fv);
                         GroundStep(c, t, fv, dt);
+                        if (t.windup >= 0.0f) t.windup = (std::max)(0.0f, t.windup - dt);
                     }
                 } else {
                     AirStep(c, t, dt, true);
@@ -653,8 +699,10 @@ namespace CB::feature {
                     if (fv.supportHits == 0) Stick(c, fv.stickDz);
                     EnterGrounded(c, t, Mode::Grounded, "forced", fv, vz);
                     GroundStep(c, t, fv, dt);
-                } else if (want == hk::HK_CHARACTER_JUMPING && coyote) {
-                    if (LogBudget()) LOG_INFO("ground states: coyote jump {:.3f} s after walking off", t.airTime);
+                } else if ((want == hk::HK_CHARACTER_JUMPING || t.windup >= 0.0f) && coyote) {
+                    /// @note A wind-up the character walked off during launches at once, as a coyote jump.
+                    if (LogBudget())
+                        LOG_INFO("ground states: coyote jump {:.3f} s after walking off{}", t.airTime, t.windup >= 0.0f ? " (cut the wind-up short)" : "");
                     Launch(c, t, AirEntry::Jumped, fv, dt);
                 } else {
                     if (want == hk::HK_CHARACTER_ON_GROUND || want == hk::HK_CHARACTER_JUMPING) {
@@ -682,7 +730,13 @@ namespace CB::feature {
                 decided.support = 1.0f;
             }
             ch::PublishVerdict(c, decided);
-            ch::PublishSlide(c, t.sx, t.sy);
+            ch::GroundNote note;
+            note.slideX = t.sx, note.slideY = t.sy;
+            if (t.windup >= 0.0f && t.mode == Mode::Grounded) {
+                note.jumpIn    = t.windup;
+                note.jumpSpeed = LaunchSpeed(c, t.groundSupport);
+            }
+            ch::PublishGroundNote(c, note);
             if (ch::hud::On() && hull.valid) PublishHud(c, t, hull, fv);
             t.lastState = static_cast<int>(c.m_context.m_currentState);
         }

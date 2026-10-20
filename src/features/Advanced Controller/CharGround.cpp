@@ -257,22 +257,22 @@ namespace CB::feature::controller {
         std::mutex                        g_publishLock;
         const hk::bhkCharacterController* g_publishCtrl = nullptr;
         FloorVerdict                      g_published;
-        const hk::bhkCharacterController* g_slideCtrl = nullptr;
-        float                             g_slideX = 0, g_slideY = 0;
+        const hk::bhkCharacterController* g_noteCtrl = nullptr;
+        GroundNote                        g_note;
     }  // namespace
 
-    void PublishSlide(const hk::bhkCharacterController& ctrl, float sx, float sy)
+    void PublishGroundNote(const hk::bhkCharacterController& ctrl, const GroundNote& note)
     {
         std::scoped_lock lock(g_publishLock);
-        g_slideCtrl = &ctrl;
-        g_slideX = sx, g_slideY = sy;
+        g_noteCtrl = &ctrl;
+        g_note     = note;
     }
 
-    bool PublishedSlide(const hk::bhkCharacterController& ctrl, float& sx, float& sy)
+    bool PublishedGroundNote(const hk::bhkCharacterController& ctrl, GroundNote& out)
     {
         std::scoped_lock lock(g_publishLock);
-        if (g_slideCtrl != &ctrl) return false;
-        sx = g_slideX, sy = g_slideY;
+        if (g_noteCtrl != &ctrl) return false;
+        out = g_note;
         return true;
     }
 

@@ -219,6 +219,7 @@ namespace CB::feature::controller::hud {
                 ImGui::Text("support %.2f   slide %.0f   air %.2f s (%s)", c.support, HorizontalSpeed(c.slide), c.airTime, c.entry);
                 ImGui::Text("speed %.0f   desired %.0f   vz %.0f", HorizontalSpeed(c.velocity), HorizontalSpeed(c.desired), c.velocity.z * kGameUnitsPerHavok);
                 if (c.variableJump) ImGui::Text("variable jump: %s", c.jumpReleased ? "released" : "held");
+                if (c.jumpIn >= 0.0f) ImGui::Text("jump wind-up %.0f ms left", c.jumpIn * 1000.0f);
             }
             if (haveRamp) ImGui::Text("ramp %.0f -> %.0f   turn x%.2f", r.speed, r.target, r.turn);
             if (haveFacing && facing.haveGoal) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(facing.goal - facing.yaw)) * kRadToDeg);

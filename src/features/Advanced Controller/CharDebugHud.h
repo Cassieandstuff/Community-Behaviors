@@ -39,6 +39,7 @@ namespace CB::feature::controller::hud {
         Point               velocity, desired;   ///< the step's output velocity and the movement asked for
         Point               slide;               ///< the slide velocity (horizontal), part of `velocity`
         bool                variableJump = false, jumpReleased = false;
+        float               jumpIn = -1;         ///< seconds left on a pending jump's wind-up, -1 for none
         std::array<Ray, 9>  rays{};
     };
 

@@ -119,10 +119,15 @@ namespace CB::feature::controller {
     ///        does the same on steep ground).
     void ClipUphill(const FloorVerdict& v, float& dx, float& dy);
 
-    /// @brief Publishes the ground states' slide velocity for the predictor (Havok units/s, horizontal).
-    void PublishSlide(const hk::bhkCharacterController& ctrl, float sx, float sy);
-    /// @brief The slide velocity last published for `ctrl`; false when none is.
-    bool PublishedSlide(const hk::bhkCharacterController& ctrl, float& sx, float& sy);
+    /// @brief What the ground states hand the predictor each step.
+    struct GroundNote {
+        float slideX = 0, slideY = 0;   ///< the slide velocity (Havok units/s, horizontal)
+        float jumpIn    = -1;           ///< seconds until a pending ground jump launches (its wind-up), -1 for none
+        float jumpSpeed = 0;            ///< that launch's vertical speed (Havok units/s) from the ground now under the feet
+    };
+    void PublishGroundNote(const hk::bhkCharacterController& ctrl, const GroundNote& note);
+    /// @brief The note last published for `ctrl`; false when none is.
+    bool PublishedGroundNote(const hk::bhkCharacterController& ctrl, GroundNote& out);
 
     /// @brief The movement the character asks for as a world-space horizontal velocity (Havok units/s).
     /// @note Through vanilla's calculateMovement with the ground flat, a zero current velocity and an unlimited delta:

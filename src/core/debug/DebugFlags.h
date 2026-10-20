@@ -102,7 +102,9 @@ namespace CB::core::debug {
           "much it holds them up is its support, easing from 1 at fSlidePullStart degrees (default 5) below the max "
           "slope to 0 at fSlidePullFull degrees (default 10) past it; as it drops, a slide velocity drags the player "
           "downhill, the uphill part of their steering is cut, and the jump shrinks toward fMinJumpScale (default 0.5) "
-          "of its full height. Requires bStateWrapper. Unproven in game." },
+          "of its full height. A jump from the ground winds up for fJumpWindup seconds (default 0.033) while the "
+          "player keeps moving, then launches; walking off meanwhile launches at once. Requires bStateWrapper. "
+          "Unproven in game." },
         { "char_planes", FlagKind::IniBool, "Character", "bPlanes", false, false,
           "Constraint planes",
           "Step 4 of the character controller spec: for the player, the proxy's constraint planes follow the spec's "

@@ -23,6 +23,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   mod ADDS were served lowercased; listings and the converter now keep original case.
 - [CB-11](CB-11-cache-file-case.md) — INVESTIGATING (fix landed, needs an in-game check): cache files were
   written lowercase but swapped open with the request's raw case; every swap now names the exact file written.
+- [CB-14](CB-14-fall-animation-lingers.md) — OPEN (deferred): with the ground states on, the fall animation
+  sometimes lingers up to 2 s after a landing; the controller lands correctly, the graph side is suspected.
 
 ## Per-bug file template
 
