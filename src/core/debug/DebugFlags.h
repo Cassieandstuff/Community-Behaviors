@@ -127,8 +127,11 @@ namespace CB::core::debug {
           "rises (walk, run, sprint), it climbs to its target over fRampTime seconds instead of jumping there; "
           "slowing down stays instant. Under bFacing, turning also costs speed: full speed while the body faces within "
           "fTurnFreeAngle degrees (default 45) of the stick, easing to none at 180, so a hard turn rebuilds its speed "
-          "(fTurnFreeAngle=180 turns that off). The graph's TargetSpeed gets the speed asked for. Off under "
-          "bAnimationDriven, bSpeedSynced and bIsSynced. AE only. Unproven in game." },
+          "(fTurnFreeAngle=180 turns that off). The slope along the run scales the speed too: downhill x(1 + "
+          "fSlopeSpeedDown x sin) up to 1.5 (default 1.0), uphill x(1 - fSlopeSpeedUp x sin) down to 0.7 (default "
+          "0.5), weighted by how well the ground holds the player (the slide takes the rest) and smoothed over about "
+          "0.3 s; it reads the ground states' floor, so needs bGroundStates or bPlanes. The graph's TargetSpeed gets "
+          "the speed asked for. Off under bAnimationDriven, bSpeedSynced and bIsSynced. AE only. Unproven in game." },
         { "char_facing", FlagKind::IniBool, "Character", "bFacing", false, false,
           "Facing (through True Directional Movement)",
           "While True Directional Movement is in its directional mode, CB holds TDM's yaw control and turns the player "

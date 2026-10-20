@@ -221,7 +221,7 @@ namespace CB::feature::controller::hud {
                 if (c.variableJump) ImGui::Text("variable jump: %s", c.jumpReleased ? "released" : "held");
                 if (c.jumpIn >= 0.0f) ImGui::Text("jump wind-up %.0f ms left", c.jumpIn * 1000.0f);
             }
-            if (haveRamp) ImGui::Text("ramp %.0f -> %.0f   turn x%.2f", r.speed, r.target, r.turn);
+            if (haveRamp) ImGui::Text("ramp %.0f -> %.0f   turn x%.2f   slope x%.2f", r.speed, r.target, r.turn, r.slope);
             if (haveFacing && facing.haveGoal) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(facing.goal - facing.yaw)) * kRadToDeg);
             if (havePred) {
                 if (p.blocked) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedIn);

@@ -137,6 +137,8 @@ namespace CB::feature {
             bool  haveGoal    = false;
             float thetaGoal   = 0;        ///< unwrapped near theta
             bool  turnDamping = false;    ///< the speed ramp slows turns (TurnSpeedScale)
+            bool  slopeSpeed  = false;    ///< the speed ramp scales the speed by the slope (SlopeSpeedScale)
+            float slope       = 1.0f;     ///< the slope factor already in the current speed and request
             float full = 0, speed = 0;    ///< asked-for and current speed, Havok units/s
             float accel = 0;              ///< the ramp's rise rate, Havok units/s^2; 0 = instant
             Vec2  desired;                ///< the request, without the facing model
@@ -360,6 +362,7 @@ namespace CB::feature {
 
             float f = drive.facingModel ? drive.theta : heading, fv = drive.facingModel ? drive.omega : 0.0f;
             float spd = drive.speed;
+            float slopeMul = drive.slope, slopeRate = 0.0f;
             /// @note On the ground the velocity is the player's (the spring) plus the slide, as in the ground states.
             float sx = airborne ? 0.0f : note.slideX, sy = airborne ? 0.0f : note.slideY;
             float vx = velocity(0) - sx, vy = velocity(1) - sy, vz = airborne ? velocity(2) : 0.0f, ax = 0, ay = 0;
@@ -383,11 +386,21 @@ namespace CB::feature {
                         ch::JumpLaunch(prevFloor, gx0, gy0, note.jumpSpeed, vx, vy, vz);
                     }
                     ch::SpringDamperExact(f, fv, facingGoal, kFacingHalflife, h);
+                    /// @note The slope factor follows the last resolved floor along the predicted run, smoothed as the
+                    ///       speed ramp smooths it.
+                    if (drive.slopeSpeed && !airborne) {
+                        float hx = std::cos(f), hy = std::sin(f);
+                        if (!drive.facingModel) hx = wantSpeed > kStillSpeed ? want.x / wantSpeed : 0.0f, hy = wantSpeed > kStillSpeed ? want.y / wantSpeed : 0.0f;
+                        ch::SpringDamperExact(slopeMul, slopeRate, ch::SlopeSpeedScale(prevFloor, hx, hy), ch::kSlopeSpeedHalflife, h);
+                    }
                     Vec2 d = want;
                     if (drive.facingModel) {
-                        const float target = drive.full * (drive.turnDamping && drive.haveGoal ? ch::TurnSpeedScale(facingGoal - f) : 1.0f);
+                        const float turn   = drive.turnDamping && drive.haveGoal ? ch::TurnSpeedScale(facingGoal - f) : 1.0f;
+                        const float target = drive.full * turn * slopeMul;
                         spd = drive.accel > 0.0f && target > spd + threshold ? (std::min)(target, spd + drive.accel * h) : target;
                         d   = { spd * std::cos(f), spd * std::sin(f) };
+                    } else if (drive.slopeSpeed && drive.slope > 1.0e-3f) {
+                        d = { want.x * slopeMul / drive.slope, want.y * slopeMul / drive.slope };
                     }
                     const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
@@ -632,6 +645,12 @@ namespace CB::feature {
             drive.full = drive.speed = asked;
             ch::FacingState facing;
             float           stick = 0.0f;
+            ch::FrameSpeed  fs;
+            const bool      haveSpeed = ch::CurrentSpeed(fs);
+            if (haveSpeed) {
+                drive.slopeSpeed = true;
+                drive.slope      = fs.slope;
+            }
             if (ch::CurrentFacing(facing)) {
                 drive.facingModel = true;
                 drive.theta       = kHalfPi - facing.yaw;
@@ -639,7 +658,7 @@ namespace CB::feature {
                 drive.haveGoal    = facing.haveGoal;
                 if (facing.haveGoal) drive.thetaGoal = drive.theta + WrapAngle(kHalfPi - facing.goal - drive.theta);
                 /// @note The frame speed is game units/s; the request it becomes (m_velocityMod) is Havok units/s.
-                if (ch::FrameSpeed fs; ch::CurrentSpeed(fs)) {
+                if (haveSpeed) {
                     drive.turnDamping = true;
                     drive.full        = fs.full / kGameUnitsPerHavok;
                     drive.speed       = fs.speed / kGameUnitsPerHavok;
@@ -652,6 +671,8 @@ namespace CB::feature {
                 drive.theta       = std::atan2(tangent.y, tangent.x);
                 drive.haveGoal    = true;
                 drive.thetaGoal   = drive.theta + WrapAngle(kHalfPi - stick - drive.theta);
+                /// @note The request already carries the current slope factor; the model applies its own.
+                if (drive.slopeSpeed && drive.slope > 1.0e-3f) drive.full = drive.speed = asked / drive.slope;
             }
 
             std::int32_t iState = 0;

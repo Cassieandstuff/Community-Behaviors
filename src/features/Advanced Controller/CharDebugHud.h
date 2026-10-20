@@ -61,10 +61,10 @@ namespace CB::feature::controller::hud {
         std::int32_t iState    = 0;
     };
 
-    /// @brief The speed ramp's frame (game units/s): the speed handed on, the speed asked for, and the turn damping's
-    ///        fraction (TurnSpeedScale).
+    /// @brief The speed ramp's frame (game units/s): the speed handed on, the speed asked for, the turn damping's
+    ///        fraction (TurnSpeedScale) and the smoothed slope factor (SlopeSpeedScale).
     struct Ramp {
-        float speed = 0, target = 0, turn = 1;
+        float speed = 0, target = 0, turn = 1, slope = 1;
     };
 
     /// @brief Whether the HUD runs (char_debug_hud); publishers skip their work when it does not.

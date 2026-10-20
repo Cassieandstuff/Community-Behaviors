@@ -46,6 +46,7 @@ namespace CB::feature::controller {
         float full     = 0.0f;
         float speed    = 0.0f;
         float rampTime = 0.0f;   ///< fRampTime: a rise from 0 to `full` takes this long
+        float slope    = 1.0f;   ///< the smoothed slope factor (SlopeSpeedScale) already in `speed`
     };
     /// @brief False while the speed ramp is off or no frame ran within the last half second. Thread-safe.
     bool CurrentSpeed(FrameSpeed& out);

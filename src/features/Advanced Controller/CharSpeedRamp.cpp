@@ -16,7 +16,8 @@
 
 /// @file
 /// @brief Speed acceleration for the player: ramps the speed the movement controller produces each frame, and slows
-///        it while the facing turns toward the stick (TurnSpeedScale, under CharFacing), so a hard turn rebuilds speed.
+///        it while the facing turns toward the stick (TurnSpeedScale, under CharFacing), so a hard turn rebuilds speed,
+///        and by the slope along the run (SlopeSpeedScale): faster downhill, slower uphill.
 /// @note Why here and not in the character controller: vanilla's player path has no acceleration (the speed jumps
 ///       to its target; PlayerControls only limits a drop of more than 500 game units/s in one call), and the same
 ///       speed feeds the graph's `Speed` (what BSSpeedSamplerModifier fits the locomotion blend to) and the frame
@@ -58,6 +59,14 @@ namespace CB::feature {
             float rampTime = 0.0f;
         };
         Ramp              g_ramp;
+
+        /// @brief The smoothed slope factor (ch::SlopeSpeedScale), kept apart from the ramp, which resets on every drop.
+        struct Slope {
+            bool  init  = false;
+            float scale = 1.0f;
+            float rate  = 0.0f;
+        };
+        Slope g_slope;
         std::atomic<bool> g_loggedTargetSpeed{ false };
         std::atomic<int>  g_logs{ 0 };
 
@@ -119,14 +128,28 @@ namespace CB::feature {
             float           turnScale   = 1.0f;
             ch::FacingState facing;
             if (!graphDrives && ch::CurrentFacing(facing) && facing.haveGoal) turnScale = ch::TurnSpeedScale(facing.goal - facing.yaw);
-            const float target = full * turnScale;
+
+            /// @note The slope factor follows the ground under the player along the direction the frame moves them: the
+            ///       heading turned by the frame's own movement direction (angles[2], 0 = forward; always 0 under True
+            ///       Directional Movement's forward-only input). Smoothed, so its drops ease as a crest passes.
+            /// @warning angles[2]'s sign (clockwise like the heading) is assumed, unverified for a sideways request.
+            float           slopeGoal = 1.0f;
+            ch::FloorVerdict ground;
+            if (!graphDrives && ch::LatestVerdict(ground)) {
+                const float dir = player->GetHeading(false) + out->angles[2];
+                slopeGoal       = ch::SlopeSpeedScale(ground, std::sin(dir), std::cos(dir));
+            }
+            Slope& sl = g_slope;
+            if (!sl.init || deltaTime <= 0.0f) sl = Slope{ true, slopeGoal, 0.0f };
+            else ch::SpringDamperExact(sl.scale, sl.rate, slopeGoal, ch::kSlopeSpeedHalflife, deltaTime);
+            const float target = full * turnScale * sl.scale;
 
             /// @note The rise rate is the asked-for speed over fRampTime, not the damped target's: a body coming out of
             ///       a turn rebuilds its speed at the same acceleration as one starting from rest.
             if (!r.init || deltaTime <= 0.0f || graphDrives || target <= r.speed + kRampThreshold) {
                 if (r.ramping && LogBudget())
-                    LOG_INFO("speed ramp: {:.1f} -> {:.1f} ended at {:.1f} after {:.3f} s (target now {:.1f}, turn {:.2f})", r.from, r.speed, r.speed,
-                             r.rampTime, target, turnScale);
+                    LOG_INFO("speed ramp: {:.1f} -> {:.1f} ended at {:.1f} after {:.3f} s (target now {:.1f}, turn {:.2f}, slope {:.2f})", r.from, r.speed, r.speed,
+                             r.rampTime, target, turnScale, sl.scale);
                 r = Ramp{ true, false, target, target, 0.0f };
             } else {
                 if (!r.ramping) {
@@ -134,7 +157,7 @@ namespace CB::feature {
                     r.from     = r.speed;
                     r.rampTime = 0.0f;
                     if (LogBudget())
-                        LOG_INFO("speed ramp: {:.1f} -> {:.1f} (turn {:.2f}, sprinting {})", r.speed, target, turnScale,
+                        LOG_INFO("speed ramp: {:.1f} -> {:.1f} (turn {:.2f}, slope {:.2f}, sprinting {})", r.speed, target, turnScale, sl.scale,
                                  player->AsActorState()->IsSprinting());
                 }
                 r.speed = (std::min)(target, r.speed + full / RampTime() * deltaTime);
@@ -147,10 +170,10 @@ namespace CB::feature {
             out->speed = r.speed;
             {
                 std::scoped_lock lock(g_published.lock);
-                g_published.speed = ch::FrameSpeed{ full, r.speed, RampTime() };
+                g_published.speed = ch::FrameSpeed{ full, r.speed, RampTime(), sl.scale };
                 g_published.at    = Now();
             }
-            if (ch::hud::On()) ch::hud::Publish(ch::hud::Ramp{ out->speed, full, turnScale });
+            if (ch::hud::On()) ch::hud::Publish(ch::hud::Ramp{ out->speed, full, turnScale, sl.scale });
         }
 
         [[maybe_unused]] const bool s_subscribed =

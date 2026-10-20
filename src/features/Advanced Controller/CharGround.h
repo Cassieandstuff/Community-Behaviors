@@ -125,6 +125,22 @@ namespace CB::feature::controller {
         return rise < -limit ? -limit : rise > limit ? limit : rise;
     }
 
+    /// @brief The halflife (seconds) of the smoothing on SlopeSpeedScale: a change settles in about 0.3 s, so cresting
+    ///        a hill eases the speed down instead of snapping it.
+    constexpr float kSlopeSpeedHalflife = 0.1f;
+
+    /// @brief How much the slope along a heading (dirX, dirY, horizontal, unit length) changes the run speed: gravity's
+    ///        share along the run. Downhill 1 + fSlopeSpeedDown x sin(slope) up to 1.5; uphill 1 - fSlopeSpeedUp x
+    ///        sin(slope) down to 0.7 ([Character], defaults 1.0 and 0.5); 1 in the air.
+    /// @note Gravity along the slope is split by support: the share the ground holds (support) changes how fast the
+    ///       player runs (this), the share it does not (1 - support) drags them (SlideStep). So on ground too steep to
+    ///       stand on the speed change fades out and the slide takes over, and gravity is never counted twice.
+    float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY);
+
+    /// @brief The verdict last published for the managed controller, whichever it is (the player's: the only one CB's
+    ///        decision layer runs); false when none is. For readers outside the physics step (the frame movement).
+    bool LatestVerdict(FloorVerdict& out);
+
     /// @brief A jump's launch velocity from ground `g` at horizontal ground velocity (hx, hy) and jump speed `speed`
     ///        (Havok units/s): the whole ground velocity (it lies along the slope, SlopeRise its vertical part) plus the
     ///        push off the ground, along the ground's normal with the part that leans against the run removed.

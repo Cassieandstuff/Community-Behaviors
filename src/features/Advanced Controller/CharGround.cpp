@@ -283,6 +283,30 @@ namespace CB::feature::controller {
         g_published   = v;
     }
 
+    bool LatestVerdict(FloorVerdict& out)
+    {
+        std::scoped_lock lock(g_publishLock);
+        if (!g_publishCtrl) return false;
+        out = g_published;
+        return true;
+    }
+
+    float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY)
+    {
+        static const float down = (std::max)(0.0f, SettingFloat("fSlopeSpeedDown", 1.0f));
+        static const float up   = (std::max)(0.0f, SettingFloat("fSlopeSpeedUp", 0.5f));
+        static const bool  logged = [] {
+            LOG_INFO("slope speed: downhill x(1 + {:.2f} sin) up to 1.5, uphill x(1 - {:.2f} sin) down to 0.7", down, up);
+            return true;
+        }();
+        (void)logged;
+        if (g.ground == Ground::Airborne) return 1.0f;
+        const float rise  = SlopeRise(g, dirX, dirY);   ///< tan of the slope along the heading, + uphill
+        const float sine  = rise / std::sqrt(1.0f + rise * rise);
+        const float scale = sine < 0.0f ? (std::min)(1.5f, 1.0f - down * sine) : (std::max)(0.7f, 1.0f - up * sine);
+        return 1.0f + std::clamp(g.support, 0.0f, 1.0f) * (scale - 1.0f);
+    }
+
     bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out)
     {
         std::scoped_lock lock(g_publishLock);
