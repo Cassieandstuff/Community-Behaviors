@@ -4,8 +4,8 @@
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>
-#include <core/hooks/hookslib.h>
-#include <core/hooks/takeover/Override.h>
+#include <platform/hooks/hookslib.h>
+#include <platform/hooks/takeover/Override.h>
 
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>
@@ -42,8 +42,8 @@ namespace CB::feature {
 
         namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
-        namespace eng        = core::hooks::engine;
-        using GetState       = core::hooks::Override<&hk::hkpCharacterStateManager::getState>;
+        namespace eng        = platform::hooks::engine;
+        using GetState       = platform::hooks::Override<&hk::hkpCharacterStateManager::getState>;
         using SimulateFn     = void (*)(const void* state, hk::bhkCharacterController* controller);
 
         constexpr int kSlots        = 9;   ///< hkReferencedObject 0-2, getType 3, enter/leave 4-5, update/change 6-7, Simulate 8
@@ -801,7 +801,7 @@ namespace CB::feature {
         }
 
         [[maybe_unused]] const bool s_subscribed =
-            GetState::Subscribe(&OnGetState, core::hooks::Priority::Normal, "CharStateWrapper", "char_state_wrapper");
+            GetState::Subscribe(&OnGetState, platform::hooks::Priority::Normal, "CharStateWrapper", "char_state_wrapper");
 
     }  // namespace
 

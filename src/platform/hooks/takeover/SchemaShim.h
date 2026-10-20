@@ -1,6 +1,6 @@
 #pragma once
 
-#include <core/hooks/registry/Symbol.h>
+#include <platform/hooks/registry/Symbol.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -16,7 +16,7 @@
 /// @note Drift gate: a declaration whose signature changes decorates differently, so its old binding no longer
 ///       matches and the plugin fails to link until engine.yaml's `mangled` is updated.
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     /// @brief Copies every shimmed const global from the exe. Call first in SKSEPluginLoad, before any feature reads
     ///        one (they read zeros until then).
@@ -36,4 +36,4 @@ namespace CB::core::hooks {
 
     }  // namespace detail
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

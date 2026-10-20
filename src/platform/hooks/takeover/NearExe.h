@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     /// @return `size` bytes of executable memory as close above the exe's image as is free (below it if nothing above
     ///         is), or nullptr when none lies where every byte of the image stays within rel32 reach of every byte of it.
@@ -12,4 +12,4 @@ namespace CB::core::hooks {
     /// @post Never freed: the code and cells placed there live for the process.
     [[nodiscard]] std::byte* AllocateNearExe(std::size_t size);
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

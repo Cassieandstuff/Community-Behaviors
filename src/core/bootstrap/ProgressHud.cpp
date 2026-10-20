@@ -14,7 +14,7 @@
 #include <backends/imgui_impl_dx11.h>
 #include <backends/imgui_impl_win32.h>
 
-#include "core/hooks/factory/Install.h"   // CB::core::hooks::InstallCallDetour — trampoline write_call<5>
+#include "platform/hooks/factory/Install.h"   // CB::platform::hooks::InstallCallDetour — trampoline write_call<5>
 
 // Startup progress bar, modelled on Community Shaders' Menu (src/Menu.cpp Init + src/Hooks.cpp draw):
 //   • ImGui context + backends + font/device objects are built ONCE, EAGERLY, at Install() time —
@@ -208,7 +208,7 @@ namespace CB::core::bootstrap {
         const std::uintptr_t base = vr ? REL::Relocation<std::uintptr_t>{ REL::Offset(0xDBBDD0) }.address()
                                        : REL::Relocation<std::uintptr_t>{ REL::ID(ver[1] >= 6 ? 77246u : 75461u) }.address();
         const std::uintptr_t site = base + (vr ? 0x15u : 0x9u);
-        const std::uintptr_t                  orig = CB::core::hooks::InstallCallDetour<5>(site, &PresentThunk,
+        const std::uintptr_t                  orig = CB::platform::hooks::InstallCallDetour<5>(site, &PresentThunk,
                                                                                  "ProgressHud present");
         if (!orig) {
             LOG_ERROR("ProgressHud: present-call detour not installed — no compile progress bar.");

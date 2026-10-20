@@ -1,7 +1,7 @@
 #pragma once
 
-#include <core/hooks/registry/Registry.h>
-#include <core/hooks/registry/SchemaIdentity.gen.h>
+#include <platform/hooks/registry/Registry.h>
+#include <platform/hooks/registry/SchemaIdentity.gen.h>
 
 #include <format>
 #include <string>
@@ -15,7 +15,7 @@
 /// @note `P` only selects GlobalIdentity<P> and types the result (decltype); Live never takes its value, so naming
 ///       the unbound variable in the template argument references nothing at link.
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     /// @return the exe's variable `P` names, typed as declared. Fatal on a runtime with no pin for it.
     template <auto P>
@@ -34,4 +34,4 @@ namespace CB::core::hooks {
         return *at;
     }
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

@@ -1,11 +1,11 @@
 #include "PCH.h"
 
-#include "core/hooks/takeover/Takeover.h"
+#include "platform/hooks/takeover/Takeover.h"
 
 #include "core/debug/Settings.h"
-#include "core/hooks/takeover/Cell.h"
-#include "core/hooks/takeover/ImageSource.h"
-#include "core/hooks/takeover/NearExe.h"
+#include "platform/hooks/takeover/Cell.h"
+#include "platform/hooks/takeover/ImageSource.h"
+#include "platform/hooks/takeover/NearExe.h"
 
 #include <PluginLogger.h>
 
@@ -14,7 +14,7 @@
 
 #include <set>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     namespace {
 
@@ -131,7 +131,7 @@ namespace CB::core::hooks {
 
         void InstallFunctions()
         {
-            if (!debug::FlagOn("havok_runtime")) {
+            if (!core::debug::FlagOn("havok_runtime")) {
                 LOG_INFO("havok runtime: off ([{}] bEnable) — vanilla runs", kSection);
                 return;
             }
@@ -144,12 +144,12 @@ namespace CB::core::hooks {
             }
 
             State&            st   = Takeover();
-            const std::string only = debug::Value(kSection, "sOnly");
+            const std::string only = core::debug::Value(kSection, "sOnly");
             const auto        keep = SplitList(only);
             const std::uintptr_t exe = REL::Module::get().base();
             std::size_t classes = 0, off = 0, patched = 0, tooShort = 0, padded = 0;
             for (const auto& cls : image->Classes()) {
-                const std::string choice = debug::Value(kSection, cls, image->Name());
+                const std::string choice = core::debug::Value(kSection, cls, image->Name());
                 if ((!keep.empty() && !keep.contains(cls)) || choice == "off") {
                     ++off;
                     continue;
@@ -241,4 +241,4 @@ namespace CB::core::hooks {
                  st.live.size() - restored - lost, st.live.size(), wrapped, restored, lost);
     }
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

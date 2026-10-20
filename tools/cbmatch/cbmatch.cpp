@@ -407,7 +407,7 @@ PeImage loadPe(const fs::path& path)
     return pe;
 }
 
-// ── engine symbols: the Address Library + src/core/hooks/registry/engine.yaml ────────────────────────────────────
+// ── engine symbols: the Address Library + src/platform/hooks/registry/engine.yaml ────────────────────────────────────
 
 /// @brief Address Library id → image offset, decoded as CommonLibSSE-NG's REL::IDDB does (formats 1, 2 and the dense 5).
 std::map<std::uint64_t, std::uint64_t> loadAddressLibrary(const fs::path& path)

@@ -1,7 +1,7 @@
 #include "PCH.h"
 
-#include <core/hooks/hookslib.h>
-#include <core/hooks/takeover/Override.h>
+#include <platform/hooks/hookslib.h>
+#include <platform/hooks/takeover/Override.h>
 
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.h>
@@ -28,7 +28,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::havok;
-        using Process = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
+        using Process = platform::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
 
         struct V3 {
             float x = 0, y = 0, z = 0;
@@ -172,7 +172,7 @@ namespace CB::feature {
         }
 
         [[maybe_unused]] const bool s_subscribed =
-            Process::Subscribe(&OnProcess, core::hooks::Priority::Normal, "CharContactProbe", "char_contact_probe");
+            Process::Subscribe(&OnProcess, platform::hooks::Priority::Normal, "CharContactProbe", "char_contact_probe");
 
     }  // namespace
 

@@ -1,10 +1,10 @@
 # Engine symbol registry — every engine address CB touches that CommonLibSSE-NG does not already provide.
 #
 # The single hand-edited source: cmake/EmbedEngineRegistry.cmake bakes it into a generated header of
-# constexpr symbols (a misspelled symbol is a compile error), resolved at runtime by <core/hooks/registry/Registry.h>.
+# constexpr symbols (a misspelled symbol is a compile error), resolved at runtime by <platform/hooks/registry/Registry.h>.
 #
 # Fields per symbol (one line each — the codegen parses this fixed shape):
-#   name   C++ identifier (CB::core::hooks::engine::<name>)
+#   name   C++ identifier (CB::platform::hooks::engine::<name>)
 #   kind   func | call | data | tls
 #            func = a function entry; call = a CALL rel32 INSIDE a function (written <id>+0x<offset>,
 #            offsets differ per runtime); data = a global / string / static object; tls = a thread_local,

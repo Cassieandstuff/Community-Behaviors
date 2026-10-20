@@ -192,7 +192,7 @@ for family in $expectVariant $gated $controlOnly; do control "$family"; done
 cat > "$work/mutants.yaml" <<EOF
 runtimes:
   ae: { exe: "\${CB_SKYRIM_AE_EXE}", addresslib: "\${CB_ADDRESSLIB_AE}", pins: ae }
-registry: "$repo/src/core/hooks/registry/engine.yaml"
+registry: "$repo/src/platform/hooks/registry/engine.yaml"
 toolchains:
   vs2015: "\${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
   vs2017: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe"

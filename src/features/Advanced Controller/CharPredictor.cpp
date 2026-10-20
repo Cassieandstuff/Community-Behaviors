@@ -4,7 +4,7 @@
 #include "CharGround.h"
 #include "CharSweep.h"
 
-#include <core/hooks/takeover/Override.h>
+#include <platform/hooks/takeover/Override.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <algorithm>
@@ -28,7 +28,7 @@ namespace CB::feature {
 
         namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
-        using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
+        using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief Halflife of the velocity spring (P2), seconds.
         /// @warning Must match the halflife the ground-states feature (spec step 3) springs the real velocity with, or the
@@ -478,7 +478,7 @@ namespace CB::feature {
         }
 
         [[maybe_unused]] const bool s_predictor =
-            CheckSupport::Subscribe(&OnCheckSupport, core::hooks::Priority::First, "CharPredictor", "char_predictor");
+            CheckSupport::Subscribe(&OnCheckSupport, platform::hooks::Priority::First, "CharPredictor", "char_predictor");
 
     }  // namespace
 

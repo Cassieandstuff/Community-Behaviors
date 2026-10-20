@@ -3,13 +3,13 @@
 #include <PCH.h>
 #include <PluginLogger.h>
 
-#include <core/hooks/registry/EngineRegistry.gen.h>
-#include <core/hooks/registry/Symbol.h>
+#include <platform/hooks/registry/EngineRegistry.gen.h>
+#include <platform/hooks/registry/Symbol.h>
 
 #include <cstddef>
 #include <cstdint>
 
-namespace CB::core::hooks::engine {
+namespace CB::platform::hooks::engine {
 
 /// @return the running runtime's pin for `s`; an unrecognised runtime gets the empty pin (unavailable).
 [[nodiscard]] inline const Pin& PinFor(const Symbol& s) noexcept
@@ -53,4 +53,4 @@ inline void LogAvailability()
     LOG_INFO("engine registry: {}/{} symbols available on this runtime", kCount - missing, kCount);
 }
 
-} // namespace CB::core::hooks::engine
+} // namespace CB::platform::hooks::engine

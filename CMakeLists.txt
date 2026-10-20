@@ -145,18 +145,20 @@ add_subdirectory(common/config)
 find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
 find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link)
 
-# The plugin is src/core/ (Plugin.cpp + the pipeline stages discover -> resolve -> serve, plus bootstrap,
-# debug, hooks) and the graph features under src/features/, compiled straight into the plugin target.
+# The plugin is src/platform/ (the runtime SDK: hooks, takeover, link shim, registry), src/core/ (Plugin.cpp +
+# the pipeline stages discover -> resolve -> serve, plus bootstrap and debug) and the graph features under
+# src/features/, compiled straight into the plugin target.
+sct_collect_sources(CB_PLATFORM_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/platform/*.cpp")
 sct_collect_sources(CB_CORE_SOURCES    "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/*.cpp")
 sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
 
 # add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) + links CommonLibSSE
 # — Plugin.cpp defines only SKSEPluginLoad.
-add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
+add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_PLATFORM_SOURCES} ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 
 # src/ is the private include root: headers resolve folder-prefixed (e.g. "core/resolve/Resolver.h",
-# <core/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
+# <platform/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
 # (PCH.h, PluginLogger.h), on the path so their bare quoted includes resolve everywhere.
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/pch")
 # havok last: features call and override the reimplemented classes as declared (the schema link shim).
@@ -164,27 +166,27 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" 
 # case-insensitive filesystem can't confuse <Common/…> with the engine's <common/…>.
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/havok")
 
-# Engine symbol registry: src/core/hooks/registry/engine.yaml (the single hand-edited source of every engine
+# Engine symbol registry: src/platform/hooks/registry/engine.yaml (the single hand-edited source of every engine
 # address CB uses beyond CommonLib) baked into a constexpr header at build time — see
-# cmake/EmbedEngineRegistry.cmake and <core/hooks/registry/Registry.h>.
+# cmake/EmbedEngineRegistry.cmake and <platform/hooks/registry/Registry.h>.
 set(_cb_gen_dir "${CMAKE_BINARY_DIR}/generated")
-set(_cb_engine_reg "${_cb_gen_dir}/core/hooks/registry/EngineRegistry.gen.h")
+set(_cb_engine_reg "${_cb_gen_dir}/platform/hooks/registry/EngineRegistry.gen.h")
 # The same rows' `mangled` entries also generate the schema link shim and Override's identities
-# (<core/hooks/takeover/SchemaShim.h>, <core/hooks/takeover/Override.h>).
-set(_cb_shim_asm "${_cb_gen_dir}/core/hooks/registry/SchemaShim.gen.asm")
-set(_cb_shim_cpp "${_cb_gen_dir}/core/hooks/registry/SchemaShim.gen.cpp")
-set(_cb_identity "${_cb_gen_dir}/core/hooks/registry/SchemaIdentity.gen.h")
+# (<platform/hooks/takeover/SchemaShim.h>, <platform/hooks/takeover/Override.h>).
+set(_cb_shim_asm "${_cb_gen_dir}/platform/hooks/registry/SchemaShim.gen.asm")
+set(_cb_shim_cpp "${_cb_gen_dir}/platform/hooks/registry/SchemaShim.gen.cpp")
+set(_cb_identity "${_cb_gen_dir}/platform/hooks/registry/SchemaIdentity.gen.h")
 add_custom_command(
     OUTPUT  "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}"
     COMMAND "${CMAKE_COMMAND}"
-            "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml"
+            "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml"
             "-DOUT_H=${_cb_engine_reg}"
             "-DOUT_SHIM_ASM=${_cb_shim_asm}"
             "-DOUT_SHIM_CPP=${_cb_shim_cpp}"
             "-DOUT_IDENTITY_H=${_cb_identity}"
             -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-    DEPENDS "${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-    COMMENT "Generating the engine symbol registry and the schema link shim from src/core/hooks/registry/engine.yaml"
+    DEPENDS "${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
+    COMMENT "Generating the engine symbol registry and the schema link shim from src/platform/hooks/registry/engine.yaml"
     VERBATIM)
 add_custom_target(cb_engine_registry DEPENDS "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}")
 # The shim's asm half builds in its own object library: CommonLib's INTERFACE options (/Zc:preprocessor) reach every

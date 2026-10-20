@@ -1,8 +1,8 @@
 #pragma once
 
-#include <core/hooks/points/HookPoint.h>
+#include <platform/hooks/points/HookPoint.h>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
 /// @brief One frame's movement as an actor's movement controller computes it from its agents.
 /// @note Read by Actor_ApplyFrameMovement (0x1406698d0 AE): `speed` (game units/s) goes to the graph's `Speed`
@@ -28,4 +28,4 @@ struct MovementControllerFrame : HookPoint<MovementControllerFrame, void(void* c
     static constexpr const engine::Symbol& symbol = engine::MovementControllerNPC_ComputeFrameMovement;
 };
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

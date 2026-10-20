@@ -1,8 +1,8 @@
 #include "PCH.h"
 
-#include "core/hooks/takeover/NearExe.h"
+#include "platform/hooks/takeover/NearExe.h"
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     std::byte* AllocateNearExe(std::size_t size)
     {
@@ -28,4 +28,4 @@ namespace CB::core::hooks {
         return nullptr;
     }
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

@@ -1,12 +1,12 @@
 #include "PCH.h"
 
-#include <core/hooks/takeover/SchemaShim.h>
+#include <platform/hooks/takeover/SchemaShim.h>
 
-#include <core/hooks/registry/Registry.h>
+#include <platform/hooks/registry/Registry.h>
 
 #include <cstring>
 
-namespace CB::core::hooks::detail {
+namespace CB::platform::hooks::detail {
 
     std::uintptr_t ResolveShimSlot(unsigned slot, const engine::Symbol* const* funcs, std::size_t count, std::uintptr_t* slots)
     {
@@ -36,4 +36,4 @@ namespace CB::core::hooks::detail {
         if (count) LOG_INFO("schema shim: {} const global(s) copied from the exe", count);
     }
 
-}  // namespace CB::core::hooks::detail
+}  // namespace CB::platform::hooks::detail

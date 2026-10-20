@@ -1,5 +1,5 @@
 #include "PCH.h"
-#include <core/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
+#include <platform/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
 
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
@@ -262,7 +262,7 @@ namespace CB::core::serve {
         std::atomic<bool>               s_redirectActive{ false };
         RE::BSFixedString               s_cachePath;
 
-        std::int32_t OnOpenAnimData(CB::core::hooks::AdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+        std::int32_t OnOpenAnimData(CB::platform::hooks::AdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
                                     std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the collated animdata file drives the compile gate. The gate now KICKS a
@@ -291,12 +291,12 @@ namespace CB::core::serve {
 
     void InstallAnimDataHook()
     {
-        CB::core::hooks::AdsfOpen::Subscribe(&OnOpenAnimData, CB::core::hooks::Priority::Normal, "AnimDataServe");
+        CB::platform::hooks::AdsfOpen::Subscribe(&OnOpenAnimData, CB::platform::hooks::Priority::Normal, "AnimDataServe");
     }
 
     void ArmAnimDataRedirect(const ServeResult& result)
     {
-        if (!CB::core::hooks::AdsfOpen::Installed()) {
+        if (!CB::platform::hooks::AdsfOpen::Installed()) {
             RedirectAnimDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }
@@ -314,7 +314,7 @@ namespace CB::core::serve {
     {
         static constexpr const char* kRedirectPath = "community_behaviors_cache/animationdatasinglefile.txt";
 
-        namespace engine = CB::core::hooks::engine;
+        namespace engine = CB::platform::hooks::engine;
         if (!engine::Available(engine::Adsf_SingleFilePath)) {
             LOG_WARN("AnimData: the single-file path global has no verified pin on this runtime — the merged "
                      "cache was written but the game will not read it.");

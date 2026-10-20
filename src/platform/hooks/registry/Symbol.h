@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace CB::core::hooks::engine {
+namespace CB::platform::hooks::engine {
 
 /// @brief What a registry symbol points at.
 /// @note `Call` is a CALL rel32 INSIDE a function (pinned as function id + offset); the offset differs per
@@ -20,7 +20,7 @@ struct Pin {
 };
 
 /// @brief An engine address CB uses that CommonLibSSE-NG does not provide, pinned per runtime.
-/// @note Defined in the generated <core/hooks/registry/EngineRegistry.gen.h> from src/core/hooks/registry/engine.yaml.
+/// @note Defined in the generated <platform/hooks/registry/EngineRegistry.gen.h> from src/platform/hooks/registry/engine.yaml.
 struct Symbol {
     const char* name;
     Kind        kind;
@@ -29,4 +29,4 @@ struct Symbol {
     Pin         vr;
 };
 
-} // namespace CB::core::hooks::engine
+} // namespace CB::platform::hooks::engine

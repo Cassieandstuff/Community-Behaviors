@@ -1,10 +1,10 @@
 #pragma once
-// core/hooks/factory/Install.h — the install MECHANISM for the repo's RE hook toolkit.
+// platform/hooks/factory/Install.h — the install MECHANISM for the repo's RE hook toolkit.
 //
 // Header-only. Wraps CommonLib's trampoline writes with a call-opcode
 // sanity check and uniform logging, so every RE hook in the repo installs the same
 // way. Hook BODIES stay in their plugin (they carry project logic); this is the
-// shared plumbing they call. See <core/hooks/hookslib.h> for the umbrella.
+// shared plumbing they call. See <platform/hooks/hookslib.h> for the umbrella.
 //
 // Plugin-world only (needs RE / SKSE / REL).
 
@@ -14,7 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
 // write_call<N> detour on a call site, guarded by a 0xE8 (CALL rel32) opcode check.
 // Returns the original call target's ADDRESS, or 0 if `site` is not a CALL (hook not
@@ -33,4 +33,4 @@ template <std::size_t N, class F>
     return original;
 }
 
-} // namespace CB::core::hooks
+} // namespace CB::platform::hooks

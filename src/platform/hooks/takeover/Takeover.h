@@ -13,7 +13,7 @@
 ///       slots in beside it. settings.ini `[HavokRuntime]`: `bEnable` (the havok_runtime flag), `sOnly` (a comma list
 ///       of classes, empty = every class), `<Class>=image|off` (absent = image). Class names are compared exactly.
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     /// @brief One vanilla function a code source replaces, with its replacement ready to run.
     struct Replacement {
@@ -50,4 +50,4 @@ namespace CB::core::hooks {
     /// @pre Called at kDataLoaded, once every plugin has installed its hooks.
     void RecheckTakeover();
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

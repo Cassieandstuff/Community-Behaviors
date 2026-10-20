@@ -3,8 +3,8 @@
 #include <PCH.h>
 #include <PluginLogger.h>
 
-#include <core/hooks/factory/Install.h>
-#include <core/hooks/registry/Registry.h>
+#include <platform/hooks/factory/Install.h>
+#include <platform/hooks/registry/Registry.h>
 
 #include <MinHook.h>
 
@@ -19,7 +19,7 @@
 ///       subscriber lists are never mutated after that, so dispatch takes no lock (some seams — clip activate —
 ///       run for every clip on every actor).
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
 /// @brief How a hook point attaches to the engine.
 /// @note Entry = MinHook on a function entry (every caller); Call = write_call on ONE call instruction (that
@@ -171,4 +171,4 @@ inline void InstallAll()
     LOG_INFO("hooks: {}/{} subscribed hook points installed", live, detail::Wanted().size());
 }
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

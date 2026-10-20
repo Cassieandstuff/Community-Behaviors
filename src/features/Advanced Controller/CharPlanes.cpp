@@ -3,9 +3,9 @@
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>
-#include <core/hooks/hookslib.h>
-#include <core/hooks/takeover/Live.h>
-#include <core/hooks/takeover/Override.h>
+#include <platform/hooks/hookslib.h>
+#include <platform/hooks/takeover/Live.h>
+#include <platform/hooks/takeover/Override.h>
 
 #include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
@@ -44,7 +44,7 @@ namespace CB::feature {
         namespace hk  = CB::havok;
         namespace ch  = CB::feature::controller;
 
-        using Process = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
+        using Process = platform::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
 
         constexpr hk::hkUint32 kTryStep          = 1u << 2;
         constexpr hk::hkUint32 kStuckQuad        = 1u << 5;
@@ -98,7 +98,7 @@ namespace CB::feature {
                      v.groundNx, v.groundNy, v.groundNz, (flags >> 9) & 1, (flags >> 10) & 1);
         }
 
-        using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
+        using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief Publishes the raw floor verdict before the proxy's integrate (see ch::PublishVerdict); the ground
         ///        states, when on, publish their decided mode after it each step.
@@ -165,8 +165,8 @@ namespace CB::feature {
 
             const float keep       = proxy->m_keepDistance;
             const float perch      = hull.radius * tun.perchFraction;
-            const float moveLimit  = core::hooks::Live<&hk::g_fMoveLimitMass>();
-            const hk::bhkCollisionFilter* filter = core::hooks::Live<&hk::bhkCollisionFilter::s_singleton>();
+            const float moveLimit  = platform::hooks::Live<&hk::g_fMoveLimitMass>();
+            const hk::bhkCollisionFilter* filter = platform::hooks::Live<&hk::bhkCollisionFilter::s_singleton>();
 
             std::array<Kind, kMaxPoints> kind{};
             bool animStatic = false;
@@ -194,7 +194,7 @@ namespace CB::feature {
                         if (other) {
                             Flatten(c.m_plane);
                             ctrl.PushCharacter(other, point.m_contact);
-                            if (auto* handler = core::hooks::Live<&hk::bhkCharacterCollisionHandler::s_singleton>())
+                            if (auto* handler = platform::hooks::Live<&hk::bhkCharacterCollisionHandler::s_singleton>())
                                 handler->HandleCharacterCollision(&ctrl, other);
                         }
                     } else if (hk::bhkIsDynamicMotionType(body->getMotionType())) {
@@ -325,10 +325,10 @@ namespace CB::feature {
         /// @note Last = innermost: observers (the contact probe) still wrap it. It replaces Bethesda's callback, so
         ///       CharGroundModel's strict-support filter (char_support_strict) judges these planes, not Bethesda's.
         [[maybe_unused]] const bool s_subscribed =
-            Process::Subscribe(&OnProcess, core::hooks::Priority::Last, "CharPlanes", "char_planes");
+            Process::Subscribe(&OnProcess, platform::hooks::Priority::Last, "CharPlanes", "char_planes");
         /// @note First = outermost, so the verdict is ready before vanilla's support query runs the callback.
         [[maybe_unused]] const bool s_cacheSubscribed =
-            CheckSupport::Subscribe(&OnCheckSupport, core::hooks::Priority::First, "CharPlanes", "char_planes");
+            CheckSupport::Subscribe(&OnCheckSupport, platform::hooks::Priority::First, "CharPlanes", "char_planes");
 
     }  // namespace
 

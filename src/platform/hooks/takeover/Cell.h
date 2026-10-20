@@ -4,7 +4,7 @@
 #include <PluginLogger.h>
 
 #include <core/debug/Settings.h>
-#include <core/hooks/points/HookPoint.h>
+#include <platform/hooks/points/HookPoint.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -20,7 +20,7 @@
 /// @note Same idiom as HookPoint: subscribe `fn(Next next, args...)` with a priority; lower priority runs first and
 ///       outermost; call `next` to continue, or don't to replace.
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     /// @return the cell of the installed function whose symbol is `mangled`, or nullptr when it is not installed
     ///         (takeover off, class off, patched by another plugin, too short).
@@ -60,7 +60,7 @@ namespace CB::core::hooks {
 
     /// @brief CRTP base for one reimplemented function's cell. `Self` supplies `mangled` (its symbol, as the runtime image
     ///        records it), `name` (readable, for logs) and `id` (vanilla's Address Library id; 0 = none).
-    /// @note A feature names one through Override<&fn> (<core/hooks/takeover/Override.h>), whose identity the registry
+    /// @note A feature names one through Override<&fn> (<platform/hooks/takeover/Override.h>), whose identity the registry
     ///       codegen generates from engine.yaml; a feature rarely writes its own.
     /// @note Members are free signatures with the object first (x64 has one calling convention, so `this` first is the
     ///       same call).
@@ -142,7 +142,7 @@ namespace CB::core::hooks {
         {
             auto& subs = Subs();
             std::erase_if(subs, [](const Sub& s) {
-                if (s.flag.empty() || debug::FlagOn(s.flag)) return false;
+                if (s.flag.empty() || core::debug::FlagOn(s.flag)) return false;
                 LOG_INFO("havok cell: '{}' on {} is off by its flag {}", s.who, Self::name, s.flag);
                 return true;
             });
@@ -167,4 +167,4 @@ namespace CB::core::hooks {
         static inline R (*s_impl)(A...)     = nullptr;
     };
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

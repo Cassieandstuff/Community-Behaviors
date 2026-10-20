@@ -5,7 +5,7 @@
 #include "core/resolve/Resolver.h"
 #include "core/discover/ServeKey.h"
 
-#include <core/hooks/points/Resource.h>
+#include <platform/hooks/points/Resource.h>
 #include <codec/resource/PathKey.h>
 
 #include <atomic>
@@ -35,7 +35,7 @@ namespace CB::core::serve {
 
     namespace {
 
-        using ResolveNext = CB::core::hooks::ResolveTypedHkx::Next;
+        using ResolveNext = CB::platform::hooks::ResolveTypedHkx::Next;
         Resolver*  s_resolver = nullptr;
 
         std::atomic<int> s_logBudget{ 80 };   // cap the "serving" spam in NPC-dense cells
@@ -117,7 +117,7 @@ namespace CB::core::serve {
     void SetResolver(Resolver* a_resolver) { s_resolver = a_resolver; }
 
     void Install() {
-        CB::core::hooks::ResolveTypedHkx::Subscribe(&OnResolve, CB::core::hooks::Priority::Normal, "ByteServe");
+        CB::platform::hooks::ResolveTypedHkx::Subscribe(&OnResolve, CB::platform::hooks::Priority::Normal, "ByteServe");
     }
 
 }  // namespace CB::core::serve

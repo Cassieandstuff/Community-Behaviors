@@ -1,5 +1,5 @@
 #include "PCH.h"
-#include <core/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
+#include <platform/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
 
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/resolve/CacheKey.h"   // ReadCacheInput — the loose fallback base is an input of the cached asdsf
@@ -506,7 +506,7 @@ namespace CB::core::serve {
         std::atomic<bool>              s_setDataRedirectActive{ false };
         RE::BSFixedString              s_setDataCachePath;           // interned redirect path
 
-        std::int32_t OnOpenSetData(CB::core::hooks::AsdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+        std::int32_t OnOpenSetData(CB::platform::hooks::AsdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
                                    std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the set-data file drives the compile gate. The gate now KICKS a background
@@ -535,7 +535,7 @@ namespace CB::core::serve {
 
     void InstallSetDataHook()
     {
-        CB::core::hooks::AsdsfOpen::Subscribe(&OnOpenSetData, CB::core::hooks::Priority::Normal, "SetDataServe");
+        CB::platform::hooks::AsdsfOpen::Subscribe(&OnOpenSetData, CB::platform::hooks::Priority::Normal, "SetDataServe");
     }
 
     void ArmSetDataRedirect(const SetDataServeResult& result)
@@ -547,7 +547,7 @@ namespace CB::core::serve {
         // crash (OAR Unk3 -> char-setup hkArray resize) — bundle completeness is the author's
         // contract. Safe when idle: with no .hky set-data present, ServeSetData produces no
         // cache and this leaves the redirect inactive.
-        if (!CB::core::hooks::AsdsfOpen::Installed()) {
+        if (!CB::platform::hooks::AsdsfOpen::Installed()) {
             RedirectSetDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }
@@ -568,7 +568,7 @@ namespace CB::core::serve {
         // BSResource loose-file resolution expects; the original path is likewise Data-rel).
         static constexpr const char* kRedirectPath = "community_behaviors_cache/animationsetdatasinglefile.txt";
 
-        namespace engine = CB::core::hooks::engine;
+        namespace engine = CB::platform::hooks::engine;
         if (!engine::Available(engine::Asdsf_SingleFilePath)) {
             LOG_WARN("SetData: the single-file path global has no verified pin on this runtime — the merged "
                      "cache was written but the game will not read it.");

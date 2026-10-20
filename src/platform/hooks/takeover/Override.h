@@ -1,7 +1,7 @@
 #pragma once
 
-#include <core/hooks/registry/SchemaIdentity.gen.h>
-#include <core/hooks/takeover/Cell.h>
+#include <platform/hooks/registry/SchemaIdentity.gen.h>
+#include <platform/hooks/takeover/Cell.h>
 
 #include <cstdint>
 
@@ -13,7 +13,7 @@
 /// @note Calling the function needs nothing from here: call it as declared (`world->linearCast(...)`). The schema
 ///       shim binds the call to vanilla's entry, which is the takeover chain when the image owns the function.
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     namespace detail {
 
@@ -48,4 +48,4 @@ namespace CB::core::hooks {
         static constexpr std::uint64_t id      = 0;
     };
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

@@ -3,7 +3,7 @@
 #include "CharGround.h"
 #include "CharSweep.h"
 
-#include <core/hooks/takeover/Override.h>
+#include <platform/hooks/takeover/Override.h>
 
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
@@ -29,7 +29,7 @@ namespace CB::feature {
 
         namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
-        using Integrate   = core::hooks::Override<&hk::bhkCharProxyController::Unk_0B>;
+        using Integrate   = platform::hooks::Override<&hk::bhkCharProxyController::Unk_0B>;
 
         constexpr float         kHavokToGame       = 69.99125f;
         constexpr float         kMinRequested      = 0.002f;   ///< Havok units this step; below it nothing is blocked
@@ -187,7 +187,7 @@ namespace CB::feature {
         }
 
         [[maybe_unused]] const bool s_subscribed =
-            Integrate::Subscribe(&OnIntegrate, core::hooks::Priority::Normal, "CharStepQuery", "char_step_query");
+            Integrate::Subscribe(&OnIntegrate, platform::hooks::Priority::Normal, "CharStepQuery", "char_step_query");
 
     }  // namespace
 

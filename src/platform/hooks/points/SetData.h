@@ -1,10 +1,10 @@
 #pragma once
 
-#include <core/hooks/points/HookPoint.h>
+#include <platform/hooks/points/HookPoint.h>
 
 #include <cstdint>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
 /// @brief The setdata gate MATCHER: every condition producer funnels its {name, value} assignment array
 ///        through here before the evaluator picks a replacement set.
@@ -30,4 +30,4 @@ struct SetDataGateProducerWeapon : HookPoint<SetDataGateProducerWeapon,
     static constexpr const engine::Symbol& symbol = engine::SetDataGate_ProducerWeapon;
 };
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

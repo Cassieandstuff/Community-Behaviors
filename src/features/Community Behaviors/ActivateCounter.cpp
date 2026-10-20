@@ -1,6 +1,6 @@
 #include "PCH.h"
 
-#include <core/hooks/takeover/Override.h>
+#include <platform/hooks/takeover/Override.h>
 
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
 
@@ -15,7 +15,7 @@ namespace CB::feature {
 
     namespace {
 
-        using Activate = core::hooks::Override<&CB::havok::hkbClipGenerator::activate>;
+        using Activate = platform::hooks::Override<&CB::havok::hkbClipGenerator::activate>;
 
         /// @note Atomic: behavior graphs update on several job threads at once.
         std::atomic<std::uint64_t> g_activations{ 0 };
@@ -28,7 +28,7 @@ namespace CB::feature {
         }
 
         [[maybe_unused]] const bool s_subscribed =
-            Activate::Subscribe(&OnActivate, core::hooks::Priority::Normal, "ActivateCounter", "havok_activate_counter");
+            Activate::Subscribe(&OnActivate, platform::hooks::Priority::Normal, "ActivateCounter", "havok_activate_counter");
 
     }  // namespace
 

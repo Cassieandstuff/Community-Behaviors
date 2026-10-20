@@ -2,7 +2,7 @@
 
 #include "CharSweep.h"
 
-#include <core/hooks/takeover/Override.h>
+#include <platform/hooks/takeover/Override.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
@@ -29,7 +29,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::havok;
-        using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
+        using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         constexpr hk::hkUint32 kSupport                     = 1u << 8;
         constexpr hk::hkUint32 kHasPotentialSupportManifold = 1u << 9;
@@ -213,7 +213,7 @@ namespace CB::feature {
         }
 
         [[maybe_unused]] const bool s_subscribed =
-            CheckSupport::Subscribe(&OnCheckSupport, core::hooks::Priority::Last, "CharFloorQuery", "char_floor_query");
+            CheckSupport::Subscribe(&OnCheckSupport, platform::hooks::Priority::Last, "CharFloorQuery", "char_floor_query");
 
     }  // namespace
 

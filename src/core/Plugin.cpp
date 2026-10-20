@@ -13,10 +13,10 @@
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
 #include "core/resolve/Resolver.h"
 
-#include <core/hooks/points/HookPoint.h>
-#include <core/hooks/registry/Registry.h>
-#include <core/hooks/takeover/SchemaShim.h>
-#include <core/hooks/takeover/Takeover.h>
+#include <platform/hooks/points/HookPoint.h>
+#include <platform/hooks/registry/Registry.h>
+#include <platform/hooks/takeover/SchemaShim.h>
+#include <platform/hooks/takeover/Takeover.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
@@ -453,7 +453,7 @@ namespace CB {
             // DebugOverlay needs kDataLoaded timing (SMF isn't up at plugin load).
             CB::core::debug::InstallTrace();   // arm [Debug] bRuntimeTrace before the present hook is live
             CB::core::debug::Install();         // DebugOverlay SMF HUD element + menu toggle
-            CB::core::hooks::RecheckTakeover(); // every plugin has hooked by now: hand back what they patched
+            CB::platform::hooks::RecheckTakeover(); // every plugin has hooked by now: hand back what they patched
         }
     }
 
@@ -466,12 +466,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
     LOG_INFO("Community Behaviors v{} loading — runtime behavior compiler.",
              SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."));
-    CB::core::hooks::engine::LogAvailability();
-    CB::core::hooks::InstallSchemaShim();
+    CB::platform::hooks::engine::LogAvailability();
+    CB::platform::hooks::InstallSchemaShim();
 
     // The Havok runtime takeover goes FIRST, before any of CB's own hooks: those (and every later plugin's) then layer
     // on top of its entry jumps rather than being bypassed by them.
-    CB::core::hooks::InstallTakeover();
+    CB::platform::hooks::InstallTakeover();
 
     // Behavior + character + project DELIVERY is BYTE-SUBSTITUTION (ByteServe): MinHook the
     // BSResourceAssetLoader::Func3 typed-hkx resolver (FUN_140ba88b0) and swap each owned vanilla
@@ -506,7 +506,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     // Every hook-point subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
     // AsdsfOpen / AdsfOpen; serve::Install → ResolveTypedHkx; the condition layer → the setdata producer +
     // matcher, only when enabled): install the subscribed seams once and close subscription.
-    CB::core::hooks::InstallAll();
+    CB::platform::hooks::InstallAll();
 
     // Animdata cache form: COLLATED is the only supported path — it serves
     // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion from

@@ -157,8 +157,8 @@ namespace CB::core::conditions {
 
     // ── Hook install ──────────────────────────────────────────────────────────────────────────────
     /// @brief Subscribe the producer actor-stash + the matcher-append to the setdata hook points
-    ///        (<core/hooks/points/SetData.h>). Idempotent.
-    /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
+    ///        (<platform/hooks/points/SetData.h>). Idempotent.
+    /// @pre Called during SKSEPluginLoad, before CB::platform::hooks::InstallAll().
     void InstallConditionHooks();
 
     // Register the built-in primitive/function roster (Builtins.cpp — SEAM for the roster branch).

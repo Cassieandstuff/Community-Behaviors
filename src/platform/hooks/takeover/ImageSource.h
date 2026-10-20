@@ -2,7 +2,7 @@
 
 #include <PCH.h>
 
-#include <core/hooks/takeover/Takeover.h>
+#include <platform/hooks/takeover/Takeover.h>
 
 #include <codec/image/RuntimeImage.h>
 
@@ -10,7 +10,7 @@
 #include <filesystem>
 #include <memory>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     /// @brief The code source `image`: the runtime image tools/cbmatch emitted, relocated into one executable block
     ///        within rel32 reach of the exe (its references and the entry jumps both need it).
@@ -41,4 +41,4 @@ namespace CB::core::hooks {
         std::deque<std::vector<RUNTIME_FUNCTION>> tables_;
     };
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

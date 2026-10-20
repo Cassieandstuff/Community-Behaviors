@@ -7,7 +7,7 @@
 # headers; nothing in schema/ ever includes the workbench.
 runtimes:
   ae: { exe: "${CB_SKYRIM_AE_EXE}", addresslib: "${CB_ADDRESSLIB_AE}", pins: ae }
-registry: ../../../src/core/hooks/registry/engine.yaml
+registry: ../../../src/platform/hooks/registry/engine.yaml
 toolchains:
   vs2015: "${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
   # Bethesda's engine code (and the Havok classes it compiled into its own units) is VS2017 15.9 (cl 19.16.27054);

@@ -1,8 +1,8 @@
 #include "PCH.h"
 
-#include "core/hooks/takeover/ImageSource.h"
+#include "platform/hooks/takeover/ImageSource.h"
 
-#include "core/hooks/takeover/NearExe.h"
+#include "platform/hooks/takeover/NearExe.h"
 
 #include <PluginLogger.h>
 
@@ -10,7 +10,7 @@
 
 #include <cstring>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
     namespace img = CB::engine::codec::image;
 
@@ -110,4 +110,4 @@ namespace CB::core::hooks {
         return out;
     }
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

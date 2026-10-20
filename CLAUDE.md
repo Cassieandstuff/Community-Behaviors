@@ -50,10 +50,13 @@ src/                         CB's code. src/ is the plugin's private include roo
     debug/                   opt-in diagnostics (DebugFlags — the flag registry the converter's Debug tab
                              renders; Settings — settings.ini loaded once, read via FlagOn(id); DebugOverlay;
                              RuntimeTrace — the per-frame graph-variable watch)
-    hooks/                   the engine symbol registry (registry/engine.yaml → per-runtime Address Library
-                             pins) + the shared hook-point layer features subscribe to (<core/hooks/hookslib.h>);
-                             takeover/ = runs the reimplemented Havok in place of vanilla's (the runtime image,
-                             relocated at load; every replaced function dispatches through a cell features override)
+  platform/                  THE RUNTIME SDK (CB::platform::), plugin-only: what makes havok/ and the game usable
+                             from a feature. hooks/ = the engine symbol registry (registry/engine.yaml →
+                             per-runtime Address Library pins + the shim's identity fields), the hook points
+                             (<platform/hooks/hookslib.h>), and takeover/ (runs the reimplemented Havok in place of
+                             vanilla's: the runtime image relocated at load, every replaced function behind a cell;
+                             the schema link shim; Override<&fn> and Live<&global>()). Flags, settings, the overlay
+                             host and startup phases move here next; until then it still reads core/debug.
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
                              converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
                              or REL/ include. The folder IS the include root (<common/…> <interface/…>
@@ -66,7 +69,7 @@ src/                         CB's code. src/ is the plugin's private include roo
 common/                      what features build against; common/ is their include root:
   feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::).
                              Havok needs no SDK copy: features include havok/'s headers and call them as declared;
-                             Override<&fn> and Live<&global>() (core/hooks/takeover) reach the takeover's cells and the
+                             Override<&fn> and Live<&global>() (platform/hooks/takeover) reach the takeover's cells and the
                              exe's mutable globals. havok/ stays pristine; changes are overrides.
   config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
 schema/                      the class schema as DATA — one YAML per class in family folders (generators/,
@@ -93,7 +96,8 @@ include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFA
 The top-level folder picks the ROOT; the purpose word names what the code is for. A file that moves to
 another root renames its namespace; a stray top-level namespace is a bug.
 
-- **Roots.** `CB::core::` = the plugin (src/core) · `CB::engine::` = the shared engine (src/engine) ·
+- **Roots.** `CB::core::` = the plugin (src/core) · `CB::platform::` = the runtime SDK (src/platform) ·
+  `CB::engine::` = the shared engine (src/engine) ·
   `CB::feature::` = features + the feature SDK · `CB::converter::` = the converter · `CB::config::` = the
   config scanner · `CB::havok::` = the reimplemented Havok runtime (havok/; Havok's class names directly under
   the root, opened as `namespace CB { namespace havok {` since VS2015 builds it). Nothing else at the top — no
@@ -102,7 +106,7 @@ another root renames its namespace; a stray top-level namespace is a bug.
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
-  hooks conditions` (core) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
+  conditions` (core) · `hooks` (platform) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
   linker` + `text disk exec` (engine). `text` = the shared string operations (trim, line split, BOM, float
   text form, YAML quoting); `disk` = whole-file read/write, checked and optionally atomic; `exec` = ParallelFor
   (offline tools — in-game work runs on the plugin's injected BELOW_NORMAL pool). Use them instead of
@@ -214,7 +218,7 @@ still belongs in the session scratchpad dir.)
   `tools/cbmatch/inventory.yaml` (regenerate with `--inventory`; `--todo <Class>` lists what's left).
   The same full run regenerates the takeover's outputs: `--emit-image <file>` (deployed to
   `Data/community_behaviors/runtime/havok-runtime.cbimg`; pinned to the exact exe build) and
-  `--emit-registry src/core/hooks/registry/engine.yaml` (the shim's identity fields: mangled, header, sig, this) —
+  `--emit-registry src/platform/hooks/registry/engine.yaml` (the shim's identity fields: mangled, header, sig, this) —
   always together, so the registry names exactly what the image installs.
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.

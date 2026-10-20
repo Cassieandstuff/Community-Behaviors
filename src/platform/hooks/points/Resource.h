@@ -1,10 +1,10 @@
 #pragma once
 
-#include <core/hooks/points/HookPoint.h>
+#include <platform/hooks/points/HookPoint.h>
 
 #include <cstdint>
 
-namespace CB::core::hooks {
+namespace CB::platform::hooks {
 
 /// @brief BSResourceAssetLoader::Func3's typed-hkx resolver: every project / character / behavior graph /
 ///        skeleton .hkx resolves and reads here, by its canonical Meshes-relative path (original case).
@@ -36,4 +36,4 @@ struct AsdsfOpen : HookPoint<AsdsfOpen, std::int32_t(std::uintptr_t path, std::u
     static constexpr const engine::Symbol&   symbol = engine::Asdsf_OpenCall;
 };
 
-}  // namespace CB::core::hooks
+}  // namespace CB::platform::hooks

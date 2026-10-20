@@ -4,7 +4,7 @@
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>
-#include <core/hooks/hookslib.h>
+#include <platform/hooks/hookslib.h>
 
 #include <algorithm>
 #include <atomic>
@@ -25,7 +25,7 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hooks = core::hooks;
+        namespace hooks = platform::hooks;
         namespace ch    = CB::feature::controller;
         using Frame     = hooks::MovementControllerFrame;
 
