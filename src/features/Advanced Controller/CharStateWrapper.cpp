@@ -84,11 +84,13 @@ namespace CB::feature {
         constexpr float kGroundHalflife = 0.08f;
         /// @brief G2: how long after walking off a jump request is still honoured (seconds).
         constexpr float kCoyoteTime = 0.1f;
-        /// @brief G4: a character that loses the ground while rising slower than this (Havok units/s, about 35 game
-        ///        units/s) is following the ground, not launching, and sticks to ground within the probe.
-        /// @note Why not 0: the ground step lays the velocity along the slope, so walking up uneven ground rises a little
-        ///       every step; requiring vz <= 0 sent 18 such walk-offs in one session airborne for a few hundredths of a
-        ///       second, bouncing the character between ground and air (and the fall animation with it) for up to 2 s.
+        /// @brief G3/G4: rising faster than this off the ground (Havok units/s, about 35 game units/s), measured against
+        ///        what following the ground gives (ch::SlopeRise of the horizontal velocity), is launching. Slower, a
+        ///        character that loses the ground sticks to ground within the probe, and an airborne one on ground lands.
+        /// @note Why relative to the ground: running up a road rises 0.5-2 Havok units/s from the slope alone. Measured
+        ///       against the world, that sent 14 of 17 walk-offs in one session into the air at crests (a short hop) and
+        ///       kept 8 landings airborne for 1-2 s with ground under the feet; the collision solver's push out of the
+        ///       ground also leaves a small positive vz. Requiring vz <= 0 outright was worse still (a ground/air bounce).
         constexpr float kStickMaxRise = 0.5f;
         /// @brief A wind-up with this little left (seconds) is done: the step launches.
         constexpr float kWindupDone = 1.0e-4f;
@@ -133,24 +135,13 @@ namespace CB::feature {
             bool     hopDecided   = false;   ///< iJumpMode 2: short or full is settled
             bool     released     = false;   ///< Jump came up during this jump's rise
             float    launchHeight = 0.0f;    ///< game units, where the jump left the ground
-            float    jumpHeight   = 0.0f;    ///< Havok units, this jump's full height after the support scaling
-            float    groundSupport = 1.0f;   ///< support at the last Grounded step: a coyote jump's
-            float    windup        = -1.0f;  ///< seconds left on a pending ground jump's wind-up, -1 for none
+            float    jumpHeight   = 0.0f;    ///< Havok units, this jump's height above the slope it left
+            float    windup       = -1.0f;   ///< seconds left on a pending ground jump's wind-up, -1 for none
+            ch::FloorVerdict lastGround;     ///< the floor of the last Grounded step with ground under the feet
         };
 
-        /// @brief The fraction of the full jump height a jump from ground of `support` gets: 1 on supporting ground,
-        ///        down to [Character] fMinJumpScale (default 0.5) where the ground holds nothing.
-        /// @note Why scaled and not refused: any ground under the feet lets the player jump (agency), and the uphill
-        ///       clip already keeps a hop on a steep face from climbing it, so the scaling only sets how much air it gets.
-        float JumpScale(float support)
-        {
-            static const float floor = [] {
-                const float f = std::clamp(ch::SettingFloat("fMinJumpScale", 0.5f), 0.0f, 1.0f);
-                LOG_INFO("ground states: a jump from unsupported ground gets {:.2f} of the full height", f);
-                return f;
-            }();
-            return floor + (1.0f - floor) * std::clamp(support, 0.0f, 1.0f);
-        }
+        /// @brief Vertical speed `vz` against what following the ground `g` gives at horizontal velocity (vx, vy).
+        float RiseOffGround(const ch::FloorVerdict& g, float vx, float vy, float vz) { return vz - ch::SlopeRise(g, vx, vy); }
 
         /// @brief How long a jump from the ground waits before it launches: [Character] fJumpWindup seconds (default
         ///        0.033, two 60 Hz steps), the character moving on the ground meanwhile.
@@ -467,30 +458,22 @@ namespace CB::feature {
             Commit(c, hk::HK_CHARACTER_ON_GROUND);
         }
 
+        /// @brief The jump's vertical launch speed (Havok units/s): vanilla's full height (m_jumpHeight) under gravity.
+        float LaunchSpeed(hk::bhkCharacterController& c)
+        {
+            float gx, gy, gz;
+            WorldGravity(c, gx, gy, gz);
+            const float g = std::sqrt(gx * gx + gy * gy + gz * gz) * c.m_gravity;
+            return std::sqrt(std::fabs(c.m_jumpHeight) * 2.0f * g);
+        }
+
         /// @brief G5: the jump's entry action, then the launch step's gravity (as vanilla Jumping simulates InAir at
         ///        once).
         /// @note The horizontal launch is the Grounded spring's commanded velocity (before the proxy slid it along a
         ///       wall); from the air (coyote, out of water) the body's own.
-        /// @brief The support a jump leaves from: the floor's on the ground (full when stuck to a floor below), the last
-        ///        ground's from the coyote window, full out of the water.
-        float LaunchSupport(const Track& t, AirEntry entry, const ch::FloorVerdict& fv)
-        {
-            if (entry == AirEntry::OutOfWater) return 1.0f;
-            if (t.mode == Mode::Airborne) return t.groundSupport;
-            return fv.ground == ch::Ground::Grounded ? fv.support : 1.0f;
-        }
-
-        /// @brief The jump's vertical launch speed (Havok units/s) from ground of `support`, and its height.
-        float LaunchSpeed(hk::bhkCharacterController& c, float support, float* height = nullptr)
-        {
-            float gx, gy, gz;
-            WorldGravity(c, gx, gy, gz);
-            const float g          = std::sqrt(gx * gx + gy * gy + gz * gz) * c.m_gravity;
-            const float jumpHeight = std::fabs(c.m_jumpHeight) * JumpScale(support);
-            if (height) *height = jumpHeight;
-            return std::sqrt(jumpHeight * 2.0f * g);
-        }
-
+        /// @note From the ground, the launch also keeps the vertical speed following the slope gives (the slope carry):
+        ///       the jump clears the ground ahead as on the flat, so running up a road it rises higher and clears the
+        ///       hill, running down it drops with the road. Without it a jump uphill met the rising slope early.
         void Launch(hk::bhkCharacterController& c, Track& t, AirEntry entry, const ch::FloorVerdict& fv, float dt)
         {
             const hk::hkVector4 v    = c.m_outVelocity;
@@ -500,28 +483,27 @@ namespace CB::feature {
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
             gx *= c.m_gravity, gy *= c.m_gravity, gz *= c.m_gravity;
-            const float g          = std::sqrt(gx * gx + gy * gy + gz * gz);
-            const float support    = LaunchSupport(t, entry, fv);
-            float       jumpHeight = 0.0f;
-            const float speed      = LaunchSpeed(c, support, &jumpHeight);
+            const float g     = std::sqrt(gx * gx + gy * gy + gz * gz);
+            const float speed = LaunchSpeed(c);
+            const float carry = t.mode != Mode::Airborne ? ch::SlopeRise(fv, hx - surf(0), hy - surf(1)) : 0.0f;
             float ux = 0.0f, uy = 0.0f, uz = 1.0f;
             if (g > 1.0e-6f) ux = -gx / g, uy = -gy / g, uz = -gz / g;
             /// @note The press-to-launch time measures the whole lead-in: the game's own (input to jump request) plus
             ///       CB's wind-up.
             const float sincePress = ch::IsPlayer(&c) ? JumpInput::Get().SincePress() : 1.0e9f;
             if (LogBudget())
-                LOG_INFO("ground states: jump ({}) - launch horizontal ({:.2f}, {:.2f}) vs body ({:.2f}, {:.2f}), vertical {:.2f} (support {:.2f}, "
-                         "height x{:.2f}), {}",
-                         Name(entry), hx, hy, v(0), v(1), speed, support, JumpScale(support),
+                LOG_INFO("ground states: jump ({}) - launch horizontal ({:.2f}, {:.2f}) vs body ({:.2f}, {:.2f}), vertical {:.2f} + slope "
+                         "{:.2f}, {}",
+                         Name(entry), hx, hy, v(0), v(1), speed, carry,
                          sincePress < 10.0f ? std::format("{:.3f} s after the press", sincePress) : std::string("no press seen"));
             t.windup = -1.0f;
-            c.m_outVelocity.set(hx + ux * speed, hy + uy * speed, uz * speed, 0.0f);
+            c.m_outVelocity.set(hx + ux * speed, hy + uy * speed, uz * speed + carry, 0.0f);
             c.m_flags |= ch::kJumping;
             c.m_flags &= ~ch::kSupport;
             c.m_fallStartHeight = HeightGame(c);
-            EnterAirborne(c, t, entry, fv, uz * speed);
+            EnterAirborne(c, t, entry, fv, uz * speed + carry);
             t.launchHeight = c.m_fallStartHeight;
-            t.jumpHeight   = jumpHeight;
+            t.jumpHeight   = std::fabs(c.m_jumpHeight);
             t.hopDecided   = false;
             t.released     = false;
             if (entry == AirEntry::Jumped && VariableJumpOn() && ch::IsPlayer(&c)) {
@@ -661,9 +643,11 @@ namespace CB::feature {
                 } else if (fv.ground != ch::Ground::Airborne) {
                     /// @note Any ground under the feet keeps the character Grounded; how much it holds them up is the
                     ///       verdict's support, which the slide and the uphill clip read.
-                } else if (vz <= kStickMaxRise && fv.stickable) {
+                } else if (RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz) <= kStickMaxRise && fv.stickable) {
                     /// @note G4/M8: walked off support while not launching, ground within the probe: stick to it.
-                    if (LogBudget()) LOG_INFO("ground states: stick {:.3f} down in {} (vz {:.2f})", fv.stickDz, Name(t.mode), vz);
+                    if (LogBudget())
+                        LOG_INFO("ground states: stick {:.3f} down in {} (vz {:.2f}, {:.2f} off the slope)", fv.stickDz, Name(t.mode), vz,
+                                 RiseOffGround(t.lastGround, c.m_outVelocity(0), c.m_outVelocity(1), vz));
                     Stick(c, fv.stickDz);
                     t.mode = Mode::Grounded;
                 } else {
@@ -672,7 +656,7 @@ namespace CB::feature {
                 }
 
                 if (grounded) {
-                    t.groundSupport = fv.ground == ch::Ground::Grounded ? fv.support : 1.0f;
+                    if (fv.ground == ch::Ground::Grounded) t.lastGround = fv;
                     if (want == hk::HK_CHARACTER_JUMPING && t.windup < 0.0f) {
                         t.windup = JumpWindup();
                         if (LogBudget()) LOG_INFO("ground states: jump requested - winding up {:.3f} s", t.windup);
@@ -689,8 +673,8 @@ namespace CB::feature {
                 }
             } else {
                 const bool coyote = t.entry == AirEntry::WalkedOff && t.airTime <= kCoyoteTime && !(c.m_flags & ch::kJumping);
-                if (fv.ground == ch::Ground::Grounded && vz <= 0.0f) {
-                    /// @note G3: lands on any ground while not rising; steep ground lands too, and slides.
+                if (fv.ground == ch::Ground::Grounded && RiseOffGround(fv, c.m_outVelocity(0), c.m_outVelocity(1), vz) <= kStickMaxRise) {
+                    /// @note G3: lands on any ground it is not rising off (kStickMaxRise); steep ground lands too, and slides.
                     EnterGrounded(c, t, Mode::Grounded, "landed", fv, vz);
                     if (ch::Supported(fv)) SetSupportFrom(c, fv);
                     GroundStep(c, t, fv, dt);
@@ -734,7 +718,7 @@ namespace CB::feature {
             note.slideX = t.sx, note.slideY = t.sy;
             if (t.windup >= 0.0f && t.mode == Mode::Grounded) {
                 note.jumpIn    = t.windup;
-                note.jumpSpeed = LaunchSpeed(c, t.groundSupport);
+                note.jumpSpeed = LaunchSpeed(c);
             }
             ch::PublishGroundNote(c, note);
             if (ch::hud::On() && hull.valid) PublishHud(c, t, hull, fv);

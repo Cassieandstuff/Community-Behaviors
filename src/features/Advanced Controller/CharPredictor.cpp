@@ -5,8 +5,10 @@
 #include "CharGround.h"
 #include "CharSweep.h"
 
+#include <platform/hooks/Live.h>
 #include <platform/hooks/Override.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
+#include <Physics/Utilities/CharacterControl/Bethesda/bhkCollisionFilter.h>
 
 #include <algorithm>
 #include <array>
@@ -73,6 +75,15 @@ namespace CB::feature {
         constexpr float kMinSlide  = 0.005f;
         /// @brief Collision layers the sweep passes through: other characters (layer 30) are dynamic and move away.
         constexpr std::uint64_t kIgnoreLayers = 1ull << ch::kCharControllerLayer;
+
+        /// @brief kIgnoreLayers plus the collision filter's sensor layers, which the constraint planes zero (the body
+        ///        walks through them).
+        /// @note Why: 47 of 113 blocked predictions in one session hit layer 22 (ActorZone), a trigger volume.
+        std::uint64_t SweepIgnoreLayers()
+        {
+            const hk::bhkCollisionFilter* filter = platform::hooks::Live<&hk::bhkCollisionFilter::s_singleton>();
+            return kIgnoreLayers | (filter ? static_cast<std::uint64_t>(filter->m_sensorField) : 0ull);
+        }
 
         /// @brief How often the gate reports and the full trajectory is dumped, in simulated seconds.
         constexpr double kReportPeriod = 5.0;
@@ -223,16 +234,6 @@ namespace CB::feature {
             s.ctrl  = ctrl;
         }
 
-        /// @brief How far the floor rises along a leg (dx, dy) if it keeps the plane of `v`'s ground normal (Havok units).
-        /// @note Clamped to a 60 deg grade: a near-vertical normal would extrapolate the leg into a cliff.
-        float PlaneRise(const ch::FloorVerdict& v, float dx, float dy)
-        {
-            if (v.ground == ch::Ground::Airborne || v.groundNz < 0.1f) return 0.0f;
-            const float rise  = -(v.groundNx * dx + v.groundNy * dy) / v.groundNz;
-            const float limit = 1.7320508f * std::sqrt(dx * dx + dy * dy);
-            return std::clamp(rise, -limit, limit);
-        }
-
         /// @brief The highest floor-like hit (walls and characters excluded) above or below the query's feet, or none.
         bool HighestFloor(const ch::FloorVerdict& v, float& dz)
         {
@@ -353,8 +354,9 @@ namespace CB::feature {
             ///       follows the floor query, so stairs and slopes keep the next leg at the floor.
             const hk::hkVector4& origin    = hull.collidable->getTransform().getTranslation();
             const float          lift      = ctrl.m_stepHeight;
+            const std::uint64_t  ignore    = SweepIgnoreLayers();
             ch::FloorVerdict     prevFloor = ch::QueryFloor(ctrl, hull);
-            bool airborne = prevFloor.ground == ch::Ground::Airborne || velocity(2) - PlaneRise(prevFloor, velocity(0), velocity(1)) > kLaunchSpeed;
+            bool airborne = prevFloor.ground == ch::Ground::Airborne || velocity(2) - ch::SlopeRise(prevFloor, velocity(0), velocity(1)) > kLaunchSpeed;
 
             float f = drive.facingModel ? drive.theta : heading, fv = drive.facingModel ? drive.omega : 0.0f;
             float spd = drive.speed;
@@ -377,7 +379,7 @@ namespace CB::feature {
                         airborne = true;
                         vx += sx, vy += sy;
                         sx = sy = 0.0f;
-                        vz      = note.jumpSpeed;
+                        vz      = note.jumpSpeed + ch::SlopeRise(prevFloor, vx, vy);
                     }
                     ch::SpringDamperExact(f, fv, facingGoal, kFacingHalflife, h);
                     Vec2 d = want;
@@ -410,7 +412,7 @@ namespace CB::feature {
                     floor = prevFloor;
                     z     = prevZ;
                 } else if (!airborne) {
-                    floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                    floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + ch::SlopeRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
                     if (floor.ground == ch::Ground::Airborne) {
                         airborne = true;
                         vx += sx, vy += sy;
@@ -443,7 +445,7 @@ namespace CB::feature {
                         hk::hkVector4 a, b;
                         a.set(origin(0) + from.x, origin(1) + from.y, origin(2) + fromZ + lift, 0.0f);
                         b.set(origin(0) + to.x, origin(1) + to.y, origin(2) + toZ + lift, 0.0f);
-                        const ch::SweepHit hit = ch::SweepFrom(hull.world, hull.collidable, a, b, kSweepStartTolerance, ctrl.m_zNormal, kIgnoreLayers);
+                        const ch::SweepHit hit = ch::SweepFrom(hull.world, hull.collidable, a, b, kSweepStartTolerance, ctrl.m_zNormal, ignore);
                         const float dx = to.x - from.x, dy = to.y - from.y;
                         const float len = std::sqrt(dx * dx + dy * dy);
                         if (!hit.hit) {
@@ -488,7 +490,7 @@ namespace CB::feature {
                     }
                     if (at.x != start.x || at.y != start.y) {
                         px = at.x, py = at.y;
-                        if (!airborne) floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                        if (!airborne) floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + ch::SlopeRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
                     }
                     if (blocked) {
                         vx = vy = ax = ay = sx = sy = 0.0f;

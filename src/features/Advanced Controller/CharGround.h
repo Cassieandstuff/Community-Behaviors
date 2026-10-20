@@ -53,8 +53,8 @@ namespace CB::feature::controller {
 
     /// @brief The support at and above which the ground holds the character (Supported): the constraint planes treat its
     ///        contacts as support, it gives the support body, and the step query may step onto it.
-    /// @note Landing, jumping and the coyote window need only Grounded; support scales the slide, the uphill clip and
-    ///       the jump height instead of gating them.
+    /// @note Landing, jumping and the coyote window need only Grounded; support scales the slide and the uphill clip
+    ///       instead of gating them.
     constexpr float kSupportedAt = 0.5f;
 
     /// @brief The M4 floor query's verdict.
@@ -113,6 +113,17 @@ namespace CB::feature::controller {
     ///       velocity onto the plane at the same speed, so the body accelerates down the fall line at g sin(slope)
     ///       times 1 - support.
     void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt);
+
+    /// @brief How far the ground of `v` rises along a horizontal move (dx, dy) if it keeps its plane (Havok units); with a
+    ///        velocity, the vertical speed that following the ground gives.
+    /// @note Clamped to a 60 deg grade: a near-vertical normal would extrapolate the move into a cliff. 0 when Airborne.
+    inline float SlopeRise(const FloorVerdict& v, float dx, float dy)
+    {
+        if (v.ground == Ground::Airborne || v.groundNz < 0.1f) return 0.0f;
+        const float rise  = -(v.groundNx * dx + v.groundNy * dy) / v.groundNz;
+        const float limit = 1.7320508f * std::sqrt(dx * dx + dy * dy);
+        return rise < -limit ? -limit : rise > limit ? limit : rise;
+    }
 
     /// @brief Removes 1 - support of the uphill part of a horizontal request: on ground that does not hold the
     ///        character, the player can steer across and down it but not climb it (Jolt's CharacterVirtual sample
