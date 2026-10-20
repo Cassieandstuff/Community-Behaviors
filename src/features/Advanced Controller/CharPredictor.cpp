@@ -76,7 +76,7 @@ namespace CB::feature {
         /// @brief One sample of a trajectory, relative to the character's position and facing when it was predicted.
         struct Sample {
             float      time    = 0;   ///< seconds from now, negative for the past sample
-            float      forward = 0, side = 0, up = 0;   ///< Havok units; side runs along up x forward (the character's left)
+            float      forward = 0, side = 0, up = 0;   ///< Havok units; side runs along the axis a sideways request moves the character (MovementAxes)
             float      facing  = 0;   ///< radians relative to the current facing
             ch::Ground ground  = ch::Ground::Airborne;
             bool       valid   = false;
@@ -134,21 +134,11 @@ namespace CB::feature {
             return a - kPi;
         }
 
-        /// @brief The horizontal frame vanilla's grounded states move the character in, built exactly as
-        ///        hkpCharacterMovementUtil::calculateMovement (0x140f3d670) builds it on a flat surface: binormal =
-        ///        forward x up, tangent = binormal x normal, side = normal x tangent, with the normal taken as up.
-        /// @note m_velocityMod's y drives the tangent and its x the side (OnGround swaps them into the input), so this
-        ///       frame is "where a forward request moves the character" whatever sign m_forward is stored with.
-        /// @return false when m_forward is (nearly) vertical, as calculateMovement then skips the step.
+        /// @brief The horizontal frame vanilla's grounded states move the character in: where a forward request
+        ///        (m_velocityMod y) and a sideways one (m_velocityMod x) move it, from calculateMovement itself.
         bool MovementFrame(const hk::bhkCharacterController& ctrl, Vec2& tangent, Vec2& side)
         {
-            const float fx = ctrl.m_forward(0), fy = ctrl.m_forward(1);
-            /// @note With up = (0,0,1): b = f x up = (fy, -fx, 0); t = b x up = (-fx, -fy, 0); s = up x t = (fy, -fx, 0).
-            const float len = std::sqrt(fx * fx + fy * fy);
-            if (len * len < 1.1920929e-07f) return false;
-            tangent = { -fx / len, -fy / len };
-            side    = { -tangent.y, tangent.x };
-            return true;
+            return ch::MovementAxes(ctrl, tangent.x, tangent.y, side.x, side.y);
         }
 
         void PushHistory(State& s, const HistoryEntry& e)

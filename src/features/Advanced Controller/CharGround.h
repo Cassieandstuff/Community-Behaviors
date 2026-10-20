@@ -86,6 +86,20 @@ namespace CB::feature::controller {
     /// @brief The verdict last published for `ctrl`; false when none is.
     bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out);
 
+    /// @brief The movement the character asks for as a world-space horizontal velocity (Havok units/s).
+    /// @note Through vanilla's calculateMovement with the ground flat, a zero current velocity and an unlimited delta:
+    ///       exactly the frame OnGround steers in (m_velocityMod's x/y swapped, m_forward), with no sign convention of
+    ///       ours to get wrong.
+    void DesiredHorizontal(const hk::bhkCharacterController& ctrl, float& dx, float& dy);
+
+    /// @brief The world directions DesiredHorizontal moves a pure forward request (m_velocityMod y) and a pure
+    ///        sideways one (m_velocityMod x) along, unit length.
+    /// @note Asked of calculateMovement itself rather than rebuilt from m_forward: a hand derivation of its cross
+    ///       products once got the side axis's sign wrong, which mirrored every sideways prediction (invisible while
+    ///       True Directional Movement kept the character facing its movement, so the side request was always zero).
+    /// @return false when the frame is degenerate (m_forward vertical or zero).
+    bool MovementAxes(const hk::bhkCharacterController& ctrl, float& forwardX, float& forwardY, float& sideX, float& sideY);
+
     /// @brief settings.ini `[Character] key` as a float, `def` when absent or unparsable (callers cache it).
     float SettingFloat(std::string_view key, float def);
 

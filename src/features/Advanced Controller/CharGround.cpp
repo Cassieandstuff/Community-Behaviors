@@ -5,6 +5,7 @@
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
 #include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkPickData.h>
+#include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
 #include <algorithm>
 #include <core/debug/Settings.h>
@@ -144,6 +145,43 @@ namespace CB::feature::controller {
         }
         if (!v.stickable) v.stickDz = 0.0f;
         return v;
+    }
+
+    namespace {
+
+        /// @brief calculateMovement's output for a request of `forward` along the tangent and `side` along the side.
+        void Steer(const hk::bhkCharacterController& c, float forward, float side, float& dx, float& dy)
+        {
+            alignas(16) std::array<std::uint8_t, sizeof(hk::hkpMovementUtilInput)> storage{};
+            auto& in = *reinterpret_cast<hk::hkpMovementUtilInput*>(storage.data());
+            in.m_forward = c.m_forward;
+            in.m_up.set(0.0f, 0.0f, 1.0f, 0.0f);
+            in.m_surfaceNormal.set(0.0f, 0.0f, 1.0f, 0.0f);
+            in.m_desiredVelocity.set(forward, side, 0.0f, 0.0f);
+            in.m_gain             = 1.0f;
+            in.m_maxVelocityDelta = 1.0e6f;
+            hk::hkVector4 out;
+            out.set(0.0f, 0.0f, 0.0f, 0.0f);
+            hk::hkpCharacterMovementUtil::calculateMovement(in, out);
+            dx = out(0), dy = out(1);
+        }
+
+    }  // namespace
+
+    void DesiredHorizontal(const hk::bhkCharacterController& ctrl, float& dx, float& dy)
+    {
+        Steer(ctrl, ctrl.m_velocityMod(1), ctrl.m_velocityMod(0), dx, dy);
+    }
+
+    bool MovementAxes(const hk::bhkCharacterController& ctrl, float& forwardX, float& forwardY, float& sideX, float& sideY)
+    {
+        Steer(ctrl, 1.0f, 0.0f, forwardX, forwardY);
+        Steer(ctrl, 0.0f, 1.0f, sideX, sideY);
+        const float f = forwardX * forwardX + forwardY * forwardY, s = sideX * sideX + sideY * sideY;
+        if (f < 1.0e-6f || s < 1.0e-6f) return false;
+        const float fi = 1.0f / std::sqrt(f), si = 1.0f / std::sqrt(s);
+        forwardX *= fi, forwardY *= fi, sideX *= si, sideY *= si;
+        return true;
     }
 
     float SettingFloat(std::string_view key, float def)

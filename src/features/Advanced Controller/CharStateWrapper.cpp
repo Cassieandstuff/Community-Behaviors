@@ -174,25 +174,7 @@ namespace CB::feature {
             gx = g(0), gy = g(1), gz = g(2);
         }
 
-        /// @brief The movement the character asks for as a world-space horizontal velocity (Havok units/s).
-        /// @note Through vanilla's calculateMovement with the ground flat, a zero current velocity and an unlimited
-        ///       delta: exactly the frame OnGround steers in (m_velocityMod's x/y swapped, m_forward), with no sign
-        ///       convention of ours to get wrong.
-        void DesiredHorizontal(const hk::bhkCharacterController& c, float& dx, float& dy)
-        {
-            alignas(16) std::array<std::uint8_t, sizeof(hk::hkpMovementUtilInput)> storage{};
-            auto& in = *reinterpret_cast<hk::hkpMovementUtilInput*>(storage.data());
-            in.m_forward = c.m_forward;
-            in.m_up.set(0.0f, 0.0f, 1.0f, 0.0f);
-            in.m_surfaceNormal.set(0.0f, 0.0f, 1.0f, 0.0f);
-            in.m_desiredVelocity.set(c.m_velocityMod(1), c.m_velocityMod(0), 0.0f, 0.0f);
-            in.m_gain             = 1.0f;
-            in.m_maxVelocityDelta = 1.0e6f;
-            hk::hkVector4 out;
-            out.set(0.0f, 0.0f, 0.0f, 0.0f);
-            hk::hkpCharacterMovementUtil::calculateMovement(in, out);
-            dx = out(0), dy = out(1);
-        }
+        using ch::DesiredHorizontal;
 
         float HeightGame(hk::bhkCharacterController& c)
         {
