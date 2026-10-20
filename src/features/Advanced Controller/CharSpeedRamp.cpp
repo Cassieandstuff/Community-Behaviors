@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <mutex>
 
@@ -67,6 +68,15 @@ namespace CB::feature {
             float rate  = 0.0f;
         };
         Slope g_slope;
+
+        /// @brief The engine's own frame speed last frame (before CB's ramp, turn and slope) and what CB handed on.
+        struct EngineSpeed {
+            bool  have    = false;
+            float engine  = 0.0f;
+            float written = 0.0f;
+        };
+        EngineSpeed      g_engineSpeed;
+        std::atomic<int> g_restoreLogs{ 0 }, g_keepLogs{ 0 };
         std::atomic<bool> g_loggedTargetSpeed{ false };
         std::atomic<int>  g_logs{ 0 };
 
@@ -107,16 +117,36 @@ namespace CB::feature {
         ///       the time `next` returns here.
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
+            RE::Actor* player  = out ? PlayerOf(controller) : nullptr;
+            auto*      process = player ? player->GetActorRuntimeData().currentProcess : nullptr;
+            auto*      mh      = process ? process->middleHigh : nullptr;
+
+            /// @note The engine's own speed state is MiddleHighProcessData::currentMovementSpeed (+0x2a8): the frame
+            ///       movement starts from it, PlayerControls (0x14079d630) reads it as the current speed and writes the
+            ///       stick's target into it, and Actor_ApplyFrameMovement writes the frame's speed (ours, after this
+            ///       hook) back into it for the graph's Speed. So whatever CB hands on became the next frame's starting
+            ///       point, and a per-frame factor compounded: one downhill run went 435 -> 12868 game units/s in 1.4 s
+            ///       and stayed there, an uphill one decayed to a crawl. Before the engine computes, the state is put back
+            ///       to the engine's own last value, unless the engine wrote a new one since (the stick moved).
+            /// @invariant CB post-processes the frame speed; the engine never sees CB's value as its own.
+            EngineSpeed& es = g_engineSpeed;
+            if (mh && es.have) {
+                const float seen = mh->currentMovementSpeed;
+                if (std::fabs(seen - es.written) <= 1.0e-3f * (std::max)(1.0f, std::fabs(es.written))) {
+                    if (es.written != es.engine && g_restoreLogs.fetch_add(1, std::memory_order_relaxed) < 5)
+                        LOG_INFO("speed ramp: engine speed state put back {:.1f} -> {:.1f}", seen, es.engine);
+                    mh->currentMovementSpeed = es.engine;
+                } else if (g_keepLogs.fetch_add(1, std::memory_order_relaxed) < 5) {
+                    LOG_INFO("speed ramp: engine speed state {:.1f} is not CB's {:.1f} - the engine set it, kept", seen, es.written);
+                }
+            }
             next(controller, deltaTime, out);
-            RE::Actor* player = out ? PlayerOf(controller) : nullptr;
             if (!player) return;
             Ramp&       r    = g_ramp;
             const float full = out->speed;
 
             /// @note The graph's TargetSpeed (MiddleHighProcessData +0x2ac) is written only on the NPC path-following
             ///       branch, so for the player it carries the speed asked for from here: unramped and undamped.
-            auto* process = player->GetActorRuntimeData().currentProcess;
-            auto* mh      = process ? process->middleHigh : nullptr;
             if (mh) {
                 bool expected = false;
                 if (g_loggedTargetSpeed.compare_exchange_strong(expected, true))
@@ -142,7 +172,7 @@ namespace CB::feature {
             Slope& sl = g_slope;
             if (!sl.init || deltaTime <= 0.0f) sl = Slope{ true, slopeGoal, 0.0f };
             else ch::SpringDamperExact(sl.scale, sl.rate, slopeGoal, ch::kSlopeSpeedHalflife, deltaTime);
-            const float target = full * turnScale * sl.scale;
+            const float target = graphDrives ? full : full * turnScale * sl.scale;
 
             /// @note The rise rate is the asked-for speed over fRampTime, not the damped target's: a body coming out of
             ///       a turn rebuilds its speed at the same acceleration as one starting from rest.
@@ -167,7 +197,8 @@ namespace CB::feature {
                     r.ramping = false;
                 }
             }
-            out->speed = r.speed;
+            out->speed    = r.speed;
+            g_engineSpeed = EngineSpeed{ true, full, r.speed };
             {
                 std::scoped_lock lock(g_published.lock);
                 g_published.speed = ch::FrameSpeed{ full, r.speed, RampTime(), sl.scale };
