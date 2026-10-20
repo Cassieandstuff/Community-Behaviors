@@ -372,14 +372,15 @@ namespace CB::feature {
             for (int i = 0; i < kPathPoints; i++) {
                 for (int k = 0; k < kSubstepsPerPoint; k++) {
                     const float h = kSubstep;
-                    /// @note A jump winding up launches when its wind-up runs out, as the ground states will: the
-                    ///       ground velocity (slide included) carries into the air with the jump's vertical speed.
+                    /// @note A jump winding up launches when its wind-up runs out, as the ground states will (ch::JumpLaunch):
+                    ///       the ground velocity (slide included) carries into the air, plus the push off the ground.
                     if (!launched && !airborne && note.jumpIn >= 0.0f && static_cast<float>(i * kSubstepsPerPoint + k) * h >= note.jumpIn) {
                         launched = true;
                         airborne = true;
                         vx += sx, vy += sy;
                         sx = sy = 0.0f;
-                        vz      = note.jumpSpeed + ch::SlopeRise(prevFloor, vx, vy);
+                        const float gx0 = vx, gy0 = vy;
+                        ch::JumpLaunch(prevFloor, gx0, gy0, note.jumpSpeed, vx, vy, vz);
                     }
                     ch::SpringDamperExact(f, fv, facingGoal, kFacingHalflife, h);
                     Vec2 d = want;

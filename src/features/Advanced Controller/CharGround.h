@@ -125,6 +125,34 @@ namespace CB::feature::controller {
         return rise < -limit ? -limit : rise > limit ? limit : rise;
     }
 
+    /// @brief A jump's launch velocity from ground `g` at horizontal ground velocity (hx, hy) and jump speed `speed`
+    ///        (Havok units/s): the whole ground velocity (it lies along the slope, SlopeRise its vertical part) plus the
+    ///        push off the ground, along the ground's normal with the part that leans against the run removed.
+    /// @note One rule for every slope: uphill the normal leans back against the run, so the push is straight up and the
+    ///       run's uphill momentum carries the jump over the rising ground; downhill it leans with the run, so the push
+    ///       follows the normal (Sonic's jump) on top of the slope's own velocity; standing, crossing a slope or on the
+    ///       flat it is straight up. Continuous through flat ground: only the normal's lean along the run counts, and
+    ///       only when positive.
+    /// @note Why the momentum: vanilla's launch keeps only the horizontal speed, so a jump up a slope lost the run's
+    ///       upward motion and met the rising ground early. Pushing up along the full normal instead braked the run.
+    inline void JumpLaunch(const FloorVerdict& g, float hx, float hy, float speed, float& ox, float& oy, float& oz)
+    {
+        float       dx = 0.0f, dy = 0.0f, dz = 1.0f;
+        const float h  = std::sqrt(hx * hx + hy * hy);
+        if (g.ground == Ground::Grounded && h > 1.0e-4f) {
+            const float ux = hx / h, uy = hy / h;
+            const float lean = g.groundNx * ux + g.groundNy * uy;   ///< the normal's lean along the run, + downhill
+            if (lean > 0.0f) {
+                dx = ux * lean, dy = uy * lean, dz = g.groundNz;
+                const float l = std::sqrt(dx * dx + dy * dy + dz * dz);
+                dx /= l, dy /= l, dz /= l;
+            }
+        }
+        ox = hx + speed * dx;
+        oy = hy + speed * dy;
+        oz = SlopeRise(g, hx, hy) + speed * dz;
+    }
+
     /// @brief Removes 1 - support of the uphill part of a horizontal request: on ground that does not hold the
     ///        character, the player can steer across and down it but not climb it (Jolt's CharacterVirtual sample
     ///        does the same on steep ground).

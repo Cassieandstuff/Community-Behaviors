@@ -471,37 +471,33 @@ namespace CB::feature {
         ///        once).
         /// @note The horizontal launch is the Grounded spring's commanded velocity (before the proxy slid it along a
         ///       wall); from the air (coyote, out of water) the body's own.
-        /// @note From the ground, the launch also keeps the vertical speed following the slope gives (the slope carry):
-        ///       the jump clears the ground ahead as on the flat, so running up a road it rises higher and clears the
-        ///       hill, running down it drops with the road. Without it a jump uphill met the rising slope early.
+        /// @note From the ground the launch is ch::JumpLaunch: the ground velocity's slope part kept, the push straight up
+        ///       uphill and along the normal downhill. From the air it is straight up.
         void Launch(hk::bhkCharacterController& c, Track& t, AirEntry entry, const ch::FloorVerdict& fv, float dt)
         {
             const hk::hkVector4 v    = c.m_outVelocity;
             const hk::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
-            float hx = v(0), hy = v(1);
-            if (t.mode != Mode::Airborne && t.springInit) hx = t.vx + t.sx + surf(0), hy = t.vy + t.sy + surf(1);
-            float gx, gy, gz;
-            WorldGravity(c, gx, gy, gz);
-            gx *= c.m_gravity, gy *= c.m_gravity, gz *= c.m_gravity;
-            const float g     = std::sqrt(gx * gx + gy * gy + gz * gz);
-            const float speed = LaunchSpeed(c);
-            const float carry = t.mode != Mode::Airborne ? ch::SlopeRise(fv, hx - surf(0), hy - surf(1)) : 0.0f;
-            float ux = 0.0f, uy = 0.0f, uz = 1.0f;
-            if (g > 1.0e-6f) ux = -gx / g, uy = -gy / g, uz = -gz / g;
+            float hx = v(0) - surf(0), hy = v(1) - surf(1);
+            if (t.mode != Mode::Airborne && t.springInit) hx = t.vx + t.sx, hy = t.vy + t.sy;
+            const float            speed  = LaunchSpeed(c);
+            const ch::FloorVerdict ground = t.mode != Mode::Airborne ? fv : ch::FloorVerdict{};
+            float ox, oy, oz;
+            ch::JumpLaunch(ground, hx, hy, speed, ox, oy, oz);
             /// @note The press-to-launch time measures the whole lead-in: the game's own (input to jump request) plus
             ///       CB's wind-up.
             const float sincePress = ch::IsPlayer(&c) ? JumpInput::Get().SincePress() : 1.0e9f;
             if (LogBudget())
-                LOG_INFO("ground states: jump ({}) - launch horizontal ({:.2f}, {:.2f}) vs body ({:.2f}, {:.2f}), vertical {:.2f} + slope "
-                         "{:.2f}, {}",
-                         Name(entry), hx, hy, v(0), v(1), speed, carry,
-                         sincePress < 10.0f ? std::format("{:.3f} s after the press", sincePress) : std::string("no press seen"));
+                LOG_INFO("ground states: jump ({}) - ground velocity ({:.2f}, {:.2f}, slope {:.2f}) + push {:.2f} tilted {:.0f} deg forward -> "
+                         "launch ({:.2f}, {:.2f}, {:.2f}), {}",
+                         Name(entry), hx, hy, ch::SlopeRise(ground, hx, hy), speed,
+                         std::atan2(std::sqrt((ox - hx) * (ox - hx) + (oy - hy) * (oy - hy)), oz - ch::SlopeRise(ground, hx, hy)) * 57.29578f, ox,
+                         oy, oz, sincePress < 10.0f ? std::format("{:.3f} s after the press", sincePress) : std::string("no press seen"));
             t.windup = -1.0f;
-            c.m_outVelocity.set(hx + ux * speed, hy + uy * speed, uz * speed + carry, 0.0f);
+            c.m_outVelocity.set(ox + surf(0), oy + surf(1), oz + surf(2), 0.0f);
             c.m_flags |= ch::kJumping;
             c.m_flags &= ~ch::kSupport;
             c.m_fallStartHeight = HeightGame(c);
-            EnterAirborne(c, t, entry, fv, uz * speed + carry);
+            EnterAirborne(c, t, entry, fv, oz);
             t.launchHeight = c.m_fallStartHeight;
             t.jumpHeight   = std::fabs(c.m_jumpHeight);
             t.hopDecided   = false;
