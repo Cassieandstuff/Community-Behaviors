@@ -30,13 +30,14 @@ namespace CB::feature::controller::hud {
     struct Controller {
         Point               feet;
         float               radius = 0, height = 0;
-        const char*         mode   = "-";      ///< Grounded / Sliding / Airborne (static strings)
+        const char*         mode   = "-";      ///< Grounded / Airborne (static strings)
         const char*         entry  = "-";      ///< how the last airborne phase began
         Ground              verdict = Ground::Airborne;
         float               groundNz = 1;
         int                 supportHits = 0, walkableHits = 0;
-        float               steepTime = 0, airTime = 0;
+        float               support = 0, airTime = 0;   ///< the floor verdict's support (0-1)
         Point               velocity, desired;   ///< the step's output velocity and the movement asked for
+        Point               slide;               ///< the slide velocity (horizontal), part of `velocity`
         bool                variableJump = false, jumpReleased = false;
         std::array<Ray, 9>  rays{};
     };

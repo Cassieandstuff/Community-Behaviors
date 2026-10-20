@@ -29,8 +29,8 @@
 /// @file
 /// @brief Steps 1, 3, 6 and 7 of the character controller spec. hkpCharacterStateManager::getState (overridden)
 ///        returns a wrapper for ids 0 to 2 (OnGround, Jumping, InAir); the wrapper's Simulate decides per controller.
-///        Under char_ground_states the player's proxy controller runs CB's ground states (Grounded / Sliding mapped to
-///        OnGround, Airborne mapped to InAir, Jumping only a request token); every other controller, and the player
+///        Under char_ground_states the player's proxy controller runs CB's ground states (Grounded mapped to OnGround,
+///        Airborne mapped to InAir, Jumping only a request token); every other controller, and the player
 ///        without the flag, forwards to the vanilla state.
 /// @note Why getState and not registerState: one hkpCharacterStateManager is shared by every controller (created by
 ///       the bhkCharacterControllerCinfo constructor, 0x140e9c960), so a registered state would replace it for every
@@ -87,21 +87,15 @@ namespace CB::feature {
         ///        air control no longer depends on the frame rate.
         /// @note Assumed 60 Hz (vanilla's usual physics step); unverified against bhkWorld's step time.
         constexpr float kAirReferenceStep = 1.0f / 60.0f;
-        /// @brief Sliding: player control as an acceleration per unit of desired velocity (1/s), and the speed cap
-        ///        (Havok units/s) a slide never exceeds.
-        constexpr float kSlideControlRate = 0.5f;
-        constexpr float kMaxSlideSpeed    = 15.0f;
-        /// @brief Sliding across the fall line: the fraction of the steering speed held there, and the halflife
-        ///        (seconds) of any other cross-slope speed.
-        constexpr float kSlideSteer           = 0.5f;
-        constexpr float kSlideLateralHalflife = 0.15f;
         constexpr hk::hkUint32 kHitFlags  = 1u << 7;   ///< landing: UpdatePhysics returns 2, the fall-damage path
         constexpr hk::hkUint32 kChaseOrRagdoll = 0x1800;   ///< kChaseBip | kFollowRagdoll: left to vanilla
 
-        enum class Mode : std::uint8_t { Grounded, Sliding, Airborne };
+        /// @note No Sliding mode: ground too steep to stand on is Grounded with low support, where the slide velocity
+        ///       (ch::SlideStep) drags the character down and the player cannot climb (ch::ClipUphill).
+        enum class Mode : std::uint8_t { Grounded, Airborne };
         enum class AirEntry : std::uint8_t { None, WalkedOff, Jumped, Launched, OutOfWater };
 
-        const char* Name(Mode m) { return m == Mode::Grounded ? "Grounded" : m == Mode::Sliding ? "Sliding" : "Airborne"; }
+        const char* Name(Mode m) { return m == Mode::Grounded ? "Grounded" : "Airborne"; }
         const char* Name(AirEntry e)
         {
             switch (e) {
@@ -124,16 +118,13 @@ namespace CB::feature {
             float    airTime = 0.0f;
             bool     springInit = false;
             float    vx = 0, vy = 0, ax = 0, ay = 0;
+            float    sx = 0, sy = 0;   ///< the slide velocity (horizontal, Havok units/s), added to the spring's on the ground
             ch::Ground lastVerdict = ch::Ground::Airborne;
-            float    steepTime = 0.0f;   ///< how long a Sliding verdict has lasted while Grounded
             bool     variableJump = false;   ///< this jump was pressed by the player, so its release shapes it
             bool     hopDecided   = false;   ///< iJumpMode 2: short or full is settled
             bool     released     = false;   ///< Jump came up during this jump's rise
             float    launchHeight = 0.0f;    ///< game units, where the jump left the ground
         };
-
-        /// @brief How long the floor must read too steep before Grounded becomes Sliding (hysteresis).
-        constexpr float kSlideDelay = 0.1f;
 
         /// @note Keyed by controller address; references into an unordered_map survive rehashing, and only one
         ///       thread steps a given controller, so the lock guards lookup only.
@@ -354,23 +345,38 @@ namespace CB::feature {
             t.airTime += dt;
         }
 
-        /// @brief P2 + step 7: one Grounded step. Each horizontal component springs toward the desired velocity, the
-        ///        result is laid along the ground plane at the same speed (as vanilla's surface frame does), plus one
-        ///        step of gravity pressing into the floor (vanilla OnGround's pressure, never its 4x).
+        /// @brief P2 + step 7: one Grounded step. Each horizontal component springs toward the desired velocity (its
+        ///        uphill part cut by the ground's lack of support), the slide velocity is added, the sum is laid along
+        ///        the ground plane at the same speed (as vanilla's surface frame does), plus one step of gravity
+        ///        pressing into the floor (vanilla OnGround's pressure, never its 4x).
         void GroundStep(hk::bhkCharacterController& c, Track& t, const ch::FloorVerdict& fv, float dt)
         {
             const hk::hkVector4 v    = c.m_outVelocity;
             const hk::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
             if (!t.springInit) {
-                t.vx = v(0) - surf(0), t.vy = v(1) - surf(1), t.ax = t.ay = 0.0f;
+                t.vx = v(0) - surf(0) - t.sx, t.vy = v(1) - surf(1) - t.sy, t.ax = t.ay = 0.0f;
                 t.springInit = true;
             }
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
+            ch::ClipUphill(fv, dx, dy);
             SpringDamperExact(t.vx, t.ax, dx, kGroundHalflife, dt);
             SpringDamperExact(t.vy, t.ay, dy, kGroundHalflife, dt);
 
-            float hx = t.vx, hy = t.vy, hz = 0.0f;
+            /// @note A slide the body is not making (a wall or a ledge lip stopped it) does not keep growing: along its
+            ///       own direction it is held to the body's actual speed before this step's gain.
+            const float slide = std::sqrt(t.sx * t.sx + t.sy * t.sy);
+            if (slide > 1.0e-6f) {
+                hk::hkVector4 body;
+                c.GetLinearVelocityImpl(body);
+                const float made = (std::max)(0.0f, ((body(0) - surf(0)) * t.sx + (body(1) - surf(1)) * t.sy) / slide);
+                if (made < slide) t.sx *= made / slide, t.sy *= made / slide;
+            }
+            float gx, gy, gz;
+            WorldGravity(c, gx, gy, gz);
+            ch::SlideStep(fv, gx * c.m_gravity, gy * c.m_gravity, gz * c.m_gravity, t.sx, t.sy, dt);
+
+            float hx = t.vx + t.sx, hy = t.vy + t.sy, hz = 0.0f;
             const float nz = fv.groundNz;
             if (nz > 1.0e-3f) {
                 hz = -(fv.groundNx * hx + fv.groundNy * hy) / nz;
@@ -380,57 +386,7 @@ namespace CB::feature {
                     hx *= s, hy *= s, hz *= s;
                 }
             }
-            float gx, gy, gz;
-            WorldGravity(c, gx, gy, gz);
             c.m_outVelocity.set(hx + surf(0), hy + surf(1), hz + surf(2) + gz * dt, 0.0f);
-            c.ApplyInitialVelocity();
-        }
-
-        /// @brief Sliding: the ground is too steep to stand on. The body's velocity along the plane gains gravity's
-        ///        in-plane part, the player steers at a reduced rate, and gravity's normal part keeps it on the face.
-        /// @note The current velocity is the proxy's own (GetLinearVelocityImpl), not m_outVelocity: UpdatePhysics zeroes
-        ///       m_outVelocity's z before Simulate whenever the character is not in air and has no movement input, which
-        ///       restarted the slide every step unless the player steered.
-        /// @note Across the fall line the slide springs toward a fraction of the player's steering (zero without input),
-        ///       so velocity carried onto the face turns downhill instead of skating along it.
-        void SlideStep(hk::bhkCharacterController& c, const ch::FloorVerdict& fv, float dt)
-        {
-            const float nx = fv.groundNx, ny = fv.groundNy, nz = fv.groundNz;
-            hk::hkVector4 v;
-            c.GetLinearVelocityImpl(v);
-            float gx, gy, gz;
-            WorldGravity(c, gx, gy, gz);
-            gx *= c.m_gravity, gy *= c.m_gravity, gz *= c.m_gravity;
-            const float gn = gx * nx + gy * ny + gz * nz;
-            const float px = gx - gn * nx, py = gy - gn * ny, pz = gz - gn * nz;
-            float dx, dy;
-            DesiredHorizontal(c, dx, dy);
-            float sx = v(0) + px * dt;
-            float sy = v(1) + py * dt;
-            float sz = v(2) + pz * dt;
-            const float vn = sx * nx + sy * ny + sz * nz;
-            sx -= vn * nx, sy -= vn * ny, sz -= vn * nz;
-            const float pl = std::sqrt(px * px + py * py + pz * pz);
-            if (pl > 1.0e-6f) {
-                const float fx = px / pl, fy = py / pl, fz = pz / pl;
-                const float dn = dx * nx + dy * ny;
-                const float qx = dx - dn * nx, qy = dy - dn * ny, qz = -dn * nz;   ///< the steering laid in the face
-                const float qf = qx * fx + qy * fy + qz * fz;
-                const float sf = sx * fx + sy * fy + sz * fz;
-                const float lx = sx - sf * fx, ly = sy - sf * fy, lz = sz - sf * fz;   ///< across the fall line
-                const float tx = (qx - qf * fx) * kSlideSteer, ty = (qy - qf * fy) * kSlideSteer, tz = (qz - qf * fz) * kSlideSteer;
-                const float keep  = std::exp(-0.6931472f / kSlideLateralHalflife * dt);
-                const float along = sf + qf * kSlideControlRate * dt;
-                sx = along * fx + tx + (lx - tx) * keep;
-                sy = along * fy + ty + (ly - ty) * keep;
-                sz = along * fz + tz + (lz - tz) * keep;
-            }
-            const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
-            if (len > kMaxSlideSpeed) {
-                const float s = kMaxSlideSpeed / len;
-                sx *= s, sy *= s, sz *= s;
-            }
-            c.m_outVelocity.set(sx + gn * nx * dt, sy + gn * ny * dt, sz + gn * nz * dt, 0.0f);
             c.ApplyInitialVelocity();
         }
 
@@ -449,6 +405,7 @@ namespace CB::feature {
             t.airTime    = 0.0f;
             t.variableJump = false;
             t.ax = t.ay  = 0.0f;
+            t.sx = t.sy  = 0.0f;
             t.springInit = false;
             if (entry != AirEntry::Jumped && entry != AirEntry::OutOfWater) c.m_fallStartHeight = HeightGame(c);
             Commit(c, hk::HK_CHARACTER_IN_AIR);
@@ -478,7 +435,7 @@ namespace CB::feature {
             const hk::hkVector4 v    = c.m_outVelocity;
             const hk::hkVector4 surf = c.m_surfaceInfo.m_surfaceVelocity;
             float hx = v(0), hy = v(1);
-            if (t.mode != Mode::Airborne && t.springInit) hx = t.vx + surf(0), hy = t.vy + surf(1);
+            if (t.mode != Mode::Airborne && t.springInit) hx = t.vx + t.sx + surf(0), hy = t.vy + t.sy + surf(1);
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
             gx *= c.m_gravity, gy *= c.m_gravity, gz *= c.m_gravity;
@@ -545,7 +502,8 @@ namespace CB::feature {
             h.groundNz     = fv.groundNz;
             h.supportHits  = fv.supportHits;
             h.walkableHits = fv.walkableHits;
-            h.steepTime    = t.steepTime;
+            h.support      = fv.support;
+            h.slide        = { t.sx, t.sy, 0.0f };
             h.airTime      = t.airTime;
             h.variableJump = t.variableJump;
             h.jumpReleased = t.released;
@@ -588,6 +546,7 @@ namespace CB::feature {
                 t.mode       = cur == hk::HK_CHARACTER_IN_AIR ? Mode::Airborne : Mode::Grounded;
                 t.entry      = t.mode == Mode::Airborne ? AirEntry::Launched : AirEntry::None;
                 t.springInit = false;
+                t.sx = t.sy  = 0.0f;
                 t.airTime    = 0.0f;
                 if (LogBudget())
                     LOG_INFO("ground states: resync to vanilla state {} ({} -> {}{})", cur, Name(before), Name(t.mode), t.init ? "" : ", first step");
@@ -627,20 +586,9 @@ namespace CB::feature {
                 if (want == hk::HK_CHARACTER_IN_AIR) {
                     EnterAirborne(c, t, AirEntry::Launched, fv, vz);
                     grounded = false;
-                } else if (fv.ground == ch::Ground::Grounded) {
-                    t.steepTime = 0.0f;
-                    if (t.mode != Mode::Grounded) {
-                        LogTransition(t, Mode::Grounded, "supported", fv, vz);
-                        t.mode       = Mode::Grounded;
-                        t.springInit = false;
-                    }
-                } else if (fv.ground == ch::Ground::Sliding) {
-                    if (t.mode == Mode::Grounded && (t.steepTime += dt) < kSlideDelay) {
-                        /// @note Hysteresis: a brief steep reading on rough ground keeps the character Grounded.
-                    } else if (t.mode != Mode::Sliding) {
-                        LogTransition(t, Mode::Sliding, "too steep", fv, vz);
-                        t.mode = Mode::Sliding;
-                    }
+                } else if (fv.ground != ch::Ground::Airborne) {
+                    /// @note Any ground under the feet keeps the character Grounded; how much it holds them up is the
+                    ///       verdict's support, which the slide and the uphill clip read.
                 } else if (vz <= 0.0f && fv.stickable) {
                     /// @note G4/M8: walked off support while not rising, a walkable floor within the probe: stick to it.
                     if (LogBudget()) LOG_INFO("ground states: stick {:.3f} down in {} (vz {:.2f})", fv.stickDz, Name(t.mode), vz);
@@ -652,14 +600,15 @@ namespace CB::feature {
                 }
 
                 if (grounded) {
-                    const bool canJump = t.mode == Mode::Grounded;
+                    /// @note The jump is gated on support (a Grounded verdict), not on a mode: no jumping off a face
+                    ///       that does not hold the character up. Stuck to a floor below (no hits at the feet), it may.
+                    const bool canJump = fv.ground != ch::Ground::Sliding;
                     if (want == hk::HK_CHARACTER_JUMPING && canJump) {
                         Launch(c, t, AirEntry::Jumped, fv, dt);
-                    } else if (t.mode == Mode::Sliding) {
-                        t.springInit = false;
-                        SlideStep(c, fv, dt);
                     } else {
-                        SetSupportFrom(c, fv);
+                        if (want == hk::HK_CHARACTER_JUMPING && LogBudget())
+                            LOG_INFO("ground states: jump refused - support {:.2f} (n.z {:.3f})", fv.support, fv.groundNz);
+                        if (fv.ground == ch::Ground::Grounded) SetSupportFrom(c, fv);
                         GroundStep(c, t, fv, dt);
                     }
                 } else {
@@ -675,10 +624,8 @@ namespace CB::feature {
                 } else if (want == hk::HK_CHARACTER_ON_GROUND && (fv.supportHits > 0 || fv.stickable)) {
                     /// @note G2: a forced OnGround only onto support within probe depth.
                     if (fv.supportHits == 0) Stick(c, fv.stickDz);
-                    const Mode to = fv.ground == ch::Ground::Sliding ? Mode::Sliding : Mode::Grounded;
-                    EnterGrounded(c, t, to, "forced", fv, vz);
-                    if (to == Mode::Sliding) SlideStep(c, fv, dt);
-                    else                     GroundStep(c, t, fv, dt);
+                    EnterGrounded(c, t, Mode::Grounded, "forced", fv, vz);
+                    GroundStep(c, t, fv, dt);
                 } else if (want == hk::HK_CHARACTER_JUMPING && coyote) {
                     if (LogBudget()) LOG_INFO("ground states: coyote jump {:.3f} s after walking off", t.airTime);
                     Launch(c, t, AirEntry::Jumped, fv, dt);
@@ -690,16 +637,25 @@ namespace CB::feature {
                 }
             }
 
-            /// @note G2 contract: kCanJump from CB's rule (Grounded on walkable ground, or inside the coyote window).
+            /// @note G2 contract: kCanJump from CB's rule (Grounded on supporting ground, or inside the coyote window).
             const bool canJumpNow = (t.mode == Mode::Grounded && fv.ground == ch::Ground::Grounded)
                                  || (t.mode == Mode::Airborne && t.entry == AirEntry::WalkedOff && t.airTime <= kCoyoteTime
                                      && !(c.m_flags & ch::kJumping));
             if (canJumpNow) c.m_flags |= ch::kCanJump;
             else            c.m_flags &= ~ch::kCanJump;
 
+            /// @note Grounded with no hits at the feet is the stick-to-floor case: it stands on the walkable floor it
+            ///       was snapped to.
             ch::FloorVerdict decided = fv;
-            decided.ground = t.mode == Mode::Grounded ? ch::Ground::Grounded : t.mode == Mode::Sliding ? ch::Ground::Sliding : ch::Ground::Airborne;
+            if (t.mode == Mode::Airborne) {
+                decided.ground  = ch::Ground::Airborne;
+                decided.support = 0.0f;
+            } else if (fv.ground == ch::Ground::Airborne) {
+                decided.ground  = ch::Ground::Grounded;
+                decided.support = 1.0f;
+            }
             ch::PublishVerdict(c, decided);
+            ch::PublishSlide(c, t.sx, t.sy);
             if (ch::hud::On() && hull.valid) PublishHud(c, t, hull, fv);
             t.lastState = static_cast<int>(c.m_context.m_currentState);
         }

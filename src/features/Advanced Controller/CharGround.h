@@ -49,12 +49,17 @@ namespace CB::feature::controller {
         const hk::hkpCollidable* body = nullptr;
     };
 
+    /// @brief The support at and above which the character stands: the verdict is Grounded, it can jump and land, and
+    ///        the constraint planes ground it. Below it the verdict is Sliding.
+    constexpr float kSupportedAt = 0.5f;
+
     /// @brief The M4 floor query's verdict.
     struct FloorVerdict {
         Ground                   ground    = Ground::Airborne;
+        float                    support   = 0;       ///< 0-1 from the averaged normal's slope (Support); 0 when Airborne
         bool                     stickable = false;   ///< a walkable hit within probe depth below the feet (M8)
         float                    stickDz   = 0;       ///< the highest walkable hit below the foot tolerance (negative)
-        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit; Grounded when walkable
+        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit; Grounded when support >= kSupportedAt
         const hk::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         int                      supportHits = 0, walkableHits = 0;
         std::array<FloorHit, 9>  hits{};   ///< axis, then the ring at the perch radius
@@ -85,6 +90,32 @@ namespace CB::feature::controller {
     void PublishVerdict(const hk::bhkCharacterController& ctrl, const FloorVerdict& v);
     /// @brief The verdict last published for `ctrl`; false when none is.
     bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out);
+
+    /// @brief How much a ground of normal z `groundNz` holds the character up, 0-1: 1 up to [Character] fSlidePullStart
+    ///        degrees (default 5) below the controller's max slope (acos m_zNormal), easing to 0 at fSlidePullFull
+    ///        degrees (default 10) past it.
+    /// @note Why a number and not a threshold: a hard walkable/too-steep line gave two movement models a degree apart
+    ///       (and needed a hysteresis delay on rough ground); the slide below scales with it instead.
+    float Support(const hk::bhkCharacterController& ctrl, float groundNz);
+
+    /// @brief The slide: a horizontal velocity the player does not control, added to the player's own on the ground.
+    ///        It gains gravity's pull along the ground scaled by 1 - support, bleeds off at a rate scaled by support,
+    ///        and never exceeds kMaxSlideSpeed.
+    /// @param gx gravity (Havok units/s^2, already scaled by the controller's m_gravity).
+    /// @note The gain is horizontal at gravity's along-slope magnitude because the ground step lays the horizontal
+    ///       velocity onto the plane at the same speed, so the body accelerates down the fall line at g sin(slope)
+    ///       times 1 - support.
+    void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt);
+
+    /// @brief Removes 1 - support of the uphill part of a horizontal request: on ground that does not hold the
+    ///        character, the player can steer across and down it but not climb it (Jolt's CharacterVirtual sample
+    ///        does the same on steep ground).
+    void ClipUphill(const FloorVerdict& v, float& dx, float& dy);
+
+    /// @brief Publishes the ground states' slide velocity for the predictor (Havok units/s, horizontal).
+    void PublishSlide(const hk::bhkCharacterController& ctrl, float sx, float sy);
+    /// @brief The slide velocity last published for `ctrl`; false when none is.
+    bool PublishedSlide(const hk::bhkCharacterController& ctrl, float& sx, float& sy);
 
     /// @brief The movement the character asks for as a world-space horizontal velocity (Havok units/s).
     /// @note Through vanilla's calculateMovement with the ground flat, a zero current velocity and an unlimited delta:

@@ -97,8 +97,11 @@ namespace CB::core::debug {
         { "char_ground_states", FlagKind::IniBool, "Character", "bGroundStates", false, false,
           "Ground states in charge",
           "Steps 3, 6 and 7 of the character controller spec: for the player, CB's wrapper states run Grounded / "
-          "Sliding / Airborne from the floor query (landing, stick-to-floor, gravity, jump launch, air control, "
-          "velocity springs). Requires bStateWrapper. Unproven in game." },
+          "Airborne from the floor query (landing, stick-to-floor, gravity, jump launch, air control, velocity "
+          "springs). Steep ground has no state of its own: its support eases from 1 at fSlidePullStart degrees "
+          "(default 5) below the max slope to 0 at fSlidePullFull degrees (default 10) past it, and as it drops a "
+          "slide velocity drags the player downhill, the uphill part of their steering is cut, and below half they "
+          "cannot jump. Requires bStateWrapper. Unproven in game." },
         { "char_planes", FlagKind::IniBool, "Character", "bPlanes", false, false,
           "Constraint planes",
           "Step 4 of the character controller spec: for the player, the proxy's constraint planes follow the spec's "
@@ -129,7 +132,7 @@ namespace CB::core::debug {
         { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
           "Character debug HUD",
           "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "
-          "wall, grey miss), the output and desired velocity arrows, the stick's direction (yellow arrowhead) and the "
+          "wall, grey miss), the output, desired and slide (orange) velocity arrows, the stick's direction (yellow arrowhead) and the "
           "body's facing (white tick) on the ring (needs bFacing), the predicted path coloured by ground state, falls "
           "and jumps included (needs bPredictorObserve), and a text panel (mode, verdict, timers, ramp speed, turn "
           "damping, iState). Hidden while the game is paused." },

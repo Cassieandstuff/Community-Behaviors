@@ -173,6 +173,7 @@ namespace CB::feature::controller::hud {
                 }
                 const Point chest{ c.feet.x, c.feet.y, c.feet.z + c.height * 0.5f };
                 Arrow(dl, proj, chest, c.desired, kDesired);
+                Arrow(dl, proj, chest, c.slide, kSteep);
                 Arrow(dl, proj, chest, c.velocity, kVelocity);
             }
 
@@ -206,8 +207,8 @@ namespace CB::feature::controller::hud {
                              ImGuiWindowFlags_NoFocusOnAppearing);
             ImGui::TextUnformatted("Community Behaviors - character");
             if (haveCtrl) {
-                ImGui::Text("mode %s   verdict %s   n.z %.2f   support %d/%d", c.mode, Name(c.verdict), c.groundNz, c.supportHits, c.walkableHits);
-                ImGui::Text("steep %.2f s   air %.2f s (%s)", c.steepTime, c.airTime, c.entry);
+                ImGui::Text("mode %s   verdict %s   n.z %.2f   hits %d/%d", c.mode, Name(c.verdict), c.groundNz, c.supportHits, c.walkableHits);
+                ImGui::Text("support %.2f   slide %.0f   air %.2f s (%s)", c.support, HorizontalSpeed(c.slide), c.airTime, c.entry);
                 ImGui::Text("speed %.0f   desired %.0f   vz %.0f", HorizontalSpeed(c.velocity), HorizontalSpeed(c.desired), c.velocity.z * kGameUnitsPerHavok);
                 if (c.variableJump) ImGui::Text("variable jump: %s", c.jumpReleased ? "released" : "held");
             }

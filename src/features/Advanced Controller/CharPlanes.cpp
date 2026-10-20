@@ -256,6 +256,8 @@ namespace CB::feature {
             /// @note Support is the floor query's verdict; the contacts inside the supporting region (under the feet, by
             ///       position) are the ones it is "on": they carry the anti-creep friction, the footstep material, the
             ///       support body and the orientation controller's notice, as Bethesda's walkable contacts did.
+            /// @note The anti-creep friction scales with the verdict's support, so near the max slope it no longer holds
+            ///       the body against the slide velocity it is meant to give way to.
             int support = 0;
             if (grounded) {
                 for (int i = 0; i < numPoints; i++) {
@@ -266,7 +268,7 @@ namespace CB::feature {
                     if (point.m_contact.m_separatingNormal(2) <= kSteepMinZ || dx * dx + dy * dy > perch * perch
                         || std::fabs(pos(2) - hull.feetZ) > tun.footTolerance)
                         continue;
-                    if (!ctrl.IsFlagSet(3)) input.m_constraints[i].m_extraDownStaticFriction = kAntiCreep;
+                    if (!ctrl.IsFlagSet(3)) input.m_constraints[i].m_extraDownStaticFriction = kAntiCreep * verdict.support;
                     ++support;
                     if (!ctrl.IsFlagSet(16) && ctrl.m_orientationCtrl) ctrl.m_orientationCtrl->OnSupportContact(point);
                     ctrl.UpdateContactMaterial(point);

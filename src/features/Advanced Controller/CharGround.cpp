@@ -135,7 +135,8 @@ namespace CB::feature::controller {
         ///       terrain because one walkable ray among four to seven steep ones decided it.
         const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
         if (len > 1.0e-6f) v.groundNx = sx / len, v.groundNy = sy / len, v.groundNz = sz / len;
-        v.ground = v.supportHits == 0 ? Ground::Airborne : v.groundNz >= ctrl.m_zNormal ? Ground::Grounded : Ground::Sliding;
+        v.support = v.supportHits == 0 ? 0.0f : Support(ctrl, v.groundNz);
+        v.ground  = v.supportHits == 0 ? Ground::Airborne : v.support >= kSupportedAt ? Ground::Grounded : Ground::Sliding;
         if (v.ground == Ground::Grounded && !v.supportBody) {
             for (const FloorHit& h : v.hits)
                 if (h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ && h.dz >= -t.footTolerance) {
@@ -199,11 +200,81 @@ namespace CB::feature::controller {
         return s ? s->GetFloat() : def;
     }
 
+    float Support(const hk::bhkCharacterController& ctrl, float groundNz)
+    {
+        constexpr float      kDegToRad = 0.017453292f;
+        static const float start = std::clamp(SettingFloat("fSlidePullStart", 5.0f), 0.0f, 45.0f) * kDegToRad;
+        static const float full  = std::clamp(SettingFloat("fSlidePullFull", 10.0f), 0.5f, 45.0f) * kDegToRad;
+        const float        maxSlope = std::acos(std::clamp(ctrl.m_zNormal, -1.0f, 1.0f));
+        static const bool  logged   = [&] {
+            LOG_INFO("slide: support eases from 1 at {:.1f} deg to 0 at {:.1f} deg (max slope {:.1f} deg)", (maxSlope - start) / kDegToRad,
+                     (maxSlope + full) / kDegToRad, maxSlope / kDegToRad);
+            return true;
+        }();
+        (void)logged;
+        const float slope = std::acos(std::clamp(groundNz, -1.0f, 1.0f));
+        const float lo = maxSlope - start, hi = maxSlope + full;
+        if (slope <= lo) return 1.0f;
+        if (slope >= hi) return 0.0f;
+        const float u = (slope - lo) / (hi - lo);
+        return 1.0f - u * u * (3.0f - 2.0f * u);
+    }
+
+    void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt)
+    {
+        /// @brief The slide never exceeds this (Havok units/s, about 1050 game units/s); the old Sliding state's cap.
+        constexpr float kMaxSlideSpeed = 15.0f;
+        /// @brief On fully supporting ground the slide halves in this long (seconds).
+        constexpr float kSlideBleedHalflife = 0.1f;
+        if (v.ground == Ground::Airborne) return;
+        const float pull = 1.0f - v.support;
+        const float gn   = gx * v.groundNx + gy * v.groundNy + gz * v.groundNz;
+        const float px = gx - gn * v.groundNx, py = gy - gn * v.groundNy, pz = gz - gn * v.groundNz;
+        const float ph = std::sqrt(px * px + py * py);
+        if (pull > 0.0f && ph > 1.0e-6f) {
+            const float a = std::sqrt(px * px + py * py + pz * pz) * pull * dt / ph;
+            sx += px * a, sy += py * a;
+        }
+        const float keep = std::exp(-0.6931472f / kSlideBleedHalflife * v.support * dt);
+        sx *= keep, sy *= keep;
+        const float len = std::sqrt(sx * sx + sy * sy);
+        if (len > kMaxSlideSpeed) sx *= kMaxSlideSpeed / len, sy *= kMaxSlideSpeed / len;
+    }
+
+    void ClipUphill(const FloorVerdict& v, float& dx, float& dy)
+    {
+        if (v.ground == Ground::Airborne || v.support >= 1.0f) return;
+        const float h = std::sqrt(v.groundNx * v.groundNx + v.groundNy * v.groundNy);
+        if (h < 1.0e-6f) return;
+        const float ux = -v.groundNx / h, uy = -v.groundNy / h;   ///< uphill: the normal leans downhill
+        const float up = dx * ux + dy * uy;
+        if (up <= 0.0f) return;
+        const float cut = (1.0f - v.support) * up;
+        dx -= cut * ux, dy -= cut * uy;
+    }
+
     namespace {
         std::mutex                        g_publishLock;
         const hk::bhkCharacterController* g_publishCtrl = nullptr;
         FloorVerdict                      g_published;
+        const hk::bhkCharacterController* g_slideCtrl = nullptr;
+        float                             g_slideX = 0, g_slideY = 0;
     }  // namespace
+
+    void PublishSlide(const hk::bhkCharacterController& ctrl, float sx, float sy)
+    {
+        std::scoped_lock lock(g_publishLock);
+        g_slideCtrl = &ctrl;
+        g_slideX = sx, g_slideY = sy;
+    }
+
+    bool PublishedSlide(const hk::bhkCharacterController& ctrl, float& sx, float& sy)
+    {
+        std::scoped_lock lock(g_publishLock);
+        if (g_slideCtrl != &ctrl) return false;
+        sx = g_slideX, sy = g_slideY;
+        return true;
+    }
 
     void PublishVerdict(const hk::bhkCharacterController& ctrl, const FloorVerdict& v)
     {

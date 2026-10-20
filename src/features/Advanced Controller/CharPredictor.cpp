@@ -282,10 +282,13 @@ namespace CB::feature {
         ///       the leg falls from its start. In the air, gravity is 1x rising and fInAirFallingCharGravityMult:HAVOK
         ///       falling (the Airborne state's), a held jump is assumed, and the horizontal velocity holds (air control
         ///       is weak and not modelled).
+        /// @note Steep ground: the ground states' own slide (ch::SlideStep from the last resolved point's floor, starting
+        ///       from the published slide velocity) and uphill clip (ch::ClipUphill) run here too.
+        /// @param slide the ground states' slide velocity (PublishedSlide), zero without them.
         /// @param worldOut the future samples' positions in Havok world space, for the gate.
         Trajectory Predict(State& s, hk::bhkCharacterController& ctrl, const ch::Hull& hull, const Vec2& tangent, const Vec2& sideAxis,
-                           const hk::hkVector4& velocity, const Drive& drive, std::int32_t iState, std::array<Vec2, kFutureSamples>& worldOut,
-                           Path& path)
+                           const hk::hkVector4& velocity, const Vec2& slide, const Drive& drive, std::int32_t iState,
+                           std::array<Vec2, kFutureSamples>& worldOut, Path& path)
         {
             Trajectory tr;
             tr.iState     = iState;
@@ -324,7 +327,8 @@ namespace CB::feature {
             const float threshold  = kRampThreshold / kGameUnitsPerHavok;
 
             const hk::hkVector4& gw       = hull.world->GetGravity();
-            const float          gravity  = std::sqrt(gw(0) * gw(0) + gw(1) * gw(1) + gw(2) * gw(2)) * ctrl.m_gravity;
+            const float          gx = gw(0) * ctrl.m_gravity, gy = gw(1) * ctrl.m_gravity, gz = gw(2) * ctrl.m_gravity;
+            const float          gravity  = std::sqrt(gx * gx + gy * gy + gz * gz);
             static const float   fallMult = ch::IniFloat("fInAirFallingCharGravityMult:HAVOK", 1.35f);
 
             /// @note The sweep runs lifted by the step height, so what the proxy steps over (stair risers, kerbs) never
@@ -337,7 +341,9 @@ namespace CB::feature {
 
             float f = drive.facingModel ? drive.theta : heading, fv = drive.facingModel ? drive.omega : 0.0f;
             float spd = drive.speed;
-            float vx = velocity(0), vy = velocity(1), vz = airborne ? velocity(2) : 0.0f, ax = 0, ay = 0;
+            /// @note On the ground the velocity is the player's (the spring) plus the slide, as in the ground states.
+            float sx = airborne ? 0.0f : slide.x, sy = airborne ? 0.0f : slide.y;
+            float vx = velocity(0) - sx, vy = velocity(1) - sy, vz = airborne ? velocity(2) : 0.0f, ax = 0, ay = 0;
             float px = 0, py = 0, z = 0;
             Vec2  prev{};
             float prevZ = 0, prevT = 0;
@@ -353,17 +359,19 @@ namespace CB::feature {
                         spd = drive.accel > 0.0f && target > spd + threshold ? (std::min)(target, spd + drive.accel * h) : target;
                         d   = { spd * std::cos(f), spd * std::sin(f) };
                     }
-                    const float ox = vx, oy = vy, oz = vz;
+                    const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
+                        ch::ClipUphill(prevFloor, d.x, d.y);
                         ch::SpringDamperExact(vx, ax, d.x, kVelocityHalflife, h);
                         ch::SpringDamperExact(vy, ay, d.y, kVelocityHalflife, h);
+                        if (!blocked) ch::SlideStep(prevFloor, gx, gy, gz, sx, sy, h);
                     } else {
                         vz -= gravity * (vz > 0.0f ? 1.0f : fallMult) * h;
                         z += (oz + vz) * 0.5f * h;
                     }
                     if (!blocked) {
-                        px += (ox + vx) * 0.5f * h;
-                        py += (oy + vy) * 0.5f * h;
+                        px += (ox + vx + sx) * 0.5f * h;
+                        py += (oy + vy + sy) * 0.5f * h;
                     }
                 }
 
@@ -373,6 +381,8 @@ namespace CB::feature {
                     floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
                     if (floor.ground == ch::Ground::Airborne) {
                         airborne = true;
+                        vx += sx, vy += sy;
+                        sx = sy = 0.0f;
                         vz       = -gravity * fallMult * kPathStep;
                         z        = prevZ - 0.5f * gravity * fallMult * kPathStep * kPathStep;
                     }
@@ -402,7 +412,7 @@ namespace CB::feature {
                         if (!airborne) floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
                         else           z = prevZ + (z - prevZ) * b;
                         px = at.x, py = at.y;
-                        vx = vy = ax = ay = 0.0f;
+                        vx = vy = ax = ay = sx = sy = 0.0f;
                         path.blocked   = true;
                         path.blockedAt = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
                     }
@@ -568,7 +578,9 @@ namespace CB::feature {
 
             std::array<Vec2, kFutureSamples> world{};
             Path                             path;
-            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, drive, iState, world, path);
+            Vec2 slide{};
+            ch::PublishedSlide(ctrl, slide.x, slide.y);
+            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, slide, drive, iState, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
             if (ch::hud::On()) {
                 ch::hud::Prediction h;
