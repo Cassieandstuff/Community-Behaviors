@@ -61,8 +61,8 @@ namespace CB::feature::controller {
     struct FloorVerdict {
         Ground                   ground    = Ground::Airborne;
         float                    support   = 0;       ///< 0-1 from the averaged normal's slope (Support); 0 when Airborne
-        bool                     stickable = false;   ///< a walkable hit within probe depth below the feet (M8)
-        float                    stickDz   = 0;       ///< the highest walkable hit below the foot tolerance (negative)
+        bool                     stickable = false;   ///< a floor-like hit (walls and characters excluded) within probe depth below the feet (M8)
+        float                    stickDz   = 0;       ///< the highest such hit below the foot tolerance (negative)
         float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it)
         const hk::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         int                      supportHits = 0, walkableHits = 0;

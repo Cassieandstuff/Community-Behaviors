@@ -65,6 +65,12 @@ namespace CB::feature {
         constexpr float kSweepStartTolerance = 0.005f;
         /// @brief How far a blocked sample backs off from the hit along its segment (Havok units, under 1 game unit).
         constexpr float kBlockBackoff = 0.01f;
+        /// @brief Collide and slide: at most this many slides along hit surfaces per leg; a hit that leaves less than
+        ///        kHeadOn of the remaining move along the surface (within about 15 deg of head-on) blocks; a remainder
+        ///        shorter than kMinSlide (Havok units) is arrived.
+        constexpr int   kMaxSlides = 3;
+        constexpr float kHeadOn    = 0.25f;
+        constexpr float kMinSlide  = 0.005f;
         /// @brief Collision layers the sweep passes through: other characters (layer 30) are dynamic and move away.
         constexpr std::uint64_t kIgnoreLayers = 1ull << ch::kCharControllerLayer;
 
@@ -103,6 +109,9 @@ namespace CB::feature {
             float                              velForward = 0, velSide = 0;   ///< current velocity, Havok units/s
             float                              desiredForward = 0, desiredSide = 0;
             float                              blockedAt = -1.0f;   ///< seconds to the first impassable hit, -1 for none
+            float                              hitNz     = 0.0f;    ///< the last surface the path met: its normal z,
+            int                                hitLayer  = -1;      ///< collision layer (-1 none or unknown)
+            int                                hitSlides = 0;       ///< and how many slides along that leg came before it
         };
 
         /// @brief How the predicted character steers.
@@ -381,7 +390,12 @@ namespace CB::feature {
 
                 Vec2             at{ px, py };
                 ch::FloorVerdict floor;
-                if (!airborne) {
+                /// @note Held at a block, a grounded sample keeps its height and floor: settling again at the same spot
+                ///       climbed the obstacle (the highest floor-like hit reaches a hull radius above the feet).
+                if (!airborne && blocked) {
+                    floor = prevFloor;
+                    z     = prevZ;
+                } else if (!airborne) {
                     floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
                     if (floor.ground == ch::Ground::Airborne) {
                         airborne = true;
@@ -401,21 +415,68 @@ namespace CB::feature {
                         floor = ch::FloorVerdict{};
                     }
                 }
+                /// @note Collide and slide, as the proxy moves: a hit takes the leg to the surface, the rest of the leg is
+                ///       projected along it and swept again (up to kMaxSlides times), and the velocities lose their part
+                ///       into it. Only a head-on hit (almost nothing left along the surface) blocks. Stopping at every hit
+                ///       drew an X at the root whenever a face already brushed the hull's side at the lifted start.
                 if (!blocked) {
-                    hk::hkVector4 from, to;
-                    from.set(origin(0) + prev.x, origin(1) + prev.y, origin(2) + prevZ + lift, 0.0f);
-                    to.set(origin(0) + at.x, origin(1) + at.y, origin(2) + z + lift, 0.0f);
-                    const ch::SweepHit hit = ch::SweepFrom(hull.world, hull.collidable, from, to, kSweepStartTolerance, ctrl.m_zNormal, kIgnoreLayers);
-                    if (hit.hit) {
-                        const float dx = at.x - prev.x, dy = at.y - prev.y;
+                    const Vec2  start     = at;
+                    const float legLen    = std::sqrt((at.x - prev.x) * (at.x - prev.x) + (at.y - prev.y) * (at.y - prev.y));
+                    Vec2        from      = prev, to = at;
+                    float       fromZ     = prevZ, toZ = z;
+                    float       travelled = 0.0f;
+                    for (int slide = 0;; slide++) {
+                        hk::hkVector4 a, b;
+                        a.set(origin(0) + from.x, origin(1) + from.y, origin(2) + fromZ + lift, 0.0f);
+                        b.set(origin(0) + to.x, origin(1) + to.y, origin(2) + toZ + lift, 0.0f);
+                        const ch::SweepHit hit = ch::SweepFrom(hull.world, hull.collidable, a, b, kSweepStartTolerance, ctrl.m_zNormal, kIgnoreLayers);
+                        const float dx = to.x - from.x, dy = to.y - from.y;
                         const float len = std::sqrt(dx * dx + dy * dy);
-                        const float b   = (std::max)(0.0f, hit.fraction - (len > 1.0e-6f ? kBlockBackoff / len : 0.0f));
-                        blocked         = true;
-                        tr.blockedAt    = prevT + kPathStep * hit.fraction;
-                        at              = { prev.x + dx * b, prev.y + dy * b };
-                        if (!airborne) floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
-                        else           z = prevZ + (z - prevZ) * b;
+                        if (!hit.hit) {
+                            at = to, z = airborne ? toZ : z;
+                            break;
+                        }
+                        const float back    = (std::max)(0.0f, hit.fraction - (len > 1.0e-6f ? kBlockBackoff / len : 0.0f));
+                        const Vec2  contact = { from.x + dx * back, from.y + dy * back };
+                        const float contactZ = fromZ + (toZ - fromZ) * back;
+                        travelled += len * back;
+                        const hk::hkVector4& n = hit.contact.m_separatingNormal;
+                        tr.hitNz     = n(2);
+                        tr.hitLayer  = hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1;
+                        tr.hitSlides = slide;
+                        Vec2        rest   = { to.x - contact.x, to.y - contact.y };
+                        const float before = std::sqrt(rest.x * rest.x + rest.y * rest.y);
+                        const float nl     = std::sqrt(n(0) * n(0) + n(1) * n(1));
+                        if (nl > 1.0e-4f) {
+                            const Vec2 nh{ n(0) / nl, n(1) / nl };
+                            auto unInto = [&nh](float& x, float& y) {
+                                const float into = x * nh.x + y * nh.y;
+                                if (into < 0.0f) x -= into * nh.x, y -= into * nh.y;
+                            };
+                            unInto(rest.x, rest.y);
+                            unInto(vx, vy);
+                            unInto(sx, sy);
+                        }
+                        const float after = std::sqrt(rest.x * rest.x + rest.y * rest.y);
+                        if (before < kMinSlide) {
+                            at = contact, z = airborne ? contactZ : z;
+                            break;
+                        }
+                        if (after < kHeadOn * before || slide == kMaxSlides) {
+                            blocked      = true;
+                            at           = contact;
+                            z            = airborne ? contactZ : z;
+                            tr.blockedAt = prevT + kPathStep * (legLen > 1.0e-6f ? (std::min)(1.0f, travelled / legLen) : 0.0f);
+                            break;
+                        }
+                        from = contact, fromZ = contactZ;
+                        to   = { contact.x + rest.x, contact.y + rest.y };
+                    }
+                    if (at.x != start.x || at.y != start.y) {
                         px = at.x, py = at.y;
+                        if (!airborne) floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                    }
+                    if (blocked) {
                         vx = vy = ax = ay = sx = sy = 0.0f;
                         path.blocked   = true;
                         path.blockedAt = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
@@ -457,7 +518,9 @@ namespace CB::feature {
                      why, s.clock, tr.iState, tr.velForward * kGameUnitsPerHavok, tr.velSide * kGameUnitsPerHavok,
                      tr.desiredForward * kGameUnitsPerHavok, tr.desiredSide * kGameUnitsPerHavok, fmtSample(tr.past), fmtSample(tr.future[0]),
                      fmtSample(tr.future[1]), fmtSample(tr.future[2]),
-                     tr.blockedAt < 0 ? std::string("no") : std::format("at {:.2f} s", tr.blockedAt));
+                     tr.blockedAt < 0 ? std::string("no")
+                                      : std::format("at {:.2f} s (hit n.z {:.2f} layer {} after {} slides)", tr.blockedAt, tr.hitNz, tr.hitLayer,
+                                                    tr.hitSlides));
         }
 
         /// @brief Scores every pending prediction whose sample time fell inside the last step, against the actual

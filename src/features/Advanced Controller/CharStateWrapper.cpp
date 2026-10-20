@@ -83,6 +83,12 @@ namespace CB::feature {
         constexpr float kGroundHalflife = 0.08f;
         /// @brief G2: how long after walking off a jump request is still honoured (seconds).
         constexpr float kCoyoteTime = 0.1f;
+        /// @brief G4: a character that loses the ground while rising slower than this (Havok units/s, about 35 game
+        ///        units/s) is following the ground, not launching, and sticks to ground within the probe.
+        /// @note Why not 0: the ground step lays the velocity along the slope, so walking up uneven ground rises a little
+        ///       every step; requiring vz <= 0 sent 18 such walk-offs in one session airborne for a few hundredths of a
+        ///       second, bouncing the character between ground and air (and the fall animation with it) for up to 2 s.
+        constexpr float kStickMaxRise = 0.5f;
         /// @brief G6: the step vanilla InAir's per-step gain was tuned at; the gain becomes a halflife at this rate so
         ///        air control no longer depends on the frame rate.
         /// @note Assumed 60 Hz (vanilla's usual physics step); unverified against bhkWorld's step time.
@@ -614,8 +620,8 @@ namespace CB::feature {
                 } else if (fv.ground != ch::Ground::Airborne) {
                     /// @note Any ground under the feet keeps the character Grounded; how much it holds them up is the
                     ///       verdict's support, which the slide and the uphill clip read.
-                } else if (vz <= 0.0f && fv.stickable) {
-                    /// @note G4/M8: walked off support while not rising, a walkable floor within the probe: stick to it.
+                } else if (vz <= kStickMaxRise && fv.stickable) {
+                    /// @note G4/M8: walked off support while not launching, ground within the probe: stick to it.
                     if (LogBudget()) LOG_INFO("ground states: stick {:.3f} down in {} (vz {:.2f})", fv.stickDz, Name(t.mode), vz);
                     Stick(c, fv.stickDz);
                     t.mode = Mode::Grounded;

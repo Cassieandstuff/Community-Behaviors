@@ -125,7 +125,7 @@ namespace CB::feature::controller {
                     ++v.walkableHits;
                     if (!v.supportBody) v.supportBody = h.body;
                 }
-            } else if (walkable) {
+            } else {
                 v.stickable = true;
                 v.stickDz   = (std::max)(v.stickDz, h.dz);
             }
