@@ -123,7 +123,7 @@ namespace CB::core::debug {
           "Facing (through True Directional Movement)",
           "While True Directional Movement is in its directional mode, CB holds TDM's yaw control and turns the player "
           "with its own facing spring toward the stick's camera-relative direction — the model the predictor uses. "
-          "TDM keeps its camera, input rewrite and target lock. Needs TDM (API V5); off without it. Unproven in game." },
+          "TDM keeps its camera, input rewrite and target lock. Needs TDM (API V3); off without it. Unproven in game." },
         { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
           "Character debug HUD",
           "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "

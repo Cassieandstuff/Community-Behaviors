@@ -17,7 +17,7 @@
 ///        agree. TDM keeps everything else: its free-rotation camera and camera compensation, the forward-only input
 ///        rewrite, target lock (CB releases control outside the directional mode).
 /// @note Without TDM the feature stays off (logged once). Yaw control is requested with multiplier 0, so TDM applies
-///       CB's yaw at once and the turning dynamics are CB's spring, not TDM's rotation speed.
+///       CB's yaw at once and the turning dynamics are CB's spring, not TDM's rotation speed. Needs TDM's API V3.
 /// @warning TDM answers BadThread off its own thread: every API call goes through OnTdmThread.
 
 namespace CB::feature::controller {
@@ -32,12 +32,14 @@ namespace CB::feature::controller {
         constexpr float kStickDeadzone = 0.1f;
         constexpr float kTwoPi         = 6.2831853f;
 
-        TDM_API::IVTDM5* Api()
+        /// @note V3 is the newest interface CB needs (V2's yaw control, V3's mode and unaltered input), and the one to
+        ///       ask for: TDM refuses a version newer than its own (v2.2.6 answers V5 with "wrong interface version").
+        TDM_API::IVTDM3* Api()
         {
-            static TDM_API::IVTDM5* const api = [] {
-                auto* p = static_cast<TDM_API::IVTDM5*>(TDM_API::RequestPluginAPI(TDM_API::InterfaceVersion::V5));
-                if (p) LOG_INFO("facing: True Directional Movement API V5 acquired (TDM thread {})", p->GetTDMThreadId());
-                else   LOG_WARN("facing: True Directional Movement (V5 API) not found — CB's facing stays off");
+            static TDM_API::IVTDM3* const api = [] {
+                auto* p = static_cast<TDM_API::IVTDM3*>(TDM_API::RequestPluginAPI(TDM_API::InterfaceVersion::V3));
+                if (p) LOG_INFO("facing: True Directional Movement API V3 acquired (TDM thread {})", p->GetTDMThreadId());
+                else   LOG_WARN("facing: True Directional Movement (V3 API) not found — CB's facing stays off");
                 return p;
             }();
             return api;
@@ -65,7 +67,7 @@ namespace CB::feature::controller {
 
         /// @brief Runs `fn` on TDM's thread: now when this is it, else as an SKSE task (the main thread).
         template <class Fn>
-        void OnTdmThread(TDM_API::IVTDM5* api, Fn fn)
+        void OnTdmThread(TDM_API::IVTDM3* api, Fn fn)
         {
             if (::GetCurrentThreadId() == api->GetTDMThreadId()) return fn();
             bool expected = false;
@@ -75,7 +77,7 @@ namespace CB::feature::controller {
             SKSE::GetTaskInterface()->AddTask(fn);
         }
 
-        void Control(TDM_API::IVTDM5* api, bool want, float yaw)
+        void Control(TDM_API::IVTDM3* api, bool want, float yaw)
         {
             OnTdmThread(api, [api, want, yaw] {
                 const auto handle = SKSE::GetPluginHandle();
