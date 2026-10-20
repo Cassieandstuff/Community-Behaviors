@@ -1,0 +1,8 @@
+id: 0000x0001
+class: hkbManualSelectorGenerator
+variableBindingSet:
+  indexOfBindingToEnable: -1
+userData: 0
+name: 'MM_Gate'
+selectedGeneratorIndex: 0
+currentGeneratorIndex: 0

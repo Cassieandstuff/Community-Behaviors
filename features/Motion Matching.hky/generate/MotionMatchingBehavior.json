@@ -1,0 +1,10 @@
+{
+  "generator": "clipSelectorBehavior",
+  "from": "Animations.hky",
+  "clips": "meshes/actors/character/animations/MotionMatching/",
+  "rosterRoot": "meshes/actors/character/",
+  "out": "meshes/actors/character/behaviors/MotionMatching.hkx",
+  "selectorName": "MM_ClipSelector",
+  "clipVariable": "MM_Clip",
+  "timeVariable": "MM_Time"
+}

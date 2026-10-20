@@ -8,7 +8,9 @@
 //   hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]
 //                                                         seed one motion-matching tag config per animation
 //   hky-tool assemble    <featureDir> <injectables.json> -o <out.hky>
-//                                                         partitions + loose files + inject configs -> one .hky
+//                                                         partitions + loose files + generators + inject configs
+//   hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>
+//                                                         merge + serialize every unit as the game's compile does
 //
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
@@ -17,7 +19,10 @@
 #include <codec/format/AnimationYamlLoader.h>
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
+#include <decompile/BehaviorDecompile.h>
 #include <disk/Disk.h>
+#include <interface/MasterTable.h>
+#include <interface/reflection/HavokSchema.h>
 #include <exec/Parallel.h>
 #include <text/Text.h>
 
@@ -26,6 +31,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -672,6 +678,166 @@ Table LoadTable(const std::string& tablePath) {
 
 }  // namespace assemble
 
+/// @brief The build's config-driven GENERATORS: `generate/**/*.json` configs name a generator kind this tool knows and
+///        its parameters, and the generator writes new files into the bundle from a partition's content, so what is
+///        derived from the clips (a behavior over them, the rosters naming them) can never drift from them.
+namespace generate {
+
+using Json = assemble::Json;
+
+/// @brief One animation a generator works over: its path in the bundle and its roster name.
+struct Clip {
+    std::string path;     ///< original-case path in the bundle
+    std::string roster;   ///< the path below `rosterRoot`, backslashed: the roster entry and the clip's animationName
+    std::string stem;     ///< the file name without `.hkx`
+};
+
+std::string Quote(std::string_view s) {
+    std::string out = "'";
+    for (const char c : s) out += c == '\'' ? std::string("''") : std::string(1, c);
+    return out + "'";
+}
+
+/// @brief A self-owned FormID (`0000x…`), the id a node a bundle adds carries.
+std::string OwnId(unsigned local) {
+    char b[16];
+    std::snprintf(b, sizeof(b), "0000x%04x", local);
+    return b;
+}
+
+/// @brief The config's parameters, with exactly `keys` present and every one a string unless listed in `other`.
+void ExpectKeys(const Json& j, std::initializer_list<const char*> keys, std::initializer_list<const char*> other = {}) {
+    if (!j.is_object()) throw std::runtime_error("not an object");
+    for (const auto& [k, v] : j.items()) {
+        const bool known = std::any_of(keys.begin(), keys.end(), [&](const char* x) { return k == x; }) ||
+                           std::any_of(other.begin(), other.end(), [&](const char* x) { return k == x; });
+        if (!known) throw std::runtime_error("unknown parameter '" + k + "'");
+    }
+    for (const char* k : keys) {
+        if (!j.contains(k)) throw std::runtime_error(std::string("missing parameter '") + k + "'");
+        if (!j[k].is_string() || j[k].get<std::string>().empty()) throw std::runtime_error(std::string("'") + k + "' is not a non-empty string");
+    }
+    for (const char* k : other)
+        if (!j.contains(k)) throw std::runtime_error(std::string("missing parameter '") + k + "'");
+}
+
+/// @brief The partition's animations under `prefix`, sorted by path: the ORDER every generator over the same clips
+///        shares (a selector's child index is this index).
+/// @note  `prefix` and `rosterRoot` match by path identity; the roster names keep the bundle's original case.
+std::vector<Clip> ClipsUnder(const CB::engine::codec::HkyArchive& arc, const std::string& prefix, const std::string& rosterRoot) {
+    using CB::engine::codec::resource::HasExt;
+    using CB::engine::codec::resource::PathKey;
+    const std::string want = PathKey(prefix), root = PathKey(rosterRoot);
+    if (!want.starts_with(root)) throw std::runtime_error("'clips' is not below 'rosterRoot'");
+    std::vector<Clip> clips;
+    for (const auto& path : arc.filesUnderOrig("")) {
+        if (!HasExt(path, ".hkx") || !PathKey(path).starts_with(want)) continue;
+        std::string roster = path.substr(root.size());
+        std::replace(roster.begin(), roster.end(), '/', '\\');
+        const auto slash = path.rfind('/');
+        clips.push_back({ path, std::move(roster), path.substr(slash + 1, path.size() - slash - 1 - 4) });
+    }
+    std::sort(clips.begin(), clips.end(), [](const Clip& a, const Clip& b) { return a.path < b.path; });
+    if (clips.empty()) throw std::runtime_error("no animations under '" + prefix + "'");
+    return clips;
+}
+
+using Files = std::vector<std::pair<std::string, std::string>>;
+
+/// @brief `clipSelectorBehavior`: a complete behavior unit whose root is a manual selector over one clip per
+///        animation, the selected child bound to `clipVariable` and every child's user-controlled time to
+///        `timeVariable` (only the selected child plays, so one shared time is safe).
+/// @note  The unit's own ids: 0000x0001 the root container, 0000x0002 the selector, 0000x0003+ the clips in clip
+///        order. Both variables are declared here; a graph that references this one shares them by name.
+Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips) {
+    const auto out = j["out"].get<std::string>(), selector = j["selectorName"].get<std::string>();
+    const auto clipVar = j["clipVariable"].get<std::string>(), timeVar = j["timeVariable"].get<std::string>();
+    const auto slash = out.rfind('/');
+    std::string graphName = out.substr(slash == std::string::npos ? 0 : slash + 1);
+    if (!CB::engine::codec::resource::HasExt(graphName, ".hkx")) throw std::runtime_error("'out' is not a .hkx unit path");
+    graphName = graphName.substr(0, graphName.size() - 4) + ".hkb";
+
+    Files files;
+    files.emplace_back(out + "/graph.yaml",
+        "id: " + OwnId(1) + "\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbBehaviorGraph':\n"
+        "    className: 'hkbBehaviorGraph'\n    variant:\n      class: hkbBehaviorGraph\n      userData: 0\n"
+        "      name: " + Quote(graphName) + "\n      variableMode: VARIABLE_MODE_DISCARD_WHEN_INACTIVE\n"
+        "      rootGenerator: " + OwnId(2) + "\n      data:\n        variables:\n"
+        "          " + Quote(clipVar) + ": {type: VARIABLE_TYPE_INT32, value: 0}\n"
+        "          " + Quote(timeVar) + ": {type: VARIABLE_TYPE_REAL, value: 0}\n"
+        "        characterProperties: {}\n        events: {}\n        attributes: {}\n");
+
+    const std::string sel = out + "/selectors/" + OwnId(2) + "/";
+    files.emplace_back(sel + OwnId(2) + ".yaml",
+        "id: " + OwnId(2) + "\nclass: hkbManualSelectorGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n"
+        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\n");
+    std::string children;
+    for (std::size_t i = 0; i < clips.size(); ++i)
+        children += Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
+    files.emplace_back(sel + "generators.yaml", children);
+    files.emplace_back(sel + "variableBindingSet.bindings.yaml",
+        "'selectedGeneratorIndex':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
+        "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
+
+    for (std::size_t i = 0; i < clips.size(); ++i) {
+        const std::string id = OwnId(static_cast<unsigned>(i + 3)), dir = out + "/clips/" + id + "/";
+        files.emplace_back(dir + id + ".yaml",
+            "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\nuserData: 0\n"
+            "name: " + Quote(clips[i].stem) + "\nanimationName: " + Quote(clips[i].roster) + "\n"
+            "cropStartAmountLocalTime: 0\ncropEndAmountLocalTime: 0\nstartTime: 0\nplaybackSpeed: 1\nenforcedDuration: 0\n"
+            "userControlledTimeFraction: 0\nanimationBindingIndex: -1\nmode: MODE_USER_CONTROLLED\nflags: 0\n");
+        files.emplace_back(dir + "variableBindingSet.bindings.yaml",
+            "'userControlledTimeFraction':\n  variableIndex: 1\n  variable: " + Quote(timeVar) +
+            "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
+    }
+    return files;
+}
+
+/// @brief `rosterPatch`: one patch unit per listed character adding every animation to its roster.
+/// @note  A roster is a union: the patch names only what it adds. The same list goes to every character, since
+///        characters sharing a graph need identical slot sets (a slot is keyed by file name).
+Files RosterPatch(const Json& j, const std::vector<Clip>& clips) {
+    const Json& chars = j["characters"];
+    if (!chars.is_array() || chars.empty()) throw std::runtime_error("'characters' is not a non-empty list");
+    std::string names;
+    for (const auto& c : clips) names += (names.empty() ? "" : ", ") + Quote(c.roster);
+    Files files;
+    for (const auto& c : chars) {
+        ExpectKeys(c, { "path", "root" });
+        const auto root = c["root"].get<std::string>();
+        const bool formId = root.size() == 9 && root[4] == 'x' &&
+                            std::all_of(root.begin(), root.end(), [](char ch) { return ch == 'x' || std::isxdigit(static_cast<unsigned char>(ch)); });
+        if (!formId) throw std::runtime_error("'" + root + "' is not a FormID like 0001x000b");
+        files.emplace_back(c["path"].get<std::string>() + "/graph.yaml",
+            "id: " + root + "\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbCharacterData':\n    variant:\n"
+            "      stringData:\n        animationNames: [" + names + "]\n");
+    }
+    return files;
+}
+
+/// @brief One config run: its files, from the partition it names.
+/// @throws std::runtime_error with why, on an unknown generator or a bad parameter.
+Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine::codec::HkyArchive>>& partitions) {
+    if (!j.is_object() || !j.contains("generator") || !j["generator"].is_string())
+        throw std::runtime_error("not {\"generator\": <kind>, ...}");
+    const auto kind = j["generator"].get<std::string>();
+    Json params = j;
+    params.erase("generator");
+    if (kind == "clipSelectorBehavior")
+        ExpectKeys(params, { "from", "clips", "rosterRoot", "out", "selectorName", "clipVariable", "timeVariable" });
+    else if (kind == "rosterPatch")
+        ExpectKeys(params, { "from", "clips", "rosterRoot" }, { "characters" });
+    else
+        throw std::runtime_error("unknown generator '" + kind + "' (known: clipSelectorBehavior, rosterPatch)");
+    const auto from = params["from"].get<std::string>();
+    const auto p    = partitions.find(from);
+    if (p == partitions.end()) throw std::runtime_error("no partition '" + from + "' in the feature");
+    const auto clips = ClipsUnder(*p->second, params["clips"].get<std::string>(), params["rosterRoot"].get<std::string>());
+    return kind == "clipSelectorBehavior" ? ClipSelectorBehavior(params, clips) : RosterPatch(params, clips);
+}
+
+}  // namespace generate
+
 /// @brief `assemble`: a feature folder in the repo -> its shipped .hky. Every `*.hky` at the folder's top is a
 ///        partition, `inject/` holds the configs, and everything else (manifest.json, loose trees) ships at its path.
 /// @note  Every failure is a hard error, never a skip: a config naming a missing path, two configs for one file's
@@ -712,8 +878,8 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     };
 
     const fs::path root = fs::absolute(fs::path(dir));
-    fs::path       injectRoot;
-    std::vector<std::shared_ptr<HkyArchive>> partitions;
+    fs::path       injectRoot, generateRoot;
+    std::map<std::string, std::shared_ptr<HkyArchive>> partitions;
     std::size_t    loose = 0;
     std::error_code ec;
     std::vector<fs::directory_entry> top;
@@ -724,6 +890,7 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
         const fs::path    child = root / e.path().filename();
         const std::string fname = e.path().filename().generic_string();
         if (e.is_directory() && fname == "inject") { injectRoot = child; continue; }
+        if (e.is_directory() && fname == "generate") { generateRoot = child; continue; }
         if (e.is_regular_file() && HasExt(fname, ".hky")) {
             std::string err;
             auto arc = HkyArchive::LoadFromFile(child.string(), err);
@@ -731,7 +898,7 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
             const auto keys = arc->filesUnder(""), orig = arc->filesUnderOrig("");
             for (std::size_t i = 0; i < keys.size(); ++i)
                 add(orig[i], [arc, k = keys[i]] { return arc->file(k); }, fname);
-            partitions.push_back(std::move(arc));
+            partitions.emplace(fname, std::move(arc));
             continue;
         }
         const auto addLoose = [&](const fs::path& p) {
@@ -745,13 +912,33 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
         if (ec) { std::printf("FAIL: cannot walk '%s': %s\n", child.string().c_str(), ec.message().c_str()); return 1; }
     }
 
-    std::vector<fs::path> configs;
-    if (!injectRoot.empty()) {
-        for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(injectRoot), ec), end; !ec && it != end; it.increment(ec))
+    const auto jsonUnder = [&](const fs::path& folder, std::vector<fs::path>& found) {
+        if (folder.empty()) return true;
+        for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(folder), ec), end; !ec && it != end; it.increment(ec))
             if (it->is_regular_file() && HasExt(it->path().generic_string(), ".json"))
-                configs.push_back(injectRoot / it->path().lexically_relative(CB::engine::disk::LongPath(injectRoot)));
-        if (ec) { std::printf("FAIL: cannot walk '%s': %s\n", injectRoot.string().c_str(), ec.message().c_str()); return 1; }
-        std::sort(configs.begin(), configs.end());
+                found.push_back(folder / it->path().lexically_relative(CB::engine::disk::LongPath(folder)));
+        if (ec) { std::printf("FAIL: cannot walk '%s': %s\n", folder.string().c_str(), ec.message().c_str()); return false; }
+        std::sort(found.begin(), found.end());
+        return true;
+    };
+    std::vector<fs::path> configs, generators;
+    if (!jsonUnder(injectRoot, configs) || !jsonUnder(generateRoot, generators)) return 1;
+
+    /// @note Generators run before injection, so an inject config may target a generated file like any other.
+    std::size_t generated = 0;
+    for (const auto& g : generators) {
+        const std::string name = g.lexically_relative(generateRoot).generic_string();
+        try {
+            const auto text = CB::engine::disk::ReadFile(g, { .stripBom = true });
+            if (!text) throw std::runtime_error("unreadable");
+            for (auto& [path, content] : generate::Run(assemble::ParseStrict(*text), partitions)) {
+                add(path, [c = std::make_shared<const std::string>(std::move(content))] { return std::optional<std::string>(*c); },
+                    "generator " + name);
+                ++generated;
+            }
+        } catch (const std::exception& e) {
+            errors.push_back("generate/" + name + ": " + e.what());
+        }
     }
 
     std::map<std::pair<std::size_t, std::string>, std::string> slots;
@@ -819,10 +1006,80 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
         return 1;
     }
     if (!HkyArchive::LoadFromFile(out, err)) { std::printf("FAIL: assembled but unreadable: %s\n", err.c_str()); return 1; }
-    std::printf("OK: assemble '%s' -> %s: %zu file(s) from %zu partition(s) + %zu loose; %zu injection(s) from %zu "
-                "config(s) into %zu file(s).\n",
-                dir.c_str(), out.c_str(), total, partitions.size(), loose, injected, configs.size(), targetsTouched);
+    std::printf("OK: assemble '%s' -> %s: %zu file(s) from %zu partition(s) + %zu loose + %zu generated by %zu "
+                "config(s); %zu injection(s) from %zu config(s) into %zu file(s).\n",
+                dir.c_str(), out.c_str(), total, partitions.size(), loose, generated, generators.size(), injected,
+                configs.size(), targetsTouched);
     return 0;
+}
+
+/// @brief `merge-check`: every unit in `bundle` merged onto its base in `base` (a patch unit) or alone (a unit the
+///        bundle owns), then serialized: the compile the game's warm-up runs, offline. Each result is written to
+///        `outDir/<unit>` (the .hkx) and decompiled back beside it as `<unit>.merged/` for inspection.
+/// @note  Bones come from the base's humanoid skeleton, so the check covers graphs on that rig.
+int doMergeCheck(const std::string& basePath, const std::string& bundlePath, const std::string& schemaDir,
+                 const std::string& outDir) {
+    if (basePath.empty() || bundlePath.empty() || schemaDir.empty() || outDir.empty()) {
+        std::printf("usage: hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n");
+        return 2;
+    }
+    namespace fs = std::filesystem;
+    using CB::engine::codec::HkyArchive;
+    using CB::engine::codec::resource::PathKey;
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+
+    std::string err;
+    const auto base = HkyArchive::LoadFromFile(basePath, err);
+    if (!base) { std::printf("FAIL: base: %s\n", err.c_str()); return 1; }
+    const auto bundle = HkyArchive::LoadFromFile(bundlePath, err);
+    if (!bundle) { std::printf("FAIL: bundle: %s\n", err.c_str()); return 1; }
+
+    std::vector<std::string> bones;
+    if (const auto list = base->file(PathKey("meshes/actors/character/character assets/skeleton.hkx/bonelist.yaml"))) {
+        for (std::size_t at = 0; at < list->size();) {
+            const std::size_t end  = (std::min)(list->find('\n', at), list->size());
+            const std::string line = list->substr(at, end - at);
+            const auto a = line.find('"'), b = line.rfind('"');
+            if (line.find("- ") != std::string::npos && a != std::string::npos && b > a) bones.push_back(line.substr(a + 1, b - a - 1));
+            at = end + 1;
+        }
+    }
+    if (bones.empty()) { std::printf("FAIL: no humanoid skeleton bone list in the base\n"); return 1; }
+
+    std::string stem = fs::path(bundlePath).stem().string();
+    stem = PathKey(stem);
+    std::vector<std::string> baseUnits;
+    for (const auto& u : base->units()) baseUnits.push_back(u.prefix);
+    std::sort(baseUnits.begin(), baseUnits.end());
+
+    std::size_t ok = 0, failed = 0;
+    for (const auto& u : bundle->units()) {
+        std::vector<CB::engine::common::LayerSource> layers;
+        const bool patch = std::binary_search(baseUnits.begin(), baseUnits.end(), u.prefix);
+        if (patch) layers.push_back({ base->source(u.prefix), std::string(CB::engine::codec::formid::BASE_GAME_STEM),
+                                      CB::engine::codec::formid::BuildMasterTable(CB::engine::codec::formid::BASE_GAME_STEM, {}, true) });
+        layers.push_back({ bundle->source(u.prefix), stem, CB::engine::codec::formid::BuildMasterTable(stem, {}, true) });
+
+        CB::engine::decompile::ParsedHky graph;
+        std::vector<std::uint8_t>        bytes;
+        const fs::path                   dst = fs::path(outDir) / u.prefix;
+        if (!CB::engine::decompile::MergeLayersReflective(layers, *reg, &bones, graph, err) ||
+            !CB::engine::decompile::SerializeGraph(graph, bytes, err) ||
+            !CB::engine::disk::WriteFile(dst, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), {}, &err) ||
+            !CB::engine::decompile::DecompileBehaviorReflective(bytes, *reg, dst.string() + ".merged", err, &bones)) {
+            std::printf("  FAIL %s (%s): %s\n", u.prefix.c_str(), patch ? "patch" : "own unit", err.c_str());
+            ++failed;
+            continue;
+        }
+        std::printf("  OK   %s (%s): %zu object(s), %zu bytes\n", u.prefix.c_str(), patch ? "patch onto the base" : "own unit",
+                    graph.objects.size(), bytes.size());
+        ++ok;
+    }
+    std::printf("%s: merge-check '%s': %zu unit(s) merged and serialized, %zu failed.\n", failed ? "FAIL" : "OK",
+                bundlePath.c_str(), ok, failed);
+    return failed ? 1 : 0;
 }
 
 void usage() {
@@ -832,7 +1089,8 @@ void usage() {
                 "  hky-tool bsa-list    <in.bsa>    [prefix]\n"
                 "  hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix]\n"
                 "  hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]\n"
-                "  hky-tool assemble    <featureDir> <injectables.json> -o <out.hky>\n");
+                "  hky-tool assemble    <featureDir> <injectables.json> -o <out.hky>\n"
+                "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n");
 }
 
 }  // namespace
@@ -841,12 +1099,13 @@ int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     const std::string verb = argv[1];
 
-    std::string arg, arg2, out;
+    std::string arg, arg2, arg3, out;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) { out = argv[++i]; }
         else if (arg.empty())         { arg = a; }
         else if (arg2.empty())        { arg2 = a; }
+        else if (arg3.empty())        { arg3 = a; }
     }
 
     if (verb == "pack")        return doHkyPack(arg, out);
@@ -855,6 +1114,7 @@ int main(int argc, char** argv) {
     if (verb == "bsa-extract") return doBsaExtract(arg, out, arg2);
     if (verb == "autotag")     return doAutoTag(arg, out, arg2);
     if (verb == "assemble")    return doAssemble(arg, arg2, out);
+    if (verb == "merge-check") return doMergeCheck(arg, arg2, arg3, out);
     usage();
     return 2;
 }

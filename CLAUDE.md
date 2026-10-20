@@ -96,7 +96,10 @@ features/                    authored FEATURE BUNDLES as data — not code (that
                              target depends on it). Inside: PARTITIONS (*.hky at the top: packed YAML trees laid out
                              like a Data folder, e.g. Animations.hky holding meshes/actors/character/animations/...;
                              Git LFS, `git lfs pull` before building; repacked only deliberately with `hky-tool pack`,
-                             never by the build), loose files shipped at their path (manifest.json), and inject/ —
+                             never by the build), loose files shipped at their path (manifest.json, hand-authored
+                             patch units), generate/ — JSON configs naming a generator hky-tool knows (today:
+                             clipSelectorBehavior, rosterPatch) that writes files derived from a partition, so they can
+                             never drift from it — and inject/ —
                              JSON configs {"targets": [{"path", "field", "values"}]} keyed by a file's path inside the
                              bundle, writing the fields tools/hky/injectables.json allows per file kind (today:
                              animation -> tags; anything else fails the build). `hky-tool autotag` seeds tag configs

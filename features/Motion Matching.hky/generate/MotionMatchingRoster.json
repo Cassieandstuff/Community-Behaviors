@@ -1,0 +1,10 @@
+{
+  "generator": "rosterPatch",
+  "from": "Animations.hky",
+  "clips": "meshes/actors/character/animations/MotionMatching/",
+  "rosterRoot": "meshes/actors/character/",
+  "characters": [
+    { "path": "meshes/actors/character/characters/defaultmale.hkx", "root": "0001x000b" },
+    { "path": "meshes/actors/character/characters female/defaultfemale.hkx", "root": "0001x000b" }
+  ]
+}

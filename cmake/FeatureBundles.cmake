@@ -2,11 +2,12 @@
 # Feature bundles — assemble every AUTHORED .hky under features/ at build time.
 #
 # SOURCE: <repo>/features/<Name>.hky/ is a feature's folder: PARTITIONS (*.hky at its top, packed YAML trees laid
-# out like a game Data folder), loose files shipped at their path (manifest.json), and inject/ (JSON configs that
-# write values into fields of the bundle's files, as tools/hky/injectables.json allows per file kind). Unlike the
-# derived bundles (GenerateBaseMaster.cmake) there is nothing to decompile: `hky-tool assemble` streams the
-# partitions, applies the configs and packs <PACKED_DIR>/<Name>.hky, where cb_deploy ships it. A folder with no
-# partitions and no inject/ assembles to a plain pack of its tree.
+# out like a game Data folder), loose files shipped at their path (manifest.json, hand-authored patch units),
+# generate/ (JSON configs naming a generator hky-tool knows, which writes files derived from a partition) and inject/
+# (JSON configs that write values into fields of the bundle's files, as tools/hky/injectables.json allows per file kind).
+# Unlike the derived bundles (GenerateBaseMaster.cmake) there is nothing to decompile: `hky-tool assemble` streams the
+# partitions, runs the generators, applies the configs and packs <PACKED_DIR>/<Name>.hky, where cb_deploy ships
+# it. A folder with no partitions, generate/ or inject/ assembles to a plain pack of its tree.
 # Partitions (and any loose .hkx) are Git LFS objects (.gitattributes): a clone without `git lfs pull` holds pointer
 # stubs, which the guard (CheckLfsPointers.cmake) refuses before assembling, instead of shipping pointer text.
 # A partition is repacked only deliberately (hky-tool pack): a packed .hky is not bit-reproducible, so the build
