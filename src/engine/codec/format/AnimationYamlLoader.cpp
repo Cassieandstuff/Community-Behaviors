@@ -196,6 +196,30 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
         def.motion = std::move(mr);
     }
 
+    /// @note A malformed `tags:` throws rather than loading as no tags: a silently untagged clip is the failure the
+    ///       build's injection exists to prevent.
+    if (hasChild(a, "tags")) {
+        const auto t   = a["tags"];
+        const auto bad = [&](const std::string& why) {
+            return std::runtime_error("AnimationYamlLoader: bad tags in '" + sourceName + "': " + why);
+        };
+        if (!t.is_map()) throw bad("not a map of tag name -> [[start, end], ...]");
+        auto& tags = def.tags.emplace();
+        for (auto tag : t) {
+            std::string name;
+            c4::from_chars(tag.key(), &name);
+            if (!tag.is_seq()) throw bad("'" + name + "' is not a list of ranges");
+            auto& ranges = tags[name];
+            for (auto r : tag) {
+                int  v[2] = { 0, 0 };
+                bool ok   = r.is_seq() && r.num_children() == 2;
+                for (int i = 0; ok && i < 2; ++i) ok = r[i].has_val() && c4::atoi(r[i].val(), &v[i]);
+                if (!ok) throw bad("'" + name + "' has a range that is not [start, end]");
+                ranges.emplace_back(v[0], v[1]);
+            }
+        }
+    }
+
     return def;
 }
 

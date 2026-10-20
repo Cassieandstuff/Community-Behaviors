@@ -8,8 +8,10 @@
 #include "interface/AnimationData.h"   // animdata::MotionRecord
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CB::engine::anim {
@@ -92,6 +94,11 @@ struct AnimationDef {
     ///        actor motion: traps, chair exits). Never extracted. Absent `motion` (and not this) = the root carries the
     ///        actor motion, extracted at compile (RootMotion's ResolveRootMotion).
     bool rootMotionVisual = false;
+
+    /// @brief `tags:` — the motion-matching tags: each name's `[start, end)` frame ranges. Authored-YAML only (no Havok
+    ///        field carries them, so a decompiled clip has none); written by the build's injection (hky-tool assemble).
+    /// @note  nullopt = no `tags:` key; an empty map = the key with no tags. Names are compared byte-exact.
+    std::optional<std::map<std::string, std::vector<std::pair<int, int>>>> tags;
 };
 
 } // namespace CB::engine::anim

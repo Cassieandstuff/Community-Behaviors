@@ -7,6 +7,8 @@
 //   hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix] extract them (archive-stored lowercase paths)
 //   hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]
 //                                                         seed one motion-matching tag config per animation
+//   hky-tool assemble    <featureDir> <injectables.json> -o <out.hky>
+//                                                         partitions + loose files + inject configs -> one .hky
 //
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
@@ -17,6 +19,9 @@
 #include <codec/serialization/HkyArchive.h>
 #include <disk/Disk.h>
 #include <exec/Parallel.h>
+#include <text/Text.h>
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <array>
@@ -24,7 +29,10 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -502,13 +510,329 @@ int doAutoTag(const std::string& in, const std::string& outDir, const std::strin
     return failed ? 1 : 0;
 }
 
+/// @brief The build's config-driven injection: `inject/**/*.json` configs write values into named fields of files in a
+///        feature's partitions, as allowed by the injectables table (tools/hky/injectables.json: file kind -> field ->
+///        value type).
+namespace assemble {
+
+using Json = nlohmann::ordered_json;
+
+/// @brief `text` parsed as JSON, with a key repeated inside one object rejected.
+/// @note  nlohmann keeps the last of two equal keys silently, which would drop a tag's first definition unseen.
+Json ParseStrict(const std::string& text) {
+    std::vector<std::vector<std::string>> open;
+    const Json::parser_callback_t cb = [&](int, Json::parse_event_t ev, Json& parsed) {
+        if (ev == Json::parse_event_t::object_start) open.emplace_back();
+        else if (ev == Json::parse_event_t::object_end && !open.empty()) open.pop_back();
+        else if (ev == Json::parse_event_t::key && !open.empty()) {
+            const auto key = parsed.get<std::string>();
+            if (std::find(open.back().begin(), open.back().end(), key) != open.back().end())
+                throw std::runtime_error("duplicate key \"" + key + "\"");
+            open.back().push_back(key);
+        }
+        return true;
+    };
+    return Json::parse(text, cb);
+}
+
+/// @brief The file kinds the injector knows; a kind in the injectables table must be one of these.
+/// @note  Recognizing a kind is format knowledge, so it lives here; the table only says what each kind may receive.
+enum class Kind { Animation };
+/// @brief The value types a field can take; a type in the injectables table must be one of these.
+enum class Type { RangeMap };
+
+using Table = std::map<Kind, std::map<std::string, Type>>;
+
+/// @brief An animation: a bare `.hkx` FILE (a unit is a `.hkx/` folder) whose YAML root key is `animation`.
+bool IsAnimation(const std::string& path, std::string_view text) {
+    using CB::engine::codec::resource::PathKey;
+    if (!CB::engine::codec::resource::HasExt(path, ".hkx") || PathKey(path).find(".hkx/") != std::string::npos) return false;
+    text = CB::engine::text::StripBom(text);
+    for (std::size_t at = 0; at < text.size();) {
+        const std::size_t end  = (std::min)(text.find('\n', at), text.size());
+        std::string_view  line = text.substr(at, end - at);
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.remove_suffix(1);
+        if (!line.empty() && line.front() != '#') return line == "animation:";
+        at = end + 1;
+    }
+    return false;
+}
+
+/// @brief Empty when `v` fits `type`, else why not.
+/// @note  rangeMap = {name: [[start, end], ...]}, integers, 0 <= start < end. Whether the ranges suit the file (sorted,
+///        inside the clip) is the consumer's check: the injector checks shape only.
+std::string CheckType(Type type, const Json& v) {
+    switch (type) {
+    case Type::RangeMap:
+        if (!v.is_object()) return "a rangeMap is {name: [[start, end], ...]}";
+        for (const auto& [name, ranges] : v.items()) {
+            if (name.empty()) return "an empty name";
+            if (!ranges.is_array()) return "'" + name + "' is not a list of ranges";
+            for (const auto& r : ranges) {
+                if (!r.is_array() || r.size() != 2 || !r[0].is_number_integer() || !r[1].is_number_integer())
+                    return "'" + name + "' has a range that is not [start, end] in whole frames";
+                if (r[0].get<long long>() < 0 || r[0].get<long long>() >= r[1].get<long long>())
+                    return "'" + name + "' has a range that does not run 0 <= start < end: " + r.dump();
+            }
+        }
+        return {};
+    }
+    return "unknown type";
+}
+
+/// @brief `v` as YAML flow text (JSON's own escaping; YAML's double-quoted strings read it the same).
+std::string Flow(const Json& v) {
+    std::string s;
+    if (v.is_object()) {
+        for (const auto& [k, x] : v.items()) s += (s.empty() ? "" : ", ") + Json(k).dump() + ": " + Flow(x);
+        return "{" + s + "}";
+    }
+    if (v.is_array()) {
+        for (const auto& x : v) s += (s.empty() ? "" : ", ") + Flow(x);
+        return "[" + s + "]";
+    }
+    return v.dump();
+}
+
+struct Injection {
+    std::string field;
+    Json        values;
+    std::string config;   ///< the config it came from, for messages
+};
+
+/// @brief `text` with every injection written in, each as a child of the root `animation:` mapping.
+/// @throws std::runtime_error with why, when a field is already present or does not read back as written.
+/// @note  Appended as text, so every other byte of the clip is kept. That relies on `animation:` being the file's last
+///        top-level key with 2-space children; the read-back through the loader proves it for each file.
+std::string InjectAnimation(const std::string& path, std::string text, const std::vector<Injection>& injections) {
+    for (const auto& in : injections) {
+        const std::string key = "  " + in.field + ":";
+        for (std::size_t at = 0; at < text.size();) {
+            const std::size_t end = (std::min)(text.find('\n', at), text.size());
+            if (std::string_view(text).substr(at, end - at).starts_with(key))
+                throw std::runtime_error("already has '" + in.field + "' (" + in.config + ")");
+            at = end + 1;
+        }
+        if (!text.empty() && text.back() != '\n') text += '\n';
+        text += key + " " + Flow(in.values) + "\n";
+    }
+    const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
+    for (const auto& in : injections) {
+        if (in.field != "tags") continue;
+        std::map<std::string, std::vector<std::pair<int, int>>> want;
+        for (const auto& [name, ranges] : in.values.items())
+            for (const auto& r : ranges) want[name].emplace_back(r[0].get<int>(), r[1].get<int>());
+        if (!def.tags || *def.tags != want)
+            throw std::runtime_error("'tags' did not read back as written (is `animation:` the last top-level key?)");
+    }
+    return text;
+}
+
+/// @brief One file's injections applied, after checking its kind and the table.
+std::string Apply(const std::string& path, std::string text, const std::vector<Injection>& injections, const Table& table) {
+    if (!IsAnimation(path, text))
+        throw std::runtime_error("not a file kind the injector knows (animation: a bare .hkx file whose root key is "
+                                 "`animation:`)");
+    static const std::map<std::string, Type> kNone;
+    const auto  row    = table.find(Kind::Animation);
+    const auto& fields = row == table.end() ? kNone : row->second;
+    for (const auto& in : injections) {
+        const auto f = fields.find(in.field);
+        if (f == fields.end())
+            throw std::runtime_error("animation files accept no '" + in.field + "' (injectables.json; " + in.config + ")");
+        if (const auto why = CheckType(f->second, in.values); !why.empty())
+            throw std::runtime_error("'" + in.field + "': " + why + " (" + in.config + ")");
+    }
+    return InjectAnimation(path, std::move(text), injections);
+}
+
+/// @brief The injectables table: {kind: {field: type}}, every kind and type one the injector knows.
+Table LoadTable(const std::string& tablePath) {
+    const auto text = CB::engine::disk::ReadFile(tablePath, { .stripBom = true });
+    if (!text) throw std::runtime_error("cannot read " + tablePath);
+    const Json j = ParseStrict(*text);
+    if (!j.is_object()) throw std::runtime_error(tablePath + ": not {kind: {field: type}}");
+    Table table;
+    for (const auto& [kind, fields] : j.items()) {
+        if (kind != "animation") throw std::runtime_error(tablePath + ": unknown file kind '" + kind + "'");
+        if (!fields.is_object()) throw std::runtime_error(tablePath + ": '" + kind + "' is not {field: type}");
+        auto& row = table[Kind::Animation];
+        for (const auto& [field, type] : fields.items()) {
+            const bool plain = !field.empty() && std::all_of(field.begin(), field.end(), [](char c) {
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+            });
+            if (!plain) throw std::runtime_error(tablePath + ": '" + field + "' is not a plain key name");
+            if (!type.is_string() || type.get<std::string>() != "rangeMap")
+                throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' has an unknown type " + type.dump());
+            row[field] = Type::RangeMap;
+        }
+    }
+    return table;
+}
+
+}  // namespace assemble
+
+/// @brief `assemble`: a feature folder in the repo -> its shipped .hky. Every `*.hky` at the folder's top is a
+///        partition, `inject/` holds the configs, and everything else (manifest.json, loose trees) ships at its path.
+/// @note  Every failure is a hard error, never a skip: a config naming a missing path, two configs for one file's
+///        field, a field the file's kind does not accept, a value of the wrong shape, two sources supplying one path.
+int doAssemble(const std::string& dir, const std::string& tablePath, const std::string& out) {
+    if (dir.empty() || tablePath.empty() || out.empty()) {
+        std::printf("usage: hky-tool assemble <featureDir> <injectables.json> -o <out.hky>\n");
+        return 2;
+    }
+    namespace fs = std::filesystem;
+    using CB::engine::codec::HkyArchive;
+    using CB::engine::codec::resource::HasExt;
+    using CB::engine::codec::resource::PathKey;
+
+    std::vector<std::string> errors;
+    assemble::Table          table;
+    try {
+        table = assemble::LoadTable(tablePath);
+    } catch (const std::exception& e) {
+        std::printf("FAIL: %s\n", e.what());
+        return 1;
+    }
+
+    struct Source {
+        HkyArchive::PackEntry           entry;
+        std::string                     from;   ///< a partition's name or "loose", for messages
+        std::vector<assemble::Injection> injections;
+    };
+    std::vector<Source>                          sources;
+    std::unordered_map<std::string, std::size_t> byKey;
+    const auto add = [&](std::string name, std::function<std::optional<std::string>()> read, const std::string& from) {
+        const auto [it, fresh] = byKey.emplace(PathKey(name), sources.size());
+        if (!fresh) {
+            errors.push_back("'" + name + "' is supplied by both " + sources[it->second].from + " and " + from);
+            return;
+        }
+        sources.push_back({ { std::move(name), std::move(read) }, from, {} });
+    };
+
+    const fs::path root = fs::absolute(fs::path(dir));
+    fs::path       injectRoot;
+    std::vector<std::shared_ptr<HkyArchive>> partitions;
+    std::size_t    loose = 0;
+    std::error_code ec;
+    std::vector<fs::directory_entry> top;
+    for (fs::directory_iterator it(CB::engine::disk::LongPath(root), ec), end; !ec && it != end; it.increment(ec)) top.push_back(*it);
+    if (ec) { std::printf("FAIL: cannot list '%s': %s\n", dir.c_str(), ec.message().c_str()); return 1; }
+    std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.path().filename() < b.path().filename(); });
+    for (const auto& e : top) {
+        const fs::path    child = root / e.path().filename();
+        const std::string fname = e.path().filename().generic_string();
+        if (e.is_directory() && fname == "inject") { injectRoot = child; continue; }
+        if (e.is_regular_file() && HasExt(fname, ".hky")) {
+            std::string err;
+            auto arc = HkyArchive::LoadFromFile(child.string(), err);
+            if (!arc) { std::printf("FAIL: partition %s: %s\n", fname.c_str(), err.c_str()); return 1; }
+            const auto keys = arc->filesUnder(""), orig = arc->filesUnderOrig("");
+            for (std::size_t i = 0; i < keys.size(); ++i)
+                add(orig[i], [arc, k = keys[i]] { return arc->file(k); }, fname);
+            partitions.push_back(std::move(arc));
+            continue;
+        }
+        const auto addLoose = [&](const fs::path& p) {
+            add(p.lexically_relative(root).generic_string(), [p] { return CB::engine::disk::ReadFile(p); }, "loose files");
+            ++loose;
+        };
+        if (e.is_regular_file()) { addLoose(child); continue; }
+        if (e.is_directory())
+            for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(child), ec), end; !ec && it != end; it.increment(ec))
+                if (it->is_regular_file()) addLoose(child / it->path().lexically_relative(CB::engine::disk::LongPath(child)));
+        if (ec) { std::printf("FAIL: cannot walk '%s': %s\n", child.string().c_str(), ec.message().c_str()); return 1; }
+    }
+
+    std::vector<fs::path> configs;
+    if (!injectRoot.empty()) {
+        for (fs::recursive_directory_iterator it(CB::engine::disk::LongPath(injectRoot), ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file() && HasExt(it->path().generic_string(), ".json"))
+                configs.push_back(injectRoot / it->path().lexically_relative(CB::engine::disk::LongPath(injectRoot)));
+        if (ec) { std::printf("FAIL: cannot walk '%s': %s\n", injectRoot.string().c_str(), ec.message().c_str()); return 1; }
+        std::sort(configs.begin(), configs.end());
+    }
+
+    std::map<std::pair<std::size_t, std::string>, std::string> slots;
+    std::size_t injected = 0;
+    for (const auto& c : configs) {
+        const std::string name = c.lexically_relative(injectRoot).generic_string();
+        try {
+            const auto text = CB::engine::disk::ReadFile(c, { .stripBom = true });
+            if (!text) throw std::runtime_error("unreadable");
+            const auto j = assemble::ParseStrict(*text);
+            if (!j.is_object() || j.size() != 1 || !j.contains("targets") || !j["targets"].is_array())
+                throw std::runtime_error("not {\"targets\": [...]}");
+            for (const auto& t : j["targets"]) {
+                if (!t.is_object() || t.size() != 3 || !t.contains("path") || !t.contains("field") || !t.contains("values") ||
+                    !t["path"].is_string() || !t["field"].is_string())
+                    throw std::runtime_error("a target is not {\"path\", \"field\", \"values\"}");
+                const auto path = t["path"].get<std::string>(), field = t["field"].get<std::string>();
+                const auto at   = byKey.find(PathKey(path));
+                if (at == byKey.end()) throw std::runtime_error("no file '" + path + "' in the feature");
+                const auto [slot, fresh] = slots.emplace(std::pair{ at->second, field }, name);
+                if (!fresh) throw std::runtime_error("'" + field + "' of '" + path + "' is also set by " + slot->second);
+                sources[at->second].injections.push_back({ field, t["values"], name });
+                ++injected;
+            }
+        } catch (const std::exception& e) {
+            errors.push_back(name + ": " + e.what());
+        }
+    }
+    if (!errors.empty()) {
+        for (const auto& e : errors) std::printf("  FAIL %s\n", e.c_str());
+        std::printf("FAIL: assemble '%s': %zu error(s), nothing packed.\n", dir.c_str(), errors.size());
+        return 1;
+    }
+
+    std::mutex               failMutex;
+    std::vector<std::string> failures;
+    std::vector<HkyArchive::PackEntry> entries;
+    std::size_t targetsTouched = 0;
+    for (auto& s : sources) {
+        if (!s.injections.empty()) {
+            ++targetsTouched;
+            s.entry.read = [base = std::move(s.entry.read), name = s.entry.name, inj = std::move(s.injections), &table,
+                            &failMutex, &failures]() -> std::optional<std::string> {
+                auto text = base();
+                if (!text) return std::nullopt;
+                try {
+                    return assemble::Apply(name, std::move(*text), inj, table);
+                } catch (const std::exception& e) {
+                    const std::lock_guard lock(failMutex);
+                    failures.push_back(name + ": " + e.what());
+                    return std::nullopt;
+                }
+            };
+        }
+        entries.push_back(std::move(s.entry));
+    }
+
+    const std::size_t total = entries.size();
+    std::string       err;
+    if (!HkyArchive::PackEntries(std::move(entries), out, err)) {
+        /// @note An injection failure surfaces from the pack as an unreadable source; its own message says why.
+        for (const auto& f : failures) std::printf("  FAIL %s\n", f.c_str());
+        if (failures.empty()) std::printf("FAIL: %s\n", err.c_str());
+        else std::printf("FAIL: assemble '%s': %zu error(s), nothing packed.\n", dir.c_str(), failures.size());
+        return 1;
+    }
+    if (!HkyArchive::LoadFromFile(out, err)) { std::printf("FAIL: assembled but unreadable: %s\n", err.c_str()); return 1; }
+    std::printf("OK: assemble '%s' -> %s: %zu file(s) from %zu partition(s) + %zu loose; %zu injection(s) from %zu "
+                "config(s) into %zu file(s).\n",
+                dir.c_str(), out.c_str(), total, partitions.size(), loose, injected, configs.size(), targetsTouched);
+    return 0;
+}
+
 void usage() {
     std::printf("usage:\n"
                 "  hky-tool pack        <bundleDir> -o <out.hky>\n"
                 "  hky-tool unpack      <in.hky>    -o <outDir>\n"
                 "  hky-tool bsa-list    <in.bsa>    [prefix]\n"
                 "  hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix]\n"
-                "  hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]\n");
+                "  hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]\n"
+                "  hky-tool assemble    <featureDir> <injectables.json> -o <out.hky>\n");
 }
 
 }  // namespace
@@ -530,6 +854,7 @@ int main(int argc, char** argv) {
     if (verb == "bsa-list")    return doBsaList(arg, arg2);
     if (verb == "bsa-extract") return doBsaExtract(arg, out, arg2);
     if (verb == "autotag")     return doAutoTag(arg, out, arg2);
+    if (verb == "assemble")    return doAssemble(arg, arg2, out);
     usage();
     return 2;
 }
