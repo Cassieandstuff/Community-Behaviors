@@ -90,6 +90,12 @@ tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch 
                              the exe), x64dbg-autoattach, blender-control-rig. cbmatch/workbench/ = functions still
                              being matched (manifests/workbench.yaml, failures expected); cbmatch/devices/ = matching
                              devices, not Havok files
+features/                    authored FEATURE BUNDLES as data — not code (that is src/features/): one <Name>.hky/
+                             tree per feature, laid out like a Data folder with manifest.json at its root (e.g.
+                             Motion Matching.hky/meshes/actors/character/animations/...). Each .hkx inside is a YAML
+                             compile target (an animation), kept in Git LFS (.gitattributes) — `git lfs pull` before
+                             building. Packed as-is at build time (cmake/FeatureBundles.cmake: an LFS-pointer guard,
+                             then hky-tool pack) into the deploy stage; the plugin target depends on it.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by
                              commit) — a change there bumps its pin. Nothing private goes in include/.
