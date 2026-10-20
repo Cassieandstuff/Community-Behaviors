@@ -13,7 +13,7 @@
 
 namespace CB::feature::controller {
 
-    namespace hk = CB::schema;
+    namespace hk = CB::havok;
 
     constexpr hk::hkUint32 kSupport                     = 1u << 8;    ///< m_flags: UpdatePhysics' verdict
     constexpr hk::hkUint32 kHasPotentialSupportManifold = 1u << 9;

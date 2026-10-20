@@ -1,7 +1,7 @@
 /// @file
 /// @brief Workbench: the functions of hkbHandIkModifier.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Modifier/HandIk/hkbHandIkModifier.cpp.
+///        havok/Behavior/Modifier/HandIk/hkbHandIkModifier.cpp.
 #include <Behavior/Modifier/HandIk/hkbHandIkModifier.h>
 #include <Animation/Rig/hkaPose.h>
 #include <Behavior/Character/hkbCharacter.h>
@@ -13,7 +13,7 @@
 #include <Common/Base/Memory/Util/Stats/hkStatisticsCollector.h>
 #include <Common/Base/Monitor/hkMonitorStream.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @warning The early returns skip HK_TIMER_END (vanilla's, reproduced): the begin marker is left unpaired.
     /// @note Each hand reads its controls from hand IK track i (the hand's position in m_hands): a world-space target

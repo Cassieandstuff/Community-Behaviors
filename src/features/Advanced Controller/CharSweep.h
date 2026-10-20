@@ -16,8 +16,8 @@ namespace CB::feature::controller {
     struct SweepHit {
         bool                       hit      = false;
         float                      fraction = 1.0f;   ///< of the path, 0 to 1
-        CB::schema::hkContactPoint contact{};          ///< on the hit body; normal points away from it
-        const CB::schema::hkpCollidable* body = nullptr;   ///< the hit root collidable
+        CB::havok::hkContactPoint contact{};          ///< on the hit body; normal points away from it
+        const CB::havok::hkpCollidable* body = nullptr;   ///< the hit root collidable
     };
 
     /// @brief Sweeps `collidable`'s shape from its current transform to `to` (Havok world space) and returns the first
@@ -29,14 +29,14 @@ namespace CB::feature::controller {
     /// @note Hits the motion leaves (contact normal . displacement >= 0) are always skipped, as Jolt's
     ///       ContactCastCollector does: the first capture showed a horizontal hull sweep meeting the floor it slides over.
     /// @pre Called where vanilla may query the world (inside the character's update, outside the physics step).
-    SweepHit Sweep(CB::schema::bhkWorld* world, const CB::schema::hkpCollidable* collidable, const CB::schema::hkVector4& to,
+    SweepHit Sweep(CB::havok::bhkWorld* world, const CB::havok::hkpCollidable* collidable, const CB::havok::hkVector4& to,
                    float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0);
 
     /// @brief Sweep with the shape starting at `from` instead of the collidable's current transform (the step query's
     ///        up / forward / down legs, the predictor's later segments).
     /// @param ignoreLayers bit n set = hits on collision layer n are skipped (e.g. 1 << 30, other characters).
     /// @note Implemented by the step query work (CharSweep.cpp); the rotation stays the collidable's.
-    SweepHit SweepFrom(CB::schema::bhkWorld* world, const CB::schema::hkpCollidable* collidable, const CB::schema::hkVector4& from,
-                       const CB::schema::hkVector4& to, float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0);
+    SweepHit SweepFrom(CB::havok::bhkWorld* world, const CB::havok::hkpCollidable* collidable, const CB::havok::hkVector4& from,
+                       const CB::havok::hkVector4& to, float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0);
 
 }  // namespace CB::feature::controller

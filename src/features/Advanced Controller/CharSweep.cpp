@@ -10,7 +10,7 @@ namespace CB::feature::controller {
 
     namespace {
 
-        namespace hk = CB::schema;
+        namespace hk = CB::havok;
 
         /// @brief hkpCdPoint as vanilla's hkpAllCdPointCollector::addCdPoint (0x140b1d930) reads it.
         /// @note 0x40 bytes: the contact is copied whole, the unwelded normal skipped, and each body walked up m_parent

@@ -6,8 +6,8 @@
 #include <cstdint>
 
 /// @file
-/// @brief The schema link shim: what makes schema/Havok's declarations usable from the plugin as written.
-/// @note The plugin compiles schema/Havok's headers but none of its sources (those build into the takeover image),
+/// @brief The schema link shim: what makes havok's declarations usable from the plugin as written.
+/// @note The plugin compiles havok's headers but none of its sources (those build into the takeover image),
 ///       so an out-of-line function or a vanilla global was declared but undefined here. Every engine.yaml row with
 ///       `mangled` closes that gap at link time (cmake/EmbedEngineRegistry.cmake generates the shim): a function's
 ///       decorated name binds (/alternatename) to a jump stub that resolves vanilla's entry on first call and lands

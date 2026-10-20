@@ -7,7 +7,7 @@
 #include <Common/Base/Monitor/hkMonitorStream.h>
 #include <Common/Base/Types/Physics/hkStepInfo.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     int hkpCharacterRigidBody::getSupportInfo(const hkStepInfo& stepInfo, hkArray<SupportInfo>& supportInfo) const
     {

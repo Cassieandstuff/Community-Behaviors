@@ -1,10 +1,10 @@
 /// @file
 /// @brief Workbench: the functions of hkaSplineCompressedAnimation.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimation.cpp.
+///        havok/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimation.cpp.
 #include <Animation/Animation/SplineCompressed/hkaSplineCompressedAnimation.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkaSplineCompressedAnimation::samplePartialWithDataChunks(hkUint32 frameIndex, hkReal delta, hkUint32 maxNumTransformTracks,
                                                                    hkQsTransform* transformTracksOut, hkUint32 maxNumFloatTracks, hkReal* floatTracksOut,

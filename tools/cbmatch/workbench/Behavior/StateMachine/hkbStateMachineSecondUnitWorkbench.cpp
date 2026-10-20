@@ -1,10 +1,10 @@
 /// @file
 /// @brief Workbench: the functions of hkbStateMachineSecondUnit.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/StateMachine/hkbStateMachineSecondUnit.cpp.
+///        havok/Behavior/StateMachine/hkbStateMachineSecondUnit.cpp.
 #include <Behavior/StateMachine/hkbStateMachine.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkbStateMachine::getInternalState(hkReferencedObject& _internalState) const
     {

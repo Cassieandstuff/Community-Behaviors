@@ -26,7 +26,7 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::schema;
+        namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
         using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 

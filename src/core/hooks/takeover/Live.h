@@ -8,7 +8,7 @@
 #include <type_traits>
 
 /// @file
-/// @brief Live<&global>(): a schema/Havok mutable global as the game holds it, named by its own declaration.
+/// @brief Live<&global>(): a havok mutable global as the game holds it, named by its own declaration.
 /// @note The schema shim binds a const global to a copy taken at load. A mutable one (a singleton, a cached setting)
 ///       would go stale as a copy, so its decorated name stays unbound: a direct use, an inline schema function's
 ///       included, fails to link, and Live reads the exe's variable through its engine.yaml pin instead.

@@ -159,10 +159,10 @@ target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 # <core/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
 # (PCH.h, PluginLogger.h), on the path so their bare quoted includes resolve everywhere.
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/pch")
-# schema/Havok last: features call and override the reimplemented classes as declared (the schema link shim).
+# havok last: features call and override the reimplemented classes as declared (the schema link shim).
 # Its roots (<Common/…> <Animation/…> <Behavior/…> <Physics/…>) share no file path with the roots above, so a
 # case-insensitive filesystem can't confuse <Common/…> with the engine's <common/…>.
-target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/schema/Havok")
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/havok")
 
 # Engine symbol registry: src/core/hooks/registry/engine.yaml (the single hand-edited source of every engine
 # address CB uses beyond CommonLib) baked into a constexpr header at build time — see

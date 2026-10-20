@@ -28,7 +28,7 @@
 /// @file
 /// @brief Step 4 of the character controller spec: the proxy's constraint planes, replacing Bethesda's
 ///        processConstraintsCallback for the managed controller (the player's proxy).
-/// @note Ported from the matched bhkCharProxyController::processConstraintsCallback (schema/Havok/.../Bethesda), with
+/// @note Ported from the matched bhkCharProxyController::processConstraintsCallback (havok/.../Bethesda), with
 ///       the spec's rules in place of its per-contact walkability, TryStep and wall planes: blocking follows the
 ///       contact normal only (M1/M2), walkability comes from one floor query per callback, and a steep obstacle above
 ///       the feet gets one vertical plane per body (Jolt CharacterVirtual's rule). Its gameplay side effects (hurtful
@@ -41,7 +41,7 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk  = CB::schema;
+        namespace hk  = CB::havok;
         namespace ch  = CB::feature::controller;
 
         using Process = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;

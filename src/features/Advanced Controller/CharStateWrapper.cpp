@@ -40,7 +40,7 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::schema;
+        namespace hk = CB::havok;
         namespace ch = CB::feature::controller;
         namespace eng        = core::hooks::engine;
         using GetState       = core::hooks::Override<&hk::hkpCharacterStateManager::getState>;

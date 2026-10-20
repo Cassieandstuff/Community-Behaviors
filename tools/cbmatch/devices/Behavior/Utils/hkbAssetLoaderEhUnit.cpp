@@ -5,7 +5,7 @@
 ///       interface's vtable (a trivial implementation's constructor stores it).
 #include <Behavior/Utils/hkbAssetLoader.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     namespace
     {

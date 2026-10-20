@@ -1,7 +1,7 @@
 /// @file
 /// @brief Workbench: the functions of hkbFootIkModifier.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Modifier/FootIk/hkbFootIkModifier.cpp.
+///        havok/Behavior/Modifier/FootIk/hkbFootIkModifier.cpp.
 #include <Behavior/Modifier/FootIk/hkbFootIkModifier.h>
 #include <Animation/Ik/FootPlacement/hkaFootPlacementIkSolver.h>
 #include <Animation/Rig/hkaPose.h>
@@ -14,7 +14,7 @@
 #include <Common/Base/Math/Matrix/hkMatrixNm.h>
 #include <Animation/Ik/FootPlacement/hkaRaycastInterface.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     namespace
     {

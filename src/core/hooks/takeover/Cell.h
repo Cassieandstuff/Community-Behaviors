@@ -15,7 +15,7 @@
 /// @brief The cell table: one dispatch cell per reimplemented Havok function the takeover installed. Every route into
 ///        the vanilla function (vtable slot, direct call, another plugin) reaches its entry jump, which jumps through the
 ///        cell; the cell holds whatever runs it now — CB's implementation, or a chain of feature overrides ending in it.
-/// @note The pristine implementation (schema/Havok, gated against vanilla) is never edited to change behavior: every
+/// @note The pristine implementation (havok, gated against vanilla) is never edited to change behavior: every
 ///       change is an override here, so what is original and what a feature changed stay apart.
 /// @note Same idiom as HookPoint: subscribe `fn(Next next, args...)` with a priority; lower priority runs first and
 ///       outermost; call `next` to continue, or don't to replace.

@@ -4,7 +4,7 @@
 /// @note Not a Havok file: compiled with /EHsc so the same COMDATs come out; newSkeleton only makes the unit emit them.
 #include <Animation/Rig/hkaSkeleton.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @note Matching device only (see the file note).
     hkaSkeleton* hkaSkeletonEhUnit_newSkeleton()

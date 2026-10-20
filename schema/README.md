@@ -80,7 +80,7 @@ editor runtime are additive, not a second refactor.
 `variables/`, `generators/`, `modifiers/`, `statemachine/`, `graph/`, `animation/`, `physics/`,
 `project/`; `gen/` for generated descriptors).
 
-`Havok/` — the reimplemented Havok runtime (`CB::schema::`), one `.h`/`.cpp` per class, laid out like Havok's
+The reimplemented Havok runtime is not part of schema/: it lives in the top-level `havok/` (`CB::havok::`), one `.h`/`.cpp` per class, laid out like Havok's
 own source tree: product roots `Common/Base`, `Animation`, `Behavior`, and below them the paths the exe's
 `__FILE__` strings give (`Generator\Clip\hkbClipGenerator.cpp`, `Mapper\hkaSkeletonMapper.cpp`, …). Bethesda's
 behavior classes sit in the same tree, as in their build. A translation unit is part of what gets matched (what a

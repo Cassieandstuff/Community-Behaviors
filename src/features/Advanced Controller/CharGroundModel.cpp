@@ -28,7 +28,7 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::schema;
+        namespace hk = CB::havok;
         using Process      = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
         using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 

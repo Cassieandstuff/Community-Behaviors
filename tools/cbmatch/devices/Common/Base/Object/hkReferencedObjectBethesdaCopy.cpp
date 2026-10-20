@@ -6,7 +6,7 @@
 ///       VS2017 15.9 (19.16.27054) gives it EXACT.
 #include <Common/Base/hkBase.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @brief Instantiates both vtables, which brings their deleting destructors into this unit.
     hkReferencedObject* hkReferencedObjectBethesdaCopy_instantiate()

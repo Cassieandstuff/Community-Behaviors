@@ -1,10 +1,10 @@
 /// @file
 /// @brief Workbench: the functions of hkaQuantizedAnimation.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Animation/Animation/Quantized/hkaQuantizedAnimation.cpp.
+///        havok/Animation/Animation/Quantized/hkaQuantizedAnimation.cpp.
 #include <Animation/Animation/Quantized/hkaQuantizedAnimation.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkaQuantizedAnimation::sampleFrames(const hkUint8* data, const hkUint8* frameA, const hkUint8* frameB, hkQsTransform* poseOut, hkReal* floatsOut,
                                              hkReal* poseWeightsOut, hkReal* floatWeightsOut, const hkQsTransform* referencePose,

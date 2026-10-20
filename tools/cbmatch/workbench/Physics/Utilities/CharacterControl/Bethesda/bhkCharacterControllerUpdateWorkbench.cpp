@@ -10,7 +10,7 @@
 #include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.h>
 #include <Common/Base/Monitor/hkMonitorStream.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     namespace
     {

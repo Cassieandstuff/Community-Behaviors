@@ -1,14 +1,14 @@
 /// @file
 /// @brief Workbench: the functions of hkbCharacterControllerModifier.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Modifier/CharacterController/hkbCharacterControllerModifier.cpp.
+///        havok/Behavior/Modifier/CharacterController/hkbCharacterControllerModifier.cpp.
 #include <Behavior/Modifier/CharacterController/hkbCharacterControllerModifier.h>
 #include <Behavior/Driver/CharacterController/hkbCharacterControllerDriver.h>
 #include <Behavior/Generator/hkbGeneratorOutput.h>
 #include <Common/Base/Monitor/hkMonitorStream.h>
 #include <Physics/Dynamics/World/hkpWorld.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @note Following the animation, the desired velocity is the motion from the character's world-from-model to the
     ///       generated one (in the old frame, rotated by the generated rotation) over the accumulated timestep.

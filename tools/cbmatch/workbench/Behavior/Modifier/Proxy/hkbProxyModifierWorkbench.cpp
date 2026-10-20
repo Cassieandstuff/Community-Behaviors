@@ -1,7 +1,7 @@
 /// @file
 /// @brief Workbench: the functions of hkbProxyModifier.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Modifier/Proxy/hkbProxyModifier.cpp.
+///        havok/Behavior/Modifier/Proxy/hkbProxyModifier.cpp.
 #include <Behavior/Modifier/Proxy/hkbProxyModifier.h>
 #include <Behavior/Generator/hkbGeneratorOutput.h>
 #include <Physics/Collide/Agent/Query/hkpCdPointCollector.h>
@@ -11,7 +11,7 @@
 #include <Physics/Dynamics/World/hkpWorld.h>
 #include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxy.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkbProxyModifier::computeDesiredVelocity(const hkbContext& context, const hkQsTransform& worldFromModel, hkVector4& desiredVelocityOut)
     {

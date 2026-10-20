@@ -28,7 +28,7 @@ namespace CB::feature {
 
     namespace {
 
-        namespace hk = CB::schema;
+        namespace hk = CB::havok;
         using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         constexpr hk::hkUint32 kSupport                     = 1u << 8;

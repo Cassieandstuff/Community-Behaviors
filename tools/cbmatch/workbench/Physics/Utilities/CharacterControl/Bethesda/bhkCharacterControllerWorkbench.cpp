@@ -12,7 +12,7 @@
 #include <Physics/Collide/Util/hkCollideCapsuleUtil.h>
 #include <Common/Base/Container/LocalArray/hkLocalArray.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     float bhkCharacterController::GetFallDistance()
     {

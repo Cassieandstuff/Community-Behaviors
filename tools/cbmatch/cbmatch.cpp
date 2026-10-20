@@ -4204,11 +4204,11 @@ std::string fileVersion(const fs::path& exe)
            std::to_string(HIWORD(info->dwFileVersionLS)) + "." + std::to_string(LOWORD(info->dwFileVersionLS));
 }
 
-/// @brief The class an undecorated member name belongs to (`CB::schema::hkbClipGenerator::activate` → hkbClipGenerator),
+/// @brief The class an undecorated member name belongs to (`CB::havok::hkbClipGenerator::activate` → hkbClipGenerator),
 ///        or the name's own namespace path for a free function; template arguments stay whole.
 std::string classOf(std::string name)
 {
-    if (name.rfind("CB::schema::", 0) == 0) name.erase(0, 12);
+    if (name.rfind("CB::havok::", 0) == 0) name.erase(0, std::string_view("CB::havok::").size());
     std::size_t last = std::string::npos;
     int         depth = 0;
     for (std::size_t k = 0; k + 1 < name.size(); ++k) {
@@ -4957,12 +4957,12 @@ std::map<std::string, fs::path> classDefinitions(const fs::path& schemaRoot)
             if (e.path().extension() != ".h") continue;
             const auto text = CB::engine::disk::ReadFile(e.path()).value_or("");
             for (std::sregex_iterator it(text.begin(), text.end(), *re), end; it != end; ++it)
-                if ((*it)[1] != "CB" && (*it)[1] != "schema") definedIn.emplace((*it)[1].str(), fs::relative(e.path(), schemaRoot));
+                if ((*it)[1] != "CB" && (*it)[1] != "havok") definedIn.emplace((*it)[1].str(), fs::relative(e.path(), schemaRoot));
         }
     return definedIn;
 }
 
-/// @return the manifest include that holds its unit sources (schema/Havok), or empty.
+/// @return the manifest include that holds its unit sources (havok), or empty.
 fs::path schemaRootOf(const Manifest& m)
 {
     fs::path root;
@@ -4993,7 +4993,7 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
     for (const auto& rc : classes) {
         if (!only.empty() && rc.name.find(only) == std::string::npos) continue;
         if (const auto d = definedIn.find(rc.name); d != definedIn.end()) {
-            checks.push_back({ &rc, "CB::schema::" + rc.name, d->second });
+            checks.push_back({ &rc, "CB::havok::" + rc.name, d->second });
             continue;
         }
         // Outer + nested: the longest defined prefix whose own header also defines the remainder (several classes nest a
@@ -5007,7 +5007,7 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
             const std::regex  nested("(?:class|struct)\\s+(?:__declspec\\((?:[^()]|\\([^()]*\\))*\\)\\s+)?(?:" + rc.name.substr(0, k) + "::)?" +
                                      rc.name.substr(k) + "\\s*(?::[^;{]*)?\\{");
             if (std::regex_search(text, nested)) {
-                checks.push_back({ &rc, "CB::schema::" + rc.name.substr(0, k) + "::" + rc.name.substr(k), outer->second });
+                checks.push_back({ &rc, "CB::havok::" + rc.name.substr(0, k) + "::" + rc.name.substr(k), outer->second });
                 found = true;
             }
         }
@@ -5121,7 +5121,7 @@ int checkLayout(const Manifest& m, const std::vector<ReflectedClass>& classes, c
 
 /// @brief Seeds schema headers from Havok's own reflection: each mapped class becomes a declaration with Havok's member
 ///        names, mapped onto the schema's types, the gaps between reflected members as explicit padding, and its enums.
-///        `map` lines: `Class<TAB>path/relative/to/schema/Havok.h` (several classes may share a header; they are emitted
+///        `map` lines: `Class<TAB>path/relative/to/havok.h` (several classes may share a header; they are emitted
 ///        parents and by-value members first). Writes under `out`; --check-layout then proves what it named.
 /// @note A member whose type the schema lacks (hkFlags' enum view, hkVariant, hkRelArray, hkMatrix3, simple and
 ///       homogeneous arrays, in-place arrays) becomes padding of its size: never a guessed type.
@@ -5333,7 +5333,7 @@ int seedHeaders(const Manifest& m, const std::vector<ReflectedClass>& classes, c
         std::string s = "#pragma once\n\n/// @file\n/// @brief Layouts seeded from Havok's own reflection in the exe (tools/cbmatch --seed-headers): Havok's member names,\n"
                         "///        the gaps as explicit padding; tools/cbmatch --check-layout proves every named member.\n\n";
         for (const auto& inc : includes) if (fs::path(inc) != header) s += "#include <" + inc + ">\n";
-        s += "\nnamespace CB { namespace schema\n{\n";
+        s += "\nnamespace CB { namespace havok\n{\n";
         for (const auto& f : fwds) s += "    " + f + "\n";
         if (!fwds.empty()) s += "\n";
         s += body;
@@ -5443,7 +5443,7 @@ std::string leafOf(const std::string& q)
 }
 
 /// @return a name as an author reads it: no elaborated-type keywords, no namespace qualifiers inside template
-///         arguments (`hkQueue<struct CB::schema::hkbEvent>` → `hkQueue<hkbEvent>`).
+///         arguments (`hkQueue<struct CB::havok::hkbEvent>` → `hkQueue<hkbEvent>`).
 std::string readableOf(std::string s)
 {
     for (const char* w : { "struct ", "class ", "enum ", "union " })
@@ -5482,7 +5482,7 @@ std::string memberName(const Prototype& p)
     return id;
 }
 
-/// @return a parameter's bare type name, for telling overloads apart (`class CB::schema::hkbContext const &` → hkbContext).
+/// @return a parameter's bare type name, for telling overloads apart (`class CB::havok::hkbContext const &` → hkbContext).
 std::string paramTag(std::string q)
 {
     q = readableOf(q);
@@ -5497,7 +5497,7 @@ std::string paramTag(std::string q)
 struct ImageEntry {
     std::string   mangled, status;
     std::uint64_t va = 0, id = 0;
-    fs::path      unitSource;   ///< the TU, relative to the schema/Havok include root
+    fs::path      unitSource;   ///< the TU, relative to the havok include root
 };
 
 /// @brief What `this` points to in each virtual the compiler lays out: `Class::method` → the direct base at its this
@@ -5677,7 +5677,7 @@ std::string memberPointerType(const Prototype& p)
 ///         global: the first header with an `extern` naming it), or empty.
 fs::path declaringHeader(const fs::path& schemaRoot, const std::map<std::string, fs::path>& definedIn, const std::string& cpp)
 {
-    static const std::string prefix = "CB::schema::";
+    static const std::string prefix = "CB::havok::";
     if (cpp.rfind(prefix, 0) != 0) return {};
     const std::string rest  = cpp.substr(prefix.size());
     const std::size_t colon = rest.find("::");
@@ -5715,7 +5715,7 @@ std::string dataHeader(const fs::path& schemaRoot, const std::map<std::string, f
     const fs::path declared = declaringHeader(schemaRoot, definedIn, cpp);
     if (declared.empty()) return {};
     if (!type.empty() && (type.back() == '*' || type.back() == '&')) return declared.generic_string();
-    static const std::regex named(R"(CB::schema::([A-Za-z_]\w*))");
+    static const std::regex named(R"(CB::havok::([A-Za-z_]\w*))");
     std::string headers = declared.generic_string();
     for (std::sregex_iterator it(type.begin(), type.end(), named), end; it != end; ++it) {
         const auto d = definedIn.find((*it)[1].str());
@@ -5747,10 +5747,10 @@ std::size_t emitRegistry(const Manifest& m, const fs::path& registry, const fs::
         std::string why;
         const auto  p = readPrototype(e.mangled, why);
         if (!p) { std::printf("registry: %s left out: %s\n", undecorate(e.mangled).c_str(), why.c_str()); continue; }
-        if (p->owner.rfind("CB::schema::", 0) != 0 && p->owner != "CB::schema") { std::printf("registry: %s left out: outside CB::schema\n", p->full.c_str()); continue; }
+        if (p->owner.rfind("CB::havok::", 0) != 0 && p->owner != "CB::havok") { std::printf("registry: %s left out: outside CB::havok\n", p->full.c_str()); continue; }
         fs::path header;
-        if (p->owner != "CB::schema") {
-            std::string top = p->owner.substr(12);
+        if (p->owner != "CB::havok") {
+            std::string top = p->owner.substr(std::string_view("CB::havok::").size());
             for (std::size_t k = 0, depth = 0; k < top.size(); ++k) {
                 if (top[k] == '<') ++depth;
                 else if (top[k] == '>') --depth;
@@ -5824,8 +5824,8 @@ std::size_t emitRegistry(const Manifest& m, const fs::path& registry, const fs::
         /// @note Override names a declaration from outside its class: only a public member (or a free function) can be named,
         ///       and only when every class it sits in has a header definition (a class a .cpp defines is incomplete).
         if (p.member && p.access != "public") identity = false;
-        if (identity && p.owner != "CB::schema") {
-            std::string path = p.owner.substr(12);
+        if (identity && p.owner != "CB::havok") {
+            std::string path = p.owner.substr(std::string_view("CB::havok::").size());
             for (std::size_t k = 0, depth = 0, start = 0; k <= path.size(); ++k) {
                 if (k < path.size() && path[k] == '<') ++depth;
                 else if (k < path.size() && path[k] == '>') --depth;
@@ -5854,7 +5854,7 @@ std::size_t emitRegistry(const Manifest& m, const fs::path& registry, const fs::
             ++updated;
             continue;
         }
-        std::string name = identifierOf(readableOf(p.owner.size() > 12 ? p.owner.substr(12) : std::string("schema"))) + "_" + memberName(p);
+        std::string name = identifierOf(readableOf(p.owner.size() > std::string_view("CB::havok::").size() ? p.owner.substr(std::string_view("CB::havok::").size()) : std::string("havok"))) + "_" + memberName(p);
         if (qualifiedUses[qualified] > 1) {
             std::string tag;
             for (const auto& q : p.params) tag += "_" + paramTag(q);

@@ -150,7 +150,7 @@ foreach(_l IN LISTS _lines)
             continue()
         endif()
         # A hand row may have no `cpp`, or keep the decorated name there (cbmatch's key for an overload): spell the C++
-        # name from the decoration (`?name@Class@schema@CB@@…` → CB::schema::Class::name). A special or templated name
+        # name from the decoration (`?name@Class@havok@CB@@…` → CB::havok::Class::name). A special or templated name
         # can't be spelled: no Identity.
         if(NOT _cpp OR _cpp MATCHES "^\\?")
             set(_cpp "${_mangled}")
@@ -169,7 +169,7 @@ foreach(_l IN LISTS _lines)
             set(_owner "${CMAKE_MATCH_1}")
         elseif(NOT _sig)
             string(REGEX REPLACE "::[A-Za-z_~][A-Za-z0-9_]*$" "" _owner "${_cpp}")
-            if(_owner STREQUAL "CB::schema")
+            if(_owner STREQUAL "CB::havok")
                 set(_owner "")
             endif()
         endif()
