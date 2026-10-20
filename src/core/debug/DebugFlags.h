@@ -119,6 +119,11 @@ namespace CB::core::debug {
           "rises (walk, run, sprint), it climbs to its target over fRampTime seconds instead of jumping there; "
           "slowing down stays instant. The graph's TargetSpeed gets the unramped speed. Off under bAnimationDriven, "
           "bSpeedSynced and bIsSynced. AE only. Unproven in game." },
+        { "char_facing", FlagKind::IniBool, "Character", "bFacing", false, false,
+          "Facing (through True Directional Movement)",
+          "While True Directional Movement is in its directional mode, CB holds TDM's yaw control and turns the player "
+          "with its own facing spring toward the stick's camera-relative direction — the model the predictor uses. "
+          "TDM keeps its camera, input rewrite and target lock. Needs TDM (API V5); off without it. Unproven in game." },
         { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
           "Character debug HUD",
           "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "

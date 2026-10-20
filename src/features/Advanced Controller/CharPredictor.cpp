@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharDebugHud.h"
+#include "CharFacing.h"
 #include "CharGround.h"
 #include "CharSweep.h"
 
@@ -35,8 +36,7 @@ namespace CB::feature {
         ///          prediction models a different character than the one that runs. That feature has not landed yet;
         ///          change both together.
         constexpr float kVelocityHalflife = 0.08f;
-        /// @brief Halflife of the facing spring toward the desired direction (P2), seconds.
-        constexpr float kFacingHalflife = 0.15f;
+        using ch::kFacingHalflife;
 
         constexpr int   kFutureSamples = 3;
         constexpr float kSampleTimes[kFutureSamples] = { 1.0f / 3.0f, 2.0f / 3.0f, 1.0f };
@@ -418,7 +418,15 @@ namespace CB::feature {
             self->GetLinearVelocityImpl(v);
             const Vec2 velocity{ v(0), v(1) };
             const float vmx = ctrl.m_velocityMod(0), vmy = ctrl.m_velocityMod(1);
-            const Vec2  desired{ vmy * tangent.x + vmx * sideAxis.x, vmy * tangent.y + vmx * sideAxis.y };
+            Vec2        desired{ vmy * tangent.x + vmx * sideAxis.x, vmy * tangent.y + vmx * sideAxis.y };
+            /// @note Under True Directional Movement the game's request is forward-only (TDM rewrites the input and turns
+            ///       the body), so the direction the player is heading for is the stick's: the same goal CharFacing turns
+            ///       the player toward. Skyrim headings run clockwise from +y; the math angle is pi/2 - heading.
+            if (float stick; ch::StickHeading(stick)) {
+                const float speed = std::sqrt(desired.x * desired.x + desired.y * desired.y);
+                const float theta = 1.5707964f - stick;
+                desired           = { speed * std::cos(theta), speed * std::sin(theta) };
+            }
 
             std::int32_t iState = 0;
             if (auto* player = RE::PlayerCharacter::GetSingleton()) {
