@@ -124,7 +124,23 @@ namespace CB::feature {
             bool     hopDecided   = false;   ///< iJumpMode 2: short or full is settled
             bool     released     = false;   ///< Jump came up during this jump's rise
             float    launchHeight = 0.0f;    ///< game units, where the jump left the ground
+            float    jumpHeight   = 0.0f;    ///< Havok units, this jump's full height after the support scaling
+            float    groundSupport = 1.0f;   ///< support at the last Grounded step: a coyote jump's
         };
+
+        /// @brief The fraction of the full jump height a jump from ground of `support` gets: 1 on supporting ground,
+        ///        down to [Character] fMinJumpScale (default 0.5) where the ground holds nothing.
+        /// @note Why scaled and not refused: any ground under the feet lets the player jump (agency), and the uphill
+        ///       clip already keeps a hop on a steep face from climbing it, so the scaling only sets how much air it gets.
+        float JumpScale(float support)
+        {
+            static const float floor = [] {
+                const float f = std::clamp(ch::SettingFloat("fMinJumpScale", 0.5f), 0.0f, 1.0f);
+                LOG_INFO("ground states: a jump from unsupported ground gets {:.2f} of the full height", f);
+                return f;
+            }();
+            return floor + (1.0f - floor) * std::clamp(support, 0.0f, 1.0f);
+        }
 
         /// @note Keyed by controller address; references into an unordered_map survive rehashing, and only one
         ///       thread steps a given controller, so the lock guards lookup only.
@@ -283,12 +299,12 @@ namespace CB::feature {
                 if (t.hopDecided) return 1.0f;
                 const float since = in.SincePress();
                 if (!held && since <= j.shortHopWindow) {
-                    const float target = std::fabs(c.m_jumpHeight) * j.shortHopFraction;
+                    const float target = t.jumpHeight * j.shortHopFraction;
                     const float risen  = (height - t.launchHeight) / kGameUnitsPerHavok;
                     const float left   = (std::max)(0.0f, target - risen);
                     oz                 = (std::min)(oz, std::sqrt(2.0f * g * left));
                     t.hopDecided       = true;
-                    if (LogBudget()) LOG_INFO("variable jump: short hop ({:.2f} of {:.2f} Havok units), vz -> {:.2f}", target, std::fabs(c.m_jumpHeight), oz);
+                    if (LogBudget()) LOG_INFO("variable jump: short hop ({:.2f} of {:.2f} Havok units), vz -> {:.2f}", target, t.jumpHeight, oz);
                 } else if (since > j.shortHopWindow) {
                     t.hopDecided = true;
                     if (LogBudget()) LOG_INFO("variable jump: full hop");
@@ -336,7 +352,7 @@ namespace CB::feature {
                     t.variableJump = false;
                     if (LogBudget())
                         LOG_INFO("variable jump: apex {:.1f} game units above the launch (full {:.1f}){}", height - t.launchHeight,
-                                 std::fabs(c.m_jumpHeight) * kGameUnitsPerHavok, t.released ? "" : ", held throughout");
+                                 t.jumpHeight * kGameUnitsPerHavok, t.released ? "" : ", held throughout");
                 }
             }
             const float k = gravityMult * c.m_gravity * dt;
@@ -439,19 +455,28 @@ namespace CB::feature {
             float gx, gy, gz;
             WorldGravity(c, gx, gy, gz);
             gx *= c.m_gravity, gy *= c.m_gravity, gz *= c.m_gravity;
-            const float g     = std::sqrt(gx * gx + gy * gy + gz * gz);
-            const float speed = std::sqrt(std::fabs(c.m_jumpHeight) * 2.0f * g);
+            const float g = std::sqrt(gx * gx + gy * gy + gz * gz);
+            /// @note The support the jump leaves from: the floor's on the ground, the last ground's from the coyote
+            ///       window, full out of the water.
+            const float support = entry == AirEntry::OutOfWater ? 1.0f
+                                : t.mode == Mode::Airborne      ? t.groundSupport
+                                : fv.ground == ch::Ground::Grounded ? fv.support
+                                                                    : 1.0f;
+            const float jumpHeight = std::fabs(c.m_jumpHeight) * JumpScale(support);
+            const float speed      = std::sqrt(jumpHeight * 2.0f * g);
             float ux = 0.0f, uy = 0.0f, uz = 1.0f;
             if (g > 1.0e-6f) ux = -gx / g, uy = -gy / g, uz = -gz / g;
             if (LogBudget())
-                LOG_INFO("ground states: jump ({}) - launch horizontal ({:.2f}, {:.2f}) vs body ({:.2f}, {:.2f}), vertical {:.2f}", Name(entry), hx, hy,
-                         v(0), v(1), speed);
+                LOG_INFO("ground states: jump ({}) - launch horizontal ({:.2f}, {:.2f}) vs body ({:.2f}, {:.2f}), vertical {:.2f} (support {:.2f}, "
+                         "height x{:.2f})",
+                         Name(entry), hx, hy, v(0), v(1), speed, support, JumpScale(support));
             c.m_outVelocity.set(hx + ux * speed, hy + uy * speed, uz * speed, 0.0f);
             c.m_flags |= ch::kJumping;
             c.m_flags &= ~ch::kSupport;
             c.m_fallStartHeight = HeightGame(c);
             EnterAirborne(c, t, entry, fv, uz * speed);
             t.launchHeight = c.m_fallStartHeight;
+            t.jumpHeight   = jumpHeight;
             t.hopDecided   = false;
             t.released     = false;
             if (entry == AirEntry::Jumped && VariableJumpOn() && ch::IsPlayer(&c)) {
@@ -600,15 +625,11 @@ namespace CB::feature {
                 }
 
                 if (grounded) {
-                    /// @note The jump is gated on support (a Grounded verdict), not on a mode: no jumping off a face
-                    ///       that does not hold the character up. Stuck to a floor below (no hits at the feet), it may.
-                    const bool canJump = fv.ground != ch::Ground::Sliding;
-                    if (want == hk::HK_CHARACTER_JUMPING && canJump) {
+                    t.groundSupport = fv.ground == ch::Ground::Grounded ? fv.support : 1.0f;
+                    if (want == hk::HK_CHARACTER_JUMPING) {
                         Launch(c, t, AirEntry::Jumped, fv, dt);
                     } else {
-                        if (want == hk::HK_CHARACTER_JUMPING && LogBudget())
-                            LOG_INFO("ground states: jump refused - support {:.2f} (n.z {:.3f})", fv.support, fv.groundNz);
-                        if (fv.ground == ch::Ground::Grounded) SetSupportFrom(c, fv);
+                        if (ch::Supported(fv)) SetSupportFrom(c, fv);
                         GroundStep(c, t, fv, dt);
                     }
                 } else {
@@ -617,9 +638,9 @@ namespace CB::feature {
             } else {
                 const bool coyote = t.entry == AirEntry::WalkedOff && t.airTime <= kCoyoteTime && !(c.m_flags & ch::kJumping);
                 if (fv.ground == ch::Ground::Grounded && vz <= 0.0f) {
-                    /// @note G3: lands on a walkable floor while not rising.
+                    /// @note G3: lands on any ground while not rising; steep ground lands too, and slides.
                     EnterGrounded(c, t, Mode::Grounded, "landed", fv, vz);
-                    SetSupportFrom(c, fv);
+                    if (ch::Supported(fv)) SetSupportFrom(c, fv);
                     GroundStep(c, t, fv, dt);
                 } else if (want == hk::HK_CHARACTER_ON_GROUND && (fv.supportHits > 0 || fv.stickable)) {
                     /// @note G2: a forced OnGround only onto support within probe depth.
@@ -637,8 +658,8 @@ namespace CB::feature {
                 }
             }
 
-            /// @note G2 contract: kCanJump from CB's rule (Grounded on supporting ground, or inside the coyote window).
-            const bool canJumpNow = (t.mode == Mode::Grounded && fv.ground == ch::Ground::Grounded)
+            /// @note G2 contract: kCanJump from CB's rule (Grounded on any ground, or inside the coyote window).
+            const bool canJumpNow = t.mode == Mode::Grounded
                                  || (t.mode == Mode::Airborne && t.entry == AirEntry::WalkedOff && t.airTime <= kCoyoteTime
                                      && !(c.m_flags & ch::kJumping));
             if (canJumpNow) c.m_flags |= ch::kCanJump;

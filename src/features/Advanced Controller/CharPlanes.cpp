@@ -124,7 +124,7 @@ namespace CB::feature {
             const ch::FloorTunables tun;
             ch::FloorVerdict        verdict;
             if (!ch::PublishedVerdict(ctrl, verdict)) return next(self, proxy, manifold, input);
-            const bool grounded = verdict.ground == ch::Ground::Grounded;
+            const bool supported = ch::Supported(verdict);
 
             ctrl.ResetContactState();
             ctrl.m_supportNorm.set(0.0f, 0.0f, 0.0f, 0.0f);
@@ -259,7 +259,7 @@ namespace CB::feature {
             /// @note The anti-creep friction scales with the verdict's support, so near the max slope it no longer holds
             ///       the body against the slide velocity it is meant to give way to.
             int support = 0;
-            if (grounded) {
+            if (supported) {
                 for (int i = 0; i < numPoints; i++) {
                     if (kind[i] != Kind::Block) continue;
                     const hk::hkRootCdPoint& point = manifold[i];
@@ -311,13 +311,14 @@ namespace CB::feature {
 
             if (animStatic) ctrl.m_flags |= kAnimStaticContact;
             else            ctrl.m_flags &= ~kAnimStaticContact;
-            /// @note UpdatePhysics' kSupport = (surface SUPPORTED && !m_onlyWallContacts) || bit 9: Grounded sets bit 9,
-            ///       anything else marks the contacts as walls so a SUPPORTED solve on a steep face cannot ground.
-            if (grounded) {
+            /// @note UpdatePhysics' kSupport = (surface SUPPORTED && !m_onlyWallContacts) || bit 9: supported ground sets bit 9,
+            ///       anything else (steep ground included) marks the contacts as walls so a SUPPORTED solve there cannot
+            ///       ground.
+            if (supported) {
                 ctrl.m_flags |= ch::kHasPotentialSupportManifold;
                 if (ctrl.m_context.m_currentState == ctrl.m_context.m_previousState) ctrl.m_flags |= ch::kCanJump;
             }
-            ctrl.m_onlyWallContacts = !grounded;
+            ctrl.m_onlyWallContacts = !supported;
             ctrl.m_supportCount     = support;
             ctrl.m_supportNorm.set(verdict.groundNx, verdict.groundNy, verdict.groundNz, 0.0f);
 

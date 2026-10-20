@@ -91,6 +91,7 @@ namespace CB::feature {
             float      forward = 0, side = 0, up = 0;   ///< Havok units; side runs along the axis a sideways request moves the character (MovementAxes)
             float      facing  = 0;   ///< radians relative to the current facing
             ch::Ground ground  = ch::Ground::Airborne;
+            float      support = 0;   ///< how much the ground there holds the character (FloorVerdict::support), 0 airborne
             bool       valid   = false;
         };
 
@@ -124,6 +125,7 @@ namespace CB::feature {
         struct Path {
             std::array<ch::hud::Point, kPathPoints> at{};
             std::array<ch::Ground, kPathPoints>     ground{};
+            std::array<float, kPathPoints>          support{};
             bool                                    blocked = false;
             ch::hud::Point                          blockedAt;
         };
@@ -238,7 +240,7 @@ namespace CB::feature {
         ///       falling back to `zPrevious` when that finds nothing; the sample settles onto the highest floor-like
         ///       hit, and the second query, from the settled height, gives the verdict. Querying at the previous
         ///       sample's height instead put the rays' start under an uphill slope (a few edge hits averaging steep: a
-        ///       false Sliding) or their reach above a downhill one (a false Airborne).
+        ///       falsely low support) or their reach above a downhill one (a false Airborne).
         ch::FloorVerdict SettleFloor(hk::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zEstimate, float zPrevious,
                                      float& z)
         {
@@ -314,7 +316,9 @@ namespace CB::feature {
                 toLocal(past.x - hull.cx, past.y - hull.cy, tr.past);
                 tr.past.up     = past.z - hull.feetZ;
                 tr.past.facing = WrapAngle(past.heading - heading);
-                tr.past.ground = ch::QueryFloorAt(ctrl, hull, past.x - hull.cx, past.y - hull.cy, tr.past.up).ground;
+                const ch::FloorVerdict pastFloor = ch::QueryFloorAt(ctrl, hull, past.x - hull.cx, past.y - hull.cy, tr.past.up);
+                tr.past.ground  = pastFloor.ground;
+                tr.past.support = pastFloor.support;
                 tr.past.valid  = true;
             }
 
@@ -419,7 +423,8 @@ namespace CB::feature {
                 }
                 if (floor.ground != ch::Ground::Airborne) prevFloor = floor;
                 path.at[i]     = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
-                path.ground[i] = floor.ground;
+                path.ground[i]  = floor.ground;
+                path.support[i] = floor.support;
                 if (sample < kFutureSamples && i == kSampleIndex[sample]) {
                     Sample& out = tr.future[sample];
                     out.time    = kSampleTimes[sample];
@@ -427,6 +432,7 @@ namespace CB::feature {
                     out.up           = z;
                     out.facing       = WrapAngle(f - heading);
                     out.ground       = floor.ground;
+                    out.support      = floor.support;
                     out.valid        = true;
                     worldOut[sample] = { hull.cx + at.x, hull.cy + at.y };
                     ++sample;
@@ -443,8 +449,8 @@ namespace CB::feature {
             if (!TakeLine()) return;
             auto fmtSample = [](const Sample& p) {
                 if (!p.valid) return std::string("n/a");
-                return std::format("({:.0f} fwd, {:.0f} side, {:.0f} up, {:.0f} deg, {})", p.forward * kGameUnitsPerHavok,
-                                   p.side * kGameUnitsPerHavok, p.up * kGameUnitsPerHavok, p.facing * kRadToDeg, ch::Name(p.ground));
+                return std::format("({:.0f} fwd, {:.0f} side, {:.0f} up, {:.0f} deg, {} support {:.2f})", p.forward * kGameUnitsPerHavok,
+                                   p.side * kGameUnitsPerHavok, p.up * kGameUnitsPerHavok, p.facing * kRadToDeg, ch::Name(p.ground), p.support);
             };
             LOG_INFO("predictor: trajectory ({}) t {:.2f} iState {} vel ({:.0f} fwd, {:.0f} side) desired ({:.0f} fwd, {:.0f} side) | -1/3 s {} | "
                      "1/3 s {} | 2/3 s {} | 1 s {} | blocked {}",
@@ -586,13 +592,15 @@ namespace CB::feature {
                 ch::hud::Prediction h;
                 for (int k = 0; k < kFutureSamples && k < ch::hud::Prediction::kSamples; k++) {
                     h.at[k]     = { world[k].x, world[k].y, hull.feetZ + tr.future[k].up };
-                    h.ground[k] = tr.future[k].ground;
+                    h.ground[k]  = tr.future[k].ground;
+                    h.support[k] = tr.future[k].support;
                     h.time[k]   = kSampleTimes[k];
                 }
                 static_assert(kPathPoints <= ch::hud::Prediction::kPath);
                 for (int i = 0; i < kPathPoints; i++) {
                     h.path[i]       = path.at[i];
-                    h.pathGround[i] = path.ground[i];
+                    h.pathGround[i]  = path.ground[i];
+                    h.pathSupport[i] = path.support[i];
                 }
                 h.pathCount = kPathPoints;
                 h.blocked   = path.blocked;

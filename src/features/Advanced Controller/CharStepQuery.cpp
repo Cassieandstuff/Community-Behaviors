@@ -10,13 +10,15 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <mutex>
+#include <string>
 
 /// @file
 /// @brief Step 5 of the character controller spec (M7): the step query, modelled on Jolt's CharacterVirtual::WalkStairs.
 ///        When a grounded player's slide falls short of the requested horizontal move against a steep obstacle, the
 ///        hull is swept up by the step height, forward by the blocked remainder and down again; a landing the floor
-///        query calls Grounded is taken, by moving the character there. Otherwise the slid position stands.
+///        query calls Supported is taken, by moving the character there. Otherwise the slid position stands.
 /// @note Wraps bhkCharProxyController::Unk_0B, the per-step integrate driver (hkpCharacterProxy::integrate, the slide),
 ///       so it runs after the state's Simulate set m_outVelocity and before Unk_0C reports the move: the snap is part
 ///       of this step's move.
@@ -42,13 +44,13 @@ namespace CB::feature {
         constexpr float         kSkin              = 0.002f;   ///< kept back from every hit, so the next cast starts clear
         constexpr float         kFootTolerance     = 0.1f;     ///< landings lower than this are not steps up
         constexpr std::uint64_t kCharacters        = 1ull << ch::kCharControllerLayer;
-        constexpr const char*   kNotGrounded       = "landing not grounded";
+        constexpr const char*   kNotGrounded       = "landing not supported";
 
         struct Attempt {
             const char* reason   = nullptr;   ///< null: accepted
             float       requested = 0, achieved = 0, up = 0, forward = 0, rise = 0;
             float       obstacleNz = 0, landingNz = 0;
-            ch::Ground  landing = ch::Ground::Airborne;
+            float       landingSupport = 0;   ///< the landing verdict's support, 0 with no ground
         };
 
         std::mutex    g_lock;
@@ -78,11 +80,11 @@ namespace CB::feature {
                          "obstacle nz {:.2f} landing nz {:.2f}",
                          g_logged, a.rise, a.rise * kHavokToGame, a.forward, a.requested, a.achieved, a.obstacleNz, a.landingNz);
             else
-                LOG_INFO("step query #{}: rejected ({}{}{}) up {:.3f} forward {:.3f} rise {:.3f} ({:.1f} game units); requested {:.4f} "
+                LOG_INFO("step query #{}: rejected ({}{}) up {:.3f} forward {:.3f} rise {:.3f} ({:.1f} game units); requested {:.4f} "
                          "slid {:.4f}; obstacle nz {:.2f}{}",
-                         g_logged, a.reason, a.reason == kNotGrounded ? ": " : "",
-                         a.reason == kNotGrounded ? ch::Name(a.landing) : "", a.up, a.forward, a.rise,
-                         a.rise * kHavokToGame, a.requested, a.achieved, a.obstacleNz, g_sameReason ? " (repeating)" : "");
+                         g_logged, a.reason, a.reason == kNotGrounded ? std::format(": support {:.2f}", a.landingSupport) : std::string(),
+                         a.up, a.forward, a.rise, a.rise * kHavokToGame, a.requested, a.achieved, a.obstacleNz,
+                         g_sameReason ? " (repeating)" : "");
         }
 
         hk::hkVector4 Offset(const hk::hkVector4& p, float dx, float dy, float dz) { return hk::hkVector4(p(0) + dx, p(1) + dy, p(2) + dz, p(3)); }
@@ -100,7 +102,7 @@ namespace CB::feature {
 
             /// @note The floor query runs at the pre-slide spot (the hull shifted back by the slide): the slide moves only
             ///       the phantom, which the query's rays ignore (character layer), so this is the floor before the slide.
-            if (ch::QueryFloorAt(ctrl, hull, before(0) - after(0), before(1) - after(1), before(2) - after(2)).ground != ch::Ground::Grounded)
+            if (!ch::Supported(ch::QueryFloorAt(ctrl, hull, before(0) - after(0), before(1) - after(1), before(2) - after(2))))
                 return;
 
             const hk::hkVector4& at = hull.collidable->getTransform().getTranslation();
@@ -153,8 +155,9 @@ namespace CB::feature {
             }
 
             const float dx = ux * a.forward, dy = uy * a.forward;
-            a.landing = ch::QueryFloorAt(ctrl, hull, dx, dy, a.rise).ground;
-            if (a.landing != ch::Ground::Grounded) {
+            const ch::FloorVerdict landing = ch::QueryFloorAt(ctrl, hull, dx, dy, a.rise);
+            a.landingSupport               = landing.ground == ch::Ground::Grounded ? landing.support : 0.0f;
+            if (!ch::Supported(landing)) {
                 a.reason = kNotGrounded;
                 return Log(a);
             }

@@ -48,9 +48,11 @@ namespace CB::feature::controller::hud {
         static constexpr int kPath    = 12;
         std::array<Point, kSamples>  at{};
         std::array<Ground, kSamples> ground{};
+        std::array<float, kSamples>  support{};
         std::array<float, kSamples>  time{};
         std::array<Point, kPath>     path{};         ///< the predicted path's points (falls and jumps included)
         std::array<Ground, kPath>    pathGround{};
+        std::array<float, kPath>     pathSupport{};
         int          pathCount = 0;
         bool         blocked   = false;
         Point        blockedAt;                     ///< where the path stops at an impassable hit

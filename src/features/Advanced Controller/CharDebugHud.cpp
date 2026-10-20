@@ -8,6 +8,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <mutex>
@@ -56,7 +57,14 @@ namespace CB::feature::controller::hud {
         const ImU32 kFacingTick = IM_COL32(255, 255, 255, 255);
         constexpr float kRadToDeg = 57.29578f;
 
-        ImU32 GroundColor(Ground g) { return g == Ground::Grounded ? kWalkable : g == Ground::Sliding ? kSteep : kAirborne; }
+        /// @brief Airborne blue; on the ground, orange (holds nothing) through green (full support).
+        ImU32 GroundColor(Ground g, float support)
+        {
+            if (g == Ground::Airborne) return kAirborne;
+            const float s = std::clamp(support, 0.0f, 1.0f);
+            const auto  mix = [s](int lo, int hi) { return static_cast<int>(static_cast<float>(lo) + static_cast<float>(hi - lo) * s); };
+            return IM_COL32(mix(255, 80), mix(160, 230), mix(40, 80), 255);
+        }
 
         /// @brief World (Havok units) to screen pixels through the world root camera.
         /// @note NiCamera::WorldPtToScreenPt3 returns the point in the camera's port (0-1, y up); a point behind the
@@ -163,7 +171,7 @@ namespace CB::feature::controller::hud {
             ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
             if (haveCtrl) {
-                Ring(dl, proj, c.feet, c.radius, GroundColor(c.verdict));
+                Ring(dl, proj, c.feet, c.radius, GroundColor(c.verdict, c.support));
                 for (const Ray& ray : c.rays) {
                     const ImU32 color = !ray.hit ? kMiss : ray.walkable ? kWalkable : ray.wall ? kWall : kSteep;
                     const Point end   = ray.hit ? Point{ ray.top.x, ray.top.y, ray.hitZ } : ray.bottom;
@@ -187,12 +195,12 @@ namespace CB::feature::controller::hud {
             if (havePred) {
                 Point prev = haveCtrl ? c.feet : p.path[0];
                 for (int i = 0; i < p.pathCount && i < Prediction::kPath; i++) {
-                    Line(dl, proj, prev, p.path[i], GroundColor(p.pathGround[i]), 3.0f);
+                    Line(dl, proj, prev, p.path[i], GroundColor(p.pathGround[i], p.pathSupport[i]), 3.0f);
                     prev = p.path[i];
                 }
                 ImVec2 at;
                 for (int k = 0; k < Prediction::kSamples; k++)
-                    if (proj(p.at[k], at)) dl->AddCircleFilled(at, 5.0f, GroundColor(p.ground[k]));
+                    if (proj(p.at[k], at)) dl->AddCircleFilled(at, 5.0f, GroundColor(p.ground[k], p.support[k]));
                 if (p.blocked && proj(p.blockedAt, at)) {
                     dl->AddLine(ImVec2(at.x - 8, at.y - 8), ImVec2(at.x + 8, at.y + 8), kWall, 3.0f);
                     dl->AddLine(ImVec2(at.x - 8, at.y + 8), ImVec2(at.x + 8, at.y - 8), kWall, 3.0f);

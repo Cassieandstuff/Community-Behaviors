@@ -38,7 +38,9 @@ namespace CB::feature::controller {
     /// @pre `ctrl` is a proxy controller (IsProxy).
     Hull GetHull(hk::bhkCharacterController& ctrl);
 
-    enum class Ground { Airborne, Grounded, Sliding };
+    /// @brief Whether ground is under the feet at all. How much it holds the character up is a separate axis, the
+    ///        verdict's support: a steep slope is Grounded with low support.
+    enum class Ground { Airborne, Grounded };
     const char* Name(Ground g);
 
     struct FloorHit {
@@ -49,8 +51,10 @@ namespace CB::feature::controller {
         const hk::hkpCollidable* body = nullptr;
     };
 
-    /// @brief The support at and above which the character stands: the verdict is Grounded, it can jump and land, and
-    ///        the constraint planes ground it. Below it the verdict is Sliding.
+    /// @brief The support at and above which the ground holds the character (Supported): the constraint planes treat its
+    ///        contacts as support, it gives the support body, and the step query may step onto it.
+    /// @note Landing, jumping and the coyote window need only Grounded; support scales the slide, the uphill clip and
+    ///       the jump height instead of gating them.
     constexpr float kSupportedAt = 0.5f;
 
     /// @brief The M4 floor query's verdict.
@@ -59,11 +63,14 @@ namespace CB::feature::controller {
         float                    support   = 0;       ///< 0-1 from the averaged normal's slope (Support); 0 when Airborne
         bool                     stickable = false;   ///< a walkable hit within probe depth below the feet (M8)
         float                    stickDz   = 0;       ///< the highest walkable hit below the foot tolerance (negative)
-        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit; Grounded when support >= kSupportedAt
+        float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it)
         const hk::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         int                      supportHits = 0, walkableHits = 0;
         std::array<FloorHit, 9>  hits{};   ///< axis, then the ring at the perch radius
     };
+
+    /// @brief Ground that holds the character up: Grounded with support at or above kSupportedAt.
+    inline bool Supported(const FloorVerdict& v) { return v.ground == Ground::Grounded && v.support >= kSupportedAt; }
 
     /// @brief Tunables (Havok units); the spec's scenarios set them.
     struct FloorTunables {

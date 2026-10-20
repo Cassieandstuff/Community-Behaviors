@@ -63,7 +63,7 @@ namespace CB::feature::controller {
         return *reinterpret_cast<const std::uintptr_t*>(&ctrl) == vtable;
     }
 
-    const char* Name(Ground g) { return g == Ground::Grounded ? "Grounded" : g == Ground::Sliding ? "Sliding" : "Airborne"; }
+    const char* Name(Ground g) { return g == Ground::Grounded ? "Grounded" : "Airborne"; }
 
     Hull GetHull(hk::bhkCharacterController& ctrl)
     {
@@ -136,8 +136,8 @@ namespace CB::feature::controller {
         const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
         if (len > 1.0e-6f) v.groundNx = sx / len, v.groundNy = sy / len, v.groundNz = sz / len;
         v.support = v.supportHits == 0 ? 0.0f : Support(ctrl, v.groundNz);
-        v.ground  = v.supportHits == 0 ? Ground::Airborne : v.support >= kSupportedAt ? Ground::Grounded : Ground::Sliding;
-        if (v.ground == Ground::Grounded && !v.supportBody) {
+        v.ground  = v.supportHits == 0 ? Ground::Airborne : Ground::Grounded;
+        if (Supported(v) && !v.supportBody) {
             for (const FloorHit& h : v.hits)
                 if (h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ && h.dz >= -t.footTolerance) {
                     v.supportBody = h.body;

@@ -98,10 +98,11 @@ namespace CB::core::debug {
           "Ground states in charge",
           "Steps 3, 6 and 7 of the character controller spec: for the player, CB's wrapper states run Grounded / "
           "Airborne from the floor query (landing, stick-to-floor, gravity, jump launch, air control, velocity "
-          "springs). Steep ground has no state of its own: its support eases from 1 at fSlidePullStart degrees "
-          "(default 5) below the max slope to 0 at fSlidePullFull degrees (default 10) past it, and as it drops a "
-          "slide velocity drags the player downhill, the uphill part of their steering is cut, and below half they "
-          "cannot jump. Requires bStateWrapper. Unproven in game." },
+          "springs). Grounded means any ground under the feet: the player lands on it and can always jump from it. How "
+          "much it holds them up is its support, easing from 1 at fSlidePullStart degrees (default 5) below the max "
+          "slope to 0 at fSlidePullFull degrees (default 10) past it; as it drops, a slide velocity drags the player "
+          "downhill, the uphill part of their steering is cut, and the jump shrinks toward fMinJumpScale (default 0.5) "
+          "of its full height. Requires bStateWrapper. Unproven in game." },
         { "char_planes", FlagKind::IniBool, "Character", "bPlanes", false, false,
           "Constraint planes",
           "Step 4 of the character controller spec: for the player, the proxy's constraint planes follow the spec's "
@@ -133,7 +134,8 @@ namespace CB::core::debug {
           "Character debug HUD",
           "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "
           "wall, grey miss), the output, desired and slide (orange) velocity arrows, the stick's direction (yellow arrowhead) and the "
-          "body's facing (white tick) on the ring (needs bFacing), the predicted path coloured by ground state, falls "
+          "body's facing (white tick) on the ring (needs bFacing), the ring and predicted path shaded by support (green "
+          "holds, orange slides, blue airborne), falls "
           "and jumps included (needs bPredictorObserve), and a text panel (mode, verdict, timers, ramp speed, turn "
           "damping, iState). Hidden while the game is paused." },
         { "char_predictor", FlagKind::IniBool, "Character", "bPredictorObserve", false, false,
