@@ -1,0 +1,13 @@
+{
+  "targets": [
+    {
+      "path": "meshes/actors/character/animations/MotionMatching/idle/idle_loop/Idle_Loop.hkx",
+      "field": "tags",
+      "values": {
+        "Idle": [[0, 451]],
+        "LeftPlant": [[0, 451]],
+        "RightPlant": [[0, 451]]
+      }
+    }
+  ]
+}

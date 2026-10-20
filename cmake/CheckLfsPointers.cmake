@@ -1,6 +1,6 @@
 # cmake -DBUNDLE_DIR=<dir> -P CheckLfsPointers.cmake
 # Fails when any file under BUNDLE_DIR is still a Git LFS pointer stub (the clone never ran `git lfs pull`), so a
-# feature bundle is never packed with pointer text in place of its animations.
+# feature bundle is never assembled with pointer text in place of its partitions or animations.
 if(NOT BUNDLE_DIR OR NOT IS_DIRECTORY "${BUNDLE_DIR}")
     message(FATAL_ERROR "CheckLfsPointers: BUNDLE_DIR '${BUNDLE_DIR}' is not a directory")
 endif()

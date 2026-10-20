@@ -91,11 +91,16 @@ tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch 
                              being matched (manifests/workbench.yaml, failures expected); cbmatch/devices/ = matching
                              devices, not Havok files
 features/                    authored FEATURE BUNDLES as data — not code (that is src/features/): one <Name>.hky/
-                             tree per feature, laid out like a Data folder with manifest.json at its root (e.g.
-                             Motion Matching.hky/meshes/actors/character/animations/...). Each .hkx inside is a YAML
-                             compile target (an animation), kept in Git LFS (.gitattributes) — `git lfs pull` before
-                             building. Packed as-is at build time (cmake/FeatureBundles.cmake: an LFS-pointer guard,
-                             then hky-tool pack) into the deploy stage; the plugin target depends on it.
+                             folder per feature, assembled at build time into the shipped <Name>.hky
+                             (cmake/FeatureBundles.cmake: an LFS-pointer guard, then `hky-tool assemble`; the plugin
+                             target depends on it). Inside: PARTITIONS (*.hky at the top: packed YAML trees laid out
+                             like a Data folder, e.g. Animations.hky holding meshes/actors/character/animations/...;
+                             Git LFS, `git lfs pull` before building; repacked only deliberately with `hky-tool pack`,
+                             never by the build), loose files shipped at their path (manifest.json), and inject/ —
+                             JSON configs {"targets": [{"path", "field", "values"}]} keyed by a file's path inside the
+                             bundle, writing the fields tools/hky/injectables.json allows per file kind (today:
+                             animation -> tags; anything else fails the build). `hky-tool autotag` seeds tag configs
+                             and never overwrites one.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by
                              commit) — a change there bumps its pin. Nothing private goes in include/.

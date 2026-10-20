@@ -240,8 +240,8 @@ add_subdirectory(tools/cbmatch)  # cbmatch: byte-exact gate for reimplemented en
 # (community_behaviors/plugins/<Bundle>.hky), so the deploy is a straight mirror.
 set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
 
-# Authored feature bundles (features/<Name>.hky, clips in Git LFS) pack into the same stage; the plugin depends on
-# them so a plugin build deploys them (cmake/FeatureBundles.cmake).
+# Authored feature bundles (features/<Name>.hky: partitions in Git LFS + inject configs) assemble into the same
+# stage; the plugin depends on them so a plugin build deploys them (cmake/FeatureBundles.cmake).
 include(FeatureBundles)
 cb_feature_bundles(
     PACKER_TARGET hky-tool
