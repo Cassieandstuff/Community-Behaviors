@@ -98,11 +98,38 @@ namespace CB::feature::controller {
             });
         }
 
+        /// @brief While CB holds the yaw, the move input is CB's to rewrite: forward along the facing, at the stick's
+        ///        length, as TDM does for itself.
+        /// @note Why here: TDM's ProcessInput returns before its forward-only rewrite while another plugin holds the
+        ///       yaw (_bYawControlledByPlugin), so the raw stick reaches the game ("down" = walk backward, against a body
+        ///       that now faces the camera). The player-controls agents read PlayerControls::data.moveInputVec (+0x24)
+        ///       while computing this frame (the speed path 0x14079d630 reads it there), so rewriting it before `next`
+        ///       makes the frame a native forward request: forward direction, forward MOVT speed, forward animations.
+        /// @note The stick comes from TDM's GetActualMovementInput, never from moveInputVec, which this has rewritten.
+        void RewriteInput(TDM_API::IVTDM3* api)
+        {
+            const RE::NiPoint2 stick = api->GetActualMovementInput();
+            const float        len   = std::sqrt(stick.x * stick.x + stick.y * stick.y);
+            if (len < kStickDeadzone) return;
+            auto* controls = RE::PlayerControls::GetSingleton();
+            if (!controls) return;
+            controls->data.moveInputVec = RE::NiPoint2(0.0f, (std::min)(1.0f, len));
+        }
+
+        std::atomic<int> g_frameLogs{ 0 };
+
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
-            next(controller, deltaTime, out);
             RE::Actor* player = PlayerOf(controller);
             auto*      api    = player ? Api() : nullptr;
+            if (api && g_haveControl && api->GetDirectionalMovementMode() == TDM_API::DirectionalMovementMode::kDirectional) {
+                RewriteInput(api);
+                next(controller, deltaTime, out);
+                if (out && out->speed > 1.0f && g_frameLogs.fetch_add(1, std::memory_order_relaxed) < 20)
+                    LOG_INFO("facing: frame under CB's yaw — direction {:.2f} rad (0 = forward), speed {:.1f}", out->angles[2], out->speed);
+            } else {
+                next(controller, deltaTime, out);
+            }
             if (!api) return;
 
             const float heading = player->GetHeading(false);
