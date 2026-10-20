@@ -43,8 +43,8 @@ namespace CB::core::serve {
     SetDataServeResult ServeSetData(const std::filesystem::path& dataDir,
                              const std::filesystem::path& loadOrderIni);
 
-    /// @brief Subscribe the DETERMINISTIC set-data redirect to the AsdsfOpen hook point
-    ///        (<platform/hooks/points/Resource.h>): once armed, the loader's single-file open is handed BR's cache
+    /// @brief Subscribe the DETERMINISTIC set-data redirect to the AsdsfOpen call site
+    ///        (<platform/game/Resource.h>): once armed, the loader's single-file open is handed BR's cache
     ///        path whenever the loader runs — no dependency on WHEN it runs relative to kDataLoaded.
     /// @pre Called during SKSEPluginLoad, before CB::platform::hooks::InstallAll().
     void InstallSetDataHook();

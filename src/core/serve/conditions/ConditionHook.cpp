@@ -1,13 +1,14 @@
 /// @file
 /// @brief The condition layer's engine seam: two subscribers on the setdata hook points
-///        (<platform/hooks/points/SetData.h>). The weapon producer stashes its Actor* in TLS for the matcher call it
+///        (<platform/game/SetData.h>). The weapon producer stashes its Actor* in TLS for the matcher call it
 ///        makes; the matcher subscriber appends our sensor {name, value} pairs to the assignment array via
 ///        save / repoint / restore, then continues the chain.
 /// @note Inert until config loading registers ConditionInstances (Inc 2).
 #include "Conditions.h"
 #include <PluginLogger.h>
 
-#include <platform/hooks/points/SetData.h>
+#include <platform/game/SetData.h>
+#include <platform/hooks/Override.h>
 
 #include <atomic>
 #include <cstring>
@@ -16,8 +17,8 @@
 namespace CB::core::conditions {
 
     namespace {
-        using MatchNext = CB::platform::hooks::SetDataGateMatcher::Next;
-        using ProdNext  = CB::platform::hooks::SetDataGateProducerWeapon::Next;
+        using MatchNext = CB::platform::hooks::Override<&CB::platform::game::SetDataGate_Matcher>::Next;
+        using ProdNext  = CB::platform::hooks::Override<&CB::platform::game::SetDataGate_ProducerWeapon>::Next;
 
         // 0x10-stride assignment entry (POD copy of the engine's {BSFixedString name, int value}).
         struct AsgEntry { const void* name; std::int32_t value; std::uint32_t pad; };
@@ -90,8 +91,8 @@ namespace CB::core::conditions {
 
     void InstallConditionHooks() {
         if (s_installed.exchange(true)) return;
-        CB::platform::hooks::SetDataGateProducerWeapon::Subscribe(&OnProducer, CB::platform::hooks::Priority::Normal, "Conditions");
-        CB::platform::hooks::SetDataGateMatcher::Subscribe(&OnMatch, CB::platform::hooks::Priority::Normal, "Conditions");
+        CB::platform::hooks::Override<&CB::platform::game::SetDataGate_ProducerWeapon>::Subscribe(&OnProducer, CB::platform::hooks::Priority::Normal, "Conditions");
+        CB::platform::hooks::Override<&CB::platform::game::SetDataGate_Matcher>::Subscribe(&OnMatch, CB::platform::hooks::Priority::Normal, "Conditions");
         LOG_INFO("[cond] subscribed to the setdata producer + matcher hook points; {} instance(s).", Instances().size());
     }
 

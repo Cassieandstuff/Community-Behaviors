@@ -1,6 +1,6 @@
 #include "PCH.h"
 
-#include <platform/hooks/takeover/Override.h>
+#include <platform/hooks/Override.h>
 
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
 

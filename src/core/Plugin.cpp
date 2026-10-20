@@ -13,7 +13,7 @@
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
 #include "core/resolve/Resolver.h"
 
-#include <platform/hooks/points/HookPoint.h>
+#include <platform/hooks/Chain.h>
 #include <platform/hooks/registry/Registry.h>
 #include <platform/hooks/takeover/SchemaShim.h>
 #include <platform/hooks/takeover/Takeover.h>
@@ -484,7 +484,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     //
     // The set-data / anim-data file-open detours are a different, OAR-independent layer (they hook
     // the low-level open call site, below OAR) and stay. One shared trampoline covers them; 2KB is
-    // ample for the handful of write_call nodes. (ByteServe uses MinHook, not the trampoline.)
+    // ample for the handful of write_call nodes (CallSite); Override entry detours use MinHook.
     SKSE::AllocTrampoline(1u << 11);
     CB::core::serve::InstallSetDataHook();
     CB::core::serve::InstallAnimDataHook();
@@ -503,9 +503,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         CB::core::conditions::InstallConditionHooks();
     }
 
-    // Every hook-point subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
+    // Every hook subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
     // AsdsfOpen / AdsfOpen; serve::Install → ResolveTypedHkx; the condition layer → the setdata producer +
-    // matcher, only when enabled): install the subscribed seams once and close subscription.
+    // matcher, only when enabled; features and ProgressHud at static init): attach every subscribed hook once
+    // (a takeover cell where the image owns the function, else an entry or call detour) and close subscription.
     CB::platform::hooks::InstallAll();
 
     // Animdata cache form: COLLATED is the only supported path — it serves

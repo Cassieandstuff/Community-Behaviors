@@ -41,9 +41,15 @@ namespace CB::platform::hooks {
     };
 
     /// @brief Jumps every enabled class's vanilla functions to their replacements.
-    /// @pre Called once, from SKSEPluginLoad, BEFORE hooks::InstallAll: CB's own entry detours then wrap the jump
-    ///      (MinHook relocates it), and any plugin loading later layers on top the same way.
+    /// @pre Called once, from SKSEPluginLoad, BEFORE hooks::InstallAll: Override<&fn> then finds each function's cell,
+    ///      and any plugin loading later layers on top of the entry jumps.
     void InstallTakeover();
+
+    /// @return the cell of the installed function whose symbol is `mangled`, or nullptr when it is not installed
+    ///         (takeover off, class off, patched by another plugin, too short); `why` says which.
+    /// @note Every route into such a function reaches its entry jump, which jumps through this cell: whatever the cell
+    ///       holds runs it (CB's implementation, or an Override chain ending in it).
+    [[nodiscard]] std::uintptr_t* FindCell(std::string_view mangled, std::string* why = nullptr);
 
     /// @brief Restores vanilla for any replaced function whose body another plugin patched after InstallTakeover
     ///        (a call-site hook inside it would otherwise sit in code that no longer runs). Logs the summary.

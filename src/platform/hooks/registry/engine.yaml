@@ -48,8 +48,8 @@ symbols:
   - { name: Asdsf_OpenCall, kind: call, se: 31863+0x89, ae: 32624+0x84, vr: 0 }  # CALL that opens the asdsf stream (CB serve seam)
   - { name: Asdsf_SingleFilePath, kind: data, se: 516406, ae: 402577, vr: 0 }  # global BSFixedString asdsf path
   - { name: AnimationSetData_Singleton, kind: data, se: 515415, ae: 401554, vr: 0 }
-  - { name: SetDataGate_ProducerWeapon, kind: func, se: 42468, ae: 43625, vr: 0 }  # the condition producer (Actor*); weapon special id 0x16c SE / 0x16e AE
-  - { name: SetDataGate_Matcher, kind: func, se: 31867, ae: 32628, vr: 0 }
+  - { name: SetDataGate_ProducerWeapon, kind: func, se: 42468, ae: 43625, vr: 0, cpp: "CB::platform::game::SetDataGate_ProducerWeapon", mangled: "?SetDataGate_ProducerWeapon@game@platform@CB@@YAEPEAVActor@RE@@PEAX11@Z", header: "platform/game/SetData.h" }  # the condition producer (Actor*); weapon special id 0x16c SE / 0x16e AE
+  - { name: SetDataGate_Matcher, kind: func, se: 31867, ae: 32628, vr: 0, cpp: "CB::platform::game::SetDataGate_Matcher", mangled: "?SetDataGate_Matcher@game@platform@CB@@YAEPEAX00_K0@Z", header: "platform/game/SetData.h" }
   - { name: SetDataGate_Query, kind: func, se: 31868, ae: 32629, vr: 0 }  # used by the attack-map builder
   - { name: SetDataGate_Evaluator, kind: func, se: 31875, ae: 32633, vr: 0 }
   - { name: SetDataGate_EventKey, kind: func, se: 31909, ae: 32665, vr: 0 }
@@ -78,7 +78,7 @@ symbols:
   - { name: AnimationFileManager_Ctor, kind: func, se: 63054, ae: 63966, vr: 0 }
   - { name: AnimationFileManager_OnFileReady, kind: func, se: 63069, ae: 63981, vr: 0 }  # vtable slot 1; index-driven
   - { name: AnimationFileManager_Singleton, kind: data, se: 515440, ae: 401579, vr: 0 }
-  - { name: BSResourceAssetLoader_ResolveTypedHkx, kind: func, se: 62522, ae: 63463, vr: 0 }  # typed-hkx resolver (CB byte-serve seam)
+  - { name: BSResourceAssetLoader_ResolveTypedHkx, kind: func, se: 62522, ae: 63463, vr: 0, cpp: "CB::platform::game::BSResourceAssetLoader_ResolveTypedHkx", mangled: "?BSResourceAssetLoader_ResolveTypedHkx@game@platform@CB@@YA_JPEBDPEAX_K1@Z", header: "platform/game/Resource.h" }  # typed-hkx resolver (CB byte-serve seam)
   - { name: BShkbHkxDB_LoadPackfileInPlace, kind: func, se: 62505, ae: 63445, vr: 0 }  # every project/character/behavior .hkx loads here (no signature check)
 
   # --- hkbClipGenerator ---
@@ -157,7 +157,7 @@ symbols:
 
   # --- Actor movement ---
   - { name: Actor_ApplyFrameMovement, kind: func, se: 36365, ae: 37356, vr: 0 }  # uses animationDelta only when graph bIsSynced
-  - { name: MovementControllerNPC_ComputeFrameMovement, kind: func, se: 0, ae: 91877, vr: 0 }  # vfunc +0x38, 0x1411f6800 (1.6.1170); its speed feeds graph Speed AND the frame movement
+  - { name: MovementControllerNPC_ComputeFrameMovement, kind: func, se: 0, ae: 91877, vr: 0, cpp: "CB::platform::game::MovementControllerNPC_ComputeFrameMovement", mangled: "?MovementControllerNPC_ComputeFrameMovement@game@platform@CB@@YAXPEAVMovementControllerNPC@RE@@MPEAUMovementFrame@123@@Z", header: "platform/game/Movement.h" }  # vfunc +0x38, 0x1411f6800 (1.6.1170); its speed feeds graph Speed AND the frame movement
   - { name: Actor_ProcessTransformDeltaEvent, kind: func, se: 36971, ae: 37996, vr: 0 }  # sink at Actor+0xC8 SE / +0xD0 AE
   - { name: IMovementTweenerAgent_Func2, kind: func, se: 41160, ae: 42246, vr: 0 }
   - { name: String_bIsSynced, kind: data, se: 232640, ae: 188574, vr: 0 }
@@ -183,6 +183,9 @@ symbols:
   - { name: NiQuaternion_FastSlerp, kind: func, se: 69459, ae: 70836, vr: 0 }
   - { name: FloatToHalf, kind: func, se: 18405, ae: 76217, vr: 0 }  # SE: callers mostly go through a jump thunk
   - { name: HalfToFloat, kind: func, se: 50149, ae: 76218, vr: 0 }  # SE: callers mostly go through a jump thunk
+
+  # --- Render loop ---
+  - { name: Renderer_PresentCall, kind: call, se: 75461+0x9, ae: 77246+0x9, vr: 0 }  # the render loop's CALL of present (OAR's hook point; VR unpinned)
 
   # --- Misc ---
   - { name: LoadPluginBSA, kind: func, se: 13673, ae: 13786, vr: 0 }

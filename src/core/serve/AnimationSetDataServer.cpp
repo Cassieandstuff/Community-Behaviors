@@ -1,5 +1,6 @@
 #include "PCH.h"
-#include <platform/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
+#include <platform/game/Resource.h>     // the AdsfOpen / AsdsfOpen call sites
+#include <platform/hooks/registry/Registry.h>
 
 #include "core/serve/AnimationSetDataServer.h"
 #include "core/resolve/CacheKey.h"   // ReadCacheInput — the loose fallback base is an input of the cached asdsf
@@ -506,7 +507,7 @@ namespace CB::core::serve {
         std::atomic<bool>              s_setDataRedirectActive{ false };
         RE::BSFixedString              s_setDataCachePath;           // interned redirect path
 
-        std::int32_t OnOpenSetData(CB::platform::hooks::AsdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+        std::int32_t OnOpenSetData(CB::platform::game::AsdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
                                    std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the set-data file drives the compile gate. The gate now KICKS a background
@@ -535,7 +536,7 @@ namespace CB::core::serve {
 
     void InstallSetDataHook()
     {
-        CB::platform::hooks::AsdsfOpen::Subscribe(&OnOpenSetData, CB::platform::hooks::Priority::Normal, "SetDataServe");
+        CB::platform::game::AsdsfOpen::Subscribe(&OnOpenSetData, CB::platform::hooks::Priority::Normal, "SetDataServe");
     }
 
     void ArmSetDataRedirect(const SetDataServeResult& result)
@@ -547,7 +548,7 @@ namespace CB::core::serve {
         // crash (OAR Unk3 -> char-setup hkArray resize) — bundle completeness is the author's
         // contract. Safe when idle: with no .hky set-data present, ServeSetData produces no
         // cache and this leaves the redirect inactive.
-        if (!CB::platform::hooks::AsdsfOpen::Installed()) {
+        if (!CB::platform::game::AsdsfOpen::Installed()) {
             RedirectSetDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }

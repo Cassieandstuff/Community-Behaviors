@@ -4,8 +4,8 @@
 
 #include <core/debug/Settings.h>
 #include <platform/hooks/hookslib.h>
-#include <platform/hooks/takeover/Live.h>
-#include <platform/hooks/takeover/Override.h>
+#include <platform/hooks/Live.h>
+#include <platform/hooks/Override.h>
 
 #include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
 #include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>

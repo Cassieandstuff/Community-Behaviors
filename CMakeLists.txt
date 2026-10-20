@@ -172,7 +172,7 @@ target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/havok
 set(_cb_gen_dir "${CMAKE_BINARY_DIR}/generated")
 set(_cb_engine_reg "${_cb_gen_dir}/platform/hooks/registry/EngineRegistry.gen.h")
 # The same rows' `mangled` entries also generate the schema link shim and Override's identities
-# (<platform/hooks/takeover/SchemaShim.h>, <platform/hooks/takeover/Override.h>).
+# (<platform/hooks/takeover/SchemaShim.h>, <platform/hooks/Override.h>).
 set(_cb_shim_asm "${_cb_gen_dir}/platform/hooks/registry/SchemaShim.gen.asm")
 set(_cb_shim_cpp "${_cb_gen_dir}/platform/hooks/registry/SchemaShim.gen.cpp")
 set(_cb_identity "${_cb_gen_dir}/platform/hooks/registry/SchemaIdentity.gen.h")

@@ -4,7 +4,8 @@
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>
-#include <platform/hooks/hookslib.h>
+#include <platform/game/Movement.h>
+#include <platform/hooks/Override.h>
 
 #include <algorithm>
 #include <atomic>
@@ -27,7 +28,8 @@ namespace CB::feature {
 
         namespace hooks = platform::hooks;
         namespace ch    = CB::feature::controller;
-        using Frame     = hooks::MovementControllerFrame;
+        namespace game  = CB::platform::game;
+        using Frame     = hooks::Override<&game::MovementControllerNPC_ComputeFrameMovement>;
 
         /// @brief Rises smaller than this (game units/s) pass at once: steering noise, not a speed change.
         constexpr float kRampThreshold = 5.0f;
@@ -57,7 +59,7 @@ namespace CB::feature {
 
         bool LogBudget() { return g_logs.fetch_add(1, std::memory_order_relaxed) < 2000; }
 
-        RE::Actor* PlayerOf(void* controller)
+        RE::Actor* PlayerOf(RE::MovementControllerNPC* controller)
         {
             auto* player = RE::PlayerCharacter::GetSingleton();
             if (!player) return nullptr;
@@ -77,7 +79,7 @@ namespace CB::feature {
             return actor->GetGraphVariableBool(isSynced, on) && on;
         }
 
-        void OnFrame(Frame::Next next, void* controller, float deltaTime, hooks::MovementFrame* out)
+        void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             next(controller, deltaTime, out);
             RE::Actor* player = out ? PlayerOf(controller) : nullptr;
@@ -120,7 +122,7 @@ namespace CB::feature {
         }
 
         [[maybe_unused]] const bool s_subscribed =
-            core::debug::FlagOn("char_speed_ramp") && Frame::Subscribe(&OnFrame, hooks::Priority::Normal, "CharSpeedRamp");
+            Frame::Subscribe(&OnFrame, hooks::Priority::Normal, "CharSpeedRamp", "char_speed_ramp");
 
     }  // namespace
 

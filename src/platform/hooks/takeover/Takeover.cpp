@@ -3,7 +3,6 @@
 #include "platform/hooks/takeover/Takeover.h"
 
 #include "core/debug/Settings.h"
-#include "platform/hooks/takeover/Cell.h"
 #include "platform/hooks/takeover/ImageSource.h"
 #include "platform/hooks/takeover/NearExe.h"
 
@@ -209,7 +208,6 @@ namespace CB::platform::hooks {
     void InstallTakeover()
     {
         InstallFunctions();
-        detail::InstallCells();
     }
 
     void RecheckTakeover()

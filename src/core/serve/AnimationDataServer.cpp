@@ -1,5 +1,6 @@
 #include "PCH.h"
-#include <platform/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
+#include <platform/game/Resource.h>     // the AdsfOpen / AsdsfOpen call sites
+#include <platform/hooks/registry/Registry.h>
 
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
@@ -262,7 +263,7 @@ namespace CB::core::serve {
         std::atomic<bool>               s_redirectActive{ false };
         RE::BSFixedString               s_cachePath;
 
-        std::int32_t OnOpenAnimData(CB::platform::hooks::AdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+        std::int32_t OnOpenAnimData(CB::platform::game::AdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
                                     std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the collated animdata file drives the compile gate. The gate now KICKS a
@@ -291,12 +292,12 @@ namespace CB::core::serve {
 
     void InstallAnimDataHook()
     {
-        CB::platform::hooks::AdsfOpen::Subscribe(&OnOpenAnimData, CB::platform::hooks::Priority::Normal, "AnimDataServe");
+        CB::platform::game::AdsfOpen::Subscribe(&OnOpenAnimData, CB::platform::hooks::Priority::Normal, "AnimDataServe");
     }
 
     void ArmAnimDataRedirect(const ServeResult& result)
     {
-        if (!CB::platform::hooks::AdsfOpen::Installed()) {
+        if (!CB::platform::game::AdsfOpen::Installed()) {
             RedirectAnimDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }

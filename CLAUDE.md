@@ -51,12 +51,16 @@ src/                         CB's code. src/ is the plugin's private include roo
                              renders; Settings — settings.ini loaded once, read via FlagOn(id); DebugOverlay;
                              RuntimeTrace — the per-frame graph-variable watch)
   platform/                  THE RUNTIME SDK (CB::platform::), plugin-only: what makes havok/ and the game usable
-                             from a feature. hooks/ = the engine symbol registry (registry/engine.yaml →
-                             per-runtime Address Library pins + the shim's identity fields), the hook points
-                             (<platform/hooks/hookslib.h>), and takeover/ (runs the reimplemented Havok in place of
-                             vanilla's: the runtime image relocated at load, every replaced function behind a cell;
-                             the schema link shim; Override<&fn> and Live<&global>()). Flags, settings, the overlay
-                             host and startup phases move here next; until then it still reads core/debug.
+                             from a feature. hooks/ = the hook library (<platform/hooks/hookslib.h>): Override<&fn>
+                             on any declared function (the takeover's cell when the image runs it, else an entry
+                             detour), CallSite<engine::X, Sig> on one call instruction, Live<&global>(); one
+                             subscriber chain, attached once by InstallAll. hooks/registry = engine.yaml (per-runtime
+                             Address Library pins + identity fields); hooks/takeover = the runtime image relocated at
+                             load, every replaced function behind a cell, and the schema link shim. game/ = the game
+                             functions CB calls or hooks, declared as free functions over CommonLib types, each with
+                             an engine.yaml row (its decorated name comes from the first link error). Flags,
+                             settings, the overlay host and startup phases move here next; until then it still
+                             reads core/debug.
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
                              converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
                              or REL/ include. The folder IS the include root (<common/…> <interface/…>
@@ -69,7 +73,7 @@ src/                         CB's code. src/ is the plugin's private include roo
 common/                      what features build against; common/ is their include root:
   feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::).
                              Havok needs no SDK copy: features include havok/'s headers and call them as declared;
-                             Override<&fn> and Live<&global>() (platform/hooks/takeover) reach the takeover's cells and the
+                             Override<&fn> and Live<&global>() (platform/hooks) reach the takeover's cells and the
                              exe's mutable globals. havok/ stays pristine; changes are overrides.
   config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
 schema/                      the class schema as DATA — one YAML per class in family folders (generators/,

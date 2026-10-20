@@ -5,7 +5,7 @@
 
 #include <core/debug/Settings.h>
 #include <platform/hooks/hookslib.h>
-#include <platform/hooks/takeover/Override.h>
+#include <platform/hooks/Override.h>
 
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterController.h>

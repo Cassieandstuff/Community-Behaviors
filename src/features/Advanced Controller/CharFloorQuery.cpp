@@ -2,7 +2,7 @@
 
 #include "CharSweep.h"
 
-#include <platform/hooks/takeover/Override.h>
+#include <platform/hooks/Override.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
