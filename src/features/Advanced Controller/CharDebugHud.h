@@ -41,19 +41,26 @@ namespace CB::feature::controller::hud {
         std::array<Ray, 9>  rays{};
     };
 
-    /// @brief The predictor's trajectory (P1), in world space.
+    /// @brief The predictor's trajectory (P1) and the path through it, in world space.
     struct Prediction {
         static constexpr int kSamples = 3;
+        static constexpr int kPath    = 12;
         std::array<Point, kSamples>  at{};
         std::array<Ground, kSamples> ground{};
         std::array<float, kSamples>  time{};
-        float        blockedAt = -1.0f;   ///< seconds to the first impassable hit, -1 for none
+        std::array<Point, kPath>     path{};         ///< the predicted path's points (falls and jumps included)
+        std::array<Ground, kPath>    pathGround{};
+        int          pathCount = 0;
+        bool         blocked   = false;
+        Point        blockedAt;                     ///< where the path stops at an impassable hit
+        float        blockedIn = -1.0f;             ///< seconds to that hit, -1 for none
         std::int32_t iState    = 0;
     };
 
-    /// @brief The speed ramp's frame (game units/s).
+    /// @brief The speed ramp's frame (game units/s): the speed handed on, the speed asked for, and the turn damping's
+    ///        fraction (TurnSpeedScale).
     struct Ramp {
-        float speed = 0, target = 0;
+        float speed = 0, target = 0, turn = 1;
     };
 
     /// @brief Whether the HUD runs (char_debug_hud); publishers skip their work when it does not.

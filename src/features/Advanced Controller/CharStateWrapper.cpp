@@ -151,12 +151,7 @@ namespace CB::feature {
         }
 
         /// @brief A float INI / game setting, `def` while absent (callers cache the value).
-        float IniFloat(const char* name, float def)
-        {
-            auto* ini = RE::INISettingCollection::GetSingleton();
-            RE::Setting* s = ini ? ini->GetSetting(name) : nullptr;
-            return s ? s->GetFloat() : def;
-        }
+        using ch::IniFloat;
         float GmstFloat(const char* name, float def)
         {
             auto* gmst = RE::GameSettingCollection::GetSingleton();

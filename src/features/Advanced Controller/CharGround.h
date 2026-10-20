@@ -102,6 +102,8 @@ namespace CB::feature::controller {
 
     /// @brief settings.ini `[Character] key` as a float, `def` when absent or unparsable (callers cache it).
     float SettingFloat(std::string_view key, float def);
+    /// @brief The game's INI setting `name` (e.g. "fInAirFallingCharGravityMult:HAVOK") as a float, `def` when absent.
+    float IniFloat(const char* name, float def);
 
     /// @brief Exact critically damped spring of `x` (rate `v`) toward `goal`, frame-rate independent by construction.
     /// @param halflife seconds for the gap to halve.

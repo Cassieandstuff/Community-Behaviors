@@ -32,17 +32,29 @@ namespace CB::feature {
         using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief Halflife of the velocity spring (P2), seconds.
-        /// @warning Must match the halflife the ground-states feature (spec step 3) springs the real velocity with, or the
-        ///          prediction models a different character than the one that runs. That feature has not landed yet;
-        ///          change both together.
+        /// @warning Must match the halflife the ground states spring the real velocity with (CharStateWrapper's
+        ///          kGroundHalflife), or the prediction models a different character than the one that runs.
         constexpr float kVelocityHalflife = 0.08f;
         using ch::kFacingHalflife;
 
         constexpr int   kFutureSamples = 3;
         constexpr float kSampleTimes[kFutureSamples] = { 1.0f / 3.0f, 2.0f / 3.0f, 1.0f };
         constexpr float kPastTime      = 1.0f / 3.0f;
-        /// @brief The spring integration substep, seconds (60 per predicted second).
-        constexpr float kSubstep = 1.0f / 60.0f;
+        /// @brief The predicted path: a point every kPathStep seconds over the 1 s horizon, each resolved against the
+        ///        world (floor, sweep, landing); the samples are among them (kSampleIndex).
+        /// @note Six points, not more: each costs a sweep and two or three floor queries every physics step.
+        constexpr int   kPathPoints                    = 6;
+        constexpr float kPathStep                      = 1.0f / kPathPoints;
+        constexpr int   kSampleIndex[kFutureSamples]   = { 1, 3, 5 };
+        /// @brief The integration substep, seconds (60 per predicted second).
+        constexpr int   kSubstepsPerPoint = 10;
+        constexpr float kSubstep          = kPathStep / kSubstepsPerPoint;
+        constexpr float kHalfPi           = 1.5707964f;
+        /// @brief Rises smaller than this (game units/s) pass at once, as in the speed ramp.
+        constexpr float kRampThreshold = 5.0f;
+        /// @brief A vertical velocity this far above what the ground's slope gives (Havok units/s, about 35 game units/s)
+        ///        means the character is leaving the ground (a jump's launch), not walking up it.
+        constexpr float kLaunchSpeed = 0.5f;
 
         /// @brief Game units per Havok unit (Skyrim's world scale is 0.0142875); logs speak game units.
         constexpr float kGameUnitsPerHavok = 69.991251f;
@@ -90,6 +102,30 @@ namespace CB::feature {
             float                              velForward = 0, velSide = 0;   ///< current velocity, Havok units/s
             float                              desiredForward = 0, desiredSide = 0;
             float                              blockedAt = -1.0f;   ///< seconds to the first impassable hit, -1 for none
+        };
+
+        /// @brief How the predicted character steers.
+        /// @note The facing model is the frame features' own: the body turns on CharFacing's spring from where it is now
+        ///       (yaw and turn rate) toward the stick, and moves along its facing at the frame speed, slowed by the turn
+        ///       damping and rebuilt by the speed ramp. Without a stick direction (no TDM) the request is vanilla's,
+        ///       held constant in world space.
+        struct Drive {
+            bool  facingModel = false;
+            float theta = 0, omega = 0;   ///< facing as a math angle (counter-clockwise from +x) and its rate
+            bool  haveGoal    = false;
+            float thetaGoal   = 0;        ///< unwrapped near theta
+            bool  turnDamping = false;    ///< the speed ramp slows turns (TurnSpeedScale)
+            float full = 0, speed = 0;    ///< asked-for and current speed, Havok units/s
+            float accel = 0;              ///< the ramp's rise rate, Havok units/s^2; 0 = instant
+            Vec2  desired;                ///< the request, without the facing model
+        };
+
+        /// @brief The predicted path in Havok world space, for the HUD.
+        struct Path {
+            std::array<ch::hud::Point, kPathPoints> at{};
+            std::array<ch::Ground, kPathPoints>     ground{};
+            bool                                    blocked = false;
+            ch::hud::Point                          blockedAt;
         };
 
         /// @brief A prediction waiting for the gate: its future samples in Havok world space.
@@ -218,18 +254,50 @@ namespace CB::feature {
             return ch::QueryFloorAt(ctrl, hull, x, y, z);
         }
 
-        /// @brief P2: one critically damped velocity spring toward the desired velocity (held constant in world space),
-        ///        a facing spring toward the desired direction, then ONE collision pass along the samples' chords.
+        /// @brief Where a fall from `zTop` to `zBottom` (feet heights) at (x, y) lands: the highest floor-like hit between
+        ///        them, probed with the floor query stepped down the drop (its rays reach one hull radius above the feet
+        ///        and the step height below).
+        bool Land(hk::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zTop, float zBottom, float& zLand,
+                  ch::FloorVerdict& floor)
+        {
+            const float span = hull.radius + ctrl.m_stepHeight;
+            float       zq   = zTop - hull.radius;
+            for (int i = 0; i < 4 && zq + hull.radius >= zBottom; i++, zq -= span) {
+                float dz = 0.0f;
+                if (!HighestFloor(ch::QueryFloorAt(ctrl, hull, x, y, zq), dz)) continue;
+                const float hit = zq + dz;
+                if (hit > zTop || hit < zBottom) continue;
+                zLand = hit;
+                floor = ch::QueryFloorAt(ctrl, hull, x, y, zLand);
+                return true;
+            }
+            return false;
+        }
+
+        /// @brief P2: one forward simulation of the Drive (facing spring, speed, a critically damped velocity spring on
+        ///        the ground, gravity in the air), resolved against the world at every path point: the floor under it,
+        ///        a sweep along the leg, and where a fall lands.
+        /// @note Vertical: the character starts airborne when the floor query finds no floor or it is rising faster
+        ///       than the ground's slope gives (a jump). A grounded point with no floor within reach walks off a ledge:
+        ///       the leg falls from its start. In the air, gravity is 1x rising and fInAirFallingCharGravityMult:HAVOK
+        ///       falling (the Airborne state's), a held jump is assumed, and the horizontal velocity holds (air control
+        ///       is weak and not modelled).
         /// @param worldOut the future samples' positions in Havok world space, for the gate.
         Trajectory Predict(State& s, hk::bhkCharacterController& ctrl, const ch::Hull& hull, const Vec2& tangent, const Vec2& sideAxis,
-                           const Vec2& velocity, const Vec2& desired, std::int32_t iState, std::array<Vec2, kFutureSamples>& worldOut)
+                           const hk::hkVector4& velocity, const Drive& drive, std::int32_t iState, std::array<Vec2, kFutureSamples>& worldOut,
+                           Path& path)
         {
             Trajectory tr;
-            tr.iState         = iState;
-            tr.velForward     = velocity.x * tangent.x + velocity.y * tangent.y;
-            tr.velSide        = velocity.x * sideAxis.x + velocity.y * sideAxis.y;
-            tr.desiredForward = desired.x * tangent.x + desired.y * tangent.y;
-            tr.desiredSide    = desired.x * sideAxis.x + desired.y * sideAxis.y;
+            tr.iState     = iState;
+            tr.velForward = velocity(0) * tangent.x + velocity(1) * tangent.y;
+            tr.velSide    = velocity(0) * sideAxis.x + velocity(1) * sideAxis.y;
+            Vec2 want     = drive.desired;
+            if (drive.facingModel) {
+                const float a = drive.haveGoal ? drive.thetaGoal : drive.theta;
+                want          = { drive.full * std::cos(a), drive.full * std::sin(a) };
+            }
+            tr.desiredForward   = want.x * tangent.x + want.y * tangent.y;
+            tr.desiredSide      = want.x * sideAxis.x + want.y * sideAxis.y;
             const float heading = std::atan2(tangent.y, tangent.x);
 
             auto toLocal = [&](float dx, float dy, Sample& out) {
@@ -247,49 +315,78 @@ namespace CB::feature {
                 tr.past.valid  = true;
             }
 
-            /// @note The facing goal is the desired direction while the character asks to move, else the current facing.
-            const float desiredSpeed = std::sqrt(desired.x * desired.x + desired.y * desired.y);
-            const float facingGoal   = desiredSpeed > kStillSpeed ? heading + WrapAngle(std::atan2(desired.y, desired.x) - heading) : heading;
+            /// @note Without the facing model the facing goal is the request's direction while there is one, else the
+            ///       current facing.
+            const float wantSpeed  = std::sqrt(want.x * want.x + want.y * want.y);
+            const float facingGoal = drive.facingModel ? (drive.haveGoal ? drive.thetaGoal : drive.theta)
+                                                       : wantSpeed > kStillSpeed ? heading + WrapAngle(std::atan2(want.y, want.x) - heading)
+                                                                                 : heading;
+            const float threshold  = kRampThreshold / kGameUnitsPerHavok;
 
-            std::array<Vec2, kFutureSamples>  offset{};
-            std::array<float, kFutureSamples> facing{};
-            {
-                float vx = velocity.x, vy = velocity.y, ax = 0, ay = 0, px = 0, py = 0;
-                float f = heading, fv = 0;
-                float t = 0;
-                int   next = 0;
-                while (next < kFutureSamples) {
-                    const float h = (std::min)(kSubstep, kSampleTimes[next] - t);
-                    const float ox = vx, oy = vy;
-                    ch::SpringDamperExact(vx, ax, desired.x, kVelocityHalflife, h);
-                    ch::SpringDamperExact(vy, ay, desired.y, kVelocityHalflife, h);
-                    ch::SpringDamperExact(f, fv, facingGoal, kFacingHalflife, h);
-                    px += (ox + vx) * 0.5f * h;
-                    py += (oy + vy) * 0.5f * h;
-                    t += h;
-                    if (t >= kSampleTimes[next] - 1.0e-6f) {
-                        offset[next] = { px, py };
-                        facing[next] = f;
-                        ++next;
-                    }
-                }
-            }
+            const hk::hkVector4& gw       = hull.world->GetGravity();
+            const float          gravity  = std::sqrt(gw(0) * gw(0) + gw(1) * gw(1) + gw(2) * gw(2)) * ctrl.m_gravity;
+            static const float   fallMult = ch::IniFloat("fInAirFallingCharGravityMult:HAVOK", 1.35f);
 
             /// @note The sweep runs lifted by the step height, so what the proxy steps over (stair risers, kerbs) never
-            ///       blocks; walkable faces are skipped (m_zNormal) and other characters too. Each sample's height follows
-            ///       the floor query, so stairs and slopes keep the next leg at the floor.
-            const hk::hkVector4& origin = hull.collidable->getTransform().getTranslation();
-            const float          lift   = ctrl.m_stepHeight;
-            Vec2                 prev{};
-            float                prevZ = 0, prevT = 0;
-            bool                 blocked = false;
+            ///       blocks; walkable faces are skipped (m_zNormal) and other characters too. Each grounded point's height
+            ///       follows the floor query, so stairs and slopes keep the next leg at the floor.
+            const hk::hkVector4& origin    = hull.collidable->getTransform().getTranslation();
+            const float          lift      = ctrl.m_stepHeight;
             ch::FloorVerdict     prevFloor = ch::QueryFloor(ctrl, hull);
-            for (int k = 0; k < kFutureSamples; k++) {
-                Sample& out = tr.future[k];
-                out.time    = kSampleTimes[k];
-                Vec2 at     = blocked ? prev : offset[k];
-                float z     = prevZ;
-                ch::FloorVerdict floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+            bool airborne = prevFloor.ground == ch::Ground::Airborne || velocity(2) - PlaneRise(prevFloor, velocity(0), velocity(1)) > kLaunchSpeed;
+
+            float f = drive.facingModel ? drive.theta : heading, fv = drive.facingModel ? drive.omega : 0.0f;
+            float spd = drive.speed;
+            float vx = velocity(0), vy = velocity(1), vz = airborne ? velocity(2) : 0.0f, ax = 0, ay = 0;
+            float px = 0, py = 0, z = 0;
+            Vec2  prev{};
+            float prevZ = 0, prevT = 0;
+            bool  blocked = false;
+            int   sample  = 0;
+            for (int i = 0; i < kPathPoints; i++) {
+                for (int k = 0; k < kSubstepsPerPoint; k++) {
+                    const float h = kSubstep;
+                    ch::SpringDamperExact(f, fv, facingGoal, kFacingHalflife, h);
+                    Vec2 d = want;
+                    if (drive.facingModel) {
+                        const float target = drive.full * (drive.turnDamping && drive.haveGoal ? ch::TurnSpeedScale(facingGoal - f) : 1.0f);
+                        spd = drive.accel > 0.0f && target > spd + threshold ? (std::min)(target, spd + drive.accel * h) : target;
+                        d   = { spd * std::cos(f), spd * std::sin(f) };
+                    }
+                    const float ox = vx, oy = vy, oz = vz;
+                    if (!airborne) {
+                        ch::SpringDamperExact(vx, ax, d.x, kVelocityHalflife, h);
+                        ch::SpringDamperExact(vy, ay, d.y, kVelocityHalflife, h);
+                    } else {
+                        vz -= gravity * (vz > 0.0f ? 1.0f : fallMult) * h;
+                        z += (oz + vz) * 0.5f * h;
+                    }
+                    if (!blocked) {
+                        px += (ox + vx) * 0.5f * h;
+                        py += (oy + vy) * 0.5f * h;
+                    }
+                }
+
+                Vec2             at{ px, py };
+                ch::FloorVerdict floor;
+                if (!airborne) {
+                    floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                    if (floor.ground == ch::Ground::Airborne) {
+                        airborne = true;
+                        vz       = -gravity * fallMult * kPathStep;
+                        z        = prevZ - 0.5f * gravity * fallMult * kPathStep * kPathStep;
+                    }
+                }
+                if (airborne) {
+                    float zLand = 0.0f;
+                    if (vz <= 0.0f && Land(ctrl, hull, at.x, at.y, prevZ, z, zLand, floor)) {
+                        z        = zLand;
+                        vz       = 0.0f;
+                        airborne = false;
+                    } else {
+                        floor = ch::FloorVerdict{};
+                    }
+                }
                 if (!blocked) {
                     hk::hkVector4 from, to;
                     from.set(origin(0) + prev.x, origin(1) + prev.y, origin(2) + prevZ + lift, 0.0f);
@@ -298,23 +395,35 @@ namespace CB::feature {
                     if (hit.hit) {
                         const float dx = at.x - prev.x, dy = at.y - prev.y;
                         const float len = std::sqrt(dx * dx + dy * dy);
-                        const float f   = (std::max)(0.0f, hit.fraction - (len > 1.0e-6f ? kBlockBackoff / len : 0.0f));
+                        const float b   = (std::max)(0.0f, hit.fraction - (len > 1.0e-6f ? kBlockBackoff / len : 0.0f));
                         blocked         = true;
-                        tr.blockedAt    = prevT + (kSampleTimes[k] - prevT) * hit.fraction;
-                        at              = { prev.x + dx * f, prev.y + dy * f };
-                        floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                        tr.blockedAt    = prevT + kPathStep * hit.fraction;
+                        at              = { prev.x + dx * b, prev.y + dy * b };
+                        if (!airborne) floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + PlaneRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                        else           z = prevZ + (z - prevZ) * b;
+                        px = at.x, py = at.y;
+                        vx = vy = ax = ay = 0.0f;
+                        path.blocked   = true;
+                        path.blockedAt = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
                     }
                 }
                 if (floor.ground != ch::Ground::Airborne) prevFloor = floor;
-                toLocal(at.x, at.y, out);
-                out.up     = z;
-                out.facing = WrapAngle(facing[k] - heading);
-                out.ground = floor.ground;
-                out.valid  = true;
-                worldOut[k] = { hull.cx + at.x, hull.cy + at.y };
-                prev        = at;
-                prevZ       = z;
-                prevT       = kSampleTimes[k];
+                path.at[i]     = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
+                path.ground[i] = floor.ground;
+                if (sample < kFutureSamples && i == kSampleIndex[sample]) {
+                    Sample& out = tr.future[sample];
+                    out.time    = kSampleTimes[sample];
+                    toLocal(at.x, at.y, out);
+                    out.up           = z;
+                    out.facing       = WrapAngle(f - heading);
+                    out.ground       = floor.ground;
+                    out.valid        = true;
+                    worldOut[sample] = { hull.cx + at.x, hull.cy + at.y };
+                    ++sample;
+                }
+                prev  = at;
+                prevZ = z;
+                prevT = (i + 1) * kPathStep;
             }
             return tr;
         }
@@ -416,16 +525,36 @@ namespace CB::feature {
 
             hk::hkVector4 v;
             self->GetLinearVelocityImpl(v);
-            const Vec2 velocity{ v(0), v(1) };
             const float vmx = ctrl.m_velocityMod(0), vmy = ctrl.m_velocityMod(1);
-            Vec2        desired{ vmy * tangent.x + vmx * sideAxis.x, vmy * tangent.y + vmx * sideAxis.y };
-            /// @note Under True Directional Movement the game's request is forward-only (TDM rewrites the input and turns
-            ///       the body), so the direction the player is heading for is the stick's: the same goal CharFacing turns
-            ///       the player toward. Skyrim headings run clockwise from +y; the math angle is pi/2 - heading.
-            if (float stick; ch::StickHeading(stick)) {
-                const float speed = std::sqrt(desired.x * desired.x + desired.y * desired.y);
-                const float theta = 1.5707964f - stick;
-                desired           = { speed * std::cos(theta), speed * std::sin(theta) };
+            const Vec2  desired{ vmy * tangent.x + vmx * sideAxis.x, vmy * tangent.y + vmx * sideAxis.y };
+            const float asked = std::sqrt(desired.x * desired.x + desired.y * desired.y);
+
+            /// @note Skyrim headings run clockwise from +y; the math angle is pi/2 - heading.
+            Drive drive;
+            drive.desired = desired;
+            drive.full = drive.speed = asked;
+            ch::FacingState facing;
+            float           stick = 0.0f;
+            if (ch::CurrentFacing(facing)) {
+                drive.facingModel = true;
+                drive.theta       = kHalfPi - facing.yaw;
+                drive.omega       = -facing.rate;
+                drive.haveGoal    = facing.haveGoal;
+                if (facing.haveGoal) drive.thetaGoal = drive.theta + WrapAngle(kHalfPi - facing.goal - drive.theta);
+                /// @note The frame speed is game units/s; the request it becomes (m_velocityMod) is Havok units/s.
+                if (ch::FrameSpeed fs; ch::CurrentSpeed(fs)) {
+                    drive.turnDamping = true;
+                    drive.full        = fs.full / kGameUnitsPerHavok;
+                    drive.speed       = fs.speed / kGameUnitsPerHavok;
+                    drive.accel       = fs.rampTime > 0.0f ? drive.full / fs.rampTime : 0.0f;
+                }
+            } else if (ch::StickHeading(stick)) {
+                /// @note TDM turning the body itself (bFacing off): its forward-only request goes where the stick points,
+                ///       with CB's facing spring from the body's facing standing in for TDM's turn rate.
+                drive.facingModel = true;
+                drive.theta       = std::atan2(tangent.y, tangent.x);
+                drive.haveGoal    = true;
+                drive.thetaGoal   = drive.theta + WrapAngle(kHalfPi - stick - drive.theta);
             }
 
             std::int32_t iState = 0;
@@ -434,12 +563,12 @@ namespace CB::feature {
                 player->GetGraphVariableInt(kIState, iState);
             }
 
-            const float speed   = std::sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
-            const float wanted  = std::sqrt(desired.x * desired.x + desired.y * desired.y);
-            const bool  active  = speed > kStillSpeed || wanted > kStillSpeed;
+            const float speed  = std::sqrt(v(0) * v(0) + v(1) * v(1));
+            const bool  active = speed > kStillSpeed || asked > kStillSpeed || (drive.facingModel && drive.full > kStillSpeed);
 
             std::array<Vec2, kFutureSamples> world{};
-            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, velocity, desired, iState, world);
+            Path                             path;
+            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, drive, iState, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
             if (ch::hud::On()) {
                 ch::hud::Prediction h;
@@ -448,7 +577,15 @@ namespace CB::feature {
                     h.ground[k] = tr.future[k].ground;
                     h.time[k]   = kSampleTimes[k];
                 }
-                h.blockedAt = tr.blockedAt;
+                static_assert(kPathPoints <= ch::hud::Prediction::kPath);
+                for (int i = 0; i < kPathPoints; i++) {
+                    h.path[i]       = path.at[i];
+                    h.pathGround[i] = path.ground[i];
+                }
+                h.pathCount = kPathPoints;
+                h.blocked   = path.blocked;
+                h.blockedAt = path.blockedAt;
+                h.blockedIn = tr.blockedAt;
                 h.iState    = iState;
                 ch::hud::Publish(h);
             }

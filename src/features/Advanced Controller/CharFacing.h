@@ -3,8 +3,9 @@
 #include <cmath>
 
 /// @file
-/// @brief The Advanced Controller's facing model, shared by the yaw-control feature (CharFacing) and the predictor so
-///        the facing the player gets and the facing that is predicted are the same model.
+/// @brief The Advanced Controller's frame-movement model, shared by the frame features (CharFacing turns the player,
+///        CharSpeedRamp sets the speed) and the predictor, so the movement the player gets and the movement that is
+///        predicted are the same model.
 /// @note Facing comes through True Directional Movement's API: TDM keeps its free-rotation camera, camera compensation
 ///       and forward-only input rewrite, and CB owns the yaw while TDM is in its directional mode.
 
@@ -19,6 +20,35 @@ namespace CB::feature::controller {
     /// @note The camera's yaw is the player's heading plus the third-person camera's free-rotation offset (vanilla's
     ///       ThirdPersonState::UpdateRotation; TDM keeps free rotation on while directional).
     bool StickHeading(float& heading);
+
+    /// @brief The facing spring as CharFacing left it after the latest frame (Skyrim headings, radians).
+    struct FacingState {
+        float yaw      = 0.0f;    ///< the heading CB set, unwrapped near the body's heading
+        float rate     = 0.0f;    ///< radians/s, clockwise positive
+        bool  haveGoal = false;   ///< the stick asks for a direction
+        float goal     = 0.0f;    ///< the stick's heading (StickHeading), when haveGoal
+    };
+    /// @brief The latest frame's facing; false while CB does not hold the yaw (no TDM, not directional, bFacing off)
+    ///        or no frame ran within the last half second.
+    /// @note Thread-safe: the frame writes it, the predictor (physics) and the HUD (render) read it.
+    bool CurrentFacing(FacingState& out);
+
+    /// @brief The fraction of its speed the player keeps while the facing is `gap` radians from the stick's direction:
+    ///        1 up to [Character] fTurnFreeAngle (degrees, default 45), easing to 0 at 180 degrees.
+    /// @note Why: the facing spring turns the body while the velocity follows it at full speed, so a reversal never
+    ///       lost speed. Slowed by the gap, a hard turn drops the speed and the speed ramp builds it back as the body
+    ///       comes around. fTurnFreeAngle=180 turns it off.
+    float TurnSpeedScale(float gap);
+
+    /// @brief The speed ramp's latest frame (game units/s): the speed the movement controller asked for (`full`) and
+    ///        the speed handed on after the turn damping and the ramp (`speed`).
+    struct FrameSpeed {
+        float full     = 0.0f;
+        float speed    = 0.0f;
+        float rampTime = 0.0f;   ///< fRampTime: a rise from 0 to `full` takes this long
+    };
+    /// @brief False while the speed ramp is off or no frame ran within the last half second. Thread-safe.
+    bool CurrentSpeed(FrameSpeed& out);
 
     /// @brief `a` wrapped into (-pi, pi].
     inline float WrapPi(float a)

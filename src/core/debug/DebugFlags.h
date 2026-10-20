@@ -117,8 +117,10 @@ namespace CB::core::debug {
           "Speed acceleration",
           "For the player: whenever the movement speed the engine hands to both the animation graph and physics "
           "rises (walk, run, sprint), it climbs to its target over fRampTime seconds instead of jumping there; "
-          "slowing down stays instant. The graph's TargetSpeed gets the unramped speed. Off under bAnimationDriven, "
-          "bSpeedSynced and bIsSynced. AE only. Unproven in game." },
+          "slowing down stays instant. Under bFacing, turning also costs speed: full speed while the body faces within "
+          "fTurnFreeAngle degrees (default 45) of the stick, easing to none at 180, so a hard turn rebuilds its speed "
+          "(fTurnFreeAngle=180 turns that off). The graph's TargetSpeed gets the speed asked for. Off under "
+          "bAnimationDriven, bSpeedSynced and bIsSynced. AE only. Unproven in game." },
         { "char_facing", FlagKind::IniBool, "Character", "bFacing", false, false,
           "Facing (through True Directional Movement)",
           "While True Directional Movement is in its directional mode, CB holds TDM's yaw control and turns the player "
@@ -127,13 +129,16 @@ namespace CB::core::debug {
         { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
           "Character debug HUD",
           "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "
-          "wall, grey miss), the output and desired velocity arrows, the predicted trajectory coloured by ground "
-          "state (needs bPredictorObserve), and a text panel (mode, verdict, timers, ramp speed, iState). Hidden "
-          "while the game is paused." },
+          "wall, grey miss), the output and desired velocity arrows, the stick's direction (yellow arrowhead) and the "
+          "body's facing (white tick) on the ring (needs bFacing), the predicted path coloured by ground state, falls "
+          "and jumps included (needs bPredictorObserve), and a text panel (mode, verdict, timers, ramp speed, turn "
+          "damping, iState). Hidden while the game is paused." },
         { "char_predictor", FlagKind::IniBool, "Character", "bPredictorObserve", false, false,
           "Trajectory predictor (observe)",
           "Step 8 of the character controller spec: predict the player's trajectory (1 s ahead) every step and log "
-          "its error against where the player actually went. Observes only. Unproven in game." },
+          "its error against where the player actually went. Under bFacing it turns from the body's actual facing and "
+          "speed (turn damping and speed ramp included); walking off a ledge or jumping predicts the fall and where it "
+          "lands. Observes only. Unproven in game." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "

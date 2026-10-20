@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharDebugHud.h"
+#include "CharFacing.h"
 #include "CharGround.h"
 
 #include <core/debug/Settings.h>
@@ -9,10 +10,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <mutex>
 
 /// @file
-/// @brief Speed acceleration for the player: ramps the speed the movement controller produces each frame.
+/// @brief Speed acceleration for the player: ramps the speed the movement controller produces each frame, and slows
+///        it while the facing turns toward the stick (TurnSpeedScale, under CharFacing), so a hard turn rebuilds speed.
 /// @note Why here and not in the character controller: vanilla's player path has no acceleration (the speed jumps
 ///       to its target; PlayerControls only limits a drop of more than 500 game units/s in one call), and the same
 ///       speed feeds the graph's `Speed` (what BSSpeedSamplerModifier fits the locomotion blend to) and the frame
@@ -79,51 +83,87 @@ namespace CB::feature {
             return actor->GetGraphVariableBool(isSynced, on) && on;
         }
 
+        /// @brief What CurrentSpeed hands out, stamped with the frame that wrote it.
+        struct Published {
+            std::mutex     lock;
+            ch::FrameSpeed speed;
+            double         at = -1.0e9;
+        };
+        Published        g_published;
+        constexpr double kStale = 0.5;
+
+        double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+
+        /// @note Priority: CharFacing subscribes Late (inside this one), so its facing for this frame is published by
+        ///       the time `next` returns here.
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             next(controller, deltaTime, out);
             RE::Actor* player = out ? PlayerOf(controller) : nullptr;
             if (!player) return;
-            Ramp&       r      = g_ramp;
-            const float target = out->speed;
+            Ramp&       r    = g_ramp;
+            const float full = out->speed;
 
             /// @note The graph's TargetSpeed (MiddleHighProcessData +0x2ac) is written only on the NPC path-following
-            ///       branch, so for the player it carries the unramped speed from here.
+            ///       branch, so for the player it carries the speed asked for from here: unramped and undamped.
             auto* process = player->GetActorRuntimeData().currentProcess;
             auto* mh      = process ? process->middleHigh : nullptr;
             if (mh) {
                 bool expected = false;
                 if (g_loggedTargetSpeed.compare_exchange_strong(expected, true))
-                    LOG_INFO("speed ramp: player TargetSpeed was {:.1f} before CB's first write (speed {:.1f})", mh->unk2AC, target);
-                mh->unk2AC = target;
+                    LOG_INFO("speed ramp: player TargetSpeed was {:.1f} before CB's first write (speed {:.1f})", mh->unk2AC, full);
+                mh->unk2AC = full;
             }
 
-            if (!r.init || deltaTime <= 0.0f || GraphDrivesSpeed(player) || target <= r.speed + kRampThreshold) {
+            const bool      graphDrives = GraphDrivesSpeed(player);
+            float           turnScale   = 1.0f;
+            ch::FacingState facing;
+            if (!graphDrives && ch::CurrentFacing(facing) && facing.haveGoal) turnScale = ch::TurnSpeedScale(facing.goal - facing.yaw);
+            const float target = full * turnScale;
+
+            /// @note The rise rate is the asked-for speed over fRampTime, not the damped target's: a body coming out of
+            ///       a turn rebuilds its speed at the same acceleration as one starting from rest.
+            if (!r.init || deltaTime <= 0.0f || graphDrives || target <= r.speed + kRampThreshold) {
                 if (r.ramping && LogBudget())
-                    LOG_INFO("speed ramp: {:.1f} -> {:.1f} ended at {:.1f} after {:.3f} s (target now {:.1f})", r.from, r.speed, r.speed,
-                             r.rampTime, target);
+                    LOG_INFO("speed ramp: {:.1f} -> {:.1f} ended at {:.1f} after {:.3f} s (target now {:.1f}, turn {:.2f})", r.from, r.speed, r.speed,
+                             r.rampTime, target, turnScale);
                 r = Ramp{ true, false, target, target, 0.0f };
             } else {
                 if (!r.ramping) {
                     r.ramping  = true;
                     r.from     = r.speed;
                     r.rampTime = 0.0f;
-                    if (LogBudget()) LOG_INFO("speed ramp: {:.1f} -> {:.1f} (sprinting {})", r.speed, target, player->AsActorState()->IsSprinting());
+                    if (LogBudget())
+                        LOG_INFO("speed ramp: {:.1f} -> {:.1f} (turn {:.2f}, sprinting {})", r.speed, target, turnScale,
+                                 player->AsActorState()->IsSprinting());
                 }
-                r.speed = (std::min)(target, r.speed + target / RampTime() * deltaTime);
+                r.speed = (std::min)(target, r.speed + full / RampTime() * deltaTime);
                 r.rampTime += deltaTime;
                 if (r.speed >= target) {
                     if (LogBudget()) LOG_INFO("speed ramp: reached {:.1f} after {:.3f} s", target, r.rampTime);
                     r.ramping = false;
                 }
-                out->speed = r.speed;
             }
-            if (ch::hud::On()) ch::hud::Publish(ch::hud::Ramp{ out->speed, target });
+            out->speed = r.speed;
+            {
+                std::scoped_lock lock(g_published.lock);
+                g_published.speed = ch::FrameSpeed{ full, r.speed, RampTime() };
+                g_published.at    = Now();
+            }
+            if (ch::hud::On()) ch::hud::Publish(ch::hud::Ramp{ out->speed, full, turnScale });
         }
 
         [[maybe_unused]] const bool s_subscribed =
             Frame::Subscribe(&OnFrame, hooks::Priority::Normal, "CharSpeedRamp", "char_speed_ramp");
 
     }  // namespace
+
+    bool controller::CurrentSpeed(FrameSpeed& out)
+    {
+        std::scoped_lock lock(g_published.lock);
+        if (Now() - g_published.at > kStale) return false;
+        out = g_published.speed;
+        return true;
+    }
 
 }  // namespace CB::feature

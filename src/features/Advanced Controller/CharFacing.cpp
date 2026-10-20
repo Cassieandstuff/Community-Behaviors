@@ -7,8 +7,11 @@
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <mutex>
 
 /// @file
 /// @brief CB owns the player's yaw through True Directional Movement's API: while TDM is in its directional mode, CB
@@ -65,6 +68,26 @@ namespace CB::feature::controller {
         std::atomic<bool> g_haveControl{ false };
         std::atomic<bool> g_loggedThread{ false };
 
+        /// @brief What CurrentFacing hands out, stamped with the frame that wrote it.
+        struct Published {
+            std::mutex  lock;
+            FacingState state;
+            bool        valid = false;
+            double      at    = -1.0e9;
+        };
+        Published        g_published;
+        constexpr double kStale = 0.5;
+
+        double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+
+        void Publish(bool valid, const FacingState& state = {})
+        {
+            std::scoped_lock lock(g_published.lock);
+            g_published.valid = valid;
+            g_published.state = state;
+            g_published.at    = Now();
+        }
+
         /// @brief Runs `fn` on TDM's thread: now when this is it, else as an SKSE task (the main thread).
         template <class Fn>
         void OnTdmThread(TDM_API::IVTDM3* api, Fn fn)
@@ -116,20 +139,13 @@ namespace CB::feature::controller {
             controls->data.moveInputVec = RE::NiPoint2(0.0f, (std::min)(1.0f, len));
         }
 
-        std::atomic<int> g_frameLogs{ 0 };
-
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             RE::Actor* player = PlayerOf(controller);
             auto*      api    = player ? Api() : nullptr;
-            if (api && g_haveControl && api->GetDirectionalMovementMode() == TDM_API::DirectionalMovementMode::kDirectional) {
+            if (api && g_haveControl && api->GetDirectionalMovementMode() == TDM_API::DirectionalMovementMode::kDirectional)
                 RewriteInput(api);
-                next(controller, deltaTime, out);
-                if (out && out->speed > 1.0f && g_frameLogs.fetch_add(1, std::memory_order_relaxed) < 20)
-                    LOG_INFO("facing: frame under CB's yaw — direction {:.2f} rad (0 = forward), speed {:.1f}", out->angles[2], out->speed);
-            } else {
-                next(controller, deltaTime, out);
-            }
+            next(controller, deltaTime, out);
             if (!api) return;
 
             const float heading = player->GetHeading(false);
@@ -138,20 +154,45 @@ namespace CB::feature::controller {
             if (!want || !f.init) {
                 f = Facing{ true, heading, 0.0f };
                 if (want || g_haveControl) Control(api, want, heading);
+                Publish(false);
                 return;
             }
             /// @note Keep the spring on the heading the game actually has (TDM's own turns, a teleport, a sync scene).
             f.yaw = heading + WrapPi(f.yaw - heading);
-            float goal = f.yaw;
-            float stick;
-            if (StickHeading(stick)) goal = f.yaw + WrapPi(stick - f.yaw);
+            float      goal = f.yaw;
+            float      stick;
+            const bool haveGoal = StickHeading(stick);
+            if (haveGoal) goal = f.yaw + WrapPi(stick - f.yaw);
             if (deltaTime > 0.0f) SpringDamperExact(f.yaw, f.rate, goal, kFacingHalflife, deltaTime);
             Control(api, true, f.yaw);
+            Publish(true, FacingState{ f.yaw, f.rate, haveGoal, goal });
         }
 
         [[maybe_unused]] const bool s_subscribed = Frame::Subscribe(&OnFrame, hooks::Priority::Late, "CharFacing", "char_facing");
 
     }  // namespace
+
+    bool CurrentFacing(FacingState& out)
+    {
+        std::scoped_lock lock(g_published.lock);
+        if (!g_published.valid || Now() - g_published.at > kStale) return false;
+        out = g_published.state;
+        return true;
+    }
+
+    float TurnSpeedScale(float gap)
+    {
+        constexpr float    kPi       = 3.14159265f;
+        static const float freeAngle = [] {
+            const float deg = std::clamp(SettingFloat("fTurnFreeAngle", 45.0f), 0.0f, 180.0f);
+            LOG_INFO("facing: full speed within {:.0f} deg of the stick, easing to none at 180", deg);
+            return deg * kPi / 180.0f;
+        }();
+        const float a = std::fabs(gap);
+        if (a <= freeAngle || freeAngle >= kPi) return 1.0f;
+        const float u = (std::min)(1.0f, (a - freeAngle) / (kPi - freeAngle));
+        return 1.0f - u * u * (3.0f - 2.0f * u);
+    }
 
     bool StickHeading(float& heading)
     {

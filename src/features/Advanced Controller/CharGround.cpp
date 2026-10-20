@@ -192,6 +192,13 @@ namespace CB::feature::controller {
         return s.empty() || end == s.c_str() ? def : f;
     }
 
+    float IniFloat(const char* name, float def)
+    {
+        auto*        ini = RE::INISettingCollection::GetSingleton();
+        RE::Setting* s   = ini ? ini->GetSetting(name) : nullptr;
+        return s ? s->GetFloat() : def;
+    }
+
     namespace {
         std::mutex                        g_publishLock;
         const hk::bhkCharacterController* g_publishCtrl = nullptr;

@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "CharDebugHud.h"
+#include "CharFacing.h"
 
 #include <core/bootstrap/ProgressHud.h>
 #include <core/debug/Settings.h>
@@ -51,6 +52,9 @@ namespace CB::feature::controller::hud {
         const ImU32 kVelocity = IM_COL32(255, 255, 255, 255);
         const ImU32 kDesired  = IM_COL32(60, 200, 255, 255);
         const ImU32 kAirborne = IM_COL32(120, 140, 255, 255);
+        const ImU32 kStick      = IM_COL32(255, 220, 40, 255);
+        const ImU32 kFacingTick = IM_COL32(255, 255, 255, 255);
+        constexpr float kRadToDeg = 57.29578f;
 
         ImU32 GroundColor(Ground g) { return g == Ground::Grounded ? kWalkable : g == Ground::Sliding ? kSteep : kAirborne; }
 
@@ -102,6 +106,29 @@ namespace CB::feature::controller::hud {
             }
         }
 
+        /// @brief The horizontal unit direction of a Skyrim heading (radians clockwise from +y).
+        Point Direction(float heading) { return { std::sin(heading), std::cos(heading), 0.0f }; }
+
+        /// @brief A short tick across the ring at `heading`: the body's facing.
+        void Tick(ImDrawList* dl, const Projector& proj, const Point& c, float radius, float heading, ImU32 color)
+        {
+            const Point d = Direction(heading);
+            Line(dl, proj, { c.x + d.x * radius * 0.7f, c.y + d.y * radius * 0.7f, c.z },
+                 { c.x + d.x * radius * 1.3f, c.y + d.y * radius * 1.3f, c.z }, color, 3.0f);
+        }
+
+        /// @brief A small arrowhead on the ring pointing out at `heading`: where the stick asks to go.
+        void RingArrow(ImDrawList* dl, const Projector& proj, const Point& c, float radius, float heading, ImU32 color)
+        {
+            const Point d = Direction(heading);
+            const Point n{ -d.y, d.x, 0.0f };
+            const Point tip{ c.x + d.x * radius * 1.45f, c.y + d.y * radius * 1.45f, c.z };
+            const Point left{ c.x + d.x * radius + n.x * radius * 0.25f, c.y + d.y * radius + n.y * radius * 0.25f, c.z };
+            const Point right{ c.x + d.x * radius - n.x * radius * 0.25f, c.y + d.y * radius - n.y * radius * 0.25f, c.z };
+            ImVec2 st, sl, sr;
+            if (proj(tip, st) && proj(left, sl) && proj(right, sr)) dl->AddTriangleFilled(st, sl, sr, color);
+        }
+
         float HorizontalSpeed(const Point& v) { return std::sqrt(v.x * v.x + v.y * v.y) * kGameUnitsPerHavok; }
 
         bool Active()
@@ -149,23 +176,25 @@ namespace CB::feature::controller::hud {
                 Arrow(dl, proj, chest, c.velocity, kVelocity);
             }
 
+            FacingState facing;
+            const bool  haveFacing = CurrentFacing(facing);
+            if (haveCtrl && haveFacing) {
+                Tick(dl, proj, c.feet, c.radius, facing.yaw, kFacingTick);
+                if (facing.haveGoal) RingArrow(dl, proj, c.feet, c.radius, facing.goal, kStick);
+            }
+
             if (havePred) {
-                Point prev = haveCtrl ? c.feet : p.at[0];
-                float prevT = 0.0f;
-                for (int k = 0; k < Prediction::kSamples; k++) {
-                    Line(dl, proj, prev, p.at[k], GroundColor(p.ground[k]), 3.0f);
-                    ImVec2 at;
+                Point prev = haveCtrl ? c.feet : p.path[0];
+                for (int i = 0; i < p.pathCount && i < Prediction::kPath; i++) {
+                    Line(dl, proj, prev, p.path[i], GroundColor(p.pathGround[i]), 3.0f);
+                    prev = p.path[i];
+                }
+                ImVec2 at;
+                for (int k = 0; k < Prediction::kSamples; k++)
                     if (proj(p.at[k], at)) dl->AddCircleFilled(at, 5.0f, GroundColor(p.ground[k]));
-                    if (p.blockedAt >= prevT && p.blockedAt < p.time[k]) {
-                        const float f = (p.blockedAt - prevT) / (std::max)(1.0e-3f, p.time[k] - prevT);
-                        const Point b{ prev.x + (p.at[k].x - prev.x) * f, prev.y + (p.at[k].y - prev.y) * f, prev.z + (p.at[k].z - prev.z) * f };
-                        if (proj(b, at)) {
-                            dl->AddLine(ImVec2(at.x - 8, at.y - 8), ImVec2(at.x + 8, at.y + 8), kWall, 3.0f);
-                            dl->AddLine(ImVec2(at.x - 8, at.y + 8), ImVec2(at.x + 8, at.y - 8), kWall, 3.0f);
-                        }
-                    }
-                    prev  = p.at[k];
-                    prevT = p.time[k];
+                if (p.blocked && proj(p.blockedAt, at)) {
+                    dl->AddLine(ImVec2(at.x - 8, at.y - 8), ImVec2(at.x + 8, at.y + 8), kWall, 3.0f);
+                    dl->AddLine(ImVec2(at.x - 8, at.y + 8), ImVec2(at.x + 8, at.y - 8), kWall, 3.0f);
                 }
             }
 
@@ -182,10 +211,11 @@ namespace CB::feature::controller::hud {
                 ImGui::Text("speed %.0f   desired %.0f   vz %.0f", HorizontalSpeed(c.velocity), HorizontalSpeed(c.desired), c.velocity.z * kGameUnitsPerHavok);
                 if (c.variableJump) ImGui::Text("variable jump: %s", c.jumpReleased ? "released" : "held");
             }
-            if (haveRamp) ImGui::Text("ramp %.0f -> %.0f", r.speed, r.target);
+            if (haveRamp) ImGui::Text("ramp %.0f -> %.0f   turn x%.2f", r.speed, r.target, r.turn);
+            if (haveFacing && facing.haveGoal) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(facing.goal - facing.yaw)) * kRadToDeg);
             if (havePred) {
-                if (p.blockedAt >= 0.0f) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedAt);
-                else                     ImGui::Text("iState %d", p.iState);
+                if (p.blocked) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedIn);
+                else           ImGui::Text("iState %d", p.iState);
             }
             ImGui::End();
         }
