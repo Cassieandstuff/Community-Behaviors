@@ -42,7 +42,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk  = CB::schema;
-        namespace ch  = CB::feature::character;
+        namespace ch  = CB::feature::controller;
 
         using Process = core::hooks::Override<&hk::bhkCharProxyController::processConstraintsCallback>;
 

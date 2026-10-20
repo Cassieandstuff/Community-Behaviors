@@ -14,7 +14,7 @@
 #include <mutex>
 #include <string>
 
-namespace CB::feature::character {
+namespace CB::feature::controller {
 
     namespace {
 
@@ -175,4 +175,4 @@ namespace CB::feature::character {
         return true;
     }
 
-}  // namespace CB::feature::character
+}  // namespace CB::feature::controller

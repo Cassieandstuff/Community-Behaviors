@@ -41,7 +41,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::schema;
-        namespace ch = CB::feature::character;
+        namespace ch = CB::feature::controller;
         namespace eng        = core::hooks::engine;
         using GetState       = core::hooks::Override<&hk::hkpCharacterStateManager::getState>;
         using SimulateFn     = void (*)(const void* state, hk::bhkCharacterController* controller);

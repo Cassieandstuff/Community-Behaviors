@@ -11,7 +11,7 @@
 ///        hull, the M4 floor query (a ray footprint) and the exact critically damped spring (P2). Every character
 ///        feature uses these instead of its own copy.
 
-namespace CB::feature::character {
+namespace CB::feature::controller {
 
     namespace hk = CB::schema;
 
@@ -102,4 +102,4 @@ namespace CB::feature::character {
         v = eyd * (v - j1 * y * dt);
     }
 
-}  // namespace CB::feature::character
+}  // namespace CB::feature::controller

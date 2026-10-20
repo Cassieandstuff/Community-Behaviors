@@ -120,7 +120,7 @@ namespace CB::feature {
             if (vx * vx + vy * vy < 1.0e-4f) return;
             const hk::hkVector4& from = coll->getTransform().getTranslation();
             const hk::hkVector4  to(from(0) + vx, from(1) + vy, from(2), 0.0f);
-            const character::SweepHit s = character::Sweep(world, coll, to, 0.0f, self->m_zNormal);
+            const controller::SweepHit s = controller::Sweep(world, coll, to, 0.0f, self->m_zNormal);
             const int key = s.hit ? 1 + static_cast<int>(s.fraction * 10.0f) * 4 + (s.contact.m_separatingNormal(2) > 0.3f ? 2 : 0) : 0;
             if (key == g_lastSweepKey || g_sweepLogged >= 2000) return;
             g_lastSweepKey = key;

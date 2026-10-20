@@ -6,7 +6,7 @@
 #include <cstddef>
 #include <cstring>
 
-namespace CB::feature::character {
+namespace CB::feature::controller {
 
     namespace {
 
@@ -164,4 +164,4 @@ namespace CB::feature::character {
         return Cast(world, standIn.m_collidable, collidable, from, to, startTolerance, ignoreAboveNormalZ, ignoreLayers);
     }
 
-}  // namespace CB::feature::character
+}  // namespace CB::feature::controller

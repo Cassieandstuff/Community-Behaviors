@@ -17,7 +17,7 @@
 /// @note Publishers run on the physics thread and the draw on the render thread, so each part is copied under one
 ///       lock and stamped; a part older than kStale seconds is not drawn (a load, a menu, a feature switched off).
 
-namespace CB::feature::character::hud {
+namespace CB::feature::controller::hud {
 
     namespace {
 
@@ -228,4 +228,4 @@ namespace CB::feature::character::hud {
         s.rampAt = Now();
     }
 
-}  // namespace CB::feature::character::hud
+}  // namespace CB::feature::controller::hud

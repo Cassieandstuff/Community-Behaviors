@@ -10,7 +10,7 @@
 ///        through the Havok world with hkpWorld::linearCast and reports the first hit. Shared by the step query (M7)
 ///        and the predictor (P2).
 
-namespace CB::feature::character {
+namespace CB::feature::controller {
 
     /// @brief The first thing a sweep met.
     struct SweepHit {
@@ -39,4 +39,4 @@ namespace CB::feature::character {
     SweepHit SweepFrom(CB::schema::bhkWorld* world, const CB::schema::hkpCollidable* collidable, const CB::schema::hkVector4& from,
                        const CB::schema::hkVector4& to, float startTolerance, float ignoreAboveNormalZ = 2.0f, std::uint64_t ignoreLayers = 0);
 
-}  // namespace CB::feature::character
+}  // namespace CB::feature::controller

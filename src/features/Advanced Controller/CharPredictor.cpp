@@ -27,7 +27,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::schema;
-        namespace ch = CB::feature::character;
+        namespace ch = CB::feature::controller;
         using CheckSupport = core::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
         /// @brief Halflife of the velocity spring (P2), seconds.

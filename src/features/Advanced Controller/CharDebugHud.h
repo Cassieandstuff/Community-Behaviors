@@ -11,7 +11,7 @@
 /// @note Positions and velocities are Havok world units (the HUD converts); publishing is a no-op unless the HUD
 ///       flag is on, so the features pay nothing otherwise.
 
-namespace CB::feature::character::hud {
+namespace CB::feature::controller::hud {
 
     struct Point {
         float x = 0, y = 0, z = 0;
@@ -63,4 +63,4 @@ namespace CB::feature::character::hud {
     void Publish(const Prediction& p);
     void Publish(const Ramp& r);
 
-}  // namespace CB::feature::character::hud
+}  // namespace CB::feature::controller::hud

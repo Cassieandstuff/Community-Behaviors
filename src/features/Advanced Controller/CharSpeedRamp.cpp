@@ -26,7 +26,7 @@ namespace CB::feature {
     namespace {
 
         namespace hooks = core::hooks;
-        namespace ch    = CB::feature::character;
+        namespace ch    = CB::feature::controller;
         using Frame     = hooks::MovementControllerFrame;
 
         /// @brief Rises smaller than this (game units/s) pass at once: steering noise, not a speed change.

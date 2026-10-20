@@ -28,7 +28,7 @@ namespace CB::feature {
     namespace {
 
         namespace hk = CB::schema;
-        namespace ch = CB::feature::character;
+        namespace ch = CB::feature::controller;
         using Integrate   = core::hooks::Override<&hk::bhkCharProxyController::Unk_0B>;
 
         constexpr float         kHavokToGame       = 69.99125f;
