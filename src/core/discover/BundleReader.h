@@ -51,9 +51,9 @@ namespace CB {
         std::vector<std::string> filesUnderOrig(const std::string& dirPrefix, const std::string& extLower) const;
 
         /// @brief Tree-relative prefixes (forward-slashed, e.g. "meshes/actors/horse/characters/horse.hkx") of every
-        ///        "<x>.hkx/" unit of `kind`, classified by its graph.yaml root (HkyArchive::KindOfGraphYaml); a
-        ///        bonelist.yaml unit is a Skeleton.
-        /// @note  A patch unit that leaves the root untouched has no graph.yaml and lists as a Behavior.
+        ///        "<x>.hkx/" unit of `kind`, classified by HkyArchive::KindOfUnit.
+        /// @note  A patch unit lists as a Patch: its kind is the complete unit's at the same path, which the caller
+        ///        resolves across the load order.
         std::vector<std::string> units(CB::engine::codec::HkyArchive::UnitKind kind) const;
 
         /// @brief A read-only IUnitSource rooted at a unit `prefix` (from units()): packed bundle -> ZipUnitSource,

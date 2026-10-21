@@ -24,7 +24,8 @@ using CB::engine::common::IUnitSource;   // the unit backing-store interface liv
 ///        are safe, and each inflate runs on the thread that asked for the file.
 class HkyArchive : public std::enable_shared_from_this<HkyArchive> {
 public:
-    enum class UnitKind { Behavior, Character, Project, Skeleton };
+    /// @note A `Patch` carries no kind of its own: it overlays the complete unit at the same path, whose kind it takes.
+    enum class UnitKind { Behavior, Character, Project, Skeleton, Patch };
     struct Unit {
         std::string prefix;   // serve key, e.g. "meshes/actors/character/behaviors/0_master.hkx"
         UnitKind    kind;
@@ -69,11 +70,14 @@ public:
     /// @brief A reflective unit's kind from its graph.yaml: the root's named variant class (hkbCharacterData,
     ///        hkbProjectData, hkaAnimationContainer); anything else — or no graph.yaml — is a Behavior. (A skeleton
     ///        unit is bonelist.yaml + bones/, not reflective: see units().)
-    /// @note  A mod's patch unit names its base's variant class too; pair with IsPatchGraphYaml.
+    /// @note  A mod's patch unit may name its base's variant class too; classify a unit with KindOfUnit.
     static UnitKind KindOfGraphYaml(std::string_view graphYaml);
     /// @brief True when graph.yaml is a PATCH's: its root `id:` is a FormID owned by a master (`0001x…`), not by the
     ///        unit itself (`0000x…`). A patch unit is incomplete alone — it only overlays its master's unit.
     static bool IsPatchGraphYaml(std::string_view graphYaml);
+    /// @brief THE unit classification, from its files: bonelist.yaml → Skeleton; no graph.yaml, or a patch's → Patch;
+    ///        else KindOfGraphYaml. Every unit lister (archive, loose bundle, Resolver) calls this one.
+    static UnitKind KindOfUnit(const std::optional<std::string>& graphYaml, bool hasBonelist);
 
     // Every unit in the archive — every "<prefix>.hkx/" subtree. `prefix` doubles as the serve key.
     const std::vector<Unit>& units() const { return m_units; }

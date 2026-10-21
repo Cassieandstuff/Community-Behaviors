@@ -794,23 +794,18 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips) {
 }
 
 /// @brief `rosterPatch`: one patch unit per listed character adding every animation to its roster.
-/// @note  A roster is a union: the patch names only what it adds. The same list goes to every character, since
-///        characters sharing a graph need identical slot sets (a slot is keyed by file name).
+/// @note  A roster is a union: the patch names only what it adds, in the unit's animations.yaml alone (a patch takes
+///        its kind from the character unit at its path). The same list goes to every character, since characters
+///        sharing a graph need identical slot sets (a slot is keyed by file name).
 Files RosterPatch(const Json& j, const std::vector<Clip>& clips) {
     const Json& chars = j["characters"];
     if (!chars.is_array() || chars.empty()) throw std::runtime_error("'characters' is not a non-empty list");
     std::string names;
-    for (const auto& c : clips) names += (names.empty() ? "" : ", ") + Quote(c.roster);
+    for (const auto& c : clips) names += "- " + Quote(c.roster) + "\n";
     Files files;
     for (const auto& c : chars) {
-        ExpectKeys(c, { "path", "root" });
-        const auto root = c["root"].get<std::string>();
-        const bool formId = root.size() == 9 && root[4] == 'x' &&
-                            std::all_of(root.begin(), root.end(), [](char ch) { return ch == 'x' || std::isxdigit(static_cast<unsigned char>(ch)); });
-        if (!formId) throw std::runtime_error("'" + root + "' is not a FormID like 0001x000b");
-        files.emplace_back(c["path"].get<std::string>() + "/graph.yaml",
-            "id: " + root + "\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbCharacterData':\n    variant:\n"
-            "      stringData:\n        animationNames: [" + names + "]\n");
+        ExpectKeys(c, { "path" });
+        files.emplace_back(c["path"].get<std::string>() + "/animations.yaml", names);
     }
     return files;
 }

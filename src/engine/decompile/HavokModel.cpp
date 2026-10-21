@@ -258,6 +258,8 @@ struct ReflectCtx {
     std::uint16_t                   keyOwner = CB::engine::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
     std::vector<std::pair<std::string, std::string>>* sink = nullptr;   ///< node-level rosters -> (field path, entries)
     std::string                     path;                            ///< dotted field path from the node to this object
+    bool                            hoist = false;   ///< the root's `file:` lists render in their own files, not inline
+    std::vector<std::pair<std::string, std::string>>* files = nullptr;   ///< a patch root's `file:` lists -> (stem, body)
 };
 
 /// @brief The context for an inline object reached through field `f` (its rosters still belong to the node's folder).
@@ -749,7 +751,7 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                 y += listText(v.objs, c, f.name, f.ref);
                 break;
             case FieldKind::StringArray:
-                if (v.strs.empty()) break;
+                if (v.strs.empty() || (c.hoist && !f.file.empty())) break;
                 y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return text::Quote(v.strs[k]); }) + "\n";
                 break;
             case FieldKind::ScalarArray: {
@@ -803,6 +805,50 @@ std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const
     const std::size_t n = so.Fields().size();
     for (std::size_t i = 0; i < n; ++i) y += renderField(so, i, c);
     return y;
+}
+
+/// @brief The character roster's own file, as ReadCharacterStrings reads it without the schema.
+/// @invariant Equals `hkbCharacterStringData.animationNames`'s `file:` stem + ".yaml"; hintedFiles fails the emit otherwise.
+constexpr const char* kCharacterRosterFile = "animations.yaml";
+
+/// @brief A `file:` list's body: one quoted name per line (byte-exact, never case-folded).
+std::string fileList(const std::vector<std::string>& names) {
+    std::string y;
+    for (const auto& s : names) y += "- " + text::Quote(s) + "\n";
+    return y;
+}
+
+/// @brief Every non-empty `file:` list in `node`'s inline subtree (a file node is its own file) -> (stem, body).
+/// @return false (with `err`) when two lists in one unit name the same stem.
+bool hintedFiles(const io::SchemaObject& node, const ReflectCtx& c, std::vector<std::pair<std::string, std::string>>& out,
+                 std::string& err) {
+    std::unordered_set<const IHavokObject*> seen;
+    std::function<bool(const io::SchemaObject&)> walk = [&](const io::SchemaObject& so) {
+        if (!seen.insert(&so).second) return true;
+        const auto fields = so.Fields();
+        const auto& vals  = so.Values();
+        for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i) {
+            const Field& f = *fields[i];
+            if (!f.file.empty() && !vals[i].strs.empty()) {
+                if (std::string(so.ClassName()) == "hkbCharacterStringData" && f.name == "animationNames" &&
+                    f.file + ".yaml" != kCharacterRosterFile) {
+                    err = "hkbCharacterStringData.animationNames: 'file: " + f.file + "' but ReadCharacterStrings reads " + kCharacterRosterFile;
+                    return false;
+                }
+                for (const auto& [stem, _] : out)
+                    if (stem == f.file) { err = "two lists name '" + f.file + ".yaml'"; return false; }
+                out.push_back({ f.file, fileList(vals[i].strs) });
+            }
+            const auto child = [&](const std::shared_ptr<IHavokObject>& p) {
+                const auto* e = p ? dynamic_cast<const io::SchemaObject*>(p.get()) : nullptr;
+                return !e || isFileNode(p.get(), c) || walk(*e);
+            };
+            if (!child(vals[i].obj)) return false;
+            for (const auto& p : vals[i].objs) if (!child(p)) return false;
+        }
+        return true;
+    };
+    return walk(node);
 }
 
 } // namespace
@@ -867,7 +913,10 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         std::vector<std::pair<std::string, std::string>> rosters;
         ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
         if (!root) ctx.sink = &rosters;
+        ctx.hoist = root;
         const std::string body = reflectObject(*so, ctx);
+        std::vector<std::pair<std::string, std::string>> files;
+        if (root && !hintedFiles(*so, ctx, files, err)) return false;
         /// @note A node with sub-records is a FOLDER: its body `<cat>/<id>/<id>.yaml` beside its rosters
         ///       `<cat>/<id>/<field.path>.yaml`; a node without any is the single file `<cat>/<id>.yaml`.
         const fs::path dir = root ? fs::path(outDir) : rosters.empty() ? fs::path(outDir) / cat : fs::path(outDir) / cat / fsId(idStr);
@@ -875,6 +924,8 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
             return false;
         for (const auto& [path, entries] : rosters)
             if (!disk::WriteFile(dir / (path + ".yaml"), entries, {}, &err)) return false;
+        for (const auto& [stem, list] : files)
+            if (!disk::WriteFile(dir / (stem + ".yaml"), list, {}, &err)) return false;
     }
     return true;
 }
@@ -2073,9 +2124,10 @@ bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& re
 
 namespace {
 /// @brief One YAML file of a unit. A ROSTER file (`<cat>/<id>/<field.path>.yaml`) carries one roster of node `owner`
-///        at `field` (the root's rosters stay inline in graph.yaml); anything else is a node file — `<cat>/<id>.yaml`,
-///        or `<cat>/<id>/<id>.yaml` for a node with sub-records.
-struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false; std::string owner, field; };
+///        at `field` (the root's rosters stay inline in graph.yaml); a LIST file (`<stem>.yaml` beside graph.yaml)
+///        carries the root-subtree field whose schema `file:` is `field`; anything else is a node file —
+///        `<cat>/<id>.yaml`, or `<cat>/<id>/<id>.yaml` for a node with sub-records.
+struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false, list = false; std::string owner, field; };
 /// @brief Every YAML file of a unit, parsed in place (the text buffer lives beside its tree).
 std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::engine::common::IUnitSource& src) {
     std::vector<std::unique_ptr<HkyDoc>> docs;
@@ -2087,6 +2139,10 @@ std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::engine::common::IUnit
         d->file = rel;
         const auto slash = rel.rfind('/'), first = rel.find('/');
         d->cat = slash == std::string::npos ? std::string() : rel.substr(0, slash);
+        if (slash == std::string::npos && rel != "graph.yaml") {
+            d->list  = true;
+            d->field = rel.size() > 5 && rel.compare(rel.size() - 5, 5, ".yaml") == 0 ? rel.substr(0, rel.size() - 5) : rel;
+        }
         if (slash != std::string::npos) {
             std::string stem = rel.substr(slash + 1);
             if (stem.size() > 5 && stem.compare(stem.size() - 5, 5, ".yaml") == 0) stem.resize(stem.size() - 5);
@@ -2148,6 +2204,54 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
         s = dot + 1;
     }
 }
+
+/// @brief Apply a unit-root list file to the ONE field in the root's inline subtree whose schema `file:` names its
+///        stem: whole in a full parse, by the field's merge rule in a patch (a union roster adds its names).
+/// @note  The keyed-map form is RESERVED for per-entry attributes; none is defined, so a map fails rather than
+///        being read as something else.
+bool applyListFile(io::SchemaObject& root, const HkyDoc& d, bool patch, HkyParse& ps) {
+    ps.where = d.file;
+    const yml::ConstNodeRef n = d.tree.crootref();
+    if (n.is_map()) {
+        ps.err = d.file + ": a keyed map is reserved for per-entry attributes and none is defined yet; list the names, one per line";
+        return false;
+    }
+    if (!n.is_seq()) { ps.err = d.file + ": not a list of names"; return false; }
+    std::unordered_set<const IHavokObject*> nodes, seen;
+    for (const auto& [_, o] : ps.byId) nodes.insert(o.get());
+    io::SchemaObject* owner = nullptr;
+    std::size_t at = 0, found = 0;
+    std::function<void(io::SchemaObject&)> walk = [&](io::SchemaObject& so) {
+        if (!seen.insert(&so).second) return;
+        const auto fields = so.Fields();
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            if (fields[i]->file == d.field) { owner = &so; at = i; ++found; }
+            const io::FieldValue& v = so.Values()[i];
+            const auto child = [&](const std::shared_ptr<IHavokObject>& p) {
+                if (auto* e = p ? dynamic_cast<io::SchemaObject*>(p.get()) : nullptr; e && !nodes.count(e)) walk(*e);
+            };
+            child(v.obj);
+            for (const auto& p : v.objs) child(p);
+        }
+    };
+    walk(root);
+    if (found != 1) {
+        ps.err = d.file + ": " + (found ? std::string("several fields") : std::string("no field")) +
+                 " in this unit's graph take this file (schema 'file: " + d.field + "')";
+        return false;
+    }
+    if (!patch && !owner->FieldAt(at).strs.empty()) {
+        ps.err = d.file + ": " + owner->Fields()[at]->name + " is also inline in graph.yaml";
+        return false;
+    }
+    const bool was = ps.patch;
+    ps.patch = patch;
+    bool handled = false, ok = true;
+    if (patch) ok = patchField(*owner, at, n, ps, handled);
+    if (ok && !handled) ok = fieldValue(*owner, at, n, ps);
+    ps.patch = was;
+    return ok;
+}
 } // namespace
 
 bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
@@ -2157,7 +2261,7 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
     // Pass 1: create every file node (and the root) so ids resolve regardless of file order.
     std::shared_ptr<io::SchemaObject> root;
     for (auto& d : docs) {
-        if (d->roster) continue;
+        if (d->roster || d->list) continue;
         const auto r = d->tree.crootref();
         const std::string id = ystr(yget(r, "id")), cls = ystr(yget(r, "class"));
         auto obj = makeObj(reg, cls);
@@ -2170,9 +2274,9 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
         if (cls == "hkRootLevelContainer") root = obj;
     }
     if (!root) { err = "no graph.yaml (hkRootLevelContainer)"; return false; }
-    // Pass 2: fill the nodes, then each node-folder roster into its owner.
+    // Pass 2: fill the nodes, then each node-folder roster into its owner, then the root's list files.
     for (auto& d : docs) {
-        if (d->roster) continue;
+        if (d->roster || d->list) continue;
         ps.where = d->file;
         const auto r = d->tree.crootref();
         if (!fillHky(*ps.byId.at(ystr(yget(r, "id"))), r, ps)) { err = ps.err; return false; }
@@ -2184,6 +2288,8 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
         if (!owner) { err = d->file + ": no node '" + d->owner + "' for this roster"; return false; }
         if (!applyRosterFile(*owner, *d, false, ps)) { err = ps.err; return false; }
     }
+    for (auto& d : docs)
+        if (d->list && !applyListFile(*root, *d, false, ps)) { err = ps.err; return false; }
     // Every inline object joins the identity (category "") so the name resolver and re-emit see the whole graph.
     int anon = 0;
     for (const auto& o : ps.all)
@@ -2467,9 +2573,11 @@ std::string diffObject(const io::SchemaObject& b, const io::SchemaObject& m, con
         ///       reorders one). Every other list without a roster is a whole value.
         if (f.kind == FieldKind::StringArray && mergeTagOf(cm.reg, m.ClassName(), f.name) == "union") {
             const std::set<std::string> have(vb.strs.begin(), vb.strs.end());
-            std::string list;
-            for (const auto& s2 : vm.strs) if (!have.count(s2)) list += (list.empty() ? "" : ", ") + text::Quote(s2);
-            if (!list.empty()) y += f.name + ": [" + list + "]\n";
+            std::vector<std::string> added;
+            for (const auto& s2 : vm.strs) if (!have.count(s2)) added.push_back(s2);
+            if (added.empty()) continue;
+            if (cm.files && !f.file.empty()) { cm.files->push_back({ f.file, fileList(added) }); continue; }
+            y += f.name + ": " + flowList(added.size(), [&](std::size_t k) { return text::Quote(added[k]); }) + "\n";
             continue;
         }
         y += tm;
@@ -2566,14 +2674,15 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
             const std::string id = idM.ids.at(o);
             const std::string cat = effM.at(o);
             std::string body;
-            std::vector<std::pair<std::string, std::string>> rosters;
+            std::vector<std::pair<std::string, std::string>> rosters, files;
             ReflectCtx cMn = cM;
             if (!isRoot(o)) cMn.sink = &rosters;
+            else cMn.files = &files;
             if (auto it = baseById.find(id); it != baseById.end()) {
                 const auto* bo = dynamic_cast<const io::SchemaObject*>(it->second);
                 if (!bo || std::string(bo->ClassName()) != mo->ClassName()) { err = "derive: id " + id + " class drift"; return false; }
                 body = diffObject(*bo, *mo, cB, cMn);
-                if (body.empty() && rosters.empty()) continue;
+                if (body.empty() && rosters.empty() && files.empty()) continue;
                 if (stats) ++stats->patched;
             } else {
                 body = reflectObject(*mo, cMn);
@@ -2591,6 +2700,8 @@ bool derivePatch(const Identity& idB, std::uint16_t keyOwner, const std::vector<
             }
             for (const auto& [path, entries] : rosters)
                 if (!disk::WriteFile(dir / (path + ".yaml"), entries, {}, &err)) return false;
+            for (const auto& [stem, list] : files)
+                if (!disk::WriteFile(dir / (stem + ".yaml"), list, {}, &err)) return false;
         }
         return true;
     } catch (const std::exception& e) {
@@ -2695,8 +2806,8 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
     }
     ps.all = base.objects;
     auto all = loadHkyDocs(patch);
-    std::vector<std::unique_ptr<HkyDoc>> docs, rosters;
-    for (auto& d : all) (d->roster ? rosters : docs).push_back(std::move(d));
+    std::vector<std::unique_ptr<HkyDoc>> docs, rosters, lists;
+    for (auto& d : all) (d->roster ? rosters : d->list ? lists : docs).push_back(std::move(d));
     std::vector<std::pair<std::shared_ptr<io::SchemaObject>, bool>> targets;   // (object, patch-mode)
     for (auto& d : docs) {
         const auto r = d->tree.crootref();
@@ -2727,6 +2838,11 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         io::SchemaObject* owner = it == ps.byId.end() ? nullptr : it->second.get();
         if (!owner) { err = d->file + ": no node '" + d->owner + "' for this roster"; return false; }
         if (!applyRosterFile(*owner, *d, !fresh.count(owner), ps)) { err = ps.err; return false; }
+    }
+    /// @note A list file patches the base's root: a patch unit never creates the root.
+    for (auto& d : lists) {
+        if (!base.root) { err = d->file + ": no root for this list"; return false; }
+        if (!applyListFile(*base.root, *d, true, ps)) { err = ps.err; return false; }
     }
     ps.patch = false;
     int anon = static_cast<int>(base.identity.ids.size());
@@ -2930,27 +3046,38 @@ std::vector<std::string> ReadProjectCharacters(const CB::engine::common::IUnitSo
 }
 
 std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::IUnitSource& src) {
-    auto text = src.read("graph.yaml");
-    if (!text) return std::nullopt;
-    std::string buf = std::move(*text);
-    const yml::Tree tree = yml::parse_in_place(c4::to_substr(buf));
-    const yml::ConstNodeRef root = tree.crootref();
-    if (!root.is_map() || !yhas(root, "namedVariants")) return std::nullopt;
-    for (auto e : yget(root, "namedVariants")) {
-        if (!e.is_map() || !yhas(e, "variant")) continue;
-        const auto v = yget(e, "variant");
-        if (!v.is_map() || !yhas(v, "stringData")) continue;
-        const auto sd = yget(v, "stringData");
-        if (!sd.is_map()) continue;
-        CharacterStrings r;
-        if (yhas(sd, "name"))             r.name             = ystr(yget(sd, "name"));
-        if (yhas(sd, "rigName"))          r.rigName          = ystr(yget(sd, "rigName"));
-        if (yhas(sd, "behaviorFilename")) r.behaviorFilename = ystr(yget(sd, "behaviorFilename"));
-        if (yhas(sd, "animationNames"))
-            for (auto n : yget(sd, "animationNames")) r.animationNames.push_back(ystr(n));
-        return r;
+    std::optional<CharacterStrings> r;
+    if (auto text = src.read("graph.yaml")) {
+        std::string buf = std::move(*text);
+        const yml::Tree tree = yml::parse_in_place(c4::to_substr(buf));
+        const yml::ConstNodeRef root = tree.crootref();
+        if (root.is_map() && yhas(root, "namedVariants"))
+            for (auto e : yget(root, "namedVariants")) {
+                if (!e.is_map() || !yhas(e, "variant")) continue;
+                const auto v = yget(e, "variant");
+                if (!v.is_map() || !yhas(v, "stringData")) continue;
+                const auto sd = yget(v, "stringData");
+                if (!sd.is_map()) continue;
+                r.emplace();
+                if (yhas(sd, "name"))             r->name             = ystr(yget(sd, "name"));
+                if (yhas(sd, "rigName"))          r->rigName          = ystr(yget(sd, "rigName"));
+                if (yhas(sd, "behaviorFilename")) r->behaviorFilename = ystr(yget(sd, "behaviorFilename"));
+                if (yhas(sd, "animationNames"))
+                    for (auto n : yget(sd, "animationNames")) r->animationNames.push_back(ystr(n));
+                break;
+            }
     }
-    return std::nullopt;
+    /// @note The roster's own file (a patch unit may ship only it); an older unit keeps it inline, read above.
+    if (auto text = src.read(kCharacterRosterFile)) {
+        std::string buf = std::move(*text);
+        const yml::Tree tree = yml::parse_in_place(c4::to_substr(buf));
+        const yml::ConstNodeRef root = tree.crootref();
+        if (root.is_seq()) {
+            if (!r) r.emplace();
+            for (auto n : root) r->animationNames.push_back(ystr(n));
+        }
+    }
+    return r;
 }
 
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,

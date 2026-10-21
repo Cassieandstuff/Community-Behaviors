@@ -5,7 +5,7 @@ size:      192
 fields:
   - { name: deformableSkinNames, type: stringarray }
   - { name: rigidSkinNames,      type: stringarray }
-  - { name: animationNames,      type: stringarray }
+  - { name: animationNames,      type: stringarray, file: animations }
   - { name: animationFilenames,  type: stringarray }
   - { name: characterPropertyNames, type: stringarray }
   - { name: retargetingSkeletonMapperFilenames, type: stringarray }

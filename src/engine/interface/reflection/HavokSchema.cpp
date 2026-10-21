@@ -209,6 +209,12 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.boneSet  = (childStr(fn, "boneset")  == "true");
                     f.charPropIf = childStr(fn, "charpropif");
                     f.roster     = childStr(fn, "roster");
+                    f.file       = childStr(fn, "file");
+                    if (!f.file.empty() && (f.kind != FieldKind::StringArray || f.file == "graph" ||
+                                            f.file.find_first_of("/\\.") != std::string::npos)) {
+                        err = out.name + "." + f.name + ": 'file: " + f.file + "' needs a stringarray and a bare stem (not 'graph')";
+                        return false;
+                    }
                     if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
                     f.isFlags  = (childStr(fn, "flags") == "true");   // bitfield → FormatFlags in .hky
                     f.hkyEmit  = (childStr(fn, "hky")   == "true");   // force-emit an ignored field in .hky

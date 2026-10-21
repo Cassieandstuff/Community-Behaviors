@@ -51,19 +51,11 @@ namespace CB {
         using CB::engine::codec::resource::HasExt;
         using CB::engine::codec::resource::PathKey;
 
-        /// @brief A reflective unit's kind (its graph.yaml's root variant; a patch names its base's). A unit without
-        ///        graph.yaml is a patch that leaves the root untouched — Behavior.
+        /// @brief A loose unit's kind (HkyArchive::KindOfUnit). A Patch joins its path's layers, and the complete unit
+        ///        at that path decides what the path is.
         CB::engine::codec::HkyArchive::UnitKind KindOfUnit(const CB::engine::common::IUnitSource& src)
         {
-            const auto g = src.read("graph.yaml");
-            return g ? CB::engine::codec::HkyArchive::KindOfGraphYaml(*g) : CB::engine::codec::HkyArchive::UnitKind::Behavior;
-        }
-
-        /// @brief True when the unit is complete on its own (not a patch over a master's unit).
-        bool IsCompleteUnit(const CB::engine::common::IUnitSource& src)
-        {
-            const auto g = src.read("graph.yaml");
-            return g && !CB::engine::codec::HkyArchive::IsPatchGraphYaml(*g);
+            return CB::engine::codec::HkyArchive::KindOfUnit(src.read("graph.yaml"), src.read("bonelist.yaml").has_value());
         }
 
         using CB::engine::text::SplitLines;
@@ -443,9 +435,12 @@ namespace CB {
                     if (kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton) { nonGraphKeys.insert(key); continue; }
                     if (kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
                         nonGraphKeys.insert(key);
-                        if (IsCompleteUnit(*src)) m_projectUnits[key] = std::move(src);
+                        m_projectUnits[key] = std::move(src);
                         continue;
                     }
+                    /// @note A Patch joins its path's layers whatever it overlays: a skeleton or project path drops out
+                    ///       at finalize (nonGraphKeys, from the complete unit there), and the base layer's isChar decides
+                    ///       a graph's.
                     layers[key].push_back({ plugName, std::move(src), kind == CB::engine::codec::HkyArchive::UnitKind::Character });
                 }
 
@@ -505,8 +500,7 @@ namespace CB {
                         // characterFilenames: a lowercased ref A-poses vanilla-only actors).
                         if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Project) {
                             nonGraphKeys.insert(NormalizeKey(u.prefix));
-                            if (auto src = arc->source(u.prefix))
-                                if (IsCompleteUnit(*src)) m_projectUnits[NormalizeKey(u.prefix)] = std::move(src);
+                            if (auto src = arc->source(u.prefix)) m_projectUnits[NormalizeKey(u.prefix)] = std::move(src);
                             continue;
                         }
                         // Skeletons are NOT a behavior/character graph — they compile through the dedicated

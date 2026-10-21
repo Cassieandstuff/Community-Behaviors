@@ -156,9 +156,8 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
             if (root == lastRoot) continue;
             lastRoot = root;
             const auto g = arc->m_files.find(root + "/graph.yaml");
-            const UnitKind kind = arc->m_files.count(root + "/bonelist.yaml") ? UnitKind::Skeleton
-                                : g == arc->m_files.end()                    ? UnitKind::Behavior
-                                                                              : KindOfGraphYaml(arc->read(g->second));
+            const UnitKind kind = KindOfUnit(g == arc->m_files.end() ? std::nullopt : std::optional<std::string>(arc->read(g->second)),
+                                             arc->m_files.count(root + "/bonelist.yaml") != 0);
             arc->m_units.push_back({ std::move(root), kind });
         }
     } catch (const std::exception& e) {
@@ -211,6 +210,12 @@ bool HkyArchive::IsPatchGraphYaml(std::string_view graphYaml) {
     const std::size_t x = graphYaml.find_first_not_of("0123456789abcdefABCDEF", v);
     if (x == std::string_view::npos || graphYaml[x] != 'x' || x == v) return false;
     return graphYaml.substr(v, x - v).find_first_not_of('0') != std::string_view::npos;
+}
+
+HkyArchive::UnitKind HkyArchive::KindOfUnit(const std::optional<std::string>& graphYaml, bool hasBonelist) {
+    if (hasBonelist) return UnitKind::Skeleton;
+    if (!graphYaml || IsPatchGraphYaml(*graphYaml)) return UnitKind::Patch;
+    return KindOfGraphYaml(*graphYaml);
 }
 
 bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHkyPath, std::string& err) {

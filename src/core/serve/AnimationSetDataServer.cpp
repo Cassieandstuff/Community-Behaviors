@@ -157,6 +157,7 @@ namespace CB::core::serve {
         // the coverage guard below so the served cache never registers a CRC the character's
         // roster can't resolve (that mismatch is the char-setup set-data-bind rep-stosq crash).
         std::unordered_map<std::string, std::vector<std::string>> rosterPaths;  // charName (path key) -> paths
+        std::vector<std::pair<std::string, std::vector<std::string>>> unitRosters;   ///< (unit path key, its roster), folded by path
 
         // Open every MOD bundle once — a <Mod>.hky is EITHER an unpacked dir OR a packed .hky
         // file, read the same way through BundleReader. The Skyrim.hky MASTER (stem "skyrim")
@@ -194,18 +195,14 @@ namespace CB::core::serve {
                 /// @note Roster additions ALSO live in each character unit's animationNames (a union roster: a patch
                 ///       unit states only the names it adds). WITHOUT these the coverage guard's roster is empty for
                 ///       every mod animation, its set-data CRC is dropped as "unrostered", and that attack / dodge /
-                ///       parkour binds the WRONG animation (SkyParkour / HorsePower / BFCO regressions).
-                for (const std::string& unit : rd->units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
-                    const auto src = rd->unitSource(unit);
-                    auto cs = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
-                    if (!cs || cs->animationNames.empty()) continue;
-                    const auto s1 = unit.find_last_of('/');
-                    std::string charName = PathKey((s1 == std::string::npos) ? unit : unit.substr(s1 + 1));
-                    if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
-                    auto& dst = rosterPaths[charName];
-                    dst.insert(dst.end(), std::make_move_iterator(cs->animationNames.begin()),
-                               std::make_move_iterator(cs->animationNames.end()));
-                }
+                ///       parkour binds the WRONG animation (SkyParkour / HorsePower / BFCO regressions). A patch unit
+                ///       carries no kind: its roster counts once a complete character unit is known at its path (below).
+                for (const auto kind : { CB::engine::codec::HkyArchive::UnitKind::Character, CB::engine::codec::HkyArchive::UnitKind::Patch })
+                    for (const std::string& unit : rd->units(kind)) {
+                        const auto src = rd->unitSource(unit);
+                        auto cs = src ? CB::engine::decompile::ReadCharacterStrings(*src) : std::nullopt;
+                        if (cs && !cs->animationNames.empty()) unitRosters.emplace_back(PathKey(unit), std::move(cs->animationNames));
+                    }
 
                 const int prio = order.Rank(stem);  // loadorder lists bare stems ("bfco")
 
@@ -255,9 +252,11 @@ namespace CB::core::serve {
         // two components under their actor root (<root>/characters[ x]/<stem>.hkx), so strip the last
         // two. Now sourced from the packed master too (its 344 vanilla characters carry these roots).
         std::unordered_map<std::string, std::string> charActorRoot;  // charStem (path key) -> "meshes\actors\..."
+        std::unordered_set<std::string> charPaths;                    ///< every complete character unit's path key
         const auto ingestCharUnits = [&](const BundleReader& rd) {
             for (std::string rel : rd.units(CB::engine::codec::HkyArchive::UnitKind::Character)) {
                 rel = PathKey(rel);                             // "meshes/actors/horse/characters/horse.hkx"
+                charPaths.insert(rel);
                 const auto s1 = rel.find_last_of('/');
                 const auto s2 = (s1 == std::string::npos || s1 == 0) ? std::string::npos : rel.find_last_of('/', s1 - 1);
                 if (s2 == std::string::npos) continue;
@@ -277,6 +276,13 @@ namespace CB::core::serve {
             else LOG_WARN("SetData: cannot read master bundle '{}'.", masterBundle.string());
         }
         for (const auto& ob : modBundles) ingestCharUnits(ob.reader);
+        for (auto& [path, names] : unitRosters) {
+            if (!charPaths.count(path)) continue;
+            std::string charName = path.substr(path.find_last_of('/') + 1);
+            if (const auto dot = charName.rfind('.'); dot != std::string::npos) charName.erase(dot);
+            auto& dst = rosterPaths[charName];
+            dst.insert(dst.end(), std::make_move_iterator(names.begin()), std::make_move_iterator(names.end()));
+        }
 
         // Fold the YAML movesets into `deltas`, deriving each set's CRC registration from the
         // project character's roster additions (TripleForAnimation over "<actorRoot>\<rosterRel>",

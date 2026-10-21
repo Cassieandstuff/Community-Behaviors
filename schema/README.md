@@ -54,6 +54,8 @@ Each entry is one of:
 
 **`enum: <Type>`** on a scalar field names its enum type (e.g. `{ name: mode, type: int8, enum: PlaybackMode }`) so the `.hky` YAML renders the value by name (`MODE_SINGLE_PLAY`) rather than as an integer. No serde/size effect — a rendering hint the model layer consumes (tables in `HavokEnums.h`).
 
+**`file: <stem>`** on a `stringarray` field moves it out of `graph.yaml` into the unit's own `<stem>.yaml`, a bare block list (one single-quoted name per line, no wrapper key) — e.g. `hkbCharacterStringData.animationNames` → `animations.yaml`. Layout only: no serde/size effect, and it applies to a field in the root's subtree (elsewhere the list stays inline). In a patch unit the file holds what the field's merge rule takes (a `union` roster: the names it adds). A keyed map in the file is reserved for per-entry attributes and rejected until one is defined.
+
 **Optional per-field keys:**
 - `ignored: true` — marks a *typed* SERIALIZE_IGNORED field (round-trips as a normal value; the tag is
   documentation only — it does NOT change serde). Void-typed ignored uses `empty:` instead.

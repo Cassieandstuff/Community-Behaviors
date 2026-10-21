@@ -124,9 +124,10 @@ struct CharacterStrings {
     std::string              name, rigName, behaviorFilename;
     std::vector<std::string> animationNames;
 };
-/// @note  Read straight from graph.yaml, not parsed: a full parse needs the rig's bone names (the bone-weight presets
-///        are bone-keyed) — the very thing the rig binding is for. A patch unit yields only what it states; its
-///        animationNames (a union roster) are its additions.
+/// @note  Read straight from graph.yaml and the roster's own animations.yaml (inline in graph.yaml in an older unit),
+///        not parsed: a full parse needs the rig's bone names (the bone-weight presets are bone-keyed) — the very thing
+///        the rig binding is for. A patch unit yields only what it states; its animationNames (a union roster) are its
+///        additions, and a patch shipping only animations.yaml yields just those.
 std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::IUnitSource& src);
 
 /// @brief The reflective-format GATE for one behavior binary: deserialize -> re-serialize (`canon`), EmitHkyReflective

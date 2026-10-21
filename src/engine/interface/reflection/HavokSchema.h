@@ -69,6 +69,9 @@ struct Field {
                                          ///<        `id`, but entries are referenced by position elsewhere: never deleted).
     std::string charPropIf;              ///< @brief `charpropif: <field>=<value>` — the `varref` index names a CHARACTER
                                          ///<        PROPERTY (not a variable) when that sibling field holds that value.
+    std::string file;                    ///< @brief `file: <stem>` (stringarray only) — LAYOUT only: in the root's subtree
+                                         ///<        the .hky writes the list to the unit's `<stem>.yaml`, one name per line,
+                                         ///<        instead of inline in graph.yaml. No serde effect.
     bool        hkyEmit = false;         // force-emit this field in the .hky even though it is `ignored`
                                          // (SERIALIZE_IGNORED but semantically authored, e.g.
                                          // hkbBlendingTransitionEffect.initializeCharacterPose).
