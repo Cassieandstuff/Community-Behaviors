@@ -1,5 +1,6 @@
 {
   "animation": {
-    "tags": "rangeMap"
+    "tags": "rangeMap",
+    "motionTarget": { "oneOf": ["animationData", "motionMatching"] }
   }
 }

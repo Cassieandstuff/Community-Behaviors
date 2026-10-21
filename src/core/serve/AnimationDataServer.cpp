@@ -141,7 +141,9 @@ namespace CB::core::serve {
         const auto parse = [](const std::string& text, const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
             try {
                 auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
-                def.motion = CB::engine::anim::ResolveRootMotion(def);
+                /// @note A motionMatching clip is never projected (AnimDataProjection), so its motion is not extracted.
+                if (def.motionTarget != CB::engine::anim::AnimationDef::MotionTarget::MotionMatching)
+                    def.motion = CB::engine::anim::ResolveRootMotion(def);
                 return def;
             } catch (const std::exception& e) {
                 LOG_WARN("AnimData: animation '{}' unreadable: {}", path, e.what());

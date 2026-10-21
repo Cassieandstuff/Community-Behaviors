@@ -2,10 +2,11 @@ name:      hkbNode
 parent:    hkbBindable
 signature: 0x6d26f61d
 size:      72
+enums:     [GetChildrenFlagBits, CloneState]   # declared by the class record (signature only)
 fields:
-  - { name: userData,   type: uint64 }                              # ReadUInt64
+  - { name: userData,   type: uint64, hktype: ulong }               # ReadUInt64 (reflected as a ULONG)
   - { name: name,       type: string }                              # ReadStringPointer
   - { name: id,         type: int16, ignored: true }                # ReadInt16
-  - { name: cloneState, type: int8,  ignored: true }                # ReadSByte (enum int8)
+  - { name: cloneState, type: int8,  ignored: true, hktype: enum }  # ReadSByte (an ENUM over int8, no enum reference)
   - { name: padNode,    type: boolarray, count: 1, ignored: true }  # ReadBooleanCStyleArray<1>
   - { skip: 4 }                                                     # Skip(4)

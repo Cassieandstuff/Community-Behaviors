@@ -32,7 +32,8 @@ namespace CB::feature::controller::hud {
             Controller ctrl;
             Prediction pred;
             Ramp       ramp;
-            double     ctrlAt = -1.0e9, predAt = -1.0e9, rampAt = -1.0e9;
+            Matching   match;
+            double     ctrlAt = -1.0e9, predAt = -1.0e9, rampAt = -1.0e9, matchAt = -1.0e9;
         };
 
         Store& S()
@@ -157,14 +158,16 @@ namespace CB::feature::controller::hud {
             Controller c;
             Prediction p;
             Ramp       r;
-            bool       haveCtrl, havePred, haveRamp;
+            Matching   m;
+            bool       haveCtrl, havePred, haveRamp, haveMatch;
             {
                 const double now = Now();
                 std::scoped_lock lock(s.lock);
-                c = s.ctrl, p = s.pred, r = s.ramp;
+                c = s.ctrl, p = s.pred, r = s.ramp, m = s.match;
                 haveCtrl = now - s.ctrlAt < kStale;
                 havePred = now - s.predAt < kStale;
                 haveRamp = now - s.rampAt < kStale;
+                haveMatch = now - s.matchAt < kStale;
             }
             const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
             if (!proj.camera) return;
@@ -222,6 +225,7 @@ namespace CB::feature::controller::hud {
                 if (c.jumpIn >= 0.0f) ImGui::Text("jump wind-up %.0f ms left", c.jumpIn * 1000.0f);
             }
             if (haveRamp) ImGui::Text("ramp %.0f -> %.0f   turn x%.2f   slope x%.2f", r.speed, r.target, r.turn, r.slope);
+            if (haveMatch) ImGui::Text("matching %s @%d   cost %.2f   %.1f ms   %d switches", m.clip, m.frame, m.cost, m.searchMs, m.switches);
             if (haveFacing && facing.haveGoal) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(facing.goal - facing.yaw)) * kRadToDeg);
             if (havePred) {
                 if (p.blocked) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedIn);
@@ -266,6 +270,14 @@ namespace CB::feature::controller::hud {
         std::scoped_lock lock(s.lock);
         s.ramp   = r;
         s.rampAt = Now();
+    }
+
+    void Publish(const Matching& m)
+    {
+        Store& s = S();
+        std::scoped_lock lock(s.lock);
+        s.match   = m;
+        s.matchAt = Now();
     }
 
 }  // namespace CB::feature::controller::hud

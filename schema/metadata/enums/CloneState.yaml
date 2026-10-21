@@ -1,0 +1,9 @@
+# hkbNode::CloneState, read from the AE 1.6.1170 class record (hkbNode declares it; its cloneState member is
+# ENUM-typed but carries no enum reference). Item names/values are CASE-SENSITIVE and feed the class signature CRC.
+name:  CloneState
+flags: false
+items:
+  - { name: CLONE_STATE_DEFAULT  , value: 0 }
+  - { name: CLONE_STATE_TEMPLATE , value: 1 }
+  - { name: CLONE_STATE_CLONE    , value: 2 }
+  - { name: CLONE_STATE_SHARABLE , value: 3 }

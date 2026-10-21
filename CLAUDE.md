@@ -100,9 +100,10 @@ features/                    authored FEATURE BUNDLES as data — not code (that
                              patch units), generate/ — JSON configs naming a generator hky-tool knows (today:
                              clipSelectorBehavior, rosterPatch) that writes files derived from a partition, so they can
                              never drift from it — and inject/ —
-                             JSON configs {"targets": [{"path", "field", "values"}]} keyed by a file's path inside the
+                             JSON configs {"targets": [{"path" or "under" (every animation below a prefix), "field",
+                             "values"}]} keyed by a file's path inside the
                              bundle, writing the fields tools/hky/injectables.json allows per file kind (today:
-                             animation -> tags; anything else fails the build). `hky-tool autotag` seeds tag configs
+                             animation -> tags, motionTarget; anything else fails the build). `hky-tool autotag` seeds tag configs
                              and never overwrites one.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by

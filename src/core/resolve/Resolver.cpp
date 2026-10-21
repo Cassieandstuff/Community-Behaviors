@@ -1537,6 +1537,35 @@ namespace CB {
         return it == m_sources.end() ? std::vector<CB::engine::animdata::DeriveClipInput>{} : ClipInputsOf(it->first, it->second.layers);
     }
 
+    bool Resolver::MergedGraph(const std::string& key, CB::engine::decompile::ParsedHky& out) const
+    {
+        auto*      reg = CB::engine::schema::SharedRegistry();
+        const auto it  = m_sources.find(NormalizeKey(key));
+        if (!reg || it == m_sources.end()) return false;
+        const RigBones rb = BonesFor(it->first);
+        std::string    err;
+        if (!CB::engine::decompile::MergeLayersReflective(it->second.layers, *reg, rb.table ? &rb.table->names : nullptr, out, err)) {
+            LOG_WARN("Resolver: merged read of '{}' failed: {}", key, err);
+            return false;
+        }
+        return true;
+    }
+
+    std::optional<std::string> Resolver::NativeAnimationText(std::string_view path) const
+    {
+        const std::string want = PathKey(path);
+        for (auto a = m_nativeAnims.rbegin(); a != m_nativeAnims.rend(); ++a) {
+            if (PathKey(a->outKey) != want) continue;
+            try {
+                return a->arc ? a->arc->file(PathKey(a->outKey)) : disk::ReadFile(a->file);
+            } catch (const std::exception& e) {
+                LOG_WARN("Resolver: native animation '{}' could not be read: {}", a->outKey, e.what());
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;
+    }
+
     std::vector<std::string> Resolver::ServedRoster(const std::string& characterKey) const
     {
         auto* reg = CB::engine::schema::SharedRegistry();

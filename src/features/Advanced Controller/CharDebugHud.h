@@ -67,11 +67,21 @@ namespace CB::feature::controller::hud {
         float speed = 0, target = 0, turn = 1, slope = 1;
     };
 
+    /// @brief Motion matching's last search: the clip and frame it chose, that frame's cost, the search's time and the
+    ///        switches so far.
+    struct Matching {
+        char  clip[48] = {};
+        int   frame    = 0;
+        float cost = 0, searchMs = 0;
+        int   switches = 0;
+    };
+
     /// @brief Whether the HUD runs (char_debug_hud); publishers skip their work when it does not.
     bool On();
 
     void Publish(const Controller& c);
     void Publish(const Prediction& p);
     void Publish(const Ramp& r);
+    void Publish(const Matching& m);
 
 }  // namespace CB::feature::controller::hud

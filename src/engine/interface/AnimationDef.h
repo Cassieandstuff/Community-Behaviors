@@ -95,6 +95,13 @@ struct AnimationDef {
     ///        actor motion, extracted at compile (RootMotion's ResolveRootMotion).
     bool rootMotionVisual = false;
 
+    /// @brief `motionTarget:` — where the root motion goes, beside `motion` (where it comes from).
+    /// @note  animationData (absent): the animation data file carries it and Havok moves the actor by it.
+    ///        motionMatching: CB's motion matching measures it from the clip and the controller moves the actor, so the
+    ///        animation data gets no record for the clip. Either way the compile strips the travel from the pose.
+    enum class MotionTarget { AnimationData, MotionMatching };
+    MotionTarget motionTarget = MotionTarget::AnimationData;
+
     /// @brief `tags:` — the motion-matching tags: each name's `[start, end)` frame ranges. Authored-YAML only (no Havok
     ///        field carries them, so a decompiled clip has none); written by the build's injection (hky-tool assemble).
     /// @note  nullopt = no `tags:` key; an empty map = the key with no tags. Names are compared byte-exact.

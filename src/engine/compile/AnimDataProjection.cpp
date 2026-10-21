@@ -153,7 +153,9 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
                 }
                 for (const int i : referenced) {
                     const auto* def = src.animation(p.rosterCanon[static_cast<std::size_t>(i)]);
-                    if (!def || !def->motion) continue;
+                    /// @note A motionMatching clip's motion goes to CB's motion matching, never here: its per-frame
+                    ///       samples once took defaultmale's frame B to 184228 lines, past the engine's 65535-line read.
+                    if (!def || !def->motion || def->motionTarget == CB::engine::anim::AnimationDef::MotionTarget::MotionMatching) continue;
                     auto mo = Make(reg, "AnimDataMotion");
                     mo->FieldRef("animIndex").str    = std::to_string(i);
                     mo->FieldRef("duration").str     = def->motion->duration;

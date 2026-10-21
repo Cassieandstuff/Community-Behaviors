@@ -3,8 +3,10 @@
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharGround.h"
+#include "CharMotionMatching.h"
 #include "CharSweep.h"
 
+#include <compile/MotionFeatures.h>
 #include <platform/hooks/Live.h>
 #include <platform/hooks/Override.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
@@ -690,6 +692,20 @@ namespace CB::feature {
             ch::PublishedGroundNote(ctrl, note);
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
+            /// @note The query in the clips' root space: x along the side axis (where a rightward request moves the
+            ///       character), y forward, game units; a facing turned by `f` (counter-clockwise, the math angle's sense)
+            ///       points along (-sin f, cos f).
+            static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());
+            if (ch::motion::On() && tr.future[0].valid && tr.future[1].valid && tr.future[2].valid) {
+                ch::motion::Query q;
+                for (int k = 0; k < kFutureSamples; k++) {
+                    q.x[k]    = tr.future[k].side * kGameUnitsPerHavok;
+                    q.y[k]    = tr.future[k].forward * kGameUnitsPerHavok;
+                    q.dirX[k] = -std::sin(tr.future[k].facing);
+                    q.dirY[k] = std::cos(tr.future[k].facing);
+                }
+                ch::motion::Search(q);
+            }
             if (ch::hud::On()) {
                 ch::hud::Prediction h;
                 for (int k = 0; k < kFutureSamples && k < ch::hud::Prediction::kSamples; k++) {

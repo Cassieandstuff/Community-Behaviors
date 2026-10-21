@@ -1,0 +1,16 @@
+name:      CBPoseSearchGenerator
+parent:    hkbGenerator
+size:      96
+runtime:
+  source: self
+# CB's own generator (motion matching, stage A): plays the one child `selectedIndex` names. A stock
+# hkbManualSelectorGenerator's indices are int8 (its last index is (int8)(children - 1)), so it holds 128 children at
+# most; this one's are int32. The children are real hkbClipGenerators, as LoadClips and the root-motion walk require.
+# Registered at startup by CB (platform/classes) from THIS descriptor: the members below are the hkClassMembers
+# variable bindings resolve. No `signature:` here on purpose: the schema loader derives it from this descriptor and
+# its parent chain, exactly as the engine hashes the registered class. The behavior loader recomputes it and refuses
+# a file whose stored value differs, and the rest of the project's behaviors stop loading with it.
+fields:
+  - { name: generators,    type: ptrarray, ref: hkbGenerator, roster: slot }
+  - { name: selectedIndex, type: int32 }
+  - { name: currentIndex,  type: int32, ignored: true }

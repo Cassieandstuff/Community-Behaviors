@@ -17,6 +17,7 @@
 
 #include <codec/bsa/BsaArchive.h>
 #include <codec/format/AnimationYamlLoader.h>
+#include <compile/MotionFeatures.h>
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 #include <decompile/BehaviorDecompile.h>
@@ -139,68 +140,7 @@ int doBsaExtract(const std::string& bsaPath, const std::string& outDir, const st
 ///        only clips without a config get one.
 namespace autotag {
 
-struct V3 { double x = 0, y = 0, z = 0; };
-struct Qt { double x = 0, y = 0, z = 0, w = 1; };
-struct Xf { V3 p; Qt q; };
-
-V3     operator+(V3 a, V3 b) { return { a.x + b.x, a.y + b.y, a.z + b.z }; }
-V3     operator-(V3 a, V3 b) { return { a.x - b.x, a.y - b.y, a.z - b.z }; }
-V3     operator*(V3 a, double s) { return { a.x * s, a.y * s, a.z * s }; }
-V3     Cross(V3 a, V3 b) { return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; }
-double Length(V3 a) { return std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z); }
-
-Qt Mul(Qt a, Qt b) {
-    return { a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
-             a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
-             a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
-             a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z };
-}
-Qt Conj(Qt q) { return { -q.x, -q.y, -q.z, q.w }; }
-Qt Normalize(Qt q) {
-    const double n = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
-    return n > 0 ? Qt{ q.x / n, q.y / n, q.z / n, q.w / n } : Qt{};
-}
-V3 Rotate(Qt q, V3 v) {
-    const V3 u{ q.x, q.y, q.z };
-    const V3 t = Cross(u, v) * 2.0;
-    return v + t * q.w + Cross(u, t);
-}
-/// @brief `local` placed under `parent` (Havok's parent-relative bone transforms).
-Xf Compose(const Xf& parent, const Xf& local) { return { parent.p + Rotate(parent.q, local.p), Normalize(Mul(parent.q, local.q)) }; }
-
-/// @brief The key interval holding `t`: the keys around it and the blend between them (held past either end).
-template <class K>
-std::pair<const K*, double> Bracket(const std::vector<K>& keys, double t, const K*& next) {
-    const auto it = std::upper_bound(keys.begin(), keys.end(), t, [](double v, const K& k) { return v < k.time; });
-    if (it == keys.begin()) { next = &keys.front(); return { &keys.front(), 0.0 }; }
-    if (it == keys.end())   { next = &keys.back();  return { &keys.back(), 0.0 }; }
-    const K& a = *(it - 1);
-    next = &*it;
-    const double span = static_cast<double>(it->time) - a.time;
-    return { &a, span > 0 ? (t - a.time) / span : 0.0 };
-}
-V3 SampleV3(const std::vector<CB::engine::anim::Vec3Keyframe>& keys, double t) {
-    const CB::engine::anim::Vec3Keyframe* b = nullptr;
-    const auto [a, f] = Bracket(keys, t, b);
-    const V3 va{ a->value[0], a->value[1], a->value[2] }, vb{ b->value[0], b->value[1], b->value[2] };
-    return va + (vb - va) * f;
-}
-Qt SampleQt(const std::vector<CB::engine::anim::QuatKeyframe>& keys, double t) {
-    const CB::engine::anim::QuatKeyframe* b = nullptr;
-    const auto [a, f] = Bracket(keys, t, b);
-    const Qt qa{ a->value[0], a->value[1], a->value[2], a->value[3] };
-    Qt       qb{ b->value[0], b->value[1], b->value[2], b->value[3] };
-    if (qa.x * qb.x + qa.y * qb.y + qa.z * qb.z + qa.w * qb.w < 0) qb = { -qb.x, -qb.y, -qb.z, -qb.w };
-    return Normalize({ qa.x + (qb.x - qa.x) * f, qa.y + (qb.y - qa.y) * f, qa.z + (qb.z - qa.z) * f, qa.w + (qb.w - qa.w) * f });
-}
-
 constexpr double      kPi       = 3.14159265358979323846;
-constexpr const char* kRootBone = "NPC Root [Root]";
-/// @note The humanoid leg chains below the root, verified against Skyrim.hky's skeleton.hkx (each bone's `parent:`).
-constexpr std::array<std::array<const char*, 5>, 2> kLegs{ {
-    { "NPC COM [COM ]", "NPC Pelvis [Pelv]", "NPC L Thigh [LThg]", "NPC L Calf [LClf]", "NPC L Foot [Lft ]" },
-    { "NPC COM [COM ]", "NPC Pelvis [Pelv]", "NPC R Thigh [RThg]", "NPC R Calf [RClf]", "NPC R Foot [Rft ]" },
-} };
 
 /// @brief The measuring thresholds (Skyrim units, seconds, degrees).
 /// @note  SEEDS to tune against the report, not settled values. The speed bands sit midway between the clips' measured
@@ -279,50 +219,28 @@ Ranges BuildRanges(const std::vector<char>& on, int gap, int minLen) {
 }
 
 ClipResult Measure(const std::string& path, const std::string& yaml, const Thresholds& th) {
+    namespace ea = CB::engine::anim;
     ClipResult r;
-    const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(yaml, path);
-    const double dt = def.frameDuration > 0 ? def.frameDuration : 1.0 / 30.0;
-    const int    n  = def.numFrames > 0 ? def.numFrames : static_cast<int>(std::lround(def.duration / dt)) + 1;
-    if (n < 2) { r.err = "fewer than 2 frames"; return r; }
-    r.frames = n;
-
-    std::unordered_map<std::string, const CB::engine::anim::AnimTrackDef*> tracks;
-    for (const auto& t : def.tracks) tracks.emplace(t.bone, &t);
-    const auto bone = [&](const char* name) -> const CB::engine::anim::AnimTrackDef* {
-        const auto it = tracks.find(name);
-        return it == tracks.end() || it->second->translation.empty() || it->second->rotation.empty() ? nullptr : it->second;
-    };
-    const auto* root = bone(kRootBone);
-    if (!root) { r.err = std::string("no translation + rotation track on ") + kRootBone; return r; }
-    std::array<std::array<const CB::engine::anim::AnimTrackDef*, 5>, 2> legs{};
-    std::array<bool, 2> hasFoot{ true, true };
-    for (int s = 0; s < 2; ++s)
-        for (int b = 0; b < 5; ++b) {
-            legs[s][b] = bone(kLegs[s][b]);
-            if (!legs[s][b]) hasFoot[s] = false;
-        }
-    if (!hasFoot[0] || !hasFoot[1]) r.note = "no foot chain: plants not measured";
+    const auto  def = ea::AnimationYamlLoader::LoadFromString(yaml, path);
+    std::string err;
+    const auto  m = ea::MeasureClip(def, err);
+    if (!m) { r.err = err; return r; }
+    const int    n  = m->frames;
+    const double dt = m->dt;
+    r.frames        = n;
+    const std::array<bool, 2> hasFoot{ m->hasFeet, m->hasFeet };
+    if (!m->hasFeet) r.note = "no foot chain: plants not measured";
+    const auto& foot = m->foot;
 
     std::vector<double> px(n), py(n), yaw(n);
-    std::vector<Qt>     rq(n);
-    std::array<std::vector<V3>, 2> foot{ std::vector<V3>(n), std::vector<V3>(n) };
     for (int i = 0; i < n; ++i) {
-        const double t = i * dt;
-        const Xf rootX{ SampleV3(root->translation, t), SampleQt(root->rotation, t) };
-        px[i] = rootX.p.x;
-        py[i] = rootX.p.y;
-        rq[i] = rootX.q;
-        const V3 f = Rotate(rootX.q, { 0, 1, 0 });
+        px[i] = m->rootPos[i].x;
+        py[i] = m->rootPos[i].y;
+        const ea::MotionVec f = ea::Rotate(m->rootRot[i], { 0, 1, 0 });
         yaw[i] = std::atan2(-f.x, f.y);
         if (i > 0) {
             while (yaw[i] - yaw[i - 1] > kPi) yaw[i] -= 2 * kPi;
             while (yaw[i] - yaw[i - 1] < -kPi) yaw[i] += 2 * kPi;
-        }
-        for (int s = 0; s < 2; ++s) {
-            if (!hasFoot[s]) continue;
-            Xf w = rootX;
-            for (const auto* tr : legs[s]) w = Compose(w, { SampleV3(tr->translation, t), SampleQt(tr->rotation, t) });
-            foot[s][i] = w.p;
         }
     }
 
@@ -330,7 +248,7 @@ ClipResult Measure(const std::string& path, const std::string& yaml, const Thres
     std::vector<double> speed(n), heading(n);
     for (int i = 0; i < n; ++i) {
         speed[i] = std::hypot(vx[i], vy[i]);
-        const V3 lv = Rotate(Conj(rq[i]), { vx[i], vy[i], 0 });
+        const ea::MotionVec lv = ea::ToLocal(m->rootRot[i], { vx[i], vy[i], 0 });
         heading[i] = std::atan2(lv.x, lv.y) * 180.0 / kPi;
         r.maxSpeed = (std::max)(r.maxSpeed, speed[i]);
     }
@@ -346,7 +264,7 @@ ClipResult Measure(const std::string& path, const std::string& yaml, const Thres
         for (int i = 0; i < n; ++i) { x[i] = foot[s][i].x; y[i] = foot[s][i].y; z[i] = foot[s][i].z; minZ = (std::min)(minZ, z[i]); }
         const auto dx = Diff(x, dt), dy = Diff(y, dt), dz = Diff(z, dt);
         std::vector<double> v(n);
-        for (int i = 0; i < n; ++i) v[i] = Length({ dx[i], dy[i], dz[i] });
+        for (int i = 0; i < n; ++i) v[i] = std::sqrt(dx[i] * dx[i] + dy[i] * dy[i] + dz[i] * dz[i]);
         footV[s] = Smooth(v, th.footSmoothHalf);
         footH[s].resize(n);
         for (int i = 0; i < n; ++i) footH[s][i] = z[i] - minZ;
@@ -544,15 +462,29 @@ Json ParseStrict(const std::string& text) {
 /// @brief The file kinds the injector knows; a kind in the injectables table must be one of these.
 /// @note  Recognizing a kind is format knowledge, so it lives here; the table only says what each kind may receive.
 enum class Kind { Animation };
-/// @brief The value types a field can take; a type in the injectables table must be one of these.
-enum class Type { RangeMap };
+/// @brief The value a field takes; a type in the injectables table must be one of these shapes.
+/// @note  rangeMap = {name: [[start, end], ...]}; oneOf = one of the listed names, as a string.
+struct FieldType {
+    enum class Shape { RangeMap, OneOf } shape = Shape::RangeMap;
+    std::vector<std::string>             oneOf;
+};
 
-using Table = std::map<Kind, std::map<std::string, Type>>;
+using Table = std::map<Kind, std::map<std::string, FieldType>>;
 
-/// @brief An animation: a bare `.hkx` FILE (a unit is a `.hkx/` folder) whose YAML root key is `animation`.
-bool IsAnimation(const std::string& path, std::string_view text) {
+/// @brief The fields whose injected value this tool reads back through the animation loader.
+/// @note  A field the loader does not read would inject cleanly and then do nothing (the loader skips unknown keys),
+///        so the table may name only fields with a read-back (InjectAnimation).
+constexpr std::array<std::string_view, 2> kAnimationReadBack{ "tags", "motionTarget" };
+
+/// @brief A path that can name an animation: a bare `.hkx` FILE, not inside a unit (a unit is a `.hkx/` folder).
+bool IsAnimationPath(const std::string& path) {
     using CB::engine::codec::resource::PathKey;
-    if (!CB::engine::codec::resource::HasExt(path, ".hkx") || PathKey(path).find(".hkx/") != std::string::npos) return false;
+    return CB::engine::codec::resource::HasExt(path, ".hkx") && PathKey(path).find(".hkx/") == std::string::npos;
+}
+
+/// @brief An animation: an animation path whose YAML root key is `animation`.
+bool IsAnimation(const std::string& path, std::string_view text) {
+    if (!IsAnimationPath(path)) return false;
     text = CB::engine::text::StripBom(text);
     for (std::size_t at = 0; at < text.size();) {
         const std::size_t end  = (std::min)(text.find('\n', at), text.size());
@@ -565,11 +497,17 @@ bool IsAnimation(const std::string& path, std::string_view text) {
 }
 
 /// @brief Empty when `v` fits `type`, else why not.
-/// @note  rangeMap = {name: [[start, end], ...]}, integers, 0 <= start < end. Whether the ranges suit the file (sorted,
-///        inside the clip) is the consumer's check: the injector checks shape only.
-std::string CheckType(Type type, const Json& v) {
-    switch (type) {
-    case Type::RangeMap:
+/// @note  rangeMap ranges are integers, 0 <= start < end. Whether they suit the file (sorted, inside the clip) is the
+///        consumer's check: the injector checks shape only.
+std::string CheckType(const FieldType& type, const Json& v) {
+    switch (type.shape) {
+    case FieldType::Shape::OneOf: {
+        if (v.is_string() && std::find(type.oneOf.begin(), type.oneOf.end(), v.get<std::string>()) != type.oneOf.end()) return {};
+        std::string names;
+        for (const auto& n : type.oneOf) names += (names.empty() ? "" : ", ") + n;
+        return "not one of " + names + ": " + v.dump();
+    }
+    case FieldType::Shape::RangeMap:
         if (!v.is_object()) return "a rangeMap is {name: [[start, end], ...]}";
         for (const auto& [name, ranges] : v.items()) {
             if (name.empty()) return "an empty name";
@@ -622,14 +560,21 @@ std::string InjectAnimation(const std::string& path, std::string text, const std
         if (!text.empty() && text.back() != '\n') text += '\n';
         text += key + " " + Flow(in.values) + "\n";
     }
+    using MotionTarget = CB::engine::anim::AnimationDef::MotionTarget;
     const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
     for (const auto& in : injections) {
-        if (in.field != "tags") continue;
-        std::map<std::string, std::vector<std::pair<int, int>>> want;
-        for (const auto& [name, ranges] : in.values.items())
-            for (const auto& r : ranges) want[name].emplace_back(r[0].get<int>(), r[1].get<int>());
-        if (!def.tags || *def.tags != want)
-            throw std::runtime_error("'tags' did not read back as written (is `animation:` the last top-level key?)");
+        bool same = false;
+        if (in.field == "tags") {
+            std::map<std::string, std::vector<std::pair<int, int>>> want;
+            for (const auto& [name, ranges] : in.values.items())
+                for (const auto& r : ranges) want[name].emplace_back(r[0].get<int>(), r[1].get<int>());
+            same = def.tags && *def.tags == want;
+        } else if (in.field == "motionTarget") {
+            same = def.motionTarget == (in.values.get<std::string>() == "motionMatching" ? MotionTarget::MotionMatching
+                                                                                          : MotionTarget::AnimationData);
+        }
+        if (!same)
+            throw std::runtime_error("'" + in.field + "' did not read back as written (is `animation:` the last top-level key?)");
     }
     return text;
 }
@@ -639,7 +584,7 @@ std::string Apply(const std::string& path, std::string text, const std::vector<I
     if (!IsAnimation(path, text))
         throw std::runtime_error("not a file kind the injector knows (animation: a bare .hkx file whose root key is "
                                  "`animation:`)");
-    static const std::map<std::string, Type> kNone;
+    static const std::map<std::string, FieldType> kNone;
     const auto  row    = table.find(Kind::Animation);
     const auto& fields = row == table.end() ? kNone : row->second;
     for (const auto& in : injections) {
@@ -668,9 +613,25 @@ Table LoadTable(const std::string& tablePath) {
                 return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
             });
             if (!plain) throw std::runtime_error(tablePath + ": '" + field + "' is not a plain key name");
-            if (!type.is_string() || type.get<std::string>() != "rangeMap")
-                throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' has an unknown type " + type.dump());
-            row[field] = Type::RangeMap;
+            if (std::find(kAnimationReadBack.begin(), kAnimationReadBack.end(), field) == kAnimationReadBack.end())
+                throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' has no read-back in hky-tool, so a "
+                                         "value the loader ignores would pass unseen");
+            FieldType ft;
+            if (type.is_string() && type.get<std::string>() == "rangeMap") {
+                ft.shape = FieldType::Shape::RangeMap;
+            } else if (type.is_object() && type.size() == 1 && type.contains("oneOf") && type["oneOf"].is_array() &&
+                       !type["oneOf"].empty()) {
+                ft.shape = FieldType::Shape::OneOf;
+                for (const auto& n : type["oneOf"]) {
+                    if (!n.is_string() || n.get<std::string>().empty())
+                        throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' oneOf holds a non-name " + n.dump());
+                    ft.oneOf.push_back(n.get<std::string>());
+                }
+            } else {
+                throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' has an unknown type " + type.dump() +
+                                         " (known: \"rangeMap\", {\"oneOf\": [names]})");
+            }
+            row[field] = std::move(ft);
         }
     }
     return table;
@@ -744,7 +705,21 @@ std::vector<Clip> ClipsUnder(const CB::engine::codec::HkyArchive& arc, const std
 
 using Files = std::vector<std::pair<std::string, std::string>>;
 
-/// @brief `clipSelectorBehavior`: a complete behavior unit whose root is a manual selector over one clip per
+/// @brief A selector class the root may be: its index fields and how many children its index can address.
+struct SelectorClass {
+    const char* name;
+    const char* selectedField;
+    const char* currentField;
+    std::size_t maxChildren;
+};
+/// @note hkbManualSelectorGenerator's indices are int8: it clamps to (int8)(children - 1), so past 128 children
+///       every selection reads outside them. CBPoseSearchGenerator (CB's own) has int32 indices.
+constexpr std::array<SelectorClass, 2> kSelectorClasses{ {
+    { "hkbManualSelectorGenerator", "selectedGeneratorIndex", "currentGeneratorIndex", 128 },
+    { "CBPoseSearchGenerator", "selectedIndex", "currentIndex", 0x7fffffff },
+} };
+
+/// @brief `clipSelectorBehavior`: a complete behavior unit whose root is a selector (`rootClass`) over one clip per
 ///        animation, the selected child bound to `clipVariable` and every child's user-controlled time to
 ///        `timeVariable` (only the selected child plays, so one shared time is safe).
 /// @note  The unit's own ids: 0000x0001 the root container, 0000x0002 the selector, 0000x0003+ the clips in clip
@@ -752,6 +727,13 @@ using Files = std::vector<std::pair<std::string, std::string>>;
 Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips) {
     const auto out = j["out"].get<std::string>(), selector = j["selectorName"].get<std::string>();
     const auto clipVar = j["clipVariable"].get<std::string>(), timeVar = j["timeVariable"].get<std::string>();
+    const auto rootClass = j["rootClass"].get<std::string>();
+    const auto sc = std::find_if(kSelectorClasses.begin(), kSelectorClasses.end(), [&](const SelectorClass& c) { return rootClass == c.name; });
+    if (sc == kSelectorClasses.end())
+        throw std::runtime_error("'rootClass' " + rootClass + " is neither hkbManualSelectorGenerator nor CBPoseSearchGenerator");
+    if (clips.size() > sc->maxChildren)
+        throw std::runtime_error(std::to_string(clips.size()) + " clips is past what " + rootClass + "'s index addresses (" +
+                                 std::to_string(sc->maxChildren) + ")");
     const auto slash = out.rfind('/');
     std::string graphName = out.substr(slash == std::string::npos ? 0 : slash + 1);
     if (!CB::engine::codec::resource::HasExt(graphName, ".hkx")) throw std::runtime_error("'out' is not a .hkx unit path");
@@ -769,14 +751,14 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips) {
 
     const std::string sel = out + "/selectors/" + OwnId(2) + "/";
     files.emplace_back(sel + OwnId(2) + ".yaml",
-        "id: " + OwnId(2) + "\nclass: hkbManualSelectorGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n"
-        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\n");
+        "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n"
+        "userData: 0\nname: " + Quote(selector) + "\n" + sc->selectedField + ": 0\n" + sc->currentField + ": 0\n");
     std::string children;
     for (std::size_t i = 0; i < clips.size(); ++i)
         children += Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
     files.emplace_back(sel + "generators.yaml", children);
     files.emplace_back(sel + "variableBindingSet.bindings.yaml",
-        "'selectedGeneratorIndex':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
+        "'" + std::string(sc->selectedField) + "':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
         "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
 
     for (std::size_t i = 0; i < clips.size(); ++i) {
@@ -824,7 +806,7 @@ Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine:
     Json params = j;
     params.erase("generator");
     if (kind == "clipSelectorBehavior")
-        ExpectKeys(params, { "from", "clips", "rosterRoot", "out", "selectorName", "clipVariable", "timeVariable" });
+        ExpectKeys(params, { "from", "clips", "rosterRoot", "out", "rootClass", "selectorName", "clipVariable", "timeVariable" });
     else if (kind == "rosterPatch")
         ExpectKeys(params, { "from", "clips", "rosterRoot" }, { "characters" });
     else
@@ -952,16 +934,33 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
             if (!j.is_object() || j.size() != 1 || !j.contains("targets") || !j["targets"].is_array())
                 throw std::runtime_error("not {\"targets\": [...]}");
             for (const auto& t : j["targets"]) {
-                if (!t.is_object() || t.size() != 3 || !t.contains("path") || !t.contains("field") || !t.contains("values") ||
-                    !t["path"].is_string() || !t["field"].is_string())
-                    throw std::runtime_error("a target is not {\"path\", \"field\", \"values\"}");
-                const auto path = t["path"].get<std::string>(), field = t["field"].get<std::string>();
-                const auto at   = byKey.find(PathKey(path));
-                if (at == byKey.end()) throw std::runtime_error("no file '" + path + "' in the feature");
-                const auto [slot, fresh] = slots.emplace(std::pair{ at->second, field }, name);
-                if (!fresh) throw std::runtime_error("'" + field + "' of '" + path + "' is also set by " + slot->second);
-                sources[at->second].injections.push_back({ field, t["values"], name });
-                ++injected;
+                /// @note `path` names one file; `under` names every animation below a path prefix (path identity), so
+                ///       one target covers a whole clip set and a clip added under it gets the value too.
+                const bool one = t.is_object() && t.contains("path"), many = t.is_object() && t.contains("under");
+                const char* where = one ? "path" : "under";
+                if (!t.is_object() || t.size() != 3 || one == many || !t.contains("field") || !t.contains("values") ||
+                    !t[where].is_string() || !t["field"].is_string())
+                    throw std::runtime_error("a target is not {\"path\" or \"under\", \"field\", \"values\"}");
+                const auto at = t[where].get<std::string>(), field = t["field"].get<std::string>();
+                std::vector<std::size_t> hits;
+                if (one) {
+                    const auto it = byKey.find(PathKey(at));
+                    if (it == byKey.end()) throw std::runtime_error("no file '" + at + "' in the feature");
+                    hits.push_back(it->second);
+                } else {
+                    const std::string prefix = PathKey(at);
+                    for (std::size_t s = 0; s < sources.size(); ++s)
+                        if (assemble::IsAnimationPath(sources[s].entry.name) && PathKey(sources[s].entry.name).starts_with(prefix))
+                            hits.push_back(s);
+                    if (hits.empty()) throw std::runtime_error("no animation under '" + at + "' in the feature");
+                }
+                for (const std::size_t s : hits) {
+                    const auto [slot, fresh] = slots.emplace(std::pair{ s, field }, name);
+                    if (!fresh)
+                        throw std::runtime_error("'" + field + "' of '" + sources[s].entry.name + "' is also set by " + slot->second);
+                    sources[s].injections.push_back({ field, t["values"], name });
+                    ++injected;
+                }
             }
         } catch (const std::exception& e) {
             errors.push_back(name + ": " + e.what());

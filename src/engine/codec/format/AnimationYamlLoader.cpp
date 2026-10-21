@@ -196,6 +196,14 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
         def.motion = std::move(mr);
     }
 
+    if (hasChild(a, "motionTarget")) {
+        const std::string t = strf(a, "motionTarget");
+        if (t == "motionMatching")     def.motionTarget = AnimationDef::MotionTarget::MotionMatching;
+        else if (t == "animationData") def.motionTarget = AnimationDef::MotionTarget::AnimationData;
+        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': motionTarget '" + t +
+                                      "' is neither animationData nor motionMatching");
+    }
+
     /// @note A malformed `tags:` throws rather than loading as no tags: a silently untagged clip is the failure the
     ///       build's injection exists to prevent.
     if (hasChild(a, "tags")) {

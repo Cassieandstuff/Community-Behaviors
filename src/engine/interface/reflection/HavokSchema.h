@@ -81,12 +81,18 @@ struct Field {
                                          ///<        covering all their lines (the adsf section A / B framing).
     bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
                                          ///<        run to the end of the field's frame.
+    std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` — the member's reflected type where it differs
+                                         ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
+                                         ///<        here carries no enum reference). Signature only; no serde effect.
 };
 
 struct ClassSchema {
     std::string        name;
     std::string        parent;               // empty for a root class
     std::uint32_t      signature = 0;        // the class CRC
+    int                interfaces = 0;       ///< @brief `interfaces: N` — hkClass::m_numImplementedInterfaces (signature only).
+    std::vector<std::string> enums;          ///< @brief `enums: [A, B]` — the class's declared enums in order, defined under
+                                             ///<        metadata/enums (signature only).
     int                size      = 0;        // OPTIONAL declared serialized size (bytes, SSE 64-bit). The
                                              // authority is ComputeSize (derived from the field layout,
                                              // used by the serializer); this is a cross-check — LoadDir
@@ -228,7 +234,37 @@ public:
     // stack — schemas are community-contributable, so a cyclic descriptor is reachable input.
     int ComputeSize(const std::string& className, std::string* err = nullptr, int depth = 0) const;
 
+    /// @brief The byte offset of each of `className`'s OWN fields (parallel to ClassSchema::fields), by the same walk
+    ///        ComputeSize takes: what a runtime reflection of the class (hkClassMember offsets) must agree with.
+    /// @return empty with `err` set when the class or a parent is unresolved.
+    std::vector<int> OwnFieldOffsets(const std::string& className, std::string* err = nullptr) const;
+
+    /// @brief The class signature the engine computes from `className`'s reflection (hkClass::getSignature, flags 0).
+    /// @note  CRC-32 (zlib's) over each class's own block, the class first and then up its parent chain; a block is
+    ///        u32 interfaces, the declared enums, u32 enum count, the members, u32 member count. A member emits the
+    ///        class chain of an inline struct (never through a pointer), its enum, its name raw, then u16 type, u16
+    ///        subtype, u16 cArraySize, u16 flags. ENUM/FLAGS: the flags word is xored with size(subtype) << 3 and the
+    ///        subtype word is 0. SERIALIZE_IGNORED: the bit is dropped, the type word becomes TYPE_ZERO, the subtype
+    ///        word the real type (plus one word for a nonzero real subtype). Offsets and class names are not hashed.
+    ///        RE'd from AE 1.6.1170 (getSignature 0x140a97cf0, writeSignature 0x140a97d80); reproduces the stored
+    ///        signatures of the hkbGenerator chain and hkbManualSelectorGenerator.
+    /// @warning The schema is a serialization projection: a class whose descriptor drops reflected members (or their
+    ///          flags) computes a different value. Every class touched that stores a `signature:` is checked against
+    ///          it, so a wrong answer fails here rather than in the game's loader.
+    /// @return false with `err` set on an unresolved class or enum, or a touched class whose stored signature differs.
+    bool ComputeSignature(const std::string& className, std::uint32_t& out, std::string* err = nullptr) const;
+
 private:
+    /// @brief Advance `cursor` past `f` (a Pad aligns it); false with `err` set on an unresolved inline Struct.
+    bool AdvanceField(const Field& f, int& cursor, std::string* err, int depth) const;
+
+    /// @brief Append the signature bytes of `cs` and its parent chain; every class visited lands in `touched`.
+    bool EmitSignatureChain(const ClassSchema* cs, std::string& out, std::vector<const ClassSchema*>& touched,
+                            std::string* err, int depth) const;
+    /// @brief Append one class's own signature block (see ComputeSignature).
+    bool EmitSignatureOwn(const ClassSchema& cs, std::string& out, std::vector<const ClassSchema*>& touched,
+                          std::string* err, int depth) const;
+
     void BuildLayouts();
 
     std::map<std::string, ClassSchema> m_byName;

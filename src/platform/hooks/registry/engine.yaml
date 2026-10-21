@@ -154,6 +154,7 @@ symbols:
   - { name: hkbVariableBindingSet_CopyVariableOrMember, kind: func, se: 59343, ae: 60016, vr: 0 }
   - { name: hkbExpressionCompiler_Compile, kind: func, se: 59354, ae: 60027, vr: 0 }  # native expression language
   - { name: hkaDefaultAnimatedReferenceFrame_Ctor, kind: func, se: 64511, ae: 65604, vr: 0 }  # motion extraction
+  - { name: hkClass_GetSignature, kind: func, se: 0, ae: 57658, vr: 0, cpp: "CB::platform::game::hkClass_GetSignature", mangled: "?hkClass_GetSignature@game@platform@CB@@YAIPEBUhkClass@havok@3@H@Z", header: "platform/game/Reflection.h" }  # hkClass::getSignature, 0x140a97cf0 (1.6.1170); CB's classes cross-check the schema's derived signature with it
 
   # --- Actor movement ---
   - { name: Actor_ApplyFrameMovement, kind: func, se: 36365, ae: 37356, vr: 0 }  # uses animationDelta only when graph bIsSynced
@@ -195,6 +196,7 @@ symbols:
   - { name: hkReferencedObject_AddReference, kind: func, se: 56606, ae: 57010, vr: 0, cpp: "CB::havok::hkReferencedObject::addReference", mangled: "?addReference@hkReferencedObject@havok@CB@@QEBAXXZ" }
   - { name: hkReferencedObject_RemoveReference, kind: func, se: 56607, ae: 57011, vr: 0, cpp: "CB::havok::hkReferencedObject::removeReference", mangled: "?removeReference@hkReferencedObject@havok@CB@@QEBAXXZ" }
   - { name: hkReferencedObject_CalcContentStatistics, kind: func, se: 0, ae: 57022, vr: 0, cpp: "CB::havok::hkReferencedObject::calcContentStatistics", mangled: "?calcContentStatistics@hkReferencedObject@havok@CB@@UEBAXPEAVhkStatisticsCollector@23@PEBUhkClass@23@@Z" }  # vtable slot 2; overrides tail-call it with their parent class
+  - { name: hkReferencedObject_GetClassType, kind: func, se: 0, ae: 57021, vr: 0, cpp: "CB::havok::hkReferencedObject::getClassType", mangled: "?getClassType@hkReferencedObject@havok@CB@@UEBAPEBXXZ" }  # vtable slot 1 (0x140a88860); the base vtable a CB class's inline constructors write references it
   - { name: hkStatisticsCollectorUtil_AddDeclaredMembers, kind: func, se: 0, ae: 57261, vr: 0, cpp: "CB::havok::hkStatisticsCollectorUtil::addDeclaredMembers", mangled: "?addDeclaredMembers@hkStatisticsCollectorUtil@havok@CB@@SAXPEBXPEBUhkClass@23@PEAVhkStatisticsCollector@23@@Z" }  # name provisional; (obj, class, collector) reflective member walk
   - { name: hkStatisticsCollector_AddNormalChunk, kind: func, se: 0, ae: 57582, vr: 0, cpp: "CB::havok::hkStatisticsCollector::addNormalChunk", mangled: "?addNormalChunk@hkStatisticsCollector@havok@CB@@QEAAXPEBDPEBXHH@Z" }  # addChunk(1, ...), sizing an allocatedSize of 0 from the heap
   - { name: hkStatisticsCollector_GetAllocatedSize, kind: func, se: 0, ae: 57585, vr: 0, cpp: "CB::havok::hkStatisticsCollector::getAllocatedSize", mangled: "?getAllocatedSize@hkStatisticsCollector@havok@CB@@SAHPEBXH@Z" }  # name provisional; (p, size): the heap's allocated size (allocator slot 9), size itself for null

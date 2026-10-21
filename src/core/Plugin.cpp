@@ -11,8 +11,10 @@
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
+#include "core/resolve/LoadOrderReader.h"
 #include "core/resolve/Resolver.h"
 
+#include <platform/classes/ClassRegistry.h>
 #include <platform/hooks/Chain.h>
 #include <platform/hooks/registry/Registry.h>
 #include <platform/hooks/takeover/SchemaShim.h>
@@ -302,6 +304,14 @@ namespace CB {
         return 0;
     }
 
+    /// @brief Hand runtime features the resolved load order (core::resolve::LoadOrderReader), once Init is ready.
+    static void ArmLoadOrder()
+    {
+        CB::core::resolve::ArmLoadOrderReader({
+            [](const std::string& key, CB::engine::decompile::ParsedHky& out) { return g_resolver.MergedGraph(key, out); },
+            [](std::string_view path) { return g_resolver.NativeAnimationText(path); } });
+    }
+
     static unsigned __stdcall ArmThread(void*)
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
@@ -320,6 +330,7 @@ namespace CB {
 
             g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
             if (g_resolver.Failed()) return StandDown();
+            ArmLoadOrder();
 
             // Native anims are loose (not in the reused graph cache) so ArmCacheFromDisk recompiles them;
             // give it the same optional parallel executor. Sets m_redirectReady when done (materialize).
@@ -330,6 +341,7 @@ namespace CB {
         } else {
             g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
             if (g_resolver.Failed()) return StandDown();
+            ArmLoadOrder();
 
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
@@ -454,6 +466,12 @@ namespace CB {
             CB::core::debug::InstallTrace();   // arm [Debug] bRuntimeTrace before the present hook is live
             CB::core::debug::Install();         // DebugOverlay SMF HUD element + menu toggle
             CB::platform::hooks::RecheckTakeover(); // every plugin has hooked by now: hand back what they patched
+            /// @note CB's own Havok classes, before any behavior loads (the first actor graph loads after the menu).
+            if (const auto* schema = CB::engine::schema::SharedRegistry())
+                CB::platform::classes::RegisterAll(*schema);
+            else
+                LOG_ERROR("classes: no schema registry ({}) - CB's own classes are not registered",
+                          CB::engine::schema::SharedRegistryError());
         }
     }
 

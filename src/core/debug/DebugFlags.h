@@ -151,6 +151,12 @@ namespace CB::core::debug {
           "its error against where the player actually went. Under bFacing it turns from the body's actual facing and "
           "speed (turn damping and speed ramp included); walking off a ledge or jumping predicts the fall and where it "
           "lands. Observes only. Unproven in game." },
+        { "char_motion_matching", FlagKind::IniBool, "Character", "bMotionMatching", false, false,
+          "Motion matching (prototype)",
+          "Needs the Motion Matching add-on (Motion Matching.hky) and bPredictorObserve. For the player, CB searches the "
+          "add-on's clips every 0.1 s for the frame whose next second best matches the predicted trajectory and the "
+          "current pose, and plays it through the add-on's graph; NPCs keep vanilla locomotion. Clip switches pop (no "
+          "blending yet). Without the add-on it does nothing. Unproven in game." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
