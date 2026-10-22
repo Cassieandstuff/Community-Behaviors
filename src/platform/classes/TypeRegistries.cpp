@@ -47,6 +47,8 @@ namespace CB::platform::classes {
         constexpr std::size_t kMaxOwned      = 32;
         /// @brief hkbNode::cloneNode: how a character's graph copies a loaded node (vanilla's copy stamps vanilla's vtable).
         constexpr std::size_t kCloneNodeSlot = 12;
+        /// @brief hkbNode::activate.
+        constexpr std::size_t kActivateSlot  = 4;
 
         /// @brief A class CB owns: its loaded objects, and its nodes' clones, carry CB's copy of the vtable.
         struct Owned {
@@ -55,9 +57,10 @@ namespace CB::platform::classes {
             void                       (*vanillaFinish)(void*, int) = nullptr;
             const Word*                vanillaVtable = nullptr;
             Word                       vanillaClone  = 0;
+            Word                       vanillaActivate = 0;
             /// @brief The RTTI locator vanilla keeps before slot 0, then the slots.
             std::vector<Word>          table;
-            std::atomic<std::uint64_t> finished{}, cloned{};
+            std::atomic<std::uint64_t> finished{}, cloned{}, activated{};
             const Word* Vtable() const { return table.data() + 1; }
         };
 
@@ -105,12 +108,24 @@ namespace CB::platform::classes {
             return clone;
         }
 
+        /// @brief Counts an activate that dispatched through CB's vtable, then runs vanilla's slot.
+        template <std::size_t I>
+        void ActivateOwned(void* self, Word context)
+        {
+            Owned& o = S().owned[I];
+            o.activated.fetch_add(1, std::memory_order_relaxed);
+            reinterpret_cast<void (*)(void*, Word)>(o.vanillaActivate)(self, context);
+        }
+
         template <std::size_t... I>
         constexpr std::array<void (*)(void*, int), sizeof...(I)> FinishThunks(std::index_sequence<I...>) { return { &FinishOwned<I>... }; }
         template <std::size_t... I>
         constexpr std::array<Word (*)(void*, Word), sizeof...(I)> CloneThunks(std::index_sequence<I...>) { return { &CloneOwned<I>... }; }
         constexpr auto kFinishThunks = FinishThunks(std::make_index_sequence<kMaxOwned>{});
-        constexpr auto kCloneThunks  = CloneThunks(std::make_index_sequence<kMaxOwned>{});
+        template <std::size_t... I>
+        constexpr std::array<void (*)(void*, Word), sizeof...(I)> ActivateThunks(std::index_sequence<I...>) { return { &ActivateOwned<I>... }; }
+        constexpr auto kCloneThunks    = CloneThunks(std::make_index_sequence<kMaxOwned>{});
+        constexpr auto kActivateThunks = ActivateThunks(std::make_index_sequence<kMaxOwned>{});
 
         const TypeInfo* Substitute(const TypeInfo* info);
         const Word*     OwnedVtableFor(Word vanillaVtable);
@@ -352,12 +367,14 @@ namespace CB::platform::classes {
             if (node) {
                 o.vanillaClone                   = vt[kCloneNodeSlot];
                 o.table[1 + kCloneNodeSlot]      = reinterpret_cast<Word>(kCloneThunks[i]);
+                o.vanillaActivate                = vt[kActivateSlot];
+                o.table[1 + kActivateSlot]       = reinterpret_cast<Word>(kActivateThunks[i]);
             }
             o.record        = *info;
             o.record.finish = kFinishThunks[i];
             o.record.vtable = o.Vtable();
             LOG_INFO("type registries: {} is CB's: {} slots copied from {:#x} to {:#x}{}", info->name, slots,
-                     reinterpret_cast<Word>(vt), reinterpret_cast<Word>(o.Vtable()), node ? ", cloneNode wrapped" : "");
+                     reinterpret_cast<Word>(vt), reinterpret_cast<Word>(o.Vtable()), node ? ", cloneNode and activate wrapped" : "");
             return &o.record;
         }
 
@@ -422,6 +439,14 @@ namespace CB::platform::classes {
         LOG_INFO("type registries: CB's in place of Havok's (forwarding to vanilla, logging)");
     }
 
+    std::uint64_t ActivationsThroughOwnedVtable(std::string_view cls)
+    {
+        const State& st = S();
+        for (std::size_t i = 0; i < st.ownedCount; ++i)
+            if (st.owned[i].name == cls) return st.owned[i].activated.load(std::memory_order_relaxed);
+        return 0;
+    }
+
     void ReportTypeRegistries()
     {
         State& st = S();
@@ -443,7 +468,8 @@ namespace CB::platform::classes {
         for (std::size_t i = 0; i < st.ownedCount; ++i) {
             const Owned& o = st.owned[i];
             if (o.vanillaFinish)
-                LOG_INFO("type registries: {} is CB's: {} loaded and {} cloned with CB's vtable", o.name, o.finished.load(), o.cloned.load());
+                LOG_INFO("type registries: {} is CB's: {} loaded and {} cloned with CB's vtable; {} activates through it", o.name,
+                         o.finished.load(), o.cloned.load(), o.activated.load());
             else
                 LOG_WARN("type registries: {} is in sOwnTypes but never registered - nothing owned", o.name);
         }
