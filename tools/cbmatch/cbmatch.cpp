@@ -4355,6 +4355,42 @@ std::map<std::string, RttiClass> rttiClasses(const PeImage& pe)
     return out;
 }
 
+/// @brief Every function start with its end: .pdata's, plus direct-call targets and vtable slots.
+/// @note Leaf functions have no .pdata entry: their end is the first ret / jmp no earlier forward branch reaches past,
+///       never past the next start.
+std::map<std::uint32_t, std::uint32_t> functionBounds(const PeImage& pe, const std::vector<ExeFunction>& fns,
+                                                      const std::map<std::uint32_t, std::set<std::uint32_t>>& callers,
+                                                      const std::map<std::string, RttiClass>& classes)
+{
+    std::map<std::uint32_t, std::uint32_t> endOf;
+    for (const auto& f : fns) endOf[f.rva] = f.end;
+    for (const auto& [callee, from] : callers) endOf.emplace(callee, 0);
+    for (const auto& [name, c] : classes)
+        for (const auto s : c.slots) endOf.emplace(s, 0);
+    ZydisDecoder dec;
+    ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+    for (auto it = endOf.begin(); it != endOf.end(); ++it) {
+        if (it->second) continue;
+        const auto          next  = std::next(it);
+        const std::uint32_t limit = next == endOf.end() ? it->first + 0x1000 : next->first;
+        const auto          off   = pe.fileOffset(it->first, limit - it->first);
+        std::uint32_t       p = 0, reach = 0;   ///< reach: the furthest forward branch target inside the function
+        for (; off && it->first + p < limit;) {
+            ZydisDecodedInstruction ins;
+            if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&dec, nullptr, pe.bytes.data() + *off + p, limit - it->first - p, &ins))) break;
+            p += ins.length;
+            if (ins.raw.imm[0].is_relative && ins.mnemonic != ZYDIS_MNEMONIC_CALL) {
+                const std::int64_t t = std::int64_t(p) + ins.raw.imm[0].value.s;
+                if (t > std::int64_t(p) && it->first + t < limit) reach = std::max(reach, std::uint32_t(t));
+            }
+            if ((ins.mnemonic == ZYDIS_MNEMONIC_RET || ins.mnemonic == ZYDIS_MNEMONIC_JMP || ins.mnemonic == ZYDIS_MNEMONIC_INT3) && p >= reach)
+                break;
+        }
+        it->second = it->first + p;
+    }
+    return endOf;
+}
+
 /// @brief One function of the inventory.
 struct InventoryFunction {
     std::uint64_t va = 0;
@@ -4392,36 +4428,7 @@ int buildInventory(const Manifest& m, const RuntimeSpec& rt)
     const auto callers = directCallers(pe, fns);
     const auto classes = rttiClasses(pe);
 
-    // Every function start: .pdata's, plus direct-call targets and vtable slots (leaf functions have no .pdata entry;
-    // their end is the first ret / jmp no earlier forward branch reaches past, never past the next start).
-    std::map<std::uint32_t, std::uint32_t> endOf;
-    for (const auto& f : fns) endOf[f.rva] = f.end;
-    for (const auto& [callee, from] : callers) endOf.emplace(callee, 0);
-    for (const auto& [name, c] : classes)
-        for (const auto s : c.slots) endOf.emplace(s, 0);
-    {
-        ZydisDecoder dec;
-        ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
-        for (auto it = endOf.begin(); it != endOf.end(); ++it) {
-            if (it->second) continue;
-            const auto          next  = std::next(it);
-            const std::uint32_t limit = next == endOf.end() ? it->first + 0x1000 : next->first;
-            const auto          off   = pe.fileOffset(it->first, limit - it->first);
-            std::uint32_t       p = 0, reach = 0;   ///< reach: the furthest forward branch target inside the function
-            for (; off && it->first + p < limit;) {
-                ZydisDecodedInstruction ins;
-                if (!ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&dec, nullptr, pe.bytes.data() + *off + p, limit - it->first - p, &ins))) break;
-                p += ins.length;
-                if (ins.raw.imm[0].is_relative && ins.mnemonic != ZYDIS_MNEMONIC_CALL) {
-                    const std::int64_t t = std::int64_t(p) + ins.raw.imm[0].value.s;
-                    if (t > std::int64_t(p) && it->first + t < limit) reach = std::max(reach, std::uint32_t(t));
-                }
-                if ((ins.mnemonic == ZYDIS_MNEMONIC_RET || ins.mnemonic == ZYDIS_MNEMONIC_JMP || ins.mnemonic == ZYDIS_MNEMONIC_INT3) && p >= reach)
-                    break;
-            }
-            it->second = it->first + p;
-        }
-    }
+    const auto endOf = functionBounds(pe, fns, callers, classes);
     std::map<std::uint32_t, std::uint32_t> sizeOf;
     for (const auto& [rva, end] : endOf) sizeOf[rva] = end - rva;
 
@@ -4554,7 +4561,9 @@ int buildInventory(const Manifest& m, const RuntimeSpec& rt)
 
 /// @brief The inventory as written: class → its functions' addresses (and their slot / size).
 struct Inventory {
+    std::string                                           runtime;
     std::map<std::string, std::vector<InventoryFunction>> classes;
+    std::vector<InventoryFunction>                        shared;
     std::map<std::uint64_t, std::string>                  parked;   ///< va → why it is set aside
 };
 
@@ -4571,6 +4580,7 @@ Inventory loadInventory(const InventorySpec& spec)
         auto [text, tree] = parse(spec.file);
         tree              = c4::yml::parse_in_place(c4::to_substr(text));
         const auto root   = tree.crootref();
+        if (has(root, "runtime")) inv.runtime = val(root["runtime"]);
         if (has(root, "classes"))
             for (const auto c : root["classes"].children()) {
                 auto& list = inv.classes[str(c.key())];
@@ -4582,6 +4592,14 @@ Inventory loadInventory(const InventorySpec& spec)
                     fn.via  = has(f, "via") ? val(f["via"]) : std::string();
                     list.push_back(fn);
                 }
+            }
+        if (has(root, "shared"))
+            for (const auto f : root["shared"].children()) {
+                InventoryFunction fn;
+                fn.va   = parseAddress(val(f["va"]));
+                fn.size = static_cast<std::uint32_t>(std::stoul(val(f["size"])));
+                for (const auto c : f["classes"].children()) fn.classes.push_back(val(c));
+                inv.shared.push_back(fn);
             }
     }
     if (!spec.parked.empty() && fs::exists(spec.parked)) {
@@ -4616,6 +4634,289 @@ int printTodo(const Manifest& m, const std::string& runtime, const std::string& 
     return 0;
 }
 
+// ── boundary: where the rest of the exe meets the inventory ───────────────────────────────────────────────────────────
+
+/// @brief One reference from inside a function to an address outside it.
+struct ExeRef {
+    std::uint32_t from = 0;    ///< the referring function's start
+    std::uint32_t to = 0;
+    const char*   kind = "";   ///< call; jmp (jmp or jcc); addr (lea: the address taken); load (any other RIP-relative operand)
+};
+
+/// @brief Every direct branch and RIP-relative operand of every function in `bounds` that leaves its function.
+std::vector<ExeRef> exeReferences(const PeImage& pe, const std::map<std::uint32_t, std::uint32_t>& bounds)
+{
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>> fns(bounds.begin(), bounds.end());
+    std::vector<std::vector<ExeRef>>                           refs(fns.size());
+    CB::engine::exec::ParallelFor(fns.size(), [&](std::size_t k) {
+        const std::uint32_t begin = fns[k].first, end = fns[k].second;
+        const auto          off   = end > begin ? pe.fileOffset(begin, end - begin) : std::nullopt;
+        if (!off) return;
+        ZydisDecoder dec;
+        ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+        for (std::uint32_t p = 0; p < end - begin;) {
+            ZydisDecodedInstruction ins;
+            ZydisDecodedOperand     ops[ZYDIS_MAX_OPERAND_COUNT];
+            if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec, pe.bytes.data() + *off + p, end - begin - p, &ins, ops))) { ++p; continue; }
+            for (std::uint8_t o = 0; o < ins.operand_count_visible; ++o) {
+                const auto& op  = ops[o];
+                const bool  imm = op.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && op.imm.is_relative;
+                if (!imm && !(op.type == ZYDIS_OPERAND_TYPE_MEMORY && op.mem.base == ZYDIS_REGISTER_RIP)) continue;
+                ZyanU64 abs = 0;
+                if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&ins, &op, pe.imageBase + begin + p, &abs)) || abs < pe.imageBase) continue;
+                const std::uint64_t rva = abs - pe.imageBase;
+                if (rva > UINT32_MAX || (rva >= begin && rva < end)) continue;
+                const char* kind = imm ? (ins.mnemonic == ZYDIS_MNEMONIC_CALL ? "call" : "jmp") : (ins.mnemonic == ZYDIS_MNEMONIC_LEA ? "addr" : "load");
+                refs[k].push_back({ begin, std::uint32_t(rva), kind });
+            }
+            p += ins.length;
+        }
+    });
+    std::vector<ExeRef> out;
+    for (const auto& list : refs) out.insert(out.end(), list.begin(), list.end());
+    return out;
+}
+
+/// @brief engine.yaml's row name for every id the `pins` column places.
+/// @note A call or tls row (`<id>+0x<offset>`) names a spot inside its id, not the address itself, and is left out.
+std::map<std::uint64_t, std::string> registryNamesById(const fs::path& registry, const std::string& pins)
+{
+    std::map<std::uint64_t, std::string> out;
+    if (registry.empty()) return out;
+    auto text = CB::engine::disk::ReadFile(registry, { .stripBom = true });
+    if (!text) throw std::runtime_error("cannot read registry " + registry.string());
+    ensureRymlThrows();
+    const c4::yml::Tree tree = c4::yml::parse_in_place(c4::to_substr(*text));
+    const auto          root = tree.crootref();
+    if (!has(root, "symbols")) return out;
+    for (const auto s : root["symbols"].children()) {
+        if (!has(s, "name") || !has(s, pins.c_str())) continue;
+        const std::string pin = val(s[c4::to_csubstr(pins.c_str())]);
+        if (pin.empty() || pin.find('+') != std::string::npos) continue;
+        if (const auto id = std::stoull(pin)) out.emplace(id, val(s["name"]));
+    }
+    return out;
+}
+
+/// @brief Writes where the rest of the exe meets the inventory's functions taken as one owned set: what reaches in
+///        (direct calls and jumps, addresses taken in code, pointers in data other than the inventory classes' own
+///        vtables) and what the set reaches out to (functions, globals, constants, imports).
+/// @note The contract CB keeps when it owns the set outright and links it closed: every inbound function keeps an entry
+///       jump, every outbound address stays a registry row; nothing inside needs an address.
+int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outFile)
+{
+    if (m.inventory.file.empty()) throw std::runtime_error("the manifest has no inventory: { file: ... }");
+    if (!fs::exists(m.inventory.file)) throw std::runtime_error("--boundary reads the inventory: run --inventory first");
+    const Inventory inv = loadInventory(m.inventory);
+    if (!inv.runtime.empty() && inv.runtime != rt.name)
+        throw std::runtime_error("the inventory is of runtime " + inv.runtime + ", not " + rt.name + ": regenerate it with --inventory");
+    const PeImage pe = loadPe(rt.exe);
+    std::map<std::uint64_t, std::uint64_t> idByOffset;
+    if (!rt.addressLibrary.empty())
+        for (const auto& [id, off] : loadAddressLibrary(rt.addressLibrary)) idByOffset.emplace(off, id);
+    const auto names = registryNamesById(m.registry, rt.pins.empty() ? rt.name : rt.pins);
+
+    std::map<std::uint32_t, std::uint32_t> owned;   ///< start → end
+    std::map<std::uint32_t, std::string>   ownedBy; ///< start → its YAML class field
+    std::set<std::string>                  ownedClasses;
+    for (const auto& [cls, list] : inv.classes) {
+        ownedClasses.insert(cls);
+        for (const auto& f : list) {
+            const auto rva = std::uint32_t(f.va - pe.imageBase);
+            owned[rva]     = rva + std::max<std::uint32_t>(f.size, 1);
+            ownedBy[rva]   = "class: " + cls;
+        }
+    }
+    for (const auto& f : inv.shared) {
+        const auto  rva = std::uint32_t(f.va - pe.imageBase);
+        std::string list;
+        for (const auto& c : f.classes) list += (list.empty() ? "" : ", ") + c;
+        owned[rva]   = rva + std::max<std::uint32_t>(f.size, 1);
+        ownedBy[rva] = "classes: [" + list + "]";
+    }
+    auto ownedAt = [&](std::uint32_t rva) -> std::optional<std::uint32_t> {
+        auto it = owned.upper_bound(rva);
+        if (it == owned.begin()) return std::nullopt;
+        --it;
+        return rva < it->second ? std::optional<std::uint32_t>(it->first) : std::nullopt;
+    };
+
+    const auto fns     = exeFunctions(pe);
+    const auto classes = rttiClasses(pe);
+    const auto refs    = exeReferences(pe, functionBounds(pe, fns, directCallers(pe, fns), classes));
+
+    // A function's own vtable slot: the class whose parent's vtable holds another function there.
+    std::map<std::uint32_t, std::pair<std::string, int>> ownSlot;
+    struct Vtable { std::string cls; std::uint32_t end = 0; };
+    std::map<std::uint32_t, Vtable> vtables;   ///< primary vtable start → its class and end
+    for (const auto& [name, c] : classes) {
+        const auto parent = c.parent.empty() ? classes.end() : classes.find(c.parent);
+        for (std::size_t i = 0; i < c.slots.size(); ++i)
+            if (parent == classes.end() || i >= parent->second.slots.size() || parent->second.slots[i] != c.slots[i])
+                ownSlot.emplace(c.slots[i], std::make_pair(name, int(i)));
+        vtables[c.vtable] = { name, c.vtable + std::uint32_t(c.slots.size() * 8) };
+    }
+    auto vtableAt = [&](std::uint32_t rva) -> const std::pair<const std::uint32_t, Vtable>* {
+        auto it = vtables.upper_bound(rva);
+        if (it == vtables.begin()) return nullptr;
+        --it;
+        return rva < it->second.end ? &*it : nullptr;
+    };
+    auto sectionOf = [&](std::uint32_t rva) -> const PeImage::Section* {
+        for (const auto& s : pe.sections)
+            if (rva >= s.va && rva < s.va + std::max(s.vsize, s.rawSize)) return &s;
+        return nullptr;
+    };
+    /// @return ", id: <Address Library id>, name: <engine.yaml row>, vtable: <class>, slot: <n>", each part when known.
+    auto label = [&](std::uint32_t rva) {
+        std::string y;
+        if (const auto id = idByOffset.find(rva); id != idByOffset.end()) {
+            y += ", id: " + std::to_string(id->second);
+            if (const auto n = names.find(id->second); n != names.end()) y += ", name: " + n->second;
+        }
+        if (const auto s = ownSlot.find(rva); s != ownSlot.end()) y += ", vtable: " + s->second.first + ", slot: " + std::to_string(s->second.second);
+        return y;
+    };
+
+    struct Edge { std::set<std::string> kinds; std::size_t sites = 0; std::set<std::uint32_t> into; };
+    std::map<std::uint32_t, std::map<std::uint32_t, Edge>> inbound;   ///< owned function → referring function → how
+    struct Use { std::set<std::string> kinds; std::set<std::uint32_t> by; std::set<std::string> slots; };
+    std::map<std::uint32_t, Use>                    outFunctions, outGlobals, outConstants;
+    std::map<std::string, std::set<std::uint32_t>> imports;
+    for (const auto& r : refs) {
+        const auto from = ownedAt(r.from), to = ownedAt(r.to);
+        if (!from && to) {
+            auto& e = inbound[*to][r.from];
+            e.kinds.insert(r.kind);
+            ++e.sites;
+            if (r.to != *to) e.into.insert(r.to - *to);
+            continue;
+        }
+        if (!from || to) continue;
+        if (const auto imp = pe.importsBySlot.find(pe.imageBase + r.to); imp != pe.importsBySlot.end()) {
+            imports[imp->second].insert(*from);
+            continue;
+        }
+        const auto* sec = sectionOf(r.to);
+        if (!sec) continue;
+        if (sec->executable()) {
+            auto& u = outFunctions[r.to];
+            u.kinds.insert(r.kind);
+            u.by.insert(*from);
+            continue;
+        }
+        // The inventory classes' own vtables become CB's when it owns the set.
+        if (const auto* vt = vtableAt(r.to); vt && vt->first == r.to && ownedClasses.count(vt->second.cls)) continue;
+        auto& u = (sec->characteristics & IMAGE_SCN_MEM_WRITE) ? outGlobals[r.to] : outConstants[r.to];
+        u.kinds.insert(r.kind);
+        u.by.insert(*from);
+    }
+    for (const auto& cls : ownedClasses) {
+        const auto c = classes.find(cls);
+        if (c == classes.end()) continue;
+        for (std::size_t i = 0; i < c->second.slots.size(); ++i) {
+            const auto fn = c->second.slots[i];
+            if (ownedAt(fn)) continue;
+            auto& u = outFunctions[fn];
+            u.kinds.insert("slot");
+            u.slots.insert(cls + " " + std::to_string(i));
+        }
+    }
+    std::map<std::uint32_t, std::vector<std::uint32_t>> inboundData;   ///< owned function → where data holds its address
+    for (const auto& s : pe.sections) {
+        if (s.executable()) continue;
+        for (std::uint32_t r = 0; r + 8 <= s.rawSize && std::size_t(s.raw) + r + 8 <= pe.bytes.size(); r += 8) {
+            const std::uint64_t v = rd<std::uint64_t>(pe.bytes, s.raw + r);
+            if (v < pe.imageBase || v - pe.imageBase > UINT32_MAX || !owned.count(std::uint32_t(v - pe.imageBase))) continue;
+            const std::uint32_t at = s.va + r;
+            if (const auto* vt = vtableAt(at); vt && ownedClasses.count(vt->second.cls)) continue;
+            inboundData[std::uint32_t(v - pe.imageBase)].push_back(at);
+        }
+    }
+
+    auto join = [](const auto& set) {
+        std::string s;
+        for (const auto& x : set) s += (s.empty() ? "" : ", ") + std::string(x);
+        return s;
+    };
+    auto uses = [&](const std::map<std::uint32_t, Use>& list) {
+        std::string y;
+        for (const auto& [rva, u] : list) {
+            y += "  - { va: 0x" + hex(pe.imageBase + rva) + label(rva);
+            if (const auto* vt = vtableAt(rva); vt && vt->first == rva) y += ", vtableOf: " + vt->second.cls;
+            y += ", kinds: [" + join(u.kinds) + "]";
+            if (!u.by.empty()) y += ", by: " + std::to_string(u.by.size());
+            if (!u.slots.empty()) {
+                std::string slots;
+                for (const auto& s : u.slots) slots += (slots.empty() ? "\"" : ", \"") + s + "\"";
+                y += ", slots: [" + slots + "]";
+            }
+            y += " }\n";
+        }
+        return y;
+    };
+    std::size_t edges = 0;
+    for (const auto& [fn, from] : inbound) edges += from.size();
+    std::vector<std::uint32_t> inOrder;
+    for (const auto& [fn, from] : inbound) inOrder.push_back(fn);
+    std::stable_sort(inOrder.begin(), inOrder.end(), [&](std::uint32_t a, std::uint32_t b) { return ownedBy[a] < ownedBy[b]; });
+
+    std::string y;
+    y += "# Generated by `cbmatch --boundary` from the exe and the inventory; do not edit, regenerate.\n";
+    y += "# The inventory's functions as one owned set, and every place the rest of the exe meets it:\n";
+    y += "#   inbound            owned functions reached directly from outside: call, jmp (jmp or jcc), addr (lea of its\n";
+    y += "#                      address), load (another RIP-relative operand); `into` = offsets an edge lands past the entry.\n";
+    y += "#   inboundData        owned functions whose address sits in data other than an inventory class's own vtable.\n";
+    y += "#   outboundFunctions  exe functions owned code calls, jumps to or takes the address of, and the inherited slots\n";
+    y += "#                      (slot) of the inventory classes' vtables; `by` counts the owned functions that do.\n";
+    y += "#   outboundGlobals    writable data owned code references; outboundConstants the read-only data (vtables of\n";
+    y += "#                      the inventory classes left out: CB's replace them).\n";
+    y += "#   imports            DLL functions owned code calls through the import table.\n";
+    y += "# Not seen: virtual calls (vtables answer them), calls through pointers the exe computes, and Havok code inlined\n";
+    y += "# into the exe's own functions, which reads the owned classes' layouts without any edge.\n";
+    y += "runtime: " + rt.name + "\n";
+    y += "summary: { owned: " + std::to_string(owned.size()) + ", inbound: " + std::to_string(inbound.size()) + ", inboundEdges: " +
+         std::to_string(edges) + ", inboundData: " + std::to_string(inboundData.size()) + ", outboundFunctions: " +
+         std::to_string(outFunctions.size()) + ", outboundGlobals: " + std::to_string(outGlobals.size()) + ", outboundConstants: " +
+         std::to_string(outConstants.size()) + ", imports: " + std::to_string(imports.size()) + " }\n";
+    y += "inbound:\n";
+    for (const auto fn : inOrder) {
+        y += "  - fn: { va: 0x" + hex(pe.imageBase + fn) + ", " + ownedBy[fn] + label(fn) + " }\n";
+        y += "    from:\n";
+        for (const auto& [from, e] : inbound.at(fn)) {
+            y += "      - { va: 0x" + hex(pe.imageBase + from) + label(from) + ", kinds: [" + join(e.kinds) + "], sites: " + std::to_string(e.sites);
+            if (!e.into.empty()) {
+                std::string into;
+                for (const auto o : e.into) into += (into.empty() ? "0x" : ", 0x") + hex(o);
+                y += ", into: [" + into + "]";
+            }
+            y += " }\n";
+        }
+    }
+    y += "inboundData:\n";
+    for (const auto& [fn, at] : inboundData) {
+        std::string where;
+        for (const auto a : at) {
+            where += (where.empty() ? "{ va: 0x" : ", { va: 0x") + hex(pe.imageBase + a);
+            if (const auto* vt = vtableAt(a)) where += ", vtable: " + vt->second.cls + ", slot: " + std::to_string((a - vt->first) / 8);
+            where += " }";
+        }
+        y += "  - { va: 0x" + hex(pe.imageBase + fn) + ", " + ownedBy[fn] + label(fn) + ", at: [" + where + "] }\n";
+    }
+    y += "outboundFunctions:\n" + uses(outFunctions);
+    y += "outboundGlobals:\n" + uses(outGlobals);
+    y += "outboundConstants:\n" + uses(outConstants);
+    y += "imports:\n";
+    for (const auto& [name, by] : imports) y += "  - { name: \"" + name + "\", by: " + std::to_string(by.size()) + " }\n";
+    std::string err;
+    if (!CB::engine::disk::WriteFile(outFile, y, {}, &err)) throw std::runtime_error("cannot write boundary: " + err);
+    std::printf("cbmatch: boundary of %zu owned functions: %zu reached from outside (%zu callers), %zu in data; %zu exe functions, "
+                "%zu globals, %zu constants, %zu imports reached out to -> %s\n",
+                owned.size(), inbound.size(), edges, inboundData.size(), outFunctions.size(), outGlobals.size(), outConstants.size(),
+                imports.size(), outFile.string().c_str());
+    return 0;
+}
+
 void usage()
 {
     std::puts(
@@ -4641,6 +4942,9 @@ void usage()
         "                       and is STRUCTURAL if a seed diverges or none agrees\n"
         "  --suggest            print engine.yaml lines (with Address Library ids) for unmapped references\n"
         "  --inventory          (re)generate the manifest's inventory from the exe instead of matching\n"
+        "  --boundary <file>    write where the rest of the exe meets the inventory's functions taken as one owned set:\n"
+        "                       what calls in, what data holds their addresses, what they reach out to (needs --inventory's\n"
+        "                       file; names addresses from the registry and the runtime's Address Library)\n"
         "  --todo <class>       list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
         "  --coverage           after a full run, list every inventory class (default: only those started)\n"
         "  --diff <seeds>       run each REGALLOC/VARIANT function and vanilla side by side under emulation on <seeds>\n"
@@ -5907,6 +6211,7 @@ struct Options {
     std::string runtime, only, todo;
     bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false, suggest = false;
     bool        inventory = false, coverageAll = false;
+    fs::path    boundary;   ///< --boundary: where the rest of the exe meets the inventory
     bool        strict = false;   ///< --strict: an out-of-line definition no manifest line covers fails the gate
     unsigned    jobs = 0;
     std::size_t diffSeeds = 0;
@@ -5935,6 +6240,11 @@ int run(const Options& opt)
         RuntimeSpec spec = rt ? *rt : RuntimeSpec{ runtime, exePath, {}, runtime };
         spec.exe         = exePath;
         return buildInventory(m, spec);
+    }
+    if (!opt.boundary.empty()) {
+        RuntimeSpec spec = rt ? *rt : RuntimeSpec{ runtime, exePath, {}, runtime };
+        spec.exe         = exePath;
+        return buildBoundary(m, spec, opt.boundary);
     }
     if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
@@ -6414,6 +6724,7 @@ int main(int argc, char** argv)
         else if (a == "--allow-variant") opt.allowVariant = true;
         else if (a == "--suggest") opt.suggest = true;
         else if (a == "--inventory") opt.inventory = true;
+        else if (a == "--boundary") opt.boundary = next();
         else if (a == "--todo") opt.todo = next();
         else if (a == "--coverage") opt.coverageAll = true;
         else if (a == "--diff") opt.diffSeeds = std::stoul(next());
