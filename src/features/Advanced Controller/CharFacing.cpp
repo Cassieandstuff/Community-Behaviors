@@ -231,6 +231,29 @@ namespace CB::feature::controller {
             return state == RE::hkpCharacterStateType::kInAir || state == RE::hkpCharacterStateType::kJumping;
         }
 
+        /// @brief Who steers the player this frame while CB would hold them.
+        enum class Steer : std::uint8_t {
+            Player,     ///< the player's own input: CB's model drives
+            Dialogue,   ///< the dialogue menu is open: CB holds still and faces the speaker
+            Vanilla,    ///< AI-driven (scenes, packages) or movement controls disabled: vanilla's, untouched
+        };
+
+        /// @param speaker set to the dialogue speaker's position when the result is Dialogue and one resolves
+        Steer WhoSteers(RE::MovementControllerNPC* controller, bool& haveSpeaker, RE::NiPoint3& speaker)
+        {
+            haveSpeaker = false;
+            if (auto* topics = RE::MenuTopicManager::GetSingleton(); topics && topics->menuOpen) {
+                if (const auto ref = topics->speaker.get()) {
+                    speaker     = ref->GetPosition();
+                    haveSpeaker = true;
+                }
+                return Steer::Dialogue;
+            }
+            if (controller->GetAIDriven()) return Steer::Vanilla;
+            if (auto* controls = RE::ControlMap::GetSingleton(); controls && !controls->IsMovementControlsEnabled()) return Steer::Vanilla;
+            return Steer::Player;
+        }
+
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             RE::Actor* player  = out ? PlayerOf(controller) : nullptr;
@@ -259,16 +282,32 @@ namespace CB::feature::controller {
             }
 
             const auto mode = api ? api->GetDirectionalMovementMode() : TDM_API::DirectionalMovementMode::kDisabled;
+            const bool hold = api && Holding(mode) && RE::PlayerCamera::GetSingleton() &&
+                              RE::PlayerCamera::GetSingleton()->IsCurrentState(RE::CameraStates::kThirdPerson, RE::CameraStates::kVRThirdPerson);
+            bool         haveSpeaker = false;
+            RE::NiPoint3 speakerAt;
+            const Steer  steer = hold ? WhoSteers(controller, haveSpeaker, speakerAt) : Steer::Player;
+            /// @note Taking the player out of the player's hands: the engine's speed state still holds the speed of the
+            ///       last frame CB drove, and with the stick ignored nothing brings it down, so the player slid on at it
+            ///       (seen in dialogue). It is zeroed once, at the hand-over: from then on vanilla, the AI or the scene sets it.
+            /// @warning Only the player's frames may touch it: every actor's frame runs this hook, on job threads in
+            ///          parallel, and an NPC's "player" verdict would re-arm the hand-over every frame.
+            static Steer lastSteer = Steer::Player;
+            if (player && steer != lastSteer) {
+                if (lastSteer == Steer::Player && mh) mh->currentMovementSpeed = 0.0f;
+                if (steer != Steer::Player) g_engineSpeed = EngineSpeed{};
+                if (DiagBudget())
+                    LOG_INFO("movement: {} steers the player", steer == Steer::Player ? "the player" : steer == Steer::Dialogue ? "dialogue" : "vanilla");
+                lastSteer = steer;
+            }
             float      stickHeading = 0.0f;
-            const bool haveStick    = api && StickHeading(stickHeading);
-            if (api && g_haveControl && Holding(mode)) RewriteInput(api);
+            const bool haveStick    = steer == Steer::Player && api && StickHeading(stickHeading);
+            if (api && g_haveControl && Holding(mode) && steer == Steer::Player) RewriteInput(api);
             next(controller, deltaTime, out);
             if (!api) return;
 
             const float heading = player->GetHeading(false);
             const float full    = out->speed;
-            const bool  hold    = Holding(mode) && RE::PlayerCamera::GetSingleton() &&
-                                 RE::PlayerCamera::GetSingleton()->IsCurrentState(RE::CameraStates::kThirdPerson, RE::CameraStates::kVRThirdPerson);
             const char* graphFlag   = hold ? GraphDrivesSpeed(player) : "";
             const bool  graphDrives = graphFlag[0] != 0;
             /// @note Diagnostic: every hand-over to the graph and back, with the speeds either side.
@@ -280,14 +319,35 @@ namespace CB::feature::controller {
                 lastFlag = graphFlag;
             }
             move::State& s = g_state;
-            if (!hold || !g_init || graphDrives || deltaTime <= 0.0f) {
-                /// @note Off, first frame, or the graph moving the actor: the model restarts from the engine's own frame.
+            const bool   vanilla = steer == Steer::Vanilla;
+            if (!hold || !g_init || graphDrives || vanilla || deltaTime <= 0.0f) {
+                /// @note Off, first frame, the graph moving the actor, or vanilla steering: the model restarts from the
+                ///       engine's own frame.
                 const float dir = heading + out->angles[2];
                 s       = move::State{ out->speed * std::sin(dir), out->speed * std::cos(dir), heading, 0.0f };
-                g_init  = hold;
+                g_init  = hold && !vanilla;
                 es      = EngineSpeed{};
-                if (hold || g_haveControl) Control(api, hold, heading);
-                if (!hold || graphDrives) return;
+                if (hold || g_haveControl) Control(api, hold && !vanilla, heading);
+                if (!hold || graphDrives || vanilla) return;
+            }
+
+            if (steer == Steer::Dialogue) {
+                /// @note In dialogue the player stands: the model's velocity is dropped, and the facing spring turns them
+                ///       toward the speaker (when one resolves), with the model's halflife.
+                s.vx = s.vy = 0.0f;
+                s.yaw       = heading + WrapPi(s.yaw - heading);
+                if (haveSpeaker) {
+                    const RE::NiPoint3 at   = player->GetPosition();
+                    const float        dx   = speakerAt.x - at.x, dy = speakerAt.y - at.y;
+                    if (dx * dx + dy * dy > 1.0f) {
+                        const float goal = s.yaw + WrapPi(std::atan2(dx, dy) - s.yaw);
+                        SpringDamperExact(s.yaw, s.yawRate, goal, move::kFacingHalflife, deltaTime);
+                    }
+                }
+                out->speed     = 0.0f;
+                out->angles[2] = 0.0f;
+                Control(api, true, s.yaw);
+                return;
             }
 
             /// @note The graph's TargetSpeed (MiddleHighProcessData +0x2ac) is written only on the NPC path-following
