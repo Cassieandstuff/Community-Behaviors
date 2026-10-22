@@ -463,10 +463,10 @@ Json ParseStrict(const std::string& text) {
 /// @note  Recognizing a kind is format knowledge, so it lives here; the table only says what each kind may receive.
 enum class Kind { Animation };
 /// @brief The value a field takes; a type in the injectables table must be one of these shapes.
-/// @note  rangeMap = {name: [[start, end], ...]}; oneOf = one of the listed names, as a string.
+/// @note  rangeMap = {name: [[start, end], ...]}; oneOf = one of the listed names, as a string; bool = true or false.
 struct FieldType {
-    enum class Shape { RangeMap, OneOf } shape = Shape::RangeMap;
-    std::vector<std::string>             oneOf;
+    enum class Shape { RangeMap, OneOf, Bool } shape = Shape::RangeMap;
+    std::vector<std::string>                   oneOf;
 };
 
 using Table = std::map<Kind, std::map<std::string, FieldType>>;
@@ -474,7 +474,7 @@ using Table = std::map<Kind, std::map<std::string, FieldType>>;
 /// @brief The fields whose injected value this tool reads back through the animation loader.
 /// @note  A field the loader does not read would inject cleanly and then do nothing (the loader skips unknown keys),
 ///        so the table may name only fields with a read-back (InjectAnimation).
-constexpr std::array<std::string_view, 2> kAnimationReadBack{ "tags", "motionTarget" };
+constexpr std::array<std::string_view, 4> kAnimationReadBack{ "tags", "motionTarget", "preload", "entry" };
 
 /// @brief A path that can name an animation: a bare `.hkx` FILE, not inside a unit (a unit is a `.hkx/` folder).
 bool IsAnimationPath(const std::string& path) {
@@ -507,6 +507,8 @@ std::string CheckType(const FieldType& type, const Json& v) {
         for (const auto& n : type.oneOf) names += (names.empty() ? "" : ", ") + n;
         return "not one of " + names + ": " + v.dump();
     }
+    case FieldType::Shape::Bool:
+        return v.is_boolean() ? std::string() : "not true or false: " + v.dump();
     case FieldType::Shape::RangeMap:
         if (!v.is_object()) return "a rangeMap is {name: [[start, end], ...]}";
         for (const auto& [name, ranges] : v.items()) {
@@ -572,6 +574,11 @@ std::string InjectAnimation(const std::string& path, std::string text, const std
         } else if (in.field == "motionTarget") {
             same = def.motionTarget == (in.values.get<std::string>() == "motionMatching" ? MotionTarget::MotionMatching
                                                                                           : MotionTarget::AnimationData);
+        } else if (in.field == "preload") {
+            same = def.preload == in.values.get<bool>();
+        } else if (in.field == "entry") {
+            using Entry = CB::engine::anim::AnimationDef::Entry;
+            same = def.entry == (in.values.get<std::string>() == "changes" ? Entry::Changes : Entry::Anywhere);
         }
         if (!same)
             throw std::runtime_error("'" + in.field + "' did not read back as written (is `animation:` the last top-level key?)");
@@ -619,6 +626,8 @@ Table LoadTable(const std::string& tablePath) {
             FieldType ft;
             if (type.is_string() && type.get<std::string>() == "rangeMap") {
                 ft.shape = FieldType::Shape::RangeMap;
+            } else if (type.is_string() && type.get<std::string>() == "bool") {
+                ft.shape = FieldType::Shape::Bool;
             } else if (type.is_object() && type.size() == 1 && type.contains("oneOf") && type["oneOf"].is_array() &&
                        !type["oneOf"].empty()) {
                 ft.shape = FieldType::Shape::OneOf;
@@ -629,7 +638,7 @@ Table LoadTable(const std::string& tablePath) {
                 }
             } else {
                 throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' has an unknown type " + type.dump() +
-                                         " (known: \"rangeMap\", {\"oneOf\": [names]})");
+                                         " (known: \"rangeMap\", \"bool\", {\"oneOf\": [names]})");
             }
             row[field] = std::move(ft);
         }

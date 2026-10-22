@@ -4,6 +4,7 @@
 #include "core/discover/ServeKey.h"
 #include "core/resolve/CacheKey.h"
 #include "core/debug/Settings.h"
+#include <platform/profile/Profile.h>
 #include <feature-sdk/FeatureRegistry.h>   // compile-time graph features (ER wildcard gate, …); features/core/hpp on the path
 
 
@@ -790,6 +791,8 @@ namespace CB {
         const std::size_t total = keys.size();
         std::size_t       done  = 0;
         for (const auto& k : keys) {
+            CB_ZONE(zone, "warm-up: graph");
+            CB_ZONE_TEXT(zone, k);
             if (!m_reuse.count(k)) Resolve(k);   // a reused graph's cached file stays as it is
             if (progress) progress(++done, total);
         }
@@ -1097,6 +1100,8 @@ namespace CB {
         // mutable state (archive reads are thread-safe), so this is safe to run concurrently and the parallel
         // result is byte-identical to the serial one.
         auto compileOne = [&](std::size_t i) {
+            CB_ZONE(zone, "warm-up: animation");
+            CB_ZONE_TEXT(zone, m_nativeAnims[i].outKey);
             if (produced[i]) return;
             const NativeAnim&  a      = m_nativeAnims[i];
             const std::string& outKey = a.outKey;
@@ -1312,6 +1317,8 @@ namespace CB {
                 if (progress) progress(++done, total);
                 continue;
             }
+            CB_ZONE(zone, "warm-up: write graph");
+            CB_ZONE_TEXT(zone, k);
             auto bytes = Resolve(k);   // Resolve = cached after CompileAll
             if (bytes && !bytes->empty()) {
                 const std::string rel = CacheDiskRel(k);

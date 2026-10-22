@@ -4,6 +4,7 @@
 #include <PluginLogger.h>
 
 #include <core/debug/Settings.h>
+#include <platform/profile/Profile.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -19,6 +20,7 @@
 ///       original), change its arguments, or don't call it to replace.
 /// @note Lifecycle: subscribe during static initialization or SKSEPluginLoad → InstallAll() once → closed. The
 ///       chains never change after that, so dispatch takes no lock.
+/// @note Each subscriber call is a profiler zone named by the subscriber, its function the hook (platform/profile).
 
 namespace CB::platform::hooks {
 
@@ -83,7 +85,7 @@ namespace CB::platform::hooks {
             }
             auto& subs = Subs();
             if (subs.empty()) detail::Wanted().push_back(&Point());
-            subs.push_back({ fn, prio, who, flag });
+            subs.push_back({ fn, prio, who, flag, { who, Self::name, __FILE__, static_cast<std::uint32_t>(__LINE__), 0 } });
             return true;
         }
 
@@ -96,6 +98,9 @@ namespace CB::platform::hooks {
             Priority         prio;
             const char*      who;
             std::string_view flag;
+            /// @brief The subscriber's zone (name = who, function = the hook); its address must stay put while zones
+            ///        open at it, which holds from install on (the chain never changes).
+            tracy::SourceLocationData zone;
         };
 
         struct PointT final : detail::ChainBase {
@@ -119,7 +124,10 @@ namespace CB::platform::hooks {
 
         static R Dispatch(std::uint32_t at, A... a)
         {
-            if (at < s_count) return s_chain[at].fn(Next{ at + 1 }, a...);
+            if (at < s_count) {
+                CB_ZONE_AT(zone, &s_chain[at].zone);
+                return s_chain[at].fn(Next{ at + 1 }, a...);
+            }
             return s_original(a...);
         }
 

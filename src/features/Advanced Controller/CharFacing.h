@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 
 /// @file
 /// @brief The Advanced Controller's frame-movement model, shared by the frame features (CharFacing turns the player,
@@ -40,6 +41,9 @@ namespace CB::feature::controller {
     ///       comes around. fTurnFreeAngle=180 turns it off.
     float TurnSpeedScale(float gap);
 
+    /// @brief The actor's gait (ActorState: sprinting before running before walking); None while none is set.
+    enum class Gait : std::uint8_t { None, Walk, Run, Sprint };
+
     /// @brief The speed ramp's latest frame (game units/s): the speed the movement controller asked for (`full`) and
     ///        the speed handed on after the turn damping and the ramp (`speed`).
     struct FrameSpeed {
@@ -47,6 +51,7 @@ namespace CB::feature::controller {
         float speed    = 0.0f;
         float rampTime = 0.0f;   ///< fRampTime: a rise from 0 to `full` takes this long
         float slope    = 1.0f;   ///< the smoothed slope factor (SlopeSpeedScale) already in `speed`
+        Gait  gait     = Gait::None;
     };
     /// @brief False while the speed ramp is off or no frame ran within the last half second. Thread-safe.
     bool CurrentSpeed(FrameSpeed& out);

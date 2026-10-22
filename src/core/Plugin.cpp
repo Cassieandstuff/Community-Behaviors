@@ -19,6 +19,7 @@
 #include <platform/hooks/registry/Registry.h>
 #include <platform/hooks/takeover/SchemaShim.h>
 #include <platform/hooks/takeover/Takeover.h>
+#include <platform/profile/Profile.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
@@ -133,9 +134,12 @@ namespace CB {
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
         /// @note The graphs PlanIncremental kept (ArmThread, before the adsf) are skipped here and in the materialize.
-        g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
-            CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
-        });
+        {
+            CB_ZONE(zone, "warm-up: compile graphs");
+            g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
+                CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
+            });
+        }
         // (The character animationNames roster is a union roster: the merge unions every layer's names at
         // compile time, so there is no runtime roster-completion pass between compile and disk write.)
         // Write every compiled graph to the consolidated cache (<Data>\Meshes\community_behaviors_cache\...)
@@ -154,8 +158,11 @@ namespace CB {
                                          grandTotal, true);
         };
         AnimParallel animPar;   // parallel native-anim compile unless sequencer.disable; serial otherwise
-        const std::size_t wrote = g_resolver.MaterializeCacheToDisk(
-            std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
+        std::size_t  wrote = 0;
+        {
+            CB_ZONE(zone, "warm-up: materialize + animations");
+            wrote = g_resolver.MaterializeCacheToDisk(std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
+        }
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
         CB::core::bootstrap::SetProgress(grandTotal, grandTotal, false);
@@ -325,21 +332,38 @@ namespace CB {
             // This only touches on-disk files + the redirect atomics — no resolver state — so it runs
             // BEFORE WaitReady() and lets the adsf open through in ms. Only a partial cache falls back to
             // the derive path (which needs the scan → after WaitReady, below).
-            const bool adsfFromCache = ArmAdsfSetDataFromCache();
+            bool adsfFromCache = false;
+            {
+                CB_ZONE(zone, "warm-up: adsf/setdata from cache");
+                adsfFromCache = ArmAdsfSetDataFromCache();
+            }
             if (adsfFromCache) SignalAdsfArmed();
 
-            g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
+            {
+                CB_ZONE(zone, "warm-up: wait for init");
+                g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
+            }
             if (g_resolver.Failed()) return StandDown();
             ArmLoadOrder();
 
             // Native anims are loose (not in the reused graph cache) so ArmCacheFromDisk recompiles them;
             // give it the same optional parallel executor. Sets m_redirectReady when done (materialize).
             AnimParallel animPar;
-            g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());
-            if (!adsfFromCache) { ArmAdsfSetDataServe(animPar.ptr()); SignalAdsfArmed(); }
+            {
+                CB_ZONE(zone, "warm-up: arm cache from disk");
+                g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());
+            }
+            if (!adsfFromCache) {
+                CB_ZONE(zone, "warm-up: adsf/setdata projection");
+                ArmAdsfSetDataServe(animPar.ptr());
+                SignalAdsfArmed();
+            }
             CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
-            g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
+            {
+                CB_ZONE(zone, "warm-up: wait for init");
+                g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
+            }
             if (g_resolver.Failed()) return StandDown();
             ArmLoadOrder();
 
@@ -351,13 +375,17 @@ namespace CB {
             /// @note Keep every graph whose own inputs are unchanged since the last complete cache, and the cached
             ///       adsf/asdsf when none of THEIR inputs changed; a forced regen keeps nothing.
             const bool keep = !CB::core::debug::FlagOn("force_regenerate");
-            if (keep) g_resolver.PlanIncremental(dataAbs);
+            if (keep) {
+                CB_ZONE(zone, "warm-up: plan incremental");
+                g_resolver.PlanIncremental(dataAbs);
+            }
 
             // adsf is independent of the graph compile → arm + signal NOW so the adsf open unblocks, then
             // compile the graphs in the background (bar rides the live menu).
             if (keep && g_resolver.AnimDataReusable(dataAbs) && ArmAdsfSetDataFromCache()) {
                 g_resolver.SetAnimDataComplete(true);
             } else {
+                CB_ZONE(zone, "warm-up: adsf/setdata projection");
                 AnimParallel adsfPar("the adsf projection parses animations");
                 ArmAdsfSetDataServe(adsfPar.ptr());
             }
@@ -426,6 +454,7 @@ namespace CB {
     // 64MB stack — the skeleton compile. Finishes during the intro, before the first owned open.
     static unsigned __stdcall InitThread(void*)
     {
+        CB_ZONE(zone, "warm-up: init (bundles, scan, skeletons)");
         ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
         /// @note CachePresent runs even when a regen is forced: its first call fixes this launch's cache key (the inputs
         ///       as found now, before anything compiles).
@@ -484,6 +513,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
     LOG_INFO("Community Behaviors v{} loading — runtime behavior compiler.",
              SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."));
+    /// @note Before any hook or thread of CB's: every zone after this sees the profiler's real state.
+    CB::platform::profile::Start();
     CB::platform::hooks::engine::LogAvailability();
     CB::platform::hooks::InstallSchemaShim();
 

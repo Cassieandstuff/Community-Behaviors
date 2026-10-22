@@ -199,9 +199,14 @@ namespace CB::feature {
             }
             out->speed    = r.speed;
             g_engineSpeed = EngineSpeed{ true, full, r.speed };
+            const auto* state = player->AsActorState();
+            const ch::Gait gait = state->IsSprinting() ? ch::Gait::Sprint
+                                : state->IsRunning()   ? ch::Gait::Run
+                                : state->IsWalking()   ? ch::Gait::Walk
+                                                       : ch::Gait::None;
             {
                 std::scoped_lock lock(g_published.lock);
-                g_published.speed = ch::FrameSpeed{ full, r.speed, RampTime(), sl.scale };
+                g_published.speed = ch::FrameSpeed{ full, r.speed, RampTime(), sl.scale, gait };
                 g_published.at    = Now();
             }
             if (ch::hud::On()) ch::hud::Publish(ch::hud::Ramp{ out->speed, full, turnScale, sl.scale });

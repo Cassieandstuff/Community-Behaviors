@@ -253,6 +253,8 @@ namespace CB::core::serve {
         if (const auto n = fromOverride.load(); n > 0)
             LOG_INFO("AnimData: {} animation(s) exist only as DAR/OAR replacer copies — their slots take the default copy's "
                      "motion ({} had several copies; the lowest-priority one stands for all).", n, severalCopies.load());
+        if (st.preloads)
+            LOG_INFO("AnimData: {} preload animation(s) listed in their projects' file lists (loaded with the project).", st.preloads);
         if (st.unresolved)
             LOG_INFO("AnimData: {} clip(s) play an animation their character's roster lacks (no motion; e.g. {}).", st.unresolved,
                      st.unresolvedSample.empty() ? std::string() : st.unresolvedSample.front());

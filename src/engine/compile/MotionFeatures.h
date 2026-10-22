@@ -47,24 +47,30 @@ namespace CB::engine::anim {
     /// @brief `v` rotated by `q`.
     MotionVec Rotate(const MotionQuat& q, const MotionVec& v);
 
-    /// @brief The motion-matching feature vector's layout (Holden's 27, at the predictor's horizons).
+    /// @brief The motion-matching feature vector's layout (Holden's 27, at the predictor's horizons, plus the past).
     /// @note  Every value is in the CURRENT frame's root space (x right, y forward, z up), game units:
-    ///        trajectory positions and facing directions (x, y) at kHorizons; left and right foot positions and
-    ///        velocities; the pelvis velocity.
+    ///        trajectory positions and facing directions (x, y) at kHorizons ahead, then at kHorizons back; left and
+    ///        right foot positions and velocities; the pelvis velocity. Everything from kFootPos on is the pose.
+    /// @note  Why the past: with only the future, a steady stretch inside a gait-change take (run-to-sprint) matched a
+    ///        steady run as well as a run did, and won about a quarter of the picks; where the motion came from tells
+    ///        them apart (Unreal's pose history plays the same part).
     namespace features {
-        inline constexpr std::array<double, 3> kHorizons{ 1.0 / 3.0, 2.0 / 3.0, 1.0 };   ///< seconds ahead
-        inline constexpr int kTrajPos = 0;    ///< 6: (x, y) per horizon
-        inline constexpr int kTrajDir = 6;    ///< 6: (x, y) per horizon, a unit vector
-        inline constexpr int kFootPos = 12;   ///< 6: left (x, y, z), right (x, y, z)
-        inline constexpr int kFootVel = 18;   ///< 6: left, right, game units/s
-        inline constexpr int kHipVel  = 24;   ///< 3: game units/s
-        inline constexpr int kDims    = 27;
+        inline constexpr std::array<double, 3> kHorizons{ 1.0 / 3.0, 2.0 / 3.0, 1.0 };   ///< seconds ahead, and back
+        inline constexpr int kTrajPos = 0;    ///< 6: (x, y) per horizon ahead
+        inline constexpr int kTrajDir = 6;    ///< 6: (x, y) per horizon ahead, a unit vector
+        inline constexpr int kPastPos = 12;   ///< 6: (x, y) per horizon back
+        inline constexpr int kPastDir = 18;   ///< 6: (x, y) per horizon back, a unit vector
+        inline constexpr int kFootPos = 24;   ///< 6: left (x, y, z), right (x, y, z)
+        inline constexpr int kFootVel = 30;   ///< 6: left, right, game units/s
+        inline constexpr int kHipVel  = 36;   ///< 3: game units/s
+        inline constexpr int kDims    = 39;
     }
 
     /// @brief The clip's feature rows, one per frame (kDims floats each), appended to `rows`.
     /// @pre   `m.hasFeet && m.hasHip`.
     /// @note  A horizon past the clip's last frame holds at that frame: the database marks those frames unsearchable,
-    ///        since their future is the clip ending, not the motion continuing.
+    ///        since their future is the clip ending, not the motion continuing. A horizon back before the first frame
+    ///        holds at the first: a start clip's past is where it starts (standing), and every frame stays searchable.
     void AppendClipFeatures(const ClipMotion& m, std::vector<float>& rows);
 
 }  // namespace CB::engine::anim

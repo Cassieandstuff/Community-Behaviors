@@ -107,6 +107,8 @@ namespace CB::platform::classes {
                 }
                 break;
             case sc::FieldKind::String: m.m_type = M::TYPE_STRINGPTR; return true;
+            case sc::FieldKind::EmptyPtr:   m.m_type = M::TYPE_POINTER; m.m_subtype = M::TYPE_VOID; return true;
+            case sc::FieldKind::EmptyArray: m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_VOID; return true;
             case sc::FieldKind::Ptr:
             case sc::FieldKind::PtrArray:
                 m.m_type    = f.kind == sc::FieldKind::Ptr ? M::TYPE_POINTER : M::TYPE_ARRAY;
@@ -120,15 +122,18 @@ namespace CB::platform::classes {
             return false;
         }
 
-        /// @brief Whether a field is a member at all: padding and the void-typed ignored slots are not.
+        /// @brief Whether a field is a member at all: padding is not, nor an unnamed void-typed ignored slot.
+        /// @note  A NAMED void slot is a SERIALIZE_IGNORED member (the way Havok reflects its own runtime pointers, as
+        ///        hkbBindable's cachedBindables): the schema hashes it into the class signature, so the registered class
+        ///        must carry it too, or the engine computes another signature and refuses every file holding the class.
         bool IsMember(const sc::Field& f)
         {
             switch (f.kind) {
             case sc::FieldKind::Pad:
             case sc::FieldKind::Skip:
-            case sc::FieldKind::Vtable:
+            case sc::FieldKind::Vtable: return false;
             case sc::FieldKind::EmptyArray:
-            case sc::FieldKind::EmptyPtr: return false;
+            case sc::FieldKind::EmptyPtr: return !f.name.empty();
             default: return true;
             }
         }
@@ -159,7 +164,8 @@ namespace CB::platform::classes {
                 hk::hkClassMember m{};
                 m.m_name   = e.memberNames[named++].c_str();
                 m.m_offset = static_cast<hk::hkUint16>(offsets[i]);
-                m.m_flags  = static_cast<hk::hkUint16>(f.ignored ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
+                const bool empty = f.kind == sc::FieldKind::EmptyPtr || f.kind == sc::FieldKind::EmptyArray;
+                m.m_flags  = static_cast<hk::hkUint16>(f.ignored || empty ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
                 if (!MemberType(f, m, why)) { why = "member '" + f.name + "': " + why; return false; }
                 e.members.push_back(m);
             }

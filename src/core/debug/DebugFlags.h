@@ -155,12 +155,21 @@ namespace CB::core::debug {
           "Motion matching (prototype)",
           "Needs the Motion Matching add-on (Motion Matching.hky) and bPredictorObserve. For the player, CB searches the "
           "add-on's clips every 0.1 s for the frame whose next second best matches the predicted trajectory and the "
-          "current pose, and plays it through the add-on's graph; NPCs keep vanilla locomotion. Clip switches pop (no "
-          "blending yet). Without the add-on it does nothing. Unproven in game." },
+          "current pose, and plays it through the add-on's graph; NPCs keep vanilla locomotion. Each clip switch is dead-"
+          "blended: fMMBlendTime seconds of cross-fade (default 0.2, 0 = hard cuts) from the old pose coasting at its "
+          "velocity, slowing with an fMMBlendDecay halflife (default 0.1 s). A switch must beat the playing frame's "
+          "cost by fMMSwitchMargin (default 0.15), and a pick's stretch of motion stays banned for fMMReselectTime "
+          "seconds (default 1.0); a sharp change of the request searches at once. Without the add-on it does nothing. "
+          "Prototype." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
           "watch: list) per-frame ON CHANGE to a greppable file." },
+        { "tracy", FlagKind::IniBool, "Debug", "bTracy", false, false,
+          "Tracy profiler",
+          "Start the Tracy profiler client built into the plugin: zones on every hook subscriber, the warm-up and motion "
+          "matching, plots, and a frame mark per present. It records only while a Tracy 0.13.1 viewer on this machine is "
+          "connected. Off = no profiler thread and no socket." },
     });
 
 }  // namespace CB::core::debug

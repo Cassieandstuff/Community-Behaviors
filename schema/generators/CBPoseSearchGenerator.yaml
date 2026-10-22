@@ -14,3 +14,5 @@ fields:
   - { name: generators,    type: ptrarray, ref: hkbGenerator, roster: slot }
   - { name: selectedIndex, type: int32 }
   - { name: currentIndex,  type: int32, ignored: true }
+# No runtime pointers here: Skyrim instances a character's graph by block-copying it, so a pointer the node owned would be
+# shared by every copy and freed by whichever is destroyed first. The dead blend keeps its state per character instead.

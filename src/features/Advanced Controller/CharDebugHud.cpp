@@ -56,6 +56,7 @@ namespace CB::feature::controller::hud {
         const ImU32 kAirborne = IM_COL32(120, 140, 255, 255);
         const ImU32 kStick      = IM_COL32(255, 220, 40, 255);
         const ImU32 kFacingTick = IM_COL32(255, 255, 255, 255);
+        const ImU32 kPast       = IM_COL32(210, 30, 30, 255);   ///< where the player was (the query's past)
         constexpr float kRadToDeg = 57.29578f;
 
         /// @brief Airborne blue; on the ground, orange (holds nothing) through green (full support).
@@ -208,6 +209,13 @@ namespace CB::feature::controller::hud {
                     dl->AddLine(ImVec2(at.x - 8, at.y - 8), ImVec2(at.x + 8, at.y + 8), kWall, 3.0f);
                     dl->AddLine(ImVec2(at.x - 8, at.y + 8), ImVec2(at.x + 8, at.y - 8), kWall, 3.0f);
                 }
+                Point back = haveCtrl ? c.feet : p.history[0];
+                for (int i = 0; i < p.historyCount && i < Prediction::kHistory; i++) {
+                    Line(dl, proj, back, p.history[i], kPast, 3.0f);
+                    back = p.history[i];
+                }
+                for (int k = 0; k < p.pastCount && k < Prediction::kSamples; k++)
+                    if (proj(p.pastAt[k], at)) dl->AddCircleFilled(at, 5.0f, kPast);
             }
 
             ImGui::SetNextWindowPos(ImVec2(24.0f, 180.0f), ImGuiCond_Always);
@@ -225,7 +233,9 @@ namespace CB::feature::controller::hud {
                 if (c.jumpIn >= 0.0f) ImGui::Text("jump wind-up %.0f ms left", c.jumpIn * 1000.0f);
             }
             if (haveRamp) ImGui::Text("ramp %.0f -> %.0f   turn x%.2f   slope x%.2f", r.speed, r.target, r.turn, r.slope);
-            if (haveMatch) ImGui::Text("matching %s @%d   cost %.2f   %.1f ms   %d switches", m.clip, m.frame, m.cost, m.searchMs, m.switches);
+            if (haveMatch)
+                ImGui::Text("matching %s @%d   x%.2f   cost %.2f   %.1f ms   %d switches   blend %.2f s", m.clip, m.frame, m.rate, m.cost,
+                            m.searchMs, m.switches, m.blend);
             if (haveFacing && facing.haveGoal) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(facing.goal - facing.yaw)) * kRadToDeg);
             if (havePred) {
                 if (p.blocked) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedIn);

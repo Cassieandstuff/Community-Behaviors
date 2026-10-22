@@ -28,6 +28,7 @@ struct ProjectionSource {
 
 struct ProjectionStats {
     std::size_t projects = 0, clips = 0, motions = 0, unresolved = 0;
+    std::size_t preloads = 0;   ///< preload animations added to project file lists (AnimationDef::preload)
     std::vector<std::string> unresolvedSample;   ///< "project: clip (animation)" — clips whose animation the roster lacks
 };
 

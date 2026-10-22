@@ -59,6 +59,11 @@ namespace CB::feature::controller::hud {
         Point        blockedAt;                     ///< where the path stops at an impassable hit
         float        blockedIn = -1.0f;             ///< seconds to that hit, -1 for none
         std::int32_t iState    = 0;
+        static constexpr int kHistory = 18;
+        std::array<Point, kHistory>  history{};     ///< where the player was, newest first, back to the farthest past sample
+        int                          historyCount = 0;
+        std::array<Point, kSamples>  pastAt{};      ///< the past samples: motion matching's, else as far back as `time`
+        int                          pastCount = 0;
     };
 
     /// @brief The speed ramp's frame (game units/s): the speed handed on, the speed asked for, the turn damping's
@@ -74,6 +79,8 @@ namespace CB::feature::controller::hud {
         int   frame    = 0;
         float cost = 0, searchMs = 0;
         int   switches = 0;
+        float rate     = 1;   ///< the playback rate (clip seconds per second)
+        float blend    = 0;   ///< seconds left in the dead blend across the last switch, 0 when none runs
     };
 
     /// @brief Whether the HUD runs (char_debug_hud); publishers skip their work when it does not.

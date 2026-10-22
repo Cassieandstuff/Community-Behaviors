@@ -103,7 +103,7 @@ features/                    authored FEATURE BUNDLES as data — not code (that
                              JSON configs {"targets": [{"path" or "under" (every animation below a prefix), "field",
                              "values"}]} keyed by a file's path inside the
                              bundle, writing the fields tools/hky/injectables.json allows per file kind (today:
-                             animation -> tags, motionTarget; anything else fails the build). `hky-tool autotag` seeds tag configs
+                             animation -> tags, motionTarget, preload, entry; anything else fails the build). `hky-tool autotag` seeds tag configs
                              and never overwrites one.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by
@@ -163,6 +163,11 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
   avoid triggering the multi-minute `generate-base-master` regen.
 - **No builds without a green light** — the deploy writes over the live MO2 mod + tools folder that the
   user (and parallel sessions) may be testing. Propose + wait for an explicit yes before building.
+- **Tracy profiler** — the Tracy 0.13.1 client is built into the plugin (FetchContent → `tracy_client`) and stays
+  inert unless settings.ini `[Debug] bTracy=true`; then it records while a Tracy **0.13.1** viewer on the same machine
+  is connected (localhost only, on demand). Instrument only through `<platform/profile/Profile.h>`'s `CB_ZONE` /
+  `CB_ZONE_TEXT` / `CB_PLOT` / `CB_MESSAGE`, never Tracy's own macros (manual lifetime: before startup there is no
+  profiler for them to reach). Every hook subscriber is already a zone.
 
 ### Environment variables
 

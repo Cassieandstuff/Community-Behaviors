@@ -152,15 +152,19 @@ namespace CB::engine::anim {
             float* r = rows.data() + base + static_cast<std::size_t>(i) * kDims;
             const MotionQuat& q = m.rootRot[i];
             const MotionVec&  p = m.rootPos[i];
-            for (std::size_t k = 0; k < kHorizons.size(); ++k) {
-                const int       j   = (std::min)(i + ahead[k], n - 1);
+            const auto put = [&](int j, int posAt, int dirAt) {
                 const MotionVec pos = ToLocal(q, m.rootPos[j] - p);
                 const MotionVec dir = ToLocal(q, Rotate(m.rootRot[j], { 0, 1, 0 }));
                 const double    len = std::hypot(dir.x, dir.y);
-                r[kTrajPos + 2 * k]     = static_cast<float>(pos.x);
-                r[kTrajPos + 2 * k + 1] = static_cast<float>(pos.y);
-                r[kTrajDir + 2 * k]     = static_cast<float>(len > 0 ? dir.x / len : 0.0);
-                r[kTrajDir + 2 * k + 1] = static_cast<float>(len > 0 ? dir.y / len : 1.0);
+                r[posAt]     = static_cast<float>(pos.x);
+                r[posAt + 1] = static_cast<float>(pos.y);
+                r[dirAt]     = static_cast<float>(len > 0 ? dir.x / len : 0.0);
+                r[dirAt + 1] = static_cast<float>(len > 0 ? dir.y / len : 1.0);
+            };
+            for (std::size_t k = 0; k < kHorizons.size(); ++k) {
+                const int at = static_cast<int>(2 * k);
+                put((std::min)(i + ahead[k], n - 1), kTrajPos + at, kTrajDir + at);
+                put((std::max)(i - ahead[k], 0), kPastPos + at, kPastDir + at);
             }
             for (int s = 0; s < 2; ++s) {
                 const MotionVec fp = ToLocal(q, m.foot[s][i] - p);

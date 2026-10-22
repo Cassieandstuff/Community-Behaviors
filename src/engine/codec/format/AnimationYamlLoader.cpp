@@ -204,6 +204,20 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
                                       "' is neither animationData nor motionMatching");
     }
 
+    if (hasChild(a, "preload")) {
+        const std::string p = strf(a, "preload");
+        if (p == "true")       def.preload = true;
+        else if (p == "false") def.preload = false;
+        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': preload '" + p + "' is neither true nor false");
+    }
+
+    if (hasChild(a, "entry")) {
+        const std::string e = strf(a, "entry");
+        if (e == "changes")       def.entry = AnimationDef::Entry::Changes;
+        else if (e == "anywhere") def.entry = AnimationDef::Entry::Anywhere;
+        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': entry '" + e + "' is neither anywhere nor changes");
+    }
+
     /// @note A malformed `tags:` throws rather than loading as no tags: a silently untagged clip is the failure the
     ///       build's injection exists to prevent.
     if (hasChild(a, "tags")) {

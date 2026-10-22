@@ -9,6 +9,7 @@
 #include <compile/MotionFeatures.h>
 #include <platform/hooks/Live.h>
 #include <platform/hooks/Override.h>
+#include <platform/profile/Profile.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCollisionFilter.h>
 
@@ -50,6 +51,9 @@ namespace CB::feature {
         constexpr int   kPathPoints                    = 6;
         constexpr float kPathStep                      = 1.0f / kPathPoints;
         constexpr int   kSampleIndex[kFutureSamples]   = { 1, 3, 5 };
+        /// @brief The path runs on past the horizon, to this many points, only while a query sample lies beyond it: motion
+        ///        matching's 1 s horizon at the slowest playback rate (0.7) reaches 1.43 s. The extra legs feed nothing else.
+        constexpr int   kMaxPathPoints = 9;
         /// @brief The integration substep, seconds (60 per predicted second).
         constexpr int   kSubstepsPerPoint = 10;
         constexpr float kSubstep          = kPathStep / kSubstepsPerPoint;
@@ -118,9 +122,12 @@ namespace CB::feature {
         struct Trajectory {
             Sample                             past;
             std::array<Sample, kFutureSamples> future{};
+            std::array<Sample, kFutureSamples> query{};   ///< at the caller's query times (motion matching), the gate's never
+            std::array<Sample, kFutureSamples> queryPast{};   ///< the history as long ago as each query time, held at its oldest
             std::int32_t                       iState   = 0;   ///< held constant over the horizon (P1)
             float                              velForward = 0, velSide = 0;   ///< current velocity, Havok units/s
             float                              desiredForward = 0, desiredSide = 0;
+            Vec2                               desiredWorld;   ///< the request in world space, Havok units/s
             float                              blockedAt = -1.0f;   ///< seconds to the first impassable hit, -1 for none
             float                              hitNz     = 0.0f;    ///< the last surface the path met: its normal z,
             int                                hitLayer  = -1;      ///< collision layer (-1 none or unknown)
@@ -232,6 +239,18 @@ namespace CB::feature {
             return false;
         }
 
+        /// @brief The history at `t`, or its oldest entry when it does not reach back that far; false when it is empty.
+        /// @note  Why the oldest: just after a load the player stood where the history starts, as a database frame's
+        ///        past holds at its clip's first frame.
+        bool HistoryAtOrOldest(const State& s, double t, HistoryEntry& out)
+        {
+            if (HistoryAt(s, t, out)) return true;
+            if (s.historyCount == 0) return false;
+            const int size = static_cast<int>(s.history.size());
+            out            = s.history[(s.historyHead - (s.historyCount - 1) + size) % size];
+            return true;
+        }
+
         void Reset(State& s, const void* ctrl)
         {
             s       = State{};
@@ -305,10 +324,14 @@ namespace CB::feature {
         /// @param note the ground states' note (PublishedGroundNote): the slide velocity, and a pending jump that launches
         ///        at note.jumpIn seconds with note.jumpSpeed upward; empty without them.
         /// @param worldOut the future samples' positions in Havok world space, for the gate.
+        /// @param queryTimes seconds ahead for Trajectory::query, ascending, each at most kMaxPathPoints * kPathStep; 0 = none.
+        ///        A query sample's facing is its integration substep's; its position and height lie between the resolved
+        ///        points on either side, by time; its ground is the later point's.
         Trajectory Predict(State& s, hk::bhkCharacterController& ctrl, const ch::Hull& hull, const Vec2& tangent, const Vec2& sideAxis,
                            const hk::hkVector4& velocity, const ch::GroundNote& note, const Drive& drive, std::int32_t iState,
-                           std::array<Vec2, kFutureSamples>& worldOut, Path& path)
+                           const std::array<float, kFutureSamples>& queryTimes, std::array<Vec2, kFutureSamples>& worldOut, Path& path)
         {
+            CB_ZONE(zone, "predictor step");
             Trajectory tr;
             tr.iState     = iState;
             tr.jumpIn     = note.jumpIn;
@@ -321,6 +344,7 @@ namespace CB::feature {
             }
             tr.desiredForward   = want.x * tangent.x + want.y * tangent.y;
             tr.desiredSide      = want.x * sideAxis.x + want.y * sideAxis.y;
+            tr.desiredWorld     = want;
             const float heading = std::atan2(tangent.y, tangent.x);
 
             auto toLocal = [&](float dx, float dy, Sample& out) {
@@ -338,6 +362,16 @@ namespace CB::feature {
                 tr.past.ground  = pastFloor.ground;
                 tr.past.support = pastFloor.support;
                 tr.past.valid  = true;
+            }
+            for (int k = 0; k < kFutureSamples; k++) {
+                HistoryEntry e;
+                if (queryTimes[k] <= 0.0f || !HistoryAtOrOldest(s, s.clock - queryTimes[k], e)) continue;
+                Sample& out = tr.queryPast[k];
+                out.time    = -queryTimes[k];
+                toLocal(e.x - hull.cx, e.y - hull.cy, out);
+                out.up      = e.z - hull.feetZ;
+                out.facing  = WrapAngle(e.heading - heading);
+                out.valid   = true;
             }
 
             /// @note Without the facing model the facing goal is the request's direction while there is one, else the
@@ -374,7 +408,20 @@ namespace CB::feature {
             bool  blocked = false;
             bool  launched = false;
             int   sample  = 0;
-            for (int i = 0; i < kPathPoints; i++) {
+            int   query   = 0;
+            /// @brief Query samples whose time fell inside the current leg: their facing now, their place once it resolves.
+            struct Due {
+                int   index = 0;
+                float frac  = 0;   ///< how far into the leg, by time
+                float facing = 0;
+            };
+            std::array<Due, kFutureSamples> due{};
+            int                             dueCount = 0;
+            const float lastQuery = queryTimes.back();
+            const int   points    = std::clamp(static_cast<int>(std::ceil(lastQuery / kPathStep - 1.0e-4f)), kPathPoints, kMaxPathPoints);
+            for (int i = 0; i < points; i++) {
+                const bool horizon = i < kPathPoints;   ///< legs past it feed only the query samples
+                dueCount = 0;
                 for (int k = 0; k < kSubstepsPerPoint; k++) {
                     const float h = kSubstep;
                     /// @note A jump winding up launches when its wind-up runs out, as the ground states will (ch::JumpLaunch):
@@ -417,6 +464,11 @@ namespace CB::feature {
                     if (!blocked) {
                         px += (ox + vx + sx) * 0.5f * h;
                         py += (oy + vy + sy) * 0.5f * h;
+                    }
+                    const float t = static_cast<float>(i * kSubstepsPerPoint + k + 1) * h;
+                    while (query < kFutureSamples && queryTimes[query] > 0.0f && queryTimes[query] <= t + 0.5f * h) {
+                        due[dueCount++] = { query, (t - i * kPathStep) / kPathStep, f };
+                        ++query;
                     }
                 }
 
@@ -473,9 +525,11 @@ namespace CB::feature {
                         const float contactZ = fromZ + (toZ - fromZ) * back;
                         travelled += len * back;
                         const hk::hkVector4& n = hit.contact.m_separatingNormal;
-                        tr.hitNz     = n(2);
-                        tr.hitLayer  = hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1;
-                        tr.hitSlides = slide;
+                        if (horizon) {
+                            tr.hitNz     = n(2);
+                            tr.hitLayer  = hit.body ? static_cast<int>(hit.body->getCollisionFilterInfo() & 0x7f) : -1;
+                            tr.hitSlides = slide;
+                        }
                         Vec2        rest   = { to.x - contact.x, to.y - contact.y };
                         const float before = std::sqrt(rest.x * rest.x + rest.y * rest.y);
                         const float nl     = std::sqrt(n(0) * n(0) + n(1) * n(1));
@@ -498,7 +552,7 @@ namespace CB::feature {
                             blocked      = true;
                             at           = contact;
                             z            = airborne ? contactZ : z;
-                            tr.blockedAt = prevT + kPathStep * (legLen > 1.0e-6f ? (std::min)(1.0f, travelled / legLen) : 0.0f);
+                            if (horizon) tr.blockedAt = prevT + kPathStep * (legLen > 1.0e-6f ? (std::min)(1.0f, travelled / legLen) : 0.0f);
                             break;
                         }
                         from = contact, fromZ = contactZ;
@@ -510,11 +564,29 @@ namespace CB::feature {
                     }
                     if (blocked) {
                         vx = vy = ax = ay = sx = sy = 0.0f;
-                        path.blocked   = true;
-                        path.blockedAt = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
+                        if (horizon) {
+                            path.blocked   = true;
+                            path.blockedAt = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
+                        }
                     }
                 }
                 if (floor.ground != ch::Ground::Airborne) prevFloor = floor;
+                for (int d = 0; d < dueCount; d++) {
+                    Sample& out = tr.query[due[d].index];
+                    out.time    = queryTimes[due[d].index];
+                    toLocal(prev.x + (at.x - prev.x) * due[d].frac, prev.y + (at.y - prev.y) * due[d].frac, out);
+                    out.up      = prevZ + (z - prevZ) * due[d].frac;
+                    out.facing  = WrapAngle(due[d].facing - heading);
+                    out.ground  = floor.ground;
+                    out.support = floor.support;
+                    out.valid   = true;
+                }
+                if (!horizon) {
+                    prev  = at;
+                    prevZ = z;
+                    prevT = (i + 1) * kPathStep;
+                    continue;
+                }
                 path.at[i]     = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
                 path.ground[i]  = floor.ground;
                 path.support[i] = floor.support;
@@ -690,20 +762,37 @@ namespace CB::feature {
             Path                             path;
             ch::GroundNote note;
             ch::PublishedGroundNote(ctrl, note);
-            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, world, path);
+            /// @note A clip playing at `rate` reaches its horizon h after h / rate real seconds: the query is where the
+            ///       prediction is then, so turns compare as well as distances.
+            static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());
+            std::array<float, kFutureSamples> queryTimes{};
+            if (ch::motion::On()) {
+                const float rate = ch::motion::Rate(haveSpeed ? &fs : nullptr);
+                for (int k = 0; k < kFutureSamples; k++) queryTimes[k] = static_cast<float>(CB::engine::anim::features::kHorizons[k]) / rate;
+            }
+            const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
             /// @note The query in the clips' root space: x along the side axis (where a rightward request moves the
             ///       character), y forward, game units; a facing turned by `f` (counter-clockwise, the math angle's sense)
             ///       points along (-sin f, cos f).
-            static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());
-            if (ch::motion::On() && tr.future[0].valid && tr.future[1].valid && tr.future[2].valid) {
+            const auto allValid = [](const std::array<Sample, kFutureSamples>& a) {
+                return std::all_of(a.begin(), a.end(), [](const Sample& p) { return p.valid; });
+            };
+            if (ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
                 ch::motion::Query q;
                 for (int k = 0; k < kFutureSamples; k++) {
-                    q.x[k]    = tr.future[k].side * kGameUnitsPerHavok;
-                    q.y[k]    = tr.future[k].forward * kGameUnitsPerHavok;
-                    q.dirX[k] = -std::sin(tr.future[k].facing);
-                    q.dirY[k] = std::cos(tr.future[k].facing);
+                    q.x[k]        = tr.query[k].side * kGameUnitsPerHavok;
+                    q.y[k]        = tr.query[k].forward * kGameUnitsPerHavok;
+                    q.dirX[k]     = -std::sin(tr.query[k].facing);
+                    q.dirY[k]     = std::cos(tr.query[k].facing);
+                    q.pastX[k]    = tr.queryPast[k].side * kGameUnitsPerHavok;
+                    q.pastY[k]    = tr.queryPast[k].forward * kGameUnitsPerHavok;
+                    q.pastDirX[k] = -std::sin(tr.queryPast[k].facing);
+                    q.pastDirY[k] = std::cos(tr.queryPast[k].facing);
                 }
+                q.desiredX = tr.desiredWorld.x * kGameUnitsPerHavok;
+                q.desiredY = tr.desiredWorld.y * kGameUnitsPerHavok;
+                if (haveSpeed) q.gait = fs.gait;
                 ch::motion::Search(q);
             }
             if (ch::hud::On()) {
@@ -725,6 +814,20 @@ namespace CB::feature {
                 h.blockedAt = path.blockedAt;
                 h.blockedIn = tr.blockedAt;
                 h.iState    = iState;
+                /// @note The past path: the history every 1/12 s back to the farthest past sample, motion matching's when it
+                ///       runs, else the prediction's own horizons mirrored.
+                const bool  mmPast   = queryTimes.back() > 0.0f;
+                const float farthest = mmPast ? queryTimes.back() : kSampleTimes[kFutureSamples - 1];
+                const int   back     = (std::min)(ch::hud::Prediction::kHistory, static_cast<int>(std::ceil(farthest * 12.0f)));
+                for (int i = 1; i <= back; i++) {
+                    HistoryEntry e;
+                    if (!HistoryAt(s, s.clock - static_cast<double>(farthest) * i / back, e)) break;
+                    h.history[h.historyCount++] = { e.x, e.y, e.z };
+                }
+                for (int k = 0; k < kFutureSamples; k++) {
+                    HistoryEntry e;
+                    if (HistoryAt(s, s.clock - (mmPast ? queryTimes[k] : kSampleTimes[k]), e)) h.pastAt[h.pastCount++] = { e.x, e.y, e.z };
+                }
                 ch::hud::Publish(h);
             }
 

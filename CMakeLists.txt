@@ -229,6 +229,26 @@ target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 set_target_properties(imgui_dx11 PROPERTIES CXX_STANDARD 17)
 target_link_libraries(CommunityBehaviors PRIVATE imgui_dx11 d3d11 dxgi)
 
+# ── Tracy profiler client, compiled INTO the plugin and inert until [Debug] bTracy=true ──
+# Its own static lib: TracyClient.cpp must not get the plugin's force-included PCH. The defines are PUBLIC so every
+# plugin TU sees the client exactly as it was built. MANUAL_LIFETIME + DELAYED_INIT: nothing starts (no thread, no
+# socket) until platform/profile calls tracy::StartupProfiler; ON_DEMAND: nothing is recorded until a viewer connects.
+# SOURCE_SUBDIR names a folder with no CMakeLists.txt, so Tracy's own CMake project is fetched but never added.
+# The viewer must be the same version (0.13.1).
+FetchContent_Declare(tracy
+    GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+    GIT_TAG        v0.13.1
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cb-not-a-cmake-project)
+FetchContent_MakeAvailable(tracy)
+add_library(tracy_client STATIC "${tracy_SOURCE_DIR}/public/TracyClient.cpp")
+target_include_directories(tracy_client PUBLIC "${tracy_SOURCE_DIR}/public")
+target_compile_definitions(tracy_client PUBLIC
+    TRACY_ENABLE TRACY_ON_DEMAND TRACY_MANUAL_LIFETIME TRACY_DELAYED_INIT TRACY_ONLY_LOCALHOST
+    TRACY_NO_CRASH_HANDLER TRACY_NO_SAMPLING)
+target_link_libraries(tracy_client PUBLIC ws2_32 dbghelp)
+target_link_libraries(CommunityBehaviors PRIVATE tracy_client)
+
 # ── Dev tools ────────────────────────────────────────────────────────────────────
 add_subdirectory(tools/hky)      # hky-tool: .hky pack/unpack (also unpacks the deployed master for diffing)
 add_subdirectory(tools/cbdiff)   # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
