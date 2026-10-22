@@ -8,7 +8,14 @@
 ///        g_hkClassNameRegistry, or reads those globals directly (three functions), always calling through the object's
 ///        vtable. Havok's start-up (hkBaseSystem::init, from WinMain) creates a singleton only while its global is null,
 ///        then registers every built-in type into whatever the globals hold.
-/// @note  This stage forwards every slot to vanilla's code on vanilla's own field layout, and logs.
+/// @note  Every slot forwards to vanilla's code on vanilla's own field layout, and logs. A class named in
+///        [HavokRuntime] sOwnTypes (default hkbClipGenerator) is CB's: the registry hands out CB's record for it, whose
+///        finish constructor runs vanilla's and then stamps CB's copy of the vtable, and a node's cloneNode slot in that
+///        copy stamps it on clones too. So every route into its virtuals runs through CB's vtable. The slots still
+///        hold vanilla's functions.
+/// @warning Exe code that tests an object's vtable against vanilla's would see an owned object as another class. None
+///          does for hkbClipGenerator or hkbTimerModifier (AE 1.6.1170: their vtables are only stored by constructors
+///          and returned by getVtable); check before owning another class.
 
 namespace CB::platform::classes {
 

@@ -5,9 +5,12 @@
 #include "core/debug/Settings.h"
 #include <platform/hooks/registry/Registry.h>
 
+#include <text/Text.h>
+
 #include <PluginLogger.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -41,8 +44,27 @@ namespace CB::platform::classes {
         const char* ClassName(Word cls) { return cls && *reinterpret_cast<const char* const*>(cls) ? *reinterpret_cast<const char* const*>(cls) : "(null)"; }
         const char* Text(const char* s) { return s ? s : "(null)"; }
 
+        constexpr std::size_t kMaxOwned      = 32;
+        /// @brief hkbNode::cloneNode: how a character's graph copies a loaded node (vanilla's copy stamps vanilla's vtable).
+        constexpr std::size_t kCloneNodeSlot = 12;
+
+        /// @brief A class CB owns: its loaded objects, and its nodes' clones, carry CB's copy of the vtable.
+        struct Owned {
+            std::string                name;
+            TypeInfo                   record{};
+            void                       (*vanillaFinish)(void*, int) = nullptr;
+            const Word*                vanillaVtable = nullptr;
+            Word                       vanillaClone  = 0;
+            /// @brief The RTTI locator vanilla keeps before slot 0, then the slots.
+            std::vector<Word>          table;
+            std::atomic<std::uint64_t> finished{}, cloned{};
+            const Word* Vtable() const { return table.data() + 1; }
+        };
+
         /// @brief The vanilla code each slot forwards to, and what the registries have seen.
         struct State {
+            std::array<Owned, kMaxOwned> owned;
+            std::size_t                  ownedCount = 0;
             const Word* typeInfoVt  = nullptr;
             const Word* vtableVt    = nullptr;
             const Word* classNameVt = nullptr;
@@ -58,6 +80,40 @@ namespace CB::platform::classes {
             static State s;
             return s;
         }
+
+        /// @brief Runs vanilla's finish constructor, then stamps CB's vtable over vanilla's.
+        template <std::size_t I>
+        void FinishOwned(void* obj, int flag)
+        {
+            Owned& o = S().owned[I];
+            o.vanillaFinish(obj, flag);
+            *static_cast<const Word**>(obj) = o.Vtable();
+            ++o.finished;
+        }
+
+        /// @brief Runs vanilla's cloneNode; a fresh copy (vanilla's vtable on it) gets CB's. A node with no internal state
+        ///        returns itself, already CB's.
+        template <std::size_t I>
+        Word CloneOwned(void* self, Word rootBehavior)
+        {
+            Owned&     o     = S().owned[I];
+            const Word clone = reinterpret_cast<Word (*)(void*, Word)>(o.vanillaClone)(self, rootBehavior);
+            if (clone && *reinterpret_cast<const Word* const*>(clone) == o.vanillaVtable) {
+                *reinterpret_cast<const Word**>(clone) = o.Vtable();
+                ++o.cloned;
+            }
+            return clone;
+        }
+
+        template <std::size_t... I>
+        constexpr std::array<void (*)(void*, int), sizeof...(I)> FinishThunks(std::index_sequence<I...>) { return { &FinishOwned<I>... }; }
+        template <std::size_t... I>
+        constexpr std::array<Word (*)(void*, Word), sizeof...(I)> CloneThunks(std::index_sequence<I...>) { return { &CloneOwned<I>... }; }
+        constexpr auto kFinishThunks = FinishThunks(std::make_index_sequence<kMaxOwned>{});
+        constexpr auto kCloneThunks  = CloneThunks(std::make_index_sequence<kMaxOwned>{});
+
+        const TypeInfo* Substitute(const TypeInfo* info);
+        const Word*     OwnedVtableFor(Word vanillaVtable);
 
         /// @brief Calls `vtable`'s slot `slot` on `self` with the argument registers passed through.
         template <class... A>
@@ -96,7 +152,8 @@ namespace CB::platform::classes {
                 LOG_INFO("type registries: type info {} (finish {:#x}, vtable {:#x}, size {:#x})", NameOf(info),
                          info ? reinterpret_cast<Word>(info->finish) : 0, info ? reinterpret_cast<Word>(info->vtable) : 0,
                          info ? info->size : 0);
-                return Vanilla(S().typeInfoVt, 3, Ready(), info);
+                Ready();
+                return Vanilla(S().typeInfoVt, 3, this, Substitute(info));
             }
             /// @note Counted per class, not logged: a save load finishes some 300,000 objects. A class nothing registered
             ///       is logged, since vanilla then leaves the object without a vtable.
@@ -159,7 +216,12 @@ namespace CB::platform::classes {
             {
                 ++S().vtablesRegistered;
                 LOG_INFO("type registries: vtable {:#x} is class {}", vtable, ClassName(cls));
-                return Vanilla(S().vtableVt, 3, Ready(), vtable, cls);
+                const Word result = Vanilla(S().vtableVt, 3, Ready(), vtable, cls);
+                if (const Word* own = OwnedVtableFor(vtable)) {
+                    LOG_INFO("type registries: CB's vtable {:#x} is class {} too", reinterpret_cast<Word>(own), ClassName(cls));
+                    Vanilla(S().vtableVt, 3, this, reinterpret_cast<Word>(own), cls);
+                }
+                return result;
             }
             virtual Word GetClassFromVirtualInstance(Word obj)
             {
@@ -246,6 +308,86 @@ namespace CB::platform::classes {
 
         void** Global(const eng::Symbol& s) { return reinterpret_cast<void**>(eng::Resolve(s)); }
 
+        /// @return how many slots the vtable at `vt` has: its entries run while they point into the exe's code.
+        /// @note The next vtable's RTTI locator (read-only data) ends it.
+        std::size_t SlotCount(const Word* vt)
+        {
+            const auto       text  = REL::Module::get().segment(REL::Segment::textx);
+            const Word       begin = text.address(), end = begin + text.size();
+            std::size_t      n     = 0;
+            while (n < 512 && vt[n] >= begin && vt[n] < end) ++n;
+            return n;
+        }
+
+        /// @return whether the class registered as `name` derives from hkbNode (so its graph clones it through cloneNode).
+        bool IsNode(const char* name)
+        {
+            for (Word cls = g_className.GetClassByName(name); cls; cls = *reinterpret_cast<const Word*>(cls + 8))
+                if (std::string_view(ClassName(cls)) == "hkbNode") return true;
+            return false;
+        }
+
+        /// @return CB's record for an owned class, built from vanilla's on first sight; otherwise `info` itself.
+        /// @note  Called during Havok's start-up, after the class-name registry has every class (the static class list is
+        ///        merged before any type info registers).
+        const TypeInfo* Substitute(const TypeInfo* info)
+        {
+            State& st = S();
+            if (!info || !info->name) return info;
+            std::size_t i = 0;
+            while (i < st.ownedCount && st.owned[i].name != info->name) ++i;
+            if (i == st.ownedCount) return info;
+            Owned& o = st.owned[i];
+            if (o.vanillaFinish) return &o.record;
+            if (!info->finish || !info->vtable) {
+                LOG_WARN("type registries: {} has no finish constructor or vtable to own - vanilla's", info->name);
+                return info;
+            }
+            const auto*       vt    = static_cast<const Word*>(info->vtable);
+            const std::size_t slots = SlotCount(vt);
+            o.table.assign(vt - 1, vt + slots);
+            o.vanillaVtable = vt;
+            o.vanillaFinish = info->finish;
+            const bool node = IsNode(info->name) && slots > kCloneNodeSlot;
+            if (node) {
+                o.vanillaClone                   = vt[kCloneNodeSlot];
+                o.table[1 + kCloneNodeSlot]      = reinterpret_cast<Word>(kCloneThunks[i]);
+            }
+            o.record        = *info;
+            o.record.finish = kFinishThunks[i];
+            o.record.vtable = o.Vtable();
+            LOG_INFO("type registries: {} is CB's: {} slots copied from {:#x} to {:#x}{}", info->name, slots,
+                     reinterpret_cast<Word>(vt), reinterpret_cast<Word>(o.Vtable()), node ? ", cloneNode wrapped" : "");
+            return &o.record;
+        }
+
+        const Word* OwnedVtableFor(Word vanillaVtable)
+        {
+            const State& st = S();
+            for (std::size_t i = 0; i < st.ownedCount; ++i)
+                if (st.owned[i].vanillaFinish && reinterpret_cast<Word>(st.owned[i].vanillaVtable) == vanillaVtable) return st.owned[i].Vtable();
+            return nullptr;
+        }
+
+        /// @brief Takes the classes CB owns from [HavokRuntime] sOwnTypes (comma list, exact names).
+        void ReadOwnedTypes()
+        {
+            State&           st   = S();
+            const std::string list = core::debug::Value("HavokRuntime", "sOwnTypes", "hkbClipGenerator");
+            std::string_view  rest = list;
+            while (!rest.empty()) {
+                const auto       comma = rest.find(',');
+                const auto       name  = CB::engine::text::Trim(rest.substr(0, comma));
+                rest                   = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+                if (name.empty()) continue;
+                if (st.ownedCount == kMaxOwned) {
+                    LOG_WARN("type registries: more than {} classes in sOwnTypes - {} and later stay vanilla's", kMaxOwned, name);
+                    break;
+                }
+                st.owned[st.ownedCount++].name = name;
+            }
+        }
+
     }  // namespace
 
     void InstallTypeRegistries()
@@ -269,7 +411,8 @@ namespace CB::platform::classes {
             return;
         }
         State& st      = S();
-        st.typeInfoVt  = reinterpret_cast<const Word*>(RE::VTABLE_hkTypeInfoRegistry[0].address());
+        ReadOwnedTypes();
+        st.typeInfoVt  =reinterpret_cast<const Word*>(RE::VTABLE_hkTypeInfoRegistry[0].address());
         st.vtableVt    = reinterpret_cast<const Word*>(RE::VTABLE_hkVtableClassRegistry[0].address());
         st.classNameVt = reinterpret_cast<const Word*>(RE::VTABLE_hkDefaultClassNameRegistry[0].address());
         *typeInfo      = &g_typeInfo;
@@ -297,6 +440,13 @@ namespace CB::platform::classes {
         }
         std::stable_sort(byClass.begin(), byClass.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
         for (const auto& [cls, count] : byClass) LOG_INFO("type registries:   {} {} finished", count, cls);
+        for (std::size_t i = 0; i < st.ownedCount; ++i) {
+            const Owned& o = st.owned[i];
+            if (o.vanillaFinish)
+                LOG_INFO("type registries: {} is CB's: {} loaded and {} cloned with CB's vtable", o.name, o.finished.load(), o.cloned.load());
+            else
+                LOG_WARN("type registries: {} is in sOwnTypes but never registered - nothing owned", o.name);
+        }
     }
 
 }  // namespace CB::platform::classes

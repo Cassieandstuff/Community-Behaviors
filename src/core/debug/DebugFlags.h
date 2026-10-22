@@ -73,7 +73,8 @@ namespace CB::core::debug {
           "Havok type registries",
           "Put CB's type-info, vtable-class and class-name registries in place of Havok's before the game starts it. "
           "They forward every call to vanilla's code, log each registration and count the loaded objects each class "
-          "finishes (reported at kDataLoaded and after each game loads). AE only." },
+          "finishes (reported at kDataLoaded and after each game loads). Classes in sOwnTypes (default hkbClipGenerator) "
+          "get CB's copy of their vtable on every loaded and cloned object. AE only." },
         { "havok_activate_counter", FlagKind::IniBool, "Debug", "bHavokActivateCounter", true, true,
           "Clip activate counter",
           "Count hkbClipGenerator::activate calls through the Havok runtime's cell table, logging at every power "
