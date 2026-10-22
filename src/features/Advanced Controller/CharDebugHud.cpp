@@ -240,9 +240,11 @@ namespace CB::feature::controller::hud {
             if (sprint::State st; sprint::Current(st))
                 ImGui::Text("sprint %s%s%s%s", st.sprinting ? "on" : "off", st.wanted ? "   wanted" : "", st.suspended ? "   suspended" : "",
                             *st.why ? (std::string("   (") + st.why + ")").c_str() : "");
-            if (haveMatch)
-                ImGui::Text("matching %s @%d   x%.2f   cost %.2f   %.1f ms   %d switches   blend %.2f s", m.clip, m.frame, m.rate, m.cost,
-                            m.searchMs, m.switches, m.blend);
+            if (haveMatch) {
+                ImGui::Text("matching %s @%d [%s]   x%.2f   cost %.2f   %.1f ms   %d switches   blend %.2f s", m.clip, m.frame, m.database,
+                            m.rate, m.cost, m.searchMs, m.switches, m.blend);
+                ImGui::Text("chooser %s   searching %s", m.chooser, m.active);
+            }
             if (havePred) {
                 if (p.blocked) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedIn);
                 else           ImGui::Text("iState %d", p.iState);

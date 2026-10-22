@@ -26,6 +26,9 @@ function(cb_feature_bundles)
     endif()
     set(${FB_OUT_TARGET} "" PARENT_SCOPE)
     set(_table "${CMAKE_SOURCE_DIR}/tools/hky/injectables.json")
+    # The generators build units through the class schema, so a schema change reassembles every bundle.
+    set(_schema "${CMAKE_SOURCE_DIR}/schema")
+    file(GLOB_RECURSE _schema_files CONFIGURE_DEPENDS "${_schema}/*.yaml")
 
     file(GLOB _cands CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/features/*.hky")
     set(_outs "")
@@ -40,8 +43,8 @@ function(cb_feature_bundles)
             OUTPUT  "${_out}"
             COMMAND "${CMAKE_COMMAND}" "-DBUNDLE_DIR=${_src}" -P "${CMAKE_SOURCE_DIR}/cmake/CheckLfsPointers.cmake"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${FB_PACKED_DIR}"
-            COMMAND "$<TARGET_FILE:${FB_PACKER_TARGET}>" assemble "${_src}" "${_table}" -o "${_out}"
-            DEPENDS ${FB_PACKER_TARGET} ${_inputs} "${_table}" "${CMAKE_SOURCE_DIR}/cmake/CheckLfsPointers.cmake"
+            COMMAND "$<TARGET_FILE:${FB_PACKER_TARGET}>" assemble "${_src}" "${_table}" "${_schema}" -o "${_out}"
+            DEPENDS ${FB_PACKER_TARGET} ${_inputs} "${_table}" ${_schema_files} "${CMAKE_SOURCE_DIR}/cmake/CheckLfsPointers.cmake"
             COMMENT "Feature bundle: ${_name}"
             VERBATIM)
         list(APPEND _outs "${_out}")

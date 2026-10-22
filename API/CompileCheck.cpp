@@ -87,5 +87,22 @@ namespace {
         std::vector<cb::skeleton::BoneAdd> adds;
         bool mok = cb::skeleton::MergeBoneAdditions(sk, adds, &err); (void)mok;
         auto* overBase = &cb::skeleton::CompileSkeletonOverBase; (void)overBase;
+
+        // cb::mm — the motion-matching bundle generator
+        cb::mm::BundleSpec spec;
+        cb::mm::Database db;
+        db.clips.push_back(cb::mm::Clip{ "", "", cb::mm::kMmDisableReselection | cb::mm::kMmLooping });
+        spec.databases.push_back(db);
+        cb::mm::ChooserRow row;
+        row.conditions.push_back(cb::mm::Condition{ "", cb::mm::kMmEquals, 0, 0.f, 0.f });
+        (void)cb::mm::kMmBool; (void)cb::mm::kMmRange;
+        spec.rows.push_back(row);
+        spec.extraVariables.push_back(cb::mm::Variable{});
+        const cb::mm::VariableDecl decl = cb::mm::kMmChooserVariables.front(); (void)decl;
+        std::string an = cb::mm::MmAnimationName("", ""); (void)an;
+        cb::mm::Files files;
+        bool bok = cb::mm::BuildMotionMatchingBehavior(spec, reg, files, err); (void)bok;
+        bool rok2 = cb::mm::BuildMotionMatchingRosters(spec, files, err); (void)rok2;
+        bool aok = cb::mm::BuildMotionMatchingBundle(spec, reg, files, err); (void)aok;
     }
 }

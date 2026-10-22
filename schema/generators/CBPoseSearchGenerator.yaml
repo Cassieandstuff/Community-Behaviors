@@ -1,6 +1,6 @@
 name:      CBPoseSearchGenerator
 parent:    hkbGenerator
-size:      96
+size:      136
 runtime:
   source: self
 # CB's own generator (motion matching, stage A): plays the one child `selectedIndex` names. A stock
@@ -14,5 +14,11 @@ fields:
   - { name: generators,    type: ptrarray, ref: hkbGenerator, roster: slot }
   - { name: selectedIndex, type: int32 }
   - { name: currentIndex,  type: int32, ignored: true }
-# No runtime pointers here: Skyrim instances a character's graph by block-copying it, so a pointer the node owned would be
-# shared by every copy and freed by whichever is destroyed first. The dead blend keeps its state per character instead.
+  - { name: databases,     type: structarray, ref: CBPoseSearchDatabase, roster: field:name }
+  - { name: childFlags,    type: scalararray, scalar: byte }   # per child: 1 = disableReselection, 2 = looping
+  - { name: chooser,       type: ptr, ref: CBPoseSearchChooser }
+# `databases` are contiguous child ranges (one per dance card), `chooser` picks which of them are searched; CB's
+# controller reads both from the merged graph, the live node never does. No member owns runtime memory: Skyrim
+# instances a character's graph by block-copying it, so memory the node owned would be shared by every copy and freed
+# by whichever is destroyed first. The arrays and the chooser are the loaded file's; the dead blend keeps its state per
+# character instead.

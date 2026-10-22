@@ -7,10 +7,11 @@
 //   hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix] extract them (archive-stored lowercase paths)
 //   hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]
 //                                                         seed one motion-matching tag config per animation
-//   hky-tool assemble    <featureDir> <injectables.json> -o <out.hky>
+//   hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>
 //                                                         partitions + loose files + generators + inject configs
 //   hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>
 //                                                         merge + serialize every unit as the game's compile does
+//   hky-tool mm-sample   <schemaDir> -o <outDir>          the motion-matching bundle generator over a sample spec
 //
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
@@ -18,6 +19,7 @@
 #include <codec/bsa/BsaArchive.h>
 #include <codec/format/AnimationYamlLoader.h>
 #include <compile/MotionFeatures.h>
+#include <compile/MotionMatchingBundle.h>
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 #include <decompile/BehaviorDecompile.h>
@@ -653,20 +655,17 @@ Table LoadTable(const std::string& tablePath) {
 ///        derived from the clips (a behavior over them, the rosters naming them) can never drift from them.
 namespace generate {
 
-using Json = assemble::Json;
+using Json  = assemble::Json;
+using Files = CB::engine::compile::MmFiles;
+namespace mm = CB::engine::compile;
+using CB::engine::text::Quote;
 
 /// @brief One animation a generator works over: its path in the bundle and its roster name.
 struct Clip {
     std::string path;     ///< original-case path in the bundle
-    std::string roster;   ///< the path below `rosterRoot`, backslashed: the roster entry and the clip's animationName
+    std::string roster;   ///< MmAnimationName: the roster entry and the clip's animationName
     std::string stem;     ///< the file name without `.hkx`
 };
-
-std::string Quote(std::string_view s) {
-    std::string out = "'";
-    for (const char c : s) out += c == '\'' ? std::string("''") : std::string(1, c);
-    return out + "'";
-}
 
 /// @brief A self-owned FormID (`0000x…`), the id a node a bundle adds carries.
 std::string OwnId(unsigned local) {
@@ -675,35 +674,38 @@ std::string OwnId(unsigned local) {
     return b;
 }
 
-/// @brief The config's parameters, with exactly `keys` present and every one a string unless listed in `other`.
-void ExpectKeys(const Json& j, std::initializer_list<const char*> keys, std::initializer_list<const char*> other = {}) {
+/// @brief The config's parameters: exactly `keys` (each a non-empty string) and `other` (any value) present, and
+///        `optional` (a non-empty string when present) allowed.
+void ExpectKeys(const Json& j, std::initializer_list<const char*> keys, std::initializer_list<const char*> other = {},
+                std::initializer_list<const char*> optional = {}) {
     if (!j.is_object()) throw std::runtime_error("not an object");
-    for (const auto& [k, v] : j.items()) {
-        const bool known = std::any_of(keys.begin(), keys.end(), [&](const char* x) { return k == x; }) ||
-                           std::any_of(other.begin(), other.end(), [&](const char* x) { return k == x; });
-        if (!known) throw std::runtime_error("unknown parameter '" + k + "'");
-    }
+    const auto in = [](std::initializer_list<const char*> l, const std::string& k) {
+        return std::any_of(l.begin(), l.end(), [&](const char* x) { return k == x; });
+    };
+    for (const auto& [k, v] : j.items())
+        if (!in(keys, k) && !in(other, k) && !in(optional, k)) throw std::runtime_error("unknown parameter '" + k + "'");
+    const auto isName = [&](const char* k) { return j[k].is_string() && !j[k].get<std::string>().empty(); };
     for (const char* k : keys) {
         if (!j.contains(k)) throw std::runtime_error(std::string("missing parameter '") + k + "'");
-        if (!j[k].is_string() || j[k].get<std::string>().empty()) throw std::runtime_error(std::string("'") + k + "' is not a non-empty string");
+        if (!isName(k)) throw std::runtime_error(std::string("'") + k + "' is not a non-empty string");
     }
     for (const char* k : other)
         if (!j.contains(k)) throw std::runtime_error(std::string("missing parameter '") + k + "'");
+    for (const char* k : optional)
+        if (j.contains(k) && !isName(k)) throw std::runtime_error(std::string("'") + k + "' is not a non-empty string");
 }
 
 /// @brief The partition's animations under `prefix`, sorted by path: the ORDER every generator over the same clips
 ///        shares (a selector's child index is this index).
 /// @note  `prefix` and `rosterRoot` match by path identity; the roster names keep the bundle's original case.
 std::vector<Clip> ClipsUnder(const CB::engine::codec::HkyArchive& arc, const std::string& prefix, const std::string& rosterRoot) {
-    using CB::engine::codec::resource::HasExt;
     using CB::engine::codec::resource::PathKey;
     const std::string want = PathKey(prefix), root = PathKey(rosterRoot);
     if (!want.starts_with(root)) throw std::runtime_error("'clips' is not below 'rosterRoot'");
     std::vector<Clip> clips;
     for (const auto& path : arc.filesUnderOrig("")) {
-        if (!HasExt(path, ".hkx") || !PathKey(path).starts_with(want)) continue;
-        std::string roster = path.substr(root.size());
-        std::replace(roster.begin(), roster.end(), '/', '\\');
+        std::string roster = mm::MmAnimationName(path, rosterRoot);
+        if (roster.empty() || !PathKey(path).starts_with(want)) continue;
         const auto slash = path.rfind('/');
         clips.push_back({ path, std::move(roster), path.substr(slash + 1, path.size() - slash - 1 - 4) });
     }
@@ -712,37 +714,47 @@ std::vector<Clip> ClipsUnder(const CB::engine::codec::HkyArchive& arc, const std
     return clips;
 }
 
-using Files = std::vector<std::pair<std::string, std::string>>;
-
-/// @brief A selector class the root may be: its index fields and how many children its index can address.
-struct SelectorClass {
-    const char* name;
-    const char* selectedField;
-    const char* currentField;
-    std::size_t maxChildren;
-};
-/// @note hkbManualSelectorGenerator's indices are int8: it clamps to (int8)(children - 1), so past 128 children
-///       every selection reads outside them. CBPoseSearchGenerator (CB's own) has int32 indices.
-constexpr std::array<SelectorClass, 2> kSelectorClasses{ {
-    { "hkbManualSelectorGenerator", "selectedGeneratorIndex", "currentGeneratorIndex", 128 },
-    { "CBPoseSearchGenerator", "selectedIndex", "currentIndex", 0x7fffffff },
-} };
+/// @brief A motion-matching spec of one database `database` holding every clip, in clip order: no chooser rows, the
+///        fallback empty (every database).
+mm::MmBundleSpec OneDatabase(const std::vector<Clip>& clips, const std::string& rosterRoot, const std::string& database) {
+    mm::MmBundleSpec spec;
+    spec.rosterRoot = rosterRoot;
+    mm::MmDatabase db;
+    db.name = database;
+    for (const auto& c : clips) db.clips.push_back({ c.path, c.roster, 0 });
+    spec.databases.push_back(std::move(db));
+    return spec;
+}
 
 /// @brief `clipSelectorBehavior`: a complete behavior unit whose root is a selector (`rootClass`) over one clip per
 ///        animation, the selected child bound to `clipVariable` and every child's user-controlled time to
 ///        `timeVariable` (only the selected child plays, so one shared time is safe).
-/// @note  The unit's own ids: 0000x0001 the root container, 0000x0002 the selector, 0000x0003+ the clips in clip
-///        order. Both variables are declared here; a graph that references this one shares them by name.
-Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips) {
+/// @note  A CBPoseSearchGenerator root is the engine's motion-matching unit (one database, named `database` or else
+///        `selectorName`). A hkbManualSelectorGenerator's indices are int8: it clamps to (int8)(children - 1), so past
+///        128 children every selection reads outside them. Its unit's own ids: 0000x0001 the root container, 0000x0002
+///        the selector, 0000x0003+ the clips in clip order.
+Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const CB::engine::schema::SchemaRegistry* reg) {
     const auto out = j["out"].get<std::string>(), selector = j["selectorName"].get<std::string>();
     const auto clipVar = j["clipVariable"].get<std::string>(), timeVar = j["timeVariable"].get<std::string>();
     const auto rootClass = j["rootClass"].get<std::string>();
-    const auto sc = std::find_if(kSelectorClasses.begin(), kSelectorClasses.end(), [&](const SelectorClass& c) { return rootClass == c.name; });
-    if (sc == kSelectorClasses.end())
+    if (rootClass == "CBPoseSearchGenerator") {
+        if (!reg) throw std::runtime_error("a CBPoseSearchGenerator unit is built through the schema: pass assemble a <schemaDir>");
+        auto spec = OneDatabase(clips, j["rosterRoot"].get<std::string>(),
+                                j.contains("database") ? j["database"].get<std::string>() : selector);
+        spec.unitPath     = out;
+        spec.selectorName = selector;
+        spec.clipVariable = clipVar;
+        spec.timeVariable = timeVar;
+        Files       files;
+        std::string err;
+        if (!mm::BuildMotionMatchingBehavior(spec, *reg, files, err)) throw std::runtime_error(err);
+        return files;
+    }
+    if (rootClass != "hkbManualSelectorGenerator")
         throw std::runtime_error("'rootClass' " + rootClass + " is neither hkbManualSelectorGenerator nor CBPoseSearchGenerator");
-    if (clips.size() > sc->maxChildren)
-        throw std::runtime_error(std::to_string(clips.size()) + " clips is past what " + rootClass + "'s index addresses (" +
-                                 std::to_string(sc->maxChildren) + ")");
+    if (j.contains("database")) throw std::runtime_error("'database' names a CBPoseSearchGenerator database");
+    if (clips.size() > 128)
+        throw std::runtime_error(std::to_string(clips.size()) + " clips is past what " + rootClass + "'s index addresses (128)");
     const auto slash = out.rfind('/');
     std::string graphName = out.substr(slash == std::string::npos ? 0 : slash + 1);
     if (!CB::engine::codec::resource::HasExt(graphName, ".hkx")) throw std::runtime_error("'out' is not a .hkx unit path");
@@ -761,13 +773,13 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips) {
     const std::string sel = out + "/selectors/" + OwnId(2) + "/";
     files.emplace_back(sel + OwnId(2) + ".yaml",
         "id: " + OwnId(2) + "\nclass: " + rootClass + "\nvariableBindingSet:\n  indexOfBindingToEnable: -1\n"
-        "userData: 0\nname: " + Quote(selector) + "\n" + sc->selectedField + ": 0\n" + sc->currentField + ": 0\n");
+        "userData: 0\nname: " + Quote(selector) + "\nselectedGeneratorIndex: 0\ncurrentGeneratorIndex: 0\n");
     std::string children;
     for (std::size_t i = 0; i < clips.size(); ++i)
         children += Quote(OwnId(static_cast<unsigned>(i))) + ": " + OwnId(static_cast<unsigned>(i + 3)) + "\n";
     files.emplace_back(sel + "generators.yaml", children);
     files.emplace_back(sel + "variableBindingSet.bindings.yaml",
-        "'" + std::string(sc->selectedField) + "':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
+        "'selectedGeneratorIndex':\n  variableIndex: 0\n  variable: " + Quote(clipVar) +
         "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");
 
     for (std::size_t i = 0; i < clips.size(); ++i) {
@@ -784,38 +796,34 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips) {
     return files;
 }
 
-/// @brief `rosterPatch`: one patch unit per listed character adding every animation to its roster.
-/// @note  A roster is a union: the patch names only what it adds. The same list goes to every character, since
-///        characters sharing a graph need identical slot sets (a slot is keyed by file name).
+/// @brief `rosterPatch`: one patch unit per listed character adding every animation to its roster (the engine's
+///        motion-matching roster patch over one database of all the clips).
 Files RosterPatch(const Json& j, const std::vector<Clip>& clips) {
     const Json& chars = j["characters"];
     if (!chars.is_array() || chars.empty()) throw std::runtime_error("'characters' is not a non-empty list");
-    std::string names;
-    for (const auto& c : clips) names += (names.empty() ? "" : ", ") + Quote(c.roster);
-    Files files;
+    auto spec = OneDatabase(clips, j["rosterRoot"].get<std::string>(), "roster");
     for (const auto& c : chars) {
         ExpectKeys(c, { "path", "root" });
-        const auto root = c["root"].get<std::string>();
-        const bool formId = root.size() == 9 && root[4] == 'x' &&
-                            std::all_of(root.begin(), root.end(), [](char ch) { return ch == 'x' || std::isxdigit(static_cast<unsigned char>(ch)); });
-        if (!formId) throw std::runtime_error("'" + root + "' is not a FormID like 0001x000b");
-        files.emplace_back(c["path"].get<std::string>() + "/graph.yaml",
-            "id: " + root + "\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbCharacterData':\n    variant:\n"
-            "      stringData:\n        animationNames: [" + names + "]\n");
+        spec.characters.emplace_back(c["path"].get<std::string>(), c["root"].get<std::string>());
     }
+    Files       files;
+    std::string err;
+    if (!mm::BuildMotionMatchingRosters(spec, files, err)) throw std::runtime_error(err);
     return files;
 }
 
-/// @brief One config run: its files, from the partition it names.
+/// @brief One config run: its files, from the partition it names. `reg` is null when assemble was given no schema.
 /// @throws std::runtime_error with why, on an unknown generator or a bad parameter.
-Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine::codec::HkyArchive>>& partitions) {
+Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine::codec::HkyArchive>>& partitions,
+          const CB::engine::schema::SchemaRegistry* reg) {
     if (!j.is_object() || !j.contains("generator") || !j["generator"].is_string())
         throw std::runtime_error("not {\"generator\": <kind>, ...}");
     const auto kind = j["generator"].get<std::string>();
     Json params = j;
     params.erase("generator");
     if (kind == "clipSelectorBehavior")
-        ExpectKeys(params, { "from", "clips", "rosterRoot", "out", "rootClass", "selectorName", "clipVariable", "timeVariable" });
+        ExpectKeys(params, { "from", "clips", "rosterRoot", "out", "rootClass", "selectorName", "clipVariable", "timeVariable" }, {},
+                   { "database" });
     else if (kind == "rosterPatch")
         ExpectKeys(params, { "from", "clips", "rosterRoot" }, { "characters" });
     else
@@ -824,7 +832,7 @@ Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine:
     const auto p    = partitions.find(from);
     if (p == partitions.end()) throw std::runtime_error("no partition '" + from + "' in the feature");
     const auto clips = ClipsUnder(*p->second, params["clips"].get<std::string>(), params["rosterRoot"].get<std::string>());
-    return kind == "clipSelectorBehavior" ? ClipSelectorBehavior(params, clips) : RosterPatch(params, clips);
+    return kind == "clipSelectorBehavior" ? ClipSelectorBehavior(params, clips, reg) : RosterPatch(params, clips);
 }
 
 }  // namespace generate
@@ -833,9 +841,10 @@ Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine:
 ///        partition, `inject/` holds the configs, and everything else (manifest.json, loose trees) ships at its path.
 /// @note  Every failure is a hard error, never a skip: a config naming a missing path, two configs for one file's
 ///        field, a field the file's kind does not accept, a value of the wrong shape, two sources supplying one path.
-int doAssemble(const std::string& dir, const std::string& tablePath, const std::string& out) {
+/// @param schemaDir the class schema the generators build through; empty = none (a generator that needs it fails).
+int doAssemble(const std::string& dir, const std::string& tablePath, const std::string& schemaDir, const std::string& out) {
     if (dir.empty() || tablePath.empty() || out.empty()) {
-        std::printf("usage: hky-tool assemble <featureDir> <injectables.json> -o <out.hky>\n");
+        std::printf("usage: hky-tool assemble <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n");
         return 2;
     }
     namespace fs = std::filesystem;
@@ -850,6 +859,12 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     } catch (const std::exception& e) {
         std::printf("FAIL: %s\n", e.what());
         return 1;
+    }
+    const CB::engine::schema::SchemaRegistry* reg = nullptr;
+    if (!schemaDir.empty()) {
+        CB::engine::schema::SetSharedSchemaDir(schemaDir);
+        reg = CB::engine::schema::SharedRegistry();
+        if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
     }
 
     struct Source {
@@ -922,7 +937,7 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
         try {
             const auto text = CB::engine::disk::ReadFile(g, { .stripBom = true });
             if (!text) throw std::runtime_error("unreadable");
-            for (auto& [path, content] : generate::Run(assemble::ParseStrict(*text), partitions)) {
+            for (auto& [path, content] : generate::Run(assemble::ParseStrict(*text), partitions, reg)) {
                 add(path, [c = std::make_shared<const std::string>(std::move(content))] { return std::optional<std::string>(*c); },
                     "generator " + name);
                 ++generated;
@@ -1090,6 +1105,48 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
     return failed ? 1 : 0;
 }
 
+/// @brief `mm-sample`: the motion-matching bundle generator over a spec exercising every shape it writes (two databases
+///        sharing a clip, flags, biases, tags, a chooser row per condition kind, a fallback, an extra variable, two
+///        characters), its files written to `outDir`.
+/// @note  The generator itself proves the behavior unit parses back to the graph it built; OK here means it did.
+int doMmSample(const std::string& schemaDir, const std::string& outDir) {
+    if (schemaDir.empty() || outDir.empty()) {
+        std::printf("usage: hky-tool mm-sample <schemaDir> -o <outDir>\n");
+        return 2;
+    }
+    namespace mm = CB::engine::compile;
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+
+    const std::string dir = "meshes/actors/character/animations/MotionMatching/";
+    mm::MmBundleSpec  spec;
+    spec.databases.push_back({ "Idle", { { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping },
+                                         { dir + "idle/TurnInPlace_L.hkx", "", mm::kMmDisableReselection } },
+                               0.0f, -0.05f, 0.0f, { "idle" } });
+    spec.databases.push_back({ "Run", { { dir + "running/Run_Fwd_Loop.hkx", "", mm::kMmLooping },
+                                        { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping } },
+                               0.1f, 0.0f, -0.02f, { "run", "locomotion" } });
+    spec.rows.push_back({ { { "MM_Gait", mm::kMmEquals, 2, 0.0f, 0.0f }, { "MM_IsStarting", mm::kMmBool, 1, 0.0f, 0.0f } }, { "Run" } });
+    spec.rows.push_back({ { { "MM_Speed", mm::kMmRange, 0, 0.0f, 50.0f } }, { "Idle", "Run" } });
+    spec.fallback = { "Idle" };
+    spec.extraVariables.push_back({ "MM_Speed", "VARIABLE_TYPE_REAL", 0 });
+    spec.characters = { { "meshes/actors/character/characters/defaultmale.hkx", "0001x000b" },
+                        { "meshes/actors/character/characters female/defaultfemale.hkx", "0001x000b" } };
+
+    mm::MmFiles files;
+    std::string err;
+    if (!mm::BuildMotionMatchingBundle(spec, *reg, files, err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    for (const auto& [path, text] : files)
+        if (!CB::engine::disk::WriteFile(std::filesystem::path(outDir) / path, text, {}, &err)) {
+            std::printf("FAIL: %s\n", err.c_str());
+            return 1;
+        }
+    std::printf("OK: mm-sample -> %s: %zu file(s); the behavior unit parsed back to the graph it was built from.\n",
+                outDir.c_str(), files.size());
+    return 0;
+}
+
 void usage() {
     std::printf("usage:\n"
                 "  hky-tool pack        <bundleDir> -o <out.hky>\n"
@@ -1097,8 +1154,9 @@ void usage() {
                 "  hky-tool bsa-list    <in.bsa>    [prefix]\n"
                 "  hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix]\n"
                 "  hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]\n"
-                "  hky-tool assemble    <featureDir> <injectables.json> -o <out.hky>\n"
-                "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n");
+                "  hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n"
+                "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n"
+                "  hky-tool mm-sample   <schemaDir> -o <outDir>\n");
 }
 
 }  // namespace
@@ -1121,8 +1179,9 @@ int main(int argc, char** argv) {
     if (verb == "bsa-list")    return doBsaList(arg, arg2);
     if (verb == "bsa-extract") return doBsaExtract(arg, out, arg2);
     if (verb == "autotag")     return doAutoTag(arg, out, arg2);
-    if (verb == "assemble")    return doAssemble(arg, arg2, out);
+    if (verb == "assemble")    return doAssemble(arg, arg2, arg3, out);
     if (verb == "merge-check") return doMergeCheck(arg, arg2, arg3, out);
+    if (verb == "mm-sample")   return doMmSample(arg, out);
     usage();
     return 2;
 }

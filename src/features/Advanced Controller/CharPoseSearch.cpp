@@ -223,12 +223,44 @@ namespace CB::feature::controller::motion {
         [[maybe_unused]] const bool s_declared = platform::classes::Declare(
             { kClassName, sizeof(PoseSearchGenerator), &Finish, &Cleanup, &Vtable });
 
+        constexpr const char* kChooserClassName = "CBPoseSearchChooser";
+
+        void FinishChooser(void* object)
+        {
+            if (object) new (object) PoseSearchChooser(hk::hkFinishLoadedObjectFlag{});
+        }
+        void CleanupChooser(void* object) { static_cast<PoseSearchChooser*>(object)->~PoseSearchChooser(); }
+        const void* ChooserVtable()
+        {
+            alignas(PoseSearchChooser) unsigned char scratch[sizeof(PoseSearchChooser)] = {};
+            FinishChooser(scratch);
+            return *reinterpret_cast<const void* const*>(scratch);
+        }
+
+        [[maybe_unused]] const bool s_chooserDeclared = platform::classes::Declare(
+            { kChooserClassName, sizeof(PoseSearchChooser), &FinishChooser, &CleanupChooser, &ChooserVtable });
+
     }  // namespace
 
     /// @note Only the runtime members reset: the children and the selected index are the loaded bytes.
+    PoseSearchChooser::PoseSearchChooser(hk::hkFinishLoadedObjectFlag flag)
+    :   hkReferencedObject(flag),
+        m_rows(flag),
+        m_fallback(flag)
+    {
+    }
+
+    const void* PoseSearchChooser::getClassType() const
+    {
+        static const void* const cls = platform::classes::ClassOf(kChooserClassName);
+        return cls;
+    }
+
     PoseSearchGenerator::PoseSearchGenerator(hk::hkFinishLoadedObjectFlag flag)
     :   hkbGenerator(flag),
-        m_generators(flag)
+        m_generators(flag),
+        m_databases(flag),
+        m_childFlags(flag)
     {
         m_currentIndex = 0;
     }
@@ -236,7 +268,8 @@ namespace CB::feature::controller::motion {
     PoseSearchGenerator::PoseSearchGenerator(const PoseSearchGenerator& other)
     :   hkbGenerator(other),
         m_selectedIndex(other.m_selectedIndex),
-        m_currentIndex(0)
+        m_currentIndex(0),
+        m_chooser(nullptr)
     {
         m_generators = other.m_generators;
         for (int i = 0; i < m_generators.getSize(); i++) m_generators[i]->addReference();

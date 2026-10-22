@@ -155,6 +155,7 @@ symbols:
   - { name: hkbExpressionCompiler_Compile, kind: func, se: 59354, ae: 60027, vr: 0 }  # native expression language
   - { name: hkaDefaultAnimatedReferenceFrame_Ctor, kind: func, se: 64511, ae: 65604, vr: 0 }  # motion extraction
   - { name: hkClass_GetSignature, kind: func, se: 0, ae: 57658, vr: 0, cpp: "CB::platform::game::hkClass_GetSignature", mangled: "?hkClass_GetSignature@game@platform@CB@@YAIPEBUhkClass@havok@3@H@Z", header: "platform/game/Reflection.h" }  # hkClass::getSignature, 0x140a97cf0 (1.6.1170); CB's classes cross-check the schema's derived signature with it
+  - { name: hkReferencedObject_StaticClass, kind: data, se: 0, ae: 407421, vr: 0, cpp: "CB::platform::game::hkReferencedObjectClass", mangled: "?hkReferencedObjectClass@game@platform@CB@@3UhkClass@havok@3@B", header: "platform/game/Reflection.h" }  # hkClass at 0x1431b1960 (1.6.1170) / 0x14325acd0 (1.7.104), filled by FUN_1400ca900; the parent of CB's data classes
 
   # --- Actor movement ---
   - { name: Actor_ApplyFrameMovement, kind: func, se: 36365, ae: 37356, vr: 0 }  # uses animationDelta only when graph bIsSynced

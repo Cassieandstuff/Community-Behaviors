@@ -76,11 +76,14 @@ namespace CB::feature::controller::hud {
         float stickYaw  = 0;
     };
 
-    /// @brief Motion matching's last search: the clip and frame it chose, that frame's cost, the search's time and the
-    ///        switches so far.
+    /// @brief Motion matching's last search: the clip and frame it chose, that frame's biased cost, the search's time
+    ///        and the switches so far, the databases searched and the chooser's inputs (each text truncated to fit).
     struct Matching {
-        char  clip[48] = {};
-        int   frame    = 0;
+        char  clip[48]     = {};
+        char  database[32] = {};   ///< the chosen clip's database
+        char  active[96]   = {};   ///< the databases the chooser picked, comma-separated
+        char  chooser[96]  = {};   ///< the chooser's inputs (movement mode, rotation, state, gait, stance, raised flags)
+        int   frame        = 0;
         float cost = 0, searchMs = 0;
         int   switches = 0;
         float rate     = 1;   ///< the playback rate (clip seconds per second)

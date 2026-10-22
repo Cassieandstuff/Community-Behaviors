@@ -17,4 +17,8 @@ namespace CB::platform::game {
     /// @note A free function over the class: havok/ declares only proven code.
     std::uint32_t hkClass_GetSignature(const CB::havok::hkClass* cls, int flags);
 
+    /// @brief The exe's hkReferencedObject class (filled by its static initializer): the parent CB's own data classes
+    ///        name, so the registries' parent-chain tests and the signature walk see the real class.
+    extern const CB::havok::hkClass hkReferencedObjectClass;
+
 }  // namespace CB::platform::game

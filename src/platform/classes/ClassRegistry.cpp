@@ -56,6 +56,9 @@ namespace CB::platform::classes {
         static_assert(sizeof(TypeInfo) == 0x30);
 
         /// @brief One class: everything the game keeps a pointer to lives here for the life of the process.
+        /// @note A struct class (a schema class with no parent, an array element or inline member of a CB class) gets an
+        ///       entry too, built on demand and never registered: only pointer-referenced objects reach the packfile's
+        ///       class table, but the signature walk follows every member's class.
         struct Entry {
             ClassBehavior                 behavior{};
             std::string                   name, scopedName;
@@ -63,6 +66,9 @@ namespace CB::platform::classes {
             std::vector<hk::hkClassMember> members;
             hk::hkClass                   cls{};
             TypeInfo                      info{};
+            bool                          declared   = false;   ///< a C++ type stands behind it (Declare)
+            bool                          built      = false;
+            bool                          building   = false;
             bool                          registered = false;
         };
 
@@ -77,49 +83,97 @@ namespace CB::platform::classes {
             return s;
         }
 
-        /// @brief The game's hkClass for a parent or a pointer member's target class.
-        /// @note Only hkbGenerator so far. It is the link shim's copy of the exe's class: its name and parent chain
-        ///       read the same, which is what the registries and the parent-chain class tests use.
+        /// @brief The game's hkClass for a parent or a member's target class, by name; null for any other.
+        /// @note The link shim binds these to the exe's own class objects, so names and parent chains read the same,
+        ///       which is what the registries and the parent-chain class tests use.
         const hk::hkClass* GameClass(const std::string& name)
         {
             if (name == "hkbGenerator") return &hk::hkbGeneratorClass;
+            if (name == "hkReferencedObject") return &game::hkReferencedObjectClass;
             return nullptr;
         }
 
-        /// @brief `f` as a Havok member type; false with `why` set for a kind no CB class needs yet.
-        bool MemberType(const sc::Field& f, hk::hkClassMember& m, std::string& why)
+        bool Build(Entry& e, const sc::SchemaRegistry& schema, std::string& why);
+
+        /// @brief The hkClass for `name`: the game's, else a CB entry's (a struct class gets one, built now).
+        const hk::hkClass* ClassFor(const std::string& name, const sc::SchemaRegistry& schema, std::string& why)
+        {
+            if (const hk::hkClass* gameClass = GameClass(name)) return gameClass;
+            Entry* entry = nullptr;
+            for (Entry& e : S().entries)
+                if (e.name == name) entry = &e;
+            if (!entry) {
+                if (!name.starts_with("CB")) {
+                    why = "no class for '" + name + "' (neither a bound game class nor a CB class)";
+                    return nullptr;
+                }
+                entry             = &S().entries.emplace_back();
+                entry->name       = name;
+                entry->scopedName = "!" + name;
+            }
+            if (entry->building) {
+                why = "'" + name + "' refers to itself";
+                return nullptr;
+            }
+            if (!entry->built && !Build(*entry, schema, why)) {
+                why = "'" + name + "': " + why;
+                return nullptr;
+            }
+            return &entry->cls;
+        }
+
+        bool ScalarType(sc::Scalar s, hk::hkClassMember::Type& out)
         {
             using M = hk::hkClassMember;
+            switch (s) {
+            case sc::Scalar::Int8:   out = M::TYPE_INT8; return true;
+            case sc::Scalar::Byte:   out = M::TYPE_UINT8; return true;
+            case sc::Scalar::Int16:  out = M::TYPE_INT16; return true;
+            case sc::Scalar::UInt16: out = M::TYPE_UINT16; return true;
+            case sc::Scalar::Int32:  out = M::TYPE_INT32; return true;
+            case sc::Scalar::UInt32: out = M::TYPE_UINT32; return true;
+            case sc::Scalar::Int64:  out = M::TYPE_INT64; return true;
+            case sc::Scalar::UInt64: out = M::TYPE_UINT64; return true;
+            case sc::Scalar::Float:  out = M::TYPE_REAL; return true;
+            case sc::Scalar::Half:   out = M::TYPE_HALF; return true;
+            case sc::Scalar::Bool:   out = M::TYPE_BOOL; return true;
+            }
+            return false;
+        }
+
+        /// @brief `f` as a Havok member type; false with `why` set for a kind no CB class needs yet.
+        bool MemberType(const sc::Field& f, hk::hkClassMember& m, const sc::SchemaRegistry& schema, std::string& why)
+        {
+            using M = hk::hkClassMember;
+            M::Type t{};
             switch (f.kind) {
             case sc::FieldKind::Scalar:
-                switch (f.scalar) {
-                case sc::Scalar::Int8:   m.m_type = M::TYPE_INT8; return true;
-                case sc::Scalar::Byte:   m.m_type = M::TYPE_UINT8; return true;
-                case sc::Scalar::Int16:  m.m_type = M::TYPE_INT16; return true;
-                case sc::Scalar::UInt16: m.m_type = M::TYPE_UINT16; return true;
-                case sc::Scalar::Int32:  m.m_type = M::TYPE_INT32; return true;
-                case sc::Scalar::UInt32: m.m_type = M::TYPE_UINT32; return true;
-                case sc::Scalar::Int64:  m.m_type = M::TYPE_INT64; return true;
-                case sc::Scalar::UInt64: m.m_type = M::TYPE_UINT64; return true;
-                case sc::Scalar::Float:  m.m_type = M::TYPE_REAL; return true;
-                case sc::Scalar::Half:   m.m_type = M::TYPE_HALF; return true;
-                case sc::Scalar::Bool:   m.m_type = M::TYPE_BOOL; return true;
-                }
-                break;
-            case sc::FieldKind::String: m.m_type = M::TYPE_STRINGPTR; return true;
-            case sc::FieldKind::EmptyPtr:   m.m_type = M::TYPE_POINTER; m.m_subtype = M::TYPE_VOID; return true;
-            case sc::FieldKind::EmptyArray: m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_VOID; return true;
-            case sc::FieldKind::Ptr:
-            case sc::FieldKind::PtrArray:
-                m.m_type    = f.kind == sc::FieldKind::Ptr ? M::TYPE_POINTER : M::TYPE_ARRAY;
-                m.m_subtype = f.kind == sc::FieldKind::Ptr ? M::TYPE_STRUCT : M::TYPE_POINTER;
-                m.m_class   = const_cast<hk::hkClass*>(GameClass(f.ref));
-                if (!m.m_class) { why = "no game class for '" + f.ref + "'"; return false; }
+                if (!ScalarType(f.scalar, t)) break;
+                m.m_type = t;
                 return true;
-            default: break;
+            case sc::FieldKind::String:      m.m_type = M::TYPE_STRINGPTR; return true;
+            case sc::FieldKind::EmptyPtr:    m.m_type = M::TYPE_POINTER; m.m_subtype = M::TYPE_VOID; return true;
+            case sc::FieldKind::EmptyArray:  m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_VOID; return true;
+            case sc::FieldKind::StringArray: m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_STRINGPTR; return true;
+            case sc::FieldKind::ScalarArray:
+                if (!ScalarType(f.scalar, t)) break;
+                m.m_type    = M::TYPE_ARRAY;
+                m.m_subtype = t;
+                return true;
+            case sc::FieldKind::Ptr:         m.m_type = M::TYPE_POINTER; m.m_subtype = M::TYPE_STRUCT;  break;
+            case sc::FieldKind::PtrArray:    m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_POINTER; break;
+            case sc::FieldKind::StructArray: m.m_type = M::TYPE_ARRAY;   m.m_subtype = M::TYPE_STRUCT;  break;
+            case sc::FieldKind::Struct:      m.m_type = M::TYPE_STRUCT;  m.m_subtype = M::TYPE_VOID;    break;
+            default:
+                why = "no Havok member type for its field kind here";
+                return false;
             }
-            why = "no Havok member type for its field kind here";
-            return false;
+            if (m.m_type == M::TYPE_VOID) {
+                why = "no Havok member type for its scalar";
+                return false;
+            }
+            m.m_class = const_cast<hk::hkClass*>(ClassFor(f.ref, schema, why));
+            return m.m_class != nullptr;
         }
 
         /// @brief Whether a field is a member at all: padding is not, nor an unnamed void-typed ignored slot.
@@ -143,16 +197,25 @@ namespace CB::platform::classes {
         {
             const sc::ClassSchema* cs = schema.Find(e.name);
             if (!cs) { why = "no schema descriptor"; return false; }
-            const hk::hkClass* parent = GameClass(cs->parent);
-            if (!parent) { why = "no game class for its parent '" + cs->parent + "'"; return false; }
+            const hk::hkClass* parent = nullptr;
+            if (!cs->parent.empty()) {
+                parent = ClassFor(cs->parent, schema, why);
+                if (!parent) { why = "its parent '" + cs->parent + "': " + why; return false; }
+            } else if (e.declared) {
+                why = "a declared (pointer-referenced) class needs a parent with a vtable";
+                return false;
+            }
             const int size = schema.ComputeSize(e.name, &why);
             if (size < 0) return false;
-            if (static_cast<std::size_t>(size) != e.behavior.size) {
+            if (e.declared && static_cast<std::size_t>(size) != e.behavior.size) {
                 why = "the descriptor lays out " + std::to_string(size) + " bytes, the C++ class " + std::to_string(e.behavior.size);
                 return false;
             }
             const std::vector<int> offsets = schema.OwnFieldOffsets(e.name, &why);
             if (offsets.size() != cs->fields.size()) return false;
+            e.building = true;
+            e.memberNames.clear();
+            e.members.clear();
 
             /// @note Names first, members after: a member keeps its name's c_str(), so the names never reallocate later.
             for (const auto& f : cs->fields)
@@ -166,9 +229,14 @@ namespace CB::platform::classes {
                 m.m_offset = static_cast<hk::hkUint16>(offsets[i]);
                 const bool empty = f.kind == sc::FieldKind::EmptyPtr || f.kind == sc::FieldKind::EmptyArray;
                 m.m_flags  = static_cast<hk::hkUint16>(f.ignored || empty ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
-                if (!MemberType(f, m, why)) { why = "member '" + f.name + "': " + why; return false; }
+                if (!MemberType(f, m, schema, why)) {
+                    e.building = false;
+                    why        = "member '" + f.name + "': " + why;
+                    return false;
+                }
                 e.members.push_back(m);
             }
+            e.building = false;
 
             e.cls.m_name               = e.name.c_str();
             e.cls.m_parent             = parent;
@@ -178,12 +246,17 @@ namespace CB::platform::classes {
             e.cls.m_describedVersion   = 1;
             e.cls.m_numImplementedInterfaces = cs->interfaces;
 
-            e.info.name       = e.name.c_str();
-            e.info.scopedName = e.scopedName.c_str();
-            e.info.finish     = e.behavior.finish;
-            e.info.cleanup    = e.behavior.cleanup;
-            e.info.vtable     = e.behavior.vtable();
-            e.info.size       = e.behavior.size;
+            /// @note A struct class has no C++ type behind it (no finish, cleanup or vtable): it is never registered, so
+            ///       it needs no type info.
+            if (e.declared) {
+                e.info.name       = e.name.c_str();
+                e.info.scopedName = e.scopedName.c_str();
+                e.info.finish     = e.behavior.finish;
+                e.info.cleanup    = e.behavior.cleanup;
+                e.info.vtable     = e.behavior.vtable();
+                e.info.size       = e.behavior.size;
+            }
+            e.built = true;
             return true;
         }
 
@@ -206,6 +279,7 @@ namespace CB::platform::classes {
         e.behavior   = behavior;
         e.name       = behavior.name;
         e.scopedName = "!" + e.name;
+        e.declared   = true;
         return true;
     }
 
@@ -218,10 +292,13 @@ namespace CB::platform::classes {
             return;
         }
         MirrorHavokGlobals();
-        for (Entry& e : S().entries) {
-            if (e.registered) continue;
+        /// @note Indexed, not ranged: building a class may append its struct classes' entries (a deque keeps every
+        ///       entry in place, but a range-for's end iterator would go stale).
+        for (std::size_t i = 0; i < S().entries.size(); ++i) {
+            Entry& e = S().entries[i];
+            if (!e.declared || e.registered) continue;
             std::string why;
-            if (!Build(e, schema, why)) {
+            if (!e.built && !Build(e, schema, why)) {
                 LOG_ERROR("classes: {} not registered: {}", e.name, why);
                 continue;
             }
