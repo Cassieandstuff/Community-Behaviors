@@ -1,10 +1,10 @@
 /// @file
 /// @brief Workbench: the functions of hkaInterleavedUncompressedAnimation.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Animation/Animation/Interleaved/hkaInterleavedUncompressedAnimation.cpp.
+///        havok/Animation/Animation/Interleaved/hkaInterleavedUncompressedAnimation.cpp.
 #include <Animation/Animation/Interleaved/hkaInterleavedUncompressedAnimation.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkaInterleavedUncompressedAnimation::transformTrack(int trackIndex, const hkQsTransform& transform)
     {

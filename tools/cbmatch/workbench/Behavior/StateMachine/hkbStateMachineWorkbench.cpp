@@ -1,7 +1,7 @@
 /// @file
 /// @brief Workbench: the functions of hkbStateMachine.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/StateMachine/hkbStateMachine.cpp.
+///        havok/Behavior/StateMachine/hkbStateMachine.cpp.
 #include <Behavior/StateMachine/hkbStateMachine.h>
 #include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Condition/hkbCondition.h>
@@ -14,7 +14,7 @@
 #include <Common/Base/Memory/Util/Stats/hkStatisticsCollector.h>
 #include <Common/Base/Monitor/hkMonitorStream.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkbStateMachine::update(const hkbContext& context, hkReal timestep)
     {

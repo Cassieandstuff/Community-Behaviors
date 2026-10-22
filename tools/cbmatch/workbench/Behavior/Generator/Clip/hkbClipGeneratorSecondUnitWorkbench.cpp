@@ -1,11 +1,11 @@
 /// @file
 /// @brief Workbench: the functions of hkbClipGeneratorSecondUnit.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Generator/Clip/hkbClipGeneratorSecondUnit.cpp.
+///        havok/Behavior/Generator/Clip/hkbClipGeneratorSecondUnit.cpp.
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Animation/Rig/hkaSkeleton.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkbClipGenerator::getInternalState(hkReferencedObject& _internalState) const
     {

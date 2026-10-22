@@ -49,7 +49,7 @@ std::string CategoryForClass(const std::string& className) {
         // transition effects
         {"hkbTransitionEffect", "transitions"}, {"hkbBlendingTransitionEffect", "transitions"},
         // selectors / references / tagging
-        {"hkbManualSelectorGenerator", "selectors"},
+        {"hkbManualSelectorGenerator", "selectors"}, {"CBPoseSearchGenerator", "selectors"},
         {"hkbBehaviorReferenceGenerator", "references"},
         {"BSiStateTaggingGenerator", "tagging"},
         // generators

@@ -1,0 +1,10 @@
+id: 0001x002a
+class: hkRootLevelContainer
+namedVariants:
+  'hkbBehaviorGraph':
+    variant:
+      data:
+        variables:
+          'MM_Enable': {type: VARIABLE_TYPE_INT32, value: 0}
+          'MM_Clip': {type: VARIABLE_TYPE_INT32, value: 0}
+          'MM_Time': {type: VARIABLE_TYPE_REAL, value: 0}

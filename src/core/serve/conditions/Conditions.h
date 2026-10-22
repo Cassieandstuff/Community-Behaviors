@@ -156,9 +156,9 @@ namespace CB::core::conditions {
     void ClearConditionInstances();
 
     // ── Hook install ──────────────────────────────────────────────────────────────────────────────
-    /// @brief Subscribe the producer actor-stash + the matcher-append to the setdata hook points
-    ///        (<core/hooks/points/SetData.h>). Idempotent.
-    /// @pre Called during SKSEPluginLoad, before CB::core::hooks::InstallAll().
+    /// @brief Subscribe the producer actor-stash + the matcher-append to the setdata gate (Override on its matcher and weapon producer)
+    ///        (<platform/game/SetData.h>). Idempotent.
+    /// @pre Called during SKSEPluginLoad, before CB::platform::hooks::InstallAll().
     void InstallConditionHooks();
 
     // Register the built-in primitive/function roster (Builtins.cpp — SEAM for the roster branch).

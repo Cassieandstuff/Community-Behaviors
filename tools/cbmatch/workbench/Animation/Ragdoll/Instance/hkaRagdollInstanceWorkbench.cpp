@@ -1,14 +1,14 @@
 /// @file
 /// @brief Workbench: the functions of hkaRagdollInstance.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Animation/Ragdoll/Instance/hkaRagdollInstance.cpp.
+///        havok/Animation/Ragdoll/Instance/hkaRagdollInstance.cpp.
 #include <Animation/Ragdoll/Instance/hkaRagdollInstance.h>
 #include <Common/Base/Container/LocalArray/hkLocalArray.h>
 #include <Physics/Dynamics/Constraint/hkpConstraintInstance.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 #include <Physics/Dynamics/World/hkpWorld.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkaRagdollInstance::getPoseModelSpace(hkQsTransform* poseModelSpaceOut, const hkQsTransform& worldFromModel) const
     {

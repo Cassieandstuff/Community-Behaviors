@@ -1,13 +1,13 @@
 /// @file
 /// @brief Workbench: the functions of hkbClipGenerator.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Generator/Clip/hkbClipGenerator.cpp.
+///        havok/Behavior/Generator/Clip/hkbClipGenerator.cpp.
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
 #include <Behavior/Generator/hkbGeneratorOutputUtils.h>
 #include <Animation/Rig/hkaSkeleton.h>
 #include <Common/Base/Memory/Util/Stats/hkStatisticsCollector.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @note Vanilla's own shapes: `min2(lod, numTracks)` (cmovl into numTracks), the echo weights summed under a
     ///       fresh `i < size` test rather than `!isClip`, the control re-read through m_animationControl around

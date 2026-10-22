@@ -8,7 +8,7 @@
 #include <Physics/Utilities/CharacterControl/StateMachine/hkpCharacterStateManager.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @brief How far (Havok units, 64 game units) a fake-supported character moves before OnGround drops the fake
     ///        support.

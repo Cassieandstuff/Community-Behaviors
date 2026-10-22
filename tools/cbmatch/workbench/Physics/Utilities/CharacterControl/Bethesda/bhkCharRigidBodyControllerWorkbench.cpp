@@ -3,7 +3,7 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyController.h>
 #include <Physics/Dynamics/Entity/hkpRigidBody.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void bhkCharRigidBodyController::characterCallback(hkpWorld* world, hkpCharacterRigidBody* characterRB)
     {

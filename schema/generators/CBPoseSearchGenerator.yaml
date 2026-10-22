@@ -1,0 +1,24 @@
+name:      CBPoseSearchGenerator
+parent:    hkbGenerator
+size:      136
+runtime:
+  source: self
+# CB's own generator (motion matching, stage A): plays the one child `selectedIndex` names. A stock
+# hkbManualSelectorGenerator's indices are int8 (its last index is (int8)(children - 1)), so it holds 128 children at
+# most; this one's are int32. The children are real hkbClipGenerators, as LoadClips and the root-motion walk require.
+# Registered at startup by CB (platform/classes) from THIS descriptor: the members below are the hkClassMembers
+# variable bindings resolve. No `signature:` here on purpose: the schema loader derives it from this descriptor and
+# its parent chain, exactly as the engine hashes the registered class. The behavior loader recomputes it and refuses
+# a file whose stored value differs, and the rest of the project's behaviors stop loading with it.
+fields:
+  - { name: generators,    type: ptrarray, ref: hkbGenerator, roster: slot }
+  - { name: selectedIndex, type: int32 }
+  - { name: currentIndex,  type: int32, ignored: true }
+  - { name: databases,     type: structarray, ref: CBPoseSearchDatabase, roster: field:name }
+  - { name: childFlags,    type: scalararray, scalar: byte }   # per child: 1 = disableReselection, 2 = looping
+  - { name: chooser,       type: ptr, ref: CBPoseSearchChooser }
+# `databases` are contiguous child ranges (one per dance card), `chooser` picks which of them are searched; CB's
+# controller reads both from the merged graph, the live node never does. No member owns runtime memory: Skyrim
+# instances a character's graph by block-copying it, so memory the node owned would be shared by every copy and freed
+# by whichever is destroyed first. The arrays and the chooser are the loaded file's; the dead blend keeps its state per
+# character instead.

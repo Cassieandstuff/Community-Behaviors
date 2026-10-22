@@ -145,40 +145,57 @@ add_subdirectory(common/config)
 find_package(minhook CONFIG REQUIRED)   # function-ENTRY hooking (CommonLib's trampoline is call-site only)
 find_package(ryml CONFIG REQUIRED)      # YAML front-end (imported target visible at this scope for the link)
 
-# The plugin is src/core/ (Plugin.cpp + the pipeline stages discover -> resolve -> serve, plus bootstrap,
-# debug, hooks) and the graph features under src/features/, compiled straight into the plugin target.
+# The plugin is src/platform/ (the runtime SDK: hooks, takeover, link shim, registry), src/core/ (Plugin.cpp +
+# the pipeline stages discover -> resolve -> serve, plus bootstrap and debug) and the graph features under
+# src/features/, compiled straight into the plugin target.
+sct_collect_sources(CB_PLATFORM_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/platform/*.cpp")
 sct_collect_sources(CB_CORE_SOURCES    "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/*.cpp")
 sct_collect_sources(CB_FEATURE_SOURCES "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/features/*.cpp")
 
 # add_commonlibsse_plugin bakes in the CommonLibSSE version-data TU (SKSEPluginVersion) + links CommonLibSSE
 # — Plugin.cpp defines only SKSEPluginLoad.
-add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
+add_commonlibsse_plugin(CommunityBehaviors SOURCES ${CB_PLATFORM_SOURCES} ${CB_CORE_SOURCES} ${CB_FEATURE_SOURCES})
 target_compile_features(CommunityBehaviors PRIVATE cxx_std_23)
 
 # src/ is the private include root: headers resolve folder-prefixed (e.g. "core/resolve/Resolver.h",
-# <core/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
+# <platform/hooks/hookslib.h>, "features/ERGate.h"). src/core/pch/ holds the force-include-tier shared headers
 # (PCH.h, PluginLogger.h), on the path so their bare quoted includes resolve everywhere.
 target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/src/core/pch")
-# schema/Havok last: the function palette (<feature-sdk/havok/…>) types its cells with the reimplemented classes.
+# havok last: features call and override the reimplemented classes as declared (the schema link shim).
 # Its roots (<Common/…> <Animation/…> <Behavior/…> <Physics/…>) share no file path with the roots above, so a
 # case-insensitive filesystem can't confuse <Common/…> with the engine's <common/…>.
-target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/schema/Havok")
+target_include_directories(CommunityBehaviors PRIVATE "${CMAKE_SOURCE_DIR}/havok")
 
-# Engine symbol registry: src/core/hooks/registry/engine.yaml (the single hand-edited source of every engine
+# Engine symbol registry: src/platform/hooks/registry/engine.yaml (the single hand-edited source of every engine
 # address CB uses beyond CommonLib) baked into a constexpr header at build time — see
-# cmake/EmbedEngineRegistry.cmake and <core/hooks/registry/Registry.h>.
+# cmake/EmbedEngineRegistry.cmake and <platform/hooks/registry/Registry.h>.
 set(_cb_gen_dir "${CMAKE_BINARY_DIR}/generated")
-set(_cb_engine_reg "${_cb_gen_dir}/core/hooks/registry/EngineRegistry.gen.h")
+set(_cb_engine_reg "${_cb_gen_dir}/platform/hooks/registry/EngineRegistry.gen.h")
+# The same rows' `mangled` entries also generate the schema link shim and Override's identities
+# (<platform/hooks/takeover/SchemaShim.h>, <platform/hooks/Override.h>).
+set(_cb_shim_asm "${_cb_gen_dir}/platform/hooks/registry/SchemaShim.gen.asm")
+set(_cb_shim_cpp "${_cb_gen_dir}/platform/hooks/registry/SchemaShim.gen.cpp")
+set(_cb_identity "${_cb_gen_dir}/platform/hooks/registry/SchemaIdentity.gen.h")
 add_custom_command(
-    OUTPUT  "${_cb_engine_reg}"
+    OUTPUT  "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}"
     COMMAND "${CMAKE_COMMAND}"
-            "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml"
+            "-DREGISTRY_YAML=${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml"
             "-DOUT_H=${_cb_engine_reg}"
+            "-DOUT_SHIM_ASM=${_cb_shim_asm}"
+            "-DOUT_SHIM_CPP=${_cb_shim_cpp}"
+            "-DOUT_IDENTITY_H=${_cb_identity}"
             -P "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-    DEPENDS "${CMAKE_SOURCE_DIR}/src/core/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
-    COMMENT "Generating the engine symbol registry from src/core/hooks/registry/engine.yaml"
+    DEPENDS "${CMAKE_SOURCE_DIR}/src/platform/hooks/registry/engine.yaml" "${CMAKE_SOURCE_DIR}/cmake/EmbedEngineRegistry.cmake"
+    COMMENT "Generating the engine symbol registry and the schema link shim from src/platform/hooks/registry/engine.yaml"
     VERBATIM)
-target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}")
+add_custom_target(cb_engine_registry DEPENDS "${_cb_engine_reg}" "${_cb_shim_asm}" "${_cb_shim_cpp}" "${_cb_identity}")
+# The shim's asm half builds in its own object library: CommonLib's INTERFACE options (/Zc:preprocessor) reach every
+# source of a target that links it, and ml64 given that option exits cleanly without writing an object.
+enable_language(ASM_MASM)
+add_library(cb_schema_shim_asm OBJECT "${_cb_shim_asm}")
+add_dependencies(cb_schema_shim_asm cb_engine_registry)
+add_dependencies(CommunityBehaviors cb_engine_registry)
+target_sources(CommunityBehaviors PRIVATE "${_cb_engine_reg}" "${_cb_identity}" "${_cb_shim_cpp}" $<TARGET_OBJECTS:cb_schema_shim_asm>)
 target_include_directories(CommunityBehaviors PRIVATE "${_cb_gen_dir}")
 
 # engine = the shared reflection engine; feature-sdk = the graph-feature SDK
@@ -212,6 +229,26 @@ target_compile_definitions(imgui_dx11 PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 set_target_properties(imgui_dx11 PROPERTIES CXX_STANDARD 17)
 target_link_libraries(CommunityBehaviors PRIVATE imgui_dx11 d3d11 dxgi)
 
+# ── Tracy profiler client, compiled INTO the plugin and inert until [Debug] bTracy=true ──
+# Its own static lib: TracyClient.cpp must not get the plugin's force-included PCH. The defines are PUBLIC so every
+# plugin TU sees the client exactly as it was built. MANUAL_LIFETIME + DELAYED_INIT: nothing starts (no thread, no
+# socket) until platform/profile calls tracy::StartupProfiler; ON_DEMAND: nothing is recorded until a viewer connects.
+# SOURCE_SUBDIR names a folder with no CMakeLists.txt, so Tracy's own CMake project is fetched but never added.
+# The viewer must be the same version (0.13.1).
+FetchContent_Declare(tracy
+    GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+    GIT_TAG        v0.13.1
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cb-not-a-cmake-project)
+FetchContent_MakeAvailable(tracy)
+add_library(tracy_client STATIC "${tracy_SOURCE_DIR}/public/TracyClient.cpp")
+target_include_directories(tracy_client PUBLIC "${tracy_SOURCE_DIR}/public")
+target_compile_definitions(tracy_client PUBLIC
+    TRACY_ENABLE TRACY_ON_DEMAND TRACY_MANUAL_LIFETIME TRACY_DELAYED_INIT TRACY_ONLY_LOCALHOST
+    TRACY_NO_CRASH_HANDLER TRACY_NO_SAMPLING)
+target_link_libraries(tracy_client PUBLIC ws2_32 dbghelp)
+target_link_libraries(CommunityBehaviors PRIVATE tracy_client)
+
 # ── Dev tools ────────────────────────────────────────────────────────────────────
 add_subdirectory(tools/hky)      # hky-tool: .hky pack/unpack (also unpacks the deployed master for diffing)
 add_subdirectory(tools/cbdiff)   # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
@@ -222,6 +259,17 @@ add_subdirectory(tools/cbmatch)  # cbmatch: byte-exact gate for reimplemented en
 # cmake/GenerateBaseMaster.cmake), packed into this tree already shaped as the runtime serve path
 # (community_behaviors/plugins/<Bundle>.hky), so the deploy is a straight mirror.
 set(CB_HKY_STAGE "${CMAKE_BINARY_DIR}/packed-hky")
+
+# Authored feature bundles (features/<Name>.hky: partitions in Git LFS + inject configs) assemble into the same
+# stage; the plugin depends on them so a plugin build deploys them (cmake/FeatureBundles.cmake).
+include(FeatureBundles)
+cb_feature_bundles(
+    PACKER_TARGET hky-tool
+    PACKED_DIR    "${CB_HKY_STAGE}/community_behaviors/plugins"
+    OUT_TARGET    CB_FEATURE_BUNDLES_TARGET)
+if(CB_FEATURE_BUNDLES_TARGET)
+    add_dependencies(CommunityBehaviors ${CB_FEATURE_BUNDLES_TARGET})
+endif()
 
 # Deploy: DLL + the class schema + the packed bundles (merge, preserving Skyrim.hky). The plugin never
 # reads the converter's Nemesis-ingest templates, so schema/templates stays out of the mod.

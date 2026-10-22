@@ -16,6 +16,7 @@
 //   cb::animdata — the animationdata (motion / root-motion) model + its YAML sidecar
 //   cb::skeleton — decode / compile / EXPORT skeletons (schema-native; anim + ragdoll)
 //   cb::schema   — the SchemaRegistry to interpret a resolved model / classify merges
+//   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches)
 //
 // This is a RE-EXPORT, not a re-declaration: the types live ONCE in the engine
 // modules; here they are only surfaced under cb:: names. No duplicate declarations,
@@ -56,6 +57,9 @@
 #include "decompile/SkeletonImport.h"
 #include "compile/SkeletonCompiler.h"
 #include "codec/format/SkeletonYaml.h"
+
+// mm — the motion-matching bundle generator (the one hky-tool's generators run)
+#include "compile/MotionMatchingBundle.h"
 
 namespace cb {
 
@@ -160,5 +164,29 @@ namespace skeleton {
     using CB::engine::skeleton::LoadSkeletonLayerFromTexts;
     using CB::engine::skeleton::MergeBoneAdditions;     // append bone-adds onto a base skeleton
 }  // namespace skeleton
+
+// ── cb::mm ───────────────────────────────────────────────────────────────────────
+namespace mm {
+    using Clip         = CB::engine::compile::MmClip;          ///< one clip of a database → one clip generator child
+    using Database     = CB::engine::compile::MmDatabase;      ///< a dance card: a contiguous child range + cost biases
+    using Condition    = CB::engine::compile::MmCondition;     ///< one chooser-row column over a graph variable
+    using ChooserRow   = CB::engine::compile::MmChooserRow;    ///< conditions → the databases searched
+    using Variable     = CB::engine::compile::MmVariable;      ///< an extra graph variable declaration
+    using VariableDecl = CB::engine::compile::MmVariableDecl;
+    using BundleSpec   = CB::engine::compile::MmBundleSpec;    ///< the whole bundle's input
+    using Files        = CB::engine::compile::MmFiles;         ///< bundle path → file text
+
+    using CB::engine::compile::kMmDisableReselection;          ///< childFlags bits
+    using CB::engine::compile::kMmLooping;
+    using CB::engine::compile::kMmEquals;                      ///< Condition::kind values
+    using CB::engine::compile::kMmBool;
+    using CB::engine::compile::kMmRange;
+    using CB::engine::compile::kMmChooserVariables;            ///< the chooser inputs every graph declares, by name
+
+    using CB::engine::compile::MmAnimationName;                ///< clip path → its roster entry
+    using CB::engine::compile::BuildMotionMatchingBehavior;    ///< spec → the behavior unit's files
+    using CB::engine::compile::BuildMotionMatchingRosters;     ///< spec → one roster patch per character
+    using CB::engine::compile::BuildMotionMatchingBundle;      ///< both
+}  // namespace mm
 
 }  // namespace cb

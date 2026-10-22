@@ -1,7 +1,7 @@
 /// @file
 /// @brief Toolchain probe: BShkbAnimationGraph::GetGraphVariableFloat, Bethesda engine code (not a schema class).
 /// @note Kept as a probe of how Bethesda-side code compiles: VS2015 matches it REGALLOC (98.9%), VS2017 worse, although
-///       the Rich header puts Bethesda's bulk on VS2017 (cl 19.16.27054). Havok types sit in CB::schema so their
+///       the Rich header puts Bethesda's bulk on VS2017 (cl 19.16.27054). Havok types sit in CB::havok so their
 ///       registry pins are shared with the schema tree.
 typedef unsigned int       uint32;
 typedef unsigned long long uint64;
@@ -48,7 +48,7 @@ template <class K, class V> struct BSTScatterTable
     }
 };
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     union hkbVariableValue
     {
@@ -88,14 +88,14 @@ struct BShkbAnimationGraph
 {
     char                          m_pad[0x200];
     ProjectDBData*                m_projectDBData;   ///< +0x200
-    CB::schema::hkbBehaviorGraph* m_behaviorGraph;   ///< +0x208
+    CB::havok::hkbBehaviorGraph* m_behaviorGraph;   ///< +0x208
 
     bool GetGraphVariableFloat(const BSFixedString& name, float& out);
 };
 
 bool BShkbAnimationGraph::GetGraphVariableFloat(const BSFixedString& name, float& out)
 {
-    CB::schema::hkbVariableValueSet* values = m_behaviorGraph->getVariableValueSet();
+    CB::havok::hkbVariableValueSet* values = m_behaviorGraph->getVariableValueSet();
     if (!values) return false;
 
     const auto* e = m_projectDBData->m_variableNameToIndex.find(name.m_data);
@@ -104,7 +104,7 @@ bool BShkbAnimationGraph::GetGraphVariableFloat(const BSFixedString& name, float
     const int index = e->value;
     if (index < 0 || index >= values->m_wordVariableValues.m_size) return false;
 
-    CB::schema::hkbVariableValue v = values->m_wordVariableValues.m_data[index];
+    CB::havok::hkbVariableValue v = values->m_wordVariableValues.m_data[index];
     out                            = v.f;
     return true;
 }

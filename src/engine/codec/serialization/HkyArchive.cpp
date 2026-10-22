@@ -235,7 +235,7 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
 
     /// @note Every walk or stat error FAILS the pack: an incomplete archive must never pass as success (a MAX_PATH stop
     ///       once packed 93 of 39040 files; a skipped unit loads as nothing → A-pose, with no error anywhere).
-    std::vector<std::pair<std::string, fs::path>> files;   ///< (archive name, disk path)
+    std::vector<PackEntry> files;
     for (std::vector<fs::path> stack{ root }; !stack.empty();) {
         const fs::path d = std::move(stack.back());
         stack.pop_back();
@@ -250,13 +250,36 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
             if (!isFile) continue;
             std::string name = child.lexically_relative(root).generic_string();
             if (!selfKeys.empty() && std::find(selfKeys.begin(), selfKeys.end(), PathKey(name)) != selfKeys.end()) continue;
-            files.emplace_back(std::move(name), std::move(child));
+            files.push_back({ std::move(name), [child = std::move(child)] { return disk::ReadFile(child); } });
         }
         if (we) { err = "cannot walk '" + d.string() + "': " + we.message(); return false; }
     }
     if (files.empty()) { err = "empty tree: " + dir; return false; }
-    /// @note Sorted: the entry order is deterministic, independent of the filesystem's enumeration order.
-    std::sort(files.begin(), files.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    return PackEntries(std::move(files), outHkyPath, err);
+}
+
+bool HkyArchive::PackEntries(std::vector<PackEntry> files, const std::string& outHkyPath, std::string& err) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path out     = fs::absolute(fs::path(outHkyPath), ec);
+    const fs::path partial = fs::path(out.native() + fs::path(".partial").native());
+    if (files.empty()) { err = "nothing to pack: " + outHkyPath; return false; }
+
+    /// @note Sorted: the entry order is deterministic, independent of where the entries came from.
+    std::sort(files.begin(), files.end(), [](const PackEntry& a, const PackEntry& b) { return a.name < b.name; });
+    /// @note Two entries naming one path (path identity, as every lookup resolves it) would make one of them
+    ///       unreachable, so that fails the pack rather than shipping a shadowed file.
+    {
+        std::vector<std::pair<std::string, const std::string*>> keys;
+        keys.reserve(files.size());
+        for (const auto& f : files) keys.emplace_back(PathKey(f.name), &f.name);
+        std::sort(keys.begin(), keys.end());
+        for (std::size_t i = 1; i < keys.size(); ++i)
+            if (keys[i].first == keys[i - 1].first) {
+                err = "two entries name one path: '" + *keys[i - 1].second + "' and '" + *keys[i].second + "'";
+                return false;
+            }
+    }
 
     /// @note Written to `<out>.partial` and renamed over `out` only once finalized: a killed or failed pack leaves the
     ///       previous archive (or none) at `out`, never a truncated-but-newer one a build would ship.
@@ -293,7 +316,7 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
             batch.clear();
             batch.resize(n);
             exec::ParallelFor(n, [&](std::size_t i) {
-                auto bytes = disk::ReadFile(files[start + i].second);
+                auto bytes = files[start + i].read();
                 if (!bytes) return;
                 Deflated& d = batch[i];
                 d.read = true;
@@ -307,8 +330,8 @@ bool HkyArchive::PackDirectory(const std::string& dir, const std::string& outHky
             });
             for (std::size_t i = 0; i < n; ++i) {
                 const Deflated&    d    = batch[i];
-                const std::string& name = files[start + i].first;
-                if (!d.read) return abandon("cannot read source file for packing: " + files[start + i].second.string());
+                const std::string& name = files[start + i].name;
+                if (!d.read) return abandon("cannot read the source of '" + name + "' for packing");
                 const bool good = d.data
                     ? mz_zip_writer_add_mem_ex(&z, name.c_str(), d.data.get(), d.dataSize, nullptr, 0, MZ_ZIP_FLAG_COMPRESSED_DATA, d.size, d.crc)
                     : mz_zip_writer_add_mem(&z, name.c_str(), d.raw.data(), d.raw.size(), MZ_NO_COMPRESSION);

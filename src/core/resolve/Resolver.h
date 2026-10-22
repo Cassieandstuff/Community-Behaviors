@@ -249,6 +249,17 @@ namespace CB {
         /// @brief Every served behavior graph (its parent folder is a `behaviors…` folder).
         std::vector<std::string> BehaviorUnitKeys() const;
 
+        /// @brief The served graph `key` merged across every layer of the load order: the merge Resolve runs, before
+        ///        any compile-time feature edits it, bones bound through the rig of the characters that run `key`.
+        /// @return false when `key` is not served or the merge fails (logged).
+        /// @pre   Init() done.
+        /// @note  Independent of the compile: a warm launch that reuses the cache still reads the load order's graph.
+        bool MergedGraph(const std::string& key, CB::engine::decompile::ParsedHky& out) const;
+        /// @brief A bundle-authored animation's YAML by its meshes-relative path (path identity), read from the last
+        ///        bundle in scan order that ships it; nullopt when none does or the read fails.
+        /// @pre   Init() done.
+        std::optional<std::string> NativeAnimationText(std::string_view path) const;
+
     private:
         /// @brief Init's work: scan the bundles and build every Init-owned table.
         /// @throws std::runtime_error when a packed bundle's file can't be read back intact (HkyArchive::file).

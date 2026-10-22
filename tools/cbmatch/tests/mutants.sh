@@ -38,7 +38,7 @@ cbmatch=${1:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
 work=${2:?usage: mutants.sh <cbmatch.exe> <workDir> [seeds]}
 seeds=${3:-256}
 repo=$(cd "$(dirname "$0")/../../.." && pwd -W)
-havok="$repo/schema/Havok"
+havok="$repo/havok"
 clip="Behavior/Generator/Clip/hkbClipGenerator.cpp"
 expectVariant=" u3 t3 c1 k2 y2 h1 "
 gated=" o z v B "
@@ -69,7 +69,7 @@ target() {
         h*) cls=hkbManualSelectorGenerator src=Behavior/Generator/ManualSelector/hkbManualSelectorGenerator.cpp
             fn=update va=0x140ae9130 ;;
         v*) cls=hkbEvaluateExpressionModifier src=Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp
-            fn=copyConstructor va=0x140aedc70 full="??0hkbEvaluateExpressionModifier@schema@CB@@QEAA@AEBV012@@Z" ;;
+            fn=copyConstructor va=0x140aedc70 full="??0hkbEvaluateExpressionModifier@havok@CB@@QEAA@AEBV012@@Z" ;;
         w*) cls=hkbSenseHandleModifier src=Behavior/Modifier/SenseHandle/hkbSenseHandleModifier.cpp
             fn=collectCharacterLocalFrames va=0x140afe570 ;;
         n*) cls=hkbStateMachine src=Behavior/StateMachine/hkbStateMachine.cpp fn=activate va=0x140ad7f70 ;;
@@ -89,7 +89,7 @@ target() {
     esac
 }
 
-# mutant <name> <file under schema/Havok> <sed expression> — the expression must change exactly that file.
+# mutant <name> <file under havok> <sed expression> — the expression must change exactly that file.
 mutant() {
     name=$1 file=$2 expr=$3
     target "$name"
@@ -103,7 +103,7 @@ mutant() {
     sed "$expr" "$havok/$file" > "$out"
     if cmp -s "$out" "$havok/$file"; then echo "UNCHANGED: $name (its pattern no longer matches $file)"; exit 1; fi
     units="$units
-  - { source: \"$source\", flags: $flags, toolchains: [$tc], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
+  - { source: \"$source\", flags: $flags, toolchains: [$tc], functions: [ { name: \"${full:-CB::havok::$cls::$fn}\", va: $va } ] }"
     names="$names $name"
 }
 
@@ -184,7 +184,7 @@ mutant P1_wrong_memory_context "$bproxy" 's/MemoryContextScope context(0x32);/Me
 control() {
     target "$1"
     units="$units
-  - { source: \"$havok/$src\", flags: [$uflags], toolchains: [$tc], functions: [ { name: \"${full:-CB::schema::$cls::$fn}\", va: $va } ] }"
+  - { source: \"$havok/$src\", flags: [$uflags], toolchains: [$tc], functions: [ { name: \"${full:-CB::havok::$cls::$fn}\", va: $va } ] }"
     names="$names x_$fn"
 }
 for family in $expectVariant $gated $controlOnly; do control "$family"; done
@@ -192,7 +192,7 @@ for family in $expectVariant $gated $controlOnly; do control "$family"; done
 cat > "$work/mutants.yaml" <<EOF
 runtimes:
   ae: { exe: "\${CB_SKYRIM_AE_EXE}", addresslib: "\${CB_ADDRESSLIB_AE}", pins: ae }
-registry: "$repo/src/core/hooks/registry/engine.yaml"
+registry: "$repo/src/platform/hooks/registry/engine.yaml"
 toolchains:
   vs2015: "\${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
   vs2017: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe"

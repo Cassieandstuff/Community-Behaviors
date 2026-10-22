@@ -196,6 +196,52 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
         def.motion = std::move(mr);
     }
 
+    if (hasChild(a, "motionTarget")) {
+        const std::string t = strf(a, "motionTarget");
+        if (t == "motionMatching")     def.motionTarget = AnimationDef::MotionTarget::MotionMatching;
+        else if (t == "animationData") def.motionTarget = AnimationDef::MotionTarget::AnimationData;
+        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': motionTarget '" + t +
+                                      "' is neither animationData nor motionMatching");
+    }
+
+    if (hasChild(a, "preload")) {
+        const std::string p = strf(a, "preload");
+        if (p == "true")       def.preload = true;
+        else if (p == "false") def.preload = false;
+        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': preload '" + p + "' is neither true nor false");
+    }
+
+    if (hasChild(a, "entry")) {
+        const std::string e = strf(a, "entry");
+        if (e == "changes")       def.entry = AnimationDef::Entry::Changes;
+        else if (e == "anywhere") def.entry = AnimationDef::Entry::Anywhere;
+        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': entry '" + e + "' is neither anywhere nor changes");
+    }
+
+    /// @note A malformed `tags:` throws rather than loading as no tags: a silently untagged clip is the failure the
+    ///       build's injection exists to prevent.
+    if (hasChild(a, "tags")) {
+        const auto t   = a["tags"];
+        const auto bad = [&](const std::string& why) {
+            return std::runtime_error("AnimationYamlLoader: bad tags in '" + sourceName + "': " + why);
+        };
+        if (!t.is_map()) throw bad("not a map of tag name -> [[start, end], ...]");
+        auto& tags = def.tags.emplace();
+        for (auto tag : t) {
+            std::string name;
+            c4::from_chars(tag.key(), &name);
+            if (!tag.is_seq()) throw bad("'" + name + "' is not a list of ranges");
+            auto& ranges = tags[name];
+            for (auto r : tag) {
+                int  v[2] = { 0, 0 };
+                bool ok   = r.is_seq() && r.num_children() == 2;
+                for (int i = 0; ok && i < 2; ++i) ok = r[i].has_val() && c4::atoi(r[i].val(), &v[i]);
+                if (!ok) throw bad("'" + name + "' has a range that is not [start, end]");
+                ranges.emplace_back(v[0], v[1]);
+            }
+        }
+    }
+
     return def;
 }
 

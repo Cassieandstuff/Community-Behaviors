@@ -1,12 +1,12 @@
 /// @file
 /// @brief Workbench: the functions of hkbEvaluateExpressionModifier.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp.
+///        havok/Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.cpp.
 #include <Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifier.h>
 #include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
 #include <Behavior/Event/hkbEventQueue.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     namespace
     {

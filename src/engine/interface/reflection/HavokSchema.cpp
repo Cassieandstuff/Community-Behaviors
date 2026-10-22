@@ -2,8 +2,10 @@
 
 #include <codec/resource/PathKey.h>   // path identity — schema file discovery (extension / stamp stem)
 #include <RymlInclude.h>   // the ONLY sanctioned way to pull in rapidyaml (C++20+ shim)
+#include <common/miniz.h>
 #include <disk/Disk.h>
 
+#include <cstdio>
 #include <filesystem>
 #include <stdexcept>
 
@@ -158,6 +160,10 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         out.metadata        = childStr(root, "kind") == "metadata";
         out.blankTerminated = childStr(root, "terminator") == "blank";
         { const std::string s = childStr(root, "framelimit"); if (!s.empty()) out.frameLimit = std::stoi(s); }
+        { const std::string s = childStr(root, "interfaces"); if (!s.empty()) out.interfaces = std::stoi(s); }
+        if (hasKey(root, "enums"))
+            for (auto en : root[c4::to_csubstr("enums")])
+                if (en.has_val()) out.enums.push_back(toStr(en.val()));
 
         if (hasKey(root, "fields")) {
             for (auto fn : root[c4::to_csubstr("fields")]) {
@@ -166,6 +172,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.kind = FieldKind::Vtable;
                 } else if (hasKey(fn, "empty")) {
                     f.kind = (childStr(fn, "empty") == "ptr") ? FieldKind::EmptyPtr : FieldKind::EmptyArray;
+                    f.name = childStr(fn, "name");   ///< @note The reflected member's name (signature only); may be absent.
                 } else if (hasKey(fn, "pad")) {
                     f.kind = FieldKind::Pad;  f.count = std::stoi(childStr(fn, "pad"));
                 } else if (hasKey(fn, "skip")) {
@@ -218,6 +225,10 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.when         = childStr(fn, "when");
                     f.frame        = childStr(fn, "frame");
                     f.frameCounted = childStr(fn, "count") == "frame";
+                    f.hkType       = childStr(fn, "hktype");
+                    if (!f.hkType.empty() && f.hkType != "ulong" && f.hkType != "enum" && f.hkType != "flags") {
+                        err = out.name + "." + f.name + ": unknown hktype '" + f.hkType + "' (ulong, enum or flags)"; return false;
+                    }
                     // fixed inline repeat count (std::array<T,N>) for scalar/ptr/vector4 — boolarray set its own above
                     if (f.kind != FieldKind::BoolArray && !f.frameCounted) {
                         const std::string c = childStr(fn, "count");
@@ -356,6 +367,21 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             return false;
         }
     }
+
+    /// @note A CB class (CB prefix) stores no signature: it gets the one the engine derives. The behavior loader
+    ///       recomputes every class's signature from the registered hkClass and refuses a file whose stored value
+    ///       differs, and the project's remaining behaviors stop loading with it (2026-10-20: CBPoseSearchGenerator
+    ///       written as 0 cut every attack behavior). So no CB class loads without one.
+    std::vector<std::pair<std::string, std::uint32_t>> derived;
+    for (const auto& [name, cs] : m_byName) {
+        if (cs.metadata || cs.signature != 0 || name.rfind("CB", 0) != 0) continue;
+        std::uint32_t sig = 0;
+        std::string   serr;
+        if (!ComputeSignature(name, sig, &serr)) { err = "class '" + name + "': no signature: " + serr; return false; }
+        derived.emplace_back(name, sig);
+    }
+    for (const auto& [name, sig] : derived) m_byName[name].signature = sig;
+
     BuildLayouts();
     return true;
 }
@@ -462,7 +488,213 @@ int SchemaRegistry::ComputeSize(const std::string& className, std::string* err, 
         cursor = ComputeSize(cs->parent, err, depth + 1);
         if (cursor < 0) return -1;
     }
+    for (const Field& f : cs->fields)
+        if (!AdvanceField(f, cursor, err, depth)) return -1;
+    return cursor;
+}
+
+std::vector<int> SchemaRegistry::OwnFieldOffsets(const std::string& className, std::string* err) const {
+    const ClassSchema* cs = Find(className);
+    if (!cs) { if (err) *err = "unresolved class '" + className + "'"; return {}; }
+    int cursor = 0;
+    if (!cs->parent.empty()) {
+        cursor = ComputeSize(cs->parent, err);
+        if (cursor < 0) return {};
+    }
+    std::vector<int> offsets;
+    offsets.reserve(cs->fields.size());
     for (const Field& f : cs->fields) {
+        if (f.kind == FieldKind::Pad) cursor = alignUp(cursor, f.count);
+        offsets.push_back(cursor);
+        if (f.kind != FieldKind::Pad && !AdvanceField(f, cursor, err, 0)) return {};
+    }
+    return offsets;
+}
+
+namespace {
+
+/// @brief hkClassMember::Type ordinals (Havok 2010.2).
+enum : std::uint8_t {
+    kTypeBool = 1, kTypeInt8 = 3, kTypeUInt8 = 4, kTypeInt16 = 5, kTypeUInt16 = 6, kTypeInt32 = 7, kTypeUInt32 = 8,
+    kTypeInt64 = 9, kTypeUInt64 = 10, kTypeReal = 11, kTypeVector4 = 12, kTypeQuaternion = 13, kTypeQsTransform = 16,
+    kTypeZero = 19, kTypePointer = 20, kTypeArray = 22, kTypeEnum = 24, kTypeStruct = 25, kTypeCString = 29,
+    kTypeULong = 30, kTypeFlags = 31, kTypeHalf = 32, kTypeStringPtr = 33,
+};
+constexpr std::uint16_t kSerializeIgnored = 0x400;
+
+std::uint8_t ScalarType(Scalar s) {
+    switch (s) {
+        case Scalar::Int8:   return kTypeInt8;
+        case Scalar::Byte:   return kTypeUInt8;
+        case Scalar::Int16:  return kTypeInt16;
+        case Scalar::UInt16: return kTypeUInt16;
+        case Scalar::Int32:  return kTypeInt32;
+        case Scalar::UInt32: return kTypeUInt32;
+        case Scalar::Int64:  return kTypeInt64;
+        case Scalar::UInt64: return kTypeUInt64;
+        case Scalar::Float:  return kTypeReal;
+        case Scalar::Half:   return kTypeHalf;
+        case Scalar::Bool:   return kTypeBool;
+    }
+    return 0;
+}
+
+/// @brief One field as the hkClassMember the engine hashes.
+struct ReflectedMember {
+    std::uint8_t   type = 0, subtype = 0;
+    std::int16_t   cArraySize = 0;
+    std::uint16_t  flags = 0;
+    std::string    structClass;    ///< an inline struct (or array of them): its class chain is hashed before the name
+    std::string    enumName;       ///< the member's enum, hashed before the name
+};
+
+/// @return false when `f` is no member at all (vtable slot, padding, skip, metadata text).
+bool Reflect(const Field& f, ReflectedMember& m) {
+    m = ReflectedMember{};
+    m.flags = f.ignored ? kSerializeIgnored : 0;
+    if (f.count > 1) m.cArraySize = static_cast<std::int16_t>(f.count);
+    switch (f.kind) {
+        case FieldKind::Scalar:
+            m.type = ScalarType(f.scalar);
+            if (!f.enumName.empty()) { m.subtype = m.type; m.type = f.isFlags ? kTypeFlags : kTypeEnum; m.enumName = f.enumName; }
+            break;
+        case FieldKind::String:           m.type = kTypeStringPtr; break;
+        case FieldKind::CString:          m.type = kTypeCString; break;
+        case FieldKind::Quaternion:       m.type = kTypeQuaternion; break;
+        case FieldKind::Ptr:              m.type = kTypePointer; m.subtype = kTypeStruct; break;
+        case FieldKind::PtrArray:         m.type = kTypeArray; m.subtype = kTypePointer; break;
+        case FieldKind::StructArray:      m.type = kTypeArray; m.subtype = kTypeStruct; m.structClass = f.ref; break;
+        case FieldKind::Struct:           m.type = kTypeStruct; m.structClass = f.ref; break;
+        case FieldKind::Vector4:          m.type = kTypeVector4; break;
+        case FieldKind::QsTransform:      m.type = kTypeQsTransform; break;
+        case FieldKind::Vec4Array:        m.type = kTypeArray; m.subtype = kTypeVector4; break;
+        case FieldKind::QsTransformArray: m.type = kTypeArray; m.subtype = kTypeQsTransform; break;
+        case FieldKind::StringArray:      m.type = kTypeArray; m.subtype = kTypeStringPtr; break;
+        case FieldKind::ScalarArray:      m.type = kTypeArray; m.subtype = ScalarType(f.scalar); break;
+        case FieldKind::BoolArray:        m.type = kTypeBool; m.cArraySize = static_cast<std::int16_t>(f.count); break;
+        case FieldKind::EmptyArray:       m.type = kTypeArray; m.flags = kSerializeIgnored; break;
+        case FieldKind::EmptyPtr:         m.type = kTypePointer; m.flags = kSerializeIgnored; break;
+        default:                          return false;
+    }
+    if (f.hkType == "ulong") { m.type = kTypeULong; m.subtype = 0; }
+    else if (f.hkType == "enum" || f.hkType == "flags") {
+        if (m.type != kTypeEnum && m.type != kTypeFlags) m.subtype = m.type;
+        m.type = f.hkType == "enum" ? kTypeEnum : kTypeFlags;
+    }
+    return true;
+}
+
+/// @brief hkClassMember's per-type storage size (the TypeProperties table), for the scalar storage an ENUM/FLAGS
+///        member's subtype names.
+std::uint16_t StorageSize(std::uint8_t type) {
+    switch (type) {
+        case kTypeBool: case 2: case kTypeInt8: case kTypeUInt8: return 1;
+        case kTypeInt16: case kTypeUInt16: case kTypeHalf: case kTypeFlags: return 2;
+        case kTypeInt32: case kTypeUInt32: case kTypeReal: return 4;
+        case kTypeInt64: case kTypeUInt64: case kTypeULong: return 8;
+        default: return 0xffff;
+    }
+}
+
+void PutU16(std::string& out, std::uint16_t v) { out.push_back(static_cast<char>(v & 0xff)); out.push_back(static_cast<char>(v >> 8)); }
+void PutU32(std::string& out, std::uint32_t v) { PutU16(out, static_cast<std::uint16_t>(v)); PutU16(out, static_cast<std::uint16_t>(v >> 16)); }
+
+void EmitEnum(const EnumDef& en, std::string& out) {
+    out += en.name;
+    for (const EnumItem& it : en.items) { out += it.name; PutU32(out, static_cast<std::uint32_t>(it.value)); }
+    PutU32(out, static_cast<std::uint32_t>(en.items.size()));
+}
+
+}  // namespace
+
+bool SchemaRegistry::EmitSignatureOwn(const ClassSchema& cs, std::string& out, std::vector<const ClassSchema*>& touched,
+                                      std::string* err, int depth) const {
+    PutU32(out, static_cast<std::uint32_t>(cs.interfaces));
+    for (const std::string& name : cs.enums) {
+        const EnumDef* en = FindEnum(name);
+        if (!en) { if (err) *err = "'" + cs.name + "' declares unknown enum '" + name + "'"; return false; }
+        EmitEnum(*en, out);
+    }
+    PutU32(out, static_cast<std::uint32_t>(cs.enums.size()));
+    std::uint32_t members = 0;
+    for (const Field& f : cs.fields) {
+        ReflectedMember m;
+        if (!Reflect(f, m)) continue;
+        if (f.name.empty()) { if (err) *err = "'" + cs.name + "' has an unnamed reflected member (give it a `name:`)"; return false; }
+        ++members;
+        if (!m.structClass.empty()) {
+            const ClassSchema* sc = Find(m.structClass);
+            if (!sc) { if (err) *err = "'" + cs.name + "." + f.name + "' references unknown class '" + m.structClass + "'"; return false; }
+            if (!EmitSignatureChain(sc, out, touched, err, depth + 1)) return false;
+        }
+        if (!m.enumName.empty()) {
+            const EnumDef* en = FindEnum(m.enumName);
+            if (!en) { if (err) *err = "'" + cs.name + "." + f.name + "' references unknown enum '" + m.enumName + "'"; return false; }
+            EmitEnum(*en, out);
+        }
+        std::uint16_t typeWord = m.type, subWord = m.subtype, extra = 0, flagsWord = m.flags;
+        if (m.type == kTypeEnum || m.type == kTypeFlags) {
+            flagsWord = static_cast<std::uint16_t>(flagsWord ^ (StorageSize(m.subtype) << 3));
+            subWord   = 0;
+        }
+        if (flagsWord & kSerializeIgnored) {
+            flagsWord ^= kSerializeIgnored;
+            extra    = subWord;
+            typeWord = kTypeZero;
+            subWord  = m.type;
+        }
+        out += f.name;
+        PutU16(out, typeWord);
+        PutU16(out, subWord);
+        if (extra) PutU16(out, extra);
+        PutU16(out, static_cast<std::uint16_t>(m.cArraySize));
+        PutU16(out, flagsWord);
+    }
+    PutU32(out, members);
+    return true;
+}
+
+bool SchemaRegistry::EmitSignatureChain(const ClassSchema* cs, std::string& out, std::vector<const ClassSchema*>& touched,
+                                        std::string* err, int depth) const {
+    for (; cs; ++depth) {
+        if (depth > 256) { if (err) *err = "signature recursion too deep (cyclic parent/struct ref?) at '" + cs->name + "'"; return false; }
+        touched.push_back(cs);
+        if (!EmitSignatureOwn(*cs, out, touched, err, depth)) return false;
+        if (cs->parent.empty()) break;
+        const ClassSchema* parent = Find(cs->parent);
+        if (!parent) { if (err) *err = "unresolved parent '" + cs->parent + "' of '" + cs->name + "'"; return false; }
+        cs = parent;
+    }
+    return true;
+}
+
+bool SchemaRegistry::ComputeSignature(const std::string& className, std::uint32_t& out, std::string* err) const {
+    const ClassSchema* cs = Find(className);
+    if (!cs) { if (err) *err = "unresolved class '" + className + "'"; return false; }
+    std::string                     bytes;
+    std::vector<const ClassSchema*> touched;
+    if (!EmitSignatureChain(cs, bytes, touched, err, 0)) return false;
+    out = static_cast<std::uint32_t>(mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size()));
+    for (const ClassSchema* t : touched) {
+        if (t == cs || t->signature == 0) continue;
+        std::string                     tb;
+        std::vector<const ClassSchema*> tt;
+        if (!EmitSignatureChain(t, tb, tt, err, 0)) return false;
+        const auto ts = static_cast<std::uint32_t>(mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(tb.data()), tb.size()));
+        if (ts != t->signature) {
+            if (err) {
+                char buf[96];
+                std::snprintf(buf, sizeof buf, "computes 0x%08x, stores 0x%08x", ts, t->signature);
+                *err = "'" + t->name + "' (in '" + className + "''s signature) " + buf + ": its descriptor does not carry its full reflection";
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SchemaRegistry::AdvanceField(const Field& f, int& cursor, std::string* err, int depth) const {
+    {
         const int n = f.count > 0 ? f.count : 1;   // fixed inline repeat (std::array<T,N>); default 1
         switch (f.kind) {
             case FieldKind::Vtable:     cursor += 8; break;
@@ -484,15 +716,16 @@ int SchemaRegistry::ComputeSize(const std::string& className, std::string* err, 
             case FieldKind::BoolArray:  cursor += f.count; break;
             case FieldKind::Struct: {
                 const int inner = ComputeSize(f.ref, err, depth + 1);
-                if (inner < 0) return -1;
+                if (inner < 0) return false;
                 cursor += inner;
                 break;
             }
             case FieldKind::Pad:  cursor = alignUp(cursor, f.count); break;
             case FieldKind::Skip: cursor += f.count; break;
+            default:              break;
         }
     }
-    return cursor;
+    return true;
 }
 
 } // namespace CB::engine::schema

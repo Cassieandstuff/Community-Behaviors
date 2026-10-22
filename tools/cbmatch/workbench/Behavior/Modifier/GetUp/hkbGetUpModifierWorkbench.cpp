@@ -1,7 +1,7 @@
 /// @file
 /// @brief Workbench: the functions of hkbGetUpModifier.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Modifier/GetUp/hkbGetUpModifier.cpp.
+///        havok/Behavior/Modifier/GetUp/hkbGetUpModifier.cpp.
 #include <Behavior/Modifier/GetUp/hkbGetUpModifier.h>
 #include <Animation/Mapper/hkaSkeletonMapper.h>
 #include <Animation/Ragdoll/Instance/hkaRagdollInstance.h>
@@ -12,7 +12,7 @@
 #include <Behavior/Utils/hkbRotationUtils.h>
 #include <Common/Base/Container/LocalArray/hkLocalBuffer.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @note The first modify after activate snaps the world-from-model to the ragdoll: the reference frame of the
     ///       three bones in the animation pose (mapped onto the ragdoll skeleton) against the ragdoll's own pose. Every

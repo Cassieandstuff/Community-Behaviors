@@ -1,0 +1,5 @@
+id: 0000x0002
+class: hkbBehaviorReferenceGenerator
+userData: 0
+name: 'MotionMatchingBFR'
+behaviorName: 'Behaviors\MotionMatching.hkx'

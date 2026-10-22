@@ -8,8 +8,10 @@
 #include "interface/AnimationData.h"   // animdata::MotionRecord
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CB::engine::anim {
@@ -92,6 +94,35 @@ struct AnimationDef {
     ///        actor motion: traps, chair exits). Never extracted. Absent `motion` (and not this) = the root carries the
     ///        actor motion, extracted at compile (RootMotion's ResolveRootMotion).
     bool rootMotionVisual = false;
+
+    /// @brief `motionTarget:` — where the root motion goes, beside `motion` (where it comes from).
+    /// @note  animationData (absent): the animation data file carries it and Havok moves the actor by it.
+    ///        motionMatching: CB's motion matching measures it from the clip and the controller moves the actor, so the
+    ///        animation data gets no record for the clip. Either way the compile strips the travel from the pose.
+    enum class MotionTarget { AnimationData, MotionMatching };
+    MotionTarget motionTarget = MotionTarget::AnimationData;
+
+    /// @brief `preload: true` — the animation is loaded with its project, not when a clip first plays it: the animation
+    ///        data file lists it in every project whose roster holds it, as vanilla lists an object's animations (a
+    ///        door's open/close, a cave worm's four) beside keeping them rostered.
+    /// @note  For animations that must play the moment they are asked for (an object's, as vanilla does it): a rostered
+    ///        clip otherwise streams its file in when it activates. Unused by motion matching, whose generator keeps every
+    ///        clip active instead.
+    /// @warning Listing many in one project holds that project's actors back: with 252 listed in each humanoid project,
+    ///          every humanoid (guards too) started invisible until it moved, and unlisting them fixed it (2026-10-21).
+    bool preload = false;
+
+    /// @brief `entry:` — where motion matching may cut into the clip. anywhere (absent): any frame. changes: only a frame
+    ///        tagged Accelerate or Decelerate; a cut that landed there still plays on through what follows.
+    /// @note  Why: in a long transition take (run-to-sprint and back), the steady stretches between the changes matched a
+    ///        steady run as well as a run did, and 49 of 79 transition-take picks in one session landed on them.
+    enum class Entry { Anywhere, Changes };
+    Entry entry = Entry::Anywhere;
+
+    /// @brief `tags:` — the motion-matching tags: each name's `[start, end)` frame ranges. Authored-YAML only (no Havok
+    ///        field carries them, so a decompiled clip has none); written by the build's injection (hky-tool assemble).
+    /// @note  nullopt = no `tags:` key; an empty map = the key with no tags. Names are compared byte-exact.
+    std::optional<std::map<std::string, std::vector<std::pair<int, int>>>> tags;
 };
 
 } // namespace CB::engine::anim

@@ -40,8 +40,7 @@ function(cb_stage_schema)
         set(S_COMMENT "Staging schema/ -> ${S_DEST}")
     endif()
 
-    # Entry by entry so an excluded top-level folder is never copied at all; CopySchemaData leaves C++ sources
-    # (schema/Havok's reimplemented runtime) out of what ships.
+    # Entry by entry so an excluded top-level folder is never copied at all; CopySchemaData leaves any C++ source out.
     file(GLOB _entries CONFIGURE_DEPENDS LIST_DIRECTORIES true "${CB_SCHEMA_SOURCE_DIR}/*")
     set(_copy "")
     foreach(_e IN LISTS _entries)

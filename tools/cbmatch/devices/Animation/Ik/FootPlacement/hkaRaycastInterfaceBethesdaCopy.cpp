@@ -6,7 +6,7 @@
 ///       (`mov [rsp+0x20], -2`) and the call-site nops.
 #include <Animation/Ik/FootPlacement/hkaRaycastInterface.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @brief Instantiates the vtable, which brings the deleting destructor into this unit.
     hkaRaycastInterface* hkaRaycastInterfaceBethesdaCopy_instantiate()

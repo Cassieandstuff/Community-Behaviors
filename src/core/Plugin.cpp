@@ -11,11 +11,15 @@
 #include "core/bootstrap/ProgressHud.h"
 #include "core/bootstrap/ProgressOverlay.h"
 #include "core/bootstrap/sequencer/CompileSequencer.h"   // CB::core::bootstrap::ThreadPool — parallel native-anim compile
+#include "core/resolve/LoadOrderReader.h"
 #include "core/resolve/Resolver.h"
 
-#include <core/hooks/points/HookPoint.h>
-#include <core/hooks/registry/Registry.h>
-#include <core/hooks/takeover/Takeover.h>
+#include <platform/classes/ClassRegistry.h>
+#include <platform/hooks/Chain.h>
+#include <platform/hooks/registry/Registry.h>
+#include <platform/hooks/takeover/SchemaShim.h>
+#include <platform/hooks/takeover/Takeover.h>
+#include <platform/profile/Profile.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
@@ -130,9 +134,12 @@ namespace CB {
         const std::size_t graphCount = g_resolver.SourceCount();
         const auto        t0         = std::chrono::steady_clock::now();
         /// @note The graphs PlanIncremental kept (ArmThread, before the adsf) are skipped here and in the materialize.
-        g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
-            CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
-        });
+        {
+            CB_ZONE(zone, "warm-up: compile graphs");
+            g_resolver.CompileAll([grandTotal](std::size_t done, std::size_t /*graphTotal*/) {
+                CB::core::bootstrap::SetProgress(done, grandTotal, true);   // denominator = grand total
+            });
+        }
         // (The character animationNames roster is a union roster: the merge unions every layer's names at
         // compile time, so there is no runtime roster-completion pass between compile and disk write.)
         // Write every compiled graph to the consolidated cache (<Data>\Meshes\community_behaviors_cache\...)
@@ -151,8 +158,11 @@ namespace CB {
                                          grandTotal, true);
         };
         AnimParallel animPar;   // parallel native-anim compile unless sequencer.disable; serial otherwise
-        const std::size_t wrote = g_resolver.MaterializeCacheToDisk(
-            std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
+        std::size_t  wrote = 0;
+        {
+            CB_ZONE(zone, "warm-up: materialize + animations");
+            wrote = g_resolver.MaterializeCacheToDisk(std::filesystem::current_path() / "Data", nullptr, animPar.ptr(), &onAnimUnit);
+        }
         const double secs = std::chrono::duration<double>(
                                 std::chrono::steady_clock::now() - t0).count();
         CB::core::bootstrap::SetProgress(grandTotal, grandTotal, false);
@@ -301,6 +311,14 @@ namespace CB {
         return 0;
     }
 
+    /// @brief Hand runtime features the resolved load order (core::resolve::LoadOrderReader), once Init is ready.
+    static void ArmLoadOrder()
+    {
+        CB::core::resolve::ArmLoadOrderReader({
+            [](const std::string& key, CB::engine::decompile::ParsedHky& out) { return g_resolver.MergedGraph(key, out); },
+            [](std::string_view path) { return g_resolver.NativeAnimationText(path); } });
+    }
+
     static unsigned __stdcall ArmThread(void*)
     {
         t_compileGateInProgress = true;   // this worker is immune to a re-entrant compile-gate call
@@ -314,21 +332,40 @@ namespace CB {
             // This only touches on-disk files + the redirect atomics — no resolver state — so it runs
             // BEFORE WaitReady() and lets the adsf open through in ms. Only a partial cache falls back to
             // the derive path (which needs the scan → after WaitReady, below).
-            const bool adsfFromCache = ArmAdsfSetDataFromCache();
+            bool adsfFromCache = false;
+            {
+                CB_ZONE(zone, "warm-up: adsf/setdata from cache");
+                adsfFromCache = ArmAdsfSetDataFromCache();
+            }
             if (adsfFromCache) SignalAdsfArmed();
 
-            g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
+            {
+                CB_ZONE(zone, "warm-up: wait for init");
+                g_resolver.WaitReady();   // graphs need Init; the bar is already up over the live menu
+            }
             if (g_resolver.Failed()) return StandDown();
+            ArmLoadOrder();
 
             // Native anims are loose (not in the reused graph cache) so ArmCacheFromDisk recompiles them;
             // give it the same optional parallel executor. Sets m_redirectReady when done (materialize).
             AnimParallel animPar;
-            g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());
-            if (!adsfFromCache) { ArmAdsfSetDataServe(animPar.ptr()); SignalAdsfArmed(); }
+            {
+                CB_ZONE(zone, "warm-up: arm cache from disk");
+                g_resolver.ArmCacheFromDisk(dataAbs, animPar.ptr());
+            }
+            if (!adsfFromCache) {
+                CB_ZONE(zone, "warm-up: adsf/setdata projection");
+                ArmAdsfSetDataServe(animPar.ptr());
+                SignalAdsfArmed();
+            }
             CB::core::bootstrap::SetProgress(0, 0, false);   // work done — retire the bar
         } else {
-            g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
+            {
+                CB_ZONE(zone, "warm-up: wait for init");
+                g_resolver.WaitReady();   // cold: adsf derive + graph compile both need the scan
+            }
             if (g_resolver.Failed()) return StandDown();
+            ArmLoadOrder();
 
             const std::size_t graphCount = g_resolver.SourceCount();
             const std::size_t animCount  = g_resolver.NativeAnimCount();
@@ -338,13 +375,17 @@ namespace CB {
             /// @note Keep every graph whose own inputs are unchanged since the last complete cache, and the cached
             ///       adsf/asdsf when none of THEIR inputs changed; a forced regen keeps nothing.
             const bool keep = !CB::core::debug::FlagOn("force_regenerate");
-            if (keep) g_resolver.PlanIncremental(dataAbs);
+            if (keep) {
+                CB_ZONE(zone, "warm-up: plan incremental");
+                g_resolver.PlanIncremental(dataAbs);
+            }
 
             // adsf is independent of the graph compile → arm + signal NOW so the adsf open unblocks, then
             // compile the graphs in the background (bar rides the live menu).
             if (keep && g_resolver.AnimDataReusable(dataAbs) && ArmAdsfSetDataFromCache()) {
                 g_resolver.SetAnimDataComplete(true);
             } else {
+                CB_ZONE(zone, "warm-up: adsf/setdata projection");
                 AnimParallel adsfPar("the adsf projection parses animations");
                 ArmAdsfSetDataServe(adsfPar.ptr());
             }
@@ -413,6 +454,7 @@ namespace CB {
     // 64MB stack — the skeleton compile. Finishes during the intro, before the first owned open.
     static unsigned __stdcall InitThread(void*)
     {
+        CB_ZONE(zone, "warm-up: init (bundles, scan, skeletons)");
         ApplySchemaCompilerSetting();   // configures SharedRegistry's dir — MUST precede Init's compile
         /// @note CachePresent runs even when a regen is forced: its first call fixes this launch's cache key (the inputs
         ///       as found now, before anything compiles).
@@ -452,7 +494,13 @@ namespace CB {
             // DebugOverlay needs kDataLoaded timing (SMF isn't up at plugin load).
             CB::core::debug::InstallTrace();   // arm [Debug] bRuntimeTrace before the present hook is live
             CB::core::debug::Install();         // DebugOverlay SMF HUD element + menu toggle
-            CB::core::hooks::RecheckTakeover(); // every plugin has hooked by now: hand back what they patched
+            CB::platform::hooks::RecheckTakeover(); // every plugin has hooked by now: hand back what they patched
+            /// @note CB's own Havok classes, before any behavior loads (the first actor graph loads after the menu).
+            if (const auto* schema = CB::engine::schema::SharedRegistry())
+                CB::platform::classes::RegisterAll(*schema);
+            else
+                LOG_ERROR("classes: no schema registry ({}) - CB's own classes are not registered",
+                          CB::engine::schema::SharedRegistryError());
         }
     }
 
@@ -465,11 +513,14 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::g_mainThreadId = ::GetCurrentThreadId();   // main thread — for the compile-gate thread diagnostic
     LOG_INFO("Community Behaviors v{} loading — runtime behavior compiler.",
              SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."));
-    CB::core::hooks::engine::LogAvailability();
+    /// @note Before any hook or thread of CB's: every zone after this sees the profiler's real state.
+    CB::platform::profile::Start();
+    CB::platform::hooks::engine::LogAvailability();
+    CB::platform::hooks::InstallSchemaShim();
 
     // The Havok runtime takeover goes FIRST, before any of CB's own hooks: those (and every later plugin's) then layer
     // on top of its entry jumps rather than being bypassed by them.
-    CB::core::hooks::InstallTakeover();
+    CB::platform::hooks::InstallTakeover();
 
     // Behavior + character + project DELIVERY is BYTE-SUBSTITUTION (ByteServe): MinHook the
     // BSResourceAssetLoader::Func3 typed-hkx resolver (FUN_140ba88b0) and swap each owned vanilla
@@ -482,7 +533,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     //
     // The set-data / anim-data file-open detours are a different, OAR-independent layer (they hook
     // the low-level open call site, below OAR) and stay. One shared trampoline covers them; 2KB is
-    // ample for the handful of write_call nodes. (ByteServe uses MinHook, not the trampoline.)
+    // ample for the handful of write_call nodes (CallSite); Override entry detours use MinHook.
     SKSE::AllocTrampoline(1u << 11);
     CB::core::serve::InstallSetDataHook();
     CB::core::serve::InstallAnimDataHook();
@@ -501,10 +552,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
         CB::core::conditions::InstallConditionHooks();
     }
 
-    // Every hook-point subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
+    // Every hook subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
     // AsdsfOpen / AdsfOpen; serve::Install → ResolveTypedHkx; the condition layer → the setdata producer +
-    // matcher, only when enabled): install the subscribed seams once and close subscription.
-    CB::core::hooks::InstallAll();
+    // matcher, only when enabled; features and ProgressHud at static init): attach every subscribed hook once
+    // (a takeover cell where the image owns the function, else an entry or call detour) and close subscription.
+    CB::platform::hooks::InstallAll();
 
     // Animdata cache form: COLLATED is the only supported path — it serves
     // community_behaviors_cache/animationdatasinglefile.txt and the engine reads clips AND motion from

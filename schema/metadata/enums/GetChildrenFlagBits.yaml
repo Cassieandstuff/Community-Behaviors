@@ -1,0 +1,8 @@
+# hkbNode::GetChildrenFlagBits, read from the AE 1.6.1170 class record (hkbNode declares it; no member uses it).
+# Item names/values are CASE-SENSITIVE and feed the class signature CRC.
+name:  GetChildrenFlagBits
+flags: true
+items:
+  - { name: FLAG_ACTIVE_ONLY                 , value: 1 }
+  - { name: FLAG_GENERATORS_ONLY             , value: 2 }
+  - { name: FLAG_IGNORE_REFERENCED_BEHAVIORS , value: 4 }

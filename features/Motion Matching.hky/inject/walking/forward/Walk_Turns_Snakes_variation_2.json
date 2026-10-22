@@ -1,0 +1,16 @@
+{
+  "targets": [
+    {
+      "path": "meshes/actors/character/animations/MotionMatching/walking/forward/Walk_Turns_Snakes_variation_2.hkx",
+      "field": "tags",
+      "values": {
+        "Walk": [[0, 297]],
+        "Forward": [[0, 297]],
+        "TurnLeft": [[18, 38], [69, 90], [143, 164], [240, 261]],
+        "TurnRight": [[42, 62], [103, 124], [189, 210]],
+        "LeftPlant": [[8, 21], [43, 57], [75, 90], [108, 121], [141, 148], [166, 181], [198, 211], [231, 243], [262, 278]],
+        "RightPlant": [[0, 6], [24, 39], [58, 72], [93, 106], [123, 139], [152, 163], [183, 196], [214, 229], [246, 260], [281, 296]]
+      }
+    }
+  ]
+}

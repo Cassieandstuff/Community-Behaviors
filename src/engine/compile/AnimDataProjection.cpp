@@ -54,6 +54,7 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
         ///       animation any clip plays so the caller can load them all in parallel before phase 2 reads them.
         struct Pending {
             std::string                  actorRoot;
+            std::vector<std::string>     roster;        ///< each slot as the roster spells it (project-relative, original case)
             std::vector<std::string>     rosterCanon;   ///< each slot's own file (canonical path)
             std::vector<std::string>     rosterKeys;    ///< each slot's ClipSlotKey
             std::unordered_map<std::string, int> slot;  ///< ClipSlotKey -> first slot (a duplicate binds its first)
@@ -77,6 +78,7 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
             Pending p;
             p.actorRoot = actorRoot;
             for (const auto& a : src.roster(charKey)) {
+                p.roster.push_back(a);
                 p.rosterCanon.push_back(CanonicalAnimPath(actorRoot, a));
                 p.rosterKeys.push_back(ClipSlotKey(a));
                 p.slot.emplace(p.rosterKeys.back(), static_cast<int>(p.rosterKeys.size()) - 1);
@@ -153,7 +155,9 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
                 }
                 for (const int i : referenced) {
                     const auto* def = src.animation(p.rosterCanon[static_cast<std::size_t>(i)]);
-                    if (!def || !def->motion) continue;
+                    /// @note A motionMatching clip's motion goes to CB's motion matching, never here: its per-frame
+                    ///       samples once took defaultmale's frame B to 184228 lines, past the engine's 65535-line read.
+                    if (!def || !def->motion || def->motionTarget == CB::engine::anim::AnimationDef::MotionTarget::MotionMatching) continue;
                     auto mo = Make(reg, "AnimDataMotion");
                     mo->FieldRef("animIndex").str    = std::to_string(i);
                     mo->FieldRef("duration").str     = def->motion->duration;
@@ -161,7 +165,20 @@ std::shared_ptr<CB::engine::codec::io::SchemaObject> ProjectAnimData(const CB::e
                     mo->FieldRef("rotations").strs    = def->motion->rotations;
                     po->FieldRef("motions").objs.push_back(mo);
                 }
+                /// @note A preload animation one of the project's clips plays joins its file list, spelled as the roster
+                ///       spells it, after the vanilla entries; a file the list already names (path identity) is not added again.
+                auto&                 assets = po->FieldRef("assetPaths").strs;
+                std::set<std::string> listed;
+                for (const auto& a : assets) listed.insert(PathKey(a));
+                std::size_t preloads = 0;
+                for (const int i : referenced) {
+                    const auto* def = src.animation(p.rosterCanon[static_cast<std::size_t>(i)]);
+                    if (!def || !def->preload) continue;
+                    const std::string& a = p.roster[static_cast<std::size_t>(i)];
+                    if (listed.insert(PathKey(a)).second) assets.push_back(a), ++preloads;
+                }
                 if (stats) {
+                    stats->preloads += preloads;
                     ++stats->projects;
                     stats->clips += clips.size();
                     stats->motions += po->FieldRef("motions").objs.size();

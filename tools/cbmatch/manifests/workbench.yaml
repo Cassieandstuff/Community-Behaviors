@@ -2,127 +2,127 @@
 #   cbmatch tools/cbmatch/manifests/workbench.yaml --allow-variant --diff 256
 #
 # Informational: failures are expected here (tools/cbmatch/parked.yaml records why each is stuck). A function that
-# passes graduates: its body moves into its schema/Havok unit, brought to the repo's conventions, and its line moves
-# to manifests/schema.yaml, whose gate (--strict) holds only proven code. Workbench units include schema/Havok's
+# passes graduates: its body moves into its havok unit, brought to the repo's conventions, and its line moves
+# to manifests/schema.yaml, whose gate (--strict) holds only proven code. Workbench units include havok's
 # headers; nothing in schema/ ever includes the workbench.
 runtimes:
   ae: { exe: "${CB_SKYRIM_AE_EXE}", addresslib: "${CB_ADDRESSLIB_AE}", pins: ae }
-registry: ../../../src/core/hooks/registry/engine.yaml
+registry: ../../../src/platform/hooks/registry/engine.yaml
 toolchains:
   vs2015: "${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
   # Bethesda's engine code (and the Havok classes it compiled into its own units) is VS2017 15.9 (cl 19.16.27054);
   # every unit tries both and keeps the better result per function.
   vs2017: "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.16.27023/bin/Hostx64/x64/cl.exe"
 flags: [/O2, /Ob1, /GS-, /fp:fast]
-includes: [../../../schema/Havok, "${VS140COMNTOOLS}../../VC/include"]
+includes: [../../../havok, "${VS140COMNTOOLS}../../VC/include"]
 units:
   - source: ../workbench/Behavior/Generator/Clip/hkbClipGeneratorWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbClipGenerator::sampleAnimation", va: 0x140ad0730 }
+      - { name: "CB::havok::hkbClipGenerator::sampleAnimation", va: 0x140ad0730 }
   - source: ../workbench/Behavior/Generator/Clip/hkbClipGeneratorSecondUnitWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbClipGenerator::getInternalState", va: 0x140b03110 }
-      - { name: "CB::schema::hkbClipGenerator::setInternalState", va: 0x140b03250 }
+      - { name: "CB::havok::hkbClipGenerator::getInternalState", va: 0x140b03110 }
+      - { name: "CB::havok::hkbClipGenerator::setInternalState", va: 0x140b03250 }
   - source: ../workbench/Behavior/Modifier/EvaluateExpression/hkbEvaluateExpressionModifierWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbEvaluateExpressionModifier::setVariable", va: 0x140aeebc0 }
+      - { name: "CB::havok::hkbEvaluateExpressionModifier::setVariable", va: 0x140aeebc0 }
   - source: ../workbench/Behavior/Generator/Blender/hkbBlenderGeneratorWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbBlenderGenerator::updateSync", va: 0x140ae7a80 }
-      - { name: "CB::schema::hkbBlenderGenerator::setChildBoneWeight", va: 0x140ae8290 }
+      - { name: "CB::havok::hkbBlenderGenerator::updateSync", va: 0x140ae7a80 }
+      - { name: "CB::havok::hkbBlenderGenerator::setChildBoneWeight", va: 0x140ae8290 }
   - source: ../workbench/Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorUtils.cpp
     functions:
-      - { name: "CB::schema::BSOffsetAnimationGeneratorUtils::applyOffsets", va: 0x140ba0fb0 }
-  - source: ../../../schema/Havok/Behavior/Modifier/BSLookAt/BSLookAtModifierUtils.cpp
+      - { name: "CB::havok::BSOffsetAnimationGeneratorUtils::applyOffsets", va: 0x140ba0fb0 }
+  - source: ../../../havok/Behavior/Modifier/BSLookAt/BSLookAtModifierUtils.cpp
     functions:
-      - { name: "CB::schema::BSLookAtModifierUtils::modifyBone", va: 0x140ba2ba0 }
+      - { name: "CB::havok::BSLookAtModifierUtils::modifyBone", va: 0x140ba2ba0 }
   - source: ../workbench/Behavior/Modifier/BSLimbIK/BSLimbIKModifierWorkbench.cpp
     functions:
-      - { name: "CB::schema::BSLimbIKModifier::modify", va: 0x140b9bf10 }
-  - source: ../../../schema/Havok/Behavior/Modifier/BSDirectAt/BSDirectAtModifierUtils.cpp
+      - { name: "CB::havok::BSLimbIKModifier::modify", va: 0x140b9bf10 }
+  - source: ../../../havok/Behavior/Modifier/BSDirectAt/BSDirectAtModifierUtils.cpp
     functions:
-      - { name: "CB::schema::BSDirectAtModifierUtils::modifyInternal", va: 0x140ba1200 }
-  - source: ../../../schema/Havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifier.cpp
+      - { name: "CB::havok::BSDirectAtModifierUtils::modifyInternal", va: 0x140ba1200 }
+  - source: ../../../havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifier.cpp
     functions:
-      - { name: "??0hkbKeyframeBonesModifier@schema@CB@@QEAA@AEBV012@@Z", va: 0x140afbb10 }
-  - source: ../../../schema/Havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifierUtils.cpp
+      - { name: "??0hkbKeyframeBonesModifier@havok@CB@@QEAA@AEBV012@@Z", va: 0x140afbb10 }
+  - source: ../../../havok/Behavior/Modifier/KeyframeBones/hkbKeyframeBonesModifierUtils.cpp
     functions:
-      - { name: "CB::schema::hkbKeyframeBonesModifierUtils::modify", va: 0x140b0e830 }
+      - { name: "CB::havok::hkbKeyframeBonesModifierUtils::modify", va: 0x140b0e830 }
   - source: ../workbench/Behavior/StateMachine/hkbStateMachineWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbStateMachine::update", va: 0x140ad82c0 }
-      - { name: "CB::schema::hkbStateMachine::getMaxNumChildren", va: 0x140ad8620 }
+      - { name: "CB::havok::hkbStateMachine::update", va: 0x140ad82c0 }
+      - { name: "CB::havok::hkbStateMachine::getMaxNumChildren", va: 0x140ad8620 }
   - source: ../workbench/Behavior/StateMachine/hkbStateMachineSecondUnitWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbStateMachine::getInternalState", va: 0x140b03960 }
-      - { name: "CB::schema::hkbStateMachine::setInternalState", va: 0x140b03ce0 }
+      - { name: "CB::havok::hkbStateMachine::getInternalState", va: 0x140b03960 }
+      - { name: "CB::havok::hkbStateMachine::setInternalState", va: 0x140b03ce0 }
   - source: ../workbench/Behavior/Modifier/GetUp/hkbGetUpModifierWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbGetUpModifier::modify", va: 0x140af5cc0 }
+      - { name: "CB::havok::hkbGetUpModifier::modify", va: 0x140af5cc0 }
   - source: ../workbench/Behavior/Modifier/CharacterController/hkbCharacterControllerModifierWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbCharacterControllerModifier::modify", va: 0x140aebdb0 }
+      - { name: "CB::havok::hkbCharacterControllerModifier::modify", va: 0x140aebdb0 }
   - source: ../workbench/Behavior/Modifier/Proxy/hkbProxyModifierWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbProxyModifier::computeDesiredVelocity", va: 0x140afadc0 }
+      - { name: "CB::havok::hkbProxyModifier::computeDesiredVelocity", va: 0x140afadc0 }
   - source: ../workbench/Animation/Animation/Interleaved/hkaInterleavedUncompressedAnimationWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkaInterleavedUncompressedAnimation::transformTrack", va: 0x140c30210 }
-      - { name: "CB::schema::hkaInterleavedUncompressedAnimation::getDataChunks", va: 0x140c303d0 }
-      - { name: "CB::schema::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks", va: 0x140c30480 }
+      - { name: "CB::havok::hkaInterleavedUncompressedAnimation::transformTrack", va: 0x140c30210 }
+      - { name: "CB::havok::hkaInterleavedUncompressedAnimation::getDataChunks", va: 0x140c303d0 }
+      - { name: "CB::havok::hkaInterleavedUncompressedAnimation::samplePartialWithDataChunks", va: 0x140c30480 }
   - source: ../workbench/Animation/Animation/Quantized/hkaQuantizedAnimationWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkaQuantizedAnimation::sampleFrames", va: 0x140c31770 }
+      - { name: "CB::havok::hkaQuantizedAnimation::sampleFrames", va: 0x140c31770 }
   - source: ../workbench/Animation/Animation/SplineCompressed/hkaSplineCompressedAnimationWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkaSplineCompressedAnimation::samplePartialWithDataChunks", va: 0x140c32b60 }
-      - { name: "CB::schema::hkaSplineCompressedAnimation::readKnots", va: 0x140c33810 }
+      - { name: "CB::havok::hkaSplineCompressedAnimation::samplePartialWithDataChunks", va: 0x140c32b60 }
+      - { name: "CB::havok::hkaSplineCompressedAnimation::readKnots", va: 0x140c33810 }
   - source: ../workbench/Behavior/Modifier/FootIk/hkbFootIkModifierWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbFootIkModifier::modify", va: 0x140af12a0 }
-      - { name: "CB::schema::hkbFootIkModifier::orientHips", va: 0x140af3230 }
-      - { name: "CB::schema::hkbFootIkModifier::computeGroundNormal", va: 0x140af3a80 }
-      - { name: "CB::schema::hkbFootIkModifier::fitPlane", va: 0x140af4870 }
+      - { name: "CB::havok::hkbFootIkModifier::modify", va: 0x140af12a0 }
+      - { name: "CB::havok::hkbFootIkModifier::orientHips", va: 0x140af3230 }
+      - { name: "CB::havok::hkbFootIkModifier::computeGroundNormal", va: 0x140af3a80 }
+      - { name: "CB::havok::hkbFootIkModifier::fitPlane", va: 0x140af4870 }
   - source: ../workbench/Behavior/Modifier/HandIk/hkbHandIkModifierWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkbHandIkModifier::modify", va: 0x140af7730 }
+      - { name: "CB::havok::hkbHandIkModifier::modify", va: 0x140af7730 }
   - source: ../workbench/Animation/Ragdoll/Instance/hkaRagdollInstanceWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkaRagdollInstance::getPoseModelSpace", va: 0x140bd75f0 }
-      - { name: "CB::schema::hkaRagdollInstance::setPoseModelSpaceKeyframed", va: 0x140bd7b00 }
-  - source: ../../../schema/Havok/Animation/Ik/FootPlacement/hkaFootPlacementIkSolver.cpp
+      - { name: "CB::havok::hkaRagdollInstance::getPoseModelSpace", va: 0x140bd75f0 }
+      - { name: "CB::havok::hkaRagdollInstance::setPoseModelSpaceKeyframed", va: 0x140bd7b00 }
+  - source: ../../../havok/Animation/Ik/FootPlacement/hkaFootPlacementIkSolver.cpp
     functions:
-      - { name: "??0hkaFootPlacementIkSolver@schema@CB@@QEAA@AEBUSetup@012@@Z", va: 0x140a83970 }
+      - { name: "??0hkaFootPlacementIkSolver@havok@CB@@QEAA@AEBUSetup@012@@Z", va: 0x140a83970 }
   - source: ../workbench/Physics/Utilities/CharacterControl/CharacterRigidBody/hkpCharacterRigidBodyWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkpCharacterRigidBody::getSupportInfo", va: 0x140b7c0d0 }
+      - { name: "CB::havok::hkpCharacterRigidBody::getSupportInfo", va: 0x140b7c0d0 }
   - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharRigidBodyControllerWorkbench.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "CB::schema::bhkCharRigidBodyController::characterCallback", va: 0x140ed30c0 }
+      - { name: "CB::havok::bhkCharRigidBodyController::characterCallback", va: 0x140ed30c0 }
   - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterStateOnGroundWorkbench.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "CB::schema::bhkCharacterStateOnGround::Simulate", va: 0x140f02550 }
+      - { name: "CB::havok::bhkCharacterStateOnGround::Simulate", va: 0x140f02550 }
   - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterControllerWorkbench.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "CB::schema::bhkCharacterController::GetFallDistance", va: 0x140e9eec0 }
-      - { name: "CB::schema::bhkCharacterController::TryStep", va: 0x140ea22e0 }
+      - { name: "CB::havok::bhkCharacterController::GetFallDistance", va: 0x140e9eec0 }
+      - { name: "CB::havok::bhkCharacterController::TryStep", va: 0x140ea22e0 }
   - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyControllerWorkbench.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "??1bhkCharProxyController@schema@CB@@UEAA@XZ", va: 0x140ed08d0 }
-      - { name: "CB::schema::bhkCharProxyController::GetControllers", va: 0x140ed16b0 }
-  - source: ../../../schema/Havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.cpp
+      - { name: "??1bhkCharProxyController@havok@CB@@UEAA@XZ", va: 0x140ed08d0 }
+      - { name: "CB::havok::bhkCharProxyController::GetControllers", va: 0x140ed16b0 }
+  - source: ../../../havok/Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "??0bhkCharProxyController@schema@CB@@QEAA@AEAVbhkCharProxyControllerCinfo@12@@Z", va: 0x140ed0700 }
-      - { name: "CB::schema::bhkCharProxyController::Init", va: 0x140ed1880 }
+      - { name: "??0bhkCharProxyController@havok@CB@@QEAA@AEAVbhkCharProxyControllerCinfo@12@@Z", va: 0x140ed0700 }
+      - { name: "CB::havok::bhkCharProxyController::Init", va: 0x140ed1880 }
   - source: ../workbench/Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxyWorkbench.cpp
     functions:
-      - { name: "CB::schema::hkpCharacterProxy::removeCharacterProxyListener", va: 0x140b81a50 }
+      - { name: "CB::havok::hkpCharacterProxy::removeCharacterProxyListener", va: 0x140b81a50 }
   - source: ../workbench/Physics/Utilities/CharacterControl/Bethesda/bhkCharacterControllerUpdateWorkbench.cpp
     flags: [/EHsc, /Ob2]
     functions:
-      - { name: "CB::schema::bhkCharacterController::UpdatePhysics", va: 0x140e9f170 }
+      - { name: "CB::havok::bhkCharacterController::UpdatePhysics", va: 0x140e9f170 }

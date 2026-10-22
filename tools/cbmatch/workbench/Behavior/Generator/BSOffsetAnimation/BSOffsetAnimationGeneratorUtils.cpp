@@ -2,7 +2,7 @@
 /// @brief BSOffsetAnimationGeneratorUtils, reimplemented against vanilla (AE 1.6.1170).
 #include <Behavior/Generator/BSOffsetAnimation/BSOffsetAnimationGeneratorUtils.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     namespace BSOffsetAnimationGeneratorUtils
     {

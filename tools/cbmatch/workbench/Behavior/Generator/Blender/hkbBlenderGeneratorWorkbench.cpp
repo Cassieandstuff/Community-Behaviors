@@ -1,11 +1,11 @@
 /// @file
 /// @brief Workbench: the functions of hkbBlenderGenerator.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Generator/Blender/hkbBlenderGenerator.cpp.
+///        havok/Behavior/Generator/Blender/hkbBlenderGenerator.cpp.
 #include <Behavior/Generator/Blender/hkbBlenderGenerator.h>
 #include <Behavior/Generator/Blender/hkbBlenderGeneratorUtils.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     void hkbBlenderGenerator::updateSync(const hkbContext& context, hkbNodeInfo& info)
     {

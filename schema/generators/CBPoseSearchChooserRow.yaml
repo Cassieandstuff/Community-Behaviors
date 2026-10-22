@@ -1,0 +1,7 @@
+name:      CBPoseSearchChooserRow
+parent:    null
+size:      32
+# A chooser row: when every condition holds, its databases (by name) join the searched set.
+fields:
+  - { name: conditions, type: structarray, ref: CBPoseSearchCondition }
+  - { name: databases,  type: stringarray }

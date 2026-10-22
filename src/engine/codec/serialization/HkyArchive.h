@@ -3,6 +3,7 @@
 #include <interface/UnitSource.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -53,6 +54,17 @@ public:
     ///       written to `<outHkyPath>.partial` and renamed over `outHkyPath` once finalized; an output inside `dir`
     ///       is never added to itself. Paths past MAX_PATH are handled.
     static bool PackDirectory(const std::string& dir, const std::string& outHkyPath, std::string& err);
+
+    /// @brief One file to pack: its archive name (forward-slashed, case kept) and how to get its bytes.
+    /// @note  `read` runs on a pack worker, a batch at a time, so a source streamed from another archive is never held
+    ///        whole in memory; nullopt = unreadable, which fails the pack.
+    struct PackEntry {
+        std::string                                name;
+        std::function<std::optional<std::string>()> read;
+    };
+    /// @brief Pack `entries` into `outHkyPath`: PackDirectory's archive, from any source.
+    /// @return false with `err` set on any failure, two entries naming one path (path identity) included.
+    static bool PackEntries(std::vector<PackEntry> entries, const std::string& outHkyPath, std::string& err);
 
     /// @brief A reflective unit's kind from its graph.yaml: the root's named variant class (hkbCharacterData,
     ///        hkbProjectData, hkaAnimationContainer); anything else — or no graph.yaml — is a Behavior. (A skeleton

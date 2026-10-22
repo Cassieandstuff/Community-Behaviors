@@ -6,7 +6,7 @@
 ///       emit the interface's vtable (a trivial implementation's constructor stores it).
 #include <Animation/Ragdoll/PenetrationDetection/hkaRagdollRaycastInterface.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     namespace
     {

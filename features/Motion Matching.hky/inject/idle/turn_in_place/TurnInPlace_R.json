@@ -1,0 +1,14 @@
+{
+  "targets": [
+    {
+      "path": "meshes/actors/character/animations/MotionMatching/idle/turn_in_place/TurnInPlace_R.hkx",
+      "field": "tags",
+      "values": {
+        "Idle": [[0, 451]],
+        "TurnRight": [[91, 104], [180, 198], [269, 291], [359, 382]],
+        "LeftPlant": [[0, 188], [197, 281], [291, 365], [377, 451]],
+        "RightPlant": [[0, 97], [101, 182], [187, 200], [207, 276], [283, 292], [299, 362], [369, 380], [387, 451]]
+      }
+    }
+  ]
+}

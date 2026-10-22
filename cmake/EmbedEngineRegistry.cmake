@@ -1,5 +1,5 @@
 # EmbedEngineRegistry.cmake — generate EngineRegistry.gen.h (constexpr engine symbols) from the engine
-# symbol registry src/core/hooks/registry/engine.yaml. The yaml is the single hand-edited source; this bakes it
+# symbol registry src/platform/hooks/registry/engine.yaml. The yaml is the single hand-edited source; this bakes it
 # into the plugin at build time so a misspelled symbol is a compile error, not a runtime lookup miss.
 #
 # Invoked as a script:  cmake -DREGISTRY_YAML=<file> -DOUT_H=<file> -P EmbedEngineRegistry.cmake
@@ -36,12 +36,30 @@ string(REGEX MATCHALL "(^|\n)[ ]*-[ ]*{" _entryStarts "${_text}")
 list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
-set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*cpp:[ ]*\"[^\"]*\")?[ ]*}")
+set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig):[ ]*\"[^\"]*\")*[ ]*}")
 
 set(_defs "")
 set(_all "")
 set(_names "")
 set(_n 0)
+
+# The schema link shim (OUT_SHIM_ASM / OUT_SHIM_CPP / OUT_IDENTITY_H): every row with `mangled` makes that schema
+# declaration usable from the plugin. A func gets a jump stub bound to its decorated name (/alternatename) that
+# lands on vanilla's entry (so in the takeover chain when the image runs it) and an Identity<&fn> for Override; a
+# const data row gets a copy of vanilla's bytes under its decorated name.
+set(_shimStubs "")
+set(_shimSlots "")
+set(_shimMiss "")
+set(_shimAlt "")
+set(_shimFuncs "")
+set(_shimData "")
+set(_shimDataDefs "")
+set(_identityHeaders "")
+set(_dataHeaders "")
+set(_identity "")
+set(_globals "")
+set(_nf 0)
+set(_nd 0)
 
 # _cb_pin(<text> <kind> <name> <runtime> <outVar>) -> "{ id, 0xOFF }", validating the call/offset rule.
 function(_cb_pin _text _kind _name _rt _out)
@@ -102,6 +120,106 @@ foreach(_l IN LISTS _lines)
     string(APPEND _defs "inline constexpr Symbol ${_name}{ \"${_name}\", ${_k}, ${_sePin}, ${_aePin}, ${_vrPin} };\n")
     string(APPEND _all "    &${_name},\n")
     math(EXPR _n "${_n}+1")
+
+    string(REGEX MATCH "{[^#]*}" _fields "${_l}")
+    foreach(_field cpp mangled this header sig)
+        set(_${_field} "")
+        if(_fields MATCHES "[{ ,]${_field}:[ ]*\"([^\"]*)\"")
+            set(_${_field} "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    if(NOT _mangled)
+        continue()
+    endif()
+    if(_kind STREQUAL "func")
+        math(EXPR _off "${_nf}*8")
+        string(APPEND _shimStubs "cb_shim_${_nf} PROC PUBLIC\n    jmp QWORD PTR [cb_shim_slots + ${_off}]\ncb_shim_${_nf} ENDP\n")
+        string(APPEND _shimMiss "cb_shim_miss_${_nf} PROC\n    mov eax, ${_nf}\n    jmp cb_shim_miss_common\ncb_shim_miss_${_nf} ENDP\n")
+        if(_nf EQUAL 0)
+            string(APPEND _shimSlots "cb_shim_slots QWORD cb_shim_miss_${_nf}\n")
+        else()
+            string(APPEND _shimSlots "              QWORD cb_shim_miss_${_nf}\n")
+        endif()
+        string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_shim_${_nf}\")\n")
+        string(APPEND _shimFuncs "    &engine::${_name},\n")
+        math(EXPR _nf "${_nf}+1")
+        # Identity<&fn> (Override's) for a declaration a feature can name: `header` declares it, `sig` is its exact
+        # member-pointer type (so an overloaded name resolves), `this` the base subobject the image passes when a
+        # non-primary base introduced the virtual. Without `header` the row only binds the call.
+        if(NOT _header)
+            continue()
+        endif()
+        # A hand row may have no `cpp`, or keep the decorated name there (cbmatch's key for an overload): spell the C++
+        # name from the decoration (`?name@Class@havok@CB@@…` → CB::havok::Class::name). A special or templated name
+        # can't be spelled: no Identity.
+        if(NOT _cpp OR _cpp MATCHES "^\\?")
+            set(_cpp "${_mangled}")
+            if(_cpp MATCHES "^\\?\\?" OR _cpp MATCHES "\\$" OR NOT _cpp MATCHES "^\\?([^@]+(@[^@]+)*)@@")
+                continue()
+            endif()
+            string(REPLACE "@" ";" _parts "${CMAKE_MATCH_1}")
+            list(REVERSE _parts)
+            list(JOIN _parts "::" _cpp)
+        endif()
+        if(NOT "${_header}" IN_LIST _identityHeaders)
+            list(APPEND _identityHeaders "${_header}")
+        endif()
+        set(_owner "")
+        if(_sig MATCHES "\\(([^()]*)::\\*\\)")
+            set(_owner "${CMAKE_MATCH_1}")
+        elseif(NOT _sig)
+            string(REGEX REPLACE "::[A-Za-z_~][A-Za-z0-9_]*$" "" _owner "${_cpp}")
+            if(_owner STREQUAL "CB::havok" OR _owner MATCHES "^CB::platform::")   # a namespace: a free function
+                set(_owner "")
+            endif()
+        endif()
+        if(_this)
+            set(_thisType "::${_this}")
+        elseif(_owner)
+            set(_thisType "::${_owner}")
+        else()
+            set(_thisType "void")
+        endif()
+        if(_sig)
+            set(_key "static_cast<${_sig}>(&::${_cpp})")
+        else()
+            set(_key "&::${_cpp}")
+        endif()
+        string(APPEND _identity "template <>\nstruct Identity<${_key}> {\n    static constexpr const char* mangled = \"${_mangled}\";\n    static constexpr const char* name    = \"${_cpp}\";\n    static constexpr const engine::Symbol& symbol = engine::${_name};\n    using This                           = ${_thisType};\n};\n\n")
+    elseif(_kind STREQUAL "data")
+        # A const global is copied at load. A mutable one stays unbound (a direct use fails to link) and gets
+        # GlobalIdentity<&global> instead, for Live<&global>() to read the exe's variable through its pin.
+        if(NOT _header OR NOT _cpp)
+            continue()
+        endif()
+        # `header` may name several, `|`-separated: the declaring header, then whatever completes the type.
+        string(REPLACE "|" ";" _headers "${_header}")
+        if(NOT _mangled MATCHES "B$")
+            foreach(_h IN LISTS _headers)
+                if(NOT "${_h}" IN_LIST _identityHeaders)
+                    list(APPEND _identityHeaders "${_h}")
+                endif()
+            endforeach()
+            string(APPEND _globals "template <>
+struct GlobalIdentity<&::${_cpp}> {
+    static constexpr const engine::Symbol& symbol = engine::${_name};
+};
+
+")
+            continue()
+        endif()
+        foreach(_h IN LISTS _headers)
+            if(NOT "${_h}" IN_LIST _dataHeaders)
+                list(APPEND _dataHeaders "${_h}")
+            endif()
+        endforeach()
+        string(APPEND _shimDataDefs "alignas(alignof(decltype(::${_cpp}))) unsigned char cb_data_${_nd}[sizeof(::${_cpp})];\n")
+        string(APPEND _shimAlt "#pragma comment(linker, \"/alternatename:${_mangled}=cb_data_${_nd}\")\n")
+        string(APPEND _shimData "    { &engine::${_name}, cb_data_${_nd}, sizeof(::${_cpp}) },\n")
+        math(EXPR _nd "${_nd}+1")
+    else()
+        message(FATAL_ERROR "engine.yaml: ${_name} has `mangled` but kind '${_kind}' (only func and data are shimmed)")
+    endif()
 endforeach()
 
 if(_n EQUAL 0)
@@ -111,17 +229,28 @@ if(NOT _n EQUAL _expected)
     message(FATAL_ERROR "engine.yaml: parsed ${_n} symbols but the file has ${_expected} '- {' entry lines")
 endif()
 
+# _cb_write(<file> <text>): write only on change, so an untouched registry rebuilds nothing.
+function(_cb_write _file _text)
+    if(EXISTS "${_file}")
+        file(READ "${_file}" _old)
+        if(_old STREQUAL _text)
+            return()
+        endif()
+    endif()
+    file(WRITE "${_file}" "${_text}")
+endfunction()
+
 set(_body
-"// GENERATED by cmake/EmbedEngineRegistry.cmake from src/core/hooks/registry/engine.yaml -- DO NOT EDIT.
+"// GENERATED by cmake/EmbedEngineRegistry.cmake from src/platform/hooks/registry/engine.yaml -- DO NOT EDIT.
 // The yaml is the single source; regenerated at build whenever it changes. Resolved via
-// <core/hooks/registry/Registry.h>.
+// <platform/hooks/registry/Registry.h>.
 #pragma once
 
-#include <core/hooks/registry/Symbol.h>
+#include <platform/hooks/registry/Symbol.h>
 
 #include <cstddef>
 
-namespace CB::core::hooks::engine {
+namespace CB::platform::hooks::engine {
 
 ${_defs}
 inline constexpr const Symbol* kAll[] = {
@@ -129,14 +258,140 @@ ${_all}};
 
 inline constexpr std::size_t kCount = ${_n};
 
-} // namespace CB::core::hooks::engine
+} // namespace CB::platform::hooks::engine
+")
+_cb_write("${OUT_H}" "${_body}")
+
+if(NOT DEFINED OUT_SHIM_ASM OR NOT DEFINED OUT_SHIM_CPP OR NOT DEFINED OUT_IDENTITY_H)
+    return()
+endif()
+
+list(SORT _identityHeaders)
+list(SORT _dataHeaders)
+set(_identityIncludes "")
+foreach(_h IN LISTS _identityHeaders)
+    string(APPEND _identityIncludes "#include <${_h}>\n")
+endforeach()
+set(_dataIncludes "")
+foreach(_h IN LISTS _dataHeaders)
+    string(APPEND _dataIncludes "#include <${_h}>\n")
+endforeach()
+if(_nf EQUAL 0)
+    set(_shimSlots "cb_shim_slots QWORD 0
+")
+endif()
+set(_nfa ${_nf})
+if(_nfa EQUAL 0)
+    set(_nfa 1)
+endif()
+set(_nda ${_nd})
+if(_nda EQUAL 0)
+    set(_nda 1)
+    set(_shimData "    { nullptr, nullptr, 0 },
+")
+endif()
+
+_cb_write("${OUT_SHIM_ASM}"
+"; GENERATED by cmake/EmbedEngineRegistry.cmake from src/platform/hooks/registry/engine.yaml -- DO NOT EDIT.
+; The schema link shim: one jump stub per shimmed function. A slot starts at its miss stub, which resolves the
+; address once (cb_shim_resolve) and jumps on with the caller's arguments untouched.
+EXTERN cb_shim_resolve:PROC
+.data
+ALIGN 8
+PUBLIC cb_shim_slots
+${_shimSlots}
+.code
+${_shimStubs}
+${_shimMiss}
+; eax = slot. Saves the four argument registers and xmm0-3 around the resolve call, then tail-jumps to the target.
+cb_shim_miss_common PROC FRAME
+    push rcx
+    .pushreg rcx
+    push rdx
+    .pushreg rdx
+    push r8
+    .pushreg r8
+    push r9
+    .pushreg r9
+    sub rsp, 104
+    .allocstack 104
+    .endprolog
+    movdqu XMMWORD PTR [rsp + 32], xmm0
+    movdqu XMMWORD PTR [rsp + 48], xmm1
+    movdqu XMMWORD PTR [rsp + 64], xmm2
+    movdqu XMMWORD PTR [rsp + 80], xmm3
+    mov ecx, eax
+    call cb_shim_resolve
+    movdqu xmm0, XMMWORD PTR [rsp + 32]
+    movdqu xmm1, XMMWORD PTR [rsp + 48]
+    movdqu xmm2, XMMWORD PTR [rsp + 64]
+    movdqu xmm3, XMMWORD PTR [rsp + 80]
+    add rsp, 104
+    pop r9
+    pop r8
+    pop rdx
+    pop rcx
+    jmp rax
+cb_shim_miss_common ENDP
+END
 ")
 
-# Write only on change so an untouched registry does not rebuild every TU that includes it.
-if(EXISTS "${OUT_H}")
-    file(READ "${OUT_H}" _old)
-    if(_old STREQUAL _body)
-        return()
-    endif()
-endif()
-file(WRITE "${OUT_H}" "${_body}")
+_cb_write("${OUT_SHIM_CPP}"
+"// GENERATED by cmake/EmbedEngineRegistry.cmake from src/platform/hooks/registry/engine.yaml -- DO NOT EDIT.
+// The schema link shim's C++ half: decorated-name bindings, the per-slot symbols, and the const data copies.
+#include <platform/hooks/registry/Registry.h>
+#include <platform/hooks/takeover/SchemaShim.h>
+
+${_dataIncludes}
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+
+${_shimAlt}
+extern \"C\" {
+extern std::uintptr_t cb_shim_slots[${_nfa}];
+${_shimDataDefs}}
+
+namespace CB::platform::hooks::detail {
+
+const engine::Symbol* const kFuncs[${_nfa}] = {
+${_shimFuncs}};
+inline constexpr std::size_t kFuncCount = ${_nf};
+
+const ShimData kData[${_nda}] = {
+${_shimData}};
+inline constexpr std::size_t kDataCount = ${_nd};
+
+} // namespace CB::platform::hooks::detail
+
+extern \"C\" std::uintptr_t cb_shim_resolve(unsigned slot)
+{
+    return CB::platform::hooks::detail::ResolveShimSlot(slot, CB::platform::hooks::detail::kFuncs, CB::platform::hooks::detail::kFuncCount, cb_shim_slots);
+}
+
+void CB::platform::hooks::InstallSchemaShim()
+{
+    detail::CopyShimData(detail::kData, detail::kDataCount);
+}
+")
+
+_cb_write("${OUT_IDENTITY_H}"
+"// GENERATED by cmake/EmbedEngineRegistry.cmake from src/platform/hooks/registry/engine.yaml -- DO NOT EDIT.
+// Identity<&fn> for every declared function engine.yaml binds (havok/ and platform/game): what Override<&fn> needs
+// beyond the declaration's own type: its decorated name (the takeover cell's key), its registry pin (the entry
+// detour's address otherwise) and the `this` the image passes.
+#pragma once
+
+#include <platform/hooks/registry/EngineRegistry.gen.h>
+
+${_identityIncludes}
+namespace CB::platform::hooks {
+
+template <auto F>
+struct Identity;
+
+template <auto P>
+struct GlobalIdentity;
+
+${_identity}${_globals}} // namespace CB::platform::hooks
+")

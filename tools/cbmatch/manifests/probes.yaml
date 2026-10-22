@@ -3,7 +3,7 @@
 # Environment: as in schema.yaml.
 runtimes:
   ae: { exe: "${CB_SKYRIM_AE_EXE}", addresslib: "${CB_ADDRESSLIB_AE}", pins: ae }
-registry: ../../../src/core/hooks/registry/engine.yaml
+registry: ../../../src/platform/hooks/registry/engine.yaml
 toolchains:
   vs2015: "${VS140COMNTOOLS}../../VC/bin/amd64/cl.exe"
 flags: [/O2, /Ob1, /GS-, /fp:fast]

@@ -4,7 +4,10 @@
 
 add_executable(hky-tool hky_tool.cpp)
 
-target_link_libraries(hky-tool PRIVATE engine)   # HkyArchive (codec/serialization) + the BSA reader (codec/bsa)
+find_package(nlohmann_json CONFIG REQUIRED)
+
+# HkyArchive (codec/serialization) + the BSA reader (codec/bsa); nlohmann for assemble's inject configs
+target_link_libraries(hky-tool PRIVATE engine nlohmann_json::nlohmann_json)
 
 set_target_properties(hky-tool PROPERTIES
     CXX_STANDARD 23

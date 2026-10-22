@@ -1,7 +1,7 @@
 /// @file
 /// @brief Workbench: the functions of BSLimbIKModifier.cpp still being matched (tools/cbmatch/parked.yaml says why each is
 ///        stuck). Compiled only by tools/cbmatch/manifests/workbench.yaml; a body that matches graduates back into
-///        schema/Havok/Behavior/Modifier/BSLimbIK/BSLimbIKModifier.cpp.
+///        havok/Behavior/Modifier/BSLimbIK/BSLimbIKModifier.cpp.
 #include <Behavior/Modifier/BSLimbIK/BSLimbIKModifier.h>
 #include <Animation/Rig/hkaPose.h>
 #include <Behavior/Character/hkbCharacter.h>
@@ -10,7 +10,7 @@
 #include <Common/Base/Container/LocalArray/hkLocalArray.h>
 #include <Common/Base/Monitor/hkMonitorStream.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     namespace
     {

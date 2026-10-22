@@ -7,7 +7,7 @@
 /// @note Bethesda's code is built with exceptions on and /Ob2 (set on this unit).
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharacterState.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     /// @brief Instantiates the climbing and flying states' vtables (and their bases'), which brings the copies into
     ///        this unit.

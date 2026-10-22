@@ -54,6 +54,19 @@ Each entry is one of:
 
 **`enum: <Type>`** on a scalar field names its enum type (e.g. `{ name: mode, type: int8, enum: PlaybackMode }`) so the `.hky` YAML renders the value by name (`MODE_SINGLE_PLAY`) rather than as an integer. No serde/size effect — a rendering hint the model layer consumes (tables in `HavokEnums.h`).
 
+**Signature reflection.** A class's `signature:` is the CRC the engine derives from its reflection (member names,
+types and flags, then its parent chain). Where the serialized layout says less than the engine's reflection, these
+keys say the rest (no serde effect):
+- class-level `interfaces: N` (hkBaseObject's 1) and `enums: [A, B]` (the class's declared enums, in order, from
+  `metadata/enums/`);
+- `hktype: ulong | enum | flags` on a field whose reflected type differs from its `type:` (`enum`/`flags` here
+  carries no enum reference; `enum: X` on a scalar means an ENUM member over that scalar, referencing X);
+- `name:` on an `{ empty: … }` slot, the reflected member's name.
+
+A `CB*` class stores no `signature:`: the schema loader derives it, and fails the load unless every class it hashes
+through reproduces its own stored signature. The behavior loader recomputes the signature and refuses a packfile
+whose stored one differs.
+
 **Optional per-field keys:**
 - `ignored: true` — marks a *typed* SERIALIZE_IGNORED field (round-trips as a normal value; the tag is
   documentation only — it does NOT change serde). Void-typed ignored uses `empty:` instead.
@@ -80,7 +93,7 @@ editor runtime are additive, not a second refactor.
 `variables/`, `generators/`, `modifiers/`, `statemachine/`, `graph/`, `animation/`, `physics/`,
 `project/`; `gen/` for generated descriptors).
 
-`Havok/` — the reimplemented Havok runtime (`CB::schema::`), one `.h`/`.cpp` per class, laid out like Havok's
+The reimplemented Havok runtime is not part of schema/: it lives in the top-level `havok/` (`CB::havok::`), one `.h`/`.cpp` per class, laid out like Havok's
 own source tree: product roots `Common/Base`, `Animation`, `Behavior`, and below them the paths the exe's
 `__FILE__` strings give (`Generator\Clip\hkbClipGenerator.cpp`, `Mapper\hkaSkeletonMapper.cpp`, …). Bethesda's
 behavior classes sit in the same tree, as in their build. A translation unit is part of what gets matched (what a

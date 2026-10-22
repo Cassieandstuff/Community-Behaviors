@@ -73,10 +73,108 @@ namespace CB::core::debug {
           "Clip activate counter",
           "Count hkbClipGenerator::activate calls through the Havok runtime's cell table, logging at every power "
           "of two — the proof that features can override reimplemented Havok functions. Observes only." },
+        { "char_contact_probe", FlagKind::IniBool, "Debug", "bCharContactProbe", false, false,
+          "Player contact probe",
+          "Log the player's character-controller contacts (contact normal, hit triangle face normal, welding, and "
+          "Bethesda's constraint decision) each time the contact set changes. Observes only." },
+        { "char_support_strict", FlagKind::IniBool, "Character", "bStrictSupport", false, false,
+          "Strict ground support",
+          "Only a real supporting contact (a walkable one, or a step the controller accepted) marks a proxy character "
+          "supported; a rejected step or a wall no longer does (Jolt's ground rule). Unproven in game." },
+        { "char_stick_to_floor", FlagKind::IniBool, "Character", "bStickToFloorOnly", false, false,
+          "Stick to floor only after walking off",
+          "OnGround's unsupported down-cast (4x gravity toward a floor below) runs only right after the character "
+          "walked off support (Jolt's StickToFloor); any other unsupported OnGround goes straight to InAir. Unproven "
+          "in game." },
+        { "char_state_wrapper", FlagKind::IniBool, "Character", "bStateWrapper", false, false,
+          "Character state wrappers",
+          "Step 1 of the character controller spec: OnGround, Jumping and InAir run through CB's wrapper states, which "
+          "forward to vanilla and log that they ran for the player. Behaviour stays vanilla. Unproven in game." },
+        { "char_floor_query", FlagKind::IniBool, "Character", "bFloorQueryObserve", false, false,
+          "Floor query (observe)",
+          "Step 2 of the character controller spec: run the ray-footprint floor query for the player after vanilla's "
+          "support check and log its verdict against vanilla's. Observes only. Unproven in game." },
+        { "char_ground_states", FlagKind::IniBool, "Character", "bGroundStates", false, false,
+          "Ground states in charge",
+          "Steps 3, 6 and 7 of the character controller spec: for the player, CB's wrapper states run Grounded / "
+          "Airborne from the floor query (landing, stick-to-floor, gravity, jump launch, air control, velocity "
+          "springs). Grounded means any ground under the feet: the player lands on it and can always jump from it. How "
+          "much it holds them up is its support, easing from 1 at fSlidePullStart degrees (default 5) below the max "
+          "slope to 0 at fSlidePullFull degrees (default 10) past it; as it drops, a slide velocity drags the player "
+          "downhill and the uphill part of their steering is cut. Rising off the ground, landing and sticking to it are "
+          "judged against the slope, not the world. A jump from the ground winds up for fJumpWindup seconds (default "
+          "0.033) while the player keeps moving, then launches with the whole ground velocity (the run's slope "
+          "momentum kept) plus a full-height push off the ground: straight up running uphill, along the ground's "
+          "normal running downhill (as Sonic jumps); walking off meanwhile launches at once. Requires bStateWrapper. "
+          "Unproven in game." },
+        { "char_planes", FlagKind::IniBool, "Character", "bPlanes", false, false,
+          "Constraint planes",
+          "Step 4 of the character controller spec: for the player, the proxy's constraint planes follow the spec's "
+          "edge rule and plane parameters instead of Bethesda's per-contact step and wall tests. Unproven in game." },
+        { "char_step_query", FlagKind::IniBool, "Character", "bStepQuery", false, false,
+          "Step query",
+          "Step 5 of the character controller spec: for the player, an up-forward-down sweep steps over obstacles "
+          "within step height when the slide falls short. Unproven in game." },
+        { "char_variable_jump", FlagKind::IniBool, "Character", "bVariableJump", false, false,
+          "Variable jump height",
+          "For the player under bGroundStates: releasing Jump early cuts the jump short. iJumpMode=1 (default) "
+          "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
+          "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
+          "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
+        { "char_movement_model", FlagKind::IniBool, "Character", "bMovementModel", false, false,
+          "Movement model (GASP, through True Directional Movement)",
+          "The player moves like Unreal's Game Animation Sample character: the velocity accelerates toward the stick "
+          "(560 units/s2, easing to 210 while sprinting fast), friction 5 swings it into turns and braking (1400 units/s2, "
+          "350 when slowing from a faster gait) stops it, capped at the gait's own speed (every multiplier kept) times the "
+          "slope factor: downhill x(1 + fSlopeSpeedDown x sin) up to 1.5 (default 1.0), uphill x(1 - fSlopeSpeedUp x sin) "
+          "down to 0.7 (default 0.5), smoothed (it reads the ground states' floor, so needs bGroundStates or bPlanes). "
+          "CB holds TDM's yaw: the body turns toward where it is moving (halflife 0.1 s, at most 200 deg/s in the air). "
+          "Under TDM's target lock the body faces the target and strafes, its speed blending to MOVT's side and back "
+          "speeds by direction. CB also owns sprinting: it stays on while toggled, pauses while blocking, airborne or (under "
+          "target lock) moving more than 50 deg from the facing, and ends on stopping, running out of stamina or "
+          "overencumbrance; you can jump while sprinting. Off under bAnimationDriven, bSpeedSynced and bIsSynced. Needs "
+          "TDM (API V3); off without it. AE only. Unproven in game." },
+        { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
+          "Free sprinting out of combat",
+          "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
+          "unaffected. AE only. Unproven in game." },
+        { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
+          "Character debug HUD",
+          "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "
+          "wall, grey miss), the output, desired and slide (orange) velocity arrows, the stick's direction (yellow arrowhead) and the "
+          "body's facing (white tick) on the ring (needs bMovementModel), the ring and predicted path shaded by support (green "
+          "holds, orange slides, blue airborne), falls "
+          "and jumps included (needs bPredictorObserve), and a text panel (mode, verdict, timers, the movement model's "
+          "speed and cap, the sprint state, iState). Hidden while the game is paused." },
+        { "char_predictor", FlagKind::IniBool, "Character", "bPredictorObserve", false, false,
+          "Trajectory predictor (observe)",
+          "Step 8 of the character controller spec: predict the player's trajectory (1 s ahead) every step and log "
+          "its error against where the player actually went. Under bMovementModel it runs the movement model itself "
+          "from the player's current velocity and facing, the stick held; walking off a ledge or jumping predicts the fall and where it "
+          "lands. Observes only. Unproven in game." },
+        { "char_motion_matching", FlagKind::IniBool, "Character", "bMotionMatching", false, false,
+          "Motion matching (prototype)",
+          "Needs the Motion Matching add-on (Motion Matching.hky) and bPredictorObserve. For the player, CB searches the "
+          "add-on's clips every 0.1 s for the frame whose next second best matches the predicted trajectory and the "
+          "current pose, and plays it through the add-on's graph; NPCs keep vanilla locomotion. Only the databases the "
+          "add-on's chooser picks are searched: each frame CB computes Unreal's Game Animation Sample inputs (movement "
+          "mode, rotation mode, movement state, gait, stance, starting, pivoting, landing, turn in place, spin; "
+          "iMMDatabaseLOD, default 0, as the LOD) and writes them as MM_* graph variables. Costs carry each database's "
+          "additive biases (base, looping, and continuing for the playing frame); a switch happens when a candidate's "
+          "biased cost is below the playing frame's, and a change of those inputs that drops the playing database "
+          "switches at once. Each clip switch is dead-blended: fMMBlendTime seconds of cross-fade (default 0.2, 0 = "
+          "hard cuts) from the old pose coasting at its velocity, slowing with an fMMBlendDecay halflife (default "
+          "0.1 s). A pick's stretch of motion stays banned for fMMReselectTime seconds (default 1.0); a sharp change of "
+          "the request searches at once. Without the add-on it does nothing. Prototype." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "
           "watch: list) per-frame ON CHANGE to a greppable file." },
+        { "tracy", FlagKind::IniBool, "Debug", "bTracy", false, false,
+          "Tracy profiler",
+          "Start the Tracy profiler client built into the plugin: zones on every hook subscriber, the warm-up and motion "
+          "matching, plots, and a frame mark per present. It records only while a Tracy 0.13.1 viewer on this machine is "
+          "connected. Off = no profiler thread and no socket." },
     });
 
 }  // namespace CB::core::debug

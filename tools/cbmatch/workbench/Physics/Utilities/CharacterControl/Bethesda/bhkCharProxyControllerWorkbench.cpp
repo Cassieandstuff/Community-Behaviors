@@ -6,7 +6,7 @@
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyControllerCinfo.h>
 #include <Physics/Utilities/CharacterControl/CharacterProxy/hkpCharacterProxy.h>
 
-namespace CB { namespace schema
+namespace CB { namespace havok
 {
     bhkCharProxyController::~bhkCharProxyController()
     {

@@ -50,10 +50,17 @@ src/                         CB's code. src/ is the plugin's private include roo
     debug/                   opt-in diagnostics (DebugFlags — the flag registry the converter's Debug tab
                              renders; Settings — settings.ini loaded once, read via FlagOn(id); DebugOverlay;
                              RuntimeTrace — the per-frame graph-variable watch)
-    hooks/                   the engine symbol registry (registry/engine.yaml → per-runtime Address Library
-                             pins) + the shared hook-point layer features subscribe to (<core/hooks/hookslib.h>);
-                             takeover/ = runs the reimplemented Havok in place of vanilla's (the runtime image,
-                             relocated at load; every replaced function dispatches through a cell features override)
+  platform/                  THE RUNTIME SDK (CB::platform::), plugin-only: what makes havok/ and the game usable
+                             from a feature. hooks/ = the hook library (<platform/hooks/hookslib.h>): Override<&fn>
+                             on any declared function (the takeover's cell when the image runs it, else an entry
+                             detour), CallSite<engine::X, Sig> on one call instruction, Live<&global>(); one
+                             subscriber chain, attached once by InstallAll. hooks/registry = engine.yaml (per-runtime
+                             Address Library pins + identity fields); hooks/takeover = the runtime image relocated at
+                             load, every replaced function behind a cell, and the schema link shim. game/ = the game
+                             functions CB calls or hooks, declared as free functions over CommonLib types, each with
+                             an engine.yaml row (its decorated name comes from the first link error). Flags,
+                             settings, the overlay host and startup phases move here next; until then it still
+                             reads core/debug.
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
                              converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
                              or REL/ include. The folder IS the include root (<common/…> <interface/…>
@@ -64,24 +71,40 @@ src/                         CB's code. src/ is the plugin's private include roo
   converter/                 the GLFW+ImGui Behavior Converter (BehaviorConverter.exe, CB::converter::);
                              platform/ = native dialogs, known folders, zip
 common/                      what features build against; common/ is their include root:
-  feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::);
-                             havok/ = the function palette, GENERATED (cbmatch --emit-palette): every function the
-                             takeover replaces as a typed cell (CB::feature::havok::<class>::<fn>::Subscribe / Call).
-                             Plugin-only (it includes core). schema/Havok stays pristine; changes are overrides here
+  feature-sdk/               <feature-sdk/FeatureRegistry.h> — IGraphFeature + CB_REGISTER_FEATURE (CB::feature::).
+                             Havok needs no SDK copy: features include havok/'s headers and call them as declared;
+                             Override<&fn> and Live<&global>() (platform/hooks) reach the takeover's cells and the
+                             exe's mutable globals. havok/ stays pristine; changes are overrides.
   config/                    <config/Config.h> — the config scanner (discover + read + JSON, CB::config::)
 schema/                      the class schema as DATA — one YAML per class in family folders (generators/,
                              modifiers/, …; vanilla hk*, Bethesda BS*, CB* custom classes told apart by prefix);
                              metadata/ holds enums, merge semantics, debug probes and the adsf/asdsf descriptors.
-                             templates/ = the converter's Nemesis-ingest XML oracles. Havok/ = the reimplemented
-                             Havok runtime (CB::schema::), laid out like Havok's source tree (Common/Base, Animation,
-                             Behavior; below them the exe's __FILE__ paths), compiled by tools/cbmatch (VS2015) into
-                             the runtime image; its headers also compile into the plugin, typing the palette.
-                             Deployed as data only (staging drops .h/.cpp): plugin → Data/community_behaviors/schema
-                             (no templates/), converter → <exe>/schema.
-tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch (byte-matches schema/Havok against
+                             templates/ = the converter's Nemesis-ingest XML oracles. Deployed as data: plugin →
+                             Data/community_behaviors/schema (no templates/), converter → <exe>/schema.
+havok/                       the reimplemented Havok runtime (CB::havok::), laid out like Havok's source tree
+                             (Common/Base, Animation, Behavior, Physics; below them the exe's __FILE__ paths), compiled
+                             by tools/cbmatch (VS2015) into the runtime image. Its headers also compile into the
+                             plugin, where the schema link shim (engine.yaml `mangled` rows) binds every out-of-line
+                             function and const global to the exe. Never deployed.
+tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch (byte-matches havok/ against
                              the exe), x64dbg-autoattach, blender-control-rig. cbmatch/workbench/ = functions still
                              being matched (manifests/workbench.yaml, failures expected); cbmatch/devices/ = matching
                              devices, not Havok files
+features/                    authored FEATURE BUNDLES as data — not code (that is src/features/): one <Name>.hky/
+                             folder per feature, assembled at build time into the shipped <Name>.hky
+                             (cmake/FeatureBundles.cmake: an LFS-pointer guard, then `hky-tool assemble`; the plugin
+                             target depends on it). Inside: PARTITIONS (*.hky at the top: packed YAML trees laid out
+                             like a Data folder, e.g. Animations.hky holding meshes/actors/character/animations/...;
+                             Git LFS, `git lfs pull` before building; repacked only deliberately with `hky-tool pack`,
+                             never by the build), loose files shipped at their path (manifest.json, hand-authored
+                             patch units), generate/ — JSON configs naming a generator hky-tool knows (today:
+                             clipSelectorBehavior, rosterPatch) that writes files derived from a partition, so they can
+                             never drift from it — and inject/ —
+                             JSON configs {"targets": [{"path" or "under" (every animation below a prefix), "field",
+                             "values"}]} keyed by a file's path inside the
+                             bundle, writing the fields tools/hky/injectables.json allows per file kind (today:
+                             animation -> tags, motionTarget, preload, entry; anything else fails the build). `hky-tool autotag` seeds tag configs
+                             and never overwrites one.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by
                              commit) — a change there bumps its pin. Nothing private goes in include/.
@@ -92,16 +115,17 @@ include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFA
 The top-level folder picks the ROOT; the purpose word names what the code is for. A file that moves to
 another root renames its namespace; a stray top-level namespace is a bug.
 
-- **Roots.** `CB::core::` = the plugin (src/core) · `CB::engine::` = the shared engine (src/engine) ·
+- **Roots.** `CB::core::` = the plugin (src/core) · `CB::platform::` = the runtime SDK (src/platform) ·
+  `CB::engine::` = the shared engine (src/engine) ·
   `CB::feature::` = features + the feature SDK · `CB::converter::` = the converter · `CB::config::` = the
-  config scanner · `CB::schema::` = the reimplemented Havok runtime (schema/Havok; Havok's class names directly
-  under the root, opened as `namespace CB { namespace schema {` since VS2015 builds it). Nothing else at the top
-  — no bare `havok::` / `sct::` / `bconv::`.
+  config scanner · `CB::havok::` = the reimplemented Havok runtime (havok/; Havok's class names directly under
+  the root, opened as `namespace CB { namespace havok {` since VS2015 builds it). Nothing else at the top — no
+  bare `havok::` outside CB, no `sct::` / `bconv::`.
 - **Depth: `CB::<root>::<purpose>` (3) is the backbone.** A 4th level ONLY when a purpose holds 2+ sibling
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
-  hooks conditions` (core) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
+  conditions` (core) · `hooks` (platform) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
   linker` + `text disk exec` (engine). `text` = the shared string operations (trim, line split, BOM, float
   text form, YAML quoting); `disk` = whole-file read/write, checked and optionally atomic; `exec` = ParallelFor
   (offline tools — in-game work runs on the plugin's injected BELOW_NORMAL pool). Use them instead of
@@ -139,6 +163,11 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
   avoid triggering the multi-minute `generate-base-master` regen.
 - **No builds without a green light** — the deploy writes over the live MO2 mod + tools folder that the
   user (and parallel sessions) may be testing. Propose + wait for an explicit yes before building.
+- **Tracy profiler** — the Tracy 0.13.1 client is built into the plugin (FetchContent → `tracy_client`) and stays
+  inert unless settings.ini `[Debug] bTracy=true`; then it records while a Tracy **0.13.1** viewer on the same machine
+  is connected (localhost only, on demand). Instrument only through `<platform/profile/Profile.h>`'s `CB_ZONE` /
+  `CB_ZONE_TEXT` / `CB_PLOT` / `CB_MESSAGE`, never Tracy's own macros (manual lifetime: before startup there is no
+  profiler for them to reach). Every hook subscriber is already a zone.
 
 ### Environment variables
 
@@ -196,10 +225,10 @@ still belongs in the session scratchpad dir.)
   store exactly where the decoder finds its float section. Run it after any spline compressor change. (Nothing to
   bump: compiled animations are keyed on the plugin DLL's hash, so every rebuild recompiles them once.)
 - **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant --diff 256 --strict`
-  compiles schema/Havok per translation unit and diffs every listed function against the exe (EXACT / REGALLOC /
-  VARIANT, references checked against engine.yaml). schema/ holds proven code only: `--strict` fails on any
+  compiles havok/ per translation unit and diffs every listed function against the exe (EXACT / REGALLOC /
+  VARIANT, references checked against engine.yaml). havok/ holds proven code only: `--strict` fails on any
   out-of-line definition that is neither listed (and passing) nor a unit's declared `drivers:` entry. A body
-  graduates from the workbench into its schema unit once it passes; `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
+  graduates from the workbench into its havok/ unit once it passes; `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
   under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow. A VARIANT that
   needs rule A (local stack slots rearranged — the home area, and incoming stack-argument slots after the function's
   first write to them), E (SIMD rescheduled), I (a duplicated return tail), J (register setup rescheduled), N
@@ -209,12 +238,12 @@ still belongs in the session scratchpad dir.)
   it agrees.
   `tools/cbmatch/tests/mutants.sh` proves the gate rejects broken copies (STRUCTURAL, or VARIANT plus a `--diff`
   divergence for the documented blind spots), with unmutated controls that must agree.
-  Run both after any schema/Havok or cbmatch change. A full run ends with coverage against
+  Run both after any havok/ or cbmatch change. A full run ends with coverage against
   `tools/cbmatch/inventory.yaml` (regenerate with `--inventory`; `--todo <Class>` lists what's left).
   The same full run regenerates the takeover's outputs: `--emit-image <file>` (deployed to
   `Data/community_behaviors/runtime/havok-runtime.cbimg`; pinned to the exact exe build) and
-  `--emit-palette common/feature-sdk/havok` (checked in) — always together, so the palette lists exactly what the
-  image installs.
+  `--emit-registry src/platform/hooks/registry/engine.yaml` (the shim's identity fields: mangled, header, sig, this) —
+  always together, so the registry names exactly what the image installs.
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
 

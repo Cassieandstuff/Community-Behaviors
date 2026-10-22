@@ -1,0 +1,14 @@
+{
+  "targets": [
+    {
+      "path": "meshes/actors/character/animations/MotionMatching/walking/loops/Walk_45R_Loop.hkx",
+      "field": "tags",
+      "values": {
+        "Walk": [[0, 286]],
+        "StrafeRight": [[0, 286]],
+        "LeftPlant": [[8, 21], [40, 53], [71, 84], [103, 116], [135, 148], [166, 180], [199, 212], [230, 244], [262, 275]],
+        "RightPlant": [[0, 5], [23, 37], [54, 68], [86, 100], [118, 132], [150, 164], [181, 195], [213, 227], [245, 259], [277, 286]]
+      }
+    }
+  ]
+}

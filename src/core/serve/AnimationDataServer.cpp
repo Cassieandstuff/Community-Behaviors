@@ -1,5 +1,6 @@
 #include "PCH.h"
-#include <core/hooks/hookslib.h>   // hook points (AdsfOpen / AsdsfOpen) + the engine registry
+#include <platform/game/Resource.h>     // the AdsfOpen / AsdsfOpen call sites
+#include <platform/hooks/registry/Registry.h>
 
 #include "core/serve/AnimationDataServer.h"
 #include "core/discover/BundleReader.h"
@@ -140,7 +141,9 @@ namespace CB::core::serve {
         const auto parse = [](const std::string& text, const std::string& path) -> std::optional<CB::engine::anim::AnimationDef> {
             try {
                 auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
-                def.motion = CB::engine::anim::ResolveRootMotion(def);
+                /// @note A motionMatching clip is never projected (AnimDataProjection), so its motion is not extracted.
+                if (def.motionTarget != CB::engine::anim::AnimationDef::MotionTarget::MotionMatching)
+                    def.motion = CB::engine::anim::ResolveRootMotion(def);
                 return def;
             } catch (const std::exception& e) {
                 LOG_WARN("AnimData: animation '{}' unreadable: {}", path, e.what());
@@ -250,6 +253,8 @@ namespace CB::core::serve {
         if (const auto n = fromOverride.load(); n > 0)
             LOG_INFO("AnimData: {} animation(s) exist only as DAR/OAR replacer copies — their slots take the default copy's "
                      "motion ({} had several copies; the lowest-priority one stands for all).", n, severalCopies.load());
+        if (st.preloads)
+            LOG_INFO("AnimData: {} preload animation(s) listed in their projects' file lists (loaded with the project).", st.preloads);
         if (st.unresolved)
             LOG_INFO("AnimData: {} clip(s) play an animation their character's roster lacks (no motion; e.g. {}).", st.unresolved,
                      st.unresolvedSample.empty() ? std::string() : st.unresolvedSample.front());
@@ -262,7 +267,7 @@ namespace CB::core::serve {
         std::atomic<bool>               s_redirectActive{ false };
         RE::BSFixedString               s_cachePath;
 
-        std::int32_t OnOpenAnimData(CB::core::hooks::AdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
+        std::int32_t OnOpenAnimData(CB::platform::game::AdsfOpen::Next next, std::uintptr_t a_path, std::uintptr_t a_out,
                                     std::uint64_t a_r8, std::uint64_t a_r9)
         {
             // First open of the collated animdata file drives the compile gate. The gate now KICKS a
@@ -291,12 +296,12 @@ namespace CB::core::serve {
 
     void InstallAnimDataHook()
     {
-        CB::core::hooks::AdsfOpen::Subscribe(&OnOpenAnimData, CB::core::hooks::Priority::Normal, "AnimDataServe");
+        CB::platform::game::AdsfOpen::Subscribe(&OnOpenAnimData, CB::platform::hooks::Priority::Normal, "AnimDataServe");
     }
 
     void ArmAnimDataRedirect(const ServeResult& result)
     {
-        if (!CB::core::hooks::AdsfOpen::Installed()) {
+        if (!CB::platform::game::AdsfOpen::Installed()) {
             RedirectAnimDataGlobal(result);  // deterministic hook unavailable — fall back
             return;
         }
@@ -314,7 +319,7 @@ namespace CB::core::serve {
     {
         static constexpr const char* kRedirectPath = "community_behaviors_cache/animationdatasinglefile.txt";
 
-        namespace engine = CB::core::hooks::engine;
+        namespace engine = CB::platform::hooks::engine;
         if (!engine::Available(engine::Adsf_SingleFilePath)) {
             LOG_WARN("AnimData: the single-file path global has no verified pin on this runtime — the merged "
                      "cache was written but the game will not read it.");
