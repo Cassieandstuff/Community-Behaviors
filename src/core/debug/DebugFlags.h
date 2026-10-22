@@ -69,6 +69,11 @@ namespace CB::core::debug {
           "Havok runtime takeover",
           "Run CB's reimplemented Havok behavior runtime in place of vanilla's (per class: [HavokRuntime] "
           "<Class>=off, or sOnly=<Class>,...). Inert without community_behaviors/runtime/havok-runtime.cbimg." },
+        { "havok_type_registry", FlagKind::IniBool, "HavokRuntime", "bTypeRegistry", true, true,
+          "Havok type registries",
+          "Put CB's type-info, vtable-class and class-name registries in place of Havok's before the game starts it. "
+          "They forward every call to vanilla's code, log each registration and count the loaded objects each class "
+          "finishes (reported at kDataLoaded and after each game loads). AE only." },
         { "havok_activate_counter", FlagKind::IniBool, "Debug", "bHavokActivateCounter", true, true,
           "Clip activate counter",
           "Count hkbClipGenerator::activate calls through the Havok runtime's cell table, logging at every power "

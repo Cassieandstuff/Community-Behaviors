@@ -15,6 +15,7 @@
 #include "core/resolve/Resolver.h"
 
 #include <platform/classes/ClassRegistry.h>
+#include <platform/classes/TypeRegistries.h>
 #include <platform/hooks/Chain.h>
 #include <platform/hooks/registry/Registry.h>
 #include <platform/hooks/takeover/SchemaShim.h>
@@ -481,6 +482,9 @@ namespace CB {
     {
         if (!a_msg) return;
 
+        if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame || a_msg->type == SKSE::MessagingInterface::kNewGame)
+            CB::platform::classes::ReportTypeRegistries();
+
         if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
             // Pre-install the compile progress bar EARLY here (before the menu), NOT at the later compile
             // gate: CB::core::bootstrap::Install eagerly builds imgui + its font/device objects, so doing it at
@@ -501,6 +505,7 @@ namespace CB {
             else
                 LOG_ERROR("classes: no schema registry ({}) - CB's own classes are not registered",
                           CB::engine::schema::SharedRegistryError());
+            CB::platform::classes::ReportTypeRegistries();
         }
     }
 
@@ -517,6 +522,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::platform::profile::Start();
     CB::platform::hooks::engine::LogAvailability();
     CB::platform::hooks::InstallSchemaShim();
+    /// @note Before WinMain runs Havok's start-up, which creates its type registries only where none is in place.
+    CB::platform::classes::InstallTypeRegistries();
 
     // The Havok runtime takeover goes FIRST, before any of CB's own hooks: those (and every later plugin's) then layer
     // on top of its entry jumps rather than being bypassed by them.
