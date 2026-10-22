@@ -43,6 +43,7 @@
 #include <span>
 #include <thread>
 #include <stdexcept>
+#include <unordered_map>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -4698,12 +4699,127 @@ std::map<std::uint64_t, std::string> registryNamesById(const fs::path& registry,
     return out;
 }
 
+/// @brief One function the grow step pulled into the owned set, and the address count after it.
+struct GrowStep { std::uint32_t fn = 0; int delta = 0; std::size_t total = 0; bool copy = false; };
+
+/// @brief A function the grow step left out at its stopping point, with what pulling it in would cost.
+struct GrowFrontier { std::uint32_t fn = 0; int delta = 0; bool copy = false; };
+
+/// @brief Pulls into `owned` (start → end) one exe function at a time, always the one that lowers the address count most,
+///        until none lowers it.
+/// @note The address count is what owning the set outright costs: owned functions reached from outside (a direct
+///       reference or a pointer in data other than `ownedVtableSites`), plus the exe functions and writable globals owned
+///       code reaches out to. Read-only data and imports are free (CB carries its own copies). A function joins as a seam
+///       (it replaces vanilla's: an entry jump while any outside caller remains — the seed joins this way) or, when owned
+///       code calls it, as a copy (vanilla's stays for the exe: no entry). Copying is right only for code that touches no
+///       layout CB changes; the step cannot see layouts, so a copy is a candidate for review, not a proof.
+std::pair<std::vector<GrowStep>, std::vector<GrowFrontier>> growOwned(const PeImage& pe, const std::map<std::uint32_t, std::uint32_t>& bounds,
+                                                                      const std::vector<ExeRef>& refs, const std::set<std::uint32_t>& ownedVtableSites,
+                                                                      const std::vector<std::uint32_t>& ownedSlotTargets,
+                                                                      std::map<std::uint32_t, std::uint32_t>& owned)
+{
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>> fn(bounds.begin(), bounds.end());
+    auto indexOf = [&](std::uint32_t rva) -> int {
+        auto it = std::upper_bound(fn.begin(), fn.end(), rva, [](std::uint32_t v, const auto& p) { return v < p.first; });
+        if (it == fn.begin()) return -1;
+        --it;
+        return rva < std::max(it->second, it->first + 1) ? int(it - fn.begin()) : -1;
+    };
+    const std::size_t n = fn.size();
+    std::vector<std::vector<int>>           callers(n), callees(n);
+    std::vector<std::vector<std::uint32_t>> globals(n);
+    std::vector<std::uint32_t>              dataSites(n, 0);
+    for (const auto& r : refs) {
+        const int f = indexOf(r.from), t = indexOf(r.to);
+        if (f < 0 || f == t) continue;
+        if (t >= 0) { callees[f].push_back(t); callers[t].push_back(f); continue; }
+        if (pe.importsBySlot.count(pe.imageBase + r.to) || executableRva(pe, r.to)) continue;
+        for (const auto& s : pe.sections)
+            if (r.to >= s.va && r.to < s.va + std::max(s.vsize, s.rawSize) && (s.characteristics & IMAGE_SCN_MEM_WRITE)) globals[f].push_back(r.to);
+    }
+    for (const auto& s : pe.sections) {
+        if (s.executable()) continue;
+        for (std::uint32_t r = 0; r + 8 <= s.rawSize && std::size_t(s.raw) + r + 8 <= pe.bytes.size(); r += 8) {
+            const std::uint64_t v = rd<std::uint64_t>(pe.bytes, s.raw + r);
+            if (v < pe.imageBase || v - pe.imageBase > UINT32_MAX || !bounds.count(std::uint32_t(v - pe.imageBase))) continue;
+            if (!ownedVtableSites.count(s.va + r)) ++dataSites[indexOf(std::uint32_t(v - pe.imageBase))];
+        }
+    }
+    auto dedupe = [](auto& v) { std::sort(v.begin(), v.end()); v.erase(std::unique(v.begin(), v.end()), v.end()); };
+    for (std::size_t i = 0; i < n; ++i) { dedupe(callers[i]); dedupe(callees[i]); dedupe(globals[i]); }
+
+    enum : char { kOut, kSeam, kCopy };
+    std::vector<char>                            mode(n, kOut);
+    std::vector<int>                             outFn(n, 0);
+    std::unordered_map<std::uint32_t, int>       outGl;
+    std::set<int>                                frontier;
+    auto inboundWithout = [&](int f, int extra) {
+        if (dataSites[f]) return true;
+        for (const int c : callers[f]) if (c != extra && mode[c] == kOut) return true;
+        return false;
+    };
+    auto absorb = [&](int f, char as) {
+        mode[f] = as;
+        frontier.erase(f);
+        for (const int t : callees[f]) if (mode[t] == kOut) { ++outFn[t]; frontier.insert(t); }
+        for (const int c : callers[f]) if (mode[c] == kOut) frontier.insert(c);
+        for (const auto g : globals[f]) ++outGl[g];
+    };
+    for (const auto& [start, end] : owned) if (const int i = indexOf(start); i >= 0 && fn[i].first == start) mode[i] = kSeam;
+    for (std::size_t i = 0; i < n; ++i) if (mode[i] == kSeam) { mode[i] = kOut; absorb(int(i), kSeam); }
+    for (const auto t : ownedSlotTargets) if (const int i = indexOf(t); i >= 0 && mode[i] == kOut) { ++outFn[i]; frontier.insert(i); }
+
+    /// @return the change in the address count if `f` joins as `as`.
+    /// @note A seam replaces vanilla's function, so its outside callers keep an entry jump to it and the seams it calls
+    ///       may lose theirs; a copy (only of a function owned code calls) leaves vanilla's for the exe and costs no entry.
+    auto delta = [&](int f, char as) {
+        int d = as == kSeam && inboundWithout(f, f) ? 1 : 0;
+        for (const int t : callees[f]) {
+            if (t == f) continue;
+            if (mode[t] == kOut) { if (!outFn[t]) ++d; }
+            else if (as == kSeam && mode[t] == kSeam && inboundWithout(t, -1) && !inboundWithout(t, f)) --d;
+        }
+        if (outFn[f]) --d;
+        for (const auto g : globals[f]) if (!outGl.count(g)) ++d;
+        return d;
+    };
+    auto best = [&](int f) {
+        const int seam = delta(f, kSeam);
+        if (!outFn[f]) return std::make_pair(seam, char(kSeam));
+        const int copy = delta(f, kCopy);
+        return copy <= seam ? std::make_pair(copy, char(kCopy)) : std::make_pair(seam, char(kSeam));
+    };
+    auto total = [&] {
+        std::size_t c = 0;
+        for (std::size_t i = 0; i < n; ++i) c += mode[i] == kSeam ? inboundWithout(int(i), -1) : mode[i] == kOut && outFn[i] > 0;
+        return c + outGl.size();
+    };
+
+    std::vector<GrowStep> steps;
+    std::size_t           count = total();
+    for (;;) {
+        int  pick = -1, pickDelta = 0;
+        char pickAs = kSeam;
+        for (const int c : frontier)
+            if (const auto [d, as] = best(c); d < pickDelta) { pickDelta = d; pick = c; pickAs = as; }
+        if (pick < 0) break;
+        absorb(pick, pickAs);
+        count += pickDelta;
+        steps.push_back({ fn[pick].first, pickDelta, count, pickAs == kCopy });
+        owned[fn[pick].first] = std::max(fn[pick].second, fn[pick].first + 1);
+    }
+    std::vector<GrowFrontier> left;
+    for (const int c : frontier) { const auto [d, as] = best(c); left.push_back({ fn[c].first, d, as == kCopy }); }
+    std::stable_sort(left.begin(), left.end(), [](const auto& a, const auto& b) { return a.delta < b.delta; });
+    return { steps, left };
+}
+
 /// @brief Writes where the rest of the exe meets the inventory's functions taken as one owned set: what reaches in
 ///        (direct calls and jumps, addresses taken in code, pointers in data other than the inventory classes' own
 ///        vtables) and what the set reaches out to (functions, globals, constants, imports).
 /// @note The contract CB keeps when it owns the set outright and links it closed: every inbound function keeps an entry
 ///       jump, every outbound address stays a registry row; nothing inside needs an address.
-int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outFile)
+int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outFile, bool grow)
 {
     if (m.inventory.file.empty()) throw std::runtime_error("the manifest has no inventory: { file: ... }");
     if (!fs::exists(m.inventory.file)) throw std::runtime_error("--boundary reads the inventory: run --inventory first");
@@ -4743,7 +4859,8 @@ int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outF
 
     const auto fns     = exeFunctions(pe);
     const auto classes = rttiClasses(pe);
-    const auto refs    = exeReferences(pe, functionBounds(pe, fns, directCallers(pe, fns), classes));
+    const auto bounds  = functionBounds(pe, fns, directCallers(pe, fns), classes);
+    const auto refs    = exeReferences(pe, bounds);
 
     // A function's own vtable slot: the class whose parent's vtable holds another function there.
     std::map<std::uint32_t, std::pair<std::string, int>> ownSlot;
@@ -4762,6 +4879,27 @@ int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outF
         --it;
         return rva < it->second.end ? &*it : nullptr;
     };
+    std::vector<GrowStep>     growSteps;
+    std::vector<GrowFrontier> growLeft;
+    const std::size_t         seedSize = owned.size();
+    std::set<std::uint32_t>   copies;   ///< grown functions vanilla keeps its own copy of: never inbound
+    if (grow) {
+        std::set<std::uint32_t>    vtableSites;
+        std::vector<std::uint32_t> slotTargets;
+        for (const auto& cls : ownedClasses) {
+            const auto c = classes.find(cls);
+            if (c == classes.end()) continue;
+            for (std::size_t i = 0; i < c->second.slots.size(); ++i) {
+                vtableSites.insert(c->second.vtable + std::uint32_t(i * 8));
+                if (!ownedAt(c->second.slots[i])) slotTargets.push_back(c->second.slots[i]);
+            }
+        }
+        std::tie(growSteps, growLeft) = growOwned(pe, bounds, refs, vtableSites, slotTargets, owned);
+        for (std::size_t i = 0; i < growSteps.size(); ++i) {
+            ownedBy[growSteps[i].fn] = "grown: " + std::to_string(i) + (growSteps[i].copy ? ", as: copy" : ", as: seam");
+            if (growSteps[i].copy) copies.insert(growSteps[i].fn);
+        }
+    }
     auto sectionOf = [&](std::uint32_t rva) -> const PeImage::Section* {
         for (const auto& s : pe.sections)
             if (rva >= s.va && rva < s.va + std::max(s.vsize, s.rawSize)) return &s;
@@ -4786,6 +4924,7 @@ int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outF
     for (const auto& r : refs) {
         const auto from = ownedAt(r.from), to = ownedAt(r.to);
         if (!from && to) {
+            if (copies.count(*to)) continue;
             auto& e = inbound[*to][r.from];
             e.kinds.insert(r.kind);
             ++e.sites;
@@ -4828,6 +4967,7 @@ int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outF
         for (std::uint32_t r = 0; r + 8 <= s.rawSize && std::size_t(s.raw) + r + 8 <= pe.bytes.size(); r += 8) {
             const std::uint64_t v = rd<std::uint64_t>(pe.bytes, s.raw + r);
             if (v < pe.imageBase || v - pe.imageBase > UINT32_MAX || !owned.count(std::uint32_t(v - pe.imageBase))) continue;
+            if (copies.count(std::uint32_t(v - pe.imageBase))) continue;
             const std::uint32_t at = s.va + r;
             if (const auto* vt = vtableAt(at); vt && ownedClasses.count(vt->second.cls)) continue;
             inboundData[std::uint32_t(v - pe.imageBase)].push_back(at);
@@ -4908,6 +5048,19 @@ int buildBoundary(const Manifest& m, const RuntimeSpec& rt, const fs::path& outF
     y += "outboundConstants:\n" + uses(outConstants);
     y += "imports:\n";
     for (const auto& [name, by] : imports) y += "  - { name: \"" + name + "\", by: " + std::to_string(by.size()) + " }\n";
+    if (grow) {
+        y += "# --grow: exe functions pulled in one at a time, each the one that most lowered the address count (owned functions\n";
+        y += "# reached from outside + exe functions and writable globals owned code reaches); frontier = what is left adjacent,\n";
+        y += "# cheapest first, with what pulling it in would change.\n";
+        y += "grow: { seed: " + std::to_string(seedSize) + ", grown: " + std::to_string(growSteps.size()) + ", addresses: " +
+             std::to_string(growSteps.empty() ? 0 : growSteps.back().total) + " }\n";
+        y += "grown:\n";
+        for (const auto& s : growSteps)
+            y += "  - { va: 0x" + hex(pe.imageBase + s.fn) + label(s.fn) + (s.copy ? ", as: copy" : ", as: seam") + ", delta: " + std::to_string(s.delta) + ", addresses: " + std::to_string(s.total) + " }\n";
+        y += "frontier:\n";
+        for (std::size_t i = 0; i < growLeft.size() && i < 200; ++i)
+            y += "  - { va: 0x" + hex(pe.imageBase + growLeft[i].fn) + label(growLeft[i].fn) + (growLeft[i].copy ? ", as: copy" : ", as: seam") + ", delta: " + std::to_string(growLeft[i].delta) + " }\n";
+    }
     std::string err;
     if (!CB::engine::disk::WriteFile(outFile, y, {}, &err)) throw std::runtime_error("cannot write boundary: " + err);
     std::printf("cbmatch: boundary of %zu owned functions: %zu reached from outside (%zu callers), %zu in data; %zu exe functions, "
@@ -4945,6 +5098,8 @@ void usage()
         "  --boundary <file>    write where the rest of the exe meets the inventory's functions taken as one owned set:\n"
         "                       what calls in, what data holds their addresses, what they reach out to (needs --inventory's\n"
         "                       file; names addresses from the registry and the runtime's Address Library)\n"
+        "  --grow               with --boundary: first pull exe functions into the owned set, one at a time, while each\n"
+        "                       lowers the address count (inbound functions + exe functions and writable globals reached)\n"
         "  --todo <class>       list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
         "  --coverage           after a full run, list every inventory class (default: only those started)\n"
         "  --diff <seeds>       run each REGALLOC/VARIANT function and vanilla side by side under emulation on <seeds>\n"
@@ -6212,6 +6367,7 @@ struct Options {
     bool        show = false, showAll = false, changesOnly = false, allowRegalloc = false, allowVariant = false, suggest = false;
     bool        inventory = false, coverageAll = false;
     fs::path    boundary;   ///< --boundary: where the rest of the exe meets the inventory
+    bool        grow = false;   ///< --grow: --boundary first grows the owned set while that lowers the address count
     bool        strict = false;   ///< --strict: an out-of-line definition no manifest line covers fails the gate
     unsigned    jobs = 0;
     std::size_t diffSeeds = 0;
@@ -6244,7 +6400,7 @@ int run(const Options& opt)
     if (!opt.boundary.empty()) {
         RuntimeSpec spec = rt ? *rt : RuntimeSpec{ runtime, exePath, {}, runtime };
         spec.exe         = exePath;
-        return buildBoundary(m, spec, opt.boundary);
+        return buildBoundary(m, spec, opt.boundary, opt.grow);
     }
     if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
@@ -6725,6 +6881,7 @@ int main(int argc, char** argv)
         else if (a == "--suggest") opt.suggest = true;
         else if (a == "--inventory") opt.inventory = true;
         else if (a == "--boundary") opt.boundary = next();
+        else if (a == "--grow") opt.grow = true;
         else if (a == "--todo") opt.todo = next();
         else if (a == "--coverage") opt.coverageAll = true;
         else if (a == "--diff") opt.diffSeeds = std::stoul(next());
