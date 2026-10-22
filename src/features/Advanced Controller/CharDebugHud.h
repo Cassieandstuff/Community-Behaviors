@@ -66,10 +66,14 @@ namespace CB::feature::controller::hud {
         int                          pastCount = 0;
     };
 
-    /// @brief The speed ramp's frame (game units/s): the speed handed on, the speed asked for, the turn damping's
-    ///        fraction (TurnSpeedScale) and the smoothed slope factor (SlopeSpeedScale).
-    struct Ramp {
-        float speed = 0, target = 0, turn = 1, slope = 1;
+    /// @brief The movement model's frame (game units/s, Skyrim headings): the speed handed on, its cap for the current
+    ///        direction, the engine's forward speed and the slope factor in the cap, the facing and the stick.
+    struct Movement {
+        bool  strafe = false;
+        float speed = 0, cap = 0, full = 0, slope = 1;
+        float yaw       = 0;
+        bool  haveStick = false;
+        float stickYaw  = 0;
     };
 
     /// @brief Motion matching's last search: the clip and frame it chose, that frame's cost, the search's time and the
@@ -88,7 +92,7 @@ namespace CB::feature::controller::hud {
 
     void Publish(const Controller& c);
     void Publish(const Prediction& p);
-    void Publish(const Ramp& r);
+    void Publish(const Movement& m);
     void Publish(const Matching& m);
 
 }  // namespace CB::feature::controller::hud

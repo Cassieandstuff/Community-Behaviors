@@ -4,6 +4,7 @@
 #include "CharFacing.h"
 #include "CharGround.h"
 #include "CharMotionMatching.h"
+#include "CharMovementModel.h"
 #include "CharSweep.h"
 
 #include <compile/MotionFeatures.h>
@@ -40,7 +41,6 @@ namespace CB::feature {
         /// @warning Must match the halflife the ground states spring the real velocity with (CharStateWrapper's
         ///          kGroundHalflife), or the prediction models a different character than the one that runs.
         constexpr float kVelocityHalflife = 0.08f;
-        using ch::kFacingHalflife;
 
         constexpr int   kFutureSamples = 3;
         constexpr float kSampleTimes[kFutureSamples] = { 1.0f / 3.0f, 2.0f / 3.0f, 1.0f };
@@ -58,8 +58,6 @@ namespace CB::feature {
         constexpr int   kSubstepsPerPoint = 10;
         constexpr float kSubstep          = kPathStep / kSubstepsPerPoint;
         constexpr float kHalfPi           = 1.5707964f;
-        /// @brief Rises smaller than this (game units/s) pass at once, as in the speed ramp.
-        constexpr float kRampThreshold = 5.0f;
         /// @brief A vertical velocity this far above what the ground's slope gives (Havok units/s, about 35 game units/s)
         ///        means the character is leaving the ground (a jump's launch), not walking up it.
         constexpr float kLaunchSpeed = 0.5f;
@@ -136,21 +134,20 @@ namespace CB::feature {
         };
 
         /// @brief How the predicted character steers.
-        /// @note The facing model is the frame features' own: the body turns on CharFacing's spring from where it is now
-        ///       (yaw and turn rate) toward the stick, and moves along its facing at the frame speed, slowed by the turn
-        ///       damping and rebuilt by the speed ramp. Without a stick direction (no TDM) the request is vanilla's,
-        ///       held constant in world space.
+        /// @note With the movement model on, the frame's own step (ch::move::Step) runs on from the frame's state with its
+        ///       input and caps frozen over the horizon, as GASP's trajectory does; only the caps' slope factor follows
+        ///       the predicted ground. Without it the request is vanilla's, held constant in world space.
         struct Drive {
-            bool  facingModel = false;
-            float theta = 0, omega = 0;   ///< facing as a math angle (counter-clockwise from +x) and its rate
-            bool  haveGoal    = false;
-            float thetaGoal   = 0;        ///< unwrapped near theta
-            bool  turnDamping = false;    ///< the speed ramp slows turns (TurnSpeedScale)
-            bool  slopeSpeed  = false;    ///< the speed ramp scales the speed by the slope (SlopeSpeedScale)
-            float slope       = 1.0f;     ///< the slope factor already in the current speed and request
-            float full = 0, speed = 0;    ///< asked-for and current speed, Havok units/s
-            float accel = 0;              ///< the ramp's rise rate, Havok units/s^2; 0 = instant
-            Vec2  desired;                ///< the request, without the facing model
+            bool            model = false;
+            ch::move::State state;
+            ch::move::Input input;
+            ch::move::Caps  caps;
+            float           slope = 0.0f;   ///< the slope factor in caps.forward; 0 = unknown, the caps stay frozen whole
+            /// @brief The frame's position (game units) the predicted offsets are added to for the step.
+            /// @note Anchored on the frame rather than the hull: no assumption that Havok's world origin is the game's,
+            ///       at the cost of up to a frame's lag, which only bends a strafe's aim at the target.
+            float           px = 0.0f, py = 0.0f;
+            Vec2            desired;        ///< the request, Havok units/s: the stick at its cap under the model
         };
 
         /// @brief The predicted path in Havok world space, for the HUD.
@@ -311,9 +308,13 @@ namespace CB::feature {
             return false;
         }
 
-        /// @brief P2: one forward simulation of the Drive (facing spring, speed, a critically damped velocity spring on
-        ///        the ground, gravity in the air), resolved against the world at every path point: the floor under it,
-        ///        a sweep along the leg, and where a fall lands.
+        /// @brief P2: one forward simulation of the Drive (the movement model's step or the held request, a critically
+        ///        damped velocity spring toward it on the ground, gravity in the air), resolved against the world at every
+        ///        path point: the floor under it, a sweep along the leg, and where a fall lands.
+        /// @note The model steps in game units and Skyrim headings; its velocity crosses into Havok units by
+        ///       kGameUnitsPerHavok (the axes are shared), its heading into the math angle as pi/2 - yaw. It steps airborne
+        ///       (only the facing turns) wherever the prediction is in the air, and its velocity is the request: a hit
+        ///       slides or blocks the predicted body, never the model.
         /// @note Vertical: the character starts airborne when the floor query finds no floor or it is rising faster
         ///       than the ground's slope gives (a jump). A grounded point with no floor within reach walks off a ledge:
         ///       the leg falls from its start. In the air, gravity is 1x rising and fInAirFallingCharGravityMult:HAVOK
@@ -337,11 +338,7 @@ namespace CB::feature {
             tr.jumpIn     = note.jumpIn;
             tr.velForward = velocity(0) * tangent.x + velocity(1) * tangent.y;
             tr.velSide    = velocity(0) * sideAxis.x + velocity(1) * sideAxis.y;
-            Vec2 want     = drive.desired;
-            if (drive.facingModel) {
-                const float a = drive.haveGoal ? drive.thetaGoal : drive.theta;
-                want          = { drive.full * std::cos(a), drive.full * std::sin(a) };
-            }
+            const Vec2 want     = drive.desired;
             tr.desiredForward   = want.x * tangent.x + want.y * tangent.y;
             tr.desiredSide      = want.x * sideAxis.x + want.y * sideAxis.y;
             tr.desiredWorld     = want;
@@ -374,13 +371,9 @@ namespace CB::feature {
                 out.valid   = true;
             }
 
-            /// @note Without the facing model the facing goal is the request's direction while there is one, else the
-            ///       current facing.
+            /// @note Without the model the facing springs toward the request's direction while there is one, else holds.
             const float wantSpeed  = std::sqrt(want.x * want.x + want.y * want.y);
-            const float facingGoal = drive.facingModel ? (drive.haveGoal ? drive.thetaGoal : drive.theta)
-                                                       : wantSpeed > kStillSpeed ? heading + WrapAngle(std::atan2(want.y, want.x) - heading)
-                                                                                 : heading;
-            const float threshold  = kRampThreshold / kGameUnitsPerHavok;
+            const float facingGoal = wantSpeed > kStillSpeed ? heading + WrapAngle(std::atan2(want.y, want.x) - heading) : heading;
 
             const hk::hkVector4& gw       = hull.world->GetGravity();
             const float          gx = gw(0) * ctrl.m_gravity, gy = gw(1) * ctrl.m_gravity, gz = gw(2) * ctrl.m_gravity;
@@ -396,8 +389,10 @@ namespace CB::feature {
             ch::FloorVerdict     prevFloor = ch::QueryFloor(ctrl, hull);
             bool airborne = prevFloor.ground == ch::Ground::Airborne || velocity(2) - ch::SlopeRise(prevFloor, velocity(0), velocity(1)) > kLaunchSpeed;
 
-            float f = drive.facingModel ? drive.theta : heading, fv = drive.facingModel ? drive.omega : 0.0f;
-            float spd = drive.speed;
+            ch::move::State model = drive.state;
+            ch::move::Input input = drive.input;
+            ch::move::Caps  caps  = drive.caps;
+            float f = drive.model ? kHalfPi - model.yaw : heading, fv = 0.0f;
             float slopeMul = drive.slope, slopeRate = 0.0f;
             /// @note On the ground the velocity is the player's (the spring) plus the slide, as in the ground states.
             float sx = airborne ? 0.0f : note.slideX, sy = airborne ? 0.0f : note.slideY;
@@ -434,22 +429,24 @@ namespace CB::feature {
                         const float gx0 = vx, gy0 = vy;
                         ch::JumpLaunch(prevFloor, gx0, gy0, note.jumpSpeed, vx, vy, vz);
                     }
-                    ch::SpringDamperExact(f, fv, facingGoal, kFacingHalflife, h);
-                    /// @note The slope factor follows the last resolved floor along the predicted run, smoothed as the
-                    ///       speed ramp smooths it.
-                    if (drive.slopeSpeed && !airborne) {
-                        float hx = std::cos(f), hy = std::sin(f);
-                        if (!drive.facingModel) hx = wantSpeed > kStillSpeed ? want.x / wantSpeed : 0.0f, hy = wantSpeed > kStillSpeed ? want.y / wantSpeed : 0.0f;
-                        ch::SpringDamperExact(slopeMul, slopeRate, ch::SlopeSpeedScale(prevFloor, hx, hy), ch::kSlopeSpeedHalflife, h);
-                    }
                     Vec2 d = want;
-                    if (drive.facingModel) {
-                        const float turn   = drive.turnDamping && drive.haveGoal ? ch::TurnSpeedScale(facingGoal - f) : 1.0f;
-                        const float target = drive.full * turn * slopeMul;
-                        spd = drive.accel > 0.0f && target > spd + threshold ? (std::min)(target, spd + drive.accel * h) : target;
-                        d   = { spd * std::cos(f), spd * std::sin(f) };
-                    } else if (drive.slopeSpeed && drive.slope > 1.0e-3f) {
-                        d = { want.x * slopeMul / drive.slope, want.y * slopeMul / drive.slope };
+                    if (drive.model) {
+                        /// @note The cap's slope factor follows the last resolved floor along the model's velocity (the
+                        ///       stick from rest), smoothed as the frame smooths it.
+                        if (drive.slope > 1.0e-3f && !airborne) {
+                            const float vl = std::sqrt(model.vx * model.vx + model.vy * model.vy);
+                            float       dx = 0.0f, dy = 0.0f;
+                            if (vl > 1.0e-3f) dx = model.vx / vl, dy = model.vy / vl;
+                            else if (input.haveStick) dx = input.stickX, dy = input.stickY;
+                            ch::SpringDamperExact(slopeMul, slopeRate, ch::SlopeSpeedScale(prevFloor, dx, dy), ch::kSlopeSpeedHalflife, h);
+                            caps.forward = drive.caps.forward * slopeMul / drive.slope;
+                        }
+                        input.airborne = airborne;
+                        ch::move::Step(model, input, caps, drive.px + px * kGameUnitsPerHavok, drive.py + py * kGameUnitsPerHavok, h);
+                        f = kHalfPi - model.yaw;
+                        d = { model.vx / kGameUnitsPerHavok, model.vy / kGameUnitsPerHavok };
+                    } else {
+                        ch::SpringDamperExact(f, fv, facingGoal, ch::move::kFacingHalflife, h);
                     }
                     const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
@@ -713,40 +710,27 @@ namespace CB::feature {
             const Vec2  desired{ vmy * tangent.x + vmx * sideAxis.x, vmy * tangent.y + vmx * sideAxis.y };
             const float asked = std::sqrt(desired.x * desired.x + desired.y * desired.y);
 
-            /// @note Skyrim headings run clockwise from +y; the math angle is pi/2 - heading.
             Drive drive;
             drive.desired = desired;
-            drive.full = drive.speed = asked;
-            ch::FacingState facing;
-            float           stick = 0.0f;
-            ch::FrameSpeed  fs;
-            const bool      haveSpeed = ch::CurrentSpeed(fs);
-            if (haveSpeed) {
-                drive.slopeSpeed = true;
-                drive.slope      = fs.slope;
-            }
-            if (ch::CurrentFacing(facing)) {
-                drive.facingModel = true;
-                drive.theta       = kHalfPi - facing.yaw;
-                drive.omega       = -facing.rate;
-                drive.haveGoal    = facing.haveGoal;
-                if (facing.haveGoal) drive.thetaGoal = drive.theta + WrapAngle(kHalfPi - facing.goal - drive.theta);
-                /// @note The frame speed is game units/s; the request it becomes (m_velocityMod) is Havok units/s.
-                if (haveSpeed) {
-                    drive.turnDamping = true;
-                    drive.full        = fs.full / kGameUnitsPerHavok;
-                    drive.speed       = fs.speed / kGameUnitsPerHavok;
-                    drive.accel       = fs.rampTime > 0.0f ? drive.full / fs.rampTime : 0.0f;
+            ch::FrameSpeed     fs;
+            const bool         haveSpeed = ch::CurrentSpeed(fs);
+            ch::move::Snapshot snap;
+            if (ch::move::Current(snap)) {
+                drive.model = true;
+                drive.state = snap.state;
+                drive.input = snap.input;
+                drive.caps  = snap.caps;
+                drive.px    = snap.px;
+                drive.py    = snap.py;
+                if (haveSpeed) drive.slope = fs.slope;
+                /// @note The model's request: the stick (a Skyrim heading h points along (sin h, cos h)) at the speed
+                ///       the caps allow that way, game units/s into Havok units/s.
+                drive.desired = {};
+                if (snap.input.haveStick) {
+                    const float cap = ch::move::MaxSpeed(snap.caps, snap.input.mode, std::atan2(snap.input.stickX, snap.input.stickY), snap.state.yaw) /
+                                      kGameUnitsPerHavok;
+                    drive.desired = { snap.input.stickX * cap, snap.input.stickY * cap };
                 }
-            } else if (ch::StickHeading(stick)) {
-                /// @note TDM turning the body itself (bFacing off): its forward-only request goes where the stick points,
-                ///       with CB's facing spring from the body's facing standing in for TDM's turn rate.
-                drive.facingModel = true;
-                drive.theta       = std::atan2(tangent.y, tangent.x);
-                drive.haveGoal    = true;
-                drive.thetaGoal   = drive.theta + WrapAngle(kHalfPi - stick - drive.theta);
-                /// @note The request already carries the current slope factor; the model applies its own.
-                if (drive.slopeSpeed && drive.slope > 1.0e-3f) drive.full = drive.speed = asked / drive.slope;
             }
 
             std::int32_t iState = 0;
@@ -755,8 +739,10 @@ namespace CB::feature {
                 player->GetGraphVariableInt(kIState, iState);
             }
 
-            const float speed  = std::sqrt(v(0) * v(0) + v(1) * v(1));
-            const bool  active = speed > kStillSpeed || asked > kStillSpeed || (drive.facingModel && drive.full > kStillSpeed);
+            const float speed      = std::sqrt(v(0) * v(0) + v(1) * v(1));
+            const float modelSpeed = std::sqrt(drive.state.vx * drive.state.vx + drive.state.vy * drive.state.vy) / kGameUnitsPerHavok;
+            const float wanted     = std::sqrt(drive.desired.x * drive.desired.x + drive.desired.y * drive.desired.y);
+            const bool  active     = speed > kStillSpeed || asked > kStillSpeed || modelSpeed > kStillSpeed || wanted > kStillSpeed;
 
             std::array<Vec2, kFutureSamples> world{};
             Path                             path;

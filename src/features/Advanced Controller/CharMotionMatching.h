@@ -19,7 +19,7 @@ namespace CB::feature::controller::motion {
     struct Query {
         std::array<float, 3> x{}, y{}, dirX{}, dirY{};
         std::array<float, 3> pastX{}, pastY{}, pastDirX{}, pastDirY{};
-        /// @brief The request (stick and speed ramp target) in world space, game units/s: a jump in it forces a search.
+        /// @brief The request (the stick at its speed cap) in world space, game units/s: a jump in it forces a search.
         float desiredX = 0, desiredY = 0;
         Gait  gait = Gait::None;   ///< the controller's gait (logged beside each pick's frame gait)
     };
@@ -27,7 +27,7 @@ namespace CB::feature::controller::motion {
     /// @brief Whether motion matching runs (char_motion_matching); the predictor builds no query otherwise.
     bool On();
 
-    /// @brief The playback rate for the speed ramp's latest frame, and the rate the clips play at from now on: the
+    /// @brief The playback rate for the movement model's latest frame, and the rate the clips play at from now on: the
     ///        asked-for speed over the clips' own speed for the gait, clamped to [0.7, 1.5]; null (no frame), no gait,
     ///        standing, or a gait no clip has keeps the last rate (1 at first).
     /// @note  Why the clips' gait speed and not the speed alone: they were authored slower than Skyrim moves (run 284

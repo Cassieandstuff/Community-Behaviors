@@ -163,6 +163,15 @@ symbols:
   - { name: IMovementTweenerAgent_Func2, kind: func, se: 41160, ae: 42246, vr: 0 }
   - { name: String_bIsSynced, kind: data, se: 232640, ae: 188574, vr: 0 }
 
+  # --- Player sprint + jump ---
+  - { name: PlayerCharacter_UpdateSprintRequest, kind: func, se: 0, ae: 40760, vr: 0, cpp: "CB::platform::game::PlayerCharacter_UpdateSprintRequest", mangled: "?PlayerCharacter_UpdateSprintRequest@game@platform@CB@@YAXPEAVPlayerCharacter@RE@@@Z", header: "platform/game/Player.h" }  # the per-frame sprint evaluator (request bit -> SprintStart/Stop), 0x14074e7f0 (1.6.1170)
+  - { name: PlayerCharacter_IsSyncSprintState, kind: func, se: 0, ae: 37949, vr: 0, cpp: "CB::platform::game::PlayerCharacter_IsSyncSprintState", mangled: "?PlayerCharacter_IsSyncSprintState@game@platform@CB@@YA_NPEAVActor@RE@@@Z", header: "platform/game/Player.h" }  # graph iSyncSprintState > 0, 0x14069c0d0 (1.6.1170)
+  - { name: PlayerControls_DoAction, kind: func, se: 0, ae: 42350, vr: 0, cpp: "CB::platform::game::PlayerControls_DoAction", mangled: "?PlayerControls_DoAction@game@platform@CB@@YA_NPEAVPlayerControls@RE@@HH@Z", header: "platform/game/Player.h" }  # runs a default-object action on the player, 0x14079b580 (1.6.1170)
+  - { name: JumpHandler_ProcessButton, kind: func, se: 0, ae: 42423, vr: 0, cpp: "CB::platform::game::JumpHandler_ProcessButton", mangled: "?JumpHandler_ProcessButton@game@platform@CB@@YAXPEAUJumpHandler@RE@@PEAVButtonEvent@5@PEAVPlayerControlsData@5@@Z", header: "platform/game/Player.h" }  # the jump key (vtable slot 4); the no-jump-while-sprinting rule, 0x14079f380 (1.6.1170)
+  - { name: Actor_Jump, kind: func, se: 0, ae: 37257, vr: 0, cpp: "CB::platform::game::Actor_Jump", mangled: "?Actor_Jump@game@platform@CB@@YAXPEAVActor@RE@@@Z", header: "platform/game/Player.h" }  # Actor::Jump, 0x1406626f0 (1.6.1170)
+  - { name: Actor_UpdateSprint, kind: func, se: 0, ae: 38022, vr: 0, cpp: "CB::platform::game::Actor_UpdateSprint", mangled: "?Actor_UpdateSprint@game@platform@CB@@YAXPEAVActor@RE@@@Z", header: "platform/game/Player.h" }  # per-actor sprint stamina drain + sprint flag sync, 0x1406a2970 (1.6.1170)
+  - { name: Actor_SprintStaminaDrain, kind: func, se: 0, ae: 26482, vr: 0, cpp: "CB::platform::game::Actor_SprintStaminaDrain", mangled: "?Actor_SprintStaminaDrain@game@platform@CB@@YAMMM@Z", header: "platform/game/Player.h" }  # the drain formula (weight, dt), only caller Actor_UpdateSprint, 0x14041a140 (1.6.1170)
+
   # --- Havok type system + packfile loading ---
   - { name: hkDefaultBuiltinTypeRegistry_AddType, kind: func, se: 59462, ae: 60137, vr: 0 }  # the ONE call that registers a custom class at runtime
   - { name: hkDefaultBuiltinTypeRegistry_Reinitialize, kind: func, se: 59458, ae: 60133, vr: 0 }  # rebuilds the registries from the static lists (would drop runtime adds)

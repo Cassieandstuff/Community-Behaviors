@@ -2,6 +2,7 @@
 
 #include "CharDebugHud.h"
 #include "CharFacing.h"
+#include "CharSprint.h"
 
 #include <core/bootstrap/ProgressHud.h>
 #include <core/debug/Settings.h>
@@ -12,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <string>
 
 /// @file
 /// @brief The character debug HUD (char_debug_hud): the player's floor rays, velocity arrows, predicted trajectory
@@ -31,9 +33,9 @@ namespace CB::feature::controller::hud {
             std::mutex lock;
             Controller ctrl;
             Prediction pred;
-            Ramp       ramp;
+            Movement   move;
             Matching   match;
-            double     ctrlAt = -1.0e9, predAt = -1.0e9, rampAt = -1.0e9, matchAt = -1.0e9;
+            double     ctrlAt = -1.0e9, predAt = -1.0e9, moveAt = -1.0e9, matchAt = -1.0e9;
         };
 
         Store& S()
@@ -158,16 +160,16 @@ namespace CB::feature::controller::hud {
             Store&     s = S();
             Controller c;
             Prediction p;
-            Ramp       r;
+            Movement   mv;
             Matching   m;
-            bool       haveCtrl, havePred, haveRamp, haveMatch;
+            bool       haveCtrl, havePred, haveMove, haveMatch;
             {
                 const double now = Now();
                 std::scoped_lock lock(s.lock);
-                c = s.ctrl, p = s.pred, r = s.ramp, m = s.match;
+                c = s.ctrl, p = s.pred, mv = s.move, m = s.match;
                 haveCtrl = now - s.ctrlAt < kStale;
                 havePred = now - s.predAt < kStale;
-                haveRamp = now - s.rampAt < kStale;
+                haveMove = now - s.moveAt < kStale;
                 haveMatch = now - s.matchAt < kStale;
             }
             const Projector proj{ RE::Main::WorldRootCamera(), ImGui::GetIO().DisplaySize };
@@ -189,11 +191,9 @@ namespace CB::feature::controller::hud {
                 Arrow(dl, proj, chest, c.velocity, kVelocity);
             }
 
-            FacingState facing;
-            const bool  haveFacing = CurrentFacing(facing);
-            if (haveCtrl && haveFacing) {
-                Tick(dl, proj, c.feet, c.radius, facing.yaw, kFacingTick);
-                if (facing.haveGoal) RingArrow(dl, proj, c.feet, c.radius, facing.goal, kStick);
+            if (haveCtrl && haveMove) {
+                Tick(dl, proj, c.feet, c.radius, mv.yaw, kFacingTick);
+                if (mv.haveStick) RingArrow(dl, proj, c.feet, c.radius, mv.stickYaw, kStick);
             }
 
             if (havePred) {
@@ -232,11 +232,17 @@ namespace CB::feature::controller::hud {
                 if (c.variableJump) ImGui::Text("variable jump: %s", c.jumpReleased ? "released" : "held");
                 if (c.jumpIn >= 0.0f) ImGui::Text("jump wind-up %.0f ms left", c.jumpIn * 1000.0f);
             }
-            if (haveRamp) ImGui::Text("ramp %.0f -> %.0f   turn x%.2f   slope x%.2f", r.speed, r.target, r.turn, r.slope);
+            if (haveMove) {
+                ImGui::Text("%s   speed %.0f / cap %.0f   engine %.0f   slope x%.2f", mv.strafe ? "strafe" : "orient", mv.speed, mv.cap, mv.full,
+                            mv.slope);
+                if (mv.haveStick) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(mv.stickYaw - mv.yaw)) * kRadToDeg);
+            }
+            if (sprint::State st; sprint::Current(st))
+                ImGui::Text("sprint %s%s%s%s", st.sprinting ? "on" : "off", st.wanted ? "   wanted" : "", st.suspended ? "   suspended" : "",
+                            *st.why ? (std::string("   (") + st.why + ")").c_str() : "");
             if (haveMatch)
                 ImGui::Text("matching %s @%d   x%.2f   cost %.2f   %.1f ms   %d switches   blend %.2f s", m.clip, m.frame, m.rate, m.cost,
                             m.searchMs, m.switches, m.blend);
-            if (haveFacing && facing.haveGoal) ImGui::Text("facing %.0f deg from the stick", std::fabs(WrapPi(facing.goal - facing.yaw)) * kRadToDeg);
             if (havePred) {
                 if (p.blocked) ImGui::Text("iState %d   blocked in %.2f s", p.iState, p.blockedIn);
                 else           ImGui::Text("iState %d", p.iState);
@@ -274,12 +280,12 @@ namespace CB::feature::controller::hud {
         s.predAt = Now();
     }
 
-    void Publish(const Ramp& r)
+    void Publish(const Movement& m)
     {
         Store& s = S();
         std::scoped_lock lock(s.lock);
-        s.ramp   = r;
-        s.rampAt = Now();
+        s.move   = m;
+        s.moveAt = Now();
     }
 
     void Publish(const Matching& m)
