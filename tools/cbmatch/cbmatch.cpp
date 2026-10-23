@@ -5100,7 +5100,11 @@ void usage()
         "                       file; names addresses from the registry and the runtime's Address Library)\n"
         "  --grow               with --boundary: first pull exe functions into the owned set, one at a time, while each\n"
         "                       lowers the address count (inbound functions + exe functions and writable globals reached)\n"
-        "  --todo <class>       list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
+        "  --escape <Class::member> <file>  write every instruction found reading, writing or taking the address of that\n"
+        "                       field (Havok's reflected names) on the class or a subclass: in the class's inventory\n"
+        "                       functions, in every function naming the class, and in the callees they pass it to\n"
+        "  --escape-seed <va:reg>  also walk the function at va with the object in reg at entry (repeatable)\n"
+        "  --todo <class>      list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
         "  --coverage           after a full run, list every inventory class (default: only those started)\n"
         "  --diff <seeds>       run each REGALLOC/VARIANT function and vanilla side by side under emulation on <seeds>\n"
         "                       synthetic inputs, comparing calls, memory writes and results (covers VARIANT's blind spots)\n"
@@ -5431,6 +5435,383 @@ fs::path schemaRootOf(const Manifest& m)
         if (!rel.empty() && rel.native().rfind(L"..", 0) != 0) root = inc;
     }
     return root;
+}
+
+// ── escape: every instruction that touches one field of a class ────────────────────────────────────────────────────────
+
+namespace escape {
+
+    /// @brief One instruction that reads, writes or takes the address of the field.
+    struct Access {
+        std::uint32_t fn = 0, at = 0;
+        std::string   code, op, via;
+        bool          owned = false;
+    };
+
+    /// @brief The object handed somewhere the walk does not follow (an indirect call, or past the depth limit).
+    struct Pass {
+        std::uint32_t fn = 0, at = 0;
+        std::string   code, reg;
+    };
+
+    ZydisRegister wide(ZydisRegister r) { return r == ZYDIS_REGISTER_NONE ? r : ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, r); }
+
+    bool isVolatile(ZydisRegister r)
+    {
+        switch (r) {
+        case ZYDIS_REGISTER_RAX: case ZYDIS_REGISTER_RCX: case ZYDIS_REGISTER_RDX: case ZYDIS_REGISTER_R8:
+        case ZYDIS_REGISTER_R9: case ZYDIS_REGISTER_R10: case ZYDIS_REGISTER_R11: return true;
+        default: return false;
+        }
+    }
+
+    constexpr ZydisRegister kArgs[4] = { ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9 };
+
+    ZydisRegister parseRegister(const std::string& s)
+    {
+        static const std::map<std::string, ZydisRegister> kNames = {
+            { "rax", ZYDIS_REGISTER_RAX }, { "rcx", ZYDIS_REGISTER_RCX }, { "rdx", ZYDIS_REGISTER_RDX }, { "rbx", ZYDIS_REGISTER_RBX },
+            { "rsi", ZYDIS_REGISTER_RSI }, { "rdi", ZYDIS_REGISTER_RDI }, { "rbp", ZYDIS_REGISTER_RBP }, { "r8", ZYDIS_REGISTER_R8 },
+            { "r9", ZYDIS_REGISTER_R9 },   { "r10", ZYDIS_REGISTER_R10 }, { "r11", ZYDIS_REGISTER_R11 }, { "r12", ZYDIS_REGISTER_R12 },
+            { "r13", ZYDIS_REGISTER_R13 }, { "r14", ZYDIS_REGISTER_R14 }, { "r15", ZYDIS_REGISTER_R15 } };
+        const auto it = kNames.find(s);
+        if (it == kNames.end()) throw std::runtime_error("unknown register '" + s + "' (rax..r15)");
+        return it->second;
+    }
+
+    /// @brief How a register came to hold the object, for the report.
+    /// @brief A memory operand's address expression: base, index, scale, displacement.
+    using Slot = std::tuple<ZydisRegister, ZydisRegister, std::uint8_t, std::int64_t>;
+
+    Slot slotOf(const ZydisDecodedOperand& op)
+    {
+        return { wide(op.mem.base), wide(op.mem.index), op.mem.scale, op.mem.disp.has_displacement ? op.mem.disp.value : 0 };
+    }
+
+    /// @brief What the walk knows holds the object: registers, and memory slots it was loaded from or stored to.
+    /// @note A slot stays valid until a register its address uses is overwritten; a call is assumed not to rewrite it.
+    struct Tracked {
+        std::map<ZydisRegister, std::string> regs;   ///< register → why it holds the object
+        std::map<ZydisRegister, int>         group;  ///< registers known equal (a mov between them)
+        std::map<ZydisRegister, Slot>        loadedFrom;   ///< register → the slot its value was loaded from
+        std::map<Slot, std::string>          slots;        ///< memory slots that hold the object
+        int                                  next = 0;
+
+        void drop(ZydisRegister r)
+        {
+            regs.erase(r);
+            group.erase(r);
+            loadedFrom.erase(r);
+            std::erase_if(loadedFrom, [r](const auto& e) { return std::get<0>(e.second) == r || std::get<1>(e.second) == r; });
+            std::erase_if(slots, [r](const auto& e) { return std::get<0>(e.first) == r || std::get<1>(e.first) == r; });
+        }
+        void copy(ZydisRegister dst, ZydisRegister src)
+        {
+            if (!group.count(src)) group[src] = next++;
+            const int id = group[src];
+            const auto from = loadedFrom.find(src);
+            const std::optional<Slot> source = from != loadedFrom.end() ? std::optional<Slot>(from->second) : std::nullopt;
+            const auto held = regs.find(src);
+            const std::optional<std::string> why = held != regs.end() ? std::optional<std::string>(held->second) : std::nullopt;
+            drop(dst);
+            group[dst] = id;
+            if (source) loadedFrom[dst] = *source;
+            if (why) regs[dst] = *why;
+        }
+        /// @return another register a mov made equal to `r` (the same value under another name), or none.
+        ZydisRegister twin(ZydisRegister r) const
+        {
+            const auto g = group.find(r);
+            if (g == group.end()) return ZYDIS_REGISTER_NONE;
+            for (const auto& [o, id] : group) if (o != r && id == g->second) return o;
+            return ZYDIS_REGISTER_NONE;
+        }
+        /// @brief `dst` was loaded from `slot`: it holds the object if the slot does.
+        void load(ZydisRegister dst, const Slot& slot)
+        {
+            drop(dst);
+            loadedFrom[dst] = slot;
+            if (const auto s = slots.find(slot); s != slots.end()) regs[dst] = s->second + " (reloaded)";
+        }
+        /// @brief `r` holds the object: so does every register a mov made equal to it, and the slot it came from.
+        void mark(ZydisRegister r, const std::string& why)
+        {
+            regs[r] = why;
+            if (const auto g = group.find(r); g != group.end())
+                for (const auto& [o, id] : group) if (id == g->second) regs[o] = why;
+            for (const auto& [o, slot] : loadedFrom)
+                if (o == r || (group.count(o) && group.count(r) && group[o] == group[r])) slots[slot] = why;
+        }
+    };
+
+}  // namespace escape
+
+/// @brief Writes every instruction that reads, writes or takes the address of `target` (`Class::member`, Havok's
+///        reflected names) on an object of that class or a subclass: in the class's own inventory functions (`this` in
+///        rcx), in every function that names the class (its hkClass, its staticClass getter, its vtable), in explicit
+///        seeds (`va:reg`), and in the direct callees any of those pass the object to (two levels).
+/// @note Linear and intraprocedural: each function is walked in address order, the object followed through register
+///       moves and lost on a call (volatile registers) or an overwrite; a spill to the stack is not followed. In a
+///       function that names the class, the object is taken to be the `this` of its getClassType call (a virtual call
+///       to slot 1), the usual exact-class test. So the report is a to-do list for review, not a proof: the in-game
+///       tripwires confirm it.
+int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& target, const std::vector<std::string>& seedSpecs, const fs::path& outFile)
+{
+    namespace es = escape;
+    const auto sep = target.find("::");
+    if (sep == std::string::npos) throw std::runtime_error("--escape takes Class::member, not '" + target + "'");
+    const std::string clsName = target.substr(0, sep), memberName = target.substr(sep + 2);
+    if (m.inventory.file.empty() || !fs::exists(m.inventory.file)) throw std::runtime_error("--escape reads the inventory: run --inventory first");
+    const Inventory inv = loadInventory(m.inventory);
+    const PeImage   pe  = loadPe(rt.exe);
+
+    std::uint64_t ctor = 0;
+    const auto    reflected = extractClasses(pe, ctor);
+    std::map<std::string, const ReflectedClass*> byName;
+    for (const auto& c : reflected) byName[c.name] = &c;
+    const auto root = byName.find(clsName);
+    if (root == byName.end()) throw std::runtime_error("the exe reflects no class " + clsName);
+    const ReflectedClass::Member* member = nullptr;
+    for (const auto& mem : root->second->members) if (mem.name == memberName) member = &mem;
+    if (!member) throw std::runtime_error(clsName + " reflects no member " + memberName);
+    static const std::map<std::uint8_t, std::uint32_t> kWidth = { { 1, 1 }, { 2, 1 }, { 3, 1 }, { 4, 1 }, { 5, 2 }, { 6, 2 }, { 7, 4 },
+                                                                  { 8, 4 }, { 9, 8 }, { 10, 8 }, { 11, 4 }, { 20, 8 }, { 30, 8 }, { 32, 2 } };
+    const auto w = kWidth.find(member->type);
+    if (w == kWidth.end()) throw std::runtime_error(target + " is a " + hkTypeName(member->type) + ", not a scalar the walk can match");
+    const std::uint32_t offset = member->offset, width = w->second;
+
+    std::set<std::string> family = { clsName };
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (const auto& c : reflected)
+            if (!family.count(c.name) && family.count(c.parent)) grew = family.insert(c.name).second || grew;
+    }
+    std::set<std::uint64_t> classObjects;
+    for (const auto& n : family) classObjects.insert(byName[n]->at - pe.imageBase);
+
+    std::map<std::uint64_t, std::uint64_t> idByOffset;
+    if (!rt.addressLibrary.empty())
+        for (const auto& [id, off] : loadAddressLibrary(rt.addressLibrary)) idByOffset.emplace(off, id);
+    const auto names = registryNamesById(m.registry, rt.pins.empty() ? rt.name : rt.pins);
+    auto label = [&](std::uint32_t rva) {
+        std::string y;
+        if (const auto id = idByOffset.find(rva); id != idByOffset.end()) {
+            y += ", id: " + std::to_string(id->second);
+            if (const auto n = names.find(id->second); n != names.end()) y += ", name: " + n->second;
+        }
+        return y;
+    };
+
+    const auto fns     = exeFunctions(pe);
+    const auto classes = rttiClasses(pe);
+    const auto bounds  = functionBounds(pe, fns, directCallers(pe, fns), classes);
+    const auto refs    = exeReferences(pe, bounds);
+    auto startOf = [&](std::uint32_t rva) -> std::optional<std::uint32_t> {
+        auto it = bounds.upper_bound(rva);
+        if (it == bounds.begin()) return std::nullopt;
+        --it;
+        return rva < std::max(it->second, it->first + 1) ? std::optional<std::uint32_t>(it->first) : std::nullopt;
+    };
+
+    std::set<std::uint32_t> owned;
+    for (const auto& [c, list] : inv.classes) for (const auto& f : list) owned.insert(std::uint32_t(f.va - pe.imageBase));
+    for (const auto& f : inv.shared) owned.insert(std::uint32_t(f.va - pe.imageBase));
+
+    /// @brief A function to walk: where the object starts (a register at entry, or the getClassType test) and why.
+    struct Seed { std::uint32_t fn; ZydisRegister reg; std::string why; int depth; };
+    std::vector<Seed> work;
+    std::set<std::pair<std::uint32_t, int>> queued;
+    auto enqueue = [&](std::uint32_t fn, ZydisRegister reg, std::string why, int depth) {
+        if (queued.insert({ fn, int(reg) }).second) work.push_back({ fn, reg, std::move(why), depth });
+    };
+    for (const auto& [c, list] : inv.classes)
+        if (family.count(c))
+            for (const auto& f : list) enqueue(std::uint32_t(f.va - pe.imageBase), ZYDIS_REGISTER_RCX, "this (" + c + ")", 0);
+    std::set<std::uint32_t> vtables;
+    for (const auto& n : family) if (const auto c = classes.find(n); c != classes.end()) vtables.insert(c->second.vtable);
+    std::set<std::uint32_t> getters;
+    std::map<std::uint32_t, std::string> anchorWhy;
+    for (const auto& r : refs) {
+        if (classObjects.count(r.to)) {
+            const auto end = bounds.at(r.from);
+            if (end - r.from <= 16) getters.insert(r.from);
+            else anchorWhy.emplace(r.from, "names the class");
+        }
+        if (vtables.count(r.to)) anchorWhy.emplace(r.from, "names the vtable");
+    }
+    for (const auto& r : refs)
+        if (getters.count(r.to) && !getters.count(r.from)) anchorWhy.emplace(r.from, "calls staticClass");
+    for (const auto& [fn, why] : anchorWhy) enqueue(fn, ZYDIS_REGISTER_NONE, why, 0);
+    for (const auto& s : seedSpecs) {
+        const auto colon = s.find(':');
+        if (colon == std::string::npos) throw std::runtime_error("--escape-seed takes va:reg, not '" + s + "'");
+        const auto at = startOf(std::uint32_t(parseAddress(s.substr(0, colon)) - pe.imageBase));
+        if (!at) throw std::runtime_error("--escape-seed " + s + " is not inside a function");
+        enqueue(*at, es::parseRegister(s.substr(colon + 1)), "seed", 0);
+    }
+
+    std::vector<es::Access> accesses, candidates;
+    std::vector<es::Pass>   passes;
+    std::set<std::uint32_t> walked;
+    ZydisDecoder dec;
+    ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+    ZydisFormatter fmt;
+    ZydisFormatterInit(&fmt, ZYDIS_FORMATTER_STYLE_INTEL);
+    for (std::size_t k = 0; k < work.size(); ++k) {
+        const Seed s = work[k];
+        walked.insert(s.fn);
+        const auto endIt = bounds.find(s.fn);
+        if (endIt == bounds.end()) continue;
+        const std::uint32_t begin = s.fn, end = std::max(endIt->second, begin + 1);
+        const auto off = pe.fileOffset(begin, end - begin);
+        if (!off) continue;
+        es::Tracked t;
+        if (s.reg != ZYDIS_REGISTER_NONE) t.mark(s.reg, s.why);
+        for (std::uint32_t p = 0; p < end - begin;) {
+            ZydisDecodedInstruction ins;
+            ZydisDecodedOperand     ops[ZYDIS_MAX_OPERAND_COUNT];
+            if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec, pe.bytes.data() + *off + p, end - begin - p, &ins, ops))) { ++p; continue; }
+            const std::uint32_t at = begin + p;
+            auto text = [&] {
+                char buf[256];
+                return ZYAN_SUCCESS(ZydisFormatterFormatInstruction(&fmt, &ins, ops, ins.operand_count_visible, buf, sizeof buf, pe.imageBase + at, ZYAN_NULL))
+                           ? std::string(buf) : std::string("?");
+            };
+            for (std::uint8_t o = 0; o < ins.operand_count_visible; ++o) {
+                const auto& op = ops[o];
+                if (op.type != ZYDIS_OPERAND_TYPE_MEMORY || op.mem.index != ZYDIS_REGISTER_NONE) continue;
+                const std::int64_t disp = op.mem.disp.has_displacement ? op.mem.disp.value : 0;
+                const bool         lea  = ins.mnemonic == ZYDIS_MNEMONIC_LEA;
+                const std::int64_t size = lea ? 1 : std::max<std::int64_t>(op.size / 8, 1);
+                if (disp + size <= std::int64_t(offset) || disp >= std::int64_t(offset + width)) continue;
+                const auto base = t.regs.find(es::wide(op.mem.base));
+                es::Access a;
+                a.fn = s.fn, a.at = at, a.code = text(), a.owned = owned.count(s.fn) > 0;
+                a.op = lea ? "address" : (op.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) ? "write" : "read";
+                if (base != t.regs.end()) {
+                    a.via = base->second;
+                    accesses.push_back(std::move(a));
+                } else if (s.reg == ZYDIS_REGISTER_NONE && disp == std::int64_t(offset) && (lea || size == std::int64_t(width)) &&
+                           es::wide(op.mem.base) != ZYDIS_REGISTER_RSP && op.mem.base != ZYDIS_REGISTER_RIP) {
+                    candidates.push_back(std::move(a));
+                }
+            }
+            if (ins.mnemonic == ZYDIS_MNEMONIC_CALL) {
+                const auto& callee = ops[0];
+                const bool  virtualCall = callee.type == ZYDIS_OPERAND_TYPE_MEMORY && callee.mem.base != ZYDIS_REGISTER_RIP &&
+                                         callee.mem.base != ZYDIS_REGISTER_NONE && s.reg == ZYDIS_REGISTER_NONE;
+                /// @note The two exact-class tests: the object's own getClassType (slot 1, `this` in rcx), and the
+                ///       vtable-class registry's getClassFromVirtualInstance (slot 4, the object in rdx).
+                const bool classType = virtualCall && callee.mem.disp.value == 8;
+                const bool classOf   = virtualCall && callee.mem.disp.value == 0x20;
+                if (classType) t.mark(ZYDIS_REGISTER_RCX, "getClassType test at 0x" + hex(pe.imageBase + at));
+                if (classOf) t.mark(ZYDIS_REGISTER_RDX, "getClassFromVirtualInstance test at 0x" + hex(pe.imageBase + at));
+                for (int a = 0; a < 4; ++a) {
+                    const auto held = t.regs.find(es::kArgs[a]);
+                    if (held == t.regs.end() || (classType && a == 0) || (classOf && a == 1)) continue;
+                    ZyanU64 abs = 0;
+                    const bool direct = callee.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&ins, &callee, pe.imageBase + at, &abs));
+                    if (direct && s.depth < 2) {
+                        if (const auto fn = startOf(std::uint32_t(abs - pe.imageBase)))
+                            enqueue(*fn, es::kArgs[a], "passed from 0x" + hex(pe.imageBase + at), s.depth + 1);
+                    } else {
+                        passes.push_back({ s.fn, at, text(), ZydisRegisterGetString(es::kArgs[a]) });
+                    }
+                }
+                for (const auto r : { ZYDIS_REGISTER_RAX, ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9,
+                                      ZYDIS_REGISTER_R10, ZYDIS_REGISTER_R11 })
+                    t.drop(r);
+            } else if (ins.mnemonic == ZYDIS_MNEMONIC_MOV && ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                       ops[0].size == 64 && ops[1].size == 64) {
+                t.copy(es::wide(ops[0].reg.value), es::wide(ops[1].reg.value));
+            } else if (ins.mnemonic == ZYDIS_MNEMONIC_MOV && ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && ops[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                       ops[0].size == 64 && ops[1].mem.base != ZYDIS_REGISTER_RIP) {
+                const auto dst  = es::wide(ops[0].reg.value);
+                auto       slot = es::slotOf(ops[1]);
+                if (std::get<0>(slot) == dst || std::get<1>(slot) == dst) {
+                    const auto twin = t.twin(dst);
+                    if (twin != ZYDIS_REGISTER_NONE) {
+                        if (std::get<0>(slot) == dst) std::get<0>(slot) = twin;
+                        if (std::get<1>(slot) == dst) std::get<1>(slot) = twin;
+                        t.load(dst, slot);
+                    } else {
+                        t.drop(dst);
+                    }
+                } else {
+                    t.load(dst, slot);
+                }
+            } else if (ins.mnemonic == ZYDIS_MNEMONIC_MOV && ops[0].type == ZYDIS_OPERAND_TYPE_MEMORY && ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                       ops[1].size == 64 && ops[0].mem.base != ZYDIS_REGISTER_RIP) {
+                const auto slot = es::slotOf(ops[0]);
+                if (const auto held = t.regs.find(es::wide(ops[1].reg.value)); held != t.regs.end()) t.slots[slot] = held->second;
+                else t.slots.erase(slot);
+            } else if (ins.mnemonic == ZYDIS_MNEMONIC_LEA && ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && ops[1].mem.index == ZYDIS_REGISTER_NONE &&
+                       !(ops[1].mem.disp.has_displacement && ops[1].mem.disp.value) && t.regs.count(es::wide(ops[1].mem.base))) {
+                t.copy(es::wide(ops[0].reg.value), es::wide(ops[1].mem.base));
+            } else {
+                for (std::uint8_t o = 0; o < ins.operand_count; ++o)
+                    if (ops[o].type == ZYDIS_OPERAND_TYPE_REGISTER && (ops[o].actions & ZYDIS_OPERAND_ACTION_MASK_WRITE)) t.drop(es::wide(ops[o].reg.value));
+            }
+            p += ins.length;
+        }
+    }
+    std::sort(accesses.begin(), accesses.end(), [](const auto& a, const auto& b) { return std::tie(a.owned, a.fn, a.at) < std::tie(b.owned, b.fn, b.at); });
+    accesses.erase(std::unique(accesses.begin(), accesses.end(), [](const auto& a, const auto& b) { return a.at == b.at; }), accesses.end());
+    {
+        std::set<std::uint32_t> found;
+        for (const auto& a : accesses) found.insert(a.at);
+        std::erase_if(candidates, [&](const auto& c) { return found.count(c.at) > 0; });
+        std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) { return a.at < b.at; });
+        candidates.erase(std::unique(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) { return a.at == b.at; }), candidates.end());
+    }
+
+    std::size_t outside = 0, writes = 0;
+    std::set<std::uint32_t> touching;
+    for (const auto& a : accesses) outside += !a.owned, writes += a.op == "write", touching.insert(a.fn);
+    auto quote = [](const std::string& s) {
+        std::string q = "\"";
+        for (const char c : s) q += c == '"' ? std::string("\\\"") : std::string(1, c);
+        return q + "\"";
+    };
+    std::string y;
+    y += "# Generated by `cbmatch --escape` from the exe and the inventory; do not edit, regenerate.\n";
+    y += "# Every instruction found reading, writing or taking the address of the field on an object of the class (or a\n";
+    y += "# subclass). owned = an inventory function (CB's code once it owns the class); via = how the object reached the\n";
+    y += "# register or memory slot. untracked = the field's offset and width in a function that names the class, on a base\n";
+    y += "# the walk could not tie to the object (review each). passes = the object handed to a call the walk does not\n";
+    y += "# follow. A linear walk: review it,\n";
+    y += "# and let the in-game tripwires find what it missed.\n";
+    y += "runtime: " + rt.name + "\n";
+    std::string fam;
+    for (const auto& n : family) fam += (fam.empty() ? "" : ", ") + n;
+    y += "field: { class: " + clsName + ", member: " + memberName + ", type: " + hkTypeName(member->type) + ", offset: 0x" + hex(offset) +
+         ", width: " + std::to_string(width) + ", classes: [" + fam + "] }\n";
+    y += "summary: { walked: " + std::to_string(walked.size()) + ", anchors: " + std::to_string(anchorWhy.size()) + ", accesses: " +
+         std::to_string(accesses.size()) + ", outside: " + std::to_string(outside) + ", writes: " + std::to_string(writes) +
+         ", functions: " + std::to_string(touching.size()) + ", untracked: " + std::to_string(candidates.size()) + ", passes: " +
+         std::to_string(passes.size()) + " }\n";
+    y += "anchors:\n";
+    for (const auto& [fn, why] : anchorWhy)
+        y += "  - { fn: 0x" + hex(pe.imageBase + fn) + label(fn) + ", owned: " + (owned.count(fn) ? "true" : "false") + ", why: " + why + " }\n";
+    y += "accesses:\n";
+    for (const auto& a : accesses)
+        y += "  - { fn: 0x" + hex(pe.imageBase + a.fn) + label(a.fn) + ", owned: " + (a.owned ? "true" : "false") + ", at: 0x" +
+             hex(pe.imageBase + a.at) + ", op: " + a.op + ", code: " + quote(a.code) + ", via: " + quote(a.via) + " }\n";
+    y += "untracked:\n";
+    for (const auto& a : candidates)
+        y += "  - { fn: 0x" + hex(pe.imageBase + a.fn) + label(a.fn) + ", owned: " + (a.owned ? "true" : "false") + ", at: 0x" +
+             hex(pe.imageBase + a.at) + ", op: " + a.op + ", code: " + quote(a.code) + " }\n";
+    y += "passes:\n";
+    for (const auto& p : passes)
+        y += "  - { fn: 0x" + hex(pe.imageBase + p.fn) + label(p.fn) + ", at: 0x" + hex(pe.imageBase + p.at) + ", reg: " + p.reg +
+             ", code: " + quote(p.code) + " }\n";
+    std::string err;
+    if (!CB::engine::disk::WriteFile(outFile, y, {}, &err)) throw std::runtime_error("cannot write escape: " + err);
+    std::printf("cbmatch: %s (0x%x, %u bytes): %zu accesses in %zu functions (%zu outside the inventory, %zu writes), %zu passes "
+                "not followed; %zu functions walked from %zu anchors -> %s\n",
+                target.c_str(), offset, width, accesses.size(), touching.size(), outside, writes, passes.size(), walked.size(),
+                anchorWhy.size(), outFile.string().c_str());
+    return 0;
 }
 
 /// @brief Proves schema headers against Havok's own reflection: for every reflected class a header defines, a generated
@@ -6368,6 +6749,9 @@ struct Options {
     bool        inventory = false, coverageAll = false;
     fs::path    boundary;   ///< --boundary: where the rest of the exe meets the inventory
     bool        grow = false;   ///< --grow: --boundary first grows the owned set while that lowers the address count
+    std::string escape;         ///< --escape: the Class::member whose accesses to find
+    fs::path    escapeOut;
+    std::vector<std::string> escapeSeeds;   ///< --escape-seed va:reg, repeatable
     bool        strict = false;   ///< --strict: an out-of-line definition no manifest line covers fails the gate
     unsigned    jobs = 0;
     std::size_t diffSeeds = 0;
@@ -6401,6 +6785,11 @@ int run(const Options& opt)
         RuntimeSpec spec = rt ? *rt : RuntimeSpec{ runtime, exePath, {}, runtime };
         spec.exe         = exePath;
         return buildBoundary(m, spec, opt.boundary, opt.grow);
+    }
+    if (!opt.escape.empty()) {
+        RuntimeSpec spec = rt ? *rt : RuntimeSpec{ runtime, exePath, {}, runtime };
+        spec.exe         = exePath;
+        return buildEscape(m, spec, opt.escape, opt.escapeSeeds, opt.escapeOut);
     }
     if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
@@ -6882,6 +7271,8 @@ int main(int argc, char** argv)
         else if (a == "--inventory") opt.inventory = true;
         else if (a == "--boundary") opt.boundary = next();
         else if (a == "--grow") opt.grow = true;
+        else if (a == "--escape") { opt.escape = next(); opt.escapeOut = next(); }
+        else if (a == "--escape-seed") opt.escapeSeeds.push_back(next());
         else if (a == "--todo") opt.todo = next();
         else if (a == "--coverage") opt.coverageAll = true;
         else if (a == "--diff") opt.diffSeeds = std::stoul(next());
