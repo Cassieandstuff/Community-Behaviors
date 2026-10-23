@@ -87,17 +87,10 @@ namespace CB::engine::compile {
             const auto known = [&](const std::string& name, const std::string& where) {
                 if (!dbs.count(name)) throw std::runtime_error(where + " names no database '" + name + "'");
             };
-            for (std::size_t r = 0; r < spec.rows.size(); ++r) {
-                const std::string where = "chooser row " + std::to_string(r);
-                for (const auto& d : spec.rows[r].databases) known(d, where);
-                for (const auto& c : spec.rows[r].conditions) {
-                    if (!vars.count(c.variable)) throw std::runtime_error(where + " tests undeclared variable '" + c.variable + "'");
-                    if (c.kind < kMmEquals || c.kind > kMmRange)
-                        throw std::runtime_error(where + ": condition on '" + c.variable + "' has unknown kind " + std::to_string(c.kind));
-                    if (c.kind == kMmRange && !(c.minValue <= c.maxValue))
-                        throw std::runtime_error(where + ": range on '" + c.variable + "' has minValue > maxValue");
-                }
-            }
+            /// @note A row's `when` is not checked here: the expression language's vocabulary is registered in the plugin,
+            ///       which compiles it when it reads the graph and logs one that fails.
+            for (std::size_t r = 0; r < spec.rows.size(); ++r)
+                for (const auto& d : spec.rows[r].databases) known(d, "chooser row " + std::to_string(r));
             for (const auto& d : spec.fallback) known(d, "the chooser's fallback");
         }
 
@@ -159,9 +152,9 @@ namespace CB::engine::compile {
                 d->Str("name") = db.name;
                 d->SetInt("firstChild", static_cast<std::int64_t>(children.size()));
                 d->SetInt("numChildren", static_cast<std::int64_t>(db.clips.size()));
-                d->SetFloat("baseCostBias", db.baseCostBias);
-                d->SetFloat("continuingPoseCostBias", db.continuingPoseCostBias);
-                d->SetFloat("loopingCostBias", db.loopingCostBias);
+                d->Str("baseCostBias")           = db.baseCostBias;
+                d->Str("continuingPoseCostBias") = db.continuingPoseCostBias;
+                d->Str("loopingCostBias")        = db.loopingCostBias;
                 d->FieldRef("tags").strs = db.tags;
                 dbs.push_back(d);
                 for (const auto& c : db.clips) {
@@ -182,15 +175,7 @@ namespace CB::engine::compile {
             auto chooser = Make(edit, "CBPoseSearchChooser");
             for (const auto& r : spec.rows) {
                 auto row = Make(edit, "CBPoseSearchChooserRow");
-                for (const auto& c : r.conditions) {
-                    auto cond = Make(edit, "CBPoseSearchCondition");
-                    cond->Str("variable") = c.variable;
-                    cond->SetInt("kind", c.kind);
-                    cond->SetInt("intValue", c.intValue);
-                    cond->SetFloat("minValue", c.minValue);
-                    cond->SetFloat("maxValue", c.maxValue);
-                    row->FieldRef("conditions").objs.push_back(cond);
-                }
+                row->Str("when")                = r.when;
                 row->FieldRef("databases").strs = r.databases;
                 chooser->FieldRef("rows").objs.push_back(row);
             }
