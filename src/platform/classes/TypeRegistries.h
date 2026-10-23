@@ -27,6 +27,15 @@ namespace CB::platform::classes {
     /// @note  Leaves vanilla's in charge when a global is already set, or a registry symbol has no pin on this runtime.
     void InstallTypeRegistries();
 
+    /// @brief A feature's hook on an owned class's objects: after CB's finish constructor (`source` null), or on a fresh
+    ///        copy cloneNode made (`source` the original). It runs on the loading or cloning thread.
+    using ObjectHook = void (*)(void* object, const void* source);
+
+    /// @brief Runs `hook` on every loaded and cloned object of owned class `cls` (named exactly, and in sOwnTypes).
+    /// @pre   Called before Havok's start-up registers the class: from a static initializer.
+    /// @note  One hook per class; registering another for the same class is refused (logged).
+    void OnOwnedObject(std::string_view cls, ObjectHook hook);
+
     /// @return how many times an owned node class's activate has run through CB's vtable (0 for a class CB does not own).
     /// @note  Against a count of every route (the takeover cell's), the rest ran on objects carrying vanilla's vtable:
     ///        ones vanilla's constructors built outside the packfile loader and cloneNode.

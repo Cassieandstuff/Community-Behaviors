@@ -210,7 +210,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.ignored  = (childStr(fn, "ignored") == "true");
                     f.merge    = childStr(fn, "merge");
                     f.enumName = childStr(fn, "enum");   // Scalar enum type for .hky name rendering
-                    if (const std::string h = childStr(fn, "hkyenum"); !h.empty()) f.enumName = h;
+                    if (const std::string h = childStr(fn, "hkyenum"); !h.empty()) { f.enumName = h; f.enumHkyOnly = true; }
                     f.boneRef  = (childStr(fn, "boneref")  == "true");
                     f.boneList = (childStr(fn, "bonelist") == "true");
                     f.boneSet  = (childStr(fn, "boneset")  == "true");
@@ -226,6 +226,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.frame        = childStr(fn, "frame");
                     f.frameCounted = childStr(fn, "count") == "frame";
                     f.hkType       = childStr(fn, "hktype");
+                    f.cbAdded      = childStr(fn, "cb") == "true";
                     if (!f.hkType.empty() && f.hkType != "ulong" && f.hkType != "enum" && f.hkType != "flags") {
                         err = out.name + "." + f.name + ": unknown hktype '" + f.hkType + "' (ulong, enum or flags)"; return false;
                     }
@@ -365,6 +366,32 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             err = "class '" + name + "': declared size " + std::to_string(cs.size) + " != derived "
                   + std::to_string(computed) + (serr.empty() ? std::string{} : " (" + serr + ")");
             return false;
+        }
+    }
+
+    /// @note A vanilla class CB extends (`cb: true` members) stores the exe's signature. Without CB's members its
+    ///       descriptor must reproduce it, which proves it carries the exe's whole reflection; the class's signature
+    ///       then becomes the one with them, which CB registers at runtime and writes into every packfile.
+    {
+        struct Extended { std::string name; std::uint32_t vanilla, full; };
+        std::vector<Extended> extended;
+        for (const auto& [name, cs] : m_byName) {
+            if (cs.metadata || std::none_of(cs.fields.begin(), cs.fields.end(), [](const Field& f) { return f.cbAdded; })) continue;
+            std::uint32_t vanilla = 0, full = 0;
+            std::string   serr;
+            if (!ComputeSignature(name, vanilla, &serr, true)) { err = "class '" + name + "': no vanilla signature: " + serr; return false; }
+            if (vanilla != cs.signature) {
+                char buf[128];
+                std::snprintf(buf, sizeof buf, "without its cb members computes 0x%08x, the exe's is 0x%08x", vanilla, cs.signature);
+                err = "class '" + name + "' " + buf + ": its descriptor does not carry the exe's reflection";
+                return false;
+            }
+            if (!ComputeSignature(name, full, &serr)) { err = "class '" + name + "': no signature: " + serr; return false; }
+            extended.push_back({ name, vanilla, full });
+        }
+        for (const auto& e : extended) {
+            m_byName[e.name].vanillaSignature = e.vanilla;
+            m_byName[e.name].signature        = e.full;
         }
     }
 
@@ -556,7 +583,7 @@ bool Reflect(const Field& f, ReflectedMember& m) {
     switch (f.kind) {
         case FieldKind::Scalar:
             m.type = ScalarType(f.scalar);
-            if (!f.enumName.empty()) { m.subtype = m.type; m.type = f.isFlags ? kTypeFlags : kTypeEnum; m.enumName = f.enumName; }
+            if (!f.enumName.empty() && !f.enumHkyOnly) { m.subtype = m.type; m.type = f.isFlags ? kTypeFlags : kTypeEnum; m.enumName = f.enumName; }
             break;
         case FieldKind::String:           m.type = kTypeStringPtr; break;
         case FieldKind::CString:          m.type = kTypeCString; break;
@@ -608,7 +635,7 @@ void EmitEnum(const EnumDef& en, std::string& out) {
 }  // namespace
 
 bool SchemaRegistry::EmitSignatureOwn(const ClassSchema& cs, std::string& out, std::vector<const ClassSchema*>& touched,
-                                      std::string* err, int depth) const {
+                                      std::string* err, int depth, bool vanilla) const {
     PutU32(out, static_cast<std::uint32_t>(cs.interfaces));
     for (const std::string& name : cs.enums) {
         const EnumDef* en = FindEnum(name);
@@ -619,13 +646,13 @@ bool SchemaRegistry::EmitSignatureOwn(const ClassSchema& cs, std::string& out, s
     std::uint32_t members = 0;
     for (const Field& f : cs.fields) {
         ReflectedMember m;
-        if (!Reflect(f, m)) continue;
+        if ((vanilla && f.cbAdded) || !Reflect(f, m)) continue;
         if (f.name.empty()) { if (err) *err = "'" + cs.name + "' has an unnamed reflected member (give it a `name:`)"; return false; }
         ++members;
         if (!m.structClass.empty()) {
             const ClassSchema* sc = Find(m.structClass);
             if (!sc) { if (err) *err = "'" + cs.name + "." + f.name + "' references unknown class '" + m.structClass + "'"; return false; }
-            if (!EmitSignatureChain(sc, out, touched, err, depth + 1)) return false;
+            if (!EmitSignatureChain(sc, out, touched, err, depth + 1, vanilla)) return false;
         }
         if (!m.enumName.empty()) {
             const EnumDef* en = FindEnum(m.enumName);
@@ -655,11 +682,11 @@ bool SchemaRegistry::EmitSignatureOwn(const ClassSchema& cs, std::string& out, s
 }
 
 bool SchemaRegistry::EmitSignatureChain(const ClassSchema* cs, std::string& out, std::vector<const ClassSchema*>& touched,
-                                        std::string* err, int depth) const {
+                                        std::string* err, int depth, bool vanilla) const {
     for (; cs; ++depth) {
         if (depth > 256) { if (err) *err = "signature recursion too deep (cyclic parent/struct ref?) at '" + cs->name + "'"; return false; }
         touched.push_back(cs);
-        if (!EmitSignatureOwn(*cs, out, touched, err, depth)) return false;
+        if (!EmitSignatureOwn(*cs, out, touched, err, depth, vanilla)) return false;
         if (cs->parent.empty()) break;
         const ClassSchema* parent = Find(cs->parent);
         if (!parent) { if (err) *err = "unresolved parent '" + cs->parent + "' of '" + cs->name + "'"; return false; }
@@ -668,23 +695,26 @@ bool SchemaRegistry::EmitSignatureChain(const ClassSchema* cs, std::string& out,
     return true;
 }
 
-bool SchemaRegistry::ComputeSignature(const std::string& className, std::uint32_t& out, std::string* err) const {
+bool SchemaRegistry::ComputeSignature(const std::string& className, std::uint32_t& out, std::string* err, bool vanilla) const {
     const ClassSchema* cs = Find(className);
     if (!cs) { if (err) *err = "unresolved class '" + className + "'"; return false; }
     std::string                     bytes;
     std::vector<const ClassSchema*> touched;
-    if (!EmitSignatureChain(cs, bytes, touched, err, 0)) return false;
+    if (!EmitSignatureChain(cs, bytes, touched, err, 0, vanilla)) return false;
     out = static_cast<std::uint32_t>(mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size()));
     for (const ClassSchema* t : touched) {
-        if (t == cs || t->signature == 0) continue;
+        /// @note A touched class is checked against what it stores for this computation: its vanilla signature when
+        ///       CB's members are left out, else its full one.
+        const std::uint32_t stored = (vanilla && t->vanillaSignature) ? t->vanillaSignature : t->signature;
+        if (t == cs || stored == 0) continue;
         std::string                     tb;
         std::vector<const ClassSchema*> tt;
-        if (!EmitSignatureChain(t, tb, tt, err, 0)) return false;
+        if (!EmitSignatureChain(t, tb, tt, err, 0, vanilla)) return false;
         const auto ts = static_cast<std::uint32_t>(mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(tb.data()), tb.size()));
-        if (ts != t->signature) {
+        if (ts != stored) {
             if (err) {
                 char buf[96];
-                std::snprintf(buf, sizeof buf, "computes 0x%08x, stores 0x%08x", ts, t->signature);
+                std::snprintf(buf, sizeof buf, "computes 0x%08x, stores 0x%08x", ts, stored);
                 *err = "'" + t->name + "' (in '" + className + "''s signature) " + buf + ": its descriptor does not carry its full reflection";
             }
             return false;

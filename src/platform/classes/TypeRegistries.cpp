@@ -58,6 +58,7 @@ namespace CB::platform::classes {
             const Word*                vanillaVtable = nullptr;
             Word                       vanillaClone  = 0;
             Word                       vanillaActivate = 0;
+            ObjectHook                 hook = nullptr;   ///< a feature's (OnOwnedObject), bound when the class registers
             /// @brief The RTTI locator vanilla keeps before slot 0, then the slots.
             std::vector<Word>          table;
             std::atomic<std::uint64_t> finished{}, cloned{}, activated{};
@@ -92,6 +93,7 @@ namespace CB::platform::classes {
             o.vanillaFinish(obj, flag);
             *static_cast<const Word**>(obj) = o.Vtable();
             ++o.finished;
+            if (o.hook) o.hook(obj, nullptr);
         }
 
         /// @brief Runs vanilla's cloneNode; a fresh copy (vanilla's vtable on it) gets CB's. A node with no internal state
@@ -104,6 +106,7 @@ namespace CB::platform::classes {
             if (clone && *reinterpret_cast<const Word* const*>(clone) == o.vanillaVtable) {
                 *reinterpret_cast<const Word**>(clone) = o.Vtable();
                 ++o.cloned;
+                if (o.hook) o.hook(reinterpret_cast<void*>(clone), self);
             }
             return clone;
         }
@@ -129,6 +132,13 @@ namespace CB::platform::classes {
 
         const TypeInfo* Substitute(const TypeInfo* info);
         const Word*     OwnedVtableFor(Word vanillaVtable);
+
+        /// @brief The features' object hooks, by class name (OnOwnedObject): filled at static initialization.
+        std::map<std::string, ObjectHook, std::less<>>& Hooks()
+        {
+            static std::map<std::string, ObjectHook, std::less<>> h;
+            return h;
+        }
 
         /// @brief Calls `vtable`'s slot `slot` on `self` with the argument registers passed through.
         template <class... A>
@@ -370,6 +380,7 @@ namespace CB::platform::classes {
                 o.vanillaActivate                = vt[kActivateSlot];
                 o.table[1 + kActivateSlot]       = reinterpret_cast<Word>(kActivateThunks[i]);
             }
+            if (const auto h = Hooks().find(info->name); h != Hooks().end()) o.hook = h->second;
             o.record        = *info;
             o.record.finish = kFinishThunks[i];
             o.record.vtable = o.Vtable();
@@ -437,6 +448,12 @@ namespace CB::platform::classes {
         *className     = &g_className;
         st.installed   = true;
         LOG_INFO("type registries: CB's in place of Havok's (forwarding to vanilla, logging)");
+    }
+
+    void OnOwnedObject(std::string_view cls, ObjectHook hook)
+    {
+        if (!Hooks().emplace(std::string(cls), hook).second)
+            LOG_ERROR("type registries: a second object hook for {} - refused, the first stays", cls);
     }
 
     std::uint64_t ActivationsThroughOwnedVtable(std::string_view cls)

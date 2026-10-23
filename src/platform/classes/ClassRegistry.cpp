@@ -12,6 +12,7 @@
 #include <Common/Base/Reflection/hkClassMember.h>
 #include <Common/Serialize/Util/hkBuiltinTypeRegistry.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <deque>
@@ -260,6 +261,103 @@ namespace CB::platform::classes {
             return true;
         }
 
+        /// @brief The exe's class named `name`, from the class-name registry: the same object its getClassType and
+        ///        staticClass return. Null when none is registered.
+        hk::hkClass* ExeClass(hk::hkBuiltinTypeRegistry* registry, const char* name)
+        {
+            void* names = registry->getClassNameRegistry();
+            if (!names) return nullptr;
+            /// @note getClassByName is the class-name registry's slot 4 (0x140b14930, AE 1.6.1170).
+            using GetClassByName = hk::hkClass* (*)(void*, const char*);
+            return (*reinterpret_cast<GetClassByName* const*>(names))[4](names, name);
+        }
+
+        /// @brief A vanilla class the schema extends: the member list CB gave the exe's hkClass, and what it replaced.
+        struct Extension {
+            std::string                    name;
+            hk::hkClass*                   cls = nullptr;
+            std::deque<std::string>        memberNames;
+            std::vector<hk::hkClassMember> members;
+        };
+        std::deque<Extension>& Extensions()
+        {
+            static std::deque<Extension> e;
+            return e;
+        }
+        /// @brief Set once ExtendVanillaClasses has run: Extensions() is read-only from then on.
+        std::atomic<bool> g_extensionsPublished{ false };
+
+        /// @brief Gives every vanilla class the schema extends (`cb: true` members) its new member list, in the exe's
+        ///        own hkClass object: the exe's members, then CB's at the offsets the schema lays them out at.
+        /// @note  Patching the exe's object (not registering another) keeps one description for every consumer: the
+        ///        registries, getClassType, staticClass, and the behavior loader, which hashes it and refuses a packfile
+        ///        whose stored signature differs. Each class is checked against the engine's own hash twice: before (the
+        ///        exe's description is the one the schema's vanilla signature describes) and after (the engine now
+        ///        computes the signature CB writes into every packfile). A failed check leaves the exe's description.
+        void ExtendVanillaClasses(hk::hkBuiltinTypeRegistry* registry, const sc::SchemaRegistry& schema)
+        {
+            for (const auto& [name, cs] : schema.All()) {
+                if (!cs.vanillaSignature) continue;
+                hk::hkClass* cls = ExeClass(registry, name.c_str());
+                if (!cls) {
+                    LOG_ERROR("classes: {} extends no class the exe registers - not extended", name);
+                    continue;
+                }
+                const std::uint32_t before = game::hkClass_GetSignature(cls, 0);
+                if (before != cs.vanillaSignature) {
+                    LOG_ERROR("classes: {}: the exe's description hashes to {:#010x}, the schema describes {:#010x} - not extended",
+                              name, before, cs.vanillaSignature);
+                    continue;
+                }
+                std::string            why;
+                const std::vector<int> offsets = schema.OwnFieldOffsets(name, &why);
+                if (offsets.size() != cs.fields.size()) {
+                    LOG_ERROR("classes: {}: no field offsets ({}) - not extended", name, why);
+                    continue;
+                }
+                Extension& x = Extensions().emplace_back();
+                x.name       = name;
+                x.cls        = cls;
+                x.members.assign(cls->m_declaredMembers, cls->m_declaredMembers + cls->m_numDeclaredMembers);
+                bool ok = true;
+                for (std::size_t i = 0; i < cs.fields.size() && ok; ++i) {
+                    const sc::Field& f = cs.fields[i];
+                    if (!f.cbAdded) continue;
+                    hk::hkClassMember m{};
+                    m.m_name   = x.memberNames.emplace_back(f.name).c_str();
+                    m.m_offset = static_cast<hk::hkUint16>(offsets[i]);
+                    m.m_flags  = static_cast<hk::hkUint16>(f.ignored ? hk::hkClassMember::SERIALIZE_IGNORED : 0);
+                    if (!MemberType(f, m, schema, why)) {
+                        LOG_ERROR("classes: {}.{}: {} - not extended", name, f.name, why);
+                        ok = false;
+                        break;
+                    }
+                    x.members.push_back(m);
+                }
+                if (!ok) {
+                    Extensions().pop_back();
+                    continue;
+                }
+                const hk::hkClassMember* oldMembers = cls->m_declaredMembers;
+                const int                oldCount   = cls->m_numDeclaredMembers;
+                cls->m_declaredMembers    = x.members.data();
+                cls->m_numDeclaredMembers = static_cast<int>(x.members.size());
+                const std::uint32_t after = game::hkClass_GetSignature(cls, 0);
+                if (after != cs.signature) {
+                    cls->m_declaredMembers    = oldMembers;
+                    cls->m_numDeclaredMembers = oldCount;
+                    Extensions().pop_back();
+                    LOG_ERROR("classes: {}: extended, the engine computes {:#010x}, the schema writes {:#010x} - restored the exe's "
+                              "description: every behavior holding it is refused at load",
+                              name, after, cs.signature);
+                    continue;
+                }
+                LOG_INFO("classes: extended {}: {} member(s) after the exe's {}, signature {:#010x} -> {:#010x} (the engine agrees)",
+                         name, x.members.size() - static_cast<std::size_t>(oldCount), oldCount, before, after);
+            }
+            g_extensionsPublished.store(true, std::memory_order_release);
+        }
+
         /// @brief Fill the two mirrors (see the file's note) from the exe's variables.
         void MirrorHavokGlobals()
         {
@@ -292,6 +390,7 @@ namespace CB::platform::classes {
             return;
         }
         MirrorHavokGlobals();
+        ExtendVanillaClasses(registry, schema);
         /// @note Indexed, not ranged: building a class may append its struct classes' entries (a deque keeps every
         ///       entry in place, but a range-for's end iterator would go stale).
         for (std::size_t i = 0; i < S().entries.size(); ++i) {
@@ -320,6 +419,17 @@ namespace CB::platform::classes {
             LOG_INFO("classes: registered {} ({} bytes, {} member(s), signature {:#010x})", e.name, e.cls.m_objectSize,
                      e.members.size(), engineSig);
         }
+    }
+
+    int MemberOffset(const char* cls, const char* member)
+    {
+        if (!g_extensionsPublished.load(std::memory_order_acquire)) return -1;
+        for (const Extension& x : Extensions()) {
+            if (x.name != cls) continue;
+            for (const auto& m : x.members)
+                if (m.m_name && std::strcmp(m.m_name, member) == 0) return m.m_offset;
+        }
+        return -1;
     }
 
     bool Registered(const char* name)

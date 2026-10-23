@@ -34,6 +34,13 @@ namespace CB::platform::classes {
     ///        type here) is logged and skipped; a behavior holding it must then not be served.
     void RegisterAll(const CB::engine::schema::SchemaRegistry& schema);
 
+    /// @return the offset of `member` in vanilla class `cls`, when RegisterAll extended it with that member (a
+    ///         `cb: true` field of its schema descriptor); -1 otherwise, and always before RegisterAll has run. Names
+    ///         compared exactly. Lock-free: callable from any thread, per object.
+    /// @note  RegisterAll also extends the vanilla classes the schema adds members to, in the exe's own hkClass, so
+    ///        the engine's description (and the signature it checks packfiles against) matches what CB writes.
+    int MemberOffset(const char* cls, const char* member);
+
     /// @brief Whether `name` was registered by RegisterAll.
     bool Registered(const char* name);
 
