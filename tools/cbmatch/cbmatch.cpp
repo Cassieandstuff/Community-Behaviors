@@ -5558,9 +5558,12 @@ namespace escape {
 int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& target, const std::vector<std::string>& seedSpecs, const fs::path& outFile)
 {
     namespace es = escape;
-    const auto sep = target.find("::");
-    if (sep == std::string::npos) throw std::runtime_error("--escape takes Class::member, not '" + target + "'");
-    const std::string clsName = target.substr(0, sep), memberName = target.substr(sep + 2);
+    /// @note `Class@offset:width` names raw bytes instead of a reflected member: padding, or a member the exe's
+    ///       reflection leaves out.
+    const auto atSign = target.find('@');
+    const auto sep    = atSign == std::string::npos ? target.find("::") : atSign;
+    if (sep == std::string::npos) throw std::runtime_error("--escape takes Class::member or Class@offset:width, not '" + target + "'");
+    const std::string clsName = target.substr(0, sep), memberName = target.substr(sep + (atSign == std::string::npos ? 2 : 1));
     if (m.inventory.file.empty() || !fs::exists(m.inventory.file)) throw std::runtime_error("--escape reads the inventory: run --inventory first");
     const Inventory inv = loadInventory(m.inventory);
     const PeImage   pe  = loadPe(rt.exe);
@@ -5571,14 +5574,26 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
     for (const auto& c : reflected) byName[c.name] = &c;
     const auto root = byName.find(clsName);
     if (root == byName.end()) throw std::runtime_error("the exe reflects no class " + clsName);
-    const ReflectedClass::Member* member = nullptr;
-    for (const auto& mem : root->second->members) if (mem.name == memberName) member = &mem;
-    if (!member) throw std::runtime_error(clsName + " reflects no member " + memberName);
-    static const std::map<std::uint8_t, std::uint32_t> kWidth = { { 1, 1 }, { 2, 1 }, { 3, 1 }, { 4, 1 }, { 5, 2 }, { 6, 2 }, { 7, 4 },
-                                                                  { 8, 4 }, { 9, 8 }, { 10, 8 }, { 11, 4 }, { 20, 8 }, { 30, 8 }, { 32, 2 } };
-    const auto w = kWidth.find(member->type);
-    if (w == kWidth.end()) throw std::runtime_error(target + " is a " + hkTypeName(member->type) + ", not a scalar the walk can match");
-    const std::uint32_t offset = member->offset, width = w->second;
+    std::uint32_t offset = 0, width = 0;
+    std::string   typeName = "RAW";
+    if (atSign != std::string::npos) {
+        const auto colon = memberName.find(':');
+        if (colon == std::string::npos) throw std::runtime_error("--escape " + target + ": raw bytes take Class@offset:width");
+        offset = std::uint32_t(parseAddress(memberName.substr(0, colon)));
+        width  = std::uint32_t(std::stoul(memberName.substr(colon + 1), nullptr, 0));
+        if (!width) throw std::runtime_error("--escape " + target + ": width 0");
+    } else {
+        const ReflectedClass::Member* member = nullptr;
+        for (const auto& mem : root->second->members) if (mem.name == memberName) member = &mem;
+        if (!member) throw std::runtime_error(clsName + " reflects no member " + memberName);
+        static const std::map<std::uint8_t, std::uint32_t> kWidth = { { 1, 1 }, { 2, 1 }, { 3, 1 }, { 4, 1 }, { 5, 2 }, { 6, 2 }, { 7, 4 },
+                                                                      { 8, 4 }, { 9, 8 }, { 10, 8 }, { 11, 4 }, { 20, 8 }, { 30, 8 }, { 32, 2 } };
+        /// @note An enum or flags member stores its value as its subtype.
+        const std::uint8_t storage = (member->type == 24 || member->type == 31) ? member->subtype : member->type;
+        const auto         w       = kWidth.find(storage);
+        if (w == kWidth.end()) throw std::runtime_error(target + " is a " + hkTypeName(member->type) + ", not a scalar the walk can match");
+        offset = member->offset, width = w->second, typeName = hkTypeName(member->type);
+    }
 
     std::set<std::string> family = { clsName };
     for (bool grew = true; grew;) {
@@ -5784,7 +5799,7 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
     y += "runtime: " + rt.name + "\n";
     std::string fam;
     for (const auto& n : family) fam += (fam.empty() ? "" : ", ") + n;
-    y += "field: { class: " + clsName + ", member: " + memberName + ", type: " + hkTypeName(member->type) + ", offset: 0x" + hex(offset) +
+    y += "field: { class: " + clsName + ", member: " + memberName + ", type: " + typeName + ", offset: 0x" + hex(offset) +
          ", width: " + std::to_string(width) + ", classes: [" + fam + "] }\n";
     y += "summary: { walked: " + std::to_string(walked.size()) + ", anchors: " + std::to_string(anchorWhy.size()) + ", accesses: " +
          std::to_string(accesses.size()) + ", outside: " + std::to_string(outside) + ", writes: " + std::to_string(writes) +
