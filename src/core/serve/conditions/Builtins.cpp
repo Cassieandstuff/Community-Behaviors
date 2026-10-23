@@ -14,10 +14,20 @@
 // │ (AsActorValueOwner/AsMagicTarget/GetActorRuntimeData) CommonLib resolves per runtime.           │
 // └─────────────────────────────────────────────────────────────────────────────────────────────┘
 #include "Conditions.h"
+#include <PluginLogger.h>
 
+#include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
+
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
+#include <cstring>
 #include <functional>
+#include <mutex>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace CB::core::conditions {
@@ -283,18 +293,74 @@ namespace CB::core::conditions {
             return Value::Int(c.actor && c.actor->IsInCombat() ? 1 : 0);
         }
 
-        // GraphVar(name) -> Float
-        // LIMITATION (Inc 1 ABI): the Value union has no String type, so a graph-variable NAME literal
-        // can't be carried cleanly yet. Best-effort: the arg is a Keyword whose EditorID is used as the
-        // variable name. TODO(Inc 2/3): add a String VType to Value (Conditions.h) so authors can pass a
-        // bare variable name, and resolve it in the ArgResolver.
+        /// @return `name`'s declared hkbVariableInfo type in the actor's active root behavior graph, or
+        ///         VARIABLE_TYPE_INVALID when that graph declares no such variable (or the actor has none)
+        /// @note   The name is compared byte-exact. Cached per thread by (graph data, name) and re-checked against the
+        ///         graph's name table on every hit, so a reloaded graph at a recycled address is never misread.
+        std::int8_t RootVariableType(RE::Actor* actor, const char* name) {
+            namespace hk = CB::havok;
+            RE::BSTSmartPointer<RE::BSAnimationGraphManager> manager;
+            if (!actor->GetAnimationGraphManager(manager) || !manager) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            /// @note activeGraph moved between runtimes (SE 0x98 / AE 0xA0): read through the versioned accessor.
+            const std::uint32_t active = manager->GetRuntimeData().activeGraph;
+            if (active >= manager->graphs.size()) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            const auto& graph = manager->graphs[active];
+            if (!graph || !graph->behaviorGraph) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            /// @note CB's hkbBehaviorGraph is the exe's layout (cbmatch-proven): m_data at +0x88, as CommonLib's `data`.
+            const auto* root = reinterpret_cast<const hk::hkbBehaviorGraph*>(graph->behaviorGraph);
+            const hk::hkbBehaviorGraphData* data = root->m_data.val();
+            if (!data || !data->m_stringData) return hk::hkbVariableInfo::VARIABLE_TYPE_INVALID;
+            const auto& names = data->m_stringData->m_variableNames;
+            const auto& infos = data->m_variableInfos;
+            const int   count = std::min(names.getSize(), infos.getSize());
+
+            static thread_local std::unordered_map<const void*, std::unordered_map<const char*, int>> cache;
+            auto&      slots = cache[data];
+            const auto named = [&](int i) { return i >= 0 && i < count && std::strcmp(names[i].cString(), name) == 0; };
+            if (const auto it = slots.find(name); it != slots.end() && (it->second < 0 || named(it->second)))
+                return it->second < 0 ? hk::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[it->second].m_type;
+            int found = -1;
+            for (int i = 0; i < count && found < 0; ++i)
+                if (named(i)) found = i;
+            slots[name] = found;
+            return found < 0 ? hk::hkbVariableInfo::VARIABLE_TYPE_INVALID : infos[found].m_type;
+        }
+
+        /// @brief GraphVar(name) -> the variable, typed by its declaration: Bool, Int or Float (0.0 when unreadable).
+        /// @note  The context's VariableSource answers first. Otherwise the type comes from the root graph's declaration:
+        ///        the engine's getters (BShkbAnimationGraph::GetGraphVariableInt/Float, AE 0x140bb6aa0 / 0x140bb69e0,
+        ///        and the manager's variable cache before them) copy the raw 4-byte word whatever the type, so the word is
+        ///        read once and reinterpreted here.
+        /// @note  A variable the root graph does not declare (one a referenced behavior declares) is read as a float,
+        ///        logged once per name: give such a variable its declaration in the root graph, or a VariableSource.
         Value Prim_GraphVar(const EvalContext& c, std::span<const Value> a) {
-            if (!c.actor || a.empty() || a[0].type != VType::Keyword || !a[0].kw)
-                return Value::Float(0.0f);
-            const RE::BSFixedString name{ a[0].kw->GetFormEditorID() };
-            float out = 0.0f;
-            c.actor->GetGraphVariableFloat(name, out);
-            return Value::Float(out);
+            namespace hk = CB::havok;
+            if (a.empty() || a[0].type != VType::String || !a[0].str) return Value::Float(0.0f);
+            const char* name = a[0].str;
+            if (Value v; c.variables && c.variables->Read(name, v)) return v;
+            if (!c.actor) return Value::Float(0.0f);
+
+            std::int32_t word = 0;
+            if (!c.actor->GetGraphVariableInt(RE::BSFixedString(name), word)) return Value::Float(0.0f);
+            switch (RootVariableType(c.actor, name)) {
+                case hk::hkbVariableInfo::VARIABLE_TYPE_BOOL:  return Value::Bool(word != 0);
+                case hk::hkbVariableInfo::VARIABLE_TYPE_INT8:
+                case hk::hkbVariableInfo::VARIABLE_TYPE_INT16:
+                case hk::hkbVariableInfo::VARIABLE_TYPE_INT32: return Value::Int(word);
+                case hk::hkbVariableInfo::VARIABLE_TYPE_REAL:  return Value::Float(std::bit_cast<float>(word));
+                case hk::hkbVariableInfo::VARIABLE_TYPE_INVALID: {
+                    static std::mutex                      lock;
+                    static std::unordered_set<const char*> warned;
+                    bool                                   first = false;
+                    {
+                        std::scoped_lock guard(lock);
+                        first = warned.insert(name).second;
+                    }
+                    if (first) LOG_WARN("[cond] GraphVar('{}'): the root behavior graph declares no such variable - read as a float", name);
+                    return Value::Float(std::bit_cast<float>(word));
+                }
+                default: return Value::Float(0.0f);   ///< pointer / vector / quaternion: not a word value
+            }
         }
 
         // Global(form) -> Float
@@ -387,7 +453,7 @@ namespace CB::core::conditions {
             static const PrimId p = LookupPrimitive("GraphVar");
             if (a.empty()) return Value::Float(0.0f);
             const std::array<Value, 1> args{ a[0] };
-            return Value::Float(c.Primitive(p, args).AsFloat());
+            return c.Primitive(p, args);   ///< typed as declared: an INT32 compares exactly, past float precision
         }
 
         Value Fn_Global(const EvalContext& c, std::span<const Value> a) {
@@ -564,6 +630,8 @@ namespace CB::core::conditions {
 
     void RegisterBuiltins() {
         using V = VType;
+        static bool registered = false;
+        if (std::exchange(registered, true)) return;
 
         // ── Param type descriptors (static: the registry borrows the span) ──────────────────────────
         static constexpr std::array kP_Int      { V::Int };
@@ -572,6 +640,7 @@ namespace CB::core::conditions {
         static constexpr std::array kP_FormHand  { V::Form, V::Int };   // (form, hand)
         static constexpr std::array kP_IntHand   { V::Int,  V::Int };   // (type, hand)
         static constexpr std::array kP_KwHand    { V::Keyword, V::Int };// (keyword, hand)
+        static constexpr std::array kP_String    { V::String };
 
         // ── PRIMITIVES ──────────────────────────────────────────────────────────────────────────────
         RegisterPrimitive("Keywords",            V::KeywordArray, {},         &Prim_Keywords);
@@ -594,7 +663,7 @@ namespace CB::core::conditions {
         RegisterPrimitive("GameTime",            V::Float,        {},         &Prim_GameTime);
         RegisterPrimitive("Mount",               V::Form,         {},         &Prim_Mount);
         RegisterPrimitive("CombatState",         V::Int,          {},         &Prim_CombatState);
-        RegisterPrimitive("GraphVar",            V::Float,        kP_Keyword, &Prim_GraphVar);
+        RegisterPrimitive("GraphVar",            V::Float,        kP_String,  &Prim_GraphVar);
         RegisterPrimitive("Global",              V::Float,        kP_Form,    &Prim_Global);
         RegisterPrimitive("FactionRank",         V::Int,          kP_Form,    &Prim_FactionRank); // supports FactionRank()
         RegisterPrimitive("Location",            V::Form,         {},         &Prim_Location);
@@ -609,7 +678,7 @@ namespace CB::core::conditions {
         RegisterFunction("Level",       V::Int,   {},       &Fn_Level);
         RegisterFunction("GameTime",    V::Float, {},       &Fn_GameTime);
         RegisterFunction("FactionRank", V::Int,   kP_Form,  &Fn_FactionRank);
-        RegisterFunction("GraphVar",    V::Float, kP_Keyword, &Fn_GraphVar);
+        RegisterFunction("GraphVar",    V::Float, kP_String,  &Fn_GraphVar);
         RegisterFunction("Global",      V::Float, kP_Form,  &Fn_Global);
         RegisterFunction("Random",      V::Float, {},       &Fn_Random);
 

@@ -22,6 +22,7 @@ namespace CB::core::conditions {
     void EvalContext::Reset(RE::Actor* a) {
         actor = a;
         currentConfigId = 0;
+        variables = nullptr;
         _memo.clear();
         _arena.clear();
     }

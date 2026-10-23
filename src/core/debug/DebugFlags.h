@@ -54,7 +54,7 @@ namespace CB::core::debug {
           "per-actor). Unproven — a broken gate blocks every wildcard and T-poses every actor." },
         { "conditions", FlagKind::IniBool, "Conditions", "bEnable", false, false,
           "OAR-parity conditions",
-          "Register the built-in condition roster and install the conditional-setdata producer/matcher "
+          "Install the conditional-setdata producer/matcher "
           "engine hooks. Unproven in a shipped build and inert until conditional replacements exist; "
           "off = no engine hooks installed." },
         { "noskeletonserve", FlagKind::MarkerFile, "", "noskeletonserve.enable", false, false,

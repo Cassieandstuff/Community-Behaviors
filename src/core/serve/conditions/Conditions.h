@@ -28,6 +28,7 @@ namespace CB::core::conditions {
     enum class VType : std::uint8_t {
         Bool, Int, Float, Form, Keyword,
         IntArray, FloatArray, FormArray, KeywordArray,
+        String,   ///< a quoted literal, interned (Intern): equal text is one pointer
         None,   // uninitialised / error
     };
 
@@ -52,6 +53,7 @@ namespace CB::core::conditions {
             RE::TESForm*    form;
             RE::BGSKeyword* kw;
             ValueSpan       arr;   // borrows from the pass arena; trivially copyable
+            const char*     str;   ///< String: from Intern, never freed
         };
 
         constexpr Value() : type(VType::None), i(0) {}
@@ -61,6 +63,8 @@ namespace CB::core::conditions {
         static Value Float(float v)            { Value o; o.type = VType::Float;   o.f = v;    return o; }
         static Value Form(RE::TESForm* v)      { Value o; o.type = VType::Form;    o.form = v; return o; }
         static Value Keyword(RE::BGSKeyword* v){ Value o; o.type = VType::Keyword; o.kw = v;   return o; }
+        /// @pre `v` came from Intern.
+        static Value String(const char* v)     { Value o; o.type = VType::String;  o.str = v;  return o; }
         static Value Array(VType t, ValueSpan v)              { Value o; o.type = t; o.arr = v; return o; }
         static Value Array(VType t, const std::vector<Value>& v) {
             Value o; o.type = t; o.arr = { v.data(), static_cast<std::uint32_t>(v.size()) }; return o; }
@@ -73,6 +77,23 @@ namespace CB::core::conditions {
 
     inline const Value* ValueSpan::end() const { return ptr + n; }   // Value now complete
 
+    /// @brief The process-lifetime copy of `text`, byte-exact (case kept): equal text always yields the same pointer.
+    /// @note  Why interned: a String's pointer is its identity, so the primitive memo (which hashes the argument's bits)
+    ///        shares one read between every expression naming the same variable, and a Value stays trivially copyable.
+    const char* Intern(std::string_view text);
+
+    /// @brief Graph variables a caller knows for this pass, by name (byte-exact), consulted by GraphVar before the
+    ///        actor's graph.
+    /// @note  Why: a caller that computes a variable this frame (motion matching's chooser inputs) knows its value and
+    ///        type before the graph does; the inputs are declared on a referenced behavior, outside the root graph's
+    ///        variable table GraphVar takes types from.
+    class VariableSource {
+    public:
+        virtual ~VariableSource() = default;
+        /// @return true with `out` set (Bool, Int or Float) when `name` is one of this source's variables
+        virtual bool Read(const char* name, Value& out) const = 0;
+    };
+
     // ── Handles ───────────────────────────────────────────────────────────────────────────────────
     // Stable id for a registered primitive (used by functions to pull memoized reads).
     enum class PrimId : std::uint32_t { Invalid = 0xFFFFFFFF };
@@ -83,6 +104,8 @@ namespace CB::core::conditions {
     public:
         RE::Actor*            actor = nullptr;   // = the producer's param_1 (verified Actor*)
         std::uint32_t         currentConfigId = 0;   // the config whose expression is being evaluated NOW
+        /// @brief Read by GraphVar before the actor's graph; null = the graph alone. Cleared by Reset.
+        const VariableSource* variables = nullptr;
 
         // Compute-or-return-cached: a primitive runs at most once per (id, args) per pass.
         Value Primitive(PrimId id, std::span<const Value> args = {}) const;
@@ -162,6 +185,7 @@ namespace CB::core::conditions {
     void InstallConditionHooks();
 
     // Register the built-in primitive/function roster (Builtins.cpp — SEAM for the roster branch).
+    /// @note Idempotent; installs no hook. Called at SKSEPluginLoad, before anything compiles an expression.
     void RegisterBuiltins();
 
 }  // namespace CB::core::conditions

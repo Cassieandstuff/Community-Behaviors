@@ -548,16 +548,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
 
-    // OAR-parity conditional setdata (Inc 1): register the built-in condition roster + install the
-    // producer/matcher hooks. DEFAULT OFF ([Conditions] bEnable) for the minimal release: the
-    // conditional-replacement actuator (Inc 2b) is unbuilt and the hooks are unproven in a shipped build.
-    // When off, no engine hooks are installed and only the vanilla setdata serve runs; when on, still
-    // inert until config compose registers ConditionInstances (Inc 2). Flip the kFlags default once the
-    // framework is proven end-to-end in-engine.
-    if (CB::core::debug::FlagOn("conditions")) {
-        CB::core::conditions::RegisterBuiltins();
-        CB::core::conditions::InstallConditionHooks();
-    }
+    /// @note The condition roster is registered always: it installs nothing, and motion matching's chooser rows and
+    ///       biases are condition expressions. Only the conditional-setdata producer/matcher hooks wait on
+    ///       [Conditions] bEnable (default off: the conditional-replacement actuator, Inc 2b, is unbuilt and the hooks
+    ///       are unproven in a shipped build; when on, still inert until config compose registers ConditionInstances).
+    CB::core::conditions::RegisterBuiltins();
+    if (CB::core::debug::FlagOn("conditions")) CB::core::conditions::InstallConditionHooks();
 
     // Every hook subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
     // AsdsfOpen / AdsfOpen; serve::Install → ResolveTypedHkx; the condition layer → the setdata producer +

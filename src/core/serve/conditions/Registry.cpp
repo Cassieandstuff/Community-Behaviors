@@ -2,7 +2,9 @@
 #include "Detail.h"
 #include <PluginLogger.h>
 
+#include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace CB::core::conditions {
 
@@ -14,8 +16,17 @@ namespace CB::core::conditions {
             case VType::Float: return f != 0.0f;
             case VType::Form:  return form != nullptr;
             case VType::Keyword: return kw != nullptr;
+            case VType::String:  return str && *str;
             default:           return false;
         }
+    }
+
+    const char* Intern(std::string_view text) {
+        /// @note Node-based: an element's address survives every rehash, so the returned pointer lives forever.
+        static std::mutex                      lock;
+        static std::unordered_set<std::string> pool;
+        std::scoped_lock                       guard(lock);
+        return pool.emplace(text).first->c_str();
     }
     float Value::AsFloat() const {
         switch (type) {
