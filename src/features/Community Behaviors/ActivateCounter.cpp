@@ -1,5 +1,6 @@
 #include "PCH.h"
 
+#include <platform/classes/TypeRegistries.h>
 #include <platform/hooks/Override.h>
 
 #include <Behavior/Generator/Clip/hkbClipGenerator.h>
@@ -23,7 +24,9 @@ namespace CB::feature {
         void OnActivate(Activate::Next next, CB::havok::hkbClipGenerator* clip, const CB::havok::hkbContext& context)
         {
             const std::uint64_t n = g_activations.fetch_add(1, std::memory_order_relaxed) + 1;
-            if ((n & (n - 1)) == 0) LOG_INFO("activate counter: hkbClipGenerator::activate has run {} times", n);
+            if ((n & (n - 1)) == 0)
+                LOG_INFO("activate counter: hkbClipGenerator::activate has run {} times, {} through CB's vtable", n,
+                         platform::classes::ActivationsThroughOwnedVtable("hkbClipGenerator"));
             next(clip, context);
         }
 

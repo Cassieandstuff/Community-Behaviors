@@ -1106,8 +1106,8 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
 }
 
 /// @brief `mm-sample`: the motion-matching bundle generator over a spec exercising every shape it writes (two databases
-///        sharing a clip, flags, biases, tags, a chooser row per condition kind, a fallback, an extra variable, two
-///        characters), its files written to `outDir`.
+///        sharing a clip, flags, literal and expression biases, tags, chooser rows over bool, int and float variables,
+///        a row that always holds, a fallback, an extra variable, two characters), its files written to `outDir`.
 /// @note  The generator itself proves the behavior unit parses back to the graph it built; OK here means it did.
 int doMmSample(const std::string& schemaDir, const std::string& outDir) {
     if (schemaDir.empty() || outDir.empty()) {
@@ -1123,12 +1123,13 @@ int doMmSample(const std::string& schemaDir, const std::string& outDir) {
     mm::MmBundleSpec  spec;
     spec.databases.push_back({ "Idle", { { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping },
                                          { dir + "idle/TurnInPlace_L.hkx", "", mm::kMmDisableReselection } },
-                               0.0f, -0.05f, 0.0f, { "idle" } });
+                               "", "-0.05", "", { "idle" } });
     spec.databases.push_back({ "Run", { { dir + "running/Run_Fwd_Loop.hkx", "", mm::kMmLooping },
                                         { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping } },
-                               0.1f, 0.0f, -0.02f, { "run", "locomotion" } });
-    spec.rows.push_back({ { { "MM_Gait", mm::kMmEquals, 2, 0.0f, 0.0f }, { "MM_IsStarting", mm::kMmBool, 1, 0.0f, 0.0f } }, { "Run" } });
-    spec.rows.push_back({ { { "MM_Speed", mm::kMmRange, 0, 0.0f, 50.0f } }, { "Idle", "Run" } });
+                               "0.1", "", "(GraphVar('MM_Speed') > 300) * -0.02", { "run", "locomotion" } });
+    spec.rows.push_back({ "GraphVar(\"MM_Gait\") == 2 && GraphVar(\"MM_IsStarting\")", { "Run" } });
+    spec.rows.push_back({ "GraphVar('MM_Speed') >= 0 && GraphVar('MM_Speed') <= 50", { "Idle", "Run" } });
+    spec.rows.push_back({ "", { "Idle" } });
     spec.fallback = { "Idle" };
     spec.extraVariables.push_back({ "MM_Speed", "VARIABLE_TYPE_REAL", 0 });
     spec.characters = { { "meshes/actors/character/characters/defaultmale.hkx", "0001x000b" },

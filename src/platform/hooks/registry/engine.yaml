@@ -180,6 +180,9 @@ symbols:
   - { name: hkTypeInfoRegistry_Global, kind: data, se: 523166, ae: 409702, vr: 0 }
   - { name: hkVtableClassRegistry_Global, kind: data, se: 523167, ae: 409703, vr: 0 }
   - { name: hkClassNameRegistry_Global, kind: data, se: 523168, ae: 409704, vr: 0 }
+  - { name: hkTypeInfoRegistry_Create, kind: func, se: 0, ae: 64411, vr: 0 }  # hkSingleton<hkTypeInfoRegistry>'s create (allocates from the Havok heap), 0x140be19f0 (1.6.1170)
+  - { name: hkVtableClassRegistry_Create, kind: func, se: 0, ae: 64414, vr: 0 }  # hkSingleton<hkVtableClassRegistry>'s create, 0x140be1b80 (1.6.1170)
+  - { name: hkDefaultClassNameRegistry_Create, kind: func, se: 0, ae: 64466, vr: 0 }  # hkSingleton<hkDefaultClassNameRegistry>'s create, 0x140be48f0 (1.6.1170)
   - { name: hkBuiltinTypeRegistry_StaticLinkedTypeInfos, kind: data, se: 289776, ae: 239390, vr: 0 }
   - { name: hkBuiltinTypeRegistry_StaticLinkedClasses, kind: data, se: 289777, ae: 239939, vr: 0 }
   - { name: hkbGenerator_StaticClass, kind: data, se: 521288, ae: 407806, vr: 0, cpp: "CB::havok::hkbGeneratorClass", mangled: "?hkbGeneratorClass@havok@CB@@3UhkClass@12@B", header: "Behavior/Generator/hkbGenerator.h|Common/Base/Reflection/hkClass.h" }

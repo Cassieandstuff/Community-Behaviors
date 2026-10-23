@@ -169,8 +169,7 @@ namespace skeleton {
 namespace mm {
     using Clip         = CB::engine::compile::MmClip;          ///< one clip of a database → one clip generator child
     using Database     = CB::engine::compile::MmDatabase;      ///< a dance card: a contiguous child range + cost biases
-    using Condition    = CB::engine::compile::MmCondition;     ///< one chooser-row column over a graph variable
-    using ChooserRow   = CB::engine::compile::MmChooserRow;    ///< conditions → the databases searched
+    using ChooserRow   = CB::engine::compile::MmChooserRow;    ///< a `when` expression → the databases searched
     using Variable     = CB::engine::compile::MmVariable;      ///< an extra graph variable declaration
     using VariableDecl = CB::engine::compile::MmVariableDecl;
     using BundleSpec   = CB::engine::compile::MmBundleSpec;    ///< the whole bundle's input
@@ -178,9 +177,6 @@ namespace mm {
 
     using CB::engine::compile::kMmDisableReselection;          ///< childFlags bits
     using CB::engine::compile::kMmLooping;
-    using CB::engine::compile::kMmEquals;                      ///< Condition::kind values
-    using CB::engine::compile::kMmBool;
-    using CB::engine::compile::kMmRange;
     using CB::engine::compile::kMmChooserVariables;            ///< the chooser inputs every graph declares, by name
 
     using CB::engine::compile::MmAnimationName;                ///< clip path → its roster entry

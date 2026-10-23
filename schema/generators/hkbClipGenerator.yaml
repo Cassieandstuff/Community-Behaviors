@@ -2,6 +2,7 @@ name:      hkbClipGenerator
 parent:    hkbGenerator
 signature: 0x333b85b9
 size:      272
+enums:     [PlaybackMode, ClipFlags]   # declared by the class (signature only)
 # Plays a single animation clip. animationBindingIndex is the Animation Relay bind target.
 fields:
   - { name: animationName,               type: string, rosterref: animationNames }
@@ -14,16 +15,16 @@ fields:
   - { name: userControlledTimeFraction,  type: float }
   - { name: animationBindingIndex,       type: int16 }
   - { name: mode,                        type: int8, enum: PlaybackMode }
-  - { name: flags,                       type: int8, enum: ClipGeneratorFlags, flags: true }
+  - { name: flags,                       type: int8, hkyenum: ClipFlags, flags: true }
   - { skip: 4 }
-  - { empty: array }
-  - { empty: ptr }
-  - { empty: ptr }
-  - { empty: ptr }
-  - { empty: ptr }
-  - { empty: ptr }
+  - { name: animDatas,                   empty: array }
+  - { name: animationControl,            empty: ptr }
+  - { name: originalTriggers,            empty: ptr }
+  - { name: mapperData,                  empty: ptr }
+  - { name: binding,                     empty: ptr }
+  - { name: mirroredAnimation,           empty: ptr }
   - { name: extractedMotion,             type: qstransform, ignored: true }
-  - { empty: array }
+  - { name: echos,                       empty: array }
   - { name: localTime,                            type: float, ignored: true }
   - { name: time,                                 type: float, ignored: true }
   - { name: previousUserControlledTimeFraction,   type: float, ignored: true }
@@ -32,4 +33,7 @@ fields:
   - { name: atEnd,                                type: bool,  ignored: true }
   - { name: ignoreStartTime,                      type: bool,  ignored: true }
   - { name: pingPongBackward,                     type: bool,  ignored: true }
-  - { skip: 9 }
+  - { skip: 1 }
+  # Animation 64: the binding index at 64 bits, in the class's tail padding (the exe's code never touches 0x107..0x10f).
+  # animationBindingIndex stays the 16-bit mirror. Runtime state, like the members above: zero in a packfile.
+  - { name: animationBindingIndex64,              type: int64, ignored: true, cb: true }

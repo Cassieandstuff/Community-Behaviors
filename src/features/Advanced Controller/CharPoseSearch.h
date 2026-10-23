@@ -19,7 +19,7 @@
 namespace CB::feature::controller::motion {
 
     /// @brief CBPoseSearchDatabase: a dance card as a contiguous range of the generator's children, with Unreal's
-    ///        per-database cost biases and its tags.
+    ///        per-database cost biases (condition expressions, evaluated by CB's controller) and its tags.
     /// @note  Declared POD to hkArray: the elements live in the loaded file, so an array never constructs or destroys
     ///        them (a block-copied node's destructor must not tear down the template's data).
     struct PoseSearchDatabase {
@@ -28,34 +28,21 @@ namespace CB::feature::controller::motion {
         CB::havok::hkStringPtr          m_name;                     ///< +0x00
         CB::havok::hkInt32              m_firstChild;               ///< +0x08
         CB::havok::hkInt32              m_numChildren;              ///< +0x0c
-        CB::havok::hkReal               m_baseCostBias;             ///< +0x10
-        CB::havok::hkReal               m_continuingPoseCostBias;   ///< +0x14
-        CB::havok::hkReal               m_loopingCostBias;          ///< +0x18
-        CB::havok::hkUint32             m_pad;                      ///< +0x1c
-        CB::havok::hkArray<CB::havok::hkStringPtr> m_tags;          ///< +0x20
+        CB::havok::hkStringPtr          m_baseCostBias;             ///< +0x10
+        CB::havok::hkStringPtr          m_continuingPoseCostBias;   ///< +0x18
+        CB::havok::hkStringPtr          m_loopingCostBias;          ///< +0x20
+        CB::havok::hkArray<CB::havok::hkStringPtr> m_tags;          ///< +0x28
     };
-    static_assert(sizeof(PoseSearchDatabase) == 48, "PoseSearchDatabase size (schema: 48)");
+    static_assert(sizeof(PoseSearchDatabase) == 56, "PoseSearchDatabase size (schema: 56)");
 
-    /// @brief CBPoseSearchCondition: one chooser column over a graph variable.
-    struct PoseSearchCondition {
-        HK_DECLARE_POD_TYPE();
-
-        CB::havok::hkStringPtr m_variable;   ///< +0x00
-        CB::havok::hkInt8      m_kind;       ///< +0x08: 0 equals, 1 bool, 2 float range
-        CB::havok::hkInt32     m_intValue;   ///< +0x0c
-        CB::havok::hkReal      m_minValue;   ///< +0x10
-        CB::havok::hkReal      m_maxValue;   ///< +0x14
-    };
-    static_assert(sizeof(PoseSearchCondition) == 24, "PoseSearchCondition size (schema: 24)");
-
-    /// @brief CBPoseSearchChooserRow: conditions and the databases they select.
+    /// @brief CBPoseSearchChooserRow: a condition expression and the databases it selects.
     struct PoseSearchChooserRow {
         HK_DECLARE_POD_TYPE();
 
-        CB::havok::hkArray<PoseSearchCondition>    m_conditions;   ///< +0x00
-        CB::havok::hkArray<CB::havok::hkStringPtr> m_databases;    ///< +0x10
+        CB::havok::hkStringPtr                     m_when;        ///< +0x00
+        CB::havok::hkArray<CB::havok::hkStringPtr> m_databases;   ///< +0x08
     };
-    static_assert(sizeof(PoseSearchChooserRow) == 32, "PoseSearchChooserRow size (schema: 32)");
+    static_assert(sizeof(PoseSearchChooserRow) == 24, "PoseSearchChooserRow size (schema: 24)");
 
     /// @brief CBPoseSearchChooser: the generator's chooser table, a data object CB's controller evaluates.
     /// @note  Only ever loaded (the finish constructor): CB reads it through the merged graph, the live object only has

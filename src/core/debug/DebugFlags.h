@@ -54,7 +54,7 @@ namespace CB::core::debug {
           "per-actor). Unproven — a broken gate blocks every wildcard and T-poses every actor." },
         { "conditions", FlagKind::IniBool, "Conditions", "bEnable", false, false,
           "OAR-parity conditions",
-          "Register the built-in condition roster and install the conditional-setdata producer/matcher "
+          "Install the conditional-setdata producer/matcher "
           "engine hooks. Unproven in a shipped build and inert until conditional replacements exist; "
           "off = no engine hooks installed." },
         { "noskeletonserve", FlagKind::MarkerFile, "", "noskeletonserve.enable", false, false,
@@ -69,6 +69,16 @@ namespace CB::core::debug {
           "Havok runtime takeover",
           "Run CB's reimplemented Havok behavior runtime in place of vanilla's (per class: [HavokRuntime] "
           "<Class>=off, or sOnly=<Class>,...). Inert without community_behaviors/runtime/havok-runtime.cbimg." },
+        { "havok_type_registry", FlagKind::IniBool, "HavokRuntime", "bTypeRegistry", true, true,
+          "Havok type registries",
+          "Put CB's type-info, vtable-class and class-name registries in place of Havok's before the game starts it. "
+          "They forward every call to vanilla's code, log each registration and count the loaded objects each class "
+          "finishes (reported at kDataLoaded and after each game loads). Classes in sOwnTypes (default hkbClipGenerator) "
+          "get CB's copy of their vtable on every loaded and cloned object. AE only." },
+        { "animation64_watch", FlagKind::IniBool, "Animation64", "bReaderWatch", false, false,
+          "Animation 64 reader watch",
+          "Hardware watchpoints on the 16-bit binding index of the newest activated clips, logging each instruction that "
+          "touches it (exe = not yet converted). A debug probe: it overwrites every thread's debug registers." },
         { "havok_activate_counter", FlagKind::IniBool, "Debug", "bHavokActivateCounter", true, true,
           "Clip activate counter",
           "Count hkbClipGenerator::activate calls through the Havok runtime's cell table, logging at every power "

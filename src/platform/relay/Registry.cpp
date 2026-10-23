@@ -2,9 +2,11 @@
 #include "Detail.h"
 #include <PluginLogger.h>
 
+#include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 
-namespace CB::core::conditions {
+namespace CB::platform::relay {
 
     // ── Value coercions ─────────────────────────────────────────────────────────────────────────
     bool Value::AsBool() const {
@@ -14,8 +16,17 @@ namespace CB::core::conditions {
             case VType::Float: return f != 0.0f;
             case VType::Form:  return form != nullptr;
             case VType::Keyword: return kw != nullptr;
+            case VType::String:  return str && *str;
             default:           return false;
         }
+    }
+
+    const char* Intern(std::string_view text) {
+        /// @note Node-based: an element's address survives every rehash, so the returned pointer lives forever.
+        static std::mutex                      lock;
+        static std::unordered_set<std::string> pool;
+        std::scoped_lock                       guard(lock);
+        return pool.emplace(text).first->c_str();
     }
     float Value::AsFloat() const {
         switch (type) {
@@ -51,7 +62,7 @@ namespace CB::core::conditions {
                              std::span<const VType> params, PrimitiveFn fn) {
         auto& idx = PrimIndex();
         if (auto it = idx.find(std::string(name)); it != idx.end()) {
-            LOG_WARN("[cond] primitive '{}' already registered — keeping first.", name);
+            LOG_WARN("[relay] primitive '{}' already registered — keeping first.", name);
             return static_cast<PrimId>(it->second);
         }
         const std::uint32_t id = static_cast<std::uint32_t>(Prims().size());
@@ -64,7 +75,7 @@ namespace CB::core::conditions {
                           std::span<const VType> params, FunctionFn fn) {
         auto& idx = FnIndex();
         if (idx.contains(std::string(name))) {
-            LOG_WARN("[cond] function '{}' already registered — keeping first.", name);
+            LOG_WARN("[relay] function '{}' already registered — keeping first.", name);
             return;
         }
         const std::uint32_t id = static_cast<std::uint32_t>(Fns().size());
@@ -99,4 +110,4 @@ namespace CB::core::conditions {
         }
     }
 
-}  // namespace CB::core::conditions
+}  // namespace CB::platform::relay

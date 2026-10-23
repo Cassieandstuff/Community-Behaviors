@@ -84,12 +84,19 @@ struct Field {
     std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` — the member's reflected type where it differs
                                          ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
                                          ///<        here carries no enum reference). Signature only; no serde effect.
+    bool        enumHkyOnly = false;     ///< @brief `hkyenum:` rather than `enum:` — the .hky renders the value by name, but
+                                         ///<        the exe reflects a plain scalar (no enum in the signature).
+    bool        cbAdded = false;         ///< @brief `cb: true` — a member CB adds to a vanilla class (in its padding: the
+                                         ///<        exe's code never touches it). Left out of the class's vanilla signature.
 };
 
 struct ClassSchema {
     std::string        name;
     std::string        parent;               // empty for a root class
     std::uint32_t      signature = 0;        // the class CRC
+    /// @brief For a vanilla class with `cb: true` members: the exe's signature, as `signature:` stores it. LoadDir then
+    ///        sets `signature` to the one with CB's members, which CB registers and writes.
+    std::uint32_t      vanillaSignature = 0;
     int                interfaces = 0;       ///< @brief `interfaces: N` — hkClass::m_numImplementedInterfaces (signature only).
     std::vector<std::string> enums;          ///< @brief `enums: [A, B]` — the class's declared enums in order, defined under
                                              ///<        metadata/enums (signature only).
@@ -252,7 +259,8 @@ public:
     ///          flags) computes a different value. Every class touched that stores a `signature:` is checked against
     ///          it, so a wrong answer fails here rather than in the game's loader.
     /// @return false with `err` set on an unresolved class or enum, or a touched class whose stored signature differs.
-    bool ComputeSignature(const std::string& className, std::uint32_t& out, std::string* err = nullptr) const;
+    /// @param vanilla leave out every `cb: true` member (the signature the exe computes for its own description).
+    bool ComputeSignature(const std::string& className, std::uint32_t& out, std::string* err = nullptr, bool vanilla = false) const;
 
 private:
     /// @brief Advance `cursor` past `f` (a Pad aligns it); false with `err` set on an unresolved inline Struct.
@@ -260,10 +268,10 @@ private:
 
     /// @brief Append the signature bytes of `cs` and its parent chain; every class visited lands in `touched`.
     bool EmitSignatureChain(const ClassSchema* cs, std::string& out, std::vector<const ClassSchema*>& touched,
-                            std::string* err, int depth) const;
+                            std::string* err, int depth, bool vanilla) const;
     /// @brief Append one class's own signature block (see ComputeSignature).
     bool EmitSignatureOwn(const ClassSchema& cs, std::string& out, std::vector<const ClassSchema*>& touched,
-                          std::string* err, int depth) const;
+                          std::string* err, int depth, bool vanilla) const;
 
     void BuildLayouts();
 

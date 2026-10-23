@@ -3,7 +3,7 @@
 
 #include <cstring>
 
-namespace CB::core::conditions {
+namespace CB::platform::relay {
 
     namespace {
         // Hash a primitive call site (id + raw arg bits) for the memo key.
@@ -21,7 +21,8 @@ namespace CB::core::conditions {
 
     void EvalContext::Reset(RE::Actor* a) {
         actor = a;
-        currentConfigId = 0;
+        seed = 0;
+        variables = nullptr;
         _memo.clear();
         _arena.clear();
     }
@@ -43,4 +44,4 @@ namespace CB::core::conditions {
         return v;
     }
 
-}  // namespace CB::core::conditions
+}  // namespace CB::platform::relay

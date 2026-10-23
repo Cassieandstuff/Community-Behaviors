@@ -15,10 +15,12 @@
 #include "core/resolve/Resolver.h"
 
 #include <platform/classes/ClassRegistry.h>
+#include <platform/classes/TypeRegistries.h>
 #include <platform/hooks/Chain.h>
 #include <platform/hooks/registry/Registry.h>
 #include <platform/hooks/takeover/SchemaShim.h>
 #include <platform/hooks/takeover/Takeover.h>
+#include <platform/relay/Relay.h>
 #include <platform/profile/Profile.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
@@ -481,6 +483,9 @@ namespace CB {
     {
         if (!a_msg) return;
 
+        if (a_msg->type == SKSE::MessagingInterface::kPostLoadGame || a_msg->type == SKSE::MessagingInterface::kNewGame)
+            CB::platform::classes::ReportTypeRegistries();
+
         if (a_msg->type == SKSE::MessagingInterface::kDataLoaded) {
             // Pre-install the compile progress bar EARLY here (before the menu), NOT at the later compile
             // gate: CB::core::bootstrap::Install eagerly builds imgui + its font/device objects, so doing it at
@@ -501,6 +506,7 @@ namespace CB {
             else
                 LOG_ERROR("classes: no schema registry ({}) - CB's own classes are not registered",
                           CB::engine::schema::SharedRegistryError());
+            CB::platform::classes::ReportTypeRegistries();
         }
     }
 
@@ -517,6 +523,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     CB::platform::profile::Start();
     CB::platform::hooks::engine::LogAvailability();
     CB::platform::hooks::InstallSchemaShim();
+    /// @note Before WinMain runs Havok's start-up, which creates its type registries only where none is in place.
+    CB::platform::classes::InstallTypeRegistries();
 
     // The Havok runtime takeover goes FIRST, before any of CB's own hooks: those (and every later plugin's) then layer
     // on top of its entry jumps rather than being bypassed by them.
@@ -541,16 +549,12 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
                                           // behavior from the consolidated cache under vanilla paths
                                           // (subsumes the retired ProjectLoadProbe descriptor redirect)
 
-    // OAR-parity conditional setdata (Inc 1): register the built-in condition roster + install the
-    // producer/matcher hooks. DEFAULT OFF ([Conditions] bEnable) for the minimal release: the
-    // conditional-replacement actuator (Inc 2b) is unbuilt and the hooks are unproven in a shipped build.
-    // When off, no engine hooks are installed and only the vanilla setdata serve runs; when on, still
-    // inert until config compose registers ConditionInstances (Inc 2). Flip the kFlags default once the
-    // framework is proven end-to-end in-engine.
-    if (CB::core::debug::FlagOn("conditions")) {
-        CB::core::conditions::RegisterBuiltins();
-        CB::core::conditions::InstallConditionHooks();
-    }
+    /// @note The condition roster is registered always: it installs nothing, and motion matching's chooser rows and
+    ///       biases are condition expressions. Only the conditional-setdata producer/matcher hooks wait on
+    ///       [Conditions] bEnable (default off: the conditional-replacement actuator, Inc 2b, is unbuilt and the hooks
+    ///       are unproven in a shipped build; when on, still inert until config compose registers ConditionInstances).
+    CB::platform::relay::RegisterBuiltins();
+    if (CB::core::debug::FlagOn("conditions")) CB::core::conditions::InstallConditionHooks();
 
     // Every hook subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →
     // AsdsfOpen / AdsfOpen; serve::Install → ResolveTypedHkx; the condition layer → the setdata producer +

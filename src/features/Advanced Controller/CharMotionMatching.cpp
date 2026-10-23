@@ -9,6 +9,7 @@
 
 #include <core/debug/Settings.h>
 #include <core/resolve/LoadOrderReader.h>
+#include <platform/relay/Relay.h>
 #include <codec/format/AnimationYamlLoader.h>
 #include <compile/MotionFeatures.h>
 #include <platform/game/Movement.h>
@@ -25,11 +26,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <format>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -41,8 +42,9 @@
 ///        a brute-force nearest-frame search over those; and the winner played through the add-on's graph.
 /// @note  THE ADD-ON CONTRACT (Motion Matching.hky, shipped apart from CB): the behavior `kGraphKey` whose root is a
 ///        CBPoseSearchGenerator over clip generators (MM_Clip = the child index; a clip listed in several databases is
-///        one child per database), its `databases` contiguous child ranges with Unreal's cost biases, `childFlags` per
-///        child and `chooser` rows over graph variables; the selected child bound to `kClipVar` and every child's
+///        one child per database), its `databases` contiguous child ranges with Unreal's cost biases (condition
+///        expressions), `childFlags` per child and `chooser` rows each holding a `when` condition expression; the
+///        selected child bound to `kClipVar` and every child's
 ///        user-controlled time to `kTimeVar`; `kEnableVar`, declared in 0_master and mt_behavior, switches
 ///        mt_behavior's LocomotionDefault to that graph; and the chooser's inputs (kInputNames) declared on it, which CB
 ///        writes each frame. Without the add-on the graph is not served, nothing is built, and the controller runs
@@ -54,6 +56,7 @@ namespace CB::feature {
 
         namespace hooks = platform::hooks;
         namespace ch    = CB::feature::controller;
+        namespace relay = CB::platform::relay;
         namespace mv    = CB::feature::controller::move;
         namespace game  = CB::platform::game;
         namespace ea    = CB::engine::anim;
@@ -171,27 +174,32 @@ namespace CB::feature {
             std::uint8_t flags    = 0;    ///< kFlag* bits
         };
 
-        /// @brief One of the graph's databases (CBPoseSearchDatabase): Unreal's per-database cost biases, added to the
-        ///        feature cost (negative = preferred).
+        /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
+        struct Expression {
+            std::string        text;
+            relay::CompiledExpr expr;   ///< invalid when `text` is empty or does not compile
+        };
+
+        /// @brief Unreal's per-database cost biases, added to the feature cost (negative = preferred), as evaluated for
+        ///        one frame.
+        struct Biases {
+            float base       = 0;   ///< every candidate from the database
+            float continuing = 0;   ///< the playing pose while it is from the database
+            float looping    = 0;   ///< candidates from its looping children
+        };
+
+        /// @brief One of the graph's databases (CBPoseSearchDatabase).
         struct PoseDatabase {
             std::string name;
-            float       base       = 0;   ///< every candidate from it
-            float       continuing = 0;   ///< the playing pose while it is from this database
-            float       looping    = 0;   ///< candidates from its looping children
+            /// @brief The biases' expressions, evaluated each frame by the frame hook (an invalid one is 0).
+            Expression  base, continuing, looping;
             bool        pivots     = false;   ///< its tags hold "Pivots" (byte-exact): IsStarting and spins stay false
         };
 
-        /// @brief One chooser column (CBPoseSearchCondition).
-        struct Condition {
-            std::string  variable;         ///< the graph variable, byte-exact
-            int          input    = -1;    ///< its Input when it is one of kInputNames, else -1 (read from the graph)
-            int          kind     = 0;     ///< 0 equals intValue, 1 bool (intValue != 0), 2 float in [minValue, maxValue]
-            std::int32_t intValue = 0;
-            float        minValue = 0, maxValue = 0;
-        };
+        /// @brief One chooser row (CBPoseSearchChooserRow).
         struct ChooserRow {
-            std::vector<Condition> conditions;
-            std::vector<int>       databases;
+            Expression       when;     ///< empty text: always holds; text that does not compile: never holds
+            std::vector<int> databases;
         };
 
         /// @brief The database: one row of kDims floats per child frame, normalized (mean, per-group spread) but unweighted.
@@ -230,6 +238,8 @@ namespace CB::feature {
             bool              interrupt   = false;
             /// @brief Per database: searched (the chooser's latest pick; empty until the first frame = every database).
             std::vector<char> active;
+            /// @brief Per database: its biases as of the latest frame (empty until the first frame = every bias 0).
+            std::vector<Biases> biases;
             std::vector<char> interruptActive;   ///< the pick the interrupt saw, which its search uses
             Inputs            inputs = InitialInputs();
         };
@@ -366,6 +376,25 @@ namespace CB::feature {
             return out;
         }
 
+        /// @return string field `name` of `o`, "" when it holds none (an empty string may be left out of a unit).
+        std::string StrOr(const SchemaObject& o, std::string_view name)
+        {
+            const auto* f = o.FindField(name);
+            return f ? f->str : std::string();
+        }
+
+        /// @brief `text` compiled as a condition expression; a non-empty one that fails is logged, naming `what` and
+        ///        `fallback` (what it counts as instead).
+        Expression CompileExpression(std::string text, std::string_view what, std::string_view fallback)
+        {
+            Expression e{ std::move(text), {} };
+            if (e.text.empty()) return e;
+            std::string err;
+            e.expr = relay::Compile(e.text, err);
+            if (!e.expr.Valid()) LOG_WARN("motion matching: {} '{}' does not compile ({}) - {}", what, e.text, err, fallback);
+            return e;
+        }
+
         /// @brief Read the selector's databases into `db` and each child's into `clips` (sized to the children).
         /// @note  A graph without `databases` (bundles from before them) is one implicit database over every child,
         ///        unbiased. A child two ranges claim stays in the first.
@@ -382,9 +411,9 @@ namespace CB::feature {
                     if (!d) continue;
                     PoseDatabase p;
                     p.name       = d->Str("name");
-                    p.base       = d->GetFloat("baseCostBias");
-                    p.continuing = d->GetFloat("continuingPoseCostBias");
-                    p.looping    = d->GetFloat("loopingCostBias");
+                    p.base       = CompileExpression(StrOr(*d, "baseCostBias"), "database '" + p.name + "' baseCostBias", "0");
+                    p.continuing = CompileExpression(StrOr(*d, "continuingPoseCostBias"), "database '" + p.name + "' continuingPoseCostBias", "0");
+                    p.looping    = CompileExpression(StrOr(*d, "loopingCostBias"), "database '" + p.name + "' loopingCostBias", "0");
                     if (const auto* tags = d->FindField("tags"))
                         p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
                     const auto first = d->GetInt("firstChild"), n = d->GetInt("numChildren");
@@ -436,20 +465,8 @@ namespace CB::feature {
                     const auto* r = dynamic_cast<const SchemaObject*>(o.get());
                     if (!r) continue;
                     ChooserRow row;
-                    if (const auto* conds = r->FindField("conditions"))
-                        for (const auto& co : conds->objs) {
-                            const auto* c = dynamic_cast<const SchemaObject*>(co.get());
-                            if (!c) continue;
-                            Condition cond;
-                            cond.variable = c->Str("variable");
-                            cond.kind     = static_cast<int>(c->GetInt("kind"));
-                            cond.intValue = static_cast<std::int32_t>(c->GetInt("intValue"));
-                            cond.minValue = c->GetFloat("minValue");
-                            cond.maxValue = c->GetFloat("maxValue");
-                            for (int i = 0; i < kInputs; ++i)
-                                if (cond.variable == kInputNames[i]) cond.input = i;
-                            row.conditions.push_back(std::move(cond));
-                        }
+                    row.when = CompileExpression(StrOr(*r, "when"), "chooser row " + std::to_string(db.chooser.size()) + " `when`",
+                                                 "the row never holds");
                     if (const auto* names = r->FindField("databases")) row.databases = DatabasesNamed(db, names->strs, "row");
                     db.chooser.push_back(std::move(row));
                 }
@@ -583,9 +600,13 @@ namespace CB::feature {
                      db->haveChooser ? std::format("{} row(s), {} fallback", db->chooser.size(), db->fallback.size()) : std::string("none"),
                      total, F::kDims, db->gaitSpeed[1], gaitSpeeds[1].size(), db->gaitSpeed[2], gaitSpeeds[2].size(), db->gaitSpeed[3],
                      gaitSpeeds[3].size());
+            const auto text = [](const Expression& e) { return e.text.empty() ? std::string("0") : "`" + e.text + "`"; };
             for (const PoseDatabase& d : db->databases)
-                LOG_INFO("motion matching: database '{}' - bias base {:.2f}, continuing {:.2f}, looping {:.2f}{}", d.name, d.base,
-                         d.continuing, d.looping, d.pivots ? ", Pivots" : "");
+                LOG_INFO("motion matching: database '{}' - bias base {}, continuing {}, looping {}{}", d.name, text(d.base),
+                         text(d.continuing), text(d.looping), d.pivots ? ", Pivots" : "");
+            for (std::size_t r = 0; r < db->chooser.size(); ++r)
+                LOG_INFO("motion matching: chooser row {} - when {} -> {}", r, db->chooser[r].when.text.empty() ? std::string("always") : text(db->chooser[r].when),
+                         db->chooser[r].databases.size());
             g_db.store(db.release(), std::memory_order_release);
         }
 
@@ -726,47 +747,62 @@ namespace CB::feature {
                    before[kStance] != now[kStance];
         }
 
-        /// @brief Whether `c` holds: an input from `in`, any other variable read from the player's graph.
-        /// @note  A variable the graph lacks (or an unknown kind) fails the condition, logged once per name.
-        bool Holds(const Condition& c, const Inputs& in, RE::Actor* player)
-        {
-            static std::set<std::string> warned;   ///< the frame hook's alone
-            const auto fail = [&](const char* why) {
-                if (warned.insert(c.variable).second)
-                    LOG_WARN("motion matching: chooser condition on '{}' {} - it never holds", c.variable, why);
+        /// @brief The chooser inputs, by their exact names, as GraphVar reads them: this frame's values, typed as declared.
+        /// @note  Why ahead of the graph: the inputs are declared on the add-on's graph, not the root one GraphVar takes
+        ///        types from, and the frame knows them before the graph is evaluated.
+        class InputVariables final : public relay::VariableSource {
+        public:
+            explicit InputVariables(const Inputs& in) : m_in(in) {}
+            bool Read(const char* name, relay::Value& out) const override
+            {
+                for (int i = 0; i < kInputs; ++i)
+                    if (std::strcmp(name, kInputNames[i]) == 0) {
+                        out = IsBoolInput(i) ? relay::Value::Bool(m_in[i] != 0) : relay::Value::Int(m_in[i]);
+                        return true;
+                    }
                 return false;
-            };
-            if (c.kind < 0 || c.kind > 2) return fail("has an unknown kind");
-            if (c.input >= 0) {
-                const int v = in[c.input];
-                if (c.kind == 0) return v == c.intValue;
-                if (c.kind == 1) return (v != 0) == (c.intValue != 0);
-                return c.minValue <= static_cast<float>(v) && static_cast<float>(v) <= c.maxValue;
             }
-            if (c.kind == 0) {
-                std::int32_t v = 0;
-                if (!player->GetGraphVariableInt(c.variable.c_str(), v)) return fail("names no graph variable");
-                return v == c.intValue;
-            }
-            if (c.kind == 1) {
-                bool v = false;
-                if (!player->GetGraphVariableBool(c.variable.c_str(), v)) return fail("names no graph variable");
-                return v == (c.intValue != 0);
-            }
-            float v = 0;
-            if (!player->GetGraphVariableFloat(c.variable.c_str(), v)) return fail("names no graph variable");
-            return c.minValue <= v && v <= c.maxValue;
+
+        private:
+            const Inputs& m_in;
+        };
+
+        /// @brief The frame's evaluation pass over the player: the chooser and every bias share its primitive reads.
+        /// @note  The frame hook's alone. `vars` must outlive the frame's evaluations.
+        const relay::EvalContext& FrameContext(RE::Actor* player, const InputVariables& vars)
+        {
+            static relay::EvalContext ctx;
+            ctx.Reset(player);
+            ctx.variables = &vars;
+            return ctx;
         }
 
-        /// @brief The chooser's pick, per database: the union of every row whose conditions all hold; an empty union
-        ///        is the fallback, an empty fallback (or no chooser) every database.
-        std::vector<char> Choose(const Database& db, const Inputs& in, RE::Actor* player)
+        /// @return `e` evaluated to a float, 0 when it is empty or did not compile
+        float ValueOf(const Expression& e, const relay::EvalContext& ctx)
+        {
+            return e.expr.Valid() ? e.expr.Evaluate(ctx).AsFloat() : 0.0f;
+        }
+
+        /// @brief Every database's biases for this frame.
+        std::vector<Biases> EvaluateBiases(const Database& db, const relay::EvalContext& ctx)
+        {
+            std::vector<Biases> out(db.databases.size());
+            for (std::size_t d = 0; d < out.size(); ++d) {
+                const PoseDatabase& p = db.databases[d];
+                out[d] = { ValueOf(p.base, ctx), ValueOf(p.continuing, ctx), ValueOf(p.looping, ctx) };
+            }
+            return out;
+        }
+
+        /// @brief The chooser's pick, per database: the union of every row whose `when` holds; an empty union is the
+        ///        fallback, an empty fallback (or no chooser) every database.
+        std::vector<char> Choose(const Database& db, const relay::EvalContext& ctx)
         {
             std::vector<char> on(db.databases.size(), 0);
             bool              any = false;
             for (const ChooserRow& row : db.chooser) {
-                if (!std::all_of(row.conditions.begin(), row.conditions.end(), [&](const Condition& c) { return Holds(c, in, player); }))
-                    continue;
+                const bool holds = row.when.text.empty() || (row.when.expr.Valid() && row.when.expr.Evaluate(ctx).AsBool());
+                if (!holds) continue;
                 for (const int d : row.databases) on[d] = 1, any = true;
             }
             if (any) return on;
@@ -808,7 +844,8 @@ namespace CB::feature {
         void CountFrame();
 
         /// @brief Plays what the search chose: advances it by the frame's time and hands it to the add-on graph; computes
-        ///        the chooser's inputs, writes them to the graph and publishes the chooser's pick for the search.
+        ///        the chooser's inputs, writes them to the graph and publishes the chooser's pick and the databases' biases
+        ///        for the search.
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
             next(controller, deltaTime, out);
@@ -845,11 +882,15 @@ namespace CB::feature {
             const Inputs      before    = inputs;
             ComputeInputs(player, deltaTime, playingDb >= 0 && db->databases[playingDb].pivots, inputs);
             WriteInputs(player, inputs);
-            const std::vector<char> active    = Choose(*db, inputs, player);
-            const bool              interrupt = playingDb >= 0 && !IsActive(active, playingDb) && InputsInterrupt(before, inputs);
+            const InputVariables     vars(inputs);
+            const relay::EvalContext& ctx       = FrameContext(player, vars);
+            const std::vector<char>  active    = Choose(*db, ctx);
+            std::vector<Biases>      biases    = EvaluateBiases(*db, ctx);
+            const bool               interrupt = playingDb >= 0 && !IsActive(active, playingDb) && InputsInterrupt(before, inputs);
             {
                 std::scoped_lock lock(g_shared.lock);
                 g_shared.active = active;
+                g_shared.biases = std::move(biases);
                 g_shared.inputs = inputs;
                 if (interrupt) g_shared.interrupt = true, g_shared.interruptActive = active;
             }
@@ -994,8 +1035,9 @@ namespace CB::feature {
 
         Playback          cur;
         bool              clipEnd = false, interrupt = false;
-        std::vector<char> active;
-        Inputs            inputs = InitialInputs();
+        std::vector<char>   active;
+        std::vector<Biases> biases;
+        Inputs              inputs = InitialInputs();
         {
             std::scoped_lock lock(g_shared.lock);
             clipEnd   = g_shared.searchNow;
@@ -1004,6 +1046,7 @@ namespace CB::feature {
             g_shared.searchNow = false;
             g_shared.interrupt = false;
             active             = interrupt ? g_shared.interruptActive : g_shared.active;
+            biases             = g_shared.biases;
             inputs             = g_shared.inputs;
             cur                = g_shared.havePending ? g_shared.pending : g_shared.now;
         }
@@ -1035,12 +1078,15 @@ namespace CB::feature {
             }
             return sum;
         };
+        /// @brief The frame hook's latest biases for `database` (all 0 before its first frame or outside every database).
+        const auto biasesOf = [&](int database) {
+            return database >= 0 && static_cast<std::size_t>(database) < biases.size() ? biases[database] : Biases{};
+        };
         /// @brief Unreal's additive biases for any candidate of `clip`: its database's base, plus looping for a looping child.
         const auto bias = [&](int clip) {
-            const Clip& c = db->clips[clip];
-            if (c.database < 0) return 0.0f;
-            const PoseDatabase& d = db->databases[c.database];
-            return d.base + ((c.flags & kFlagLooping) ? d.looping : 0.0f);
+            const Clip&   c = db->clips[clip];
+            const Biases  b = biasesOf(c.database);
+            return b.base + ((c.flags & kFlagLooping) ? b.looping : 0.0f);
         };
 
         /// @note The reselect ban: each pick of the last fMMReselectTime, advanced by the clip time played since (at the
@@ -1067,7 +1113,7 @@ namespace CB::feature {
         const auto  t0      = Clock::now();
         /// @note The playing row (the continuing pose) carries its database's continuing bias on top of a candidate's.
         const float playing = curRow >= 0 ? cost(static_cast<std::size_t>(curRow), 1.0e30f) + bias(cur.clip) +
-                                                (db->clips[cur.clip].database >= 0 ? db->databases[db->clips[cur.clip].database].continuing : 0.0f)
+                                                biasesOf(db->clips[cur.clip].database).continuing
                                           : 1.0e30f;
         float       best     = 1.0e30f;
         int         bestRow  = -1;

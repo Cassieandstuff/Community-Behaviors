@@ -60,7 +60,8 @@ src/                         CB's code. src/ is the plugin's private include roo
                              functions CB calls or hooks, declared as free functions over CommonLib types, each with
                              an engine.yaml row (its decorated name comes from the first link error). Flags,
                              settings, the overlay host and startup phases move here next; until then it still
-                             reads core/debug.
+                             reads core/debug. relay/ = Animation Relay, the condition language
+                             (<platform/relay/Relay.h>) every conditional gate or weight evaluates through.
   engine/                    THE SHARED REFLECTION ENGINE (CB::engine::) — one `engine` static lib the plugin,
                              converter, and tools all link. CommonLib-FREE: configure fails on any RE/, SKSE/
                              or REL/ include. The folder IS the include root (<common/…> <interface/…>
@@ -125,7 +126,7 @@ another root renames its namespace; a stray top-level namespace is a bug.
   sub-namespaces that genuinely need distinguishing — a real family, not a category invented to feel
   tidy. 5 levels is a smell. When tempted, the 4th-level thing is usually its own purpose, or a type.
 - **`<purpose>` is a role word**, the concern the code serves: `discover resolve serve bootstrap debug
-  conditions` (core) · `hooks` (platform) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
+  conditions` (core) · `hooks relay` (platform) · `compile decompile codec merge schema` + `skeleton anim animdata animsetdata
   linker` + `text disk exec` (engine). `text` = the shared string operations (trim, line split, BOM, float
   text form, YAML quoting); `disk` = whole-file read/write, checked and optionally atomic; `exec` = ParallelFor
   (offline tools — in-game work runs on the plugin's injected BELOW_NORMAL pool). Use them instead of
