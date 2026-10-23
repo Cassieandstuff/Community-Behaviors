@@ -13,7 +13,7 @@
 // │ (lib/commonlibsse-ng @ 5decf47). Cross-VR: game-state reads go through the versioned casts       │
 // │ (AsActorValueOwner/AsMagicTarget/GetActorRuntimeData) CommonLib resolves per runtime.           │
 // └─────────────────────────────────────────────────────────────────────────────────────────────┘
-#include "Conditions.h"
+#include "Relay.h"
 #include <PluginLogger.h>
 
 #include <Behavior/BehaviorGraph/hkbBehaviorGraph.h>
@@ -30,7 +30,7 @@
 #include <utility>
 #include <vector>
 
-namespace CB::core::conditions {
+namespace CB::platform::relay {
 
     namespace {
 
@@ -356,7 +356,7 @@ namespace CB::core::conditions {
                         std::scoped_lock guard(lock);
                         first = warned.insert(name).second;
                     }
-                    if (first) LOG_WARN("[cond] GraphVar('{}'): the root behavior graph declares no such variable - read as a float", name);
+                    if (first) LOG_WARN("[relay] GraphVar('{}'): the root behavior graph declares no such variable - read as a float", name);
                     return Value::Float(std::bit_cast<float>(word));
                 }
                 default: return Value::Float(0.0f);   ///< pointer / vector / quaternion: not a word value
@@ -717,4 +717,4 @@ namespace CB::core::conditions {
         RegisterFunction("LocationHasKeyword",       V::Bool, kP_Keyword,  &Fn_LocationHasKeyword);
     }
 
-}  // namespace CB::core::conditions
+}  // namespace CB::platform::relay

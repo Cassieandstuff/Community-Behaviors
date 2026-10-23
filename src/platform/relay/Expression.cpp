@@ -14,7 +14,7 @@
 #include <cmath>
 #include <format>
 
-namespace CB::core::conditions {
+namespace CB::platform::relay {
 
     // ── operator codes ──────────────────────────────────────────────────────────────────────────
     enum Op : std::uint16_t {
@@ -24,7 +24,7 @@ namespace CB::core::conditions {
         kAnd, kOr                               // logical
     };
 
-    // (ExprNode is defined in Conditions.h so the expr is copyable where Node is unseen.)
+    // (ExprNode is defined in Relay.h so the expr is copyable where Node is unseen.)
 
     // ── arg-literal resolver seam (set by the config loader; Inc 3) ─────────────────────────────
     namespace {
@@ -210,4 +210,4 @@ namespace CB::core::conditions {
         return st.empty() ? Value::Bool(false) : st.back();
     }
 
-}  // namespace CB::core::conditions
+}  // namespace CB::platform::relay

@@ -20,6 +20,7 @@
 #include <platform/hooks/registry/Registry.h>
 #include <platform/hooks/takeover/SchemaShim.h>
 #include <platform/hooks/takeover/Takeover.h>
+#include <platform/relay/Relay.h>
 #include <platform/profile/Profile.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
@@ -552,7 +553,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
     ///       biases are condition expressions. Only the conditional-setdata producer/matcher hooks wait on
     ///       [Conditions] bEnable (default off: the conditional-replacement actuator, Inc 2b, is unbuilt and the hooks
     ///       are unproven in a shipped build; when on, still inert until config compose registers ConditionInstances).
-    CB::core::conditions::RegisterBuiltins();
+    CB::platform::relay::RegisterBuiltins();
     if (CB::core::debug::FlagOn("conditions")) CB::core::conditions::InstallConditionHooks();
 
     // Every hook subscriber is registered by now (InstallSetDataHook / InstallAnimDataHook →

@@ -9,7 +9,7 @@
 
 #include <core/debug/Settings.h>
 #include <core/resolve/LoadOrderReader.h>
-#include <core/serve/conditions/Conditions.h>
+#include <platform/relay/Relay.h>
 #include <codec/format/AnimationYamlLoader.h>
 #include <compile/MotionFeatures.h>
 #include <platform/game/Movement.h>
@@ -56,7 +56,7 @@ namespace CB::feature {
 
         namespace hooks = platform::hooks;
         namespace ch    = CB::feature::controller;
-        namespace cond  = CB::core::conditions;
+        namespace relay = CB::platform::relay;
         namespace mv    = CB::feature::controller::move;
         namespace game  = CB::platform::game;
         namespace ea    = CB::engine::anim;
@@ -177,7 +177,7 @@ namespace CB::feature {
         /// @brief A condition expression read from the graph, compiled once; `text` kept for the logs.
         struct Expression {
             std::string        text;
-            cond::CompiledExpr expr;   ///< invalid when `text` is empty or does not compile
+            relay::CompiledExpr expr;   ///< invalid when `text` is empty or does not compile
         };
 
         /// @brief Unreal's per-database cost biases, added to the feature cost (negative = preferred), as evaluated for
@@ -390,7 +390,7 @@ namespace CB::feature {
             Expression e{ std::move(text), {} };
             if (e.text.empty()) return e;
             std::string err;
-            e.expr = cond::Compile(e.text, err);
+            e.expr = relay::Compile(e.text, err);
             if (!e.expr.Valid()) LOG_WARN("motion matching: {} '{}' does not compile ({}) - {}", what, e.text, err, fallback);
             return e;
         }
@@ -750,14 +750,14 @@ namespace CB::feature {
         /// @brief The chooser inputs, by their exact names, as GraphVar reads them: this frame's values, typed as declared.
         /// @note  Why ahead of the graph: the inputs are declared on the add-on's graph, not the root one GraphVar takes
         ///        types from, and the frame knows them before the graph is evaluated.
-        class InputVariables final : public cond::VariableSource {
+        class InputVariables final : public relay::VariableSource {
         public:
             explicit InputVariables(const Inputs& in) : m_in(in) {}
-            bool Read(const char* name, cond::Value& out) const override
+            bool Read(const char* name, relay::Value& out) const override
             {
                 for (int i = 0; i < kInputs; ++i)
                     if (std::strcmp(name, kInputNames[i]) == 0) {
-                        out = IsBoolInput(i) ? cond::Value::Bool(m_in[i] != 0) : cond::Value::Int(m_in[i]);
+                        out = IsBoolInput(i) ? relay::Value::Bool(m_in[i] != 0) : relay::Value::Int(m_in[i]);
                         return true;
                     }
                 return false;
@@ -769,22 +769,22 @@ namespace CB::feature {
 
         /// @brief The frame's evaluation pass over the player: the chooser and every bias share its primitive reads.
         /// @note  The frame hook's alone. `vars` must outlive the frame's evaluations.
-        const cond::EvalContext& FrameContext(RE::Actor* player, const InputVariables& vars)
+        const relay::EvalContext& FrameContext(RE::Actor* player, const InputVariables& vars)
         {
-            static cond::EvalContext ctx;
+            static relay::EvalContext ctx;
             ctx.Reset(player);
             ctx.variables = &vars;
             return ctx;
         }
 
         /// @return `e` evaluated to a float, 0 when it is empty or did not compile
-        float ValueOf(const Expression& e, const cond::EvalContext& ctx)
+        float ValueOf(const Expression& e, const relay::EvalContext& ctx)
         {
             return e.expr.Valid() ? e.expr.Evaluate(ctx).AsFloat() : 0.0f;
         }
 
         /// @brief Every database's biases for this frame.
-        std::vector<Biases> EvaluateBiases(const Database& db, const cond::EvalContext& ctx)
+        std::vector<Biases> EvaluateBiases(const Database& db, const relay::EvalContext& ctx)
         {
             std::vector<Biases> out(db.databases.size());
             for (std::size_t d = 0; d < out.size(); ++d) {
@@ -796,7 +796,7 @@ namespace CB::feature {
 
         /// @brief The chooser's pick, per database: the union of every row whose `when` holds; an empty union is the
         ///        fallback, an empty fallback (or no chooser) every database.
-        std::vector<char> Choose(const Database& db, const cond::EvalContext& ctx)
+        std::vector<char> Choose(const Database& db, const relay::EvalContext& ctx)
         {
             std::vector<char> on(db.databases.size(), 0);
             bool              any = false;
@@ -883,7 +883,7 @@ namespace CB::feature {
             ComputeInputs(player, deltaTime, playingDb >= 0 && db->databases[playingDb].pivots, inputs);
             WriteInputs(player, inputs);
             const InputVariables     vars(inputs);
-            const cond::EvalContext& ctx       = FrameContext(player, vars);
+            const relay::EvalContext& ctx       = FrameContext(player, vars);
             const std::vector<char>  active    = Choose(*db, ctx);
             std::vector<Biases>      biases    = EvaluateBiases(*db, ctx);
             const bool               interrupt = playingDb >= 0 && !IsActive(active, playingDb) && InputsInterrupt(before, inputs);

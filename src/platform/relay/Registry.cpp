@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace CB::core::conditions {
+namespace CB::platform::relay {
 
     // ── Value coercions ─────────────────────────────────────────────────────────────────────────
     bool Value::AsBool() const {
@@ -62,7 +62,7 @@ namespace CB::core::conditions {
                              std::span<const VType> params, PrimitiveFn fn) {
         auto& idx = PrimIndex();
         if (auto it = idx.find(std::string(name)); it != idx.end()) {
-            LOG_WARN("[cond] primitive '{}' already registered — keeping first.", name);
+            LOG_WARN("[relay] primitive '{}' already registered — keeping first.", name);
             return static_cast<PrimId>(it->second);
         }
         const std::uint32_t id = static_cast<std::uint32_t>(Prims().size());
@@ -75,7 +75,7 @@ namespace CB::core::conditions {
                           std::span<const VType> params, FunctionFn fn) {
         auto& idx = FnIndex();
         if (idx.contains(std::string(name))) {
-            LOG_WARN("[cond] function '{}' already registered — keeping first.", name);
+            LOG_WARN("[relay] function '{}' already registered — keeping first.", name);
             return;
         }
         const std::uint32_t id = static_cast<std::uint32_t>(Fns().size());
@@ -110,4 +110,4 @@ namespace CB::core::conditions {
         }
     }
 
-}  // namespace CB::core::conditions
+}  // namespace CB::platform::relay

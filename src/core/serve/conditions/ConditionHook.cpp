@@ -34,13 +34,13 @@ namespace CB::core::conditions {
         // Evaluate all enabled instances against `actor`, producing sensor entries. One EvalContext per
         // pass so primitives memoize across every condition on this actor.
         std::size_t EvalSensors(RE::Actor* actor, std::vector<AsgEntry>& out) {
-            static thread_local EvalContext ctx;
+            static thread_local relay::EvalContext ctx;
             ctx.Reset(actor);
             out.clear();
             for (const ConditionInstance& inst : Instances()) {
                 if (inst.enabled && !*inst.enabled) continue;              // per-config toggle
                 if (!inst.expr.Valid()) continue;
-                ctx.currentConfigId = inst.configId;                      // seeds Random() for this config
+                ctx.seed = inst.configId;                                 // the pass seed: this config
                 const std::int32_t v = inst.expr.Evaluate(ctx).AsInt();   // bool → 0/1, int passthrough
                 out.push_back({ inst.gateName.c_str(), v, 0 });           // interned name ptr, verified compare
             }
