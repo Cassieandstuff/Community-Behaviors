@@ -36,6 +36,13 @@ namespace CB::platform::classes {
     /// @note  One hook per class; registering another for the same class is refused (logged).
     void OnOwnedObject(std::string_view cls, ObjectHook hook);
 
+    /// @brief A feature's hook on an owned node class's activate, called with the object before vanilla's activate runs.
+    using ActivateHook = void (*)(void* object);
+
+    /// @brief Runs `hook` before every activate of owned node class `cls` that dispatches through CB's vtable.
+    /// @pre   As OnOwnedObject: from a static initializer. One hook per class.
+    void OnOwnedActivate(std::string_view cls, ActivateHook hook);
+
     /// @return how many times an owned node class's activate has run through CB's vtable (0 for a class CB does not own).
     /// @note  Against a count of every route (the takeover cell's), the rest ran on objects carrying vanilla's vtable:
     ///        ones vanilla's constructors built outside the packfile loader and cloneNode.

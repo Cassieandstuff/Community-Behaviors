@@ -59,6 +59,7 @@ namespace CB::platform::classes {
             Word                       vanillaClone  = 0;
             Word                       vanillaActivate = 0;
             ObjectHook                 hook = nullptr;   ///< a feature's (OnOwnedObject), bound when the class registers
+            ActivateHook               activateHook = nullptr;   ///< a feature's (OnOwnedActivate), bound likewise
             /// @brief The RTTI locator vanilla keeps before slot 0, then the slots.
             std::vector<Word>          table;
             std::atomic<std::uint64_t> finished{}, cloned{}, activated{};
@@ -117,6 +118,7 @@ namespace CB::platform::classes {
         {
             Owned& o = S().owned[I];
             o.activated.fetch_add(1, std::memory_order_relaxed);
+            if (o.activateHook) o.activateHook(self);
             reinterpret_cast<void (*)(void*, Word)>(o.vanillaActivate)(self, context);
         }
 
@@ -137,6 +139,12 @@ namespace CB::platform::classes {
         std::map<std::string, ObjectHook, std::less<>>& Hooks()
         {
             static std::map<std::string, ObjectHook, std::less<>> h;
+            return h;
+        }
+        /// @brief The features' activate hooks, by class name (OnOwnedActivate): filled at static initialization.
+        std::map<std::string, ActivateHook, std::less<>>& ActivateHooks()
+        {
+            static std::map<std::string, ActivateHook, std::less<>> h;
             return h;
         }
 
@@ -381,6 +389,7 @@ namespace CB::platform::classes {
                 o.table[1 + kActivateSlot]       = reinterpret_cast<Word>(kActivateThunks[i]);
             }
             if (const auto h = Hooks().find(info->name); h != Hooks().end()) o.hook = h->second;
+            if (const auto h = ActivateHooks().find(info->name); h != ActivateHooks().end()) o.activateHook = h->second;
             o.record        = *info;
             o.record.finish = kFinishThunks[i];
             o.record.vtable = o.Vtable();
@@ -454,6 +463,12 @@ namespace CB::platform::classes {
     {
         if (!Hooks().emplace(std::string(cls), hook).second)
             LOG_ERROR("type registries: a second object hook for {} - refused, the first stays", cls);
+    }
+
+    void OnOwnedActivate(std::string_view cls, ActivateHook hook)
+    {
+        if (!ActivateHooks().emplace(std::string(cls), hook).second)
+            LOG_ERROR("type registries: a second activate hook for {} - refused, the first stays", cls);
     }
 
     std::uint64_t ActivationsThroughOwnedVtable(std::string_view cls)

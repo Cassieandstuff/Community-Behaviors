@@ -75,6 +75,10 @@ namespace CB::core::debug {
           "They forward every call to vanilla's code, log each registration and count the loaded objects each class "
           "finishes (reported at kDataLoaded and after each game loads). Classes in sOwnTypes (default hkbClipGenerator) "
           "get CB's copy of their vtable on every loaded and cloned object. AE only." },
+        { "animation64_watch", FlagKind::IniBool, "Animation64", "bReaderWatch", false, false,
+          "Animation 64 reader watch",
+          "Hardware watchpoints on the 16-bit binding index of the newest activated clips, logging each instruction that "
+          "touches it (exe = not yet converted). A debug probe: it overwrites every thread's debug registers." },
         { "havok_activate_counter", FlagKind::IniBool, "Debug", "bHavokActivateCounter", true, true,
           "Clip activate counter",
           "Count hkbClipGenerator::activate calls through the Havok runtime's cell table, logging at every power "
