@@ -47,9 +47,11 @@ struct Reader {
     std::uint16_t U16() { if (p + 2 > end) { ok = false; return 0; } std::uint16_t v; std::memcpy(&v, p, 2); p += 2; return v; }
     std::uint8_t U8() { if (p >= end) { ok = false; return 0; } return *p++; }
     void skip(int n) { if (n < 0 || p + n > end) { ok = false; p = end; return; } p += n; }
-    void align4(const std::uint8_t* base) {
+    void align4(const std::uint8_t* base) { align(base, 4); }
+    void align(const std::uint8_t* base, int n) {
         std::uintptr_t off = static_cast<std::uintptr_t>(p - base);
-        const std::uint8_t* aligned = base + ((off + 3u) & ~std::uintptr_t(3u));
+        const std::uintptr_t m = static_cast<std::uintptr_t>(n) - 1u;
+        const std::uint8_t* aligned = base + ((off + m) & ~m);
         if (aligned > end) { ok = false; p = end; return; }
         p = aligned;
     }
@@ -74,6 +76,20 @@ int RotQuantBytes(int q) {
         case RQ_STRAIGHT16:   return 2;
         case RQ_UNCOMPRESSED: return 16;
         default:              return 0;
+    }
+}
+// Havok aligns a rotation's packed data (a static value or a spline's control points) to this many bytes,
+// measured from the start of the data buffer (hkaSplineCompressedAnimation::readPackedQuaternions /
+// readNurbsQuaternion, s_rotationAlign).
+int RotQuantAlign(int q) {
+    switch (q) {
+        case RQ_POLAR32:      return 4;
+        case RQ_THREECOMP40:  return 1;
+        case RQ_THREECOMP48:  return 2;
+        case RQ_THREECOMP24:  return 1;
+        case RQ_STRAIGHT16:   return 2;
+        case RQ_UNCOMPRESSED: return 4;
+        default:              return 1;
     }
 }
 bool RotQuantSupported(int q) { return q == RQ_THREECOMP40 || q == RQ_THREECOMP48 || q == RQ_UNCOMPRESSED; }
@@ -288,7 +304,7 @@ struct TC40 {
     int bpq;
     bool supported = true;
 
-    static TC40 Rd(Reader& r, int quant) {
+    static TC40 Rd(Reader& r, int quant, const std::uint8_t* base) {
         TC40 c = {};
         c.quant = quant;
         c.bpq = RotQuantBytes(quant);
@@ -298,6 +314,10 @@ struct TC40 {
         c.deg = (int)r.U8();
         if (c.deg > kMaxSplineDegree) { r.ok = false; return c; }   // stack Q4 d[deg+1] cap; garbage otherwise
         c.k   = r.p; r.skip(c.n + c.deg + 2);
+        // The control points follow the knots at the quantization's alignment: a no-op for THREECOMP40
+        // (CB's encoder writes only that), but THREECOMP48's 16-bit fields start on an even offset, so an
+        // odd knot run shifts every control point by one byte without it.
+        r.align(base, RotQuantAlign(quant));
         c.q   = r.p; r.skip((c.n + 1) * c.bpq);
         return c;
     }
@@ -373,7 +393,7 @@ bool DecompBlock(const std::uint8_t* base, std::size_t dataLen, std::uint32_t of
         Q4 sR{ 0.f, 0.f, 0.f, 1.f };
         TC40 rc{}; bool dR = false;
         if (rotT[tk] & 0xF0) {
-            rc = TC40::Rd(r, rotQ);
+            rc = TC40::Rd(r, rotQ, base);
             if (!r.ok) return false;
             dR = true;
         } else if (rotT[tk] != 0) {
