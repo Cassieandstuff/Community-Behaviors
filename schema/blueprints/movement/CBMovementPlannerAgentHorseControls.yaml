@@ -1,0 +1,14 @@
+name:      CBMovementPlannerAgentHorseControls
+parent:    CBMovementAgent
+size:      80
+# Vanilla MovementPlannerAgentHorseControls, factory name "Planner Horse Controls": the ridden horse's planner. Each
+# update (unless player controls are frozen) it turns the player's stick into a planned direction (the stick's angle
+# plus the camera's yaw) and speed (the stick's magnitude through the player's stick response curve, doubled while
+# running), which the horse table's controllers then steer to. It has no settings; constants: a 0.1 stick deadzone
+# for the direction and the 2x run multiplier.
+#   direction  written: the planned yaw, radians, world space
+#   speed      written: the planned speed as a share of the movement type's speeds (0..1 walking, up to 2 running;
+#              unit inferred)
+fields:
+  - { name: direction, type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: speed,     type: float, role: { flags: [FLAG_OUTPUT] } }

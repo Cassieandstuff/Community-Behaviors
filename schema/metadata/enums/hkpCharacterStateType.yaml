@@ -1,0 +1,20 @@
+# Havok's character-controller state ids (hkpCharacterState.h): the hkpCharacterStateManager slot a state fills. Item
+# names/values are CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC. The engine asks for
+# states by these numbers (the controller's wanted state, an actor's starting state), so a state's id is its contract.
+# Skyrim fills 0-5: Swimming is HK_CHARACTER_USER_STATE_0. HK_CHARACTER_MAX_STATE_ID doubles as "no request".
+kind:  enum
+name:  hkpCharacterStateType
+flags: false
+items:
+  - { name: HK_CHARACTER_ON_GROUND    , value: 0 }
+  - { name: HK_CHARACTER_JUMPING      , value: 1 }
+  - { name: HK_CHARACTER_IN_AIR       , value: 2 }
+  - { name: HK_CHARACTER_CLIMBING     , value: 3 }
+  - { name: HK_CHARACTER_FLYING       , value: 4 }
+  - { name: HK_CHARACTER_USER_STATE_0 , value: 5 }
+  - { name: HK_CHARACTER_USER_STATE_1 , value: 6 }
+  - { name: HK_CHARACTER_USER_STATE_2 , value: 7 }
+  - { name: HK_CHARACTER_USER_STATE_3 , value: 8 }
+  - { name: HK_CHARACTER_USER_STATE_4 , value: 9 }
+  - { name: HK_CHARACTER_USER_STATE_5 , value: 10 }
+  - { name: HK_CHARACTER_MAX_STATE_ID , value: 11 }

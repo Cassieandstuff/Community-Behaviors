@@ -3,7 +3,7 @@ parent:    CBMovementAgent
 size:      136
 # Vanilla MovementAgentPathFollowerStandard, factory name "Path Follower": follows the path the path manager hands it
 # with a state machine (follow, play idle, turn to angle, follow to parameter, keep last direction) and asks for a
-# replan when the actor strays. "Virtual Path Follower" and "PathFollowerFlight" are other classes.
+# replan when the actor strays. "Virtual Path Follower" and "Path Follower Flight" are other agents.
 #   initWord                            the u32 its init blob carries; nonzero suppresses its play-idle states
 #                                       (meaning inferred; 0 in every vanilla table)
 #   shortPathRadiusMult                 fShortPathRadiusMult:Pathfinding (2): the short-path route below this x

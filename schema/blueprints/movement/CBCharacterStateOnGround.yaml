@@ -1,0 +1,25 @@
+name:      CBCharacterStateOnGround
+parent:    CBCharacterState
+size:      88
+# Vanilla bhkCharacterStateOnGround (id HK_CHARACTER_ON_GROUND). Supported, it steers the velocity toward the requested
+# movement along the support surface and turns any uphill part back along it. When support is lost (no fake support,
+# no request for another state) it leaves for InAir, which runs in the same step with the fall starting at the current
+# height; with useUnsupportedCast it first casts straight down, and a hit keeps it grounded for that step under
+# heavier gravity. It commits any requested state, a jump only when the character may jump.
+#   killVelocityOnLaunch        on leaving the ground, zero the vertical velocity (vanilla member, true)
+#   useUnsupportedCast          cast down before leaving the ground (bUseUnsupportedCast:HAVOK, true)
+#   unsupportCastLength         that cast's length, Havok units (fUnsupportCastLength:HAVOK, 1.0)
+#   unsupportedGravMult         gravity multiplier while the cast holds the character down
+#                               (fUnsupportedGravMult:HAVOK, 4.0)
+#   fakeSupportReleaseDistance  how far a fake-supported character (InAir's stuck recovery) moves before the fake
+#                               support is dropped, Havok units (vanilla constant 0.9144, 64 game units)
+#   maxVelocityDelta            the steering's largest velocity change per step (vanilla constant 500)
+fields:
+  - { name: killVelocityOnLaunch,       type: bool }
+  - { name: useUnsupportedCast,         type: bool }
+  - { skip: 2 }
+  - { name: unsupportCastLength,        type: float }
+  - { name: unsupportedGravMult,        type: float }
+  - { name: fakeSupportReleaseDistance, type: float }
+  - { name: maxVelocityDelta,           type: float }
+  - { skip: 4 }

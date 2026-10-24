@@ -1,0 +1,6 @@
+name:      CBCharacterStateClimbing
+parent:    CBCharacterState
+size:      64
+# Vanilla bhkCharacterStateClimbing (id HK_CHARACTER_CLIMBING). Any request leaves at once; otherwise the character moves
+# straight up or down at the movement requested along its forward axis, and may jump. It has no tunables or constants.
+fields:    []

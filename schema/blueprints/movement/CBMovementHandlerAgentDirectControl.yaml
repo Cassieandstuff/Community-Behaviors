@@ -1,0 +1,27 @@
+name:      CBMovementHandlerAgentDirectControl
+parent:    CBMovementAgent
+size:      144
+# Vanilla MovementHandlerAgentDirectControl, factory name "Direct Control": drives the frame directly from the values
+# the controller's "IMovementDirectControl" interface sets, snapping to them or blending over a time. It has no
+# settings; its inputs are those values, which the 1:1 blueprint binds to the direct-control variables. Speed and turn
+# rates pass through the movement type's limits before they are written.
+#   targetDirection     the direction to move in (pitch, roll, yaw), radians relative to the heading
+#   targetSpeed         the speed to move at, units/s
+#   targetRotationRate  the rotation rates to turn at (pitch, roll, yaw), radians/s
+#   directionBlendTime  seconds left to blend the direction toward its target (0 = snap)
+#   speedBlendTime      the same for the speed
+#   rotationBlendTime   the same for the rotation rates
+#   direction           written: the frame's direction, radians
+#   speed               written: the frame's speed, units/s
+#   rotationRate        written: the frame's rotation rates, radians/s
+fields:
+  - { name: targetDirection,    type: float, count: 3 }
+  - { name: targetSpeed,        type: float }
+  - { name: targetRotationRate, type: float, count: 3 }
+  - { name: directionBlendTime, type: float }
+  - { name: speedBlendTime,     type: float }
+  - { name: rotationBlendTime,  type: float }
+  - { name: direction,          type: float, count: 3, role: { flags: [FLAG_OUTPUT] } }
+  - { name: speed,              type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: rotationRate,       type: float, count: 3, role: { flags: [FLAG_OUTPUT] } }
+  - { skip: 4 }

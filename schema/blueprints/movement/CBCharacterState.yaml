@@ -1,0 +1,12 @@
+name:      CBCharacterState
+parent:    CBBlueprintNode
+size:      64
+# One character-controller state: a slot of the hkpCharacterStateManager a CBCharacterStateSet becomes. The controller
+# runs its current state once per physics step; the state sets the output velocity and requests or commits the next
+# state. The subclass says which state code runs (a vanilla class runs vanilla's, transitions included) and carries its
+# tunables. In the 1:1 blueprint, a field that vanilla reads from a setting binds to an engine-bound variable named
+# exactly after that setting, and a field that vanilla hard-codes carries the vanilla value.
+#   id  the slot this state fills; the engine asks for states by number, so it is the state's contract
+fields:
+  - { name: id, type: int8, enum: hkpCharacterStateType }
+  - { skip: 7 }

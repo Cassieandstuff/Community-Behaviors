@@ -1,0 +1,6 @@
+name:      CBCharacterStateFlying
+parent:    CBCharacterState
+size:      64
+# Vanilla bhkCharacterStateFlying (id HK_CHARACTER_FLYING). Its step is empty: a flying character's velocity is set by
+# whoever flies it. An actor starts in it when its actor state says it flies.
+fields:    []

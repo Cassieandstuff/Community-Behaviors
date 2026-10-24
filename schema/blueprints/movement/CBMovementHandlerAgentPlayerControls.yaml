@@ -1,7 +1,7 @@
 name:      CBMovementHandlerAgentPlayerControls
 parent:    CBMovementAgent
 size:      120
-# The player's handler agent (vanilla MovementHandlerAgentPlayerControls, factory name "PlayerControls"): it turns the
+# The player's handler agent (vanilla MovementHandlerAgentPlayerControls, factory name "Player Controls"): it turns the
 # player's stick and look input into the frame's direction, speed and turn. The player on foot runs it as the whole
 # handler stage. Its tunables are vanilla's [Controls] INI settings; the 1:1 blueprint binds each field to an
 # engine-bound variable named exactly after its setting, so INI edits keep working.

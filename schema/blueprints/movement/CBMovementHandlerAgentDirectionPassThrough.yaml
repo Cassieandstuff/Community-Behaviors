@@ -1,0 +1,12 @@
+name:      CBMovementHandlerAgentDirectionPassThrough
+parent:    CBMovementAgent
+size:      88
+# Vanilla MovementHandlerAgentDirectionPassThrough, factory name "Direction Pass Through": turns the planner's desired
+# world direction into the actor's own frame and writes it as the frame's direction, with no limits. It has no
+# settings.
+#   pitch, roll, yaw  written: the move direction, radians relative to the actor's orientation
+fields:
+  - { name: pitch, type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: roll,  type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: yaw,   type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { skip: 4 }

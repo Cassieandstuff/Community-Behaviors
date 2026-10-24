@@ -1,0 +1,33 @@
+name:      CBMovementTweenerAgentFixedDelta
+parent:    CBMovementAgent
+size:      184
+# Vanilla MovementTweenerAgentFixedDelta, factory name "Fixed Delta": plays a correction, moving the actor by a set
+# displacement and rotation over a window of time. It has no settings: its inputs are what the tweener arbiter hands
+# its "Fixed Delta Set Correction Data" interface, which the 1:1 blueprint binds to the correction variables. Its init
+# resets the correction. Between startTime and endTime the velocity follows a cubic Hermite curve that starts at the
+# start velocity and ends at the end velocity, solved so the window plus the end velocity held from endTime to duration
+# covers the displacement; after endTime it holds the end velocity; before startTime it writes nothing. An end velocity under 0.1 units/s (1 degree/s
+# for rotation) counts as 0, and a window of zero or negative length plays nothing.
+#   displacement          the total translation to cover, game units
+#   rotationDisplacement  the total rotation to cover, radians
+#   startVelocity         the translation velocity at startTime, units/s
+#   endVelocity           the translation velocity from endTime on, units/s
+#   startAngularVelocity  the angular velocity at startTime, radians/s
+#   endAngularVelocity    the angular velocity from endTime on, radians/s
+#   startTime, endTime    the curve's window, seconds since the correction was set
+#   duration              the correction's total time, seconds (read only when the correction is set)
+#   translation           written: this update's translation, game units, in the frame the correction started in
+#   rotation              written: this update's rotation (pitch, roll, yaw), radians
+fields:
+  - { name: displacement,         type: float, count: 3 }
+  - { name: rotationDisplacement, type: float, count: 3 }
+  - { name: startVelocity,        type: float, count: 3 }
+  - { name: endVelocity,          type: float, count: 3 }
+  - { name: startAngularVelocity, type: float, count: 3 }
+  - { name: endAngularVelocity,   type: float, count: 3 }
+  - { name: startTime,            type: float }
+  - { name: endTime,              type: float }
+  - { name: duration,             type: float }
+  - { name: translation,          type: float, count: 3, role: { flags: [FLAG_OUTPUT] } }
+  - { name: rotation,             type: float, count: 3, role: { flags: [FLAG_OUTPUT] } }
+  - { skip: 4 }

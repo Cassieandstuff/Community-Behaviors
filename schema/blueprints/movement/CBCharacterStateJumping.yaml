@@ -1,0 +1,9 @@
+name:      CBCharacterStateJumping
+parent:    CBCharacterState
+size:      64
+# Vanilla bhkCharacterStateJumping (id HK_CHARACTER_JUMPING). A jump lasts no steps of its own: entering, it launches
+# with the current horizontal velocity plus sqrt(2 g h) upward (h = the controller's jump height), starts the fall at
+# the current height, commits InAir and runs it in the same step. A pending request for the ground or climbing cancels
+# it. Id 1 is also the engine's jump REQUEST token (OnGround and Swimming honor it; InAir refuses it). It has no
+# tunables or constants of its own.
+fields:    []

@@ -1,7 +1,9 @@
 name:      CBMovementBlueprint
 parent:    CBBlueprint
-size:      56
+size:      64
 # The movement blueprint: what CB installs into Skyrim's per-actor movement pipeline at warm-up. Its `root` is a
-# CBBlueprintChooser picking a CBMovementPool by process level (process level -> pool -> mode). Its own members come
-# with the character-state nodes; until then it adds none.
-fields:    []
+# CBBlueprintChooser picking a CBMovementPool by process level (process level -> pool -> mode).
+#   characterStates  a CBBlueprintChooser picking the actor's CBCharacterStateSet, evaluated once when the actor's
+#                    character controller is created; choosing nothing leaves the actor on vanilla's states
+fields:
+  - { name: characterStates, type: ptr, ref: CBBlueprintNode }
