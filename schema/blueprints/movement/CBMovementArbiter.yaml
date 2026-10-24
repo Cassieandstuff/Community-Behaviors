@@ -1,0 +1,15 @@
+name:      CBMovementArbiter
+parent:    null
+size:      32
+# One pipeline stage of a CBMovementMode: an arbiter of Skyrim's movement controller, created by name through the
+# arbiter factory. Vanilla's entry is {type, interface, init blob}; the only non-empty blob is the Handler Arbiter's,
+# a list of agent names its Init re-sorts its agents to (MovementHandlerArbiter::Init, 0x141206d50 AE), which `order`
+# carries as names instead of bytes.
+#   type       the arbiter's factory name, byte-exact ("Path Manager Arbiter", "Planner Arbiter", "Handler Arbiter",
+#              "Tweener Arbiter", "PostUpdate Arbiter")
+#   interface  the interface name the entry registers under, byte-exact (vanilla: "CurrentMovementState")
+#   order      the agents' evaluation order by factory name, byte-exact; empty = vanilla's empty blob
+fields:
+  - { name: type,      type: string }
+  - { name: interface, type: string }
+  - { name: order,     type: stringarray }

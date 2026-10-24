@@ -1,0 +1,11 @@
+name:      CBMovementHandlerAgentLargeDeltaIdle
+parent:    CBMovementAgent
+size:      80
+# Vanilla MovementHandlerAgentLargeDeltaIdle, factory name "Large Delta Idle": when the planner asks for a large change
+# of facing or speed, it selects and plays a transition idle (through IMovementSelectIdle) instead of steering there.
+# It writes nothing to the frame.
+#   ignoreThresholds  bIgnoreThresholds:Pathfinding (false): select an idle even when the movement state gives no
+#                     angle or speed thresholds
+fields:
+  - { name: ignoreThresholds, type: bool }
+  - { skip: 7 }

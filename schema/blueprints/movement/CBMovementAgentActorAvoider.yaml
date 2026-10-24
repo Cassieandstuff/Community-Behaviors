@@ -1,0 +1,29 @@
+name:      CBMovementAgentActorAvoider
+parent:    CBMovementAgent
+size:      112
+# Vanilla MovementAgentActorAvoider, factory name "Actor Avoider": tracks nearby moving actors (through the global
+# avoidance manager) and adds avoid nodes for them to the plan; asks for a replan when one moves and reports blocked
+# when stuck too long. Registers "IMovementQueryActorAvoidance".
+#   useActorAvoidance       bUseActorAvoidance:Pathfinding (true): the agent's master switch
+#   initWord                the u32 its init blob carries (meaning unknown; vanilla: 1 in the animation-driven
+#                           tables 0e0 and 0a8, 0 in the standard NPC table)
+#   avoidanceTimeDelta      fAvoidanceTimeDelta:Pathfinding (3): query radius = this x the actor's movement delta
+#   minAvoidanceRadius      fMinAvoidanceRadius:Pathfinding (256): lower clamp of that radius
+#   maxAvoidanceRadius      fMaxAvoidanceRadius:Pathfinding (512): upper clamp
+#   maxActorsToAvoid        iMaxActorsToAvoid:Pathfinding (10; at most 32)
+#   maxTimeSizeAvoidNode    fMaxTimeSizeAvoidNode:Pathfinding (1, s): a tracked actor is re-tested after this
+#   maxTimeBlockedByActors  fMaxTimeBlockedByActors:Pathfinding (1, s): blocked longer than this reports blocked
+#   avoidNodeRadiusAdd      fAvoidNodeRadiusAdd:Pathfinding (11): added to a tracked actor's radius
+#   avoidNodeCost           fAvoidNodeCost:Pathfinding (24)
+fields:
+  - { name: useActorAvoidance,      type: bool }
+  - { skip: 3 }
+  - { name: initWord,               type: int32 }
+  - { name: avoidanceTimeDelta,     type: float }
+  - { name: minAvoidanceRadius,     type: float }
+  - { name: maxAvoidanceRadius,     type: float }
+  - { name: maxActorsToAvoid,       type: int32 }
+  - { name: maxTimeSizeAvoidNode,   type: float }
+  - { name: maxTimeBlockedByActors, type: float }
+  - { name: avoidNodeRadiusAdd,     type: float }
+  - { name: avoidNodeCost,          type: float }

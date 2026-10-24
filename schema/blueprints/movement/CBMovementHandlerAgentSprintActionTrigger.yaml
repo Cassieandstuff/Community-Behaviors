@@ -1,0 +1,18 @@
+name:      CBMovementHandlerAgentSprintActionTrigger
+parent:    CBMovementAgent
+size:      88
+# Vanilla MovementHandlerAgentSprintActionTrigger, factory name "Sprint Action Trigger": starts and stops an NPC's
+# sprint along a path by running the sprint start/stop actions, and while sprinting sets the planner's speed to the
+# race's sprint speed. Sprint is requested through its "IMovementSetSprinting" interface.
+#   initWord                       the u32 its init blob carries; nonzero leaves the agent inert. Vanilla passes 1
+#                                  in the animation-driven tables (0e0, 0a8) and 0 elsewhere
+#   accelerationMult               fSprintAccelerationMult:Pathfinding (10): acceleration = sprint speed x this
+#   distToPathThresholdRadiusMult  fSprintDistToPathThresholdRadiusMult:Pathfinding (0.5): a sprint starts only
+#                                  within this x the actor's radius of the path
+#   angleToPathThreshold           fSprintAngleToPathThreshold:Pathfinding (5, degrees): and within this of its
+#                                  direction
+fields:
+  - { name: initWord,                      type: int32 }
+  - { name: accelerationMult,              type: float }
+  - { name: distToPathThresholdRadiusMult, type: float }
+  - { name: angleToPathThreshold,          type: float }

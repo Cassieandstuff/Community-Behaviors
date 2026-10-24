@@ -1,0 +1,17 @@
+name:      CBMovementAgentActorState
+parent:    CBMovementAgent
+size:      88
+# Vanilla MovementAgentActorState, factory name "Actor State": a planner agent that turns the actor to a heading or
+# toward a point (set through its "IMovementSetState" interface), with a 1-degree hysteresis while slower than 5.
+# Each request carries its own angle tolerance (the caller defaults it from the fDefaultAngleTolerance game setting).
+#   initWord        the u32 its init blob carries (meaning unknown; vanilla: 1 in the animation-driven table 0e0,
+#                   0 in the standard NPC table)
+#   enabled         the bool its init blob carries after it (absent = true); false starts the agent disabled (vanilla:
+#                   false in 0e0, true in the standard NPC table)
+#   backPedalAngle  fBackPedalAngle:Pathfinding (160, degrees)
+fields:
+  - { name: initWord,       type: int32 }
+  - { name: enabled,        type: bool }
+  - { skip: 3 }
+  - { name: backPedalAngle, type: float }
+  - { skip: 4 }

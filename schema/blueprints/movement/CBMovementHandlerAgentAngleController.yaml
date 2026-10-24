@@ -1,0 +1,11 @@
+name:      CBMovementHandlerAgentAngleController
+parent:    CBMovementAgent
+size:      80
+# Vanilla MovementHandlerAgentAngleController, factory name "Angle Controller": a time-optimal (bang-bang) tracker
+# that turns the actor toward the planner's target facing. It has no settings: its limits are the planner's max turn
+# rate and angular acceleration; its constants are a 1-degree stop threshold and a +-pi wrap.
+#   pitchRate  written: radians/s toward the target pitch
+#   turnRate   written: radians/s about the up axis, clamped to the planner's max turn rate
+fields:
+  - { name: pitchRate, type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: turnRate,  type: float, role: { flags: [FLAG_OUTPUT] } }

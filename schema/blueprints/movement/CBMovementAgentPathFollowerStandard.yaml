@@ -1,0 +1,41 @@
+name:      CBMovementAgentPathFollowerStandard
+parent:    CBMovementAgent
+size:      136
+# Vanilla MovementAgentPathFollowerStandard, factory name "Path Follower": follows the path the path manager hands it
+# with a state machine (follow, play idle, turn to angle, follow to parameter, keep last direction) and asks for a
+# replan when the actor strays. "Virtual Path Follower" and "PathFollowerFlight" are other classes.
+#   initWord                            the u32 its init blob carries; nonzero suppresses its play-idle states
+#                                       (meaning inferred; 0 in every vanilla table)
+#   shortPathRadiusMult                 fShortPathRadiusMult:Pathfinding (2): the short-path route below this x
+#                                       the path radius
+#   rotateTowardsPathThreshold          fRotateTowardsPathThreshold:Pathfinding (5, degrees): turn-to-angle tolerance
+#   headingToPathTangentMaxAngle        fHeadingToPathTangentMaxAngle:Pathfinding (15, degrees): no turn in place
+#                                       within this of the path tangent
+#   backPedalAngle                      fBackPedalAngle:Pathfinding (160, degrees): beyond this, back-pedal
+#   minFrictionSpeed                    fMinFrictionSpeed:Pathfinding (2)
+#   avoidanceDistanceRadiusMult         fAvoidanceDistanceRadiusMult:Pathfinding (1)
+#   maxCollisionTime                    fMaxCollisionTime:Pathfinding (1; role unclear)
+#   maxDistFromPathRadiusMult           fMaxDistFromPathRadiusMult:Pathfinding (5): farther than this x the path
+#                                       radius asks for a replan
+#   teleportNodeAngleTolerance          fTeleportNodeAngleTolerance:Pathfinding (5, degrees)
+#   distFromPathForFollowingRadiusMult  fDistFromPathForFollowingRadiusMult:Pathfinding (2): how hard it steers back
+#   pitch, yaw                          written: the planned direction, radians
+#   speed                               written: the planned speed, units/s
+#   remainingDistance                   written: the distance left along the path
+fields:
+  - { name: initWord,                           type: int32 }
+  - { name: shortPathRadiusMult,                type: float }
+  - { name: rotateTowardsPathThreshold,         type: float }
+  - { name: headingToPathTangentMaxAngle,       type: float }
+  - { name: backPedalAngle,                     type: float }
+  - { name: minFrictionSpeed,                   type: float }
+  - { name: avoidanceDistanceRadiusMult,        type: float }
+  - { name: maxCollisionTime,                   type: float }
+  - { name: maxDistFromPathRadiusMult,          type: float }
+  - { name: teleportNodeAngleTolerance,         type: float }
+  - { name: distFromPathForFollowingRadiusMult, type: float }
+  - { name: pitch,                              type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: yaw,                                type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: speed,                              type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: remainingDistance,                  type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { skip: 4 }

@@ -1,0 +1,9 @@
+name:      CBMovementHandlerAgentStairsHelper
+parent:    CBMovementAgent
+size:      80
+# Vanilla MovementHandlerAgentStairsHelper, factory name "Stairs Helper": while the ground under the actor is a stairs
+# material, it switches the static avoider off and raises a slow planned speed to minStairSpeed.
+#   minStairSpeed  fMinStairSpeed:Pathfinding (80, units/s)
+fields:
+  - { name: minStairSpeed, type: float }
+  - { skip: 4 }

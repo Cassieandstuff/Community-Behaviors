@@ -1,0 +1,11 @@
+name:      CBBlueprintChooser
+parent:    CBBlueprintNode
+size:      72
+# A per-tick node that picks one child by an ordered table (Unreal's Chooser table): rows are tested top to bottom and
+# the first whose conditions all hold chooses its `result`. It keeps no history: the same variables always choose the
+# same result, so it need re-test only when a variable its conditions name changes. The movement blueprint's root is one,
+# choosing a CBMovementPool by process level; each pool's `modes` is another, choosing a CBMovementMode the way
+# vanilla's mode cascade does.
+#   rows  the table, in priority order (keyed by minted id, so a patch can insert or remove a row)
+fields:
+  - { name: rows, type: structarray, ref: CBBlueprintChooserRow, roster: id }
