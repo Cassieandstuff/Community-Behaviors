@@ -2,7 +2,7 @@
 # hky-tool — the standalone .hky pack/unpack driver over the engine (never deployed); also unpacks the
 # deployed master for the base-master diff strategy.
 
-add_executable(hky-tool hky_tool.cpp)
+add_executable(hky-tool hky_tool.cpp GraphHtml.cpp)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 
