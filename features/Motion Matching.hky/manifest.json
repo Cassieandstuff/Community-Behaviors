@@ -2,7 +2,7 @@
     "name": "Motion Matching",
     "version": "0.1.0",
     "author": "Cassieandstuff",
-    "description": "Community Behaviors' motion matching feature: the locomotion clip database (252 clips retargeted onto the Skyrim humanoid skeleton by Skyrim Content Tools' fbx-retarget, root motion on NPC Root). The graph changes that replace vanilla locomotion with motion matching come from the plugin's Motion Matching feature.",
+    "description": "Community Behaviors' motion matching database: the locomotion clips (252, retargeted onto the Skyrim humanoid skeleton by Skyrim Content Tools' fbx-retarget, root motion on NPC Root), the motion-matching graph over them (Behaviors\\MotionMatching.hkx) and their roster patches. Replaceable as a whole: a Dance Card Creator export of the same name placed above it in MO2 takes its place. Switching locomotion to this graph is the separate Motion Matching Wiring bundle.",
     "masters": [],
     "compile_animations": true
 }

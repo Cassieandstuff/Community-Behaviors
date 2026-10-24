@@ -15,6 +15,7 @@
 #include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <codec/format/LoadOrderText.h>
+#include <merge/LoadPlan.h>                    // CB::engine::merge::PlanLoadOrder (the shared load-order plan)
 #include <compile/AnimationCompiler.h>         // CB::engine::anim::CompileAnimation (native anim -> loose .hkx)
 #include <codec/motion/RootMotion.h>           // ResolveRootMotion — a unit's actor motion (record or folded root)
 #include <interface/MasterTable.h>          // CB::engine::codec::formid::BuildMasterTable (ordered master table)
@@ -105,146 +106,19 @@ namespace CB {
             void Warn(std::string_view m) override { LOG_WARN("{}", m); }
         };
 
-        // ── Load-order plan: masters drive order, loadorder.txt breaks peer ties ───────
-        // The overhaul. Order is no longer the flat loadorder.txt priority; it is a
-        // TOPOLOGICAL SORT of the master DAG, so a declared master always compiles base-first
-        // (lower rank) than the bundles that build on it — regardless of its line in
-        // loadorder.txt. "Skyrim is the base" stops being "Skyrim is line 1" and becomes
-        // "Skyrim is the root because everything masters it": every non-Skyrim bundle
-        // IMPLICITLY masters "skyrim" (BundleManifest: "Skyrim implicit"), so the implicit
-        // edge alone pins the vanilla corpus first no matter how a mod is ordered. loadorder.txt
-        // survives only as the PEER tie-break — the order among bundles with no dependency
-        // between them (MO2's domain). The relay tree falls out for free: it *is* a master DAG
-        // (engine_relay masters Community Behaviors; an ER mod masters engine_relay), so the topo
-        // sort layers the relay hubs correctly with no special-casing.
-        struct LoadPlan {
-            std::unordered_map<std::string, int> rank;     // stem -> base-first position (lower = base)
-            std::unordered_set<std::string>      dropped;  // stems excluded (missing explicit master)
-            // stem -> its ORDERED master table (index 0 = base game, 1..k = declared masters, last =
-            // self). A node's FormId masterIndex resolves against this. Built from the DIRECT declared
-            // masters (positional).
-            std::unordered_map<std::string, std::vector<std::string>> masterTable;
-        };
-
-        // `manifests`: every scanned bundle stem -> its manifest (masters declared here).
-        // `order`: loadorder.txt (LoadOrder::Rank — later line = higher; unlisted = 0),
-        //          used ONLY as the peer tie-break. Returns the rank each surviving stem sorts by,
-        //          plus the set dropped because a DECLARED master is absent (transitively) — a
-        //          dependent whose base isn't installed would bind its overrides to nothing, so
-        //          per the "skip the dependent, load the rest" rule it contributes no layers.
-        LoadPlan PlanLoadOrder(const std::unordered_map<std::string, BundleManifest>& manifests,
-                               const CB::engine::codec::LoadOrder&                    order)
+        /// @brief The engine's load-order plan (merge::PlanLoadOrder, shared with hky-tool graph-html) over every
+        ///        scanned manifest's masters, its warnings logged.
+        /// @note  Masters drive order, not the flat loadorder.txt priority: a declared master always compiles base-first,
+        ///        and every bundle implicitly masters Skyrim, so the vanilla corpus is the root however mods are ordered.
+        ///        loadorder.txt only breaks ties among peers (MO2's domain). The relay tree falls out for free: it IS a
+        ///        master DAG (engine_relay masters Community Behaviors; an ER mod masters engine_relay).
+        CB::engine::merge::LoadPlan PlanLoadOrder(const std::unordered_map<std::string, BundleManifest>& manifests,
+                                                  const CB::engine::codec::LoadOrder&                    order)
         {
-            LoadPlan plan;
-            const bool haveSkyrim = manifests.find("skyrim") != manifests.end();
-
-            // Effective master edges per stem. Declared masters are EXPLICIT (a missing one
-            // drops the dependent); "skyrim" is added IMPLICITLY to every other bundle (a
-            // missing Skyrim never drops anything — it just means no vanilla base to precede).
-            std::unordered_map<std::string, std::vector<std::string>> explicitMasters;
-            for (const auto& [stem, mf] : manifests) {
-                auto& ems = explicitMasters[stem];
-                for (const auto& m : mf.masters) {
-                    const std::string mk = PathKey(m);
-                    if (mk == stem) continue;                                   // self-reference
-                    if (std::find(ems.begin(), ems.end(), mk) == ems.end()) ems.push_back(mk);
-                }
-            }
-
-            // Drop set: a stem with an ABSENT explicit master is dropped; propagate through
-            // explicit edges (a bundle mastering a dropped bundle is itself dropped). Iterate
-            // to fixpoint — the bundle count is tiny.
-            bool changed = true;
-            while (changed) {
-                changed = false;
-                for (const auto& [stem, ems] : explicitMasters) {
-                    if (plan.dropped.count(stem)) continue;
-                    for (const std::string& m : ems) {
-                        const bool absent  = manifests.find(m) == manifests.end();
-                        const bool dropped = plan.dropped.count(m) != 0;
-                        if (absent || dropped) {
-                            LOG_WARN("Resolver: load order — skipping bundle '{}': declared master '{}' "
-                                     "is {} (its overrides would bind to nothing).",
-                                     stem, m, absent ? "not installed" : "itself skipped");
-                            plan.dropped.insert(stem);
-                            changed = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Kahn topological sort over the survivors. Edge master -> dependent; a node is
-            // ready when all its masters have been emitted. Among ready nodes, emit the peer
-            // with the lowest loadorder value first (unlisted = 0 sorts earliest), then by stem
-            // for determinism. Skyrim carries no masters -> ready immediately; every other
-            // bundle holds the implicit skyrim edge -> can't precede it.
-            std::unordered_map<std::string, int>                      indeg;
-            std::unordered_map<std::string, std::vector<std::string>> children;
-            std::vector<std::string>                                  survivors;
-            for (const auto& [stem, mf] : manifests) {
-                (void)mf;
-                if (plan.dropped.count(stem)) continue;
-                survivors.push_back(stem);
-                indeg.emplace(stem, 0);
-            }
-
-            // Ordered master table per survivor (index 0 = base game, 1..k = declared masters in file
-            // order, last = self) — what a node's FormId masterIndex resolves against. explicitMasters
-            // is the DIRECT declared set in manifest order (deduped, self-excluded, lowercase).
-            for (const std::string& s : survivors)
-                plan.masterTable[s] = CB::engine::codec::formid::BuildMasterTable(s, explicitMasters[s], haveSkyrim);
-            for (const std::string& s : survivors) {
-                std::vector<std::string> masters = explicitMasters[s];          // all present (survivors)
-                if (haveSkyrim && s != "skyrim" &&
-                    std::find(masters.begin(), masters.end(), "skyrim") == masters.end())
-                    masters.push_back("skyrim");                                 // implicit base edge
-                for (const std::string& m : masters) {
-                    if (plan.dropped.count(m) || indeg.find(m) == indeg.end()) continue;  // absent/dropped
-                    children[m].push_back(s);
-                    ++indeg[s];
-                }
-            }
-
-            auto readyLess = [&](const std::string& a, const std::string& b) {
-                const int la = order.Rank(a), lb = order.Rank(b);               // unlisted = 0 = earliest
-                return la != lb ? la < lb : a < b;
-            };
-
-            std::vector<std::string> ready;
-            for (const std::string& s : survivors)
-                if (indeg[s] == 0) ready.push_back(s);
-            std::sort(ready.begin(), ready.end(), readyLess);
-
-            int nextRank = 0;
-            while (!ready.empty()) {
-                const std::string s = ready.front();
-                ready.erase(ready.begin());
-                plan.rank[s] = nextRank++;
-                std::vector<std::string> freed;
-                for (const std::string& c : children[s])
-                    if (--indeg[c] == 0) freed.push_back(c);
-                for (const std::string& c : freed) {                            // stable insert, keep sorted
-                    auto pos = std::lower_bound(ready.begin(), ready.end(), c, readyLess);
-                    ready.insert(pos, c);
-                }
-            }
-
-            // Any survivor without a rank sits in a master CYCLE (A masters B masters A).
-            // Don't drop — degrade to loadorder order and warn, so a self-referential mess
-            // still loads deterministically instead of vanishing.
-            if (plan.rank.size() != survivors.size()) {
-                std::vector<std::string> cyc;
-                for (const std::string& s : survivors)
-                    if (!plan.rank.count(s)) cyc.push_back(s);
-                std::sort(cyc.begin(), cyc.end(), readyLess);
-                std::string names;
-                for (const std::string& s : cyc) { if (!names.empty()) names += ", "; names += s; }
-                LOG_WARN("Resolver: load order — master cycle among [{}]; falling back to loadorder.txt "
-                         "order for them (masters can't resolve a cycle).", names);
-                for (const std::string& s : cyc) plan.rank[s] = nextRank++;
-            }
-
+            std::unordered_map<std::string, std::vector<std::string>> masters;
+            for (const auto& [stem, mf] : manifests) masters[stem] = mf.masters;
+            auto plan = CB::engine::merge::PlanLoadOrder(masters, order);
+            for (const auto& w : plan.warnings) LOG_WARN("Resolver: load order — {}.", w);
             return plan;
         }
 
@@ -552,7 +426,7 @@ namespace CB {
         // declared master is absent. This REPLACES the old flat loadorder.txt priority —
         // the missing/out-of-order-master conditions the old warn-only pass merely reported
         // are now enforced: a master always sorts base-first, a dependent with no base drops.
-        const LoadPlan plan = PlanLoadOrder(m_manifests, order);
+        const auto plan = PlanLoadOrder(m_manifests, order);
 
         /// @note Skeletons are PATH-LOCAL units in every bundle ("meshes/actors/<actor>/<variant>/<x>.hkx/"
         ///       bonelist.yaml + bones/ — the skeleton compiler's own format, not a reflective graph: the schema

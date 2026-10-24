@@ -164,7 +164,8 @@ namespace CB::core::debug {
           "lands. Observes only. Unproven in game." },
         { "char_motion_matching", FlagKind::IniBool, "Character", "bMotionMatching", false, false,
           "Motion matching (prototype)",
-          "Needs the Motion Matching add-on (Motion Matching.hky) and bPredictorObserve. For the player, CB searches the "
+          "Needs the Motion Matching add-on (Motion Matching.hky, the clips, and Motion Matching Wiring.hky, which switches "
+          "locomotion to them) and bPredictorObserve. For the player, CB searches the "
           "add-on's clips every 0.1 s for the frame whose next second best matches the predicted trajectory and the "
           "current pose, and plays it through the add-on's graph; NPCs keep vanilla locomotion. Only the databases the "
           "add-on's chooser picks are searched: each frame CB computes Unreal's Game Animation Sample inputs (movement "

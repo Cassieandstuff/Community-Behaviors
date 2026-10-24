@@ -12,6 +12,8 @@
 //   hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>
 //                                                         merge + serialize every unit as the game's compile does
 //   hky-tool mm-sample   <schemaDir> -o <outDir>          the motion-matching bundle generator over a sample spec
+//   hky-tool graph-html  <schemaDir> -o <out.html> --mo2 <instance> | --plugins <dir> | --bundle <f.hky> ...
+//                                                         a load order's merged graphs as one reflective HTML page
 //
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
@@ -1157,14 +1159,20 @@ void usage() {
                 "  hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]\n"
                 "  hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n"
                 "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n"
-                "  hky-tool mm-sample   <schemaDir> -o <outDir>\n");
+                "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
+                "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
+                "                       [--loadorder <file>] [--unit <path>]... [--all]\n");
 }
 
 }  // namespace
 
+/// @brief `graph-html` (GraphHtml.cpp): its own argument parser, for the repeatable --plugins / --bundle / --unit.
+int doGraphHtml(int argc, char** argv);
+
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     const std::string verb = argv[1];
+    if (verb == "graph-html") return doGraphHtml(argc - 2, argv + 2);
 
     std::string arg, arg2, arg3, out;
     for (int i = 2; i < argc; ++i) {
