@@ -6,11 +6,11 @@
 
 namespace CB { namespace havok
 {
-    /// @note 0x28 bytes; members per the reflected schema (schema/gen/hkbHandIkDriverInfo.yaml).
+    /// @note 0x28 bytes; members per the reflected schema (schema/project/hkbHandIkDriverInfo.yaml).
     class hkbHandIkDriverInfo : public hkReferencedObject
     {
     public:
-        /// @note 0x60 bytes (schema/gen/hkbHandIkDriverInfoHand.yaml); `m_handOrienationOffsetLS` is Havok's spelling.
+        /// @note 0x60 bytes (schema/project/hkbHandIkDriverInfoHand.yaml); `m_handOrienationOffsetLS` is Havok's spelling.
         struct Hand
         {
             hkVector4    m_elbowAxisLS;              ///< +0x00

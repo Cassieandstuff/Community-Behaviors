@@ -6,11 +6,11 @@
 
 namespace CB { namespace havok
 {
-    /// @note 0x48 bytes; members per the reflected schema (schema/gen/hkbFootIkDriverInfo.yaml).
+    /// @note 0x48 bytes; members per the reflected schema (schema/project/hkbFootIkDriverInfo.yaml).
     class hkbFootIkDriverInfo : public hkReferencedObject
     {
     public:
-        /// @note 0x60 bytes (schema/gen/hkbFootIkDriverInfoLeg.yaml).
+        /// @note 0x60 bytes (schema/project/hkbFootIkDriverInfoLeg.yaml).
         struct Leg
         {
             hkQuaternion m_prevAnkleRotLS;             ///< +0x00

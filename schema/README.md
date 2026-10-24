@@ -106,7 +106,8 @@ defined twice, or an unknown kind, fails the load and names the files. Moving a 
 
 `<family>/<ClassName>.yaml` — the families are for people only: they mirror the old `classes/*.h` grouping (`base/`,
 `events/`, `variables/`, `generators/`, `modifiers/`, `statemachine/`, `graph/`, `animation/`, `physics/`,
-`project/`; `gen/` for generated descriptors), and `metadata/` gathers the non-class kinds.
+`project/`, `arrays/`, `effects/`, `resource/`, `scene/`), and `metadata/` gathers the non-class kinds. A class with no
+parent that only one class owns sits in its owner's family.
 
 The reimplemented Havok runtime is not part of schema/: it lives in the top-level `havok/` (`CB::havok::`), one `.h`/`.cpp` per class, laid out like Havok's
 own source tree: product roots `Common/Base`, `Animation`, `Behavior`, and below them the paths the exe's

@@ -21,7 +21,7 @@ namespace CB { namespace havok
         hkbGetUpModifierInternalState(hkFinishLoadedObjectFlag flag);
     };
 
-    /// @note Layout from the schema (schema/gen/hkbGetUpModifier.yaml, 0x80 bytes); member names are the reflected ones.
+    /// @note Layout from the schema (schema/modifiers/hkbGetUpModifier.yaml, 0x80 bytes); member names are the reflected ones.
     ///       The `slot N` annotations are vanilla's vtable slots. The destructor is implicit.
     class hkbGetUpModifier : public hkbModifier
     {
