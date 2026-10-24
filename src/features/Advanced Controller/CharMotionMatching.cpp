@@ -483,7 +483,7 @@ namespace CB::feature {
             const auto t0 = Clock::now();
             CB::engine::decompile::ParsedHky graph;
             if (!reader.mergedGraph(std::string(kGraphKey), graph)) {
-                LOG_INFO("motion matching: '{}' is not in the load order (the Motion Matching add-on is not installed) - off", kGraphKey);
+                LOG_INFO("motion matching: '{}' is not in the load order (no Motion Matching.hky database bundle installed) - off", kGraphKey);
                 return;
             }
             auto* selector = RootSelector(graph);
