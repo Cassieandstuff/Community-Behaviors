@@ -65,7 +65,10 @@ namespace CB::engine::compile {
 
     /// @brief The chooser inputs every motion-matching graph declares, in this order, right after the clip and time
     ///        variables. CB's controller writes them by these exact names.
-    inline constexpr std::array<MmVariableDecl, 13> kMmChooserVariables{ {
+    /// @note  GASP's chooser inputs. MM_Speed2D is game units/s (GASP's Speed2D is cm/s: an importer scales its bounds by
+    ///        0.7); MM_TimeToLand is seconds until the predicted path lands (GASP's TrajectoryCollision.TimeToLand), 0 on
+    ///        the ground.
+    inline constexpr std::array<MmVariableDecl, 15> kMmChooserVariables{ {
         { "MM_MovementMode", "VARIABLE_TYPE_INT32" },
         { "MM_RotationMode", "VARIABLE_TYPE_INT32" },
         { "MM_MovementState", "VARIABLE_TYPE_INT32" },
@@ -79,6 +82,8 @@ namespace CB::engine::compile {
         { "MM_ShouldSpinTransition", "VARIABLE_TYPE_BOOL" },
         { "MM_JustTraversed", "VARIABLE_TYPE_BOOL" },
         { "MM_DatabaseLOD", "VARIABLE_TYPE_INT32" },
+        { "MM_Speed2D", "VARIABLE_TYPE_REAL" },
+        { "MM_TimeToLand", "VARIABLE_TYPE_REAL" },
     } };
 
     struct MmBundleSpec {

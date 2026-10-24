@@ -42,6 +42,15 @@ namespace CB::feature::controller::motion {
     ///        inputs come from the frame hook, the last one published.
     void Search(const Query& q);
 
+    /// @brief SetTimeToLand's value when the predicted path doesn't land within its horizon (GASP's open upper bound).
+    inline constexpr float kNoLanding = 999.0f;
+
+    /// @brief The predictor's landing time for the chooser's MM_TimeToLand: seconds until its predicted path is first
+    ///        grounded, kNoLanding when it isn't within the horizon. Read only while the player is airborne (0 on the
+    ///        ground), so the predictor may publish it every step.
+    /// @note  Thread-safe: the predictor (physics thread) writes it, the frame hook (update thread) reads it.
+    void SetTimeToLand(float seconds);
+
     /// @brief The player's motion matching state for a diagnostic line: the clip, its database and frame playing, the
     ///        dead blend's time left and the seconds since the last switch.
     std::string Describe();

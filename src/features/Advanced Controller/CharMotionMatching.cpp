@@ -136,7 +136,21 @@ namespace CB::feature {
                                                                 "MM_ShouldTurnInPlace", "MM_ShouldSpinTransition", "MM_JustTraversed",
                                                                 "MM_DatabaseLOD" };
         constexpr bool IsBoolInput(int i) { return i >= kIsStarting && i <= kJustTraversed; }
-        using Inputs = std::array<int, kInputs>;
+
+        /// @brief The REAL chooser inputs. Speed2D: the horizontal speed, game units/s (GASP's is cm/s; an importer scales
+        ///        its bounds by 0.7). TimeToLand: seconds until the predicted path lands (GASP's
+        ///        TrajectoryCollision.TimeToLand), 0 on the ground, kNoLanding when no landing is within the horizon.
+        enum RealInput : int { kSpeed2D, kTimeToLand, kRealInputs };
+        constexpr std::array<const char*, kRealInputs> kRealInputNames{ "MM_Speed2D", "MM_TimeToLand" };
+
+        /// @brief One frame's chooser inputs: the INT32 / BOOL ones by Input (`in[kGait]`), the REAL ones in `real`.
+        struct Inputs {
+            std::array<int, kInputs>       word{};
+            std::array<float, kRealInputs> real{};
+            constexpr int&       operator[](int i) { return word[i]; }
+            constexpr const int& operator[](int i) const { return word[i]; }
+            bool                 operator==(const Inputs&) const = default;
+        };
         /// @brief Before the first frame: on the ground, orienting, idle, standing, Run (GASP's starting gait), LOD 0.
         /// @note  Settings-free: it initializes a global, before settings.ini is read.
         constexpr Inputs InitialInputs()
@@ -246,6 +260,8 @@ namespace CB::feature {
         Shared             g_shared;
         /// @brief The playback rate (clip seconds per second): written by the predictor's Rate, read by the frame hook.
         std::atomic<float> g_rate{ 1.0f };
+        /// @brief The predictor's landing time (SetTimeToLand), read by the frame hook's MM_TimeToLand while airborne.
+        std::atomic<float> g_timeToLand{ controller::motion::kNoLanding };
         /// @brief When the last switch was chosen (steady_clock ticks; 0 = none yet), for Describe.
         std::atomic<Clock::rep> g_lastSwitch{ 0 };
         std::atomic<int>   g_logs{ 0 };
@@ -721,6 +737,8 @@ namespace CB::feature {
             io[kShouldSpinTransition] = !playingPivots && speed >= kSpinSpeed && std::fabs(ch::WrapPi(velYaw - s.yaw)) >= kSpinAngle;
             io[kJustTraversed]        = 0;
             io[kDatabaseLOD]          = DatabaseLod();
+            io.real[kSpeed2D]         = speed;
+            io.real[kTimeToLand]      = in.airborne ? g_timeToLand.load(std::memory_order_relaxed) : 0.0f;
             return true;
         }
 
@@ -735,6 +753,12 @@ namespace CB::feature {
                 if (IsBoolInput(i)) player->SetGraphVariableBool(names[i], in[i] != 0);
                 else player->SetGraphVariableInt(names[i], in[i]);
             }
+            static const std::array<RE::BSFixedString, kRealInputs> realNames = [] {
+                std::array<RE::BSFixedString, kRealInputs> a;
+                for (int i = 0; i < kRealInputs; ++i) a[i] = kRealInputNames[i];
+                return a;
+            }();
+            for (int i = 0; i < kRealInputs; ++i) player->SetGraphVariableFloat(realNames[i], in.real[i]);
         }
 
         /// @brief GASP's Get_MMInterruptMode: the movement mode changed, or on the ground the movement state, the gait
@@ -758,6 +782,11 @@ namespace CB::feature {
                 for (int i = 0; i < kInputs; ++i)
                     if (std::strcmp(name, kInputNames[i]) == 0) {
                         out = IsBoolInput(i) ? relay::Value::Bool(m_in[i] != 0) : relay::Value::Int(m_in[i]);
+                        return true;
+                    }
+                for (int i = 0; i < kRealInputs; ++i)
+                    if (std::strcmp(name, kRealInputNames[i]) == 0) {
+                        out = relay::Value::Float(m_in.real[i]);
                         return true;
                     }
                 return false;
@@ -838,6 +867,10 @@ namespace CB::feature {
             for (const auto& [i, name] : kFlags)
                 if (in[i]) out += std::string(" ") + name;
             if (in[kDatabaseLOD]) out += std::format(" lod{}", in[kDatabaseLOD]);
+            out += std::format(" {:.0f}/s", in.real[kSpeed2D]);
+            if (in[kMovementMode]) out += in.real[kTimeToLand] >= controller::motion::kNoLanding
+                                              ? std::string(" no-landing")
+                                              : std::format(" lands-in {:.2f}s", in.real[kTimeToLand]);
             return out;
         }
 
@@ -985,6 +1018,8 @@ namespace CB::feature {
         static const bool on = core::debug::FlagOn("char_motion_matching");
         return on;
     }
+
+    void controller::motion::SetTimeToLand(float seconds) { g_timeToLand.store(seconds, std::memory_order_relaxed); }
 
     std::string controller::motion::Describe()
     {
