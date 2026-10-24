@@ -1,6 +1,7 @@
 name:      CBMovementHandlerAgentAnglePassThrough
 parent:    CBMovementAgent
 size:      80
+factory:   "Angle Pass Through"
 # Vanilla MovementHandlerAgentAnglePassThrough, factory name "Angle Pass Through": turns the planner's desired pitch and
 # yaw straight into the rates that reach them this update (the wrapped difference over dt), with no limits. It has no
 # settings and leaves roll alone.

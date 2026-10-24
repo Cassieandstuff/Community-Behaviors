@@ -155,8 +155,9 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         { const std::string p = childStr(root, "parent"); if (p != "null" && !p.empty()) out.parent = p; }
         { const std::string s = childStr(root, "signature"); if (!s.empty()) out.signature = static_cast<std::uint32_t>(std::stoul(s, nullptr, 0)); }
         { const std::string s = childStr(root, "size");      if (!s.empty()) out.size = std::stoi(s); }
-        out.unwrap = childStr(root, "unwrap");
-        out.vocab  = childStr(root, "vocab");
+        out.unwrap  = childStr(root, "unwrap");
+        out.vocab   = childStr(root, "vocab");
+        out.factory = childStr(root, "factory");
         out.metadata        = childStr(root, "kind") == "metadata";
         out.blankTerminated = childStr(root, "terminator") == "blank";
         { const std::string s = childStr(root, "framelimit"); if (!s.empty()) out.frameLimit = std::stoi(s); }
@@ -399,6 +400,20 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                     if (!lookup("RoleFlags", flag, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role flag '" + flag + "' (an item of the RoleFlags enum)"; return false; }
                     f.roleFlags |= static_cast<int>(v);
                 }
+            }
+        }
+    }
+
+    /// @note A `factory:` name maps to exactly one class, or a node's class could not be told from its factory name.
+    ///       Compared byte-exact: the engine's factories are keyed by exact name.
+    {
+        std::map<std::string, std::string> factoryClass;
+        for (const auto& [name, cs] : m_byName) {
+            if (cs.factory.empty()) continue;
+            const auto [it, fresh] = factoryClass.emplace(cs.factory, name);
+            if (!fresh) {
+                err = "class '" + name + "': factory '" + cs.factory + "' is already claimed by class '" + it->second + "'";
+                return false;
             }
         }
     }

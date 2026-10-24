@@ -1,6 +1,7 @@
 name:      CBMovementAgentPathFollowerFlight
 parent:    CBMovementAgent
 size:      88
+factory:   "Path Follower Flight"
 # Vanilla MovementAgentPathFollowerFlight, factory name "Path Follower Flight": the fliers' path follower. It fits a smooth
 # curve (256 samples) through the actor's position, a lead-in point two path radii ahead along its facing, and up to
 # the next 8 path nodes, then advances along it by speed x dt and plans the curve's tangent. Registers

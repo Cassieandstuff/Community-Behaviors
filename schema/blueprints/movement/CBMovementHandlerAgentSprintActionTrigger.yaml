@@ -1,6 +1,7 @@
 name:      CBMovementHandlerAgentSprintActionTrigger
 parent:    CBMovementAgent
 size:      88
+factory:   "Sprint Action Trigger"
 # Vanilla MovementHandlerAgentSprintActionTrigger, factory name "Sprint Action Trigger": starts and stops an NPC's
 # sprint along a path by running the sprint start/stop actions, and while sprinting sets the planner's speed to the
 # race's sprint speed. Sprint is requested through its "IMovementSetSprinting" interface.

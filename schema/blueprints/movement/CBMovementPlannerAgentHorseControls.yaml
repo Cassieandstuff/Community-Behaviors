@@ -1,6 +1,7 @@
 name:      CBMovementPlannerAgentHorseControls
 parent:    CBMovementAgent
 size:      80
+factory:   "Planner Horse Controls"
 # Vanilla MovementPlannerAgentHorseControls, factory name "Planner Horse Controls": the ridden horse's planner. Each
 # update (unless player controls are frozen) it turns the player's stick into a planned direction (the stick's angle
 # plus the camera's yaw) and speed (the stick's magnitude through the player's stick response curve, doubled while

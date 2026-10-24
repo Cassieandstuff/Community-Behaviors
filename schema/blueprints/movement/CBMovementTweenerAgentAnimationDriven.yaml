@@ -1,6 +1,7 @@
 name:      CBMovementTweenerAgentAnimationDriven
 parent:    CBMovementAgent
 size:      96
+factory:   "Animation Driven"
 # Vanilla MovementTweenerAgentAnimationDriven, factory name "Animation Driven": while active, the actor moves by its
 # playing clips' root motion instead of the planned frame. Each update it samples the active clips' motion delta over
 # dt (the adsf motion), scales it by the actor's scale, tilts it by the character controller's slope angle, and ends

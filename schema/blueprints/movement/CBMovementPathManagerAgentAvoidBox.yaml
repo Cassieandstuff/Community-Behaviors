@@ -1,6 +1,7 @@
 name:      CBMovementPathManagerAgentAvoidBox
 parent:    CBMovementAgent
 size:      80
+factory:   "Avoid Box"
 # Vanilla MovementPathManagerAgentAvoidBox, factory name "Avoid Box": checks the path ahead for blockers with an
 # asynchronous box query; opens a door in the way (an ActivateDoor path action), else asks for a replan or fails.
 #   useActorAvoidBox                bUseActorAvoidBox:Pathfinding (true): the agent's master switch

@@ -1,6 +1,7 @@
 name:      CBMovementAgentActorAvoider
 parent:    CBMovementAgent
 size:      112
+factory:   "Actor Avoider"
 # Vanilla MovementAgentActorAvoider, factory name "Actor Avoider": tracks nearby moving actors (through the global
 # avoidance manager) and adds avoid nodes for them to the plan; asks for a replan when one moves and reports blocked
 # when stuck too long. Registers "IMovementQueryActorAvoidance".

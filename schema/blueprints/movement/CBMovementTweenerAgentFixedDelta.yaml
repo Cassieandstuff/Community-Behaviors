@@ -1,13 +1,14 @@
 name:      CBMovementTweenerAgentFixedDelta
 parent:    CBMovementAgent
 size:      184
+factory:   "Fixed Delta"
 # Vanilla MovementTweenerAgentFixedDelta, factory name "Fixed Delta": plays a correction, moving the actor by a set
 # displacement and rotation over a window of time. It has no settings: its inputs are what the tweener arbiter hands
 # its "Fixed Delta Set Correction Data" interface, which the 1:1 blueprint binds to the correction variables. Its init
 # resets the correction. Between startTime and endTime the velocity follows a cubic Hermite curve that starts at the
 # start velocity and ends at the end velocity, solved so the window plus the end velocity held from endTime to duration
-# covers the displacement; after endTime it holds the end velocity; before startTime it writes nothing. An end velocity under 0.1 units/s (1 degree/s
-# for rotation) counts as 0, and a window of zero or negative length plays nothing.
+# covers the displacement; after endTime it holds the end velocity; before startTime it writes nothing. An end velocity
+# under 0.1 units/s (1 degree/s for rotation) counts as 0, and a window of zero or negative length plays nothing.
 #   displacement          the total translation to cover, game units
 #   rotationDisplacement  the total rotation to cover, radians
 #   startVelocity         the translation velocity at startTime, units/s

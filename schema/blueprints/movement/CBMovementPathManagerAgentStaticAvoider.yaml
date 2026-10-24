@@ -1,6 +1,7 @@
 name:      CBMovementPathManagerAgentStaticAvoider
 parent:    CBMovementAgent
 size:      104
+factory:   "Static Avoider"
 # Vanilla MovementPathManagerAgentStaticAvoider, factory name "Static Avoider": watches the actor's progress along the
 # path and, when it stalls, drops an avoid node where it is stuck and asks for a new path. Registers
 # "IMovementQueryStaticAvoider" and "IMovementSetStaticAvoider" (the stairs helper switches it off on stairs).

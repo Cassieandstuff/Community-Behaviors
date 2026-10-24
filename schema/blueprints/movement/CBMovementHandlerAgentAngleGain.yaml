@@ -1,6 +1,7 @@
 name:      CBMovementHandlerAgentAngleGain
 parent:    CBMovementAgent
 size:      88
+factory:   "Angle Gain"
 # Vanilla MovementHandlerAgentAngleGain, factory name "Angle Gain": the flying table's turn controller. It rotates the
 # actor's orientation toward the planner's desired orientation by a quaternion blend whose weight is 9 x (speed / the
 # movement type's top speed, clamped 0..1) x dt, and writes the result as rotation rates. It has no settings; the 9.0

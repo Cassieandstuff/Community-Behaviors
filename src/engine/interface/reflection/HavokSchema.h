@@ -123,6 +123,11 @@ struct ClassSchema {
     std::string        unwrap;                   ///< @brief `unwrap: <field>` — a .hky convenience: a pointer/struct to this
                                                  ///<        class renders as that one field's value directly, when every other
                                                  ///<        field would emit nothing (else the full object form, so lossless).
+    std::string        factory;                  ///< @brief `factory: <name>` — the engine factory name this class stands for,
+                                                 ///<        byte-exact (a typed movement agent's "Player Controls"), so a node's
+                                                 ///<        name field can be checked against its class. No serde, size or
+                                                 ///<        signature effect.
+                                                 ///< @invariant At most one class claims a given name (LoadDir).
 };
 
 // ── Enum definitions (`kind: enum` descriptors) ─────────────────────────────────────────────────

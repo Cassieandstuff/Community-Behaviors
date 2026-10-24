@@ -1,6 +1,7 @@
 name:      CBMovementHandlerAgentDirectControl
 parent:    CBMovementAgent
 size:      144
+factory:   "Direct Control"
 # Vanilla MovementHandlerAgentDirectControl, factory name "Direct Control": drives the frame directly from the values
 # the controller's "IMovementDirectControl" interface sets, snapping to them or blending over a time. It has no
 # settings; its inputs are those values, which the 1:1 blueprint binds to the direct-control variables. Speed and turn

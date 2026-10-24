@@ -1,6 +1,7 @@
 name:      CBMovementPlannerAgentWarp
 parent:    CBMovementAgent
 size:      96
+factory:   "FailSafe Warp"
 # Vanilla MovementPlannerAgentWarp, factory name "FailSafe Warp": after repeated path failures at the same spot it
 # picks a point along a fresh path and posts a warp there once the point is off-screen or a timer runs out.
 #   warpOnConsecutiveFailures  bWarpOnConsecutiveFailures:Pathfinding (true): the agent's master switch

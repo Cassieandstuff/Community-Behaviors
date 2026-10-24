@@ -1,6 +1,7 @@
 name:      CBMovementHandlerAgentTranslationController
 parent:    CBMovementAgent
 size:      88
+factory:   "Translation Controller"
 # Vanilla MovementHandlerAgentTranslationController, factory name "Translation Controller": turns the planner's desired
 # velocity into the frame's direction and speed, limited by the planner's acceleration, deceleration and turn rate,
 # braking for the end of the path, and sending FreezeDirection on a reversal. Constants: 5 minimum speed, 0.1 minimum

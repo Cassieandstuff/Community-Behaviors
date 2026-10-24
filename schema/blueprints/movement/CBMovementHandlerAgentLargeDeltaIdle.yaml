@@ -1,6 +1,7 @@
 name:      CBMovementHandlerAgentLargeDeltaIdle
 parent:    CBMovementAgent
 size:      80
+factory:   "Large Delta Idle"
 # Vanilla MovementHandlerAgentLargeDeltaIdle, factory name "Large Delta Idle": when the planner asks for a large change
 # of facing or speed, it selects and plays a transition idle (through IMovementSelectIdle) instead of steering there.
 # It writes nothing to the frame.

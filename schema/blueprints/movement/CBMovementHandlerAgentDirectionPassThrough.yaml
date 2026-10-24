@@ -1,6 +1,7 @@
 name:      CBMovementHandlerAgentDirectionPassThrough
 parent:    CBMovementAgent
 size:      88
+factory:   "Direction Pass Through"
 # Vanilla MovementHandlerAgentDirectionPassThrough, factory name "Direction Pass Through": turns the planner's desired
 # world direction into the actor's own frame and writes it as the frame's direction, with no limits. It has no
 # settings.

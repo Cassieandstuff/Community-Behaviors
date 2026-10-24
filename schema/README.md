@@ -63,6 +63,10 @@ keys say the rest (no serde effect):
   carries no enum reference; `enum: X` on a scalar means an ENUM member over that scalar, referencing X);
 - `name:` on an `{ empty: … }` slot, the reflected member's name.
 
+**Class-level `factory: <name>`** names the engine factory name a class stands for, byte-exact (a typed movement
+agent: `factory: "Player Controls"`), so a node's own name field can be checked against its class. At most one class
+may claim a name; a second fails the load. No serde, size or signature effect.
+
 A `CB*` class stores no `signature:`: the schema loader derives it, and fails the load unless every class it hashes
 through reproduces its own stored signature. The behavior loader recomputes the signature and refuses a packfile
 whose stored one differs.
