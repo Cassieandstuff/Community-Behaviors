@@ -1,0 +1,7 @@
+id: 0000x003a
+class: CBMovementPool
+name: 'Virtual'
+installs: 'MovementPoolVirtual'
+arbiters: ['Path Manager Arbiter', 'Planner Arbiter']
+agents: ['Virtual Path Follower']
+modes: 0000x0039

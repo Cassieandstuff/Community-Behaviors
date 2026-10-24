@@ -1,0 +1,18 @@
+id: 0000x0025
+class: CBMovementHandlerAgentPlayerControls
+name: 'Player Controls (mode 0)'
+type: 'Player Controls'
+interface: 'CurrentMovementState'
+mode: 0
+dampenPlayerControls: true
+freezeDirectionOnLargeDelta: true
+controllerDampenTime: 0.18
+controllerBufferDepth: 0.14
+controllerSampleThreshold: 0.1
+freezeDirectionDefaultAngleThreshold: 60
+freezeDirectionDefaultSpeedThreshold: 100
+horseClampAngle: 10
+maxMoveRampDownDelta: 500
+direction: 0
+speed: 0
+turnRate: 0

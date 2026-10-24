@@ -1,0 +1,580 @@
+id: 0000x0001
+class: hkRootLevelContainer
+namedVariants:
+  'CBMovementBlueprint':
+    className: 'CBMovementBlueprint'
+    variant:
+      class: CBMovementBlueprint
+      variables:
+        'bHighProcess':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bRaceFlies':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bNodeFollower':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bAnimationDriven':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bAllowRotation':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bFlying':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'SetPlayerControls':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bHorseControls':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bDirectControl':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bPlannerDirectControl':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bStaticPath':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bKeepOffset':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Mode'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bIgnoreThresholds:Pathfinding':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fBackPedalAngle:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '160'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'iTranslationControllerType':
+          type: TYPE_INT
+          subtype: ''
+          value: '0'
+          category: 'Translation Controller'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fSprintAccelerationMult:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '10'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fSprintDistToPathThresholdRadiusMult:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fSprintAngleToPathThreshold:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fShortPathRadiusMult:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '2'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fRotateTowardsPathThreshold:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fHeadingToPathTangentMaxAngle:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '15'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMinFrictionSpeed:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '2'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fAvoidanceDistanceRadiusMult:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMaxCollisionTime:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMaxDistFromPathRadiusMult:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fTeleportNodeAngleTolerance:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDistFromPathForFollowingRadiusMult:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '2'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bUseActorAvoidance:Pathfinding':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'true'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fAvoidanceTimeDelta:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '3'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMinAvoidanceRadius:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '256'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMaxAvoidanceRadius:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '512'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'iMaxActorsToAvoid:Pathfinding':
+          type: TYPE_INT
+          subtype: ''
+          value: '10'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMaxTimeSizeAvoidNode:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMaxTimeBlockedByActors:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fAvoidNodeRadiusAdd:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '11'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fAvoidNodeCost:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '24'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fNavmeshBoundsActorRadiusMultiplier:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fNavmeshBoundsMinTimeOfImpact:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.0333'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fAcceptableErrorRatio:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.9'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fTotalTimePadding:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fTotalTimeThreshold:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fTotalDisplacementThresholdRadiusMult:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.66'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDefaultAvoidNodeCost:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '32'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDefaultStaticAvoidNodeRadius:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '32'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bStaticAvoidanceTriggerMovementBlocked:Pathfinding':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bUseActorAvoidBox:Pathfinding':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'true'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bAvoidBoxTriggersFailure:Pathfinding':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDefaultAvoidBoxAvoidNodeRadius:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '32'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMinStairSpeed:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '80'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bWarpOnConsecutiveFailures:Pathfinding':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'true'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'iWarpMaxPathFailureCount:Pathfinding':
+          type: TYPE_INT
+          subtype: ''
+          value: '3'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMinFailureDistance:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '50'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fWarpRequestActorRadius:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fWarpPathOffset:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '100'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fWarpMaxTime:Pathfinding':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '5'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'FixedDeltaDisplacement':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'FixedDeltaRotationDisplacement':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'FixedDeltaStartVelocity':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'FixedDeltaEndVelocity':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'FixedDeltaStartAngularVelocity':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'FixedDeltaEndAngularVelocity':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fFixedDeltaStartTime':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fFixedDeltaEndTime':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fFixedDeltaDuration':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Fixed Delta'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'NodeFollowerNodePosition':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Node Follower'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bNodeFollowerFollowing':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'false'
+          category: 'Node Follower'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'DirectControlDirection':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDirectControlSpeed':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'DirectControlRotationRate':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDirectControlDirectionBlendTime':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDirectControlSpeedBlendTime':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fDirectControlRotationBlendTime':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'PlannerDirectControlDirection':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Planner Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fPlannerDirectControlSpeed':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Planner Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'PlannerDirectControlFacing':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Planner Direct Control'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bDampenPlayerControls:Controls':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'true'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bFreezeDirectionOnLargeDelta:Controls':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'true'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fControllerDampenTime:Controls':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.18'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fControllerBufferDepth:Controls':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.14'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fControllerSampleThreshold:Controls':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fFreezeDirectionDefaultAngleThreshold:Controls':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '60'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fFreezeDirectionDefaultSpeedThreshold:Controls':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '100'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fHorseClampAngle:Controls':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '10'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fMaxMoveRampDownDelta:Controls':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '500'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'KeepOffsetTarget':
+          type: TYPE_REF
+          subtype: ''
+          value: ''
+          category: 'Keep Offset'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'KeepOffsetOffset':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Keep Offset'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'KeepOffsetAngleOffset':
+          type: TYPE_VECTOR
+          subtype: ''
+          value: '(0 0 0)'
+          category: 'Keep Offset'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fKeepOffsetCatchUpRadius':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Keep Offset'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fKeepOffsetFollowRadius':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Keep Offset'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'bUseUnsupportedCast:HAVOK':
+          type: TYPE_BOOL
+          subtype: ''
+          value: 'true'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fUnsupportCastLength:HAVOK':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fUnsupportedGravMult:HAVOK':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '4'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fInAirFallingCharGravityMult:Havok':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '1.35'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fJumpMoveMult':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0.3'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+        'fJumpMoveBase':
+          type: TYPE_FLOAT
+          subtype: ''
+          value: '0'
+          category: 'Settings'
+          flags: FLAG_IN|FLAG_READ_ONLY|FLAG_ENGINE_BOUND
+      root: 0000x003b
+      characterStates: 0000x0043

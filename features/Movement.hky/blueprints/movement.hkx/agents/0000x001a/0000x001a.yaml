@@ -1,0 +1,15 @@
+id: 0000x001a
+class: CBMovementAgentActorAvoider
+name: 'Actor Avoider (initWord 1)'
+type: 'Actor Avoider'
+interface: 'CurrentMovementState'
+useActorAvoidance: true
+initWord: 1
+avoidanceTimeDelta: 3
+minAvoidanceRadius: 256
+maxAvoidanceRadius: 512
+maxActorsToAvoid: 10
+maxTimeSizeAvoidNode: 1
+maxTimeBlockedByActors: 1
+avoidNodeRadiusAdd: 11
+avoidNodeCost: 24

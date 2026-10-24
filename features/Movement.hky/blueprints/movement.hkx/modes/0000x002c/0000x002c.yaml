@@ -1,0 +1,14 @@
+id: 0000x002c
+class: CBMovementMode
+name: 'Allow Rotation Direct Control (098)'
+modeId: 9
+installs: 'MovementConfigAllowRotationDirectControl'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

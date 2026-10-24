@@ -1,0 +1,11 @@
+id: 0000x000f
+class: CBMovementPlannerAgentWarp
+name: 'FailSafe Warp'
+type: 'FailSafe Warp'
+interface: 'CurrentMovementState'
+warpOnConsecutiveFailures: true
+maxPathFailureCount: 3
+minFailureDistance: 50
+requestActorRadius: 5
+pathOffset: 100
+maxTime: 5

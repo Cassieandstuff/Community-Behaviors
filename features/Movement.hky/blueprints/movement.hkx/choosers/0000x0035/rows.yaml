@@ -1,0 +1,118 @@
+'0000x0000':
+  conditions:
+    - variable: 'bNodeFollower'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x0020
+'0000x0001':
+  conditions:
+    - variable: 'bAnimationDriven'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+    - variable: 'SetPlayerControls'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x001e
+'0000x0002':
+  conditions:
+    - variable: 'bAnimationDriven'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x001c
+'0000x0003':
+  conditions:
+    - variable: 'bAllowRotation'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+    - variable: 'SetPlayerControls'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x002b
+'0000x0004':
+  conditions:
+    - variable: 'bAllowRotation'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+    - variable: 'bDirectControl'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x002c
+'0000x0005':
+  conditions:
+    - variable: 'bAllowRotation'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x002a
+'0000x0006':
+  conditions:
+    - variable: 'SetPlayerControls'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+    - variable: 'bHorseControls'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x0028
+'0000x0007':
+  conditions:
+    - variable: 'SetPlayerControls'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x0026
+'0000x0008':
+  conditions:
+    - variable: 'bDirectControl'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x0022
+'0000x0009':
+  conditions:
+    - variable: 'bPlannerDirectControl'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x0024
+'0000x000a':
+  conditions:
+    - variable: 'bStaticPath'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x0030
+'0000x000b':
+  conditions:
+    - variable: 'bKeepOffset'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x0032
+'0000x000c':
+  result: 0000x0010

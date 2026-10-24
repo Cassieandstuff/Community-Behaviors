@@ -1,0 +1,4 @@
+'ignoreThresholds':
+  variable: 'bIgnoreThresholds:Pathfinding'
+  output: ''
+  flags: FLAG_IN

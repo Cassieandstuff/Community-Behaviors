@@ -1,0 +1,17 @@
+id: 0000x0032
+class: CBMovementMode
+name: 'Keep Offset (078)'
+modeId: 13
+installs: 'MovementConfigKeepOffset'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Handler Arbiter'
+    interface: 'CurrentMovementState'
+    order: ['Stairs Helper', 'Strafing Controller', 'Angle Controller', 'Translation Controller']
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

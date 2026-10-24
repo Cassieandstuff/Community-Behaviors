@@ -1,0 +1,8 @@
+id: 0000x001f
+class: CBMovementTweenerAgentNodeFollower
+name: 'Node Follower'
+type: 'Node Follower'
+interface: 'CurrentMovementState'
+nodePosition: [0, 0, 0]
+translation: [0, 0, 0]
+following: false

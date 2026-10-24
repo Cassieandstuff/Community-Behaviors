@@ -1,0 +1,8 @@
+id: 0000x000c
+class: CBMovementAgentActorState
+name: 'Actor State (initWord 0, enabled true)'
+type: 'Actor State'
+interface: 'CurrentMovementState'
+initWord: 0
+enabled: true
+backPedalAngle: 160

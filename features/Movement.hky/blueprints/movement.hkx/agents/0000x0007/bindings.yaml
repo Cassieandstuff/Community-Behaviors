@@ -1,0 +1,40 @@
+'shortPathRadiusMult':
+  variable: 'fShortPathRadiusMult:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'rotateTowardsPathThreshold':
+  variable: 'fRotateTowardsPathThreshold:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'headingToPathTangentMaxAngle':
+  variable: 'fHeadingToPathTangentMaxAngle:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'backPedalAngle':
+  variable: 'fBackPedalAngle:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'minFrictionSpeed':
+  variable: 'fMinFrictionSpeed:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'avoidanceDistanceRadiusMult':
+  variable: 'fAvoidanceDistanceRadiusMult:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxCollisionTime':
+  variable: 'fMaxCollisionTime:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxDistFromPathRadiusMult':
+  variable: 'fMaxDistFromPathRadiusMult:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'teleportNodeAngleTolerance':
+  variable: 'fTeleportNodeAngleTolerance:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'distFromPathForFollowingRadiusMult':
+  variable: 'fDistFromPathForFollowingRadiusMult:Pathfinding'
+  output: ''
+  flags: FLAG_IN

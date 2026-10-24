@@ -1,10 +1,10 @@
 name:      CBCharacterStateOnGround
 parent:    CBCharacterState
 size:      88
-# Vanilla bhkCharacterStateOnGround (id HK_CHARACTER_ON_GROUND). Supported, it steers the velocity toward the requested
-# movement along the support surface and turns any uphill part back along it. When support is lost (no fake support,
-# no request for another state) it leaves for InAir, which runs in the same step with the fall starting at the current
-# height; with useUnsupportedCast it first casts straight down, and a hit keeps it grounded for that step under
+# Vanilla bhkCharacterStateOnGround (stateId HK_CHARACTER_ON_GROUND). Supported, it steers the velocity toward the
+# requested movement along the support surface and turns any uphill part back along it. When support is lost (no fake
+# support, no request for another state) it leaves for InAir, which runs in the same step with the fall starting at the
+# current height; with useUnsupportedCast it first casts straight down, and a hit keeps it grounded for that step under
 # heavier gravity. It commits any requested state, a jump only when the character may jump.
 #   killVelocityOnLaunch        on leaving the ground, zero the vertical velocity (vanilla member, true)
 #   useUnsupportedCast          cast down before leaving the ground (bUseUnsupportedCast:HAVOK, true)

@@ -1,0 +1,7 @@
+id: 0000x0036
+class: CBMovementPool
+name: 'Full'
+installs: 'MovementPoolFull'
+arbiters: ['Path Manager Arbiter', 'Planner Arbiter', 'Handler Arbiter', 'Tweener Arbiter', 'Post Update Arbiter']
+agents: ['Sprint Action Trigger', 'Player Controls Actions Trigger', 'Translation Controller', 'Angle Controller', 'Direction Pass Through', 'Angle Pass Through', 'Speed Pass Through', 'Strafing Controller', 'Path Follower', 'Actor State', 'Animation Driven', 'Loaded Area Monitor', 'Player Controls', 'NavMesh Bounds', 'Static Avoider', 'Actor Avoider', 'Avoid Box', 'Fixed Delta', 'Node Follower', 'Direct Control', 'Planner Direct Control', 'Large Delta Idle', 'Untweened Movement State', 'Path Following Movement State', 'Planner Keep Offset', 'Planner Horse Controls', 'Stairs Helper', 'FailSafe Warp']
+modes: 0000x0035

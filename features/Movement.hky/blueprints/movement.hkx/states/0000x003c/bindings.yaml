@@ -1,0 +1,12 @@
+'useUnsupportedCast':
+  variable: 'bUseUnsupportedCast:HAVOK'
+  output: ''
+  flags: FLAG_IN
+'unsupportCastLength':
+  variable: 'fUnsupportCastLength:HAVOK'
+  output: ''
+  flags: FLAG_IN
+'unsupportedGravMult':
+  variable: 'fUnsupportedGravMult:HAVOK'
+  output: ''
+  flags: FLAG_IN

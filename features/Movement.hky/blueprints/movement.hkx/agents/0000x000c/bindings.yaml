@@ -1,0 +1,4 @@
+'backPedalAngle':
+  variable: 'fBackPedalAngle:Pathfinding'
+  output: ''
+  flags: FLAG_IN

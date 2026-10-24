@@ -1,0 +1,5 @@
+id: 0000x002d
+class: CBMovementAgent
+name: 'Virtual Path Follower'
+type: 'Virtual Path Follower'
+interface: 'CurrentMovementState'

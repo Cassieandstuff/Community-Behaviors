@@ -1,0 +1,7 @@
+id: 0000x0003
+class: CBMovementHandlerAgentAngleController
+name: 'Angle Controller'
+type: 'Angle Controller'
+interface: 'CurrentMovementState'
+pitchRate: 0
+turnRate: 0

@@ -1,0 +1,7 @@
+id: 0000x0009
+class: CBMovementPlannerAgentNavmeshBounds
+name: 'NavMesh Bounds'
+type: 'NavMesh Bounds'
+interface: 'CurrentMovementState'
+actorRadiusMultiplier: 1
+minTimeOfImpact: 0.0333

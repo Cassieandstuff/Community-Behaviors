@@ -1,0 +1,7 @@
+id: 0000x0019
+class: CBMovementTweenerAgentAnimationDriven
+name: 'Animation Driven'
+type: 'Animation Driven'
+interface: 'CurrentMovementState'
+translation: [0, 0, 0]
+rotation: [0, 0, 0]

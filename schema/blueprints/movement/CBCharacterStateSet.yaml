@@ -6,6 +6,6 @@ size:      72
 # controller is created (the cinfo's state manager, set after vanilla fills the cinfo from the actor). An actor no set
 # is chosen for keeps vanilla's shared manager. Vanilla's own set holds OnGround, Jumping, InAir, Climbing, Flying and
 # Swimming at their vanilla ids.
-#   states  the states, each filling the slot its `id` names (keyed by node; ids must not repeat within a set)
+#   states  the states, each filling the slot its `stateId` names (keyed by node; stateIds must not repeat within a set)
 fields:
   - { name: states, type: ptrarray, ref: CBCharacterState, roster: ref }

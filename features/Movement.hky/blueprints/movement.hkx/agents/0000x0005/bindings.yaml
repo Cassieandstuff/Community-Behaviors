@@ -1,0 +1,8 @@
+'backPedalAngle':
+  variable: 'fBackPedalAngle:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'mode':
+  variable: 'iTranslationControllerType'
+  output: ''
+  flags: FLAG_IN

@@ -1,0 +1,10 @@
+id: 0000x003c
+class: CBCharacterStateOnGround
+name: 'OnGround'
+stateId: HK_CHARACTER_ON_GROUND
+killVelocityOnLaunch: true
+useUnsupportedCast: true
+unsupportCastLength: 1
+unsupportedGravMult: 4
+fakeSupportReleaseDistance: 0.9144
+maxVelocityDelta: 500

@@ -1,0 +1,14 @@
+id: 0000x002a
+class: CBMovementMode
+name: 'Allow Rotation (0a8)'
+modeId: 4
+installs: 'MovementConfigAllowRotation'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

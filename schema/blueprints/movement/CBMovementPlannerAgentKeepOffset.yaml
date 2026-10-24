@@ -2,11 +2,11 @@ name:      CBMovementPlannerAgentKeepOffset
 parent:    CBMovementAgent
 size:      136
 factory:   "Planner Keep Offset"
-# Vanilla MovementPlannerAgentKeepOffset, factory name "Planner Keep Offset": plans toward a point held at an offset from
-# a target actor (Papyrus KeepOffsetFromActor). It has no settings: its inputs are the five values the "Keep Offset
+# Vanilla MovementPlannerAgentKeepOffset, factory name "Planner Keep Offset": plans toward a point held at an offset
+# from a target actor (Papyrus KeepOffsetFromActor). It has no settings: its inputs are the five values the "Keep Offset
 # From Actor" interface hands it, which the 1:1 blueprint binds to the keep-offset variables. Each update the point is
-# the target's position plus `offset` turned and scaled by the target; the planned speed ramps from 0 at followRadius
-# to full at catchUpRadius; the planned facing is the target's rotation plus `angleOffset`.
+# the target's position plus `offset` turned and scaled by the target; the planned speed ramps from 0 at followRadius to
+# full at catchUpRadius; the planned facing is the target's rotation plus `angleOffset`.
 #   target         the target actor's handle (bound to the keep-offset target reference)
 #   offset         the point's offset in the target's frame, game units
 #   angleOffset    added to the target's rotation for the planned facing, radians

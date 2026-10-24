@@ -1,0 +1,10 @@
+id: 0000x002e
+class: CBMovementMode
+name: 'Virtual (090)'
+modeId: 10
+installs: 'MovementConfigVirtual'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'

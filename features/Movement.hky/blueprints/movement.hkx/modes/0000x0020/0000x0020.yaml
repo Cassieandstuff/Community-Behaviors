@@ -1,0 +1,16 @@
+id: 0000x0020
+class: CBMovementMode
+name: 'Node Follower (0d0)'
+modeId: 6
+installs: 'MovementConfigNodeFollower'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Handler Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'

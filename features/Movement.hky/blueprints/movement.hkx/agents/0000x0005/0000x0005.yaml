@@ -1,0 +1,9 @@
+id: 0000x0005
+class: CBMovementHandlerAgentTranslationController
+name: 'Translation Controller'
+type: 'Translation Controller'
+interface: 'CurrentMovementState'
+mode: 0
+backPedalAngle: 160
+direction: 0
+speed: 0

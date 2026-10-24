@@ -1,0 +1,36 @@
+'dampenPlayerControls':
+  variable: 'bDampenPlayerControls:Controls'
+  output: ''
+  flags: FLAG_IN
+'freezeDirectionOnLargeDelta':
+  variable: 'bFreezeDirectionOnLargeDelta:Controls'
+  output: ''
+  flags: FLAG_IN
+'controllerDampenTime':
+  variable: 'fControllerDampenTime:Controls'
+  output: ''
+  flags: FLAG_IN
+'controllerBufferDepth':
+  variable: 'fControllerBufferDepth:Controls'
+  output: ''
+  flags: FLAG_IN
+'controllerSampleThreshold':
+  variable: 'fControllerSampleThreshold:Controls'
+  output: ''
+  flags: FLAG_IN
+'freezeDirectionDefaultAngleThreshold':
+  variable: 'fFreezeDirectionDefaultAngleThreshold:Controls'
+  output: ''
+  flags: FLAG_IN
+'freezeDirectionDefaultSpeedThreshold':
+  variable: 'fFreezeDirectionDefaultSpeedThreshold:Controls'
+  output: ''
+  flags: FLAG_IN
+'horseClampAngle':
+  variable: 'fHorseClampAngle:Controls'
+  output: ''
+  flags: FLAG_IN
+'maxMoveRampDownDelta':
+  variable: 'fMaxMoveRampDownDelta:Controls'
+  output: ''
+  flags: FLAG_IN

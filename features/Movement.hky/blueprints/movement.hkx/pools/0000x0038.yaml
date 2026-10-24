@@ -1,0 +1,7 @@
+id: 0000x0038
+class: CBMovementPool
+name: 'Virtual Flier'
+installs: 'MovementPoolVirtualFlier'
+arbiters: ['Path Manager Arbiter', 'Planner Arbiter']
+agents: ['Virtual Path Follower', 'Path Follower Flight']
+modes: 0000x0037

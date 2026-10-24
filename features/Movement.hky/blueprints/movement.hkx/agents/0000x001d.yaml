@@ -1,0 +1,5 @@
+id: 0000x001d
+class: CBMovementAgent
+name: 'Player Controls Actions Trigger'
+type: 'Player Controls Actions Trigger'
+interface: 'CurrentMovementState'

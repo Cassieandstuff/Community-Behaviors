@@ -1,0 +1,24 @@
+'targetDirection':
+  variable: 'DirectControlDirection'
+  output: ''
+  flags: FLAG_IN
+'targetSpeed':
+  variable: 'fDirectControlSpeed'
+  output: ''
+  flags: FLAG_IN
+'targetRotationRate':
+  variable: 'DirectControlRotationRate'
+  output: ''
+  flags: FLAG_IN
+'directionBlendTime':
+  variable: 'fDirectControlDirectionBlendTime'
+  output: ''
+  flags: FLAG_IN
+'speedBlendTime':
+  variable: 'fDirectControlSpeedBlendTime'
+  output: ''
+  flags: FLAG_IN
+'rotationBlendTime':
+  variable: 'fDirectControlRotationBlendTime'
+  output: ''
+  flags: FLAG_IN

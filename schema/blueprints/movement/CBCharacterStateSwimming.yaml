@@ -1,8 +1,8 @@
 name:      CBCharacterStateSwimming
 parent:    CBCharacterState
 size:      72
-# Vanilla bhkCharacterStateSwimming (id HK_CHARACTER_USER_STATE_0, Skyrim's one user state). It steers the velocity in
-# three dimensions toward the requested movement (along the support surface when supported). With a swim float height
+# Vanilla bhkCharacterStateSwimming (stateId HK_CHARACTER_USER_STATE_0, Skyrim's one user state). It steers the velocity
+# in three dimensions toward the requested movement (along the support surface when supported). With a swim float height
 # under 0.5 it may jump within 5 units of the water surface, and more than sinkDepth below the surface reversed gravity
 # lifts it back; otherwise it holds or applies gravity by controller flags 23 and 31 (meanings unverified). It commits a
 # request for the ground or the air. An actor starts in it when it is in water.

@@ -1,0 +1,6 @@
+id: 0000x0004
+class: CBMovementHandlerAgentStrafing
+name: 'Strafing Controller'
+type: 'Strafing Controller'
+interface: 'CurrentMovementState'
+backPedalAngle: 160

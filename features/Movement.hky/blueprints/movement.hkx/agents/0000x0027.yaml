@@ -1,0 +1,7 @@
+id: 0000x0027
+class: CBMovementPlannerAgentHorseControls
+name: 'Planner Horse Controls'
+type: 'Planner Horse Controls'
+interface: 'CurrentMovementState'
+direction: 0
+speed: 0

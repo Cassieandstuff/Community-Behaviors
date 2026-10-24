@@ -1,0 +1,5 @@
+id: 0000x001b
+class: CBMovementAgent
+name: 'Untweened Movement State'
+type: 'Untweened Movement State'
+interface: 'CurrentMovementState'

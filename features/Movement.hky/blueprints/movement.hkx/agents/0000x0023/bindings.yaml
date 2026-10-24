@@ -1,0 +1,12 @@
+'direction':
+  variable: 'PlannerDirectControlDirection'
+  output: ''
+  flags: FLAG_IN
+'speed':
+  variable: 'fPlannerDirectControlSpeed'
+  output: ''
+  flags: FLAG_IN
+'facing':
+  variable: 'PlannerDirectControlFacing'
+  output: ''
+  flags: FLAG_IN

@@ -1,0 +1,10 @@
+id: 0000x003e
+class: CBCharacterStateInAir
+name: 'InAir'
+stateId: HK_CHARACTER_IN_AIR
+maxVelocityDelta: 2000
+fallingGravityMult: 1.35
+jumpMoveMult: 0.3
+jumpMoveBase: 0
+stuckTime: 1
+stuckFallDistance: 0.1

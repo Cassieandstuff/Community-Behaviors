@@ -1,0 +1,36 @@
+'displacement':
+  variable: 'FixedDeltaDisplacement'
+  output: ''
+  flags: FLAG_IN
+'rotationDisplacement':
+  variable: 'FixedDeltaRotationDisplacement'
+  output: ''
+  flags: FLAG_IN
+'startVelocity':
+  variable: 'FixedDeltaStartVelocity'
+  output: ''
+  flags: FLAG_IN
+'endVelocity':
+  variable: 'FixedDeltaEndVelocity'
+  output: ''
+  flags: FLAG_IN
+'startAngularVelocity':
+  variable: 'FixedDeltaStartAngularVelocity'
+  output: ''
+  flags: FLAG_IN
+'endAngularVelocity':
+  variable: 'FixedDeltaEndAngularVelocity'
+  output: ''
+  flags: FLAG_IN
+'startTime':
+  variable: 'fFixedDeltaStartTime'
+  output: ''
+  flags: FLAG_IN
+'endTime':
+  variable: 'fFixedDeltaEndTime'
+  output: ''
+  flags: FLAG_IN
+'duration':
+  variable: 'fFixedDeltaDuration'
+  output: ''
+  flags: FLAG_IN

@@ -1,0 +1,6 @@
+id: 0000x000e
+class: CBMovementHandlerAgentStairsHelper
+name: 'Stairs Helper'
+type: 'Stairs Helper'
+interface: 'CurrentMovementState'
+minStairSpeed: 80

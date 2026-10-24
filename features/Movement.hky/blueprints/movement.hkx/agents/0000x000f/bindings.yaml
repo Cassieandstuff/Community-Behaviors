@@ -1,0 +1,24 @@
+'warpOnConsecutiveFailures':
+  variable: 'bWarpOnConsecutiveFailures:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxPathFailureCount':
+  variable: 'iWarpMaxPathFailureCount:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'minFailureDistance':
+  variable: 'fMinFailureDistance:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'requestActorRadius':
+  variable: 'fWarpRequestActorRadius:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'pathOffset':
+  variable: 'fWarpPathOffset:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxTime':
+  variable: 'fWarpMaxTime:Pathfinding'
+  output: ''
+  flags: FLAG_IN

@@ -1,0 +1,36 @@
+'useActorAvoidance':
+  variable: 'bUseActorAvoidance:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'avoidanceTimeDelta':
+  variable: 'fAvoidanceTimeDelta:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'minAvoidanceRadius':
+  variable: 'fMinAvoidanceRadius:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxAvoidanceRadius':
+  variable: 'fMaxAvoidanceRadius:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxActorsToAvoid':
+  variable: 'iMaxActorsToAvoid:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxTimeSizeAvoidNode':
+  variable: 'fMaxTimeSizeAvoidNode:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'maxTimeBlockedByActors':
+  variable: 'fMaxTimeBlockedByActors:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'avoidNodeRadiusAdd':
+  variable: 'fAvoidNodeRadiusAdd:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'avoidNodeCost':
+  variable: 'fAvoidNodeCost:Pathfinding'
+  output: ''
+  flags: FLAG_IN

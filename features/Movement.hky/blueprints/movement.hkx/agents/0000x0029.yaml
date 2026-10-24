@@ -1,0 +1,5 @@
+id: 0000x0029
+class: CBMovementAgent
+name: 'Path Following Movement State'
+type: 'Path Following Movement State'
+interface: 'CurrentMovementState'

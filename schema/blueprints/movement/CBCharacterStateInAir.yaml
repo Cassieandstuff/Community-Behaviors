@@ -1,7 +1,7 @@
 name:      CBCharacterStateInAir
 parent:    CBCharacterState
 size:      88
-# Vanilla bhkCharacterStateInAir (id HK_CHARACTER_IN_AIR). Support lands the character (requests OnGround). Without
+# Vanilla bhkCharacterStateInAir (stateId HK_CHARACTER_IN_AIR). Support lands the character (requests OnGround). Without
 # support and with no request, a character that has been airborne longer than stuckTime yet has fallen less than
 # stuckFallDistance is stuck: it is put on the ground with fake support. A jump request is dropped (no double jump);
 # any other request is committed. Otherwise it steers the horizontal velocity toward the requested movement (keeping
