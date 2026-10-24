@@ -1,0 +1,19 @@
+name:      CBBlueprintBinding
+parent:    null
+size:      40
+# One field of a node wired to a source: either a variable (Havok's hkbVariableBindingSetBinding, by name rather than
+# index) or another node's output (an Unreal data pin link). Exactly one of `variable` and `source` is set.
+# Rule, not yet checked by the compiler: `source` is legal only on a node an execution chain reaches. Per-tick nodes
+# have no evaluation order, so they wire to each other through variables alone.
+#   member    the field's path inside this node, byte-exact (Havok memberPath)
+#   variable  a CBBlueprintVariable of the blueprint, by exact name
+#   source    the node whose output feeds this field
+#   output    the output field on `source`, byte-exact
+#   flags     direction (BlueprintBindingFlags)
+fields:
+  - { name: member,   type: string }
+  - { name: variable, type: string }
+  - { name: source,   type: ptr, ref: CBBlueprintNode }
+  - { name: output,   type: string }
+  - { name: flags,    type: uint32, enum: BlueprintBindingFlags, flags: true }
+  - { skip: 4 }

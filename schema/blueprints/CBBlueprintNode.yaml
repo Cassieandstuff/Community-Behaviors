@@ -1,0 +1,17 @@
+name:      CBBlueprintNode
+parent:    hkReferencedObject
+size:      56
+# The base of every blueprint node, whose subclasses are the node kinds (Havok behavior nodes and Unreal blueprint nodes
+# play the same role). A node's identity is its FormID in the .hky (an Unreal NodeGuid maps to it on conversion);
+# `name` is for people. A node's pins are its class's own schema fields: an unbound field keeps its authored value
+# (Unreal's pin default), a binding overrides it.
+# The graph runs two ways. Per-tick nodes are evaluated every tick and reached through typed child fields from the
+# blueprint's root; they wire to each other only through variables. Execution-chain nodes run when an event fires,
+# reached from a CBBlueprintEventNode through `next`; their bindings may also read another node's output.
+#   name      display name, byte-exact; not identity
+#   bindings  this node's fields wired to variables or node outputs, keyed by the field's path
+#   next      execution outputs (Unreal exec pins), keyed by pin name; empty on a per-tick node
+fields:
+  - { name: name,     type: string }
+  - { name: bindings, type: structarray, ref: CBBlueprintBinding, roster: field:member }
+  - { name: next,     type: structarray, ref: CBBlueprintExecLink, roster: field:pin }

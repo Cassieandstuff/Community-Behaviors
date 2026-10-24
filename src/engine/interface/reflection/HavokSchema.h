@@ -86,6 +86,14 @@ struct Field {
                                          ///<        here carries no enum reference). Signature only; no serde effect.
     bool        enumHkyOnly = false;     ///< @brief `hkyenum:` rather than `enum:` — the .hky renders the value by name, but
                                          ///<        the exe reflects a plain scalar (no enum in the signature).
+    std::string roleName;                ///< @brief `role: { role: <Role item> }` — what the member is for, as Havok's
+                                         ///<        hkbRoleAttribute::m_role tags it (e.g. ROLE_TIME); empty = ROLE_DEFAULT.
+    std::vector<std::string> roleFlagNames;   ///< @brief `role: { flags: [<RoleFlags item>, …] }` — e.g. FLAG_OUTPUT: the
+                                              ///<        node writes this member (another node or an output binding reads it).
+    int         role      = 0;           ///< @brief roleName resolved against the Role enum by LoadDir.
+    int         roleFlags = 0;           ///< @brief roleFlagNames resolved against the RoleFlags enum by LoadDir, OR'd.
+                                         ///< @note Item names are matched exactly (Havok's spelling); an unknown one fails
+                                         ///<       the load. A member attribute: no serde, size or signature effect.
     bool        cbAdded = false;         ///< @brief `cb: true` — a member CB adds to a vanilla class (in its padding: the
                                          ///<        exe's code never touches it). Left out of the class's vanilla signature.
 };

@@ -72,6 +72,10 @@ whose stored one differs.
   documentation only — it does NOT change serde). Void-typed ignored uses `empty:` instead.
 - `merge: <strategy>` — the merge engine's per-field policy (`keep | lastwriter | replacearray |
   unionarray | guarderror`); consumed by the merge consumer, not serde. (Added as the merge layer lands.)
+- `role: { role: <Role item>, flags: [<RoleFlags item>, …] }` — what the member is for, mirroring Havok's
+  `hkbRoleAttribute` (both keys optional), e.g. `role: { flags: [FLAG_OUTPUT] }` = the node writes this member, so
+  another node's binding or an output binding may read it. Items are the `Role` / `RoleFlags` enum items, spelled
+  exactly; an unknown one fails the load. A member attribute: no serde, size or signature effect.
 
 ## Runtime binding (reserved — the uniform game/self invariant)
 

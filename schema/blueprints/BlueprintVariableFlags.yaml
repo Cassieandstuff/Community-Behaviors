@@ -1,0 +1,15 @@
+# How a CBBlueprintVariable meets the engine. Item names/values are CASE-SENSITIVE: they render the .hky value by name
+# and feed the class signature CRC.
+#   FLAG_ENGINE_BOUND  the engine side of the membrane binds this entry by its name
+#   FLAG_READ_ONLY     the blueprint reads it and never writes it
+#   FLAG_IN            the engine writes it (a variable) or raises it (an event) into the blueprint
+#   FLAG_OUT           the blueprint writes it (a variable) or raises it (an event) for the engine
+kind:  enum
+name:  BlueprintVariableFlags
+flags: true
+items:
+  - { name: FLAG_NONE         , value: 0 }
+  - { name: FLAG_ENGINE_BOUND , value: 1 }
+  - { name: FLAG_READ_ONLY    , value: 2 }
+  - { name: FLAG_IN           , value: 4 }
+  - { name: FLAG_OUT          , value: 8 }

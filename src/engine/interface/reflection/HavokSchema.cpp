@@ -227,6 +227,17 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.frameCounted = childStr(fn, "count") == "frame";
                     f.hkType       = childStr(fn, "hktype");
                     f.cbAdded      = childStr(fn, "cb") == "true";
+                    if (hasKey(fn, "role")) {
+                        auto r = fn[c4::to_csubstr("role")];
+                        if (!r.is_map()) { err = out.name + "." + f.name + ": `role` must be a map ({ role: …, flags: […] })"; return false; }
+                        f.roleName = childStr(r, "role");
+                        if (hasKey(r, "flags")) {
+                            auto fl = r[c4::to_csubstr("flags")];
+                            if (!fl.is_seq()) { err = out.name + "." + f.name + ": `role.flags` must be a list"; return false; }
+                            for (auto x : fl)
+                                if (x.has_val()) f.roleFlagNames.push_back(toStr(x.val()));
+                        }
+                    }
                     if (!f.hkType.empty() && f.hkType != "ulong" && f.hkType != "enum" && f.hkType != "flags") {
                         err = out.name + "." + f.name + ": unknown hktype '" + f.hkType + "' (ulong, enum or flags)"; return false;
                     }
@@ -366,6 +377,31 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     // class files). Runs after the class walk so every class is present to assign to.
     for (const auto& stext : semanticsTexts)
         if (!ApplyMergeSemantics(stext, err)) return false;
+
+    /// @note `role:` names resolve after the walk, when every enum is loaded: against the Role and RoleFlags enum
+    ///       descriptors (hkbRoleAttribute's), matched exactly as Havok spells them. An unknown name fails the load.
+    {
+        const auto lookup = [this](const char* enumName, const std::string& item, long& out) {
+            const EnumDef* e = FindEnum(enumName);
+            if (!e) return false;
+            for (const EnumItem& it : e->items)
+                if (it.name == item) { out = it.value; return true; }
+            return false;
+        };
+        for (auto& [name, cs] : m_byName) {
+            for (Field& f : cs.fields) {
+                long v = 0;
+                if (!f.roleName.empty()) {
+                    if (!lookup("Role", f.roleName, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role '" + f.roleName + "' (an item of the Role enum)"; return false; }
+                    f.role = static_cast<int>(v);
+                }
+                for (const std::string& flag : f.roleFlagNames) {
+                    if (!lookup("RoleFlags", flag, v)) { err = "class '" + name + "' field '" + f.name + "': unknown role flag '" + flag + "' (an item of the RoleFlags enum)"; return false; }
+                    f.roleFlags |= static_cast<int>(v);
+                }
+            }
+        }
+    }
 
     // DERIVE-AND-ASSERT object size. ComputeSize (from the field layout) is the authority the
     // serializer already uses everywhere; the authored `size:` is only a cross-check. Enforce it once

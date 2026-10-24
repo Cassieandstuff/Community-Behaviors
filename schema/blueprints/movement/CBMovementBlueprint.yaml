@@ -1,0 +1,6 @@
+name:      CBMovementBlueprint
+parent:    CBBlueprint
+size:      56
+# The movement blueprint: what CB installs into Skyrim's per-actor movement pipeline at warm-up. Its own members come
+# with the movement node classes (mode selector, agent nodes, character states); until then it adds none.
+fields:    []

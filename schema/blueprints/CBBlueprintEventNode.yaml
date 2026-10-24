@@ -1,0 +1,8 @@
+name:      CBBlueprintEventNode
+parent:    CBBlueprintNode
+size:      64
+# The entry point of an execution chain (an Unreal event node in an EventGraph): when `event` fires, the chain starts
+# at this node's `next`. The blueprint root holds these apart from its per-tick nodes.
+#   event  a TYPE_EVENT entry of the blueprint's variable table, by exact name
+fields:
+  - { name: event, type: string }

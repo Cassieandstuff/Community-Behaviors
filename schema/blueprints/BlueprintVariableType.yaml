@@ -1,0 +1,13 @@
+# What a CBBlueprintVariable holds. Item names/values are CASE-SENSITIVE: they render the .hky value by name and feed
+# the class signature CRC. TYPE_EVENT makes the entry an event rather than a variable (Unreal's `mcdelegate`).
+kind:  enum
+name:  BlueprintVariableType
+flags: false
+items:
+  - { name: TYPE_BOOL   , value: 0 }
+  - { name: TYPE_INT    , value: 1 }
+  - { name: TYPE_FLOAT  , value: 2 }
+  - { name: TYPE_VECTOR , value: 3 }
+  - { name: TYPE_ENUM   , value: 4 }
+  - { name: TYPE_REF    , value: 5 }
+  - { name: TYPE_EVENT  , value: 6 }

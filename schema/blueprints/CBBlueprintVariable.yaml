@@ -1,0 +1,22 @@
+name:      CBBlueprintVariable
+parent:    null
+size:      48
+# One entry of a blueprint's variable and event table: a variable, or an event when `type` is TYPE_EVENT. One shape for
+# both, as Unreal's blueprint keeps variables and event dispatchers in one table (T3D `NewVariables`, told apart by
+# PinCategory, `mcdelegate` = an event dispatcher). The owner holds these as a roster keyed by `name`, so identity is
+# the exact name: the engine side of the membrane binds by it, byte-exact (e.g. `SetPlayerControls`).
+#   name      the entry's name, byte-exact (Unreal VarName)
+#   type      what it holds (Unreal PinCategory)
+#   subtype   the enum or class a TYPE_ENUM / TYPE_REF entry names (Unreal PinSubCategoryObject); empty otherwise
+#   value     the default, as text read according to `type` (Unreal stores class defaults as text too); empty for events
+#   category  a grouping for people (Unreal Category); no runtime meaning
+#   flags     how the entry meets the engine (BlueprintVariableFlags)
+fields:
+  - { name: name,     type: string }
+  - { name: type,     type: int8, enum: BlueprintVariableType }
+  - { pad: 8 }
+  - { name: subtype,  type: string }
+  - { name: value,    type: string }
+  - { name: category, type: string }
+  - { name: flags,    type: uint32, enum: BlueprintVariableFlags, flags: true }
+  - { skip: 4 }
