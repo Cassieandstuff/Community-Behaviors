@@ -1,3 +1,4 @@
+kind: probe
 name: all
 description: >
   THE FIREHOSE. Logs every single object that comes through the compiler — one line per node (visit),

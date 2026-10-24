@@ -1,5 +1,6 @@
 # hkbNode::GetChildrenFlagBits, read from the AE 1.6.1170 class record (hkbNode declares it; no member uses it).
 # Item names/values are CASE-SENSITIVE and feed the class signature CRC.
+kind:  enum
 name:  GetChildrenFlagBits
 flags: true
 items:

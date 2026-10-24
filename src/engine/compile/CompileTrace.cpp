@@ -2,7 +2,9 @@
 
 
 #include <RymlInclude.h>
+#include <codec/resource/PathKey.h>
 #include <disk/Disk.h>
+#include <interface/reflection/HavokSchema.h>
 
 #include <filesystem>
 #include <string>
@@ -10,19 +12,21 @@
 
 namespace CB::engine::compile::trace {
 
-std::vector<WatchVar> LoadRuntimeWatch(const std::string& debugDir, std::string* warn) {
+std::vector<WatchVar> LoadRuntimeWatch(const std::string& schemaDir, std::string* warn) {
     namespace fs = std::filesystem;
     std::vector<WatchVar> out;
     std::error_code ec;
-    if (!fs::is_directory(debugDir, ec)) { if (warn) *warn += "debug dir not found: " + debugDir + "\n"; return out; }
+    if (!fs::is_directory(schemaDir, ec)) { if (warn) *warn += "schema dir not found: " + schemaDir + "\n"; return out; }
     const auto seen = [&out](const std::string& v) {
         for (const auto& w : out) if (w.var == v) return true; return false;
     };
-    for (auto it = fs::directory_iterator(debugDir, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+    for (auto it = fs::recursive_directory_iterator(schemaDir, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         const fs::path p = it->path();
-        const std::string ext = p.extension().string();
+        const std::string ext = codec::resource::PathKey(p.extension().string());
         if (ext != ".yaml" && ext != ".yml") continue;
-        std::string text = disk::ReadFile(p).value_or(std::string());
+        std::string text = disk::ReadFile(p, { .stripBom = true }).value_or(std::string());
+        std::string kind, kerr;
+        if (!schema::DescriptorKind(text, kind, kerr) || kind != "probe") continue;
         try {
             c4::yml::Tree t = c4::yml::parse_in_place(c4::to_substr(text));
             auto root = t.rootref();

@@ -4,6 +4,7 @@
 # name (a set one renders as a hex remainder). The earlier table here was shifted one bit (SMOOTH=2 ... FORCE_DENSE_POSE=32)
 # and named FLAG_IS_PARAMETRIC, BLEND_MOTION_OF_ADDITIVE_ANIMATIONS and USE_VELOCITY_SYNCHRONIZATION, which Havok
 # does not: bundles written with it carry those names and must be regenerated.
+kind:  enum
 name:  BlenderFlags
 flags: true
 items:

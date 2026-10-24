@@ -280,17 +280,33 @@ bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err) {
     }
 }
 
+bool DescriptorKind(const std::string& yamlText, std::string& out, std::string& err) {
+    try {
+        std::string   storage = yamlText;   // parse_in_place mutates the buffer
+        c4::yml::Tree tree    = c4::yml::parse_in_place(c4::to_substr(storage));
+        auto          root    = tree.rootref();
+        if (!root.readable() || !root.is_map()) { err = "root is not a map"; return false; }
+        out = childStr(root, "kind");
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("parse: ") + e.what();
+        return false;
+    }
+}
+
 bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     std::error_code ec;
-    // metadata/ holds everything that RIDES ON the schema but isn't a Havok class — enum defs, debug
-    // probes, merge semantics, and the adsf/asdsf cache descriptors. The class scan excludes it as ONE
-    // rule (underMetadata) and each kind is consumed by its own loader. Semantics are collected here and
-    // applied to the loaded classes after the walk (m_byName must be complete first).
+    /// @note Semantics are collected during the walk and applied after it: they name classes, so m_byName must be
+    ///       complete first.
     std::vector<std::string> semanticsTexts;
-    auto underMetadata = [](fs::path pp) {
-        for (; pp.has_parent_path() && pp != pp.parent_path(); pp = pp.parent_path())
-            if (pp.filename() == "metadata") return true;
-        return false;
+    /// @note A descriptor's identity is its `name:` within its `kind:`; folders are decoration. A second file
+    ///       claiming a loaded name fails the load, naming both files, instead of silently winning by walk order.
+    std::map<std::string, fs::path> classFrom, enumFrom;
+    const auto claim = [&err](std::map<std::string, fs::path>& seen, const std::string& name, const fs::path& p,
+                              const char* what) {
+        const auto [it, fresh] = seen.emplace(name, p);
+        if (!fresh) err = p.string() + ": " + what + " '" + name + "' is already defined by " + it->second.string();
+        return fresh;
     };
     for (auto it = fs::recursive_directory_iterator(root, ec);
          it != fs::recursive_directory_iterator(); it.increment(ec)) {
@@ -317,33 +333,31 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                 continue;
             }
         }
-        // metadata/ — the one non-class subtree. Route each kind to its own consumer; never ParseSchema
-        // any of them (no `fields:`, would fail the whole load):
-        //   metadata/enums/*      -> ParseEnumDef into m_enums (source for .hky name rendering + sig CRC)
-        //   metadata/semantics/*  -> collected here, applied to m_byName after the walk (merge policy)
-        //   metadata/debug/*      -> compile-trace probes (CB::engine::compile::trace loads them separately)
-        //   metadata/* (direct)   -> adsf/asdsf cache descriptors (the animdata compiler's own vocab)
-        if (underMetadata(p)) {
-            const std::string sub = p.parent_path().filename().string();
-            if (sub == "enums") {
-                EnumDef ed; std::string eerr;
-                if (!ParseEnumDef(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()), ed, eerr)) { err = p.string() + ": " + eerr; return false; }
-                m_enums[ed.name] = std::move(ed);
-            } else if (sub == "semantics") {
-                semanticsTexts.push_back(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()));
-            } else if (sub == "metadata") {
-                /// @note The adsf/asdsf record descriptors (`kind: metadata`) load as classes MetaText reads/writes;
-                ///       they carry no signature or size, so no packfile path ever meets them.
-                ClassSchema mcs; std::string merr;
-                if (!ParseSchema(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()), mcs, merr)) { err = p.string() + ": " + merr; return false; }
-                if (!mcs.metadata) { err = p.string() + ": a metadata/ descriptor must declare `kind: metadata`"; return false; }
-                m_byName[mcs.name] = std::move(mcs);
-            }
+        const std::string text = disk::ReadFile(p, { .stripBom = true }).value_or(std::string());
+        std::string kind, perr;
+        if (!DescriptorKind(text, kind, perr)) { err = p.string() + ": " + perr; return false; }
+        if (kind == "enum") {
+            EnumDef ed;
+            if (!ParseEnumDef(text, ed, perr)) { err = p.string() + ": " + perr; return false; }
+            if (!claim(enumFrom, ed.name, p, "enum")) return false;
+            m_enums[ed.name] = std::move(ed);
+        } else if (kind == "semantics") {
+            semanticsTexts.push_back(text);
+        } else if (kind == "probe") {
+            /// @note Compile-trace probes ride on the schema (they name classes and fields) but are not part of it:
+            ///       CB::engine::compile::trace reads them itself.
             continue;
+        } else if (kind.empty() || kind == "metadata") {
+            /// @note `kind: metadata` = a Bethesda text-cache record (adsf/asdsf/speeddata) MetaText reads and writes:
+            ///       no signature or size, so no packfile path ever meets it. It shares the class namespace.
+            ClassSchema cs;
+            if (!ParseSchema(text, cs, perr)) { err = p.string() + ": " + perr; return false; }
+            if (!claim(classFrom, cs.name, p, "class")) return false;
+            m_byName[cs.name] = std::move(cs);
+        } else {
+            err = p.string() + ": unknown kind '" + kind + "' (enum, semantics, probe, metadata, or none for a class)";
+            return false;
         }
-        ClassSchema cs; std::string perr;
-        if (!ParseSchema(disk::ReadFile(p, { .stripBom = true }).value_or(std::string()), cs, perr)) { err = p.string() + ": " + perr; return false; }
-        m_byName[cs.name] = std::move(cs);
     }
 
     // Apply centralized merge semantics (metadata/semantics/*.yaml) onto the loaded classes — the

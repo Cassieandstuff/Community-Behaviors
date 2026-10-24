@@ -1,5 +1,6 @@
 # hkbNode::CloneState, read from the AE 1.6.1170 class record (hkbNode declares it; its cloneState member is
 # ENUM-typed but carries no enum reference). Item names/values are CASE-SENSITIVE and feed the class signature CRC.
+kind:  enum
 name:  CloneState
 flags: false
 items:

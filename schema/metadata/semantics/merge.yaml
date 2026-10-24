@@ -16,6 +16,8 @@
 # still live in the class files during migration. Central assignments win (applied after the class walk).
 # The end state is: all merge policy lives here, the class files carry none.
 
+kind: semantics
+
 replace:
   # Animations are single-file, replace-merge units — they never compose (they don't even enter the
   # layer/compose path; this is explicit hygiene + the seed proving the loader). One thing that never

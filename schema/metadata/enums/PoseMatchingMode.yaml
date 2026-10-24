@@ -1,4 +1,5 @@
 # hkbPoseMatchingGenerator::Mode. Havok reflection enum -- item names/values are CASE-SENSITIVE.
+kind:  enum
 name:  PoseMatchingMode
 flags: false
 items:

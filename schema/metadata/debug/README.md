@@ -2,9 +2,9 @@
 
 Probes are **data**, not code. Each `*.yaml` here declares WHERE / WHEN / HOW the compile-trace
 (`havok::model::trace`, see `src/engine/compile/CompileTrace.*`) should log compiler activity.
-They ride on top of the schema the way `enums/` does — they reference class and field names — but carry
-no `fields:`, so the class-schema loader (`SchemaRegistry::LoadDir`) skips this subtree; the trace loads
-them itself.
+They ride on top of the schema the way enums do — they reference class and field names — but are not part
+of it: each declares `kind: probe`, which the class-schema loader (`SchemaRegistry::LoadDir`) skips, and the
+trace finds them by that kind wherever they sit in the tree.
 
 Because they're loaded from the **deployed** `Havok/` tree at runtime, editing a probe changes what's
 logged with **no recompile** — redeploy the schema (or edit it in place), toggle `enabled`, and grep the
@@ -17,6 +17,7 @@ log. Records are single-line and greppable:
 ## Probe file format
 
 ```yaml
+kind:        probe                      # what this file is (required: the loaders dispatch on it)
 name:        commitment                 # identity (informational)
 description: >                          # what this probe is for
   Free text.

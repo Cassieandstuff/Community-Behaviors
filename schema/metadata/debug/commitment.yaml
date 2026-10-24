@@ -1,3 +1,4 @@
+kind: probe
 name: commitment
 description: >
   CB-2 (BFCO attack-commitment ice-skate). bAnimationDriven is the commitment signal — true = the
