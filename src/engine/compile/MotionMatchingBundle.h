@@ -21,11 +21,6 @@ namespace CB::engine::compile {
     inline constexpr std::uint8_t kMmDisableReselection = 1;
     inline constexpr std::uint8_t kMmLooping            = 2;
 
-    /// @brief CBPoseSearchCondition::kind values.
-    inline constexpr int kMmEquals = 0;   ///< the int / enum variable == intValue
-    inline constexpr int kMmBool   = 1;   ///< the bool variable == (intValue != 0)
-    inline constexpr int kMmRange  = 2;   ///< minValue <= the float variable <= maxValue
-
     /// @brief One clip of a database: it becomes one hkbClipGenerator child.
     struct MmClip {
         std::string  path;            ///< the clip file's path in the bundle (`.hkx`, below MmBundleSpec::rosterRoot)
@@ -39,23 +34,19 @@ namespace CB::engine::compile {
     struct MmDatabase {
         std::string              name;   ///< byte-exact, unique: chooser rows and mods name the database by it
         std::vector<MmClip>      clips;
-        float                    baseCostBias           = 0.0f;
-        float                    continuingPoseCostBias = 0.0f;
-        float                    loopingCostBias        = 0.0f;
+        /// @brief Condition expressions evaluated to a float once per search (a literal such as "-0.05" is one);
+        ///        empty = 0.
+        /// @note  Written as given: the plugin owns the expression language's vocabulary, so it compiles them, not this
+        ///        generator.
+        std::string              baseCostBias;
+        std::string              continuingPoseCostBias;
+        std::string              loopingCostBias;
         std::vector<std::string> tags;
     };
 
-    struct MmCondition {
-        std::string variable;   ///< a graph variable, named byte-exact
-        int         kind     = kMmEquals;
-        int         intValue = 0;
-        float       minValue = 0.0f;
-        float       maxValue = 0.0f;
-    };
-
-    /// @brief A chooser row: when every condition holds, its databases join the searched set.
+    /// @brief A chooser row: when `when` holds, its databases join the searched set.
     struct MmChooserRow {
-        std::vector<MmCondition> conditions;
+        std::string              when;   ///< a condition expression, e.g. GraphVar("MM_Gait") == 2; empty always holds
         std::vector<std::string> databases;
     };
 
@@ -74,7 +65,10 @@ namespace CB::engine::compile {
 
     /// @brief The chooser inputs every motion-matching graph declares, in this order, right after the clip and time
     ///        variables. CB's controller writes them by these exact names.
-    inline constexpr std::array<MmVariableDecl, 13> kMmChooserVariables{ {
+    /// @note  GASP's chooser inputs. MM_Speed2D is game units/s (GASP's Speed2D is cm/s: an importer scales its bounds by
+    ///        0.7); MM_TimeToLand is seconds until the predicted path lands (GASP's TrajectoryCollision.TimeToLand), 0 on
+    ///        the ground.
+    inline constexpr std::array<MmVariableDecl, 15> kMmChooserVariables{ {
         { "MM_MovementMode", "VARIABLE_TYPE_INT32" },
         { "MM_RotationMode", "VARIABLE_TYPE_INT32" },
         { "MM_MovementState", "VARIABLE_TYPE_INT32" },
@@ -88,6 +82,8 @@ namespace CB::engine::compile {
         { "MM_ShouldSpinTransition", "VARIABLE_TYPE_BOOL" },
         { "MM_JustTraversed", "VARIABLE_TYPE_BOOL" },
         { "MM_DatabaseLOD", "VARIABLE_TYPE_INT32" },
+        { "MM_Speed2D", "VARIABLE_TYPE_REAL" },
+        { "MM_TimeToLand", "VARIABLE_TYPE_REAL" },
     } };
 
     struct MmBundleSpec {

@@ -4,7 +4,7 @@
 // Grammar (subset of hkbCompiledExpressionSet, evaluated by us — see havok-expression-grammar):
 //   unary   ! - +
 //   binary  * / %   + -   < > <= >=   == !=   &&   ||   (C precedence)
-//   atoms   number literal | ident | ident( args... )
+//   atoms   number literal | "string" / 'string' literal | ident | ident( args... )
 // Identifier atoms/args that aren't numbers resolve via the ArgResolver (forms/keywords/AVs by name)
 // or as a registered nullary function. Full arg-literal resolution across the load order is an Inc 3 item.
 #include "Detail.h"
@@ -14,7 +14,7 @@
 #include <cmath>
 #include <format>
 
-namespace CB::core::conditions {
+namespace CB::platform::relay {
 
     // ── operator codes ──────────────────────────────────────────────────────────────────────────
     enum Op : std::uint16_t {
@@ -24,7 +24,7 @@ namespace CB::core::conditions {
         kAnd, kOr                               // logical
     };
 
-    // (ExprNode is defined in Conditions.h so the expr is copyable where Node is unseen.)
+    // (ExprNode is defined in Relay.h so the expr is copyable where Node is unseen.)
 
     // ── arg-literal resolver seam (set by the config loader; Inc 3) ─────────────────────────────
     namespace {
@@ -34,7 +34,7 @@ namespace CB::core::conditions {
 
     // ── tokenizer ────────────────────────────────────────────────────────────────────────────────
     namespace {
-        struct Tok { enum K { Num, Ident, Op, LParen, RParen, Comma, End } k; std::string s; double num = 0; };
+        struct Tok { enum K { Num, Ident, Str, Op, LParen, RParen, Comma, End, Bad } k; std::string s; double num = 0; };
 
         struct Lexer {
             std::string_view src; size_t i = 0;
@@ -48,6 +48,14 @@ namespace CB::core::conditions {
                 if (c == '(') { ++i; return { Tok::LParen, "(" }; }
                 if (c == ')') { ++i; return { Tok::RParen, ")" }; }
                 if (c == ',') { ++i; return { Tok::Comma, "," }; }
+                /// @note A string literal is "..." or '...' (either, so a YAML scalar can quote with the other), no
+                ///       escapes, its text kept byte-exact.
+                if (c == '"' || c == '\'') {
+                    const size_t close = src.find(c, i + 1);
+                    if (close == std::string_view::npos) { i = src.size(); return { Tok::Bad, "unterminated string literal" }; }
+                    Tok t{ Tok::Str, std::string(src.substr(i + 1, close - i - 1)) };
+                    i = close + 1; return t;
+                }
                 if (std::isdigit((unsigned char)c) || (c == '.' && i + 1 < src.size())) {
                     size_t j = i; bool hex = false;
                     if (c == '0' && i + 1 < src.size() && (src[i+1] == 'x' || src[i+1] == 'X')) { hex = true; j = i + 2; while (j < src.size() && std::isxdigit((unsigned char)src[j])) ++j; }
@@ -93,6 +101,8 @@ namespace CB::core::conditions {
 
             void parseAtom() {
                 if (cur.k == Tok::Num) { rpn->push_back({ ExprNode::Const, 0, 0, addConst(Value::Float((float)cur.num)) }); advance(); return; }
+                if (cur.k == Tok::Str) { rpn->push_back({ ExprNode::Const, 0, 0, addConst(Value::String(Intern(cur.s))) }); advance(); return; }
+                if (cur.k == Tok::Bad) { fail(cur.s); return; }
                 if (cur.k == Tok::LParen) { advance(); parseExpr(0); if (cur.k != Tok::RParen) { fail("expected ')'"); return; } advance(); return; }
                 if (cur.k == Tok::Op && (cur.s == "!" || cur.s == "-" || cur.s == "+")) {
                     std::uint16_t u = cur.s == "!" ? kNot : cur.s == "-" ? kNeg : kPos; advance(); parseAtom();
@@ -200,4 +210,4 @@ namespace CB::core::conditions {
         return st.empty() ? Value::Bool(false) : st.back();
     }
 
-}  // namespace CB::core::conditions
+}  // namespace CB::platform::relay

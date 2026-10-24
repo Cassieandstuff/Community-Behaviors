@@ -73,7 +73,7 @@ namespace CB::core::conditions {
         st.total = static_cast<int>(live.size());
         for (auto& [id, cfg] : live) {
             std::string cerr;
-            CompiledExpr expr = Compile(cfg->when, cerr);
+            relay::CompiledExpr expr = relay::Compile(cfg->when, cerr);
             if (!expr.Valid()) {
                 ++st.failed;
                 log += std::format("  [skip] '{}' — when: {}\n", id, cerr);

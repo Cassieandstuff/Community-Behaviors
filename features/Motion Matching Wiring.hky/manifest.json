@@ -1,0 +1,7 @@
+{
+    "name": "Motion Matching Wiring",
+    "version": "0.1.0",
+    "author": "Cassieandstuff",
+    "description": "Community Behaviors' motion matching wiring: puts the MM_Gate selector (bound to MM_Enable) into the locomotion state of mt_behavior, choosing between vanilla locomotion and the motion-matching graph (Behaviors\\MotionMatching.hkx, referenced by MotionMatchingBFR), and declares MM_Enable / MM_Clip / MM_Time in 0_master and mt_behavior. It holds no clips: the graph it references, the clip database, is a separate bundle (Motion Matching.hky), so a database exported from Dance Card Creator can replace that one without removing the wiring.",
+    "masters": []
+}

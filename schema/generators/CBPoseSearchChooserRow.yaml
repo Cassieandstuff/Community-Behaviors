@@ -1,7 +1,9 @@
 name:      CBPoseSearchChooserRow
 parent:    null
-size:      32
-# A chooser row: when every condition holds, its databases (by name) join the searched set.
+size:      24
+# A chooser row: when `when` holds, its databases (by name) join the searched set. `when` is a condition expression
+# (CB's condition language, e.g. GraphVar("MM_Gait") == 2 && GraphVar("MM_IsStarting")); empty always holds, one that
+# does not compile never does.
 fields:
-  - { name: conditions, type: structarray, ref: CBPoseSearchCondition }
-  - { name: databases,  type: stringarray }
+  - { name: when,      type: string }
+  - { name: databases, type: stringarray }

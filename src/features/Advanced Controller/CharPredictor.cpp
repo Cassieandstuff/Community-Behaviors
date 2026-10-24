@@ -758,6 +758,17 @@ namespace CB::feature {
             }
             const Trajectory tr = Predict(s, ctrl, hull, tangent, sideAxis, v, note, drive, iState, queryTimes, world, path);
             const bool blocked  = tr.blockedAt >= 0.0f;
+            /// @note GASP's TrajectoryCollision.TimeToLand from the path: its first grounded point's time. The horizon is
+            ///       1 s, so a longer fall reads kNoLanding (GASP's "long fall" rows ask for 1.2 s or more).
+            if (ch::motion::On()) {
+                float land = ch::motion::kNoLanding;
+                for (int i = 0; i < kPathPoints; i++)
+                    if (path.ground[i] == ch::Ground::Grounded) {
+                        land = static_cast<float>(i + 1) * kPathStep;
+                        break;
+                    }
+                ch::motion::SetTimeToLand(land);
+            }
             /// @note The query in the clips' root space: x along the side axis (where a rightward request moves the
             ///       character), y forward, game units; a facing turned by `f` (counter-clockwise, the math angle's sense)
             ///       points along (-sin f, cos f).

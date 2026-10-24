@@ -12,6 +12,8 @@
 //   hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>
 //                                                         merge + serialize every unit as the game's compile does
 //   hky-tool mm-sample   <schemaDir> -o <outDir>          the motion-matching bundle generator over a sample spec
+//   hky-tool graph-html  <schemaDir> -o <out.html> --mo2 <instance> | --plugins <dir> | --bundle <f.hky> ...
+//                                                         a load order's merged graphs as one reflective HTML page
 //
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
@@ -1106,8 +1108,8 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
 }
 
 /// @brief `mm-sample`: the motion-matching bundle generator over a spec exercising every shape it writes (two databases
-///        sharing a clip, flags, biases, tags, a chooser row per condition kind, a fallback, an extra variable, two
-///        characters), its files written to `outDir`.
+///        sharing a clip, flags, literal and expression biases, tags, chooser rows over bool, int and float variables,
+///        a row that always holds, a fallback, an extra variable, two characters), its files written to `outDir`.
 /// @note  The generator itself proves the behavior unit parses back to the graph it built; OK here means it did.
 int doMmSample(const std::string& schemaDir, const std::string& outDir) {
     if (schemaDir.empty() || outDir.empty()) {
@@ -1123,12 +1125,13 @@ int doMmSample(const std::string& schemaDir, const std::string& outDir) {
     mm::MmBundleSpec  spec;
     spec.databases.push_back({ "Idle", { { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping },
                                          { dir + "idle/TurnInPlace_L.hkx", "", mm::kMmDisableReselection } },
-                               0.0f, -0.05f, 0.0f, { "idle" } });
+                               "", "-0.05", "", { "idle" } });
     spec.databases.push_back({ "Run", { { dir + "running/Run_Fwd_Loop.hkx", "", mm::kMmLooping },
                                         { dir + "idle/Idle_Loop.hkx", "", mm::kMmLooping } },
-                               0.1f, 0.0f, -0.02f, { "run", "locomotion" } });
-    spec.rows.push_back({ { { "MM_Gait", mm::kMmEquals, 2, 0.0f, 0.0f }, { "MM_IsStarting", mm::kMmBool, 1, 0.0f, 0.0f } }, { "Run" } });
-    spec.rows.push_back({ { { "MM_Speed", mm::kMmRange, 0, 0.0f, 50.0f } }, { "Idle", "Run" } });
+                               "0.1", "", "(GraphVar('MM_Speed') > 300) * -0.02", { "run", "locomotion" } });
+    spec.rows.push_back({ "GraphVar(\"MM_Gait\") == 2 && GraphVar(\"MM_IsStarting\")", { "Run" } });
+    spec.rows.push_back({ "GraphVar('MM_Speed') >= 0 && GraphVar('MM_Speed') <= 50", { "Idle", "Run" } });
+    spec.rows.push_back({ "", { "Idle" } });
     spec.fallback = { "Idle" };
     spec.extraVariables.push_back({ "MM_Speed", "VARIABLE_TYPE_REAL", 0 });
     spec.characters = { { "meshes/actors/character/characters/defaultmale.hkx", "0001x000b" },
@@ -1156,14 +1159,20 @@ void usage() {
                 "  hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]\n"
                 "  hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n"
                 "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n"
-                "  hky-tool mm-sample   <schemaDir> -o <outDir>\n");
+                "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
+                "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
+                "                       [--loadorder <file>] [--unit <path>]... [--all]\n");
 }
 
 }  // namespace
 
+/// @brief `graph-html` (GraphHtml.cpp): its own argument parser, for the repeatable --plugins / --bundle / --unit.
+int doGraphHtml(int argc, char** argv);
+
 int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     const std::string verb = argv[1];
+    if (verb == "graph-html") return doGraphHtml(argc - 2, argv + 2);
 
     std::string arg, arg2, arg3, out;
     for (int i = 2; i < argc; ++i) {

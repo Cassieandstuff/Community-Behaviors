@@ -92,10 +92,10 @@ namespace {
         cb::mm::BundleSpec spec;
         cb::mm::Database db;
         db.clips.push_back(cb::mm::Clip{ "", "", cb::mm::kMmDisableReselection | cb::mm::kMmLooping });
+        db.baseCostBias = "0"; db.continuingPoseCostBias = ""; db.loopingCostBias = "";
         spec.databases.push_back(db);
         cb::mm::ChooserRow row;
-        row.conditions.push_back(cb::mm::Condition{ "", cb::mm::kMmEquals, 0, 0.f, 0.f });
-        (void)cb::mm::kMmBool; (void)cb::mm::kMmRange;
+        row.when = "";
         spec.rows.push_back(row);
         spec.extraVariables.push_back(cb::mm::Variable{});
         const cb::mm::VariableDecl decl = cb::mm::kMmChooserVariables.front(); (void)decl;
