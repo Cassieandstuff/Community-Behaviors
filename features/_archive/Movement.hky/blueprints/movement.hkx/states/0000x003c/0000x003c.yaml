@@ -6,5 +6,5 @@ killVelocityOnLaunch: true
 useUnsupportedCast: true
 unsupportCastLength: 1
 unsupportedGravMult: 4
-fakeSupportReleaseDistance: 0.9144
+fakeSupportReleaseDistance: 0.914399981
 maxVelocityDelta: 500

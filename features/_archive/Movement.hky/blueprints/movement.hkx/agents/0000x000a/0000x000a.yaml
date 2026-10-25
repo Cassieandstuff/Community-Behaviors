@@ -3,10 +3,10 @@ class: CBMovementPathManagerAgentStaticAvoider
 name: 'Static Avoider'
 type: 'Static Avoider'
 interface: 'CurrentMovementState'
-acceptableErrorRatio: 0.9
+acceptableErrorRatio: 0.899999976
 totalTimePadding: 0.5
 totalTimeThreshold: 1
-totalDisplacementThresholdRadiusMult: 0.66
+totalDisplacementThresholdRadiusMult: 0.660000026
 defaultAvoidNodeCost: 32
 defaultStaticAvoidNodeRadius: 32
 staticAvoidanceTriggerMovementBlocked: false

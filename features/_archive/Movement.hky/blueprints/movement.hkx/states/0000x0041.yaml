@@ -3,4 +3,4 @@ class: CBCharacterStateSwimming
 name: 'Swimming'
 stateId: HK_CHARACTER_USER_STATE_0
 maxVelocityDelta: 100
-sinkDepth: 0.142875
+sinkDepth: 0.142875001

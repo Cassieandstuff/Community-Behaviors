@@ -6,9 +6,9 @@ interface: 'CurrentMovementState'
 mode: 0
 dampenPlayerControls: true
 freezeDirectionOnLargeDelta: true
-controllerDampenTime: 0.18
-controllerBufferDepth: 0.14
-controllerSampleThreshold: 0.1
+controllerDampenTime: 0.180000007
+controllerBufferDepth: 0.140000001
+controllerSampleThreshold: 0.100000001
 freezeDirectionDefaultAngleThreshold: 60
 freezeDirectionDefaultSpeedThreshold: 100
 horseClampAngle: 10
