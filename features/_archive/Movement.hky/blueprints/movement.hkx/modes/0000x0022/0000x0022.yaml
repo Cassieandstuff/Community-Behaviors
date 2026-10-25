@@ -1,0 +1,17 @@
+id: 0000x0022
+class: CBMovementMode
+name: 'Direct Control (0c8)'
+modeId: 7
+installs: 'MovementConfigDirectControl'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Handler Arbiter'
+    interface: 'CurrentMovementState'
+    order: ['Direct Control']
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

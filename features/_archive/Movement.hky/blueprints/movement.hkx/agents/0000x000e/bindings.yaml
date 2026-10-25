@@ -1,0 +1,4 @@
+'minStairSpeed':
+  variable: 'fMinStairSpeed:Pathfinding'
+  output: ''
+  flags: FLAG_IN

@@ -1,0 +1,6 @@
+id: 0000x0012
+class: CBMovementHandlerAgentSpeedPassThrough
+name: 'Speed Pass Through'
+type: 'Speed Pass Through'
+interface: 'CurrentMovementState'
+speed: 0

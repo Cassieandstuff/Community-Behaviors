@@ -20,18 +20,26 @@ foreach(_f ${_cb_engine_files})
     endif()
 endforeach()
 
-# Enum tables baked from the schema's enum data (schema/metadata/enums/*.yaml, the single source) into
-# GeneratedEnums.cpp, backing the enums::EnumTable accessors in <interface/HavokEnums.h>.
+# Enum tables baked from the schema's enum data (every `kind: enum` descriptor under schema/, the single source)
+# into GeneratedEnums.cpp, backing the enums::EnumTable accessors in <interface/HavokEnums.h>. The script finds them
+# by kind; DEPENDS is the same filter taken at configure time, so a schema edit regenerates only when an enum changed.
 set(_gen_enums "${CMAKE_CURRENT_BINARY_DIR}/GeneratedEnums.cpp")
-file(GLOB _enum_yamls CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/schema/metadata/enums/*.yaml")
+file(GLOB_RECURSE _schema_yamls CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/schema/*.yaml")
+set(_enum_yamls "")
+foreach(_y IN LISTS _schema_yamls)
+    file(STRINGS "${_y}" _kind REGEX "^kind:[ \t]*enum[ \t\r]*(#.*)?$" LIMIT_COUNT 1)
+    if(_kind)
+        list(APPEND _enum_yamls "${_y}")
+    endif()
+endforeach()
 add_custom_command(
     OUTPUT  "${_gen_enums}"
     COMMAND "${CMAKE_COMMAND}"
-            "-DENUM_DIR=${PROJECT_SOURCE_DIR}/schema/metadata/enums"
+            "-DSCHEMA_DIR=${PROJECT_SOURCE_DIR}/schema"
             "-DOUT_CPP=${_gen_enums}"
             -P "${PROJECT_SOURCE_DIR}/cmake/EmbedEnums.cmake"
     DEPENDS ${_enum_yamls} "${PROJECT_SOURCE_DIR}/cmake/EmbedEnums.cmake"
-    COMMENT "Generating enum tables from schema/metadata/enums/*.yaml"
+    COMMENT "Generating enum tables from the schema's kind: enum descriptors"
     VERBATIM)
 
 # The schema version this build speaks (CB_SCHEMA_VERSION, root CMakeLists.txt) baked in for the SharedRegistry

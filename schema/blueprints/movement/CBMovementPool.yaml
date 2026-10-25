@@ -1,0 +1,17 @@
+name:      CBMovementPool
+parent:    CBBlueprintNode
+size:      104
+# The arbiters and agents that exist while an actor is at one process level: one of vanilla's activation sets
+# (0f8 virtual flier, 100 virtual, 108 full flier, 110 full ground). Vanilla's pool switch (FUN_1411f6f10 AE, run
+# when the process level changes) creates exactly these by factory name and destroys the rest; while the pool holds,
+# its modes only activate and deactivate among them, so an agent keeps its state across mode changes. Names only, as
+# vanilla's set is: an agent's parameters arrive from the mode that activates it.
+#   installs  the vanilla activation set this pool replaces, by its engine-registry name
+#   arbiters  arbiter factory names, byte-exact, in order: the order the pipeline runs its stages
+#   agents    agent factory names, byte-exact, in order: every agent this level's modes may name
+#   modes     the chooser that picks this pool's CBMovementMode while the pool is active
+fields:
+  - { name: installs, type: string }
+  - { name: arbiters, type: stringarray }
+  - { name: agents,   type: stringarray }
+  - { name: modes,    type: ptr, ref: CBBlueprintNode }

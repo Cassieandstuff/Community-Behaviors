@@ -1,0 +1,4 @@
+id: 0000x003f
+class: CBCharacterStateClimbing
+name: 'Climbing'
+stateId: HK_CHARACTER_CLIMBING

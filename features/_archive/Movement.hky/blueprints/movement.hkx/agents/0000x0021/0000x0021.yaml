@@ -1,0 +1,14 @@
+id: 0000x0021
+class: CBMovementHandlerAgentDirectControl
+name: 'Direct Control'
+type: 'Direct Control'
+interface: 'CurrentMovementState'
+targetDirection: [0, 0, 0]
+targetSpeed: 0
+targetRotationRate: [0, 0, 0]
+directionBlendTime: 0
+speedBlendTime: 0
+rotationBlendTime: 0
+direction: [0, 0, 0]
+speed: 0
+rotationRate: [0, 0, 0]

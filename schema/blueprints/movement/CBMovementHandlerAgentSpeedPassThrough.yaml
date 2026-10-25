@@ -1,0 +1,10 @@
+name:      CBMovementHandlerAgentSpeedPassThrough
+parent:    CBMovementAgent
+size:      80
+factory:   "Speed Pass Through"
+# Vanilla MovementHandlerAgentSpeedPassThrough, factory name "Speed Pass Through": copies the planner's desired speed
+# into the frame unchanged (its whole update is one move). It has no settings.
+#   speed  written: units/s
+fields:
+  - { name: speed, type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { skip: 4 }

@@ -1,0 +1,9 @@
+# The test a CBBlueprintCondition applies. Item names/values are CASE-SENSITIVE: they render the .hky value by name and
+# feed the class signature CRC. Values match CBPoseSearchCondition's `kind` (0 equals, 1 bool, 2 range).
+kind:  enum
+name:  BlueprintConditionKind
+flags: false
+items:
+  - { name: KIND_EQUALS , value: 0 }
+  - { name: KIND_BOOL   , value: 1 }
+  - { name: KIND_RANGE  , value: 2 }

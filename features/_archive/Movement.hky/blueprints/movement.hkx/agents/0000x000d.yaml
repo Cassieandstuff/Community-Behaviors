@@ -1,0 +1,5 @@
+id: 0000x000d
+class: CBMovementAgent
+name: 'Loaded Area Monitor'
+type: 'Loaded Area Monitor'
+interface: 'CurrentMovementState'

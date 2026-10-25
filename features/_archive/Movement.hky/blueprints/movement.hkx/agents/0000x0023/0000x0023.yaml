@@ -1,0 +1,8 @@
+id: 0000x0023
+class: CBMovementPlannerAgentDirectControl
+name: 'Planner Direct Control'
+type: 'Planner Direct Control'
+interface: 'CurrentMovementState'
+direction: [0, 0, 0]
+speed: 0
+facing: [0, 0, 0]

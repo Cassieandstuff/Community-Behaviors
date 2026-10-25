@@ -1,0 +1,8 @@
+id: 0000x0014
+class: CBMovementAgentPathFollowerFlight
+name: 'Path Follower Flight'
+type: 'Path Follower Flight'
+interface: 'CurrentMovementState'
+pitch: 0
+yaw: 0
+speed: 0

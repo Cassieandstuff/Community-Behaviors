@@ -1,0 +1,12 @@
+'accelerationMult':
+  variable: 'fSprintAccelerationMult:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'distToPathThresholdRadiusMult':
+  variable: 'fSprintDistToPathThresholdRadiusMult:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'angleToPathThreshold':
+  variable: 'fSprintAngleToPathThreshold:Pathfinding'
+  output: ''
+  flags: FLAG_IN

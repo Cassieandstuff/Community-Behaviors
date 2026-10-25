@@ -1,0 +1,11 @@
+# The direction of a CBBlueprintBinding. Item names/values are CASE-SENSITIVE: they render the .hky value by name and
+# feed the class signature CRC.
+#   FLAG_IN   the source's value is read into the node's field (the usual case)
+#   FLAG_OUT  the node's field is written out to the variable (Havok's output binding); never with `source`
+kind:  enum
+name:  BlueprintBindingFlags
+flags: true
+items:
+  - { name: FLAG_NONE , value: 0 }
+  - { name: FLAG_IN   , value: 1 }
+  - { name: FLAG_OUT  , value: 2 }

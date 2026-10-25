@@ -1,0 +1,11 @@
+name:      CBMovementPlannerAgentNavmeshBounds
+parent:    CBMovementAgent
+size:      80
+factory:   "NavMesh Bounds"
+# Vanilla MovementPlannerAgentNavmeshBounds, factory name "NavMesh Bounds": builds the bounds the planned motion must
+# stay within from the navmesh ahead of the actor, and asks for a replan when it cannot (role inferred).
+#   actorRadiusMultiplier  fNavmeshBoundsActorRadiusMultiplier:Pathfinding (1): bound radius = actor radius x this
+#   minTimeOfImpact        fNavmeshBoundsMinTimeOfImpact:Pathfinding (0.0333, s)
+fields:
+  - { name: actorRadiusMultiplier, type: float }
+  - { name: minTimeOfImpact,       type: float }

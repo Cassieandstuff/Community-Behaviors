@@ -1,0 +1,10 @@
+name:      CBBlueprintChooserRow
+parent:    null
+size:      24
+# One row of a CBBlueprintChooser: when every condition holds, `result` is chosen. A row with no conditions always
+# holds, which makes it the fallback when it is the last row.
+#   conditions  the tests, all of which must hold
+#   result      the node this row chooses
+fields:
+  - { name: conditions, type: structarray, ref: CBBlueprintCondition }
+  - { name: result,     type: ptr, ref: CBBlueprintNode }

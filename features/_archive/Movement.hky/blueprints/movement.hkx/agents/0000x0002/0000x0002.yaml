@@ -1,0 +1,6 @@
+id: 0000x0002
+class: CBMovementHandlerAgentLargeDeltaIdle
+name: 'Large Delta Idle'
+type: 'Large Delta Idle'
+interface: 'CurrentMovementState'
+ignoreThresholds: false

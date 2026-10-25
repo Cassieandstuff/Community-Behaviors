@@ -1,0 +1,21 @@
+name:      CBMovementPlannerAgentWarp
+parent:    CBMovementAgent
+size:      96
+factory:   "FailSafe Warp"
+# Vanilla MovementPlannerAgentWarp, factory name "FailSafe Warp": after repeated path failures at the same spot it
+# picks a point along a fresh path and posts a warp there once the point is off-screen or a timer runs out.
+#   warpOnConsecutiveFailures  bWarpOnConsecutiveFailures:Pathfinding (true): the agent's master switch
+#   maxPathFailureCount        iWarpMaxPathFailureCount:Pathfinding (3): failures before a warp is armed
+#   minFailureDistance         fMinFailureDistance:Pathfinding (50): a failure farther than this from the last one
+#                              restarts the count
+#   requestActorRadius         fWarpRequestActorRadius:Pathfinding (5): the actor radius of the warp's path request
+#   pathOffset                 fWarpPathOffset:Pathfinding (100): how far along the path the warp point is
+#   maxTime                    fWarpMaxTime:Pathfinding (5, s): the warp fires after this even if on-screen
+fields:
+  - { name: warpOnConsecutiveFailures, type: bool }
+  - { skip: 3 }
+  - { name: maxPathFailureCount,       type: int32 }
+  - { name: minFailureDistance,        type: float }
+  - { name: requestActorRadius,        type: float }
+  - { name: pathOffset,                type: float }
+  - { name: maxTime,                   type: float }

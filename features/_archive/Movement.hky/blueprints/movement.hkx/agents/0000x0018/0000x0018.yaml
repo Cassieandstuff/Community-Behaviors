@@ -1,0 +1,16 @@
+id: 0000x0018
+class: CBMovementTweenerAgentFixedDelta
+name: 'Fixed Delta'
+type: 'Fixed Delta'
+interface: 'CurrentMovementState'
+displacement: [0, 0, 0]
+rotationDisplacement: [0, 0, 0]
+startVelocity: [0, 0, 0]
+endVelocity: [0, 0, 0]
+startAngularVelocity: [0, 0, 0]
+endAngularVelocity: [0, 0, 0]
+startTime: 0
+endTime: 0
+duration: 0
+translation: [0, 0, 0]
+rotation: [0, 0, 0]

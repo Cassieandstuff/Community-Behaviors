@@ -1,0 +1,17 @@
+id: 0000x0010
+class: CBMovementMode
+name: 'Default (0f0)'
+modeId: 2
+installs: 'MovementConfigDefault'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Handler Arbiter'
+    interface: 'CurrentMovementState'
+    order: ['Large Delta Idle', 'Path Follower', 'Stairs Helper', 'Sprint Action Trigger', 'Strafing Controller', 'Angle Controller', 'Translation Controller']
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

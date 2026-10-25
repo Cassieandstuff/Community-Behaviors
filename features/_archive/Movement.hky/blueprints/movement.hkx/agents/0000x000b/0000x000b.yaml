@@ -1,0 +1,8 @@
+id: 0000x000b
+class: CBMovementPathManagerAgentAvoidBox
+name: 'Avoid Box'
+type: 'Avoid Box'
+interface: 'CurrentMovementState'
+useActorAvoidBox: true
+avoidBoxTriggersFailure: false
+defaultAvoidBoxAvoidNodeRadius: 32

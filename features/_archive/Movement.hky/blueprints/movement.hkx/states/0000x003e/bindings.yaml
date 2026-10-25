@@ -1,0 +1,12 @@
+'fallingGravityMult':
+  variable: 'fInAirFallingCharGravityMult:Havok'
+  output: ''
+  flags: FLAG_IN
+'jumpMoveMult':
+  variable: 'fJumpMoveMult'
+  output: ''
+  flags: FLAG_IN
+'jumpMoveBase':
+  variable: 'fJumpMoveBase'
+  output: ''
+  flags: FLAG_IN

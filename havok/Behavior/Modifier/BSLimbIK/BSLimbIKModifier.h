@@ -38,7 +38,7 @@ namespace CB { namespace havok
         static BSILimbIKModifierSingleton* s_instance;
     };
 
-    /// @note Member names are the class's reflected names (schema/gen/BSLimbIKModifier.yaml, 0x78 bytes). The `slot N`
+    /// @note Member names are the class's reflected names (schema/modifiers/BSLimbIKModifier.yaml, 0x78 bytes). The `slot N`
     ///       annotations are vanilla's vtable slots. The destructor is implicit.
     class BSLimbIKModifier : public hkbModifier
     {

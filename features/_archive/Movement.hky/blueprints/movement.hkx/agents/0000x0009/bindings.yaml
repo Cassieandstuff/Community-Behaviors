@@ -1,0 +1,8 @@
+'actorRadiusMultiplier':
+  variable: 'fNavmeshBoundsActorRadiusMultiplier:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'minTimeOfImpact':
+  variable: 'fNavmeshBoundsMinTimeOfImpact:Pathfinding'
+  output: ''
+  flags: FLAG_IN

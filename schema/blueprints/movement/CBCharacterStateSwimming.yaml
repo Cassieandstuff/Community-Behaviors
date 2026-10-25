@@ -1,0 +1,14 @@
+name:      CBCharacterStateSwimming
+parent:    CBCharacterState
+size:      72
+# Vanilla bhkCharacterStateSwimming (stateId HK_CHARACTER_USER_STATE_0, Skyrim's one user state). It steers the velocity
+# in three dimensions toward the requested movement (along the support surface when supported). With a swim float height
+# under 0.5 it may jump within 5 units of the water surface, and more than sinkDepth below the surface reversed gravity
+# lifts it back; otherwise it holds or applies gravity by controller flags 23 and 31 (meanings unverified). It commits a
+# request for the ground or the air. An actor starts in it when it is in water.
+#   maxVelocityDelta  the steering's largest velocity change per step (vanilla constant 100)
+#   sinkDepth         how far below the water surface a swimmer may sink before reversed gravity lifts it, Havok units
+#                     (vanilla constant 0.142875, 10 game units)
+fields:
+  - { name: maxVelocityDelta, type: float }
+  - { name: sinkDepth,        type: float }

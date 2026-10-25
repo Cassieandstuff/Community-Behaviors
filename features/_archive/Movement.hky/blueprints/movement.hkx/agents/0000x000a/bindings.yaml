@@ -1,0 +1,28 @@
+'acceptableErrorRatio':
+  variable: 'fAcceptableErrorRatio:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'totalTimePadding':
+  variable: 'fTotalTimePadding:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'totalTimeThreshold':
+  variable: 'fTotalTimeThreshold:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'totalDisplacementThresholdRadiusMult':
+  variable: 'fTotalDisplacementThresholdRadiusMult:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'defaultAvoidNodeCost':
+  variable: 'fDefaultAvoidNodeCost:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'defaultStaticAvoidNodeRadius':
+  variable: 'fDefaultStaticAvoidNodeRadius:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'staticAvoidanceTriggerMovementBlocked':
+  variable: 'bStaticAvoidanceTriggerMovementBlocked:Pathfinding'
+  output: ''
+  flags: FLAG_IN

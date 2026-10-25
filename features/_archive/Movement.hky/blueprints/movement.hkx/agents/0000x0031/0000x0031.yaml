@@ -1,0 +1,14 @@
+id: 0000x0031
+class: CBMovementPlannerAgentKeepOffset
+name: 'Planner Keep Offset'
+type: 'Planner Keep Offset'
+interface: 'CurrentMovementState'
+target: 0
+offset: [0, 0, 0]
+angleOffset: [0, 0, 0]
+catchUpRadius: 0
+followRadius: 0
+pitch: 0
+yaw: 0
+speed: 0
+facing: [0, 0, 0]

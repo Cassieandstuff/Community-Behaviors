@@ -1,0 +1,10 @@
+'0000x0000':
+  conditions:
+    - variable: 'bFlying'
+      kind: KIND_BOOL
+      intValue: 1
+      minValue: 0
+      maxValue: 0
+  result: 0000x002f
+'0000x0001':
+  result: 0000x002e

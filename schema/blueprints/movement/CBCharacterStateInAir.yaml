@@ -1,0 +1,24 @@
+name:      CBCharacterStateInAir
+parent:    CBCharacterState
+size:      88
+# Vanilla bhkCharacterStateInAir (stateId HK_CHARACTER_IN_AIR). Support lands the character (requests OnGround). Without
+# support and with no request, a character that has been airborne longer than stuckTime yet has fallen less than
+# stuckFallDistance is stuck: it is put on the ground with fake support. A jump request is dropped (no double jump);
+# any other request is committed. Otherwise it steers the horizontal velocity toward the requested movement (keeping
+# the vertical part), tracks the highest point reached, and adds gravity, heavier once below that point.
+#   maxVelocityDelta    the steering's largest velocity change per step (vanilla member, 2000)
+#   fallingGravityMult  gravity multiplier below the highest point (fInAirFallingCharGravityMult:Havok, 1.35; the
+#                       setting's section is spelled "Havok")
+#   jumpMoveMult        steering gain per point of acrobatics (the fJumpMoveMult game setting, cached at data load);
+#                       the gain is acrobatics x jumpMoveMult + jumpMoveBase, or 1 under controller flags 0x1800, and
+#                       is applied per step, not per second
+#   jumpMoveBase        the steering gain's base (the fJumpMoveBase game setting, cached at data load)
+#   stuckTime           seconds airborne before the stuck test applies (vanilla constant 1.0)
+#   stuckFallDistance   game units fallen below which an airborne character counts as stuck (vanilla constant 0.1)
+fields:
+  - { name: maxVelocityDelta,   type: float }
+  - { name: fallingGravityMult, type: float }
+  - { name: jumpMoveMult,       type: float }
+  - { name: jumpMoveBase,       type: float }
+  - { name: stuckTime,          type: float }
+  - { name: stuckFallDistance,  type: float }

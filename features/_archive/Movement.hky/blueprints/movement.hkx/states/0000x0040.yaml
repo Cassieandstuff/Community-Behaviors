@@ -1,0 +1,4 @@
+id: 0000x0040
+class: CBCharacterStateFlying
+name: 'Flying'
+stateId: HK_CHARACTER_FLYING

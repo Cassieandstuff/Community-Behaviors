@@ -1,5 +1,6 @@
 # Ported from HavokEnums.h (ClipGeneratorFlags); named as Havok reflects it (hkbClipGenerator::ClipFlags). Havok reflection enum -- item names/values are
 # CASE-SENSITIVE and feed both .hky name rendering and the class signature CRC.
+kind:  enum
 name:  ClipFlags
 flags: true
 items:

@@ -1,0 +1,8 @@
+id: 0000x0011
+class: CBMovementHandlerAgentAngleGain
+name: 'Angle Gain'
+type: 'Angle Gain'
+interface: 'CurrentMovementState'
+pitchRate: 0
+rollRate: 0
+turnRate: 0

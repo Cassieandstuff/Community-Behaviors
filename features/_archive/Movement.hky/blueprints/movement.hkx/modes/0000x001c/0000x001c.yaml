@@ -1,0 +1,17 @@
+id: 0000x001c
+class: CBMovementMode
+name: 'Animation Driven (0e0)'
+modeId: 0
+installs: 'MovementConfigAnimationDriven'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Handler Arbiter'
+    interface: 'CurrentMovementState'
+    order: ['Sprint Action Trigger']
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

@@ -1,0 +1,22 @@
+name:      CBMovementMode
+parent:    CBBlueprintNode
+size:      104
+# One mode of the movement pipeline: the stages and agents an actor's movement controller runs while the mode is
+# chosen, i.e. one of vanilla's configuration tables. CB builds it into an object of vanilla's configuration layout and
+# installs it in place of the table it replaces. The controller's SwitchToConfiguration (0x1411f7c00 AE) creates
+# nothing: it activates the named arbiters and agents among those that already exist, initializing each newly
+# activated one from its entry, and deactivates the rest. So every arbiter and agent a mode names must exist in the
+# active pool (CBMovementPool); vanilla's switch fails otherwise.
+#   modeId    vanilla's mode id, written where engine code reads it (controller +0x1c0): 0 animation-driven,
+#             1 controls-driven, 2 default, 3 flying, 4/5/9 allow-rotation, 6 node follower, 7 direct control,
+#             8 planner direct control, 10/11 virtual, 12 static path, 13 keep offset, 14 controls-driven (actor
+#             +0x204 bit 1)
+#   installs  the vanilla configuration table this mode replaces, by its engine-registry name
+#   arbiters  the pipeline stages, in vanilla's order
+#   agents    the agent nodes, one per vanilla agent entry
+fields:
+  - { name: modeId,   type: int32 }
+  - { pad: 8 }
+  - { name: installs, type: string }
+  - { name: arbiters, type: structarray, ref: CBMovementArbiter }
+  - { name: agents,   type: ptrarray, ref: CBMovementAgent, roster: ref }

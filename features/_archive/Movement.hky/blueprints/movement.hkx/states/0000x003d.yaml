@@ -1,0 +1,4 @@
+id: 0000x003d
+class: CBCharacterStateJumping
+name: 'Jumping'
+stateId: HK_CHARACTER_JUMPING

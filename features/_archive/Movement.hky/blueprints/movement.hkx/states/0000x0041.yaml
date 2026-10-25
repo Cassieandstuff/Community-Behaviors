@@ -1,0 +1,6 @@
+id: 0000x0041
+class: CBCharacterStateSwimming
+name: 'Swimming'
+stateId: HK_CHARACTER_USER_STATE_0
+maxVelocityDelta: 100
+sinkDepth: 0.142875001

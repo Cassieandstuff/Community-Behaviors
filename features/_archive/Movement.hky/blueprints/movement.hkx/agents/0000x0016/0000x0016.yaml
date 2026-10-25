@@ -1,0 +1,9 @@
+id: 0000x0016
+class: CBMovementHandlerAgentSprintActionTrigger
+name: 'Sprint Action Trigger (initWord 1)'
+type: 'Sprint Action Trigger'
+interface: 'CurrentMovementState'
+initWord: 1
+accelerationMult: 10
+distToPathThresholdRadiusMult: 0.5
+angleToPathThreshold: 5

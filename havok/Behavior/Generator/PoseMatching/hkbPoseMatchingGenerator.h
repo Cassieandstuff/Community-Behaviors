@@ -18,7 +18,7 @@ namespace CB { namespace havok
         hkBool m_resetCurrentMatchLocalTime;   ///< +0x20
     };
 
-    /// @note Layout from the schema (schema/gen/hkbPoseMatchingGenerator.yaml, 0xf0 bytes). The `slot N` annotations are
+    /// @note Layout from the schema (schema/generators/hkbPoseMatchingGenerator.yaml, 0xf0 bytes). The `slot N` annotations are
     ///       vanilla's vtable slots (the rest are hkbBlenderGenerator's).
     class hkbPoseMatchingGenerator : public hkbBlenderGenerator
     {

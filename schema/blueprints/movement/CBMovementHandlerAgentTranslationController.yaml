@@ -1,0 +1,18 @@
+name:      CBMovementHandlerAgentTranslationController
+parent:    CBMovementAgent
+size:      88
+factory:   "Translation Controller"
+# Vanilla MovementHandlerAgentTranslationController, factory name "Translation Controller": turns the planner's desired
+# velocity into the frame's direction and speed, limited by the planner's acceleration, deceleration and turn rate,
+# braking for the end of the path, and sending FreezeDirection on a reversal. Constants: 5 minimum speed, 0.1 minimum
+# velocity, 1 degree.
+#   mode            0 = full steering; 1 = direct, back-pedal aware; 2 = direct (vanilla: set through the "Set
+#                   Translation Controller Type" interface)
+#   backPedalAngle  fBackPedalAngle:Pathfinding (160, degrees); mode 1 only
+#   direction       written: the move direction, radians relative to the heading
+#   speed           written: units/s
+fields:
+  - { name: mode,           type: int32 }
+  - { name: backPedalAngle, type: float }
+  - { name: direction,      type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: speed,          type: float, role: { flags: [FLAG_OUTPUT] } }

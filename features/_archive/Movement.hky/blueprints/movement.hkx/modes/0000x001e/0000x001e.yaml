@@ -1,0 +1,17 @@
+id: 0000x001e
+class: CBMovementMode
+name: 'Animation Driven Controls (0d8)'
+modeId: 0
+installs: 'MovementConfigAnimationDrivenControls'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Handler Arbiter'
+    interface: 'CurrentMovementState'
+    order: ['Player Controls', 'Player Controls Actions Trigger']
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

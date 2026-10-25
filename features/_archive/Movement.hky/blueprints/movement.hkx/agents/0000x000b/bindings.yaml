@@ -1,0 +1,12 @@
+'useActorAvoidBox':
+  variable: 'bUseActorAvoidBox:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'avoidBoxTriggersFailure':
+  variable: 'bAvoidBoxTriggersFailure:Pathfinding'
+  output: ''
+  flags: FLAG_IN
+'defaultAvoidBoxAvoidNodeRadius':
+  variable: 'fDefaultAvoidBoxAvoidNodeRadius:Pathfinding'
+  output: ''
+  flags: FLAG_IN

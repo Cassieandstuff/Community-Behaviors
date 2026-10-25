@@ -1,0 +1,9 @@
+name:      CBBlueprintExecLink
+parent:    null
+size:      16
+# One execution output of a node (an Unreal exec pin): when the node finishes along `pin`, `target` runs next.
+#   pin     the output's name, byte-exact ("then", "True", "then_1")
+#   target  the node that runs next
+fields:
+  - { name: pin,    type: string }
+  - { name: target, type: ptr, ref: CBBlueprintNode }

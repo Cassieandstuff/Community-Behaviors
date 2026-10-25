@@ -1,0 +1,20 @@
+'target':
+  variable: 'KeepOffsetTarget'
+  output: ''
+  flags: FLAG_IN
+'offset':
+  variable: 'KeepOffsetOffset'
+  output: ''
+  flags: FLAG_IN
+'angleOffset':
+  variable: 'KeepOffsetAngleOffset'
+  output: ''
+  flags: FLAG_IN
+'catchUpRadius':
+  variable: 'fKeepOffsetCatchUpRadius'
+  output: ''
+  flags: FLAG_IN
+'followRadius':
+  variable: 'fKeepOffsetFollowRadius'
+  output: ''
+  flags: FLAG_IN

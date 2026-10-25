@@ -1,0 +1,26 @@
+name:      CBMovementPathManagerAgentStaticAvoider
+parent:    CBMovementAgent
+size:      104
+factory:   "Static Avoider"
+# Vanilla MovementPathManagerAgentStaticAvoider, factory name "Static Avoider": watches the actor's progress along the
+# path and, when it stalls, drops an avoid node where it is stuck and asks for a new path. Registers
+# "IMovementQueryStaticAvoider" and "IMovementSetStaticAvoider" (the stairs helper switches it off on stairs).
+#   acceptableErrorRatio                   fAcceptableErrorRatio:Pathfinding (0.9): stalled when actual progress falls
+#                                          below this share of the planned progress
+#   totalTimePadding                       fTotalTimePadding:Pathfinding (0.5, s): added to the history window
+#   totalTimeThreshold                     fTotalTimeThreshold:Pathfinding (1, s): the least time watched
+#   totalDisplacementThresholdRadiusMult   fTotalDisplacementThresholdRadiusMult:Pathfinding (0.66): the least
+#                                          displacement watched, x the actor's radius
+#   defaultAvoidNodeCost                   fDefaultAvoidNodeCost:Pathfinding (32)
+#   defaultStaticAvoidNodeRadius           fDefaultStaticAvoidNodeRadius:Pathfinding (32)
+#   staticAvoidanceTriggerMovementBlocked  bStaticAvoidanceTriggerMovementBlocked:Pathfinding (false): also post
+#                                          MovementMessageBlocked
+fields:
+  - { name: acceptableErrorRatio,                  type: float }
+  - { name: totalTimePadding,                      type: float }
+  - { name: totalTimeThreshold,                    type: float }
+  - { name: totalDisplacementThresholdRadiusMult,  type: float }
+  - { name: defaultAvoidNodeCost,                  type: float }
+  - { name: defaultStaticAvoidNodeRadius,          type: float }
+  - { name: staticAvoidanceTriggerMovementBlocked, type: bool }
+  - { skip: 7 }

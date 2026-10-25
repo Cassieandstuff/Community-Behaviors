@@ -1,0 +1,13 @@
+name:      CBMovementAgent
+parent:    CBBlueprintNode
+size:      72
+# One agent of a CBMovementMode: a unit of Skyrim's movement pipeline, created by name through the agent factory.
+# Vanilla's configuration entry is {type, interface, init blob}; no agent's blob carries tunables, so an agent with no
+# typed subclass yet is written as this base alone, and a typed subclass adds the agent's tunables as fields. A typed
+# subclass names the agent it stands for with the class-level `factory:` key.
+#   type       the agent's factory name, byte-exact (e.g. "Player Controls", "Path Follower", "Angle Controller"); on a
+#              typed subclass it must equal the class's `factory:` (a compiler rule, not yet checked)
+#   interface  the interface name the entry registers under, byte-exact (vanilla: "CurrentMovementState")
+fields:
+  - { name: type,      type: string }
+  - { name: interface, type: string }

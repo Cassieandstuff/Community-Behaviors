@@ -1,0 +1,12 @@
+name:      CBBlueprint
+parent:    hkReferencedObject
+size:      56
+# The root every blueprint kind specializes (hkbBehaviorGraph plays the same role for a behavior): the variable and
+# event table, the per-tick graph, and the execution-chain entry points.
+#   variables  the variable and event table, keyed by exact name; the engine side of the membrane binds to it
+#   root       the top per-tick node, evaluated every tick
+#   events     the execution-chain entry points, one per event a chain starts from
+fields:
+  - { name: variables, type: structarray, ref: CBBlueprintVariable, roster: field:name }
+  - { name: root,      type: ptr, ref: CBBlueprintNode }
+  - { name: events,    type: ptrarray, ref: CBBlueprintEventNode, roster: ref }

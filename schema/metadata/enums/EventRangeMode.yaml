@@ -1,5 +1,6 @@
 # hkbEventRangeData::EventRangeMode. Havok reflection enum -- item names/values are CASE-SENSITIVE (the vanilla
 # tagfile renders these names; the .hky formerly misrendered them with ExpressionEventMode's names).
+kind:  enum
 name:  EventRangeMode
 flags: false
 items:

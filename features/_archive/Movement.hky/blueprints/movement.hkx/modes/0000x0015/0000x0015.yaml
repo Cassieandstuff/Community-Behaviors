@@ -1,0 +1,17 @@
+id: 0000x0015
+class: CBMovementMode
+name: 'Flying (0e8)'
+modeId: 3
+installs: 'MovementConfigFlying'
+arbiters:
+  - type: 'Path Manager Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Planner Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Handler Arbiter'
+    interface: 'CurrentMovementState'
+    order: ['Angle Gain', 'Speed Pass Through', 'Direction Pass Through']
+  - type: 'Tweener Arbiter'
+    interface: 'CurrentMovementState'
+  - type: 'Post Update Arbiter'
+    interface: 'CurrentMovementState'

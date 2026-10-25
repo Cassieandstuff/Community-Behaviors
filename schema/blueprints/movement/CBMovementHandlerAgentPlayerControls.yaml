@@ -1,0 +1,48 @@
+name:      CBMovementHandlerAgentPlayerControls
+parent:    CBMovementAgent
+size:      120
+factory:   "Player Controls"
+# The player's handler agent (vanilla MovementHandlerAgentPlayerControls, factory name "Player Controls"): it turns the
+# player's stick and look input into the frame's direction, speed and turn. The player on foot runs it as the whole
+# handler stage. Its tunables are vanilla's [Controls] INI settings; the 1:1 blueprint binds each field to an
+# engine-bound variable named exactly after its setting, so INI edits keep working.
+#   mode                                  0 = speed, direction and turn; 1 = direction and turn only; else none
+#                                         (vanilla: the table entry's init word, 0 in the player table, handed to
+#                                         its "SetPlayerControls" interface, which can also change it later)
+#   dampenPlayerControls                  bDampenPlayerControls:Controls (true): speed changes go through the dampened
+#                                         acceleration path
+#   freezeDirectionOnLargeDelta           bFreezeDirectionOnLargeDelta:Controls (true): a large input swing sends
+#                                         FreezeDirection and may start a quick-turn idle
+#   controllerDampenTime                  fControllerDampenTime:Controls (0.18, s): the dampened acceleration's time
+#   controllerBufferDepth                 fControllerBufferDepth:Controls (0.14, s): how far back the input history
+#                                         reaches when comparing samples
+#   controllerSampleThreshold             fControllerSampleThreshold:Controls (0.1): divisor of the per-sample input
+#                                         change the freeze thresholds are measured against
+#   freezeDirectionDefaultAngleThreshold  fFreezeDirectionDefaultAngleThreshold:Controls (60, degrees): used when the
+#                                         actor's movement state gives no threshold
+#   freezeDirectionDefaultSpeedThreshold  fFreezeDirectionDefaultSpeedThreshold:Controls (100): likewise
+#   horseClampAngle                       fHorseClampAngle:Controls (10, degrees): read on the back-pedal path taken
+#                                         when the player carries extra data 0xA9 (its meaning is unverified)
+#   maxMoveRampDownDelta                  fMaxMoveRampDownDelta:Controls (500, units/s): the most speed may drop in
+#                                         one update
+#   direction                             written: the move direction, radians relative to the heading
+#   speed                                 written: units/s; 0 when 5 or below
+#   turnRate                              written: radians/s about the up axis (look input x the MOVT's in-place turn
+#                                         speed)
+# Not this agent's: the stick response curve (PlayerControls' fMoveGraph* settings, the input layer's) and the walk and
+# run speeds (the actor's MOVT record).
+fields:
+  - { name: mode,                                 type: int32 }
+  - { name: dampenPlayerControls,                 type: bool }
+  - { name: freezeDirectionOnLargeDelta,          type: bool }
+  - { skip: 2 }
+  - { name: controllerDampenTime,                 type: float }
+  - { name: controllerBufferDepth,                type: float }
+  - { name: controllerSampleThreshold,            type: float }
+  - { name: freezeDirectionDefaultAngleThreshold, type: float }
+  - { name: freezeDirectionDefaultSpeedThreshold, type: float }
+  - { name: horseClampAngle,                      type: float }
+  - { name: maxMoveRampDownDelta,                 type: float }
+  - { name: direction,                            type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: speed,                                type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: turnRate,                             type: float, role: { flags: [FLAG_OUTPUT] } }

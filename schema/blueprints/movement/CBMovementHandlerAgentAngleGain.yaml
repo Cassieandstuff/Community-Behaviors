@@ -1,0 +1,14 @@
+name:      CBMovementHandlerAgentAngleGain
+parent:    CBMovementAgent
+size:      88
+factory:   "Angle Gain"
+# Vanilla MovementHandlerAgentAngleGain, factory name "Angle Gain": the flying table's turn controller. It rotates the
+# actor's orientation toward the planner's desired orientation by a quaternion blend whose weight is 9 x (speed / the
+# movement type's top speed, clamped 0..1) x dt, and writes the result as rotation rates. It has no settings; the 9.0
+# gain is a constant (used alone when the movement type gives no speed).
+#   pitchRate, rollRate, turnRate  written: radians/s
+fields:
+  - { name: pitchRate, type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: rollRate,  type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: turnRate,  type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { skip: 4 }

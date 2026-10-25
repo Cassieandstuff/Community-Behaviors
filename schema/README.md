@@ -57,11 +57,15 @@ Each entry is one of:
 **Signature reflection.** A class's `signature:` is the CRC the engine derives from its reflection (member names,
 types and flags, then its parent chain). Where the serialized layout says less than the engine's reflection, these
 keys say the rest (no serde effect):
-- class-level `interfaces: N` (hkBaseObject's 1) and `enums: [A, B]` (the class's declared enums, in order, from
-  `metadata/enums/`);
+- class-level `interfaces: N` (hkBaseObject's 1) and `enums: [A, B]` (the class's declared enums, in order, each a
+  `kind: enum` descriptor);
 - `hktype: ulong | enum | flags` on a field whose reflected type differs from its `type:` (`enum`/`flags` here
   carries no enum reference; `enum: X` on a scalar means an ENUM member over that scalar, referencing X);
 - `name:` on an `{ empty: … }` slot, the reflected member's name.
+
+**Class-level `factory: <name>`** names the engine factory name a class stands for, byte-exact (a typed movement
+agent: `factory: "Player Controls"`), so a node's own name field can be checked against its class. At most one class
+may claim a name; a second fails the load. No serde, size or signature effect.
 
 A `CB*` class stores no `signature:`: the schema loader derives it, and fails the load unless every class it hashes
 through reproduces its own stored signature. The behavior loader recomputes the signature and refuses a packfile
@@ -72,6 +76,10 @@ whose stored one differs.
   documentation only — it does NOT change serde). Void-typed ignored uses `empty:` instead.
 - `merge: <strategy>` — the merge engine's per-field policy (`keep | lastwriter | replacearray |
   unionarray | guarderror`); consumed by the merge consumer, not serde. (Added as the merge layer lands.)
+- `role: { role: <Role item>, flags: [<RoleFlags item>, …] }` — what the member is for, mirroring Havok's
+  `hkbRoleAttribute` (both keys optional), e.g. `role: { flags: [FLAG_OUTPUT] }` = the node writes this member, so
+  another node's binding or an output binding may read it. Items are the `Role` / `RoleFlags` enum items, spelled
+  exactly; an unknown one fails the load. A member attribute: no serde, size or signature effect.
 
 ## Runtime binding (reserved — the uniform game/self invariant)
 
@@ -87,11 +95,27 @@ or an eventual in-editor behavior runtime). The two are the SAME shape — makin
 binding value, not a restructure. Nothing is `self` yet; the slot is reserved so custom classes and the
 editor runtime are additive, not a second refactor.
 
+## Kinds and identity — folders are decoration
+
+Every `*.yaml` under `schema/` is loaded recursively and dispatched on its top-level `kind:`, never on its folder:
+
+| `kind:` | What it is | Read by |
+|---|---|---|
+| (absent) | a class descriptor (above) | `SchemaRegistry::LoadDir` |
+| `metadata` | a Bethesda text-cache record (adsf / asdsf / SpeedData) | `LoadDir` → MetaText |
+| `enum` | a reflected enum: `name:`, `flags:`, `items:` | `LoadDir`, and baked into the binary by `cmake/EmbedEnums.cmake` |
+| `semantics` | merge policy: strategy → `<Class>` / `<Class>.<field>` lists | `LoadDir` (applied after the walk) |
+| `probe` | a compile-trace probe (see `metadata/debug/README.md`) | `CB::engine::compile::trace` |
+
+A descriptor's identity is its `name:` within its kind (classes and metadata records share one namespace). A name
+defined twice, or an unknown kind, fails the load and names the files. Moving a file between folders changes nothing.
+
 ## Layout
 
-`<family>/<ClassName>.yaml` — families mirror the old `classes/*.h` grouping (`base/`, `events/`,
-`variables/`, `generators/`, `modifiers/`, `statemachine/`, `graph/`, `animation/`, `physics/`,
-`project/`; `gen/` for generated descriptors).
+`<family>/<ClassName>.yaml` — the families are for people only: they mirror the old `classes/*.h` grouping (`base/`,
+`events/`, `variables/`, `generators/`, `modifiers/`, `statemachine/`, `graph/`, `animation/`, `physics/`,
+`project/`, `arrays/`, `effects/`, `resource/`, `scene/`), and `metadata/` gathers the non-class kinds. A class with no
+parent that only one class owns sits in its owner's family.
 
 The reimplemented Havok runtime is not part of schema/: it lives in the top-level `havok/` (`CB::havok::`), one `.h`/`.cpp` per class, laid out like Havok's
 own source tree: product roots `Common/Base`, `Animation`, `Behavior`, and below them the paths the exe's

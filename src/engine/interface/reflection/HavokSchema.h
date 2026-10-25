@@ -86,6 +86,14 @@ struct Field {
                                          ///<        here carries no enum reference). Signature only; no serde effect.
     bool        enumHkyOnly = false;     ///< @brief `hkyenum:` rather than `enum:` — the .hky renders the value by name, but
                                          ///<        the exe reflects a plain scalar (no enum in the signature).
+    std::string roleName;                ///< @brief `role: { role: <Role item> }` — what the member is for, as Havok's
+                                         ///<        hkbRoleAttribute::m_role tags it (e.g. ROLE_TIME); empty = ROLE_DEFAULT.
+    std::vector<std::string> roleFlagNames;   ///< @brief `role: { flags: [<RoleFlags item>, …] }` — e.g. FLAG_OUTPUT: the
+                                              ///<        node writes this member (another node or an output binding reads it).
+    int         role      = 0;           ///< @brief roleName resolved against the Role enum by LoadDir.
+    int         roleFlags = 0;           ///< @brief roleFlagNames resolved against the RoleFlags enum by LoadDir, OR'd.
+                                         ///< @note Item names are matched exactly (Havok's spelling); an unknown one fails
+                                         ///<       the load. A member attribute: no serde, size or signature effect.
     bool        cbAdded = false;         ///< @brief `cb: true` — a member CB adds to a vanilla class (in its padding: the
                                          ///<        exe's code never touches it). Left out of the class's vanilla signature.
 };
@@ -98,8 +106,8 @@ struct ClassSchema {
     ///        sets `signature` to the one with CB's members, which CB registers and writes.
     std::uint32_t      vanillaSignature = 0;
     int                interfaces = 0;       ///< @brief `interfaces: N` — hkClass::m_numImplementedInterfaces (signature only).
-    std::vector<std::string> enums;          ///< @brief `enums: [A, B]` — the class's declared enums in order, defined under
-                                             ///<        metadata/enums (signature only).
+    std::vector<std::string> enums;          ///< @brief `enums: [A, B]` — the class's declared enums in order, each a
+                                             ///<        `kind: enum` descriptor (signature only).
     int                size      = 0;        // OPTIONAL declared serialized size (bytes, SSE 64-bit). The
                                              // authority is ComputeSize (derived from the field layout,
                                              // used by the serializer); this is a cross-check — LoadDir
@@ -115,9 +123,14 @@ struct ClassSchema {
     std::string        unwrap;                   ///< @brief `unwrap: <field>` — a .hky convenience: a pointer/struct to this
                                                  ///<        class renders as that one field's value directly, when every other
                                                  ///<        field would emit nothing (else the full object form, so lossless).
+    std::string        factory;                  ///< @brief `factory: <name>` — the engine factory name this class stands for,
+                                                 ///<        byte-exact (a typed movement agent's "Player Controls"), so a node's
+                                                 ///<        name field can be checked against its class. No serde, size or
+                                                 ///<        signature effect.
+                                                 ///< @invariant At most one class claims a given name (LoadDir).
 };
 
-// ── Enum definitions (schema/metadata/enums/*.yaml) ─────────────────────────────────────────────
+// ── Enum definitions (`kind: enum` descriptors) ─────────────────────────────────────────────────
 // A reflected Havok enum: its type name + ordered (name,value) items. The item NAMES and VALUES are
 // CASE-SENSITIVE Havok data — they render a .hky field's value by name (MODE_SINGLE_PLAY, not 47) AND
 // feed the class-signature CRC. A field references an enum by name via Field::enumName; the enum lives
@@ -187,8 +200,10 @@ public:
     SchemaRegistry(SchemaRegistry&&)                 = default;
     SchemaRegistry& operator=(SchemaRegistry&&)      = default;
 
-    // Load every *.yaml/*.yml under `root` (recursively) as a ClassSchema. On a parse error returns
-    // false with `err` set. Non-yaml files (README, etc.) are ignored.
+    /// @brief Load every *.yaml/*.yml under `root`, recursively, dispatched on its top-level `kind:` (none = a class;
+    ///        `metadata`, `enum`, `semantics`, `probe`). Non-yaml files are ignored.
+    /// @note Folders carry no meaning. A name defined twice within a kind (classes and metadata records share one
+    ///       namespace) or an unknown kind fails the load, with `err` naming the files.
     bool LoadDir(const std::string& root, std::string& err);
 
     const ClassSchema* Find(const std::string& name) const;
@@ -204,8 +219,8 @@ public:
     const FieldLayout* Layout(const ClassSchema* cs) const;
     const std::map<std::string, ClassSchema>& All() const { return m_byName; }
 
-    // Enum definitions loaded from the enums/ subtree. Find one by its type name (e.g. "PlaybackMode").
-    // Empty until LoadDir has run over a tree that carries an enums/ folder.
+    // Enum definitions (`kind: enum` descriptors). Find one by its type name (e.g. "PlaybackMode").
+    // Empty until LoadDir has run over a tree that carries enum descriptors.
     const EnumDef* FindEnum(const std::string& name) const;
 
     /// @brief The raw `schema_version:` LoadDir read from the tree's SCHEMA.yaml stamp; empty when the tree
@@ -225,7 +240,7 @@ public:
     // class's OWN fields are consulted (the tagged arrays are direct members of their class).
     std::string MergeTag(const std::string& className, const std::string& field) const;
 
-    // Apply one metadata/semantics/*.yaml document onto the already-loaded classes: each top-level key
+    // Apply one `kind: semantics` document onto the already-loaded classes: each top-level key
     // is a merge strategy (the string Field::merge carries — "compose"/"guarded"/"replace"), and its
     // list holds "<Class>" (whole-class default for every field) or "<Class>.<field>" (one field,
     // overriding the class default). This is the single auditable source for merge policy; LoadDir
@@ -277,7 +292,7 @@ private:
 
     std::map<std::string, ClassSchema> m_byName;
     std::unordered_map<const ClassSchema*, FieldLayout> m_layouts;   ///< see Layout()
-    std::map<std::string, EnumDef>     m_enums;               // enums/*.yaml, keyed by enum type name
+    std::map<std::string, EnumDef>     m_enums;               // `kind: enum` descriptors, keyed by enum type name
     std::string                        m_schemaVersion;      // SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen
 };
@@ -285,8 +300,12 @@ private:
 // Parse ONE descriptor's YAML text into a ClassSchema (LoadDir uses it; exposed for tests).
 bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err);
 
-// Parse ONE enums/ descriptor's YAML text into an EnumDef (LoadDir uses it; exposed for tests).
+// Parse ONE `kind: enum` descriptor's YAML text into an EnumDef (LoadDir uses it; exposed for tests).
 bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err);
+
+/// @brief A schema descriptor's top-level `kind:` (empty for a class), the one key LoadDir dispatches on.
+/// @return false with `err` set when the text is not a YAML map.
+bool DescriptorKind(const std::string& yamlText, std::string& out, std::string& err);
 
 // ── Shared process-wide registry ───────────────────────────────────────────────
 // The ONE lazily-loaded schema registry every schema-driven compile / decompile shares, so the tree loads

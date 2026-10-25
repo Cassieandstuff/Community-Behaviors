@@ -1,0 +1,16 @@
+name:      CBMovementPlannerAgentDirectControl
+parent:    CBMovementAgent
+size:      104
+factory:   "Planner Direct Control"
+# Vanilla MovementPlannerAgentDirectControl, factory name "Planner Direct Control": puts the values the controller's
+# "IMovementPlannerDirectControl" interface sets straight into the plan, which the table's controllers then steer to
+# (likely combat's way in; unverified). It has no settings; the 1:1 blueprint binds its inputs to the planner
+# direct-control variables.
+#   direction  the planned direction (pitch, roll, yaw), radians
+#   speed      the planned speed, units/s
+#   facing     the planned facing (pitch, roll, yaw), radians
+fields:
+  - { name: direction, type: float, count: 3 }
+  - { name: speed,     type: float }
+  - { name: facing,    type: float, count: 3 }
+  - { skip: 4 }

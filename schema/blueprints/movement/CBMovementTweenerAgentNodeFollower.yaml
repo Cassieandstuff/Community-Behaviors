@@ -1,0 +1,17 @@
+name:      CBMovementTweenerAgentNodeFollower
+parent:    CBMovementAgent
+size:      104
+factory:   "Node Follower"
+# Vanilla MovementTweenerAgentNodeFollower, factory name "Node Follower": snaps the actor onto a scene node each update.
+# Vanilla hands it the node through its "ITweenerNodeFollowerSetup" interface (BSTerrainEffect's set-follow-node); the
+# 1:1 blueprint binds the node's world position and whether one is set to variables. The whole offset is applied every
+# update with no blend, dt or clamp. It has no settings and reads nothing at init.
+#   following     a node is set; without one vanilla writes zero
+#   nodePosition  the node's world position, game units
+#   translation   written: nodePosition minus the actor's position, turned into the actor's frame; rotation stays
+#                 identity
+fields:
+  - { name: nodePosition, type: float, count: 3 }
+  - { name: translation,  type: float, count: 3, role: { flags: [FLAG_OUTPUT] } }
+  - { name: following,    type: bool }
+  - { skip: 7 }

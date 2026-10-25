@@ -1,0 +1,8 @@
+id: 0000x0013
+class: CBMovementHandlerAgentDirectionPassThrough
+name: 'Direction Pass Through'
+type: 'Direction Pass Through'
+interface: 'CurrentMovementState'
+pitch: 0
+roll: 0
+yaw: 0

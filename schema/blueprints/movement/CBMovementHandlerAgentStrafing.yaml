@@ -1,0 +1,11 @@
+name:      CBMovementHandlerAgentStrafing
+parent:    CBMovementAgent
+size:      80
+factory:   "Strafing Controller"
+# Vanilla MovementHandlerAgentStrafing, factory name "Strafing Controller": when the actor moves faster than 5 (a
+# constant), its target facing is more than backPedalAngle from its travel direction, and its movement type has no
+# side and back speeds, it turns the target facing to the travel direction instead of strafing or back-pedalling.
+#   backPedalAngle  fBackPedalAngle:Pathfinding (160, degrees)
+fields:
+  - { name: backPedalAngle, type: float }
+  - { skip: 4 }

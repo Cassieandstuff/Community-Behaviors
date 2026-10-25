@@ -1,0 +1,20 @@
+id: 0000x0007
+class: CBMovementAgentPathFollowerStandard
+name: 'Path Follower (initWord 0)'
+type: 'Path Follower'
+interface: 'CurrentMovementState'
+initWord: 0
+shortPathRadiusMult: 2
+rotateTowardsPathThreshold: 5
+headingToPathTangentMaxAngle: 15
+backPedalAngle: 160
+minFrictionSpeed: 2
+avoidanceDistanceRadiusMult: 1
+maxCollisionTime: 1
+maxDistFromPathRadiusMult: 5
+teleportNodeAngleTolerance: 5
+distFromPathForFollowingRadiusMult: 2
+pitch: 0
+yaw: 0
+speed: 0
+remainingDistance: 0

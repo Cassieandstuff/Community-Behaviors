@@ -1,0 +1,17 @@
+name:      CBBlueprintCondition
+parent:    null
+size:      24
+# One test of a chooser row on a blueprint variable (named byte-exact). The same shape as CBPoseSearchCondition, so the
+# pose-search chooser can move onto CBBlueprintChooser.
+#   variable  a CBBlueprintVariable of the blueprint, by exact name
+#   kind      the test (BlueprintConditionKind)
+#   intValue  KIND_EQUALS: the int or enum value the variable must equal; KIND_BOOL: nonzero = true
+#   minValue  KIND_RANGE: the lowest float value that passes
+#   maxValue  KIND_RANGE: the highest float value that passes
+fields:
+  - { name: variable, type: string }
+  - { name: kind,     type: int8, enum: BlueprintConditionKind }
+  - { pad: 4 }
+  - { name: intValue, type: int32 }
+  - { name: minValue, type: float }
+  - { name: maxValue, type: float }

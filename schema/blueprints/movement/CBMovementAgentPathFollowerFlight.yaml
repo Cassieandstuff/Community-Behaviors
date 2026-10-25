@@ -1,0 +1,15 @@
+name:      CBMovementAgentPathFollowerFlight
+parent:    CBMovementAgent
+size:      88
+factory:   "Path Follower Flight"
+# Vanilla MovementAgentPathFollowerFlight, factory name "Path Follower Flight": the fliers' path follower. It fits a
+# smooth curve (256 samples) through the actor's position, a lead-in point two path radii ahead along its facing, and up
+# to the next 8 path nodes, then advances along it by speed x dt and plans the curve's tangent. Registers
+# "IMovementQueryPathFollowing" and "IMovementQueryFlight". It has no settings and reads nothing at init.
+#   pitch, yaw  written: the planned direction, radians
+#   speed       written: the planned speed, units/s
+fields:
+  - { name: pitch, type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: yaw,   type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { name: speed, type: float, role: { flags: [FLAG_OUTPUT] } }
+  - { skip: 4 }
