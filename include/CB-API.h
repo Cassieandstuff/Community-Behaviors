@@ -10,8 +10,9 @@
 // a FIRST-PARTY CONSUMER of it (we compile against <CB-API.h> too), so the surface
 // can't rot: if it's insufficient for us, we feel it immediately.
 //
-//   cb::resolve  — read .hky bundles + merge a load order → the merged graph, and derive a mod's
-//                  patch (identical to what the CB compiler does; single owner, no drift)
+//   cb::resolve  — read .hky bundles + merge a load order → the merged graph, derive a mod's
+//                  patch (identical to what the CB compiler does; single owner, no drift), and
+//                  write a parsed unit back out (an editor's save)
 //   cb::anim     — decode / compile / EXPORT animations exactly as CB does
 //   cb::animdata — the animationdata (motion / root-motion) model + its YAML sidecar
 //   cb::skeleton — decode / compile / EXPORT skeletons (schema-native; anim + ragdoll)
@@ -68,8 +69,10 @@ namespace resolve {
     using Archive     = CB::engine::codec::HkyArchive;         // a packed .hky bundle, decompressed in memory
     using UnitKind    = CB::engine::codec::HkyArchive::UnitKind;
     using UnitSource  = CB::engine::common::IUnitSource;        // a unit's file view (disk dir OR in-memory .hky)
+    using DiskUnitSource = CB::engine::common::DiskUnitSource;  ///< a unit folder on disk, as a UnitSource
     using Layer       = CB::engine::common::LayerSource;        // one load-order layer: unit + bundle stem + master table
     using Graph       = CB::engine::decompile::ParsedHky;       // a parsed / merged graph (schema objects + FormIDs)
+    using Identity    = CB::engine::decompile::Identity;        ///< a graph's file-node FormIDs, their folders, minted roster keys
     using GraphEdit   = CB::engine::decompile::GraphEdit;       // the editing view the compile-time features receive
     using PatchStats  = CB::engine::decompile::HkyPatchStats;
     using Object      = CB::engine::codec::io::SchemaObject;    // one graph object: typed field reads by schema name
@@ -83,6 +86,7 @@ namespace resolve {
     using CB::engine::decompile::MergeLayersReflective;        // layers (base first) → the merged Graph
     using CB::engine::decompile::MergeHkyPatch;                // apply one patch unit onto a Graph
     using CB::engine::decompile::SerializeGraph;               // Graph → packfile bytes
+    using CB::engine::decompile::EmitHkyReflective;            ///< Graph::identity → a unit folder (ParseHkyReflective's inverse)
     using CB::engine::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
     using CB::engine::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
 }  // namespace resolve

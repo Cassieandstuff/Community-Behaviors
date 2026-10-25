@@ -38,6 +38,11 @@ namespace {
                                             const std::vector<std::string>*, cb::resolve::PatchStats*)>(&cb::resolve::DeriveHkyPatch);
         (void)derive;
         auto* decomp = &cb::resolve::DecompileBehaviorReflective; (void)decomp;
+        // a unit folder round trip: read it, write it back
+        cb::resolve::DiskUnitSource disk(std::filesystem::path{});
+        bool pok = cb::resolve::ParseHkyReflective(disk, reg, g, err); (void)pok;
+        const cb::resolve::Identity& ident = g.identity;
+        bool eok = cb::resolve::EmitHkyReflective(ident, reg, "", err); (void)eok;
         if (g.root) {
             std::shared_ptr<cb::resolve::Object> chr = cb::resolve::FindVariant(*g.root, "hkbCharacterData");
             const cb::resolve::FieldValue* up = chr ? chr->FindField("modelUpMS") : nullptr; (void)up;
