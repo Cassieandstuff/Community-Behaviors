@@ -75,6 +75,11 @@ namespace CB::core::debug {
           "They forward every call to vanilla's code, log each registration and count the loaded objects each class "
           "finishes (reported at kDataLoaded and after each game loads). Classes in sOwnTypes (default hkbClipGenerator) "
           "get CB's copy of their vtable on every loaded and cloned object. AE only." },
+        { "animation64_readers", FlagKind::IniBool, "Animation64", "bReaders", false, false,
+          "Animation 64 readers",
+          "Run CB's own readers of the clip's binding index (clip activate/deactivate/isValid/rebind, the offset "
+          "generator's sample, the synchronized clip's sync mark and activation) from the 64-bit slot instead of the "
+          "16-bit field. Same behavior while every index fits 16 bits." },
         { "animation64_watch", FlagKind::IniBool, "Animation64", "bReaderWatch", false, false,
           "Animation 64 reader watch",
           "Hardware watchpoints on the 16-bit binding index of the newest activated clips, logging each instruction that "
