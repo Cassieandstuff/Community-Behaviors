@@ -105,6 +105,8 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
         {
             if (ch::IsManaged(*self)) {
+                /// @note Samples the graph for the planes (ch::PlayerGraphMovesPublished), outside the integrate.
+                ch::GraphMovesActor(RE::PlayerCharacter::GetSingleton());
                 const ch::Hull hull = ch::GetHull(*self);
                 if (hull.valid) ch::PublishVerdict(*self, ch::QueryFloor(*self, hull, ch::FloorTunables{}));
             }
@@ -117,7 +119,10 @@ namespace CB::feature {
         {
             hk::bhkCharacterController& ctrl = *self;
             const int numPoints = (std::min)(input.m_numConstraints, manifold.getSize());
-            if (!ch::IsManaged(ctrl) || !proxy || numPoints > kMaxPoints) return next(self, proxy, manifold, input);
+            /// @note While the graph moves the player (a synced clip onto its mark), Bethesda's planes run, its character
+            ///       contacts included.
+            if (!ch::IsManaged(ctrl) || !proxy || numPoints > kMaxPoints || ch::PlayerGraphMovesPublished())
+                return next(self, proxy, manifold, input);
             const ch::Hull hull = ch::GetHull(ctrl);
             if (!hull.valid) return next(self, proxy, manifold, input);
 

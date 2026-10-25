@@ -730,7 +730,15 @@ namespace CB::feature {
             static const bool pinned = eng::Available(eng::bhkWorld_GetGravity) && eng::Available(eng::hkpCharacterMovementUtil_CalculateMovement);
             if (!pinned) return false;
             if (controller->m_flags & kChaseOrRagdoll) return false;
-            return controller->GetHavokWorld() != nullptr;
+            if (!controller->GetHavokWorld()) return false;
+            /// @note While the graph moves the player, vanilla's OnGround takes the velocity the graph's motion asks for as
+            ///       the step's; the Grounded spring (kGroundHalflife) would lag it.
+            const char* flag = ch::GraphMovesActor(RE::PlayerCharacter::GetSingleton());
+            static std::atomic<const char*> lastFlag{ "" };
+            if (std::strcmp(lastFlag.exchange(flag, std::memory_order_relaxed), flag) != 0 && LogBudget())
+                LOG_INFO("ground states: {}", *flag ? std::format("the graph moves the player ({}) - vanilla's states run", flag)
+                                                    : std::string("the graph hands the player back"));
+            return *flag == 0;
         }
 
         template <int Id>
