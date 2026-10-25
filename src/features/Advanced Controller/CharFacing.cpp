@@ -71,11 +71,14 @@ namespace CB::feature::controller {
         };
         Slope g_slope;
 
-        /// @brief The engine's own frame speed last frame (before CB's model) and what CB handed on.
+        /// @brief The engine's own frame speed and direction (angles[2]) last frame (before CB's model) and what CB
+        ///        handed on.
         struct EngineSpeed {
-            bool  have    = false;
-            float engine  = 0.0f;
-            float written = 0.0f;
+            bool  have       = false;
+            float engine     = 0.0f;
+            float written    = 0.0f;
+            float engineDir  = 0.0f;
+            float writtenDir = 0.0f;
         };
         EngineSpeed       g_engineSpeed;
         std::atomic<int>  g_restoreLogs{ 0 }, g_keepLogs{ 0 };
@@ -261,6 +264,14 @@ namespace CB::feature::controller {
                 } else if (g_keepLogs.fetch_add(1, std::memory_order_relaxed) < 5) {
                     LOG_INFO("movement: engine speed state {:.1f} is not CB's {:.1f} - the engine set it, kept", seen, es.written);
                 }
+                /// @note The direction the same way: Actor_ApplyFrameMovement stores the frame's angles in
+                ///       MiddleHighProcessData::rotation (+0xb0), which the actor's movement state hands back as its
+                ///       current movement (0x1406a2c70 -> 0x140710870), and MovementHandlerAgentLargeDeltaIdle
+                ///       (0x141210290 -> 0x1412192a0) weighs the current movement against the one asked for before it
+                ///       tweens instead of moving. CB's backward direction against the forward-only input is the largest
+                ///       delta there is.
+                /// @invariant The engine never sees CB's direction as its own.
+                if (mh->rotation.z == es.writtenDir) mh->rotation.z = es.engineDir;
             }
 
             RE::NiPoint2 raw(0.0f, 0.0f);
@@ -296,8 +307,9 @@ namespace CB::feature::controller {
             if (driving) controls->data.moveInputVec = raw;
             if (!player) return;
 
-            const float heading = player->GetHeading(false);
-            const float full    = out->speed;
+            const float heading   = player->GetHeading(false);
+            const float full      = out->speed;
+            const float engineDir = out->angles[2];
             const char* graphFlag   = hold ? GraphDrivesSpeed(player) : "";
             const bool  graphDrives = graphFlag[0] != 0;
             /// @note Diagnostic: every hand-over to the graph and back, with the speeds either side.
@@ -389,22 +401,23 @@ namespace CB::feature::controller {
             out->speed        = speed;
             out->angles[2]    = 0.0f;
             Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
-            g_engineSpeed = EngineSpeed{ true, full, speed };
+            g_engineSpeed = EngineSpeed{ true, full, speed, engineDir, out->angles[2] };
 
             move::Publish(move::Snapshot{ s, in, caps, pos.x, pos.y });
-            /// @note Diagnostic: twice a second while moving, the model's inputs and output.
+            /// @note Diagnostic: twice a second while moving or asked to move, the model's inputs and output (a stick held
+            ///       at no speed is a stall).
             static auto lastDiag = std::chrono::steady_clock::now();
-            if (const auto now = std::chrono::steady_clock::now(); speed > 1.0f && now - lastDiag > std::chrono::milliseconds(500)) {
+            if (const auto now = std::chrono::steady_clock::now(); (speed > 1.0f || haveStick) && now - lastDiag > std::chrono::milliseconds(500)) {
                 lastDiag = now;
                 static constexpr const char* kGaits[4] = { "none", "walk", "run", "sprint" };
                 constexpr float kRad = 57.29578f;
                 if (DiagBudget())
-                    LOG_INFO("movement: {} {} - stick {} deg, velocity {:.0f} at {:.0f} deg, cap {:.0f} (forward {:.0f} = engine {:.0f} x slope "
-                             "{:.2f}; L/R/B {:.2f}/{:.2f}/{:.2f}){}",
+                    LOG_INFO("movement: {} {} - stick {} deg, velocity {:.0f} at {:.0f} deg, cap {:.0f} (forward {:.0f} = engine {:.0f} at {:.0f} deg "
+                             "x slope {:.2f}; L/R/B {:.2f}/{:.2f}/{:.2f}){}",
                              in.mode == move::Mode::Strafe ? "strafe" : "orient", kGaits[static_cast<int>(in.gait) & 3],
                              haveStick ? std::format("{:.0f}", WrapPi(stickHeading - s.yaw) * kRad) : std::string("none"), speed,
-                             WrapPi(std::atan2(s.vx, s.vy) - s.yaw) * kRad, CapNow(caps, in, s), caps.forward, full, sl.scale, caps.left, caps.right,
-                             caps.back, in.airborne ? ", airborne" : "");
+                             WrapPi(std::atan2(s.vx, s.vy) - s.yaw) * kRad, CapNow(caps, in, s), caps.forward, full, engineDir * kRad, sl.scale,
+                             caps.left, caps.right, caps.back, in.airborne ? ", airborne" : "");
                 if (DiagBudget())
                     LOG_INFO("movement: thread {} - raw stick ({:.2f}, {:.2f}), camera yaw {:.1f}, stick heading {:.1f}, body {:.1f} -> facing "
                              "{:.1f} (turn {:.1f} deg/s), moving toward {:.1f}",
