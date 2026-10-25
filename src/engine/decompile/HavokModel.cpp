@@ -27,6 +27,7 @@
 #include <set>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -1041,6 +1042,16 @@ std::shared_ptr<io::SchemaObject> makeObj(const schema::SchemaRegistry& reg, con
     return so;
 }
 
+/// @brief A Havok-XML string value as CB's model holds it: Havok's null-string marker (U+2400, written `&#9216;`)
+///        reads as the empty string, which is how the reflective master holds a null string.
+/// @note Why: kept as the marker, an unset string (a sync clip's role prefix) diffed against the master's '' and
+///       the converter emitted a patch setting it to the marker; BSSynchronizedClipGenerator binds and samples its
+///       role by that prefix, which then matches no track.
+std::string havokXmlString(const std::string& text) {
+    static constexpr std::string_view kNullMarker = "\xE2\x90\x80";
+    return text == kNullMarker ? std::string() : text;
+}
+
 // Fill an already-created SchemaObject's fields from its tagfile <hkobject> node. `idMap` resolves refs
 // by CANONICAL id (populated in pass 1, so every top-level id — base #NNNN or new-node #code$N — exists).
 // Inline structs recurse.
@@ -1062,7 +1073,7 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
         switch (f.kind) {
             case FieldKind::Scalar:  val.raw = parseScalarRaw(cls, f, p->text, syms, err); if (!err.empty()) return; break;
             case FieldKind::String:
-            case FieldKind::CString: val.str = p->text; break;
+            case FieldKind::CString: val.str = havokXmlString(p->text); break;
             case FieldKind::Vector4:
             case FieldKind::Quaternion: val.raw = parseVec4Raw(p->text); break;
             case FieldKind::Ptr: {
@@ -1088,7 +1099,7 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
                 break;
             }
             case FieldKind::StringArray:
-                for (const auto& c : p->children) if (c.tag == "hkcstring") val.strs.push_back(c.text);
+                for (const auto& c : p->children) if (c.tag == "hkcstring") val.strs.push_back(havokXmlString(c.text));
                 break;
             case FieldKind::Vec4Array: {
                 for (const std::string& g : splitVec4s(p->text)) {

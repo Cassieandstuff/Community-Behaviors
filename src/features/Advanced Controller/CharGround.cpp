@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <core/debug/Settings.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <mutex>
@@ -18,6 +19,8 @@
 namespace CB::feature::controller {
 
     namespace {
+
+        std::atomic<bool> g_playerGraphMoves{ false };
 
         /// @brief hkpShape::getAabb, vtable slot 7 (the schema still calls it unk_07).
         /// @note Proven twice in the exe: bhkCharacterControllerCinfo (0x140e9cdf0) and hkpWorldLinearCaster
@@ -62,6 +65,21 @@ namespace CB::feature::controller {
         static const std::uintptr_t vtable = REL::Relocation<std::uintptr_t>(RE::VTABLE_bhkCharProxyController[1]).address();
         return *reinterpret_cast<const std::uintptr_t*>(&ctrl) == vtable;
     }
+
+    const char* GraphMovesActor(RE::Actor* actor)
+    {
+        static const RE::BSFixedString animationDriven("bAnimationDriven");
+        static const RE::BSFixedString isSynced("bIsSynced");
+        if (!actor) return "";
+        bool        on   = false;
+        const char* flag = "";
+        if (actor->GetGraphVariableBool(animationDriven, on) && on) flag = "bAnimationDriven";
+        else if (actor->GetGraphVariableBool(isSynced, on) && on) flag = "bIsSynced";
+        if (actor == RE::PlayerCharacter::GetSingleton()) g_playerGraphMoves.store(flag[0] != 0, std::memory_order_relaxed);
+        return flag;
+    }
+
+    bool PlayerGraphMovesPublished() { return g_playerGraphMoves.load(std::memory_order_relaxed); }
 
     const char* Name(Ground g) { return g == Ground::Grounded ? "Grounded" : "Airborne"; }
 

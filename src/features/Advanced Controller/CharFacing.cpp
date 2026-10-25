@@ -135,17 +135,14 @@ namespace CB::feature::controller {
             return actor->AsActorState()->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone || actor->IsBlocking() || actor->WhoIsCasting() != 0;
         }
 
-        /// @brief The graph flag under which the graph drives the speed itself (animation-driven, speed-synced or
-        ///        synced), the frame then left alone; empty when none is set.
+        /// @brief The graph flag under which the graph drives the speed itself (ch::GraphMovesActor's, or speed-synced),
+        ///        the frame then left alone; empty when none is set.
         const char* GraphDrivesSpeed(RE::Actor* actor)
         {
-            static const RE::BSFixedString animationDriven("bAnimationDriven");
             static const RE::BSFixedString speedSynced("bSpeedSynced");
-            static const RE::BSFixedString isSynced("bIsSynced");
+            if (const char* moves = GraphMovesActor(actor); *moves) return moves;
             bool on = false;
-            if (actor->GetGraphVariableBool(animationDriven, on) && on) return "bAnimationDriven";
             if (actor->GetGraphVariableBool(speedSynced, on) && on) return "bSpeedSynced";
-            if (actor->GetGraphVariableBool(isSynced, on) && on) return "bIsSynced";
             return "";
         }
 

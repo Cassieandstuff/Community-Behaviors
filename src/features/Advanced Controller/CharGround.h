@@ -28,6 +28,18 @@ namespace CB::feature::controller {
     /// @brief The controllers CB's decision layer runs: the player's proxy controller (spec scope: player first).
     inline bool IsManaged(const hk::bhkCharacterController& ctrl) { return IsPlayer(&ctrl) && IsProxy(ctrl); }
 
+    /// @brief The graph flag under which the graph moves `actor` itself (bAnimationDriven, bIsSynced), empty when
+    ///        neither is set: then every CB layer that steers the actor hands it to vanilla.
+    /// @note Why: a synced clip (a mount, a paired idle, furniture) moves its support character onto the scene's mark
+    ///       and advances only once the character stands within the mark's threshold (BSSynchronizedClipGenerator
+    ///       update), so a velocity of CB's in its place holds the character off the mark and the clip never advances.
+    /// @note For the player it also publishes the answer for PlayerGraphMovesPublished.
+    const char* GraphMovesActor(RE::Actor* actor);
+    /// @brief The player's GraphMovesActor answer as of its last call (false before any).
+    /// @note For the proxy's constraint planes: integrate runs under the world's write lock (see PublishVerdict), so they
+    ///       read this instead of the graph.
+    bool PlayerGraphMovesPublished();
+
     /// @brief The live hull in Havok world space, read from the phantom's shape AABB (so DCA's reshapes are seen).
     struct Hull {
         bool                     valid  = false;

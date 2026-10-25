@@ -11,6 +11,7 @@
 // need its class, id, and fields (scalars, #NNNN refs, arrays, inline structs).
 
 #include <cctype>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -45,6 +46,49 @@ inline void skipWs(std::string_view s, std::size_t& i) {
     while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
 }
 
+/// @brief `cp` appended to `out` as UTF-8.
+inline void appendUtf8(std::string& out, std::uint32_t cp) {
+    if (cp < 0x80) { out += static_cast<char>(cp); return; }
+    if (cp < 0x800) {
+        out += static_cast<char>(0xC0 | (cp >> 6));
+    } else if (cp < 0x10000) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    } else {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    }
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+}
+
+/// @brief A numeric character reference (`&#N;` / `&#xH;`) at s[i] appended to `out` as UTF-8; false (nothing
+///        consumed) when s[i] does not start a well-formed one.
+/// @note Why: Havok's XML writer spells a null string `&#9216;` (U+2400, the visible-null symbol). Kept as its 7
+///       literal characters it read as a real string: a mod's untouched `syncAnimPrefix` became "&#9216;" and the
+///       converter patched it over vanilla's empty prefix.
+inline bool appendCharRef(std::string& out, std::string_view s, std::size_t& i) {
+    if (s.compare(i, 2, "&#") != 0) return false;
+    std::size_t j   = i + 2;
+    const bool  hex = j < s.size() && (s[j] == 'x' || s[j] == 'X');
+    if (hex) ++j;
+    std::uint32_t cp     = 0;
+    const std::size_t d0 = j;
+    for (; j < s.size() && j - d0 < 8; ++j) {
+        const char c = s[j];
+        int        v = -1;
+        if (c >= '0' && c <= '9') v = c - '0';
+        else if (hex && c >= 'a' && c <= 'f') v = c - 'a' + 10;
+        else if (hex && c >= 'A' && c <= 'F') v = c - 'A' + 10;
+        if (v < 0) break;
+        cp = cp * (hex ? 16u : 10u) + static_cast<std::uint32_t>(v);
+    }
+    if (j == d0 || j >= s.size() || s[j] != ';' || cp == 0 || cp > 0x10FFFF) return false;
+    appendUtf8(out, cp);
+    i = j + 1;
+    return true;
+}
+
 // Decode the entities a Havok tagfile actually emits.
 inline void appendDecoded(std::string& out, std::string_view s) {
     for (std::size_t i = 0; i < s.size();) {
@@ -54,6 +98,7 @@ inline void appendDecoded(std::string& out, std::string_view s) {
             if (s.compare(i, 5, "&amp;") == 0)       { out += '&'; i += 5; continue; }
             if (s.compare(i, 6, "&quot;") == 0)      { out += '"'; i += 6; continue; }
             if (s.compare(i, 6, "&apos;") == 0)      { out += '\''; i += 6; continue; }
+            if (appendCharRef(out, s, i)) continue;
         }
         out += s[i++];
     }
@@ -150,7 +195,8 @@ inline Node parseElement(std::string_view s, std::size_t& i) {
 
 }  // namespace detail
 
-/// @brief `s` with the five XML entities a Havok tagfile emits decoded (`&lt; &gt; &amp; &quot; &apos;`).
+/// @brief `s` with the five XML entities a Havok tagfile emits decoded (`&lt; &gt; &amp; &quot; &apos;`), and
+///        numeric character references.
 inline std::string Unescape(std::string_view s) {
     std::string out;
     out.reserve(s.size());
