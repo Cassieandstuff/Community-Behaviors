@@ -5,7 +5,7 @@
 #include "CharGround.h"
 #include "CharMovementModel.h"
 
-#include <platform/external/TrueDirectionalMovement/TrueDirectionalMovementAPI.h>
+#include <features/Camera/Camera.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
 
@@ -15,17 +15,19 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <limits>
 #include <mutex>
 #include <string>
 
 /// @file
 /// @brief The player's frame driver (char_movement_model): each frame the engine computes its frame from forward-only
 ///        input, so its speed is the gait's forward speed with every multiplier; CB then steps the movement model
-///        (CharMovementModel) with the stick, that speed as the cap, the slope and MOVT's direction ratios, hands the
-///        engine the model's velocity, and TDM the model's facing.
-/// @note Without TDM the feature stays off (logged once). Yaw control is requested with multiplier 0, so TDM applies
-///       CB's yaw at once and the turning dynamics are the model's spring, not TDM's rotation speed. Needs TDM's API V3.
-/// @warning TDM answers BadThread off its own thread: every yaw call goes through OnTdmThread.
+///        (CharMovementModel) with the stick, that speed as the cap, the slope and MOVT's direction ratios, and hands
+///        the engine the model's velocity and facing.
+/// @note It holds the player only while CB's camera drives the third-person camera (camera::ControlYaw): the stick is
+///       relative to the camera's yaw. Otherwise the frame stays the engine's.
+/// @note The facing goes through the frame's turn rate, which Actor_ApplyFrameMovement applies to the heading before it
+///       moves the actor (platform/game/Movement.h), so the direction is written relative to the new heading.
 
 namespace CB::feature::controller {
 
@@ -37,20 +39,9 @@ namespace CB::feature::controller {
 
         /// @brief Below this stick length the player is not asking for a direction.
         constexpr float kStickDeadzone = 0.1f;
-        constexpr float kTwoPi         = 6.2831853f;
-
-        /// @note V3 is the newest interface CB needs (V2's yaw control, V3's mode and unaltered input), and the one to
-        ///       ask for: TDM refuses a version newer than its own (v2.2.6 answers V5 with "wrong interface version").
-        TDM_API::IVTDM3* Api()
-        {
-            static TDM_API::IVTDM3* const api = [] {
-                auto* p = static_cast<TDM_API::IVTDM3*>(TDM_API::RequestPluginAPI(TDM_API::InterfaceVersion::V3));
-                if (p) LOG_INFO("movement: True Directional Movement API V3 acquired (TDM thread {})", p->GetTDMThreadId());
-                else   LOG_WARN("movement: True Directional Movement (V3 API) not found - CB's movement model stays off");
-                return p;
-            }();
-            return api;
-        }
+        /// @brief How far ahead of the player the camera-facing target sits: far enough that its bearing is the
+        ///        camera's yaw from anywhere the player moves within a frame.
+        constexpr float kFaceCameraReach = 100000.0f;
 
         RE::Actor* PlayerOf(RE::MovementControllerNPC* controller)
         {
@@ -60,17 +51,17 @@ namespace CB::feature::controller {
             return mc && static_cast<void*>(mc.get()) == controller ? player : nullptr;
         }
 
-        bool Holding(TDM_API::DirectionalMovementMode mode)
-        {
-            return mode == TDM_API::DirectionalMovementMode::kDirectional || mode == TDM_API::DirectionalMovementMode::kTargetLock;
-        }
+        bool        g_init = false;
+        move::State g_state;
 
-        /// @note The player's frame movement runs on one thread at a time; `g_haveControl` is written only on TDM's
-        ///       thread (OnTdmThread) and read by the frame to skip work while there is nothing to hold or release.
-        bool              g_init = false;
-        move::State       g_state;
-        std::atomic<bool> g_haveControl{ false };
-        std::atomic<bool> g_loggedThread{ false };
+        /// @brief The raw stick this frame (PlayerControls moveInputVec before CB rewrites it), for StickHeading.
+        /// @note Published, not re-read: the rewrite stands while the engine computes the frame, and readers on other
+        ///       threads (the graph's predictor) must never see it as the stick.
+        struct Stick {
+            std::atomic<float>  x{ 0.0f }, y{ 0.0f };
+            std::atomic<double> at{ -1.0e9 };
+        };
+        Stick g_stick;
 
         /// @brief The smoothed slope factor (ch::SlopeSpeedScale) the cap carries.
         struct Slope {
@@ -101,53 +92,44 @@ namespace CB::feature::controller {
 
         double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
-        /// @brief Runs `fn` on TDM's thread: now when this is it, else as an SKSE task (the main thread).
-        template <class Fn>
-        void OnTdmThread(TDM_API::IVTDM3* api, Fn fn)
+        constexpr float kNoDirection = std::numeric_limits<float>::quiet_NaN();
+
+        /// @brief Turns the frame toward `yaw`: a turn rate that lands the heading on it this frame, and the move
+        ///        direction relative to that new heading.
+        /// @param worldDir the direction to move in (world yaw), or kNoDirection to leave `angles[2]` as it is
+        void Face(game::MovementFrame* out, float heading, float yaw, float worldDir, float dt)
         {
-            if (::GetCurrentThreadId() == api->GetTDMThreadId()) return fn();
-            bool expected = false;
-            if (g_loggedThread.compare_exchange_strong(expected, true))
-                LOG_INFO("movement: frame runs on thread {}, TDM on {} - yaw calls are queued as SKSE tasks", ::GetCurrentThreadId(),
-                         api->GetTDMThreadId());
-            SKSE::GetTaskInterface()->AddTask(fn);
+            out->turn[2] = dt > 0.0f ? WrapPi(yaw - heading) / dt : 0.0f;
+            if (!std::isnan(worldDir)) out->angles[2] = WrapPi(worldDir - (dt > 0.0f ? yaw : heading));
         }
 
-        void Control(TDM_API::IVTDM3* api, bool want, float yaw)
+        /// @brief The world heading `stick` asks for, read relative to the camera's yaw (+y = away from the camera).
+        bool StickHeadingOf(RE::NiPoint2 stick, float cameraYaw, float& heading)
         {
-            OnTdmThread(api, [api, want, yaw] {
-                const auto handle = SKSE::GetPluginHandle();
-                if (want && !g_haveControl) {
-                    const auto r = api->RequestYawControl(handle, 0.0f);
-                    g_haveControl = r == TDM_API::APIResult::OK || r == TDM_API::APIResult::AlreadyGiven;
-                    LOG_INFO("movement: yaw control {} (TDM result {})", g_haveControl ? "taken" : "refused", static_cast<int>(r));
-                } else if (!want && g_haveControl) {
-                    api->ReleaseYawControl(handle);
-                    g_haveControl = false;
-                    LOG_INFO("movement: yaw control released to TDM");
-                }
-                if (want && g_haveControl) {
-                    float a = std::fmod(yaw, kTwoPi);
-                    if (a < 0.0f) a += kTwoPi;
-                    api->SetPlayerYaw(handle, a);
-                }
-            });
+            if (stick.x * stick.x + stick.y * stick.y < kStickDeadzone * kStickDeadzone) return false;
+            heading = cameraYaw + std::atan2(stick.x, stick.y);
+            return true;
         }
 
-        /// @brief While CB holds the yaw, the move input is CB's to rewrite: forward, at the stick's length.
+        /// @brief While CB holds the player, the move input is CB's to rewrite: forward, at the stick's length.
         /// @note Why: the engine then computes a native forward frame (forward direction, forward MOVT speed with every
-        ///       multiplier), which is the model's cap; the direction is the model's, written after. TDM's ProcessInput
-        ///       returns before its own rewrite while another plugin holds the yaw, so the raw stick would reach the game.
-        ///       The player-controls agents read PlayerControls::data.moveInputVec while computing this frame, so it is
-        ///       rewritten before `next`. The stick comes from TDM's GetActualMovementInput, never from moveInputVec.
-        void RewriteInput(TDM_API::IVTDM3* api)
+        ///       multiplier), which is the model's cap; the direction is the model's, written after. The player-controls
+        ///       agents read PlayerControls::data.moveInputVec while computing this frame, so it is rewritten before
+        ///       `next` and the raw stick put back after.
+        /// @note PlayerControls rebuilds moveInputVec from zero on every input dispatch (0x14079a970), so outside the
+        ///       frame it is the raw stick.
+        void RewriteInput(RE::PlayerControls* controls, RE::NiPoint2 raw)
         {
-            const RE::NiPoint2 stick = api->GetActualMovementInput();
-            const float        len   = std::sqrt(stick.x * stick.x + stick.y * stick.y);
+            const float len = std::sqrt(raw.x * raw.x + raw.y * raw.y);
             if (len < kStickDeadzone) return;
-            auto* controls = RE::PlayerControls::GetSingleton();
-            if (!controls) return;
             controls->data.moveInputVec = RE::NiPoint2(0.0f, (std::min)(1.0f, len));
+        }
+
+        /// @brief Whether the player is doing something aimed (an attack or a bow, blocking, casting): then the body
+        ///        faces the camera and strafes.
+        bool Aiming(RE::Actor* actor)
+        {
+            return actor->AsActorState()->GetAttackState() != RE::ATTACK_STATE_ENUM::kNone || actor->IsBlocking() || actor->WhoIsCasting() != 0;
         }
 
         /// @brief The graph flag under which the graph drives the speed itself (animation-driven, speed-synced or
@@ -256,10 +238,10 @@ namespace CB::feature::controller {
 
         void OnFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
         {
-            RE::Actor* player  = out ? PlayerOf(controller) : nullptr;
-            auto*      api     = player ? Api() : nullptr;
-            auto*      process = player ? player->GetActorRuntimeData().currentProcess : nullptr;
-            auto*      mh      = process ? process->middleHigh : nullptr;
+            RE::Actor* player   = out ? PlayerOf(controller) : nullptr;
+            auto*      controls = player ? RE::PlayerControls::GetSingleton() : nullptr;
+            auto*      process  = player ? player->GetActorRuntimeData().currentProcess : nullptr;
+            auto*      mh       = process ? process->middleHigh : nullptr;
 
             /// @note The engine's own speed state is MiddleHighProcessData::currentMovementSpeed (+0x2a8): the frame
             ///       movement starts from it, PlayerControls (0x14079d630) reads it as the current speed and writes the
@@ -281,9 +263,15 @@ namespace CB::feature::controller {
                 }
             }
 
-            const auto mode = api ? api->GetDirectionalMovementMode() : TDM_API::DirectionalMovementMode::kDisabled;
-            const bool hold = api && Holding(mode) && RE::PlayerCamera::GetSingleton() &&
-                              RE::PlayerCamera::GetSingleton()->IsCurrentState(RE::CameraStates::kThirdPerson, RE::CameraStates::kVRThirdPerson);
+            RE::NiPoint2 raw(0.0f, 0.0f);
+            if (controls) {
+                raw = controls->data.moveInputVec;
+                g_stick.x.store(raw.x, std::memory_order_relaxed);
+                g_stick.y.store(raw.y, std::memory_order_relaxed);
+                g_stick.at.store(Now(), std::memory_order_release);
+            }
+            float        cameraYaw   = 0.0f;
+            const bool   hold        = controls && camera::ControlYaw(cameraYaw);
             bool         haveSpeaker = false;
             RE::NiPoint3 speakerAt;
             const Steer  steer = hold ? WhoSteers(controller, haveSpeaker, speakerAt) : Steer::Player;
@@ -301,10 +289,12 @@ namespace CB::feature::controller {
                 lastSteer = steer;
             }
             float      stickHeading = 0.0f;
-            const bool haveStick    = steer == Steer::Player && api && StickHeading(stickHeading);
-            if (api && g_haveControl && Holding(mode) && steer == Steer::Player) RewriteInput(api);
+            const bool driving      = hold && steer == Steer::Player;
+            const bool haveStick    = driving && StickHeadingOf(raw, cameraYaw, stickHeading);
+            if (driving) RewriteInput(controls, raw);
             next(controller, deltaTime, out);
-            if (!api) return;
+            if (driving) controls->data.moveInputVec = raw;
+            if (!player) return;
 
             const float heading = player->GetHeading(false);
             const float full    = out->speed;
@@ -327,7 +317,6 @@ namespace CB::feature::controller {
                 s       = move::State{ out->speed * std::sin(dir), out->speed * std::cos(dir), heading, 0.0f };
                 g_init  = hold && !vanilla;
                 es      = EngineSpeed{};
-                if (hold || g_haveControl) Control(api, hold && !vanilla, heading);
                 if (!hold || graphDrives || vanilla) return;
             }
 
@@ -346,7 +335,7 @@ namespace CB::feature::controller {
                 }
                 out->speed     = 0.0f;
                 out->angles[2] = 0.0f;
-                Control(api, true, s.yaw);
+                Face(out, heading, s.yaw, kNoDirection, deltaTime);
                 return;
             }
 
@@ -359,20 +348,21 @@ namespace CB::feature::controller {
                 mh->unk2AC = full;
             }
 
-            /// @note Keep the spring on the heading the game actually has (TDM's own turns, a teleport, a sync scene).
+            /// @note Keep the spring on the heading the game actually has (a teleport, a sync scene, the engine's own turns).
             s.yaw = heading + WrapPi(s.yaw - heading);
 
-            move::Input in;
-            in.mode      = mode == TDM_API::DirectionalMovementMode::kTargetLock ? move::Mode::Strafe : move::Mode::Orient;
+            const RE::NiPoint3 pos = player->GetPosition();
+            move::Input        in;
+            in.mode      = Aiming(player) ? move::Mode::Strafe : move::Mode::Orient;
             in.gait      = GaitOf(player);
             in.airborne  = Airborne(player);
             in.haveStick = haveStick;
             if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
+            /// @note Facing the camera is strafing toward a target far along the camera's yaw.
             if (in.mode == move::Mode::Strafe) {
-                if (const auto target = api->GetCurrentTarget().get()) {
-                    const RE::NiPoint3 at = target->GetPosition();
-                    in.haveTarget = true, in.targetX = at.x, in.targetY = at.y;
-                }
+                in.haveTarget = true;
+                in.targetX    = pos.x + kFaceCameraReach * std::sin(cameraYaw);
+                in.targetY    = pos.y + kFaceCameraReach * std::cos(cameraYaw);
             }
 
             /// @note The slope factor follows the ground under the player along the velocity, smoothed so its drops
@@ -393,14 +383,13 @@ namespace CB::feature::controller {
             DirectionRatios(player, in.gait, caps);
             LogSpeeds(player, in.gait, full);
 
-            const RE::NiPoint3 pos = player->GetPosition();
             move::Step(s, in, caps, pos.x, pos.y, deltaTime);
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;
-            out->angles[2]    = speed > 0.5f ? WrapPi(std::atan2(s.vx, s.vy) - heading) : 0.0f;
-            g_engineSpeed     = EngineSpeed{ true, full, speed };
-            Control(api, true, s.yaw);
+            out->angles[2]    = 0.0f;
+            Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
+            g_engineSpeed = EngineSpeed{ true, full, speed };
 
             move::Publish(move::Snapshot{ s, in, caps, pos.x, pos.y });
             /// @note Diagnostic: twice a second while moving, the model's inputs and output.
@@ -416,6 +405,11 @@ namespace CB::feature::controller {
                              haveStick ? std::format("{:.0f}", WrapPi(stickHeading - s.yaw) * kRad) : std::string("none"), speed,
                              WrapPi(std::atan2(s.vx, s.vy) - s.yaw) * kRad, CapNow(caps, in, s), caps.forward, full, sl.scale, caps.left, caps.right,
                              caps.back, in.airborne ? ", airborne" : "");
+                if (DiagBudget())
+                    LOG_INFO("movement: thread {} - raw stick ({:.2f}, {:.2f}), camera yaw {:.1f}, stick heading {:.1f}, body {:.1f} -> facing "
+                             "{:.1f} (turn {:.1f} deg/s), moving toward {:.1f}",
+                             ::GetCurrentThreadId(), raw.x, raw.y, cameraYaw * kRad, haveStick ? stickHeading * kRad : -1.0f, heading * kRad,
+                             s.yaw * kRad, out->turn[2] * kRad, std::atan2(s.vx, s.vy) * kRad);
             }
             {
                 std::scoped_lock lock(g_published.lock);
@@ -450,18 +444,11 @@ namespace CB::feature::controller {
 
     bool StickHeading(float& heading)
     {
-        auto* api    = Api();
-        auto* player = RE::PlayerCharacter::GetSingleton();
-        auto* camera = RE::PlayerCamera::GetSingleton();
-        if (!api || !player || !camera) return false;
-        if (!Holding(api->GetDirectionalMovementMode())) return false;
-        if (!camera->IsCurrentState(RE::CameraStates::kThirdPerson, RE::CameraStates::kVRThirdPerson)) return false;
-        const RE::NiPoint2 stick = api->GetActualMovementInput();
-        if (stick.x * stick.x + stick.y * stick.y < kStickDeadzone * kStickDeadzone) return false;
-        const auto* third     = static_cast<const RE::ThirdPersonState*>(camera->currentState.get());
-        const float cameraYaw = player->GetHeading(false) + (third->freeRotationEnabled ? third->freeRotation.x : 0.0f);
-        heading               = cameraYaw + std::atan2(stick.x, stick.y);
-        return true;
+        float cameraYaw = 0.0f;
+        if (!camera::ControlYaw(cameraYaw)) return false;
+        if (Now() - g_stick.at.load(std::memory_order_acquire) > kStale) return false;
+        const RE::NiPoint2 stick(g_stick.x.load(std::memory_order_relaxed), g_stick.y.load(std::memory_order_relaxed));
+        return StickHeadingOf(stick, cameraYaw, heading);
     }
 
 }  // namespace CB::feature::controller

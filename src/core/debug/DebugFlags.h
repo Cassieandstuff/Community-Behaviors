@@ -131,19 +131,27 @@ namespace CB::core::debug {
           "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
           "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
           "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
+        { "camera", FlagKind::IniBool, "Camera", "bEnable", false, false,
+          "CB camera",
+          "CB drives the third-person camera: it keeps its own world yaw and pitch, so the body never snaps to the "
+          "camera and turning the body never swings the camera; it follows a damped anchor (the player plus the "
+          "Camera3rd bone's height) with vanilla's shoulder offsets, zoom and pitch zoom, then its own collision. "
+          "Off while True Directional Movement or SmoothCam is loaded (they drive the same camera). Mounts, first person, killcams "
+          "and furniture stay vanilla. SE and AE. Unproven in game." },
         { "char_movement_model", FlagKind::IniBool, "Character", "bMovementModel", false, false,
-          "Movement model (GASP, through True Directional Movement)",
+          "Movement model (GASP)",
           "The player moves like Unreal's Game Animation Sample character: the velocity accelerates toward the stick "
           "(560 units/s2, easing to 210 while sprinting fast), friction 5 swings it into turns and braking (1400 units/s2, "
           "350 when slowing from a faster gait) stops it, capped at the gait's own speed (every multiplier kept) times the "
           "slope factor: downhill x(1 + fSlopeSpeedDown x sin) up to 1.5 (default 1.0), uphill x(1 - fSlopeSpeedUp x sin) "
           "down to 0.7 (default 0.5), smoothed (it reads the ground states' floor, so needs bGroundStates or bPlanes). "
-          "CB holds TDM's yaw: the body turns toward where it is moving (halflife 0.1 s, at most 200 deg/s in the air). "
-          "Under TDM's target lock the body faces the target and strafes, its speed blending to MOVT's side and back "
-          "speeds by direction. CB also owns sprinting: it stays on while toggled, pauses while blocking, airborne or (under "
-          "target lock) moving more than 50 deg from the facing, and ends on stopping, running out of stamina or "
-          "overencumbrance; you can jump while sprinting. Off under bAnimationDriven, bSpeedSynced and bIsSynced. Needs "
-          "TDM (API V3); off without it. AE only. Unproven in game." },
+          "The stick is relative to CB's camera and the body turns toward where it is moving (halflife 0.1 s, at most "
+          "200 deg/s in the air); while attacking, aiming, blocking or casting it faces the camera and strafes, its speed "
+          "blending to MOVT's side and back speeds by direction. CB also owns sprinting: it stays on while toggled, "
+          "pauses while blocking, airborne or (while strafing) moving more than 50 deg from the facing, and ends on "
+          "stopping, running out of stamina or overencumbrance; you can jump while sprinting. Off under "
+          "bAnimationDriven, bSpeedSynced and bIsSynced. Needs bCamera (in third person); off without it. AE only. "
+          "Unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "

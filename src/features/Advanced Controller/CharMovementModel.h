@@ -12,11 +12,12 @@
 ///        GASP's centimetre values are converted at 0.7 game units per cm.
 /// @note  The one deliberate departure from GASP: the facing is the controller's, never the animation's. GASP snaps the
 ///        capsule and smooths only the visual root (Offset Root Bone); in Skyrim the actor's heading is the gameplay
-///        heading (TDM's yaw, combat, AI), so the smoothing is a facing spring here.
+///        heading (CB's facing, combat, AI), so the smoothing is a facing spring here.
 
 namespace CB::feature::controller::move {
 
-    /// @brief TDM's directional mode orients to movement; its target lock strafes.
+    /// @brief Orient turns the facing toward the movement; Strafe faces a target (CharFacing: the camera's yaw while
+    ///        attacking, aiming, blocking or casting).
     enum class Mode : std::uint8_t { Orient, Strafe };
 
     /// @brief CMC's walking numbers as GASP's UpdateMovement_PreCMC sets them every tick, converted to game units.
@@ -94,7 +95,8 @@ namespace CB::feature::controller::move {
         Caps  caps;
         float px = 0.0f, py = 0.0f;   ///< the player's position that frame
     };
-    /// @brief False while the model is off (bMovementModel, or no TDM) or no frame ran within the last half second.
+    /// @brief False while the model is off (bMovementModel, or CB's camera not driving third person) or no frame ran
+    ///        within the last half second.
     /// @note  Thread-safe: the frame writes it; the predictor (physics), the sprint rules and the HUD read it.
     bool Current(Snapshot& out);
     /// @brief The frame's half of Current.

@@ -12,7 +12,10 @@ namespace CB::platform::game {
     /// @note Read by Actor_ApplyFrameMovement (0x1406698d0 AE): `speed` (game units/s) goes to the graph's `Speed`
     ///       (MiddleHighProcessData::currentMovementSpeed) AND, times the unit direction built from `angles` and dt,
     ///       becomes the translation handed to Actor::Move → bhkCharacterController::UpdatePhysics. One number feeds
-    ///       both animation and physics. `angles[2]` goes to the process at +0xb8; the other fields are unread.
+    ///       both animation and physics. `angles[2]` goes to the process at +0xb8. `turn` is a rate (rad/s): in an
+    ///       attached cell it calls Actor::SetHeading(heading + turn[2] * dt) — skipped for the player while
+    ///       PlayerCharacter+0xbe5 bit 2 is set — then turn[0] (and turn[1]) go to the pitch or to the character
+    ///       controller, all before Actor::Move takes the translation, so the move sees the new heading.
     struct MovementFrame {
         float angles[3];
         float speed;
