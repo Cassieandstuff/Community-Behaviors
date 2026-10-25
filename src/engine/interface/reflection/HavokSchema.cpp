@@ -313,7 +313,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     std::vector<std::string> semanticsTexts;
     /// @note A descriptor's identity is its `name:` within its `kind:`; folders are decoration. A second file
     ///       claiming a loaded name fails the load, naming both files, instead of silently winning by walk order.
-    std::map<std::string, fs::path> classFrom, enumFrom;
+    std::map<std::string, fs::path> classFrom, enumFrom, shimFrom;
     const auto claim = [&err](std::map<std::string, fs::path>& seen, const std::string& name, const fs::path& p,
                               const char* what) {
         const auto [it, fresh] = seen.emplace(name, p);
@@ -359,6 +359,18 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             /// @note Compile-trace probes ride on the schema (they name classes and fields) but are not part of it:
             ///       CB::engine::compile::trace reads them itself.
             continue;
+        } else if (kind == "compatshim") {
+            /// @note A compatibility shim (schema/metadata/compatshim/<name>/) rides with the schema but is not part of
+            ///       it: no class, no layout. Its text is kept by name for its own reader (CompatShim).
+            std::string name;
+            try {
+                std::string copy = text;
+                c4::yml::Tree st = c4::yml::parse_in_place(c4::to_substr(copy));
+                name = childStr(st.rootref(), "name");
+            } catch (const std::exception& e) { err = p.string() + ": parse: " + e.what(); return false; }
+            if (name.empty()) { err = p.string() + ": compatshim without a 'name'"; return false; }
+            if (!claim(shimFrom, name, p, "compatshim")) return false;
+            m_compatShims[name] = text;
         } else if (kind.empty() || kind == "metadata") {
             /// @note `kind: metadata` = a Bethesda text-cache record (adsf/asdsf/speeddata) MetaText reads and writes:
             ///       no signature or size, so no packfile path ever meets it. It shares the class namespace.
@@ -367,7 +379,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             if (!claim(classFrom, cs.name, p, "class")) return false;
             m_byName[cs.name] = std::move(cs);
         } else {
-            err = p.string() + ": unknown kind '" + kind + "' (enum, semantics, probe, metadata, or none for a class)";
+            err = p.string() + ": unknown kind '" + kind + "' (enum, semantics, probe, compatshim, metadata, or none for a class)";
             return false;
         }
     }
@@ -523,6 +535,11 @@ void SchemaRegistry::BuildLayouts() {
 const EnumDef* SchemaRegistry::FindEnum(const std::string& name) const {
     auto it = m_enums.find(name);
     return it == m_enums.end() ? nullptr : &it->second;
+}
+
+const std::string* SchemaRegistry::CompatShim(const std::string& name) const {
+    auto it = m_compatShims.find(name);
+    return it == m_compatShims.end() ? nullptr : &it->second;
 }
 
 std::string SchemaRegistry::MergeTag(const std::string& className, const std::string& field) const {

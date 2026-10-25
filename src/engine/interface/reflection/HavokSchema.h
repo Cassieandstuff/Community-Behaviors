@@ -201,7 +201,7 @@ public:
     SchemaRegistry& operator=(SchemaRegistry&&)      = default;
 
     /// @brief Load every *.yaml/*.yml under `root`, recursively, dispatched on its top-level `kind:` (none = a class;
-    ///        `metadata`, `enum`, `semantics`, `probe`). Non-yaml files are ignored.
+    ///        `metadata`, `enum`, `semantics`, `probe`, `compatshim`). Non-yaml files are ignored.
     /// @note Folders carry no meaning. A name defined twice within a kind (classes and metadata records share one
     ///       namespace) or an unknown kind fails the load, with `err` naming the files.
     bool LoadDir(const std::string& root, std::string& err);
@@ -222,6 +222,11 @@ public:
     // Enum definitions (`kind: enum` descriptors). Find one by its type name (e.g. "PlaybackMode").
     // Empty until LoadDir has run over a tree that carries enum descriptors.
     const EnumDef* FindEnum(const std::string& name) const;
+
+    /// @brief The text of the `kind: compatshim` descriptor named `name` (e.g. "boneorder"), or nullptr.
+    /// @note A shim is compatibility data the schema carries for a reader of its own, not a class: LoadDir checks only
+    ///       that it parses and names itself once.
+    const std::string* CompatShim(const std::string& name) const;
 
     /// @brief The raw `schema_version:` LoadDir read from the tree's SCHEMA.yaml stamp; empty when the tree
     ///        carried none (the unstamped source schema/). SharedRegistry() gates it against kSchemaVersion.
@@ -293,6 +298,7 @@ private:
     std::map<std::string, ClassSchema> m_byName;
     std::unordered_map<const ClassSchema*, FieldLayout> m_layouts;   ///< see Layout()
     std::map<std::string, EnumDef>     m_enums;               // `kind: enum` descriptors, keyed by enum type name
+    std::map<std::string, std::string> m_compatShims;         ///< `kind: compatshim` texts, keyed by `name:`
     std::string                        m_schemaVersion;      // SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen
 };
