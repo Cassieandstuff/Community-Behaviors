@@ -732,12 +732,27 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
             }
             case FieldKind::String:
             case FieldKind::CString:    y += f.name + ": " + text::Quote(v.str) + "\n"; break;
+            /// @note A `count:` field (hkTransform's four columns, a motor atom's three motors) renders as a list of its
+            ///       elements; a single element keeps the bare form.
             case FieldKind::Vector4:
-            case FieldKind::Quaternion: y += f.name + ": " + rvec(v.raw) + "\n"; break;
-            case FieldKind::QsTransform:
-                y += f.name + ": " + flowList(3, [&](std::size_t k) { return rvec(slice(v.raw, k, 16)); }) + "\n";
+            case FieldKind::Quaternion:
+                if (v.raw.size() <= 16) y += f.name + ": " + rvec(v.raw) + "\n";
+                else y += f.name + ": " + flowList(v.raw.size() / 16, [&](std::size_t k) { return rvec(slice(v.raw, k, 16)); }) + "\n";
                 break;
+            case FieldKind::QsTransform: {
+                const auto qs = [&](std::size_t k) { return flowList(3, [&](std::size_t j) { return rvec(slice(v.raw, k * 3 + j, 16)); }); };
+                if (v.raw.size() <= 48) y += f.name + ": " + qs(0) + "\n";
+                else y += f.name + ": " + flowList(v.raw.size() / 48, qs) + "\n";
+                break;
+            }
             case FieldKind::Ptr:
+                if (f.count > 1) {
+                    if (std::any_of(v.objs.begin(), v.objs.end(), [](const auto& o) { return o != nullptr; }))
+                        y += listText(v.objs, c, f.name, f.ref);
+                    break;
+                }
+                y += elemText(v.obj, c, f.name, f.ref);
+                break;
             case FieldKind::Struct:      y += elemText(v.obj, c, f.name, f.ref); break;
             case FieldKind::PtrArray:
             case FieldKind::StructArray:
@@ -1075,13 +1090,20 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
             case FieldKind::String:
             case FieldKind::CString: val.str = havokXmlString(p->text); break;
             case FieldKind::Vector4:
-            case FieldKind::Quaternion: val.raw = parseVec4Raw(p->text); break;
-            case FieldKind::Ptr: {
-                const std::string r = p->text;
-                if (r.size() > 1 && r[0] == '#') {
-                    auto it = idMap.find(canonId(r));
-                    if (it != idMap.end()) val.obj = it->second;
+            case FieldKind::Quaternion:
+                if (f.count <= 1) { val.raw = parseVec4Raw(p->text); break; }
+                for (const std::string& g : splitVec4s(p->text)) {
+                    const auto b = parseVec4Raw(g); val.raw.insert(val.raw.end(), b.begin(), b.end());
                 }
+                break;
+            case FieldKind::Ptr: {
+                const auto ref = [&](const std::string& r) -> std::shared_ptr<IHavokObject> {
+                    if (r.size() < 2 || r[0] != '#') return nullptr;
+                    auto it = idMap.find(canonId(r));
+                    return it != idMap.end() ? it->second : nullptr;
+                };
+                if (f.count <= 1) { val.obj = ref(p->text); break; }
+                for (const std::string& r : splitWs(p->text)) val.objs.push_back(ref(r));
                 break;
             }
             case FieldKind::PtrArray: {
@@ -1616,11 +1638,28 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
         case FieldKind::String:
         case FieldKind::CString:    v.str = ystr(n); return true;
         case FieldKind::Vector4:
-        case FieldKind::Quaternion: v.raw = vec4Strict(ystr(n)); return true;
-        case FieldKind::QsTransform:
+        case FieldKind::Quaternion:
+            if (!n.is_seq()) { v.raw = vec4Strict(ystr(n)); return true; }
             for (auto e : n) { const auto b = vec4Strict(ystr(e)); v.raw.insert(v.raw.end(), b.begin(), b.end()); }
             return true;
+        case FieldKind::QsTransform: {
+            const bool many = n.is_seq() && n.num_children() > 0 && n.first_child().is_seq();
+            for (auto e : n) {
+                if (many) for (auto q : e) { const auto b = vec4Strict(ystr(q)); v.raw.insert(v.raw.end(), b.begin(), b.end()); }
+                else { const auto b = vec4Strict(ystr(e)); v.raw.insert(v.raw.end(), b.begin(), b.end()); }
+            }
+            return true;
+        }
         case FieldKind::Ptr:
+            if (f.count > 1 && n.is_seq()) {
+                for (auto e : n) {
+                    std::shared_ptr<IHavokObject> o;
+                    if (!objectValue(e, f.ref, o, ps, f.name)) return false;
+                    v.objs.push_back(o);
+                }
+                return true;
+            }
+            return objectValue(n, f.ref, v.obj, ps, f.name);
         case FieldKind::Struct:     return objectValue(n, f.ref, v.obj, ps, f.name);
         case FieldKind::PtrArray:
         case FieldKind::StructArray:
