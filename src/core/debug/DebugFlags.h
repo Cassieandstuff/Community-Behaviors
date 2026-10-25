@@ -80,6 +80,11 @@ namespace CB::core::debug {
           "Run CB's own readers of the clip's binding index (clip activate/deactivate/isValid/rebind, the offset "
           "generator's sample, the synchronized clip's sync mark and activation) from the 64-bit slot instead of the "
           "16-bit field. Same behavior while every index fits 16 bits." },
+        { "animation64_loader", FlagKind::IniBool, "Animation64", "bLoader", false, false,
+          "Animation 64 loader + writer",
+          "Run the clip loader (AnimationFileManagerSingleton's five slots, its resolver, triple lookup and binder) and "
+          "LoadClips' index stamp from the clip's 64-bit slot, and the offset generator's loader calls with it. Same "
+          "behavior while every index fits 16 bits. AE only." },
         { "animation64_watch", FlagKind::IniBool, "Animation64", "bReaderWatch", false, false,
           "Animation 64 reader watch",
           "Hardware watchpoints on the 16-bit binding index of the newest activated clips, logging each instruction that "

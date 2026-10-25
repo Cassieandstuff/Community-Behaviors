@@ -2,6 +2,7 @@
 
 #include "features/Animation 64/BindingIndex.h"
 
+#include <platform/classes/ClassRegistry.h>
 #include <platform/hooks/hookslib.h>
 
 #include <Animation/Animation/hkaAnimationBinding.h>
@@ -71,6 +72,8 @@ namespace CB::feature::widen {
         void OnClipActivate(ClipActivate::Next, hk::hkbClipGenerator* clip, const hk::hkbContext& context)
         {
             using namespace CB::havok;
+            /// @note Its `new`s and reserve run Havok's allocation inline, which can come before kDataLoaded.
+            platform::classes::EnsureHavokGlobalsMirrored();
             if (clip->m_userData == 0 && Loader()) Loader()->queue(context, clip, HK_NULL);
 
             if (clip->m_userData == 8) {
@@ -207,6 +210,8 @@ namespace CB::feature::widen {
         void OnOffsetSample(OffsetSample::Next, hk::BSOffsetAnimationGenerator* gen, const hk::hkbContext& context)
         {
             using namespace CB::havok;
+            /// @note Its setSize calls grow hkArrays inline.
+            platform::classes::EnsureHavokGlobalsMirrored();
             const hkReal range      = gen->m_fOffsetRangeEnd - gen->m_fOffsetRangeStart;
             hkReal       percentage = (range > HK_REAL_EPSILON) ? gen->m_fOffsetVariable / range : 0.0f;
             percentage              = (percentage < 0.0f) ? 0.0f : hkMath::min2(percentage, 1.0f);
