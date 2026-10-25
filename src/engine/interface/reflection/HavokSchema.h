@@ -119,7 +119,8 @@ struct ClassSchema {
                                                  ///<        a Havok class: no signature/size; read/written by MetaText.
     bool               blankTerminated = false;  ///< @brief metadata `terminator: blank` — a blank line ends each record.
     int                frameLimit = 0;           ///< @brief metadata `framelimit: N` — a frame's line count may not exceed N
-                                                 ///<        (the engine reads it through a 16-bit truncation: 65535).
+                                                 ///<        (the engine reads it through a 16-bit truncation: 65535),
+                                                 ///<        unless the writer is told the reader takes the full count.
     std::string        unwrap;                   ///< @brief `unwrap: <field>` — a .hky convenience: a pointer/struct to this
                                                  ///<        class renders as that one field's value directly, when every other
                                                  ///<        field would emit nothing (else the full object form, so lossless).

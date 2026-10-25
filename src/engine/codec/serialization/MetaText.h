@@ -18,9 +18,16 @@ namespace CB::engine::codec::io {
 std::shared_ptr<SchemaObject> ReadMetaText(const schema::SchemaRegistry& reg, const std::string& rootClass,
                                            std::string_view text, std::string& err);
 
+struct MetaTextWriteOptions {
+    /// @brief Refuse a frame over its class's `framelimit`. Off only when the reader is known to take the full count
+    ///        (the plugin, after it lifts the engine's 16-bit line counts).
+    bool frameLimits = true;
+};
+
 /// @brief Write a metadata object back: CRLF after every line (the game's form), counts and frames recomputed, every
 ///        `Text` value verbatim — so a file read by ReadMetaText writes back byte-identical.
-/// @return false with `err` set when a frame exceeds its class's `framelimit` (the engine would read it short).
-bool WriteMetaText(const SchemaObject& root, std::string& out, std::string& err);
+/// @return false with `err` set when a frame exceeds its class's `framelimit` (the engine would read it short) and
+///         `opts.frameLimits` is on.
+bool WriteMetaText(const SchemaObject& root, std::string& out, std::string& err, const MetaTextWriteOptions& opts = {});
 
 } // namespace CB::engine::codec::io

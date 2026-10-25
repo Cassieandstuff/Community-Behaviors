@@ -5,8 +5,8 @@
 # Invoked as a script:  cmake -DREGISTRY_YAML=<file> -DOUT_H=<file> -P EmbedEngineRegistry.cmake
 #
 # Every symbol is ONE line of a fixed shape:
-#   - { name: Ident, kind: func|call|data|tls, se: <pin>, ae: <pin>, vr: <pin>[, cpp: "<C++ name>"] }   # optional note
-# where <pin> = <AddressLibraryID> or <AddressLibraryID>+0x<hexOffset> (offsets only on `call` and `tls`), 0 = unavailable.
+#   - { name: Ident, kind: func|call|code|data|tls, se: <pin>, ae: <pin>, vr: <pin>[, cpp: "<C++ name>"] }   # optional note
+# where <pin> = <AddressLibraryID> or <AddressLibraryID>+0x<hexOffset> (offsets only on `call`, `code` and `tls`), 0 = unavailable.
 # `cpp` is read by tools/cbmatch (the symbol reimplemented code references); the codegen ignores it.
 # A line-oriented regex parse keeps codegen tool-free (no build-time Python), like EmbedEnums.cmake.
 
@@ -36,7 +36,7 @@ string(REGEX MATCHALL "(^|\n)[ ]*-[ ]*{" _entryStarts "${_text}")
 list(LENGTH _entryStarts _expected)
 
 set(_pin "([0-9]+)(\\+0x[0-9a-fA-F]+)?")
-set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig):[ ]*\"[^\"]*\")*[ ]*}")
+set(_entry "^[ ]*-[ ]*{[ ]*name:[ ]*([A-Za-z_][A-Za-z0-9_]*)[ ]*,[ ]*kind:[ ]*(func|call|code|data|tls)[ ]*,[ ]*se:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*ae:[ ]*([0-9x+a-fA-F]+)[ ]*,[ ]*vr:[ ]*([0-9x+a-fA-F]+)[ ]*(,[ ]*(cpp|mangled|this|header|sig):[ ]*\"[^\"]*\")*[ ]*}")
 
 set(_defs "")
 set(_all "")
@@ -70,11 +70,11 @@ function(_cb_pin _text _kind _name _rt _out)
     set(_off "${CMAKE_MATCH_2}")
     if(_off)
         string(SUBSTRING "${_off}" 1 -1 _off)   # drop the '+'
-        if(NOT _kind STREQUAL "call" AND NOT _kind STREQUAL "tls")
-            message(FATAL_ERROR "engine.yaml: ${_name}.${_rt} has an offset but kind is '${_kind}' (offsets are for call sites and thread_locals)")
+        if(NOT _kind STREQUAL "call" AND NOT _kind STREQUAL "code" AND NOT _kind STREQUAL "tls")
+            message(FATAL_ERROR "engine.yaml: ${_name}.${_rt} has an offset but kind is '${_kind}' (offsets are for call sites, patched instructions and thread_locals)")
         endif()
     else()
-        if((_kind STREQUAL "call" OR _kind STREQUAL "tls") AND NOT _id STREQUAL "0")
+        if((_kind STREQUAL "call" OR _kind STREQUAL "code" OR _kind STREQUAL "tls") AND NOT _id STREQUAL "0")
             message(FATAL_ERROR "engine.yaml: ${_name}.${_rt} is a ${_kind} pin without +0x<offset>")
         endif()
         set(_off "0x0")
@@ -112,6 +112,8 @@ foreach(_l IN LISTS _lines)
         set(_k "Kind::Func")
     elseif(_kind STREQUAL "call")
         set(_k "Kind::Call")
+    elseif(_kind STREQUAL "code")
+        set(_k "Kind::Code")
     elseif(_kind STREQUAL "tls")
         set(_k "Kind::Tls")
     else()

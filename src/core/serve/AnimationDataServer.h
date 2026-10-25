@@ -42,12 +42,15 @@ namespace CB::core::serve {
                               const AdsfSource& source, const Executor* exec = nullptr);
 
     /// @brief Subscribe the DETERMINISTIC redirect to the AdsfOpen call site (<platform/game/Resource.h>): once
-    ///        armed, the loader's single-file open is handed BR's cache path, whenever the loader runs.
-    /// @pre Called during SKSEPluginLoad, before CB::platform::hooks::InstallAll().
+    ///        armed, the loader's single-file open is handed BR's cache path, whenever the loader runs. Also lifts the
+    ///        loader's 16-bit clip- and motion-block line counts (engine.yaml Adsf_*BlockLineCount) where this runtime
+    ///        has them pinned and unpatched, so ServeAnimData may write frames past 65535 lines.
+    /// @pre Called during SKSEPluginLoad, before CB::platform::hooks::InstallAll() and before the loader runs.
     void InstallAnimDataHook();
 
     /// @brief Arm the redirect with BR's merged cache (call after ServeAnimData). Activates the subscriber if
-    ///        AdsfOpen installed; otherwise falls back to RedirectAnimDataGlobal. No-op when result.ok is false.
+    ///        AdsfOpen installed; otherwise falls back to RedirectAnimDataGlobal. No-op when result.ok is false, or
+    ///        when the line counts stayed 16-bit this launch and the file has a frame past 65535 lines.
     void ArmAnimDataRedirect(const ServeResult& result);
 
     /// @brief Fallback delivery: overwrite the engine's single-file path global (registry

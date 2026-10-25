@@ -110,7 +110,7 @@ private:
 
 class Writer {
 public:
-    explicit Writer(std::vector<std::string>& out) : m_out(out) {}
+    Writer(std::vector<std::string>& out, bool frameLimits) : m_out(out), m_frameLimits(frameLimits) {}
 
     void Object(const SchemaObject& obj, const std::string* hoistField) {
         const ClassSchema* cs = obj.Schema();
@@ -120,7 +120,7 @@ public:
         std::string               frame;
         const auto closeFrame = [&] {
             if (frame.empty()) return;
-            if (cs->frameLimit > 0 && frameLines.size() > static_cast<std::size_t>(cs->frameLimit))
+            if (m_frameLimits && cs->frameLimit > 0 && frameLines.size() > static_cast<std::size_t>(cs->frameLimit))
                 throw ReadError(std::string(cs->name) + " frame " + frame + " is " + std::to_string(frameLines.size()) +
                                 " lines — over the engine's " + std::to_string(cs->frameLimit) + "-line limit");
             m_out.push_back(std::to_string(frameLines.size()));
@@ -139,7 +139,7 @@ public:
                 if (!f.frame.empty() && present) { frame = f.frame; sink = &frameLines; }
             }
             if (!present) continue;
-            Writer w(*sink);
+            Writer w(*sink, m_frameLimits);
             switch (f.kind) {
                 case FieldKind::Text: sink->push_back(v.str); break;
                 case FieldKind::StringArray:
@@ -169,6 +169,7 @@ public:
 
 private:
     std::vector<std::string>& m_out;
+    bool                      m_frameLimits;
 };
 
 } // namespace
@@ -188,10 +189,10 @@ std::shared_ptr<SchemaObject> ReadMetaText(const schema::SchemaRegistry& reg, co
     }
 }
 
-bool WriteMetaText(const SchemaObject& root, std::string& out, std::string& err) {
+bool WriteMetaText(const SchemaObject& root, std::string& out, std::string& err, const MetaTextWriteOptions& opts) {
     try {
         std::vector<std::string> lines;
-        Writer(lines).Object(root, nullptr);
+        Writer(lines, opts.frameLimits).Object(root, nullptr);
         out.clear();
         for (const auto& l : lines) { out += l; out += "\r\n"; }
         return true;
