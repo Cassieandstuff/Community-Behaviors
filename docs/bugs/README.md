@@ -25,6 +25,9 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
   written lowercase but swapped open with the request's raw case; every swap now names the exact file written.
 - [CB-14](CB-14-fall-animation-lingers.md) — OPEN (deferred): with the ground states on, the fall animation
   sometimes lingers up to 2 s after a landing; the controller lands correctly, the graph side is suspected.
+- [CB-15](CB-15-sync-prefix-null-marker.md) — INVESTIGATING (converter fix landed, bundles need reconverting):
+  converted Nemesis mods patched every empty sync role prefix to `&#9216;`, breaking paired animations (horse
+  mount, the intro's bonds cut).
 
 ## Per-bug file template
 
