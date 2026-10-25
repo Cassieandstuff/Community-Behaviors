@@ -173,6 +173,13 @@ symbols:
   - { name: Actor_UpdateSprint, kind: func, se: 0, ae: 38022, vr: 0, cpp: "CB::platform::game::Actor_UpdateSprint", mangled: "?Actor_UpdateSprint@game@platform@CB@@YAXPEAVActor@RE@@@Z", header: "platform/game/Player.h" }  # per-actor sprint stamina drain + sprint flag sync, 0x1406a2970 (1.6.1170)
   - { name: Actor_SprintStaminaDrain, kind: func, se: 0, ae: 26482, vr: 0, cpp: "CB::platform::game::Actor_SprintStaminaDrain", mangled: "?Actor_SprintStaminaDrain@game@platform@CB@@YAMMM@Z", header: "platform/game/Player.h" }  # the drain formula (weight, dt), only caller Actor_UpdateSprint, 0x14041a140 (1.6.1170)
 
+  # --- Combat: hits, magic, stagger, health damage (CBDamageModifier) ---
+  - { name: Actor_DoDamage, kind: func, se: 36345, ae: 37335, vr: 0, cpp: "CB::platform::game::Actor_DoDamage", mangled: "?Actor_DoDamage@game@platform@CB@@YA_NPEAVActor@RE@@M0_N@Z", header: "platform/game/Combat.h" }  # Actor::DoDamage (CommonLib's ids), the Health chokepoint, 0x140666d20 (1.6.1170)
+  - { name: Actor_Stagger, kind: func, se: 36700, ae: 37710, vr: 0, cpp: "CB::platform::game::Actor_Stagger", mangled: "?Actor_Stagger@game@platform@CB@@YAXPEAVActor@RE@@M0@Z", header: "platform/game/Combat.h" }  # (actor, magnitude, aggressor); perk entries 0x22/0x21, returns at <= 0, 0x14068d0d0 (1.6.1170)
+  - { name: WeaponHit_IsGhostCall, kind: call, se: 37673+0x45, ae: 38627+0x47, vr: 0 }  # CALL Actor::IsGhost(target) in the weapon/arrow hit delivery (attacker, target, arrow, leftHand), 0x1406ba870 (1.6.1170); MaxsuIFrame's redirect
+  - { name: Actor_IsInvulnerable_IsGhostCall, kind: call, se: 36715+0x2a, ae: 37725+0x22, vr: 0 }  # CALL Actor::IsGhost in Actor's MagicTarget::IsInvulnerable (slot 4, this = MagicTarget at actor+0x98 SE / +0xa0 AE)
+  - { name: PlayerCharacter_IsInvulnerable_IsGhostCall, kind: call, se: 39428+0x14, ae: 40504+0x14, vr: 0 }  # CALL Actor::IsGhost in PlayerCharacter's MagicTarget::IsInvulnerable, after the god-mode check
+
   # --- Havok type system + packfile loading ---
   - { name: hkDefaultBuiltinTypeRegistry_AddType, kind: func, se: 59462, ae: 60137, vr: 0 }  # the ONE call that registers a custom class at runtime
   - { name: hkDefaultBuiltinTypeRegistry_Reinitialize, kind: func, se: 59458, ae: 60133, vr: 0 }  # rebuilds the registries from the static lists (would drop runtime adds)

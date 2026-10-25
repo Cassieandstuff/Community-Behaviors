@@ -1,0 +1,17 @@
+name:      CBDamageModifier
+parent:    hkbModifier
+size:      96
+runtime:
+  source: self
+# CB's own modifier: while it is active (and enabled), its actor takes hits, magic, stagger and damage as its members
+# say. Each member may be bound to a graph variable. Several active at once combine: the ignore flags OR, the
+# multipliers multiply. Registered at startup by CB (platform/classes) from THIS descriptor; no `signature:` (the
+# schema loader derives it).
+# An absent float parses as 0, so an authored node must spell both multipliers (1 = vanilla); 0 means immune.
+fields:
+  - { name: ignoreHits,          type: bool }    # weapon and arrow hits pass through: no damage, stagger, impact or on-hit spell
+  - { name: ignoreMagic,         type: bool }    # the actor counts as invulnerable to magic
+  - { skip: 2 }
+  - { name: incomingStaggerMult, type: float }   # every stagger's magnitude (melee, magic, explosions); 0 = super armor
+  - { name: incomingDamageMult,  type: float }   # all health damage (hits, magic, falls, drowning)
+  - { skip: 4 }
