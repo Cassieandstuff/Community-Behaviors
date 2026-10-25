@@ -27,7 +27,8 @@
 ///       do not change once Havok is up: the allocator is 8 bytes of static .data, its vtable pointer only (a
 ///       stateless forwarder to the thread's heap; AE 1.6.1170 0x142019838), and the TLS index is set once when Havok
 ///       starts. So, as the shim does for const globals, each decorated name binds to a plugin buffer, filled from the
-///       exe by MirrorHavokGlobals before any CB class is registered (kDataLoaded).
+///       exe by EnsureHavokGlobalsMirrored: before any CB class is registered (kDataLoaded), and earlier by any feature
+///       whose inline Havok code can run first.
 extern "C" {
     alignas(8) unsigned char cb_mirror_containerHeapAllocator[8];
     alignas(4) unsigned char cb_mirror_memoryRouterTlsIndex[4];
@@ -358,17 +359,19 @@ namespace CB::platform::classes {
             g_extensionsPublished.store(true, std::memory_order_release);
         }
 
-        /// @brief Fill the two mirrors (see the file's note) from the exe's variables.
-        void MirrorHavokGlobals()
-        {
+    }  // namespace
+
+    void EnsureHavokGlobalsMirrored()
+    {
+        static std::once_flag mirrored;
+        std::call_once(mirrored, [] {
             std::memcpy(cb_mirror_containerHeapAllocator, &hooks::Live<&hk::hkContainerHeapAllocator::s_alloc>(),
                         sizeof(cb_mirror_containerHeapAllocator));
             std::memcpy(cb_mirror_memoryRouterTlsIndex, &hooks::Live<&hk::hkMemoryRouter_s_memoryRouter>(),
                         sizeof(cb_mirror_memoryRouterTlsIndex));
-            LOG_INFO("classes: Havok's container allocator and memory router index mirrored for CB's classes");
-        }
-
-    }  // namespace
+            LOG_INFO("classes: Havok's container allocator and memory router index mirrored for CB's inline Havok code");
+        });
+    }
 
     bool Declare(const ClassBehavior& behavior)
     {
@@ -389,7 +392,7 @@ namespace CB::platform::classes {
             LOG_ERROR("classes: Havok's type registry does not exist yet - {} CB class(es) not registered", S().entries.size());
             return;
         }
-        MirrorHavokGlobals();
+        EnsureHavokGlobalsMirrored();
         ExtendVanillaClasses(registry, schema);
         /// @note Indexed, not ranged: building a class may append its struct classes' entries (a deque keeps every
         ///       entry in place, but a range-for's end iterator would go stale).
