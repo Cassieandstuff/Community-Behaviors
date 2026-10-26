@@ -36,10 +36,26 @@ namespace CB::feature::footik {
             return out;
         }
         ik::Vec3 Mul(ik::Vec3 a, ik::Vec3 b) { return { a.x * b.x, a.y * b.y, a.z * b.z }; }
-        ik::Vec3 Div(ik::Vec3 a, ik::Vec3 b)
+
+        /// @brief The most a spine joint folds beyond its animated bend: a horse's back is close to rigid, and a spine
+        ///        free to fold (its joints are straight in the animation, so balls) zig-zagged and flung the head around.
+        constexpr float kSpineGive = 10.0f * kPi / 180.0f;
+        /// @brief The most a leg joint the animation holds straight bends either way (the knee excepted: the data says
+        ///        its side).
+        constexpr float kStraightLegJointGive = 30.0f * kPi / 180.0f;
+
+        float Fold(const ik::Chain& chain, std::size_t joint)
         {
-            const auto safe = [](float n, float d) { return std::fabs(d) > 1e-6f ? n / d : n; };
-            return { safe(a.x, b.x), safe(a.y, b.y), safe(a.z, b.z) };
+            const ik::Vec3 parent = ik::Normalized(chain.source[joint] - chain.source[joint - 1]);
+            const ik::Vec3 child  = ik::Normalized(chain.source[joint + 1] - chain.source[joint]);
+            return std::acos(std::clamp(ik::Dot(parent, child), -1.0f, 1.0f));
+        }
+
+        ik::Chain SpineChain(std::vector<ik::Vec3> joints)
+        {
+            ik::Chain chain = ik::MakeChain(joints);
+            for (std::size_t i = 0; i < chain.hinges.size(); i++) chain.hinges[i] = { {}, 0.0f, Fold(chain, i + 1) + kSpineGive };
+            return chain;
         }
 
         struct Xf {
@@ -48,9 +64,10 @@ namespace CB::feature::footik {
             ik::Vec3 s{ 1.0f, 1.0f, 1.0f };
         };
 
+        /// @note As Havok's hkQsTransform::setMul: the parent's scale does not reach the child's translation.
         Xf Compose(const Xf& parent, const Xf& local)
         {
-            return { parent.t + ik::Rotate(parent.r, Mul(parent.s, local.t)), ik::Normalized(parent.r * local.r), Mul(parent.s, local.s) };
+            return { parent.t + ik::Rotate(parent.r, local.t), ik::Normalized(parent.r * local.r), Mul(parent.s, local.s) };
         }
 
         /// @brief The output's local pose taken into the model space vanilla's driver solved in, with edits written
@@ -103,7 +120,7 @@ namespace CB::feature::footik {
             void MoveModel(hk::hkInt16 bone, const ik::Vec3& delta)
             {
                 const hk::hkInt16 parent = m_parents[bone];
-                const ik::Vec3    local  = parent >= 0 ? Div(ik::Rotate(ik::Conjugate(m_model[parent].r), delta), m_model[parent].s) : delta;
+                const ik::Vec3    local  = parent >= 0 ? ik::Rotate(ik::Conjugate(m_model[parent].r), delta) : delta;
                 m_local[bone].t += local;
                 const ik::Vec3 out = local * (1.0f / m_scale);
                 m_out[bone].m_translation.m_quad =
@@ -143,19 +160,19 @@ namespace CB::feature::footik {
             const std::size_t i     = static_cast<std::size_t>(knee - leg.chain.begin());
             ik::Hinge&        hinge = chain.hinges[i - 1];
 
-            const float minBend = kPi - std::acos(std::clamp(setup.m_cosineMaxHingeAngle, -1.0f, 1.0f));
-            const float maxBend = kPi - std::acos(std::clamp(setup.m_cosineMinHingeAngle, -1.0f, 1.0f));
+            const float minBend = std::max(0.0f, kPi - std::acos(std::clamp(setup.m_cosineMaxHingeAngle, -1.0f, 1.0f)));
+            const float maxBend = std::min(ik::kDefaultMaxBend, kPi - std::acos(std::clamp(setup.m_cosineMinHingeAngle, -1.0f, 1.0f)));
             if (hinge.minBend < 0.0f || ik::Dot(hinge.axis, hinge.axis) < 0.25f) {
-                hinge.axis    = ik::Normalized(ik::Rotate(kneeRotation, V(setup.m_hingeAxisLS)), hinge.axis);
-                hinge.minBend = -maxBend;
-                hinge.maxBend = maxBend;
+                const ik::Vec3 axis = ik::Normalized(ik::Rotate(kneeRotation, V(setup.m_hingeAxisLS)));
+                if (ik::Dot(axis, axis) < 0.25f) return;
+                hinge = { -axis, minBend, std::max(minBend, maxBend) };
                 return;
             }
             const ik::Vec3 parent   = ik::Normalized(chain.source[i] - chain.source[i - 1]);
             const ik::Vec3 child    = ik::Normalized(chain.source[i + 1] - chain.source[i]);
             const float    animated = std::atan2(ik::Dot(hinge.axis, ik::Cross(parent, child)), ik::Dot(parent, child));
-            hinge.minBend           = std::min(std::max(0.0f, minBend), animated);
-            hinge.maxBend           = std::max(std::min(ik::kDefaultMaxBend, maxBend), animated);
+            hinge.minBend           = std::min(minBend, animated);
+            hinge.maxBend           = std::max(maxBend, animated);
         }
 
         ik::Chain LegChain(const Pose& pose, const LegRequest& request)
@@ -163,6 +180,10 @@ namespace CB::feature::footik {
             const RigLeg& leg = *request.rigLeg;
             ik::Chain     chain = ik::MakeChain(Positions(pose, leg.chain));
             chain.holdEndBone   = leg.chain.size() >= 4;
+            for (ik::Hinge& hinge : chain.hinges) {
+                if (ik::Dot(hinge.axis, hinge.axis) < 0.25f) hinge.maxBend = kStraightLegJointGive;
+                else if (hinge.minBend < 0.0f) hinge = { hinge.axis, -kStraightLegJointGive, kStraightLegJointGive };
+            }
             ApplyKneeRange(chain, leg, request.setup, pose.Model(request.setup.m_secondJointIdx).r);
             return chain;
         }
@@ -207,7 +228,7 @@ namespace CB::feature::footik {
         if (stiffness > 0.0f && !spineBones.empty()) {
             ik::Body body;
             body.root = pose.Model(rig.bodyRoot).t;
-            for (const std::vector<hk::hkInt16>& bones : spineBones) body.spines.push_back(ik::MakeChain(Positions(pose, bones)));
+            for (const std::vector<hk::hkInt16>& bones : spineBones) body.spines.push_back(SpineChain(Positions(pose, bones)));
             for (const LegRequest* leg : legs) {
                 std::size_t anchor = spineBones.size();
                 for (std::size_t a = 0; a < spineBones.size(); a++)
