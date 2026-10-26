@@ -170,6 +170,12 @@ namespace CB::core::debug {
           "canter), canter; the sprint toggle gallops; the walk toggle caps it at walk, and on a gamepad a light push "
           "holds walk, a half push trot. Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
           "while CB's camera does not drive the view (so needs bCamera with its mounted view). AE only. Unproven in game." },
+        { "horse_proxy_controller", FlagKind::IniBool, "Character", "bHorseProxyController", false, false,
+          "Horses on the proxy controller",
+          "Every mountable race (the horse or mount keyword, flying races excepted) is built on the player's kind of "
+          "character controller, the proxy, instead of the rigid body, so CB's ground rules can later run for the horse "
+          "you ride. Applies to every horse, NPC horses too (they run vanilla's proxy logic). Read once as the game "
+          "starts: changing it needs a restart. Unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
