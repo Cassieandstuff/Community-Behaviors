@@ -163,7 +163,10 @@ namespace CB::core::debug {
           "The horse the player rides moves with the player's movement model and the horse's own numbers (900 units/s2 "
           "acceleration, friction 3, braking 700 units/s2, facing halflife 0.15 s, at most 45 deg/s in the air, all "
           "starting values): the stick is relative to CB's camera, the horse faces where it moves and never strafes or "
-          "backs up. Holding forward climbs a gait ladder at the horse's own speeds: walk, trot (40% of the way to "
+          "backs up. Its turns are held to its grip (480 units/s2 sideways: wider at speed, never tighter than 105 units); "
+          "it never brakes harder than a sliding stop (412 units/s2); asked more than 60 deg off its course it digs in, "
+          "braking up to that sliding stop for a full reversal while its body swings up to 60 deg toward the stick ahead "
+          "of its momentum, turns the rest on the spot, then drives out. Holding forward climbs a gait ladder at the horse's own speeds: walk, trot (40% of the way to "
           "canter), canter; the sprint toggle gallops; the walk toggle caps it at walk, and on a gamepad a light push "
           "holds walk, a half push trot. Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
           "while CB's camera does not drive the view (so needs bCamera with its mounted view). AE only. Unproven in game." },

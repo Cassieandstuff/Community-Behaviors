@@ -91,18 +91,64 @@ namespace CB::feature::controller::move {
             if (after > maxInput && after > 0.0f) s.vx *= maxInput / after, s.vy *= maxInput / after;
         }
 
-        void Facing(State& s, const Input& in, const Profile& p, float px, float py, float dt)
+        /// @brief The profile's traction on the ground step that turned the velocity (v0x, v0y) into s's: the change is split
+        ///        along the old velocity and across it; dig-in braking joins the part along it, the slowing is held to
+        ///        brakingGrip and the part across to lateralGrip.
+        /// @return Whether the horse digs in this step (the stick past digInAngle from a moving velocity).
+        /// @note  The braking cap never lets the velocity pass through zero within the step: a dig slides to a stop and
+        ///        turns on the hocks once slower than facingMinSpeed (where traction no longer applies).
+        bool Traction(State& s, const Input& in, const Profile& p, float v0x, float v0y, float dt)
         {
-            float goal = s.yaw;
-            bool  have = false;
+            const float speed0 = std::hypot(v0x, v0y);
+            if (p.lateralGrip <= 0.0f || speed0 < p.facingMinSpeed) return false;
+            const float ux = v0x / speed0, uy = v0y / speed0;
+            const float dvx = s.vx - v0x, dvy = s.vy - v0y;
+            float       along  = dvx * ux + dvy * uy;
+            float       across = dvx * -uy + dvy * ux;
+
+            bool dig = false;
+            if (in.haveStick && p.digInBraking > 0.0f) {
+                const float angle = std::acos(std::clamp(in.stickX * ux + in.stickY * uy, -1.0f, 1.0f));
+                if (angle > p.digInAngle) {
+                    dig              = true;
+                    const float ramp = (angle - p.digInAngle) / (std::max)(1.0e-3f, kPi - p.digInAngle);
+                    along -= p.digInBraking * ramp * dt;
+                }
+            }
+            if (p.brakingGrip > 0.0f) along = (std::max)(along, -(std::min)(speed0, p.brakingGrip * dt));
+            else along = (std::max)(along, -speed0);
+
+            const float gripAccel = p.minTurnRadius > 0.0f ? (std::min)(p.lateralGrip, speed0 * speed0 / p.minTurnRadius) : p.lateralGrip;
+            across                = std::clamp(across, -gripAccel * dt, gripAccel * dt);
+            s.vx                  = v0x + along * ux - across * uy;
+            s.vy                  = v0y + along * uy + across * ux;
+            return dig;
+        }
+
+        void Facing(State& s, const Input& in, const Profile& p, bool dig, float px, float py, float dt)
+        {
+            float goal     = s.yaw;
+            bool  have     = false;
+            float halflife = p.facingHalflife;
             if (in.mode == Mode::Strafe && in.haveTarget) {
                 const float dx = in.targetX - px, dy = in.targetY - py;
                 if (dx * dx + dy * dy > 1.0f) goal = std::atan2(dx, dy), have = true;
             }
+            /// @note In a dig the body leads: it turns toward the stick, at most digInMaxLead past the velocity, while the
+            ///       velocity lags on the grip.
+            if (!have && dig && p.digInFacingHalflife > 0.0f) {
+                goal = std::atan2(in.stickX, in.stickY);
+                if (p.digInMaxLead > 0.0f) {
+                    const float vel = std::atan2(s.vx, s.vy);
+                    goal            = vel + std::clamp(WrapPi(goal - vel), -p.digInMaxLead, p.digInMaxLead);
+                }
+                have     = true;
+                halflife = p.digInFacingHalflife;
+            }
             if (!have && std::hypot(s.vx, s.vy) >= p.facingMinSpeed) goal = std::atan2(s.vx, s.vy), have = true;
             if (have) goal = s.yaw + WrapPi(goal - s.yaw);
             const float before = s.yaw;
-            SpringDamperExact(s.yaw, s.yawRate, goal, p.facingHalflife, dt);
+            SpringDamperExact(s.yaw, s.yawRate, goal, halflife, dt);
             if (!in.airborne) return;
             const float limit = p.airTurnRate * dt;
             s.yaw             = before + std::clamp(s.yaw - before, -limit, limit);
@@ -149,11 +195,14 @@ namespace CB::feature::controller::move {
     void Step(State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float dt)
     {
         if (dt <= 0.0f) return;
+        bool dig = false;
         if (!in.airborne) {
             const float velYaw = std::hypot(s.vx, s.vy) > 1.0f ? std::atan2(s.vx, s.vy) : s.yaw;
+            const float v0x = s.vx, v0y = s.vy;
             Velocity(s, in, profile, MaxSpeed(caps, in.mode, velYaw, s.yaw), dt);
+            dig = Traction(s, in, profile, v0x, v0y, dt);
         }
-        Facing(s, in, profile, px, py, dt);
+        Facing(s, in, profile, dig, px, py, dt);
     }
 
     bool SprintDirectionAllowed(const State& s, const Input& in, const Profile& profile)

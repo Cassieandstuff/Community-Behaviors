@@ -468,19 +468,30 @@ namespace CB::feature::controller {
         /// @note  Starting values, to be hand-tuned against the horse's acceptance scenarios (spec H3): acceleration is
         ///        vanilla's ridden-horse rate (2 x the canter speed: 0.5 s to canter), the air turn cap Horse_Fall_MT's
         ///        rotate-while-moving (45 deg/s); the horse has no sprint ramps (accel and friction hold through a gallop).
+        ///        Traction (spec H5) from rough real-world estimates, unverified, at 70 units per metre and g = 687
+        ///        units/s^2: grip 0.7 g sideways (turn radius ~6 m at canter, ~11 m at gallop) and 0.6 g braking (a
+        ///        sliding stop), a 1.5 m floor (turning on the hocks), dig-in past 60 deg braking up to that sliding stop
+        ///        at 180 deg, the body leading with 0.08 s by at most 60 deg.
         struct HorseProfile {
             move::Profile model{
-                .accel             = 900.0f,
-                .sprintAccelSlow   = 900.0f,
-                .sprintAccelFrom   = 0.0f,
-                .sprintAccelTo     = 1.0f,
-                .friction          = 3.0f,
-                .sprintFrictionLow = 3.0f,
-                .sprintFrictionTo  = 1.0f,
-                .brakingNoInput    = 700.0f,
-                .brakingWithInput  = 350.0f,
-                .facingHalflife    = 0.15f,
-                .airTurnRate       = 0.7853982f,
+                .accel               = 900.0f,
+                .sprintAccelSlow     = 900.0f,
+                .sprintAccelFrom     = 0.0f,
+                .sprintAccelTo       = 1.0f,
+                .friction            = 3.0f,
+                .sprintFrictionLow   = 3.0f,
+                .sprintFrictionTo    = 1.0f,
+                .brakingNoInput      = 700.0f,
+                .brakingWithInput    = 350.0f,
+                .facingHalflife      = 0.15f,
+                .airTurnRate         = 0.7853982f,
+                .lateralGrip         = 480.0f,
+                .brakingGrip         = 412.0f,
+                .minTurnRadius       = 105.0f,
+                .digInAngle          = 1.0471976f,
+                .digInBraking        = 412.0f,
+                .digInFacingHalflife = 0.08f,
+                .digInMaxLead        = 1.0471976f,
             };
             /// @brief Trot's speed as a fraction of the way from walk to canter (vanilla has no trot speed).
             float trotFraction = 0.4f;

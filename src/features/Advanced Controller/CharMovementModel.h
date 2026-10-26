@@ -41,6 +41,25 @@ namespace CB::feature::controller::move {
         float airTurnRate    = 3.4906585f;    ///< 200 deg/s: GASP's falling RotationRate, the facing's cap in the air
         float facingMinSpeed = 10.0f;         ///< below this speed the facing holds (no direction to chase)
         float sprintCone     = 0.87266463f;   ///< 50 deg: strafing sprints only within this of the facing (CanSprint)
+
+        /// @brief Traction (the horse's dig-in turns, spec H5); every value 0 = off, as for the player.
+        /// @note  lateralGrip caps the velocity's sideways change at this many units/s^2, so the turn radius at speed v is
+        ///        v^2 / lateralGrip, never below minTurnRadius; brakingGrip caps its slowing the same way (a sliding stop),
+        ///        CMC's included. Past digInAngle between the stick and the velocity, braking ramps from 0 up to
+        ///        digInBraking at 180 deg (on top of CMC's own), and the facing turns toward the stick with
+        ///        digInFacingHalflife, at most digInMaxLead ahead of the velocity, while the velocity lags (the body leads
+        ///        the momentum); once slower than facingMinSpeed it turns the rest on the spot. Acceleration out is the
+        ///        ordinary one.
+        /// @note  Why brakingGrip: CMC's friction swings the velocity toward a stick straight back by braking it through
+        ///        zero, which at a horse's friction stops a canter in ~0.2 s (~3 g); held to a sliding stop, the dig-in
+        ///        slides and spirals instead.
+        float lateralGrip         = 0.0f;   ///< units/s^2
+        float brakingGrip         = 0.0f;   ///< units/s^2
+        float minTurnRadius       = 0.0f;   ///< game units
+        float digInAngle          = 0.0f;   ///< radians
+        float digInBraking        = 0.0f;   ///< units/s^2 at a 180 deg request
+        float digInFacingHalflife = 0.0f;   ///< seconds
+        float digInMaxLead        = 0.0f;   ///< radians; 0 = no cap
     };
     /// @brief The player's profile.
     inline constexpr Profile kPlayer{};
@@ -87,9 +106,10 @@ namespace CB::feature::controller::move {
     /// @note  On the ground, CMC's CalcVelocity: without input, or above the cap, braking (substepped, friction x
     ///        brakingFrictionFactor, brakingNoInput or brakingWithInput), never braking below the cap while still
     ///        pushing forward; otherwise friction swings the velocity toward the stick at its current speed; then the
-    ///        stick's acceleration, clamped to the cap. Airborne leaves the velocity alone. Then the facing: a spring
-    ///        (facingHalflife) toward the velocity's heading (strafe: toward the target from (px, py)), its rate capped at
-    ///        airTurnRate while airborne; it holds below facingMinSpeed.
+    ///        stick's acceleration, clamped to the cap; then the profile's traction, when it has one (grip, dig-in
+    ///        braking). Airborne leaves the velocity alone. Then the facing: a spring (facingHalflife) toward the
+    ///        velocity's heading (strafe: toward the target from (px, py); digging in: toward the stick, with
+    ///        digInFacingHalflife), its rate capped at airTurnRate while airborne; it holds below facingMinSpeed.
     void Step(State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float dt);
 
     /// @brief Whether the direction allows sprinting: always when orienting to movement; when strafing, only while the
