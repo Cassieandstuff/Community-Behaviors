@@ -168,7 +168,8 @@ namespace CB::core::debug {
           "braking up to that sliding stop for a full reversal while its body swings up to 60 deg toward the stick ahead "
           "of its momentum, turns the rest on the spot, then drives out. Holding forward climbs a gait ladder at the horse's own speeds: walk, trot (40% of the way to "
           "canter), canter; the sprint toggle gallops; the walk toggle caps it at walk, and on a gamepad a light push "
-          "holds walk, a half push trot. Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
+          "holds walk, a half push trot. With bHorseProxyController on too, the horse jumps the moment you press (the "
+          "jump clip's own later launch is dropped). Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
           "while CB's camera does not drive the view (so needs bCamera with its mounted view). AE only. Unproven in game." },
         { "horse_proxy_controller", FlagKind::IniBool, "Character", "bHorseProxyController", false, false,
           "Horses on the proxy controller",
