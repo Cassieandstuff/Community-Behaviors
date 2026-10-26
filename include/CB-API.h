@@ -37,6 +37,9 @@
 #include "codec/serialization/HavokIo.h"
 #include "interface/UnitSource.h"
 #include "decompile/BehaviorDecompile.h"
+#include "decompile/EmbeddedFile.h"
+#include "merge/LoadOrderDocument.h"
+#include <vfs/Vfs.h>                        // the Data folder LoadOrderDocument reads (VFS, a PUBLIC dependency)
 
 // schema — the Havok class-schema registry (merge classifier / model interpreter)
 #include "interface/reflection/HavokSchema.h"
@@ -87,6 +90,16 @@ namespace resolve {
     using CB::engine::decompile::EmitHkyReflective;            ///< Graph::identity → a unit folder (ParseHkyReflective's inverse)
     using CB::engine::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
     using CB::engine::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
+
+    using EmbeddedKind = CB::engine::schema::EmbeddedKind;      ///< a hand-parsed file kind whose root map holds a schema class
+    using CB::engine::decompile::EmbeddedKindOf;               ///< file text → its embedded kind (by root key), or null
+    using CB::engine::decompile::ParseEmbeddedFile;            ///< file text → the kind's class Object
+    using CB::engine::decompile::SpliceEmbeddedFile;           ///< (file text, Object) → the text with those fields rewritten
+    using CB::engine::decompile::ParseEmbeddedObject;          ///< a root map → the class Object
+    using CB::engine::decompile::EmitEmbeddedObject;           ///< Object → its fields as YAML keys
+    using CB::engine::decompile::SampleCurve;                  ///< a `view: curve` Object → its value at a time
+
+    using LoadOrderDocument = CB::engine::merge::LoadOrderDocument;   ///< the resolved .hky load order over a VFS Data folder
 }  // namespace resolve
 
 // ── cb::schema ───────────────────────────────────────────────────────────────
@@ -123,6 +136,9 @@ namespace anim {
     using CB::engine::anim::AnimAnnotation;
     using CB::engine::anim::AnimAnnotationTrackDef;
     using CB::engine::anim::AnimCompressionParams;
+    using CB::engine::anim::AnimCurveKey;            ///< one curve key (time, value, interpolation)
+    using CB::engine::anim::AnimCurveDef;            ///< a named curve over the clip
+    using CB::engine::anim::EmitAnimCurvesYaml;      ///< curves → the unit's `curves:` block
 
     using CB::engine::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
     using CB::engine::anim::CompileAnimationToFile;  // Def → .hkx file

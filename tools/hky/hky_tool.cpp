@@ -5,12 +5,14 @@
 //   hky-tool unpack      <in.hky>    -o <outDir>          .hky       -> YAML tree on disk (original case kept)
 //   hky-tool bsa-list    <in.bsa>    [prefix]             list an SSE/AE (v105) archive's files
 //   hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix] extract them (archive-stored lowercase paths)
-//   hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]
-//                                                         seed one motion-matching tag config per animation
 //   hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>
 //                                                         partitions + loose files + generators + inject configs
 //   hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>
 //                                                         merge + serialize every unit as the game's compile does
+//   hky-tool embedded-roundtrip <in.hky> <schemaDir>
+//                                                         embedded files parse + splice back byte-exact, curves sample alike
+//   hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all]
+//                                                         the .hky load order via VFS + CB-API's document; merge units
 //   hky-tool mm-sample   <schemaDir> -o <outDir>          the motion-matching bundle generator over a sample spec
 //   hky-tool graph-html  <schemaDir> -o <out.html> --mo2 <instance> | --plugins <dir> | --bundle <f.hky> ...
 //                                                         a load order's merged graphs as one reflective HTML page
@@ -18,13 +20,16 @@
 // Case note (Havok is CASE-SENSITIVE): unpack writes each entry at its ORIGINAL-CASE path, never the
 // normalized lookup key — a miscased path binds to nothing/wrong at load. Unpack to a SHORT dir (MAX_PATH).
 
-#include <codec/bsa/BsaArchive.h>
+#include <vfs/Bsa.h>
 #include <codec/format/AnimationYamlLoader.h>
 #include <compile/MotionFeatures.h>
 #include <compile/MotionMatchingBundle.h>
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 #include <decompile/BehaviorDecompile.h>
+#include <decompile/EmbeddedFile.h>
+#include <merge/LoadOrderDocument.h>
+#include <vfs/Vfs.h>
 #include <disk/Disk.h>
 #include <interface/MasterTable.h>
 #include <interface/reflection/HavokSchema.h>
@@ -37,6 +42,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -104,7 +110,7 @@ bool BsaPrefixMatch(const std::string& path, const std::string& prefix) {
 
 int doBsaList(const std::string& bsaPath, const std::string& prefix) {
     std::string err;
-    const auto arc = CB::engine::codec::bsa::Archive::Open(bsaPath, &err);
+    const auto arc = vfs::bsa::Archive::Open(bsaPath, &err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     std::size_t shown = 0;
     for (const auto& e : arc->Entries()) {
@@ -119,7 +125,7 @@ int doBsaList(const std::string& bsaPath, const std::string& prefix) {
 int doBsaExtract(const std::string& bsaPath, const std::string& outDir, const std::string& prefix) {
     if (outDir.empty()) { std::printf("usage: hky-tool bsa-extract <in.bsa> -o <outDir> [prefix]\n"); return 2; }
     std::string err;
-    const auto arc = CB::engine::codec::bsa::Archive::Open(bsaPath, &err);
+    const auto arc = vfs::bsa::Archive::Open(bsaPath, &err);
     if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
     namespace fs = std::filesystem;
     std::size_t written = 0, failed = 0;
@@ -135,306 +141,6 @@ int doBsaExtract(const std::string& bsaPath, const std::string& outDir, const st
     }
     std::printf("%s: bsa extract '%s' -> %s (%zu written, %zu failed).\n", failed ? "FAIL" : "OK",
                 bsaPath.c_str(), outDir.c_str(), written, failed);
-    return failed ? 1 : 0;
-}
-
-/// @brief The motion-matching auto-tagger: measures every animation's root and feet and seeds one inject config per
-///        clip (`{"targets": [{"path", "field": "tags", "values": {Tag: [[start, end), ...]}}]}`, frames end-exclusive).
-/// @note  A SEED, not a build step: an existing config is never overwritten, so hand corrections survive a re-run and
-///        only clips without a config get one.
-namespace autotag {
-
-constexpr double      kPi       = 3.14159265358979323846;
-
-/// @brief The measuring thresholds (Skyrim units, seconds, degrees).
-/// @note  SEEDS to tune against the report, not settled values. The speed bands sit midway between the clips' measured
-///        plateaus (walk 92, run 284, sprint 426 units/s in the retarget report). Actors face +Y, Z is up.
-struct Thresholds {
-    double idleSpeed       = 15.0;    ///< below this the root is standing (units/s)
-    double walkRun         = 188.0;   ///< Walk below, Run from here (units/s)
-    double runSprint       = 355.0;   ///< Sprint from here (units/s)
-    double strafeDeg       = 45.0;    ///< travel this far off facing is a strafe
-    double backwardDeg     = 135.0;   ///< and this far is backward
-    double turnRate        = 45.0;    ///< facing turn rate that counts as turning (deg/s)
-    double accel           = 100.0;   ///< speed change that counts as accelerating (units/s^2)
-    double plantHeight     = 3.0;     ///< foot at most this far above its lowest point in the clip (units)
-    double plantSpeed      = 25.0;    ///< and moving at most this fast (units/s) ...
-    double plantSpeedScale = 0.25;    ///< ... or this fraction of the root's speed, whichever is more
-    int    plantMinFrames  = 2;       ///< plant runs shorter than this are dropped (a sprint contact is ~3 frames)
-    int    smoothHalf      = 3;       ///< root signals: moving average over this many frames each side
-    int    footSmoothHalf  = 1;       ///< foot signals: the same, kept short so short plants survive
-    int    gapFrames       = 2;       ///< gaps up to this long inside a tag's run are filled
-    int    minFrames       = 4;       ///< runs shorter than this are dropped
-};
-
-enum Tag { Idle, Walk, Run, Sprint, Forward, StrafeLeft, StrafeRight, Backward, TurnLeft, TurnRight, Accelerate,
-           Decelerate, LeftPlant, RightPlant, kTagCount };
-/// @note Tag names are compared byte-exact downstream, like every name CB carries.
-constexpr std::array<const char*, kTagCount> kTagNames{ "Idle", "Walk", "Run", "Sprint", "Forward", "StrafeLeft",
-    "StrafeRight", "Backward", "TurnLeft", "TurnRight", "Accelerate", "Decelerate", "LeftPlant", "RightPlant" };
-
-using Ranges = std::vector<std::pair<int, int>>;
-
-struct ClipResult {
-    std::string                      err;   ///< empty = measured
-    int                              frames   = 0;
-    double                           maxSpeed = 0;
-    std::array<Ranges, kTagCount>    ranges;
-    std::string                      note;
-    std::string                      frameRows;
-};
-
-/// @brief Central differences per frame (one-sided at the ends), over `dt` seconds per frame.
-std::vector<double> Diff(const std::vector<double>& v, double dt) {
-    const std::size_t n = v.size();
-    std::vector<double> d(n, 0.0);
-    if (n < 2) return d;
-    for (std::size_t i = 0; i < n; ++i) {
-        const std::size_t a = i == 0 ? 0 : i - 1, b = i + 1 == n ? n - 1 : i + 1;
-        d[i] = (v[b] - v[a]) / (static_cast<double>(b - a) * dt);
-    }
-    return d;
-}
-std::vector<double> Smooth(const std::vector<double>& v, int half) {
-    const int n = static_cast<int>(v.size());
-    std::vector<double> s(v.size(), 0.0);
-    for (int i = 0; i < n; ++i) {
-        const int a = (std::max)(0, i - half), b = (std::min)(n - 1, i + half);
-        double sum = 0;
-        for (int j = a; j <= b; ++j) sum += v[j];
-        s[i] = sum / (b - a + 1);
-    }
-    return s;
-}
-/// @brief A tag's per-frame verdicts as `[start, end)` runs: short gaps filled, then short runs dropped.
-Ranges BuildRanges(const std::vector<char>& on, int gap, int minLen) {
-    Ranges runs;
-    const int n = static_cast<int>(on.size());
-    for (int i = 0; i < n;) {
-        if (!on[i]) { ++i; continue; }
-        int j = i;
-        while (j < n && on[j]) ++j;
-        if (!runs.empty() && i - runs.back().second <= gap) runs.back().second = j;
-        else runs.emplace_back(i, j);
-        i = j;
-    }
-    std::erase_if(runs, [&](const auto& r) { return r.second - r.first < minLen; });
-    return runs;
-}
-
-ClipResult Measure(const std::string& path, const std::string& yaml, const Thresholds& th) {
-    namespace ea = CB::engine::anim;
-    ClipResult r;
-    const auto  def = ea::AnimationYamlLoader::LoadFromString(yaml, path);
-    std::string err;
-    const auto  m = ea::MeasureClip(def, err);
-    if (!m) { r.err = err; return r; }
-    const int    n  = m->frames;
-    const double dt = m->dt;
-    r.frames        = n;
-    const std::array<bool, 2> hasFoot{ m->hasFeet, m->hasFeet };
-    if (!m->hasFeet) r.note = "no foot chain: plants not measured";
-    const auto& foot = m->foot;
-
-    std::vector<double> px(n), py(n), yaw(n);
-    for (int i = 0; i < n; ++i) {
-        px[i] = m->rootPos[i].x;
-        py[i] = m->rootPos[i].y;
-        const ea::MotionVec f = ea::Rotate(m->rootRot[i], { 0, 1, 0 });
-        yaw[i] = std::atan2(-f.x, f.y);
-        if (i > 0) {
-            while (yaw[i] - yaw[i - 1] > kPi) yaw[i] -= 2 * kPi;
-            while (yaw[i] - yaw[i - 1] < -kPi) yaw[i] += 2 * kPi;
-        }
-    }
-
-    const auto vx = Smooth(Diff(px, dt), th.smoothHalf), vy = Smooth(Diff(py, dt), th.smoothHalf);
-    std::vector<double> speed(n), heading(n);
-    for (int i = 0; i < n; ++i) {
-        speed[i] = std::hypot(vx[i], vy[i]);
-        const ea::MotionVec lv = ea::ToLocal(m->rootRot[i], { vx[i], vy[i], 0 });
-        heading[i] = std::atan2(lv.x, lv.y) * 180.0 / kPi;
-        r.maxSpeed = (std::max)(r.maxSpeed, speed[i]);
-    }
-    auto yawRate = Smooth(Diff(yaw, dt), th.smoothHalf);
-    for (auto& y : yawRate) y *= 180.0 / kPi;
-    const auto accel = Smooth(Diff(speed, dt), th.smoothHalf);
-
-    std::array<std::vector<double>, 2> footH, footV;
-    for (int s = 0; s < 2; ++s) {
-        if (!hasFoot[s]) continue;
-        std::vector<double> x(n), y(n), z(n);
-        double minZ = foot[s][0].z;
-        for (int i = 0; i < n; ++i) { x[i] = foot[s][i].x; y[i] = foot[s][i].y; z[i] = foot[s][i].z; minZ = (std::min)(minZ, z[i]); }
-        const auto dx = Diff(x, dt), dy = Diff(y, dt), dz = Diff(z, dt);
-        std::vector<double> v(n);
-        for (int i = 0; i < n; ++i) v[i] = std::sqrt(dx[i] * dx[i] + dy[i] * dy[i] + dz[i] * dz[i]);
-        footV[s] = Smooth(v, th.footSmoothHalf);
-        footH[s].resize(n);
-        for (int i = 0; i < n; ++i) footH[s][i] = z[i] - minZ;
-    }
-
-    std::array<std::vector<char>, kTagCount> on;
-    for (auto& o : on) o.assign(n, 0);
-    for (int i = 0; i < n; ++i) {
-        const double s = speed[i], h = heading[i], ah = std::fabs(h);
-        const bool   moving = s >= th.idleSpeed;
-        on[Idle][i]        = !moving;
-        on[Walk][i]        = moving && s < th.walkRun;
-        on[Run][i]         = s >= th.walkRun && s < th.runSprint;
-        on[Sprint][i]      = s >= th.runSprint;
-        on[Forward][i]     = moving && ah < th.strafeDeg;
-        on[StrafeLeft][i]  = moving && h <= -th.strafeDeg && h >= -th.backwardDeg;
-        on[StrafeRight][i] = moving && h >= th.strafeDeg && h <= th.backwardDeg;
-        on[Backward][i]    = moving && ah > th.backwardDeg;
-        on[TurnLeft][i]    = yawRate[i] >= th.turnRate;
-        on[TurnRight][i]   = yawRate[i] <= -th.turnRate;
-        on[Accelerate][i]  = accel[i] >= th.accel;
-        on[Decelerate][i]  = accel[i] <= -th.accel;
-        /// @note The speed limit grows with the root's speed: at a run or sprint the ankle keeps rolling through a
-        ///       contact (10-90 units/s measured), so a fixed walk-tuned limit missed nearly every fast contact.
-        const double plantLimit = (std::max)(th.plantSpeed, th.plantSpeedScale * s);
-        for (int f = 0; f < 2; ++f)
-            on[f == 0 ? LeftPlant : RightPlant][i] =
-                hasFoot[f] && footH[f][i] <= th.plantHeight && footV[f][i] <= plantLimit;
-    }
-    for (int t = 0; t < kTagCount; ++t)
-        r.ranges[t] = BuildRanges(on[t], th.gapFrames, t == LeftPlant || t == RightPlant ? th.plantMinFrames : th.minFrames);
-
-    char row[256];
-    for (int i = 0; i < n; ++i) {
-        std::snprintf(row, sizeof(row), "\t%d\t%.2f\t%.1f\t%.1f\t%.1f", i, speed[i], heading[i], yawRate[i], accel[i]);
-        r.frameRows += path + row;
-        for (int f = 0; f < 2; ++f) {
-            if (hasFoot[f]) std::snprintf(row, sizeof(row), "\t%.2f\t%.2f", footH[f][i], footV[f][i]);
-            else            std::snprintf(row, sizeof(row), "\t\t");
-            r.frameRows += row;
-        }
-        r.frameRows += '\n';
-    }
-    return r;
-}
-
-std::string JsonString(std::string_view s) {
-    std::string out = "\"";
-    for (const char c : s) {
-        if (c == '"' || c == '\\') { out += '\\'; out += c; }
-        else if (static_cast<unsigned char>(c) < 0x20) { char u[8]; std::snprintf(u, sizeof(u), "\\u%04x", c); out += u; }
-        else out += c;
-    }
-    return out + '"';
-}
-
-std::string ConfigJson(const std::string& path, const ClipResult& r) {
-    std::string j = "{\n  \"targets\": [\n    {\n      \"path\": " + JsonString(path) +
-                    ",\n      \"field\": \"tags\",\n      \"values\": {";
-    bool any = false;
-    for (int t = 0; t < kTagCount; ++t) {
-        if (r.ranges[t].empty()) continue;
-        j += any ? ",\n" : "\n";
-        any = true;
-        j += std::string("        ") + JsonString(kTagNames[t]) + ": [";
-        for (std::size_t k = 0; k < r.ranges[t].size(); ++k)
-            j += (k ? ", [" : "[") + std::to_string(r.ranges[t][k].first) + ", " + std::to_string(r.ranges[t][k].second) + "]";
-        j += "]";
-    }
-    j += any ? "\n      }" : "}";
-    return j + "\n    }\n  ]\n}\n";
-}
-
-}  // namespace autotag
-
-/// @brief `autotag`: every animation (a `.hkx` file, a YAML compile target) in a .hky or a bundle directory, measured
-///        and seeded as `<injectDir>/<path below the clips' common folder>.json`; `reportDir` gets summary.tsv (one row
-///        per clip) and frames.tsv (every frame's signals) for tuning the thresholds.
-int doAutoTag(const std::string& in, const std::string& outDir, const std::string& reportDir) {
-    if (in.empty() || outDir.empty()) {
-        std::printf("usage: hky-tool autotag <clips.hky|dir> -o <injectDir> [reportDir]\n");
-        return 2;
-    }
-    namespace fs = std::filesystem;
-    using CB::engine::codec::resource::HasExt;
-    std::vector<std::string> paths, keys;
-    std::shared_ptr<CB::engine::codec::HkyArchive> arc;
-    std::error_code ec;
-    if (fs::is_directory(in, ec)) {
-        for (const auto& e : fs::recursive_directory_iterator(in, ec))
-            if (e.is_regular_file() && HasExt(e.path().generic_string(), ".hkx"))
-                paths.push_back(fs::relative(e.path(), in).generic_string());
-        std::sort(paths.begin(), paths.end());
-    } else {
-        std::string err;
-        arc = CB::engine::codec::HkyArchive::LoadFromFile(in, err);
-        if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
-        const auto k = arc->filesUnder(""), o = arc->filesUnderOrig("");
-        for (std::size_t i = 0; i < k.size(); ++i)
-            if (HasExt(o[i], ".hkx")) { keys.push_back(k[i]); paths.push_back(o[i]); }
-    }
-    if (paths.empty()) { std::printf("FAIL: no animations (.hkx files) in '%s'\n", in.c_str()); return 1; }
-
-    const auto dirOf = [](const std::string& s) {
-        const auto k = s.rfind('/');
-        return k == std::string::npos ? std::string() : s.substr(0, k + 1);
-    };
-    std::string prefix = dirOf(paths.front());
-    for (const auto& p : paths)
-        while (!prefix.empty() && p.compare(0, prefix.size(), prefix) != 0) prefix = dirOf(prefix.substr(0, prefix.size() - 1));
-
-    const autotag::Thresholds th{};
-    std::vector<autotag::ClipResult> res(paths.size());
-    CB::engine::exec::ParallelFor(paths.size(), [&](std::size_t i) {
-        try {
-            const auto yaml = arc ? arc->file(keys[i]) : CB::engine::disk::ReadFile(fs::path(in) / paths[i]);
-            if (!yaml) { res[i].err = "unreadable"; return; }
-            res[i] = autotag::Measure(paths[i], *yaml, th);
-        } catch (const std::exception& e) {
-            res[i].err = e.what();
-        }
-    });
-
-    std::size_t seeded = 0, kept = 0, failed = 0;
-    for (std::size_t i = 0; i < paths.size(); ++i) {
-        if (!res[i].err.empty()) { std::printf("  FAIL %s: %s\n", paths[i].c_str(), res[i].err.c_str()); ++failed; continue; }
-        const std::string rel = paths[i].substr(prefix.size());
-        const fs::path    dst = fs::path(outDir) / (rel.substr(0, rel.size() - 4) + ".json");
-        if (fs::exists(dst, ec)) { ++kept; continue; }
-        if (std::string werr; !CB::engine::disk::WriteFile(dst, autotag::ConfigJson(paths[i], res[i]), {}, &werr)) {
-            std::printf("  FAIL %s\n", werr.c_str());
-            ++failed;
-            continue;
-        }
-        ++seeded;
-    }
-
-    if (!reportDir.empty()) {
-        std::string summary = "path\tframes\tmax_speed";
-        for (const char* t : autotag::kTagNames) summary += std::string("\t") + t;
-        summary += "\tnote\n";
-        std::string frames = "path\tframe\tspeed\theading_deg\tyaw_rate_dps\taccel\tl_foot_h\tl_foot_v\tr_foot_h\tr_foot_v\n";
-        for (std::size_t i = 0; i < paths.size(); ++i) {
-            const auto& r = res[i];
-            if (!r.err.empty()) continue;
-            char head[64];
-            std::snprintf(head, sizeof(head), "\t%d\t%.1f", r.frames, r.maxSpeed);
-            summary += paths[i] + head;
-            for (const auto& rg : r.ranges) {
-                int covered = 0;
-                for (const auto& [a, b] : rg) covered += b - a;
-                summary += "\t" + std::to_string(covered);
-            }
-            summary += "\t" + r.note + "\n";
-            frames += r.frameRows;
-        }
-        std::string werr;
-        if (!CB::engine::disk::WriteFile(fs::path(reportDir) / "summary.tsv", summary, {}, &werr) ||
-            !CB::engine::disk::WriteFile(fs::path(reportDir) / "frames.tsv", frames, {}, &werr)) {
-            std::printf("FAIL: report: %s\n", werr.c_str());
-            return 1;
-        }
-    }
-
-    std::printf("%s: autotag '%s': %zu clip(s), %zu seeded, %zu kept (existing configs are never overwritten), %zu failed.\n",
-                failed ? "FAIL" : "OK", in.c_str(), paths.size(), seeded, kept, failed);
     return failed ? 1 : 0;
 }
 
@@ -467,9 +173,10 @@ Json ParseStrict(const std::string& text) {
 /// @note  Recognizing a kind is format knowledge, so it lives here; the table only says what each kind may receive.
 enum class Kind { Animation };
 /// @brief The value a field takes; a type in the injectables table must be one of these shapes.
-/// @note  rangeMap = {name: [[start, end], ...]}; oneOf = one of the listed names, as a string; bool = true or false.
+/// @note  curveMap = {name: [[time, value] or [time, value, interp], ...]}; oneOf = one of the listed names, as a string;
+///        bool = true or false.
 struct FieldType {
-    enum class Shape { RangeMap, OneOf, Bool } shape = Shape::RangeMap;
+    enum class Shape { CurveMap, OneOf, Bool } shape = Shape::CurveMap;
     std::vector<std::string>                   oneOf;
 };
 
@@ -478,7 +185,7 @@ using Table = std::map<Kind, std::map<std::string, FieldType>>;
 /// @brief The fields whose injected value this tool reads back through the animation loader.
 /// @note  A field the loader does not read would inject cleanly and then do nothing (the loader skips unknown keys),
 ///        so the table may name only fields with a read-back (InjectAnimation).
-constexpr std::array<std::string_view, 4> kAnimationReadBack{ "tags", "motionTarget", "preload", "entry" };
+constexpr std::array<std::string_view, 3> kAnimationReadBack{ "curves", "motionTarget", "preload" };
 
 /// @brief A path that can name an animation: a bare `.hkx` FILE, not inside a unit (a unit is a `.hkx/` folder).
 bool IsAnimationPath(const std::string& path) {
@@ -501,8 +208,8 @@ bool IsAnimation(const std::string& path, std::string_view text) {
 }
 
 /// @brief Empty when `v` fits `type`, else why not.
-/// @note  rangeMap ranges are integers, 0 <= start < end. Whether they suit the file (sorted, inside the clip) is the
-///        consumer's check: the injector checks shape only.
+/// @note  A curveMap's keys must start at 0 or later and run in time order; whether they suit the clip (inside its
+///        duration) is the consumer's check.
 std::string CheckType(const FieldType& type, const Json& v) {
     switch (type.shape) {
     case FieldType::Shape::OneOf: {
@@ -513,21 +220,52 @@ std::string CheckType(const FieldType& type, const Json& v) {
     }
     case FieldType::Shape::Bool:
         return v.is_boolean() ? std::string() : "not true or false: " + v.dump();
-    case FieldType::Shape::RangeMap:
-        if (!v.is_object()) return "a rangeMap is {name: [[start, end], ...]}";
-        for (const auto& [name, ranges] : v.items()) {
+    case FieldType::Shape::CurveMap:
+        if (!v.is_object()) return "a curveMap is {name: [[time, value] or [time, value, interp], ...]}";
+        for (const auto& [name, keys] : v.items()) {
             if (name.empty()) return "an empty name";
-            if (!ranges.is_array()) return "'" + name + "' is not a list of ranges";
-            for (const auto& r : ranges) {
-                if (!r.is_array() || r.size() != 2 || !r[0].is_number_integer() || !r[1].is_number_integer())
-                    return "'" + name + "' has a range that is not [start, end] in whole frames";
-                if (r[0].get<long long>() < 0 || r[0].get<long long>() >= r[1].get<long long>())
-                    return "'" + name + "' has a range that does not run 0 <= start < end: " + r.dump();
+            if (!keys.is_array() || keys.empty()) return "'" + name + "' is not a non-empty list of keys";
+            double last = 0;
+            for (const auto& k : keys) {
+                const bool interp = k.is_array() && k.size() == 3 && k[2].is_string() &&
+                                    (k[2].get<std::string>() == "CONSTANT" || k[2].get<std::string>() == "LINEAR");
+                if (!k.is_array() || (k.size() != 2 && !interp) || !k[0].is_number() || !k[1].is_number())
+                    return "'" + name + "' has a key that is not [time, value] or [time, value, \"CONSTANT\"|\"LINEAR\"]: " + k.dump();
+                const double t = k[0].get<double>();
+                if (t < 0 || (&k != &keys.front() && t < last))
+                    return "'" + name + "' has a key before 0 or out of time order: " + k.dump();
+                last = t;
             }
         }
         return {};
     }
     return "unknown type";
+}
+
+/// @brief A checked curveMap as curves, in the map's order; a key without an interpolation is LINEAR.
+std::vector<CB::engine::anim::AnimCurveDef> CurvesOf(const Json& v) {
+    using Key = CB::engine::anim::AnimCurveKey;
+    std::vector<CB::engine::anim::AnimCurveDef> out;
+    for (const auto& [name, keys] : v.items()) {
+        auto& c = out.emplace_back();
+        c.name  = name;
+        for (const auto& k : keys)
+            c.keys.push_back({ k[0].get<float>(), k[1].get<float>(),
+                               k.size() == 3 && k[2].get<std::string>() == "CONSTANT" ? Key::Interp::Constant : Key::Interp::Linear });
+    }
+    return out;
+}
+
+bool SameCurves(const std::vector<CB::engine::anim::AnimCurveDef>& a, const std::vector<CB::engine::anim::AnimCurveDef>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i].name != b[i].name || a[i].keys.size() != b[i].keys.size()) return false;
+        for (std::size_t k = 0; k < a[i].keys.size(); ++k) {
+            const auto &x = a[i].keys[k], &y = b[i].keys[k];
+            if (x.time != y.time || x.value != y.value || x.interp != y.interp) return false;
+        }
+    }
+    return true;
 }
 
 /// @brief `v` as YAML flow text (JSON's own escaping; YAML's double-quoted strings read it the same).
@@ -548,41 +286,68 @@ struct Injection {
     std::string field;
     Json        values;
     std::string config;   ///< the config it came from, for messages
+    /// @brief A generator's measured curves (field `curves`, `values` unused): a hand-authored curve of the same name
+    ///        from an inject config replaces one whole.
+    std::optional<std::vector<CB::engine::anim::AnimCurveDef>> measured;
 };
+
+/// @brief The file's `curves`: every measured curve in order, each replaced whole by a hand-authored curve of its name,
+///        then the hand-only curves in their config's order.
+/// @note  One inject config at most authors a file's curves (assemble's one-config-per-field rule), so a hand name
+///        is never authored twice.
+std::vector<CB::engine::anim::AnimCurveDef> MergedCurves(const std::vector<Injection>& injections) {
+    std::vector<CB::engine::anim::AnimCurveDef> out;
+    for (const auto& in : injections)
+        if (in.field == "curves" && in.measured) out.insert(out.end(), in.measured->begin(), in.measured->end());
+    for (const auto& in : injections) {
+        if (in.field != "curves" || in.measured) continue;
+        for (auto& c : CurvesOf(in.values)) {
+            const auto same = std::find_if(out.begin(), out.end(), [&](const auto& m) { return m.name == c.name; });
+            if (same != out.end()) *same = std::move(c);
+            else out.push_back(std::move(c));
+        }
+    }
+    return out;
+}
 
 /// @brief `text` with every injection written in, each as a child of the root `animation:` mapping.
 /// @throws std::runtime_error with why, when a field is already present or does not read back as written.
 /// @note  Appended as text, so every other byte of the clip is kept. That relies on `animation:` being the file's last
 ///        top-level key with 2-space children; the read-back through the loader proves it for each file.
 std::string InjectAnimation(const std::string& path, std::string text, const std::vector<Injection>& injections) {
-    for (const auto& in : injections) {
-        const std::string key = "  " + in.field + ":";
+    const auto claim = [&](const std::string& field, const std::string& config) {
+        const std::string key = "  " + field + ":";
         for (std::size_t at = 0; at < text.size();) {
             const std::size_t end = (std::min)(text.find('\n', at), text.size());
             if (std::string_view(text).substr(at, end - at).starts_with(key))
-                throw std::runtime_error("already has '" + in.field + "' (" + in.config + ")");
+                throw std::runtime_error("already has '" + field + "' (" + config + ")");
             at = end + 1;
         }
         if (!text.empty() && text.back() != '\n') text += '\n';
-        text += key + " " + Flow(in.values) + "\n";
+    };
+    for (const auto& in : injections) {
+        if (in.field == "curves") continue;
+        claim(in.field, in.config);
+        text += "  " + in.field + ": " + Flow(in.values) + "\n";
+    }
+    /// @note Every curves injection lands as ONE `curves:` block, measured and hand-authored merged by name.
+    const auto curvesIn = std::find_if(injections.begin(), injections.end(), [](const auto& in) { return in.field == "curves"; });
+    const auto curves   = MergedCurves(injections);
+    if (curvesIn != injections.end()) {
+        claim("curves", curvesIn->config);
+        text += CB::engine::anim::EmitAnimCurvesYaml(curves);
     }
     using MotionTarget = CB::engine::anim::AnimationDef::MotionTarget;
     const auto def = CB::engine::anim::AnimationYamlLoader::LoadFromString(text, path);
     for (const auto& in : injections) {
         bool same = false;
-        if (in.field == "tags") {
-            std::map<std::string, std::vector<std::pair<int, int>>> want;
-            for (const auto& [name, ranges] : in.values.items())
-                for (const auto& r : ranges) want[name].emplace_back(r[0].get<int>(), r[1].get<int>());
-            same = def.tags && *def.tags == want;
+        if (in.field == "curves") {
+            same = SameCurves(def.curves, curves);
         } else if (in.field == "motionTarget") {
             same = def.motionTarget == (in.values.get<std::string>() == "motionMatching" ? MotionTarget::MotionMatching
                                                                                           : MotionTarget::AnimationData);
         } else if (in.field == "preload") {
             same = def.preload == in.values.get<bool>();
-        } else if (in.field == "entry") {
-            using Entry = CB::engine::anim::AnimationDef::Entry;
-            same = def.entry == (in.values.get<std::string>() == "changes" ? Entry::Changes : Entry::Anywhere);
         }
         if (!same)
             throw std::runtime_error("'" + in.field + "' did not read back as written (is `animation:` the last top-level key?)");
@@ -602,6 +367,7 @@ std::string Apply(const std::string& path, std::string text, const std::vector<I
         const auto f = fields.find(in.field);
         if (f == fields.end())
             throw std::runtime_error("animation files accept no '" + in.field + "' (injectables.json; " + in.config + ")");
+        if (in.measured) continue;
         if (const auto why = CheckType(f->second, in.values); !why.empty())
             throw std::runtime_error("'" + in.field + "': " + why + " (" + in.config + ")");
     }
@@ -628,8 +394,8 @@ Table LoadTable(const std::string& tablePath) {
                 throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' has no read-back in hky-tool, so a "
                                          "value the loader ignores would pass unseen");
             FieldType ft;
-            if (type.is_string() && type.get<std::string>() == "rangeMap") {
-                ft.shape = FieldType::Shape::RangeMap;
+            if (type.is_string() && type.get<std::string>() == "curveMap") {
+                ft.shape = FieldType::Shape::CurveMap;
             } else if (type.is_string() && type.get<std::string>() == "bool") {
                 ft.shape = FieldType::Shape::Bool;
             } else if (type.is_object() && type.size() == 1 && type.contains("oneOf") && type["oneOf"].is_array() &&
@@ -642,7 +408,7 @@ Table LoadTable(const std::string& tablePath) {
                 }
             } else {
                 throw std::runtime_error(tablePath + ": '" + kind + "." + field + "' has an unknown type " + type.dump() +
-                                         " (known: \"rangeMap\", \"bool\", {\"oneOf\": [names]})");
+                                         " (known: \"curveMap\", \"bool\", {\"oneOf\": [names]})");
             }
             row[field] = std::move(ft);
         }
@@ -728,21 +494,57 @@ mm::MmBundleSpec OneDatabase(const std::vector<Clip>& clips, const std::string& 
     return spec;
 }
 
+/// @brief The motion-matching databases a `databases` list names: [{"name", "under", "standingCandidate",
+///        "movingCandidate"}], each clip in the FIRST whose `under` prefix holds it (path identity), clips in clip order.
+/// @throws std::runtime_error on a malformed entry, a repeated name, a database no clip falls in, or a clip in none.
+/// @note  The gates are written as given: the plugin owns the expression language and compiles them.
+std::vector<mm::MmDatabase> DatabasesByFolder(const Json& list, const std::vector<Clip>& clips) {
+    using CB::engine::codec::resource::PathKey;
+    if (!list.is_array() || list.empty()) throw std::runtime_error("'databases' is not a non-empty list");
+    std::vector<mm::MmDatabase> dbs;
+    std::vector<std::string>    prefixes;
+    for (const auto& d : list) {
+        ExpectKeys(d, { "name", "under" }, { "standingCandidate", "movingCandidate" });
+        if (!d["standingCandidate"].is_string() || !d["movingCandidate"].is_string())
+            throw std::runtime_error("database '" + d["name"].get<std::string>() + "': a candidate gate is not a string");
+        mm::MmDatabase db;
+        db.name              = d["name"].get<std::string>();
+        db.standingCandidate = d["standingCandidate"].get<std::string>();
+        db.movingCandidate   = d["movingCandidate"].get<std::string>();
+        if (std::any_of(dbs.begin(), dbs.end(), [&](const auto& x) { return x.name == db.name; }))
+            throw std::runtime_error("database '" + db.name + "' is listed twice");
+        dbs.push_back(std::move(db));
+        prefixes.push_back(PathKey(d["under"].get<std::string>()));
+    }
+    for (const auto& c : clips) {
+        const auto key = PathKey(c.path);
+        std::size_t at = 0;
+        while (at < prefixes.size() && !key.starts_with(prefixes[at])) ++at;
+        if (at == prefixes.size()) throw std::runtime_error("'" + c.path + "' is under no database's 'under'");
+        dbs[at].clips.push_back({ c.path, c.roster, 0 });
+    }
+    for (const auto& db : dbs)
+        if (db.clips.empty()) throw std::runtime_error("database '" + db.name + "' holds no clip");
+    return dbs;
+}
+
 /// @brief `clipSelectorBehavior`: a complete behavior unit whose root is a selector (`rootClass`) over one clip per
 ///        animation, the selected child bound to `clipVariable` and every child's user-controlled time to
 ///        `timeVariable` (only the selected child plays, so one shared time is safe).
-/// @note  A CBPoseSearchGenerator root is the engine's motion-matching unit (one database, named `database` or else
-///        `selectorName`). A hkbManualSelectorGenerator's indices are int8: it clamps to (int8)(children - 1), so past
-///        128 children every selection reads outside them. Its unit's own ids: 0000x0001 the root container, 0000x0002
-///        the selector, 0000x0003+ the clips in clip order.
+/// @note  A CBPoseSearchGenerator root is the engine's motion-matching unit, its databases from `databases`
+///        (DatabasesByFolder; children run database by database). A hkbManualSelectorGenerator's indices are int8: it
+///        clamps to (int8)(children - 1), so past 128 children every selection reads outside them. Its unit's own ids:
+///        0000x0001 the root container, 0000x0002 the selector, 0000x0003+ the clips in clip order.
 Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const CB::engine::schema::SchemaRegistry* reg) {
     const auto out = j["out"].get<std::string>(), selector = j["selectorName"].get<std::string>();
     const auto clipVar = j["clipVariable"].get<std::string>(), timeVar = j["timeVariable"].get<std::string>();
     const auto rootClass = j["rootClass"].get<std::string>();
     if (rootClass == "CBPoseSearchGenerator") {
         if (!reg) throw std::runtime_error("a CBPoseSearchGenerator unit is built through the schema: pass assemble a <schemaDir>");
-        auto spec = OneDatabase(clips, j["rosterRoot"].get<std::string>(),
-                                j.contains("database") ? j["database"].get<std::string>() : selector);
+        if (!j.contains("databases")) throw std::runtime_error("a CBPoseSearchGenerator unit needs 'databases'");
+        mm::MmBundleSpec spec;
+        spec.rosterRoot   = j["rosterRoot"].get<std::string>();
+        spec.databases    = DatabasesByFolder(j["databases"], clips);
         spec.unitPath     = out;
         spec.selectorName = selector;
         spec.clipVariable = clipVar;
@@ -754,7 +556,7 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
     }
     if (rootClass != "hkbManualSelectorGenerator")
         throw std::runtime_error("'rootClass' " + rootClass + " is neither hkbManualSelectorGenerator nor CBPoseSearchGenerator");
-    if (j.contains("database")) throw std::runtime_error("'database' names a CBPoseSearchGenerator database");
+    if (j.contains("databases")) throw std::runtime_error("'databases' are a CBPoseSearchGenerator's");
     if (clips.size() > 128)
         throw std::runtime_error(std::to_string(clips.size()) + " clips is past what " + rootClass + "'s index addresses (128)");
     const auto slash = out.rfind('/');
@@ -814,6 +616,60 @@ Files RosterPatch(const Json& j, const std::vector<Clip>& clips) {
     return files;
 }
 
+/// @brief `motionCurves`: every animation under `clips` in the partition, measured and given its motion curves
+///        (MeasureMotionCurves) simplified within `tolerance` ({"Speed", "MoveDirection", "TurnRate", "Acceleration"}).
+/// @return each animation's path (original case) and its curves, for injection into that same file.
+/// @note  Not a file generator: the curves belong in the partition's own clips, so they are injected there, where an
+///        inject config's hand-authored curve of the same name replaces a measured one whole.
+std::vector<std::pair<std::string, std::vector<CB::engine::anim::AnimCurveDef>>>
+MotionCurves(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine::codec::HkyArchive>>& partitions) {
+    namespace ea = CB::engine::anim;
+    using CB::engine::codec::resource::PathKey;
+    Json params = j;
+    params.erase("generator");
+    ExpectKeys(params, { "from", "clips" }, { "tolerance" });
+    const Json& t = params["tolerance"];
+    static constexpr std::array<const char*, 4> kNames{ "Speed", "MoveDirection", "TurnRate", "Acceleration" };
+    if (!t.is_object() || t.size() != kNames.size())
+        throw std::runtime_error("'tolerance' is not {\"Speed\", \"MoveDirection\", \"TurnRate\", \"Acceleration\"}");
+    std::array<double, 4> tv{};
+    for (std::size_t i = 0; i < kNames.size(); ++i) {
+        if (!t.contains(kNames[i]) || !t[kNames[i]].is_number() || t[kNames[i]].get<double>() < 0)
+            throw std::runtime_error(std::string("'tolerance' has no non-negative ") + kNames[i]);
+        tv[i] = t[kNames[i]].get<double>();
+    }
+    const ea::CurveTolerances tol{ tv[0], tv[1], tv[2], tv[3] };
+
+    const auto from = params["from"].get<std::string>();
+    const auto p    = partitions.find(from);
+    if (p == partitions.end()) throw std::runtime_error("no partition '" + from + "' in the feature");
+    const std::string prefix = PathKey(params["clips"].get<std::string>());
+    std::vector<std::string> paths;
+    for (const auto& path : p->second->filesUnderOrig(""))
+        if (assemble::IsAnimationPath(path) && PathKey(path).starts_with(prefix)) paths.push_back(path);
+    if (paths.empty()) throw std::runtime_error("no animations under '" + params["clips"].get<std::string>() + "'");
+
+    std::vector<std::pair<std::string, std::vector<ea::AnimCurveDef>>> out(paths.size());
+    std::vector<std::string>                                           errs(paths.size());
+    CB::engine::exec::ParallelFor(paths.size(), [&](std::size_t i) {
+        try {
+            const auto text = p->second->file(PathKey(paths[i]));
+            if (!text) throw std::runtime_error("unreadable");
+            std::string err;
+            const auto  m = ea::MeasureClip(ea::AnimationYamlLoader::LoadFromString(*text, paths[i]), err);
+            if (!m) throw std::runtime_error(err);
+            out[i] = { paths[i], ea::MeasureMotionCurves(*m, tol) };
+        } catch (const std::exception& e) {
+            errs[i] = paths[i] + ": " + e.what();
+        }
+    });
+    std::string failed;
+    for (const auto& e : errs)
+        if (!e.empty()) failed += (failed.empty() ? "" : "; ") + e;
+    if (!failed.empty()) throw std::runtime_error(failed);
+    return out;
+}
+
 /// @brief One config run: its files, from the partition it names. `reg` is null when assemble was given no schema.
 /// @throws std::runtime_error with why, on an unknown generator or a bad parameter.
 Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine::codec::HkyArchive>>& partitions,
@@ -823,13 +679,15 @@ Files Run(const Json& j, const std::map<std::string, std::shared_ptr<CB::engine:
     const auto kind = j["generator"].get<std::string>();
     Json params = j;
     params.erase("generator");
-    if (kind == "clipSelectorBehavior")
-        ExpectKeys(params, { "from", "clips", "rosterRoot", "out", "rootClass", "selectorName", "clipVariable", "timeVariable" }, {},
-                   { "database" });
-    else if (kind == "rosterPatch")
+    if (kind == "clipSelectorBehavior") {
+        Json named = params;
+        named.erase("databases");
+        ExpectKeys(named, { "from", "clips", "rosterRoot", "out", "rootClass", "selectorName", "clipVariable", "timeVariable" });
+    } else if (kind == "rosterPatch") {
         ExpectKeys(params, { "from", "clips", "rosterRoot" }, { "characters" });
-    else
-        throw std::runtime_error("unknown generator '" + kind + "' (known: clipSelectorBehavior, rosterPatch)");
+    } else {
+        throw std::runtime_error("unknown generator '" + kind + "' (known: clipSelectorBehavior, rosterPatch, motionCurves)");
+    }
     const auto from = params["from"].get<std::string>();
     const auto p    = partitions.find(from);
     if (p == partitions.end()) throw std::runtime_error("no partition '" + from + "' in the feature");
@@ -933,13 +791,23 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     if (!jsonUnder(injectRoot, configs) || !jsonUnder(generateRoot, generators)) return 1;
 
     /// @note Generators run before injection, so an inject config may target a generated file like any other.
-    std::size_t generated = 0;
+    std::size_t generated = 0, measured = 0;
     for (const auto& g : generators) {
         const std::string name = g.lexically_relative(generateRoot).generic_string();
         try {
             const auto text = CB::engine::disk::ReadFile(g, { .stripBom = true });
             if (!text) throw std::runtime_error("unreadable");
-            for (auto& [path, content] : generate::Run(assemble::ParseStrict(*text), partitions, reg)) {
+            const auto j = assemble::ParseStrict(*text);
+            if (j.is_object() && j.contains("generator") && j["generator"] == "motionCurves") {
+                for (auto& [path, curves] : generate::MotionCurves(j, partitions)) {
+                    const auto it = byKey.find(PathKey(path));
+                    if (it == byKey.end()) throw std::runtime_error("'" + path + "' is not in the feature");
+                    sources[it->second].injections.push_back({ "curves", {}, "generate/" + name, std::move(curves) });
+                    ++measured;
+                }
+                continue;
+            }
+            for (auto& [path, content] : generate::Run(j, partitions, reg)) {
                 add(path, [c = std::make_shared<const std::string>(std::move(content))] { return std::optional<std::string>(*c); },
                     "generator " + name);
                 ++generated;
@@ -1032,10 +900,162 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     }
     if (!HkyArchive::LoadFromFile(out, err)) { std::printf("FAIL: assembled but unreadable: %s\n", err.c_str()); return 1; }
     std::printf("OK: assemble '%s' -> %s: %zu file(s) from %zu partition(s) + %zu loose + %zu generated by %zu "
-                "config(s); %zu injection(s) from %zu config(s) into %zu file(s).\n",
-                dir.c_str(), out.c_str(), total, partitions.size(), loose, generated, generators.size(), injected,
+                "config(s); %zu clip(s) given measured curves; %zu injection(s) from %zu config(s) into %zu file(s).\n",
+                dir.c_str(), out.c_str(), total, partitions.size(), loose, generated, generators.size(), measured, injected,
                 configs.size(), targetsTouched);
     return 0;
+}
+
+/// @brief `embedded-roundtrip`: every file of a `kind: embedded` descriptor in a .hky, parsed through the schema and
+///        spliced back unchanged, must reproduce its text byte for byte; and every `view: curve` object must sample
+///        (SampleCurve, by its view roles) exactly as the typed loader's curves do, at each key and midway between.
+int doEmbeddedRoundTrip(const std::string& hkyPath, const std::string& schemaDir) {
+    if (hkyPath.empty() || schemaDir.empty()) {
+        std::printf("usage: hky-tool embedded-roundtrip <in.hky> <schemaDir>\n");
+        return 2;
+    }
+    namespace dc = CB::engine::decompile;
+    namespace ea = CB::engine::anim;
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    std::string err;
+    const auto  arc = CB::engine::codec::HkyArchive::LoadFromFile(hkyPath, err);
+    if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+
+    const auto keys = arc->filesUnder(""), orig = arc->filesUnderOrig("");
+    std::atomic<std::size_t> files{ 0 }, curves{ 0 }, samples{ 0 };
+    std::mutex               failMutex;
+    std::vector<std::string> failures;
+    const auto fail = [&](const std::string& f) { const std::lock_guard lock(failMutex); failures.push_back(f); };
+    CB::engine::exec::ParallelFor(keys.size(), [&](std::size_t i) {
+        try {
+            const auto text = arc->file(keys[i]);
+            if (!text) return fail(orig[i] + ": unreadable");
+            const auto* kind = dc::EmbeddedKindOf(*reg, *text);
+            if (!kind) return;
+            ++files;
+            std::string perr;
+            const auto  obj = dc::ParseEmbeddedFile(*text, *kind, *reg, orig[i], perr);
+            if (!obj) return fail(perr);
+            const auto back = dc::SpliceEmbeddedFile(*text, *kind, *obj, *reg, perr);
+            if (!back) return fail(orig[i] + ": " + perr);
+            if (*back != *text) {
+                std::size_t at = 0;
+                while (at < back->size() && at < text->size() && (*back)[at] == (*text)[at]) ++at;
+                return fail(orig[i] + ": splice differs at byte " + std::to_string(at));
+            }
+            if (kind->cls != "CBAnimationCurves") return;
+            const auto def = ea::AnimationYamlLoader::LoadFromString(*text, orig[i]);
+            const auto& objs = obj->FieldRef("curves").objs;
+            if (objs.size() != def.curves.size()) return fail(orig[i] + ": curve count differs");
+            for (std::size_t c = 0; c < objs.size(); ++c) {
+                const auto* so = dynamic_cast<const CB::engine::codec::io::SchemaObject*>(objs[c].get());
+                const auto& typed = def.curves[c];
+                ++curves;
+                for (std::size_t k = 0; k < typed.keys.size(); ++k) {
+                    const float t0 = typed.keys[k].time;
+                    const float t1 = k + 1 < typed.keys.size() ? (t0 + typed.keys[k + 1].time) / 2 : t0 + 1;
+                    for (const float t : { t0, t1 }) {
+                        const auto s = so ? dc::SampleCurve(*so, t, *reg) : std::nullopt;
+                        ++samples;
+                        if (!s || *s != ea::SampleCurve(typed, t))
+                            return fail(orig[i] + ": curve '" + typed.name + "' samples differently at " + std::to_string(t));
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            fail(orig[i] + ": " + e.what());
+        }
+    });
+    for (const auto& f : failures) std::printf("  FAIL %s\n", f.c_str());
+    std::printf("%s: embedded-roundtrip '%s': %zu embedded file(s), %zu curve(s), %zu sample(s) checked, %zu failure(s).\n",
+                failures.empty() ? "OK" : "FAIL", hkyPath.c_str(), files.load(), curves.load(), samples.load(), failures.size());
+    return failures.empty() && files > 0 ? 0 : 1;
+}
+
+/// @brief `loadorder`: the .hky load order of a Data folder or MO2 instance, as CB-API's LoadOrderDocument reads it
+///        through VFS: its bundles in order, then every behavior and character unit merged (`--all`) or the named ones.
+int doLoadOrder(int argc, char** argv) {
+    std::string              schemaDir, mo2, profile, data;
+    std::vector<std::string> units;
+    bool                     all = false;
+    for (int i = 0; i < argc; ++i) {
+        const std::string a    = argv[i];
+        const auto        next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
+        if (a == "--mo2") mo2 = next();
+        else if (a == "--profile") profile = next();
+        else if (a == "--data") data = next();
+        else if (a == "--unit") units.push_back(next());
+        else if (a == "--all") all = true;
+        else if (schemaDir.empty()) schemaDir = a;
+    }
+    if (schemaDir.empty() || (mo2.empty() == data.empty())) {
+        std::printf("usage: hky-tool loadorder <schemaDir> (--mo2 <instance> [--profile <p>] | --data <DataFolder>) [--unit <key>]... [--all]\n");
+        return 2;
+    }
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+
+    vfs::Options o;
+    if (!mo2.empty()) o.kind = vfs::Options::Kind::Mo2, o.mo2Instance = mo2, o.mo2Profile = profile;
+    else o.dataFolder = data;
+    vfs::FileSystem fsys;
+    std::string     err;
+    if (!fsys.Open(o, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    CB::engine::merge::LoadOrderDocument doc;
+    if (!doc.Open(fsys, *reg, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+
+    for (const auto& b : doc.Bundles())
+        std::printf("  %3d %-28s %-34s%s%s\n", b.rank, b.stem.c_str(), b.provider.c_str(), b.dropped ? " DROPPED" : "",
+                    b.error.empty() ? "" : (" UNREADABLE: " + b.error).c_str());
+    for (const auto& w : doc.Warnings()) std::printf("  warn: %s\n", w.c_str());
+    const auto every = doc.Units();
+    std::size_t graphs = 0, rigged = 0, projects = 0, skeletons = 0;
+    for (const auto& u : every) {
+        projects  += u.kind == CB::engine::codec::HkyArchive::UnitKind::Project;
+        skeletons += u.kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton;
+        if (std::find(units.begin(), units.end(), u.key) == units.end()) continue;
+        std::string layers;
+        for (const auto& l : u.layers) layers += (layers.empty() ? "" : " -> ") + l;
+        std::printf("  %s: kind %d, layers %s\n", u.key.c_str(), static_cast<int>(u.kind), layers.c_str());
+        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Project)
+            for (const auto& c : doc.ProjectCharacters(u.key)) std::printf("    character %s\n", c.c_str());
+    }
+    for (const auto& u : every) {
+        using K = CB::engine::codec::HkyArchive::UnitKind;
+        if (u.kind != K::Behavior && u.kind != K::Character) continue;
+        ++graphs;
+        if (doc.RigBones(u.key)) ++rigged;
+        if (std::find(units.begin(), units.end(), u.key) != units.end()) {
+            std::string rigs;
+            for (const auto& r : doc.Rigs(u.key)) rigs += (rigs.empty() ? "" : ", ") + r;
+            std::printf("  %s binds: %s\n", u.key.c_str(), rigs.empty() ? "no rig" : rigs.c_str());
+        }
+        if (all) units.push_back(u.key);
+    }
+    std::printf("  %zu bundle(s), %zu file(s), %zu unit(s): %zu project(s), %zu skeleton(s), %zu behavior/character "
+                "unit(s), %zu bound to a rig\n",
+                doc.Bundles().size(), doc.Files().size(), every.size(), projects, skeletons, graphs, rigged);
+
+    std::atomic<std::size_t> merged{ 0 };
+    std::mutex               failMutex;
+    std::vector<std::string> failures;
+    const auto               t0 = std::chrono::steady_clock::now();
+    CB::engine::exec::ParallelFor(units.size(), [&](std::size_t i) {
+        CB::engine::decompile::ParsedHky g;
+        std::string                      why;
+        if (doc.MergedGraph(units[i], g, &why)) { ++merged; return; }
+        const std::lock_guard lock(failMutex);
+        failures.push_back(units[i] + ": " + why);
+    });
+    std::sort(failures.begin(), failures.end());
+    for (const auto& f : failures) std::printf("  FAIL %s\n", f.c_str());
+    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    std::printf("%s: loadorder: %zu of %zu unit(s) merged in %.1f s.\n", failures.empty() ? "OK" : "FAIL", merged.load(),
+                units.size(), secs);
+    return failures.empty() ? 0 : 1;
 }
 
 /// @brief `merge-check`: every unit in `bundle` merged onto its base in `base` (a patch unit) or alone (a unit the
@@ -1152,9 +1172,10 @@ void usage() {
                 "  hky-tool unpack      <in.hky>    -o <outDir>\n"
                 "  hky-tool bsa-list    <in.bsa>    [prefix]\n"
                 "  hky-tool bsa-extract <in.bsa>    -o <outDir> [prefix]\n"
-                "  hky-tool autotag     <clips.hky|dir> -o <injectDir> [reportDir]\n"
                 "  hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n"
                 "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n"
+                "  hky-tool embedded-roundtrip <in.hky> <schemaDir>\n"
+                "  hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all]\n"
                 "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
                 "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
                 "                       [--loadorder <file>] [--unit <path>]... [--all]\n");
@@ -1169,6 +1190,7 @@ int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     const std::string verb = argv[1];
     if (verb == "graph-html") return doGraphHtml(argc - 2, argv + 2);
+    if (verb == "loadorder") return doLoadOrder(argc - 2, argv + 2);
 
     std::string arg, arg2, arg3, out;
     for (int i = 2; i < argc; ++i) {
@@ -1183,9 +1205,9 @@ int main(int argc, char** argv) {
     if (verb == "unpack")      return doHkyUnpack(arg, out);
     if (verb == "bsa-list")    return doBsaList(arg, arg2);
     if (verb == "bsa-extract") return doBsaExtract(arg, out, arg2);
-    if (verb == "autotag")     return doAutoTag(arg, out, arg2);
     if (verb == "assemble")    return doAssemble(arg, arg2, arg3, out);
     if (verb == "merge-check") return doMergeCheck(arg, arg2, arg3, out);
+    if (verb == "embedded-roundtrip") return doEmbeddedRoundTrip(arg, arg2);
     if (verb == "mm-sample")   return doMmSample(arg, out);
     usage();
     return 2;

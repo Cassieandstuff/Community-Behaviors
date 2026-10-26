@@ -51,9 +51,9 @@ void MeshSource::AddLoose(const fs::path& dataRoot) {
 
 bool MeshSource::AddArchive(const fs::path& path, std::string& err) {
     std::string aerr;
-    auto arc = CB::engine::codec::bsa::Archive::Open(path, &aerr);
+    auto arc = vfs::bsa::Archive::Open(path, &aerr);
     if (!arc) { err = "archive unreadable: " + path.string() + " — " + aerr; return false; }
-    m_archives.push_back(std::make_unique<CB::engine::codec::bsa::Archive>(std::move(*arc)));
+    m_archives.push_back(std::make_unique<vfs::bsa::Archive>(std::move(*arc)));
     m_archivePaths.push_back(path);
     const std::size_t ai = m_archives.size() - 1;
     for (const auto& e : m_archives[ai]->Entries()) {

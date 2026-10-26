@@ -207,6 +207,9 @@ namespace CB::feature {
             std::string name;
             /// @brief The biases' expressions, evaluated each frame by the frame hook (an invalid one is 0).
             Expression  base, continuing, looping;
+            /// @brief The candidate gates over each row's curves, evaluated once per row at build (empty: every row; one
+            ///        that does not compile: no row).
+            Expression  standing, moving;
             bool        pivots     = false;   ///< its tags hold "Pivots" (byte-exact): IsStarting and spins stay false
         };
 
@@ -222,11 +225,11 @@ namespace CB::feature {
             std::vector<float>              rows;
             std::vector<int>                clipOf;       ///< row -> clip
             std::vector<char>               searchable;   ///< row's whole future lies inside its clip
-            std::vector<std::uint8_t>       rowTags;      ///< the frame's kTag* bits (the search's gates)
-            std::vector<std::uint8_t>       rowGait;      ///< the frame's gait tag as a ch::Gait (None for Idle or none)
+            std::vector<std::uint8_t>       rowGates;     ///< the frame's kRow* bits (the search's gates)
+            std::vector<std::uint8_t>       rowGait;      ///< the frame's ch::Gait from its Speed curve (None standing)
             std::array<float, F::kDims>     mean{}, scale{}, weight{};
             /// @brief The clips' own speed per gait (game units/s, indexed by ch::Gait), 0 where no clip has one: the
-            ///        median root speed of the frames tagged that gait and Forward, neither Accelerate nor Decelerate.
+            ///        median root speed of the steady forward frames in that gait's Speed band (CollectGaitSpeeds).
             std::array<float, 4>            gaitSpeed{};
             std::vector<PoseDatabase>       databases;
             /// @brief Empty without a chooser: every database is searched.
@@ -300,70 +303,87 @@ namespace CB::feature {
             return nullptr;
         }
 
-        /// @brief The per-frame tag bits the search gates on.
-        constexpr std::uint8_t kTagIdle = 1, kTagAccelerate = 2, kTagDecelerate = 4;
-        constexpr std::uint8_t kTagEnter = 8;   ///< the frame may be cut into (the clip's `entry` allows it)
+        /// @brief The per-row bits the search gates on: its database's candidate gates, evaluated at the row's frame.
+        constexpr std::uint8_t kRowStanding = 1, kRowMoving = 2;
+
+        /// @brief The speed bands a frame's Speed curve falls in (game units/s): standing below kStandSpeed, then Walk,
+        ///        Run from kWalkRun, Sprint from kRunSprint. Midway between the clips' measured plateaus (walk 92, run 284,
+        ///        sprint 426), as hky-tool's tagger set them.
+        constexpr float kStandSpeed = 15.0f, kWalkRun = 188.0f, kRunSprint = 355.0f;
+        /// @brief A steady forward frame (the clips' own gait speeds): travel within kForwardDeg of facing, speed changing
+        ///        by less than kSteadyAccel (game units/s²).
+        constexpr float kForwardDeg = 45.0f, kSteadyAccel = 100.0f;
+
+        /// @brief The motion curves' names, byte-exact, as hky-tool's motionCurves generator writes them.
+        constexpr const char* kSpeedCurve = "Speed";
+        constexpr const char* kDirectionCurve = "MoveDirection";
+        constexpr const char* kAccelCurve = "Acceleration";
 
         /// @brief One distinct clip's measurement (raw, unnormalized features), shared by every child that plays it.
         struct Measured {
             std::vector<float>        rows;
             std::vector<char>         searchable;
-            std::vector<std::uint8_t> tags, gait;
+            std::vector<std::uint8_t> gait;     ///< per frame, a ch::Gait from the Speed curve's band
+            std::vector<ea::AnimCurveDef> curves;   ///< the clip's curves, which its databases' gates read per row
             int                       frames   = 0;
             double                    dt       = 1.0 / 30.0;
             double                    duration = 0;
         };
 
-        /// @brief Append `m`'s rows' tag bits and gait tags. Untagged clips get no bits: enterable anywhere, never a
-        ///        standing candidate. Tag names compared byte-exact, as autotag writes them.
-        void AppendRowTags(const ea::ClipMotion& m, const ea::AnimationDef& def, Measured& out)
+        /// @return the curve named `name` (byte-exact) in `curves`, or null
+        const ea::AnimCurveDef* CurveNamed(const std::vector<ea::AnimCurveDef>& curves, std::string_view name)
         {
-            static const std::map<std::string, std::vector<std::pair<int, int>>> kNoTags;
-            const auto& tags = def.tags ? *def.tags : kNoTags;
-            const auto  in   = [&](const char* name, int i) {
-                const auto it = tags.find(name);
-                if (it == tags.end()) return false;
-                for (const auto& [a, b] : it->second)
-                    if (a <= i && i < b) return true;
-                return false;
-            };
-            const bool changesOnly = def.entry == ea::AnimationDef::Entry::Changes;
+            const auto it = std::find_if(curves.begin(), curves.end(), [&](const ea::AnimCurveDef& c) { return c.name == name; });
+            return it == curves.end() ? nullptr : &*it;
+        }
+
+        /// @brief A clip's curves at one frame, as the variables a candidate gate reads (GraphVar("Speed")).
+        /// @note  A curve the clip lacks is not this source's: GraphVar then reads 0 (the build has no actor).
+        class CurveVariables final : public relay::VariableSource {
+        public:
+            explicit CurveVariables(const std::vector<ea::AnimCurveDef>& curves) : m_curves(curves) {}
+            float time = 0;   ///< seconds into the clip
+            bool  Read(const char* name, relay::Value& out) const override
+            {
+                const ea::AnimCurveDef* c = CurveNamed(m_curves, name);
+                if (!c) return false;
+                out = relay::Value::Float(ea::SampleCurve(*c, time));
+                return true;
+            }
+
+        private:
+            const std::vector<ea::AnimCurveDef>& m_curves;
+        };
+
+        /// @brief Each frame's gait from `def`'s Speed curve (None while standing, and for a clip without one).
+        void AppendRowGaits(const ea::ClipMotion& m, const ea::AnimationDef& def, Measured& out)
+        {
+            const ea::AnimCurveDef* speed = CurveNamed(def.curves, kSpeedCurve);
             for (int i = 0; i < m.frames; i++) {
-                std::uint8_t bits = 0;
-                if (in("Idle", i)) bits |= kTagIdle;
-                if (in("Accelerate", i)) bits |= kTagAccelerate;
-                if (in("Decelerate", i)) bits |= kTagDecelerate;
-                if (!changesOnly || (bits & (kTagAccelerate | kTagDecelerate))) bits |= kTagEnter;
-                const ch::Gait gait = in("Sprint", i) ? ch::Gait::Sprint
-                                    : in("Run", i)    ? ch::Gait::Run
-                                    : in("Walk", i)   ? ch::Gait::Walk
-                                                      : ch::Gait::None;
-                out.tags.push_back(bits);
+                const float s = speed ? ea::SampleCurve(*speed, static_cast<float>(i * m.dt)) : 0.0f;
+                const ch::Gait gait = s >= kRunSprint ? ch::Gait::Sprint
+                                    : s >= kWalkRun   ? ch::Gait::Run
+                                    : s >= kStandSpeed ? ch::Gait::Walk
+                                                       : ch::Gait::None;
                 out.gait.push_back(static_cast<std::uint8_t>(gait));
             }
         }
 
         /// @brief Add `m`'s steady forward frames' horizontal root speeds to their gait's list (see Database::gaitSpeed).
-        /// @note  Tag names compared byte-exact, as autotag writes them.
-        void CollectGaitSpeeds(const ea::ClipMotion& m, const std::map<std::string, std::vector<std::pair<int, int>>>& tags,
+        /// @note  A clip without the Speed, MoveDirection and Acceleration curves adds none.
+        void CollectGaitSpeeds(const ea::ClipMotion& m, const std::vector<ea::AnimCurveDef>& curves, const std::vector<std::uint8_t>& gait,
                                std::array<std::vector<float>, 4>& out)
         {
-            const auto mark = [&](const char* name) {
-                std::vector<char> on(static_cast<std::size_t>(m.frames), 0);
-                if (const auto it = tags.find(name); it != tags.end())
-                    for (const auto& [a, b] : it->second)
-                        for (int i = (std::max)(a, 0); i < (std::min)(b, m.frames); ++i) on[i] = 1;
-                return on;
-            };
-            const auto forward = mark("Forward"), accel = mark("Accelerate"), decel = mark("Decelerate");
-            static constexpr const char* kGaitTags[4] = { nullptr, "Walk", "Run", "Sprint" };
-            for (std::size_t g = 1; g < out.size(); ++g) {
-                const auto on = mark(kGaitTags[g]);
-                for (int i = 0; i + 1 < m.frames; ++i) {
-                    if (!on[i] || !forward[i] || accel[i] || decel[i]) continue;
-                    const double dx = m.rootPos[i + 1].x - m.rootPos[i].x, dy = m.rootPos[i + 1].y - m.rootPos[i].y;
-                    out[g].push_back(static_cast<float>(std::sqrt(dx * dx + dy * dy) / m.dt));
-                }
+            const ea::AnimCurveDef* direction = CurveNamed(curves, kDirectionCurve);
+            const ea::AnimCurveDef* accel     = CurveNamed(curves, kAccelCurve);
+            if (!direction || !accel || gait.size() < static_cast<std::size_t>(m.frames)) return;
+            for (int i = 0; i + 1 < m.frames; ++i) {
+                const float t = static_cast<float>(i * m.dt);
+                if (gait[i] == static_cast<std::uint8_t>(ch::Gait::None) || std::fabs(ea::SampleCurve(*direction, t)) >= kForwardDeg ||
+                    std::fabs(ea::SampleCurve(*accel, t)) >= kSteadyAccel)
+                    continue;
+                const double dx = m.rootPos[i + 1].x - m.rootPos[i].x, dy = m.rootPos[i + 1].y - m.rootPos[i].y;
+                out[gait[i]].push_back(static_cast<float>(std::sqrt(dx * dx + dy * dy) / m.dt));
             }
         }
 
@@ -387,8 +407,9 @@ namespace CB::feature {
             out->duration     = def.duration > 0 ? def.duration : (m->frames - 1) * m->dt;
             const int horizon = static_cast<int>(std::lround(F::kHorizons.back() / m->dt));
             for (int i = 0; i < m->frames; ++i) out->searchable.push_back(i + horizon <= m->frames - 1);
-            if (def.tags) CollectGaitSpeeds(*m, *def.tags, gaitSpeeds);
-            AppendRowTags(*m, def, *out);
+            AppendRowGaits(*m, def, *out);
+            CollectGaitSpeeds(*m, def.curves, out->gait, gaitSpeeds);
+            out->curves = def.curves;
             return out;
         }
 
@@ -430,6 +451,10 @@ namespace CB::feature {
                     p.base       = CompileExpression(StrOr(*d, "baseCostBias"), "database '" + p.name + "' baseCostBias", "0");
                     p.continuing = CompileExpression(StrOr(*d, "continuingPoseCostBias"), "database '" + p.name + "' continuingPoseCostBias", "0");
                     p.looping    = CompileExpression(StrOr(*d, "loopingCostBias"), "database '" + p.name + "' loopingCostBias", "0");
+                    p.standing   = CompileExpression(StrOr(*d, "standingCandidate"), "database '" + p.name + "' standingCandidate",
+                                                     "no row is a standing candidate");
+                    p.moving     = CompileExpression(StrOr(*d, "movingCandidate"), "database '" + p.name + "' movingCandidate",
+                                                     "no row is a moving candidate");
                     if (const auto* tags = d->FindField("tags"))
                         p.pivots = std::find(tags->strs.begin(), tags->strs.end(), "Pivots") != tags->strs.end();
                     const auto first = d->GetInt("firstChild"), n = d->GetInt("numChildren");
@@ -581,8 +606,15 @@ namespace CB::feature {
             db->rows.reserve(total * F::kDims);
             db->clipOf.reserve(total);
             db->searchable.reserve(total);
-            db->rowTags.reserve(total);
+            db->rowGates.reserve(total);
             db->rowGait.reserve(total);
+            /// @note The gates read only the row's curves: the build has no actor, and the context is reset per row so
+            ///       the primitive memo never hands one row's curve value to the next.
+            relay::EvalContext ctx;
+            const auto         gate = [&](const Expression& e) {
+                if (e.text.empty()) return true;
+                return e.expr.Valid() && e.expr.Evaluate(ctx).AsBool();
+            };
             for (std::size_t i = 0; i < db->clips.size(); ++i) {
                 Clip& c = db->clips[i];
                 c.first = static_cast<int>(db->rows.size() / F::kDims);
@@ -597,8 +629,20 @@ namespace CB::feature {
                 }
                 db->clipOf.insert(db->clipOf.end(), static_cast<std::size_t>(m->frames), static_cast<int>(i));
                 db->searchable.insert(db->searchable.end(), m->searchable.begin(), m->searchable.end());
-                db->rowTags.insert(db->rowTags.end(), m->tags.begin(), m->tags.end());
                 db->rowGait.insert(db->rowGait.end(), m->gait.begin(), m->gait.end());
+                const PoseDatabase* pd = c.database >= 0 ? &db->databases[c.database] : nullptr;
+                CurveVariables      vars(m->curves);
+                for (int f = 0; f < m->frames; ++f) {
+                    std::uint8_t bits = 0;
+                    if (pd) {
+                        ctx.Reset(nullptr);
+                        ctx.variables = &vars;
+                        vars.time     = static_cast<float>(f * m->dt);
+                        if (gate(pd->standing)) bits |= kRowStanding;
+                        if (gate(pd->moving)) bits |= kRowMoving;
+                    }
+                    db->rowGates.push_back(bits);
+                }
             }
 
             for (std::size_t g = 0; g < gaitSpeeds.size(); ++g) {
@@ -1155,8 +1199,8 @@ namespace CB::feature {
         std::size_t ban      = 0, searched = 0;
         /// @note disableReselection: while such a child plays, no other frame of it is a candidate (it goes on or leaves).
         const bool  noRepick = curRow >= 0 && (db->clips[cur.clip].flags & kFlagDisableReselection);
-        /// @note The tag gates: standing (the request near zero) cuts only into idles and stops; moving never into a
-        ///       pure idle (a start is tagged Accelerate as well); and a clip marked `entry: changes` only at a change.
+        /// @note The candidate gates: standing (the request near zero) cuts only into rows its database's
+        ///       standingCandidate passed, moving only into rows its movingCandidate passed (both evaluated at build).
         ///       Only the chooser's databases are searched; rows ascend with the children, so the ban walk stays monotonic.
         const bool standing = std::hypot(q.desiredX, q.desiredY) < kForceMoving;
         for (int ci = 0; ci < static_cast<int>(db->clips.size()); ++ci) {
@@ -1165,9 +1209,7 @@ namespace CB::feature {
             const float b = bias(ci);
             for (int r = c.first; r < c.first + c.frames; ++r) {
                 if (!db->searchable[r]) continue;
-                const std::uint8_t tag = db->rowTags[r];
-                if (!(tag & kTagEnter)) continue;
-                if (standing ? !(tag & (kTagIdle | kTagDecelerate)) : (tag & kTagIdle) && !(tag & kTagAccelerate)) continue;
+                if (!(db->rowGates[r] & (standing ? kRowStanding : kRowMoving))) continue;
                 if (curRow >= 0 && ci == cur.clip && std::abs(r - curRow) < kIgnoreSurrounding) continue;
                 while (ban < banned.size() && banned[ban].second < r) ++ban;
                 bool skip = false;

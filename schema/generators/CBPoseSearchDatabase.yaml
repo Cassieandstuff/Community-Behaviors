@@ -1,11 +1,14 @@
 name:      CBPoseSearchDatabase
 parent:    null
-size:      56
+size:      72
 # One motion-matching database (a dance card): a contiguous range of its CBPoseSearchGenerator's children, with the
 # per-database cost biases of Unreal's PoseSearchDatabase (added to a candidate's cost; negative = preferred) and its
 # tags. Keyed by name in the .hky, so a mod adds or edits a database by name.
 # Each bias is a condition expression evaluated to a float once per search (a literal such as -0.05 is one); empty is
 # 0, and one that does not compile is 0.
+# The candidate gates are condition expressions over the row's animation curves (GraphVar("Speed") reads the clip's Speed
+# curve at that frame), evaluated once per row when the database is built: empty = every row, one that does not compile
+# = no row.
 fields:
   - { name: name,                   type: string }
   - { name: firstChild,             type: int32 }
@@ -14,3 +17,5 @@ fields:
   - { name: continuingPoseCostBias, type: string }   # the playing pose, while it is from this database
   - { name: loopingCostBias,        type: string }   # candidates from this database's looping children
   - { name: tags,                   type: stringarray }
+  - { name: standingCandidate,      type: string }   # per row: may the search cut here while the request stands?
+  - { name: movingCandidate,        type: string }   # per row: may the search cut here while the request moves?

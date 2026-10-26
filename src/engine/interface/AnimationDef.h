@@ -58,6 +58,36 @@ struct AnimAnnotationTrackDef {
     std::vector<AnimAnnotation> annotations;
 };
 
+/// @brief One curve key (schema CBCurveKey): seconds from the clip's start and the value there.
+/// @note  `interp` is how the value moves from this key to the next one.
+struct AnimCurveKey {
+    enum class Interp : std::uint8_t { Constant = 0, Linear = 1 };
+    float  time   = 0.f;
+    float  value  = 0.f;
+    Interp interp = Interp::Linear;
+};
+
+/// @brief One named curve over the clip (schema CBAnimationCurve).
+/// @invariant keys ascend in time. Names are compared byte-exact.
+struct AnimCurveDef {
+    std::string               name;
+    std::vector<AnimCurveKey> keys;
+};
+
+/// @brief `c` at `t` seconds: the first key's value before it, the last key's after it, and between two keys the
+///        earlier key's interpolation. 0 for a curve without keys.
+inline float SampleCurve(const AnimCurveDef& c, float t) {
+    if (c.keys.empty()) return 0.f;
+    if (t <= c.keys.front().time) return c.keys.front().value;
+    if (t >= c.keys.back().time) return c.keys.back().value;
+    std::size_t hi = 1;
+    while (c.keys[hi].time < t) ++hi;
+    const AnimCurveKey& a = c.keys[hi - 1];
+    const AnimCurveKey& b = c.keys[hi];
+    if (a.interp == AnimCurveKey::Interp::Constant || b.time <= a.time) return a.value;
+    return a.value + (b.value - a.value) * ((t - a.time) / (b.time - a.time));
+}
+
 struct AnimCompressionParams {
     float rotationTolerance    = 0.001f;
     float translationTolerance = 0.001f;
@@ -112,17 +142,10 @@ struct AnimationDef {
     ///          every humanoid (guards too) started invisible until it moved, and unlisting them fixed it (2026-10-21).
     bool preload = false;
 
-    /// @brief `entry:` — where motion matching may cut into the clip. anywhere (absent): any frame. changes: only a frame
-    ///        tagged Accelerate or Decelerate; a cut that landed there still plays on through what follows.
-    /// @note  Why: in a long transition take (run-to-sprint and back), the steady stretches between the changes matched a
-    ///        steady run as well as a run did, and 49 of 79 transition-take picks in one session landed on them.
-    enum class Entry { Anywhere, Changes };
-    Entry entry = Entry::Anywhere;
-
-    /// @brief `tags:` — the motion-matching tags: each name's `[start, end)` frame ranges. Authored-YAML only (no Havok
-    ///        field carries them, so a decompiled clip has none); written by the build's injection (hky-tool assemble).
-    /// @note  nullopt = no `tags:` key; an empty map = the key with no tags. Names are compared byte-exact.
-    std::optional<std::map<std::string, std::vector<std::pair<int, int>>>> tags;
+    /// @brief `curves:` — the clip's named curves, read through the schema (CBAnimationCurves). Authored-YAML only: no
+    ///        Havok field carries them, so the compile drops them and a decompiled clip has none.
+    /// @note  Unique names, keys ascending in time: the loader rejects anything else.
+    std::vector<AnimCurveDef> curves;
 };
 
 } // namespace CB::engine::anim

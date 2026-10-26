@@ -1,8 +1,7 @@
 {
   "animation": {
-    "tags": "rangeMap",
+    "curves": "curveMap",
     "motionTarget": { "oneOf": ["animationData", "motionMatching"] },
-    "preload": "bool",
-    "entry": { "oneOf": ["anywhere", "changes"] }
+    "preload": "bool"
   }
 }

@@ -99,13 +99,14 @@ features/                    authored FEATURE BUNDLES as data — not code (that
                              Git LFS, `git lfs pull` before building; repacked only deliberately with `hky-tool pack`,
                              never by the build), loose files shipped at their path (manifest.json, hand-authored
                              patch units), generate/ — JSON configs naming a generator hky-tool knows (today:
-                             clipSelectorBehavior, rosterPatch) that writes files derived from a partition, so they can
+                             clipSelectorBehavior, rosterPatch, motionCurves — the last measures every clip's motion
+                             curves into the clip itself) that writes files derived from a partition, so they can
                              never drift from it — and inject/ —
                              JSON configs {"targets": [{"path" or "under" (every animation below a prefix), "field",
                              "values"}]} keyed by a file's path inside the
                              bundle, writing the fields tools/hky/injectables.json allows per file kind (today:
-                             animation -> tags, motionTarget, preload, entry; anything else fails the build). `hky-tool autotag` seeds tag configs
-                             and never overwrites one.
+                             animation -> curves, motionTarget, preload; anything else fails the build). A hand-authored
+                             curve replaces the measured curve of its name.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate
                              (cb-api-check). Consumed by Skyrim Content Tools (FetchContent, API-only, pinned by
                              commit) — a change there bumps its pin. Nothing private goes in include/.

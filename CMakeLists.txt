@@ -56,7 +56,7 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 #   PATCH - no wire effect: comments, file moves, a rendering-only hint.
 # Candidate-frozen, not frozen: burn -rc.N as the last classes settle, then cut 1.0.0. While either side is
 # a prerelease the gate is exact-match-or-refuse (CheckSchemaCompat).
-set(CB_SCHEMA_VERSION "1.0.0-rc.2")
+set(CB_SCHEMA_VERSION "1.0.0-rc.3")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Schema.cmake")   # the SCHEMA.yaml stamp + cb_stage_schema() / cb_install_schema()
 
 # ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
@@ -72,7 +72,8 @@ add_subdirectory(API)              # the single public API facade (<CB-API.h>): 
 # Every include dir above is BUILD_INTERFACE/INSTALL_INTERFACE-wrapped so the export accepts them.
 if(PROJECT_IS_TOP_LEVEL)
 include(CMakePackageConfigHelpers)
-install(TARGETS cb-api engine
+# VFS (fetched by src/engine) is a PUBLIC dependency of the engine, so it ships in the same export set.
+install(TARGETS cb-api engine vfs
         EXPORT  cb-api-targets
         ARCHIVE DESTINATION lib
         INCLUDES DESTINATION include)
@@ -80,6 +81,7 @@ install(TARGETS cb-api engine
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/" DESTINATION include FILES_MATCHING PATTERN "*.h")
 # The CB-API facade header itself (repo-root include/), shipped as <CB-API.h>.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/CB-API.h" DESTINATION include)
+install(DIRECTORY "${vfs_SOURCE_DIR}/API/vfs" DESTINATION include FILES_MATCHING PATTERN "*.h")
 # The class schema (schema/) is DATA the resolve/merge loads at runtime (SchemaRegistry::LoadDir) — the
 # ground truth for class layout + per-field `merge:` policy, plus the generated SCHEMA.yaml stamp. Without it a
 # consumer's merge runs with an empty classifier (NOT identical to the compiler), so ship it beside the

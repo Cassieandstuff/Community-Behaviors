@@ -33,7 +33,7 @@
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis
 #include "BaseMaps.h"                // BuildBaseMaps — where each vanilla graph / character lives
 #include "platform/Platform.h"       // DocumentsFolder
-#include <codec/bsa/BsaArchive.h>
+#include <vfs/Bsa.h>
 #include <codec/spline/SplineDecompressor.h>   // DecodeSpline — the CB-8 gate's float-section referee
 #include <common/Xml.h>
 #include <disk/Disk.h>
@@ -2512,7 +2512,7 @@ BaseBuildResult BuildBaseBundle(const std::string& sourceDir, const std::string&
 ///   units keep their on-disk case.
 static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
                                  const fs::path& stageRoot, const LogFn& log) {
-    namespace bsa = CB::engine::codec::bsa;
+    namespace bsa = vfs::bsa;
     const auto say = [&](const std::string& s) { if (log) log(s); };
     std::error_code ec;
     const fs::path stage = stageRoot / "modanim_stage";
