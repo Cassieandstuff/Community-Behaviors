@@ -2300,6 +2300,32 @@ bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps
 }
 } // namespace
 
+std::shared_ptr<io::SchemaObject> ParseEmbeddedObject(const yml::ConstNodeRef& map, const std::string& cls,
+                                                      const schema::SchemaRegistry& reg, const std::string& where,
+                                                      std::string& err) {
+    auto obj = makeObj(reg, cls);
+    if (!obj) { err = where + ": unknown class '" + cls + "'"; return nullptr; }
+    if (!map.readable() || !map.is_map()) { err = where + ": not a map"; return nullptr; }
+    HkyParse ps{ reg, nullptr, {}, {}, {}, {}, {} };
+    ps.where = where;
+    if (!fillFields(*obj, map, ps)) { err = ps.err; return nullptr; }
+    if (!ps.symbols.empty() || !ps.boneNames.empty()) {
+        err = where + ": " + cls + " names an event, variable or bone, which an embedded object cannot resolve";
+        return nullptr;
+    }
+    return obj;
+}
+
+std::string EmitEmbeddedObject(const io::SchemaObject& so, const schema::SchemaRegistry& reg) {
+    const Identity                                       id;
+    const NameResolver                                   nr;
+    const std::unordered_map<const IHavokObject*, std::string> cat;
+    const ReflectCtx                                     c{ id, nr, reg, nullptr, &cat };
+    std::string y;
+    for (std::size_t i = 0; i < so.Fields().size(); ++i) y += renderField(so, i, c);
+    return y;
+}
+
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
                         const std::vector<std::string>* bones, const std::string& unitPath) {
     return ParseHkyReflective(CB::engine::common::DiskUnitSource(dir), reg, out, err, bones, unitPath);

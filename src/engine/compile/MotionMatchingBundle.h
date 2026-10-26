@@ -42,6 +42,10 @@ namespace CB::engine::compile {
         std::string              continuingPoseCostBias;
         std::string              loopingCostBias;
         std::vector<std::string> tags;
+        /// @brief Per-row candidate gates: condition expressions over the row's animation curves (GraphVar("Speed")),
+        ///        evaluated once per row when the plugin builds the database; empty = every row.
+        std::string              standingCandidate;
+        std::string              movingCandidate;
     };
 
     /// @brief A chooser row: when `when` holds, its databases join the searched set.

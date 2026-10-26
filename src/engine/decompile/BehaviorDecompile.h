@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace c4::yml { class ConstNodeRef; }
+
 namespace CB::engine::decompile {
 using namespace CB::engine::codec;
 using namespace CB::engine::common;
@@ -122,6 +124,19 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
 /// @brief Convenience: an on-disk unit directory.
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
                         const std::vector<std::string>* bones = nullptr, const std::string& unitPath = {});
+
+/// @brief EMBEDDED OBJECTS — a schema class whose fields sit as plain keys inside a hand-parsed YAML map (an animation
+///        unit's `curves:`), read and written by the reflective .hky rules, so the schema stays the one description.
+/// @note  No ids, rig or vocabulary: the class may hold only inline values (no node references, bones or event /
+///        variable names). Keys of `map` the class does not name are left to the host's own parser.
+/// @return a `cls` object holding every field `map` names (the rest schema-defaulted); null with `err` set on an
+///         unknown class or a value that does not parse.
+std::shared_ptr<io::SchemaObject> ParseEmbeddedObject(const c4::yml::ConstNodeRef& map, const std::string& cls,
+                                                      const schema::SchemaRegistry& reg, const std::string& where,
+                                                      std::string& err);
+/// @brief `so`'s fields as YAML keys at indent 0, exactly as the reflective .hky renders them (a field with nothing to
+///        say renders nothing); ParseEmbeddedObject is its inverse.
+std::string EmitEmbeddedObject(const io::SchemaObject& so, const schema::SchemaRegistry& reg);
 
 /// @brief UNIT READERS — the facts load planning needs from a reflective unit, without compiling it.
 std::vector<std::string> ReadProjectCharacters(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg);

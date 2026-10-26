@@ -1,0 +1,7 @@
+# CB's curve-key interpolation (CBCurveKey.interp): how a curve's value moves from a key to the next one.
+kind:  enum
+name:  CurveInterpolation
+flags: false
+items:
+  - { name: CONSTANT , value: 0 }
+  - { name: LINEAR   , value: 1 }

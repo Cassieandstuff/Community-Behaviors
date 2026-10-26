@@ -9,8 +9,8 @@
 
 /// @file
 /// @brief The motion a clip performs, measured from its authored tracks, and the motion-matching feature vector built
-///        from it: the ONE measurement hky-tool's autotag and the plugin's motion matching share, so the database a
-///        query searches is measured exactly as the tags were.
+///        from it: the ONE measurement hky-tool's motionCurves generator and the plugin's motion matching share, so the
+///        database a query searches is measured exactly as its curves were.
 /// @note  Skyrim space: Z up, an actor faces +Y with +X to its right; lengths in game units, the clip's own.
 
 namespace CB::engine::anim {
@@ -72,5 +72,22 @@ namespace CB::engine::anim {
     ///        since their future is the clip ending, not the motion continuing. A horizon back before the first frame
     ///        holds at the first: a start clip's past is where it starts (standing), and every frame stays searchable.
     void AppendClipFeatures(const ClipMotion& m, std::vector<float>& rows);
+
+    /// @brief How far each measured curve's keys may stray from its per-frame measurement (the curve's own units).
+    struct CurveTolerances {
+        double speed         = 1.0;   ///< units/s
+        double moveDirection = 1.0;   ///< degrees
+        double turnRate      = 2.0;   ///< deg/s
+        double acceleration  = 5.0;   ///< units/s²
+    };
+
+    /// @brief The clip's measured curves, simplified within `tol`: Speed (horizontal root speed, units/s),
+    ///        MoveDirection (travel relative to facing, degrees, -180..180, + = right), TurnRate (facing turn rate,
+    ///        deg/s, + = right), Acceleration (d Speed / dt, units/s²) and, with the leg chains, LeftFootLock and
+    ///        RightFootLock (planted 1, else 0).
+    /// @note  MoveDirection holds its last moving value while Speed is under 15 units/s (standing has no direction),
+    ///        and a key before a ±180 wrap is CONSTANT, so no sample between two frames sweeps through 0.
+    /// @note  Names are compared byte-exact by every reader; the generator and motion matching share these.
+    std::vector<AnimCurveDef> MeasureMotionCurves(const ClipMotion& m, const CurveTolerances& tol);
 
 }  // namespace CB::engine::anim

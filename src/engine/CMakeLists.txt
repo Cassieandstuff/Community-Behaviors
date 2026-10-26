@@ -64,7 +64,17 @@ target_include_directories(engine
 
 find_package(ryml CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED GLOBAL)
-target_link_libraries(engine PUBLIC ryml::ryml PRIVATE lz4::lz4)
+
+# VFS: Skyrim's Data folder as the game sees it (loose over BSA, MO2-aware) and the one BSA reader. The load-order
+# document reads bundles through it. Local builds point FETCHCONTENT_SOURCE_DIR_VFS at a checkout.
+include(FetchContent)
+FetchContent_Declare(VFS
+    GIT_REPOSITORY https://github.com/Cassieandstuff/libs-VFS.git
+    GIT_TAG        5224bf3)
+FetchContent_MakeAvailable(VFS)
+
+find_package(nlohmann_json CONFIG REQUIRED)   # bundle assembly's generate / inject configs
+target_link_libraries(engine PUBLIC ryml::ryml vfs::vfs PRIVATE lz4::lz4 nlohmann_json::nlohmann_json)
 
 set_target_properties(engine PROPERTIES
     CXX_STANDARD 23

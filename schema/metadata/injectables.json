@@ -1,0 +1,7 @@
+{
+  "animation": {
+    "curves": "curveMap",
+    "motionTarget": { "oneOf": ["animationData", "motionMatching"] },
+    "preload": "bool"
+  }
+}

@@ -3,50 +3,20 @@
 #include "interface/MotionSample.h"   // animdata::UnlabelSample (byte-identical motion-sample parse)
 
 #include <RymlInclude.h>
+#include <decompile/BehaviorDecompile.h>
 #include <disk/Disk.h>
 #include <text/Text.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace CB::engine::anim {
 namespace {
-
-// ryml's DEFAULT error handler ABORTS (fail-fast), so a malformed YAML kills the process instead of
-// throwing — uncatchable, and fatal to a corpus-wide pass over generated files. Install a callback that
-// THROWS, once, so parse_in_place errors become std::runtime_error the loader's try/catch can handle
-// (and callers can isolate per-file). Global (ryml callbacks are process-wide) and strictly safer for
-// every other schema-stack YAML parse too.
-[[noreturn]] void rymlThrowBasic(c4::csubstr msg, c4::yml::ErrorDataBasic const&, void*) {
-    throw std::runtime_error(std::string(msg.str, msg.len));
-}
-[[noreturn]] void rymlThrowParse(c4::csubstr msg, c4::yml::ErrorDataParse const&, void*) {
-    throw std::runtime_error(std::string(msg.str, msg.len));
-}
-[[noreturn]] void rymlThrowVisit(c4::csubstr msg, c4::yml::ErrorDataVisit const&, void*) {
-    throw std::runtime_error(std::string(msg.str, msg.len));
-}
-// c4core's OWN error path (lower-level asserts/checks inside the parser) defaults to abort/terminate,
-// which the ryml-level callbacks above do NOT cover. Route it through the callback and clear the ABORT
-// flag so those become catchable exceptions too.
-[[noreturn]] void c4ThrowOnError(const char* msg, std::size_t sz) {
-    throw std::runtime_error(std::string(msg, sz));
-}
-void ensureRymlThrows() {
-    static const bool once = [] {
-        c4::yml::Callbacks cb = c4::yml::get_callbacks();
-        cb.m_error_basic = &rymlThrowBasic;
-        cb.m_error_parse = &rymlThrowParse;
-        cb.m_error_visit = &rymlThrowVisit;
-        c4::yml::set_callbacks(cb);
-        c4::set_error_flags(c4::ON_ERROR_CALLBACK);   // no abort/terminate — invoke our callback instead
-        c4::set_error_callback(&c4ThrowOnError);
-        return true;
-    }();
-    (void)once;
-}
 
 bool hasChild(const c4::yml::ConstNodeRef& n, const char* k) {
     return n.readable() && n.is_map() && n.has_child(c4::to_csubstr(k));
@@ -79,6 +49,41 @@ std::vector<float> floatSeq(const c4::yml::ConstNodeRef& parent, const char* key
     return v;
 }
 
+/// @brief The unit's `curves:`, read through the schema (CBAnimationCurves).
+/// @throws std::runtime_error when they do not parse, a name is empty or repeated, keys run backwards in time, or an
+///         interpolation is not one AnimCurveKey knows: a curve read wrong would steer its readers silently.
+std::vector<AnimCurveDef> readCurves(const c4::yml::ConstNodeRef& a, const std::string& sourceName) {
+    const auto bad = [&](const std::string& why) {
+        return std::runtime_error("AnimationYamlLoader: bad curves in '" + sourceName + "': " + why);
+    };
+    schema::SchemaRegistry* reg = schema::SharedRegistry();
+    if (!reg) throw bad("no schema registry (" + schema::SharedRegistryError() + ")");
+    std::string err;
+    const auto  obj = decompile::ParseEmbeddedObject(a, "CBAnimationCurves", *reg, sourceName, err);
+    if (!obj) throw bad(err);
+    std::vector<AnimCurveDef> out;
+    std::set<std::string>     names;
+    for (const auto& p : obj->FieldRef("curves").objs) {
+        auto* c = dynamic_cast<codec::io::SchemaObject*>(p.get());
+        if (!c) throw bad("a curve is not an inline CBAnimationCurve");
+        AnimCurveDef def{ c->Str("name"), {} };
+        if (def.name.empty()) throw bad("a curve has no name");
+        if (!names.insert(def.name).second) throw bad("'" + def.name + "' is defined twice");
+        for (const auto& kp : c->FieldRef("keys").objs) {
+            auto* k = dynamic_cast<codec::io::SchemaObject*>(kp.get());
+            if (!k) throw bad("'" + def.name + "' has a key that is not an inline CBCurveKey");
+            const std::int64_t interp = k->GetInt("interp");
+            if (interp != 0 && interp != 1) throw bad("'" + def.name + "' has an unknown interp " + std::to_string(interp));
+            AnimCurveKey key{ k->GetFloat("time"), k->GetFloat("value"), static_cast<AnimCurveKey::Interp>(interp) };
+            if (!def.keys.empty() && key.time < def.keys.back().time)
+                throw bad("'" + def.name + "' has keys out of time order at " + std::to_string(key.time));
+            def.keys.push_back(key);
+        }
+        out.push_back(std::move(def));
+    }
+    return out;
+}
+
 } // namespace
 
 AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, const std::string& sourceName) {
@@ -87,7 +92,7 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
     if (text.empty())
         throw std::runtime_error("AnimationYamlLoader: empty animation source '" + sourceName + "'");
 
-    ensureRymlThrows();   // make a malformed-YAML parse THROW (catchable) instead of abort the process
+    common::EnsureRymlThrows();
     c4::yml::Tree tree;
     try { tree = c4::yml::parse_in_place(c4::to_substr(text)); }
     catch (const std::exception& e) {
@@ -211,36 +216,7 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
         else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': preload '" + p + "' is neither true nor false");
     }
 
-    if (hasChild(a, "entry")) {
-        const std::string e = strf(a, "entry");
-        if (e == "changes")       def.entry = AnimationDef::Entry::Changes;
-        else if (e == "anywhere") def.entry = AnimationDef::Entry::Anywhere;
-        else throw std::runtime_error("AnimationYamlLoader: '" + sourceName + "': entry '" + e + "' is neither anywhere nor changes");
-    }
-
-    /// @note A malformed `tags:` throws rather than loading as no tags: a silently untagged clip is the failure the
-    ///       build's injection exists to prevent.
-    if (hasChild(a, "tags")) {
-        const auto t   = a["tags"];
-        const auto bad = [&](const std::string& why) {
-            return std::runtime_error("AnimationYamlLoader: bad tags in '" + sourceName + "': " + why);
-        };
-        if (!t.is_map()) throw bad("not a map of tag name -> [[start, end], ...]");
-        auto& tags = def.tags.emplace();
-        for (auto tag : t) {
-            std::string name;
-            c4::from_chars(tag.key(), &name);
-            if (!tag.is_seq()) throw bad("'" + name + "' is not a list of ranges");
-            auto& ranges = tags[name];
-            for (auto r : tag) {
-                int  v[2] = { 0, 0 };
-                bool ok   = r.is_seq() && r.num_children() == 2;
-                for (int i = 0; ok && i < 2; ++i) ok = r[i].has_val() && c4::atoi(r[i].val(), &v[i]);
-                if (!ok) throw bad("'" + name + "' has a range that is not [start, end]");
-                ranges.emplace_back(v[0], v[1]);
-            }
-        }
-    }
+    if (hasChild(a, "curves")) def.curves = readCurves(a, sourceName);
 
     return def;
 }
@@ -289,6 +265,42 @@ AnimationDef AnimationYamlLoader::Load(const std::filesystem::path& yamlFile) {
     if (text.empty())
         throw std::runtime_error("AnimationYamlLoader: cannot read " + yamlFile.string());
     return LoadFromString(text, yamlFile.string());
+}
+
+std::string EmitAnimCurvesYaml(const std::vector<AnimCurveDef>& curves) {
+    if (curves.empty()) return {};
+    schema::SchemaRegistry* reg = schema::SharedRegistry();
+    if (!reg) throw std::runtime_error("EmitAnimCurvesYaml: no schema registry (" + schema::SharedRegistryError() + ")");
+    const auto make = [&](const char* cls) {
+        const schema::ClassSchema* cs = reg->Find(cls);
+        if (!cs) throw std::runtime_error(std::string("EmitAnimCurvesYaml: the schema has no ") + cls);
+        auto so = std::make_shared<codec::io::SchemaObject>(reg, cs);
+        so->Init();
+        return so;
+    };
+    auto  root = make("CBAnimationCurves");
+    auto& list = root->FieldRef("curves").objs;
+    for (const auto& c : curves) {
+        auto curve          = make("CBAnimationCurve");
+        curve->Str("name")  = c.name;
+        auto& keys          = curve->FieldRef("keys").objs;
+        for (const auto& k : c.keys) {
+            auto key = make("CBCurveKey");
+            key->SetFloat("time", k.time);
+            key->SetFloat("value", k.value);
+            key->SetInt("interp", static_cast<std::int64_t>(k.interp));
+            keys.push_back(std::move(key));
+        }
+        list.push_back(std::move(curve));
+    }
+    std::string out;
+    const std::string body = decompile::EmitEmbeddedObject(*root, *reg);
+    for (std::size_t at = 0; at < body.size();) {
+        const std::size_t end = (std::min)(body.find('\n', at), body.size());
+        out += "  " + body.substr(at, end - at) + "\n";
+        at = end + 1;
+    }
+    return out;
 }
 
 } // namespace CB::engine::anim

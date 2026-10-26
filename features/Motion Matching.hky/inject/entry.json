@@ -1,9 +1,0 @@
-{
-  "targets": [
-    {
-      "under": "meshes/actors/character/animations/MotionMatching/transitions/",
-      "field": "entry",
-      "values": "changes"
-    }
-  ]
-}

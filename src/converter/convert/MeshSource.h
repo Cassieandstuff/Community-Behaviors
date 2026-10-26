@@ -1,6 +1,6 @@
 #pragma once
 
-#include <codec/bsa/BsaArchive.h>
+#include <vfs/Bsa.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -47,11 +47,11 @@ private:
         std::string                          rel;           ///< "meshes/…", the winning source's spelling
         std::filesystem::path                loose;         ///< set for a loose file
         std::size_t                          archive = 0;   ///< index into m_archives otherwise
-        const CB::engine::codec::bsa::Entry* entry = nullptr;
+        const vfs::bsa::Entry* entry = nullptr;
     };
 
     std::map<std::string, Origin>                                   m_byKey;   ///< path identity -> origin
-    std::vector<std::unique_ptr<CB::engine::codec::bsa::Archive>>   m_archives;
+    std::vector<std::unique_ptr<vfs::bsa::Archive>>   m_archives;
     std::vector<std::filesystem::path>                              m_archivePaths;
     std::vector<std::filesystem::path>                              m_looseRoots;
     std::size_t                                                     m_overridden = 0;

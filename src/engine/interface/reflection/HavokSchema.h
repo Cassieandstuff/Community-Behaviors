@@ -131,6 +131,25 @@ struct ClassSchema {
                                                  ///<        name field can be checked against its class. No serde, size or
                                                  ///<        signature effect.
                                                  ///< @invariant At most one class claims a given name (LoadDir).
+    /// @brief `view: { kind: <view>, <role>: <field>, ... }` — how an editor shows this class: `kind` names the view,
+    ///        every other key maps one of that view's roles to one of the class's OWN fields. No serde, size or
+    ///        signature effect.
+    /// @note  Known views (LoadDir rejects any other, or a missing role): `curve` (keys, label) — a named list of keys;
+    ///        `curvekey` (time, value, interp) — one key of a curve. CB-API's SampleCurve reads a curve by them.
+    struct View {
+        std::string                        kind;
+        std::map<std::string, std::string> roles;   ///< role -> field name
+    } view;
+};
+
+/// @brief A `kind: embedded` descriptor: a hand-parsed file kind whose `root:` top-level map holds the fields of the
+///        schema class `cls`, beside keys the schema does not describe (an animation unit's `curves:`).
+/// @note  A file is of the kind when its first top-level key is `root`. An editor parses and saves only the class's
+///        fields; every other byte of the file is left as it is.
+struct EmbeddedKind {
+    std::string name;
+    std::string root;
+    std::string cls;
 };
 
 // ── Enum definitions (`kind: enum` descriptors) ─────────────────────────────────────────────────
@@ -231,6 +250,9 @@ public:
     ///       that it parses and names itself once.
     const std::string* CompatShim(const std::string& name) const;
 
+    /// @brief Every `kind: embedded` descriptor LoadDir read, by name.
+    const std::map<std::string, EmbeddedKind>& EmbeddedKinds() const { return m_embedded; }
+
     /// @brief The raw `schema_version:` LoadDir read from the tree's SCHEMA.yaml stamp; empty when the tree
     ///        carried none (the unstamped source schema/). SharedRegistry() gates it against kSchemaVersion.
     const std::string& SchemaVersionString() const { return m_schemaVersion; }
@@ -302,6 +324,7 @@ private:
     std::unordered_map<const ClassSchema*, FieldLayout> m_layouts;   ///< see Layout()
     std::map<std::string, EnumDef>     m_enums;               // `kind: enum` descriptors, keyed by enum type name
     std::map<std::string, std::string> m_compatShims;         ///< `kind: compatshim` texts, keyed by `name:`
+    std::map<std::string, EmbeddedKind> m_embedded;           ///< `kind: embedded` descriptors, keyed by `name:`
     std::string                        m_schemaVersion;      // SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen
 };

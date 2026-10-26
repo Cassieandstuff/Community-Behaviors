@@ -7,5 +7,19 @@
   "rootClass": "CBPoseSearchGenerator",
   "selectorName": "MM_ClipSelector",
   "clipVariable": "MM_Clip",
-  "timeVariable": "MM_Time"
+  "timeVariable": "MM_Time",
+  "databases": [
+    {
+      "name": "Transitions",
+      "under": "meshes/actors/character/animations/MotionMatching/transitions/",
+      "standingCandidate": "GraphVar('Acceleration') <= -100 || (GraphVar('Speed') < 15 && GraphVar('Acceleration') >= 100)",
+      "movingCandidate": "GraphVar('Acceleration') >= 100 || (GraphVar('Acceleration') <= -100 && GraphVar('Speed') >= 15)"
+    },
+    {
+      "name": "Locomotion",
+      "under": "meshes/actors/character/animations/MotionMatching/",
+      "standingCandidate": "GraphVar('Speed') < 15 || GraphVar('Acceleration') <= -100",
+      "movingCandidate": "GraphVar('Speed') >= 15 || GraphVar('Acceleration') >= 100"
+    }
+  ]
 }

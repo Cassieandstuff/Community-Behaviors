@@ -44,3 +44,43 @@
 
 #include <c4/yml/yml.hpp>
 #include <c4/yml/std/std.hpp>
+
+#include <cstddef>
+#include <stdexcept>
+#include <string>
+
+namespace CB::engine::common::ryml_errors {
+
+[[noreturn]] inline void ThrowBasic(c4::csubstr msg, c4::yml::ErrorDataBasic const&, void*) {
+    throw std::runtime_error(std::string(msg.str, msg.len));
+}
+[[noreturn]] inline void ThrowParse(c4::csubstr msg, c4::yml::ErrorDataParse const&, void*) {
+    throw std::runtime_error(std::string(msg.str, msg.len));
+}
+[[noreturn]] inline void ThrowVisit(c4::csubstr msg, c4::yml::ErrorDataVisit const&, void*) {
+    throw std::runtime_error(std::string(msg.str, msg.len));
+}
+[[noreturn]] inline void ThrowC4(const char* msg, std::size_t sz) { throw std::runtime_error(std::string(msg, sz)); }
+
+}  // namespace CB::engine::common::ryml_errors
+
+namespace CB::engine::common {
+
+/// @brief Make every ryml (and c4core) error THROW std::runtime_error from here on, process-wide, once.
+/// @note  ryml's default handler ABORTS: a malformed file would kill the process instead of failing its parse, which
+///        no per-file try/catch can isolate. c4core's own checks take a separate path, routed here as well.
+inline void EnsureRymlThrows() {
+    static const bool once = [] {
+        c4::yml::Callbacks cb = c4::yml::get_callbacks();
+        cb.m_error_basic = &ryml_errors::ThrowBasic;
+        cb.m_error_parse = &ryml_errors::ThrowParse;
+        cb.m_error_visit = &ryml_errors::ThrowVisit;
+        c4::yml::set_callbacks(cb);
+        c4::set_error_flags(c4::ON_ERROR_CALLBACK);
+        c4::set_error_callback(&ryml_errors::ThrowC4);
+        return true;
+    }();
+    (void)once;
+}
+
+}  // namespace CB::engine::common

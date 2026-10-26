@@ -1,0 +1,9 @@
+name:      CBAnimationCurves
+parent:    null
+size:      16
+# The schema-described part of an animation unit: its CURVES, named per-clip float values over time (motion matching's
+# Speed, MoveDirection, foot locks, ...). Not a Havok class and never serialized to a packfile: an animation unit stays
+# the hand-parsed `animation:` YAML, and only the fields named here are read from (and written into) that map through
+# the schema. Curves render keyed by name, so a name is one curve.
+fields:
+  - { name: curves, type: structarray, ref: CBAnimationCurve, roster: field:name }
