@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <unordered_map>
 
 /// @file
 /// @brief The movement model's step: Unreal's UCharacterMovementComponent::CalcVelocity and ApplyVelocityBraking for
@@ -31,11 +32,11 @@ namespace CB::feature::controller::move {
         /// @brief CMC's ApplyVelocityBraking.
         /// @note  The deceleration's direction is fixed at the start of the step and a substep that would reverse the
         ///        velocity stops it instead, so braking never pushes backward.
-        void Brake(float& vx, float& vy, float friction, float deceleration, float dt)
+        void Brake(float& vx, float& vy, float friction, float frictionFactor, float deceleration, float dt)
         {
             const float len = std::hypot(vx, vy);
             if (len <= 0.0f || dt < 1.0e-6f) return;
-            friction                = (std::max)(0.0f, friction * kBrakingFrictionFactor);
+            friction                = (std::max)(0.0f, friction * frictionFactor);
             const bool  zeroFriction = friction == 0.0f, zeroBraking = deceleration == 0.0f;
             if (zeroFriction && zeroBraking) return;
             const float ox = vx, oy = vy;
@@ -58,18 +59,18 @@ namespace CB::feature::controller::move {
         bool ExceedsMax(float sq, float maxSpeed) { return sq > maxSpeed * maxSpeed * kOverMaxTolerance; }
 
         /// @brief CMC's CalcVelocity for walking.
-        void Velocity(State& s, const Input& in, float maxSpeed, float dt)
+        void Velocity(State& s, const Input& in, const Profile& p, float maxSpeed, float dt)
         {
             const float speed    = std::hypot(s.vx, s.vy);
             const bool  sprint   = in.gait == Gait::Sprint;
-            const float accel    = sprint ? MapRangeClamped(speed, kSprintAccelFrom, kSprintAccelTo, kAccel, kSprintAccelSlow) : kAccel;
-            const float friction = sprint ? MapRangeClamped(speed, 0.0f, kSprintFrictionTo, kFriction, kSprintFrictionLow) : kFriction;
+            const float accel    = sprint ? MapRangeClamped(speed, p.sprintAccelFrom, p.sprintAccelTo, p.accel, p.sprintAccelSlow) : p.accel;
+            const float friction = sprint ? MapRangeClamped(speed, 0.0f, p.sprintFrictionTo, p.friction, p.sprintFrictionLow) : p.friction;
             const bool  push     = in.haveStick;
             const float ax = push ? in.stickX * accel : 0.0f, ay = push ? in.stickY * accel : 0.0f;
             const bool  overMax = ExceedsMax(speed * speed, maxSpeed);
             if (!push || overMax) {
                 const float ox = s.vx, oy = s.vy;
-                Brake(s.vx, s.vy, friction, push ? kBrakingWithInput : kBrakingNoInput, dt);
+                Brake(s.vx, s.vy, friction, p.brakingFrictionFactor, push ? p.brakingWithInput : p.brakingNoInput, dt);
                 /// @note Braking from above the cap stops at the cap while the stick still pushes forward (a gait drop
                 ///       eases to the new speed instead of braking through it).
                 if (overMax && s.vx * s.vx + s.vy * s.vy < maxSpeed * maxSpeed && ax * ox + ay * oy > 0.0f && speed > 0.0f)
@@ -90,7 +91,7 @@ namespace CB::feature::controller::move {
             if (after > maxInput && after > 0.0f) s.vx *= maxInput / after, s.vy *= maxInput / after;
         }
 
-        void Facing(State& s, const Input& in, float px, float py, float dt)
+        void Facing(State& s, const Input& in, const Profile& p, float px, float py, float dt)
         {
             float goal = s.yaw;
             bool  have = false;
@@ -98,23 +99,27 @@ namespace CB::feature::controller::move {
                 const float dx = in.targetX - px, dy = in.targetY - py;
                 if (dx * dx + dy * dy > 1.0f) goal = std::atan2(dx, dy), have = true;
             }
-            if (!have && std::hypot(s.vx, s.vy) >= kFacingMinSpeed) goal = std::atan2(s.vx, s.vy), have = true;
+            if (!have && std::hypot(s.vx, s.vy) >= p.facingMinSpeed) goal = std::atan2(s.vx, s.vy), have = true;
             if (have) goal = s.yaw + WrapPi(goal - s.yaw);
             const float before = s.yaw;
-            SpringDamperExact(s.yaw, s.yawRate, goal, kFacingHalflife, dt);
+            SpringDamperExact(s.yaw, s.yawRate, goal, p.facingHalflife, dt);
             if (!in.airborne) return;
-            const float limit = kAirTurnRate * dt;
+            const float limit = p.airTurnRate * dt;
             s.yaw             = before + std::clamp(s.yaw - before, -limit, limit);
-            s.yawRate         = std::clamp(s.yawRate, -kAirTurnRate, kAirTurnRate);
+            s.yawRate         = std::clamp(s.yawRate, -p.airTurnRate, p.airTurnRate);
         }
 
         struct Published {
-            std::mutex lock;
-            Snapshot   snap;
-            bool       valid = false;
-            double     at    = -1.0e9;
+            Snapshot snap;
+            double   at = -1.0e9;
         };
-        Published        g_published;
+        /// @brief Every driven actor's latest snapshot, by FormID.
+        /// @note Never pruned: only the actors a frame driver holds publish (the player, a ridden horse), a handful.
+        struct PublishedTable {
+            std::mutex                                 lock;
+            std::unordered_map<RE::FormID, Published> byActor;
+        };
+        PublishedTable   g_published;
         constexpr double kStale = 0.5;
 
         double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -141,36 +146,37 @@ namespace CB::feature::controller::move {
         return caps.forward * r;
     }
 
-    void Step(State& s, const Input& in, const Caps& caps, float px, float py, float dt)
+    void Step(State& s, const Input& in, const Caps& caps, const Profile& profile, float px, float py, float dt)
     {
         if (dt <= 0.0f) return;
         if (!in.airborne) {
             const float velYaw = std::hypot(s.vx, s.vy) > 1.0f ? std::atan2(s.vx, s.vy) : s.yaw;
-            Velocity(s, in, MaxSpeed(caps, in.mode, velYaw, s.yaw), dt);
+            Velocity(s, in, profile, MaxSpeed(caps, in.mode, velYaw, s.yaw), dt);
         }
-        Facing(s, in, px, py, dt);
+        Facing(s, in, profile, px, py, dt);
     }
 
-    bool SprintDirectionAllowed(const State& s, const Input& in)
+    bool SprintDirectionAllowed(const State& s, const Input& in, const Profile& profile)
     {
         if (in.mode == Mode::Orient || !in.haveStick) return true;
-        return std::fabs(WrapPi(std::atan2(in.stickX, in.stickY) - s.yaw)) < kSprintCone;
+        return std::fabs(WrapPi(std::atan2(in.stickX, in.stickY) - s.yaw)) < profile.sprintCone;
     }
 
-    bool Current(Snapshot& out)
+    bool Current(RE::FormID actor, Snapshot& out)
     {
         std::scoped_lock lock(g_published.lock);
-        if (!g_published.valid || Now() - g_published.at > kStale) return false;
-        out = g_published.snap;
+        const auto       it = g_published.byActor.find(actor);
+        if (it == g_published.byActor.end() || Now() - it->second.at > kStale) return false;
+        out = it->second.snap;
         return true;
     }
 
-    void Publish(const Snapshot& snap)
+    bool Current(Snapshot& out) { return Current(kPlayerId, out); }
+
+    void Publish(RE::FormID actor, const Snapshot& snap)
     {
         std::scoped_lock lock(g_published.lock);
-        g_published.snap  = snap;
-        g_published.valid = true;
-        g_published.at    = Now();
+        g_published.byActor[actor] = Published{ snap, Now() };
     }
 
     bool On()

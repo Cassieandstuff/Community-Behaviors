@@ -158,6 +158,15 @@ namespace CB::core::debug {
           "stopping, running out of stamina or overencumbrance; you can jump while sprinting. Off under "
           "bAnimationDriven, bSpeedSynced and bIsSynced. Needs bCamera (in third person); off without it. AE only. "
           "Unproven in game." },
+        { "horse_movement_model", FlagKind::IniBool, "Character", "bHorseMovementModel", false, false,
+          "Horse movement model",
+          "The horse the player rides moves with the player's movement model and the horse's own numbers (900 units/s2 "
+          "acceleration, friction 3, braking 700 units/s2, facing halflife 0.15 s, at most 45 deg/s in the air, all "
+          "starting values): the stick is relative to CB's camera, the horse faces where it moves and never strafes or "
+          "backs up. Holding forward climbs a gait ladder at the horse's own speeds: walk, trot (40% of the way to "
+          "canter), canter; the sprint toggle gallops; the walk toggle caps it at walk, and on a gamepad a light push "
+          "holds walk, a half push trot. Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
+          "while CB's camera does not drive the view (so needs bCamera with its mounted view). AE only. Unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
