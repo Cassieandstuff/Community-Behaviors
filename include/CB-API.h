@@ -39,6 +39,7 @@
 #include "decompile/BehaviorDecompile.h"
 #include "decompile/EmbeddedFile.h"
 #include "merge/LoadOrderDocument.h"
+#include "merge/HkyOverlay.h"
 #include "interface/MasterTable.h"
 #include "compile/BundleAssembly.h"
 #include <vfs/Vfs.h>                        // the Data folder LoadOrderDocument reads (VFS, a PUBLIC dependency)
@@ -102,6 +103,7 @@ namespace resolve {
     using CB::engine::decompile::SampleCurve;                  ///< a `view: curve` Object → its value at a time
 
     using LoadOrderDocument = CB::engine::merge::LoadOrderDocument;   ///< the resolved .hky load order over a VFS Data folder
+    using HkyOverlay = CB::engine::merge::HkyOverlay;   ///< the load order (or the open project) streamed over VFS as Data files
     using CB::engine::codec::formid::BuildMasterTable;          ///< a bundle's ordered master table ([self, skyrim, masters…])
     using BundleInput    = CB::engine::compile::BundleInput;      ///< partitions, loose files, generator and inject configs
     using AssembleReport = CB::engine::compile::AssembleReport;

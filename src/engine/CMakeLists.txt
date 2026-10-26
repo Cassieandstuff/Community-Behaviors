@@ -70,7 +70,7 @@ find_package(lz4 CONFIG REQUIRED GLOBAL)
 include(FetchContent)
 FetchContent_Declare(VFS
     GIT_REPOSITORY https://github.com/Cassieandstuff/libs-VFS.git
-    GIT_TAG        193fb3d)
+    GIT_TAG        5224bf3)
 FetchContent_MakeAvailable(VFS)
 
 find_package(nlohmann_json CONFIG REQUIRED)   # bundle assembly's generate / inject configs

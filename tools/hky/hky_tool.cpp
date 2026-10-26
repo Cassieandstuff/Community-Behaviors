@@ -11,7 +11,7 @@
 //                                                         merge + serialize every unit as the game's compile does
 //   hky-tool embedded-roundtrip <in.hky> <schemaDir>
 //                                                         embedded files parse + splice back byte-exact, curves sample alike
-//   hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all]
+//   hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]
 //                                                         the .hky load order via VFS + CB-API's document; merge units
 //   hky-tool mm-sample   <schemaDir> -o <outDir>          the motion-matching bundle generator over a sample spec
 //   hky-tool graph-html  <schemaDir> -o <out.html> --mo2 <instance> | --plugins <dir> | --bundle <f.hky> ...
@@ -29,6 +29,7 @@
 #include <codec/serialization/HkyArchive.h>
 #include <decompile/BehaviorDecompile.h>
 #include <decompile/EmbeddedFile.h>
+#include <merge/HkyOverlay.h>
 #include <merge/LoadOrderDocument.h>
 #include <vfs/Vfs.h>
 #include <disk/Disk.h>
@@ -297,7 +298,8 @@ int doEmbeddedRoundTrip(const std::string& hkyPath, const std::string& schemaDir
 int doLoadOrder(int argc, char** argv) {
     std::string              schemaDir, mo2, profile, data;
     std::vector<std::string> units;
-    bool                     all = false;
+    bool                     all = false, listing = false;
+    std::string              ls;
     for (int i = 0; i < argc; ++i) {
         const std::string a    = argv[i];
         const auto        next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : std::string(); };
@@ -306,10 +308,11 @@ int doLoadOrder(int argc, char** argv) {
         else if (a == "--data") data = next();
         else if (a == "--unit") units.push_back(next());
         else if (a == "--all") all = true;
+        else if (a == "--ls") ls = next(), listing = true;
         else if (schemaDir.empty()) schemaDir = a;
     }
     if (schemaDir.empty() || (mo2.empty() == data.empty())) {
-        std::printf("usage: hky-tool loadorder <schemaDir> (--mo2 <instance> [--profile <p>] | --data <DataFolder>) [--unit <key>]... [--all]\n");
+        std::printf("usage: hky-tool loadorder <schemaDir> (--mo2 <instance> [--profile <p>] | --data <DataFolder>) [--unit <key>]... [--all] [--ls <prefix>]\n");
         return 2;
     }
     CB::engine::schema::SetSharedSchemaDir(schemaDir);
@@ -322,7 +325,8 @@ int doLoadOrder(int argc, char** argv) {
     vfs::FileSystem fsys;
     std::string     err;
     if (!fsys.Open(o, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
-    CB::engine::merge::LoadOrderDocument doc;
+    const auto docPtr = std::make_shared<CB::engine::merge::LoadOrderDocument>();
+    auto&      doc    = *docPtr;
     if (!doc.Open(fsys, *reg, &err)) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
 
     for (const auto& b : doc.Bundles())
@@ -356,6 +360,30 @@ int doLoadOrder(int argc, char** argv) {
     std::printf("  %zu bundle(s), %zu file(s), %zu unit(s): %zu project(s), %zu skeleton(s), %zu behavior/character "
                 "unit(s), %zu bound to a rig\n",
                 doc.Bundles().size(), doc.Files().size(), every.size(), projects, skeletons, graphs, rigged);
+
+    /// @note `--ls`: the load order streamed over the Data folder (HkyOverlay); every file below the prefix with its
+    ///       winner, and each overlaid file read back through VFS.
+    if (listing) {
+        using Overlay = CB::engine::merge::HkyOverlay;
+        fsys.SetOverlay(".hky load order", std::make_shared<Overlay>(docPtr, Overlay::Scope::LoadOrder));
+        std::size_t shown = 0, overlaid = 0, read = 0;
+        std::vector<std::string> bad;
+        for (const auto& p : fsys.List(ls)) {
+            const auto w = fsys.Winner(p);
+            ++shown;
+            if (!w || !w->overlay) continue;
+            ++overlaid;
+            std::string why;
+            const auto  bytes = fsys.Read(p, &why);
+            if (bytes) ++read;
+            else bad.push_back(p + ": " + why);
+            std::printf("  %-90s %8zu  %s\n", p.c_str(), bytes ? bytes->size() : 0, w->layer.c_str());
+        }
+        for (const auto& b : bad) std::printf("  FAIL %s\n", b.c_str());
+        std::printf("%s: loadorder --ls: %zu file(s) below '%s', %zu from the .hky overlay, %zu read.\n",
+                    bad.empty() ? "OK" : "FAIL", shown, ls.c_str(), overlaid, read);
+        return bad.empty() ? 0 : 1;
+    }
 
     std::atomic<std::size_t> merged{ 0 };
     std::mutex               failMutex;
@@ -493,7 +521,7 @@ void usage() {
                 "  hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n"
                 "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n"
                 "  hky-tool embedded-roundtrip <in.hky> <schemaDir>\n"
-                "  hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all]\n"
+                "  hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]\n"
                 "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
                 "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
                 "                       [--loadorder <file>] [--unit <path>]... [--all]\n");

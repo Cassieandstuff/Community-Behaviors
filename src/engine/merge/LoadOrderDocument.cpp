@@ -259,6 +259,23 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
     return fail(why);
 }
 
+bool LoadOrderDocument::GraphBytes(std::string_view key, std::vector<std::uint8_t>& out, std::string* err) const {
+    const auto  u = UnitAt(key);
+    std::string why;
+    decompile::ParsedHky graph;
+    bool        parsed = false;
+    if (!u) why = "no unit '" + std::string(key) + "' in the load order";
+    else if (!m_reg) why = "the document has no schema registry";
+    else if (u->kind == codec::HkyArchive::UnitKind::Project || u->kind == codec::HkyArchive::UnitKind::Skeleton) {
+        const auto src = WinnerSource(*u);
+        if (!src) why = "'" + u->key + "' has no readable winner";
+        else parsed = decompile::ParseHkyReflective(*src, *m_reg, graph, why, nullptr, u->key);
+    } else parsed = MergedGraph(u->key, graph, &why);
+    if (parsed && decompile::SerializeGraph(graph, out, why)) return true;
+    if (err) *err = std::move(why);
+    return false;
+}
+
 std::optional<skeleton::SkeletonData> LoadOrderDocument::Skeleton(std::string_view key, std::string* err) const {
     const auto u = UnitAt(key);
     if (!u || u->kind != codec::HkyArchive::UnitKind::Skeleton || !m_reg) {

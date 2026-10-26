@@ -75,6 +75,11 @@ public:
     /// @brief A behavior or character unit merged across its providers, its bone fields bound to the rig that plays it.
     /// @note  A project or skeleton unit is not merged: the load-order winner replaces it whole (Skeleton, Project*).
     bool MergedGraph(std::string_view key, decompile::ParsedHky& out, std::string* err = nullptr) const;
+    /// @brief Unit `key` as a packfile: a behavior or character merged (MergedGraph), a project or skeleton from its
+    ///        load-order winner, serialized as the Resolver serializes them.
+    /// @note  Before the plugin's compile-time features run: what the load order states, not every byte the game is
+    ///        finally served.
+    bool GraphBytes(std::string_view key, std::vector<std::uint8_t>& out, std::string* err = nullptr) const;
     /// @brief The rigs (skeleton unit keys) that bind `key`, sorted; several = a graph shared between characters.
     std::vector<std::string> Rigs(std::string_view key) const;
     /// @brief The animation bone names of the rig that binds `key` (a graph, a character, an animation), in served order.
