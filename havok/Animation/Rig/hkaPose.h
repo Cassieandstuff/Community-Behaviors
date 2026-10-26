@@ -73,7 +73,10 @@ namespace CB { namespace havok
         /// @brief The local pose for writing, synced first; every bone's model transform is marked dirty.
         /// @note Out of line in vanilla (0x140a85ca0).
         hkArray<hkQsTransform>& accessSyncedPoseLocalSpace();
-        /// @brief A bone's model transform for writing; with PROPAGATE its descendants keep their model transforms.
+        /// @brief A bone's model transform for writing. With PROPAGATE its descendants follow it (brought into local
+        ///        space and marked model-dirty, as makeAllChildrenLocalSpace); with DONT_PROPAGATE its direct children
+        ///        keep their model transforms (made model-valid, marked local-dirty).
+        /// @note Out of line in vanilla (0x140a85890), which branches on exactly that.
         hkQsTransform& accessBoneModelSpace(int boneIdx, PropagateOrNot propagateOrNot = DONT_PROPAGATE);
         /// @brief Recomputes a dirty bone's model transform (up its parent chain) and returns it.
         const hkQsTransform& calculateBoneModelSpace(int boneIdx) const;
