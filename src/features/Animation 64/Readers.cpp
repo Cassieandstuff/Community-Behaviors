@@ -41,6 +41,20 @@ namespace CB::feature::widen {
         /// @note The clip loader and hkError's instance are mutable globals the link shim leaves unbound: read live.
         hk::IAnimationClipLoader* Loader() { return hooks::Live<&hk::g_animationClipLoader>(); }
 
+        /// @return the role prefix an unset m_SyncAnimPrefix stands for: the exe's g_bssyncEmptyString, read through its
+        ///         pin; "NPC", vanilla's value, on a runtime without one.
+        /// @warning Never a literal "": paired animations name the unprefixed role's annotation track "NPC" and none
+        ///          ""; with "" the mark lookup fails, the game's scene check rejects the paired idle, and the package
+        ///          retries it every frame (the mount jitter, docs/bugs/CB-16).
+        const char* DefaultSyncPrefix()
+        {
+            static const char* const prefix = [] {
+                const std::uintptr_t at = hooks::engine::Resolve(hooks::engine::BSSynchronizedClipGenerator_EmptyString);
+                return at ? *reinterpret_cast<const char* const*>(at) : "NPC";
+            }();
+            return prefix;
+        }
+
         /// @brief Raises a Havok warning, the text printf-formatted as hkStringBuf::printf formats it.
         /// @note hkStringBuf's inline storage allocates through hkContainerTempAllocator, another unbound mutable global.
         void Warn(int id, const char* file, int line, const char* format, ...)
@@ -251,7 +265,8 @@ namespace CB::feature::widen {
             }
         }
 
-        /// @note Vanilla's prefix default is a global pointing at "" (g_bssyncEmptyString); the literal is the same text.
+        /// @note The game's paired-idle start (0x1405463f0) calls this for every participant and aborts the scene when
+        ///       it returns false, so it must resolve an unset prefix exactly as vanilla does (DefaultSyncPrefix).
         bool OnSyncMark(SyncMark::Next, hk::BSSynchronizedClipGenerator* sync, const hk::hkbContext& context, hk::hkQsTransform& markOut)
         {
             using namespace CB::havok;
@@ -274,7 +289,7 @@ namespace CB::feature::widen {
             if (animation && status == 1) {
                 const int   numTracks  = animation->m_annotationTracks.getSize();
                 hkInt16     trackIndex = -1;
-                const char* trackName  = (sync->m_SyncAnimPrefix == HK_NULL) ? "" : sync->m_SyncAnimPrefix;
+                const char* trackName  = (sync->m_SyncAnimPrefix == HK_NULL) ? DefaultSyncPrefix() : sync->m_SyncAnimPrefix;
                 for (int i = 0; i < numTracks; i++) {
                     if (trackIndex != -1) break;
                     if (hkString::strCmp(animation->m_annotationTracks[i].m_trackName.cString(), trackName) == 0)

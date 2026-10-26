@@ -7,9 +7,10 @@
 
 namespace CB { namespace havok
 {
-    /// @brief The empty prefix an unset m_SyncAnimPrefix reads as.
+    /// @brief The role prefix an unset m_SyncAnimPrefix reads as: "NPC" (AE 1.6.1170, checked in game), the name
+    ///        paired animations give the unprefixed role's annotation track and events (NPCpairedStop).
     /// @note A writable `const char*` in vanilla's data (loaded, never folded), so declared here, defined by the exe.
-    ///       Name provisional.
+    ///       Name provisional, and misleading: the string is not empty.
     extern const char* g_bssyncEmptyString;
     /// @brief "PairEnd", the event every paired graph maps to itself.
     /// @note As g_bssyncEmptyString. Name provisional.

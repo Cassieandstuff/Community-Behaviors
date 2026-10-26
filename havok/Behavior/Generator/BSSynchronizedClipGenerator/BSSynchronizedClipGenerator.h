@@ -61,6 +61,8 @@ namespace CB { namespace havok
         ///       other member reads it as one. A clone owns a reference to its cloned clip; a template's is the graph's.
         hkbClipGenerator*                       m_pClipGenerator;                  ///< +0x50
         /// @note A plain string (reflected `cstring`), not an hkStringPtr: vanilla reads it unmasked and never frees it.
+        ///       Null means the role "NPC" (g_bssyncEmptyString), never "": the game's paired-idle start fails a role
+        ///       whose track it cannot find.
         char*                                   m_SyncAnimPrefix;                  ///< +0x58
         hkBool                                  m_bSyncClipIgnoreMarkPlacement;    ///< +0x60
         hkReal                                  m_fGetToMarkTime;                  ///< +0x64 — seconds

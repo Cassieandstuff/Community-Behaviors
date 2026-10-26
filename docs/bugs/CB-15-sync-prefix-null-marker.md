@@ -1,6 +1,6 @@
 # CB-15: converted Nemesis mods break paired animations (sync role prefix set to `&#9216;`)
 
-**Status:** INVESTIGATING (converter fix landed; affected bundles need reconverting; not yet checked in game)
+**Status:** INVESTIGATING (converter fix landed, bundles reconverted; in-game check together with CB-16)
 **First seen:** 2026-10-25   **Area:** converter (Nemesis/Havok-XML ingest)
 
 ## Symptom
@@ -30,9 +30,11 @@ In the Dragon Break load order: Precision.hky and Payload Interpreter.hky carry 
 - Set data: CB serves none in that load order; the engine reads vanilla's.
 - The Advanced Controller's ground states and planes: handing the player to vanilla under `bIsSynced` /
   `bAnimationDriven` did not stop the mount jitter.
+- The jitter that stayed after the converter fix is [CB-16](CB-16-sync-mark-default-prefix.md), the same
+  failure through another path. As of 2026-10-26 no bundle in the Dragon Break profile carries `&#9216;`
+  (Output_Community Behaviors reconverted; Payload Interpreter is disabled and ships no bundle).
 
 ## Disposition
 Fixed in the converter: numeric character references decode, and the U+2400 null marker reads as `''` for
-string and string-array fields. Existing bundles keep the bad patches until reconverted. Close once Precision
-and Payload Interpreter are reconverted (no `&#9216;` left in any bundle) and the mount and the intro's bonds
-cut play in game.
+string and string-array fields. Existing bundles keep the bad patches until reconverted. Close with CB-16,
+once a build with its fix mounts a horse and plays the intro's bonds cut in game.
