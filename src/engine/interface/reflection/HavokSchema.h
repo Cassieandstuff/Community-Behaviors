@@ -60,6 +60,9 @@ struct Field {
     bool        boneList = false;        ///< @brief `bonelist: true` — a scalar array of bone indices; the .hky lists names.
     bool        boneSet = false;         ///< @brief `boneset: true` — that bone list is a SET (order carries nothing): a patch
                                          ///<        adds / removes bones by name instead of replacing the list.
+    std::string boneOf;                  ///< @brief `boneof: <field>` — a scalar bone index (or index array) into the skeleton
+                                         ///<        the enclosing object's `<field>` pointer names (a mapper's skeletonA /
+                                         ///<        skeletonB), not the graph's rig; the .hky names the bone.
     bool        boneWeights = false;     ///< @brief `boneweights: <default>` — a float array indexed by rig bone; the .hky
     std::string boneWeightDefault;       ///<        is a bone-name -> weight map, unlisted bones taking this default.
     std::string roster;                  ///< @brief `roster: <key>` — the array is a keyed ROSTER in the .hky: `ref` (keyed by

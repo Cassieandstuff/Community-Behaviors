@@ -5,6 +5,7 @@
 #include <decompile/PandoraCompatShim.h> // CONVERTER-ONLY Nemesis text-array placement (Pandora parity)
 #include <interface/BashMerge.h>        // the Nemesis tagfile merge core (bashMerge / decideParam / changedFields)
 #include <interface/linker/Linker.h>      // the ONE name<->index codec (roster decode + dup-guard)
+#include <interface/BoneOrder.h>
 #include <codec/formid/FormId.h>          // CB::engine::codec::formid — node identity as a FormId "idx:local"
 #include <codec/resource/PathKey.h>       // HasExt — Nemesis `#*.txt` patch files (path identity)
 #include <common/Vec4Text.h>              // CB::engine::common::vec4::parseVec4 (the ONE vec4 text parser)
@@ -250,6 +251,15 @@ namespace {
 ///       Lossless elisions: a nested object states `class:` only when it differs from the field's declared class
 ///       (a subclass); a null pointer or an empty array is omitted (absent == null / empty on parse); a `boneref`
 ///       of -1 ("no bone") is omitted (absent == -1).
+/// @brief A skeleton unit's view: the role skeletons (`animation` = the animation container's skeletons[0], `ragdoll` =
+///        the one the ragdoll instance names) become folders of name-keyed bone files, and `boneof` indices render as
+///        bone names of the skeleton they index.
+struct SkeletonView {
+    std::unordered_map<const IHavokObject*, std::vector<std::string>> bones;   ///< every hkaSkeleton -> its bone names, in order
+    std::unordered_map<const IHavokObject*, std::string>             role;    ///< the role skeletons -> their role
+    const io::SchemaObject* ragdollInstance = nullptr;   ///< set when its boneToRigidBodyMap folds onto the ragdoll bones
+};
+
 struct ReflectCtx {
     const Identity&                 id;
     const NameResolver&             nr;
@@ -259,7 +269,17 @@ struct ReflectCtx {
     std::uint16_t                   keyOwner = CB::engine::codec::formid::SELF_INDEX;   ///< master index of positional sub-record keys
     std::vector<std::pair<std::string, std::string>>* sink = nullptr;   ///< node-level rosters -> (field path, entries)
     std::string                     path;                            ///< dotted field path from the node to this object
+    const SkeletonView*             skel = nullptr;                  ///< null outside a skeleton unit
+    std::map<std::string, const std::vector<std::string>*> boneOf;  ///< `boneof:` field name -> that skeleton's bones
 };
+
+/// @brief Whether the skeleton view writes `so`'s field `f` somewhere else: a role skeleton's bone arrays (its bones/
+///        folder), or the folded boneToRigidBodyMap (the ragdoll bones' `rigidBody`).
+bool skeletonViewTakes(const io::SchemaObject& so, const Field& f, const ReflectCtx& c) {
+    if (!c.skel) return false;
+    if (c.skel->role.count(&so)) return f.name == "bones" || f.name == "parentIndices" || f.name == "referencePose";
+    return &so == c.skel->ragdollInstance && f.name == "boneToRigidBodyMap";
+}
 
 /// @brief The context for an inline object reached through field `f` (its rosters still belong to the node's folder).
 ReflectCtx subCtx(const ReflectCtx& c, const std::string& f) { ReflectCtx s = c; if (s.sink) s.path += f + "."; return s; }
@@ -340,6 +360,15 @@ std::string scalarText(const Field& f, const std::vector<std::uint8_t>& raw, con
 /// @brief A bone index as its rig name; the raw number when the rig is unknown or the index is out of range.
 std::string boneText(std::int64_t idx, const ReflectCtx& c) {
     if (c.bones && idx >= 0 && idx < static_cast<std::int64_t>(c.bones->size())) return text::Quote((*c.bones)[static_cast<std::size_t>(idx)]);
+    return std::to_string(idx);
+}
+
+/// @brief A `boneof` index as a bone name of the skeleton it indexes; the raw number when that skeleton's bones are
+///        unknown or the index is out of range.
+std::string boneOfText(std::int64_t idx, const Field& f, const ReflectCtx& c) {
+    const auto it = c.boneOf.find(f.boneOf);
+    const std::vector<std::string>* names = it == c.boneOf.end() ? nullptr : it->second;
+    if (names && idx >= 0 && idx < static_cast<std::int64_t>(names->size())) return text::Quote((*names)[static_cast<std::size_t>(idx)]);
     return std::to_string(idx);
 }
 
@@ -714,7 +743,9 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
             case FieldKind::Scalar: {
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
                 const std::size_t n = w ? v.raw.size() / w : 0;
-                if (f.boneRef && n <= 1) {
+                if (!f.boneOf.empty() && n <= 1) {
+                    y += f.name + ": " + boneOfText(decodeInt(v.raw, f.scalar), f, c) + "\n";
+                } else if (f.boneRef && n <= 1) {
                     const std::int64_t iv = decodeInt(v.raw, f.scalar);
                     if (iv != -1) y += f.name + ": " + boneText(iv, c) + "\n";
                 } else if (n <= 1) {
@@ -773,6 +804,10 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
                 const std::size_t n = w ? v.raw.size() / w : 0;
                 if (n == 0) break;
                 if (f.boneWeights && f.scalar == Scalar::Float) { y += boneWeightsText(f, v.raw, c); break; }
+                if (!f.boneOf.empty()) {
+                    y += f.name + ": " + flowList(n, [&](std::size_t k) { return boneOfText(decodeInt(slice(v.raw, k, w), f.scalar), f, c); }) + "\n";
+                    break;
+                }
                 if (f.boneList) {
                     y += f.name + ": " + flowList(n, [&](std::size_t k) { return boneText(decodeInt(slice(v.raw, k, w), f.scalar), c); }) + "\n";
                     break;
@@ -816,8 +851,19 @@ std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const
         }
         return y + renderVocab(so, c);
     }
-    const std::size_t n = so.Fields().size();
-    for (std::size_t i = 0; i < n; ++i) y += renderField(so, i, c);
+    const auto fields = so.Fields();
+    if (!c.skel) {
+        for (std::size_t i = 0; i < fields.size(); ++i) y += renderField(so, i, c);
+        return y;
+    }
+    ReflectCtx cc = c;
+    for (std::size_t i = 0; i < fields.size(); ++i)
+        if (fields[i]->kind == FieldKind::Ptr && fields[i]->ref == "hkaSkeleton")
+            if (const auto it = c.skel->bones.find(so.Values()[i].obj.get()); it != c.skel->bones.end()) cc.boneOf[fields[i]->name] = &it->second;
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+        if (skeletonViewTakes(so, *fields[i], c)) continue;
+        y += renderField(so, i, cc);
+    }
     return y;
 }
 
@@ -869,11 +915,96 @@ std::unordered_map<const IHavokObject*, std::string> EffectiveCategories(const I
     return effCat;
 }
 
-bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
-                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
+namespace {
+
+/// @brief A skeleton's bone names, in order.
+std::vector<std::string> boneNamesOf(const io::SchemaObject& skel) {
+    std::vector<std::string> out;
+    for (const auto& b : skel.Children("bones"))
+        if (const auto* bo = dynamic_cast<const io::SchemaObject*>(b.get())) out.push_back(bo->Str("name"));
+    return out;
+}
+
+/// @brief Whether a skeleton's three bone arrays line up and its bones can be keyed by name: one parent, one pose and a
+///        unique, non-empty name per bone, every parent a bone of the skeleton or -1.
+bool keyableSkeleton(const io::SchemaObject& skel, const std::vector<std::string>& names) {
+    const auto parents = skel.GetArray<std::int16_t>("parentIndices");
+    if (parents.size() != names.size() || skel.Values()[*skel.IndexOf("referencePose")].raw.size() != names.size() * 48) return false;
+    std::set<std::string> seen;
+    for (std::size_t i = 0; i < names.size(); ++i)
+        if (names[i].empty() || !seen.insert(names[i]).second || parents[i] < -1 || parents[i] >= static_cast<int>(names.size())) return false;
+    return true;
+}
+
+/// @brief The skeleton view over a unit's graph, or none when it holds no hkaSkeleton. A skeleton takes a role only
+///        when the unit's shape is the vanilla one (the container's skeletons[0], and skeletons[1] = the ragdoll
+///        instance's) and its bones are keyable; anything else stays in the generic form, still lossless.
+std::optional<SkeletonView> buildSkeletonView(const Identity& identity) {
+    SkeletonView v;
+    const io::SchemaObject* container = nullptr;
+    const io::SchemaObject* instance  = nullptr;
+    for (const auto& [obj, cat] : identity.category) {
+        const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
+        if (!so) continue;
+        const std::string cls = so->ClassName();
+        if (cls == "hkaSkeleton") v.bones[so] = boneNamesOf(*so);
+        else if (cls == "hkaAnimationContainer" && !container) container = so;
+        else if (cls == "hkaRagdollInstance" && !instance) instance = so;
+    }
+    if (v.bones.empty()) return std::nullopt;
+    const auto take = [&](const IHavokObject* o, const char* role) {
+        const auto* so = dynamic_cast<const io::SchemaObject*>(o);
+        if (so && keyableSkeleton(*so, v.bones.at(so))) v.role[so] = role;
+    };
+    const auto& skels = container ? container->Children("skeletons") : std::vector<std::shared_ptr<IHavokObject>>{};
+    if (skels.empty() || skels.size() > 2 || !skels[0]) return v;
+    const IHavokObject* ragdoll = instance ? instance->Child("skeleton") : nullptr;
+    if (skels.size() == 2 && skels[1].get() != ragdoll) return v;
+    take(skels[0].get(), "animation");
+    if (ragdoll && ragdoll != skels[0].get()) take(ragdoll, "ragdoll");
+    /// @note The map folds onto the ragdoll bones only when it has one entry per bone, each a body of the instance or -1.
+    if (ragdoll && v.role.count(ragdoll)) {
+        const auto map = instance->GetArray<std::int32_t>("boneToRigidBodyMap");
+        const auto& bodies = instance->Children("rigidBodies");
+        bool fits = map.size() == v.bones.at(ragdoll).size();
+        for (const std::int32_t m : map) fits = fits && m >= -1 && m < static_cast<std::int32_t>(bodies.size()) && (m < 0 || bodies[static_cast<std::size_t>(m)]);
+        if (fits) v.ragdollInstance = instance;
+    }
+    return v;
+}
+
+/// @brief One bone file of a role skeleton: its parent by name (`null` for a root), lockTranslation, its reference pose,
+///        and for a folded ragdoll bone the body it drives.
+std::string boneFile(const io::SchemaObject& skel, std::size_t i, const std::vector<std::string>& names, const std::string* body) {
+    const auto parents = skel.GetArray<std::int16_t>("parentIndices");
+    const auto& pose   = skel.Values()[*skel.IndexOf("referencePose")].raw;
+    const auto* bone   = dynamic_cast<const io::SchemaObject*>(skel.Children("bones")[i].get());
+    const auto  p      = slice(pose, i, 48);
+    std::string y = "parent: " + (parents[i] < 0 ? std::string("null") : text::Quote(names[static_cast<std::size_t>(parents[i])])) + "\n";
+    y += "lockTranslation: " + boolstr(bone->GetBool("lockTranslation")) + "\n";
+    y += "pose:\n  translation: " + rvec(slice(p, 0, 16)) + "\n  rotation: " + rvec(slice(p, 1, 16)) + "\n  scale: " + rvec(slice(p, 2, 16)) + "\n";
+    if (body) y += "rigidBody: " + (body->empty() ? std::string("null") : *body) + "\n";
+    return y;
+}
+
+}  // namespace
+
+bool EmitHkyReflective(const Identity& source, const schema::SchemaRegistry& reg,
+                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones,
+                       const std::string& unitPath) {
     namespace fs = std::filesystem;
+    const std::optional<SkeletonView> skel = buildSkeletonView(source);
+    /// @note A role skeleton's id IS its role: graph.yaml and the mappers name `animation` / `ragdoll`.
+    Identity roleIds;
+    if (skel && !skel->role.empty()) {
+        roleIds = source;
+        for (const auto& [obj, role] : skel->role) roleIds.ids[obj] = role;
+    }
+    const Identity& identity = roleIds.ids.empty() ? source : roleIds;
     const NameResolver nr = buildResolver(identity);
-    const auto effCat = EffectiveCategories(identity);
+    auto effCat = EffectiveCategories(identity);
+    if (skel) for (const auto& [obj, role] : skel->role) effCat[obj] = role;
+    const skeleton::BoneOrderEntry* order = skel && !skel->role.empty() ? skeleton::FindBoneOrder(reg, unitPath) : nullptr;
     for (const auto& [obj, cat] : effCat) {
         const auto* so = dynamic_cast<const io::SchemaObject*>(obj);
         if (!so) { err = "EmitHkyReflective expects a SchemaObject graph"; return false; }
@@ -882,6 +1013,34 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
         const std::string idStr = identity.ids.at(obj);
         std::vector<std::pair<std::string, std::string>> rosters;
         ReflectCtx ctx{ identity, nr, reg, bones, &effCat };
+        if (skel) ctx.skel = &*skel;
+        if (skel && skel->role.count(obj)) {
+            /// @note A role skeleton is the folder `<role>/`: skeleton.yaml (its other members, plus `extraBones:` in
+            ///       their order when the shim lists only some of its bones) and bones/<bone>.yaml per bone. Its order
+            ///       must be the shim's binding, or the unit could not reproduce it.
+            const std::string& role  = skel->role.at(obj);
+            const auto&        names = skel->bones.at(obj);
+            const std::vector<std::string>* known = nullptr;
+            if (order) if (const auto it = order->roles.find(role); it != order->roles.end()) known = &it->second;
+            if (skeleton::BindBoneOrder(known, names) != names) {
+                err = unitPath + ": the " + role + " skeleton's bone order disagrees with the boneorder shim";
+                return false;
+            }
+            std::vector<std::string> extra;
+            const std::set<std::string> listed = known ? std::set<std::string>(known->begin(), known->end()) : std::set<std::string>{};
+            for (const auto& b : names) if (!listed.count(b)) extra.push_back(b);
+            std::string body = "id: " + role + "\n" + reflectObject(*so, ctx);
+            if (!extra.empty()) body += "extraBones: " + flowList(extra.size(), [&](std::size_t k) { return text::Quote(extra[k]); }) + "\n";
+            const fs::path dir = fs::path(outDir) / role;
+            if (!disk::WriteFile(dir / "skeleton.yaml", body, {}, &err)) return false;
+            const auto map = skel->ragdollInstance && role == "ragdoll" ? skel->ragdollInstance->GetArray<std::int32_t>("boneToRigidBodyMap") : std::vector<std::int32_t>{};
+            for (std::size_t i = 0; i < names.size(); ++i) {
+                std::string rb;
+                if (!map.empty() && map[i] >= 0) rb = refIdOf(skel->ragdollInstance->Children("rigidBodies")[static_cast<std::size_t>(map[i])], identity);
+                if (!disk::WriteFile(dir / "bones" / (names[i] + ".yaml"), boneFile(*so, i, names, map.empty() ? nullptr : &rb), {}, &err)) return false;
+            }
+            continue;
+        }
         if (!root) ctx.sink = &rosters;
         const std::string body = reflectObject(*so, ctx);
         /// @note A node with sub-records is a FOLDER: its body `<cat>/<id>/<id>.yaml` beside its rosters
@@ -1424,6 +1583,11 @@ struct HkyParse {
     std::unordered_set<const IHavokObject*>                                nodes;   ///< file / shared / root objects
     std::map<std::pair<const IHavokObject*, std::size_t>, std::vector<std::string>> subKeys;   ///< minted roster keys
     std::function<std::string(const std::string&)>                         baseCanon;   ///< a stored base key -> canonical
+    /// @brief The object being filled whose `hkaSkeleton` pointers a nested `boneof:` field names its skeleton by.
+    io::SchemaObject*                                                      boneOwner = nullptr;
+    /// @brief A `boneof` bone name, resolved once every skeleton has its bones (the skeleton may fill after the mapper).
+    struct BoneName { io::SchemaObject* obj; std::size_t field, elem; io::SchemaObject* owner; std::string skeletonField, name, where; };
+    std::vector<BoneName>                                                  boneNames;
 };
 
 /// @brief The merge tag for `field`, looked up on the class that DECLARES it (MergeTag consults own fields only).
@@ -1621,8 +1785,15 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     v = io::FieldValue{};
     if ((f.kind == FieldKind::PtrArray || f.kind == FieldKind::StructArray) && !f.roster.empty() && n.is_map())
         return rosterValue(so, i, n, ps);
+    /// @note A quoted `boneof` value is a bone name, held as index 0 until the skeletons are built; a bare one is the index.
+    const auto boneOfName = [&](const yml::ConstNodeRef& e, std::size_t elem) {
+        if (f.boneOf.empty() || !e.is_val_quoted()) return false;
+        ps.boneNames.push_back({ &so, i, elem, ps.boneOwner, f.boneOf, ystr(e), ps.where });
+        return true;
+    };
     switch (f.kind) {
         case FieldKind::Scalar: {
+            if (!n.is_seq() && boneOfName(n, 0)) { v.raw = encInt(0, f.scalar); return true; }
             if (f.boneRef && !n.is_seq()) {
                 std::int64_t idx = -1;
                 if (!boneIndex(ystr(n), idx, ps, f.name)) return false;
@@ -1695,7 +1866,8 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
             }
             for (auto e : n) {
                 std::vector<std::uint8_t> b;
-                if (f.boneList) { std::int64_t idx = -1; if (!boneIndex(ystr(e), idx, ps, f.name)) return false; b = encInt(idx, f.scalar); }
+                if (boneOfName(e, v.raw.size() / static_cast<std::size_t>(w))) b = encInt(0, f.scalar);
+                else if (f.boneList) { std::int64_t idx = -1; if (!boneIndex(ystr(e), idx, ps, f.name)) return false; b = encInt(idx, f.scalar); }
                 else if (!scalarBytes(f, ystr(e), b, ps)) return false;
                 b.resize(static_cast<std::size_t>(w));
                 v.raw.insert(v.raw.end(), b.begin(), b.end());
@@ -2091,6 +2263,12 @@ bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
 ///        the rest).
 bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
     const auto fields = so.Fields();
+    struct OwnerScope {
+        HkyParse& ps; io::SchemaObject* was;
+        ~OwnerScope() { ps.boneOwner = was; }
+    } scope{ ps, ps.boneOwner };
+    for (const Field* f : fields)
+        if (f->kind == FieldKind::Ptr && f->ref == "hkaSkeleton") { ps.boneOwner = &so; break; }
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
         if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
@@ -2117,15 +2295,16 @@ bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps
 } // namespace
 
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
-                        const std::vector<std::string>* bones) {
-    return ParseHkyReflective(CB::engine::common::DiskUnitSource(dir), reg, out, err, bones);
+                        const std::vector<std::string>* bones, const std::string& unitPath) {
+    return ParseHkyReflective(CB::engine::common::DiskUnitSource(dir), reg, out, err, bones, unitPath);
 }
 
 namespace {
 /// @brief One YAML file of a unit. A ROSTER file (`<cat>/<id>/<field.path>.yaml`) carries one roster of node `owner`
 ///        at `field` (the root's rosters stay inline in graph.yaml); anything else is a node file — `<cat>/<id>.yaml`,
 ///        or `<cat>/<id>/<id>.yaml` for a node with sub-records.
-struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false; std::string owner, field; };
+/// A BONE file (`<skeleton id>/bones/<bone>.yaml`) is one bone of a role skeleton: `owner` the skeleton, `field` the bone.
+struct HkyDoc { std::string text; yml::Tree tree; std::string cat; std::string file; bool roster = false, bone = false; std::string owner, field; };
 /// @brief Every YAML file of a unit, parsed in place (the text buffer lives beside its tree).
 std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::engine::common::IUnitSource& src) {
     std::vector<std::unique_ptr<HkyDoc>> docs;
@@ -2137,7 +2316,12 @@ std::vector<std::unique_ptr<HkyDoc>> loadHkyDocs(const CB::engine::common::IUnit
         d->file = rel;
         const auto slash = rel.rfind('/'), first = rel.find('/');
         d->cat = slash == std::string::npos ? std::string() : rel.substr(0, slash);
-        if (slash != std::string::npos) {
+        if (first != std::string::npos && slash != first && rel.compare(first, slash - first + 1, "/bones/") == 0 &&
+            rel.size() > 5 && rel.compare(rel.size() - 5, 5, ".yaml") == 0) {
+            d->bone  = true;
+            d->owner = rel.substr(0, first);
+            d->field = rel.substr(slash + 1, rel.size() - slash - 6);
+        } else if (slash != std::string::npos) {
             std::string stem = rel.substr(slash + 1);
             if (stem.size() > 5 && stem.compare(stem.size() - 5, 5, ".yaml") == 0) stem.resize(stem.size() - 5);
             if (first != slash) {
@@ -2198,16 +2382,100 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
         s = dot + 1;
     }
 }
+
+/// @brief Build a role skeleton's three bone arrays from its bone files: order = the boneorder shim's for the unit and
+///        role, then `extraBones` (the bones it doesn't list, in their order); each bone's parent by name; a ragdoll's
+///        `rigidBody` entries rebuilt into the instance's boneToRigidBodyMap.
+/// @return false with `ps.err` set: a bone with no place in the order, a listed bone without a file, an unknown parent
+///         or body.
+bool buildSkeletonBones(io::SchemaObject& skel, const std::string& role, const std::vector<const HkyDoc*>& files,
+                        const std::vector<std::string>& extra, const std::string& unitPath, HkyParse& ps) {
+    std::map<std::string, const HkyDoc*> byName;
+    for (const HkyDoc* d : files) byName[d->field] = d;
+    std::vector<std::string> present;
+    for (const auto& [name, d] : byName) present.push_back(name);
+    const std::vector<std::string>* known = nullptr;
+    if (const skeleton::BoneOrderEntry* e = skeleton::FindBoneOrder(ps.reg, unitPath))
+        if (const auto it = e->roles.find(role); it != e->roles.end()) known = &it->second;
+    std::vector<std::string> order;
+    if (known) for (const auto& b : *known) if (byName.count(b)) order.push_back(b);
+    const std::set<std::string> listed = known ? std::set<std::string>(known->begin(), known->end()) : std::set<std::string>{};
+    std::set<std::string> placed;
+    for (const auto& b : extra) {
+        if (!byName.count(b)) { ps.err = role + "/skeleton.yaml: extraBones names '" + b + "', which has no bone file"; return false; }
+        if (listed.count(b)) { ps.err = role + "/skeleton.yaml: extraBones names '" + b + "', which the boneorder shim already orders"; return false; }
+        if (!placed.insert(b).second) { ps.err = role + "/skeleton.yaml: extraBones names '" + b + "' twice"; return false; }
+        order.push_back(b);
+    }
+    if (order.size() != present.size()) {
+        for (const auto& b : present)
+            if (std::find(order.begin(), order.end(), b) == order.end()) {
+                ps.err = role + "/bones/" + b + ".yaml: the bone has no place in the order (neither the boneorder shim nor extraBones lists it)";
+                return false;
+            }
+    }
+    std::map<std::string, std::int16_t> index;
+    for (std::size_t k = 0; k < order.size(); ++k) index[order[k]] = static_cast<std::int16_t>(k);
+    std::vector<std::int16_t>                     parents;
+    std::vector<std::uint8_t>                     pose;
+    std::vector<std::shared_ptr<IHavokObject>>    boneObjs;
+    std::vector<std::optional<std::string>>       bodies;
+    bool                                          folded = false;
+    for (const auto& name : order) {
+        const HkyDoc& d = *byName.at(name);
+        const auto r = d.tree.crootref();
+        ps.where = d.file;
+        const std::string parent = yhas(r, "parent") ? ystr(yget(r, "parent")) : std::string("null");
+        if (parent == "null" && !(yhas(r, "parent") && yget(r, "parent").is_val_quoted())) parents.push_back(-1);
+        else if (const auto it = index.find(parent); it != index.end()) parents.push_back(it->second);
+        else { ps.err = d.file + ": parent '" + parent + "' is not a bone of this skeleton"; return false; }
+        auto bone = makeObj(ps.reg, "hkaBone");
+        if (!bone) { ps.err = "hkaBone is not in the schema"; return false; }
+        bone->Str("name") = name;
+        bone->SetBool("lockTranslation", yhas(r, "lockTranslation") && ystr(yget(r, "lockTranslation")) == "true");
+        ps.all.push_back(bone);
+        boneObjs.push_back(bone);
+        if (!yhas(r, "pose")) { ps.err = d.file + ": no pose"; return false; }
+        const auto p = yget(r, "pose");
+        for (const char* k : { "translation", "rotation", "scale" }) {
+            if (!yhas(p, k)) { ps.err = d.file + ": pose has no " + k; return false; }
+            const auto b = vec4Strict(ystr(yget(p, k)));
+            pose.insert(pose.end(), b.begin(), b.end());
+        }
+        if (yhas(r, "rigidBody")) { folded = true; bodies.push_back(ystr(yget(r, "rigidBody"))); }
+        else bodies.push_back(std::nullopt);
+    }
+    skel.SetArray("parentIndices", parents);
+    skel.FieldRef("bones").objs = std::move(boneObjs);
+    skel.FieldRef("referencePose").raw = std::move(pose);
+    if (!folded) return true;
+    io::SchemaObject* instance = nullptr;
+    for (const auto& o : ps.all)
+        if (std::string(o->ClassName()) == "hkaRagdollInstance" && o->Child("skeleton") == &skel) { instance = o.get(); break; }
+    if (!instance) { ps.err = role + ": its bones name rigid bodies, but no ragdoll instance uses this skeleton"; return false; }
+    const auto& rigid = instance->Children("rigidBodies");
+    std::vector<std::int32_t> map;
+    for (std::size_t k = 0; k < order.size(); ++k) {
+        const std::string id = bodies[k].value_or("null");
+        if (id == "null") { map.push_back(-1); continue; }
+        const auto it = ps.byId.find(ps.canon ? ps.canon(id) : id);
+        const auto at = it == ps.byId.end() ? rigid.end() : std::find(rigid.begin(), rigid.end(), it->second);
+        if (at == rigid.end()) { ps.err = role + "/bones/" + order[k] + ".yaml: rigidBody '" + id + "' is not a body of the ragdoll instance"; return false; }
+        map.push_back(static_cast<std::int32_t>(at - rigid.begin()));
+    }
+    instance->SetArray("boneToRigidBodyMap", map);
+    return true;
+}
 } // namespace
 
 bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
-                        std::string& err, const std::vector<std::string>* bones) {
+                        std::string& err, const std::vector<std::string>* bones, const std::string& unitPath) {
     HkyParse ps{ reg, bones, {}, {}, {}, {}, {} };
     auto docs = loadHkyDocs(src);
     // Pass 1: create every file node (and the root) so ids resolve regardless of file order.
     std::shared_ptr<io::SchemaObject> root;
     for (auto& d : docs) {
-        if (d->roster) continue;
+        if (d->roster || d->bone) continue;
         const auto r = d->tree.crootref();
         const std::string id = ystr(yget(r, "id")), cls = ystr(yget(r, "class"));
         auto obj = makeObj(reg, cls);
@@ -2221,11 +2489,14 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
     }
     if (!root) { err = "no graph.yaml (hkRootLevelContainer)"; return false; }
     // Pass 2: fill the nodes, then each node-folder roster into its owner.
+    std::map<std::string, std::vector<std::string>> extraBones;   ///< role skeleton id -> its skeleton.yaml `extraBones`
     for (auto& d : docs) {
-        if (d->roster) continue;
+        if (d->roster || d->bone) continue;
         ps.where = d->file;
         const auto r = d->tree.crootref();
-        if (!fillHky(*ps.byId.at(ystr(yget(r, "id"))), r, ps)) { err = ps.err; return false; }
+        const std::string id = ystr(yget(r, "id"));
+        if (!fillHky(*ps.byId.at(id), r, ps)) { err = ps.err; return false; }
+        if (yhas(r, "extraBones")) for (auto e : yget(r, "extraBones")) extraBones[id].push_back(ystr(e));
     }
     for (auto& d : docs) {
         if (!d->roster) continue;
@@ -2233,6 +2504,29 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
         io::SchemaObject* owner = it == ps.byId.end() ? nullptr : it->second.get();
         if (!owner) { err = d->file + ": no node '" + d->owner + "' for this roster"; return false; }
         if (!applyRosterFile(*owner, *d, false, ps)) { err = ps.err; return false; }
+    }
+    // Pass 3: the role skeletons' bones (from their bone files), then the `boneof` names that index them.
+    {
+        std::map<std::string, std::vector<const HkyDoc*>> boneFiles;
+        for (const auto& d : docs) if (d->bone) boneFiles[d->owner].push_back(d.get());
+        for (const auto& [owner, files] : boneFiles) {
+            const auto it = ps.byId.find(owner);
+            if (it == ps.byId.end() || std::string(it->second->ClassName()) != "hkaSkeleton") {
+                err = owner + "/bones/: no skeleton '" + owner + "' for these bone files";
+                return false;
+            }
+            if (!buildSkeletonBones(*it->second, owner, files, extraBones[owner], unitPath, ps)) { err = ps.err; return false; }
+        }
+        for (const auto& b : ps.boneNames) {
+            const io::SchemaObject* skel = b.owner ? b.owner->Child(b.skeletonField) : nullptr;
+            const auto names = skel ? boneNamesOf(*skel) : std::vector<std::string>{};
+            const auto at = std::find(names.begin(), names.end(), b.name);
+            if (at == names.end()) { err = b.where + ": bone '" + b.name + "' is not in the " + b.skeletonField + " skeleton"; return false; }
+            const Field& f = *b.obj->Fields()[b.field];
+            const auto enc = encInt(static_cast<std::int64_t>(at - names.begin()), f.scalar);
+            auto& raw = b.obj->FieldAt(b.field).raw;
+            std::copy(enc.begin(), enc.end(), raw.begin() + static_cast<std::ptrdiff_t>(b.elem * enc.size()));
+        }
     }
     // Every inline object joins the identity (category "") so the name resolver and re-emit see the whole graph.
     int anon = 0;
@@ -3220,7 +3514,8 @@ MultiLayerResult MultiLayerRoundTrip(const std::string& baseXml, const std::vect
 }
 
 HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
-                                       const std::string& workDir, const std::vector<std::string>* bones) {
+                                       const std::string& workDir, const std::vector<std::string>* bones,
+                                       const std::string& unitPath) {
     HkyRoundTripResult r;
     try {
         PackFileDeserializer des;
@@ -3238,9 +3533,9 @@ HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, c
         r.canonIsSource = (canon == bytes);
         std::error_code ec;
         std::filesystem::remove_all(workDir, ec);
-        if (!EmitHkyReflective(AssignIdentity(des, reg), reg, workDir, r.error, bones)) return r;
+        if (!EmitHkyReflective(AssignIdentity(des, reg), reg, workDir, r.error, bones, unitPath)) return r;
         ParsedHky parsed;
-        if (!ParseHkyReflective(workDir, reg, parsed, r.error, bones)) return r;
+        if (!ParseHkyReflective(workDir, reg, parsed, r.error, bones, unitPath)) return r;
         const std::vector<std::uint8_t> back = serialize(parsed.root);
         r.identical = (back == canon);
         if (!r.identical) {

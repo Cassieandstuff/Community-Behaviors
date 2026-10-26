@@ -3172,7 +3172,8 @@ bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, con
         const std::string serveKey = PathKey("meshes/" + rel);
         const std::vector<std::string>* bones = nullptr;
         if (rigs) if (const auto& b = rigs->BonesFor(serveKey); !b.empty()) bones = &b;
-        const auto r = CB::engine::decompile::RoundTripReflective(bytes, *reg, (fs::path(workRoot) / std::to_string(n)).string(), bones);
+        const auto r = CB::engine::decompile::RoundTripReflective(bytes, *reg, (fs::path(workRoot) / std::to_string(n)).string(), bones,
+                                                                  "meshes/" + rel);
         ++n;
         if (!r.ok) { ++fails; say("  FAIL " + rel + " — " + r.error); continue; }
         canonOk += r.canonIsSource;

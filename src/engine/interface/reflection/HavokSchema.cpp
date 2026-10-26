@@ -215,6 +215,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.boneRef  = (childStr(fn, "boneref")  == "true");
                     f.boneList = (childStr(fn, "bonelist") == "true");
                     f.boneSet  = (childStr(fn, "boneset")  == "true");
+                    f.boneOf   = childStr(fn, "boneof");
                     f.charPropIf = childStr(fn, "charpropif");
                     f.roster     = childStr(fn, "roster");
                     if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
