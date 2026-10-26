@@ -64,7 +64,7 @@ bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& r
 ///        FormIDs (`0000x…`) — the form a base unit (and any full graph a bundle ships) takes.
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
                                  const std::string& outDir, std::string& err,
-                                 const std::vector<std::string>* bones = nullptr);
+                                 const std::vector<std::string>* bones = nullptr, const std::string& unitPath = {});
 
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
 ///        categories; inline objects join with category "").
@@ -134,6 +134,13 @@ struct CharacterStrings {
 ///        are bone-keyed) — the very thing the rig binding is for. A patch unit yields only what it states; its
 ///        animationNames (a union roster) are its additions.
 std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::IUnitSource& src);
+/// @brief A skeleton unit's bone names for `role` ("animation" — the rig behaviors bind against — or "ragdoll"), in the
+///        order the skeleton serves them: the boneorder shim's for `unitPath`, then its `extraBones`. Read from the
+///        bone file names and skeleton.yaml, not parsed.
+/// @return nullopt when the unit has no such role skeleton, or (with `err`) when its bones don't fit an order.
+std::optional<std::vector<std::string>> ReadSkeletonBones(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg,
+                                                          const std::string& unitPath, const std::string& role = "animation",
+                                                          std::string* err = nullptr);
 
 /// @brief The reflective-format GATE for one behavior binary: deserialize -> re-serialize (`canon`), EmitHkyReflective
 ///        into `workDir` -> ParseHkyReflective -> serialize with the same header, compared byte-for-byte to canon.

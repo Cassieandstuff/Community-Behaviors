@@ -3,8 +3,7 @@
 #include <codec/serialization/HavokFile.h>             // ReadHavokFile
 #include <codec/formid/FormId.h>                        // CB::engine::codec::formid::SELF_INDEX (index convention)
 #include <codec/resource/PathKey.h>                     // PathKey (path identity) / ClipSlotKey (LoadClips slot rule)
-#include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx / ReadSkeletonPhysics (skeleton import)
-#include <codec/format/SkeletonYaml.h>       // EmitSkeletonYamlTree — SkeletonData -> bonelist.yaml + bones/ unit
+#include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx (the rig bone tables, read from the binaries)
 #include <codec/serialization/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
 #include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
 #include <codec/format/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
@@ -2117,25 +2116,16 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         // Everything — behaviors, characters, projects, skeletons AND animations — bakes into the one bundle.
         const fs::path unit = stageHky / "meshes" / fs::path(rel);
 
-        // SKELETON: hkaSkeleton -> bonelist.yaml + bones/ unit (SkeletonImport -> EmitSkeletonYamlTree).
-        // The runtime builds each rig's bone table from these (Resolver m_skeletons); without one, every
-        // bone-named field in that actor's graphs fails to parse.
+        /// @note A skeleton is a reflective unit like any graph: the whole skeleton.hkx (animation and ragdoll skeletons,
+        ///       physics, mappers), its bones name-keyed and ordered by the boneorder shim for its path. The runtime
+        ///       builds each rig's bone table from it (ReadSkeletonBones); without one, every bone-named field in that
+        ///       actor's graphs fails to parse.
         if (s.kind == HkxKind::Skeleton) {
-            std::vector<std::uint8_t> sbytes; std::string srerr;
-            std::vector<CB::engine::skeleton::SkeletonData> sk; std::string skerr;
-            if (CB::engine::codec::ReadHavokFile(s.path.string(), sbytes, &srerr) &&
-                CB::engine::skeleton::LoadSkeletonsFromHkx(sbytes.data(), sbytes.size(), sk, &skerr) && !sk.empty()) {
-                // Attach per-bone ragdoll physics (mass/radius/capsule/joint) BEFORE emit. Without this the
-                // YAML tree is anim-only, CompileSkeletonFull derives 0 ragdoll bones, and BR's SERVED
-                // skeleton has no ragdoll skeleton (skels[1]) → hkbRagdollDriver can't bind → every humanoid
-                // bind-poses instead of ragdolling on death.
-                std::string perr;
-                if (!CB::engine::skeleton::ReadSkeletonPhysics(sbytes.data(), sbytes.size(), sk[0], &perr))
-                    say("  note: skeleton physics read failed for " + rel + " (" + perr + ") — anim-only (no ragdoll derive).");
-                std::string eerr;
-                if (CB::engine::skeleton::EmitSkeletonYamlTree(sk[0], unit, &eerr)) ++nSkeletons;
-                else { ++nFailed; say("  skeleton emit FAILED: " + rel + " — " + eerr); }
-            } else { ++nFailed; say("  skeleton read/parse FAILED: " + rel + " — " + (srerr.empty() ? skerr : srerr)); }
+            std::vector<std::uint8_t> sbytes; std::string serr;
+            if (CB::engine::codec::ReadHavokFile(s.path.string(), sbytes, &serr) &&
+                CB::engine::decompile::DecompileBehaviorReflective(sbytes, *sreg, unit.string(), serr, nullptr, "meshes/" + rel))
+                ++nSkeletons;
+            else { ++nFailed; say("  skeleton emit FAILED: " + rel + " — " + serr); }
             return;
         }
 
@@ -3225,7 +3215,7 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     fs::remove_all(driftKeep, ec);
     for (const auto& u : arc->units()) {
         if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
-        if (u.kind == CB::engine::codec::HkyArchive::UnitKind::Skeleton || u.prefix.rfind("meshes/", 0) != 0) continue;
+        if (u.prefix.rfind("meshes/", 0) != 0) continue;
         const fs::path src = fs::path(vanillaMeshesDir) / u.prefix.substr(7);
         std::vector<std::uint8_t> srcBytes, canon, got;
         std::string e;

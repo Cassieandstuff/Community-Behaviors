@@ -6,21 +6,18 @@
 #include <string>
 #include <vector>
 
-// SkeletonData — the plain, engine-free skeleton model: names, parent indices,
-// bind-pose transforms, and the AUTHORED ragdoll-physics knobs. It is the neutral
-// currency between the schema-native skeleton READER (SkeletonImport) and WRITER
-// (SkeletonCompiler), and the surface a tool authors against (via the CB-API facade).
-//
-// Deliberately NOT hkaSkeleton / hkp* — consumers get plain data; the Havok class
-// model stays an implementation detail of the codec.
+/// @file
+/// @brief SkeletonData — the plain, engine-free skeleton model a tool READS (SkeletonImport: LoadSkeletonsFromHkx,
+///        ReadSkeletonPhysics, ReadSkeletonUnit; the CB-API facade): names, parent indices, bind-pose transforms and a
+///        per-bone summary of the ragdoll physics.
+/// @note Read-only: CB serves a skeleton from its reflective unit, never rebuilt from this model. Deliberately NOT
+///       hkaSkeleton / hkp* — consumers get plain data; the Havok class model stays an implementation detail.
 
 namespace CB::engine::skeleton {
 using namespace CB::engine::common;
 
-// Per-bone ragdoll PHYSICS — the minimal AUTHORED surface. Everything else (body transform, inertia,
-// constraint frames, capsule endpoints, mappers, resource tree, collision filter) is DERIVED at compile
-// from bone↔bone / bone↔body relationships (see sop/behavior-relay-skeleton-format.md). Present ⇒ this
-// bone is a ragdoll body.
+/// @brief A ragdoll bone's physics, summarized from the skeleton's bodies and constraints (ReadSkeletonPhysics).
+///        Present ⇒ this bone is a ragdoll body.
 struct BoneJoint {                     // the constraint to this bone's PARENT ragdoll bone (limits in DEGREES)
     enum class Type { Ragdoll, Hinge };
     Type  type = Type::Ragdoll;
@@ -32,16 +29,13 @@ struct BoneJoint {                     // the constraint to this bone's PARENT r
     float angMin = 0, angMax = 0;
     // Constraint frame axes (frameA col0 / col1, in the CHILD body-local frame): the joint's rotation
     // axes — authored rigger intent (hinge bend axis, shoulder twist), NOT derivable from bind-pose
-    // geometry (see framecheck). ABSENT ⇒ compiler derives a default (twist toward child, plane ⊥).
-    // frameB derives from frameA + the two bind poses regardless.
+    // geometry (see framecheck).
     std::optional<Vector4> twistAxis;   // frameA column 0
     std::optional<Vector4> planeAxis;   // frameA column 1
 };
-// The collision CAPSULE, endpoints in the bone's LOCAL frame. Genuinely non-derivable AUTHORED intent:
-// limb capsules are inset from the joint by hand-tuned amounts (so elbows/knees don't interpenetrate),
-// and torso capsules are width-oriented volumes unrelated to any bone→child vector. Optional — when
-// absent the compiler derives a default (bone-origin → child-origin), so a NEW/custom skeleton author
-// never writes it; it only appears when decompiling existing tuned content. `radius` stays on BonePhysics.
+/// @brief The collision CAPSULE, endpoints in the bone's LOCAL frame. Limb capsules are inset from the joint by
+///        hand-tuned amounts and torso capsules are width-oriented, so neither follows the bone→child vector.
+///        `radius` stays on BonePhysics.
 struct BoneCapsule {
     Vector4 a{};   // endpoint A (bone-local)
     Vector4 b{};   // endpoint B (bone-local)
@@ -49,23 +43,20 @@ struct BoneCapsule {
 struct BonePhysics {
     float                      mass   = 0.f;   // hand-tuned per bone
     float                      radius = 0.f;   // capsule thickness
-    std::optional<BoneCapsule> capsule;        // authored endpoints; absent ⇒ derive bone-origin → child
+    std::optional<BoneCapsule> capsule;        // the body's capsule endpoints, when it has a capsule
     std::optional<BoneJoint>   joint;          // absent on the ragdoll ROOT (e.g. COM — no parent constraint)
-    // Material friction/restitution are near-constant (0.3 / 0.8) compiler defaults — an authored
-    // OVERRIDE only where a body deviates (e.g. NPC Head friction 0.8 so heads don't slide). Absent ⇒ default.
+    // Material friction/restitution: near-constant (0.3 / 0.8) in vanilla, set only where a body deviates
+    // (e.g. NPC Head friction 0.8 so heads don't slide). Absent ⇒ the near-constant value.
     std::optional<float>       friction;
     std::optional<float>       restitution;
     // The ragdoll bind pose: this bone's LOCAL reference pose in the RAGDOLL skeleton (relative to its
     // ragdoll parent). The vanilla ragdoll is a separately hand-tuned skeleton (shorter limbs, COM at the
-    // mass-center) — measurably different from the anim pose, and the NIF's bhk bodies sit at THIS pose, so
-    // it's functionally required (mappers/bodies/constraints all live in this frame). Absent ⇒ derive from
-    // anim (a new custom ragdoll at anim proportions — functional, self-consistent).
+    // mass-center), measurably different from the anim pose; the bodies, mappers and constraints live in it.
     std::optional<QSTransform> ragdollLocal;
 };
 
-// The CharacterBumper — a single FIXED collision body per skeleton (not a bone) that keeps the ragdoll
-// clear of the character controller. Persistent authored content, not derivable — represented at skeleton
-// scope. Everything else about it (motionType FIXED, mass 0, filter 0) is a compiler constant.
+/// @brief The CharacterBumper — a single FIXED collision body per skeleton (not a bone) that keeps the ragdoll
+///        clear of the character controller; represented at skeleton scope.
 struct SkeletonBumper {
     Vector4     pos{};             // body position (root-local)
     BoneCapsule capsule{};         // capsule endpoints (body-local)

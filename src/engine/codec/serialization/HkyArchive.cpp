@@ -145,8 +145,7 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
     if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
 
     /// @note EVERY "<prefix>.hkx/..." subtree is a unit (a mod's patch unit may hold only changed nodes / rosters and
-    ///       is still a real layer). m_files is sorted, so all files under one root are consecutive. A skeleton is
-    ///       its own format (bonelist.yaml + bones/, the skeleton compiler's), not a reflective graph.
+    ///       is still a real layer). m_files is sorted, so all files under one root are consecutive.
     try {
         std::string lastRoot;
         for (const auto& [k, _] : arc->m_files) {
@@ -156,9 +155,7 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
             if (root == lastRoot) continue;
             lastRoot = root;
             const auto g = arc->m_files.find(root + "/graph.yaml");
-            const UnitKind kind = arc->m_files.count(root + "/bonelist.yaml") ? UnitKind::Skeleton
-                                : g == arc->m_files.end()                    ? UnitKind::Behavior
-                                                                              : KindOfGraphYaml(arc->read(g->second));
+            const UnitKind kind = g == arc->m_files.end() ? UnitKind::Behavior : KindOfGraphYaml(arc->read(g->second));
             arc->m_units.push_back({ std::move(root), kind });
         }
     } catch (const std::exception& e) {

@@ -57,10 +57,6 @@ namespace CB::core::debug {
           "Install the conditional-setdata producer/matcher "
           "engine hooks. Unproven in a shipped build and inert until conditional replacements exist; "
           "off = no engine hooks installed." },
-        { "noskeletonserve", FlagKind::MarkerFile, "", "noskeletonserve.enable", false, false,
-          "Disable skeleton serve",
-          "Skip serving CB's compiled skeleton.hkx (skeleton opens fall through to vanilla) — a "
-          "diagnostic opt-out." },
         { "sequencer_disable", FlagKind::MarkerFile, "", "sequencer.disable", false, false,
           "Serial animation compile",
           "Compile native animations one at a time instead of across a worker pool — an escape hatch for "

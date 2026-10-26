@@ -166,16 +166,11 @@ namespace {
 
     /// @brief The humanoid rig's bone names from Skyrim.hky, so `boneref` fields parse by name (as hky-tool merge-check).
     std::vector<std::string> HumanoidBones(const Archive& skyrim) {
-        std::vector<std::string> bones;
-        if (const auto list = skyrim.file(PathKey("meshes/actors/character/character assets/skeleton.hkx/bonelist.yaml")))
-            for (std::size_t at = 0; at < list->size();) {
-                const std::size_t end  = (std::min)(list->find('\n', at), list->size());
-                const std::string line = list->substr(at, end - at);
-                const auto a = line.find('"'), b = line.rfind('"');
-                if (line.find("- ") != std::string::npos && a != std::string::npos && b > a) bones.push_back(line.substr(a + 1, b - a - 1));
-                at = end + 1;
-            }
-        return bones;
+        const std::string humanoid = "meshes/actors/character/character assets/skeleton.hkx";
+        const auto*       reg      = CB::engine::schema::SharedRegistry();
+        const auto        src      = reg ? skyrim.source(humanoid) : nullptr;
+        if (!src) return {};
+        return CB::engine::decompile::ReadSkeletonBones(*src, *reg, humanoid).value_or(std::vector<std::string>{});
     }
 
     /// @brief A merged graph rendered as cards. Object numbering, back references and orphan detection are all

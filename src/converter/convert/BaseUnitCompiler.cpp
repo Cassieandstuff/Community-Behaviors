@@ -1,6 +1,5 @@
 #include "BaseUnitCompiler.h"
 
-#include <codec/format/SkeletonYaml.h>
 #include <codec/resource/PathKey.h>
 #include <codec/serialization/HkyArchive.h>
 #include <decompile/BehaviorDecompile.h>
@@ -51,22 +50,10 @@ const std::vector<std::string>& BaseUnitCompiler::BonesFor(const std::string& se
     if (const auto it = m_boneCache.find(rig); it != m_boneCache.end()) return it->second;
     std::vector<std::string>& names = m_boneCache[rig];   // empty = negative cache
 
-    /// @note filesUnder (normalized, for read) and filesUnderOrig (original case, for the bone NAME) walk the
-    ///       same range, so index i aligns — bone names keep their exact case.
-    const std::string bl = m_base->file(rig + "/bonelist.yaml").value_or("");
-    const auto norm = m_base->filesUnder(rig + "/bones/");
-    const auto orig = m_base->filesUnderOrig(rig + "/bones/");
-    std::vector<std::pair<std::string, std::string>> boneFiles;
-    for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i) {
-        if (norm[i].size() < 5 || norm[i].compare(norm[i].size() - 5, 5, ".yaml") != 0) continue;
-        if (auto t = m_base->file(norm[i]))
-            boneFiles.emplace_back(std::filesystem::path(orig[i]).stem().string(), *t);
-    }
-    if (bl.empty() && boneFiles.empty()) return names;
-    CB::engine::skeleton::SkeletonData sk;
-    std::string err;
-    if (!CB::engine::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, sk, &err)) return names;
-    for (const auto& b : sk.bones) names.push_back(b.name);
+    auto* reg = CB::engine::schema::SharedRegistry();
+    const auto src = reg ? m_base->source(rig) : nullptr;
+    if (!src) return names;
+    if (auto bones = CB::engine::decompile::ReadSkeletonBones(*src, *reg, rig)) names = std::move(*bones);
     return names;
 }
 
@@ -76,7 +63,7 @@ bool BaseUnitCompiler::Parse(const std::string& prefix, CB::engine::decompile::P
     const auto src = m_base->source(prefix);
     if (!src) { err = "no base unit " + prefix; return false; }
     const auto& bones = BonesFor(prefix);
-    return CB::engine::decompile::ParseHkyReflective(*src, *reg, out, err, bones.empty() ? nullptr : &bones);
+    return CB::engine::decompile::ParseHkyReflective(*src, *reg, out, err, bones.empty() ? nullptr : &bones, prefix);
 }
 
 bool BaseUnitCompiler::Compile(const std::string& prefix, std::vector<std::uint8_t>& out, std::string& err) {

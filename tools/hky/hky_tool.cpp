@@ -1062,14 +1062,10 @@ int doMergeCheck(const std::string& basePath, const std::string& bundlePath, con
     if (!bundle) { std::printf("FAIL: bundle: %s\n", err.c_str()); return 1; }
 
     std::vector<std::string> bones;
-    if (const auto list = base->file(PathKey("meshes/actors/character/character assets/skeleton.hkx/bonelist.yaml"))) {
-        for (std::size_t at = 0; at < list->size();) {
-            const std::size_t end  = (std::min)(list->find('\n', at), list->size());
-            const std::string line = list->substr(at, end - at);
-            const auto a = line.find('"'), b = line.rfind('"');
-            if (line.find("- ") != std::string::npos && a != std::string::npos && b > a) bones.push_back(line.substr(a + 1, b - a - 1));
-            at = end + 1;
-        }
+    {
+        const std::string humanoid = "meshes/actors/character/character assets/skeleton.hkx";
+        if (const auto src = base->source(humanoid))
+            if (auto names = CB::engine::decompile::ReadSkeletonBones(*src, *reg, humanoid)) bones = std::move(*names);
     }
     if (bones.empty()) { std::printf("FAIL: no humanoid skeleton bone list in the base\n"); return 1; }
 

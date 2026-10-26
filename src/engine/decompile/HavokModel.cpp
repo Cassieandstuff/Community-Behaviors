@@ -927,12 +927,16 @@ std::vector<std::string> boneNamesOf(const io::SchemaObject& skel) {
 
 /// @brief Whether a skeleton's three bone arrays line up and its bones can be keyed by name: one parent, one pose and a
 ///        unique, non-empty name per bone, every parent a bone of the skeleton or -1.
+/// @note Unique by path identity too: a bone's name is its file's name, and a packed .hky keys files case-folded, so two
+///       bones differing only in case would share one file there.
 bool keyableSkeleton(const io::SchemaObject& skel, const std::vector<std::string>& names) {
     const auto parents = skel.GetArray<std::int16_t>("parentIndices");
     if (parents.size() != names.size() || skel.Values()[*skel.IndexOf("referencePose")].raw.size() != names.size() * 48) return false;
     std::set<std::string> seen;
     for (std::size_t i = 0; i < names.size(); ++i)
-        if (names[i].empty() || !seen.insert(names[i]).second || parents[i] < -1 || parents[i] >= static_cast<int>(names.size())) return false;
+        if (names[i].empty() || !seen.insert(codec::resource::PathKey(names[i])).second || parents[i] < -1 ||
+            parents[i] >= static_cast<int>(names.size()))
+            return false;
     return true;
 }
 
@@ -1057,7 +1061,8 @@ bool EmitHkyReflective(const Identity& source, const schema::SchemaRegistry& reg
 namespace { std::string formIdOf(std::uint16_t idx, const std::string& decId); }
 
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
-                                 const std::string& outDir, std::string& err, const std::vector<std::string>* bones) {
+                                 const std::string& outDir, std::string& err, const std::vector<std::string>* bones,
+                                 const std::string& unitPath) {
     try {
         PackFileDeserializer des;
         des.ObjectFactory = io::MakeSchemaFactory(reg);
@@ -1065,7 +1070,7 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
         des.Deserialize(br);
         Identity id = AssignIdentity(des, reg);
         for (auto& [o, v] : id.ids) v = formIdOf(CB::engine::codec::formid::SELF_INDEX, v);
-        return EmitHkyReflective(id, reg, outDir, err, bones);
+        return EmitHkyReflective(id, reg, outDir, err, bones, unitPath);
     } catch (const std::exception& e) {
         err = std::string("DecompileBehaviorReflective: ") + e.what();
         return false;
@@ -2383,6 +2388,35 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
     }
 }
 
+/// @brief A role skeleton's bone order from the bones it has (`present`, its bone files): the boneorder shim's order for
+///        the unit and role, then `extra` (its skeleton.yaml `extraBones`: the bones the shim doesn't list, in order).
+/// @return nullopt with `err` set when `extra` names a bone without a file, one the shim already orders, or one twice,
+///         or a present bone has no place in the order.
+std::optional<std::vector<std::string>> skeletonBoneOrder(const schema::SchemaRegistry& reg, const std::string& unitPath,
+                                                          const std::string& role, const std::set<std::string>& present,
+                                                          const std::vector<std::string>& extra, std::string& err) {
+    const std::vector<std::string>* known = nullptr;
+    if (const skeleton::BoneOrderEntry* e = skeleton::FindBoneOrder(reg, unitPath))
+        if (const auto it = e->roles.find(role); it != e->roles.end()) known = &it->second;
+    std::vector<std::string> order;
+    if (known) for (const auto& b : *known) if (present.count(b)) order.push_back(b);
+    const std::set<std::string> listed = known ? std::set<std::string>(known->begin(), known->end()) : std::set<std::string>{};
+    std::set<std::string> placed;
+    for (const auto& b : extra) {
+        if (!present.count(b)) { err = role + "/skeleton.yaml: extraBones names '" + b + "', which has no bone file"; return std::nullopt; }
+        if (listed.count(b)) { err = role + "/skeleton.yaml: extraBones names '" + b + "', which the boneorder shim already orders"; return std::nullopt; }
+        if (!placed.insert(b).second) { err = role + "/skeleton.yaml: extraBones names '" + b + "' twice"; return std::nullopt; }
+        order.push_back(b);
+    }
+    if (order.size() != present.size())
+        for (const auto& b : present)
+            if (std::find(order.begin(), order.end(), b) == order.end()) {
+                err = role + "/bones/" + b + ".yaml: the bone has no place in the order (neither the boneorder shim nor extraBones lists it)";
+                return std::nullopt;
+            }
+    return order;
+}
+
 /// @brief Build a role skeleton's three bone arrays from its bone files: order = the boneorder shim's for the unit and
 ///        role, then `extraBones` (the bones it doesn't list, in their order); each bone's parent by name; a ragdoll's
 ///        `rigidBody` entries rebuilt into the instance's boneToRigidBodyMap.
@@ -2392,28 +2426,11 @@ bool buildSkeletonBones(io::SchemaObject& skel, const std::string& role, const s
                         const std::vector<std::string>& extra, const std::string& unitPath, HkyParse& ps) {
     std::map<std::string, const HkyDoc*> byName;
     for (const HkyDoc* d : files) byName[d->field] = d;
-    std::vector<std::string> present;
-    for (const auto& [name, d] : byName) present.push_back(name);
-    const std::vector<std::string>* known = nullptr;
-    if (const skeleton::BoneOrderEntry* e = skeleton::FindBoneOrder(ps.reg, unitPath))
-        if (const auto it = e->roles.find(role); it != e->roles.end()) known = &it->second;
-    std::vector<std::string> order;
-    if (known) for (const auto& b : *known) if (byName.count(b)) order.push_back(b);
-    const std::set<std::string> listed = known ? std::set<std::string>(known->begin(), known->end()) : std::set<std::string>{};
-    std::set<std::string> placed;
-    for (const auto& b : extra) {
-        if (!byName.count(b)) { ps.err = role + "/skeleton.yaml: extraBones names '" + b + "', which has no bone file"; return false; }
-        if (listed.count(b)) { ps.err = role + "/skeleton.yaml: extraBones names '" + b + "', which the boneorder shim already orders"; return false; }
-        if (!placed.insert(b).second) { ps.err = role + "/skeleton.yaml: extraBones names '" + b + "' twice"; return false; }
-        order.push_back(b);
-    }
-    if (order.size() != present.size()) {
-        for (const auto& b : present)
-            if (std::find(order.begin(), order.end(), b) == order.end()) {
-                ps.err = role + "/bones/" + b + ".yaml: the bone has no place in the order (neither the boneorder shim nor extraBones lists it)";
-                return false;
-            }
-    }
+    std::set<std::string> present;
+    for (const auto& [name, d] : byName) present.insert(name);
+    const auto ordered = skeletonBoneOrder(ps.reg, unitPath, role, present, extra, ps.err);
+    if (!ordered) return false;
+    const std::vector<std::string>& order = *ordered;
     std::map<std::string, std::int16_t> index;
     for (std::size_t k = 0; k < order.size(); ++k) index[order[k]] = static_cast<std::int16_t>(k);
     std::vector<std::int16_t>                     parents;
@@ -3295,6 +3312,28 @@ std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::I
         return r;
     }
     return std::nullopt;
+}
+
+std::optional<std::vector<std::string>> ReadSkeletonBones(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg,
+                                                          const std::string& unitPath, const std::string& role, std::string* err) {
+    std::set<std::string> present;
+    for (const std::string& rel : src.listYaml(role + "/bones", false)) {
+        const auto slash = rel.rfind('/');
+        present.insert(rel.substr(slash + 1, rel.size() - slash - 6));
+    }
+    if (present.empty()) return std::nullopt;
+    std::vector<std::string> extra;
+    if (auto text = src.read(role + "/skeleton.yaml")) {
+        std::string buf = std::move(*text);
+        const yml::Tree tree = yml::parse_in_place(c4::to_substr(buf));
+        const yml::ConstNodeRef root = tree.crootref();
+        if (root.is_map() && yhas(root, "extraBones"))
+            for (auto e : yget(root, "extraBones")) extra.push_back(ystr(e));
+    }
+    std::string e;
+    auto order = skeletonBoneOrder(reg, unitPath, role, present, extra, e);
+    if (!order && err) *err = e;
+    return order;
 }
 
 bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& layers, const schema::SchemaRegistry& reg,

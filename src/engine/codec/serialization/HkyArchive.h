@@ -67,8 +67,7 @@ public:
     static bool PackEntries(std::vector<PackEntry> entries, const std::string& outHkyPath, std::string& err);
 
     /// @brief A reflective unit's kind from its graph.yaml: the root's named variant class (hkbCharacterData,
-    ///        hkbProjectData, hkaAnimationContainer); anything else — or no graph.yaml — is a Behavior. (A skeleton
-    ///        unit is bonelist.yaml + bones/, not reflective: see units().)
+    ///        hkbProjectData, hkaAnimationContainer — a skeleton); anything else — or no graph.yaml — is a Behavior.
     /// @note  A mod's patch unit names its base's variant class too; pair with IsPatchGraphYaml.
     static UnitKind KindOfGraphYaml(std::string_view graphYaml);
     /// @brief True when graph.yaml is a PATCH's: its root `id:` is a FormID owned by a master (`0001x…`), not by the
