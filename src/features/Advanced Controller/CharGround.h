@@ -32,6 +32,11 @@ namespace CB::feature::controller {
     void PublishRiddenHorse(RE::Actor* horse);
     /// @brief Whether `ctrl` is the controller of the horse the player rides, as published within the last half second.
     bool IsRiddenHorse(const hk::bhkCharacterController* ctrl);
+    /// @brief Whether a ridden horse is published (within the last half second).
+    bool Riding();
+    /// @brief Whether `ctrl` is the controller the player controls: the ridden horse's while Riding(), else the player's.
+    /// @note The debug HUD shows this controller's step.
+    inline bool IsControlled(const hk::bhkCharacterController* ctrl) { return Riding() ? IsRiddenHorse(ctrl) : IsPlayer(ctrl); }
 
     /// @brief The controllers CB's decision layer runs: the player's and the ridden horse's, on the proxy.
     inline bool IsManaged(const hk::bhkCharacterController& ctrl) { return IsProxy(ctrl) && (IsPlayer(&ctrl) || IsRiddenHorse(&ctrl)); }
@@ -113,7 +118,9 @@ namespace CB::feature::controller {
         float                    groundNx = 0, groundNy = 0, groundNz = 1;   ///< average normal of every support hit (Support reads it)
         const hk::hkpCollidable* supportBody = nullptr;   ///< a support hit's body (a walkable one first)
         int                      supportHits = 0, walkableHits = 0;
-        std::array<FloorHit, 9>  hits{};   ///< axis, then the ring at the perch radius
+        std::array<FloorHit, 9>  hits{};       ///< axis, then the ring at the perch radius (a long body's fore end)
+        bool                     longBody = false;
+        std::array<FloorHit, 9>  hindHits{};   ///< a long body's hind end, as `hits`
     };
 
     /// @brief Ground that holds the character up: Grounded with support at or above kSupportedAt.
@@ -133,9 +140,9 @@ namespace CB::feature::controller {
     ///        steps the other end down); Airborne when neither is. Its hits are the fore end's.
     /// @pre Called where vanilla OnGround::Simulate calls PickObject: inside UpdatePhysics, outside the physics step.
     FloorVerdict QueryFloor(hk::bhkCharacterController& ctrl, const Hull& hull, const FloorTunables& t = {});
-    /// @brief Where the floor query casts ray `i` (0 = the axis, 1-8 = the ring at the perch radius), Havok units; a long
-    ///        body's fore end.
-    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y);
+    /// @brief Where the floor query casts ray `i` (0 = the axis, 1-8 = the ring at the perch radius), Havok units; for a
+    ///        long body, under its fore end, or its hind end with `hind`.
+    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y, bool hind = false);
     /// @brief QueryFloor as if the hull stood displaced by (dx, dy, dz) (a step's landing spot, a predicted sample).
     FloorVerdict QueryFloorAt(hk::bhkCharacterController& ctrl, const Hull& hull, float dx, float dy, float dz, const FloorTunables& t = {});
 

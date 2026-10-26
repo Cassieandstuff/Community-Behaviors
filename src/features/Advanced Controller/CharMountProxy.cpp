@@ -3,6 +3,9 @@
 #include <core/debug/Settings.h>
 #include <platform/startup/Startup.h>
 
+#include <algorithm>
+#include <vector>
+
 /// @note windows.h's GetObject macro (GetObjectW) would rename BGSDefaultObjectManager::GetObject.
 #undef GetObject
 
@@ -15,8 +18,9 @@
 ///        the flag is set at kDataLoaded, before any actor exists. Every horse is then built on the proxy, NPC horses too;
 ///        CB drives only the one the player rides, the rest run vanilla's proxy logic.
 /// @note  "Mountable" is the engine's own test (Actor::Revert 0x140688f30.., Actor kIsAMount): the default objects
-///        kKeywordHorse or kKeywordMount. Read here on the race only, so a mount whose keyword sits on its actor base
-///        alone stays on the rigid body. Flying races (dragons) are left out.
+///        kKeywordHorse or kKeywordMount, on the actor's race or its base. Vanilla's horses carry ActorTypeHorse on
+///        their bases only (32 of them in Skyrim.esm; HorseRace has none), so the races flagged are those of every actor
+///        base that carries one, plus every race that carries one itself. Flying races (dragons) are left out.
 
 namespace CB::feature::controller {
 
@@ -41,11 +45,20 @@ namespace CB::feature::controller {
                 return;
             }
             using Flag = RE::RACE_DATA::Flag;
+            const auto keyed = [&](RE::BGSKeywordForm* form) {
+                return form && ((horseKey && form->HasKeyword(horseKey)) || (mountKey && form->HasKeyword(mountKey)));
+            };
+            std::vector<RE::TESRace*> races;
+            const auto add = [&](RE::TESRace* race) {
+                if (race && std::find(races.begin(), races.end(), race) == races.end()) races.push_back(race);
+            };
+            for (auto* race : data->GetFormArray<RE::TESRace>())
+                if (keyed(race)) add(race);
+            for (auto* npc : data->GetFormArray<RE::TESNPC>())
+                if (npc && keyed(npc)) add(npc->GetRace());
             int flagged = 0, already = 0;
-            for (auto* race : data->GetFormArray<RE::TESRace>()) {
-                if (!race) continue;
-                const bool mountable = (horseKey && race->HasKeyword(horseKey)) || (mountKey && race->HasKeyword(mountKey));
-                if (!mountable || race->data.flags.any(Flag::kFlies)) continue;
+            for (auto* race : races) {
+                if (race->data.flags.any(Flag::kFlies)) continue;
                 if (race->data.flags.any(Flag::kAlwaysUseProxyController)) {
                     ++already;
                     continue;

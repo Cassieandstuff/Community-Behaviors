@@ -16,7 +16,8 @@
 #include <string>
 
 /// @file
-/// @brief The character debug HUD (char_debug_hud): the player's floor rays, velocity arrows, predicted trajectory
+/// @brief The character debug HUD (char_debug_hud): the controlled character's (IsControlled: the player, or the
+///        horse it rides) floor rays, velocity arrows, predicted trajectory
 ///        and a text panel, drawn with ProgressHud's ImGui over the finished frame.
 /// @note Publishers run on the physics thread and the draw on the render thread, so each part is copied under one
 ///       lock and stamped; a part older than kStale seconds is not drawn (a load, a menu, a feature switched off).
@@ -178,7 +179,9 @@ namespace CB::feature::controller::hud {
 
             if (haveCtrl) {
                 Ring(dl, proj, c.feet, c.radius, GroundColor(c.verdict, c.support));
-                for (const Ray& ray : c.rays) {
+                for (int e = 0; e < c.endCount; e++) Ring(dl, proj, c.ends[e], c.radius, GroundColor(c.verdict, c.support));
+                for (int i = 0; i < c.rayCount; i++) {
+                    const Ray&  ray   = c.rays[i];
                     const ImU32 color = !ray.hit ? kMiss : ray.walkable ? kWalkable : ray.wall ? kWall : kSteep;
                     const Point end   = ray.hit ? Point{ ray.top.x, ray.top.y, ray.hitZ } : ray.bottom;
                     Line(dl, proj, ray.top, end, color, 1.5f);

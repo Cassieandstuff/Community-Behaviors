@@ -117,6 +117,11 @@ namespace CB::feature::controller {
         return Now() - g_ridden.at.load(std::memory_order_acquire) <= kRiddenStale;
     }
 
+    bool Riding()
+    {
+        return g_ridden.ctrl.load(std::memory_order_relaxed) && Now() - g_ridden.at.load(std::memory_order_acquire) <= kRiddenStale;
+    }
+
     RE::NiPointer<RE::Actor> ManagedActor(const hk::bhkCharacterController& ctrl)
     {
         auto* player = RE::PlayerCharacter::GetSingleton();
@@ -231,6 +236,8 @@ namespace CB::feature::controller {
                 v.groundNx = hind.groundNx, v.groundNy = hind.groundNy, v.groundNz = hind.groundNz;
                 v.supportBody  = hind.supportBody;
             }
+            v.longBody  = true;
+            v.hindHits  = hind.hits;
             v.stickable = fore.stickable || hind.stickable;
             v.stickDz   = !fore.stickable ? hind.stickDz : !hind.stickable ? fore.stickDz : (std::max)(fore.stickDz, hind.stickDz);
             return v;
@@ -238,10 +245,10 @@ namespace CB::feature::controller {
 
     }  // namespace
 
-    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y)
+    void FloorRayXY(const Hull& hull, int i, const FloorTunables& t, float& x, float& y, bool hind)
     {
         float cx = hull.cx, cy = hull.cy;
-        if (hull.longBody) EndCentre(hull, 1.0f, cx, cy);
+        if (hull.longBody) EndCentre(hull, hind ? -1.0f : 1.0f, cx, cy);
         RingXY(cx, cy, hull.radius, i, t, x, y);
     }
 

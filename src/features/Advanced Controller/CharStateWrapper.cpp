@@ -561,16 +561,21 @@ namespace CB::feature {
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
             h.desired = { dx, dy, 0.0f };
-            for (int i = 0; i < static_cast<int>(h.rays.size()); i++) {
-                const ch::FloorHit& hit = fv.hits[i];
-                ch::hud::Ray&       r   = h.rays[i];
+            const int perEnd = static_cast<int>(fv.hits.size());
+            h.rayCount       = fv.longBody ? 2 * perEnd : perEnd;
+            for (int i = 0; i < h.rayCount; i++) {
+                const bool          hind = i >= perEnd;
+                const int           k    = hind ? i - perEnd : i;
+                const ch::FloorHit& hit  = hind ? fv.hindHits[k] : fv.hits[k];
+                ch::hud::Ray&       r    = h.rays[i];
                 float x, y;
-                ch::FloorRayXY(hull, i, tun, x, y);
+                ch::FloorRayXY(hull, k, tun, x, y, hind);
+                if (fv.longBody && k == 0) h.ends[h.endCount++] = { x, y, hull.feetZ };
                 r.top      = { x, y, hull.feetZ + hull.radius };
                 r.bottom   = { x, y, hull.feetZ - c.m_stepHeight };
                 r.hit      = hit.hit;
                 r.hitZ     = hull.feetZ + hit.dz;
-                r.walkable = hit.hit && hit.nz >= c.m_zNormal && hit.layer != ch::kCharControllerLayer;
+                r.walkable = hit.hit && hit.nz >= ch::WalkableZ(c) && hit.layer != ch::kCharControllerLayer;
                 r.wall     = hit.hit && (hit.nz < tun.wallNormalZ || hit.layer == ch::kCharControllerLayer);
             }
             ch::hud::Publish(h);
@@ -717,7 +722,7 @@ namespace CB::feature {
                 note.jumpSpeed = LaunchSpeed(c);
             }
             ch::PublishGroundNote(c, note);
-            if (ch::hud::On() && hull.valid && ch::IsPlayer(&c)) PublishHud(c, t, hull, fv);
+            if (ch::hud::On() && hull.valid && ch::IsControlled(&c)) PublishHud(c, t, hull, fv);
             t.lastState = static_cast<int>(c.m_context.m_currentState);
         }
 

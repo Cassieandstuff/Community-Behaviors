@@ -25,7 +25,7 @@
 
 /// @file
 /// @brief Step 8 of the character controller spec: the trajectory predictor (P1/P2), observe-only. Every simulated step
-///        of the player's proxy controller it predicts where the character will be 1/3, 2/3 and 1 s ahead (plus where it
+///        of the controlled character's proxy controller (ch::IsControlled: the player's, or the horse it rides) it predicts where the character will be 1/3, 2/3 and 1 s ahead (plus where it
 ///        was 1/3 s ago), and later scores each prediction against where the character actually went.
 /// @note Groundwork for motion matching: the trajectory is the query feature. Nothing here writes to the controller.
 
@@ -174,7 +174,8 @@ namespace CB::feature {
             int    n   = 0;
         };
 
-        /// @brief The predictor's whole state; the player is one controller, so one instance.
+        /// @brief The predictor's whole state; it predicts one controller at a time (the controlled one), so one instance.
+        /// @note  Switching controllers (mounting, dismounting) restarts it (Reset).
         struct State {
             const void*                    ctrl = nullptr;
             double                         clock = 0;
@@ -679,8 +680,13 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
         {
             next(self);
-            if (!self || !ch::IsPlayer(self) || !ch::IsManaged(*self)) return;
+            if (!self || !ch::IsManaged(*self) || !ch::IsControlled(self)) return;
             hk::bhkCharacterController& ctrl = *self;
+            const RE::NiPointer<RE::Actor> actor = ch::ManagedActor(ctrl);
+            if (!actor) return;
+            /// @note Motion matching and the frame speed are the player's: the ridden horse's prediction feeds the HUD and
+            ///       the scoring only.
+            const bool isPlayer = ch::IsPlayer(self);
             const float dt = ctrl.m_stepInfo.m_deltaTime;
             const ch::Hull hull = ch::GetHull(ctrl);
             Vec2 tangent, sideAxis;
@@ -714,9 +720,9 @@ namespace CB::feature {
             Drive drive;
             drive.desired = desired;
             ch::FrameSpeed     fs;
-            const bool         haveSpeed = ch::CurrentSpeed(fs);
+            const bool         haveSpeed = isPlayer && ch::CurrentSpeed(fs);
             ch::move::Snapshot snap;
-            if (ch::move::Current(snap)) {
+            if (ch::move::Current(actor->GetFormID(), snap)) {
                 drive.model   = true;
                 drive.state   = snap.state;
                 drive.input   = snap.input;
@@ -736,9 +742,9 @@ namespace CB::feature {
             }
 
             std::int32_t iState = 0;
-            if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+            {
                 static const RE::BSFixedString kIState("iState");
-                player->GetGraphVariableInt(kIState, iState);
+                actor->GetGraphVariableInt(kIState, iState);
             }
 
             const float speed      = std::sqrt(v(0) * v(0) + v(1) * v(1));
@@ -754,7 +760,7 @@ namespace CB::feature {
             ///       prediction is then, so turns compare as well as distances.
             static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());
             std::array<float, kFutureSamples> queryTimes{};
-            if (ch::motion::On()) {
+            if (isPlayer && ch::motion::On()) {
                 const float rate = ch::motion::Rate(haveSpeed ? &fs : nullptr);
                 for (int k = 0; k < kFutureSamples; k++) queryTimes[k] = static_cast<float>(CB::engine::anim::features::kHorizons[k]) / rate;
             }
@@ -762,7 +768,7 @@ namespace CB::feature {
             const bool blocked  = tr.blockedAt >= 0.0f;
             /// @note GASP's TrajectoryCollision.TimeToLand from the path: its first grounded point's time. The horizon is
             ///       1 s, so a longer fall reads kNoLanding (GASP's "long fall" rows ask for 1.2 s or more).
-            if (ch::motion::On()) {
+            if (isPlayer && ch::motion::On()) {
                 float land = ch::motion::kNoLanding;
                 for (int i = 0; i < kPathPoints; i++)
                     if (path.ground[i] == ch::Ground::Grounded) {
@@ -777,7 +783,7 @@ namespace CB::feature {
             const auto allValid = [](const std::array<Sample, kFutureSamples>& a) {
                 return std::all_of(a.begin(), a.end(), [](const Sample& p) { return p.valid; });
             };
-            if (ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
+            if (isPlayer && ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
                 ch::motion::Query q;
                 for (int k = 0; k < kFutureSamples; k++) {
                     q.x[k]        = tr.query[k].side * kGameUnitsPerHavok;
@@ -794,7 +800,7 @@ namespace CB::feature {
                 if (haveSpeed) q.gait = fs.gait;
                 ch::motion::Search(q);
             }
-            if (ch::hud::On()) {
+            if (ch::hud::On() && ch::IsControlled(self)) {
                 ch::hud::Prediction h;
                 for (int k = 0; k < kFutureSamples && k < ch::hud::Prediction::kSamples; k++) {
                     h.at[k]     = { world[k].x, world[k].y, hull.feetZ + tr.future[k].up };

@@ -454,7 +454,7 @@ namespace CB::feature::controller {
                 g_published.speed = FrameSpeed{ full, speed, sl.scale, in.gait };
                 g_published.at    = Now();
             }
-            if (hud::On()) {
+            if (hud::On() && !Riding()) {
                 hud::Movement h;
                 h.strafe    = in.mode == move::Mode::Strafe;
                 h.speed     = speed;
@@ -623,6 +623,16 @@ namespace CB::feature::controller {
             out->angles[2]    = 0.0f;
             Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
             move::Publish(horse->GetFormID(), move::Snapshot{ s, in, caps, cf.profile, pos.x, pos.y });
+            if (hud::On()) {
+                hud::Movement h;
+                h.speed     = speed;
+                h.full      = caps.forward;
+                h.cap       = move::MaxSpeed(caps, in.mode, speed > 1.0f ? std::atan2(s.vx, s.vy) : s.yaw, s.yaw);
+                h.yaw       = s.yaw;
+                h.haveStick = haveStick;
+                h.stickYaw  = stickHeading;
+                hud::Publish(h);
+            }
 
             /// @note Diagnostic: twice a second while moving or asked to move.
             static std::atomic<double> lastDiag{ -1.0e9 };
