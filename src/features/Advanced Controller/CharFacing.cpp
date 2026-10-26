@@ -3,6 +3,7 @@
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharGround.h"
+#include "CharComponents.h"
 #include "CharMovementModel.h"
 
 #include <features/Camera/Camera.h>
@@ -414,7 +415,12 @@ namespace CB::feature::controller {
             DirectionRatios(player, in.gait, caps);
             LogSpeeds(player, in.gait, full);
 
-            move::Step(s, in, caps, move::kPlayer, pos.x, pos.y, deltaTime);
+            /// @note The components pushed on the player (swimming) reshape the profile, caps and input before the step.
+            component::Frame cf{ component::Character::Player, move::kPlayer, caps, in };
+            component::Apply(*player, cf);
+            in   = cf.input;
+            caps = cf.caps;
+            move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;
@@ -422,7 +428,7 @@ namespace CB::feature::controller {
             Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
             es = EngineSpeed{ true, full, speed, engineDir, out->angles[2] };
 
-            move::Publish(player->GetFormID(), move::Snapshot{ s, in, caps, move::kPlayer, pos.x, pos.y });
+            move::Publish(player->GetFormID(), move::Snapshot{ s, in, caps, cf.profile, pos.x, pos.y });
             /// @note Diagnostic: twice a second while moving or asked to move, the model's inputs and output (a stick held
             ///       at no speed is a stall).
             static auto lastDiag = std::chrono::steady_clock::now();
@@ -605,13 +611,18 @@ namespace CB::feature::controller {
             caps.forward = RungSpeed(horse.get(), rung);
 
             const RE::NiPoint3 pos = horse->GetPosition();
-            move::Step(s, in, caps, kHorse.model, pos.x, pos.y, deltaTime);
+            /// @note The components pushed on the horse (swimming) reshape its profile, caps and input before the step.
+            component::Frame cf{ component::Character::Horse, kHorse.model, caps, in };
+            component::Apply(*horse, cf);
+            in   = cf.input;
+            caps = cf.caps;
+            move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;
             out->angles[2]    = 0.0f;
             Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
-            move::Publish(horse->GetFormID(), move::Snapshot{ s, in, caps, kHorse.model, pos.x, pos.y });
+            move::Publish(horse->GetFormID(), move::Snapshot{ s, in, caps, cf.profile, pos.x, pos.y });
 
             /// @note Diagnostic: twice a second while moving or asked to move.
             static std::atomic<double> lastDiag{ -1.0e9 };

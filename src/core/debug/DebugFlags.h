@@ -171,6 +171,12 @@ namespace CB::core::debug {
           "holds walk, a half push trot. With bHorseProxyController on too, the horse jumps the moment you press (the "
           "jump clip's own later launch is dropped). Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
           "while CB's camera does not drive the view (so needs bCamera with its mounted view). AE only. Unproven in game." },
+        { "char_swim_component", FlagKind::IniBool, "Character", "bSwimComponent", false, false,
+          "Swim component",
+          "While the player or the ridden horse swims (vanilla's swimming state), the movement model eases for water: "
+          "half the acceleration and braking, 60% of the friction, a 1.5x slower body turn, and no grip limit or dig-in "
+          "turns. The player may dive, the horse swims at the surface (as in vanilla, which still moves both vertically). "
+          "Needs bMovementModel or bHorseMovementModel. Unproven in game." },
         { "horse_proxy_controller", FlagKind::IniBool, "Character", "bHorseProxyController", false, false,
           "Horses on the proxy controller",
           "Every mountable race (the horse or mount keyword, flying races excepted) is built on the player's kind of "
