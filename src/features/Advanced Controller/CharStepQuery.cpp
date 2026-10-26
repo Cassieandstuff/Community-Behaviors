@@ -107,7 +107,7 @@ namespace CB::feature {
 
             const hk::hkVector4& at = hull.collidable->getTransform().getTranslation();
             const ch::SweepHit   obstacle =
-                ch::Sweep(hull.world, hull.collidable, Offset(at, ux * remainder, uy * remainder, 0.0f), 0.0f, ctrl.m_zNormal, kCharacters);
+                ch::Sweep(hull.world, hull.collidable, Offset(at, ux * remainder, uy * remainder, 0.0f), 0.0f, ch::WalkableZ(ctrl), kCharacters);
             if (!obstacle.hit) return;
 
             Attempt a;

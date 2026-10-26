@@ -717,7 +717,7 @@ namespace CB::feature {
                 note.jumpSpeed = LaunchSpeed(c);
             }
             ch::PublishGroundNote(c, note);
-            if (ch::hud::On() && hull.valid) PublishHud(c, t, hull, fv);
+            if (ch::hud::On() && hull.valid && ch::IsPlayer(&c)) PublishHud(c, t, hull, fv);
             t.lastState = static_cast<int>(c.m_context.m_currentState);
         }
 
@@ -733,11 +733,12 @@ namespace CB::feature {
             if (!controller->GetHavokWorld()) return false;
             /// @note While the graph moves the player, vanilla's OnGround takes the velocity the graph's motion asks for as
             ///       the step's; the Grounded spring (kGroundHalflife) would lag it.
-            const char* flag = ch::GraphMovesActor(RE::PlayerCharacter::GetSingleton());
+            const auto  actor = ch::ManagedActor(*controller);
+            const char* flag  = actor ? ch::GraphMovesActor(actor.get()) : "";
             static std::atomic<const char*> lastFlag{ "" };
             if (std::strcmp(lastFlag.exchange(flag, std::memory_order_relaxed), flag) != 0 && LogBudget())
-                LOG_INFO("ground states: {}", *flag ? std::format("the graph moves the player ({}) - vanilla's states run", flag)
-                                                    : std::string("the graph hands the player back"));
+                LOG_INFO("ground states: {}", *flag ? std::format("the graph moves the {} ({}) - vanilla's states run", ch::IsPlayer(controller) ? "player" : "ridden horse", flag)
+                                                    : std::format("the graph hands the {} back", ch::IsPlayer(controller) ? "player" : "ridden horse"));
             return *flag == 0;
         }
 
@@ -752,8 +753,9 @@ namespace CB::feature {
                 if (previous != Id) LOG_INFO("state wrapper: player state {} -> {}", previous, Id);
             }
             if (CbRuns(controller)) return CbSimulate(Id, *controller);
-            if (ch::IsPlayer(controller)) {
-                /// @note The player left CB's states for a step (chase/ragdoll); the next CB step resyncs.
+            if (ch::IsPlayer(controller) || ch::IsRiddenHorse(controller)) {
+                /// @note The player (or the ridden horse) left CB's states for a step (chase/ragdoll, the graph moving it);
+                ///       the next CB step resyncs.
                 std::scoped_lock lock(g_trackLock);
                 auto it = g_tracks.find(static_cast<const void*>(controller));
                 if (it != g_tracks.end()) it->second.init = false;

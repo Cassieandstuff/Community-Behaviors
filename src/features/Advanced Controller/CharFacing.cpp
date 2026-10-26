@@ -567,6 +567,8 @@ namespace CB::feature::controller {
             if (!out) return;
             const RE::NiPointer<RE::Actor> horse = RiddenHorseOf(controller);
             if (!horse) return;
+            /// @note Every ridden frame, vanilla-steered ones too: the ground layer manages the horse whenever it is ridden.
+            PublishRiddenHorse(horse.get());
 
             Driven&      d         = g_driven.Of(horse->GetFormID());
             auto*        controls  = RE::PlayerControls::GetSingleton();

@@ -679,7 +679,7 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
         {
             next(self);
-            if (!self || !ch::IsManaged(*self)) return;
+            if (!self || !ch::IsPlayer(self) || !ch::IsManaged(*self)) return;
             hk::bhkCharacterController& ctrl = *self;
             const float dt = ctrl.m_stepInfo.m_deltaTime;
             const ch::Hull hull = ch::GetHull(ctrl);

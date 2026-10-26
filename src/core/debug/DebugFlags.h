@@ -173,9 +173,11 @@ namespace CB::core::debug {
         { "horse_proxy_controller", FlagKind::IniBool, "Character", "bHorseProxyController", false, false,
           "Horses on the proxy controller",
           "Every mountable race (the horse or mount keyword, flying races excepted) is built on the player's kind of "
-          "character controller, the proxy, instead of the rigid body, so CB's ground rules can later run for the horse "
-          "you ride. Applies to every horse, NPC horses too (they run vanilla's proxy logic). Read once as the game "
-          "starts: changing it needs a restart. Unproven in game." },
+          "character controller, the proxy, instead of the rigid body. Applies to every horse, NPC horses too (they run "
+          "vanilla's proxy logic). With bHorseMovementModel on as well, the horse you ride runs CB's ground layer under "
+          "the player's flags (bStateWrapper, bGroundStates, bPlanes, bStepQuery): its footing is checked under its front "
+          "and hind hooves (grounded when both stand; one end on ground holds it), and it walks up to 55 deg (the "
+          "player 47). Read once as the game starts: changing it needs a restart. Unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
