@@ -78,6 +78,7 @@ std::string CategoryForClass(const std::string& className) {
         {"hkbTransformVectorModifier", "modifiers"}, {"BSDecomposeVectorModifier", "modifiers"},
         {"BSLimbIKModifier", "modifiers"}, {"BSTweenerModifier", "modifiers"},
         {"BSPassByTargetTriggerModifier", "modifiers"}, {"BSTimerModifier", "modifiers"},
+        {"CBDamageModifier", "modifiers"},
     };
     auto it = kMap.find(className);
     return it == kMap.end() ? std::string{} : it->second;
