@@ -3,6 +3,7 @@
 #include "CharDebugHud.h"
 #include "CharFacing.h"
 #include "CharGround.h"
+#include "CharComponents.h"
 #include "CharMovementModel.h"
 
 #include <features/Camera/Camera.h>
@@ -18,12 +19,13 @@
 #include <limits>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 /// @file
-/// @brief The player's frame driver (char_movement_model): each frame the engine computes its frame from forward-only
-///        input, so its speed is the gait's forward speed with every multiplier; CB then steps the movement model
-///        (CharMovementModel) with the stick, that speed as the cap, the slope and MOVT's direction ratios, and hands
-///        the engine the model's velocity and facing.
+/// @brief The frame drivers. The player's (char_movement_model): each frame the engine computes its frame from
+///        forward-only input, so its speed is the gait's forward speed with every multiplier; CB then steps the movement
+///        model (CharMovementModel) with the stick, that speed as the cap, the slope and MOVT's direction ratios, and
+///        hands the engine the model's velocity and facing. The ridden horse's (horse_movement_model, OnHorseFrame).
 /// @note It holds the player only while CB's camera drives the third-person camera (camera::ControlYaw): the stick is
 ///       relative to the camera's yaw. Otherwise the frame stays the engine's.
 /// @note The facing goes through the frame's turn rate, which Actor_ApplyFrameMovement applies to the heading before it
@@ -51,9 +53,6 @@ namespace CB::feature::controller {
             return mc && static_cast<void*>(mc.get()) == controller ? player : nullptr;
         }
 
-        bool        g_init = false;
-        move::State g_state;
-
         /// @brief The raw stick this frame (PlayerControls moveInputVec before CB rewrites it), for StickHeading.
         /// @note Published, not re-read: the rewrite stands while the engine computes the frame, and readers on other
         ///       threads (the graph's predictor) must never see it as the stick.
@@ -69,7 +68,6 @@ namespace CB::feature::controller {
             float scale = 1.0f;
             float rate  = 0.0f;
         };
-        Slope g_slope;
 
         /// @brief The engine's own frame speed and direction (angles[2]) last frame (before CB's model) and what CB
         ///        handed on.
@@ -80,7 +78,29 @@ namespace CB::feature::controller {
             float engineDir  = 0.0f;
             float writtenDir = 0.0f;
         };
-        EngineSpeed       g_engineSpeed;
+
+        /// @brief One driven actor's frame state, carried from frame to frame.
+        struct Driven {
+            bool        init = false;   ///< the model has stepped since it last restarted from the engine's frame
+            move::State state;
+            Slope       slope;
+            EngineSpeed engineSpeed;
+        };
+        /// @brief Every driven actor's state, by FormID (the player today; a ridden horse next).
+        /// @note  Each actor's frame runs on one movement job at a time, so only that actor's frame touches its entry: the
+        ///        lock guards the table, not the entries. Map nodes are stable, so an entry's reference outlives later
+        ///        inserts. Never pruned: a handful of actors.
+        struct DrivenTable {
+            std::mutex                              lock;
+            std::unordered_map<RE::FormID, Driven> byActor;
+
+            Driven& Of(RE::FormID actor)
+            {
+                std::scoped_lock guard(lock);
+                return byActor[actor];
+            }
+        };
+        DrivenTable       g_driven;
         std::atomic<int>  g_restoreLogs{ 0 }, g_keepLogs{ 0 };
         std::atomic<bool> g_loggedTargetSpeed{ false };
 
@@ -197,7 +217,7 @@ namespace CB::feature::controller {
                      "GASP's sprint ramps: acceleration over {:.0f}->{:.0f}, friction over 0->{:.0f}",
                      kNames[static_cast<int>(gait) & 3], full, high->currentMovementType.typeName.c_str(), sp[Dir::kForward][0], sp[Dir::kLeft][0],
                      sp[Dir::kRight][0], sp[Dir::kBack][0], sp[Dir::kForward][1], sp[Dir::kLeft][1], sp[Dir::kRight][1], sp[Dir::kBack][1],
-                     move::kSprintAccelFrom, move::kSprintAccelTo, move::kSprintFrictionTo);
+                     move::kPlayer.sprintAccelFrom, move::kPlayer.sprintAccelTo, move::kPlayer.sprintFrictionTo);
         }
 
         float CapNow(const move::Caps& caps, const move::Input& in, const move::State& s)
@@ -242,6 +262,7 @@ namespace CB::feature::controller {
             auto*      controls = player ? RE::PlayerControls::GetSingleton() : nullptr;
             auto*      process  = player ? player->GetActorRuntimeData().currentProcess : nullptr;
             auto*      mh       = process ? process->middleHigh : nullptr;
+            Driven*    driven   = player ? &g_driven.Of(player->GetFormID()) : nullptr;
 
             /// @note The engine's own speed state is MiddleHighProcessData::currentMovementSpeed (+0x2a8): the frame
             ///       movement starts from it, PlayerControls (0x14079d630) reads it as the current speed and writes the
@@ -251,8 +272,8 @@ namespace CB::feature::controller {
             ///       engine computes, the state is put back to the engine's own last value, unless the engine wrote a new
             ///       one since (the stick moved).
             /// @invariant The engine never sees CB's speed as its own.
-            EngineSpeed& es = g_engineSpeed;
-            if (mh && es.have) {
+            if (driven && mh && driven->engineSpeed.have) {
+                const EngineSpeed& es = driven->engineSpeed;
                 const float seen = mh->currentMovementSpeed;
                 if (std::fabs(seen - es.written) <= 1.0e-3f * (std::max)(1.0f, std::fabs(es.written))) {
                     if (es.written != es.engine && g_restoreLogs.fetch_add(1, std::memory_order_relaxed) < 5)
@@ -291,7 +312,7 @@ namespace CB::feature::controller {
             static Steer lastSteer = Steer::Player;
             if (player && steer != lastSteer) {
                 if (lastSteer == Steer::Player && mh) mh->currentMovementSpeed = 0.0f;
-                if (steer != Steer::Player) g_engineSpeed = EngineSpeed{};
+                if (steer != Steer::Player) driven->engineSpeed = EngineSpeed{};
                 if (DiagBudget())
                     LOG_INFO("movement: {} steers the player", steer == Steer::Player ? "the player" : steer == Steer::Dialogue ? "dialogue" : "vanilla");
                 lastSteer = steer;
@@ -303,6 +324,8 @@ namespace CB::feature::controller {
             next(controller, deltaTime, out);
             if (driving) controls->data.moveInputVec = raw;
             if (!player) return;
+            Driven&      d  = *driven;
+            EngineSpeed& es = d.engineSpeed;
 
             const float heading   = player->GetHeading(false);
             const float full      = out->speed;
@@ -314,17 +337,17 @@ namespace CB::feature::controller {
             if (graphFlag != lastFlag) {
                 if (DiagBudget())
                     LOG_INFO("movement: graph {} the speed ({}) - model {:.0f}, engine frame {:.0f}", *graphFlag ? "takes" : "returns",
-                             *graphFlag ? graphFlag : lastFlag, std::hypot(g_state.vx, g_state.vy), out->speed);
+                             *graphFlag ? graphFlag : lastFlag, std::hypot(d.state.vx, d.state.vy), out->speed);
                 lastFlag = graphFlag;
             }
-            move::State& s = g_state;
+            move::State& s = d.state;
             const bool   vanilla = steer == Steer::Vanilla;
-            if (!hold || !g_init || graphDrives || vanilla || deltaTime <= 0.0f) {
+            if (!hold || !d.init || graphDrives || vanilla || deltaTime <= 0.0f) {
                 /// @note Off, first frame, the graph moving the actor, or vanilla steering: the model restarts from the
                 ///       engine's own frame.
                 const float dir = heading + out->angles[2];
                 s       = move::State{ out->speed * std::sin(dir), out->speed * std::cos(dir), heading, 0.0f };
-                g_init  = hold && !vanilla;
+                d.init  = hold && !vanilla;
                 es      = EngineSpeed{};
                 if (!hold || graphDrives || vanilla) return;
             }
@@ -339,7 +362,7 @@ namespace CB::feature::controller {
                     const float        dx   = speakerAt.x - at.x, dy = speakerAt.y - at.y;
                     if (dx * dx + dy * dy > 1.0f) {
                         const float goal = s.yaw + WrapPi(std::atan2(dx, dy) - s.yaw);
-                        SpringDamperExact(s.yaw, s.yawRate, goal, move::kFacingHalflife, deltaTime);
+                        SpringDamperExact(s.yaw, s.yawRate, goal, move::kPlayer.facingHalflife, deltaTime);
                     }
                 }
                 out->speed     = 0.0f;
@@ -383,7 +406,7 @@ namespace CB::feature::controller {
                 const float dir = speed0 > 1.0f ? std::atan2(s.vx, s.vy) : (haveStick ? stickHeading : heading);
                 slopeGoal       = SlopeSpeedScale(ground, std::sin(dir), std::cos(dir));
             }
-            Slope& sl = g_slope;
+            Slope& sl = d.slope;
             if (!sl.init) sl = Slope{ true, slopeGoal, 0.0f };
             else SpringDamperExact(sl.scale, sl.rate, slopeGoal, kSlopeSpeedHalflife, deltaTime);
 
@@ -392,15 +415,20 @@ namespace CB::feature::controller {
             DirectionRatios(player, in.gait, caps);
             LogSpeeds(player, in.gait, full);
 
-            move::Step(s, in, caps, pos.x, pos.y, deltaTime);
+            /// @note The components pushed on the player (swimming) reshape the profile, caps and input before the step.
+            component::Frame cf{ component::Character::Player, move::kPlayer, caps, in };
+            component::Apply(*player, cf);
+            in   = cf.input;
+            caps = cf.caps;
+            move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
 
             const float speed = std::hypot(s.vx, s.vy);
             out->speed        = speed;
             out->angles[2]    = 0.0f;
             Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
-            g_engineSpeed = EngineSpeed{ true, full, speed, engineDir, out->angles[2] };
+            es = EngineSpeed{ true, full, speed, engineDir, out->angles[2] };
 
-            move::Publish(move::Snapshot{ s, in, caps, pos.x, pos.y });
+            move::Publish(player->GetFormID(), move::Snapshot{ s, in, caps, cf.profile, pos.x, pos.y });
             /// @note Diagnostic: twice a second while moving or asked to move, the model's inputs and output (a stick held
             ///       at no speed is a stall).
             static auto lastDiag = std::chrono::steady_clock::now();
@@ -441,6 +469,175 @@ namespace CB::feature::controller {
         }
 
         [[maybe_unused]] const bool s_subscribed = Frame::Subscribe(&OnFrame, hooks::Priority::Late, "CharFacing", "char_movement_model");
+
+        /// @brief The ridden horse's character: the model's numbers and its gait ladder.
+        /// @note  Starting values, to be hand-tuned against the horse's acceptance scenarios (spec H3): acceleration is
+        ///        vanilla's ridden-horse rate (2 x the canter speed: 0.5 s to canter), the air turn cap Horse_Fall_MT's
+        ///        rotate-while-moving (45 deg/s); the horse has no sprint ramps (accel and friction hold through a gallop).
+        ///        Traction (spec H5) from rough real-world estimates, unverified, at 70 units per metre and g = 687
+        ///        units/s^2: grip 0.7 g sideways (turn radius ~6 m at canter, ~11 m at gallop) and 0.6 g braking (a
+        ///        sliding stop), a 1.5 m floor (turning on the hocks), dig-in past 60 deg braking up to that sliding stop
+        ///        at 180 deg, the body leading with 0.08 s by at most 60 deg.
+        struct HorseProfile {
+            move::Profile model{
+                .accel               = 900.0f,
+                .sprintAccelSlow     = 900.0f,
+                .sprintAccelFrom     = 0.0f,
+                .sprintAccelTo       = 1.0f,
+                .friction            = 3.0f,
+                .sprintFrictionLow   = 3.0f,
+                .sprintFrictionTo    = 1.0f,
+                .brakingNoInput      = 700.0f,
+                .brakingWithInput    = 350.0f,
+                .facingHalflife      = 0.15f,
+                .airTurnRate         = 0.7853982f,
+                .lateralGrip         = 480.0f,
+                .brakingGrip         = 412.0f,
+                .minTurnRadius       = 105.0f,
+                .digInAngle          = 1.0471976f,
+                .digInBraking        = 412.0f,
+                .digInFacingHalflife = 0.08f,
+                .digInMaxLead        = 1.0471976f,
+            };
+            /// @brief Trot's speed as a fraction of the way from walk to canter (vanilla has no trot speed).
+            float trotFraction = 0.4f;
+            /// @brief Gamepad deflection below which the top rung is walk, then trot; at or above trotBelow it is canter.
+            float walkBelow = 0.45f;
+            float trotBelow = 0.85f;
+        };
+        constexpr HorseProfile kHorse{};
+
+        /// @brief The gait ladder's rungs (spec H6): holding forward climbs to canter; the sprint toggle is gallop.
+        enum class Rung : std::uint8_t { Walk, Trot, Canter, Gallop };
+
+        /// @brief The highest rung the rider allows: gallop while the horse sprints (vanilla's sprint toggle), walk while
+        ///        the walk toggle is on, else the stick's deflection picks it (spec H7; keyboard = full deflection).
+        /// @note  "Running" is vanilla's own test (0x14079b230, the one Planner Horse Controls doubles its speed by): a
+        ///        gamepad always runs, else PlayerControlsData::running (the run/walk toggle). So the walk toggle caps
+        ///        keyboard riders and the deflection gamepad ones.
+        Rung TopRung(RE::Actor* horse, const RE::PlayerControlsData& data, float deflection)
+        {
+            if (horse->AsActorState()->IsSprinting()) return Rung::Gallop;
+            auto*      devices = RE::BSInputDeviceManager::GetSingleton();
+            const bool running = (devices && devices->IsGamepadEnabled()) || data.running;
+            if (!running || deflection < kHorse.walkBelow) return Rung::Walk;
+            return deflection < kHorse.trotBelow ? Rung::Trot : Rung::Canter;
+        }
+
+        /// @brief The rung's speed from the horse's current movement type: walk and canter are its forward walk and run
+        ///        speeds; trot sits trotFraction between them; gallop is the run speed of the sprint type the graph's
+        ///        iState switches to while sprinting.
+        float RungSpeed(RE::Actor* horse, Rung rung)
+        {
+            auto* process = horse->GetActorRuntimeData().currentProcess;
+            auto* high    = process ? process->high : nullptr;
+            if (!high) return 0.0f;
+            using Dir         = RE::Movement::SPEED_DIRECTIONS;
+            const auto& sp    = high->currentMovementType.defaultData.speeds;
+            const float walk  = sp[Dir::kForward][RE::Movement::MaxSpeeds::kWalk];
+            const float run   = sp[Dir::kForward][RE::Movement::MaxSpeeds::kRun];
+            switch (rung) {
+            case Rung::Walk: return walk;
+            case Rung::Trot: return walk + (run - walk) * kHorse.trotFraction;
+            default:         return run;
+            }
+        }
+
+        /// @brief The player's horse whose frame this is, while the player rides it (sit state riding).
+        /// @note  The Ridden component's activation (spec H12), until the component system exists: only then is the
+        ///        horse's input the player's stick.
+        RE::NiPointer<RE::Actor> RiddenHorseOf(RE::MovementControllerNPC* controller)
+        {
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            if (!player || !player->IsOnMount() || player->AsActorState()->GetSitSleepState() != RE::SIT_SLEEP_STATE::kRidingMount) return {};
+            RE::NiPointer<RE::Actor> mount;
+            if (!player->GetMount(mount) || !mount) return {};
+            const auto& mc = mount->GetActorRuntimeData().movementController;
+            if (!mc || static_cast<void*>(mc.get()) != controller) return {};
+            return mount;
+        }
+
+        /// @brief The ridden horse's frame driver: the player's movement model with the horse's numbers, steered by the
+        ///        stick relative to CB's camera (spec H1, H2), its cap the gait ladder's rung (H6, H7).
+        /// @note  It runs after the engine computed the horse's frame (Planner Horse Controls -> Angle and Translation
+        ///        Controllers) and replaces its speed, direction and yaw rate; pitch stays the engine's.
+        /// @note  Unlike the player's driver it does not put the engine's speed state back: the cap comes from the
+        ///        movement type, never from the engine's frame, so CB's speed written into currentMovementSpeed cannot
+        ///        compound.
+        /// @note  Hands the horse to vanilla while CB's camera does not hold the yaw, movement controls are disabled, a
+        ///        dialogue menu is open, or the graph moves it (mount and dismount are synced clips; rear-up and stagger
+        ///        are animation-driven).
+        void OnHorseFrame(Frame::Next next, RE::MovementControllerNPC* controller, float deltaTime, game::MovementFrame* out)
+        {
+            next(controller, deltaTime, out);
+            if (!out) return;
+            const RE::NiPointer<RE::Actor> horse = RiddenHorseOf(controller);
+            if (!horse) return;
+            /// @note Every ridden frame, vanilla-steered ones too: the ground layer manages the horse whenever it is ridden.
+            PublishRiddenHorse(horse.get());
+
+            Driven&      d         = g_driven.Of(horse->GetFormID());
+            auto*        controls  = RE::PlayerControls::GetSingleton();
+            float        cameraYaw = 0.0f;
+            const bool   hold      = controls && camera::ControlYaw(cameraYaw);
+            const char*  graphFlag = hold ? GraphDrivesSpeed(horse.get()) : "";
+            auto*        menus     = RE::ControlMap::GetSingleton();
+            auto*        topics    = RE::MenuTopicManager::GetSingleton();
+            const bool   vanilla   = !hold || graphFlag[0] != 0 || (menus && !menus->IsMovementControlsEnabled()) || (topics && topics->menuOpen);
+            const float  heading   = horse->GetHeading(false);
+            move::State& s         = d.state;
+            if (vanilla || !d.init || deltaTime <= 0.0f) {
+                /// @note The model restarts from the engine's own frame whenever it takes the horse back.
+                const float dir = heading + out->angles[2];
+                s      = move::State{ out->speed * std::sin(dir), out->speed * std::cos(dir), heading, 0.0f };
+                d.init = !vanilla;
+                if (vanilla || deltaTime <= 0.0f) return;
+            }
+            s.yaw = heading + WrapPi(s.yaw - heading);
+
+            const RE::NiPoint2 raw          = controls->data.moveInputVec;
+            const float        deflection   = (std::min)(1.0f, std::sqrt(raw.x * raw.x + raw.y * raw.y));
+            float              stickHeading = 0.0f;
+            const bool         haveStick    = StickHeadingOf(raw, cameraYaw, stickHeading);
+            const Rung         rung         = TopRung(horse.get(), controls->data, deflection);
+
+            move::Input in;
+            in.mode      = move::Mode::Orient;
+            in.gait      = rung == Rung::Gallop ? Gait::Sprint : rung == Rung::Walk ? Gait::Walk : Gait::Run;
+            in.airborne  = Airborne(horse.get());
+            in.haveStick = haveStick;
+            if (haveStick) in.stickX = std::sin(stickHeading), in.stickY = std::cos(stickHeading);
+            move::Caps caps;
+            caps.forward = RungSpeed(horse.get(), rung);
+
+            const RE::NiPoint3 pos = horse->GetPosition();
+            /// @note The components pushed on the horse (swimming) reshape its profile, caps and input before the step.
+            component::Frame cf{ component::Character::Horse, kHorse.model, caps, in };
+            component::Apply(*horse, cf);
+            in   = cf.input;
+            caps = cf.caps;
+            move::Step(s, in, caps, cf.profile, pos.x, pos.y, deltaTime);
+
+            const float speed = std::hypot(s.vx, s.vy);
+            out->speed        = speed;
+            out->angles[2]    = 0.0f;
+            Face(out, heading, s.yaw, speed > 0.5f ? std::atan2(s.vx, s.vy) : kNoDirection, deltaTime);
+            move::Publish(horse->GetFormID(), move::Snapshot{ s, in, caps, cf.profile, pos.x, pos.y });
+
+            /// @note Diagnostic: twice a second while moving or asked to move.
+            static std::atomic<double> lastDiag{ -1.0e9 };
+            if (const double now = Now(); (speed > 1.0f || haveStick) && now - lastDiag.load(std::memory_order_relaxed) > 0.5) {
+                lastDiag.store(now, std::memory_order_relaxed);
+                static constexpr const char* kRungs[4] = { "walk", "trot", "canter", "gallop" };
+                constexpr float kRad = 57.29578f;
+                if (DiagBudget())
+                    LOG_INFO("horse: {} (deflection {:.2f}) - stick {} deg, velocity {:.0f} at {:.0f} deg, cap {:.0f}{}", kRungs[static_cast<int>(rung) & 3],
+                             deflection, haveStick ? std::format("{:.0f}", WrapPi(stickHeading - s.yaw) * kRad) : std::string("none"), speed,
+                             WrapPi(std::atan2(s.vx, s.vy) - s.yaw) * kRad, caps.forward, in.airborne ? ", airborne" : "");
+            }
+        }
+
+        [[maybe_unused]] const bool s_horseSubscribed = Frame::Subscribe(&OnHorseFrame, hooks::Priority::Late, "CharFacing horse", "horse_movement_model");
 
     }  // namespace
 

@@ -105,7 +105,7 @@ namespace CB::feature::controller::sprint {
 
         const char* SuspendReason(RE::PlayerCharacter* player, const move::Snapshot& snap)
         {
-            if (!move::SprintDirectionAllowed(snap.state, snap.input)) return "lock beyond 50 deg";
+            if (!move::SprintDirectionAllowed(snap.state, snap.input, snap.profile)) return "lock beyond 50 deg";
             if (player->IsBlocking()) return "blocking";
             if (InAir(player, snap)) return "airborne";
             return "";

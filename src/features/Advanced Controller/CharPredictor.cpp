@@ -138,11 +138,12 @@ namespace CB::feature {
         ///       input and caps frozen over the horizon, as GASP's trajectory does; only the caps' slope factor follows
         ///       the predicted ground. Without it the request is vanilla's, held constant in world space.
         struct Drive {
-            bool            model = false;
-            ch::move::State state;
-            ch::move::Input input;
-            ch::move::Caps  caps;
-            float           slope = 0.0f;   ///< the slope factor in caps.forward; 0 = unknown, the caps stay frozen whole
+            bool              model = false;
+            ch::move::State   state;
+            ch::move::Input   input;
+            ch::move::Caps    caps;
+            ch::move::Profile profile;        ///< the frame's (the player's while no frame ran)
+            float             slope = 0.0f;   ///< the slope factor in caps.forward; 0 = unknown, the caps stay frozen whole
             /// @brief The frame's position (game units) the predicted offsets are added to for the step.
             /// @note Anchored on the frame rather than the hull: no assumption that Havok's world origin is the game's,
             ///       at the cost of up to a frame's lag, which only bends a strafe's aim at the target.
@@ -442,11 +443,11 @@ namespace CB::feature {
                             caps.forward = drive.caps.forward * slopeMul / drive.slope;
                         }
                         input.airborne = airborne;
-                        ch::move::Step(model, input, caps, drive.px + px * kGameUnitsPerHavok, drive.py + py * kGameUnitsPerHavok, h);
+                        ch::move::Step(model, input, caps, drive.profile, drive.px + px * kGameUnitsPerHavok, drive.py + py * kGameUnitsPerHavok, h);
                         f = kHalfPi - model.yaw;
                         d = { model.vx / kGameUnitsPerHavok, model.vy / kGameUnitsPerHavok };
                     } else {
-                        ch::SpringDamperExact(f, fv, facingGoal, ch::move::kFacingHalflife, h);
+                        ch::SpringDamperExact(f, fv, facingGoal, drive.profile.facingHalflife, h);
                     }
                     const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
@@ -678,7 +679,7 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
         {
             next(self);
-            if (!self || !ch::IsManaged(*self)) return;
+            if (!self || !ch::IsPlayer(self) || !ch::IsManaged(*self)) return;
             hk::bhkCharacterController& ctrl = *self;
             const float dt = ctrl.m_stepInfo.m_deltaTime;
             const ch::Hull hull = ch::GetHull(ctrl);
@@ -716,12 +717,13 @@ namespace CB::feature {
             const bool         haveSpeed = ch::CurrentSpeed(fs);
             ch::move::Snapshot snap;
             if (ch::move::Current(snap)) {
-                drive.model = true;
-                drive.state = snap.state;
-                drive.input = snap.input;
-                drive.caps  = snap.caps;
-                drive.px    = snap.px;
-                drive.py    = snap.py;
+                drive.model   = true;
+                drive.state   = snap.state;
+                drive.input   = snap.input;
+                drive.caps    = snap.caps;
+                drive.profile = snap.profile;
+                drive.px      = snap.px;
+                drive.py      = snap.py;
                 if (haveSpeed) drive.slope = fs.slope;
                 /// @note The model's request: the stick (a Skyrim heading h points along (sin h, cos h)) at the speed
                 ///       the caps allow that way, game units/s into Havok units/s.

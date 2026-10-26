@@ -659,7 +659,7 @@ namespace CB::feature {
             const int   to   = static_cast<int>(std::lround(kFutureTo / kFutureStep));
             for (int i = 0; i < to; ++i) {
                 if (i == from) ax = px, ay = py;
-                mv::Step(s, snap.input, snap.caps, px, py, kFutureStep);
+                mv::Step(s, snap.input, snap.caps, snap.profile, px, py, kFutureStep);
                 px += s.vx * kFutureStep, py += s.vy * kFutureStep;
             }
             return std::hypot(px - ax, py - ay) / (kFutureTo - kFutureFrom);

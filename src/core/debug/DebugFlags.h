@@ -158,6 +158,33 @@ namespace CB::core::debug {
           "stopping, running out of stamina or overencumbrance; you can jump while sprinting. Off under "
           "bAnimationDriven, bSpeedSynced and bIsSynced. Needs bCamera (in third person); off without it. AE only. "
           "Unproven in game." },
+        { "horse_movement_model", FlagKind::IniBool, "Character", "bHorseMovementModel", false, false,
+          "Horse movement model",
+          "The horse the player rides moves with the player's movement model and the horse's own numbers (900 units/s2 "
+          "acceleration, friction 3, braking 700 units/s2, facing halflife 0.15 s, at most 45 deg/s in the air, all "
+          "starting values): the stick is relative to CB's camera, the horse faces where it moves and never strafes or "
+          "backs up. Its turns are held to its grip (480 units/s2 sideways: wider at speed, never tighter than 105 units); "
+          "it never brakes harder than a sliding stop (412 units/s2); asked more than 60 deg off its course it digs in, "
+          "braking up to that sliding stop for a full reversal while its body swings up to 60 deg toward the stick ahead "
+          "of its momentum, turns the rest on the spot, then drives out. Holding forward climbs a gait ladder at the horse's own speeds: walk, trot (40% of the way to "
+          "canter), canter; the sprint toggle gallops; the walk toggle caps it at walk, and on a gamepad a light push "
+          "holds walk, a half push trot. With bHorseProxyController on too, the horse jumps the moment you press (the "
+          "jump clip's own later launch is dropped). Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
+          "while CB's camera does not drive the view (so needs bCamera with its mounted view). AE only. Unproven in game." },
+        { "char_swim_component", FlagKind::IniBool, "Character", "bSwimComponent", false, false,
+          "Swim component",
+          "While the player or the ridden horse swims (vanilla's swimming state), the movement model eases for water: "
+          "half the acceleration and braking, 60% of the friction, a 1.5x slower body turn, and no grip limit or dig-in "
+          "turns. The player may dive, the horse swims at the surface (as in vanilla, which still moves both vertically). "
+          "Needs bMovementModel or bHorseMovementModel. Unproven in game." },
+        { "horse_proxy_controller", FlagKind::IniBool, "Character", "bHorseProxyController", false, false,
+          "Horses on the proxy controller",
+          "Every mountable race (the horse or mount keyword, flying races excepted) is built on the player's kind of "
+          "character controller, the proxy, instead of the rigid body. Applies to every horse, NPC horses too (they run "
+          "vanilla's proxy logic). With bHorseMovementModel on as well, the horse you ride runs CB's ground layer under "
+          "the player's flags (bStateWrapper, bGroundStates, bPlanes, bStepQuery): its footing is checked under its front "
+          "and hind hooves (grounded when both stand; one end on ground holds it), and it walks up to 55 deg (the "
+          "player 47). Read once as the game starts: changing it needs a restart. Unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "

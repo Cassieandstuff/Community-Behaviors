@@ -22,6 +22,7 @@
 #include <platform/hooks/takeover/Takeover.h>
 #include <platform/relay/Relay.h>
 #include <platform/profile/Profile.h>
+#include <platform/startup/Startup.h>
 
 #include <interface/reflection/HavokSchema.h>             // schema::SetSharedSchemaDir / SharedRegistry / SharedRegistryError
 
@@ -507,6 +508,7 @@ namespace CB {
                 LOG_ERROR("classes: no schema registry ({}) - CB's own classes are not registered",
                           CB::engine::schema::SharedRegistryError());
             CB::platform::classes::ReportTypeRegistries();
+            CB::platform::startup::RunDataLoaded();
         }
     }
 
