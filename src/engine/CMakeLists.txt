@@ -73,7 +73,8 @@ FetchContent_Declare(VFS
     GIT_TAG        193fb3d)
 FetchContent_MakeAvailable(VFS)
 
-target_link_libraries(engine PUBLIC ryml::ryml vfs::vfs PRIVATE lz4::lz4)
+find_package(nlohmann_json CONFIG REQUIRED)   # bundle assembly's generate / inject configs
+target_link_libraries(engine PUBLIC ryml::ryml vfs::vfs PRIVATE lz4::lz4 nlohmann_json::nlohmann_json)
 
 set_target_properties(engine PROPERTIES
     CXX_STANDARD 23

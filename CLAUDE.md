@@ -104,7 +104,7 @@ features/                    authored FEATURE BUNDLES as data — not code (that
                              never drift from it — and inject/ —
                              JSON configs {"targets": [{"path" or "under" (every animation below a prefix), "field",
                              "values"}]} keyed by a file's path inside the
-                             bundle, writing the fields tools/hky/injectables.json allows per file kind (today:
+                             bundle, writing the fields schema/metadata/injectables.json allows per file kind (today:
                              animation -> curves, motionTarget, preload; anything else fails the build). A hand-authored
                              curve replaces the measured curve of its name.
 include/ + API/              the public CB-API facade (<CB-API.h>) + its INTERFACE target and drift-gate

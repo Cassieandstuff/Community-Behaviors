@@ -33,6 +33,10 @@ public:
     /// @brief Open a .hky: read its index and classify its units (each unit's graph.yaml is read for that); nullptr
     ///        with `err` set on failure.
     static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err);
+    /// @brief A bundle held in memory: each (path, text) a file, as a packed .hky of them would read (an editor's
+    ///        unexported project, layered over the load order); nullptr with `err` set when two paths are one (path
+    ///        identity) or a unit's graph.yaml cannot be classified.
+    static std::shared_ptr<HkyArchive> FromFiles(std::vector<std::pair<std::string, std::string>> files, std::string& err);
     ~HkyArchive();
 
     /// @brief One file as the zip's central directory records it.
@@ -111,8 +115,11 @@ private:
         std::uint64_t size;
         std::uint32_t crc;
         bool          deflated;      ///< deflate, else stored
+        std::shared_ptr<const std::string> text;   ///< the content itself, for a bundle held in memory (FromFiles)
     };
     std::string read(const Entry& e) const;
+    /// @brief Every "<prefix>.hkx/..." subtree as a unit, its kind from its graph.yaml.
+    bool ClassifyUnits(std::string& err);
 
     std::string                         m_path;
     std::unique_ptr<disk::ReadOnlyFile> m_file;

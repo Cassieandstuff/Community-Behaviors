@@ -191,6 +191,11 @@ std::vector<std::string> LoadOrderDocument::Files(std::string_view prefix) const
     return out;
 }
 
+const std::vector<std::string>* LoadOrderDocument::MasterTable(std::string_view stem) const {
+    const auto it = m_masterTable.find(PathKey(std::string(stem)));
+    return it == m_masterTable.end() ? nullptr : &it->second;
+}
+
 std::vector<std::string> LoadOrderDocument::Providers(std::string_view path) const {
     std::vector<std::string> out;
     if (const auto it = m_files.find(PathKey(std::string(path))); it != m_files.end())

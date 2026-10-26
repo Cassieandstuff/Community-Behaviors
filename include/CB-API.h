@@ -39,6 +39,8 @@
 #include "decompile/BehaviorDecompile.h"
 #include "decompile/EmbeddedFile.h"
 #include "merge/LoadOrderDocument.h"
+#include "interface/MasterTable.h"
+#include "compile/BundleAssembly.h"
 #include <vfs/Vfs.h>                        // the Data folder LoadOrderDocument reads (VFS, a PUBLIC dependency)
 
 // schema — the Havok class-schema registry (merge classifier / model interpreter)
@@ -100,6 +102,10 @@ namespace resolve {
     using CB::engine::decompile::SampleCurve;                  ///< a `view: curve` Object → its value at a time
 
     using LoadOrderDocument = CB::engine::merge::LoadOrderDocument;   ///< the resolved .hky load order over a VFS Data folder
+    using CB::engine::codec::formid::BuildMasterTable;          ///< a bundle's ordered master table ([self, skyrim, masters…])
+    using BundleInput    = CB::engine::compile::BundleInput;      ///< partitions, loose files, generator and inject configs
+    using AssembleReport = CB::engine::compile::AssembleReport;
+    using CB::engine::compile::AssembleBundle;                 ///< BundleInput -> a packed .hky (hky-tool assemble, an editor's Export)
 }  // namespace resolve
 
 // ── cb::schema ───────────────────────────────────────────────────────────────

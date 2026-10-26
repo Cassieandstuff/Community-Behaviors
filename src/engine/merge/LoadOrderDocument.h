@@ -58,6 +58,10 @@ public:
 
     /// @brief Every file below `prefix` (a Data-relative folder; empty = all), as its winner spells it, sorted.
     std::vector<std::string> Files(std::string_view prefix = {}) const;
+    /// @brief A bundle's ordered master table ([self, skyrim, masters…]): what its FormIDs' master indices resolve
+    ///        against. Null for an unknown or dropped bundle.
+    const std::vector<std::string>* MasterTable(std::string_view stem) const;
+
     /// @brief The bundle stems providing `path`, base first.
     std::vector<std::string> Providers(std::string_view path) const;
     /// @brief The winning bundle's text of `path` (an animation unit, a manifest, a config).
