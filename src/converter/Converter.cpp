@@ -28,6 +28,7 @@
 #include <interface/reflection/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
 #include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
+#include "MeshSource.h"                     // the regen source: loose meshes\ + BSAs, read in place
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis
 #include "BaseMaps.h"                // BuildBaseMaps — where each vanilla graph / character lives
@@ -1971,16 +1972,14 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
     } catch (const std::exception& e) { reason = std::string("reload: ") + e.what(); return AnimBakeOutcome::Skip; }
 }
 
-BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
+namespace {
+BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& keepStagingDir) {
     namespace fs = std::filesystem;
     const auto say = [&](const std::string& s) { if (log) log(s); };
     BaseBuildResult r;
     std::error_code ec;
-
-    const fs::path meshes(vanillaMeshesDir);
-    if (!fs::is_directory(meshes, ec)) { r.error = "vanilla meshes folder not found: " + vanillaMeshesDir; return r; }
 
     /// @note Stage in a PRIVATE temp root (per process) so the deep unit tree stays under MAX_PATH and nothing else
     ///       can write into it mid-build; only after packing is the unpacked <Name>.hky/ tree copied to
@@ -2020,56 +2019,56 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         phaseT = now;
     };
 
-    /// @brief One source .hkx of a behavior-system kind, found by the single tree walk below.
-    struct SourceFile { fs::path path; std::string rel, relKey; HkxKind kind; };   ///< relKey = PathKey(rel)
+    /// @brief One source .hkx of a behavior-system kind, found by the single listing below.
+    struct SourceFile { std::string rel, relKey; HkxKind kind; };   ///< rel is meshes-relative; relKey = PathKey(rel)
     std::vector<SourceFile> sources;
+    /// @brief A meshes-relative source file's bytes (from a loose file or an archive entry).
+    const auto readSource = [&](const std::string& rel, std::vector<std::uint8_t>& out, std::string* err) {
+        auto b = src.Read("meshes/" + rel, err);
+        if (!b) return false;
+        out = std::move(*b);
+        return true;
+    };
 
     CB::engine::skeleton::RigIndex                    rigIndex;
     std::map<std::string, std::vector<std::string>> rigBones;   // skeleton serve key -> bone names (original case)
     {
-        /// @note The walk only LISTS (.hkx by extension, path made relative lexically — fs::relative canonicalizes
-        ///       against the disk, and ran for all ~43k files); the head peeks and the skeleton / project / character
-        ///       reads then fan out, and every map is assembled afterwards in walk order.
-        struct Listed { fs::path path; std::string rel, key; };
+        /// @note The listing is the source's (.hkx by extension); the kind peeks and the skeleton / project / character
+        ///       reads then fan out, and every map is assembled afterwards in listing order.
+        struct Listed { std::string rel, key; };
         std::vector<Listed> listed;
-        for (fs::recursive_directory_iterator it(meshes, fs::directory_options::skip_permission_denied, ec), end;
-             !ec && it != end; it.increment(ec)) {
-            std::error_code fe;
-            if (!it->is_regular_file(fe) || fe) continue;
-            if (!HasExt(it->path().filename().string(), ".hkx")) continue;
-            std::string rel = it->path().lexically_relative(meshes).generic_string();
-            std::string key = PathKey("meshes/" + rel);
-            listed.push_back({ it->path(), std::move(rel), std::move(key) });
-        }
+        for (const std::string& f : src.Files())
+            if (HasExt(f, ".hkx")) listed.push_back({ f.substr(7), PathKey(f) });
 
         std::vector<HkxKind>                                listedKind(listed.size(), HkxKind::Other);
         std::vector<std::optional<std::vector<std::string>>> skelBones(listed.size());
         ParallelFor(listed.size(), [&](std::size_t i) {
-            listedKind[i] = PeekHkxKind(listed[i].path);
+            std::vector<std::uint8_t> b;
+            if (!readSource(listed[i].rel, b, nullptr)) return;
+            listedKind[i] = PeekHkxKind(b);
             if (listedKind[i] != HkxKind::Skeleton) return;
-            std::vector<std::uint8_t> b; std::vector<CB::engine::skeleton::SkeletonData> sk;
-            if (CB::engine::codec::ReadHavokFile(listed[i].path.string(), b, nullptr) &&
-                CB::engine::skeleton::LoadSkeletonsFromHkx(b.data(), b.size(), sk, nullptr) && !sk.empty()) {
+            std::vector<CB::engine::skeleton::SkeletonData> sk;
+            if (CB::engine::skeleton::LoadSkeletonsFromHkx(b.data(), b.size(), sk, nullptr) && !sk.empty()) {
                 auto& names = skelBones[i].emplace();
                 for (const auto& bone : sk[0].bones) names.push_back(bone.name);
             }
         });
 
-        std::map<std::string, fs::path> projects, characters;   // serve key -> source file
+        std::map<std::string, std::string> projects, characters;   // serve key -> meshes-relative source
         for (std::size_t i = 0; i < listed.size(); ++i) {
             const HkxKind kind = listedKind[i];
-            if (kind != HkxKind::Other) sources.push_back({ listed[i].path, listed[i].rel, listed[i].key.substr(7), kind });
-            if (kind == HkxKind::Project)   projects[listed[i].key] = listed[i].path;
-            if (kind == HkxKind::Character) characters[listed[i].key] = listed[i].path;
+            if (kind != HkxKind::Other) sources.push_back({ listed[i].rel, listed[i].key.substr(7), kind });
+            if (kind == HkxKind::Project)   projects[listed[i].key] = listed[i].rel;
+            if (kind == HkxKind::Character) characters[listed[i].key] = listed[i].rel;
             if (kind == HkxKind::Skeleton && skelBones[i]) rigBones[listed[i].key] = std::move(*skelBones[i]);
         }
 
         // Every character's rig and every project's character list, read in parallel; RigIndex is then fed serially.
-        std::vector<std::pair<std::string, fs::path>> charList(characters.begin(), characters.end());
+        std::vector<std::pair<std::string, std::string>> charList(characters.begin(), characters.end());
         std::vector<std::optional<CB::engine::skeleton::CharacterRig>> charRig(charList.size());
         ParallelFor(charList.size(), [&](std::size_t i) {
             std::vector<std::uint8_t> cb;
-            if (!CB::engine::codec::ReadHavokFile(charList[i].second.string(), cb, nullptr)) return;
+            if (!readSource(charList[i].second, cb, nullptr)) return;
             WithFirstOfClass(cb, *sreg, "hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
                 charRig[i] = CB::engine::skeleton::CharacterRig{ so.Str("rigName"), so.Str("behaviorFilename") };
             });
@@ -2077,11 +2076,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         std::map<std::string, std::optional<CB::engine::skeleton::CharacterRig>> rigOfChar;
         for (std::size_t i = 0; i < charList.size(); ++i) rigOfChar.emplace(charList[i].first, std::move(charRig[i]));
 
-        std::vector<std::pair<std::string, fs::path>> projList(projects.begin(), projects.end());
+        std::vector<std::pair<std::string, std::string>> projList(projects.begin(), projects.end());
         std::vector<std::vector<std::string>>         projChars(projList.size());
         ParallelFor(projList.size(), [&](std::size_t i) {
             std::vector<std::uint8_t> pb;
-            if (CB::engine::codec::ReadHavokFile(projList[i].second.string(), pb, nullptr))
+            if (readSource(projList[i].second, pb, nullptr))
                 WithFirstOfClass(pb, *sreg, "hkbProjectStringData",
                                  [&](CB::engine::codec::io::SchemaObject& so) { projChars[i] = so.FieldRef("characterFilenames").strs; });
         });
@@ -2102,7 +2101,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     };
 
     phaseDone("scan + rig binding");
-    say("== Building " + bundle + " (every unit under " + meshes.string() + ") ==");
+    say("== Building " + bundle + " (every unit of " + src.Describe() + ") ==");
 
     /// @note Every source is independent: it writes only its own unit path, the schema registry and the rig maps are
     ///       read-only from here on, and each worker bakes animations in its own scratch dir. So the corpus fans across
@@ -2122,7 +2121,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         ///       actor's graphs fails to parse.
         if (s.kind == HkxKind::Skeleton) {
             std::vector<std::uint8_t> sbytes; std::string serr;
-            if (CB::engine::codec::ReadHavokFile(s.path.string(), sbytes, &serr) &&
+            if (readSource(rel, sbytes, &serr) &&
                 CB::engine::decompile::DecompileBehaviorReflective(sbytes, *sreg, unit.string(), serr, nullptr, "meshes/" + rel))
                 ++nSkeletons;
             else { ++nFailed; say("  skeleton emit FAILED: " + rel + " — " + serr); }
@@ -2134,7 +2133,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         // round-trip stays; otherwise no unit is written and the engine keeps the loose vanilla .hkx.
         if (s.kind == HkxKind::Animation) {
             std::vector<std::uint8_t> abytes; std::string arerr;
-            if (!CB::engine::codec::ReadHavokFile(s.path.string(), abytes, &arerr)) {
+            if (!readSource(rel, abytes, &arerr)) {
                 ++nAnimFail; say("  anim read FAILED: " + rel + " — " + arerr); return;
             }
             std::string reason;
@@ -2155,7 +2154,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         ///       THIS unit's identity, so no template numbering is involved.
         std::vector<std::uint8_t> bytes;
         std::string rerr;
-        if (!CB::engine::codec::ReadHavokFile(s.path.string(), bytes, &rerr)) { ++nFailed; return; }
+        if (!readSource(rel, bytes, &rerr)) { ++nFailed; say("  read FAILED: " + rel + " — " + rerr); return; }
         std::string derr;
         if (!CB::engine::decompile::DecompileBehaviorReflective(bytes, *sreg, unit.string(), derr, bonesFor("meshes/" + s.relKey))) {
             ++nFailed;
@@ -2194,7 +2193,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
         return false;
     };
     {
-        const std::string setText = disk::ReadFile(meshes / "animationsetdatasinglefile.txt").value_or(std::string{});
+        const std::string setText = src.ReadText("meshes/animationsetdatasinglefile.txt").value_or(std::string{});
         if (!setText.empty()) {
             try {
                 auto           parsed  = CB::engine::animsetdata::ParseSingleFile(setText);
@@ -2206,14 +2205,11 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                 // baked CRCs to real animation paths (residue tokens for the ~0.1% not in the source).
                 // Replaces the old "derive the whole roster per set" runtime bloat that corrupted saves.
                 std::vector<std::string> cands;
-                { std::error_code wec;
-                  for (fs::recursive_directory_iterator it(meshes, wec), end; !wec && it != end; it.increment(wec)) {
-                      if (!it->is_regular_file(wec)) continue;
-                      if (!HasExt(it->path().filename().string(), ".hkx")) continue;
-                      std::string rel = fs::relative(it->path(), meshes, wec).string();
-                      for (char& c : rel) if (c == '/') c = '\\';
-                      cands.push_back("meshes\\" + rel);
-                  } }
+                for (std::string f : src.Files()) {
+                    if (!HasExt(f, ".hkx")) continue;
+                    std::replace(f.begin(), f.end(), '/', '\\');
+                    cands.push_back(std::move(f));
+                }
                 const auto crcIndex = CB::engine::animsetdata::BuildCrcIndex(cands);
                 std::size_t nResolved = 0, nResidue = 0;
                 for (auto& proj : parsed.projects) {
@@ -2247,7 +2243,7 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
             }
         }
 
-        const std::string animText = disk::ReadFile(meshes / "animationdatasinglefile.txt").value_or(std::string{});
+        const std::string animText = src.ReadText("meshes/animationdatasinglefile.txt").value_or(std::string{});
         if (!animText.empty()) {
             try {
                 const auto     parsed  = CB::engine::animdata::ParseSingleFile(animText);
@@ -2320,22 +2316,29 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
 
                     /// @note Each behaviors folder's clip generators are read ONCE (DefaultMale and DefaultFemale share
                     ///       theirs), every graph in parallel; a project then merges its folders in the original order.
+                    /// @note A folder is its path identity (PathKey of "meshes/<actor root>/<folder>"): an archive's names are
+                    ///       lowercase while a character ref keeps the stage tree's spelling.
                     const auto behaviorDirsOf = [&](const auto& proj, const std::string& actorRoot) {
-                        std::set<fs::path> dirs;
+                        std::set<std::string> dirs;
                         for (const auto& asset : proj.assetPaths) {
                             std::string a = asset;
                             std::replace(a.begin(), a.end(), '\\', '/');
-                            if (PathKey(a).rfind("behaviors", 0) == 0) dirs.insert((meshes / actorRoot / a).parent_path());
+                            if (PathKey(a).rfind("behaviors", 0) != 0) continue;
+                            const auto slash = a.rfind('/');
+                            dirs.insert(PathKey("meshes/" + actorRoot + "/" + (slash == std::string::npos ? std::string() : a.substr(0, slash))));
                         }
                         return dirs;
                     };
-                    /// @note The actor root keeps the character ref's spelling — the stage tree's, which mirrors `meshes` — so
-                    ///       the folders above open by the exact path; CanonicalAnimPath applies the animation-path identity.
+                    std::map<std::string, std::vector<std::string>> hkxInDir;   // folder identity -> its .hkx, source order
+                    for (const std::string& f : src.Files())
+                        if (HasExt(f, ".hkx")) hkxInDir[PathKey(f.substr(0, f.rfind('/')))].push_back(f);
+                    /// @note The actor root keeps the character ref's spelling (the stage tree's); the folders above match it by
+                    ///       path identity, and CanonicalAnimPath applies the animation-path identity.
                     const auto actorRootOf = [&](const std::string& ref) {
                         return fs::path(ref).parent_path().parent_path().generic_string();
                     };
-                    std::map<fs::path, std::vector<std::size_t>> dirFiles;   // folder -> its graphs, iteration order
-                    std::vector<fs::path>                        graphFiles;
+                    std::map<std::string, std::vector<std::size_t>> dirFiles;   // folder identity -> its graphs, source order
+                    std::vector<std::string>                        graphFiles; // "meshes/…"
                     for (const auto& proj : parsed.projects) {
                         if (!proj.hasAnimData || proj.motions.empty()) continue;
                         const auto pit = projChar.find(CB::engine::animdata::StemForProjectName(proj.name));
@@ -2343,18 +2346,18 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
                         for (const auto& d : behaviorDirsOf(proj, actorRootOf(pit->second.ref))) {
                             if (dirFiles.count(d)) continue;
                             auto& idx = dirFiles[d];
-                            std::error_code de;
-                            for (fs::directory_iterator di(d, de), dend; !de && di != dend; di.increment(de))
-                                if (HasExt(di->path().filename().string(), ".hkx")) {
+                            if (const auto h = hkxInDir.find(d); h != hkxInDir.end())
+                                for (const auto& f : h->second) {
                                     idx.push_back(graphFiles.size());
-                                    graphFiles.push_back(di->path());
+                                    graphFiles.push_back(f);
                                 }
                         }
                     }
                     std::vector<std::vector<std::pair<std::string, std::string>>> graphClips(graphFiles.size());
                     ParallelFor(graphFiles.size(), [&](std::size_t i) {
-                        std::vector<std::uint8_t> bytes;
-                        if (!CB::engine::codec::ReadHavokFile(graphFiles[i].string(), bytes, nullptr)) return;
+                        const auto read = src.Read(graphFiles[i]);
+                        if (!read) return;
+                        const std::vector<std::uint8_t>& bytes = *read;
                         try {
                             CB::engine::codec::PackFileDeserializer des;
                             des.ObjectFactory = CB::engine::codec::io::MakeSchemaFactory(*sreg);
@@ -2485,6 +2488,16 @@ BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::
     say("  (total: " + std::to_string(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - phaseStart).count()) + "s)");
     r.ok = true;
     return r;
+}
+}  // namespace
+
+BaseBuildResult BuildBaseBundle(const std::string& sourceDir, const std::string& outHky,
+                                const LogFn& log, const std::atomic<bool>& cancel,
+                                const std::string& keepStagingDir) {
+    std::string err;
+    const auto src = MeshSource::OpenRegenFolder(sourceDir, err);
+    if (!src) { BaseBuildResult r; r.error = err; return r; }
+    return buildBaseBundle(*src, outHky, log, cancel, keepStagingDir);
 }
 
 /// @brief Package EVERY animation each enabled mod contributes into its <modName>.hky as attributed single-file units — the per-mod sibling of BuildBaseBundle's
@@ -3180,12 +3193,15 @@ bool HkyRoundTrip(const std::string& meshesDir, const std::string& workRoot, con
     return fails == 0;
 }
 
-RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& outHky, bool strict,
+RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& outHky, bool strict,
                              const LogFn& log, const std::atomic<bool>& cancel,
                              const std::string& keepStagingDir) {
     const auto say = [&](const std::string& s) { if (log) log(s); };
     RegenResult r;
     std::error_code ec;
+    std::string serr;
+    const auto source = MeshSource::OpenRegenFolder(sourceDir, serr);
+    if (!source) { r.error = serr; return r; }
 
     const std::string bundle  = fs::path(outHky).filename().string();
     const fs::path    work    = fs::temp_directory_path(ec) / ("cb_regen_" + fs::path(bundle).stem().string() + "_" + std::to_string(_getpid()));
@@ -3196,10 +3212,10 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     // 1) Build the whole bundle to a TEMP file (never touch outHky until it validates). keepStagingDir
     //    (optional) keeps the unpacked <Name>.hky/ tree there for observation — built regardless of the
     //    validation outcome below (you want to inspect it precisely when it DIDN'T validate).
-    r.build = BuildBaseBundle(vanillaMeshesDir, tempHky.string(), log, cancel, keepStagingDir);
+    r.build = buildBaseBundle(*source, tempHky.string(), log, cancel, keepStagingDir);
     if (!r.build.ok) { r.error = "build-base failed: " + r.build.error; fs::remove_all(work, ec); return r; }
 
-    /// @note 2) SERVED-BYTES gate: every reflective unit of the fresh bundle (behavior / character / project) must parse
+    /// @note 2) SERVED-BYTES gate: every reflective unit of the fresh bundle (behavior / character / project / skeleton) must parse
     ///       back through the runtime's own reader — bones bound through its rig, as the Resolver binds them — and
     ///       serialize byte-identical to its source binary's canonical re-serialization. That is exactly what the
     ///       runtime serves for a graph no mod touches. Drifting pairs are kept for inspection.
@@ -3216,10 +3232,10 @@ RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::str
     for (const auto& u : arc->units()) {
         if (cancel) { r.error = "cancelled"; fs::remove_all(work, ec); return r; }
         if (u.prefix.rfind("meshes/", 0) != 0) continue;
-        const fs::path src = fs::path(vanillaMeshesDir) / u.prefix.substr(7);
         std::vector<std::uint8_t> srcBytes, canon, got;
         std::string e;
-        if (!fs::is_regular_file(src, ec) || !CB::engine::codec::ReadHavokFile(src.string(), srcBytes, &e)) continue;
+        if (auto b = source->Read(u.prefix)) srcBytes = std::move(*b);
+        else continue;
         if (!CB::engine::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) { say("  " + u.prefix + ": source unreadable — " + e); continue; }
         ++r.checked;
         if (!baseCompiler.Compile(u.prefix, got, e)) {

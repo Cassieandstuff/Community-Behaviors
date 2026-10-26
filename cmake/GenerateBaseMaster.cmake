@@ -2,7 +2,8 @@
 # Regen bundles — regenerate every DERIVED .hky bundle from its dedicated source at BUILD time.
 #
 # SOURCE: $CB_REGEN_SOURCE is a root of per-bundle source folders, each named for the bundle it
-# regenerates (e.g. `Skyrim.hky\`, `XPMSSE.hky\`) and laid out like a game Data folder (meshes\...).
+# regenerates (e.g. `Skyrim.hky\`, `XPMSSE.hky\`) and laid out like a game Data folder: a loose meshes\
+# tree and/or the *.bsa archives themselves, read in place (no unpacking; loose beats any archive).
 # Every source runs the SAME regen (BehaviorConverter --regen-master: decompile whatever the source
 # contains, gate every unit's served bytes vs its own binaries, pack) into <PACKED_DIR>/<Name>.hky.
 # A new derived bundle = a new source folder; nothing here is bundle-specific. Unset / not a directory
@@ -61,16 +62,11 @@ function(cb_regen_bundles)
     set(_outs "")
     foreach(_src ${_sources})
         get_filename_component(_name "${_src}" NAME)   # "<Name>.hky" — original case, it names the bundle
-        if(IS_DIRECTORY "${_src}/meshes")
-            set(_meshes "${_src}/meshes")
-        else()
-            set(_meshes "${_src}")
-        endif()
         set(_out "${RB_PACKED_DIR}/${_name}")
         add_custom_command(
             OUTPUT  "${_out}"
             COMMAND "$<TARGET_FILE:${RB_CONVERTER_TARGET}>" --regen-master
-                    "${_meshes}" "${_out}"
+                    "${_src}" "${_out}"
                     --keep-unpacked "${RB_UNPACKED_DIR}" ${_strict_arg}
             DEPENDS ${RB_CONVERTER_TARGET} ${RB_DEPENDS}
             COMMENT "Regen: ${_name} from ${_src}"
