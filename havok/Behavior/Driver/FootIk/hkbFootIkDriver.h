@@ -8,6 +8,7 @@ namespace CB { namespace havok
 {
     class hkaFootPlacementIkSolver;
     struct hkbContext;
+    struct hkbFootIkGains;
     struct hkbGeneratorOutput;
 
     /// @note 0x50 bytes. Member names are provisional (read off the constructor, the destructor and reset()).
@@ -48,5 +49,18 @@ namespace CB { namespace havok
         void doFootIk(const hkbContext& context, hkbGeneratorOutput& generatorOutput);
         /// @note Out of line in vanilla (0x140ab9ec0); hkbFootIkControlsModifier reads the legs through it.
         const hkArray<InternalLegData>& getInternalLegData() const;
+        /// @brief Turns the world-from-model's up toward the ground's normal under the legs, by
+        ///        `gains.m_alignWorldFromModelGain`: the turn is kept in m_rotation30 and pre-multiplied onto the output's
+        ///        world-from-model rotation.
+        /// @note Name provisional; out of line in vanilla (0x140aba6c0), called by doFootIk while two or more legs have
+        ///       valid ground positions. It turns only when the gain is positive and the normal differs from the model's
+        ///       up by more than 0.001 in some component.
+        void alignWorldFromModelUpWithGroundNormal(const hkbContext& context, const hkVector4& upWS, hkbGeneratorOutput& generatorOutput,
+                                                   const hkbFootIkGains& gains);
+        /// @brief The legs' vertical errors blended between the largest and the smallest:
+        ///        (1 - errorUpDownBias) x max + errorUpDownBias x min.
+        /// @note Name provisional; out of line in vanilla (0x140abc830). doFootIk scales it by the world-from-model
+        ///       feedback gain into m_worldFromModelFeedback, applied to the world-from-model on the next frame.
+        hkReal computeVerticalError(hkReal errorUpDownBias) const;
     };
 } }
