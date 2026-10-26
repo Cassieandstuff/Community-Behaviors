@@ -3,6 +3,8 @@
 #include "features/Foot IK/BodySolve.h"
 #include "features/Foot IK/Rig.h"
 
+#include "core/debug/Settings.h"
+
 #include <platform/hooks/Override.h>
 
 #include <Animation/Ik/TwoJoints/hkaTwoJointsIkSolver.h>
@@ -36,12 +38,11 @@
 /// @note  Owning the driver through its pieces, not by matching or porting doFootIk: doFootIk is 1420 decompiled lines of
 ///        inlined hkaPose bookkeeping, and its sibling hkbFootIkModifier::modify, written in full in the cbmatch
 ///        workbench, stays parked on a per-unit inline (STRUCTURAL 10.1%).
-/// @note  Steps 4-6: vanilla computes every leg's ankle target and hoof roll as always; CB defers the legs' bends, and
-///        once vanilla returns moves the body (the anchors give toward where the legs want them, by the graph's
-///        world-from-model feedback gain, and the spine bends to a fore anchor) and bends every leg with FABRIK over its
-///        full chain (BodySolve). Vanilla's whole-body sink is off meanwhile; a rig with a hind and a fore anchor tilts
-///        toward the ground through CB's AlignToGround. The rig, one frame's targets and the first call of each piece
-///        are logged once.
+/// @note  Steps 4-6: vanilla computes every leg's ankle target and hoof roll, and sinks the whole body, as always; CB
+///        defers the legs' bends, and once vanilla returns bends a spine for the difference between the fore and hind
+///        ends and every leg with FABRIK over its full chain (BodySolve). A rig with a hind and a fore anchor tilts toward
+///        the ground through CB's AlignToGround. Each piece has its own flag (foot_ik_legs, foot_ik_body, foot_ik_tilt)
+///        for isolating it in game. The rig, one frame's targets and the first call of each piece are logged once.
 
 namespace CB::feature::footik {
 
@@ -166,7 +167,7 @@ namespace CB::feature::footik {
                      Describe(DeriveRig(*skeleton, *info), *skeleton));
         }
 
-        void LogBendsOnce(const Call& call, float stiffness)
+        void LogBendsOnce(const Call& call, float errorUpDownBias)
         {
             const hk::hkaSkeleton* skeleton = call.skeleton;
             if (!call.character || !skeleton || !call.numRequests || !FirstOf(&Logged::bends, call.info)) return;
@@ -177,17 +178,34 @@ namespace CB::feature::footik {
                 const __m128&     t     = call.requests[i].setup.m_endTargetMS.m_quad;
                 bends += std::format(" {} ({:.1f} {:.1f} {:.1f})", name ? name : "?", t.m128_f32[0], t.m128_f32[1], t.m128_f32[2]);
             }
-            LOG_INFO("foot IK: {} bends one frame (body stiffness {:.2f}), ankle targets in model space:{}", CharacterName(*call.character),
-                     stiffness, bends);
+            LOG_INFO("foot IK: {} bends one frame (errorUpDownBias {:.2f}), ankle targets in model space:{}", CharacterName(*call.character),
+                     errorUpDownBias, bends);
         }
 
-        /// @brief How far the body gives toward where the legs want it: the graph's world-from-model feedback gain (the
-        ///        gain vanilla sinks the whole body by), 0..1.
-        float Stiffness(hk::hkbGeneratorOutput& output)
+        /// @brief The graph's errorUpDownBias (vanilla's sink blends its legs' errors by it); 0.5 without the controls
+        ///        track.
+        float ErrorUpDownBias(hk::hkbGeneratorOutput& output)
         {
-            if (!output.isValid(hk::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS)) return 0.0f;
+            if (!output.isValid(hk::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS)) return 0.5f;
             const auto* controls = static_cast<const hk::hkbFootIkControlData*>(output.getTrackData(hk::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS));
-            return std::clamp(controls->m_gains.m_worldFromModelFeedbackGain, 0.0f, 1.0f);
+            return controls->m_gains.m_errorUpDownBias;
+        }
+
+        /// @note Read once: the flags are settings.ini's, fixed for the session.
+        bool LegsOn()
+        {
+            static const bool on = core::debug::FlagOn("foot_ik_legs");
+            return on;
+        }
+        bool BodyOn()
+        {
+            static const bool on = core::debug::FlagOn("foot_ik_body");
+            return on;
+        }
+        bool TiltOn()
+        {
+            static const bool on = core::debug::FlagOn("foot_ik_tilt");
+            return on;
         }
 
         void LogFirstCall(std::atomic<bool>& done, const char* what)
@@ -213,9 +231,15 @@ namespace CB::feature::footik {
                 next(driver, context, generatorOutput);
             }
             if (!call.rig || !call.numRequests) return;
-            const float stiffness = Stiffness(generatorOutput);
-            LogBendsOnce(call, stiffness);
-            SolveBodyAndLegs(*call.rig, *call.skeleton, std::span(call.requests.data(), call.numRequests), stiffness, generatorOutput);
+            BodyInputs inputs;
+            inputs.errorUpDownBias = ErrorUpDownBias(generatorOutput);
+            inputs.bendSpine       = BodyOn();
+            if (const hk::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr; setup && setup->m_data) {
+                const __m128& up = setup->m_data->m_modelUpMS.m_quad;
+                inputs.modelUpMS = { up.m128_f32[0], up.m128_f32[1], up.m128_f32[2] };
+            }
+            LogBendsOnce(call, inputs.errorUpDownBias);
+            SolveBodyAndLegs(*call.rig, *call.skeleton, std::span(call.requests.data(), call.numRequests), inputs, generatorOutput);
         }
 
         /// @brief Defers the bend of every leg CB's rig knows: recorded with its target, left unsolved until vanilla's
@@ -226,7 +250,7 @@ namespace CB::feature::footik {
         hk::hkBool OnBend(Bend::Next next, const hk::hkaTwoJointsIkSolver::Setup& setup, hk::hkaPose& pose)
         {
             Call* call = t_call;
-            if (!call || !call->rig) return next(setup, pose);
+            if (!call || !call->rig || !LegsOn()) return next(setup, pose);
             const RigLeg* leg = LegEndingAt(*call->rig, setup.m_endBoneIdx);
             if (!leg || !setup.m_enforceEndPosition || setup.m_enforceEndRotation || call->numRequests >= static_cast<int>(call->requests.size()))
                 return next(setup, pose);
@@ -242,19 +266,18 @@ namespace CB::feature::footik {
             LogFirstCall(logged, "world-from-model tilt");
             const Call*                  call  = t_call;
             const hk::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr;
-            if (call && call->rig && setup && setup->m_data &&
+            if (TiltOn() && call && call->rig && setup && setup->m_data &&
                 AlignToGround(*call->rig, *driver, setup->m_data->m_modelUpMS, setup->m_data->m_modelRightMS, generatorOutput, gains))
                 return;
             next(driver, context, upWS, generatorOutput, gains);
         }
 
-        /// @brief No vertical feedback while CB's body solve runs: the anchors (the root among them) take what vanilla's
-        ///        whole-body sink would, and both would lower the body twice.
+        /// @note Passes through: vanilla's sink owns the whole body's height (BodySolve only bends spines for the
+        ///       difference between the fore and hind ends).
         hk::hkReal OnVerticalError(VerticalError::Next next, const hk::hkbFootIkDriver* driver, hk::hkReal errorUpDownBias)
         {
             static std::atomic<bool> logged{ false };
             LogFirstCall(logged, "vertical feedback");
-            if (const Call* call = t_call; call && call->rig) return 0.0f;
             return next(driver, errorUpDownBias);
         }
 
