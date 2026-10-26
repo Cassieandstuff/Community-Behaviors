@@ -220,15 +220,24 @@ namespace CB::core::debug {
           "the request searches at once. Without the add-on it does nothing. Prototype." },
         { "foot_ik", FlagKind::IniBool, "FootIk", "bEnable", false, false,
           "FABRIK foot IK",
-          "Steps 1-6 of CB's foot IK: every character with foot IK data (creatures and people) runs CB's driver. Vanilla "
-          "still finds each foot's ground target and rolls the foot to it; CB then moves the body and bends the legs. The "
-          "body's anchors (the first bone another leg also hangs from: a horse's pelvis and ribcage, a person's pelvis) "
-          "give toward where their legs want them by the graph's world-from-model feedback gain: the root carries the "
-          "pelvis, the spine bends to bring the ribcage. Each leg bends with FABRIK over its whole chain (a horse's shoulder "
-          "blade or femur down to the hoof), every joint hinging the way the animation bends it and never through "
-          "straight, the knee within the data's range. Vanilla's whole-body sink is off; a creature with a hind and a "
-          "fore anchor tilts toward the slope between its hind and fore hooves at the graph's align gain. Logs once per "
-          "creature the chains and one frame's ankle targets. Unproven in game." },
+          "CB's foot IK: every character with foot IK data (creatures and people) runs CB's driver. Vanilla still finds "
+          "each foot's ground target, rolls the foot to it and sinks the whole body; CB bends the legs and the spine (the "
+          "three pieces below, each on unless turned off). Logs once per creature the chains and one frame's ankle "
+          "targets. Unproven in game." },
+        { "foot_ik_legs", FlagKind::IniBool, "FootIk", "bLegs", true, true,
+          "Foot IK: FABRIK legs",
+          "With bEnable: each leg bends with FABRIK over its whole chain (a horse's shoulder blade or femur down to the "
+          "hoof), every joint hinging the way the animation bends it and never through straight, the knee one way within "
+          "the data's range. Off = vanilla's two-joint bend (and no spine bend, which needs these legs)." },
+        { "foot_ik_body", FlagKind::IniBool, "FootIk", "bBody", true, true,
+          "Foot IK: spine bend",
+          "With bEnable and bLegs: a creature with a hind and a fore anchor (a horse's pelvis and ribcage) bends its spine "
+          "so the fore end rises or drops by what its legs ask beyond the hind end's; each spine joint folds at most 10 "
+          "degrees past the animation. Vanilla's sink keeps the whole body's height. Off = the spine as animated." },
+        { "foot_ik_tilt", FlagKind::IniBool, "FootIk", "bTilt", true, true,
+          "Foot IK: ground tilt",
+          "With bEnable: a creature with a hind and a fore anchor tilts toward the slope between its hind and fore hooves "
+          "at the graph's align gain (through vanilla's channel into the controller's pitch). Off = vanilla's tilt." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "

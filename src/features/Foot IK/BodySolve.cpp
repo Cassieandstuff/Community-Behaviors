@@ -204,7 +204,7 @@ namespace CB::feature::footik {
 
     }  // namespace
 
-    void SolveBodyAndLegs(const Rig& rig, const hk::hkaSkeleton& skeleton, std::span<const LegRequest> requests, float stiffness,
+    void SolveBodyAndLegs(const Rig& rig, const hk::hkaSkeleton& skeleton, std::span<const LegRequest> requests, const BodyInputs& inputs,
                           hk::hkbGeneratorOutput& output)
     {
         Pose pose(skeleton, output);
@@ -225,34 +225,48 @@ namespace CB::feature::footik {
                 if (!pose.Valid(bone)) return;
         }
 
-        if (stiffness > 0.0f && !spineBones.empty()) {
-            ik::Body body;
-            body.root = pose.Model(rig.bodyRoot).t;
-            for (const std::vector<hk::hkInt16>& bones : spineBones) body.spines.push_back(SpineChain(Positions(pose, bones)));
-            for (const LegRequest* leg : legs) {
-                std::size_t anchor = spineBones.size();
-                for (std::size_t a = 0; a < spineBones.size(); a++)
-                    if (spineBones[a].back() == leg->rigLeg->anchor) anchor = a;
-                ik::Chain chain  = LegChain(pose, *leg);
-                const ik::Vec3 t = Target(*leg, chain.joints.back());
-                body.limbs.push_back({ std::move(chain), anchor, t });
-            }
-            const ik::Vec3 root0 = body.root;
-            ik::SolveBody(body, { std::clamp(stiffness, 0.0f, 1.0f), kLimb, kSpine });
+        if (inputs.bendSpine && spineBones.size() >= 2) {
+            const ik::Vec3 up = ik::Normalized(inputs.modelUpMS, { 0.0f, 0.0f, 1.0f });
 
-            for (std::size_t a = 0; a < spineBones.size(); a++) {
-                const std::vector<hk::hkInt16>& bones = spineBones[a];
-                const ik::Chain&                chain = body.spines[a];
-                if (bones.size() < 2) continue;
-                std::vector<ik::Quat> rotations = ik::AimRotations(chain, Rotations(pose, bones));
-                const std::size_t     last      = bones.size() - 1;
-                rotations[last] = ik::Normalized(ik::ShortestArc(chain.source[last] - chain.source[last - 1], chain.joints[last] - chain.joints[last - 1]) *
-                                                 pose.Model(bones[last]).r);
-                for (std::size_t i = 0; i < bones.size(); i++) pose.SetModelRotation(bones[i], rotations[i]);
+            std::vector<float> highest(spineBones.size(), -1e30f), lowest(spineBones.size(), 1e30f);
+            for (const LegRequest* leg : legs) {
+                for (std::size_t a = 0; a < spineBones.size(); a++) {
+                    if (spineBones[a].back() != leg->rigLeg->anchor) continue;
+                    ik::Chain      reach = LegChain(pose, *leg);
+                    const ik::Vec3 base  = reach.joints.front();
+                    const float    ask   = ik::Dot(ik::ReachBack(reach, Target(*leg, reach.joints.back())) - base, up);
+                    highest[a]           = std::max(highest[a], ask);
+                    lowest[a]            = std::min(lowest[a], ask);
+                }
             }
-            const ik::Vec3 rootMove = body.root - root0;
-            if (ik::Dot(rootMove, rootMove) > 1e-8f) pose.MoveModel(rig.bodyRoot, rootMove);
-            pose.Update();
+            const float bias  = std::clamp(inputs.errorUpDownBias, 0.0f, 1.0f);
+            const auto  askOf = [&](std::size_t a) { return (1.0f - bias) * highest[a] + bias * lowest[a]; };
+            const auto  pulled = [&](std::size_t a) { return lowest[a] <= highest[a]; };
+
+            float rigidAsk = 0.0f;
+            int   rigid    = 0;
+            for (std::size_t a = 0; a < spineBones.size(); a++)
+                if (spineBones[a].size() <= 1 && pulled(a)) {
+                    rigidAsk += askOf(a);
+                    rigid++;
+                }
+
+            if (rigid) {
+                rigidAsk /= static_cast<float>(rigid);
+                for (std::size_t a = 0; a < spineBones.size(); a++) {
+                    const std::vector<hk::hkInt16>& bones = spineBones[a];
+                    if (bones.size() < 2 || !pulled(a)) continue;
+                    ik::Chain      chain  = SpineChain(Positions(pose, bones));
+                    const ik::Vec3 anchor = chain.joints.back();
+                    ik::Solve(chain, anchor + up * (askOf(a) - rigidAsk), kSpine);
+                    std::vector<ik::Quat> rotations = ik::AimRotations(chain, Rotations(pose, bones));
+                    const std::size_t     last      = bones.size() - 1;
+                    rotations[last] = ik::Normalized(ik::ShortestArc(chain.source[last] - chain.source[last - 1], chain.joints[last] - chain.joints[last - 1]) *
+                                                     pose.Model(bones[last]).r);
+                    for (std::size_t i = 0; i < bones.size(); i++) pose.SetModelRotation(bones[i], rotations[i]);
+                }
+                pose.Update();
+            }
         }
 
         for (std::size_t l = 0; l < legs.size(); l++) {
