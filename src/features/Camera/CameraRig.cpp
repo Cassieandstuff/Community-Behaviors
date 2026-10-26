@@ -36,6 +36,20 @@ namespace CB::feature::camera::rig {
         return out;
     }
 
+    float StepEase(const EaseParams& p, EaseState& s, float target, float dt)
+    {
+        if (p.settle <= 0.0f) s = { target, 0.0f };
+        if (p.settle <= 0.0f || dt <= 0.0f) return s.value;
+        const float omega  = 2.0f / p.settle;
+        const float x      = omega * dt;
+        const float decay  = 1.0f / (1.0f + x + 0.48f * x * x + 0.235f * x * x * x);
+        const float change = s.value - target;
+        const float temp   = (s.rate + omega * change) * dt;
+        s.rate             = (s.rate - omega * temp) * decay;
+        s.value            = target + (change + temp) * decay;
+        return s.value;
+    }
+
     Vec3 StepCollision(const CollisionParams& p, CollisionState& s, const CollisionIn& in)
     {
         const Vec3  arm  = in.eye - in.pivot;

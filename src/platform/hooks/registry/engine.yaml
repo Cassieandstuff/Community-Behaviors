@@ -201,6 +201,12 @@ symbols:
   - { name: Actor_IsInvulnerable_IsGhostCall, kind: call, se: 36715+0x2a, ae: 37725+0x22, vr: 0 }  # CALL Actor::IsGhost in Actor's MagicTarget::IsInvulnerable (slot 4, this = MagicTarget at actor+0x98 SE / +0xa0 AE)
   - { name: PlayerCharacter_IsInvulnerable_IsGhostCall, kind: call, se: 39428+0x14, ae: 40504+0x14, vr: 0 }  # CALL Actor::IsGhost in PlayerCharacter's MagicTarget::IsInvulnerable, after the god-mode check
 
+  # --- Player camera ---
+  - { name: AimPick_IsInFreeRotationCall, kind: call, se: 0, ae: 41246+0x540, vr: 0 }  # CALL PlayerCamera::IsInFreeRotation (0x1408e3310) in the player's per-frame crosshair pick 0x140764310: free = ray from the eye along heading/pitch, else from the camera along its view (1.6.1170)
+  - { name: Actor_GetCameraHeight, kind: func, se: 0, ae: 37477, vr: 0, cpp: "CB::platform::game::Actor_GetCameraHeight", mangled: "?Actor_GetCameraHeight@game@platform@CB@@YAMPEAVActor@RE@@@Z", header: "platform/game/Camera.h" }  # the third-person pivot's height over the target's root, 0x140674980 (1.6.1170)
+  - { name: MountCamera_PushCameraStateCall, kind: call, se: 0, ae: 50821+0xe1, vr: 0 }  # CALL PlayerCamera::PushCameraState (0x1408e6bd0) in StartMountCamera 0x1408e3da0, after it retargeted the camera to the mount and handed the horse/dragon state its handle; then the HUD's "HorseMode" (1.6.1170)
+  - { name: MountEnd_ExitMountCameraCall, kind: call, se: 0, ae: 40726+0x10, vr: 0 }  # CALL ExitMountCamera (0x1408e3eb0) in the player's mount end 0x14074b3d0 (from the dismount's StopHorseCamera); vanilla acts only when the horse or dragon state is current (1.6.1170)
+
   # --- Havok type system + packfile loading ---
   - { name: hkDefaultBuiltinTypeRegistry_AddType, kind: func, se: 59462, ae: 60137, vr: 0 }  # the ONE call that registers a custom class at runtime
   - { name: hkDefaultBuiltinTypeRegistry_Reinitialize, kind: func, se: 59458, ae: 60133, vr: 0 }  # rebuilds the registries from the static lists (would drop runtime adds)

@@ -6,7 +6,8 @@
 /// @brief CB's third-person camera rig: a fixed pipeline of stages, each shaped like a blueprint node (its profile's
 ///        parameters, its own state, typed inputs and an output), so a stage can later become a CB blueprint node
 ///        unchanged. Plain math: no game types.
-/// @note Order per frame: Orientation → Anchor → Boom → (the game casts the boom against the world) → Collision.
+/// @note Order per frame: Orientation → Anchor → (components' framing, eased: Mounted) → Boom → (the game casts the boom
+///       against the world) → Collision.
 /// @note Units are game units and seconds; a halflife of 0 means "no smoothing".
 
 namespace CB::feature::camera::rig {
@@ -19,6 +20,7 @@ namespace CB::feature::camera::rig {
     inline Vec3  operator-(Vec3 a, Vec3 b) { return { a.x - b.x, a.y - b.y, a.z - b.z }; }
     inline Vec3  operator*(Vec3 a, float s) { return { a.x * s, a.y * s, a.z * s }; }
     inline float Length(Vec3 a) { return std::sqrt(a.x * a.x + a.y * a.y + a.z * a.z); }
+    inline Vec3  Lerp(Vec3 a, Vec3 b, float t) { return a + (b - a) * t; }
 
     /// @brief A rotation as its row-major matrix, laid out like Skyrim's NiMatrix3 (`m[row][column]`), applied as
     ///        world = M * local with the camera's local axes x right, y forward, z up — vanilla's third-person
@@ -106,13 +108,38 @@ namespace CB::feature::camera::rig {
     };
     Vec3 StepCollision(const CollisionParams& p, CollisionState& s, const CollisionIn& in);
 
+    /// @brief A 0..1 weight eased toward its target on a critically damped spring: how far the camera has moved into
+    ///        a component's framing.
+    /// @note Critically damped so it arrives without overshoot; `settle` is roughly the time it takes (the SmoothDamp
+    ///       of Game Programming Gems 4, as in Unity's Mathf.SmoothDamp).
+    struct EaseParams {
+        float settle = 0.5f;
+    };
+    struct EaseState {
+        float value = 0.0f;
+        float rate  = 0.0f;
+    };
+    float StepEase(const EaseParams& p, EaseState& s, float target, float dt);
+
+    /// @brief The Mounted component: while the player rides, the pivot moves to the mount's (its root plus its camera
+    ///        height) and the boom's shoulder to the mount's offset — vanilla's mounted framing (HorseCameraState: the
+    ///        mount race's camera offset sheathed, the mounted combat offset drawn).
+    struct MountedParams {
+        EaseParams ease;
+        float      shoulderHalflife = 0.2f;  ///< smooths the mount offset's jump on drawing or sheathing
+        float      height           = 0.0f;  ///< added to the mount's camera height
+        EaseParams body{ 0.3f };             ///< the rider's pivot onto the body for the mount and dismount clips and off it
+        float      comHalflife      = 0.5f;  ///< smooths the on-foot measure of the body's offset from the root
+    };
+
     /// @brief One named set of every stage's parameters.
     struct Profile {
         const char*       name = "Default";
         OrientationParams orientation;
         AnchorParams      anchor;
-        BoomParams      boom;
-        CollisionParams collision;
+        BoomParams        boom;
+        CollisionParams   collision;
+        MountedParams     mounted;
     };
 
     /// @note Orientation is not here: it survives a reset of the rest (re-entering third person keeps the view).
