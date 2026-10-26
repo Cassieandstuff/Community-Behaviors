@@ -1,27 +1,28 @@
 #include "PCH.h"
 
+#include "features/Foot IK/BodySolve.h"
 #include "features/Foot IK/Rig.h"
 
 #include <platform/hooks/Override.h>
-#include <platform/ik/Fabrik.h>
 
 #include <Animation/Ik/TwoJoints/hkaTwoJointsIkSolver.h>
-#include <Animation/Rig/hkaPose.h>
 #include <Animation/Rig/hkaSkeleton.h>
 #include <Behavior/Character/hkbCharacter.h>
 #include <Behavior/Context/hkbContext.h>
 #include <Behavior/Driver/FootIk/hkbFootIkDriver.h>
 #include <Behavior/Driver/FootIk/hkbFootIkDriverInfo.h>
+#include <Behavior/Generator/hkbGeneratorOutput.h>
+#include <Behavior/Modifier/FootIk/hkbFootIkGains.h>
 
 #include <PluginLogger.h>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cmath>
 #include <format>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -35,9 +36,12 @@
 /// @note  Owning the driver through its pieces, not by matching or porting doFootIk: doFootIk is 1420 decompiled lines of
 ///        inlined hkaPose bookkeeping, and its sibling hkbFootIkModifier::modify, written in full in the cbmatch
 ///        workbench, stays parked on a per-unit inline (STRUCTURAL 10.1%).
-/// @note  Step 4: each leg's bend is FABRIK over its full chain (platform/ik) toward vanilla's own ankle target, in
-///        place of the two-joint solve; vanilla's targets, hoof roll, tilt and feedback are untouched. The rig, one
-///        frame's targets and the first call of each piece are logged once.
+/// @note  Steps 4-6: vanilla computes every leg's ankle target and hoof roll as always; CB defers the legs' bends, and
+///        once vanilla returns moves the body (the anchors give toward where the legs want them, by the graph's
+///        world-from-model feedback gain, and the spine bends to a fore anchor) and bends every leg with FABRIK over its
+///        full chain (BodySolve). Vanilla's whole-body sink is off meanwhile; a rig with a hind and a fore anchor tilts
+///        toward the ground through CB's AlignToGround. The rig, one frame's targets and the first call of each piece
+///        are logged once.
 
 namespace CB::feature::footik {
 
@@ -45,7 +49,6 @@ namespace CB::feature::footik {
 
         namespace hk    = CB::havok;
         namespace hooks = platform::hooks;
-        namespace ik    = platform::ik;
 
         using DoFootIk      = hooks::Override<&hk::hkbFootIkDriver::doFootIk>;
         using Bend          = hooks::Override<&hk::hkaTwoJointsIkSolver::solve>;
@@ -54,17 +57,13 @@ namespace CB::feature::footik {
 
         /// @brief One doFootIk call on this thread, while vanilla's driver runs inside it.
         struct Call {
-            /// @brief A leg's two-joint bend as vanilla asked for it.
-            struct LegBend {
-                hk::hkInt16   ankle;
-                hk::hkVector4 targetMS;
-            };
-
             const hk::hkbCharacter*        character = nullptr;
+            const hk::hkaSkeleton*         skeleton  = nullptr;
             const hk::hkbFootIkDriverInfo* info      = nullptr;
             std::shared_ptr<const Rig>     rig;
-            std::array<LegBend, 8>         bends;
-            int                            numBends  = 0;
+            /// @brief The legs' bends vanilla asked for and CB deferred, solved once vanilla returns.
+            std::array<LegRequest, 8>      requests;
+            int                            numRequests = 0;
         };
 
         /// @brief A rig derived once per foot IK data and skeleton.
@@ -111,81 +110,11 @@ namespace CB::feature::footik {
             return entry.rig->problem.empty() ? entry.rig : nullptr;
         }
 
-        ik::Vec3 ToIk(const hk::hkVector4& v) { return { v.m_quad.m128_f32[0], v.m_quad.m128_f32[1], v.m_quad.m128_f32[2] }; }
-        ik::Quat ToIk(const hk::hkQuaternion& q)
-        {
-            return { q.m_vec.m_quad.m128_f32[0], q.m_vec.m_quad.m128_f32[1], q.m_vec.m_quad.m128_f32[2], q.m_vec.m_quad.m128_f32[3] };
-        }
-        hk::hkQuaternion ToHk(const ik::Quat& q)
-        {
-            hk::hkQuaternion out;
-            out.m_vec.m_quad = _mm_setr_ps(q.x, q.y, q.z, q.w);
-            return out;
-        }
-
         const RigLeg* LegEndingAt(const Rig& rig, hk::hkInt16 ankle)
         {
             for (const RigLeg& leg : rig.legs)
                 if (!leg.chain.empty() && leg.chain.back() == ankle) return &leg;
             return nullptr;
-        }
-
-        /// @brief The hinge at vanilla's knee bone takes the data's knee range: the two-joint setup's cosine clamp on the
-        ///        knee's interior angle, as a bend from straight.
-        /// @note  Vanilla measures the angle between the hip-knee and knee-ankle chords; here it limits the bend between
-        ///        the knee bone and the bone below it, which matches where no bone sits between knee and ankle. The
-        ///        animated bend is always allowed, so a pose already outside the range does not snap.
-        void ApplyKneeRange(ik::Chain& chain, const RigLeg& leg, const hk::hkaTwoJointsIkSolver::Setup& setup, const hk::hkaPose& pose)
-        {
-            const auto knee = std::find(leg.chain.begin(), leg.chain.end(), setup.m_secondJointIdx);
-            if (knee == leg.chain.end() || knee == leg.chain.begin() || knee + 1 == leg.chain.end()) return;
-            ik::Hinge& hinge = chain.hinges[static_cast<std::size_t>(knee - leg.chain.begin()) - 1];
-
-            constexpr float kPi     = 3.14159265f;
-            const float     minBend = kPi - std::acos(std::clamp(setup.m_cosineMaxHingeAngle, -1.0f, 1.0f));
-            const float     maxBend = kPi - std::acos(std::clamp(setup.m_cosineMinHingeAngle, -1.0f, 1.0f));
-            if (hinge.minBend < 0.0f || ik::Dot(hinge.axis, hinge.axis) < 0.25f) {
-                const hk::hkQsTransform& kneeMS = pose.getBoneModelSpace(setup.m_secondJointIdx);
-                hinge.axis    = ik::Normalized(ik::Rotate(ToIk(kneeMS.m_rotation), ToIk(setup.m_hingeAxisLS)), hinge.axis);
-                hinge.minBend = -maxBend;
-                hinge.maxBend = maxBend;
-                return;
-            }
-            const std::size_t i        = static_cast<std::size_t>(knee - leg.chain.begin());
-            const ik::Vec3    parent   = ik::Normalized(chain.source[i] - chain.source[i - 1]);
-            const ik::Vec3    child    = ik::Normalized(chain.source[i + 1] - chain.source[i]);
-            const float       animated = std::atan2(ik::Dot(hinge.axis, ik::Cross(parent, child)), ik::Dot(parent, child));
-            hinge.minBend              = std::min(std::max(0.0f, minBend), animated);
-            hinge.maxBend              = std::max(std::min(ik::kDefaultMaxBend, maxBend), animated);
-        }
-
-        /// @brief Bends `leg` toward vanilla's ankle target with FABRIK, writing the chain's model rotations into `pose`
-        ///        (each with PROPAGATE, so the bones below follow).
-        /// @note  The end bone's own rotation is left to doFootPlacement, which sets the ankle's after this returns
-        ///        (vanilla's hoof roll to the ground).
-        void SolveLeg(const RigLeg& leg, const hk::hkaTwoJointsIkSolver::Setup& setup, hk::hkaPose& pose)
-        {
-            const float weight = std::clamp(setup.m_secondJointIkGain, 0.0f, 1.0f);
-            if (weight <= 0.0f || leg.chain.size() < 2) return;
-
-            std::vector<ik::Vec3> joints;
-            std::vector<ik::Quat> rotations;
-            for (const hk::hkInt16 bone : leg.chain) {
-                const hk::hkQsTransform& ms = pose.getBoneModelSpace(bone);
-                joints.push_back(ToIk(ms.m_translation));
-                rotations.push_back(ToIk(ms.m_rotation));
-            }
-            ik::Chain chain   = ik::MakeChain(joints);
-            chain.holdEndBone = leg.chain.size() >= 4;
-            ApplyKneeRange(chain, leg, setup, pose);
-
-            const ik::Vec3 ankle  = joints.back();
-            const ik::Vec3 target = ankle + (ToIk(setup.m_endTargetMS) - ankle) * weight;
-            ik::Solve(chain, target);
-
-            const std::vector<ik::Quat> solved = ik::AimRotations(chain, rotations);
-            for (std::size_t i = 0; i + 1 < leg.chain.size(); i++)
-                pose.accessBoneModelSpace(leg.chain[i], hk::hkaPose::PROPAGATE).m_rotation = ToHk(solved[i]);
         }
 
         /// @note Set only for the length of the doFootIk subscriber's call into vanilla: the two-joint solver is shared
@@ -237,18 +166,28 @@ namespace CB::feature::footik {
                      Describe(DeriveRig(*skeleton, *info), *skeleton));
         }
 
-        void LogBendsOnce(const Call& call)
+        void LogBendsOnce(const Call& call, float stiffness)
         {
-            const hk::hkaSkeleton* skeleton = nullptr;
-            if (!call.character || !InfoOf(*call.character, skeleton) || !call.numBends || !FirstOf(&Logged::bends, call.info)) return;
+            const hk::hkaSkeleton* skeleton = call.skeleton;
+            if (!call.character || !skeleton || !call.numRequests || !FirstOf(&Logged::bends, call.info)) return;
             std::string bends;
-            for (int i = 0; i < call.numBends; i++) {
-                const auto&   b    = call.bends[i];
-                const char*   name = b.ankle >= 0 && b.ankle < skeleton->m_bones.getSize() ? skeleton->m_bones[b.ankle].m_name.cString() : nullptr;
-                const __m128& t    = b.targetMS.m_quad;
+            for (int i = 0; i < call.numRequests; i++) {
+                const hk::hkInt16 ankle = call.requests[i].setup.m_endBoneIdx;
+                const char*       name  = ankle >= 0 && ankle < skeleton->m_bones.getSize() ? skeleton->m_bones[ankle].m_name.cString() : nullptr;
+                const __m128&     t     = call.requests[i].setup.m_endTargetMS.m_quad;
                 bends += std::format(" {} ({:.1f} {:.1f} {:.1f})", name ? name : "?", t.m128_f32[0], t.m128_f32[1], t.m128_f32[2]);
             }
-            LOG_INFO("foot IK: {} bends one frame, ankle targets in model space:{}", CharacterName(*call.character), bends);
+            LOG_INFO("foot IK: {} bends one frame (body stiffness {:.2f}), ankle targets in model space:{}", CharacterName(*call.character),
+                     stiffness, bends);
+        }
+
+        /// @brief How far the body gives toward where the legs want it: the graph's world-from-model feedback gain (the
+        ///        gain vanilla sinks the whole body by), 0..1.
+        float Stiffness(hk::hkbGeneratorOutput& output)
+        {
+            if (!output.isValid(hk::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS)) return 0.0f;
+            const auto* controls = static_cast<const hk::hkbFootIkControlData*>(output.getTrackData(hk::hkbGeneratorOutput::TRACK_FOOT_IK_CONTROLS));
+            return std::clamp(controls->m_gains.m_worldFromModelFeedbackGain, 0.0f, 1.0f);
         }
 
         void LogFirstCall(std::atomic<bool>& done, const char* what)
@@ -261,45 +200,61 @@ namespace CB::feature::footik {
         {
             Call call;
             if (context.m_character) {
-                const hk::hkaSkeleton* skeleton = nullptr;
-                call.character                  = context.m_character;
-                call.info                       = InfoOf(*context.m_character, skeleton);
-                if (call.info) call.rig = RigFor(*skeleton, *call.info);
+                call.character = context.m_character;
+                call.info      = InfoOf(*context.m_character, call.skeleton);
+                if (call.info) call.rig = RigFor(*call.skeleton, *call.info);
                 LogRigOnce(*context.m_character);
             }
-            struct Scope {
-                explicit Scope(Call* c) { t_call = c; }
-                ~Scope() { t_call = nullptr; }
-            } scope(&call);
-            next(driver, context, generatorOutput);
-            LogBendsOnce(call);
+            {
+                struct Scope {
+                    explicit Scope(Call* c) { t_call = c; }
+                    ~Scope() { t_call = nullptr; }
+                } scope(&call);
+                next(driver, context, generatorOutput);
+            }
+            if (!call.rig || !call.numRequests) return;
+            const float stiffness = Stiffness(generatorOutput);
+            LogBendsOnce(call, stiffness);
+            SolveBodyAndLegs(*call.rig, *call.skeleton, std::span(call.requests.data(), call.numRequests), stiffness, generatorOutput);
         }
 
-        /// @note Vanilla's doFootPlacement ignores what the solve returns (it reads the pose straight after), and asks only
-        ///       for the end position (never the end rotation).
+        /// @brief Defers the bend of every leg CB's rig knows: recorded with its target, left unsolved until vanilla's
+        ///        driver returns and all the legs' targets are known (the body moves for all of them at once).
+        /// @note  Vanilla's doFootPlacement ignores what the solve returns, reads the ankle straight after only to roll it
+        ///        to the ground (a model-space rotation, kept through CB's solve), and asks for the end position, never the
+        ///        end rotation.
         hk::hkBool OnBend(Bend::Next next, const hk::hkaTwoJointsIkSolver::Setup& setup, hk::hkaPose& pose)
         {
             Call* call = t_call;
-            if (!call) return next(setup, pose);
-            if (call->numBends < static_cast<int>(call->bends.size())) call->bends[call->numBends++] = { setup.m_endBoneIdx, setup.m_endTargetMS };
-            const RigLeg* leg = call->rig ? LegEndingAt(*call->rig, setup.m_endBoneIdx) : nullptr;
-            if (!leg || !setup.m_enforceEndPosition || setup.m_enforceEndRotation) return next(setup, pose);
-            SolveLeg(*leg, setup, pose);
+            if (!call || !call->rig) return next(setup, pose);
+            const RigLeg* leg = LegEndingAt(*call->rig, setup.m_endBoneIdx);
+            if (!leg || !setup.m_enforceEndPosition || setup.m_enforceEndRotation || call->numRequests >= static_cast<int>(call->requests.size()))
+                return next(setup, pose);
+            call->requests[call->numRequests++] = { leg, setup };
             return true;
         }
 
+        /// @note CB's tilt for a rig with a hind and a fore anchor (the horse); any other rig keeps vanilla's.
         void OnAlign(Align::Next next, hk::hkbFootIkDriver* driver, const hk::hkbContext& context, const hk::hkVector4& upWS,
                      hk::hkbGeneratorOutput& generatorOutput, const hk::hkbFootIkGains& gains)
         {
             static std::atomic<bool> logged{ false };
             LogFirstCall(logged, "world-from-model tilt");
+            const Call*                  call  = t_call;
+            const hk::hkbCharacterSetup* setup = context.m_character ? context.m_character->m_setup.val() : nullptr;
+            if (call && call->rig && setup && setup->m_data &&
+                AlignToGround(*call->rig, *driver, setup->m_data->m_modelUpMS, setup->m_data->m_modelRightMS, generatorOutput, gains))
+                return;
             next(driver, context, upWS, generatorOutput, gains);
         }
 
+        /// @brief No vertical feedback while CB's body solve runs: the anchors (the root among them) take what vanilla's
+        ///        whole-body sink would, and both would lower the body twice.
         hk::hkReal OnVerticalError(VerticalError::Next next, const hk::hkbFootIkDriver* driver, hk::hkReal errorUpDownBias)
         {
             static std::atomic<bool> logged{ false };
             LogFirstCall(logged, "vertical feedback");
+            if (const Call* call = t_call; call && call->rig) return 0.0f;
             return next(driver, errorUpDownBias);
         }
 
