@@ -220,11 +220,15 @@ namespace CB::core::debug {
           "the request searches at once. Without the add-on it does nothing. Prototype." },
         { "foot_ik", FlagKind::IniBool, "FootIk", "bEnable", false, false,
           "FABRIK foot IK",
-          "Steps 1 and 3 of CB's foot IK: every character with foot IK data passes through CB's driver, which logs once "
-          "per creature the leg chains and body anchors it derives from the data (each leg from below its anchor down to "
-          "the ankle; the anchor is the first bone another leg also hangs from) and the ankle targets vanilla bends the "
-          "legs toward, and logs the first call of each vanilla piece CB overrides (the body's tilt to the ground, the "
-          "vertical feedback). The feet are still placed by vanilla. Unproven in game." },
+          "Steps 1-6 of CB's foot IK: every character with foot IK data (creatures and people) runs CB's driver. Vanilla "
+          "still finds each foot's ground target and rolls the foot to it; CB then moves the body and bends the legs. The "
+          "body's anchors (the first bone another leg also hangs from: a horse's pelvis and ribcage, a person's pelvis) "
+          "give toward where their legs want them by the graph's world-from-model feedback gain: the root carries the "
+          "pelvis, the spine bends to bring the ribcage. Each leg bends with FABRIK over its whole chain (a horse's shoulder "
+          "blade or femur down to the hoof), every joint hinging the way the animation bends it and never through "
+          "straight, the knee within the data's range. Vanilla's whole-body sink is off; a creature with a hind and a "
+          "fore anchor tilts toward the slope between its hind and fore hooves at the graph's align gain. Logs once per "
+          "creature the chains and one frame's ankle targets. Unproven in game." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "

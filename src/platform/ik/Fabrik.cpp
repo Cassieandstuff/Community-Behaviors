@@ -155,58 +155,48 @@ namespace CB::platform::ik {
             return worst;
         };
 
-        std::vector<Vec3>  bases(body.limbs.size());
-        std::vector<Vec3>  want(numAnchors), moved(numAnchors);
-        std::vector<int>   pulls(numAnchors);
-        for (int iteration = 0; iteration < params.maxIterations; iteration++) {
-            if (worstError() <= params.limb.tolerance) break;
+        std::vector<Vec3> want(numAnchors), moved(numAnchors);
+        std::vector<int>  pulls(numAnchors);
+        for (const Limb& limb : body.limbs) {
+            if (!hangs(limb)) continue;
+            Chain reach = limb.chain;
+            want[limb.anchor] += ReachBack(reach, limb.target) - limb.chain.joints.front();
+            pulls[limb.anchor]++;
+        }
+        for (std::size_t a = 0; a < numAnchors; a++)
+            if (pulls[a]) want[a] = want[a] * (params.stiffness / static_cast<float>(pulls[a]));
 
-            std::fill(want.begin(), want.end(), Vec3{});
-            std::fill(pulls.begin(), pulls.end(), 0);
-            for (std::size_t l = 0; l < body.limbs.size(); l++) {
-                Limb& limb = body.limbs[l];
-                if (!hangs(limb)) continue;
-                bases[l] = limb.chain.joints.front();
-                want[limb.anchor] += ReachBack(limb.chain, limb.target) - bases[l];
-                pulls[limb.anchor]++;
-            }
-            for (std::size_t a = 0; a < numAnchors; a++)
-                if (pulls[a]) want[a] = want[a] * (params.stiffness / static_cast<float>(pulls[a]));
-
-            Vec3 rootMove;
-            int  rigid = 0, pulled = 0;
-            Vec3 pulledSum;
-            for (std::size_t a = 0; a < numAnchors; a++) {
-                if (!pulls[a]) continue;
-                pulledSum += want[a];
-                pulled++;
-                if (body.spines[a].joints.size() <= 1) {
-                    rootMove += want[a];
-                    rigid++;
-                }
-            }
-            if (rigid) rootMove = rootMove * (1.0f / static_cast<float>(rigid));
-            else if (pulled) rootMove = pulledSum * (1.0f / static_cast<float>(pulled));
-
-            body.root += rootMove;
-            for (std::size_t a = 0; a < numAnchors; a++) {
-                Chain& spine = body.spines[a];
-                for (Vec3& joint : spine.joints) joint += rootMove;
-                moved[a] = rootMove;
-                if (spine.joints.size() < 2 || !pulls[a]) continue;
-                const Vec3 anchor = spine.joints.back();
-                Solve(spine, anchor + (want[a] - rootMove), params.spine);
-                moved[a] += spine.joints.back() - anchor;
-            }
-
-            for (std::size_t l = 0; l < body.limbs.size(); l++) {
-                Limb& limb = body.limbs[l];
-                if (hangs(limb)) ReachOut(limb.chain, bases[l] + moved[limb.anchor]);
+        Vec3 rootMove, pulledSum;
+        int  rigid = 0, pulled = 0;
+        for (std::size_t a = 0; a < numAnchors; a++) {
+            if (!pulls[a]) continue;
+            pulledSum += want[a];
+            pulled++;
+            if (body.spines[a].joints.size() <= 1) {
+                rootMove += want[a];
+                rigid++;
             }
         }
+        if (rigid) rootMove = rootMove * (1.0f / static_cast<float>(rigid));
+        else if (pulled) rootMove = pulledSum * (1.0f / static_cast<float>(pulled));
 
-        for (Limb& limb : body.limbs)
-            if (limb.chain.joints.size() >= 2) Solve(limb.chain, limb.target, params.limb);
+        body.root += rootMove;
+        for (std::size_t a = 0; a < numAnchors; a++) {
+            Chain& spine = body.spines[a];
+            for (Vec3& joint : spine.joints) joint += rootMove;
+            moved[a] = rootMove;
+            if (spine.joints.size() < 2 || !pulls[a]) continue;
+            const Vec3 anchor = spine.joints.back();
+            Solve(spine, anchor + (want[a] - rootMove), params.spine);
+            moved[a] += spine.joints.back() - anchor;
+        }
+
+        for (Limb& limb : body.limbs) {
+            if (limb.chain.joints.size() < 2) continue;
+            if (limb.anchor < numAnchors)
+                for (Vec3& joint : limb.chain.joints) joint += moved[limb.anchor];
+            Solve(limb.chain, limb.target, params.limb);
+        }
         return worstError();
     }
 

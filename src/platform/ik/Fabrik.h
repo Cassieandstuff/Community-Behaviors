@@ -114,15 +114,18 @@ namespace CB::platform::ik {
 
     struct BodyParams {
         /// @brief How far an anchor gives toward where its limbs want it: 0 = the body never moves, 1 = all the way.
+        /// @note  Of what the limbs ask in the shape they come in, measured once. Measured again after the limbs re-reach
+        ///        (the paper's iterated sub-bases), the ask shrinks as they fold to absorb it: at 0.5 the body gave 0.5
+        ///        units of a 9-unit step and the legs folded for the rest.
         float  stiffness     = 1.0f;
-        int    maxIterations = 10;
         Params limb;
         Params spine;
     };
 
-    /// @brief Multiple end effectors with sub-bases: each iteration the limbs reach back from their targets, every
-    ///        anchor moves (by `stiffness`) toward the mean of what its limbs ask, the root carries the rigid anchors
-    ///        and the spines bend to the others, and the limbs reach out again from where their anchors went.
+    /// @brief Multiple end effectors with sub-bases: every limb reaches back once from its target in the shape it
+    ///        comes in, each anchor is asked to move by the mean of its limbs' asks times `stiffness`, the root carries
+    ///        the rigid anchors and the spines bend to the others, and the limbs, moved with their anchors, solve to
+    ///        their targets from there.
     /// @note  Anchors only translate here: a spine's bend also turns its anchor, which swings the limbs' bases around
     ///        it; a caller writing the spine's rotations reads the true bases back and solves the limbs again from
     ///        them.
