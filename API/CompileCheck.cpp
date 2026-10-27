@@ -47,6 +47,7 @@ namespace {
             std::shared_ptr<cb::resolve::Object> chr = cb::resolve::FindVariant(*g.root, "hkbCharacterData");
             const cb::resolve::FieldValue* up = chr ? chr->FindField("modelUpMS") : nullptr; (void)up;
             if (chr) (void)cb::resolve::AsSchema(chr->Children("legs").front());
+            for (const cb::schema::Field* f : g.root->Fields()) { const std::string& unit = f->unitRef; (void)unit; }
         }
         auto* charStrings = &cb::resolve::ReadCharacterStrings; (void)charStrings;
         cb::resolve::CharacterStrings cs; (void)cs;

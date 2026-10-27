@@ -186,6 +186,10 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                 } else if (hasKey(fn, "empty")) {
                     f.kind = (childStr(fn, "empty") == "ptr") ? FieldKind::EmptyPtr : FieldKind::EmptyArray;
                     f.name = childStr(fn, "name");   ///< @note The reflected member's name (signature only); may be absent.
+                    f.hkType = childStr(fn, "hktype");
+                    if (!f.hkType.empty() && !(f.kind == FieldKind::EmptyPtr && f.hkType == "stringptr")) {
+                        err = out.name + "." + f.name + ": an empty slot's hktype can only be 'stringptr', on `empty: ptr`"; return false;
+                    }
                 } else if (hasKey(fn, "pad")) {
                     f.kind = FieldKind::Pad;  f.count = std::stoi(childStr(fn, "pad"));
                 } else if (hasKey(fn, "skip")) {
@@ -250,6 +254,15 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                             if (!fl.is_seq()) { err = out.name + "." + f.name + ": `role.flags` must be a list"; return false; }
                             for (auto x : fl)
                                 if (x.has_val()) f.roleFlagNames.push_back(toStr(x.val()));
+                        }
+                    }
+                    f.unitRef      = childStr(fn, "unitref");
+                    if (!f.unitRef.empty()) {
+                        if (f.unitRef != "behavior" && f.unitRef != "character" && f.unitRef != "skeleton" && f.unitRef != "animation") {
+                            err = out.name + "." + f.name + ": unknown unitref '" + f.unitRef + "' (behavior, character, skeleton or animation)"; return false;
+                        }
+                        if (f.kind != FieldKind::String && f.kind != FieldKind::CString && f.kind != FieldKind::StringArray) {
+                            err = out.name + "." + f.name + ": unitref needs a string, cstring or stringarray field"; return false;
                         }
                     }
                     if (!f.hkType.empty() && f.hkType != "ulong" && f.hkType != "enum" && f.hkType != "flags") {
@@ -736,7 +749,7 @@ bool Reflect(const Field& f, ReflectedMember& m) {
         case FieldKind::ScalarArray:      m.type = kTypeArray; m.subtype = ScalarType(f.scalar); break;
         case FieldKind::BoolArray:        m.type = kTypeBool; m.cArraySize = static_cast<std::int16_t>(f.count); break;
         case FieldKind::EmptyArray:       m.type = kTypeArray; m.flags = kSerializeIgnored; break;
-        case FieldKind::EmptyPtr:         m.type = kTypePointer; m.flags = kSerializeIgnored; break;
+        case FieldKind::EmptyPtr:         m.type = f.hkType == "stringptr" ? kTypeStringPtr : kTypePointer; m.flags = kSerializeIgnored; break;
         default:                          return false;
     }
     if (f.hkType == "ulong") { m.type = kTypeULong; m.subtype = 0; }

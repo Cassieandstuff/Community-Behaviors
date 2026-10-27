@@ -4,5 +4,5 @@ signature: 0x0fcb5423
 size:      88
 # References another .hkx (BFR).
 fields:
-  - { name: behaviorName, type: string }
-  - { empty: ptr }
+  - { name: behaviorName, type: string, unitref: behavior }
+  - { empty: ptr, name: behavior }

@@ -113,6 +113,7 @@ namespace resolve {
 // ── cb::schema ───────────────────────────────────────────────────────────────
 namespace schema {
     using Registry = CB::engine::schema::SchemaRegistry;         // load Havok/ → classify/size/interpret classes
+    using Field    = CB::engine::schema::Field;                  ///< one member's description (Object::Fields()): kind, refs, unitRef
 
     // The process-wide registry the anim + skeleton codecs read. Point it at the deployed tree
     // (Data/community_behaviors/schema) before the first decode; it loads once and enforces the version stamp.
