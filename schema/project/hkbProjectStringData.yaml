@@ -11,4 +11,4 @@ fields:
   - { name: behaviorPath,       type: string }
   - { name: characterPath,      type: string }
   - { name: fullPathToSource,   type: string }
-  - { empty: ptr }                                # rootPath — SERIALIZE_IGNORED, always null
+  - { empty: ptr, name: rootPath, hktype: stringptr }   # SERIALIZE_IGNORED, always null

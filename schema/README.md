@@ -61,7 +61,8 @@ keys say the rest (no serde effect):
   `kind: enum` descriptor);
 - `hktype: ulong | enum | flags` on a field whose reflected type differs from its `type:` (`enum`/`flags` here
   carries no enum reference; `enum: X` on a scalar means an ENUM member over that scalar, referencing X);
-- `name:` on an `{ empty: … }` slot, the reflected member's name.
+- `name:` on an `{ empty: … }` slot, the reflected member's name; `hktype: stringptr` on an `{ empty: ptr }` slot
+  when that member is an hkStringPtr rather than a pointer (hkbProjectStringData's `rootPath`).
 
 **Class-level `factory: <name>`** names the engine factory name a class stands for, byte-exact (a typed movement
 agent: `factory: "Player Controls"`), so a node's own name field can be checked against its class. At most one class

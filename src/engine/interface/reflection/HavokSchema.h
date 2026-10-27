@@ -90,7 +90,8 @@ struct Field {
                                          ///<        covering all their lines (the adsf section A / B framing).
     bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
                                          ///<        run to the end of the field's frame.
-    std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` — the member's reflected type where it differs
+    std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` (`stringptr` on an `empty: ptr` slot: an
+                                         ///<        ignored hkStringPtr, e.g. hkbProjectStringData.rootPath) — the member's reflected type where it differs
                                          ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
                                          ///<        here carries no enum reference). Signature only; no serde effect.
     bool        enumHkyOnly = false;     ///< @brief `hkyenum:` rather than `enum:` — the .hky renders the value by name, but
