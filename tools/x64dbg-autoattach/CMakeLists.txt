@@ -5,7 +5,7 @@
 # LoadClips call site) can be caught without racing the launch. See AutoAttach.cpp.
 #
 # NEVER shipped: EXCLUDE_FROM_ALL (never builds with the default ALL target) and NOT
-# referenced by cb_deploy — it cannot reach end users. Build it explicitly:
+# staged by BUILDER — it cannot reach end users. Build it explicitly:
 #   cmake --preset release -DCB_BUILD_AUTOATTACH=ON
 #   cmake --build build/release --config RelWithDebInfo --target CBDebugAutoAttach
 # then drop the resulting CBDebugAutoAttach.dll into a dev-only MO2 mod's SKSE/Plugins/.

@@ -174,9 +174,11 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
 
 - `VCPKG_ROOT` — vcpkg clone (toolchain, via the preset). Required.
 - CommonLibSSE-NG is a **git submodule** at `lib/commonlibsse-ng` (alandtse fork, `ng` branch, full SE+AE+VR). No env var — `git submodule update --init --recursive` after clone.
-- `SKYRIM_MODS_FOLDER` — MO2 mods folder; `cb_deploy` ships the mod there (`<mod>/SKSE/Plugins`,
-  `<mod>/community_behaviors/schema`, `<mod>/community_behaviors/plugins/*.hky` bundles).
-- `SKYRIM_TOOLS_FOLDER` — the converter deploys `BehaviorConverter.exe` (+ schema/, templates inside) here.
+- `SKYRIM_MODS_FOLDER` / `SKYRIM_TOOLS_FOLDER` — deploy roots, read only by **BUILDER** (libs-BUILDER, pinned in the
+  root CMakeLists; its README is the contract). A build stages each product in `build/<preset>/stage/<config>/<Name>`,
+  then deploys it: the plugin as the `Community Behaviors` mod (`SKSE/Plugins`, `community_behaviors/schema`,
+  `community_behaviors/plugins/*.hky`), the converter as the `Behavior Converter` tool (exe + schema/, templates
+  inside). `-DBUILDER_DEPLOY=OFF` stages without deploying.
 - `CB_REGEN_SOURCE` — root of the derived-bundle regen sources (e.g. `D:\CB Regen Source`): one folder per
   bundle, NAMED for it (`Skyrim.hky\`, `XPMSSE.hky\`), laid out like a Data folder (`meshes\...`). Each one
   runs the SAME `generate-base-master` regen (decompile everything it holds to reflective units, gate
@@ -196,7 +198,7 @@ toolchain versions **even when the content is identical**, so a byte-diff of pac
 
 - `hky-tool unpack <in.hky> -o <shortDir>` — decompress any `.hky` to its YAML tree,
   original path case preserved. Unpack to a SHORT path (MAX_PATH).
-- When `SCT_BASE_MASTER_DIR` is set, `cb_deploy` auto-unpacks the deployed master to
+- When `SCT_BASE_MASTER_DIR` is set, a plugin build auto-unpacks its stage's master (`packed-hky/.../Skyrim.hky`) to
   `<SCT_BASE_MASTER_DIR>/current`, rotating the prior tree to `<SCT_BASE_MASTER_DIR>/previous` — so a
   two-point cross-build diff (`diff -rq previous current`) is always ready with no manual bookkeeping.
   The regen's kept-unpacked `<Name>.hky` trees honor the same env var.

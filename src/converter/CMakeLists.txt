@@ -53,26 +53,18 @@ cb_stage_schema(TARGET behavior-converter
     DEST    "$<TARGET_FILE_DIR:behavior-converter>/schema"
     COMMENT "Behavior Converter: staging schema/ beside the exe")
 
-# Optional tools-folder deploy (MO2-launchable), same convention as the plugin deploy. The schema is
-# clear-then-copy; the pre-restructure templates/ + Havok/ siblings are cleared too (no longer read).
-if(DEFINED ENV{SKYRIM_TOOLS_FOLDER})
-    set(_tools "$ENV{SKYRIM_TOOLS_FOLDER}/Behavior Converter")
-    add_custom_command(TARGET behavior-converter POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_tools}"
-        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:behavior-converter>" "${_tools}/"
-        COMMENT "Behavior Converter: deploy -> ${_tools}"
-        VERBATIM)
-    cb_stage_schema(TARGET behavior-converter
-        DEST    "${_tools}/schema"
-        CLEAN   "${_tools}/templates" "${_tools}/Havok"
-        COMMENT "Behavior Converter: schema -> ${_tools}/schema (clean)")
-endif()
+# The "Behavior Converter" tool (MO2-launchable): BUILDER stages exe + pdb + schema/ (templates included, owned) and
+# deploys it to $SKYRIM_TOOLS_FOLDER/Behavior Converter. The schema beside the build-tree exe above stays: the regen
+# below runs that exe.
+builder_stage_app(behavior-converter APP "Behavior Converter")
+cb_builder_schema(APP "Behavior Converter" TO schema)
+builder_package(APP "Behavior Converter" VERSION ${PROJECT_VERSION})
 
 # ── Derived-bundle regeneration (CB_REGEN_SOURCE) ───────────────────────────────
 # The converter regenerates every derived bundle (Skyrim.hky, XPMSSE.hky, ...) from its $CB_REGEN_SOURCE
-# source folder and packs it into the plugin's .hky stage, so cb_deploy's bundle merge-copy carries them
+# source folder and packs it into the plugin's .hky stage, so BUILDER's bundle merge-copy carries them
 # into the mod. Gated on CB_REGEN_SOURCE: unset -> skipped, the already-deployed bundles stay. See the
-# helper. Short-path root for the unpacked trees (each regen's kept-unpacked <Name>.hky/ + cb_deploy's
+# helper. Short-path root for the unpacked trees (each regen's kept-unpacked <Name>.hky/ + the plugin's
 # cross-build diff unpack both land here). Honors the SCT_BASE_MASTER_DIR env var when set (the one
 # knob), else defaults.
 if(DEFINED ENV{SCT_BASE_MASTER_DIR})

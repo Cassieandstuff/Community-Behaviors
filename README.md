@@ -34,7 +34,7 @@ src/converter/     the offline GLFW+ImGui Behavior Converter (BehaviorConverter.
 common/            what features build against: feature-sdk/ (IGraphFeature/FeatureRegistry), config/
 schema/            the Havok class schema, described once as data (+ the converter's templates/)
 tools/             dev-only tools (hky-tool, cbdiff, x64dbg auto-attach, Blender control rig)
-cmake/             helpers (CommonLibSSE, Deploy, SctSources, codegen, glad)
+cmake/             helpers (CommonLibSSE, Schema, SctSources, codegen, glad)
 ```
 
 ## Build
@@ -54,8 +54,11 @@ Presets: `release` / `debug` (full), `api` (the `cb::CB-API` library surface onl
 Options: `-DCB_BUILD_CONVERTER=OFF` (skip the GUI converter for a lean plugin build),
 `-DCB_API_ONLY=ON` (build only `cb::CB-API`).
 
-Relevant env vars: `SKYRIM_MODS_FOLDER` (MO2 deploy target for the plugin + its data),
-`SKYRIM_TOOLS_FOLDER` (converter deploy), `CB_REGEN_SOURCE` (per-bundle `<Name>.hky` source folders; arms the derived-bundle regen),
+Deploy and packaging go through [BUILDER](https://github.com/Cassieandstuff/libs-BUILDER): a build stages each product
+in `build/<preset>/stage/<config>/<Name>` and deploys it to `SKYRIM_MODS_FOLDER` (the plugin + its data) /
+`SKYRIM_TOOLS_FOLDER` (the converter); `-DBUILDER_DEPLOY=OFF` stages only, `--target package` zips (BUILDER's README
+has the env-var table). Other env vars:
+`CB_REGEN_SOURCE` (per-bundle `<Name>.hky` source folders; arms the derived-bundle regen),
 `SCT_BASE_MASTER_DIR` (short path for the cross-build master-diff tree).
 
 ## Using the API (`cb::CB-API`)
