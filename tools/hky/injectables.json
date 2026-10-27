@@ -1,8 +1,0 @@
-{
-  "animation": {
-    "tags": "rangeMap",
-    "motionTarget": { "oneOf": ["animationData", "motionMatching"] },
-    "preload": "bool",
-    "entry": { "oneOf": ["anywhere", "changes"] }
-  }
-}

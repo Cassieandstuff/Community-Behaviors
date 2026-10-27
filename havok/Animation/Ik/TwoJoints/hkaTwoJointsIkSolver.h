@@ -12,29 +12,34 @@ namespace CB { namespace havok
     {
     public:
         /// @note 0x90 bytes. Field names follow the Havok SDK; offsets confirmed against solve (bone indices, the
-        ///       hinge axis +0x10, the hinge cosine clamp +0x20/+0x24, the three gains +0x28/+0x2c/+0x30, the
-        ///       targets and offsets +0x40..+0x70, the two enforce flags +0x80/+0x81 it tests first).
+        ///       hinge axis +0x10, the hinge cosine clamp +0x20/+0x24, the hinge change limit +0x28, the three gains
+        ///       +0x2c/+0x30/+0x34, the targets and offsets +0x40..+0x70, the two enforce flags +0x80/+0x81 it tests
+        ///       first).
         struct Setup
         {
-            hkInt16      m_firstJointIdx;             ///< +0x00
-            hkInt16      m_secondJointIdx;            ///< +0x02
-            hkInt16      m_endBoneIdx;                ///< +0x04
+            hkInt16      m_firstJointIdx;                    ///< +0x00
+            hkInt16      m_secondJointIdx;                   ///< +0x02
+            hkInt16      m_endBoneIdx;                       ///< +0x04
             /// @brief -1 = none.
-            hkInt16      m_firstJointTwistIdx;        ///< +0x06
+            hkInt16      m_firstJointTwistIdx;               ///< +0x06
             /// @brief -1 = none.
-            hkInt16      m_secondJointTwistIdx;       ///< +0x08
-            hkVector4    m_hingeAxisLS;               ///< +0x10
-            hkReal       m_cosineMaxHingeAngle;       ///< +0x20, the clamp's lower bound
-            hkReal       m_cosineMinHingeAngle;       ///< +0x24, the clamp's upper bound
-            hkReal       m_firstJointIkGain;          ///< +0x28
-            hkReal       m_secondJointIkGain;         ///< +0x2c
-            hkReal       m_endJointIkGain;            ///< +0x30
-            hkVector4    m_endTargetMS;               ///< +0x40
-            hkQuaternion m_endTargetRotationMS;       ///< +0x50
-            hkVector4    m_endBoneOffsetLS;           ///< +0x60
-            hkQuaternion m_endBoneRotationOffsetLS;   ///< +0x70
-            hkBool       m_enforceEndPosition;        ///< +0x80
-            hkBool       m_enforceEndRotation;        ///< +0x81
+            hkInt16      m_secondJointTwistIdx;              ///< +0x08
+            hkVector4    m_hingeAxisLS;                      ///< +0x10
+            hkReal       m_cosineMaxHingeAngle;              ///< +0x20, the clamp's lower bound
+            hkReal       m_cosineMinHingeAngle;              ///< +0x24, the clamp's upper bound
+            /// @brief The most the hinge angle may change in one solve (degrees); <= 0 = no limit.
+            /// @note Not in the Havok SDK's Setup; name provisional. solve clamps |change| to it (0x140a87191..0x140a8720d);
+            ///       hkaFootPlacementIkSolver passes its Input's m_maxKneeAngleDifference.
+            hkReal       m_maxHingeAngleDifferenceDegrees;   ///< +0x28
+            hkReal       m_firstJointIkGain;                 ///< +0x2c
+            hkReal       m_secondJointIkGain;                ///< +0x30
+            hkReal       m_endJointIkGain;                   ///< +0x34
+            hkVector4    m_endTargetMS;                      ///< +0x40
+            hkQuaternion m_endTargetRotationMS;              ///< +0x50
+            hkVector4    m_endBoneOffsetLS;                  ///< +0x60
+            hkQuaternion m_endBoneRotationOffsetLS;          ///< +0x70
+            hkBool       m_enforceEndPosition;               ///< +0x80
+            hkBool       m_enforceEndRotation;               ///< +0x81
         };
 
         /// @brief Solves the chain in `poseInOut` (model space) toward the setup's end target.

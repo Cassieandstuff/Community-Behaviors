@@ -1,0 +1,6 @@
+{
+  "generator": "motionCurves",
+  "from": "Animations.hky",
+  "clips": "meshes/actors/character/animations/MotionMatching/",
+  "tolerance": { "Speed": 1, "MoveDirection": 1, "TurnRate": 2, "Acceleration": 5 }
+}

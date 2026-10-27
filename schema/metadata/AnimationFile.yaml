@@ -1,0 +1,6 @@
+# An animation unit: a bare `.hkx` YAML file whose top-level `animation:` map is hand-parsed (AnimationYamlLoader) except
+# for the fields of CBAnimationCurves, which the schema describes. An editor opens and saves those fields alone.
+kind:  embedded
+name:  AnimationFile
+root:  animation
+class: CBAnimationCurves

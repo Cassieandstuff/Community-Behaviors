@@ -33,6 +33,10 @@ public:
     /// @brief Open a .hky: read its index and classify its units (each unit's graph.yaml is read for that); nullptr
     ///        with `err` set on failure.
     static std::shared_ptr<HkyArchive> LoadFromFile(const std::string& hkyPath, std::string& err);
+    /// @brief A bundle held in memory: each (path, text) a file, as a packed .hky of them would read (an editor's
+    ///        unexported project, layered over the load order); nullptr with `err` set when two paths are one (path
+    ///        identity) or a unit's graph.yaml cannot be classified.
+    static std::shared_ptr<HkyArchive> FromFiles(std::vector<std::pair<std::string, std::string>> files, std::string& err);
     ~HkyArchive();
 
     /// @brief One file as the zip's central directory records it.
@@ -67,8 +71,7 @@ public:
     static bool PackEntries(std::vector<PackEntry> entries, const std::string& outHkyPath, std::string& err);
 
     /// @brief A reflective unit's kind from its graph.yaml: the root's named variant class (hkbCharacterData,
-    ///        hkbProjectData, hkaAnimationContainer); anything else — or no graph.yaml — is a Behavior. (A skeleton
-    ///        unit is bonelist.yaml + bones/, not reflective: see units().)
+    ///        hkbProjectData, hkaAnimationContainer — a skeleton); anything else — or no graph.yaml — is a Behavior.
     /// @note  A mod's patch unit names its base's variant class too; pair with IsPatchGraphYaml.
     static UnitKind KindOfGraphYaml(std::string_view graphYaml);
     /// @brief True when graph.yaml is a PATCH's: its root `id:` is a FormID owned by a master (`0001x…`), not by the
@@ -112,8 +115,11 @@ private:
         std::uint64_t size;
         std::uint32_t crc;
         bool          deflated;      ///< deflate, else stored
+        std::shared_ptr<const std::string> text;   ///< the content itself, for a bundle held in memory (FromFiles)
     };
     std::string read(const Entry& e) const;
+    /// @brief Every "<prefix>.hkx/..." subtree as a unit, its kind from its graph.yaml.
+    bool ClassifyUnits(std::string& err);
 
     std::string                         m_path;
     std::unique_ptr<disk::ReadOnlyFile> m_file;

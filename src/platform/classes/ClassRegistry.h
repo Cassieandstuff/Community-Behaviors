@@ -34,6 +34,14 @@ namespace CB::platform::classes {
     ///        type here) is logged and skipped; a behavior holding it must then not be served.
     void RegisterAll(const CB::engine::schema::SchemaRegistry& schema);
 
+    /// @brief Fills the plugin's copies of the two Havok globals inline Havok code reads (hkArray's allocator, the
+    ///        memory router's TLS index) from the exe, once.
+    /// @pre   Havok's memory system is up: any graph loading or running implies it.
+    /// @note  RegisterAll calls it at kDataLoaded, but graphs load before that (the main menu's AutoplayBehavior): a
+    ///        feature running inline Havok allocation outside a CB class (its copies of havok/ functions, a graph walk)
+    ///        calls it first. Without it, hkArray growth there dereferences a null allocator (2026-10-25 crash).
+    void EnsureHavokGlobalsMirrored();
+
     /// @return the offset of `member` in vanilla class `cls`, when RegisterAll extended it with that member (a
     ///         `cb: true` field of its schema descriptor); -1 otherwise, and always before RegisterAll has run. Names
     ///         compared exactly. Lock-free: callable from any thread, per object.

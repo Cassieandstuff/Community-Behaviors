@@ -5,6 +5,7 @@
 #include <common/miniz.h>
 #include <disk/Disk.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <stdexcept>
@@ -165,6 +166,17 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
         if (hasKey(root, "enums"))
             for (auto en : root[c4::to_csubstr("enums")])
                 if (en.has_val()) out.enums.push_back(toStr(en.val()));
+        if (hasKey(root, "view")) {
+            const auto v = root[c4::to_csubstr("view")];
+            if (!v.is_map()) { err = "'view' is not a map"; return false; }
+            for (auto r : v) {
+                if (!r.has_val()) { err = "'view' holds a non-scalar"; return false; }
+                const std::string key = toStr(r.key()), val = toStr(r.val());
+                if (key == "kind") out.view.kind = val;
+                else out.view.roles[key] = val;
+            }
+            if (out.view.kind.empty()) { err = "'view' has no kind"; return false; }
+        }
 
         if (hasKey(root, "fields")) {
             for (auto fn : root[c4::to_csubstr("fields")]) {
@@ -215,6 +227,7 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                     f.boneRef  = (childStr(fn, "boneref")  == "true");
                     f.boneList = (childStr(fn, "bonelist") == "true");
                     f.boneSet  = (childStr(fn, "boneset")  == "true");
+                    f.boneOf   = childStr(fn, "boneof");
                     f.charPropIf = childStr(fn, "charpropif");
                     f.roster     = childStr(fn, "roster");
                     if (const std::string bw = childStr(fn, "boneweights"); !bw.empty()) { f.boneWeights = true; f.boneWeightDefault = bw; }
@@ -313,7 +326,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     std::vector<std::string> semanticsTexts;
     /// @note A descriptor's identity is its `name:` within its `kind:`; folders are decoration. A second file
     ///       claiming a loaded name fails the load, naming both files, instead of silently winning by walk order.
-    std::map<std::string, fs::path> classFrom, enumFrom;
+    std::map<std::string, fs::path> classFrom, enumFrom, shimFrom, embeddedFrom;
     const auto claim = [&err](std::map<std::string, fs::path>& seen, const std::string& name, const fs::path& p,
                               const char* what) {
         const auto [it, fresh] = seen.emplace(name, p);
@@ -359,6 +372,33 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             /// @note Compile-trace probes ride on the schema (they name classes and fields) but are not part of it:
             ///       CB::engine::compile::trace reads them itself.
             continue;
+        } else if (kind == "compatshim") {
+            /// @note A compatibility shim (schema/metadata/compatshim/<name>/) rides with the schema but is not part of
+            ///       it: no class, no layout. Its text is kept by name for its own reader (CompatShim).
+            std::string name;
+            try {
+                std::string copy = text;
+                c4::yml::Tree st = c4::yml::parse_in_place(c4::to_substr(copy));
+                name = childStr(st.rootref(), "name");
+            } catch (const std::exception& e) { err = p.string() + ": parse: " + e.what(); return false; }
+            if (name.empty()) { err = p.string() + ": compatshim without a 'name'"; return false; }
+            if (!claim(shimFrom, name, p, "compatshim")) return false;
+            m_compatShims[name] = text;
+        } else if (kind == "embedded") {
+            EmbeddedKind ek;
+            try {
+                std::string copy = text;
+                c4::yml::Tree et = c4::yml::parse_in_place(c4::to_substr(copy));
+                ek.name = childStr(et.rootref(), "name");
+                ek.root = childStr(et.rootref(), "root");
+                ek.cls  = childStr(et.rootref(), "class");
+            } catch (const std::exception& e) { err = p.string() + ": parse: " + e.what(); return false; }
+            if (ek.name.empty() || ek.root.empty() || ek.cls.empty()) {
+                err = p.string() + ": an embedded kind needs 'name', 'root' and 'class'";
+                return false;
+            }
+            if (!claim(embeddedFrom, ek.name, p, "embedded kind")) return false;
+            m_embedded[ek.name] = std::move(ek);
         } else if (kind.empty() || kind == "metadata") {
             /// @note `kind: metadata` = a Bethesda text-cache record (adsf/asdsf/speeddata) MetaText reads and writes:
             ///       no signature or size, so no packfile path ever meets it. It shares the class namespace.
@@ -367,7 +407,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             if (!claim(classFrom, cs.name, p, "class")) return false;
             m_byName[cs.name] = std::move(cs);
         } else {
-            err = p.string() + ": unknown kind '" + kind + "' (enum, semantics, probe, metadata, or none for a class)";
+            err = p.string() + ": unknown kind '" + kind + "' (enum, semantics, probe, compatshim, embedded, metadata, or none for a class)";
             return false;
         }
     }
@@ -402,6 +442,32 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
                 }
             }
         }
+    }
+
+    /// @note A `view:` is checked against the views editors know, each role naming one of the class's own fields, so a
+    ///       misspelt role or field fails here instead of drawing nothing; an embedded kind must name a loaded class.
+    {
+        static const std::map<std::string, std::vector<std::string>> kViewRoles{
+            { "curve", { "keys", "label" } },
+            { "curvekey", { "time", "value", "interp" } },
+        };
+        for (const auto& [name, cs] : m_byName) {
+            if (cs.view.kind.empty()) continue;
+            const auto known = kViewRoles.find(cs.view.kind);
+            if (known == kViewRoles.end()) { err = "class '" + name + "': unknown view '" + cs.view.kind + "' (curve, curvekey)"; return false; }
+            for (const auto& role : known->second)
+                if (!cs.view.roles.count(role)) { err = "class '" + name + "': view '" + cs.view.kind + "' has no '" + role + "'"; return false; }
+            for (const auto& [role, field] : cs.view.roles) {
+                if (std::find(known->second.begin(), known->second.end(), role) == known->second.end()) {
+                    err = "class '" + name + "': view '" + cs.view.kind + "' has no role '" + role + "'";
+                    return false;
+                }
+                const bool own = std::any_of(cs.fields.begin(), cs.fields.end(), [&](const Field& f) { return f.name == field; });
+                if (!own) { err = "class '" + name + "': view role '" + role + "' names no field '" + field + "'"; return false; }
+            }
+        }
+        for (const auto& [name, ek] : m_embedded)
+            if (!m_byName.count(ek.cls)) { err = "embedded kind '" + name + "': no class '" + ek.cls + "'"; return false; }
     }
 
     /// @note A `factory:` name maps to exactly one class, or a node's class could not be told from its factory name.
@@ -523,6 +589,11 @@ void SchemaRegistry::BuildLayouts() {
 const EnumDef* SchemaRegistry::FindEnum(const std::string& name) const {
     auto it = m_enums.find(name);
     return it == m_enums.end() ? nullptr : &it->second;
+}
+
+const std::string* SchemaRegistry::CompatShim(const std::string& name) const {
+    auto it = m_compatShims.find(name);
+    return it == m_compatShims.end() ? nullptr : &it->second;
 }
 
 std::string SchemaRegistry::MergeTag(const std::string& className, const std::string& field) const {

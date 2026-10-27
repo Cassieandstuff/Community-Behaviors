@@ -5,18 +5,16 @@
 
 /// @file
 /// @brief The player's frame driver (CharFacing): each frame it steps the movement model (CharMovementModel) and hands
-///        the engine its velocity and TDM its facing. Shared vocabulary for the model, the predictor and motion matching.
-/// @note Facing comes through True Directional Movement's API: TDM keeps its camera, camera compensation and target
-///       lock; CB holds the yaw in TDM's directional and target-lock modes and rewrites the move input to forward-only.
+///        the engine its velocity and facing. Shared vocabulary for the model, the predictor and motion matching.
+/// @note It drives the player while CB's camera drives the third-person camera (features/Camera): the stick is read
+///       relative to the camera's yaw, and the move input is rewritten to forward-only while the engine computes.
 
 namespace CB::feature::controller {
 
     /// @brief The heading the player's stick asks for this frame, in Skyrim's convention (angle.z: radians clockwise
-    ///        from +y): TDM's unaltered stick input made camera-relative.
-    /// @return false without one: TDM absent, not in its directional or target-lock mode, not in third person, or the
-    ///         stick idle.
-    /// @note The camera's yaw is the player's heading plus the third-person camera's free-rotation offset (vanilla's
-    ///       ThirdPersonState::UpdateRotation; TDM keeps free rotation on while directional).
+    ///        from +y): the raw stick made relative to CB's camera.
+    /// @return false without one: CB's camera not driving third person, no frame within the last half second, or the
+    ///         stick idle. Thread-safe.
     bool StickHeading(float& heading);
 
     /// @brief The actor's gait (ActorState: sprinting before running before walking); None while none is set.

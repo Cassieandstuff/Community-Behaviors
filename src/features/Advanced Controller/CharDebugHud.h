@@ -6,7 +6,8 @@
 #include <cstdint>
 
 /// @file
-/// @brief The character debug HUD's data: each controller feature publishes its part of the player's step here, and
+/// @brief The character debug HUD's data: each controller feature publishes its part of the controlled
+///        character's step here (IsControlled: the player's, or the ridden horse's), and
 ///        the HUD (char_debug_hud) draws the latest copy over the finished frame.
 /// @note Positions and velocities are Havok world units (the HUD converts); publishing is a no-op unless the HUD
 ///       flag is on, so the features pay nothing otherwise.
@@ -40,7 +41,10 @@ namespace CB::feature::controller::hud {
         Point               slide;               ///< the slide velocity (horizontal), part of `velocity`
         bool                variableJump = false, jumpReleased = false;
         float               jumpIn = -1;         ///< seconds left on a pending jump's wind-up, -1 for none
-        std::array<Ray, 9>  rays{};
+        std::array<Ray, 18> rays{};          ///< the fore end's nine, then a long body's hind end's nine
+        int                 rayCount = 0;
+        std::array<Point, 2> ends{};         ///< a long body's fore and hind footprint centres
+        int                 endCount = 0;
     };
 
     /// @brief The predictor's trajectory (P1) and the path through it, in world space.

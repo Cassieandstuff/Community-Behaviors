@@ -57,10 +57,6 @@ namespace CB::core::debug {
           "Install the conditional-setdata producer/matcher "
           "engine hooks. Unproven in a shipped build and inert until conditional replacements exist; "
           "off = no engine hooks installed." },
-        { "noskeletonserve", FlagKind::MarkerFile, "", "noskeletonserve.enable", false, false,
-          "Disable skeleton serve",
-          "Skip serving CB's compiled skeleton.hkx (skeleton opens fall through to vanilla) — a "
-          "diagnostic opt-out." },
         { "sequencer_disable", FlagKind::MarkerFile, "", "sequencer.disable", false, false,
           "Serial animation compile",
           "Compile native animations one at a time instead of across a worker pool — an escape hatch for "
@@ -75,6 +71,16 @@ namespace CB::core::debug {
           "They forward every call to vanilla's code, log each registration and count the loaded objects each class "
           "finishes (reported at kDataLoaded and after each game loads). Classes in sOwnTypes (default hkbClipGenerator) "
           "get CB's copy of their vtable on every loaded and cloned object. AE only." },
+        { "animation64_readers", FlagKind::IniBool, "Animation64", "bReaders", false, false,
+          "Animation 64 readers",
+          "Run CB's own readers of the clip's binding index (clip activate/deactivate/isValid/rebind, the offset "
+          "generator's sample, the synchronized clip's sync mark and activation) from the 64-bit slot instead of the "
+          "16-bit field. Same behavior while every index fits 16 bits." },
+        { "animation64_loader", FlagKind::IniBool, "Animation64", "bLoader", false, false,
+          "Animation 64 loader + writer",
+          "Run the clip loader (AnimationFileManagerSingleton's five slots, its resolver, triple lookup and binder) and "
+          "LoadClips' index stamp from the clip's 64-bit slot, and the offset generator's loader calls with it. Same "
+          "behavior while every index fits 16 bits. AE only." },
         { "animation64_watch", FlagKind::IniBool, "Animation64", "bReaderWatch", false, false,
           "Animation 64 reader watch",
           "Hardware watchpoints on the 16-bit binding index of the newest activated clips, logging each instruction that "
@@ -131,19 +137,54 @@ namespace CB::core::debug {
           "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
           "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
           "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
+        { "camera", FlagKind::IniBool, "Camera", "bEnable", false, false,
+          "CB camera",
+          "CB drives the third-person camera: it keeps its own world yaw and pitch, so the body never snaps to the "
+          "camera and turning the body never swings the camera; it follows a damped anchor (the player plus the "
+          "Camera3rd bone's height) with vanilla's shoulder offsets, zoom and pitch zoom, then its own collision. "
+          "Off while True Directional Movement or SmoothCam is loaded (they drive the same camera). Mounts, first person, killcams "
+          "and furniture stay vanilla. SE and AE. Unproven in game." },
         { "char_movement_model", FlagKind::IniBool, "Character", "bMovementModel", false, false,
-          "Movement model (GASP, through True Directional Movement)",
+          "Movement model (GASP)",
           "The player moves like Unreal's Game Animation Sample character: the velocity accelerates toward the stick "
           "(560 units/s2, easing to 210 while sprinting fast), friction 5 swings it into turns and braking (1400 units/s2, "
           "350 when slowing from a faster gait) stops it, capped at the gait's own speed (every multiplier kept) times the "
           "slope factor: downhill x(1 + fSlopeSpeedDown x sin) up to 1.5 (default 1.0), uphill x(1 - fSlopeSpeedUp x sin) "
           "down to 0.7 (default 0.5), smoothed (it reads the ground states' floor, so needs bGroundStates or bPlanes). "
-          "CB holds TDM's yaw: the body turns toward where it is moving (halflife 0.1 s, at most 200 deg/s in the air). "
-          "Under TDM's target lock the body faces the target and strafes, its speed blending to MOVT's side and back "
-          "speeds by direction. CB also owns sprinting: it stays on while toggled, pauses while blocking, airborne or (under "
-          "target lock) moving more than 50 deg from the facing, and ends on stopping, running out of stamina or "
-          "overencumbrance; you can jump while sprinting. Off under bAnimationDriven, bSpeedSynced and bIsSynced. Needs "
-          "TDM (API V3); off without it. AE only. Unproven in game." },
+          "The stick is relative to CB's camera and the body turns toward where it is moving (halflife 0.1 s, at most "
+          "200 deg/s in the air); while attacking, aiming, blocking or casting it faces the camera and strafes, its speed "
+          "blending to MOVT's side and back speeds by direction. CB also owns sprinting: it stays on while toggled, "
+          "pauses while blocking, airborne or (while strafing) moving more than 50 deg from the facing, and ends on "
+          "stopping, running out of stamina or overencumbrance; you can jump while sprinting. Off under "
+          "bAnimationDriven, bSpeedSynced and bIsSynced. Needs bCamera (in third person); off without it. AE only. "
+          "Unproven in game." },
+        { "horse_movement_model", FlagKind::IniBool, "Character", "bHorseMovementModel", false, false,
+          "Horse movement model",
+          "The horse the player rides moves with the player's movement model and the horse's own numbers (900 units/s2 "
+          "acceleration, friction 3, braking 700 units/s2, facing halflife 0.15 s, at most 45 deg/s in the air, all "
+          "starting values): the stick is relative to CB's camera, the horse faces where it moves and never strafes or "
+          "backs up. Its turns are held to its grip (480 units/s2 sideways: wider at speed, never tighter than 105 units); "
+          "it never brakes harder than a sliding stop (412 units/s2); asked more than 60 deg off its course it digs in, "
+          "braking up to that sliding stop for a full reversal while its body swings up to 60 deg toward the stick ahead "
+          "of its momentum, turns the rest on the spot, then drives out. Holding forward climbs a gait ladder at the horse's own speeds: walk, trot (40% of the way to "
+          "canter), canter; the sprint toggle gallops; the walk toggle caps it at walk, and on a gamepad a light push "
+          "holds walk, a half push trot. With bHorseProxyController on too, the horse jumps the moment you press (the "
+          "jump clip's own later launch is dropped). Vanilla while mounting, dismounting, rearing or staggering, in dialogue, and "
+          "while CB's camera does not drive the view (so needs bCamera with its mounted view). AE only. Unproven in game." },
+        { "char_swim_component", FlagKind::IniBool, "Character", "bSwimComponent", false, false,
+          "Swim component",
+          "While the player or the ridden horse swims (vanilla's swimming state), the movement model eases for water: "
+          "half the acceleration and braking, 60% of the friction, a 1.5x slower body turn, and no grip limit or dig-in "
+          "turns. The player may dive, the horse swims at the surface (as in vanilla, which still moves both vertically). "
+          "Needs bMovementModel or bHorseMovementModel. Unproven in game." },
+        { "horse_proxy_controller", FlagKind::IniBool, "Character", "bHorseProxyController", false, false,
+          "Horses on the proxy controller",
+          "Every mountable race (the horse or mount keyword, flying races excepted) is built on the player's kind of "
+          "character controller, the proxy, instead of the rigid body. Applies to every horse, NPC horses too (they run "
+          "vanilla's proxy logic). With bHorseMovementModel on as well, the horse you ride runs CB's ground layer under "
+          "the player's flags (bStateWrapper, bGroundStates, bPlanes, bStepQuery): its footing is checked under its front "
+          "and hind hooves (grounded when both stand; one end on ground holds it), and it walks up to 55 deg (the "
+          "player 47). Read once as the game starts: changing it needs a restart. Unproven in game." },
         { "char_sprint_free_out_of_combat", FlagKind::IniBool, "Character", "bSprintNoDrainOutOfCombat", true, true,
           "Free sprinting out of combat",
           "The player's sprint costs no stamina while out of combat; in combat it drains as vanilla's. Followers are "
@@ -177,6 +218,26 @@ namespace CB::core::debug {
           "hard cuts) from the old pose coasting at its velocity, slowing with an fMMBlendDecay halflife (default "
           "0.1 s). A pick's stretch of motion stays banned for fMMReselectTime seconds (default 1.0); a sharp change of "
           "the request searches at once. Without the add-on it does nothing. Prototype." },
+        { "foot_ik", FlagKind::IniBool, "FootIk", "bEnable", false, false,
+          "FABRIK foot IK",
+          "CB's foot IK: every character with foot IK data (creatures and people) runs CB's driver. Vanilla still finds "
+          "each foot's ground target, rolls the foot to it and sinks the whole body; CB bends the legs and the spine (the "
+          "three pieces below, each on unless turned off). Logs once per creature the chains and one frame's ankle "
+          "targets. Unproven in game." },
+        { "foot_ik_legs", FlagKind::IniBool, "FootIk", "bLegs", true, true,
+          "Foot IK: FABRIK legs",
+          "With bEnable: each leg bends with FABRIK over its whole chain (a horse's shoulder blade or femur down to the "
+          "hoof), every joint hinging the way the animation bends it and never through straight, the knee one way within "
+          "the data's range. Off = vanilla's two-joint bend (and no spine bend, which needs these legs)." },
+        { "foot_ik_body", FlagKind::IniBool, "FootIk", "bBody", true, true,
+          "Foot IK: spine bend",
+          "With bEnable and bLegs: a creature with a hind and a fore anchor (a horse's pelvis and ribcage) bends its spine "
+          "so the fore end rises or drops by what its legs ask beyond the hind end's; each spine joint folds at most 10 "
+          "degrees past the animation. Vanilla's sink keeps the whole body's height. Off = the spine as animated." },
+        { "foot_ik_tilt", FlagKind::IniBool, "FootIk", "bTilt", true, true,
+          "Foot IK: ground tilt",
+          "With bEnable: a creature with a hind and a fore anchor tilts toward the slope between its hind and fore hooves "
+          "at the graph's align gain (through vanilla's channel into the controller's pitch). Off = vanilla's tilt." },
         { "runtime_trace", FlagKind::IniBool, "Debug", "bRuntimeTrace", false, false,
           "Runtime graph-variable trace",
           "Log live behavior-graph variable values (the classes/vars a debug/*.yaml probe names via its "

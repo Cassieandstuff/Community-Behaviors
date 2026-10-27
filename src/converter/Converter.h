@@ -117,14 +117,16 @@ struct BaseBuildResult {
 };
 
 /// @brief Build a shippable base bundle (Skyrim.hky, XPMSSE.hky, ...): decompile EVERY behavior-system file
-///        (behaviors / projects / characters / skeletons / animations) under `vanillaMeshesDir` into a staging tree
-///        and pack it into the single-file `outHky`. Skyrim.hky is the base every mod bundle layers over — the
+///        (behaviors / projects / characters / skeletons / animations) of the regen source `sourceDir` into a staging
+///        tree and pack it into the single-file `outHky`. Skyrim.hky is the base every mod bundle layers over — the
 ///        "Skyrim.esm" of behaviors. BLOCKING — run on a worker thread.
-/// @param outHky its filename names the bundle; any regen source runs this same build over whatever its meshes tree holds.
+/// @param sourceDir a game Data-like folder: its loose `meshes\` tree and/or the `*.bsa` beside it, read in place
+///        (MeshSource::OpenRegenFolder); a folder named `meshes` is a loose tree alone.
+/// @param outHky its filename names the bundle; any regen source runs this same build over whatever its meshes hold.
 /// @param keepStagingDir when non-empty, the unpacked <Name>.hky/ tree is KEPT under it (only <Name>.hky/ is cleared;
 ///        the root is shared across bundles) instead of a temp dir deleted after packing. Pick a SHORT path (MAX_PATH).
 /// @pre The shared schema registry is armed (SetSharedSchemaDir) — the build fails without it.
-BaseBuildResult BuildBaseBundle(const std::string& vanillaMeshesDir, const std::string& outHky,
+BaseBuildResult BuildBaseBundle(const std::string& sourceDir, const std::string& outHky,
                                 const LogFn& log, const std::atomic<bool>& cancel,
                                 const std::string& keepStagingDir = "");
 
@@ -185,12 +187,12 @@ struct RegenResult {
 // self-checking entry point for rebuilding the base (use this instead of a bare BuildBaseBundle
 // so a lossy-flag / dropped-symbol regression can never silently ship again). It:
 //   1. builds the whole master to a TEMP file via BuildBaseBundle (every unit, reflective + skeletons),
-//   2. GATE: parses every behavior / character / project unit back through the runtime's reader (rig-bound
+//   2. GATE: parses every behavior / character / project / skeleton unit back through the runtime's reader (rig-bound
 //      bones) and serializes it, byte-comparing against its source binary's canonical re-serialization —
 //      exactly what the runtime serves for an untouched graph — collecting any drift, then
 //   3. promotes TEMP -> outHky. In `strict` mode any drift is fatal and outHky is left untouched;
 //      otherwise it writes and returns the drift list. BLOCKING — run on a worker thread.
-RegenResult RegenerateMaster(const std::string& vanillaMeshesDir, const std::string& outHky, bool strict,
+RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& outHky, bool strict,
                              const LogFn& log, const std::atomic<bool>& cancel,
                              const std::string& keepStagingDir = "");
 

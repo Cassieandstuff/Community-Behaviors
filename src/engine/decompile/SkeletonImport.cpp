@@ -7,6 +7,7 @@
 
 #include <codec/serialization/HavokIo.h>          // io::SchemaObject + DeserializeSchema
 #include <interface/reflection/HavokSchema.h>  // schema::SharedRegistry
+#include <decompile/BehaviorDecompile.h>       // ParseHkyReflective + SerializeGraph (ReadSkeletonUnit)
 
 #include <cmath>
 #include <cstring>
@@ -282,6 +283,22 @@ bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
         if (err) *err = ex.what();
         return false;
     }
+}
+
+bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema::SchemaRegistry& reg,
+                      const std::string& unitPath, SkeletonData& out, std::string* err) {
+    decompile::ParsedHky graph;
+    std::vector<std::uint8_t> bytes;
+    std::string e;
+    if (!decompile::ParseHkyReflective(unit, reg, graph, e, nullptr, unitPath) || !decompile::SerializeGraph(graph, bytes, e)) {
+        if (err) *err = unitPath + ": " + e;
+        return false;
+    }
+    std::vector<SkeletonData> skels;
+    if (!LoadSkeletonsFromHkx(bytes.data(), bytes.size(), skels, err)) return false;
+    if (skels.empty()) { if (err) *err = unitPath + ": the unit holds no skeleton"; return false; }
+    out = std::move(skels[0]);
+    return ReadSkeletonPhysics(bytes.data(), bytes.size(), out, err);
 }
 
 } // namespace CB::engine::skeleton

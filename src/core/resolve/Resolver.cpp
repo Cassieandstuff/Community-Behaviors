@@ -11,8 +11,6 @@
 #include <interface/UnitSource.h>
 #include <codec/serialization/HkyArchive.h>
 #include <compile/AnimDataFromBehavior.h>   // DeriveClipInputsFromGraph (ClipInputsOf)
-#include <codec/format/SkeletonYaml.h>       // LoadSkeletonYamlFromTexts (path-local skeleton units)
-#include <compile/SkeletonCompiler.h>        // CompileSkeletonFull (skeleton serve)
 #include <codec/format/AnimationYamlLoader.h>  // native animation YAML (in a .hky) -> AnimationDef
 #include <codec/format/LoadOrderText.h>
 #include <merge/LoadPlan.h>                    // CB::engine::merge::PlanLoadOrder (the shared load-order plan)
@@ -428,14 +426,12 @@ namespace CB {
         // are now enforced: a master always sorts base-first, a dependent with no base drops.
         const auto plan = PlanLoadOrder(m_manifests, order);
 
-        /// @note Skeletons are PATH-LOCAL units in every bundle ("meshes/actors/<actor>/<variant>/<x>.hkx/"
-        ///       bonelist.yaml + bones/ — the skeleton compiler's own format, not a reflective graph: the schema
-        ///       codec can't yet read their ragdoll physics), and the load-order winner of a unit path IS that
-        ///       skeleton — a later
-        ///       bundle replaces it whole (XPMSSE ships its full skeletons; an identical one is a no-op
-        ///       replacement). Bone tables bind through the characters' `rig:` (see BonesFor), never
-        ///       "the first skeleton under the actor folder" — that picked _1stperson/skeletonfirst for the
-        ///       3rd-person character ('_' sorts before 'c').
+        /// @note Skeletons are PATH-LOCAL reflective units in every bundle ("meshes/actors/<actor>/<variant>/<x>.hkx/":
+        ///       graph.yaml + animation/ + ragdoll/, bones name-keyed and ordered by the boneorder compat shim), and the
+        ///       load-order winner of a unit path IS that skeleton — a later bundle replaces it whole (XPMSSE ships its
+        ///       full skeletons; an identical one is a no-op replacement). Bone tables bind through the characters'
+        ///       `rig:` (see BonesFor), never "the first skeleton under the actor folder" — that picked
+        ///       _1stperson/skeletonfirst for the 3rd-person character ('_' sorts before 'c').
         {
             const fs::path pluginsRoot = dataDir / "community_behaviors" / "plugins";
             struct RankedBundle { std::string stem; int rank = 0; BundleReader reader; };
@@ -459,58 +455,27 @@ namespace CB {
 
             /// @note Unit identity is the NORMALIZED path: the engine opens these files case-insensitively,
             ///       and XPMSSE ships "actors/Chaurus/…" / "skeever/…/Skeleton.hkx" over vanilla's lowercase
-            ///       paths. Internal-only key; bone NAMES are read original-case (readUnit).
-            /// @note The load-order winner of a unit path is the last bundle whose unit there is COMPLETE: a skeleton
-            ///       (bonelist.yaml), or a project / character graph.yaml owned by the unit itself — a mod's patch unit
-            ///       never replaces one.
+            ///       paths. Internal-only key; bone NAMES are read original-case (the unit source lists original case).
+            /// @note The load-order winner of a unit path is the last bundle whose unit there is COMPLETE: a skeleton,
+            ///       project or character graph.yaml owned by the unit itself — a mod's patch unit never replaces one.
             std::unordered_map<std::string, std::size_t> skelWinner, projWinner, charWinner;
             for (std::size_t bi = 0; bi < bundles.size(); ++bi)
                 for (const std::string& f : bundles[bi].reader.filesUnder("meshes/", ".yaml")) {
-                    const auto endsWith = [&f](std::string_view t) {
-                        return f.size() > t.size() && f.compare(f.size() - t.size(), t.size(), t) == 0;
-                    };
-                    if (endsWith("/bonelist.yaml")) { skelWinner[f.substr(0, f.size() - 14)] = bi; continue; }
-                    if (!endsWith(".hkx/graph.yaml")) continue;
+                    if (f.size() <= 15 || f.compare(f.size() - 15, 15, ".hkx/graph.yaml") != 0) continue;
                     const std::string unit = f.substr(0, f.size() - 11);
                     const std::string text = bundles[bi].reader.read(f).value_or("");
                     if (CB::engine::codec::HkyArchive::IsPatchGraphYaml(text)) continue;
                     switch (CB::engine::codec::HkyArchive::KindOfGraphYaml(text)) {
+                        case CB::engine::codec::HkyArchive::UnitKind::Skeleton:  skelWinner[unit] = bi; break;
                         case CB::engine::codec::HkyArchive::UnitKind::Project:   projWinner[unit] = bi; break;
                         case CB::engine::codec::HkyArchive::UnitKind::Character: charWinner[unit] = bi; break;
                         default: break;
                     }
                 }
 
-            /// @note filesUnder (normalized, for read) and filesUnderOrig (original case, for the bone NAME)
-            ///       walk the same range, so index i aligns — a lowercased bone would orphan its skin binding.
-            auto readUnit = [&](std::size_t bi, const std::string& unit, CB::engine::skeleton::SkeletonData& out) -> bool {
-                const BundleReader& br = bundles[bi].reader;
-                const std::string bl   = br.read(unit + "/bonelist.yaml").value_or("");
-                const auto norm = br.filesUnder(unit + "/bones/", ".yaml");
-                const auto orig = br.filesUnderOrig(unit + "/bones/", ".yaml");
-                std::vector<std::pair<std::string, std::string>> boneFiles;
-                for (std::size_t i = 0; i < norm.size() && i < orig.size(); ++i)
-                    if (auto t = br.read(norm[i]))
-                        boneFiles.emplace_back(fs::path(orig[i]).stem().string(), *t);
-                if (bl.empty() && boneFiles.empty()) return false;
-                std::string err;
-                if (!CB::engine::skeleton::LoadSkeletonYamlFromTexts(bl, boneFiles, out, &err)) {
-                    LOG_WARN("Resolver: skeleton '{}' ({}) YAML load failed: {}", unit, bundles[bi].stem, err);
-                    return false;
-                }
-                return true;
-            };
             /// @note Loaded HERE, single-threaded, before any fan-out: its one-time load is guarded by a plain,
             ///       unsynchronized `state` int, so two workers racing the first use could both attempt it.
             auto* schemaReg = CB::engine::schema::SharedRegistry();
-
-            // DIAGNOSTIC opt-out (marker file Data\community_behaviors\noskeletonserve.enable): skip the
-            // skeleton SERVE entirely so skeleton opens fall through to the mod-provided loose skeleton.
-            // The bone-name tables below are still built (behaviors need them); only the serve changes.
-            const bool skipSkelServe = CB::core::debug::FlagOn("noskeletonserve");
-            if (skipSkelServe)
-                LOG_WARN("Resolver: SKELETON SERVE DISABLED (noskeletonserve.enable) — skeleton opens fall "
-                         "through to loose files. Diagnostic only.");
 
             // SERVE: every unit a non-master bundle wins. Each task writes only its own m_skeletonServe key
             // (under serveMu), so fanning across units is byte-identical to serial.
@@ -531,17 +496,22 @@ namespace CB {
                         return;
                     }
                 }
-                CB::engine::skeleton::SkeletonData sk;
-                if (!readUnit(bi, unit, sk)) return;
-                auto cr = CB::engine::skeleton::CompileSkeletonFull(sk);
-                if (cr.ok) {
-                    const std::size_t nBones = sk.bones.size();
-                    { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(cr.bytes); }
-                    LOG_INFO("Resolver: SERVING skeleton '{}' from '{}' ({} bones).", unit, bundles[bi].stem, nBones);
-                } else
-                    LOG_WARN("Resolver: skeleton '{}' ({}) compile failed: {} — not served.", unit, bundles[bi].stem, cr.error);
+                /// @note The unit is the whole skeleton.hkx, so serving it is a parse and a serialize: nothing is derived.
+                const auto src = bundles[bi].reader.unitSource(unit);
+                CB::engine::decompile::ParsedHky graph;
+                std::vector<std::uint8_t> bytes;
+                std::string err;
+                if (!src || !schemaReg || !CB::engine::decompile::ParseHkyReflective(*src, *schemaReg, graph, err, nullptr, unit) ||
+                    !CB::engine::decompile::SerializeGraph(graph, bytes, err)) {
+                    LOG_WARN("Resolver: skeleton '{}' ({}) did not compile: {} — not served.", unit, bundles[bi].stem,
+                             src && schemaReg ? err : std::string("no unit source or schema"));
+                    return;
+                }
+                const std::size_t size = bytes.size();
+                { std::lock_guard<std::mutex> lk(serveMu); m_skeletonServe[key] = std::move(bytes); }
+                LOG_INFO("Resolver: SERVING skeleton '{}' from '{}' ({} bytes).", unit, bundles[bi].stem, size);
             };
-            if (!skipSkelServe) {
+            {
                 std::vector<std::function<void()>> serveTasks;
                 for (const auto& [unit, bi] : skelWinner) {
                     if (bundles[bi].stem == "skyrim") continue;
@@ -581,10 +551,16 @@ namespace CB {
                 const std::string* r  = &rig;
                 const std::size_t  bi = skelWinner.at(rig);
                 boneTasks.push_back([&, r, bi] {
-                    CB::engine::skeleton::SkeletonData sk;
-                    if (!readUnit(bi, *r, sk)) return;
+                    const auto src = bundles[bi].reader.unitSource(*r);
+                    std::string err;
+                    auto names = src && schemaReg ? CB::engine::decompile::ReadSkeletonBones(*src, *schemaReg, *r, "animation", &err)
+                                                  : std::nullopt;
+                    if (!names) {
+                        LOG_WARN("Resolver: rig '{}' ({}) has no animation skeleton bones{}", *r, bundles[bi].stem, err.empty() ? "" : ": " + err);
+                        return;
+                    }
                     CB::engine::common::BoneNameTable tbl;
-                    for (const auto& b : sk.bones) tbl.names.push_back(b.name);
+                    tbl.names = std::move(*names);
                     const std::size_t nBones = tbl.names.size();
                     { std::lock_guard<std::mutex> lk(tblMu); m_skeletons[*r] = std::move(tbl); }
                     LOG_INFO("Resolver: rig '{}' = {} bone(s) from '{}'.", *r, nBones, bundles[bi].stem);

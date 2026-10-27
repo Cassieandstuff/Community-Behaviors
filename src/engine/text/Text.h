@@ -94,4 +94,21 @@ inline std::string Quote(std::string_view s)
     return QuoteSingle(s);
 }
 
+/// @brief `s` as a YAML scalar: as is when it reads back as the same plain string, else Quote()d. Names stay bare in
+///        the common case (`NPC Root [Root]`) and quoted only where YAML would read them otherwise (a leading `[` is a
+///        flow sequence: the chaurus's `[Neck0]`).
+inline std::string YamlScalar(std::string_view s)
+{
+    const auto plainSafe = [&] {
+        if (s.empty() || s.front() == ' ' || s.back() == ' ') return false;
+        if (std::string_view("[]{},#&*!|>'\"%@`").find(s.front()) != std::string_view::npos) return false;
+        if ((s.front() == '-' || s.front() == '?' || s.front() == ':') && (s.size() == 1 || s[1] == ' ')) return false;
+        if (s.find(": ") != std::string_view::npos || s.find(" #") != std::string_view::npos || s.back() == ':') return false;
+        for (unsigned char c : s)
+            if (c < 0x20) return false;
+        return true;
+    };
+    return plainSafe() ? std::string(s) : Quote(s);
+}
+
 }  // namespace CB::engine::text

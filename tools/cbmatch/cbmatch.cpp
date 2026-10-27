@@ -5101,9 +5101,14 @@ void usage()
         "  --grow               with --boundary: first pull exe functions into the owned set, one at a time, while each\n"
         "                       lowers the address count (inbound functions + exe functions and writable globals reached)\n"
         "  --escape <Class::member> <file>  write every instruction found reading, writing or taking the address of that\n"
-        "                       field (Havok's reflected names) on the class or a subclass: in the class's inventory\n"
-        "                       functions, in every function naming the class, and in the callees they pass it to\n"
+        "                       field (Havok's reflected names; Class@offset:width for raw bytes) on the class or a subclass:\n"
+        "                       in the class's inventory functions, in every function naming the class, and in the callees\n"
+        "                       they pass it to\n"
         "  --escape-seed <va:reg>  also walk the function at va with the object in reg at entry (repeatable)\n"
+        "  --escape-via <Root::member.member...>  also reach the class through that chain of reflected pointer members\n"
+        "                       (repeatable; e.g. hkbCharacter::setup.data.stringData): every function is scanned for the\n"
+        "                       chain's loads, joining it at any link\n"
+        "  --escape-links <n>   the chain loads a walk must see before the object counts as found (default 2)\n"
         "  --todo <class>      list that class's inventory functions the manifest doesn't cover yet (no compile)\n"
         "  --coverage           after a full run, list every inventory class (default: only those started)\n"
         "  --diff <seeds>       run each REGALLOC/VARIANT function and vanilla side by side under emulation on <seeds>\n"
@@ -5444,7 +5449,7 @@ namespace escape {
     /// @brief One instruction that reads, writes or takes the address of the field.
     struct Access {
         std::uint32_t fn = 0, at = 0;
-        std::string   code, op, via;
+        std::string   code, op, via, member;
         bool          owned = false;
     };
 
@@ -5455,15 +5460,6 @@ namespace escape {
     };
 
     ZydisRegister wide(ZydisRegister r) { return r == ZYDIS_REGISTER_NONE ? r : ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, r); }
-
-    bool isVolatile(ZydisRegister r)
-    {
-        switch (r) {
-        case ZYDIS_REGISTER_RAX: case ZYDIS_REGISTER_RCX: case ZYDIS_REGISTER_RDX: case ZYDIS_REGISTER_R8:
-        case ZYDIS_REGISTER_R9: case ZYDIS_REGISTER_R10: case ZYDIS_REGISTER_R11: return true;
-        default: return false;
-        }
-    }
 
     constexpr ZydisRegister kArgs[4] = { ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9 };
 
@@ -5479,7 +5475,6 @@ namespace escape {
         return it->second;
     }
 
-    /// @brief How a register came to hold the object, for the report.
     /// @brief A memory operand's address expression: base, index, scale, displacement.
     using Slot = std::tuple<ZydisRegister, ZydisRegister, std::uint8_t, std::int64_t>;
 
@@ -5488,13 +5483,29 @@ namespace escape {
         return { wide(op.mem.base), wide(op.mem.index), op.mem.scale, op.mem.disp.has_displacement ? op.mem.disp.value : 0 };
     }
 
-    /// @brief What the walk knows holds the object: registers, and memory slots it was loaded from or stored to.
+    /// @brief One pointer member of an --escape-via chain: where it is loaded from, and its reflected name.
+    struct Link {
+        std::uint32_t offset = 0;
+        std::string   name;   ///< Class::member
+    };
+
+    /// @brief An object partway down chain `chain`: `level` links from its root (chain[level] is the next link to
+    ///        follow), reached through `links` loads this walk saw.
+    struct Partial {
+        int         chain = 0, level = 0, links = 0;
+        std::string why;
+    };
+
+    /// @brief What the walk knows holds the object: registers, and memory slots it was loaded from or stored to; and,
+    ///        with --escape-via, what holds an object partway down a chain to it.
     /// @note A slot stays valid until a register its address uses is overwritten; a call is assumed not to rewrite it.
     struct Tracked {
         std::map<ZydisRegister, std::string> regs;   ///< register → why it holds the object
         std::map<ZydisRegister, int>         group;  ///< registers known equal (a mov between them)
         std::map<ZydisRegister, Slot>        loadedFrom;   ///< register → the slot its value was loaded from
         std::map<Slot, std::string>          slots;        ///< memory slots that hold the object
+        std::map<ZydisRegister, Partial>     partial;      ///< register → the chain object it holds
+        std::map<Slot, Partial>              partialSlots; ///< memory slots that hold a chain object
         int                                  next = 0;
 
         void drop(ZydisRegister r)
@@ -5502,8 +5513,10 @@ namespace escape {
             regs.erase(r);
             group.erase(r);
             loadedFrom.erase(r);
+            partial.erase(r);
             std::erase_if(loadedFrom, [r](const auto& e) { return std::get<0>(e.second) == r || std::get<1>(e.second) == r; });
             std::erase_if(slots, [r](const auto& e) { return std::get<0>(e.first) == r || std::get<1>(e.first) == r; });
+            std::erase_if(partialSlots, [r](const auto& e) { return std::get<0>(e.first) == r || std::get<1>(e.first) == r; });
         }
         void copy(ZydisRegister dst, ZydisRegister src)
         {
@@ -5513,10 +5526,13 @@ namespace escape {
             const std::optional<Slot> source = from != loadedFrom.end() ? std::optional<Slot>(from->second) : std::nullopt;
             const auto held = regs.find(src);
             const std::optional<std::string> why = held != regs.end() ? std::optional<std::string>(held->second) : std::nullopt;
+            const auto part = partial.find(src);
+            const std::optional<Partial> chained = part != partial.end() ? std::optional<Partial>(part->second) : std::nullopt;
             drop(dst);
             group[dst] = id;
             if (source) loadedFrom[dst] = *source;
             if (why) regs[dst] = *why;
+            if (chained) partial[dst] = *chained;
         }
         /// @return another register a mov made equal to `r` (the same value under another name), or none.
         ZydisRegister twin(ZydisRegister r) const
@@ -5526,12 +5542,16 @@ namespace escape {
             for (const auto& [o, id] : group) if (o != r && id == g->second) return o;
             return ZYDIS_REGISTER_NONE;
         }
-        /// @brief `dst` was loaded from `slot`: it holds the object if the slot does.
+        /// @brief `dst` was loaded from `slot`: it holds the object (or a chain object) if the slot does.
         void load(ZydisRegister dst, const Slot& slot)
         {
             drop(dst);
             loadedFrom[dst] = slot;
             if (const auto s = slots.find(slot); s != slots.end()) regs[dst] = s->second + " (reloaded)";
+            if (const auto s = partialSlots.find(slot); s != partialSlots.end()) {
+                partial[dst] = s->second;
+                partial[dst].why += " (reloaded)";
+            }
         }
         /// @brief `r` holds the object: so does every register a mov made equal to it, and the slot it came from.
         void mark(ZydisRegister r, const std::string& why)
@@ -5542,31 +5562,79 @@ namespace escape {
             for (const auto& [o, slot] : loadedFrom)
                 if (o == r || (group.count(o) && group.count(r) && group[o] == group[r])) slots[slot] = why;
         }
+        /// @return whether anything holds the object or a chain object (a state worth carrying along a branch).
+        bool holds() const { return !regs.empty() || !slots.empty() || !partial.empty() || !partialSlots.empty(); }
+        /// @brief Joins what another path into this point knew: whatever holds the object on either path may hold it.
+        /// @note Register equalities are not joined (they need not hold on both paths).
+        void merge(const Tracked& o)
+        {
+            for (const auto& [r, why] : o.regs) regs.emplace(r, why);
+            for (const auto& [s, why] : o.slots) slots.emplace(s, why);
+            for (const auto& [r, s] : o.loadedFrom) loadedFrom.emplace(r, s);
+            for (const auto& [r, part] : o.partial) partial.emplace(r, part);
+            for (const auto& [s, part] : o.partialSlots) partialSlots.emplace(s, part);
+        }
     };
+
+    /// @brief Resolves `Root::member.member...` through the exe's reflection: each member a POINTER to the next class.
+    /// @return the links, and (through `last`) the class the chain ends at.
+    std::vector<Link> parseChain(const std::string& spec, const std::map<std::string, const ReflectedClass*>& byName, std::string& last)
+    {
+        const auto sep = spec.find("::");
+        if (sep == std::string::npos) throw std::runtime_error("--escape-via takes Root::member.member..., not '" + spec + "'");
+        std::string cls = spec.substr(0, sep);
+        if (!byName.count(cls)) throw std::runtime_error("--escape-via " + spec + ": the exe reflects no class " + cls);
+        std::vector<Link> links;
+        for (std::size_t p = sep + 2; p <= spec.size();) {
+            const auto        dot  = spec.find('.', p);
+            const std::string name = spec.substr(p, dot == std::string::npos ? std::string::npos : dot - p);
+            const ReflectedClass::Member* found = nullptr;
+            for (std::string c = cls; !found && !c.empty();) {
+                const auto it = byName.find(c);
+                if (it == byName.end()) break;
+                for (const auto& mem : it->second->members) if (mem.name == name) found = &mem;
+                c = it->second->parent;
+            }
+            if (!found) throw std::runtime_error("--escape-via " + spec + ": " + cls + " reflects no member " + name);
+            if (found->type != 20 || found->cls.empty())
+                throw std::runtime_error("--escape-via " + spec + ": " + cls + "::" + name + " is a " + hkTypeName(found->type) + ", not a pointer to a class");
+            links.push_back({ found->offset, cls + "::" + name });
+            cls = found->cls;
+            if (dot == std::string::npos) break;
+            p = dot + 1;
+        }
+        if (links.empty()) throw std::runtime_error("--escape-via " + spec + ": no members");
+        last = cls;
+        return links;
+    }
 
 }  // namespace escape
 
 /// @brief Writes every instruction that reads, writes or takes the address of `target` (`Class::member`, Havok's
-///        reflected names) on an object of that class or a subclass: in the class's own inventory functions (`this` in
-///        rcx), in every function that names the class (its hkClass, its staticClass getter, its vtable), in explicit
-///        seeds (`va:reg`), and in the direct callees any of those pass the object to (two levels).
+///        reflected names, or `Class@offset:width` for raw bytes) on an object of that class or a subclass: in the class's
+///        own inventory functions (`this` in rcx), in every function that names the class (its hkClass, its staticClass
+///        getter, its vtable), in explicit seeds (`va:reg`), and in the direct callees any of those pass the object to (two
+///        levels).
+/// @note `chainSpecs` (--escape-via `Root::member.member...`) reach the class through pointer members, the way code that
+///       never names it does (hkbCharacter::setup.data.stringData). Every function is then walked: a load at one of a
+///       chain's member offsets holds the next object down, from any base, and the object counts as found once at least
+///       `minLinks` of those loads led to it, so `via` says how much of the chain the walk saw.
 /// @note Linear and intraprocedural: each function is walked in address order, the object followed through register
-///       moves and lost on a call (volatile registers) or an overwrite; a spill to the stack is not followed. In a
-///       function that names the class, the object is taken to be the `this` of its getClassType call (a virtual call
-///       to slot 1), the usual exact-class test. So the report is a to-do list for review, not a proof: the in-game
-///       tripwires confirm it.
-int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& target, const std::vector<std::string>& seedSpecs, const fs::path& outFile)
+///       moves and stack slots, and lost on a call (volatile registers) or an overwrite. In a function that names the
+///       class, the object is taken to be the `this` of its getClassType call (a virtual call to slot 1), the usual
+///       exact-class test. So the report is a to-do list for review, not a proof: the in-game tripwires confirm it.
+int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& target, const std::vector<std::string>& seedSpecs,
+                const std::vector<std::string>& chainSpecs, int minLinks, const fs::path& outFile)
 {
     namespace es = escape;
-    /// @note `Class@offset:width` names raw bytes instead of a reflected member: padding, or a member the exe's
-    ///       reflection leaves out.
     const auto atSign = target.find('@');
     const auto sep    = atSign == std::string::npos ? target.find("::") : atSign;
     if (sep == std::string::npos) throw std::runtime_error("--escape takes Class::member or Class@offset:width, not '" + target + "'");
     const std::string clsName = target.substr(0, sep), memberName = target.substr(sep + (atSign == std::string::npos ? 2 : 1));
-    if (m.inventory.file.empty() || !fs::exists(m.inventory.file)) throw std::runtime_error("--escape reads the inventory: run --inventory first");
-    const Inventory inv = loadInventory(m.inventory);
-    const PeImage   pe  = loadPe(rt.exe);
+    /// @note The inventory is optional: without one, no function counts as owned and only the anchors and chains seed.
+    const bool      hasInventory = !m.inventory.file.empty() && fs::exists(m.inventory.file);
+    const Inventory inv          = hasInventory ? loadInventory(m.inventory) : Inventory{};
+    const PeImage   pe           = loadPe(rt.exe);
 
     std::uint64_t ctor = 0;
     const auto    reflected = extractClasses(pe, ctor);
@@ -5604,6 +5672,30 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
     std::set<std::uint64_t> classObjects;
     for (const auto& n : family) classObjects.insert(byName[n]->at - pe.imageBase);
 
+    std::vector<std::vector<es::Link>> chains;
+    for (const auto& spec : chainSpecs) {
+        std::string last;
+        chains.push_back(es::parseChain(spec, byName, last));
+        if (!family.count(last)) throw std::runtime_error("--escape-via " + spec + " ends at " + last + ", not " + clsName + " or a subclass");
+    }
+
+    /// @brief The reflected member (the class's own or a parent's) a field offset falls in, `name+0x<delta>` past its start.
+    std::vector<std::pair<std::uint32_t, std::string>> layout;
+    for (std::string c = clsName; !c.empty();) {
+        const auto it = byName.find(c);
+        if (it == byName.end()) break;
+        for (const auto& mem : it->second->members) layout.emplace_back(mem.offset, mem.name);
+        c = it->second->parent;
+    }
+    std::sort(layout.begin(), layout.end());
+    auto memberAt = [&](std::int64_t disp) -> std::string {
+        const std::pair<std::uint32_t, std::string>* best = nullptr;
+        for (const auto& e : layout) if (std::int64_t(e.first) <= disp) best = &e;
+        if (!best) return {};
+        const std::int64_t delta = disp - best->first;
+        return delta ? best->second + "+0x" + hex(std::uint64_t(delta)) : best->second;
+    };
+
     std::map<std::uint64_t, std::uint64_t> idByOffset;
     if (!rt.addressLibrary.empty())
         for (const auto& [id, off] : loadAddressLibrary(rt.addressLibrary)) idByOffset.emplace(off, id);
@@ -5632,12 +5724,22 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
     for (const auto& [c, list] : inv.classes) for (const auto& f : list) owned.insert(std::uint32_t(f.va - pe.imageBase));
     for (const auto& f : inv.shared) owned.insert(std::uint32_t(f.va - pe.imageBase));
 
-    /// @brief A function to walk: where the object starts (a register at entry, or the getClassType test) and why.
-    struct Seed { std::uint32_t fn; ZydisRegister reg; std::string why; int depth; };
+    /// @brief A function to walk: where the object starts (a register at entry, or the getClassType test) and why; or a
+    ///        chain object in that register; or, `scan`, nothing — a function walked only for the chains' loads.
+    struct Seed {
+        std::uint32_t              fn;
+        ZydisRegister              reg;
+        std::string                why;
+        int                        depth;
+        std::optional<es::Partial> chained;
+        bool                       scan = false;
+    };
     std::vector<Seed> work;
-    std::set<std::pair<std::uint32_t, int>> queued;
-    auto enqueue = [&](std::uint32_t fn, ZydisRegister reg, std::string why, int depth) {
-        if (queued.insert({ fn, int(reg) }).second) work.push_back({ fn, reg, std::move(why), depth });
+    std::set<std::tuple<std::uint32_t, int, int, int>> queued;
+    auto enqueue = [&](std::uint32_t fn, ZydisRegister reg, std::string why, int depth, std::optional<es::Partial> chained = std::nullopt,
+                       bool scan = false) {
+        const auto key = std::make_tuple(fn, int(reg), chained ? chained->chain : -1, chained ? chained->level : -1);
+        if (queued.insert(key).second) work.push_back({ fn, reg, std::move(why), depth, std::move(chained), scan });
     };
     for (const auto& [c, list] : inv.classes)
         if (family.count(c))
@@ -5664,29 +5766,69 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
         if (!at) throw std::runtime_error("--escape-seed " + s + " is not inside a function");
         enqueue(*at, es::parseRegister(s.substr(colon + 1)), "seed", 0);
     }
+    if (!chains.empty())
+        for (const auto& [fn, end] : bounds) enqueue(fn, ZYDIS_REGISTER_NONE, "chain scan", 0, std::nullopt, true);
+
+    /// @return what a 64-bit load from [base + disp] holds, down a chain: the next object of the chain `base` is partway
+    ///         down, or else the first object of any chain link at that offset (the walk joins the chain there).
+    auto chainLoad = [&](const es::Tracked& t, ZydisRegister base, std::int64_t disp, std::uint32_t at) -> std::optional<es::Partial> {
+        if (const auto p = t.partial.find(base); p != t.partial.end()) {
+            const auto& c = chains[p->second.chain];
+            if (p->second.level < int(c.size()) && disp == std::int64_t(c[p->second.level].offset))
+                return es::Partial{ p->second.chain, p->second.level + 1, p->second.links + 1, p->second.why + " -> " + c[p->second.level].name };
+        }
+        std::optional<es::Partial> best;
+        for (int ci = 0; ci < int(chains.size()); ++ci)
+            for (int j = 0; j < int(chains[ci].size()); ++j)
+                if (disp == std::int64_t(chains[ci][j].offset) && (!best || j + 1 > best->level))
+                    best = es::Partial{ ci, j + 1, 1, chains[ci][j].name + " at 0x" + hex(pe.imageBase + at) };
+        return best;
+    };
 
     std::vector<es::Access> accesses, candidates;
     std::vector<es::Pass>   passes;
     std::set<std::uint32_t> walked;
+    std::size_t             scanned = 0;
     ZydisDecoder dec;
     ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
     ZydisFormatter fmt;
     ZydisFormatterInit(&fmt, ZYDIS_FORMATTER_STYLE_INTEL);
     for (std::size_t k = 0; k < work.size(); ++k) {
         const Seed s = work[k];
-        walked.insert(s.fn);
+        if (s.scan) ++scanned;
+        else walked.insert(s.fn);
         const auto endIt = bounds.find(s.fn);
         if (endIt == bounds.end()) continue;
         const std::uint32_t begin = s.fn, end = std::max(endIt->second, begin + 1);
         const auto off = pe.fileOffset(begin, end - begin);
         if (!off) continue;
+        /// @note `anchored`: a function that names the class, whose object is found at its exact-class test.
+        const bool anchored = s.reg == ZYDIS_REGISTER_NONE && !s.scan;
         es::Tracked t;
-        if (s.reg != ZYDIS_REGISTER_NONE) t.mark(s.reg, s.why);
+        if (s.chained) t.partial[s.reg] = *s.chained;
+        else if (s.reg != ZYDIS_REGISTER_NONE) t.mark(s.reg, s.why);
+        /// @note The walk stays linear, but what holds the object rides each forward branch to its target and joins the
+        ///       state there: `x = p ? p->m : 0` loads x before the jump over the null case, which overwrites x in address
+        ///       order.
+        std::map<std::uint32_t, es::Tracked> pending;
         for (std::uint32_t p = 0; p < end - begin;) {
             ZydisDecodedInstruction ins;
             ZydisDecodedOperand     ops[ZYDIS_MAX_OPERAND_COUNT];
             if (!ZYAN_SUCCESS(ZydisDecoderDecodeFull(&dec, pe.bytes.data() + *off + p, end - begin - p, &ins, ops))) { ++p; continue; }
             const std::uint32_t at = begin + p;
+            if (const auto joined = pending.find(at); joined != pending.end()) {
+                t.merge(joined->second);
+                pending.erase(joined);
+            }
+            if (ins.meta.branch_type != ZYDIS_BRANCH_TYPE_NONE && ins.mnemonic != ZYDIS_MNEMONIC_CALL && ops[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE &&
+                ops[0].imm.is_relative && t.holds()) {
+                ZyanU64 to = 0;
+                if (ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&ins, &ops[0], pe.imageBase + at, &to)) && to > pe.imageBase + at &&
+                    to < pe.imageBase + end) {
+                    const auto [slot, fresh] = pending.try_emplace(std::uint32_t(to - pe.imageBase), t);
+                    if (!fresh) slot->second.merge(t);
+                }
+            }
             auto text = [&] {
                 char buf[256];
                 return ZYAN_SUCCESS(ZydisFormatterFormatInstruction(&fmt, &ins, ops, ins.operand_count_visible, buf, sizeof buf, pe.imageBase + at, ZYAN_NULL))
@@ -5701,12 +5843,12 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
                 if (disp + size <= std::int64_t(offset) || disp >= std::int64_t(offset + width)) continue;
                 const auto base = t.regs.find(es::wide(op.mem.base));
                 es::Access a;
-                a.fn = s.fn, a.at = at, a.code = text(), a.owned = owned.count(s.fn) > 0;
+                a.fn = s.fn, a.at = at, a.code = text(), a.owned = owned.count(s.fn) > 0, a.member = memberAt(disp);
                 a.op = lea ? "address" : (op.actions & ZYDIS_OPERAND_ACTION_MASK_WRITE) ? "write" : "read";
                 if (base != t.regs.end()) {
                     a.via = base->second;
                     accesses.push_back(std::move(a));
-                } else if (s.reg == ZYDIS_REGISTER_NONE && disp == std::int64_t(offset) && (lea || size == std::int64_t(width)) &&
+                } else if (anchored && disp == std::int64_t(offset) && (lea || size == std::int64_t(width)) &&
                            es::wide(op.mem.base) != ZYDIS_REGISTER_RSP && op.mem.base != ZYDIS_REGISTER_RIP) {
                     candidates.push_back(std::move(a));
                 }
@@ -5714,24 +5856,35 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
             if (ins.mnemonic == ZYDIS_MNEMONIC_CALL) {
                 const auto& callee = ops[0];
                 const bool  virtualCall = callee.type == ZYDIS_OPERAND_TYPE_MEMORY && callee.mem.base != ZYDIS_REGISTER_RIP &&
-                                         callee.mem.base != ZYDIS_REGISTER_NONE && s.reg == ZYDIS_REGISTER_NONE;
+                                         callee.mem.base != ZYDIS_REGISTER_NONE && anchored;
                 /// @note The two exact-class tests: the object's own getClassType (slot 1, `this` in rcx), and the
                 ///       vtable-class registry's getClassFromVirtualInstance (slot 4, the object in rdx).
                 const bool classType = virtualCall && callee.mem.disp.value == 8;
                 const bool classOf   = virtualCall && callee.mem.disp.value == 0x20;
                 if (classType) t.mark(ZYDIS_REGISTER_RCX, "getClassType test at 0x" + hex(pe.imageBase + at));
                 if (classOf) t.mark(ZYDIS_REGISTER_RDX, "getClassFromVirtualInstance test at 0x" + hex(pe.imageBase + at));
+                ZyanU64    abs    = 0;
+                const bool direct = callee.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&ins, &callee, pe.imageBase + at, &abs));
                 for (int a = 0; a < 4; ++a) {
                     const auto held = t.regs.find(es::kArgs[a]);
-                    if (held == t.regs.end() || (classType && a == 0) || (classOf && a == 1)) continue;
-                    ZyanU64 abs = 0;
-                    const bool direct = callee.type == ZYDIS_OPERAND_TYPE_IMMEDIATE && ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&ins, &callee, pe.imageBase + at, &abs));
-                    if (direct && s.depth < 2) {
-                        if (const auto fn = startOf(std::uint32_t(abs - pe.imageBase)))
-                            enqueue(*fn, es::kArgs[a], "passed from 0x" + hex(pe.imageBase + at), s.depth + 1);
-                    } else {
-                        passes.push_back({ s.fn, at, text(), ZydisRegisterGetString(es::kArgs[a]) });
+                    if (held != t.regs.end() && !(classType && a == 0) && !(classOf && a == 1)) {
+                        if (direct && s.depth < 2) {
+                            if (const auto fn = startOf(std::uint32_t(abs - pe.imageBase)))
+                                enqueue(*fn, es::kArgs[a], "passed from 0x" + hex(pe.imageBase + at) + " (" + held->second + ")", s.depth + 1);
+                        } else {
+                            passes.push_back({ s.fn, at, text(), ZydisRegisterGetString(es::kArgs[a]) });
+                        }
                     }
+                    /// @note A chain object handed to a direct call goes on down the chain in the callee, once this walk
+                    ///       has seen `minLinks` loads of it: one load (the walk joining the chain at any base) is a
+                    ///       guess, and a guess carried into callees completed chains on unrelated objects.
+                    if (const auto part = t.partial.find(es::kArgs[a]);
+                        part != t.partial.end() && part->second.links >= minLinks && direct && s.depth < 2)
+                        if (const auto fn = startOf(std::uint32_t(abs - pe.imageBase))) {
+                            es::Partial next = part->second;
+                            next.why += " (passed from 0x" + hex(pe.imageBase + at) + ")";
+                            enqueue(*fn, es::kArgs[a], next.why, s.depth + 1, next);
+                        }
                 }
                 for (const auto r : { ZYDIS_REGISTER_RAX, ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_R8, ZYDIS_REGISTER_R9,
                                       ZYDIS_REGISTER_R10, ZYDIS_REGISTER_R11 })
@@ -5741,8 +5894,11 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
                 t.copy(es::wide(ops[0].reg.value), es::wide(ops[1].reg.value));
             } else if (ins.mnemonic == ZYDIS_MNEMONIC_MOV && ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && ops[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
                        ops[0].size == 64 && ops[1].mem.base != ZYDIS_REGISTER_RIP) {
-                const auto dst  = es::wide(ops[0].reg.value);
-                auto       slot = es::slotOf(ops[1]);
+                const auto dst     = es::wide(ops[0].reg.value);
+                auto       slot    = es::slotOf(ops[1]);
+                const auto from    = es::wide(ops[1].mem.base);
+                const bool chainOk = !chains.empty() && ops[1].mem.index == ZYDIS_REGISTER_NONE && from != ZYDIS_REGISTER_RSP;
+                const auto chained = chainOk ? chainLoad(t, from, std::get<3>(slot), at) : std::nullopt;
                 if (std::get<0>(slot) == dst || std::get<1>(slot) == dst) {
                     const auto twin = t.twin(dst);
                     if (twin != ZYDIS_REGISTER_NONE) {
@@ -5755,13 +5911,23 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
                 } else {
                     t.load(dst, slot);
                 }
+                if (chained) {
+                    if (chained->level < int(chains[chained->chain].size())) t.partial[dst] = *chained;
+                    else if (chained->links >= minLinks)
+                        t.mark(dst, "via " + chained->why + " (" + std::to_string(chained->links) + " of " +
+                                        std::to_string(chains[chained->chain].size()) + " links)");
+                }
             } else if (ins.mnemonic == ZYDIS_MNEMONIC_MOV && ops[0].type == ZYDIS_OPERAND_TYPE_MEMORY && ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                        ops[1].size == 64 && ops[0].mem.base != ZYDIS_REGISTER_RIP) {
                 const auto slot = es::slotOf(ops[0]);
-                if (const auto held = t.regs.find(es::wide(ops[1].reg.value)); held != t.regs.end()) t.slots[slot] = held->second;
+                const auto src  = es::wide(ops[1].reg.value);
+                if (const auto held = t.regs.find(src); held != t.regs.end()) t.slots[slot] = held->second;
                 else t.slots.erase(slot);
+                if (const auto part = t.partial.find(src); part != t.partial.end()) t.partialSlots[slot] = part->second;
+                else t.partialSlots.erase(slot);
             } else if (ins.mnemonic == ZYDIS_MNEMONIC_LEA && ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && ops[1].mem.index == ZYDIS_REGISTER_NONE &&
-                       !(ops[1].mem.disp.has_displacement && ops[1].mem.disp.value) && t.regs.count(es::wide(ops[1].mem.base))) {
+                       !(ops[1].mem.disp.has_displacement && ops[1].mem.disp.value) &&
+                       (t.regs.count(es::wide(ops[1].mem.base)) || t.partial.count(es::wide(ops[1].mem.base)))) {
                 t.copy(es::wide(ops[0].reg.value), es::wide(ops[1].mem.base));
             } else {
                 for (std::uint8_t o = 0; o < ins.operand_count; ++o)
@@ -5779,6 +5945,8 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
         std::sort(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) { return a.at < b.at; });
         candidates.erase(std::unique(candidates.begin(), candidates.end(), [](const auto& a, const auto& b) { return a.at == b.at; }), candidates.end());
     }
+    std::sort(passes.begin(), passes.end(), [](const auto& a, const auto& b) { return std::tie(a.at, a.reg) < std::tie(b.at, b.reg); });
+    passes.erase(std::unique(passes.begin(), passes.end(), [](const auto& a, const auto& b) { return a.at == b.at && a.reg == b.reg; }), passes.end());
 
     std::size_t outside = 0, writes = 0;
     std::set<std::uint32_t> touching;
@@ -5791,31 +5959,40 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
     std::string y;
     y += "# Generated by `cbmatch --escape` from the exe and the inventory; do not edit, regenerate.\n";
     y += "# Every instruction found reading, writing or taking the address of the field on an object of the class (or a\n";
-    y += "# subclass). owned = an inventory function (CB's code once it owns the class); via = how the object reached the\n";
-    y += "# register or memory slot. untracked = the field's offset and width in a function that names the class, on a base\n";
+    y += "# subclass). owned = an inventory function (CB's code once it owns the class); via = how the object\n";
+    y += "# reached the register or memory slot (through a chain: the loads seen, of how many links); member = the reflected\n";
+    y += "# member the access lands in. untracked = the field's offset and width in a function that names the class, on a base\n";
     y += "# the walk could not tie to the object (review each). passes = the object handed to a call the walk does not\n";
-    y += "# follow. A linear walk: review it,\n";
-    y += "# and let the in-game tripwires find what it missed.\n";
+    y += "# follow. A linear walk: review it, and let the in-game tripwires find what it missed.\n";
     y += "runtime: " + rt.name + "\n";
     std::string fam;
     for (const auto& n : family) fam += (fam.empty() ? "" : ", ") + n;
     y += "field: { class: " + clsName + ", member: " + memberName + ", type: " + typeName + ", offset: 0x" + hex(offset) +
          ", width: " + std::to_string(width) + ", classes: [" + fam + "] }\n";
-    y += "summary: { walked: " + std::to_string(walked.size()) + ", anchors: " + std::to_string(anchorWhy.size()) + ", accesses: " +
-         std::to_string(accesses.size()) + ", outside: " + std::to_string(outside) + ", writes: " + std::to_string(writes) +
-         ", functions: " + std::to_string(touching.size()) + ", untracked: " + std::to_string(candidates.size()) + ", passes: " +
-         std::to_string(passes.size()) + " }\n";
+    if (!chains.empty()) {
+        y += "chains:\n";
+        for (std::size_t c = 0; c < chains.size(); ++c) {
+            y += "  - { spec: " + chainSpecs[c] + ", links: [";
+            for (std::size_t j = 0; j < chains[c].size(); ++j)
+                y += (j ? ", " : "") + chains[c][j].name + " @0x" + hex(chains[c][j].offset);
+            y += "], min: " + std::to_string(minLinks) + " }\n";
+        }
+    }
+    y += "summary: { walked: " + std::to_string(walked.size()) + ", scanned: " + std::to_string(scanned) + ", anchors: " +
+         std::to_string(anchorWhy.size()) + ", accesses: " + std::to_string(accesses.size()) + ", outside: " + std::to_string(outside) +
+         ", writes: " + std::to_string(writes) + ", functions: " + std::to_string(touching.size()) + ", untracked: " +
+         std::to_string(candidates.size()) + ", passes: " + std::to_string(passes.size()) + " }\n";
     y += "anchors:\n";
     for (const auto& [fn, why] : anchorWhy)
         y += "  - { fn: 0x" + hex(pe.imageBase + fn) + label(fn) + ", owned: " + (owned.count(fn) ? "true" : "false") + ", why: " + why + " }\n";
     y += "accesses:\n";
     for (const auto& a : accesses)
         y += "  - { fn: 0x" + hex(pe.imageBase + a.fn) + label(a.fn) + ", owned: " + (a.owned ? "true" : "false") + ", at: 0x" +
-             hex(pe.imageBase + a.at) + ", op: " + a.op + ", code: " + quote(a.code) + ", via: " + quote(a.via) + " }\n";
+             hex(pe.imageBase + a.at) + ", op: " + a.op + ", member: " + quote(a.member) + ", code: " + quote(a.code) + ", via: " + quote(a.via) + " }\n";
     y += "untracked:\n";
     for (const auto& a : candidates)
         y += "  - { fn: 0x" + hex(pe.imageBase + a.fn) + label(a.fn) + ", owned: " + (a.owned ? "true" : "false") + ", at: 0x" +
-             hex(pe.imageBase + a.at) + ", op: " + a.op + ", code: " + quote(a.code) + " }\n";
+             hex(pe.imageBase + a.at) + ", op: " + a.op + ", member: " + quote(a.member) + ", code: " + quote(a.code) + " }\n";
     y += "passes:\n";
     for (const auto& p : passes)
         y += "  - { fn: 0x" + hex(pe.imageBase + p.fn) + label(p.fn) + ", at: 0x" + hex(pe.imageBase + p.at) + ", reg: " + p.reg +
@@ -5823,9 +6000,9 @@ int buildEscape(const Manifest& m, const RuntimeSpec& rt, const std::string& tar
     std::string err;
     if (!CB::engine::disk::WriteFile(outFile, y, {}, &err)) throw std::runtime_error("cannot write escape: " + err);
     std::printf("cbmatch: %s (0x%x, %u bytes): %zu accesses in %zu functions (%zu outside the inventory, %zu writes), %zu passes "
-                "not followed; %zu functions walked from %zu anchors -> %s\n",
+                "not followed; %zu functions walked from %zu anchors, %zu scanned for %zu chain(s) -> %s\n",
                 target.c_str(), offset, width, accesses.size(), touching.size(), outside, writes, passes.size(), walked.size(),
-                anchorWhy.size(), outFile.string().c_str());
+                anchorWhy.size(), scanned, chains.size(), outFile.string().c_str());
     return 0;
 }
 
@@ -6767,6 +6944,8 @@ struct Options {
     std::string escape;         ///< --escape: the Class::member whose accesses to find
     fs::path    escapeOut;
     std::vector<std::string> escapeSeeds;   ///< --escape-seed va:reg, repeatable
+    std::vector<std::string> escapeChains;  ///< --escape-via Root::member.member..., repeatable
+    int         escapeLinks = 2;            ///< --escape-links
     bool        strict = false;   ///< --strict: an out-of-line definition no manifest line covers fails the gate
     unsigned    jobs = 0;
     std::size_t diffSeeds = 0;
@@ -6804,7 +6983,7 @@ int run(const Options& opt)
     if (!opt.escape.empty()) {
         RuntimeSpec spec = rt ? *rt : RuntimeSpec{ runtime, exePath, {}, runtime };
         spec.exe         = exePath;
-        return buildEscape(m, spec, opt.escape, opt.escapeSeeds, opt.escapeOut);
+        return buildEscape(m, spec, opt.escape, opt.escapeSeeds, opt.escapeChains, opt.escapeLinks, opt.escapeOut);
     }
     if (!opt.todo.empty()) return printTodo(m, runtime, opt.todo);
     const PeImage pe = loadPe(exePath);
@@ -7288,6 +7467,8 @@ int main(int argc, char** argv)
         else if (a == "--grow") opt.grow = true;
         else if (a == "--escape") { opt.escape = next(); opt.escapeOut = next(); }
         else if (a == "--escape-seed") opt.escapeSeeds.push_back(next());
+        else if (a == "--escape-via") opt.escapeChains.push_back(next());
+        else if (a == "--escape-links") opt.escapeLinks = std::stoi(next());
         else if (a == "--todo") opt.todo = next();
         else if (a == "--coverage") opt.coverageAll = true;
         else if (a == "--diff") opt.diffSeeds = std::stoul(next());

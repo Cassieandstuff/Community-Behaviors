@@ -1,0 +1,10 @@
+name:      CBCurveKey
+parent:    null
+size:      12
+# One key: seconds from the clip's start (like the unit's track keys) and the value there.
+view:      { kind: curvekey, time: time, value: value, interp: interp }
+fields:
+  - { name: time,   type: float }
+  - { name: value,  type: float }
+  - { name: interp, type: int8, enum: CurveInterpolation }
+  - { pad: 4 }

@@ -44,8 +44,9 @@ namespace CB { namespace havok
         };
 
         /// @brief One step's inputs.
-        /// @note 0xa0 bytes. Names follow the Havok SDK except m_hipIkGain (provisional: doFootPlacement passes it to
-        ///       hkaTwoJointsIkSolver as the first joint's gain; hkbFootIkModifier leaves it 0).
+        /// @note 0xa0 bytes. Names follow the Havok SDK except m_maxKneeAngleDifference (provisional: doFootPlacement
+        ///       passes it as hkaTwoJointsIkSolver's m_maxHingeAngleDifferenceDegrees, 0x140a83e11; hkbFootIkDriver fills
+        ///       it from hkbFootIkGains::m_maxKneeAngleDifference; hkbFootIkModifier leaves it 0).
         struct Input
         {
             hkQsTransform              m_originalAnkleTransformMS;   ///< +0x00
@@ -58,11 +59,11 @@ namespace CB { namespace havok
             hkReal                     m_footPlantedGain;            ///< +0x7c
             hkReal                     m_footRaisedGain;             ///< +0x80
             hkReal                     m_footUnlockGain;             ///< +0x84
-            hkReal                     m_hipIkGain;                  ///< +0x88
+            hkReal                     m_maxKneeAngleDifference;     ///< +0x88
             hkUint32                   m_collisionFilterInfo;        ///< +0x8c
             hkBool                     m_useCollisionFilterInfo;     ///< +0x90
 
-            /// @brief Placement on, no raycast interface, the Havok SDK default gains (0.2 on/off, else 1; the hip 0),
+            /// @brief Placement on, no raycast interface, the Havok SDK default gains (0.2 on/off, else 1; the knee angle difference 0),
             ///        no collision filter.
             /// @note Out of line in vanilla (0x140a83910).
             Input();

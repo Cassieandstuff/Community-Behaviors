@@ -15,7 +15,7 @@
 //                  write a parsed unit back out (an editor's save)
 //   cb::anim     — decode / compile / EXPORT animations exactly as CB does
 //   cb::animdata — the animationdata (motion / root-motion) model + its YAML sidecar
-//   cb::skeleton — decode / compile / EXPORT skeletons (schema-native; anim + ragdoll)
+//   cb::skeleton — read skeletons (schema-native; anim + ragdoll physics summary) from a .hkx or a bundle unit
 //   cb::schema   — the SchemaRegistry to interpret a resolved model / classify merges
 //   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches)
 //
@@ -37,6 +37,12 @@
 #include "codec/serialization/HavokIo.h"
 #include "interface/UnitSource.h"
 #include "decompile/BehaviorDecompile.h"
+#include "decompile/EmbeddedFile.h"
+#include "merge/LoadOrderDocument.h"
+#include "merge/HkyOverlay.h"
+#include "interface/MasterTable.h"
+#include "compile/BundleAssembly.h"
+#include <vfs/Vfs.h>                        // the Data folder LoadOrderDocument reads (VFS, a PUBLIC dependency)
 
 // schema — the Havok class-schema registry (merge classifier / model interpreter)
 #include "interface/reflection/HavokSchema.h"
@@ -53,11 +59,9 @@
 #include "codec/format/AnimDataYaml.h"
 #include "interface/MotionSample.h"
 
-// skeleton — decode/compile/export skeletons (schema-native codec; anim + ragdoll)
+// skeleton — read skeletons (schema-native codec; anim + ragdoll physics summary)
 #include "interface/SkeletonData.h"
 #include "decompile/SkeletonImport.h"
-#include "compile/SkeletonCompiler.h"
-#include "codec/format/SkeletonYaml.h"
 
 // mm — the motion-matching bundle generator (the one hky-tool's generators run)
 #include "compile/MotionMatchingBundle.h"
@@ -89,6 +93,21 @@ namespace resolve {
     using CB::engine::decompile::EmitHkyReflective;            ///< Graph::identity → a unit folder (ParseHkyReflective's inverse)
     using CB::engine::decompile::DecompileBehaviorReflective;  // packfile bytes → a unit tree
     using CB::engine::decompile::DeriveHkyPatch;               // (base, mod) packfile bytes → the mod's patch unit
+
+    using EmbeddedKind = CB::engine::schema::EmbeddedKind;      ///< a hand-parsed file kind whose root map holds a schema class
+    using CB::engine::decompile::EmbeddedKindOf;               ///< file text → its embedded kind (by root key), or null
+    using CB::engine::decompile::ParseEmbeddedFile;            ///< file text → the kind's class Object
+    using CB::engine::decompile::SpliceEmbeddedFile;           ///< (file text, Object) → the text with those fields rewritten
+    using CB::engine::decompile::ParseEmbeddedObject;          ///< a root map → the class Object
+    using CB::engine::decompile::EmitEmbeddedObject;           ///< Object → its fields as YAML keys
+    using CB::engine::decompile::SampleCurve;                  ///< a `view: curve` Object → its value at a time
+
+    using LoadOrderDocument = CB::engine::merge::LoadOrderDocument;   ///< the resolved .hky load order over a VFS Data folder
+    using HkyOverlay = CB::engine::merge::HkyOverlay;   ///< the load order (or the open project) streamed over VFS as Data files
+    using CB::engine::codec::formid::BuildMasterTable;          ///< a bundle's ordered master table ([self, skyrim, masters…])
+    using BundleInput    = CB::engine::compile::BundleInput;      ///< partitions, loose files, generator and inject configs
+    using AssembleReport = CB::engine::compile::AssembleReport;
+    using CB::engine::compile::AssembleBundle;                 ///< BundleInput -> a packed .hky (hky-tool assemble, an editor's Export)
 }  // namespace resolve
 
 // ── cb::schema ───────────────────────────────────────────────────────────────
@@ -125,6 +144,9 @@ namespace anim {
     using CB::engine::anim::AnimAnnotation;
     using CB::engine::anim::AnimAnnotationTrackDef;
     using CB::engine::anim::AnimCompressionParams;
+    using CB::engine::anim::AnimCurveKey;            ///< one curve key (time, value, interpolation)
+    using CB::engine::anim::AnimCurveDef;            ///< a named curve over the clip
+    using CB::engine::anim::EmitAnimCurvesYaml;      ///< curves → the unit's `curves:` block
 
     using CB::engine::anim::CompileAnimation;        // Def → .hkx bytes (schema-native)
     using CB::engine::anim::CompileAnimationToFile;  // Def → .hkx file
@@ -151,22 +173,11 @@ namespace skeleton {
     using Physics       = CB::engine::skeleton::BonePhysics;           // authored ragdoll knobs on a bone
     using Joint         = CB::engine::skeleton::BoneJoint;             // a ragdoll bone's constraint to its parent
     using Bumper        = CB::engine::skeleton::SkeletonBumper;
-    using BoneAdd       = CB::engine::skeleton::SkeletonBoneAdd;       // one bone-add layer entry
-    using CompileResult = CB::engine::skeleton::SkeletonCompileResult;
 
     using CB::engine::skeleton::LoadSkeletonsFromHkx;   // skeleton.hkx → SkeletonData (+ ReadSkeletonPhysics)
     using CB::engine::skeleton::ReadSkeletonPhysics;    // attach ragdoll physics onto the anim skeleton
-    using CB::engine::skeleton::CompileSkeleton;        // anim skeleton → .hkx
-    using CB::engine::skeleton::CompileSkeletonFull;    // + derived ragdoll (6-variant skeleton.hkx)
-    using CB::engine::skeleton::CompileSkeletonOverBase;// rebuild anim bones over a base, carry the rest
-    using CB::engine::skeleton::CompileSkeletonToFile;
-    using CB::engine::skeleton::EmitSkeletonYaml;       // SkeletonData → combined yaml
-    using CB::engine::skeleton::EmitSkeletonYamlTree;   // SkeletonData → bonelist.yaml + bones/ unit
-    using CB::engine::skeleton::LoadSkeletonYaml;       // dir / combined file → SkeletonData
-    using CB::engine::skeleton::LoadSkeletonYamlFromTexts;
-    using CB::engine::skeleton::LoadSkeletonLayer;      // bone-add layer dir → additions
-    using CB::engine::skeleton::LoadSkeletonLayerFromTexts;
-    using CB::engine::skeleton::MergeBoneAdditions;     // append bone-adds onto a base skeleton
+    using CB::engine::skeleton::ReadSkeletonUnit;       // a bundle's skeleton unit → SkeletonData, physics attached
+    using CB::engine::decompile::ReadSkeletonBones;     // a skeleton unit's bone names, in served order (no parse)
 }  // namespace skeleton
 
 // ── cb::mm ───────────────────────────────────────────────────────────────────────

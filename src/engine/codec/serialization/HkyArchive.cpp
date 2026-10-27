@@ -143,34 +143,49 @@ std::shared_ptr<HkyArchive> HkyArchive::LoadFromFile(const std::string& hkyPath,
     });
     if (!indexed) return nullptr;
     if (arc->m_files.empty()) { err = ".hky is empty: " + hkyPath; return nullptr; }
+    return arc->ClassifyUnits(err) ? arc : nullptr;
+}
 
+std::shared_ptr<HkyArchive> HkyArchive::FromFiles(std::vector<std::pair<std::string, std::string>> files, std::string& err) {
+    auto arc    = std::shared_ptr<HkyArchive>(new HkyArchive());
+    arc->m_path = "<memory>";
+    for (auto& [name, text] : files) {
+        const std::uint64_t size = text.size();
+        const std::uint32_t crc  = static_cast<std::uint32_t>(
+            mz_crc32(MZ_CRC32_INIT, reinterpret_cast<const unsigned char*>(text.data()), text.size()));
+        const auto [it, fresh] = arc->m_files.emplace(
+            PathKey(name), Entry{ slashOnly(name), 0, size, size, crc, false, std::make_shared<const std::string>(std::move(text)) });
+        if (!fresh) { err = "'" + name + "' and '" + it->second.orig + "' are one path"; return nullptr; }
+    }
+    return arc->ClassifyUnits(err) ? arc : nullptr;
+}
+
+bool HkyArchive::ClassifyUnits(std::string& err) {
     /// @note EVERY "<prefix>.hkx/..." subtree is a unit (a mod's patch unit may hold only changed nodes / rosters and
-    ///       is still a real layer). m_files is sorted, so all files under one root are consecutive. A skeleton is
-    ///       its own format (bonelist.yaml + bones/, the skeleton compiler's), not a reflective graph.
+    ///       is still a real layer). m_files is sorted, so all files under one root are consecutive.
     try {
         std::string lastRoot;
-        for (const auto& [k, _] : arc->m_files) {
+        for (const auto& [k, _] : m_files) {
             const auto pos = k.find(".hkx/");
             if (pos == std::string::npos) continue;
             std::string root = k.substr(0, pos + 4);
             if (root == lastRoot) continue;
             lastRoot = root;
-            const auto g = arc->m_files.find(root + "/graph.yaml");
-            const UnitKind kind = arc->m_files.count(root + "/bonelist.yaml") ? UnitKind::Skeleton
-                                : g == arc->m_files.end()                    ? UnitKind::Behavior
-                                                                              : KindOfGraphYaml(arc->read(g->second));
-            arc->m_units.push_back({ std::move(root), kind });
+            const auto g = m_files.find(root + "/graph.yaml");
+            const UnitKind kind = g == m_files.end() ? UnitKind::Behavior : KindOfGraphYaml(read(g->second));
+            m_units.push_back({ std::move(root), kind });
         }
     } catch (const std::exception& e) {
         err = e.what();
-        return nullptr;
+        return false;
     }
-    return arc;
+    return true;
 }
 
 HkyArchive::~HkyArchive() = default;
 
 std::string HkyArchive::read(const Entry& e) const {
+    if (e.text) return *e.text;
     const auto fault = [&](const char* what) { return std::runtime_error(m_path + ": '" + e.orig + "' " + what); };
     /// @note The data starts after the LOCAL header's name + extra fields, whose lengths may differ from the central
     ///       directory's — so the local header is read for them.

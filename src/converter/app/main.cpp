@@ -172,8 +172,8 @@ int main(int argc, char** argv) {
     }
 
     // Build the shippable Skyrim.hky master from the vanilla meshes tree (unvalidated; prefer --regen-master).
-    if (argc >= 4 && std::string(argv[1]) == "--build-base") {  // <vanillaMeshesDir> <out.hky>
-        if (argc > 4) { std::printf("usage: --build-base <vanillaMeshesDir> <out.hky>\n"); return EXIT_FAILURE; }
+    if (argc >= 4 && std::string(argv[1]) == "--build-base") {  // <sourceDir> <out.hky>
+        if (argc > 4) { std::printf("usage: --build-base <sourceDir: meshes/ and/or *.bsa> <out.hky>\n"); return EXIT_FAILURE; }
         std::atomic<bool> cancel{ false };
         CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry
         const auto res = CB::converter::BuildBaseBundle(argv[2], argv[3],
@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
 
     // Regenerate + VALIDATE one derived bundle (<outHky>'s filename names it) in one call (see RegenerateMaster):
     // build-base to a temp, gate every unit's served bytes against its source, then promote.
-    //   --regen-master <vanillaMeshesDir> <outHky> [--strict] [--keep-unpacked <dir>]
+    //   --regen-master <sourceDir> <outHky> [--strict] [--keep-unpacked <dir>]
     // --strict makes any drift fatal (master not written); default writes + reports drift.
     // --keep-unpacked <dir> keeps the unpacked <Name>.hky/ tree under <dir> (short path) for observation.
     if (argc >= 4 && std::string(argv[1]) == "--regen-master") {
@@ -201,7 +201,7 @@ int main(int argc, char** argv) {
             else pos.push_back(a);
         }
         if (pos.size() != 2) {
-            std::printf("usage: --regen-master <vanillaMeshesDir> <outHky> [--strict] [--keep-unpacked <dir>]\n");
+            std::printf("usage: --regen-master <sourceDir: meshes/ and/or *.bsa> <outHky> [--strict] [--keep-unpacked <dir>]\n");
             return EXIT_FAILURE;
         }
         CB::engine::schema::SetSharedSchemaDir(ExeSchemaDir().string());            // arm the anim pipeline's registry

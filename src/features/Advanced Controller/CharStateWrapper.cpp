@@ -561,16 +561,21 @@ namespace CB::feature {
             float dx, dy;
             DesiredHorizontal(c, dx, dy);
             h.desired = { dx, dy, 0.0f };
-            for (int i = 0; i < static_cast<int>(h.rays.size()); i++) {
-                const ch::FloorHit& hit = fv.hits[i];
-                ch::hud::Ray&       r   = h.rays[i];
+            const int perEnd = static_cast<int>(fv.hits.size());
+            h.rayCount       = fv.longBody ? 2 * perEnd : perEnd;
+            for (int i = 0; i < h.rayCount; i++) {
+                const bool          hind = i >= perEnd;
+                const int           k    = hind ? i - perEnd : i;
+                const ch::FloorHit& hit  = hind ? fv.hindHits[k] : fv.hits[k];
+                ch::hud::Ray&       r    = h.rays[i];
                 float x, y;
-                ch::FloorRayXY(hull, i, tun, x, y);
+                ch::FloorRayXY(hull, k, tun, x, y, hind);
+                if (fv.longBody && k == 0) h.ends[h.endCount++] = { x, y, hull.feetZ };
                 r.top      = { x, y, hull.feetZ + hull.radius };
                 r.bottom   = { x, y, hull.feetZ - c.m_stepHeight };
                 r.hit      = hit.hit;
                 r.hitZ     = hull.feetZ + hit.dz;
-                r.walkable = hit.hit && hit.nz >= c.m_zNormal && hit.layer != ch::kCharControllerLayer;
+                r.walkable = hit.hit && hit.nz >= ch::WalkableZ(c) && hit.layer != ch::kCharControllerLayer;
                 r.wall     = hit.hit && (hit.nz < tun.wallNormalZ || hit.layer == ch::kCharControllerLayer);
             }
             ch::hud::Publish(h);
@@ -717,7 +722,7 @@ namespace CB::feature {
                 note.jumpSpeed = LaunchSpeed(c);
             }
             ch::PublishGroundNote(c, note);
-            if (ch::hud::On() && hull.valid) PublishHud(c, t, hull, fv);
+            if (ch::hud::On() && hull.valid && ch::IsControlled(&c)) PublishHud(c, t, hull, fv);
             t.lastState = static_cast<int>(c.m_context.m_currentState);
         }
 
@@ -730,7 +735,16 @@ namespace CB::feature {
             static const bool pinned = eng::Available(eng::bhkWorld_GetGravity) && eng::Available(eng::hkpCharacterMovementUtil_CalculateMovement);
             if (!pinned) return false;
             if (controller->m_flags & kChaseOrRagdoll) return false;
-            return controller->GetHavokWorld() != nullptr;
+            if (!controller->GetHavokWorld()) return false;
+            /// @note While the graph moves the player, vanilla's OnGround takes the velocity the graph's motion asks for as
+            ///       the step's; the Grounded spring (kGroundHalflife) would lag it.
+            const auto  actor = ch::ManagedActor(*controller);
+            const char* flag  = actor ? ch::GraphMovesActor(actor.get()) : "";
+            static std::atomic<const char*> lastFlag{ "" };
+            if (std::strcmp(lastFlag.exchange(flag, std::memory_order_relaxed), flag) != 0 && LogBudget())
+                LOG_INFO("ground states: {}", *flag ? std::format("the graph moves the {} ({}) - vanilla's states run", ch::IsPlayer(controller) ? "player" : "ridden horse", flag)
+                                                    : std::format("the graph hands the {} back", ch::IsPlayer(controller) ? "player" : "ridden horse"));
+            return *flag == 0;
         }
 
         template <int Id>
@@ -744,8 +758,9 @@ namespace CB::feature {
                 if (previous != Id) LOG_INFO("state wrapper: player state {} -> {}", previous, Id);
             }
             if (CbRuns(controller)) return CbSimulate(Id, *controller);
-            if (ch::IsPlayer(controller)) {
-                /// @note The player left CB's states for a step (chase/ragdoll); the next CB step resyncs.
+            if (ch::IsPlayer(controller) || ch::IsRiddenHorse(controller)) {
+                /// @note The player (or the ridden horse) left CB's states for a step (chase/ragdoll, the graph moving it);
+                ///       the next CB step resyncs.
                 std::scoped_lock lock(g_trackLock);
                 auto it = g_tracks.find(static_cast<const void*>(controller));
                 if (it != g_tracks.end()) it->second.init = false;

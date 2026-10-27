@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace c4::yml { class ConstNodeRef; }
+
 namespace CB::engine::decompile {
 using namespace CB::engine::codec;
 using namespace CB::engine::common;
@@ -53,13 +55,18 @@ Identity AssignIdentity(PackFileDeserializer& des, const schema::SchemaRegistry&
 ///        graph.yaml). ParseHkyReflective is its exact inverse.
 /// @param bones the graph's rig in rig order (RigIndex), so `boneref`/`bonelist`/`boneweights` fields render by bone
 ///              NAME; null = rig unknown (indices stay numeric — still lossless).
+/// @param unitPath the unit's Data-relative path ("meshes/…/skeleton.hkx"), which a skeleton unit's bone order is
+///                 bound against (the boneorder compat shim). A skeleton unit's role skeletons (`animation`, `ragdoll`)
+///                 become `<role>/skeleton.yaml` + `<role>/bones/<bone>.yaml`; a source whose order the shim cannot
+///                 reproduce fails the emit.
 bool EmitHkyReflective(const Identity& identity, const schema::SchemaRegistry& reg,
-                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones = nullptr);
+                       const std::string& outDir, std::string& err, const std::vector<std::string>* bones = nullptr,
+                       const std::string& unitPath = {});
 /// @brief Deserialize + encounter-order AssignIdentity + EmitHkyReflective: a complete unit, its nodes self-owned
 ///        FormIDs (`0000x…`) — the form a base unit (and any full graph a bundle ships) takes.
 bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
                                  const std::string& outDir, std::string& err,
-                                 const std::vector<std::string>* bones = nullptr);
+                                 const std::vector<std::string>* bones = nullptr, const std::string& unitPath = {});
 
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
 ///        categories; inline objects join with category "").
@@ -111,11 +118,25 @@ private:
 ///        SchemaObject graph, serializable byte-for-byte. Event/variable name companions WIN over their indices (the
 ///        name is the stable identity across mods); bone names resolve through `bones` (the graph's rig). Fail-loud:
 ///        an unknown enum name, bone, symbol, class or id is an error, never a silent 0.
+/// @param unitPath as EmitHkyReflective's: a skeleton unit's bones take the boneorder shim's order for it.
 bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg, ParsedHky& out,
-                        std::string& err, const std::vector<std::string>* bones = nullptr);
+                        std::string& err, const std::vector<std::string>* bones = nullptr, const std::string& unitPath = {});
 /// @brief Convenience: an on-disk unit directory.
 bool ParseHkyReflective(const std::string& dir, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err,
-                        const std::vector<std::string>* bones = nullptr);
+                        const std::vector<std::string>* bones = nullptr, const std::string& unitPath = {});
+
+/// @brief EMBEDDED OBJECTS — a schema class whose fields sit as plain keys inside a hand-parsed YAML map (an animation
+///        unit's `curves:`), read and written by the reflective .hky rules, so the schema stays the one description.
+/// @note  No ids, rig or vocabulary: the class may hold only inline values (no node references, bones or event /
+///        variable names). Keys of `map` the class does not name are left to the host's own parser.
+/// @return a `cls` object holding every field `map` names (the rest schema-defaulted); null with `err` set on an
+///         unknown class or a value that does not parse.
+std::shared_ptr<io::SchemaObject> ParseEmbeddedObject(const c4::yml::ConstNodeRef& map, const std::string& cls,
+                                                      const schema::SchemaRegistry& reg, const std::string& where,
+                                                      std::string& err);
+/// @brief `so`'s fields as YAML keys at indent 0, exactly as the reflective .hky renders them (a field with nothing to
+///        say renders nothing); ParseEmbeddedObject is its inverse.
+std::string EmitEmbeddedObject(const io::SchemaObject& so, const schema::SchemaRegistry& reg);
 
 /// @brief UNIT READERS — the facts load planning needs from a reflective unit, without compiling it.
 std::vector<std::string> ReadProjectCharacters(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg);
@@ -128,6 +149,13 @@ struct CharacterStrings {
 ///        are bone-keyed) — the very thing the rig binding is for. A patch unit yields only what it states; its
 ///        animationNames (a union roster) are its additions.
 std::optional<CharacterStrings> ReadCharacterStrings(const CB::engine::common::IUnitSource& src);
+/// @brief A skeleton unit's bone names for `role` ("animation" — the rig behaviors bind against — or "ragdoll"), in the
+///        order the skeleton serves them: the boneorder shim's for `unitPath`, then its `extraBones`. Read from the
+///        bone file names and skeleton.yaml, not parsed.
+/// @return nullopt when the unit has no such role skeleton, or (with `err`) when its bones don't fit an order.
+std::optional<std::vector<std::string>> ReadSkeletonBones(const CB::engine::common::IUnitSource& src, const schema::SchemaRegistry& reg,
+                                                          const std::string& unitPath, const std::string& role = "animation",
+                                                          std::string* err = nullptr);
 
 /// @brief The reflective-format GATE for one behavior binary: deserialize -> re-serialize (`canon`), EmitHkyReflective
 ///        into `workDir` -> ParseHkyReflective -> serialize with the same header, compared byte-for-byte to canon.
@@ -141,7 +169,8 @@ struct HkyRoundTripResult {
     std::string error;
 };
 HkyRoundTripResult RoundTripReflective(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg,
-                                       const std::string& workDir, const std::vector<std::string>* bones = nullptr);
+                                       const std::string& workDir, const std::vector<std::string>* bones = nullptr,
+                                       const std::string& unitPath = {});
 
 // ── Field patches: reflective .hky DELTAS ──────────────────────────────────────────────────────────────────────────
 struct HkyPatchStats { int patched = 0; int added = 0; };

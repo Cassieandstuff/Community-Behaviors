@@ -4,7 +4,7 @@
 # SOURCE: <repo>/features/<Name>.hky/ is a feature's folder: PARTITIONS (*.hky at its top, packed YAML trees laid
 # out like a game Data folder), loose files shipped at their path (manifest.json, hand-authored patch units),
 # generate/ (JSON configs naming a generator hky-tool knows, which writes files derived from a partition) and inject/
-# (JSON configs that write values into fields of the bundle's files, as tools/hky/injectables.json allows per file kind).
+# (JSON configs that write values into fields of the bundle's files, as schema/metadata/injectables.json allows per file kind).
 # Unlike the derived bundles (GenerateBaseMaster.cmake) there is nothing to decompile: `hky-tool assemble` streams the
 # partitions, runs the generators, applies the configs and packs <PACKED_DIR>/<Name>.hky, where BUILDER ships
 # it. A folder with no partitions, generate/ or inject/ assembles to a plain pack of its tree.
@@ -25,7 +25,7 @@ function(cb_feature_bundles)
         message(FATAL_ERROR "cb_feature_bundles: PACKER_TARGET, PACKED_DIR and OUT_TARGET are required")
     endif()
     set(${FB_OUT_TARGET} "" PARENT_SCOPE)
-    set(_table "${CMAKE_SOURCE_DIR}/tools/hky/injectables.json")
+    set(_table "${CMAKE_SOURCE_DIR}/schema/metadata/injectables.json")
     # The generators build units through the class schema, so a schema change reassembles every bundle.
     set(_schema "${CMAKE_SOURCE_DIR}/schema")
     file(GLOB_RECURSE _schema_files CONFIGURE_DEPENDS "${_schema}/*.yaml")

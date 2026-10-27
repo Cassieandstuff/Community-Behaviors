@@ -156,6 +156,8 @@ namespace CB::engine::compile {
                 d->Str("continuingPoseCostBias") = db.continuingPoseCostBias;
                 d->Str("loopingCostBias")        = db.loopingCostBias;
                 d->FieldRef("tags").strs = db.tags;
+                d->Str("standingCandidate")      = db.standingCandidate;
+                d->Str("movingCandidate")        = db.movingCandidate;
                 dbs.push_back(d);
                 for (const auto& c : db.clips) {
                     const std::string stem = FileName(c.path);

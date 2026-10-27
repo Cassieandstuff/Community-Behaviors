@@ -3,4 +3,4 @@ parent:    hkpCollidable
 signature: 0xe1a81497
 size:      128
 fields:
-  - { skip: 16 }   # @112 m_collisionEntries hkArray (IGNORED, empty)
+  - { empty: array }   # @112 m_collisionEntries hkArray (IGNORED, empty)

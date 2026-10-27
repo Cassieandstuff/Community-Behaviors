@@ -42,4 +42,9 @@ std::string EmitAnimTrackYaml(const AnimTrackDef& track);
 /// @return false when the unit has no such track.
 bool ReplaceTrackYaml(std::string& text, std::size_t trackIndex, const AnimTrackDef& track);
 
+/// @brief `curves` as the unit's `  curves:` block (indented as a child of `animation:`), written through the schema
+///        (CBAnimationCurves), so the loader reads it back exactly. Empty for no curves.
+/// @throws std::runtime_error without the shared schema registry.
+std::string EmitAnimCurvesYaml(const std::vector<AnimCurveDef>& curves);
+
 } // namespace CB::engine::anim

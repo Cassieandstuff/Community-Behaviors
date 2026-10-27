@@ -1,5 +1,6 @@
 #pragma once
 #include "interface/SkeletonData.h"
+#include "interface/UnitSource.h"
 
 #include <cstdint>
 #include <string>
@@ -11,6 +12,8 @@
 //
 // The output is deliberately NOT hkaSkeleton: plain names, parent indices, transforms, and the authored
 // ragdoll knobs, so callers need no Havok headers.
+
+namespace CB::engine::schema { class SchemaRegistry; }
 
 namespace CB::engine::skeleton {
 
@@ -34,5 +37,13 @@ bool LoadSkeletonsFromHkx(const std::uint8_t* data, std::size_t size,
 bool ReadSkeletonPhysics(const std::uint8_t* data, std::size_t size,
                          SkeletonData& animSkel,
                          std::string* err = nullptr);
+
+/// @brief A skeleton UNIT from a bundle (its reflective `animation/` + `ragdoll/` folders) -> the animation skeleton as
+///        SkeletonData, with ragdoll physics attached: the unit is parsed and serialized as CB serves it, then read like
+///        a skeleton.hkx (LoadSkeletonsFromHkx out[0] + ReadSkeletonPhysics).
+/// @param unitPath the unit's Data-relative path ("meshes/…/skeleton.hkx"); its bone order comes from the boneorder shim.
+/// @return false with `err` set when the unit doesn't parse or holds no skeleton.
+bool ReadSkeletonUnit(const CB::engine::common::IUnitSource& unit, const schema::SchemaRegistry& reg,
+                      const std::string& unitPath, SkeletonData& out, std::string* err = nullptr);
 
 } // namespace CB::engine::skeleton

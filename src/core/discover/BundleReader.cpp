@@ -172,10 +172,8 @@ namespace CB {
             if (!it->is_directory(de)) continue;
             if (!HasExt(it->path().filename().string(), ".hkx")) continue;
             it.disable_recursion_pending();
-            std::error_code se;
             const std::string text = CB::engine::disk::ReadFile(it->path() / "graph.yaml").value_or(std::string());
-            const auto k = fs::exists(it->path() / "bonelist.yaml", se) ? CB::engine::codec::HkyArchive::UnitKind::Skeleton
-                                                                       : CB::engine::codec::HkyArchive::KindOfGraphYaml(text);
+            const auto k = CB::engine::codec::HkyArchive::KindOfGraphYaml(text);
             if (k == kind)
                 out.push_back(it->path().lexically_relative(m_dir).generic_string());
         }

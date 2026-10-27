@@ -1,0 +1,9 @@
+name:      CBAnimationCurve
+parent:    null
+size:      24
+# One curve: its name (byte-exact, the contract its readers match on) and its keys in ascending time. Between two keys
+# the earlier key's `interp` says how the value moves; before the first and after the last the value holds.
+view:      { kind: curve, keys: keys, label: name }
+fields:
+  - { name: name, type: string }
+  - { name: keys, type: structarray, ref: CBCurveKey }

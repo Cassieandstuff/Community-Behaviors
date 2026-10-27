@@ -105,6 +105,8 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
         {
             if (ch::IsManaged(*self)) {
+                /// @note Samples the graph for the planes (ch::GraphMovesPublished), outside the integrate.
+                if (const auto actor = ch::ManagedActor(*self)) ch::GraphMovesActor(actor.get());
                 const ch::Hull hull = ch::GetHull(*self);
                 if (hull.valid) ch::PublishVerdict(*self, ch::QueryFloor(*self, hull, ch::FloorTunables{}));
             }
@@ -117,7 +119,10 @@ namespace CB::feature {
         {
             hk::bhkCharacterController& ctrl = *self;
             const int numPoints = (std::min)(input.m_numConstraints, manifold.getSize());
-            if (!ch::IsManaged(ctrl) || !proxy || numPoints > kMaxPoints) return next(self, proxy, manifold, input);
+            /// @note While the graph moves the player (a synced clip onto its mark), Bethesda's planes run, its character
+            ///       contacts included.
+            if (!ch::IsManaged(ctrl) || !proxy || numPoints > kMaxPoints || ch::GraphMovesPublished(ctrl))
+                return next(self, proxy, manifold, input);
             const ch::Hull hull = ch::GetHull(ctrl);
             if (!hull.valid) return next(self, proxy, manifold, input);
 
@@ -264,8 +269,7 @@ namespace CB::feature {
                     if (kind[i] != Kind::Block) continue;
                     const hk::hkRootCdPoint& point = manifold[i];
                     const hk::hkVector4&     pos   = point.m_contact.m_position;
-                    const float              dx = pos(0) - hull.cx, dy = pos(1) - hull.cy;
-                    if (point.m_contact.m_separatingNormal(2) <= kSteepMinZ || dx * dx + dy * dy > perch * perch
+                    if (point.m_contact.m_separatingNormal(2) <= kSteepMinZ || ch::SupportAxisDistSq(hull, pos(0), pos(1)) > perch * perch
                         || std::fabs(pos(2) - hull.feetZ) > tun.footTolerance)
                         continue;
                     if (!ctrl.IsFlagSet(3)) input.m_constraints[i].m_extraDownStaticFriction = kAntiCreep * verdict.support;
@@ -290,7 +294,7 @@ namespace CB::feature {
                     if (kind[i] != Kind::Block) continue;
                     const hk::hkContactPoint& cp = manifold[i].m_contact;
                     const float               nz = cp.m_separatingNormal(2);
-                    if (nz <= kSteepMinZ || nz >= ctrl.m_zNormal || cp.m_position(2) <= hull.feetZ + tun.footTolerance) continue;
+                    if (nz <= kSteepMinZ || nz >= ch::WalkableZ(ctrl) || cp.m_position(2) <= hull.feetZ + tun.footTolerance) continue;
                     int k = 0;
                     while (k < picks && manifold[pick[k]].m_rootCollidableB != manifold[i].m_rootCollidableB) ++k;
                     if (k == picks) pick[picks++] = i;

@@ -25,7 +25,7 @@
 
 /// @file
 /// @brief Step 8 of the character controller spec: the trajectory predictor (P1/P2), observe-only. Every simulated step
-///        of the player's proxy controller it predicts where the character will be 1/3, 2/3 and 1 s ahead (plus where it
+///        of the controlled character's proxy controller (ch::IsControlled: the player's, or the horse it rides) it predicts where the character will be 1/3, 2/3 and 1 s ahead (plus where it
 ///        was 1/3 s ago), and later scores each prediction against where the character actually went.
 /// @note Groundwork for motion matching: the trajectory is the query feature. Nothing here writes to the controller.
 
@@ -138,11 +138,12 @@ namespace CB::feature {
         ///       input and caps frozen over the horizon, as GASP's trajectory does; only the caps' slope factor follows
         ///       the predicted ground. Without it the request is vanilla's, held constant in world space.
         struct Drive {
-            bool            model = false;
-            ch::move::State state;
-            ch::move::Input input;
-            ch::move::Caps  caps;
-            float           slope = 0.0f;   ///< the slope factor in caps.forward; 0 = unknown, the caps stay frozen whole
+            bool              model = false;
+            ch::move::State   state;
+            ch::move::Input   input;
+            ch::move::Caps    caps;
+            ch::move::Profile profile;        ///< the frame's (the player's while no frame ran)
+            float             slope = 0.0f;   ///< the slope factor in caps.forward; 0 = unknown, the caps stay frozen whole
             /// @brief The frame's position (game units) the predicted offsets are added to for the step.
             /// @note Anchored on the frame rather than the hull: no assumption that Havok's world origin is the game's,
             ///       at the cost of up to a frame's lag, which only bends a strafe's aim at the target.
@@ -173,7 +174,8 @@ namespace CB::feature {
             int    n   = 0;
         };
 
-        /// @brief The predictor's whole state; the player is one controller, so one instance.
+        /// @brief The predictor's whole state; it predicts one controller at a time (the controlled one), so one instance.
+        /// @note  Switching controllers (mounting, dismounting) restarts it (Reset).
         struct State {
             const void*                    ctrl = nullptr;
             double                         clock = 0;
@@ -442,11 +444,11 @@ namespace CB::feature {
                             caps.forward = drive.caps.forward * slopeMul / drive.slope;
                         }
                         input.airborne = airborne;
-                        ch::move::Step(model, input, caps, drive.px + px * kGameUnitsPerHavok, drive.py + py * kGameUnitsPerHavok, h);
+                        ch::move::Step(model, input, caps, drive.profile, drive.px + px * kGameUnitsPerHavok, drive.py + py * kGameUnitsPerHavok, h);
                         f = kHalfPi - model.yaw;
                         d = { model.vx / kGameUnitsPerHavok, model.vy / kGameUnitsPerHavok };
                     } else {
-                        ch::SpringDamperExact(f, fv, facingGoal, ch::move::kFacingHalflife, h);
+                        ch::SpringDamperExact(f, fv, facingGoal, drive.profile.facingHalflife, h);
                     }
                     const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
@@ -678,8 +680,13 @@ namespace CB::feature {
         void OnCheckSupport(CheckSupport::Next next, hk::bhkCharacterController* self)
         {
             next(self);
-            if (!self || !ch::IsManaged(*self)) return;
+            if (!self || !ch::IsManaged(*self) || !ch::IsControlled(self)) return;
             hk::bhkCharacterController& ctrl = *self;
+            const RE::NiPointer<RE::Actor> actor = ch::ManagedActor(ctrl);
+            if (!actor) return;
+            /// @note Motion matching and the frame speed are the player's: the ridden horse's prediction feeds the HUD and
+            ///       the scoring only.
+            const bool isPlayer = ch::IsPlayer(self);
             const float dt = ctrl.m_stepInfo.m_deltaTime;
             const ch::Hull hull = ch::GetHull(ctrl);
             Vec2 tangent, sideAxis;
@@ -713,15 +720,16 @@ namespace CB::feature {
             Drive drive;
             drive.desired = desired;
             ch::FrameSpeed     fs;
-            const bool         haveSpeed = ch::CurrentSpeed(fs);
+            const bool         haveSpeed = isPlayer && ch::CurrentSpeed(fs);
             ch::move::Snapshot snap;
-            if (ch::move::Current(snap)) {
-                drive.model = true;
-                drive.state = snap.state;
-                drive.input = snap.input;
-                drive.caps  = snap.caps;
-                drive.px    = snap.px;
-                drive.py    = snap.py;
+            if (ch::move::Current(actor->GetFormID(), snap)) {
+                drive.model   = true;
+                drive.state   = snap.state;
+                drive.input   = snap.input;
+                drive.caps    = snap.caps;
+                drive.profile = snap.profile;
+                drive.px      = snap.px;
+                drive.py      = snap.py;
                 if (haveSpeed) drive.slope = fs.slope;
                 /// @note The model's request: the stick (a Skyrim heading h points along (sin h, cos h)) at the speed
                 ///       the caps allow that way, game units/s into Havok units/s.
@@ -734,9 +742,9 @@ namespace CB::feature {
             }
 
             std::int32_t iState = 0;
-            if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+            {
                 static const RE::BSFixedString kIState("iState");
-                player->GetGraphVariableInt(kIState, iState);
+                actor->GetGraphVariableInt(kIState, iState);
             }
 
             const float speed      = std::sqrt(v(0) * v(0) + v(1) * v(1));
@@ -752,7 +760,7 @@ namespace CB::feature {
             ///       prediction is then, so turns compare as well as distances.
             static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());
             std::array<float, kFutureSamples> queryTimes{};
-            if (ch::motion::On()) {
+            if (isPlayer && ch::motion::On()) {
                 const float rate = ch::motion::Rate(haveSpeed ? &fs : nullptr);
                 for (int k = 0; k < kFutureSamples; k++) queryTimes[k] = static_cast<float>(CB::engine::anim::features::kHorizons[k]) / rate;
             }
@@ -760,7 +768,7 @@ namespace CB::feature {
             const bool blocked  = tr.blockedAt >= 0.0f;
             /// @note GASP's TrajectoryCollision.TimeToLand from the path: its first grounded point's time. The horizon is
             ///       1 s, so a longer fall reads kNoLanding (GASP's "long fall" rows ask for 1.2 s or more).
-            if (ch::motion::On()) {
+            if (isPlayer && ch::motion::On()) {
                 float land = ch::motion::kNoLanding;
                 for (int i = 0; i < kPathPoints; i++)
                     if (path.ground[i] == ch::Ground::Grounded) {
@@ -775,7 +783,7 @@ namespace CB::feature {
             const auto allValid = [](const std::array<Sample, kFutureSamples>& a) {
                 return std::all_of(a.begin(), a.end(), [](const Sample& p) { return p.valid; });
             };
-            if (ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
+            if (isPlayer && ch::motion::On() && allValid(tr.query) && allValid(tr.queryPast)) {
                 ch::motion::Query q;
                 for (int k = 0; k < kFutureSamples; k++) {
                     q.x[k]        = tr.query[k].side * kGameUnitsPerHavok;
@@ -792,7 +800,7 @@ namespace CB::feature {
                 if (haveSpeed) q.gait = fs.gait;
                 ch::motion::Search(q);
             }
-            if (ch::hud::On()) {
+            if (ch::hud::On() && ch::IsControlled(self)) {
                 ch::hud::Prediction h;
                 for (int k = 0; k < kFutureSamples && k < ch::hud::Prediction::kSamples; k++) {
                     h.at[k]     = { world[k].x, world[k].y, hull.feetZ + tr.future[k].up };

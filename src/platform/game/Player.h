@@ -39,7 +39,16 @@ namespace CB::platform::game {
     void JumpHandler_ProcessButton(RE::JumpHandler* handler, RE::ButtonEvent* event, RE::PlayerControlsData* data);
 
     /// @brief Makes `actor` jump: for the player, PlayerControls_DoAction(0x38, 2), then the controller's jump impulse.
+    /// @note On a mount the controlling actor is the mount: its graph gets the jump action (the horse's JumpStart clip)
+    ///       and no controller impulse is given; the clip's jump event gives it (JumpAnimEventHandler_Execute).
     void Actor_Jump(RE::Actor* actor);
+
+    /// @brief The anim-event handler a jump clip's event runs (IHandlerFunctor<Actor, BSFixedStringCI>, slot 2): for an
+    ///        actor not on a mount, the controller's jump request (wanted state Jumping, height fJumpHeightMin x scale,
+    ///        times the swimming mult while swimming). Always true.
+    /// @note The horse graph's JumpStart clips raise "jumpBegin" 0.467 s in (0.333 s from a sprint); that this event
+    ///       reaches this handler is inferred (actorresponse.txt unread).
+    bool JumpAnimEventHandler_Execute(void* handler, RE::Actor* actor, const void* parameter);
 
     /// @brief Per actor, from Actor::Update: while sprinting (not mounted; NPCs only as player teammates) damages
     ///        Stamina by Actor_SprintStaminaDrain; its tail syncs ActorState sprinting from a graph bool.

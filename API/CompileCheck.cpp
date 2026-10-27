@@ -29,7 +29,7 @@ namespace {
         std::vector<std::uint8_t> bytes;
         bool sok = cb::resolve::SerializeGraph(g, bytes, err); (void)sok;
         auto* parse  = static_cast<bool (*)(const cb::resolve::UnitSource&, const cb::schema::Registry&, cb::resolve::Graph&,
-                                            std::string&, const std::vector<std::string>*)>(&cb::resolve::ParseHkyReflective);
+                                            std::string&, const std::vector<std::string>*, const std::string&)>(&cb::resolve::ParseHkyReflective);
         (void)parse;
         auto* patch  = &cb::resolve::MergeHkyPatch;               (void)patch;
         auto* derive = static_cast<bool (*)(const cb::resolve::Graph&, const std::vector<std::string>&,
@@ -82,16 +82,14 @@ namespace {
         std::string lbl = cb::animdata::LabelSample(""); (void)lbl;
         std::string unl = cb::animdata::UnlabelSample(""); (void)unl;
 
-        // cb::skeleton — decode / compile / export skeletons
+        // cb::skeleton — read skeletons
         cb::skeleton::Data sk; (void)sk;
         cb::skeleton::Joint joint; (void)joint;
         std::vector<cb::skeleton::Data> sks;
         bool rok = cb::skeleton::LoadSkeletonsFromHkx(nullptr, 0, sks, &err); (void)rok;
-        cb::skeleton::CompileResult scr = cb::skeleton::CompileSkeletonFull(sk); (void)scr;
-        std::string sy = cb::skeleton::EmitSkeletonYaml(sk); (void)sy;
-        std::vector<cb::skeleton::BoneAdd> adds;
-        bool mok = cb::skeleton::MergeBoneAdditions(sk, adds, &err); (void)mok;
-        auto* overBase = &cb::skeleton::CompileSkeletonOverBase; (void)overBase;
+        bool phok = cb::skeleton::ReadSkeletonPhysics(nullptr, 0, sk, &err); (void)phok;
+        auto* readUnit  = &cb::skeleton::ReadSkeletonUnit; (void)readUnit;
+        auto* readBones = &cb::skeleton::ReadSkeletonBones; (void)readBones;
 
         // cb::mm — the motion-matching bundle generator
         cb::mm::BundleSpec spec;
