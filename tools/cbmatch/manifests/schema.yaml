@@ -36,6 +36,95 @@ inventory:
   # Members reached only from out-of-scope code: Actor::Move drives the controller's per-frame update.
   roots:
     - { class: bhkCharacterController, va: 0x140e9f170 }   # UpdatePhysics
+    # The game-free runtime's run path (src/live): the graph scheduler, the root generate pass, the state machine,
+    # blend / sync / output utilities, the context and the pose helpers it reaches. Free functions and members whose
+    # callers include the Bethesda driver, so neither slots nor TU ranges attribute them.
+    - { class: hkbBehaviorGraph, va: 0x140ab2e00 }              # generate (root pass)
+    - { class: hkbBehaviorGraph, va: 0x140ab30e0 }              # handleEvents
+    - { class: hkbBehaviorGraph, va: 0x140ab58a0 }              # handleEventInternal
+    - { class: hkbBehaviorGraph, va: 0x140ab32b0 }              # initVariableValueSet
+    - { class: hkbBehaviorGraph, va: 0x140ab6ad0 }              # computeTimesteps
+    - { class: hkbBehaviorGraph, va: 0x140ab69a0 }              # copyVariablesToMembers
+    - { class: hkbBehaviorGraph, va: 0x140ab4290 }              # getNodeTemplate
+    - { class: hkbBehaviorGraph, va: 0x140ab3fe0 }              # getNodeClone
+    - { class: hkbBehaviorGraph, va: 0x140ab4020 }              # getOrCreateNodeClone
+    - { class: hkbBehaviorGraph, va: 0x140ab4700 }              # getUniqueId
+    - { class: hkbBehaviorGraph, va: 0x140ab3e60 }              # startEcho
+    - { class: hkbBehaviorGraph, va: 0x140ab3c10 }              # setNodeLocalTime
+    - { class: hkbBehaviorGraph, va: 0x140ab7290 }              # deletePartitionMemory
+    - { class: hkbBehaviorGraph, va: 0x140ab2770 }              # cloneShallow
+    - { class: hkbBehaviorGraph, va: 0x140ab2db0 }              # setRootGenerator
+    - { class: hkbBehaviorGraph, va: 0x140ab3500 }              # getMirroredExternalId
+    - { class: hkbBehaviorGraph, va: 0x140bc2920 }              # getVariableValueSet
+    - { class: hkbBehaviorGraphUtils, va: 0x140b0fb70 }         # updateActiveNodes
+    - { class: hkbBehaviorGraphUtils, va: 0x140ad5350 }         # collectNodes
+    - { class: hkbBehaviorGraphUtils, va: 0x140b13ca0 }         # freeCloneBlock
+    - { class: hkbEventQueue, va: 0x140ad60a0 }                 # queue op before handleEvents (unnamed)
+    - { class: hkbStateMachine, va: 0x140add360 }               # endTransitions
+    - { class: hkbStateMachine, va: 0x140add670 }               # handleEventInternal
+    - { class: hkbStateMachine, va: 0x140adeec0 }               # initRuntimeData
+    - { class: hkbStateMachine, va: 0x140adf1a0 }               # exitCurrentState
+    - { class: hkbStateMachine, va: 0x140adae20 }               # isInterruptible
+    - { class: hkbStateMachine, va: 0x140adb320 }               # getTransitions
+    - { class: hkbStateMachine, va: 0x140adb6c0 }               # findTransitions
+    - { class: hkbStateMachine, va: 0x140adc330 }               # beginTransitions
+    - { class: hkbStateMachine, va: 0x140adcdf0 }               # beginTransition
+    - { class: hkbStateMachine, va: 0x140adda90 }               # setCurrentState
+    - { class: hkbStateMachine, va: 0x140ade750 }               # writeSyncVariable
+    - { class: hkbStateMachine, va: 0x140ade960 }               # chooseStartStateId
+    - { class: hkbStateMachine, va: 0x140adf120 }               # setCurrentStateId
+    - { class: hkbBlenderGeneratorUtils, va: 0x140b07950 }      # generateInternal
+    - { class: hkbBlenderGeneratorUtils, va: 0x140b09320 }      # computeChildWeight
+    - { class: hkbBlenderGeneratorUtils, va: 0x140b0c0d0 }      # findCommonSyncPointIds
+    - { class: hkbBlenderGeneratorUtils, va: 0x140b0c450 }      # computeSyncInfo
+    - { class: hkbGeneratorOutputUtils, va: 0x140ad26a0 }       # copyGeneratorOutput
+    - { class: hkbGeneratorOutputUtils, va: 0x140ad2a70 }       # makePoseDense
+    - { class: hkbGeneratorOutputUtils, va: 0x140abe0e0 }       # markPoseDense
+    - { class: hkbGeneratorOutputUtils, va: 0x140abe3e0 }       # getFilledPoseLocal
+    - { class: hkbGeneratorOutputUtils, va: 0x140abe2a0 }       # getPoseModelSpace
+    - { class: hkbGeneratorOutputUtils, va: 0x140ad2e30 }       # blendGeneratorOutputs
+    - { class: hkbGeneratorOutputUtils, va: 0x140ad37b0 }       # blendPaletteTrack
+    - { class: hkbGeneratorOutputUtils, va: 0x140ad3fe0 }       # blendSparseTrack
+    - { class: hkbGeneratorOutput, va: 0x140abdf40 }            # ctor
+    - { class: hkbGeneratorSyncInfo, va: 0x140ac2500 }          # computeLocalTime
+    - { class: hkbGeneratorSyncInfo, va: 0x140ac2150 }          # computeSyncPointInterval
+    - { class: hkbGeneratorSyncInfo, va: 0x140ac22e0 }          # computeSyncPointInterval (among)
+    - { class: hkbContext, va: 0x140ab0a60 }                    # ctor
+    - { class: hkbContext, va: 0x140ab0a00 }                    # copy ctor
+    - { class: hkbContext, va: 0x140ab0aa0 }                    # getWorld
+    - { class: hkbContext, va: 0x140ab0ad0 }                    # getWorldUpWS
+    - { class: hkbContext, va: 0x140ab0af0 }                    # getAttachmentManager
+    - { class: hkbContext, va: 0x140ab0b40 }                    # isNodeActive
+    - { class: hkbContext, va: 0x140ab0bc0 }                    # sendEventToCharacter
+    - { class: hkbModifier, va: 0x140ad4bb0 }                   # callModify
+    - { class: hkbBindable, va: 0x140ab76a0 }                   # dtor
+    - { class: hkbBindable, va: 0x140ac1660 }                   # copyVariablesToMembers
+    - { class: hkbVariableBindingSet, va: 0x140ae56a0 }         # findBindingByMemberPath
+    - { class: hkbSymbolIdMap, va: 0x140ad6050 }                # convertInternalId
+    - { class: hkbSymbolLinker, va: 0x140ac1270 }               # dtor
+    - { class: hkbEventQueue,  va: 0x140ab0d60 }                 # hkQueue<hkbEvent>::setCapacity
+    - { class: hkbCompiledExpressionSet, va: 0x140b05550 }      # compile
+    - { class: hkbCompiledExpressionSet, va: 0x140b062e0 }      # evaluate
+    - { class: hkbBlendCurveUtils, va: 0x140abceb0 }            # applyBlendCurve
+    - { class: hkbWorld, va: 0x140abf4c0 }                      # getListeners
+    - { class: BSSynchronizedClipGenerator, va: 0x140b9fe20 }   # createLocalSyncBinding
+    - { class: hkaPose, va: 0x140abcbb0 }                       # dtor
+    - { class: hkaPose, va: 0x140a85d00 }                       # accessUnsyncedPoseLocalSpace
+    - { class: hkaPose, va: 0x140a84d10 }                       # getSyncedPoseLocalSpace
+    - { class: hkaPose, va: 0x140a85890 }                       # accessBoneModelSpace
+    - { class: hkaPose, va: 0x140a86280 }                       # calculateBoneModelSpace
+    - { class: hkaPose, va: 0x140a852f0 }                       # accessBoneLocalSpace
+    - { class: hkaPose, va: 0x140a85ca0 }                       # accessSyncedPoseLocalSpace
+    - { class: hkaSkeletonUtils, va: 0x140bd3c40 }              # scalePose
+    - { class: hkaSkeletonUtils, va: 0x140bd3ca0 }              # copyPoseAndFloats
+    - { class: hkaSkeletonUtils, va: 0x140bd47e0 }              # transformLocalBoneToModelBone
+    - { class: hkaSkeletonUtils, va: 0x140bd47b0 }              # transformLocalPoseToModelPose
+    - { class: hkaSplineCompressedAnimation, va: 0x140c33190 }  # readNurbsCurve
+    - { class: hkaSplineCompressedAnimation, va: 0x140c33810 }  # readKnots
+    - { class: hkaKeyCode, va: 0x140c9f1f0 }                    # check
+    - { class: hkaPoseMatchingUtility, va: 0x140bd8a00 }        # findBestCandidatePoseIndex
+    - { class: hkaPoseMatchingUtility, va: 0x140bd8ab0 }        # addCandidatePose
+    - { class: hkaPoseMatchingUtility, va: 0x140bd8b30 }        # computeReferenceFrame
 units:
   - source: ../../../havok/Behavior/Modifier/Timer/hkbTimerModifier.cpp
     functions:
