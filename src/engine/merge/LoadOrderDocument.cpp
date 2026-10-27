@@ -276,6 +276,15 @@ bool LoadOrderDocument::GraphBytes(std::string_view key, std::vector<std::uint8_
     return false;
 }
 
+std::optional<std::vector<std::string>> LoadOrderDocument::SkeletonBones(std::string_view key) const {
+    const auto u = UnitAt(key);
+    if (!u || u->kind != codec::HkyArchive::UnitKind::Skeleton || !m_reg) return std::nullopt;
+    if (const auto it = m_rigBones.find(u->key); it != m_rigBones.end()) return it->second;
+    const auto  src = WinnerSource(*u);
+    std::string err;
+    return src ? decompile::ReadSkeletonBones(*src, *m_reg, u->key, "animation", &err) : std::nullopt;
+}
+
 std::optional<skeleton::SkeletonData> LoadOrderDocument::Skeleton(std::string_view key, std::string* err) const {
     const auto u = UnitAt(key);
     if (!u || u->kind != codec::HkyArchive::UnitKind::Skeleton || !m_reg) {
