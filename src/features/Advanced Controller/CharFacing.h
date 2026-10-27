@@ -1,7 +1,6 @@
 #pragma once
 
-#include <cmath>
-#include <cstdint>
+#include <locomotion/Movement.h>
 
 /// @file
 /// @brief The player's frame driver (CharFacing): each frame it steps the movement model (CharMovementModel) and hands
@@ -17,8 +16,7 @@ namespace CB::feature::controller {
     ///         stick idle. Thread-safe.
     bool StickHeading(float& heading);
 
-    /// @brief The actor's gait (ActorState: sprinting before running before walking); None while none is set.
-    enum class Gait : std::uint8_t { None, Walk, Run, Sprint };
+    using CB::engine::locomotion::Gait;
 
     /// @brief The latest frame's speeds (game units/s): the forward speed the engine asked for (`full`) and the speed
     ///        the movement model handed on (`speed`).
@@ -31,13 +29,6 @@ namespace CB::feature::controller {
     /// @brief False while the movement model is off or no frame ran within the last half second. Thread-safe.
     bool CurrentSpeed(FrameSpeed& out);
 
-    /// @brief `a` wrapped into (-pi, pi].
-    inline float WrapPi(float a)
-    {
-        constexpr float kPi = 3.14159265f, kTwoPi = 6.2831853f;
-        a = std::fmod(a + kPi, kTwoPi);
-        if (a < 0.0f) a += kTwoPi;
-        return a - kPi;
-    }
+    using CB::engine::locomotion::WrapPi;
 
 }  // namespace CB::feature::controller
