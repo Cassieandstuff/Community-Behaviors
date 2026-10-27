@@ -12,7 +12,7 @@
 #
 # Env contract (top-level build only):
 #   VCPKG_ROOT            — vcpkg clone (toolchain, via the preset)
-#   SKYRIM_MODS_FOLDER    — MO2 mods folder (deploy target)
+#   SKYRIM_MODS_FOLDER / SKYRIM_TOOLS_FOLDER — deploy roots, read only by BUILDER (see its README)
 #   CB_REGEN_SOURCE       — root of <Name>.hky regen source folders (arms the derived-bundle regen)
 #   SCT_BASE_MASTER_DIR   — short D-drive path for the unpacked-master diff tree
 #
@@ -134,7 +134,15 @@ message(STATUS "CommonLibSSE-NG: submodule at lib/commonlibsse-ng")
 add_subdirectory(lib/commonlibsse-ng "${CMAKE_BINARY_DIR}/CommonLibSSE")
 
 include(CommonLibSSE)   # add_commonlibsse_plugin() — SHARED lib + generated version-data TU
-include(Deploy)         # cb_deploy() — MO2 deploy
+
+# ── BUILDER: stage, deploy and package (github.com/Cassieandstuff/libs-BUILDER, README there) ──
+# Every shipped product builds into build/<preset>/stage/<config>/<Name>; a build then deploys that stage to
+# $SKYRIM_MODS_FOLDER / $SKYRIM_TOOLS_FOLDER (-DBUILDER_DEPLOY=OFF: stage only), and `--target package` zips it.
+include(FetchContent)
+FetchContent_Declare(BUILDER
+    GIT_REPOSITORY https://github.com/Cassieandstuff/libs-BUILDER.git
+    GIT_TAG        36e7f41bffff51ca88705fbc5efbf42b8cefe4ef)
+FetchContent_MakeAvailable(BUILDER)
 
 # common/: what features build against — the feature SDK and the config scanner. Top-level only.
 add_subdirectory(common/feature-sdk)
@@ -271,17 +279,34 @@ if(CB_FEATURE_BUNDLES_TARGET)
     add_dependencies(CommunityBehaviors ${CB_FEATURE_BUNDLES_TARGET})
 endif()
 
-# Deploy: DLL + the class schema + the packed bundles (merge, preserving Skyrim.hky). The plugin never
-# reads the converter's Nemesis-ingest templates, so schema/templates stays out of the mod.
-cb_deploy(CommunityBehaviors "Community Behaviors"
-    SCHEMA
-    SCHEMA_EXCLUDE templates
-    HKY_STAGE      "${CB_HKY_STAGE}")
+# The "Community Behaviors" mod: DLL + pdb, the stamped class schema (owned: cleared, so a stale tree can't
+# double-register classes) and the packed bundles (merged: a Skyrim.hky regenerated earlier stays). The plugin never
+# reads the converter's Nemesis-ingest templates, so schema/templates stays out of the mod. The regen
+# (generate-base-master) is deliberately not a dependency: a plugin build ships whatever the stage already holds.
+builder_stage_plugin(CommunityBehaviors MOD "Community Behaviors")
+cb_builder_schema(MOD "Community Behaviors" TO community_behaviors/schema EXCLUDE templates)
+builder_stage_generated(MOD "Community Behaviors" DIR "${CB_HKY_STAGE}"
+    DEPENDS CommunityBehaviors ${CB_FEATURE_BUNDLES_TARGET})
+builder_package(MOD "Community Behaviors" VERSION ${PROJECT_VERSION})
+
+# Cross-build diff root (SCT_BASE_MASTER_DIR): unpack this build's Skyrim.hky to <dir>/current, rotating the last one
+# to <dir>/previous. Packed .hky isn't bit-reproducible, so only the unpacked trees diff meaningfully.
+if(DEFINED ENV{SCT_BASE_MASTER_DIR} AND TARGET hky-tool)
+    add_dependencies(CommunityBehaviors hky-tool)
+    add_custom_command(TARGET CommunityBehaviors POST_BUILD
+        COMMAND "${CMAKE_COMMAND}"
+                "-DCLI=$<TARGET_FILE:hky-tool>"
+                "-DMASTER=${CB_HKY_STAGE}/community_behaviors/plugins/Skyrim.hky"
+                "-DOUT=$ENV{SCT_BASE_MASTER_DIR}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/UnpackMaster.cmake"
+        COMMENT "Unpacking the master -> $ENV{SCT_BASE_MASTER_DIR}/current (diff root)"
+        VERBATIM)
+endif()
 
 # ── DEV-ONLY: x64dbg auto-attach SKSE plugin (NEVER shipped) ─────────────────────
 # A standalone SKSE plugin that spawns x64dbg attached to the game at startup, so early
 # breakpoints (e.g. the LoadClips call site) can be caught without racing the launch.
-# Opt-in + EXCLUDE_FROM_ALL + never referenced by cb_deploy, so it cannot reach end users.
+# Opt-in + EXCLUDE_FROM_ALL + never staged by BUILDER, so it cannot reach end users.
 # Enable with -DCB_BUILD_AUTOATTACH=ON, then build the CBDebugAutoAttach target explicitly.
 option(CB_BUILD_AUTOATTACH "Build the DEV-ONLY x64dbg auto-attach SKSE plugin (never shipped)" OFF)
 if(CB_BUILD_AUTOATTACH)
