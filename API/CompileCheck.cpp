@@ -107,5 +107,30 @@ namespace {
         bool bok = cb::mm::BuildMotionMatchingBehavior(spec, reg, files, err); (void)bok;
         bool rok2 = cb::mm::BuildMotionMatchingRosters(spec, files, err); (void)rok2;
         bool aok = cb::mm::BuildMotionMatchingBundle(spec, reg, files, err); (void)aok;
+
+        // cb::locomotion — the movement step, the horse ladder, the slope math
+        cb::locomotion::State ls;
+        cb::locomotion::Input lin;
+        lin.mode = cb::locomotion::Mode::Strafe; lin.gait = cb::locomotion::Gait::Run;
+        cb::locomotion::Caps lcaps;
+        const cb::locomotion::Profile& lprof = cb::locomotion::kPlayer;
+        cb::locomotion::Step(ls, lin, lcaps, lprof, 0.f, 0.f, 1.f / 60.f);
+        float lmax = cb::locomotion::MaxSpeed(lcaps, lin.mode, 0.f, ls.yaw); (void)lmax;
+        float lmap = cb::locomotion::StrafeSpeedMap(0.f); (void)lmap;
+        bool lspr = cb::locomotion::SprintDirectionAllowed(ls, lin, lprof); (void)lspr;
+        const cb::locomotion::HorseProfile& lhorse = cb::locomotion::kHorse;
+        cb::locomotion::Rung lrung = cb::locomotion::TopRung(false, true, 1.f, lhorse);
+        float lrs = cb::locomotion::RungSpeed(lrung, 0.f, 0.f, lhorse); (void)lrs;
+        float lw = cb::locomotion::WrapPi(0.f); (void)lw;
+        float lx = 0.f, lv = 0.f;
+        cb::locomotion::SpringDamperExact(lx, lv, 1.f, cb::locomotion::kSlopeSpeedHalflife, 1.f / 60.f);
+        cb::locomotion::Surface lg;
+        cb::locomotion::Tuning ltune;
+        float lrise  = cb::locomotion::SlopeRise(lg, 1.f, 0.f); (void)lrise;
+        float lscale = cb::locomotion::SlopeSpeedScale(lg, 1.f, 0.f, ltune); (void)lscale;
+        float lsx = 0.f, lsy = 0.f, lox = 0.f, loy = 0.f, loz = 0.f;
+        cb::locomotion::SlideStep(lg, 0.f, 0.f, -9.8f, lsx, lsy, 1.f / 60.f);
+        cb::locomotion::ClipUphill(lg, lsx, lsy);
+        cb::locomotion::JumpLaunch(lg, 0.f, 0.f, 1.f, lox, loy, loz);
     }
 }

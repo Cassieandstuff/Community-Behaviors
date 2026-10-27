@@ -18,6 +18,7 @@
 //   cb::skeleton — read skeletons (schema-native; anim + ragdoll physics summary) from a .hkx or a bundle unit
 //   cb::schema   — the SchemaRegistry to interpret a resolved model / classify merges
 //   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches)
+//   cb::locomotion — a character's movement step (GASP's CMC model + the facing spring), the horse ladder, slope math
 //
 // This is a RE-EXPORT, not a re-declaration: the types live ONCE in the engine
 // modules; here they are only surfaced under cb:: names. No duplicate declarations,
@@ -65,6 +66,11 @@
 
 // mm — the motion-matching bundle generator (the one hky-tool's generators run)
 #include "compile/MotionMatchingBundle.h"
+
+// locomotion — the pure movement step the plugin's Advanced Controller runs, game-free
+#include "locomotion/Movement.h"
+#include "locomotion/Horse.h"
+#include "locomotion/Slope.h"
 
 namespace cb {
 
@@ -199,5 +205,37 @@ namespace mm {
     using CB::engine::compile::BuildMotionMatchingRosters;     ///< spec → one roster patch per character
     using CB::engine::compile::BuildMotionMatchingBundle;      ///< both
 }  // namespace mm
+
+// ── cb::locomotion ─────────────────────────────────────────────────────────────
+namespace locomotion {
+    using Gait         = CB::engine::locomotion::Gait;          ///< None / Walk / Run / Sprint
+    using Mode         = CB::engine::locomotion::Mode;          ///< Orient (face the movement) / Strafe (face a target)
+    using Profile      = CB::engine::locomotion::Profile;       ///< a character's movement numbers
+    using Caps         = CB::engine::locomotion::Caps;          ///< the speed caps a step works under
+    using Input        = CB::engine::locomotion::Input;         ///< what a step is asked (stick, gait, target, airborne)
+    using State        = CB::engine::locomotion::State;         ///< velocity + facing, carried step to step
+    using HorseProfile = CB::engine::locomotion::HorseProfile;  ///< the ridden horse's numbers + its ladder thresholds
+    using Rung         = CB::engine::locomotion::Rung;          ///< Walk / Trot / Canter / Gallop
+    using Surface      = CB::engine::locomotion::Surface;       ///< the ground under the feet (Havok units)
+    using Tuning       = CB::engine::locomotion::Tuning;        ///< settings.ini [Character] numbers the slope math reads
+
+    using CB::engine::locomotion::kPlayer;                 ///< the player's Profile
+    using CB::engine::locomotion::kHorse;                  ///< the ridden horse's HorseProfile
+    using CB::engine::locomotion::kSlopeSpeedHalflife;     ///< the smoothing halflife a caller puts on SlopeSpeedScale
+
+    using CB::engine::locomotion::Step;                    ///< one movement step (velocity, then facing)
+    using CB::engine::locomotion::MaxSpeed;                ///< the cap moving along a heading while facing another
+    using CB::engine::locomotion::StrafeSpeedMap;          ///< velocity-vs-facing angle → 0 forward, 1 side, 2 back
+    using CB::engine::locomotion::SprintDirectionAllowed;  ///< whether the direction allows a sprint
+    using CB::engine::locomotion::TopRung;                 ///< rider's toggles + deflection → the highest rung
+    using CB::engine::locomotion::RungSpeed;               ///< a rung's speed from walk + run speeds
+    using CB::engine::locomotion::WrapPi;
+    using CB::engine::locomotion::SpringDamperExact;       ///< exact critically damped spring
+    using CB::engine::locomotion::SlopeRise;
+    using CB::engine::locomotion::SlopeSpeedScale;
+    using CB::engine::locomotion::SlideStep;
+    using CB::engine::locomotion::ClipUphill;
+    using CB::engine::locomotion::JumpLaunch;
+}  // namespace locomotion
 
 }  // namespace cb
