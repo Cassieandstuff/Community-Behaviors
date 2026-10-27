@@ -17,6 +17,7 @@
 #include <disk/Disk.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -95,6 +96,58 @@ namespace CB::core::serve {
                 return std::make_pair(root + rest.substr(t), *it->second);
             }
             return std::nullopt;
+        }
+
+        /// @brief Whether the loader reads every project's clip- and motion-block line counts in full
+        ///        (LiftAdsfLineCounts ran), so an adsf CB writes need not keep its frames to the schema's `framelimit`.
+        std::atomic<bool> s_adsfLineCountsWide{ false };
+
+        /// @brief Rewrites the loader's two `MOVZX r32, AX` on atoi's result as `MOV r32, EAX` + NOP.
+        /// @note Both or neither: a frame the engine still cuts short desyncs the whole file (a load crash), so one site
+        ///       alone gains nothing. Each site's bytes are checked first; another plugin's patch there, or a build the
+        ///       pins don't match, leaves both as vanilla wrote them.
+        /// @note Everything past these two reads is 32-bit on SE and AE: both parsers' limits and loops, each record's key
+        ///       counts and the packed records. The per-project-file path already passes 0x7fffffff as its limit.
+        void LiftAdsfLineCounts()
+        {
+            namespace engine = CB::platform::hooks::engine;
+            struct Site {
+                const engine::Symbol&       symbol;
+                std::array<std::uint8_t, 3> vanilla;
+                std::array<std::uint8_t, 3> wide;
+            };
+            const Site sites[] = {
+                { engine::Adsf_ClipBlockLineCount, { 0x0f, 0xb7, 0xc8 }, { 0x8b, 0xc8, 0x90 } },
+                { engine::Adsf_MotionBlockLineCount, { 0x0f, 0xb7, 0xf0 }, { 0x8b, 0xf0, 0x90 } },
+            };
+            for (const auto& s : sites) {
+                if (!engine::Available(s.symbol)) {
+                    LOG_INFO("AnimData: {} has no verified pin on this runtime — the adsf line counts stay 16-bit.", s.symbol.name);
+                    return;
+                }
+                const auto* at = reinterpret_cast<const std::uint8_t*>(engine::Resolve(s.symbol));
+                if (!std::equal(s.vanilla.begin(), s.vanilla.end(), at)) {
+                    LOG_WARN("AnimData: {} holds {:02x} {:02x} {:02x}, not the loader's movzx — something else patched it; the "
+                             "adsf line counts stay 16-bit.", s.symbol.name, at[0], at[1], at[2]);
+                    return;
+                }
+            }
+            for (const auto& s : sites) REL::safe_write(engine::Resolve(s.symbol), s.wide.data(), s.wide.size());
+            s_adsfLineCountsWide.store(true, std::memory_order_release);
+            LOG_INFO("AnimData: the adsf loader reads every project's line counts in full (no 65535-line frames).");
+        }
+
+        /// @return whether every frame of the adsf at `path` fits the loader's 16-bit line counts; a file that can't be
+        ///         read or parsed does not.
+        bool FitsSixteenBitLineCounts(const fs::path& path, std::string& err)
+        {
+            const auto* reg = CB::engine::schema::SharedRegistry();
+            if (!reg) { err = "schema registry not armed"; return false; }
+            const auto text = disk::ReadFile(path);
+            if (!text) { err = "cannot read " + path.string(); return false; }
+            const auto root = CB::engine::codec::io::ReadMetaText(*reg, "AnimationDataSingleFile", *text, err);
+            std::string out;
+            return root && CB::engine::codec::io::WriteMetaText(*root, out, err);
         }
 
     }  // namespace
@@ -232,9 +285,11 @@ namespace CB::core::serve {
         if (!root) { r.error = "projection failed: " + err; LOG_ERROR("AnimData: {}.", r.error); return r; }
 
         /// @note The schema writer enforces the descriptors' `framelimit` (the engine reads each project's frame
-        ///       counts through a 16-bit truncation): a file it would misread is refused and vanilla stays.
+        ///       counts through a 16-bit truncation) unless LiftAdsfLineCounts removed that truncation: a file the
+        ///       engine would misread is refused and vanilla stays.
         std::string text;
-        if (!CB::engine::codec::io::WriteMetaText(*root, text, err)) {
+        if (!CB::engine::codec::io::WriteMetaText(*root, text, err,
+                                                  { .frameLimits = !s_adsfLineCountsWide.load(std::memory_order_acquire) })) {
             r.error = err;
             LOG_ERROR("AnimData: {} — NOT serving the projected animation data (vanilla stays).", r.error);
             return r;
@@ -297,10 +352,19 @@ namespace CB::core::serve {
     void InstallAnimDataHook()
     {
         CB::platform::game::AdsfOpen::Subscribe(&OnOpenAnimData, CB::platform::hooks::Priority::Normal, "AnimDataServe");
+        LiftAdsfLineCounts();
     }
 
     void ArmAnimDataRedirect(const ServeResult& result)
     {
+        /// @note A cached adsf may have been written by a launch that lifted the line counts; this one could not, so a
+        ///       frame past 65535 lines would desync the file (a load crash). Vanilla stays instead.
+        if (std::string err; result.ok && !s_adsfLineCountsWide.load(std::memory_order_acquire) &&
+                             !FitsSixteenBitLineCounts(result.cachePath, err)) {
+            LOG_WARN("AnimData: NOT serving {} — the loader's line counts are 16-bit this launch and the file does not fit "
+                     "them ({}); vanilla animation data stays.", result.cachePath, err);
+            return;
+        }
         if (!CB::platform::game::AdsfOpen::Installed()) {
             RedirectAnimDataGlobal(result);  // deterministic hook unavailable — fall back
             return;

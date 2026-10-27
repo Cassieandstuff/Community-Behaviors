@@ -5,7 +5,8 @@ kind:   metadata
 # clip/motion lists carry no count of their own (`count: frame`: they run to the end of the frame).
 # fieldX is constant 1 in vanilla. animIndex links a clip to its motion (same value).
 # framelimit: the engine reads each frame count through a 16-bit truncation (AnimationClipDataSingleton
-# ctor: movzx of atoi) — a longer frame is read short and desyncs the file (a load crash).
+# ctor: movzx of atoi) — a longer frame is read short and desyncs the file (a load crash). The plugin lifts
+# both truncations where it can (engine.yaml Adsf_*BlockLineCount) and then writes without this limit.
 framelimit: 65535
 fields:
   - { name: name,        type: string }                                        # hoisted (the file's name list)

@@ -168,6 +168,7 @@ struct Key4 {
 /// @note REQUIRED, not cosmetic: the engine reads a project's motion-block line count through a 16-bit truncation
 ///       (AnimationClipDataSingleton ctor: movzx of atoi), so dense per-frame keys overflowed DefaultMale's block
 ///       (86198 lines → read as 20662) and desynced the whole file — a crash. Vanilla's keys are this same reduction.
+///       The plugin lifts that truncation where it can, but not on every runtime, so the reduction stays.
 std::vector<Key4> ReduceKeys(const std::vector<Key4>& keys, bool rotation, double tol) {
     const auto fits = [&](const Key4& a, const Key4& b, const Key4& k) {
         const double span = b.time - a.time;
