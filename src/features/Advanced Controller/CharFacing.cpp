@@ -7,6 +7,7 @@
 #include "CharMovementModel.h"
 
 #include <features/Camera/Camera.h>
+#include <locomotion/Horse.h>
 #include <platform/game/Movement.h>
 #include <platform/hooks/Override.h>
 
@@ -470,63 +471,23 @@ namespace CB::feature::controller {
 
         [[maybe_unused]] const bool s_subscribed = Frame::Subscribe(&OnFrame, hooks::Priority::Late, "CharFacing", "char_movement_model");
 
-        /// @brief The ridden horse's character: the model's numbers and its gait ladder.
-        /// @note  Starting values, to be hand-tuned against the horse's acceptance scenarios (spec H3): acceleration is
-        ///        vanilla's ridden-horse rate (2 x the canter speed: 0.5 s to canter), the air turn cap Horse_Fall_MT's
-        ///        rotate-while-moving (45 deg/s); the horse has no sprint ramps (accel and friction hold through a gallop).
-        ///        Traction (spec H5) from rough real-world estimates, unverified, at 70 units per metre and g = 687
-        ///        units/s^2: grip 0.7 g sideways (turn radius ~6 m at canter, ~11 m at gallop) and 0.6 g braking (a
-        ///        sliding stop), a 1.5 m floor (turning on the hocks), dig-in past 60 deg braking up to that sliding stop
-        ///        at 180 deg, the body leading with 0.08 s by at most 60 deg.
-        struct HorseProfile {
-            move::Profile model{
-                .accel               = 900.0f,
-                .sprintAccelSlow     = 900.0f,
-                .sprintAccelFrom     = 0.0f,
-                .sprintAccelTo       = 1.0f,
-                .friction            = 3.0f,
-                .sprintFrictionLow   = 3.0f,
-                .sprintFrictionTo    = 1.0f,
-                .brakingNoInput      = 700.0f,
-                .brakingWithInput    = 350.0f,
-                .facingHalflife      = 0.15f,
-                .airTurnRate         = 0.7853982f,
-                .lateralGrip         = 480.0f,
-                .brakingGrip         = 412.0f,
-                .minTurnRadius       = 105.0f,
-                .digInAngle          = 1.0471976f,
-                .digInBraking        = 412.0f,
-                .digInFacingHalflife = 0.08f,
-                .digInMaxLead        = 1.0471976f,
-            };
-            /// @brief Trot's speed as a fraction of the way from walk to canter (vanilla has no trot speed).
-            float trotFraction = 0.4f;
-            /// @brief Gamepad deflection below which the top rung is walk, then trot; at or above trotBelow it is canter.
-            float walkBelow = 0.45f;
-            float trotBelow = 0.85f;
-        };
-        constexpr HorseProfile kHorse{};
+        using CB::engine::locomotion::kHorse;
+        using CB::engine::locomotion::Rung;
 
-        /// @brief The gait ladder's rungs (spec H6): holding forward climbs to canter; the sprint toggle is gallop.
-        enum class Rung : std::uint8_t { Walk, Trot, Canter, Gallop };
-
-        /// @brief The highest rung the rider allows: gallop while the horse sprints (vanilla's sprint toggle), walk while
-        ///        the walk toggle is on, else the stick's deflection picks it (spec H7; keyboard = full deflection).
+        /// @brief locomotion::TopRung for `horse` under the rider's controls.
         /// @note  "Running" is vanilla's own test (0x14079b230, the one Planner Horse Controls doubles its speed by): a
         ///        gamepad always runs, else PlayerControlsData::running (the run/walk toggle). So the walk toggle caps
         ///        keyboard riders and the deflection gamepad ones.
         Rung TopRung(RE::Actor* horse, const RE::PlayerControlsData& data, float deflection)
         {
-            if (horse->AsActorState()->IsSprinting()) return Rung::Gallop;
-            auto*      devices = RE::BSInputDeviceManager::GetSingleton();
-            const bool running = (devices && devices->IsGamepadEnabled()) || data.running;
-            if (!running || deflection < kHorse.walkBelow) return Rung::Walk;
-            return deflection < kHorse.trotBelow ? Rung::Trot : Rung::Canter;
+            const bool sprinting = horse->AsActorState()->IsSprinting();
+            auto*      devices   = RE::BSInputDeviceManager::GetSingleton();
+            const bool running   = (devices && devices->IsGamepadEnabled()) || data.running;
+            return CB::engine::locomotion::TopRung(sprinting, running, deflection);
         }
 
-        /// @brief The rung's speed from the horse's current movement type: walk and canter are its forward walk and run
-        ///        speeds; trot sits trotFraction between them; gallop is the run speed of the sprint type the graph's
-        ///        iState switches to while sprinting.
+        /// @brief locomotion::RungSpeed from the horse's current movement type's forward walk and run speeds (while
+        ///        sprinting, the sprint type the graph's iState switches to); 0 without a high process.
         float RungSpeed(RE::Actor* horse, Rung rung)
         {
             auto* process = horse->GetActorRuntimeData().currentProcess;
@@ -536,11 +497,7 @@ namespace CB::feature::controller {
             const auto& sp    = high->currentMovementType.defaultData.speeds;
             const float walk  = sp[Dir::kForward][RE::Movement::MaxSpeeds::kWalk];
             const float run   = sp[Dir::kForward][RE::Movement::MaxSpeeds::kRun];
-            switch (rung) {
-            case Rung::Walk: return walk;
-            case Rung::Trot: return walk + (run - walk) * kHorse.trotFraction;
-            default:         return run;
-            }
+            return CB::engine::locomotion::RungSpeed(rung, walk, run);
         }
 
         /// @brief The player's horse whose frame this is, while the player rides it (sit state riding).
