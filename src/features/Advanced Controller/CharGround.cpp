@@ -391,39 +391,6 @@ namespace CB::feature::controller {
         return 1.0f - u * u * (3.0f - 2.0f * u);
     }
 
-    void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt)
-    {
-        /// @brief The slide never exceeds this (Havok units/s, about 1050 game units/s); the old Sliding state's cap.
-        constexpr float kMaxSlideSpeed = 15.0f;
-        /// @brief On fully supporting ground the slide halves in this long (seconds).
-        constexpr float kSlideBleedHalflife = 0.1f;
-        if (v.ground == Ground::Airborne) return;
-        const float pull = 1.0f - v.support;
-        const float gn   = gx * v.groundNx + gy * v.groundNy + gz * v.groundNz;
-        const float px = gx - gn * v.groundNx, py = gy - gn * v.groundNy, pz = gz - gn * v.groundNz;
-        const float ph = std::sqrt(px * px + py * py);
-        if (pull > 0.0f && ph > 1.0e-6f) {
-            const float a = std::sqrt(px * px + py * py + pz * pz) * pull * dt / ph;
-            sx += px * a, sy += py * a;
-        }
-        const float keep = std::exp(-0.6931472f / kSlideBleedHalflife * v.support * dt);
-        sx *= keep, sy *= keep;
-        const float len = std::sqrt(sx * sx + sy * sy);
-        if (len > kMaxSlideSpeed) sx *= kMaxSlideSpeed / len, sy *= kMaxSlideSpeed / len;
-    }
-
-    void ClipUphill(const FloorVerdict& v, float& dx, float& dy)
-    {
-        if (v.ground == Ground::Airborne || v.support >= 1.0f) return;
-        const float h = std::sqrt(v.groundNx * v.groundNx + v.groundNy * v.groundNy);
-        if (h < 1.0e-6f) return;
-        const float ux = -v.groundNx / h, uy = -v.groundNy / h;   ///< uphill: the normal leans downhill
-        const float up = dx * ux + dy * uy;
-        if (up <= 0.0f) return;
-        const float cut = (1.0f - v.support) * up;
-        dx -= cut * ux, dy -= cut * uy;
-    }
-
     namespace {
         /// @brief Each managed controller's latest verdict and ground note (the player's, the ridden horse's).
         /// @note Keyed by the controller's address; a horse's controller is freed when it unloads, so past a handful of
@@ -486,18 +453,15 @@ namespace CB::feature::controller {
 
     float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY)
     {
-        static const float down = (std::max)(0.0f, SettingFloat("fSlopeSpeedDown", 1.0f));
-        static const float up   = (std::max)(0.0f, SettingFloat("fSlopeSpeedUp", 0.5f));
-        static const bool  logged = [] {
-            LOG_INFO("slope speed: downhill x(1 + {:.2f} sin) up to 1.5, uphill x(1 - {:.2f} sin) down to 0.7", down, up);
+        static const CB::engine::locomotion::Tuning tuning{ (std::max)(0.0f, SettingFloat("fSlopeSpeedDown", 1.0f)),
+                                                           (std::max)(0.0f, SettingFloat("fSlopeSpeedUp", 0.5f)) };
+        static const bool logged = [] {
+            LOG_INFO("slope speed: downhill x(1 + {:.2f} sin) up to 1.5, uphill x(1 - {:.2f} sin) down to 0.7", tuning.slopeSpeedDown,
+                     tuning.slopeSpeedUp);
             return true;
         }();
         (void)logged;
-        if (g.ground == Ground::Airborne) return 1.0f;
-        const float rise  = SlopeRise(g, dirX, dirY);   ///< tan of the slope along the heading, + uphill
-        const float sine  = rise / std::sqrt(1.0f + rise * rise);
-        const float scale = sine < 0.0f ? (std::min)(1.5f, 1.0f - down * sine) : (std::max)(0.7f, 1.0f - up * sine);
-        return 1.0f + std::clamp(g.support, 0.0f, 1.0f) * (scale - 1.0f);
+        return CB::engine::locomotion::SlopeSpeedScale(SurfaceOf(g), dirX, dirY, tuning);
     }
 
     bool PublishedVerdict(const hk::bhkCharacterController& ctrl, FloorVerdict& out)

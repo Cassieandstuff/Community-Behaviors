@@ -2,6 +2,9 @@
 
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkCharProxyController.h>
 
+#include <locomotion/Movement.h>
+#include <locomotion/Slope.h>
+
 #include <array>
 #include <cmath>
 #include <string_view>
@@ -163,74 +166,39 @@ namespace CB::feature::controller {
     ///       (and needed a hysteresis delay on rough ground); the slide below scales with it instead.
     float Support(const hk::bhkCharacterController& ctrl, float groundNz);
 
-    /// @brief The slide: a horizontal velocity the player does not control, added to the player's own on the ground.
-    ///        It gains gravity's pull along the ground scaled by 1 - support, bleeds off at a rate scaled by support,
-    ///        and never exceeds kMaxSlideSpeed.
-    /// @param gx gravity (Havok units/s^2, already scaled by the controller's m_gravity).
-    /// @note The gain is horizontal at gravity's along-slope magnitude because the ground step lays the horizontal
-    ///       velocity onto the plane at the same speed, so the body accelerates down the fall line at g sin(slope)
-    ///       times 1 - support.
-    void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt);
-
-    /// @brief How far the ground of `v` rises along a horizontal move (dx, dy) if it keeps its plane (Havok units); with a
-    ///        velocity, the vertical speed that following the ground gives.
-    /// @note Clamped to a 60 deg grade: a near-vertical normal would extrapolate the move into a cliff. 0 when Airborne.
-    inline float SlopeRise(const FloorVerdict& v, float dx, float dy)
+    /// @brief The ground of `v` as the engine's slope helpers read it.
+    inline CB::engine::locomotion::Surface SurfaceOf(const FloorVerdict& v)
     {
-        if (v.ground == Ground::Airborne || v.groundNz < 0.1f) return 0.0f;
-        const float rise  = -(v.groundNx * dx + v.groundNy * dy) / v.groundNz;
-        const float limit = 1.7320508f * std::sqrt(dx * dx + dy * dy);
-        return rise < -limit ? -limit : rise > limit ? limit : rise;
+        return { v.ground == Ground::Grounded, v.support, v.groundNx, v.groundNy, v.groundNz };
     }
 
-    /// @brief The halflife (seconds) of the smoothing on SlopeSpeedScale: a change settles in about 0.3 s, so cresting
-    ///        a hill eases the speed down instead of snapping it.
-    constexpr float kSlopeSpeedHalflife = 0.1f;
+    /// @brief locomotion::SlideStep on the ground of `v`.
+    inline void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt)
+    {
+        CB::engine::locomotion::SlideStep(SurfaceOf(v), gx, gy, gz, sx, sy, dt);
+    }
 
-    /// @brief How much the slope along a heading (dirX, dirY, horizontal, unit length) changes the run speed: gravity's
-    ///        share along the run. Downhill 1 + fSlopeSpeedDown x sin(slope) up to 1.5; uphill 1 - fSlopeSpeedUp x
-    ///        sin(slope) down to 0.7 ([Character], defaults 1.0 and 0.5); 1 in the air.
-    /// @note Gravity along the slope is split by support: the share the ground holds (support) changes how fast the
-    ///       player runs (this), the share it does not (1 - support) drags them (SlideStep). So on ground too steep to
-    ///       stand on the speed change fades out and the slide takes over, and gravity is never counted twice.
+    /// @brief locomotion::SlopeRise on the ground of `v`.
+    inline float SlopeRise(const FloorVerdict& v, float dx, float dy) { return CB::engine::locomotion::SlopeRise(SurfaceOf(v), dx, dy); }
+
+    using CB::engine::locomotion::kSlopeSpeedHalflife;
+
+    /// @brief locomotion::SlopeSpeedScale on the ground of `g`, with settings.ini [Character] fSlopeSpeedDown and
+    ///        fSlopeSpeedUp (defaults 1.0 and 0.5), read once.
     float SlopeSpeedScale(const FloorVerdict& g, float dirX, float dirY);
 
     /// @brief The verdict last published for the player's controller; false when none is. For readers outside the
     ///        physics step (the player's frame movement).
     bool LatestVerdict(FloorVerdict& out);
 
-    /// @brief A jump's launch velocity from ground `g` at horizontal ground velocity (hx, hy) and jump speed `speed`
-    ///        (Havok units/s): the whole ground velocity (it lies along the slope, SlopeRise its vertical part) plus the
-    ///        push off the ground, along the ground's normal with the part that leans against the run removed.
-    /// @note One rule for every slope: uphill the normal leans back against the run, so the push is straight up and the
-    ///       run's uphill momentum carries the jump over the rising ground; downhill it leans with the run, so the push
-    ///       follows the normal (Sonic's jump) on top of the slope's own velocity; standing, crossing a slope or on the
-    ///       flat it is straight up. Continuous through flat ground: only the normal's lean along the run counts, and
-    ///       only when positive.
-    /// @note Why the momentum: vanilla's launch keeps only the horizontal speed, so a jump up a slope lost the run's
-    ///       upward motion and met the rising ground early. Pushing up along the full normal instead braked the run.
+    /// @brief locomotion::JumpLaunch from the ground of `g`.
     inline void JumpLaunch(const FloorVerdict& g, float hx, float hy, float speed, float& ox, float& oy, float& oz)
     {
-        float       dx = 0.0f, dy = 0.0f, dz = 1.0f;
-        const float h  = std::sqrt(hx * hx + hy * hy);
-        if (g.ground == Ground::Grounded && h > 1.0e-4f) {
-            const float ux = hx / h, uy = hy / h;
-            const float lean = g.groundNx * ux + g.groundNy * uy;   ///< the normal's lean along the run, + downhill
-            if (lean > 0.0f) {
-                dx = ux * lean, dy = uy * lean, dz = g.groundNz;
-                const float l = std::sqrt(dx * dx + dy * dy + dz * dz);
-                dx /= l, dy /= l, dz /= l;
-            }
-        }
-        ox = hx + speed * dx;
-        oy = hy + speed * dy;
-        oz = SlopeRise(g, hx, hy) + speed * dz;
+        CB::engine::locomotion::JumpLaunch(SurfaceOf(g), hx, hy, speed, ox, oy, oz);
     }
 
-    /// @brief Removes 1 - support of the uphill part of a horizontal request: on ground that does not hold the
-    ///        character, the player can steer across and down it but not climb it (Jolt's CharacterVirtual sample
-    ///        does the same on steep ground).
-    void ClipUphill(const FloorVerdict& v, float& dx, float& dy);
+    /// @brief locomotion::ClipUphill on the ground of `v`.
+    inline void ClipUphill(const FloorVerdict& v, float& dx, float& dy) { CB::engine::locomotion::ClipUphill(SurfaceOf(v), dx, dy); }
 
     /// @brief What the ground states hand the predictor each step.
     struct GroundNote {
@@ -261,17 +229,6 @@ namespace CB::feature::controller {
     /// @brief The game's INI setting `name` (e.g. "fInAirFallingCharGravityMult:HAVOK") as a float, `def` when absent.
     float IniFloat(const char* name, float def);
 
-    /// @brief Exact critically damped spring of `x` (rate `v`) toward `goal`, frame-rate independent by construction.
-    /// @param halflife seconds for the gap to halve.
-    /// @note The spring-damper in its exact form (as in Holden's motion-matching write-ups): y = 2 ln2 / halflife.
-    inline void SpringDamperExact(float& x, float& v, float goal, float halflife, float dt)
-    {
-        const float y   = 1.3862944f / (halflife > 1.0e-5f ? halflife : 1.0e-5f);   ///< 2 ln 2 / halflife
-        const float j0  = x - goal;
-        const float j1  = v + j0 * y;
-        const float eyd = std::exp(-y * dt);
-        x = eyd * (j0 + j1 * dt) + goal;
-        v = eyd * (v - j1 * y * dt);
-    }
+    using CB::engine::locomotion::SpringDamperExact;
 
 }  // namespace CB::feature::controller
