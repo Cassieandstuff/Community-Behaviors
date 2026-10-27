@@ -186,12 +186,12 @@ AnimDecompileResult DecompileAnimation(const std::vector<std::uint8_t>& hkx, con
     // resampling to a fixed fps (a 60fps clip stays 60fps; a sparse 2-keyframe pose stays 2 frames).
     y += "  numFrames: " + std::to_string(numFrames) + "\n";
     y += "  frameDuration: " + text::FormatFloat(fd) + "\n";
-    y += "  skeleton: " + skeleton + "\n";
+    y += "  skeleton: " + text::YamlScalar(skeleton) + "\n";
     if (!warn.empty()) y += "  # NOTE: " + warn + ".\n";
     y += "  tracks:\n";
 
     for (int t = 0; t < numTracks; ++t) {
-        y += "    - bone: " + trackName(t) + "\n";
+        y += "    - bone: " + text::YamlScalar(trackName(t)) + "\n";
         y += "      translation:\n";
         for (int f = 0; f < numFrames; ++f) {
             const auto& p = poses[static_cast<std::size_t>(f) * numTracks + t];

@@ -4,6 +4,9 @@
 #include <codec/formid/FormId.h>                        // CB::engine::codec::formid::SELF_INDEX (index convention)
 #include <codec/resource/PathKey.h>                     // PathKey (path identity) / ClipSlotKey (LoadClips slot rule)
 #include <decompile/SkeletonImport.h>        // LoadSkeletonsFromHkx (the rig bone tables, read from the binaries)
+#include <interface/BoneOrder.h>             // FindBoneOrder / BindBoneOrder (the boneorder shim: served bone order)
+#include <merge/LoadOrderDocument.h>         // the masters' rig binding, for the per-mod animation bake
+#include <vfs/Vfs.h>
 #include <codec/serialization/HkyArchive.h>     // Skyrim.hky base = the loose-derive vanilla source
 #include <codec/format/AnimationSetData.h>     // parse vanilla animationsetdatasinglefile
 #include <codec/format/AnimSetDataYaml.h>      // EmitMovesetsYaml (vanilla decompose)
@@ -1925,17 +1928,22 @@ enum class AnimBakeOutcome { Ok, Skip, Fail };
 ///   what the runtime roster scan, the adsf root-motion read and the future OAR replacement all consume, so a
 ///   skipped unit silently vanishes from all three. Pose fidelity only matters to compile/serve, which the
 ///   bundle's manifest (compile_animations) gates separately.
+/// @param bones the served bone names (boneorder shim order) of the rig the runtime compiles this clip against: the
+///   tracks decompile to those names, and the binding gate requires the recompiled track-to-bone map to equal the
+///   source's. Null = no rig binds the clip: it keeps `track<N>` placeholders, which only an identity binding can
+///   express (any other is a Skip).
 static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes,
                                          const std::filesystem::path&     unitPath,
                                          const std::filesystem::path&     stageDir,
                                          std::string&                     reason,
-                                         bool                             poseGate = true) {
+                                         bool                             poseGate = true,
+                                         const std::vector<std::string>*  bones    = nullptr) {
     namespace fs = std::filesystem;
     std::error_code ec;
     constexpr double kBakeMaxRotDeg = 0.5;   // character tree maxes 0.13deg after the codec fixes
     const fs::path bakeTmp = stageDir / "anim_bake";
     fs::remove_all(bakeTmp, ec); fs::create_directories(bakeTmp, ec);
-    const auto dc = CB::engine::anim::DecompileAnimation(abytes, bakeTmp);
+    const auto dc = CB::engine::anim::DecompileAnimation(abytes, bakeTmp, bones);
     if (!dc.ok) { reason = dc.error; return AnimBakeOutcome::Skip; }   // incl. "not spline-compressed"
 
     /// @note A decompile that reported ok but left no animation.yaml is a Fail — never an empty unit counted as baked.
@@ -1945,11 +1953,54 @@ static AnimBakeOutcome BakeAnimationUnit(const std::vector<std::uint8_t>& abytes
         if (std::string werr; !disk::WriteFile(unitPath, *baked, {}, &werr)) { reason = werr; return AnimBakeOutcome::Fail; }
         return AnimBakeOutcome::Ok;
     };
-    if (!poseGate) return keepBaked();
+
+    /// @note The binding as a full map (an empty transformTrackToBoneIndices is the identity: track t -> bone t).
+    const auto bindingOf = [](const std::vector<std::uint8_t>& hkx, std::vector<int>& map, std::string& err) {
+        CB::engine::anim::DecodedAnimation d;
+        if (!CB::engine::anim::DecodeAnimation(hkx.data(), hkx.size(), d, err)) return false;
+        map.assign(static_cast<std::size_t>(d.numTracks), 0);
+        for (int t = 0; t < d.numTracks; ++t)
+            map[static_cast<std::size_t>(t)] = static_cast<std::size_t>(t) < d.trackToBone.size() ? d.trackToBone[static_cast<std::size_t>(t)] : t;
+        return true;
+    };
+    std::vector<int> sourceMap;
+    if (std::string berr; !bindingOf(abytes, sourceMap, berr)) { reason = "decode: " + berr; return AnimBakeOutcome::Skip; }
+    if (!bones) {
+        for (std::size_t t = 0; t < sourceMap.size(); ++t)
+            if (sourceMap[t] != static_cast<int>(t)) {
+                /// @note The per-mod mode keeps it, flagged: its bundle never compiles animations, and the roster scan and
+                ///       the adsf motion read still need the unit. The master skips it: its units may compile.
+                if (!poseGate) {
+                    reason = "unnamed: no rig binds it and its binding is not the identity";
+                    return keepBaked();
+                }
+                reason = "binding: no rig binds it and its binding is not the identity (track<N> cannot name it)";
+                return AnimBakeOutcome::Skip;
+            }
+    }
+
+    if (!poseGate && !bones) return keepBaked();
     try {
         const auto ref = CB::engine::anim::AnimationYamlLoader::Load(bakeTmp / "animation.yaml");
-        const auto rc  = CB::engine::anim::CompileAnimation(ref, 30);   // fps ignored: ref carries numFrames
+        // fps ignored: ref carries numFrames. Compiled against the same rig the runtime compiles against.
+        const auto rc  = CB::engine::anim::CompileAnimation(ref, 30, CB::engine::codec::HKXHeader::SkyrimSE(), bones);
         if (!rc.ok) { reason = "recompile: " + rc.error; return AnimBakeOutcome::Skip; }
+
+        /// @note The binding gate: the names must carry the binding back to the source's exact indices.
+        if (bones) {
+            std::vector<int> back;
+            std::string      berr;
+            if (!bindingOf(rc.bytes, back, berr)) { reason = "binding: recompiled clip does not decode: " + berr; return AnimBakeOutcome::Skip; }
+            if (back != sourceMap) {
+                std::size_t t = 0;
+                while (t < back.size() && t < sourceMap.size() && back[t] == sourceMap[t]) ++t;
+                reason = "binding: recompiled track " + std::to_string(t) + " binds bone " +
+                         (t < back.size() ? std::to_string(back[t]) : std::string("-")) + ", the source bone " +
+                         (t < sourceMap.size() ? std::to_string(sourceMap[t]) : std::string("-"));
+                return AnimBakeOutcome::Skip;
+            }
+        }
+        if (!poseGate) return keepBaked();
 
         // pose gate: re-decompile the recompiled bytes and compare rotations to `ref`.
         const fs::path animRt = stageDir / "anim_rt"; fs::remove_all(animRt, ec); fs::create_directories(animRt, ec);
@@ -2100,6 +2151,57 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
         return b == rigBones.end() || b->second.empty() ? nullptr : &b->second;
     };
 
+    /// @note An animation's binding indices count the bones of the skeleton the game serves, in the boneorder shim's
+    ///       order (vanilla's bones, then each skeleton mod's appended layer, then the rest): each rig's served names.
+    std::map<std::string, std::vector<std::string>> animBones;
+    for (const auto& [rig, bones] : rigBones) {
+        const auto*                     entry = CB::engine::skeleton::FindBoneOrder(*sreg, rig);
+        const std::vector<std::string>* known = nullptr;
+        if (entry)
+            if (const auto it = entry->roles.find("animation"); it != entry->roles.end()) known = &it->second;
+        animBones[rig] = CB::engine::skeleton::BindBoneOrder(known, bones);
+    }
+    /// @brief The rig a clip's tracks are named from: the runtime's rule (Resolver::BonesFor) — the first rig the clip
+    ///        binds that has a skeleton, flagged when another rig it binds names its bones differently.
+    /// @note The bake and the runtime compile must agree on this rig: then even rigs that disagree by index (the DLC01
+    ///       crossbows) compile back to the source's exact indices.
+    struct AnimRig {
+        const std::vector<std::string>* names = nullptr;
+        std::string                     rig;
+        bool                            ambiguous = false;
+    };
+    const auto animRigFor = [&](const std::string& serveKey) {
+        AnimRig out;
+        const auto* rigs = rigIndex.RigsFor(serveKey);
+        if (!rigs) return out;
+        for (const std::string& rigKey : *rigs) {
+            const auto t = animBones.find(rigKey);
+            if (t == animBones.end()) continue;
+            if (!out.names) { out.names = &t->second; out.rig = rigKey; }
+            else if (t->second != *out.names) out.ambiguous = true;
+        }
+        return out;
+    };
+    {
+        /// @note The convention animations rely on: rigs that share clips name the same bone at the same index. Report
+        ///       every rig set that breaks it (its clips still compile right; they name tracks from the first rig).
+        std::map<std::string, std::pair<std::string, int>> disagree;   // rig set -> (named-from rig, clips)
+        for (const SourceFile& s : sources) {
+            if (s.kind != HkxKind::Animation) continue;
+            const AnimRig ar = animRigFor("meshes/" + s.relKey);
+            if (!ar.ambiguous) continue;
+            std::string set;
+            for (const std::string& rigKey : *rigIndex.RigsFor("meshes/" + s.relKey)) set += (set.empty() ? "" : ", ") + rigKey;
+            auto& e = disagree[set];
+            e.first = ar.rig;
+            ++e.second;
+        }
+        for (const auto& [set, e] : disagree)
+            say("  rigs disagree by bone index: " + set + " — " + std::to_string(e.second) +
+                " clip(s) name their tracks from " + e.first);
+        say("  animation rigs: " + std::to_string(disagree.size()) + " rig set(s) disagree by bone index");
+    }
+
     phaseDone("scan + rig binding");
     say("== Building " + bundle + " (every unit of " + src.Describe() + ") ==");
 
@@ -2107,7 +2209,7 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
     ///       read-only from here on, and each worker bakes animations in its own scratch dir. So the corpus fans across
     ///       the pool; each file's log lines are buffered and emitted afterwards in walk order (a deterministic log).
     std::atomic<int> nBehaviors{ 0 }, nProjects{ 0 }, nCharacters{ 0 }, nSkeletons{ 0 }, nFailed{ 0 };
-    std::atomic<int> nAnimOk{ 0 }, nAnimSkip{ 0 }, nAnimFail{ 0 };
+    std::atomic<int> nAnimOk{ 0 }, nAnimSkip{ 0 }, nAnimFail{ 0 }, nAnimNamed{ 0 };
     std::vector<std::string> notes(sources.size());
     const auto processOne = [&](const SourceFile& s, const fs::path& scratch, std::string& note) {
         const auto say = [&](const std::string& line) { note += line; note += '\n'; };
@@ -2137,8 +2239,12 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
                 ++nAnimFail; say("  anim read FAILED: " + rel + " — " + arerr); return;
             }
             std::string reason;
-            switch (BakeAnimationUnit(abytes, unit, scratch, reason)) {
-                case AnimBakeOutcome::Ok:   ++nAnimOk; break;
+            const AnimRig rig = animRigFor("meshes/" + s.relKey);
+            switch (BakeAnimationUnit(abytes, unit, scratch, reason, /*poseGate=*/true, rig.names)) {
+                case AnimBakeOutcome::Ok:
+                    ++nAnimOk;
+                    if (rig.names) ++nAnimNamed;
+                    break;
                 case AnimBakeOutcome::Skip:
                     ++nAnimSkip;
                     if (reason.find("not spline-compressed") == std::string::npos)   // quiet skip for those
@@ -2179,7 +2285,9 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
         std::to_string(r.failed) + " failed).");
     say("  animation round-trip: " + std::to_string(r.animOk) + " ok, " +
         std::to_string(r.animFail) + " failed, " + std::to_string(r.animSkip) +
-        " skipped (non-spline / undecodable).");
+        " skipped (non-spline / undecodable / binding).");
+    say("  animation bones: " + std::to_string(nAnimNamed.load()) + " of " + std::to_string(r.animOk) +
+        " baked clip(s) name their bones (the rest no rig binds: identity bindings, track<N>).");
     phaseDone("units");
 
     /// @note NEITHER singlefile .txt is copied into the master — both decompose into their "<name>.txt/" FOLDER
@@ -2518,6 +2626,50 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
     const fs::path stage = stageRoot / "modanim_stage";
     fs::create_directories(stage, ec);
 
+    /// @note A mod clip's tracks are named the way the master's are: the rig is the masters' binding for its folder (the
+    ///       Data folder's bundles — Skyrim.hky, XPMSSE.hky — read as the runtime reads them: LoadOrderDocument::Rigs,
+    ///       the first rig), and the boneorder shim maps that rig's bone indices to names (every layer, in order). A
+    ///       rig the shim does not list takes its skeleton unit's served order. No master readable = every clip keeps
+    ///       track<N> (flagged where that can't name its binding).
+    std::map<std::string, std::vector<std::string>> rigNames;   ///< rig unit key -> its bone names by index
+    CB::engine::merge::LoadOrderDocument             rigDoc;
+    {
+        const auto* reg = CB::engine::schema::SharedRegistry();
+        vfs::Options vo;
+        vo.kind = vfs::Options::Kind::Folders;
+        for (auto it = mo2.enabledTopFirst.rbegin(); it != mo2.enabledTopFirst.rend(); ++it) vo.folders.push_back(mo2.modsDir / *it);
+        vfs::FileSystem data;
+        std::string     err;
+        if (!reg) err = "schema registry not armed";
+        else if (data.Open(vo, &err) && rigDoc.Open(data, *reg, &err)) {
+            for (const auto& u : rigDoc.Units()) {
+                if (u.kind != CB::engine::codec::HkyArchive::UnitKind::Skeleton) continue;
+                const auto* entry = CB::engine::skeleton::FindBoneOrder(*reg, u.key);
+                if (entry)
+                    if (const auto role = entry->roles.find("animation"); role != entry->roles.end()) {
+                        rigNames[u.key] = role->second;
+                        continue;
+                    }
+                if (auto served = rigDoc.SkeletonBones(u.key)) rigNames[u.key] = std::move(*served);
+            }
+        }
+        say("Mod animation rigs: " + std::to_string(rigNames.size()) + " rig(s) from the masters" +
+            (err.empty() ? std::string() : " — " + err + " (mod clips keep track<N> names)"));
+    }
+    /// @brief The runtime's rule over the masters' binding: the first rig with names, flagged when another bound rig
+    ///        names its bones differently.
+    const auto rigFor = [&](const std::string& key, std::string& rig, bool& ambiguous) -> const std::vector<std::string>* {
+        const std::vector<std::string>* names = nullptr;
+        ambiguous = false;
+        for (const std::string& r : rigDoc.Rigs(key)) {
+            const auto it = rigNames.find(r);
+            if (it == rigNames.end()) continue;
+            if (!names) { names = &it->second; rig = r; }
+            else if (it->second != *names) ambiguous = true;
+        }
+        return names;
+    };
+
     std::unordered_map<std::string, std::vector<ModArchiveInfo>> pluginArchivesByMod;   ///< ascending load index
     for (auto& a : ResolveModArchivesFor(mo2))
         if (a.counted && a.loadIndex >= 0) pluginArchivesByMod[a.modName].push_back(std::move(a));
@@ -2530,6 +2682,7 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
     };
     std::map<std::string, int>      skipReasons;
     std::vector<std::string>        unrecognized;    ///< .hkx under an animations/ folder that did NOT classify as an animation
+    std::vector<std::string>        unnamed;         ///< kept with track<N> names whose binding they can't express
     int totalOk = 0, totalSkip = 0, totalFail = 0, totalFromArchive = 0, modsWithAnims = 0;
 
     for (const std::string& modName : mo2.enabledTopFirst) {
@@ -2580,7 +2733,12 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
         ///       scratch dir per worker). An archive's reader shares one stream, so its extracts take its lock. Results
         ///       land per source and fold in map order — the log and counts match a serial run.
         enum class Res { None, Ok, Skip, Fail, ExtractFail, Unrecognized };
-        struct Outcome { Res res = Res::None; std::string note; };
+        struct Outcome {
+            Res         res = Res::None;
+            std::string note;
+            std::string rig;          ///< the rig its tracks were named from; empty = none bound it
+            bool        ambiguous = false;
+        };
         std::vector<std::pair<const std::string*, const Source*>> order;
         order.reserve(sources.size());
         for (const auto& [key, src] : sources) order.emplace_back(&key, &src);
@@ -2608,20 +2766,28 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
                 if (!CB::engine::codec::ReadHavokFile(src.loose, bytes, &err)) { out.res = Res::Fail; return; }
             }
             std::string reason;
+            const auto* names = rigFor(PathKey(src.rel), out.rig, out.ambiguous);
             switch (BakeAnimationUnit(bytes, bundle / fs::path(src.rel), stage / ("worker" + std::to_string(worker)), reason,
-                                      /*poseGate=*/false)) {
-                case AnimBakeOutcome::Ok:   out.res = Res::Ok; break;
+                                      /*poseGate=*/false, names)) {
+                case AnimBakeOutcome::Ok:   out = { Res::Ok, reason, out.rig, out.ambiguous }; break;
                 case AnimBakeOutcome::Skip: out = { Res::Skip, reason }; break;
                 case AnimBakeOutcome::Fail: out = { Res::Fail, reason }; break;
             }
         });
 
-        int modOk = 0, modSkip = 0, modFail = 0, modFromArchive = 0;
+        int modOk = 0, modSkip = 0, modFail = 0, modFromArchive = 0, modNamed = 0;
+        std::set<std::string> modAmbiguous;
         for (std::size_t i = 0; i < order.size(); ++i) {
             const Source& src = *order[i].second;
             const auto&   o   = outcomes[i];
             switch (o.res) {
-                case Res::Ok:           ++modOk; if (src.entry) ++modFromArchive; break;
+                case Res::Ok:
+                    ++modOk;
+                    if (src.entry) ++modFromArchive;
+                    if (!o.rig.empty()) ++modNamed;
+                    if (o.ambiguous) modAmbiguous.insert(o.rig);
+                    if (o.note.rfind("unnamed", 0) == 0) unnamed.push_back(modName + ": " + src.rel);
+                    break;
                 case Res::Skip:         ++modSkip; ++skipReasons[o.note.substr(0, std::min<std::size_t>(o.note.find(':'), 60))]; break;
                 case Res::Fail:         ++modFail; if (!o.note.empty()) say("  anim FAILED: " + src.rel + " — " + o.note); break;
                 case Res::ExtractFail:  say("  extract failed: " + src.rel + " — " + o.note); ++modFail; break;
@@ -2632,8 +2798,10 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
         if (modOk || modSkip || modFail) {
             modsWithAnims += modOk ? 1 : 0;
             say("  mod animations: " + modName + " -> " + std::to_string(modOk) + " unit(s) (" +
-                std::to_string(modFromArchive) + " from archives), " + std::to_string(modSkip) + " skipped, " +
-                std::to_string(modFail) + " failed.");
+                std::to_string(modFromArchive) + " from archives, " + std::to_string(modNamed) + " named from a rig), " +
+                std::to_string(modSkip) + " skipped, " + std::to_string(modFail) + " failed.");
+            for (const auto& r : modAmbiguous)
+                say("    rigs disagree by bone index: clips named from " + r + " (the runtime compiles against it too)");
         }
         totalOk += modOk; totalSkip += modSkip; totalFail += modFail; totalFromArchive += modFromArchive;
     }
@@ -2642,6 +2810,11 @@ static void PackageModAnimations(const Mo2Layout& mo2, const fs::path& plugins,
         std::to_string(totalFromArchive) + " from archives), " + std::to_string(totalSkip) + " skipped, " +
         std::to_string(totalFail) + " failed.");
     for (const auto& [why, n] : skipReasons) say("    skip reason: " + std::to_string(n) + " x " + why);
+    if (!unnamed.empty()) {
+        say("  NOTE: " + std::to_string(unnamed.size()) + " clip(s) no rig binds keep track<N> names that cannot express "
+            "their binding (fine for rosters and motion; compiled, they would drive the wrong bones):");
+        for (std::size_t i = 0; i < unnamed.size() && i < 20; ++i) say("    " + unnamed[i]);
+    }
     if (!unrecognized.empty()) {
         say("  WARNING: " + std::to_string(unrecognized.size()) + " .hkx under an animations/ folder did not classify as an "
             "animation (not packaged — invisible to the roster scan):");

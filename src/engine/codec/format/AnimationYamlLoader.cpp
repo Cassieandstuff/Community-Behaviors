@@ -223,7 +223,7 @@ AnimationDef AnimationYamlLoader::LoadFromString(const std::string& yamlText, co
 
 std::string EmitAnimTrackYaml(const AnimTrackDef& tr) {
     using text::FormatFloat;
-    std::string y = "    - bone: " + tr.bone + "\n";
+    std::string y = "    - bone: " + text::YamlScalar(tr.bone) + "\n";
     const auto vec3 = [&](const char* key, const std::vector<Vec3Keyframe>& keys) {
         if (keys.empty()) return;
         y += std::string("      ") + key + ":\n";
