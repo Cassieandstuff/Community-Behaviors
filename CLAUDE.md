@@ -83,14 +83,11 @@ schema/                      the class schema as DATA — one YAML per class in 
                              templates/ = the converter's Nemesis-ingest XML oracles. Deployed as data: plugin →
                              Data/community_behaviors/schema (no templates/), converter → <exe>/schema.
 havok/                       the reimplemented Havok runtime (CB::havok::), laid out like Havok's source tree
-                             (Common/Base, Animation, Behavior, Physics; below them the exe's __FILE__ paths), compiled
-                             by tools/cbmatch (VS2015) into the runtime image. Its headers also compile into the
+                             (Common/Base, Animation, Behavior, Physics; below them the exe's __FILE__ paths). FROZEN:
+                             matching moved to OPEN-HAVOK (see Correctness gates). Its headers also compile into the
                              plugin, where the schema link shim (engine.yaml `mangled` rows) binds every out-of-line
                              function and const global to the exe. Never deployed.
-tools/                       dev-only, never shipped: hky-tool, cbdiff, cbmatch (byte-matches havok/ against
-                             the exe), x64dbg-autoattach, blender-control-rig. cbmatch/workbench/ = functions still
-                             being matched (manifests/workbench.yaml, failures expected); cbmatch/devices/ = matching
-                             devices, not Havok files
+tools/                       dev-only, never shipped: hky-tool, cbdiff, x64dbg-autoattach, blender-control-rig
 features/                    authored FEATURE BUNDLES as data — not code (that is src/features/): one <Name>.hky/
                              folder per feature, assembled at build time into the shipped <Name>.hky
                              (cmake/FeatureBundles.cmake: an LFS-pointer guard, then `hky-tool assemble`; the plugin
@@ -187,8 +184,6 @@ cmake --build build\release --config RelWithDebInfo --target CommunityBehaviors
   runs the SAME `generate-base-master` regen (decompile everything it holds to reflective units, gate
   every unit's served bytes vs its own binaries, pack) → `<Name>.hky`. A new derived bundle = a new source folder.
   Unset → regen skipped, the already-deployed bundles stay.
-- `CB_SKYRIM_AE_EXE` / `CB_ADDRESSLIB_AE` — the unpacked AE 1.6.1170 SkyrimSE.exe and its Address Library
-  database, for `tools/cbmatch/manifests/*.yaml` (which also read `VS140COMNTOOLS`, set by the VS2015 toolset).
 - `SCT_BASE_MASTER_DIR` — a **SHORT** D-drive path (e.g. `D:\sct-base-master`) for the unpacked trees (each
   regen keeps `<Name>.hky\` there). See the diff strategy below. Must be short: these trees blow past
   Windows MAX_PATH under a deep root.
@@ -230,26 +225,11 @@ still belongs in the session scratchpad dir.)
   on vanilla's stored `floatBlockOffsets` for every vanilla clip (5937/5937), and every clip recompiled by CB must
   store exactly where the decoder finds its float section. Run it after any spline compressor change. (Nothing to
   bump: compiled animations are keyed on the plugin DLL's hash, so every rebuild recompiles them once.)
-- **Runtime byte matching** — `cbmatch tools/cbmatch/manifests/schema.yaml --allow-variant --diff 256 --strict`
-  compiles havok/ per translation unit and diffs every listed function against the exe (EXACT / REGALLOC /
-  VARIANT, references checked against engine.yaml). havok/ holds proven code only: `--strict` fails on any
-  out-of-line definition that is neither listed (and passing) nor a unit's declared `drivers:` entry. A body
-  graduates from the workbench into its havok/ unit once it passes; `--diff <seeds>` also runs every REGALLOC/VARIANT function and vanilla side by side
-  under emulation on synthetic inputs, checking behavior where VARIANT can't see register dataflow. A VARIANT that
-  needs rule A (local stack slots rearranged — the home area, and incoming stack-argument slots after the function's
-  first write to them), E (SIMD rescheduled), I (a duplicated return tail), J (register setup rescheduled), N
-  (commutative SIMD operands swapped), R (a SIMD value recomputed), O (a load folded into its use), U (unaligned vs
-  aligned moves), M (an increment done in memory or in registers) or L (whole blocks laid out in another order — a
-  second pass, accepted only when every edge and every test's direction pairs) runs `--diff` always and fails unless
-  it agrees.
-  `tools/cbmatch/tests/mutants.sh` proves the gate rejects broken copies (STRUCTURAL, or VARIANT plus a `--diff`
-  divergence for the documented blind spots), with unmutated controls that must agree.
-  Run both after any havok/ or cbmatch change. A full run ends with coverage against
-  `tools/cbmatch/inventory.yaml` (regenerate with `--inventory`; `--todo <Class>` lists what's left).
-  The same full run regenerates the takeover's outputs: `--emit-image <file>` (deployed to
-  `Data/community_behaviors/runtime/havok-runtime.cbimg`; pinned to the exact exe build) and
-  `--emit-registry src/platform/hooks/registry/engine.yaml` (the shim's identity fields: mangled, header, sig, this) —
-  always together, so the registry names exactly what the image installs.
+- **Runtime byte matching lives in OPEN-HAVOK** (github.com/Cassieandstuff/libs-OPEN-HAVOK, private; `Tools/cbmatch`,
+  whose README is the contract: manifests, `--diff`, mutants, inventory). CB will consume it as a submodule. Until
+  then CB's `havok/`, the cbmatch-emitted rows of `src/platform/hooks/registry/engine.yaml` (mangled, header, sig,
+  this) and the takeover image (`Data/community_behaviors/runtime/havok-runtime.cbimg`) are FROZEN at what CB matched
+  (537abe87): never match into havok/ or regenerate them here. engine.yaml's hand rows (game/ functions) still grow.
 - Skeletons are NOT reflective units: they stay `bonelist.yaml` + `bones/` (SkeletonYaml + CompileSkeletonFull)
   until the schema codec reads ragdoll physics.
 

@@ -12,8 +12,6 @@
     "minhook",
     "directxtk",
     "rapidcsv",
-    "lz4",
-    "zydis",
-    "unicorn"
+    "lz4"
   ]
 }
