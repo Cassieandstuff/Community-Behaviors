@@ -61,7 +61,8 @@ keys say the rest (no serde effect):
   `kind: enum` descriptor);
 - `hktype: ulong | enum | flags` on a field whose reflected type differs from its `type:` (`enum`/`flags` here
   carries no enum reference; `enum: X` on a scalar means an ENUM member over that scalar, referencing X);
-- `name:` on an `{ empty: … }` slot, the reflected member's name.
+- `name:` on an `{ empty: … }` slot, the reflected member's name; `hktype: stringptr` on an `{ empty: ptr }` slot
+  when that member is an hkStringPtr rather than a pointer (hkbProjectStringData's `rootPath`).
 
 **Class-level `factory: <name>`** names the engine factory name a class stands for, byte-exact (a typed movement
 agent: `factory: "Player Controls"`), so a node's own name field can be checked against its class. At most one class
@@ -80,6 +81,13 @@ whose stored one differs.
   `hkbRoleAttribute` (both keys optional), e.g. `role: { flags: [FLAG_OUTPUT] }` = the node writes this member, so
   another node's binding or an output binding may read it. Items are the `Role` / `RoleFlags` enum items, spelled
   exactly; an unknown one fails the load. A member attribute: no serde, size or signature effect.
+- `unitref: <kind>` — on a `string`, `cstring` or `stringarray` field: the string (each element of an array) names
+  another file of that kind — `behavior`, `character`, `skeleton` or `animation`; another kind fails the load. Havok
+  stores the path relative to the PROJECT folder, whichever file holds it: vanilla `0_master.hkx`'s
+  `behaviorName` is `Behaviors\1HM_Behavior.hkx` (= `character\behaviors\1hm_behavior.hkx`), the horse
+  project's `characterFilenames` is `Characters\Horse.hkx`, its character's `rigName` is
+  `Character Assets\Skeleton.hkx`. The string is kept byte-exact; matching it to a unit is path identity (case-
+  folded, as the engine's lookup is). A member attribute: no serde, size or signature effect.
 
 ## Runtime binding (reserved — the uniform game/self invariant)
 

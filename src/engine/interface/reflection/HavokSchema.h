@@ -72,6 +72,12 @@ struct Field {
                                          ///<        `id`, but entries are referenced by position elsewhere: never deleted).
     std::string charPropIf;              ///< @brief `charpropif: <field>=<value>` — the `varref` index names a CHARACTER
                                          ///<        PROPERTY (not a variable) when that sibling field holds that value.
+    std::string unitRef;                 ///< @brief `unitref: behavior|character|skeleton|animation` — the string (or each
+                                         ///<        string of a stringarray) names another file of that kind by its path
+                                         ///<        relative to the PROJECT folder (`Behaviors\1HM_Behavior.hkx`); empty = not
+                                         ///<        a reference. A member attribute: no serde, size or signature effect.
+                                         ///< @note The string stays byte-exact; only matching it to a unit folds case
+                                         ///<       (path identity, as the engine's own lookup does).
     bool        hkyEmit = false;         // force-emit this field in the .hky even though it is `ignored`
                                          // (SERIALIZE_IGNORED but semantically authored, e.g.
                                          // hkbBlendingTransitionEffect.initializeCharacterPose).
@@ -84,7 +90,8 @@ struct Field {
                                          ///<        covering all their lines (the adsf section A / B framing).
     bool        frameCounted = false;    ///< @brief metadata `recordarray` with `count: frame`: no count prefix; records
                                          ///<        run to the end of the field's frame.
-    std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` — the member's reflected type where it differs
+    std::string hkType;                  ///< @brief `hktype: ulong|enum|flags` (`stringptr` on an `empty: ptr` slot: an
+                                         ///<        ignored hkStringPtr, e.g. hkbProjectStringData.rootPath) — the member's reflected type where it differs
                                          ///<        from what `type:` implies (hkbNode.userData is a ULONG; an `enum`/`flags`
                                          ///<        here carries no enum reference). Signature only; no serde effect.
     bool        enumHkyOnly = false;     ///< @brief `hkyenum:` rather than `enum:` — the .hky renders the value by name, but
