@@ -3,9 +3,9 @@ parent:    hkReferencedObject
 signature: 0x076ad60a
 size:      120
 fields:
-  - { name: animationFilenames, type: stringarray }
-  - { name: behaviorFilenames,  type: stringarray }
-  - { name: characterFilenames, type: stringarray }
+  - { name: animationFilenames, type: stringarray, unitref: animation }
+  - { name: behaviorFilenames,  type: stringarray, unitref: behavior }
+  - { name: characterFilenames, type: stringarray, unitref: character }
   - { name: eventNames,         type: stringarray }
   - { name: animationPath,      type: string }
   - { name: behaviorPath,       type: string }

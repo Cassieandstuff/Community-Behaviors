@@ -6,13 +6,13 @@ fields:
   - { name: deformableSkinNames, type: stringarray }
   - { name: rigidSkinNames,      type: stringarray }
   - { name: animationNames,      type: stringarray }
-  - { name: animationFilenames,  type: stringarray }
+  - { name: animationFilenames,  type: stringarray, unitref: animation }
   - { name: characterPropertyNames, type: stringarray }
   - { name: retargetingSkeletonMapperFilenames, type: stringarray }
   - { name: lodNames,            type: stringarray }
   - { name: mirroredSyncPointSubstringsA, type: stringarray }
   - { name: mirroredSyncPointSubstringsB, type: stringarray }
   - { name: name,             type: string }
-  - { name: rigName,          type: string }
-  - { name: ragdollName,      type: string }
-  - { name: behaviorFilename, type: string }
+  - { name: rigName,          type: string, unitref: skeleton }
+  - { name: ragdollName,      type: string, unitref: skeleton }
+  - { name: behaviorFilename, type: string, unitref: behavior }

@@ -80,6 +80,13 @@ whose stored one differs.
   `hkbRoleAttribute` (both keys optional), e.g. `role: { flags: [FLAG_OUTPUT] }` = the node writes this member, so
   another node's binding or an output binding may read it. Items are the `Role` / `RoleFlags` enum items, spelled
   exactly; an unknown one fails the load. A member attribute: no serde, size or signature effect.
+- `unitref: <kind>` — on a `string`, `cstring` or `stringarray` field: the string (each element of an array) names
+  another file of that kind — `behavior`, `character`, `skeleton` or `animation`; another kind fails the load. Havok
+  stores the path relative to the PROJECT folder, whichever file holds it: vanilla `0_master.hkx`'s
+  `behaviorName` is `Behaviors\1HM_Behavior.hkx` (= `character\behaviors\1hm_behavior.hkx`), the horse
+  project's `characterFilenames` is `Characters\Horse.hkx`, its character's `rigName` is
+  `Character Assets\Skeleton.hkx`. The string is kept byte-exact; matching it to a unit is path identity (case-
+  folded, as the engine's lookup is). A member attribute: no serde, size or signature effect.
 
 ## Runtime binding (reserved — the uniform game/self invariant)
 

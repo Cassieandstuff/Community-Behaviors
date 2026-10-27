@@ -252,6 +252,15 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                                 if (x.has_val()) f.roleFlagNames.push_back(toStr(x.val()));
                         }
                     }
+                    f.unitRef      = childStr(fn, "unitref");
+                    if (!f.unitRef.empty()) {
+                        if (f.unitRef != "behavior" && f.unitRef != "character" && f.unitRef != "skeleton" && f.unitRef != "animation") {
+                            err = out.name + "." + f.name + ": unknown unitref '" + f.unitRef + "' (behavior, character, skeleton or animation)"; return false;
+                        }
+                        if (f.kind != FieldKind::String && f.kind != FieldKind::CString && f.kind != FieldKind::StringArray) {
+                            err = out.name + "." + f.name + ": unitref needs a string, cstring or stringarray field"; return false;
+                        }
+                    }
                     if (!f.hkType.empty() && f.hkType != "ulong" && f.hkType != "enum" && f.hkType != "flags") {
                         err = out.name + "." + f.name + ": unknown hktype '" + f.hkType + "' (ulong, enum or flags)"; return false;
                     }
