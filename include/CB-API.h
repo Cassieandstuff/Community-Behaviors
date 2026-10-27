@@ -18,7 +18,8 @@
 //   cb::skeleton — read skeletons (schema-native; anim + ragdoll physics summary) from a .hkx or a bundle unit
 //   cb::schema   — the SchemaRegistry to interpret a resolved model / classify merges
 //   cb::mm       — build a motion-matching bundle (databases + chooser → its behavior unit + roster patches)
-//   cb::locomotion — a character's movement step (GASP's CMC model + the facing spring), the horse ladder, slope math
+//   cb::locomotion — a character's movement step (GASP's CMC model + the facing spring), the horse ladder, slope math,
+//                  the dead blend between poses
 //
 // This is a RE-EXPORT, not a re-declaration: the types live ONCE in the engine
 // modules; here they are only surfaced under cb:: names. No duplicate declarations,
@@ -71,6 +72,7 @@
 #include "locomotion/Movement.h"
 #include "locomotion/Horse.h"
 #include "locomotion/Slope.h"
+#include "locomotion/DeadBlend.h"
 
 namespace cb {
 
@@ -218,6 +220,10 @@ namespace locomotion {
     using Rung         = CB::engine::locomotion::Rung;          ///< Walk / Trot / Canter / Gallop
     using Surface      = CB::engine::locomotion::Surface;       ///< the ground under the feet (Havok units)
     using Tuning       = CB::engine::locomotion::Tuning;        ///< settings.ini [Character] numbers the slope math reads
+    using Bone         = CB::engine::locomotion::Bone;          ///< one local-pose bone, laid out as hkQsTransform
+    using DeadBlend    = CB::engine::locomotion::DeadBlend;     ///< one character's dead-blend state; Step blends a pose
+    using DeadBlendTuning = CB::engine::locomotion::DeadBlendTuning;  ///< blend time + coast decay halflife
+    using BlendFault   = CB::engine::locomotion::BlendFault;    ///< the first broken blended bone a Step fell back on
 
     using CB::engine::locomotion::kPlayer;                 ///< the player's Profile
     using CB::engine::locomotion::kHorse;                  ///< the ridden horse's HorseProfile
@@ -236,6 +242,7 @@ namespace locomotion {
     using CB::engine::locomotion::SlideStep;
     using CB::engine::locomotion::ClipUphill;
     using CB::engine::locomotion::JumpLaunch;
+    using CB::engine::locomotion::FiniteBone;              ///< whether a bone's translation and rotation are finite
 }  // namespace locomotion
 
 }  // namespace cb

@@ -132,5 +132,12 @@ namespace {
         cb::locomotion::SlideStep(lg, 0.f, 0.f, -9.8f, lsx, lsy, 1.f / 60.f);
         cb::locomotion::ClipUphill(lg, lsx, lsy);
         cb::locomotion::JumpLaunch(lg, 0.f, 0.f, 1.f, lox, loy, loz);
+        cb::locomotion::DeadBlend lblend;
+        cb::locomotion::DeadBlendTuning lbt;
+        cb::locomotion::BlendFault lfault;
+        cb::locomotion::Bone lpose[1];
+        bool lstep = lblend.Step(lpose, 1, 0, lbt, &lfault); (void)lstep;
+        float lleft = lblend.Remaining(lbt); (void)lleft;
+        bool lfin = cb::locomotion::FiniteBone(lpose[0]); (void)lfin;
     }
 }
