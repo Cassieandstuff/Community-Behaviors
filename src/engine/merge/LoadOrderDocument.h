@@ -84,6 +84,9 @@ public:
     std::vector<std::string> Rigs(std::string_view key) const;
     /// @brief The animation bone names of the rig that binds `key` (a graph, a character, an animation), in served order.
     std::optional<std::vector<std::string>> RigBones(std::string_view key) const;
+    /// @brief A skeleton unit's animation bone names in served order: what an animation's track-to-bone indices count
+    ///        (the boneorder shim's order, which can differ from the unit's own bone order).
+    std::optional<std::vector<std::string>> SkeletonBones(std::string_view key) const;
     /// @brief The skeleton at `key` (a skeleton unit), from its winning bundle.
     std::optional<skeleton::SkeletonData> Skeleton(std::string_view key, std::string* err = nullptr) const;
     /// @brief A character unit's strings (rig, behavior, animation roster) across its layers: each string from the
