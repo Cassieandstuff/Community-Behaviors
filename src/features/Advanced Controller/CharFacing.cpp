@@ -40,8 +40,7 @@ namespace CB::feature::controller {
         namespace game  = platform::game;
         using Frame     = hooks::Override<&game::MovementControllerNPC_ComputeFrameMovement>;
 
-        /// @brief Below this stick length the player is not asking for a direction.
-        constexpr float kStickDeadzone = 0.1f;
+        using CB::engine::locomotion::kStickDeadzone;
         /// @brief How far ahead of the player the camera-facing target sits: far enough that its bearing is the
         ///        camera's yaw from anywhere the player moves within a frame.
         constexpr float kFaceCameraReach = 100000.0f;
@@ -116,23 +115,18 @@ namespace CB::feature::controller {
 
         double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
-        constexpr float kNoDirection = std::numeric_limits<float>::quiet_NaN();
+        using CB::engine::locomotion::kNoDirection;
 
-        /// @brief Turns the frame toward `yaw`: a turn rate that lands the heading on it this frame, and the move
-        ///        direction relative to that new heading.
-        /// @param worldDir the direction to move in (world yaw), or kNoDirection to leave `angles[2]` as it is
+        /// @brief locomotion::Face onto the frame's turn[2] and angles[2].
         void Face(game::MovementFrame* out, float heading, float yaw, float worldDir, float dt)
         {
-            out->turn[2] = dt > 0.0f ? WrapPi(yaw - heading) / dt : 0.0f;
-            if (!std::isnan(worldDir)) out->angles[2] = WrapPi(worldDir - (dt > 0.0f ? yaw : heading));
+            CB::engine::locomotion::Face(out->turn[2], out->angles[2], heading, yaw, worldDir, dt);
         }
 
-        /// @brief The world heading `stick` asks for, read relative to the camera's yaw (+y = away from the camera).
+        /// @brief locomotion::StickHeadingOf for the game's stick vector.
         bool StickHeadingOf(RE::NiPoint2 stick, float cameraYaw, float& heading)
         {
-            if (stick.x * stick.x + stick.y * stick.y < kStickDeadzone * kStickDeadzone) return false;
-            heading = cameraYaw + std::atan2(stick.x, stick.y);
-            return true;
+            return CB::engine::locomotion::StickHeadingOf(stick.x, stick.y, cameraYaw, heading);
         }
 
         /// @brief While CB holds the player, the move input is CB's to rewrite: forward, at the stick's length.

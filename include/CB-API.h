@@ -234,6 +234,10 @@ namespace locomotion {
     using CB::engine::locomotion::MaxSpeed;                ///< the cap moving along a heading while facing another
     using CB::engine::locomotion::StrafeSpeedMap;          ///< velocity-vs-facing angle → 0 forward, 1 side, 2 back
     using CB::engine::locomotion::SprintDirectionAllowed;  ///< whether the direction allows a sprint
+    using CB::engine::locomotion::kStickDeadzone;          ///< below this stick length no direction is asked
+    using CB::engine::locomotion::kNoDirection;            ///< Face: leave the frame's move direction as it is
+    using CB::engine::locomotion::StickHeadingOf;          ///< stick + camera yaw -> the world heading asked for
+    using CB::engine::locomotion::Face;                    ///< a frame's turn rate and move direction toward a facing
     using CB::engine::locomotion::TopRung;                 ///< rider's toggles + deflection → the highest rung
     using CB::engine::locomotion::RungSpeed;               ///< a rung's speed from walk + run speeds
     using CB::engine::locomotion::WrapPi;

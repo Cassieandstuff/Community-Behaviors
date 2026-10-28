@@ -119,6 +119,9 @@ namespace {
         float lmax = cb::locomotion::MaxSpeed(lcaps, lin.mode, 0.f, ls.yaw); (void)lmax;
         float lmap = cb::locomotion::StrafeSpeedMap(0.f); (void)lmap;
         bool lspr = cb::locomotion::SprintDirectionAllowed(ls, lin, lprof); (void)lspr;
+        float lsh = 0.0f; bool lhs = cb::locomotion::StickHeadingOf(0.0f, 1.0f, 0.0f, lsh); (void)lhs;
+        float lturn = 0.0f, ldir = 0.0f; cb::locomotion::Face(lturn, ldir, 0.0f, 0.0f, cb::locomotion::kNoDirection, 0.016f);
+        (void)cb::locomotion::kStickDeadzone;
         const cb::locomotion::HorseProfile& lhorse = cb::locomotion::kHorse;
         cb::locomotion::Rung lrung = cb::locomotion::TopRung(false, true, 1.f, lhorse);
         float lrs = cb::locomotion::RungSpeed(lrung, 0.f, 0.f, lhorse); (void)lrs;
