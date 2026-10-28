@@ -45,6 +45,7 @@ public:
         _pendingGlobals.clear();
         _pendingVirtuals.clear();
         _serializedObjects.clear();
+        _written.clear();
         _currentLocalWriteQueue = 0;
         _currentSerializationQueue = 0;
 
@@ -90,6 +91,7 @@ public:
                     _pendingGlobals.erase(pg);
                 }
                 _globalLookup[obj.get()] = static_cast<std::uint32_t>(databw.Position());
+                _written.emplace_back(obj.get(), static_cast<std::uint32_t>(databw.Position()));
             }
 
             obj->Write(*this, databw);
@@ -144,6 +146,10 @@ public:
         types.WriteData(bw);
         data.WriteData(bw);
     }
+
+    /// @brief Every object the last Serialize wrote as a packfile object (one with a virtual fixup), in write order, with
+    ///        its offset from the start of the __data__ section: where a loader finds it.
+    const std::vector<std::pair<const IHavokObject*, std::uint32_t>>& Written() const { return _written; }
 
     // ── Write helpers invoked by each class's Write(s, bw) ─────────────────────
 
@@ -281,6 +287,7 @@ private:
     std::unordered_map<IHavokObject*, std::vector<std::uint32_t>> _pendingGlobals;
     std::unordered_set<IHavokObject*> _pendingVirtuals;
     std::unordered_set<IHavokObject*> _serializedObjects;
+    std::vector<std::pair<const IHavokObject*, std::uint32_t>> _written;
     std::unordered_map<std::string, std::uint32_t> _virtualLookup;
     std::vector<std::queue<std::function<void()>>>             _localWriteQueues;
     std::vector<std::queue<std::shared_ptr<IHavokObject>>>     _serializationQueues;

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 /// @file
 /// @brief CB::engine::locomotion — a character's movement model, matched to Unreal's Game Animation Sample (its CMC
@@ -140,5 +141,28 @@ namespace CB::engine::locomotion {
     /// @brief Whether the direction allows sprinting: always when orienting to movement; when strafing, only while the
     ///        stick is within the profile's sprintCone of the facing (GASP's CanSprint).
     bool SprintDirectionAllowed(const State& s, const Input& in, const Profile& profile);
+
+    /// @brief Below this stick length the player is not asking for a direction.
+    constexpr float kStickDeadzone = 0.1f;
+    /// @brief Face's `worldDir` when the frame's move direction is to be left as it is.
+    constexpr float kNoDirection = std::numeric_limits<float>::quiet_NaN();
+
+    /// @brief The world heading the stick (x right, y forward) asks for, read relative to the camera's yaw (+y = away
+    ///        from the camera); false inside kStickDeadzone.
+    inline bool StickHeadingOf(float stickX, float stickY, float cameraYaw, float& heading)
+    {
+        if (stickX * stickX + stickY * stickY < kStickDeadzone * kStickDeadzone) return false;
+        heading = cameraYaw + std::atan2(stickX, stickY);
+        return true;
+    }
+
+    /// @brief Turns a movement frame toward `yaw`: a turn rate that lands the heading on it this frame, and the move
+    ///        direction relative to that new heading (a MovementFrame's turn[2] and angles[2]).
+    /// @param worldDir the direction to move in (world yaw), or kNoDirection to leave `direction` as it is
+    inline void Face(float& turn, float& direction, float heading, float yaw, float worldDir, float dt)
+    {
+        turn = dt > 0.0f ? WrapPi(yaw - heading) / dt : 0.0f;
+        if (!std::isnan(worldDir)) direction = WrapPi(worldDir - (dt > 0.0f ? yaw : heading));
+    }
 
 }  // namespace CB::engine::locomotion

@@ -3,6 +3,7 @@
 #pragma once
 #include <codec/serialization/HavokIo.h>
 #include <interface/UnitSource.h>
+#include <interface/GraphTrace.h>
 #include <interface/reflection/HavokSchema.h>
 #include <codec/serialization/packfile/IHavokObject.h>
 #include <codec/serialization/packfile/PackFileTypes.h>
@@ -208,6 +209,10 @@ bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& l
                            const std::vector<std::string>* bones, ParsedHky& graph, std::string& err);
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err,
                     const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
+/// @brief SerializeGraph, also reporting where every written object came from: its offset in the packfile's data
+///        section and the unit FormID of a file node (graph.identity), in write order.
+bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::vector<trace::ObjectOrigin>& origins,
+                    std::string& err, const CB::engine::codec::HKXHeader& header = CB::engine::codec::HKXHeader::SkyrimSE());
 /// @brief Apply hand-written patch units onto a base binary, in load order (unit k's masters: `mod<k>`, then the base
 ///        as master 1 — so `0001x…` names a base node, `0000x…` the unit's own). Writes `<workDir>/base` (the base
 ///        unit), `<workDir>/merged.hkx` and `<workDir>/merged` (the result, re-decompiled).

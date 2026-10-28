@@ -225,6 +225,70 @@ int doAssemble(const std::string& dir, const std::string& tablePath, const std::
     return 0;
 }
 
+/// @brief `origins-check`: every graph unit of a .hky (or the one named) serialized with its object origins
+///        (SerializeGraph); each origin's offset and class must be exactly what a loader reads from the packfile's
+///        virtual fixups, one per object, and every file node (a unit file with an id) must carry its FormID.
+int doOriginsCheck(const std::string& hkyPath, const std::string& schemaDir, const std::string& onlyUnit) {
+    if (hkyPath.empty() || schemaDir.empty()) {
+        std::printf("usage: hky-tool origins-check <in.hky> <schemaDir> [unit]\n");
+        return 2;
+    }
+    namespace dc = CB::engine::decompile;
+    using CB::engine::codec::HkyArchive;
+    CB::engine::schema::SetSharedSchemaDir(schemaDir);
+    const auto* reg = CB::engine::schema::SharedRegistry();
+    if (!reg) { std::printf("FAIL: schema: %s\n", CB::engine::schema::SharedRegistryError().c_str()); return 1; }
+    std::string err;
+    const auto  arc = HkyArchive::LoadFromFile(hkyPath, err);
+    if (!arc) { std::printf("FAIL: %s\n", err.c_str()); return 1; }
+    int units = 0, failures = 0;
+    std::size_t objects = 0, withFormId = 0;
+    for (const auto& u : arc->units()) {
+        if (!onlyUnit.empty() && CB::engine::codec::resource::PathKey(u.prefix) != CB::engine::codec::resource::PathKey(onlyUnit)) continue;
+        const auto src = arc->source(u.prefix);
+        if (!src) continue;
+        dc::ParsedHky graph;
+        if (!dc::ParseHkyReflective(*src, *reg, graph, err, nullptr, u.prefix)) {
+            // A unit whose bones need its rig (the load order binds them) cannot be read alone; not this check's subject.
+            std::printf("skip %s: %s\n", u.prefix.c_str(), err.c_str());
+            continue;
+        }
+        std::vector<std::uint8_t>                     bytes;
+        std::vector<CB::engine::trace::ObjectOrigin> origins;
+        if (!dc::SerializeGraph(graph, bytes, origins, err)) { std::printf("FAIL %s: %s\n", u.prefix.c_str(), err.c_str()); ++failures; continue; }
+        CB::engine::codec::PackFileDeserializer des;
+        CB::engine::codec::BinaryReaderEx       br(false, true, bytes);
+        des.DeserializePartially(br);
+        const auto listed = des.ListObjects();   // (data-section offset, class) per virtual fixup, ascending
+        auto sorted = origins;
+        std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.offset < b.offset; });
+        std::string why;
+        if (listed.size() != sorted.size()) why = std::to_string(listed.size()) + " objects in the packfile, " + std::to_string(sorted.size()) + " origins";
+        for (std::size_t i = 0; why.empty() && i < listed.size(); ++i)
+            if (listed[i].first != sorted[i].offset || listed[i].second != sorted[i].className)
+                why = "object " + std::to_string(i) + ": packfile " + listed[i].second + " @" + std::to_string(listed[i].first) + ", origin " +
+                      sorted[i].className + " @" + std::to_string(sorted[i].offset);
+        // Every file node (a category folder, or the root container) has a FormID; an inline object has none.
+        std::size_t nodes = 0;
+        for (const auto& [obj, cat] : graph.identity.category)
+            if (!cat.empty() || std::string(obj->ClassName()) == "hkRootLevelContainer") ++nodes;
+        std::size_t named = 0, orphans = 0;
+        for (const auto& o : origins) {
+            named += o.formId.empty() ? 0 : 1;
+            orphans += o.formId.empty() && o.owner.empty() ? 1 : 0;   // an inline object always has a file node holding it
+        }
+        if (why.empty() && named != nodes) why = std::to_string(nodes) + " file nodes, " + std::to_string(named) + " origins with a FormID";
+        if (why.empty() && orphans) why = std::to_string(orphans) + " inline objects without an owner";
+        ++units;
+        objects += origins.size();
+        withFormId += named;
+        if (!why.empty()) { std::printf("FAIL %s: %s\n", u.prefix.c_str(), why.c_str()); ++failures; }
+        else std::printf("ok   %s: %zu objects, %zu with a FormID\n", u.prefix.c_str(), origins.size(), named);
+    }
+    std::printf("%s: %d unit(s), %zu objects, %zu with a FormID, %d failure(s)\n", failures ? "FAIL" : "PASS", units, objects, withFormId, failures);
+    return failures || units == 0 ? 1 : 0;
+}
+
 /// @brief `embedded-roundtrip`: every file of a `kind: embedded` descriptor in a .hky, parsed through the schema and
 ///        spliced back unchanged, must reproduce its text byte for byte; and every `view: curve` object must sample
 ///        (SampleCurve, by its view roles) exactly as the typed loader's curves do, at each key and midway between.
@@ -521,7 +585,8 @@ void usage() {
                 "  hky-tool assemble    <featureDir> <injectables.json> [schemaDir] -o <out.hky>\n"
                 "  hky-tool merge-check <Skyrim.hky> <bundle.hky> <schemaDir> -o <outDir>\n"
                 "  hky-tool embedded-roundtrip <in.hky> <schemaDir>\n"
-                "  hky-tool loadorder   <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]\n"
+                "  hky-tool origins-check <in.hky> <schemaDir> [unit]\n"
+                "  hky-tool loadorder  <schemaDir> (--mo2 <instance> [--profile <p>] | --data <Data>) [--unit <key>]... [--all] [--ls <prefix>]\n"
                 "  hky-tool mm-sample   <schemaDir> -o <outDir>\n"
                 "  hky-tool graph-html  <schemaDir> -o <out.html> (--mo2 <instance> [--profile <p>] | --plugins <dir> | --bundle <f.hky>)...\n"
                 "                       [--loadorder <file>] [--unit <path>]... [--all]\n");
@@ -554,6 +619,7 @@ int main(int argc, char** argv) {
     if (verb == "assemble")    return doAssemble(arg, arg2, arg3, out);
     if (verb == "merge-check") return doMergeCheck(arg, arg2, arg3, out);
     if (verb == "embedded-roundtrip") return doEmbeddedRoundTrip(arg, arg2);
+    if (verb == "origins-check") return doOriginsCheck(arg, arg2, arg3);
     if (verb == "mm-sample")   return doMmSample(arg, out);
     usage();
     return 2;

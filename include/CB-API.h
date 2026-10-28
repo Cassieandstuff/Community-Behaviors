@@ -60,6 +60,7 @@
 #include "interface/AnimationData.h"
 #include "codec/format/AnimDataYaml.h"
 #include "interface/MotionSample.h"
+#include "interface/GraphTrace.h"
 
 // skeleton — read skeletons (schema-native codec; anim + ragdoll physics summary)
 #include "interface/SkeletonData.h"
@@ -209,6 +210,19 @@ namespace mm {
     using CB::engine::compile::BuildMotionMatchingBundle;      ///< both
 }  // namespace mm
 
+// ── cb::trace ──────────────────────────────────────────────────────────────────
+/// One actor's behavior-graph path per update, as data (a runtime's collector fills it, a debugger draws it), and where
+/// each serialized object came from, so a traced packfile object resolves to its unit FormID.
+namespace trace {
+    using NodeRef      = CB::engine::trace::NodeRef;        ///< (loaded file, data-section offset)
+    using Visit        = CB::engine::trace::Visit;          ///< a wire that carried the update, with its cumulative weight
+    using State        = CB::engine::trace::State;          ///< a state machine's current state
+    using Transition   = CB::engine::trace::Transition;     ///< a transition in progress, with its progress
+    using Event        = CB::engine::trace::Event;          ///< an event raised, with its sender
+    using Frame        = CB::engine::trace::Frame;          ///< one update's path
+    using ObjectOrigin = CB::engine::trace::ObjectOrigin;   ///< a serialized object's offset and FormID
+}  // namespace trace
+
 // ── cb::locomotion ─────────────────────────────────────────────────────────────
 namespace locomotion {
     using Gait         = CB::engine::locomotion::Gait;          ///< None / Walk / Run / Sprint
@@ -234,6 +248,10 @@ namespace locomotion {
     using CB::engine::locomotion::MaxSpeed;                ///< the cap moving along a heading while facing another
     using CB::engine::locomotion::StrafeSpeedMap;          ///< velocity-vs-facing angle → 0 forward, 1 side, 2 back
     using CB::engine::locomotion::SprintDirectionAllowed;  ///< whether the direction allows a sprint
+    using CB::engine::locomotion::kStickDeadzone;          ///< below this stick length no direction is asked
+    using CB::engine::locomotion::kNoDirection;            ///< Face: leave the frame's move direction as it is
+    using CB::engine::locomotion::StickHeadingOf;          ///< stick + camera yaw -> the world heading asked for
+    using CB::engine::locomotion::Face;                    ///< a frame's turn rate and move direction toward a facing
     using CB::engine::locomotion::TopRung;                 ///< rider's toggles + deflection → the highest rung
     using CB::engine::locomotion::RungSpeed;               ///< a rung's speed from walk + run speeds
     using CB::engine::locomotion::WrapPi;
