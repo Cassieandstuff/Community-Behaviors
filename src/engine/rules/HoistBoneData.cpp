@@ -221,7 +221,13 @@ std::string hex(const std::vector<std::uint8_t>& b, std::size_t at, std::size_t 
     return s;
 }
 
-/// @return nullopt when the data names an index past the graph's rig (it can't be named, so it can't move).
+/// @brief The bone a graph-rig index names; past the rig, the positional token `#<index>` (no bone is named so: it
+///        copies to a character on the graph's rig and drops out of any other).
+std::string boneName(std::int64_t idx, const std::vector<std::string>& rig) {
+    return static_cast<std::size_t>(idx) < rig.size() ? rig[static_cast<std::size_t>(idx)] : "#" + std::to_string(idx);
+}
+
+/// @return nullopt when the member holds no bone set (nothing to move).
 std::optional<Content> contentOf(const Site& s, const std::vector<std::string>& rig) {
     const schema::Field& f = *s.owner->Fields()[s.field];
     const auto& v = s.owner->Values()[s.field];
@@ -230,9 +236,9 @@ std::optional<Content> contentOf(const Site& s, const std::vector<std::string>& 
     if (f.kind == FieldKind::Scalar) {
         const auto w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
         const std::int64_t idx = intOf(v.raw, 0, w);
-        if (idx < 0 || static_cast<std::size_t>(idx) >= rig.size()) return std::nullopt;
+        if (idx < 0) return std::nullopt;
         c.raw   = v.raw;
-        c.names = { rig[static_cast<std::size_t>(idx)] };
+        c.names = { boneName(idx, rig) };
         c.key   = "bone|" + c.names[0];
         return c;
     }
@@ -244,14 +250,15 @@ std::optional<Content> contentOf(const Site& s, const std::vector<std::string>& 
     c.key = c.cls + "|";
     if (af.boneWeights) {
         const std::size_t n = c.raw.size() / 4;
-        if (n > rig.size()) return std::nullopt;
-        for (std::size_t k = 0; k < n; ++k) { c.names.push_back(rig[k]); c.key += rig[k] + "=" + hex(c.raw, k * 4, 4) + ";"; }
+        for (std::size_t k = 0; k < n; ++k) {
+            c.names.push_back(boneName(static_cast<std::int64_t>(k), rig));
+            c.key += c.names.back() + "=" + hex(c.raw, k * 4, 4) + ";";
+        }
     } else {
         const auto w = static_cast<std::size_t>(schema::ScalarWidth(af.scalar));
         for (std::size_t k = 0; k * w < c.raw.size(); ++k) {
             const std::int64_t idx = intOf(c.raw, k * w, w);
-            if (idx >= static_cast<std::int64_t>(rig.size())) return std::nullopt;
-            c.names.push_back(idx < 0 ? std::string() : rig[static_cast<std::size_t>(idx)]);
+            c.names.push_back(idx < 0 ? std::string() : boneName(idx, rig));
             c.key += (idx < 0 ? std::string("-1") : c.names.back()) + ";";
         }
     }
@@ -492,7 +499,8 @@ bool HoistBoneData::Apply(Context& ctx, std::unique_ptr<Record>& out, std::strin
                 ++m_properties;
                 return n;
             };
-            const std::string base = content->cls == "bone" ? "Bone_" + identifier(content->names[0])
+            const std::string& bone = content->names[0];
+            const std::string base = content->cls == "bone" ? (bone[0] == '#' ? "Bone_Index" + bone.substr(1) : "Bone_" + identifier(bone))
                                    : s.bindable->IndexOf("name") ? s.label + "_" + identifier(s.path) : s.label;
 
             /// @brief Each runner's bytes for the property this site ends up bound to.

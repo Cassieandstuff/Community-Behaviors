@@ -2637,6 +2637,14 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
     const yml::ConstNodeRef root = d.tree.crootref();
     io::SchemaObject* obj = &owner;
     ps.where = d.file;
+    /// @note The roster's entries continue the member paths of the bindable the field path ends in, as they would have
+    ///       inside the node's own file.
+    struct BindableScope {
+        HkyParse& ps; io::SchemaObject* was; std::string member;
+        ~BindableScope() { ps.bindable = was; ps.member = member; }
+    } bscope{ ps, ps.bindable, ps.member };
+    ps.bindable = owner.IndexOf("variableBindingSet") ? &owner : nullptr;
+    ps.member.clear();
     for (std::size_t s = 0;;) {
         const std::size_t dot = d.field.find('.', s);
         const std::string name = d.field.substr(s, dot == std::string::npos ? std::string::npos : dot - s);
@@ -2667,6 +2675,8 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
         ///       notify-event array between states), the roster applies to the list the owner uses now.
         auto* next = dynamic_cast<io::SchemaObject*>(v.obj.get());
         if (!next) { ps.err = d.file + ": " + f.name + " is not an object"; return false; }
+        if (f.kind == FieldKind::Struct) ps.member += f.name + "/";
+        else { ps.bindable = next->IndexOf("variableBindingSet") ? next : nullptr; ps.member.clear(); }
         obj = next;
         s = dot + 1;
     }

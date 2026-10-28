@@ -24,6 +24,8 @@ namespace CB::engine::rules {
 ///        removes every binding, vocabulary entry and property the run added.
 /// @warning A character whose rig names bones differently gets bone sets by NAME: a weight bone the source does not
 ///          cover takes the mask's most common weight, an index the rig lacks drops out, a missing single bone is -1.
+///          Data past the graph's rig (vanilla's longer-than-rig masks) copies exactly to a character on that rig and
+///          drops out of any other.
 class HoistBoneData final : public IOp {
 public:
     HoistBoneData(const schema::RuleDef& rule, std::string& err);
