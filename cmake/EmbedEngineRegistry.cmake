@@ -7,7 +7,7 @@
 # Every symbol is ONE line of a fixed shape:
 #   - { name: Ident, kind: func|call|code|data|tls, se: <pin>, ae: <pin>, vr: <pin>[, cpp: "<C++ name>"] }   # optional note
 # where <pin> = <AddressLibraryID> or <AddressLibraryID>+0x<hexOffset> (offsets only on `call`, `code` and `tls`), 0 = unavailable.
-# `cpp` is read by tools/cbmatch (the symbol reimplemented code references); the codegen ignores it.
+# `cpp` is the symbol reimplemented code references (cbmatch's key; matching now lives in OPEN-HAVOK); the codegen ignores it.
 # A line-oriented regex parse keeps codegen tool-free (no build-time Python), like EmbedEnums.cmake.
 
 if(NOT DEFINED REGISTRY_YAML OR NOT DEFINED OUT_H)

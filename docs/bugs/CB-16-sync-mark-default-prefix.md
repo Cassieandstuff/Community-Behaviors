@@ -39,4 +39,5 @@ Verified live in x64dbg on 2026-10-26, paused mid-jitter:
 Fixed: `OnSyncMark` resolves a null prefix through the exe global (`DefaultSyncPrefix`, falling back to
 `"NPC"` on a runtime without a pin), and the comments that said `""` are corrected. Close once a build with
 the fix mounts a horse and plays the intro's bonds cut in game with `[Animation64] bReaders=true`.
-`g_bssyncEmptyString` keeps its misleading name until the next `cbmatch --emit-registry` run can rename it.
+`g_bssyncEmptyString` keeps its misleading name until CB regenerates its registry from OPEN-HAVOK (cbmatch-emitted rows are
+frozen until then).

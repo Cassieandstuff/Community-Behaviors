@@ -31,6 +31,8 @@ This replaces the old monolithic `bugs/README.md` model, whose sprawl was mostly
 - [CB-16](CB-16-sync-mark-default-prefix.md) — INVESTIGATING (fix landed, needs an in-game check): Animation64's
   sync-mark reader read an unset role prefix as `""` instead of the exe's `"NPC"`, so the game rejected every
   paired idle with an unprefixed role (the horse mount jitter).
+- [CB-17](CB-17-new-native-anims-unregistered.md) — OPEN: a native animation compiled for the first time A-poses
+  until the next launch; the game's loose-file ID index is built once at startup, before CB writes the file.
 
 ## Per-bug file template
 
