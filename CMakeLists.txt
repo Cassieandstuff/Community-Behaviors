@@ -56,7 +56,7 @@ add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 #   PATCH - no wire effect: comments, file moves, a rendering-only hint.
 # Candidate-frozen, not frozen: burn -rc.N as the last classes settle, then cut 1.0.0. While either side is
 # a prerelease the gate is exact-match-or-refuse (CheckSchemaCompat).
-set(CB_SCHEMA_VERSION "1.0.0-rc.4")
+set(CB_SCHEMA_VERSION "1.0.0-rc.5")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Schema.cmake")   # the SCHEMA.yaml stamp + cb_stage_schema() / cb_install_schema()
 
 # ── The shareable engine + resolution surface (built in BOTH modes) ─────────────
