@@ -43,8 +43,9 @@ std::shared_ptr<const common::IUnitSource> DirUnitStore::Source(const std::strin
 std::string DirUnitStore::Dir(const std::string& key) const { return (fs::path(m_root) / key).string(); }
 
 ArchiveUnitStore::ArchiveUnitStore(std::shared_ptr<const codec::HkyArchive> arc,
-                                   std::function<const std::vector<std::string>*(const std::string&)> bones)
-    : m_arc(std::move(arc)), m_bones(std::move(bones)) {}
+                                   std::function<const std::vector<std::string>*(const std::string&)> bones,
+                                   std::function<const std::vector<std::string>*(const std::string&)> rigs)
+    : m_arc(std::move(arc)), m_bones(std::move(bones)), m_rigs(std::move(rigs)) {}
 
 // ── context ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,19 @@ bool Context::Prefetch(const std::vector<std::string>& keys, std::string& err) {
         m_units.emplace(todo[i], std::move(parsed[i]));
     }
     return true;
+}
+
+void Context::Adopt(const std::string& key, std::unique_ptr<decompile::ParsedHky> unit) {
+    m_units[key] = std::move(unit);
+    m_byIdentity.emplace(PathKey(key), key);
+}
+
+std::unique_ptr<decompile::ParsedHky> Context::Take(const std::string& key) {
+    const auto it = m_units.find(key);
+    if (it == m_units.end()) return nullptr;
+    auto out = std::move(it->second);
+    m_units.erase(it);
+    return out;
 }
 
 void Context::Release(const std::string& key) {
@@ -284,6 +298,51 @@ bool InverseRules(Context& ctx, const RunResult& run, std::string& err) {
         if (!it->record) continue;
         if (!it->op->Inverse(ctx, *it->record, err)) { err = "rule '" + it->rule->name + "' inverse: " + err; return false; }
     }
+    return true;
+}
+
+ModGraphRules::ModGraphRules(std::shared_ptr<const codec::HkyArchive> base,
+                             std::function<const std::vector<std::string>*(const std::string&)> bones, const schema::SchemaRegistry& reg,
+                             std::function<const std::vector<std::string>*(const std::string&)> rigs)
+    : m_base(std::move(base)), m_bones(std::move(bones)), m_rigs(std::move(rigs)), m_reg(reg) {}
+
+bool ModGraphRules::Prepare(std::string& err) {
+    if (!RulesFor(m_reg, Stage::Converter, m_rules, err)) return false;
+    if (m_rules.empty()) return true;
+    ArchiveUnitStore store(m_base, m_bones, m_rigs);
+    Context          ctx(store, m_reg);
+    if (!ctx.Prefetch(ctx.Units(UnitKind::Behavior), err)) return false;
+    for (const Character& c : ctx.Characters()) {
+        std::vector<std::string> graphs;
+        if (!ctx.GraphsOf(c, graphs, err)) return false;
+    }
+    m_graphsOf = ctx.GraphsOfAll();
+    return true;
+}
+
+bool ModGraphRules::Apply(const std::string& key, const decompile::ParsedHky& twin, const std::string& bundle,
+                          std::vector<std::uint8_t>& modBytes, std::map<std::string, std::unique_ptr<decompile::ParsedHky>>& touched,
+                          std::vector<std::string>& log, std::string& err) const {
+    touched.clear();
+    if (m_rules.empty()) return true;
+    ArchiveUnitStore store(m_base, m_bones, m_rigs);
+    Context          ctx(store, m_reg);
+    const std::string unit = ctx.Find(key);
+    if (unit.empty()) return true;   ///< a graph the base lacks: no character of the base runs it
+    auto mod = std::make_unique<decompile::ParsedHky>();
+    if (!decompile::ParsePackfile(modBytes, m_reg, *mod, err)) return false;
+    ctx.SetGraphsOf(m_graphsOf);
+    ctx.SetScope({ unit });
+    ctx.SetTwin(unit, &twin);
+    ctx.SetNamePrefix(bundle);
+    ctx.Adopt(unit, std::move(mod));
+    RunResult run;
+    if (!ApplyRules(ctx, m_rules, run, err)) return false;
+    log = std::move(run.log);
+    if (!ctx.Touched().count(unit)) return true;
+    if (!ctx.Serve(unit, modBytes, err)) return false;
+    for (const auto& k : ctx.Touched())
+        if (k != unit) touched[k] = ctx.Take(k);
     return true;
 }
 

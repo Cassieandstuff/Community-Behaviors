@@ -227,42 +227,46 @@ std::string boneName(std::int64_t idx, const std::vector<std::string>& rig) {
     return static_cast<std::size_t>(idx) < rig.size() ? rig[static_cast<std::size_t>(idx)] : "#" + std::to_string(idx);
 }
 
-/// @return nullopt when the member holds no bone set (nothing to move).
-std::optional<Content> contentOf(const Site& s, const std::vector<std::string>& rig) {
-    const schema::Field& f = *s.owner->Fields()[s.field];
-    const auto& v = s.owner->Values()[s.field];
+/// @brief Content `raw` of class `cls` ("bone": a `width`-byte index; a bone set: its array, weights 4-byte floats, an
+///        index list `width`-byte ints) spelled through `rig`; nullopt for a "no bone" (-1) single ref.
+std::optional<Content> contentFromRaw(const std::string& cls, const std::vector<std::uint8_t>& raw, const std::vector<std::string>& rig,
+                                      std::size_t width) {
     Content c;
-    c.cls = f.charProp;
-    if (f.kind == FieldKind::Scalar) {
-        const auto w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
-        const std::int64_t idx = intOf(v.raw, 0, w);
+    c.cls = cls;
+    c.raw = raw;
+    if (cls == "bone") {
+        const std::int64_t idx = intOf(raw, 0, width);
         if (idx < 0) return std::nullopt;
-        c.raw   = v.raw;
         c.names = { boneName(idx, rig) };
         c.key   = "bone|" + c.names[0];
         return c;
     }
-    auto* set = asSo(v.obj);
-    const auto ai = set ? boneArrayField(*set) : std::nullopt;
-    if (!ai) return std::nullopt;
-    const schema::Field& af = *set->Fields()[*ai];
-    c.raw = set->Values()[*ai].raw;
-    c.key = c.cls + "|";
-    if (af.boneWeights) {
-        const std::size_t n = c.raw.size() / 4;
-        for (std::size_t k = 0; k < n; ++k) {
+    c.key = cls + "|";
+    if (cls == "hkbBoneWeightArray") {
+        for (std::size_t k = 0; k < raw.size() / 4; ++k) {
             c.names.push_back(boneName(static_cast<std::int64_t>(k), rig));
-            c.key += c.names.back() + "=" + hex(c.raw, k * 4, 4) + ";";
+            c.key += c.names.back() + "=" + hex(raw, k * 4, 4) + ";";
         }
     } else {
-        const auto w = static_cast<std::size_t>(schema::ScalarWidth(af.scalar));
-        for (std::size_t k = 0; k * w < c.raw.size(); ++k) {
-            const std::int64_t idx = intOf(c.raw, k * w, w);
+        for (std::size_t k = 0; (k + 1) * width <= raw.size(); ++k) {
+            const std::int64_t idx = intOf(raw, k * width, width);
             c.names.push_back(idx < 0 ? std::string() : boneName(idx, rig));
             c.key += (idx < 0 ? std::string("-1") : c.names.back()) + ";";
         }
     }
     return c;
+}
+
+/// @return nullopt when the member holds no bone data (nothing to move).
+std::optional<Content> contentOf(const Site& s, const std::vector<std::string>& rig) {
+    const schema::Field& f = *s.owner->Fields()[s.field];
+    const auto& v = s.owner->Values()[s.field];
+    if (f.kind == FieldKind::Scalar) return contentFromRaw("bone", v.raw, rig, static_cast<std::size_t>(schema::ScalarWidth(f.scalar)));
+    auto* set = asSo(v.obj);
+    const auto ai = set ? boneArrayField(*set) : std::nullopt;
+    if (!ai) return std::nullopt;
+    const schema::Field& af = *set->Fields()[*ai];
+    return contentFromRaw(f.charProp, set->Values()[*ai].raw, rig, static_cast<std::size_t>(schema::ScalarWidth(af.scalar)));
 }
 
 /// @brief `c` as the bytes a character with rig `rig` stores: the graph rig's own bytes when the rigs agree; otherwise
@@ -336,6 +340,39 @@ struct RunChar {
     HoistRecord::CharEdit*          edit = nullptr;
 };
 
+/// @brief Append character property `name` to a character's vocabulary: an INT32 (`cls` "bone", `bytes` its
+///        `width`-byte index) or a POINTER to a new `cls` bone set holding `bytes`. `created` = the values set was made.
+bool addProperty(decompile::ParsedHky& hky, Vocab& v, const schema::SchemaRegistry& reg, const std::string& name,
+                 const std::string& cls, const std::vector<std::uint8_t>& bytes, std::size_t width, bool& created, std::string& err) {
+    created = false;
+    auto* vs = v.values();
+    if (!vs) {
+        auto nv = make(reg, "hkbVariableValueSet");
+        if (!nv) { err = "no hkbVariableValueSet class"; return false; }
+        adopt(hky, nv);
+        v.owner->FieldRef("characterPropertyValues").obj = nv;
+        created = true;
+        vs = nv.get();
+    }
+    auto word = make(reg, "hkbVariableValue");
+    if (!word) { err = "no hkbVariableValue class"; return false; }
+    adopt(hky, word);
+    auto& variants = vs->FieldRef("variantVariableValues").objs;
+    if (cls == "bone") {
+        word->SetInt("value", intOf(bytes, 0, width));
+    } else {
+        auto set = make(reg, cls);
+        const auto ai = set ? boneArrayField(*set) : std::nullopt;
+        if (!ai) { err = "no bone set class '" + cls + "'"; return false; }
+        set->FieldAt(*ai).raw = bytes;
+        adopt(hky, set);
+        word->SetInt("value", static_cast<std::int64_t>(variants.size()));
+        variants.push_back(set);
+    }
+    vs->FieldRef("wordVariableValues").objs.push_back(word);
+    return addInfo(hky, v, reg, name, cls == "bone" ? kTypeInt32 : kTypePointer, err);
+}
+
 /// @brief The bytes a character property holds, comparable with resolve()'s: an INT32's word, a bone set's array.
 std::optional<std::vector<std::uint8_t>> propertyBytes(RunChar& rc, std::size_t i, const std::string& cls, std::size_t indexWidth) {
     if (cls == "bone") {
@@ -368,12 +405,13 @@ bool HoistBoneData::Apply(Context& ctx, std::unique_ptr<Record>& out, std::strin
     /// @note Every graph some character runs, with its runners in Characters() order.
     std::map<std::string, std::vector<const Character*>> runners;
     {
-        std::vector<std::string> behaviors = ctx.Units(UnitKind::Behavior);
+        std::vector<std::string> behaviors;
+        for (const auto& b : ctx.Units(UnitKind::Behavior)) if (ctx.InScope(b)) behaviors.push_back(b);
         if (!ctx.Prefetch(behaviors, err)) return false;
         for (const Character& c : ctx.Characters()) {
             std::vector<std::string> graphs;
             if (!ctx.GraphsOf(c, graphs, err)) return false;
-            for (const auto& g : graphs) runners[g].push_back(&c);
+            for (const auto& g : graphs) if (ctx.InScope(g)) runners[g].push_back(&c);
         }
         for (const auto& b : behaviors) if (!runners.count(b)) { ctx.Release(b); ++m_unrun; }
     }
@@ -408,32 +446,9 @@ bool HoistBoneData::Apply(Context& ctx, std::unique_ptr<Record>& out, std::strin
                 rc.edit->variantsBefore = vs->FieldRef("variantVariableValues").objs.size();
             }
         }
-        auto* vs = rc.vocab.values();
-        if (!vs) {
-            auto nv = make(reg, "hkbVariableValueSet");
-            if (!nv) { err = "no hkbVariableValueSet class"; return false; }
-            adopt(*rc.hky, nv);
-            rc.vocab.owner->FieldRef("characterPropertyValues").obj = nv;
-            rc.edit->createdValues = true;
-            vs = nv.get();
-        }
-        auto word = make(reg, "hkbVariableValue");
-        if (!word) { err = "no hkbVariableValue class"; return false; }
-        adopt(*rc.hky, word);
-        auto& variants = vs->FieldRef("variantVariableValues").objs;
-        if (c.cls == "bone") {
-            word->SetInt("value", intOf(bytes, 0, indexWidth));
-        } else {
-            auto set = make(reg, c.cls);
-            const auto ai = set ? boneArrayField(*set) : std::nullopt;
-            if (!ai) { err = "no bone set class '" + c.cls + "'"; return false; }
-            set->FieldAt(*ai).raw = bytes;
-            adopt(*rc.hky, set);
-            word->SetInt("value", static_cast<std::int64_t>(variants.size()));
-            variants.push_back(set);
-        }
-        vs->FieldRef("wordVariableValues").objs.push_back(word);
-        if (!addInfo(*rc.hky, rc.vocab, reg, name, c.cls == "bone" ? kTypeInt32 : kTypePointer, err)) return false;
+        bool created = false;
+        if (!addProperty(*rc.hky, rc.vocab, reg, name, c.cls, bytes, indexWidth, created, err)) return false;
+        rc.edit->createdValues |= created;
         ctx.Touch(rc.character->key);
         return true;
     };
@@ -458,6 +473,29 @@ bool HoistBoneData::Apply(Context& ctx, std::unique_ptr<Record>& out, std::strin
             else if (!err.empty()) return false;
             else rigless = true;
         if (rigless) { ++m_rigless; m_unresolved += sites.size(); continue; }
+
+        /// @note A graph whose rule-applied base version is known (the converter's mod graph) takes the base's names for
+        ///       the content the base already moved, so a site the mod left alone derives to no change.
+        if (const decompile::ParsedHky* twin = ctx.Twin(gkey)) {
+            auto& tw = const_cast<decompile::ParsedHky&>(*twin);
+            auto tv = graphVocab(tw);
+            const auto same = std::find_if(rcs.begin(), rcs.end(), [&](RunChar* rc) { return *rc->rig == *graphRig; });
+            for (const Site& t : sitesOf(tw)) {
+                const SchemaObject* b = bindingFor(*t.bindable, t.path);
+                if (!tv || same == rcs.end() || !b || b->GetInt("bindingType") != kBindCharProp) continue;
+                const std::int64_t vi = b->GetInt("variableIndex");
+                if (vi < 0 || static_cast<std::size_t>(vi) >= tv->names().size()) continue;
+                const std::string& n = tv->names()[static_cast<std::size_t>(vi)];
+                const schema::Field& tf = *t.owner->Fields()[t.field];
+                const std::size_t    tw2 = tf.kind == FieldKind::Scalar ? static_cast<std::size_t>(schema::ScalarWidth(tf.scalar)) : 2;
+                const auto           i   = (*same)->vocab.find(n);
+                const auto           raw = i ? propertyBytes(**same, *i, tf.charProp, tw2) : std::nullopt;
+                if (const auto c = raw ? contentFromRaw(tf.charProp, *raw, *graphRig, tw2) : std::nullopt) {
+                    byContent.emplace(c->key, n);
+                    contentOfName.emplace(n, c->key);
+                }
+            }
+        }
 
         HoistRecord::GraphEdit ge{ gkey, gv->names().size(), {} };
         for (std::size_t si = 0; si < sites.size(); ++si) {
@@ -500,8 +538,11 @@ bool HoistBoneData::Apply(Context& ctx, std::unique_ptr<Record>& out, std::strin
                 return n;
             };
             const std::string& bone = content->names[0];
+            /// @note A single bone's property is the same data wherever it is minted (that bone's index), so it carries no
+            ///       prefix; a bone set minted in a scoped run carries the run's (a mod bundle's).
+            const std::string set  = s.bindable->IndexOf("name") ? s.label + "_" + identifier(s.path) : s.label;
             const std::string base = content->cls == "bone" ? (bone[0] == '#' ? "Bone_Index" + bone.substr(1) : "Bone_" + identifier(bone))
-                                   : s.bindable->IndexOf("name") ? s.label + "_" + identifier(s.path) : s.label;
+                                   : ctx.NamePrefix().empty() ? set : identifier(ctx.NamePrefix()) + "_" + set;
 
             /// @brief Each runner's bytes for the property this site ends up bound to.
             std::vector<std::vector<std::uint8_t>> want(rcs.size());
@@ -666,6 +707,46 @@ std::string HoistBoneData::Summary() const {
     return std::to_string(m_hoisted) + " site(s) moved, " + std::to_string(m_properties) + " new property name(s); " +
            std::to_string(m_otherBound) + " bound otherwise, " + std::to_string(m_unresolved) + " kept inline (no rig / index past it), " +
            std::to_string(m_unrun) + " graph(s) no character runs, " + std::to_string(m_rigless) + " graph(s) with a rigless runner";
+}
+
+std::vector<BoneProperty> ReadBoneProperties(decompile::ParsedHky& character) {
+    std::vector<BoneProperty> out;
+    auto v = characterVocab(character);
+    if (!v) return out;
+    RunChar rc;
+    rc.vocab = *v;
+    for (std::size_t i = 0; i < v->names().size(); ++i) {
+        const long t = v->type(i);
+        BoneProperty p{ v->names()[i], {}, {} };
+        if (t == kTypeInt32) {
+            p.cls = "bone";
+            p.bytes = *propertyBytes(rc, i, "bone", 2);
+        } else if (t == kTypePointer) {
+            auto* o = v->pointer(i);
+            if (!o || !boneArrayField(*o)) continue;
+            p.cls = o->ClassName();
+            p.bytes = *propertyBytes(rc, i, p.cls, 2);
+        } else {
+            continue;
+        }
+        out.push_back(std::move(p));
+    }
+    return out;
+}
+
+bool AddBoneProperty(decompile::ParsedHky& character, const schema::SchemaRegistry& reg, const BoneProperty& p, std::string& err) {
+    auto v = characterVocab(character);
+    if (!v) { err = "not a character unit"; return false; }
+    if (const auto i = v->find(p.name)) {
+        RunChar rc;
+        rc.vocab = *v;
+        const auto have = propertyBytes(rc, *i, p.cls, 2);
+        if (have && *have == p.bytes) return true;
+        err = "character property '" + p.name + "' already holds other data";
+        return false;
+    }
+    bool created = false;
+    return addProperty(character, *v, reg, p.name, p.cls, p.bytes, 2, created, err);
 }
 
 bool CharPropViolations(Context& ctx, std::vector<std::string>& out, std::string& err) {

@@ -81,6 +81,10 @@ struct ParsedHky {
     std::shared_ptr<io::SchemaObject>              root;
     Identity                                       identity;
 };
+/// @brief A packfile's graph as a ParsedHky: every object reachable from the root (inline ones included), its
+///        encounter-order identity (AssignIdentity's numbering). SerializeGraph is its inverse.
+bool ParsePackfile(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err);
+
 /// @brief The compile-time EDITING view over a merged graph — the handle every graph feature receives.
 /// @note  Vocabulary edits keep Havok's parallel arrays in LOCKSTEP (names / infos / word values), so a feature can't
 ///        push a name without its info and value. New names append, so every index a mod already relies on stays
@@ -288,9 +292,11 @@ struct ModDeltaResult {
     int         patched = 0;      ///< base nodes the patch changes
     int         added = 0;        ///< nodes the patch adds
 };
+/// @brief A change to the mod side's packfile bytes before its patch is derived (the converter's forward rules).
+using ModGraphTransform = std::function<bool(std::vector<std::uint8_t>& modBytes, std::string& err)>;
 ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vector<std::string>& masterPatchDirs,
                                const std::vector<std::string>& patchDirs, const ParsedHky& base,
                                const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                                const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
-                               const std::vector<std::string>* bones = nullptr);
+                               const std::vector<std::string>* bones = nullptr, const ModGraphTransform& transform = {});
 } // namespace CB::engine::decompile

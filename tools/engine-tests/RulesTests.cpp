@@ -451,6 +451,64 @@ void HoistChecks(const sch::SchemaRegistry& reg, const fs::path& tmp) {
             Check(ctx.Serve(key, got, err) && got == want, "reversed, " + key + " serves byte-identical to its source");
         }
     }
+
+    /// @note The converter's path: the hoisted units, packed, are the base; a mod's graph (the un-hoisted source graph
+    ///       with one mask changed and one bone ref added) runs through the forward rules against it.
+    const fs::path baseHky = tmp / "hoist-base.hky";
+    Check(CB::engine::codec::HkyArchive::PackDirectory(canonDir.string(), baseHky.string(), err), "pack the hoisted base: " + err);
+    auto arc = CB::engine::codec::HkyArchive::LoadFromFile(baseHky.string(), err);
+    Check(arc != nullptr, "reload the hoisted base: " + err);
+    if (!arc) return;
+    const auto bonesOf = [&](const std::string& k) -> const std::vector<std::string>* {
+        const auto b = bones.find(CB::engine::codec::resource::PathKey(k));
+        return b == bones.end() ? nullptr : &b->second;
+    };
+    const auto rigOf = [&](const std::string& k) -> const std::vector<std::string>* {
+        const auto b = rigs.find(CB::engine::codec::resource::PathKey(k));
+        return b == rigs.end() ? nullptr : &b->second;
+    };
+    rl::ModGraphRules mr(arc, bonesOf, reg, rigOf);
+    Check(mr.Prepare(err) && mr.Active(), "the converter rules prepare over the base: " + err);
+
+    dec::ParsedHky mod, twin;
+    Check(dec::ParsePackfile(canon[root], reg, mod, err), "parse the mod graph's bytes: " + err);
+    for (const auto& o : mod.objects) {
+        if (std::string(o->ClassName()) == "hkbGetUpModifier") o->SetInt("anotherBoneIndex", 2);   // rig A's 'B'
+        if (std::string(o->ClassName()) == "hkbBlenderGeneratorChild" && !o->Child("variableBindingSet"))
+            if (auto* w = o->Child("boneWeights")) {
+                auto v = w->GetArray<float>("boneWeights");
+                v[3] = 1;   // 'C'
+                w->SetArray<float>("boneWeights", v);
+            }
+    }
+    std::vector<std::uint8_t> modBytes;
+    Check(dec::SerializeGraph(mod, modBytes, err), "serialize the mod graph: " + err);
+    Check(dec::ParseHkyReflective(*arc->source(root), reg, twin, err, &rigA, root), "parse the base twin: " + err);
+    std::map<std::string, std::unique_ptr<dec::ParsedHky>> touched;
+    std::vector<std::string> mlog;
+    Check(mr.Apply(root, twin, "MyMod", modBytes, touched, mlog, err), "apply the converter rules to the mod graph: " + err);
+    Check(touched.size() == 2, "the mod adds data to both running characters");
+    for (const auto& [ck, cu] : touched) {
+        std::set<std::string> added;
+        dec::ParsedHky base;
+        Check(dec::ParseHkyReflective(*arc->source(ck), reg, base, err, &bones.at(ck), ck), "parse base " + ck);
+        std::set<std::string> had;
+        for (const auto& p : rl::ReadBoneProperties(base)) had.insert(p.name);
+        for (const auto& p : rl::ReadBoneProperties(*cu)) if (!had.count(p.name)) added.insert(p.name);
+        Check(added == std::set<std::string>{ "MyMod_Blend_0", "Bone_B" },
+              ck + ": the mod's new mask takes a bundle-named property, its new bone ref the bone's own");
+    }
+
+    dec::HkyPatchStats st;
+    const fs::path patchDir = tmp / "hoist-patch";
+    Check(dec::DeriveHkyPatch(twin, { "skyrim" }, { "mymod", "skyrim" }, modBytes, reg, patchDir.string(), err, &rigA, &st),
+          "derive the mod's patch against the hoisted base: " + err);
+    std::string patch;
+    for (const auto& [p, t] : Tree(patchDir)) patch += t;
+    Check(patch.find("MyMod_Blend_0") != std::string::npos && patch.find("Bone_B") != std::string::npos,
+          "the patch binds the new properties:\n" + patch);
+    Check(patch.find("Blend_1") == std::string::npos && patch.find("UpperBody") == std::string::npos,
+          "the masks the mod left alone derive to no change:\n" + patch);
 }
 }  // namespace
 

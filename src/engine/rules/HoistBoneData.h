@@ -42,4 +42,17 @@ private:
 ///        variable): what HoistBoneData leaves behind, which a rule-applied unit set must not hold.
 bool CharPropViolations(Context& ctx, std::vector<std::string>& out, std::string& err);
 
+/// @brief A character property HoistBoneData moves data into: `cls` "bone" (an INT32 bone index, `bytes` its two
+///        low bytes) or a bone set class (a POINTER to it, `bytes` its array), in the character's own rig.
+struct BoneProperty {
+    std::string               name;
+    std::string               cls;
+    std::vector<std::uint8_t> bytes;
+};
+/// @brief Every bone property `character` holds, in its vocabulary order.
+std::vector<BoneProperty> ReadBoneProperties(decompile::ParsedHky& character);
+/// @brief Append `p` to `character` (a property already holding exactly `p` is left as it is).
+/// @return false with `err` set when `character` already holds `p.name` with other data.
+bool AddBoneProperty(decompile::ParsedHky& character, const schema::SchemaRegistry& reg, const BoneProperty& p, std::string& err);
+
 }  // namespace CB::engine::rules

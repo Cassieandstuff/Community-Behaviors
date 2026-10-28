@@ -3651,6 +3651,35 @@ bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& l
     }
 }
 
+bool ParsePackfile(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err) {
+    try {
+        PackFileDeserializer des;
+        des.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx br(false, true, bytes);
+        const auto root = std::dynamic_pointer_cast<io::SchemaObject>(des.Deserialize(br));
+        if (!root) { err = "ParsePackfile: no schema root"; return false; }
+        out = ParsedHky{};
+        out.root     = root;
+        out.identity = AssignIdentity(des, reg);
+        std::unordered_set<const IHavokObject*> seen;
+        std::function<void(const std::shared_ptr<IHavokObject>&)> walk = [&](const std::shared_ptr<IHavokObject>& o) {
+            auto so = std::dynamic_pointer_cast<io::SchemaObject>(o);
+            if (!so || !seen.insert(so.get()).second) return;
+            out.objects.push_back(so);
+            if (!out.identity.category.count(so.get())) out.identity.category[so.get()] = "";
+            for (const io::FieldValue& fv : so->Values()) {
+                walk(fv.obj);
+                for (const auto& e : fv.objs) walk(e);
+            }
+        };
+        walk(root);
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("ParsePackfile: ") + e.what();
+        return false;
+    }
+}
+
 bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::string& err, const CB::engine::codec::HKXHeader& header) {
     try {
         PackFileSerializer ser;
@@ -3928,7 +3957,7 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
                                const std::vector<std::string>& patchDirs, const ParsedHky& base,
                                const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                                const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
-                               const std::vector<std::string>* bones) {
+                               const std::vector<std::string>* bones, const ModGraphTransform& transform) {
     namespace fs = std::filesystem;
     ModDeltaResult r;
     /// @note RAW patch text (MOD_CODE markers intact): parseSourcesMerged strips for the node parse AND reads the
@@ -3965,8 +3994,10 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
         PackFileSerializer ser;
         BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
         ser.Serialize(root, bw, header);
+        std::vector<std::uint8_t> mod = bw.Data();
+        if (transform && !transform(mod, err)) { r.error = "transform: " + err; return r; }
         HkyPatchStats st;
-        if (!DeriveHkyPatch(base, baseMasters, patchMasters, bw.Data(), reg, outDeltaDir, err, bones, &st)) {
+        if (!DeriveHkyPatch(base, baseMasters, patchMasters, mod, reg, outDeltaDir, err, bones, &st)) {
             r.error = "derive: " + err;
             return r;
         }

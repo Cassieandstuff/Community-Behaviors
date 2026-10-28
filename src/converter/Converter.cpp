@@ -209,7 +209,20 @@ static bool WithFirstOfClass(const std::vector<std::uint8_t>& bytes, const CB::e
 struct RosterSink {
     std::map<std::pair<std::string, std::string>, std::vector<std::string>>        names;
     std::map<std::pair<std::string, std::string>, std::unordered_set<std::string>> seen;
+    /// @brief The bone properties a bundle's graphs now bind (HoistBoneData), per (bundle dir, character serve key):
+    ///        the character patch adds them beside its roster additions. Filled from parallel graph converts.
+    std::map<std::pair<std::string, std::string>, std::vector<CB::engine::rules::BoneProperty>> props;
+    std::mutex mu;
 };
+
+/// @brief Record that `bundleDir`'s graphs bind bone property `p` on the character at `characterServePath`.
+void AddPropertyToCharacterUnit(RosterSink& sink, const fs::path& bundleDir, const std::string& characterServePath,
+                                CB::engine::rules::BoneProperty p) {
+    std::lock_guard lk(sink.mu);
+    auto& list = sink.props[{ bundleDir.string(), CB::engine::codec::resource::PathKey(characterServePath) }];
+    for (const auto& q : list) if (q.name == p.name) return;   ///< the same name twice: FlushRosters checks the data
+    list.push_back(std::move(p));
+}
 
 /// @return how many of `names` are new to the sink for that character.
 int AddRosterToCharacterUnit(RosterSink& sink, const fs::path& bundleDir, const std::string& characterServePath,
@@ -265,7 +278,9 @@ int FlushRosters(const RosterSink& sink, CB::converter::BaseUnitCompiler& base, 
         list.insert(list.end(), names.begin(), names.end());
     }
 
-    int written = 0;
+    /// @note One patch per (bundle, character): its roster additions (group-aligned) and the bone properties the bundle's
+    ///       graphs bind, derived together so neither overwrites the other's unit.
+    std::map<std::pair<std::string, std::string>, std::vector<std::string>> rosterAdd;   // (bundle, serve) -> names
     for (const auto& [key, names] : additions) {
         const auto& [bundleDir, group] = key;
         std::unordered_set<std::string> have;
@@ -274,24 +289,39 @@ int FlushRosters(const RosterSink& sink, CB::converter::BaseUnitCompiler& base, 
         std::vector<std::string> add;
         for (const auto& n : names) if (!n.empty() && have.insert(ClipSlotKey(n)).second) add.push_back(n);
         if (add.empty()) continue;
-        for (const auto& serve : members[group]) {
-            CB::engine::decompile::ParsedHky g, fresh;
-            std::string err;
-            std::vector<std::uint8_t> bytes;
-            const auto& bones = base.BonesFor(serve);
-            const fs::path unit = fs::path(bundleDir) / fs::path(unitPathOf[serve]);
-            bool ok = base.Parse(serve, g, err);
-            if (ok)
+        for (const auto& serve : members[group]) rosterAdd[{ bundleDir, serve }] = add;
+    }
+    std::set<std::pair<std::string, std::string>> edits;
+    for (const auto& [k, v] : rosterAdd) edits.insert(k);
+    for (const auto& [k, v] : sink.props) {
+        if (!unitPathOf.count(k.second)) { say("  bone properties: " + k.second + " — no base character; dropped."); continue; }
+        edits.insert(k);
+    }
+
+    int written = 0;
+    for (const auto& key : edits) {
+        const auto& [bundleDir, serve] = key;
+        CB::engine::decompile::ParsedHky g, fresh;
+        std::string err;
+        std::vector<std::uint8_t> bytes;
+        const auto& bones = base.BonesFor(serve);
+        const fs::path unit = fs::path(bundleDir) / fs::path(unitPathOf[serve]);
+        bool ok = base.Parse(serve, g, err);
+        if (ok)
+            if (const auto ra = rosterAdd.find(key); ra != rosterAdd.end())
                 CB::engine::decompile::GraphEdit(g, reg).ForEach("hkbCharacterStringData", [&](CB::engine::codec::io::SchemaObject& so) {
                     auto& roster = so.FieldRef("animationNames").strs;
-                    roster.insert(roster.end(), add.begin(), add.end());
+                    roster.insert(roster.end(), ra->second.begin(), ra->second.end());
                 });
-            ok = ok && CB::engine::decompile::SerializeGraph(g, bytes, err) && base.Parse(serve, fresh, err) &&
-                 CB::engine::decompile::DeriveHkyPatch(fresh, { "skyrim" }, { PathKey(fs::path(bundleDir).stem().string()), "skyrim" },
-                                                     bytes, reg, unit.string(), err, bones.empty() ? nullptr : &bones);
-            if (!ok) { say("  roster: " + serve + " — patch FAILED: " + err); continue; }
-            ++written;
-        }
+        if (ok)
+            if (const auto pa = sink.props.find(key); pa != sink.props.end())
+                for (const auto& p : pa->second)
+                    if (!CB::engine::rules::AddBoneProperty(g, reg, p, err)) { ok = false; break; }
+        ok = ok && CB::engine::decompile::SerializeGraph(g, bytes, err) && base.Parse(serve, fresh, err) &&
+             CB::engine::decompile::DeriveHkyPatch(fresh, { "skyrim" }, { PathKey(fs::path(bundleDir).stem().string()), "skyrim" },
+                                                 bytes, reg, unit.string(), err, bones.empty() ? nullptr : &bones);
+        if (!ok) { say("  character patch: " + serve + " — FAILED: " + err); continue; }
+        ++written;
     }
     return written;
 }
@@ -1085,6 +1115,36 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
     }
     CB::converter::BaseUnitCompiler baseCompiler(baseArc);
 
+    /// @note The converter's FORWARD RULES (`runs: [converter]`): every mod graph — Nemesis-merged or a precompiled loose
+    ///       file — goes through them against the shipped, rule-applied base before its patch is derived, so the patch
+    ///       states only what the mod changed (bone data a mod adds moves into its own bundle-named properties, and the
+    ///       characters that run the graph get them in that bundle's character patch).
+    CB::engine::rules::ModGraphRules modRules(baseArc, [&](const std::string& key) -> const std::vector<std::string>* {
+        const auto& b = baseCompiler.BonesFor(key);
+        return b.empty() ? nullptr : &b;
+    }, schemaReg);
+    {
+        std::string merr;
+        if (!modRules.Prepare(merr)) { r.error = "converter rules: " + merr; return r; }
+    }
+    /// @brief Run the forward rules over mod graph `prefix` (bytes rewritten in place) and record the bone properties
+    ///        they add to each character into `bundleDir`'s character patch.
+    const auto applyModRules = [&](const std::string& prefix, const CB::engine::decompile::ParsedHky& twin, const std::string& bname,
+                                   const fs::path& bundleDir, std::vector<std::uint8_t>& mod, std::string& e) {
+        std::map<std::string, std::unique_ptr<CB::engine::decompile::ParsedHky>> touched;
+        std::vector<std::string> rlog;
+        if (!modRules.Apply(prefix, twin, bname, mod, touched, rlog, e)) return false;
+        for (const auto& [ck, cu] : touched) {
+            CB::engine::decompile::ParsedHky bc;
+            if (!baseCompiler.Parse(ck, bc, e)) return false;
+            std::unordered_set<std::string> had;
+            for (const auto& p : CB::engine::rules::ReadBoneProperties(bc)) had.insert(p.name);
+            for (auto& p : CB::engine::rules::ReadBoneProperties(*cu))
+                if (!had.count(p.name)) AddPropertyToCharacterUnit(rosters, bundleDir, ck, std::move(p));
+        }
+        return true;
+    };
+
     // Base-derived resolution maps (ground truth = Skyrim.hky). Defined here (before the loose legs +
     // the per-bundle loop + the animationnames post-pass) so every roster leg routes by real actor/
     // character. See BaseMaps.h.
@@ -1171,7 +1231,10 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 return skip("master '" + m + "' patch doesn't merge — " + err);
         }
         const auto md = CB::engine::decompile::ConvertModDelta(baseXml, masterPatchDirs, patchDirs, base, { "skyrim" },
-                                                             tableOf(bname), schemaReg, outUnit, bp);
+                                                             tableOf(bname), schemaReg, outUnit, bp,
+            [&](std::vector<std::uint8_t>& mod, std::string& e) {
+                return applyModRules(prefix, base, bname, plugins / (bname + ".hky"), mod, e);
+            });
         if (!md.ok) return skip("patch FAILED — " + md.error);
         return GraphOutcome{ md.patched != 0 || md.added != 0, false, {} };
     };
@@ -1274,6 +1337,7 @@ Result ConvertLoadOrder(const Options& opt, const LogFn& log, const std::atomic<
                 CB::engine::decompile::HkyPatchStats st;
                 const auto& bones = baseCompiler.BonesFor(u.prefix);
                 if (!CB::engine::codec::ReadHavokFile(winner.string(), mb, &derr) || !baseCompiler.Parse(u.prefix, base, derr) ||
+                    !applyModRules(u.prefix, base, bname, outBundle, mb, derr) ||
                     !CB::engine::decompile::DeriveHkyPatch(base, { "skyrim" }, { PathKey(bname), "skyrim" }, mb, schemaReg,
                                                          unit.string(), derr, bones.empty() ? nullptr : &bones, &st)) {
                     ++r.skipped; say("  " + bname + ": " + u.prefix + " — DERIVE FAILED: " + derr); continue;
