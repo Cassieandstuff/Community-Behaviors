@@ -5,8 +5,8 @@ size:      120
 fields:
   - { name: limitAngleDegrees, type: float }
   - { skip: 4 }                              # currentAngle (ignored)
-  - { name: startBoneIndex, type: int16, boneref: true }
-  - { name: endBoneIndex,   type: int16, boneref: true }
+  - { name: startBoneIndex, type: int16, boneref: true, charprop: bone }
+  - { name: endBoneIndex,   type: int16, boneref: true, charprop: bone }
   - { name: gain,       type: float }
   - { name: boneRadius, type: float }
   - { name: castOffset, type: float }

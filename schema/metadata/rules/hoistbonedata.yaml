@@ -1,0 +1,8 @@
+name:   hoistbonedata
+kind:   rule
+# Bone data lives in the character, not the behavior: every `charprop` member (bone-weight sets, bone-index sets,
+# single bone refs) is bound to a character property that each character running the graph holds, resolved against
+# its own rig, so characters with different rigs share one graph. See CB::engine::rules::HoistBoneData.
+op:     HoistBoneData
+runs:   [regen, converter]
+select: [charprop]

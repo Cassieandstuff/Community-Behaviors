@@ -273,6 +273,25 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                         const std::string c = childStr(fn, "count");
                         if (!c.empty()) f.count = std::stoi(c);
                     }
+                    if (const std::string u = childStr(fn, "user"); !u.empty()) {
+                        if (f.kind != FieldKind::Scalar || f.count > 1 || f.scalar == Scalar::Float || f.scalar == Scalar::Half
+                            || f.scalar == Scalar::Bool || !f.enumName.empty()) {
+                            err = out.name + "." + f.name + ": `user` needs a single integer scalar"; return false;
+                        }
+                        char* end = nullptr;
+                        f.userValue = std::strtoll(u.c_str(), &end, 10);
+                        if (!end || *end) { err = out.name + "." + f.name + ": `user` value '" + u + "' is not an integer"; return false; }
+                        f.user = true;
+                    }
+                    f.charProp = childStr(fn, "charprop");
+                    if (!f.charProp.empty()) {
+                        const bool ptr  = f.kind == FieldKind::Ptr && f.count <= 1 && f.charProp == f.ref;
+                        const bool bone = f.kind == FieldKind::Scalar && f.count <= 1 && f.boneRef && f.charProp == "bone";
+                        if (!ptr && !bone) {
+                            err = out.name + "." + f.name + ": `charprop` names its pointer's own class, or `bone` on a boneref scalar";
+                            return false;
+                        }
+                    }
                 } else {
                     err = out.name + ": unrecognized field entry"; return false;
                 }
@@ -332,6 +351,58 @@ bool DescriptorKind(const std::string& yamlText, std::string& out, std::string& 
     }
 }
 
+bool RuleSelects(const Field& f, const std::string& token) {
+    if (token == "boneweights") return f.boneWeights;
+    if (token == "bonelist")    return f.boneList;
+    if (token == "boneref")     return f.boneRef;
+    if (token == "user")        return f.user;
+    if (token == "charprop")    return !f.charProp.empty();
+    return false;
+}
+
+bool ParseRuleDef(const std::string& yamlText, RuleDef& out, std::string& err) {
+    try {
+        std::string   storage = yamlText;
+        c4::yml::Tree tree    = c4::yml::parse_in_place(c4::to_substr(storage));
+        auto          root    = tree.rootref();
+        if (!root.readable() || !root.is_map()) { err = "root is not a map"; return false; }
+        out      = RuleDef{};
+        out.text = yamlText;
+        out.name = childStr(root, "name");
+        out.op   = childStr(root, "op");
+        if (out.name.empty()) { err = "a rule needs a 'name'"; return false; }
+        if (out.op.empty())   { err = "rule '" + out.name + "' names no 'op'"; return false; }
+        const auto list = [&](auto n, const char* key, std::vector<std::string>& to) {
+            if (!hasKey(n, key)) return true;
+            auto l = n[c4::to_csubstr(key)];
+            if (!l.is_seq()) { err = "rule '" + out.name + "': '" + key + "' must be a list"; return false; }
+            for (auto e : l) {
+                if (!e.has_val()) { err = "rule '" + out.name + "': '" + key + "' holds a non-scalar"; return false; }
+                to.push_back(toStr(e.val()));
+            }
+            return true;
+        };
+        if (!list(root, "runs", out.runs) || !list(root, "select", out.select)) return false;
+        if (hasKey(root, "order")) {
+            auto o = root[c4::to_csubstr("order")];
+            if (!o.is_map()) { err = "rule '" + out.name + "': 'order' must be a map ({ after: […], before: […] })"; return false; }
+            if (!list(o, "after", out.after) || !list(o, "before", out.before)) return false;
+        }
+        if (out.runs.empty()) { err = "rule '" + out.name + "' runs nowhere (runs: [regen, converter])"; return false; }
+        for (const auto& s : out.runs)
+            if (s != "regen" && s != "converter") { err = "rule '" + out.name + "': unknown stage '" + s + "' (regen, converter)"; return false; }
+        for (const auto& t : out.select)
+            if (t != "boneweights" && t != "bonelist" && t != "boneref" && t != "user" && t != "charprop") {
+                err = "rule '" + out.name + "': unknown select '" + t + "' (boneweights, bonelist, boneref, user, charprop)";
+                return false;
+            }
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("parse: ") + e.what();
+        return false;
+    }
+}
+
 bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     std::error_code ec;
     /// @note Semantics are collected during the walk and applied after it: they name classes, so m_byName must be
@@ -339,7 +410,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
     std::vector<std::string> semanticsTexts;
     /// @note A descriptor's identity is its `name:` within its `kind:`; folders are decoration. A second file
     ///       claiming a loaded name fails the load, naming both files, instead of silently winning by walk order.
-    std::map<std::string, fs::path> classFrom, enumFrom, shimFrom, embeddedFrom;
+    std::map<std::string, fs::path> classFrom, enumFrom, shimFrom, embeddedFrom, ruleFrom;
     const auto claim = [&err](std::map<std::string, fs::path>& seen, const std::string& name, const fs::path& p,
                               const char* what) {
         const auto [it, fresh] = seen.emplace(name, p);
@@ -412,6 +483,12 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             }
             if (!claim(embeddedFrom, ek.name, p, "embedded kind")) return false;
             m_embedded[ek.name] = std::move(ek);
+        } else if (kind == "rule") {
+            RuleDef rd;
+            if (!ParseRuleDef(text, rd, perr)) { err = p.string() + ": " + perr; return false; }
+            if (!claim(ruleFrom, rd.name, p, "rule")) return false;
+            rd.file = p.string();
+            m_rules[rd.name] = std::move(rd);
         } else if (kind.empty() || kind == "metadata") {
             /// @note `kind: metadata` = a Bethesda text-cache record (adsf/asdsf/speeddata) MetaText reads and writes:
             ///       no signature or size, so no packfile path ever meets it. It shares the class namespace.
@@ -420,7 +497,7 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
             if (!claim(classFrom, cs.name, p, "class")) return false;
             m_byName[cs.name] = std::move(cs);
         } else {
-            err = p.string() + ": unknown kind '" + kind + "' (enum, semantics, probe, compatshim, embedded, metadata, or none for a class)";
+            err = p.string() + ": unknown kind '" + kind + "' (enum, semantics, probe, compatshim, embedded, rule, metadata, or none for a class)";
             return false;
         }
     }
@@ -481,6 +558,10 @@ bool SchemaRegistry::LoadDir(const std::string& root, std::string& err) {
         }
         for (const auto& [name, ek] : m_embedded)
             if (!m_byName.count(ek.cls)) { err = "embedded kind '" + name + "': no class '" + ek.cls + "'"; return false; }
+        for (const auto& [name, rd] : m_rules)
+            for (const auto* l : { &rd.after, &rd.before })
+                for (const auto& other : *l)
+                    if (!m_rules.count(other)) { err = rd.file + ": rule '" + name + "' orders against no rule '" + other + "'"; return false; }
     }
 
     /// @note A `factory:` name maps to exactly one class, or a node's class could not be told from its factory name.

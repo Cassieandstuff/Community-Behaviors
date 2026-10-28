@@ -467,7 +467,7 @@ Files ClipSelectorBehavior(const Json& j, const std::vector<Clip>& clips, const 
             "id: " + id + "\nclass: hkbClipGenerator\nvariableBindingSet:\n  indexOfBindingToEnable: -1\nuserData: 0\n"
             "name: " + Quote(clips[i].stem) + "\nanimationName: " + Quote(clips[i].roster) + "\n"
             "cropStartAmountLocalTime: 0\ncropEndAmountLocalTime: 0\nstartTime: 0\nplaybackSpeed: 1\nenforcedDuration: 0\n"
-            "userControlledTimeFraction: 0\nanimationBindingIndex: -1\nmode: MODE_USER_CONTROLLED\nflags: 0\n");
+            "userControlledTimeFraction: 0\nanimationBindingIndex: user\nmode: MODE_USER_CONTROLLED\nflags: 0\n");
         files.emplace_back(dir + "variableBindingSet.bindings.yaml",
             "'userControlledTimeFraction':\n  variableIndex: 1\n  variable: " + Quote(timeVar) +
             "\n  bitIndex: -1\n  bindingType: BINDING_TYPE_VARIABLE\n");

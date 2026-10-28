@@ -5,7 +5,7 @@ size:      136
 fields:
   - { skip: 8 }
   - { name: contactEvent, type: struct, ref: hkbEventProperty }
-  - { name: bones,        type: ptr, ref: hkbBoneIndexArray }
+  - { name: bones,        type: ptr, ref: hkbBoneIndexArray, charprop: hkbBoneIndexArray }
   - { name: throwEvent,   type: bool , ignored: true }
   - { skip: 7 }
   - { empty: array }

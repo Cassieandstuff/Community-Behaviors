@@ -88,6 +88,20 @@ whose stored one differs.
   project's `characterFilenames` is `Characters\Horse.hkx`, its character's `rigName` is
   `Character Assets\Skeleton.hkx`. The string is kept byte-exact; matching it to a unit is path identity (case-
   folded, as the engine's lookup is). A member attribute: no serde, size or signature effect.
+- `user: <value>` — on a single integer scalar: the game fills the member at runtime, and `<value>` is the binary
+  sentinel a file stores in its place (`hkbClipGenerator.animationBindingIndex`, `user: -1`). The `.hky` writes
+  `user` exactly when the stored value equals the sentinel and reads `user` back to it, so the bytes round-trip; any
+  other value renders as itself. A "none" index (an event id, a sync variable index) is authored data, not `user`:
+  it stays `-1`. No serde, size or signature effect.
+- `charprop: <class>|bone` — the member's bone data comes from a CHARACTER PROPERTY, so characters with different rigs
+  share one graph: on a pointer to a bone set (`charprop:` names its own `ref`, `hkbBoneWeightArray` /
+  `hkbBoneIndexArray`) a POINTER property holding such a set; on a `boneref` scalar (`charprop: bone`) an INT32
+  property holding the bone's index in each character's rig. Bound to a character property and holding its neutral
+  value (an empty set, or -1), the member writes as `boneWeights: { charprop: 'UpperBody' }` and its binding folds
+  into it (an editor shows the field as a pick of that class's properties); ParseHky rebuilds the neutral value and
+  appends the binding after the bindable's others, where vanilla keeps them. A behavior a character runs whose
+  `charprop` member holds bone data inline is flagged (the regen's strict gate refuses it). No serde, size or
+  signature effect.
 
 ## Runtime binding (reserved — the uniform game/self invariant)
 
@@ -114,9 +128,29 @@ Every `*.yaml` under `schema/` is loaded recursively and dispatched on its top-l
 | `enum` | a reflected enum: `name:`, `flags:`, `items:` | `LoadDir`, and baked into the binary by `cmake/EmbedEnums.cmake` |
 | `semantics` | merge policy: strategy → `<Class>` / `<Class>.<field>` lists | `LoadDir` (applied after the walk) |
 | `probe` | a compile-trace probe (see `metadata/debug/README.md`) | `CB::engine::compile::trace` |
+| `rule` | a reversible transform over a whole unit set (see Rules) | `LoadDir` → `CB::engine::rules` |
 
 A descriptor's identity is its `name:` within its kind (classes and metadata records share one namespace). A name
 defined twice, or an unknown kind, fails the load and names the files. Moving a file between folders changes nothing.
+
+## Rules
+
+A `kind: rule` descriptor (`metadata/rules/<rule>.yaml`) declares a transform the regen (and the converter) runs over
+a whole unit set — graphs, characters and projects together — through the C++ operation its `op:` names:
+
+```yaml
+name:   myrule                      # the rule's identity
+kind:   rule
+op:     MyOp                        # a registered CB::engine::rules op (Apply + Inverse), exact name
+runs:   [regen, converter]          # where it applies
+order:  { after: [other], before: [] }   # rules it runs after / before (each must exist)
+select: [boneweights, bonelist, boneref] # the field kinds it touches: the schema row keys, or `user`
+params: { … }                       # the op's own parameters
+```
+
+Every op ships its inverse. The regen applies the rules after the emit and re-emits the units they change; its
+served-bytes gate reverses them in memory, from what Apply recorded in the same run, and compares every unit to its
+source. Nothing of a rule is persisted in the bundle. The converter applies them forward only.
 
 ## Layout
 

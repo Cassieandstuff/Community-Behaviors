@@ -37,6 +37,31 @@ namespace CB::engine::decompile {
 using namespace CB::engine::codec;
 using namespace CB::engine::common;
 
+bool CharPropNeutral(const schema::Field& f, const io::FieldValue& v) {
+    if (f.charProp.empty()) return false;
+    if (f.kind == schema::FieldKind::Scalar) {
+        std::int64_t x = 0;
+        const int w = schema::ScalarWidth(f.scalar);
+        if (static_cast<int>(v.raw.size()) != w) return false;
+        for (int i = 0; i < w; ++i) x |= static_cast<std::int64_t>(v.raw[static_cast<std::size_t>(i)]) << (8 * i);
+        if (w < 8 && (x >> (8 * w - 1)) & 1) x |= ~((std::int64_t(1) << (8 * w)) - 1);
+        return x == -1;
+    }
+    if (!v.obj) return true;
+    const auto* so = dynamic_cast<const io::SchemaObject*>(v.obj.get());
+    if (!so || so->ClassName() != f.charProp) return false;
+    const auto fields = so->Fields();
+    const auto& vals  = so->Values();
+    for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i) {
+        const auto k = fields[i]->kind;
+        if (k == schema::FieldKind::Ptr && (vals[i].obj || !vals[i].objs.empty())) return false;
+        if ((k == schema::FieldKind::ScalarArray || k == schema::FieldKind::PtrArray || k == schema::FieldKind::StructArray) &&
+            (!vals[i].raw.empty() || !vals[i].objs.empty()))
+            return false;
+    }
+    return true;
+}
+
 std::string CategoryForClass(const std::string& className) {
     // The .hky folder each top-level node class lives in, extracted verbatim from the reference
     // BehaviorDecompiler's node()/effect()/stateInfo() emit sites. A class NOT in this map is inlined
@@ -261,6 +286,13 @@ struct SkeletonView {
     const io::SchemaObject* ragdollInstance = nullptr;   ///< set when its boneToRigidBodyMap folds onto the ragdoll bones
 };
 
+/// @brief A bindable's character-property bindings folded into its `charprop` members: member path -> property name,
+///        and the binding objects the bindings roster then leaves out.
+struct CharPropFold {
+    std::map<std::string, std::string>      byPath;
+    std::unordered_set<const IHavokObject*> bindings;
+};
+
 struct ReflectCtx {
     const Identity&                 id;
     const NameResolver&             nr;
@@ -272,6 +304,10 @@ struct ReflectCtx {
     std::string                     path;                            ///< dotted field path from the node to this object
     const SkeletonView*             skel = nullptr;                  ///< null outside a skeleton unit
     std::map<std::string, const std::vector<std::string>*> boneOf;  ///< `boneof:` field name -> that skeleton's bones
+    const io::SchemaObject*         bindable = nullptr;              ///< the hkbBindable whose member paths `member` continues
+    std::string                     member;                          ///< member path prefix from `bindable` ("bones:3/")
+    std::shared_ptr<const CharPropFold> fold;                        ///< `bindable`'s folded bindings
+    const CharPropFold*             setFold = nullptr;               ///< set while rendering `bindable`'s own binding set
 };
 
 /// @brief Whether the skeleton view writes `so`'s field `f` somewhere else: a role skeleton's bone arrays (its bones/
@@ -325,6 +361,87 @@ std::string indentLines(const std::string& block, const std::string& first, cons
 bool isFileNode(const IHavokObject* o, const ReflectCtx& c) {
     const auto it = c.cat->find(o);
     return it != c.cat->end() && !it->second.empty();
+}
+
+/// @brief The context for the object behind `owner`'s field `f` (element `k` of an array): an inline struct continues
+///        the bindable's member path (`gains/`, `bones:3/`); a pointer leaves it (a member path never crosses one), and
+///        the bindable's own binding set renders with its folded bindings left out.
+ReflectCtx childCtx(const ReflectCtx& c, const io::SchemaObject& owner, const Field& f, std::size_t k = 0) {
+    ReflectCtx s = c;
+    s.setFold = nullptr;
+    if (f.kind == FieldKind::Struct) s.member = c.member + f.name + "/";
+    else if (f.kind == FieldKind::StructArray) s.member = c.member + f.name + ":" + std::to_string(k) + "/";
+    else {
+        s.bindable = nullptr;
+        s.member.clear();
+        s.fold.reset();
+        if (f.name == "variableBindingSet" && &owner == c.bindable) s.setFold = c.fold.get();
+    }
+    return s;
+}
+
+/// @brief Every `charprop` member under `so` (through inline structs and struct arrays), in schema walk order: its
+///        member path and whether it holds its neutral value (a pointer's target inline, not shared).
+void charPropSites(const io::SchemaObject& so, const std::string& prefix, const ReflectCtx& c,
+                   std::vector<std::pair<std::string, bool>>& out) {
+    const auto fields = so.Fields();
+    const auto& vals  = so.Values();
+    for (std::size_t i = 0; i < fields.size() && i < vals.size(); ++i) {
+        const Field& f = *fields[i];
+        if (!f.charProp.empty()) {
+            /// @note A null pointer holds no bone data, but `{ charprop }` parses back to an empty set: it never folds.
+            const bool ptr = f.kind == FieldKind::Ptr;
+            out.emplace_back(prefix + f.name, CharPropNeutral(f, vals[i]) && (!ptr || (vals[i].obj && !isFileNode(vals[i].obj.get(), c))));
+            continue;
+        }
+        if (f.kind == FieldKind::Struct)
+            if (const auto* e = dynamic_cast<const io::SchemaObject*>(vals[i].obj.get())) charPropSites(*e, prefix + f.name + "/", c, out);
+        if (f.kind == FieldKind::StructArray)
+            for (std::size_t k = 0; k < vals[i].objs.size(); ++k)
+                if (const auto* e = dynamic_cast<const io::SchemaObject*>(vals[i].objs[k].get()))
+                    charPropSites(*e, prefix + f.name + ":" + std::to_string(k) + "/", c, out);
+    }
+}
+
+/// @brief Which of bindable `b`'s bindings fold into its `charprop` members: the trailing run of character-property
+///        bindings (bitIndex -1) to members holding their neutral value, in the members' walk order — the order
+///        ParseHky appends them back in. Anything else keeps the plain form.
+std::shared_ptr<const CharPropFold> foldFor(const io::SchemaObject& b, const ReflectCtx& c) {
+    auto out = std::make_shared<CharPropFold>();
+    const auto* set = b.Child("variableBindingSet");
+    if (!set) return out;
+    const auto& binds = set->Children("bindings");
+    std::vector<std::pair<std::string, bool>> sites;
+    charPropSites(b, "", c, sites);
+    if (sites.empty() || binds.empty()) return out;
+    std::vector<std::pair<std::size_t, std::string>> picked;   ///< (site position, property), last binding first
+    std::size_t s = binds.size();
+    while (s > 0) {
+        const auto* bo = dynamic_cast<const io::SchemaObject*>(binds[s - 1].get());
+        if (!bo || bo->GetInt("bindingType") != 1 || bo->GetInt("bitIndex") != -1) break;
+        const std::string& path = bo->Str("memberPath");
+        const auto site = std::find_if(sites.begin(), sites.end(), [&](const auto& x) { return x.first == path; });
+        if (site == sites.end() || !site->second) break;
+        const std::string name = c.nr.safe(c.nr.charPropsL, static_cast<long>(bo->GetInt("variableIndex")));
+        if (name.empty()) break;
+        picked.emplace_back(static_cast<std::size_t>(site - sites.begin()), name);
+        --s;
+    }
+    std::reverse(picked.begin(), picked.end());
+    for (std::size_t k = 1; k < picked.size(); ++k)
+        if (picked[k].first <= picked[k - 1].first) return out;
+    for (std::size_t k = 0; k < picked.size(); ++k) {
+        out->byPath[sites[picked[k].first].first] = picked[k].second;
+        out->bindings.insert(binds[s + k].get());
+    }
+    return out;
+}
+
+/// @brief The folded form of `so`'s `charprop` field `f`, or empty when its binding does not fold.
+std::string charPropText(const Field& f, const ReflectCtx& c) {
+    if (f.charProp.empty() || !c.fold) return {};
+    const auto it = c.fold->byPath.find(c.member + f.name);
+    return it == c.fold->byPath.end() ? std::string() : f.name + ": { charprop: " + text::Quote(it->second) + " }\n";
 }
 
 std::vector<std::uint8_t> slice(const std::vector<std::uint8_t>& raw, std::size_t k, std::size_t w) {
@@ -422,15 +539,17 @@ std::string elemText(const std::shared_ptr<IHavokObject>& p, const ReflectCtx& c
 }
 
 std::string listText(const std::vector<std::shared_ptr<IHavokObject>>& objs, const ReflectCtx& c,
-                     const std::string& key, const std::string& declared) {
+                     const std::string& key, const std::string& declared,
+                     const io::SchemaObject* owner = nullptr, const Field* field = nullptr) {
     if (objs.empty()) return {};
     std::string y = key + ":\n";
-    for (const auto& p : objs) {
+    for (std::size_t k = 0; k < objs.size(); ++k) {
+        const auto& p = objs[k];
         if (!p) { y += "  - null\n"; continue; }
         if (isFileNode(p.get(), c)) { y += "  - " + refIdOf(p, c.id) + "\n"; continue; }
         const auto* so = dynamic_cast<const io::SchemaObject*>(p.get());
         if (!so) { y += "  - '?'\n"; continue; }
-        const std::string body = reflectObject(*so, inlCtx(c), declared);
+        const std::string body = reflectObject(*so, inlCtx(owner && field ? childCtx(c, *owner, *field, k) : c), declared);
         y += body.empty() ? std::string("  - {}\n") : indentLines(body, "  - ", "    ");
     }
     return y;
@@ -696,11 +815,11 @@ std::string rosterEntry(const std::string& key, const std::string& v) {
 ///        the body; rosters nested inside an entry render inline in it.
 /// @return nullopt when this list can't be keyed losslessly (a null / inline child in a `ref` roster, a duplicate
 ///         key, an unknown bone) — the caller keeps the plain list.
-std::optional<std::string> rosterEntries(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c) {
+std::optional<std::string> rosterEntries(const io::SchemaObject& so, std::size_t i, const ReflectCtx& c,
+                                         const std::vector<std::shared_ptr<IHavokObject>>* only = nullptr) {
     const Field& f = *so.Fields()[i];
-    const auto& objs = so.Values()[i].objs;
+    const auto& objs = only ? *only : so.Values()[i].objs;
     const auto [kind, keyField] = rosterKind(f);
-    const ReflectCtx ci = inlCtx(c);
     const std::vector<std::string>* keys = nullptr;
     if (auto it = c.id.subKeys.find({ &so, i }); it != c.id.subKeys.end() && it->second.size() == objs.size()) keys = &it->second;
     std::set<std::string> seen;
@@ -708,6 +827,7 @@ std::optional<std::string> rosterEntries(const io::SchemaObject& so, std::size_t
     for (std::size_t k = 0; k < objs.size(); ++k) {
         const auto& p = objs[k];
         const auto* e = p ? dynamic_cast<const io::SchemaObject*>(p.get()) : nullptr;
+        const ReflectCtx ci = inlCtx(childCtx(c, so, f, k));
         std::string key, body;
         if (kind == "ref") {
             if (!p || !isFileNode(p.get(), c)) return std::nullopt;
@@ -744,7 +864,11 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
             case FieldKind::Scalar: {
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
                 const std::size_t n = w ? v.raw.size() / w : 0;
-                if (!f.boneOf.empty() && n <= 1) {
+                if (const std::string cp = n <= 1 ? charPropText(f, c) : std::string(); !cp.empty()) {
+                    y += cp;
+                } else if (f.user && n <= 1 && decodeInt(v.raw, f.scalar) == f.userValue) {
+                    y += f.name + ": user\n";
+                } else if (!f.boneOf.empty() && n <= 1) {
                     y += f.name + ": " + boneOfText(decodeInt(v.raw, f.scalar), f, c) + "\n";
                 } else if (f.boneRef && n <= 1) {
                     const std::int64_t iv = decodeInt(v.raw, f.scalar);
@@ -780,22 +904,38 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
             case FieldKind::Ptr:
                 if (f.count > 1) {
                     if (std::any_of(v.objs.begin(), v.objs.end(), [](const auto& o) { return o != nullptr; }))
-                        y += listText(v.objs, c, f.name, f.ref);
+                        y += listText(v.objs, childCtx(c, so, f), f.name, f.ref);
                     break;
                 }
-                y += elemText(v.obj, c, f.name, f.ref);
+                if (const std::string cp = charPropText(f, c); !cp.empty()) { y += cp; break; }
+                /// @note A binding set holding only folded bindings (and no binding to enable) is what ParseHky rebuilds
+                ///       from the members alone: it is left out.
+                if (f.name == "variableBindingSet" && &so == c.bindable && c.fold && !c.fold->bindings.empty())
+                    if (const auto* set = dynamic_cast<const io::SchemaObject*>(v.obj.get());
+                        set && set->GetInt("indexOfBindingToEnable") == -1 &&
+                        std::all_of(set->Children("bindings").begin(), set->Children("bindings").end(),
+                                    [&](const auto& b) { return c.fold->bindings.count(b.get()) != 0; }))
+                        break;
+                y += elemText(v.obj, childCtx(c, so, f), f.name, f.ref);
                 break;
-            case FieldKind::Struct:      y += elemText(v.obj, c, f.name, f.ref); break;
+            case FieldKind::Struct:      y += elemText(v.obj, childCtx(c, so, f), f.name, f.ref); break;
             case FieldKind::PtrArray:
-            case FieldKind::StructArray:
-                if (!f.roster.empty() && !v.objs.empty())
-                    if (auto r = rosterEntries(so, i, c)) {
+            case FieldKind::StructArray: {
+                /// @note A bindable's folded bindings live in their members (charPropText), not in its bindings roster.
+                std::vector<std::shared_ptr<IHavokObject>> kept;
+                const bool filter = c.setFold && !c.setFold->bindings.empty() && f.name == "bindings";
+                if (filter)
+                    for (const auto& o : v.objs) if (!c.setFold->bindings.count(o.get())) kept.push_back(o);
+                const auto& objs = filter ? kept : v.objs;
+                if (!f.roster.empty() && !objs.empty())
+                    if (auto r = rosterEntries(so, i, c, &objs)) {
                         if (c.sink) c.sink->push_back({ c.path + f.name, *r });
                         else y += f.name + ":\n" + indentLines(*r, "  ", "  ");
                         break;
                     }
-                y += listText(v.objs, c, f.name, f.ref);
+                y += listText(objs, c, f.name, f.ref, &so, &f);
                 break;
+            }
             case FieldKind::StringArray:
                 if (v.strs.empty()) break;
                 y += f.name + ": " + flowList(v.strs.size(), [&](std::size_t k) { return text::Quote(v.strs[k]); }) + "\n";
@@ -835,7 +975,15 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
     return y;
 }
 
-std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& c, const std::string& declaredClass) {
+std::string reflectObject(const io::SchemaObject& so, const ReflectCtx& cin, const std::string& declaredClass) {
+    ReflectCtx bc = cin;
+    if (so.IndexOf("variableBindingSet")) {
+        bc.bindable = &so;
+        bc.member.clear();
+        bc.fold     = foldFor(so, cin);
+        bc.setFold  = nullptr;
+    }
+    const ReflectCtx& c = bc;
     std::string y = (declaredClass == so.ClassName()) ? std::string() : "class: " + std::string(so.ClassName()) + "\n";
     if (!so.Schema()->vocab.empty() && vocabRenderable(so) && !isFileNode(so.Child("stringData"), c)) {
         if (so.Schema()->vocab == "graph") return y + renderVocab(so, c);
@@ -1594,6 +1742,26 @@ struct HkyParse {
     /// @brief A `boneof` bone name, resolved once every skeleton has its bones (the skeleton may fill after the mapper).
     struct BoneName { io::SchemaObject* obj; std::size_t field, elem; io::SchemaObject* owner; std::string skeletonField, name, where; };
     std::vector<BoneName>                                                  boneNames;
+    /// @brief The hkbBindable being filled, and the member path from it to the object being filled ("bones:3/").
+    io::SchemaObject*                                                      bindable = nullptr;
+    std::string                                                            member;
+    /// @brief A `{ charprop: <name> }` member, whose binding its bindable appends once its own fields are filled.
+    struct CharPropBind { io::SchemaObject* owner; std::string path, name, where; };
+    std::vector<CharPropBind>                                              charPropBinds;
+};
+
+/// @brief While filling the object behind `owner`'s field `f` (element `k`): an inline struct continues the member
+///        path, a pointer leaves the bindable (a member path never crosses one).
+struct MemberScope {
+    HkyParse&         ps;
+    io::SchemaObject* bindable;
+    std::string       member;
+    MemberScope(HkyParse& p, const Field& f, std::size_t k = 0) : ps(p), bindable(p.bindable), member(p.member) {
+        if (f.kind == FieldKind::Struct) ps.member = member + f.name + "/";
+        else if (f.kind == FieldKind::StructArray) ps.member = member + f.name + ":" + std::to_string(k) + "/";
+        else { ps.bindable = nullptr; ps.member.clear(); }
+    }
+    ~MemberScope() { ps.bindable = bindable; ps.member = member; }
 };
 
 /// @brief The merge tag for `field`, looked up on the class that DECLARES it (MergeTag consults own fields only).
@@ -1776,6 +1944,7 @@ bool rosterValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n
     std::vector<std::string> keys;
     for (auto e : n) {
         const std::string key = ykey(e);
+        const MemberScope scope(ps, f, keys.size());
         std::shared_ptr<IHavokObject> o;
         if (!rosterElement(e, f, kind, keyField, key, o, ps)) return false;
         so.FieldAt(i).objs.push_back(o);
@@ -1799,6 +1968,7 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     };
     switch (f.kind) {
         case FieldKind::Scalar: {
+            if (f.user && !n.is_seq() && !n.is_val_quoted() && ystr(n) == "user") { v.raw = encInt(f.userValue, f.scalar); return true; }
             if (!n.is_seq() && boneOfName(n, 0)) { v.raw = encInt(0, f.scalar); return true; }
             if (f.boneRef && !n.is_seq()) {
                 std::int64_t idx = -1;
@@ -1827,7 +1997,8 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
             }
             return true;
         }
-        case FieldKind::Ptr:
+        case FieldKind::Ptr: {
+            const MemberScope scope(ps, f);
             if (f.count > 1 && n.is_seq()) {
                 for (auto e : n) {
                     std::shared_ptr<IHavokObject> o;
@@ -1837,15 +2008,22 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
                 return true;
             }
             return objectValue(n, f.ref, v.obj, ps, f.name);
-        case FieldKind::Struct:     return objectValue(n, f.ref, v.obj, ps, f.name);
+        }
+        case FieldKind::Struct: {
+            const MemberScope scope(ps, f);
+            return objectValue(n, f.ref, v.obj, ps, f.name);
+        }
         case FieldKind::PtrArray:
-        case FieldKind::StructArray:
+        case FieldKind::StructArray: {
+            std::size_t k = 0;
             for (auto e : n) {
+                const MemberScope scope(ps, f, k++);
                 std::shared_ptr<IHavokObject> o;
                 if (!objectValue(e, f.ref, o, ps, f.name)) return false;
                 v.objs.push_back(o);
             }
             return true;
+        }
         case FieldKind::StringArray:
             for (auto e : n) v.strs.push_back(ystr(e));
             return true;
@@ -2253,6 +2431,74 @@ bool patchField(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     return true;
 }
 
+/// @brief `{ charprop: <name> }` on `so`'s `charprop` field `i`: the member takes its neutral value and its bindable
+///        owes a character-property binding to `<name>`.
+bool charPropValue(io::SchemaObject& so, std::size_t i, const std::string& name, HkyParse& ps) {
+    const Field& f = *so.Fields()[i];
+    io::FieldValue& v = so.FieldAt(i);
+    v = io::FieldValue{};
+    if (!ps.bindable) { ps.err = ps.where + ": " + f.name + ": a charprop member outside any bindable"; return false; }
+    if (name.empty()) { ps.err = ps.where + ": " + f.name + ": charprop names no property"; return false; }
+    if (f.kind == FieldKind::Scalar) v.raw = encInt(-1, f.scalar);
+    else {
+        auto o = makeObj(ps.reg, f.charProp);
+        if (!o) { ps.err = ps.where + ": " + f.name + ": unknown class '" + f.charProp + "'"; return false; }
+        ps.all.push_back(o);
+        v.obj = o;
+    }
+    ps.charPropBinds.push_back({ ps.bindable, ps.member + f.name, name, ps.where });
+    return true;
+}
+
+/// @brief Append the bindings `so`'s `charprop` members owe, in walk order, after its own: where vanilla keeps them. A
+///        binding already on that member path is replaced (a patch re-pointing a member).
+/// @pre Every file of the unit is read: a node's bindings roster file is applied after its node file and replaces the
+///      bindings list, so appending while the node fills would be lost.
+bool appendCharPropBindings(io::SchemaObject& so, const std::vector<HkyParse::CharPropBind>& mine, HkyParse& ps) {
+    if (mine.empty()) return true;
+    io::FieldValue& sv = so.FieldRef("variableBindingSet");
+    if (!sv.obj) {
+        auto s = makeObj(ps.reg, "hkbVariableBindingSet");
+        if (!s) { ps.err = ps.where + ": no hkbVariableBindingSet class"; return false; }
+        s->SetInt("indexOfBindingToEnable", -1);
+        ps.all.push_back(s);
+        sv.obj = s;
+    }
+    auto* set = dynamic_cast<io::SchemaObject*>(sv.obj.get());
+    if (!set) { ps.err = ps.where + ": variableBindingSet is not a schema object"; return false; }
+    auto& binds = set->FieldRef("bindings").objs;
+    for (const auto& b : mine) {
+        auto bo = makeObj(ps.reg, "hkbVariableBindingSetBinding");
+        if (!bo) { ps.err = ps.where + ": no hkbVariableBindingSetBinding class"; return false; }
+        bo->Str("memberPath") = b.path;
+        bo->SetInt("bitIndex", -1);
+        bo->SetInt("bindingType", 1);
+        ps.all.push_back(bo);
+        const auto same = std::find_if(binds.begin(), binds.end(), [&](const auto& o) {
+            const auto* e = dynamic_cast<const io::SchemaObject*>(o.get());
+            return e && e->Str("memberPath") == b.path;
+        });
+        if (same != binds.end()) *same = bo;
+        else binds.push_back(bo);
+        ps.symbols.push_back({ bo.get(), *bo->IndexOf("variableIndex"), false, b.name, b.where });
+    }
+    return true;
+}
+
+/// @brief Every pending `charprop` binding, per bindable in the order bindables were first met.
+bool appendCharPropBindings(HkyParse& ps) {
+    std::vector<io::SchemaObject*> owners;
+    std::map<io::SchemaObject*, std::vector<HkyParse::CharPropBind>> by;
+    for (const auto& b : ps.charPropBinds) {
+        if (!by.count(b.owner)) owners.push_back(b.owner);
+        by[b.owner].push_back(b);
+    }
+    ps.charPropBinds.clear();
+    for (io::SchemaObject* o : owners)
+        if (!appendCharPropBindings(*o, by[o], ps)) return false;
+    return true;
+}
+
 bool fillHky(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps) {
     if (so.Schema()->vocab == "graph" &&
         (yhas(map, "variables") || yhas(map, "events") || yhas(map, "characterProperties") || yhas(map, "attributes")))
@@ -2275,10 +2521,21 @@ bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps
     } scope{ ps, ps.boneOwner };
     for (const Field* f : fields)
         if (f->kind == FieldKind::Ptr && f->ref == "hkaSkeleton") { ps.boneOwner = &so; break; }
+    struct BindableScope {
+        HkyParse& ps; io::SchemaObject* was; std::string member;
+        ~BindableScope() { ps.bindable = was; ps.member = member; }
+    } bscope{ ps, ps.bindable, ps.member };
+    const bool bindable = so.IndexOf("variableBindingSet").has_value();
+    if (bindable) { ps.bindable = &so; ps.member.clear(); }
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const Field& f = *fields[i];
         if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
         if (!yhas(map, f.name) && ps.patch) continue;   // a patch touches only what it names
+        if (const auto node = yget(map, f.name); !f.charProp.empty() && yhas(map, f.name) && node.is_map() &&
+                                                 node.num_children() == 1 && yhas(node, "charprop")) {
+            if (!charPropValue(so, i, ystr(yget(node, "charprop")), ps)) return false;
+            continue;
+        }
         if (!yhas(map, f.name)) {
             if (f.kind == FieldKind::Scalar && f.boneRef) so.FieldAt(i).raw = encInt(-1, f.scalar);
             else if (f.kind == FieldKind::Struct && !so.FieldAt(i).obj) {
@@ -2380,6 +2637,14 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
     const yml::ConstNodeRef root = d.tree.crootref();
     io::SchemaObject* obj = &owner;
     ps.where = d.file;
+    /// @note The roster's entries continue the member paths of the bindable the field path ends in, as they would have
+    ///       inside the node's own file.
+    struct BindableScope {
+        HkyParse& ps; io::SchemaObject* was; std::string member;
+        ~BindableScope() { ps.bindable = was; ps.member = member; }
+    } bscope{ ps, ps.bindable, ps.member };
+    ps.bindable = owner.IndexOf("variableBindingSet") ? &owner : nullptr;
+    ps.member.clear();
     for (std::size_t s = 0;;) {
         const std::size_t dot = d.field.find('.', s);
         const std::string name = d.field.substr(s, dot == std::string::npos ? std::string::npos : dot - s);
@@ -2410,6 +2675,8 @@ bool applyRosterFile(io::SchemaObject& owner, const HkyDoc& d, bool patch, HkyPa
         ///       notify-event array between states), the roster applies to the list the owner uses now.
         auto* next = dynamic_cast<io::SchemaObject*>(v.obj.get());
         if (!next) { ps.err = d.file + ": " + f.name + " is not an object"; return false; }
+        if (f.kind == FieldKind::Struct) ps.member += f.name + "/";
+        else { ps.bindable = next->IndexOf("variableBindingSet") ? next : nullptr; ps.member.clear(); }
         obj = next;
         s = dot + 1;
     }
@@ -2572,6 +2839,7 @@ bool ParseHkyReflective(const CB::engine::common::IUnitSource& src, const schema
             std::copy(enc.begin(), enc.end(), raw.begin() + static_cast<std::ptrdiff_t>(b.elem * enc.size()));
         }
     }
+    if (!appendCharPropBindings(ps)) { err = ps.err; return false; }
     // Every inline object joins the identity (category "") so the name resolver and re-emit see the whole graph.
     int anon = 0;
     for (const auto& o : ps.all)
@@ -3122,6 +3390,7 @@ bool MergeHkyPatch(ParsedHky& base, const CB::engine::common::IUnitSource& patch
         if (!base.identity.category.count(o.get())) { base.identity.category[o.get()] = ""; base.identity.ids[o.get()] = "~" + std::to_string(++anon); }
     /// @note Names resolve against the roster REACHABLE from the merged root — a replaced subtree leaves the old
     ///       graph data in the identity, unreachable, and "first found" would read the stale roster.
+    if (!appendCharPropBindings(ps)) { err = ps.err; return false; }
     Identity live;
     {
         std::unordered_set<const IHavokObject*> seen;
@@ -3378,6 +3647,35 @@ bool MergeLayersReflective(const std::vector<CB::engine::common::LayerSource>& l
         return true;
     } catch (const std::exception& e) {
         err = std::string("MergeLayersReflective: ") + e.what();
+        return false;
+    }
+}
+
+bool ParsePackfile(const std::vector<std::uint8_t>& bytes, const schema::SchemaRegistry& reg, ParsedHky& out, std::string& err) {
+    try {
+        PackFileDeserializer des;
+        des.ObjectFactory = io::MakeSchemaFactory(reg);
+        BinaryReaderEx br(false, true, bytes);
+        const auto root = std::dynamic_pointer_cast<io::SchemaObject>(des.Deserialize(br));
+        if (!root) { err = "ParsePackfile: no schema root"; return false; }
+        out = ParsedHky{};
+        out.root     = root;
+        out.identity = AssignIdentity(des, reg);
+        std::unordered_set<const IHavokObject*> seen;
+        std::function<void(const std::shared_ptr<IHavokObject>&)> walk = [&](const std::shared_ptr<IHavokObject>& o) {
+            auto so = std::dynamic_pointer_cast<io::SchemaObject>(o);
+            if (!so || !seen.insert(so.get()).second) return;
+            out.objects.push_back(so);
+            if (!out.identity.category.count(so.get())) out.identity.category[so.get()] = "";
+            for (const io::FieldValue& fv : so->Values()) {
+                walk(fv.obj);
+                for (const auto& e : fv.objs) walk(e);
+            }
+        };
+        walk(root);
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("ParsePackfile: ") + e.what();
         return false;
     }
 }
@@ -3703,7 +4001,7 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
                                const std::vector<std::string>& patchDirs, const ParsedHky& base,
                                const std::vector<std::string>& baseMasters, const std::vector<std::string>& patchMasters,
                                const schema::SchemaRegistry& reg, const std::string& outDeltaDir,
-                               const std::vector<std::string>* bones) {
+                               const std::vector<std::string>* bones, const ModGraphTransform& transform) {
     namespace fs = std::filesystem;
     ModDeltaResult r;
     /// @note RAW patch text (MOD_CODE markers intact): parseSourcesMerged strips for the node parse AND reads the
@@ -3740,8 +4038,10 @@ ModDeltaResult ConvertModDelta(const std::string& baseTagfileXml, const std::vec
         PackFileSerializer ser;
         BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
         ser.Serialize(root, bw, header);
+        std::vector<std::uint8_t> mod = bw.Data();
+        if (transform && !transform(mod, err)) { r.error = "transform: " + err; return r; }
         HkyPatchStats st;
-        if (!DeriveHkyPatch(base, baseMasters, patchMasters, bw.Data(), reg, outDeltaDir, err, bones, &st)) {
+        if (!DeriveHkyPatch(base, baseMasters, patchMasters, mod, reg, outDeltaDir, err, bones, &st)) {
             r.error = "derive: " + err;
             return r;
         }

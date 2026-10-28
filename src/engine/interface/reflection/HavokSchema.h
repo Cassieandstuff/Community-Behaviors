@@ -106,6 +106,18 @@ struct Field {
                                          ///<       the load. A member attribute: no serde, size or signature effect.
     bool        cbAdded = false;         ///< @brief `cb: true` — a member CB adds to a vanilla class (in its padding: the
                                          ///<        exe's code never touches it). Left out of the class's vanilla signature.
+    bool         user      = false;      ///< @brief `user: <value>` — the game fills this member at runtime; `<value>` is
+    std::int64_t userValue = 0;          ///<        the binary sentinel a file stores in its place. The .hky writes `user`
+                                         ///<        exactly when the stored value equals it, and reads `user` back to it.
+                                         ///< @note Only a single integer scalar (LoadDir refuses another kind). A "none"
+                                         ///<       index (an event id, a sync variable) is data, not `user`: it stays -1.
+    std::string charProp;                ///< @brief `charprop: <class>|bone` — the member's bone data comes from a CHARACTER
+                                         ///<        PROPERTY: a pointer to `<class>` (its `ref`, a bone-weight or bone-index
+                                         ///<        set) bound to a POINTER property, or (`bone`, on a `boneref` scalar) an
+                                         ///<        INT32 property holding the bone's index in each character's rig. Bound and
+                                         ///<        holding its neutral value (CharPropNeutral), the .hky writes the member as
+                                         ///<        `{ charprop: '<property>' }` and its binding folds into it; a behavior
+                                         ///<        whose member holds bone data inline instead is flagged (CharPropViolations).
 };
 
 struct ClassSchema {
@@ -159,6 +171,25 @@ struct EmbeddedKind {
     std::string root;
     std::string cls;
 };
+
+/// @brief A `kind: rule` descriptor (schema/metadata/rules/): a transform over a whole unit set, run by the C++
+///        operation its `op:` names (CB::engine::rules), together with its inverse.
+/// @note  The schema only checks the descriptor's shape and that every rule it orders against exists; the op is
+///        resolved when the rules run.
+struct RuleDef {
+    std::string              name;
+    std::string              op;
+    std::vector<std::string> after;    ///< `order: { after: [...] }` — rules that run before this one
+    std::vector<std::string> before;   ///< `order: { before: [...] }` — rules that run after this one
+    std::vector<std::string> runs;     ///< `runs: [regen, converter]` — where it applies
+    std::vector<std::string> select;   ///< `select: [...]` — the field kinds the op touches (RuleSelects)
+    std::string              text;     ///< the whole descriptor, for the op's own `params:`
+    std::string              file;     ///< the descriptor's path, for messages
+};
+
+/// @brief Whether field `f` is of selector kind `token`: `boneweights`, `bonelist`, `boneref` (the schema row keys), `user`
+///        or `charprop`. An unknown token is never true; LoadDir refuses one in a descriptor.
+bool RuleSelects(const Field& f, const std::string& token);
 
 // ── Enum definitions (`kind: enum` descriptors) ─────────────────────────────────────────────────
 // A reflected Havok enum: its type name + ordered (name,value) items. The item NAMES and VALUES are
@@ -231,7 +262,7 @@ public:
     SchemaRegistry& operator=(SchemaRegistry&&)      = default;
 
     /// @brief Load every *.yaml/*.yml under `root`, recursively, dispatched on its top-level `kind:` (none = a class;
-    ///        `metadata`, `enum`, `semantics`, `probe`, `compatshim`). Non-yaml files are ignored.
+    ///        `metadata`, `enum`, `semantics`, `probe`, `compatshim`, `embedded`, `rule`). Non-yaml files are ignored.
     /// @note Folders carry no meaning. A name defined twice within a kind (classes and metadata records share one
     ///       namespace) or an unknown kind fails the load, with `err` naming the files.
     bool LoadDir(const std::string& root, std::string& err);
@@ -260,6 +291,9 @@ public:
 
     /// @brief Every `kind: embedded` descriptor LoadDir read, by name.
     const std::map<std::string, EmbeddedKind>& EmbeddedKinds() const { return m_embedded; }
+
+    /// @brief Every `kind: rule` descriptor LoadDir read, by name.
+    const std::map<std::string, RuleDef>& Rules() const { return m_rules; }
 
     /// @brief The raw `schema_version:` LoadDir read from the tree's SCHEMA.yaml stamp; empty when the tree
     ///        carried none (the unstamped source schema/). SharedRegistry() gates it against kSchemaVersion.
@@ -333,6 +367,7 @@ private:
     std::map<std::string, EnumDef>     m_enums;               // `kind: enum` descriptors, keyed by enum type name
     std::map<std::string, std::string> m_compatShims;         ///< `kind: compatshim` texts, keyed by `name:`
     std::map<std::string, EmbeddedKind> m_embedded;           ///< `kind: embedded` descriptors, keyed by `name:`
+    std::map<std::string, RuleDef>     m_rules;               ///< `kind: rule` descriptors, keyed by `name:`
     std::string                        m_schemaVersion;      // SCHEMA.yaml `schema_version:` (raw)
     bool                               m_schemaStampPresent = false;  // a SCHEMA.yaml file was seen
 };
@@ -342,6 +377,10 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
 
 // Parse ONE `kind: enum` descriptor's YAML text into an EnumDef (LoadDir uses it; exposed for tests).
 bool ParseEnumDef(const std::string& yamlText, EnumDef& out, std::string& err);
+
+/// @brief Parse ONE `kind: rule` descriptor (LoadDir uses it; exposed for tests).
+/// @return false with `err` set on a missing name / op / runs, an unknown `runs:` stage or `select:` token.
+bool ParseRuleDef(const std::string& yamlText, RuleDef& out, std::string& err);
 
 /// @brief A schema descriptor's top-level `kind:` (empty for a class), the one key LoadDir dispatches on.
 /// @return false with `err` set when the text is not a YAML map.

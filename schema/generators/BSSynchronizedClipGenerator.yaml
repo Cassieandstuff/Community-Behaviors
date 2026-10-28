@@ -23,7 +23,7 @@ fields:
   - { skip: 4 }
   - { empty: ptr }
   - { empty: ptr }
-  - { name: sAnimationBindingIndex, type: int16 }
+  - { name: sAnimationBindingIndex, type: int16, user: -1 }   # filled at runtime
   - { name: bAtMark,               type: bool }
   - { name: bAllCharactersInScene, type: bool }
   - { name: bAllCharactersAtMarks, type: bool }
