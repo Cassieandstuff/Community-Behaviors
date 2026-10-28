@@ -3,7 +3,7 @@ parent:    null
 signature: 0x09be0d9d
 size:      16
 fields:
-  - { name: type,      type: uint16 }   # @0
+  - { name: type,      type: uint16, enum: AtomType }   # @0
   - { name: isEnabled, type: byte }     # @2
   - { name: limitAxis, type: byte }     # @3
   - { name: minAngle,  type: float }    # @4

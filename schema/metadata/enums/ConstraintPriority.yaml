@@ -1,0 +1,12 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/ConstraintPriority.cs.
+kind:  enum
+name:  ConstraintPriority
+flags: false
+items:
+  - { name: PRIORITY_INVALID , value: 0 }
+  - { name: PRIORITY_PSI , value: 1 }
+  - { name: PRIORITY_SIMPLIFIED_TOI_UNUSED , value: 2 }
+  - { name: PRIORITY_TOI , value: 3 }
+  - { name: PRIORITY_TOI_HIGHER , value: 4 }
+  - { name: PRIORITY_TOI_FORCED , value: 5 }
+  - { name: NUM_PRIORITIES , value: 6 }

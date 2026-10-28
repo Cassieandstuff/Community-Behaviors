@@ -1,0 +1,7 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/MappingType.cs.
+kind:  enum
+name:  MappingType
+flags: false
+items:
+  - { name: HK_RAGDOLL_MAPPING , value: 0 }
+  - { name: HK_RETARGETING_MAPPING , value: 1 }

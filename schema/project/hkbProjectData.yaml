@@ -5,5 +5,5 @@ size:      48
 fields:
   - { name: worldUpWS,        type: vector4 }                       # @16
   - { name: stringData,       type: ptr, ref: hkbProjectStringData } # @32
-  - { name: defaultEventMode, type: int8 }                         # @40 enum EventMode
+  - { name: defaultEventMode, type: int8, enum: EventMode }                         # @40 enum EventMode
   - { skip: 7 }                                                    # pad -> 48

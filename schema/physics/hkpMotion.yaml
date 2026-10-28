@@ -3,7 +3,7 @@ parent:    hkReferencedObject
 signature: 0x98aadb4f
 size:      320
 fields:
-  - { name: type,                         type: byte }             # @16 MotionType
+  - { name: type,                         type: byte, enum: MotionType }             # @16 MotionType
   - { name: deactivationIntegrateCounter, type: byte }             # @17
   - { name: deactivationNumInactiveFrames, type: uint16, count: 2 } # @18
   - { skip: 10 }                                                   # pad -> 32

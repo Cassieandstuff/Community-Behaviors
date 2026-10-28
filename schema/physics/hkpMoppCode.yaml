@@ -8,5 +8,5 @@ size:      64
 fields:
   - { name: info,      type: vector4 }                 # CodeInfo.m_offset @16
   - { name: data,      type: scalararray, scalar: byte } # @32 (16)
-  - { name: buildType, type: int8 }                    # @48
+  - { name: buildType, type: int8, enum: BuildType }                    # @48
   - { skip: 15 }                                       # pad -> 64

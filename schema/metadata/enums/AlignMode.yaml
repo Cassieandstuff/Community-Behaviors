@@ -1,0 +1,7 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/AlignMode.cs.
+kind:  enum
+name:  AlignMode
+flags: false
+items:
+  - { name: ALIGN_MODE_FORWARD_RIGHT , value: 0 }
+  - { name: ALIGN_MODE_FORWARD , value: 1 }

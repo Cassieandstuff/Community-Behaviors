@@ -1,0 +1,9 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/BvTreeType.cs.
+kind:  enum
+name:  BvTreeType
+flags: false
+items:
+  - { name: BVTREE_MOPP , value: 0 }
+  - { name: BVTREE_TRISAMPLED_HEIGHTFIELD , value: 1 }
+  - { name: BVTREE_USER , value: 2 }
+  - { name: BVTREE_MAX , value: 3 }

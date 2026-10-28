@@ -5,5 +5,5 @@ size:      40
 # hkpShape ends @32. m_disableWelding (bool) + m_collectionType (enum hkUint8), pad to 40.
 fields:
   - { name: disableWelding, type: bool }   # @32
-  - { name: collectionType, type: int8 }   # @33  (enum CollectionType)
+  - { name: collectionType, type: int8, enum: CollectionType }   # @33  (enum CollectionType)
   - { skip: 6 }                            # pad -> 40

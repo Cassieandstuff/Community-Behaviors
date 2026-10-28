@@ -4,7 +4,7 @@ signature: 0xa6fa7e88
 size:      56
 # Abstract base — only ever a base subobject (packs at 56, no tail rounding pad).
 fields:
-  - { name: type,                    type: int32 }
+  - { name: type,                    type: int32, enum: AnimationType }
   - { name: duration,                type: float }
   - { name: numberOfTransformTracks, type: int32 }
   - { name: numberOfFloatTracks,     type: int32 }

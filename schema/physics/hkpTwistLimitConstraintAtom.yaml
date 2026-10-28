@@ -3,7 +3,7 @@ parent:    null
 signature: 0x7c9b1052
 size:      20
 fields:
-  - { name: type,      type: uint16 }   # @0
+  - { name: type,      type: uint16, enum: AtomType }   # @0
   - { name: isEnabled, type: byte }     # @2
   - { name: twistAxis, type: byte }     # @3
   - { name: refAxis,   type: byte }     # @4

@@ -1,0 +1,10 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/WorldFromModelMode.cs.
+kind:  enum
+name:  WorldFromModelMode
+flags: false
+items:
+  - { name: WORLD_FROM_MODEL_MODE_USE_OLD , value: 0 }
+  - { name: WORLD_FROM_MODEL_MODE_USE_INPUT , value: 1 }
+  - { name: WORLD_FROM_MODEL_MODE_COMPUTE , value: 2 }
+  - { name: WORLD_FROM_MODEL_MODE_NONE , value: 3 }
+  - { name: WORLD_FROM_MODEL_MODE_RAGDOLL , value: 4 }

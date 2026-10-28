@@ -1,0 +1,11 @@
+# From Havok reflection via HKX2Library (MIT, github.com/ret2end/HKX2Library) Enums/MotorType.cs.
+kind:  enum
+name:  MotorType
+flags: false
+items:
+  - { name: TYPE_INVALID , value: 0 }
+  - { name: TYPE_POSITION , value: 1 }
+  - { name: TYPE_VELOCITY , value: 2 }
+  - { name: TYPE_SPRING_DAMPER , value: 3 }
+  - { name: TYPE_CALLBACK , value: 4 }
+  - { name: TYPE_MAX , value: 5 }

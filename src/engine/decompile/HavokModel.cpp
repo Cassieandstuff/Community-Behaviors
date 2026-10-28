@@ -1298,6 +1298,10 @@ const std::unordered_map<std::string, long>* scalarEnumTable(const std::string& 
 std::vector<std::uint8_t> parseScalarRaw(const std::string& cls, const Field& f, const std::string& text,
                                          const SymTab* syms, std::string& err) {
     if (f.scalar == Scalar::Float) return encFloat(parseF(text));
+    if (f.scalar == Scalar::Half) {   // a Half is the upper 16 bits of the float (as SchemaObject::SetFloat stores it)
+        const auto b = encFloat(parseF(text));
+        return { b[2], b[3] };
+    }
     if (f.scalar == Scalar::Bool)  return encInt(text == "true" ? 1 : 0, f.scalar);
     // A Nemesis $variableID[Name]$ / $eventID[Name]$ placeholder -> its merged-roster index.
     if (const long sv = resolveNemesisSymbol(text, syms); sv != std::numeric_limits<long>::min()) {
@@ -1319,6 +1323,16 @@ std::vector<std::uint8_t> parseScalarRaw(const std::string& cls, const Field& f,
 const CB::engine::common::xml::Node* paramByName(const CB::engine::common::xml::Node& obj, const std::string& name) {
     for (const auto& c : obj.children)
         if (c.tag == "hkparam" && c.attr("name") == name) return &c;
+    // the schema spells a few members unlike Havok's reflection (targetBRca for m_target_bRca): match them
+    // ignoring case and underscores
+    const auto key = [](std::string_view s) {
+        std::string k;
+        for (const char ch : s) if (ch != '_') k += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        return k;
+    };
+    const std::string want = key(name);
+    for (const auto& c : obj.children)
+        if (c.tag == "hkparam" && key(c.attr("name")) == want) return &c;
     return nullptr;
 }
 
@@ -1361,6 +1375,33 @@ std::vector<std::string> splitVec4s(const std::string& s) {
     return out;
 }
 
+// Vector groups -> raw vec4 bytes. An hkTransform (three rotation columns + a translation) is written as four
+// 3-component groups; Havok's XML reader gives its translation w = 1, as the binary carries it.
+std::vector<std::uint8_t> vec4GroupsRaw(const std::vector<std::string>& groups) {
+    std::vector<std::uint8_t> raw;
+    for (const std::string& g : groups) { const auto b = parseVec4Raw(g); raw.insert(raw.end(), b.begin(), b.end()); }
+    const auto three = [](const std::string& g) {
+        const auto a = g.find('('), b = g.rfind(')');
+        return splitWs(a == std::string::npos || b == std::string::npos ? g : g.substr(a + 1, b - a - 1)).size() == 3;
+    };
+    if (groups.size() == 4 && std::all_of(groups.begin(), groups.end(), three)) { const float one = 1.0f; std::memcpy(raw.data() + 60, &one, 4); }
+    return raw;
+}
+
+// The one vector member of a struct the XML writes as bare vector text (hkTransform: `data`, vector4[4]): its index
+// and group count, or count 0 when the class is not such a struct.
+std::pair<std::size_t, int> vectorStructMember(const io::SchemaObject& so) {
+    std::pair<std::size_t, int> hit{0, 0}; int named = 0;
+    const auto& fs = so.Fields();
+    for (std::size_t i = 0; i < fs.size(); ++i) {
+        const Field* ff = fs[i];
+        if (!ff || ff->kind == FieldKind::Pad || ff->kind == FieldKind::Skip || ff->kind == FieldKind::Vtable) continue;
+        ++named;
+        if (ff->kind == FieldKind::Vector4 || ff->kind == FieldKind::Quaternion) hit = {i, ff->count > 1 ? ff->count : 1};
+    }
+    return named == 1 ? hit : std::pair<std::size_t, int>{0, 0};
+}
+
 // Build a fresh SchemaObject for `cls` (Init'd, empty), or nullptr if the registry doesn't know it.
 std::shared_ptr<io::SchemaObject> makeObj(const schema::SchemaRegistry& reg, const std::string& cls) {
     const schema::ClassSchema* cs = reg.Find(cls);
@@ -1399,15 +1440,28 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
         val = io::FieldValue{};   // reset before (re)fill: a present field REPLACES — arrays must not
                                   // accumulate across merge layers, and a patch array is the whole array
         switch (f.kind) {
-            case FieldKind::Scalar:  val.raw = parseScalarRaw(cls, f, p->text, syms, err); if (!err.empty()) return; break;
+            case FieldKind::Scalar:
+                if (f.count <= 1) { val.raw = parseScalarRaw(cls, f, p->text, syms, err); if (!err.empty()) return; break; }
+                for (const std::string& tok : splitWs(p->text)) {   // an inline C array (e.g. uint16[2]): one value per token
+                    const auto b = parseScalarRaw(cls, f, tok, syms, err); if (!err.empty()) return;
+                    val.raw.insert(val.raw.end(), b.begin(), b.end());
+                }
+                break;
             case FieldKind::String:
             case FieldKind::CString: val.str = havokXmlString(p->text); break;
             case FieldKind::Vector4:
             case FieldKind::Quaternion:
                 if (f.count <= 1) { val.raw = parseVec4Raw(p->text); break; }
-                for (const std::string& g : splitVec4s(p->text)) {
-                    const auto b = parseVec4Raw(g); val.raw.insert(val.raw.end(), b.begin(), b.end());
+                if (const CB::engine::common::xml::Node* inner = p->child("hkobject")) {
+                    // a struct the schema keeps as raw vectors (hkSweptTransform = vector4[5]) is written as one
+                    // named vector per member: read them in document order
+                    for (const auto& c : inner->children) {
+                        if (c.tag != "hkparam") continue;
+                        const auto b = parseVec4Raw(c.text); val.raw.insert(val.raw.end(), b.begin(), b.end());
+                    }
+                    break;
                 }
+                val.raw = vec4GroupsRaw(splitVec4s(p->text));
                 break;
             case FieldKind::Ptr: {
                 const auto ref = [&](const std::string& r) -> std::shared_ptr<IHavokObject> {
@@ -1450,6 +1504,14 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
                 break;
             }
             case FieldKind::Struct: {
+                if (!p->child("hkobject") && !splitVec4s(p->text).empty()) {   // a vector struct written as text (hkTransform)
+                    auto sub = makeObj(reg, f.ref);
+                    const auto [mi, n] = sub ? vectorStructMember(*sub) : std::pair<std::size_t, int>{0, 0};
+                    if (!n) { err = cls + "." + f.name + ": text for struct class '" + f.ref + "'"; return; }
+                    sub->FieldAt(mi).raw = vec4GroupsRaw(splitVec4s(p->text));
+                    val.obj = sub;
+                    break;
+                }
                 if (const CB::engine::common::xml::Node* inner = p->child("hkobject")) {
                     auto sub = makeObj(reg, f.ref);
                     if (!sub) { err = cls + "." + f.name + ": unknown inline struct class '" + f.ref + "'"; return; }
@@ -1459,6 +1521,18 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
                 break;
             }
             case FieldKind::StructArray: {
+                if (!p->child("hkobject") && !splitVec4s(p->text).empty()) {   // vector structs written as text (hkTransform[])
+                    const auto groups = splitVec4s(p->text);
+                    auto probe = makeObj(reg, f.ref);
+                    const auto [mi, n] = probe ? vectorStructMember(*probe) : std::pair<std::size_t, int>{0, 0};
+                    if (!n || groups.size() % static_cast<std::size_t>(n)) { err = cls + "." + f.name + ": text for struct array of '" + f.ref + "'"; return; }
+                    for (std::size_t g = 0; g < groups.size(); g += static_cast<std::size_t>(n)) {
+                        auto sub = makeObj(reg, f.ref);
+                        sub->FieldAt(mi).raw = vec4GroupsRaw({groups.begin() + static_cast<std::ptrdiff_t>(g), groups.begin() + static_cast<std::ptrdiff_t>(g + static_cast<std::size_t>(n))});
+                        val.objs.push_back(sub);
+                    }
+                    break;
+                }
                 for (const auto& c : p->children) {
                     if (c.tag != "hkobject") continue;
                     auto sub = makeObj(reg, f.ref);
@@ -1468,7 +1542,19 @@ void fillObject(io::SchemaObject& so, const CB::engine::common::xml::Node& node,
                 }
                 break;
             }
-            default: break;   // QsTransform(Array)/BoolArray/EmptyArray/EmptyPtr — not emitted, not parsed
+            case FieldKind::QsTransform:          // (t)(r)(s) per transform: three vec4 groups, 48 B each
+            case FieldKind::QsTransformArray: {
+                const auto groups = splitVec4s(p->text);
+                if (groups.size() % 3 != 0) { err = cls + "." + f.name + ": " + std::to_string(groups.size()) + " vector groups, not (t)(r)(s) triples"; return; }
+                for (const std::string& g : groups) {
+                    const auto b = parseVec4Raw(g); val.raw.insert(val.raw.end(), b.begin(), b.end());
+                }
+                break;
+            }
+            case FieldKind::BoolArray:
+                for (const std::string& tok : splitWs(p->text)) val.raw.push_back(tok == "true" ? 1 : 0);
+                break;
+            default: break;   // EmptyArray/EmptyPtr — SERIALIZE_IGNORED slots, no authored value
         }
     }
 }
