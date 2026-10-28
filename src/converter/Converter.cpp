@@ -31,6 +31,7 @@
 #include <interface/reflection/HavokSchema.h>        // SchemaRegistry (Havok/ class descriptors)
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
 #include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
+#include <rules/Rules.h>                    // regen rules: applied after the emit, reversed by the gate
 #include "MeshSource.h"                     // the regen source: loose meshes\ + BSAs, read in place
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis
@@ -2290,6 +2291,31 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
         " baked clip(s) name their bones (the rest no rig binds: identity bindings, track<N>).");
     phaseDone("units");
 
+    /// @note REGEN RULES run over the emitted unit set (graphs and characters together, parsed with the bones they were
+    ///       emitted with), and every unit they change is re-emitted in place. Their records ride out in the result for
+    ///       the served-bytes gate, which reverses them; nothing of them is written into the bundle.
+    {
+        namespace rules = CB::engine::rules;
+        std::vector<const CB::engine::schema::RuleDef*> regenRules;
+        std::string rerr;
+        if (!rules::RulesFor(*sreg, rules::Stage::Regen, regenRules, rerr)) { r.error = "regen rules: " + rerr; return r; }
+        if (!regenRules.empty()) {
+            say("== regen rules ==");
+            rules::DirUnitStore store(stageHky.string(), [&](const std::string& key) { return bonesFor(PathKey(key)); });
+            rules::Context      ctx(store, *sreg);
+            auto run = std::make_shared<rules::RunResult>();
+            if (!rules::ApplyRules(ctx, regenRules, *run, rerr)) { r.error = "regen rules: " + rerr; return r; }
+            for (const auto& line : run->log) say("  " + line);
+            for (const auto& key : ctx.Touched())
+                if (!ctx.Emit(key, store.Dir(key), rerr)) { r.error = "regen rules: re-emit " + rerr; return r; }
+            for (const auto& a : run->applied) say("  rule " + a.rule->name + " (" + a.rule->op + ")" + (a.record ? "" : ": nothing to change"));
+            r.rulesTouched = static_cast<int>(ctx.Touched().size());
+            say("  regen rules: " + std::to_string(run->applied.size()) + " applied, " + std::to_string(r.rulesTouched) + " unit(s) re-emitted");
+            r.rules = std::move(run);
+            phaseDone("regen rules");
+        }
+    }
+
     /// @note NEITHER singlefile .txt is copied into the master — both decompose into their "<name>.txt/" FOLDER
     ///       below and the anim-data / set-data servers compose the cache from it (layouts: AnimSetDataYaml.h,
     ///       AnimDataYaml.h), flat per-project (keyed by stem).
@@ -3400,6 +3426,18 @@ RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& ou
     auto* sreg = CB::engine::schema::SharedRegistry();
     if (!sreg) { r.error = "schema registry not armed"; fs::remove_all(work, ec); return r; }
     CB::converter::BaseUnitCompiler baseCompiler(arc);
+    /// @note The rules the build applied are reversed in memory first, from their records, so every unit serves what the
+    ///       source would: the gate compares the source to exactly what the rules' inverse makes of the bundle.
+    CB::engine::rules::ArchiveUnitStore gateStore(arc, [&](const std::string& key) -> const std::vector<std::string>* {
+        const auto& b = baseCompiler.BonesFor(key);
+        return b.empty() ? nullptr : &b;
+    });
+    CB::engine::rules::Context gateCtx(gateStore, *sreg);
+    if (r.build.rules) {
+        std::string ierr;
+        if (!CB::engine::rules::InverseRules(gateCtx, *r.build.rules, ierr)) { r.error = "regen rules: " + ierr; fs::remove_all(work, ec); return r; }
+        say("  regen rules reversed for the gate (" + std::to_string(gateCtx.Touched().size()) + " unit(s))");
+    }
     const fs::path driftKeep = fs::temp_directory_path(ec) / ("cb_regen_drift_" + fs::path(outHky).stem().string());
     fs::remove_all(driftKeep, ec);
     for (const auto& u : arc->units()) {
@@ -3411,7 +3449,7 @@ RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& ou
         else continue;
         if (!CB::engine::codec::io::RoundtripHkx(srcBytes, *sreg, canon, e)) { say("  " + u.prefix + ": source unreadable — " + e); continue; }
         ++r.checked;
-        if (!baseCompiler.Compile(u.prefix, got, e)) {
+        if (!gateCtx.Serve(u.prefix, got, e)) {
             r.drift.push_back(u.prefix);
             say("  FAIL: " + u.prefix + " — " + e);
             continue;

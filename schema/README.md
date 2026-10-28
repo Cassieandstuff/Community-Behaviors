@@ -119,9 +119,29 @@ Every `*.yaml` under `schema/` is loaded recursively and dispatched on its top-l
 | `enum` | a reflected enum: `name:`, `flags:`, `items:` | `LoadDir`, and baked into the binary by `cmake/EmbedEnums.cmake` |
 | `semantics` | merge policy: strategy → `<Class>` / `<Class>.<field>` lists | `LoadDir` (applied after the walk) |
 | `probe` | a compile-trace probe (see `metadata/debug/README.md`) | `CB::engine::compile::trace` |
+| `rule` | a reversible transform over a whole unit set (see Rules) | `LoadDir` → `CB::engine::rules` |
 
 A descriptor's identity is its `name:` within its kind (classes and metadata records share one namespace). A name
 defined twice, or an unknown kind, fails the load and names the files. Moving a file between folders changes nothing.
+
+## Rules
+
+A `kind: rule` descriptor (`metadata/rules/<rule>.yaml`) declares a transform the regen (and the converter) runs over
+a whole unit set — graphs, characters and projects together — through the C++ operation its `op:` names:
+
+```yaml
+name:   myrule                      # the rule's identity
+kind:   rule
+op:     MyOp                        # a registered CB::engine::rules op (Apply + Inverse), exact name
+runs:   [regen, converter]          # where it applies
+order:  { after: [other], before: [] }   # rules it runs after / before (each must exist)
+select: [boneweights, bonelist, boneref] # the field kinds it touches: the schema row keys, or `user`
+params: { … }                       # the op's own parameters
+```
+
+Every op ships its inverse. The regen applies the rules after the emit and re-emits the units they change; its
+served-bytes gate reverses them in memory, from what Apply recorded in the same run, and compares every unit to its
+source. Nothing of a rule is persisted in the bundle. The converter applies them forward only.
 
 ## Layout
 

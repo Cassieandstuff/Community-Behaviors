@@ -8,7 +8,10 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <memory>
 #include <vector>
+
+namespace CB::engine::rules { struct RunResult; }
 
 namespace CB::converter {
 
@@ -114,6 +117,10 @@ struct BaseBuildResult {
     // vanilla .hkx at runtime; animFail = the source .hkx couldn't even be read, or the baked unit couldn't be
     // kept (decompile output missing / unit write failed).
     int animOk = 0, animFail = 0, animSkip = 0;
+    /// @brief The regen rules applied after the emit, with their records: RegenerateMaster's gate reverses them in
+    ///        memory. Null when no rule runs at the regen.
+    std::shared_ptr<CB::engine::rules::RunResult> rules;
+    int rulesTouched = 0;   ///< units the rules changed (re-emitted)
 };
 
 /// @brief Build a shippable base bundle (Skyrim.hky, XPMSSE.hky, ...): decompile EVERY behavior-system file
@@ -189,7 +196,9 @@ struct RegenResult {
 //   1. builds the whole master to a TEMP file via BuildBaseBundle (every unit, reflective + skeletons),
 //   2. GATE: parses every behavior / character / project / skeleton unit back through the runtime's reader (rig-bound
 //      bones) and serializes it, byte-comparing against its source binary's canonical re-serialization —
-//      exactly what the runtime serves for an untouched graph — collecting any drift, then
+//      exactly what the runtime serves for an untouched graph — collecting any drift; the regen rules the build
+//      applied are reversed in memory first (CB::engine::rules::InverseRules), so the source is compared to what
+//      their inverse makes of the bundle, then
 //   3. promotes TEMP -> outHky. In `strict` mode any drift is fatal and outHky is left untouched;
 //      otherwise it writes and returns the drift list. BLOCKING — run on a worker thread.
 RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& outHky, bool strict,

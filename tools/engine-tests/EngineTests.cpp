@@ -1,28 +1,31 @@
 /// @brief engine-tests — unit tests over the engine lib (never deployed). `engine-tests <schemaDir>`; every test runs,
 ///        each failure prints, and the exit code is the failure count.
 
+#include "TestSupport.h"
+
 #include <decompile/BehaviorDecompile.h>
-#include <interface/reflection/HavokSchema.h>
 #include <RymlInclude.h>
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <functional>
 #include <string>
-#include <vector>
+
+namespace CB::engine::tests {
 
 namespace {
-namespace sch = CB::engine::schema;
-namespace dec = CB::engine::decompile;
-
 int g_failures = 0;
+}  // namespace
 
 void Check(bool ok, const std::string& what) {
     if (ok) return;
     ++g_failures;
     std::fprintf(stderr, "FAIL: %s\n", what.c_str());
 }
+
+namespace {
+namespace sch = CB::engine::schema;
+namespace dec = CB::engine::decompile;
 
 /// @brief The int16 `field` of `so`, or a value no test expects when the field is missing.
 std::int64_t Int16Of(const CB::engine::codec::io::SchemaObject& so, const char* field) {
@@ -85,18 +88,26 @@ void UserSentinelSchemaChecks() {
               && cs.fields[0].user && cs.fields[0].userValue == -5,
           "user: carries its sentinel value");
 }
-} // namespace
+}  // namespace
 
-int main(int argc, char** argv) {
-    if (argc < 2) { std::fprintf(stderr, "usage: engine-tests <schemaDir>\n"); return 2; }
-    sch::SchemaRegistry reg;
-    std::string         err;
-    if (!reg.LoadDir(argv[1], err)) { std::fprintf(stderr, "schema load: %s\n", err.c_str()); return 2; }
-
+void RunUserSentinelTests(const schema::SchemaRegistry& reg) {
     UserSentinelSchemaChecks();
     UserSentinelRoundTrip(reg);
+}
 
-    if (g_failures) std::fprintf(stderr, "%d failure(s)\n", g_failures);
+}  // namespace CB::engine::tests
+
+int main(int argc, char** argv) {
+    namespace t = CB::engine::tests;
+    if (argc < 2) { std::fprintf(stderr, "usage: engine-tests <schemaDir>\n"); return 2; }
+    CB::engine::schema::SchemaRegistry reg;
+    std::string                        err;
+    if (!reg.LoadDir(argv[1], err)) { std::fprintf(stderr, "schema load: %s\n", err.c_str()); return 2; }
+
+    t::RunUserSentinelTests(reg);
+    t::RunRulesTests(reg);
+
+    if (t::g_failures) std::fprintf(stderr, "%d failure(s)\n", t::g_failures);
     else std::printf("engine-tests: all passed\n");
-    return g_failures;
+    return t::g_failures;
 }
