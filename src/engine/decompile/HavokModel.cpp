@@ -3395,6 +3395,50 @@ bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std:
     }
 }
 
+bool SerializeGraph(const ParsedHky& graph, std::vector<std::uint8_t>& out, std::vector<trace::ObjectOrigin>& origins,
+                    std::string& err, const CB::engine::codec::HKXHeader& header) {
+    try {
+        PackFileSerializer ser;
+        BinaryWriterEx bw(header.Endian == 0, header.PointerSize == 8);
+        ser.Serialize(graph.root, bw, header);
+        out = bw.Data();
+        // A file node's id is its FormID; an inline object's identity entry is a "~n" placeholder (ParseHkyReflective).
+        const auto formIdOf = [&](const IHavokObject* o) -> const std::string* {
+            const auto it = graph.identity.ids.find(o);
+            return it != graph.identity.ids.end() && it->second.rfind('~', 0) != 0 ? &it->second : nullptr;
+        };
+        // Each inline object's owner: the first file node (in write order) whose fields reach it through inline objects.
+        std::unordered_map<const IHavokObject*, const std::string*> owner;
+        const std::function<void(const IHavokObject*, const std::string*)> claim = [&](const IHavokObject* o, const std::string* by) {
+            const auto* so = dynamic_cast<const io::SchemaObject*>(o);
+            if (!so) return;
+            const auto visit = [&](const std::shared_ptr<IHavokObject>& c) {
+                if (c && !formIdOf(c.get()) && owner.emplace(c.get(), by).second) claim(c.get(), by);
+            };
+            for (const auto& v : so->Values()) {
+                visit(v.obj);
+                for (const auto& c : v.objs) visit(c);
+            }
+        };
+        for (const auto& [obj, offset] : ser.Written())
+            if (const std::string* id = formIdOf(obj)) claim(obj, id);
+        origins.clear();
+        origins.reserve(ser.Written().size());
+        for (const auto& [obj, offset] : ser.Written()) {
+            trace::ObjectOrigin o;
+            o.offset    = offset;
+            o.className = obj->ClassName();
+            if (const std::string* id = formIdOf(obj)) o.formId = *id;
+            else if (const auto it = owner.find(obj); it != owner.end() && it->second) o.owner = *it->second;
+            origins.push_back(std::move(o));
+        }
+        return true;
+    } catch (const std::exception& e) {
+        err = std::string("SerializeGraph: ") + e.what();
+        return false;
+    }
+}
+
 bool MergeHkyUnits(const std::vector<std::uint8_t>& baseBytes, const std::vector<std::string>& patchDirs,
                    const schema::SchemaRegistry& reg, const std::string& workDir, std::string& err,
                    const std::vector<std::string>* bones) {

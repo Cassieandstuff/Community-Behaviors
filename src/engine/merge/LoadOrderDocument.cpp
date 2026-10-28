@@ -260,6 +260,12 @@ bool LoadOrderDocument::MergedGraph(std::string_view key, decompile::ParsedHky& 
 }
 
 bool LoadOrderDocument::GraphBytes(std::string_view key, std::vector<std::uint8_t>& out, std::string* err) const {
+    std::vector<trace::ObjectOrigin> origins;
+    return GraphBytes(key, out, origins, err);
+}
+
+bool LoadOrderDocument::GraphBytes(std::string_view key, std::vector<std::uint8_t>& out, std::vector<trace::ObjectOrigin>& origins,
+                                   std::string* err) const {
     const auto  u = UnitAt(key);
     std::string why;
     decompile::ParsedHky graph;
@@ -271,7 +277,7 @@ bool LoadOrderDocument::GraphBytes(std::string_view key, std::vector<std::uint8_
         if (!src) why = "'" + u->key + "' has no readable winner";
         else parsed = decompile::ParseHkyReflective(*src, *m_reg, graph, why, nullptr, u->key);
     } else parsed = MergedGraph(u->key, graph, &why);
-    if (parsed && decompile::SerializeGraph(graph, out, why)) return true;
+    if (parsed && decompile::SerializeGraph(graph, out, origins, why)) return true;
     if (err) *err = std::move(why);
     return false;
 }

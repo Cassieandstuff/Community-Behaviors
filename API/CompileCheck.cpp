@@ -28,6 +28,18 @@ namespace {
         cb::resolve::GraphEdit edit(g, reg); (void)edit;
         std::vector<std::uint8_t> bytes;
         bool sok = cb::resolve::SerializeGraph(g, bytes, err); (void)sok;
+        // cb::trace — where each serialized object came from, and one update's path as data
+        std::vector<cb::trace::ObjectOrigin> origins;
+        bool sook = cb::resolve::SerializeGraph(g, bytes, origins, err); (void)sook;
+        if (!origins.empty()) { const std::uint32_t o = origins.front().offset; const std::string& f = origins.front().formId; (void)o; (void)f; }
+        const cb::resolve::LoadOrderDocument* lod = nullptr;
+        if (lod) { bool gbok = lod->GraphBytes("", bytes, origins, &err); (void)gbok; }
+        cb::trace::Frame frame;
+        frame.visits.push_back(cb::trace::Visit{ cb::trace::NodeRef{ 0, 0 }, cb::trace::NodeRef{}, 1.0f });
+        frame.states.push_back(cb::trace::State{});
+        frame.transitions.push_back(cb::trace::Transition{});
+        frame.events.push_back(cb::trace::Event{ "", cb::trace::NodeRef{} });
+        bool refok = frame.visits.front().node.Valid() && frame.visits.front().node == cb::trace::NodeRef{ 0, 0 }; (void)refok;
         auto* parse  = static_cast<bool (*)(const cb::resolve::UnitSource&, const cb::schema::Registry&, cb::resolve::Graph&,
                                             std::string&, const std::vector<std::string>*, const std::string&)>(&cb::resolve::ParseHkyReflective);
         (void)parse;

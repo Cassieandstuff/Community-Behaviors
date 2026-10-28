@@ -80,6 +80,9 @@ public:
     /// @note  Before the plugin's compile-time features run: what the load order states, not every byte the game is
     ///        finally served.
     bool GraphBytes(std::string_view key, std::vector<std::uint8_t>& out, std::string* err = nullptr) const;
+    /// @brief GraphBytes, also reporting each serialized object's data-section offset and FormID (SerializeGraph).
+    bool GraphBytes(std::string_view key, std::vector<std::uint8_t>& out, std::vector<trace::ObjectOrigin>& origins,
+                    std::string* err = nullptr) const;
     /// @brief The rigs (skeleton unit keys) that bind `key`, sorted; several = a graph shared between characters.
     std::vector<std::string> Rigs(std::string_view key) const;
     /// @brief The animation bone names of the rig that binds `key` (a graph, a character, an animation), in served order.
