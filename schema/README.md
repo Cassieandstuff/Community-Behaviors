@@ -88,6 +88,11 @@ whose stored one differs.
   project's `characterFilenames` is `Characters\Horse.hkx`, its character's `rigName` is
   `Character Assets\Skeleton.hkx`. The string is kept byte-exact; matching it to a unit is path identity (case-
   folded, as the engine's lookup is). A member attribute: no serde, size or signature effect.
+- `user: <value>` — on a single integer scalar: the game fills the member at runtime, and `<value>` is the binary
+  sentinel a file stores in its place (`hkbClipGenerator.animationBindingIndex`, `user: -1`). The `.hky` writes
+  `user` exactly when the stored value equals the sentinel and reads `user` back to it, so the bytes round-trip; any
+  other value renders as itself. A "none" index (an event id, a sync variable index) is authored data, not `user`:
+  it stays `-1`. No serde, size or signature effect.
 
 ## Runtime binding (reserved — the uniform game/self invariant)
 

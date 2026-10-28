@@ -273,6 +273,16 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                         const std::string c = childStr(fn, "count");
                         if (!c.empty()) f.count = std::stoi(c);
                     }
+                    if (const std::string u = childStr(fn, "user"); !u.empty()) {
+                        if (f.kind != FieldKind::Scalar || f.count > 1 || f.scalar == Scalar::Float || f.scalar == Scalar::Half
+                            || f.scalar == Scalar::Bool || !f.enumName.empty()) {
+                            err = out.name + "." + f.name + ": `user` needs a single integer scalar"; return false;
+                        }
+                        char* end = nullptr;
+                        f.userValue = std::strtoll(u.c_str(), &end, 10);
+                        if (!end || *end) { err = out.name + "." + f.name + ": `user` value '" + u + "' is not an integer"; return false; }
+                        f.user = true;
+                    }
                 } else {
                     err = out.name + ": unrecognized field entry"; return false;
                 }

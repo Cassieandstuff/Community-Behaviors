@@ -106,6 +106,11 @@ struct Field {
                                          ///<       the load. A member attribute: no serde, size or signature effect.
     bool        cbAdded = false;         ///< @brief `cb: true` — a member CB adds to a vanilla class (in its padding: the
                                          ///<        exe's code never touches it). Left out of the class's vanilla signature.
+    bool         user      = false;      ///< @brief `user: <value>` — the game fills this member at runtime; `<value>` is
+    std::int64_t userValue = 0;          ///<        the binary sentinel a file stores in its place. The .hky writes `user`
+                                         ///<        exactly when the stored value equals it, and reads `user` back to it.
+                                         ///< @note Only a single integer scalar (LoadDir refuses another kind). A "none"
+                                         ///<       index (an event id, a sync variable) is data, not `user`: it stays -1.
 };
 
 struct ClassSchema {

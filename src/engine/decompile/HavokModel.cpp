@@ -744,7 +744,9 @@ std::string renderField(const io::SchemaObject& so, std::size_t i, const Reflect
             case FieldKind::Scalar: {
                 const std::size_t w = static_cast<std::size_t>(schema::ScalarWidth(f.scalar));
                 const std::size_t n = w ? v.raw.size() / w : 0;
-                if (!f.boneOf.empty() && n <= 1) {
+                if (f.user && n <= 1 && decodeInt(v.raw, f.scalar) == f.userValue) {
+                    y += f.name + ": user\n";
+                } else if (!f.boneOf.empty() && n <= 1) {
                     y += f.name + ": " + boneOfText(decodeInt(v.raw, f.scalar), f, c) + "\n";
                 } else if (f.boneRef && n <= 1) {
                     const std::int64_t iv = decodeInt(v.raw, f.scalar);
@@ -1799,6 +1801,7 @@ bool fieldValue(io::SchemaObject& so, std::size_t i, const yml::ConstNodeRef& n,
     };
     switch (f.kind) {
         case FieldKind::Scalar: {
+            if (f.user && !n.is_seq() && !n.is_val_quoted() && ystr(n) == "user") { v.raw = encInt(f.userValue, f.scalar); return true; }
             if (!n.is_seq() && boneOfName(n, 0)) { v.raw = encInt(0, f.scalar); return true; }
             if (f.boneRef && !n.is_seq()) {
                 std::int64_t idx = -1;

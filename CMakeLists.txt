@@ -263,6 +263,8 @@ target_link_libraries(CommunityBehaviors PRIVATE tracy_client)
 add_subdirectory(tools/hky)      # hky-tool: .hky pack/unpack (also unpacks the deployed master for diffing)
 add_subdirectory(tools/cbdiff)   # cbdiff: semantic diff of CB output vs a proven reference (Pandora)
 add_subdirectory(tools/cbmatch)  # cbmatch: byte-exact gate for reimplemented engine functions vs the game exe
+enable_testing()
+add_subdirectory(tools/engine-tests)   # engine-tests: unit tests over the engine lib (ctest)
 
 # ── Bundle stage ────────────────────────────────────────────────────────────────
 # Every shipped .hky is a DERIVED bundle the converter regenerates from $CB_REGEN_SOURCE (see

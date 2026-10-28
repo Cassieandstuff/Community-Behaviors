@@ -13,7 +13,7 @@ fields:
   - { name: playbackSpeed,               type: float }
   - { name: enforcedDuration,            type: float }
   - { name: userControlledTimeFraction,  type: float }
-  - { name: animationBindingIndex,       type: int16 }
+  - { name: animationBindingIndex,       type: int16, user: -1 }   # filled by the game when the clip binds
   - { name: mode,                        type: int8, enum: PlaybackMode }
   - { name: flags,                       type: int8, hkyenum: ClipFlags, flags: true }
   - { skip: 4 }
