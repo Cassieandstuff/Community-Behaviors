@@ -2531,11 +2531,12 @@ bool fillFields(io::SchemaObject& so, const yml::ConstNodeRef& map, HkyParse& ps
         const Field& f = *fields[i];
         if (f.name.empty() || (f.ignored && !f.hkyEmit)) continue;
         if (!yhas(map, f.name) && ps.patch) continue;   // a patch touches only what it names
-        if (const auto node = yget(map, f.name); !f.charProp.empty() && yhas(map, f.name) && node.is_map() &&
-                                                 node.num_children() == 1 && yhas(node, "charprop")) {
-            if (!charPropValue(so, i, ystr(yget(node, "charprop")), ps)) return false;
-            continue;
-        }
+        /// @note `yget` on an absent key trips rapidyaml's `ch != NONE` assertion (debug builds), so the key is checked first.
+        if (!f.charProp.empty() && yhas(map, f.name))
+            if (const auto node = yget(map, f.name); node.is_map() && node.num_children() == 1 && yhas(node, "charprop")) {
+                if (!charPropValue(so, i, ystr(yget(node, "charprop")), ps)) return false;
+                continue;
+            }
         if (!yhas(map, f.name)) {
             if (f.kind == FieldKind::Scalar && f.boneRef) so.FieldAt(i).raw = encInt(-1, f.scalar);
             else if (f.kind == FieldKind::Struct && !so.FieldAt(i).obj) {
