@@ -6,6 +6,8 @@
 
 #include <decompile/BehaviorDecompile.h>
 #include <disk/Disk.h>
+#include <codec/resource/PathKey.h>
+#include <rules/HoistBoneData.h>
 #include <rules/Rules.h>
 #include <RymlInclude.h>
 
@@ -286,6 +288,170 @@ void GateRoundTrip(const sch::SchemaRegistry& reg, const fs::path& tmp) {
         }
     }
 }
+/// @brief A directory store whose units parse with fixed bones and whose rigs it knows itself.
+class FixtureStore final : public rl::IUnitStore {
+public:
+    FixtureStore(const fs::path& root, std::map<std::string, std::vector<std::string>> bones,
+                 std::map<std::string, std::vector<std::string>> rigs)
+        : m_dir(root.string(), nullptr), m_bones(std::move(bones)), m_rigs(std::move(rigs)) {}
+    std::vector<CB::engine::codec::HkyArchive::Unit>   Units() const override { return m_dir.Units(); }
+    std::shared_ptr<const CB::engine::common::IUnitSource> Source(const std::string& key) const override { return m_dir.Source(key); }
+    const std::vector<std::string>* Bones(const std::string& key) override {
+        const auto it = m_bones.find(key);
+        return it == m_bones.end() ? nullptr : &it->second;
+    }
+    const std::vector<std::string>* RigBones(const std::string& key) override {
+        const auto it = m_rigs.find(CB::engine::codec::resource::PathKey(key));
+        return it == m_rigs.end() ? nullptr : &it->second;
+    }
+    std::string Dir(const std::string& key) const { return m_dir.Dir(key); }
+
+private:
+    rl::DirUnitStore                                m_dir;
+    std::map<std::string, std::vector<std::string>> m_bones, m_rigs;
+};
+
+const char* kHoistProject =
+    "id: 0000x0001\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbProjectData':\n    className: 'hkbProjectData'\n"
+    "    variant:\n      class: hkbProjectData\n      worldUpWS: '(0 0 1 0)'\n      stringData:\n"
+    "        characterFilenames: ['Characters\\One.hkx', 'Characters\\Two.hkx']\n      defaultEventMode: 2\n";
+std::string HoistCharacter(const std::string& name, const std::string& rig, const std::string& props) {
+    return "id: 0000x0001\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbCharacterData':\n    className: 'hkbCharacterData'\n"
+           "    variant:\n      class: hkbCharacterData\n      modelUpMS: '(0 0 1 0)'\n      stringData:\n"
+           "        name: '" + name + "'\n        rigName: 'Character Assets\\" + rig + "'\n"
+           "        behaviorFilename: 'Behaviors\\Root.hkx'\n      scale: 1\n      characterProperties:" + props;
+}
+const char* kUpperBody =
+    "\n        'UpperBody':\n          type: VARIABLE_TYPE_POINTER\n          value:\n            class: hkbBoneWeightArray\n"
+    "            boneWeights:\n              count: 4\n              'A': 1\n";
+const char* kHoistGraph =
+    "id: 0000x0001\nclass: hkRootLevelContainer\nnamedVariants:\n  'hkbBehaviorGraph':\n    className: 'hkbBehaviorGraph'\n"
+    "    variant:\n      class: hkbBehaviorGraph\n      userData: 0\n      name: 'Root.hkb'\n"
+    "      variableMode: VARIABLE_MODE_DISCARD_WHEN_INACTIVE\n      rootGenerator: 0000x0002\n      data:\n"
+    "        variables: {}\n        characterProperties:\n          'UpperBody': {type: VARIABLE_TYPE_POINTER}\n"
+    "        events: {}\n        attributes: {}\n";
+const char* kBlend =
+    "id: 0000x0002\nclass: hkbBlenderGenerator\nuserData: 0\nname: 'Blend'\nreferencePoseWeightThreshold: 0\nblendParameter: 1\n"
+    "minCyclicBlendParameter: 0\nmaxCyclicBlendParameter: 1\nindexOfSyncMasterChild: -1\nflags: 0\nsubtractLastChild: false\n";
+const char* kBlendChildren =
+    "'0000x0000':\n  generator: 0000x0003\n  boneWeights:\n    count: 4\n    'A': 1\n  weight: 1\n  worldFromModelWeight: 1\n"
+    "'0000x0001':\n  variableBindingSet:\n    bindings:\n      'boneWeights':\n        variableIndex: 0\n"
+    "        variable: 'UpperBody'\n        bitIndex: -1\n        bindingType: BINDING_TYPE_CHARACTER_PROPERTY\n"
+    "    indexOfBindingToEnable: -1\n  generator: 0000x0004\n  boneWeights:\n    count: 4\n    'B': 0.5\n"
+    "  weight: 1\n  worldFromModelWeight: 1\n";
+const char* kModGen  = "id: 0000x0003\nclass: hkbModifierGenerator\nuserData: 0\nname: 'MG'\nmodifier: 0000x0005\ngenerator: 0000x0006\n";
+const char* kGetUp   =
+    "id: 0000x0005\nclass: hkbGetUpModifier\nuserData: 0\nname: 'GetUp'\nenable: true\ngroundNormal: '(0 0 1 0)'\nduration: 1\n"
+    "alignWithGroundDuration: 0.25\nrootBoneIndex: 'Root'\notherBoneIndex: 'C'\n";
+std::string ClipNode(const char* id) {
+    return std::string("id: ") + id + "\nclass: hkbClipGenerator\nuserData: 0\nname: 'Clip'\nanimationName: 'Animations\\Idle.hkx'\n"
+           "playbackSpeed: 1\nanimationBindingIndex: user\nmode: MODE_LOOPING\nflags: 0\n";
+}
+
+/// @brief HoistBoneData over a graph two characters run, their rigs ordering bones differently: a blend mask, a
+///        vanilla-bound mask only one character holds the preset of, and two single bone refs.
+void HoistChecks(const sch::SchemaRegistry& reg, const fs::path& tmp) {
+    const fs::path src = tmp / "hoist-src", canonDir = tmp / "hoist";
+    const std::string proj = "meshes/actors/h/hproject.hkx", one = "meshes/actors/h/characters/one.hkx",
+                      two = "meshes/actors/h/characters/two.hkx", root = "meshes/actors/h/behaviors/root.hkx";
+    const std::vector<std::string> rigA{ "Root", "A", "B", "C" }, rigB{ "Root", "C", "A", "X", "B" };
+    const std::vector<std::pair<std::string, std::string>> files{
+        { proj + "/graph.yaml", kHoistProject },
+        { one + "/graph.yaml", HoistCharacter("One", "rigA.hkx", kUpperBody) },
+        { two + "/graph.yaml", HoistCharacter("Two", "rigB.hkx", " {}\n") },
+        { root + "/graph.yaml", kHoistGraph },
+        { root + "/generators/0000x0002/0000x0002.yaml", kBlend },
+        { root + "/generators/0000x0002/children.yaml", kBlendChildren },
+        { root + "/generators/0000x0003.yaml", kModGen },
+        { root + "/modifiers/0000x0005.yaml", kGetUp },
+        { root + "/clips/0000x0004.yaml", ClipNode("0000x0004") },
+        { root + "/clips/0000x0006.yaml", ClipNode("0000x0006") },
+    };
+    for (const auto& [rel, text] : files) Check(CB::engine::disk::WriteFile(src / rel, text), "write " + rel);
+    const std::map<std::string, std::vector<std::string>> bones{ { one, rigA }, { two, rigB }, { root, rigA }, { proj, rigA } };
+    const std::map<std::string, std::vector<std::string>> rigs{ { "meshes/actors/h/character assets/riga.hkx", rigA },
+                                                                { "meshes/actors/h/character assets/rigb.hkx", rigB } };
+    std::string err;
+
+    std::map<std::string, std::vector<std::uint8_t>> canon;
+    {
+        FixtureStore store(src, bones, rigs);
+        rl::Context  ctx(store, reg);
+        for (const auto& u : store.Units()) {
+            std::vector<std::uint8_t> bytes;
+            if (!ctx.Serve(u.prefix, bytes, err)) { Check(false, "serve hoist fixture " + err); return; }
+            canon[u.prefix] = bytes;
+            Check(dec::DecompileBehaviorReflective(bytes, reg, (canonDir / u.prefix).string(), err, &bones.at(u.prefix), u.prefix),
+                  "decompile " + u.prefix + ": " + err);
+        }
+    }
+
+    const auto it = reg.Rules().find("hoistbonedata");
+    Check(it != reg.Rules().end(), "the schema ships the hoistbonedata rule");
+    if (it == reg.Rules().end()) return;
+    rl::RunResult run;
+    {
+        FixtureStore store(canonDir, bones, rigs);
+        rl::Context  ctx(store, reg);
+        Check(rl::ApplyRules(ctx, { &it->second }, run, err), "hoist apply: " + err);
+        Check(ctx.Touched() == std::set<std::string>{ root, one, two }, "the hoist touches the graph and both characters");
+        std::vector<std::string> left;
+        Check(rl::CharPropViolations(ctx, left, err) && left.empty(), "no inline bone data is left: " + (left.empty() ? err : left[0]));
+        for (const auto& k : ctx.Touched()) Check(ctx.Emit(k, store.Dir(k), err), "emit " + k + ": " + err);
+    }
+
+    const auto text = [&](const std::string& rel) { return CB::engine::disk::ReadFile(canonDir / rel).value_or(""); };
+    const auto all = [&](const std::string& unit) { std::string s; for (const auto& [p, t] : Tree(canonDir / unit)) s += t; return s; };
+    const std::string children = all(root);
+    Check(children.find("boneWeights: { charprop: 'Blend_0' }") != std::string::npos,
+          "an unbound mask gets a property of its own, not a preset one character lacks:\n" + children);
+    Check(children.find("boneWeights: { charprop: 'UpperBody' }") != std::string::npos, "a vanilla-bound mask keeps its preset");
+    Check(children.find("variableBindingSet") == std::string::npos, "folded bindings leave no binding set behind");
+    const std::string& getUp = children;
+    Check(getUp.find("rootBoneIndex: { charprop: 'Bone_Root' }") != std::string::npos &&
+              getUp.find("otherBoneIndex: { charprop: 'Bone_C' }") != std::string::npos,
+          "single bone refs bind properties named after the bone:\n" + getUp);
+    const std::string c2 = text(two + "/graph.yaml");
+    Check(c2.find("'Bone_C': {type: VARIABLE_TYPE_INT32, value: 1}") != std::string::npos,
+          "a single bone resolves against the character's own rig:\n" + c2);
+    Check(c2.find("'UpperBody':") != std::string::npos, "the character lacking the preset gets it from the inline fallback");
+
+    {
+        FixtureStore store(canonDir, bones, rigs);
+        rl::Context  ctx(store, reg);
+        dec::ParsedHky* hky = ctx.Unit(two, err);
+        Check(hky != nullptr, "parse the second character: " + err);
+        if (hky) {
+            std::map<std::string, std::vector<float>> weights;
+            for (const auto& o : hky->objects) {
+                if (!o || std::string(o->ClassName()) != "hkbCharacterData") continue;
+                const auto& pn = o->Child("stringData")->FieldRef("characterPropertyNames").strs;
+                const auto* vs = o->Child("characterPropertyValues");
+                for (std::size_t i = 0; vs && i < pn.size(); ++i) {
+                    const auto* w = dynamic_cast<const CB::engine::codec::io::SchemaObject*>(vs->Children("wordVariableValues")[i].get());
+                    const auto& vv = vs->Children("variantVariableValues");
+                    const std::int64_t at = w ? w->GetInt("value") : -1;
+                    if (at >= 0 && static_cast<std::size_t>(at) < vv.size())
+                        if (const auto* set = dynamic_cast<const CB::engine::codec::io::SchemaObject*>(vv[static_cast<std::size_t>(at)].get());
+                            set && set->HasField("boneWeights"))
+                            weights[pn[i]] = set->GetArray<float>("boneWeights");
+                }
+            }
+            Check(weights["Blend_0"] == std::vector<float>{ 0, 0, 1, 0, 0 }, "a mask resolves by bone name into another rig");
+            Check(weights["UpperBody"] == std::vector<float>{ 0, 0, 0, 0, 0.5f }, "the fallback resolves into the lacking character's rig");
+        }
+    }
+
+    {
+        FixtureStore store(canonDir, bones, rigs);
+        rl::Context  ctx(store, reg);
+        Check(rl::InverseRules(ctx, run, err), "hoist inverse: " + err);
+        for (const auto& [key, want] : canon) {
+            std::vector<std::uint8_t> got;
+            Check(ctx.Serve(key, got, err) && got == want, "reversed, " + key + " serves byte-identical to its source");
+        }
+    }
+}
 }  // namespace
 
 void RunRulesTests(const schema::SchemaRegistry& reg) {
@@ -296,6 +462,7 @@ void RunRulesTests(const schema::SchemaRegistry& reg) {
     OrderChecks(tmp);
     UnitSetChecks(reg, tmp);
     GateRoundTrip(reg, tmp);
+    HoistChecks(reg, tmp);
     fs::remove_all(tmp, ec);
 }
 

@@ -4,5 +4,5 @@ signature: 0xaa87d1eb
 size:      160
 fields:
   - { name: controlData, type: struct, ref: hkbRigidBodyRagdollControlData }
-  - { name: bones,       type: ptr, ref: hkbBoneIndexArray }
+  - { name: bones,       type: ptr, ref: hkbBoneIndexArray, charprop: hkbBoneIndexArray }
   - { skip: 8 }

@@ -93,6 +93,15 @@ whose stored one differs.
   `user` exactly when the stored value equals the sentinel and reads `user` back to it, so the bytes round-trip; any
   other value renders as itself. A "none" index (an event id, a sync variable index) is authored data, not `user`:
   it stays `-1`. No serde, size or signature effect.
+- `charprop: <class>|bone` — the member's bone data comes from a CHARACTER PROPERTY, so characters with different rigs
+  share one graph: on a pointer to a bone set (`charprop:` names its own `ref`, `hkbBoneWeightArray` /
+  `hkbBoneIndexArray`) a POINTER property holding such a set; on a `boneref` scalar (`charprop: bone`) an INT32
+  property holding the bone's index in each character's rig. Bound to a character property and holding its neutral
+  value (an empty set, or -1), the member writes as `boneWeights: { charprop: 'UpperBody' }` and its binding folds
+  into it (an editor shows the field as a pick of that class's properties); ParseHky rebuilds the neutral value and
+  appends the binding after the bindable's others, where vanilla keeps them. A behavior a character runs whose
+  `charprop` member holds bone data inline is flagged (the regen's strict gate refuses it). No serde, size or
+  signature effect.
 
 ## Runtime binding (reserved — the uniform game/self invariant)
 

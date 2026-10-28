@@ -171,6 +171,7 @@ bool Context::RunningCharacters(const std::string& key, std::vector<const Charac
 
 const std::vector<std::string>* Context::RigBones(const Character& character) {
     if (character.rig.empty()) return nullptr;
+    if (const auto* own = m_store.RigBones(character.rig)) return own;
     const std::string key = Find(character.rig);
     if (key.empty()) return nullptr;
     auto [it, fresh] = m_rigBones.try_emplace(key);
@@ -267,6 +268,7 @@ bool ApplyRules(Context& ctx, const std::vector<const schema::RuleDef*>& rules, 
         a.op   = OpRegistry::Instance().Make(*rd, err);
         if (!a.op) return false;
         if (!a.op->Apply(ctx, a.record, err)) { err = "rule '" + rd->name + "': " + err; return false; }
+        if (const std::string s = a.op->Summary(); !s.empty()) out.log.push_back(rd->name + ": " + s);
         out.applied.push_back(std::move(a));
     }
     return true;

@@ -5,6 +5,6 @@ size:      48
 fields:
   - { name: keyframedPosition, type: vector4 }
   - { name: keyframedRotation, type: quaternion }
-  - { name: boneIndex, type: int16, boneref: true }
+  - { name: boneIndex, type: int16, boneref: true, charprop: bone }
   - { name: isValid,   type: bool }
   - { skip: 13 }

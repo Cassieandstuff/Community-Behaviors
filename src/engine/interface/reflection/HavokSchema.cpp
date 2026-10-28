@@ -283,6 +283,15 @@ bool ParseSchema(const std::string& yamlText, ClassSchema& out, std::string& err
                         if (!end || *end) { err = out.name + "." + f.name + ": `user` value '" + u + "' is not an integer"; return false; }
                         f.user = true;
                     }
+                    f.charProp = childStr(fn, "charprop");
+                    if (!f.charProp.empty()) {
+                        const bool ptr  = f.kind == FieldKind::Ptr && f.count <= 1 && f.charProp == f.ref;
+                        const bool bone = f.kind == FieldKind::Scalar && f.count <= 1 && f.boneRef && f.charProp == "bone";
+                        if (!ptr && !bone) {
+                            err = out.name + "." + f.name + ": `charprop` names its pointer's own class, or `bone` on a boneref scalar";
+                            return false;
+                        }
+                    }
                 } else {
                     err = out.name + ": unrecognized field entry"; return false;
                 }
@@ -347,6 +356,7 @@ bool RuleSelects(const Field& f, const std::string& token) {
     if (token == "bonelist")    return f.boneList;
     if (token == "boneref")     return f.boneRef;
     if (token == "user")        return f.user;
+    if (token == "charprop")    return !f.charProp.empty();
     return false;
 }
 
@@ -382,8 +392,8 @@ bool ParseRuleDef(const std::string& yamlText, RuleDef& out, std::string& err) {
         for (const auto& s : out.runs)
             if (s != "regen" && s != "converter") { err = "rule '" + out.name + "': unknown stage '" + s + "' (regen, converter)"; return false; }
         for (const auto& t : out.select)
-            if (t != "boneweights" && t != "bonelist" && t != "boneref" && t != "user") {
-                err = "rule '" + out.name + "': unknown select '" + t + "' (boneweights, bonelist, boneref, user)";
+            if (t != "boneweights" && t != "bonelist" && t != "boneref" && t != "user" && t != "charprop") {
+                err = "rule '" + out.name + "': unknown select '" + t + "' (boneweights, bonelist, boneref, user, charprop)";
                 return false;
             }
         return true;

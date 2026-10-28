@@ -32,6 +32,7 @@
 #include <codec/serialization/HavokIo.h>     // io::MakeSchemaFactory / io::SchemaObject (schema decompile dispatch)
 #include "BaseUnitCompiler.h"               // rig-bound base-unit compile (regen gates)
 #include <rules/Rules.h>                    // regen rules: applied after the emit, reversed by the gate
+#include <rules/HoistBoneData.h>            // CharPropViolations — the inline-bone-data check after the rules
 #include "MeshSource.h"                     // the regen source: loose meshes\ + BSAs, read in place
 #include "NemesisSetDataConvert.h"   // CommunityBehaviors::asd::ConvertNemesisSetData
 #include "FnisConverter.h"           // CommunityBehaviors::fnis::ConvertFnis
@@ -2308,6 +2309,12 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
             for (const auto& line : run->log) say("  " + line);
             for (const auto& key : ctx.Touched())
                 if (!ctx.Emit(key, store.Dir(key), rerr)) { r.error = "regen rules: re-emit " + rerr; return r; }
+            /// @note Built-in reflective check: no graph a character runs may still hold bone data inline in a `charprop`
+            ///       member. RegenerateMaster's strict mode refuses a bundle that does.
+            if (!rules::CharPropViolations(ctx, r.charPropViolations, rerr)) { r.error = "regen rules: " + rerr; return r; }
+            for (std::size_t k = 0; k < r.charPropViolations.size() && k < 20; ++k) say("  INLINE BONE DATA: " + r.charPropViolations[k]);
+            if (!r.charPropViolations.empty())
+                say("  " + std::to_string(r.charPropViolations.size()) + " charprop member(s) still hold bone data inline");
             for (const auto& a : run->applied) say("  rule " + a.rule->name + " (" + a.rule->op + ")" + (a.record ? "" : ": nothing to change"));
             r.rulesTouched = static_cast<int>(ctx.Touched().size());
             say("  regen rules: " + std::to_string(run->applied.size()) + " applied, " + std::to_string(r.rulesTouched) + " unit(s) re-emitted");
@@ -3466,6 +3473,13 @@ RegenResult RegenerateMaster(const std::string& sourceDir, const std::string& ou
         " unit(s) serve byte-identical to their source" + (r.drift.empty() ? "." : "; " + std::to_string(r.drift.size()) + " drift/fail."));
 
     // 3) Promote — or, in strict mode, refuse to write if anything drifted.
+    if (!r.build.charPropViolations.empty() && strict) {
+        r.error = "strict gate: " + std::to_string(r.build.charPropViolations.size()) +
+                  " charprop member(s) still hold bone data inline — bundle NOT written";
+        say("  " + r.error);
+        fs::remove_all(work, ec);
+        return r;
+    }
     if (!r.drift.empty() && strict) {
         r.error = "strict gate: " + std::to_string(r.drift.size()) + " unit(s) don't serve their source — bundle NOT written";
         say("  " + r.error);

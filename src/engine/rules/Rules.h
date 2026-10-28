@@ -37,6 +37,9 @@ public:
     /// @brief The bones unit `key` parses with (a graph's bound rig, as everything else that reads it parses it); null
     ///        = the rig is unknown (bone fields stay numeric).
     virtual const std::vector<std::string>* Bones(const std::string& key) = 0;
+    /// @brief The animation-skeleton bones of rig unit `key`, when the store knows them itself; null = read the
+    ///        skeleton unit (ReadSkeletonBones).
+    virtual const std::vector<std::string>* RigBones(const std::string& key) { (void)key; return nullptr; }
 };
 
 /// @brief The units under a directory: every `<path>.hkx/` folder holding a graph.yaml, its kind read from it.
@@ -151,6 +154,8 @@ public:
     virtual bool Apply(Context& ctx, std::unique_ptr<Record>& out, std::string& err) = 0;
     /// @brief Undo exactly what Apply recorded, on the units as Apply left them; Touch every unit changed.
     virtual bool Inverse(Context& ctx, const Record& record, std::string& err) = 0;
+    /// @brief One line for the run log after Apply (what moved, what stayed); empty = nothing to say.
+    virtual std::string Summary() const { return {}; }
 };
 
 using OpFactory = std::function<std::unique_ptr<IOp>(const schema::RuleDef& rule, std::string& err)>;

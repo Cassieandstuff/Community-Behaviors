@@ -68,6 +68,12 @@ bool DecompileBehaviorReflective(const std::vector<std::uint8_t>& bytes, const s
                                  const std::string& outDir, std::string& err,
                                  const std::vector<std::string>* bones = nullptr, const std::string& unitPath = {});
 
+/// @brief Whether `charprop` field `f` holds no bone data: -1 for a bone; for a bone set, a null pointer or an
+///        `f.charProp` object whose every array is empty and every pointer null (no bindings of its own).
+/// @note  Bound to a character property and neutral (a pointer: non-null, inline), the member writes as
+///        `{ charprop: '<property>' }`.
+bool CharPropNeutral(const schema::Field& f, const io::FieldValue& v);
+
 /// @brief The parsed reflective .hky — every object (owned), the root container, and the identity (file-node ids +
 ///        categories; inline objects join with category "").
 struct ParsedHky {

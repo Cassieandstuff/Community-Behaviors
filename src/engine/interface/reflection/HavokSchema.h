@@ -111,6 +111,13 @@ struct Field {
                                          ///<        exactly when the stored value equals it, and reads `user` back to it.
                                          ///< @note Only a single integer scalar (LoadDir refuses another kind). A "none"
                                          ///<       index (an event id, a sync variable) is data, not `user`: it stays -1.
+    std::string charProp;                ///< @brief `charprop: <class>|bone` — the member's bone data comes from a CHARACTER
+                                         ///<        PROPERTY: a pointer to `<class>` (its `ref`, a bone-weight or bone-index
+                                         ///<        set) bound to a POINTER property, or (`bone`, on a `boneref` scalar) an
+                                         ///<        INT32 property holding the bone's index in each character's rig. Bound and
+                                         ///<        holding its neutral value (CharPropNeutral), the .hky writes the member as
+                                         ///<        `{ charprop: '<property>' }` and its binding folds into it; a behavior
+                                         ///<        whose member holds bone data inline instead is flagged (CharPropViolations).
 };
 
 struct ClassSchema {
@@ -180,8 +187,8 @@ struct RuleDef {
     std::string              file;     ///< the descriptor's path, for messages
 };
 
-/// @brief Whether field `f` is of selector kind `token`: `boneweights`, `bonelist`, `boneref` (the schema row keys)
-///        or `user`. An unknown token is never true; LoadDir refuses one in a descriptor.
+/// @brief Whether field `f` is of selector kind `token`: `boneweights`, `bonelist`, `boneref` (the schema row keys), `user`
+///        or `charprop`. An unknown token is never true; LoadDir refuses one in a descriptor.
 bool RuleSelects(const Field& f, const std::string& token);
 
 // ── Enum definitions (`kind: enum` descriptors) ─────────────────────────────────────────────────

@@ -121,6 +121,8 @@ struct BaseBuildResult {
     ///        memory. Null when no rule runs at the regen.
     std::shared_ptr<CB::engine::rules::RunResult> rules;
     int rulesTouched = 0;   ///< units the rules changed (re-emitted)
+    /// @brief `charprop` members of running graphs left holding bone data inline after the rules (CharPropViolations).
+    std::vector<std::string> charPropViolations;
 };
 
 /// @brief Build a shippable base bundle (Skyrim.hky, XPMSSE.hky, ...): decompile EVERY behavior-system file

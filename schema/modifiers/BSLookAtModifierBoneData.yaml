@@ -3,7 +3,7 @@ parent:    null
 signature: 0x29efee59
 size:      64
 fields:
-  - { name: index, type: int16, boneref: true }
+  - { name: index, type: int16, boneref: true, charprop: bone }
   - { skip: 14 }
   - { name: fwdAxisLS, type: vector4 }
   - { name: limitAngleDegrees, type: float }
