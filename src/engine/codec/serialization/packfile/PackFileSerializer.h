@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <queue>
@@ -35,6 +36,8 @@ public:
         bw.BigEndian = (_header.Endian == 0);
         _header.Write(bw);
 
+        DroppedPointers.clear();
+        _ownedArrays.clear();
         _localFixups.clear();
         _globalFixups.clear();
         _virtualFixups.clear();
@@ -151,6 +154,10 @@ public:
     ///        its offset from the start of the __data__ section: where a loader finds it.
     const std::vector<std::pair<const IHavokObject*, std::uint32_t>>& Written() const { return _written; }
 
+    /// @brief Every pointer the last Serialize left out because the member's declared class doesn't admit its target
+    ///        (a schema object's Write checks; see io::AdmitsPointer), one description each. Empty for a well-typed graph.
+    std::vector<std::string> DroppedPointers;
+
     // ── Write helpers invoked by each class's Write(s, bw) ─────────────────────
 
     void WriteVoidPointer(BinaryWriterEx& bw) {
@@ -239,6 +246,12 @@ public:
                                  const std::vector<std::shared_ptr<IHavokObject>>& d) {
         WriteArrayBase(bw, d.size(), [this, &bw, &d](std::size_t i) { d[i]->Write(*this, bw); }, /*pad*/ true);
     }
+    /// @brief WriteClassPointerArrayGeneric for an array the caller builds on the spot: the serializer holds it until
+    ///        Serialize ends, since the elements are written after the caller's Write returns.
+    void WriteOwnedClassPointerArray(BinaryWriterEx& bw, std::vector<std::shared_ptr<IHavokObject>> d) {
+        _ownedArrays.push_back(std::move(d));
+        WriteClassPointerArrayGeneric(bw, _ownedArrays.back());
+    }
 
 private:
     void PadToPointerSizeIfPaddingOption(BinaryWriterEx& bw) {
@@ -291,6 +304,7 @@ private:
     std::unordered_map<std::string, std::uint32_t> _virtualLookup;
     std::vector<std::queue<std::function<void()>>>             _localWriteQueues;
     std::vector<std::queue<std::shared_ptr<IHavokObject>>>     _serializationQueues;
+    std::deque<std::vector<std::shared_ptr<IHavokObject>>>     _ownedArrays;   // a deque: references stay valid on push
 };
 
 } // namespace CB::engine::codec
