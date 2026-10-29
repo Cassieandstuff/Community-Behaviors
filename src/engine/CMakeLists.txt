@@ -74,8 +74,15 @@ FetchContent_Declare(VFS
     GIT_TAG        bf9ee5e)
 FetchContent_MakeAvailable(VFS)
 
+# NIFFER: SSE NIF reading (github.com/Cassieandstuff/NIFFER, README there). The regen rule CapsuleFromBound reads a
+# skeleton.nif's BBX through it. Local builds point FETCHCONTENT_SOURCE_DIR_NIFFER at a checkout.
+FetchContent_Declare(NIFFER
+    GIT_REPOSITORY https://github.com/Cassieandstuff/NIFFER.git
+    GIT_TAG        9cf593ddec8ce48d2cba80e5b7c163508323f2cb)
+FetchContent_MakeAvailable(NIFFER)
+
 find_package(nlohmann_json CONFIG REQUIRED)   # bundle assembly's generate / inject configs
-target_link_libraries(engine PUBLIC ryml::ryml vfs::vfs PRIVATE lz4::lz4 nlohmann_json::nlohmann_json)
+target_link_libraries(engine PUBLIC ryml::ryml vfs::vfs PRIVATE lz4::lz4 nlohmann_json::nlohmann_json niffer::niffer)
 
 set_target_properties(engine PROPERTIES
     CXX_STANDARD 23
