@@ -272,11 +272,12 @@ private:
             _serializationQueues.emplace_back();
     }
     void PopSerializationQueue() { _currentSerializationQueue--; }
-    // Queues an object not yet written to follow the current one, once.
+    // Queues an object not yet written to follow the current one. Havok's writer is depth-first: an object comes out
+    // where the walk first reaches it. One an earlier member already queued, still waiting behind that member's
+    // siblings, is queued again here, so it comes out inside this subtree; the later copy is skipped once written.
     void Enqueue(const std::shared_ptr<IHavokObject>& d) {
         IHavokObject* key = d.get();
-        if (_pendingGlobals.count(key)) return;
-        _pendingGlobals.emplace(key, std::vector<std::pair<std::uint32_t, std::uint32_t>>{});
+        _pendingGlobals.try_emplace(key);
         PushSerializationQueue();
         _serializationQueues[_currentSerializationQueue].push(d);
         PopSerializationQueue();
