@@ -3,12 +3,15 @@
 #include "CharGround.h"
 
 #include <Common/Base/Types/Geometry/Aabb/hkAabb.h>
+#include <Physics/Collide/Shape/Compound/Collection/List/hkpListShape.h>
+#include <Physics/Collide/Shape/Convex/Capsule/hkpCapsuleShape.h>
 #include <Physics/Dynamics/Phantom/hkpCachingShapePhantom.h>
 #include <Physics/Utilities/CharacterControl/Bethesda/bhkPickData.h>
 #include <Physics/Utilities/CharacterControl/StateMachine/Util/hkpCharacterMovementUtil.h>
 
 #include <algorithm>
 #include <core/debug/Settings.h>
+#include <platform/profile/Profile.h>
 
 #include <atomic>
 #include <chrono>
@@ -184,7 +187,8 @@ namespace CB::feature::controller {
         if (!shape) return h;
         hk::hkAabb aabb;
         GetAabb(shape, h.collidable->getTransform(), aabb);
-        h.feetZ  = aabb.m_min(2);
+        h.lift   = Lift(ctrl);
+        h.feetZ  = aabb.m_min(2) - h.lift;
         h.topZ   = aabb.m_max(2);
         h.cx     = (aabb.m_min(0) + aabb.m_max(0)) * 0.5f;
         h.cy     = (aabb.m_min(1) + aabb.m_max(1)) * 0.5f;
@@ -192,6 +196,54 @@ namespace CB::feature::controller {
         h.valid  = h.radius > 0.0f;
         if (h.valid && !IsPlayer(&ctrl)) ReadLongBody(shape, h.collidable->getTransform(), h);
         return h;
+    }
+
+    namespace {
+
+        /// @note List children carry no transform of their own (hkpListShape), so every capsule is in the shape's frame.
+        void CollectCapsules(const hk::hkpShape* shape, const hk::hkTransform& world, HullShape& out, int depth)
+        {
+            if (!shape || depth > 4) return;
+            if (shape->getType() == hk::HK_SHAPE_CAPSULE) {
+                if (out.count >= static_cast<int>(out.capsules.size())) {
+                    out.other = true;
+                    return;
+                }
+                const auto*        capsule = static_cast<const hk::hkpCapsuleShape*>(shape);
+                HullShape::Capsule& c      = out.capsules[out.count++];
+                hk::hkVector4      a, b;
+                a._setTransformedPos(world, capsule->m_vertexA);
+                b._setTransformedPos(world, capsule->m_vertexB);
+                for (int i = 0; i < 3; i++) c.a[i] = a(i), c.b[i] = b(i);
+                c.radius = capsule->getRadius();
+                return;
+            }
+            /// @note Only enabled children collide: the player's list holds a disabled clone of the skeleton's own capsule
+            ///       (FUN_140ea4020 disables it as it builds the list), which drawing would pass off as part of the hull.
+            if (shape->getType() == hk::HK_SHAPE_LIST) {
+                const auto* list = static_cast<const hk::hkpListShape*>(shape);
+                for (int i = 0; i < list->m_childInfo.getSize(); i++)
+                    if (list->m_enabledChildren[(i >> 5) & 7] & (1u << (i & 31)))
+                        CollectCapsules(list->m_childInfo[i].m_shape, world, out, depth + 1);
+                return;
+            }
+            out.other = true;
+        }
+
+    }  // namespace
+
+    HullShape ReadHullShape(const Hull& hull)
+    {
+        HullShape out;
+        if (!hull.valid || !hull.collidable) return out;
+        const hk::hkpShape* shape = hull.collidable->getShape();
+        if (!shape) return out;
+        const hk::hkTransform& world = hull.collidable->getTransform();
+        CollectCapsules(shape, world, out, 0);
+        hk::hkAabb aabb;
+        GetAabb(shape, world, aabb);
+        for (int i = 0; i < 3; i++) out.min[i] = aabb.m_min(i), out.max[i] = aabb.m_max(i);
+        return out;
     }
 
     namespace {
@@ -271,17 +323,43 @@ namespace CB::feature::controller {
 
     namespace {
 
+        std::atomic<std::uint64_t> g_footprints{ 0 }, g_rings{ 0 };
+
+        /// @brief Counts footprints and the ones that cast their ring, logged at every power of two.
+        void CountFootprint(bool ring)
+        {
+            const std::uint64_t rings = ring ? g_rings.fetch_add(1, std::memory_order_relaxed) + 1 : g_rings.load(std::memory_order_relaxed);
+            const std::uint64_t n     = g_footprints.fetch_add(1, std::memory_order_relaxed) + 1;
+            if ((n & (n - 1)) == 0 && n >= 1024)
+                LOG_INFO("floor query: {} footprints, {} cast the ring ({:.1f}%), {} rays in all", n, rings, 100.0 * static_cast<double>(rings) / n,
+                         n + 8 * rings);
+        }
+
         FloorVerdict Footprint(hk::bhkCharacterController& ctrl, const Hull& hull, float centreX, float centreY, const FloorTunables& t)
         {
+            CB_ZONE(zone, "floor query");
             FloorVerdict      v;
             const float       probe  = ctrl.m_stepHeight;
             const float       walkZ  = WalkableZ(ctrl);
             const hk::CFilter filter = ctrl.GetCollisionFilterInfo();
-            for (int i = 0; i < static_cast<int>(v.hits.size()); i++) {
+            const float       top    = hull.feetZ + (std::max)(hull.radius, hull.lift);
+            auto cast = [&](int i) {
                 float x, y;
                 RingXY(centreX, centreY, hull.radius, i, t, x, y);
-                v.hits[i] = CastDown(hull.world, filter.m_filter, x, y, hull.feetZ + hull.radius, hull.feetZ - probe, hull.feetZ);
-            }
+                v.hits[i]      = CastDown(hull.world, filter.m_filter, x, y, top, hull.feetZ - probe, hull.feetZ);
+                v.hits[i].cast = true;
+            };
+            cast(0);
+            /// @note Box3D's skirt rule, under the pogo (a floating hull): the ring is cast only when the axis is unsure,
+            ///       that is its ray missed or met a wall, a character or ground too steep to walk (a ledge, a rail, the
+            ///       foot of a slope). Otherwise the axis alone decides, as it alone holds the pogo (locomotion::PogoSelect).
+            /// @note The full ring stays without the pogo: there walkability was judged on the averaged normal of every
+            ///       hit (see below), which one ray cannot give.
+            const FloorHit& axis = v.hits[0];
+            const bool      sure = hull.lift > 0.0f && axis.hit && axis.layer != kCharControllerLayer && axis.nz >= t.wallNormalZ && axis.nz >= walkZ;
+            if (!sure)
+                for (int i = 1; i < static_cast<int>(v.hits.size()); i++) cast(i);
+            CountFootprint(!sure);
             float sx = 0, sy = 0, sz = 0;
             v.stickDz = -1.0e9f;
             for (const FloorHit& h : v.hits) {
@@ -317,7 +395,38 @@ namespace CB::feature::controller {
             return v;
         }
 
+        bool PogoEnd(const std::array<FloorHit, 9>& hits, float walkableZ, float& dz, int& which)
+        {
+            const FloorTunables                                 t;
+            std::array<CB::engine::locomotion::PogoProbe, 9> probes{};
+            for (std::size_t i = 0; i < hits.size(); i++) {
+                const FloorHit& h = hits[i];
+                probes[i]         = { h.hit, h.hit && h.layer != kCharControllerLayer && h.nz >= t.wallNormalZ, h.dz, h.nz };
+            }
+            return CB::engine::locomotion::PogoSelect(probes.data(), static_cast<int>(probes.size()), walkableZ, dz, &which);
+        }
+
     }  // namespace
+
+    bool PogoFloor(const hk::bhkCharacterController& ctrl, const FloorVerdict& v, float& dz, int* ray)
+    {
+        const float walkZ = WalkableZ(ctrl);
+        float       fore = 0.0f, hind = 0.0f;
+        int         foreRay = -1, hindRay = -1;
+        const bool  haveFore = PogoEnd(v.hits, walkZ, fore, foreRay);
+        const bool  haveHind = v.longBody && PogoEnd(v.hindHits, walkZ, hind, hindRay);
+        if (!haveFore && !haveHind) return false;
+        const bool useHind = !haveFore || (haveHind && hind > fore);
+        dz                 = useHind ? hind : fore;
+        if (ray) *ray = useHind ? static_cast<int>(v.hits.size()) + hindRay : foreRay;
+        return true;
+    }
+
+    bool PogoOn()
+    {
+        static const bool on = core::debug::FlagOn("char_pogo") && core::debug::FlagOn("char_ground_states");
+        return on;
+    }
 
     namespace {
 

@@ -37,10 +37,8 @@ namespace CB::feature {
         namespace ch = CB::feature::controller;
         using CheckSupport = platform::hooks::Override<&hk::bhkCharProxyController::CheckSupportImpl>;
 
-        /// @brief Halflife of the velocity spring (P2), seconds.
-        /// @warning Must match the halflife the ground states spring the real velocity with (CharStateWrapper's
-        ///          kGroundHalflife), or the prediction models a different character than the one that runs.
-        constexpr float kVelocityHalflife = 0.08f;
+        /// @brief The pogo's spring, the ground states' own (char_pogo).
+        constexpr CB::engine::locomotion::Pogo kPogo{};
 
         constexpr int   kFutureSamples = 3;
         constexpr float kSampleTimes[kFutureSamples] = { 1.0f / 3.0f, 2.0f / 3.0f, 1.0f };
@@ -275,16 +273,19 @@ namespace CB::feature {
         ///       hit, and the second query, from the settled height, gives the verdict. Querying at the previous
         ///       sample's height instead put the rays' start under an uphill slope (a few edge hits averaging steep: a
         ///       falsely low support) or their reach above a downhill one (a false Airborne).
+        /// @note Under the pogo (`pogo`) the floor is the one the live pogo holds the feet to (ch::PogoFloor), not the
+        ///       highest hit, so the predicted height follows the same floor the character will.
         ch::FloorVerdict SettleFloor(hk::bhkCharacterController& ctrl, const ch::Hull& hull, float x, float y, float zEstimate, float zPrevious,
-                                     float& z)
+                                     float& z, bool pogo)
         {
+            auto floorOf = [&](const ch::FloorVerdict& v, float& dz) { return pogo ? ch::PogoFloor(ctrl, v, dz) : HighestFloor(v, dz); };
             float            dz    = 0.0f;
             ch::FloorVerdict first = ch::QueryFloorAt(ctrl, hull, x, y, zEstimate);
             z                      = zEstimate;
-            if (!HighestFloor(first, dz)) {
+            if (!floorOf(first, dz)) {
                 first = ch::QueryFloorAt(ctrl, hull, x, y, zPrevious);
                 z     = zPrevious;
-                if (!HighestFloor(first, dz)) return first;
+                if (!floorOf(first, dz)) return first;
             }
             z += dz;
             return ch::QueryFloorAt(ctrl, hull, x, y, z);
@@ -385,11 +386,21 @@ namespace CB::feature {
             /// @note The sweep runs lifted by the step height, so what the proxy steps over (stair risers, kerbs) never
             ///       blocks; walkable faces are skipped (m_zNormal) and other characters too. Each grounded point's height
             ///       follows the floor query, so stairs and slopes keep the next leg at the floor.
+            /// @note A floating shape (char_pogo) already rides hull.lift above the feet: the sweep adds only the rest.
             const hk::hkVector4& origin    = hull.collidable->getTransform().getTranslation();
-            const float          lift      = ctrl.m_stepHeight;
+            const float          lift      = (std::max)(0.0f, ctrl.m_stepHeight - hull.lift);
             const std::uint64_t  ignore    = SweepIgnoreLayers();
             ch::FloorVerdict     prevFloor = ch::QueryFloor(ctrl, hull);
-            bool airborne = prevFloor.ground == ch::Ground::Airborne || velocity(2) - ch::SlopeRise(prevFloor, velocity(0), velocity(1)) > kLaunchSpeed;
+            /// @note Held by the pogo the character is on the ground whatever the rays say (it may be riding down to a
+            ///       floor below the foot tolerance). The shape still floating proves the note is current.
+            const bool held = note.pogo && hull.lift > 0.0f;
+            bool airborne = !held &&
+                            (prevFloor.ground == ch::Ground::Airborne || velocity(2) - ch::SlopeRise(prevFloor, velocity(0), velocity(1)) > kLaunchSpeed);
+            /// @note Under the pogo two heights run: `z` the floor the grounded path stands on (the queries' reference,
+            ///       the body itself in the air) and `fz` the feet, which the pogo spring carries after it; samples and the
+            ///       path report the feet. Without it they are one.
+            const bool pogo     = hull.lift > 0.0f;
+            float      pogoRate = held ? note.pogoRate : 0.0f;
 
             ch::move::State model = drive.state;
             ch::move::Input input = drive.input;
@@ -399,9 +410,9 @@ namespace CB::feature {
             /// @note On the ground the velocity is the player's (the spring) plus the slide, as in the ground states.
             float sx = airborne ? 0.0f : note.slideX, sy = airborne ? 0.0f : note.slideY;
             float vx = velocity(0) - sx, vy = velocity(1) - sy, vz = airborne ? velocity(2) : 0.0f, ax = 0, ay = 0;
-            float px = 0, py = 0, z = 0;
+            float px = 0, py = 0, z = held ? note.pogoDz : 0.0f, fz = 0.0f;
             Vec2  prev{};
-            float prevZ = 0, prevT = 0;
+            float prevZ = z, prevFz = 0, prevT = 0;
             bool  blocked = false;
             bool  launched = false;
             int   sample  = 0;
@@ -418,6 +429,8 @@ namespace CB::feature {
             const int   points    = std::clamp(static_cast<int>(std::ceil(lastQuery / kPathStep - 1.0e-4f)), kPathPoints, kMaxPathPoints);
             for (int i = 0; i < points; i++) {
                 const bool horizon = i < kPathPoints;   ///< legs past it feed only the query samples
+                const bool legAir  = airborne;
+                bool       blockedNow = false;
                 dueCount = 0;
                 for (int k = 0; k < kSubstepsPerPoint; k++) {
                     const float h = kSubstep;
@@ -426,6 +439,7 @@ namespace CB::feature {
                     if (!launched && !airborne && note.jumpIn >= 0.0f && static_cast<float>(i * kSubstepsPerPoint + k) * h >= note.jumpIn) {
                         launched = true;
                         airborne = true;
+                        z        = prevFz;
                         vx += sx, vy += sy;
                         sx = sy = 0.0f;
                         const float gx0 = vx, gy0 = vy;
@@ -453,8 +467,7 @@ namespace CB::feature {
                     const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
                         ch::ClipUphill(prevFloor, d.x, d.y);
-                        ch::SpringDamperExact(vx, ax, d.x, kVelocityHalflife, h);
-                        ch::SpringDamperExact(vy, ay, d.y, kVelocityHalflife, h);
+                        ch::GroundVelocityStep(vx, vy, ax, ay, d.x, d.y, h);
                         if (!blocked) ch::SlideStep(prevFloor, gx, gy, gz, sx, sy, h);
                     } else {
                         vz -= gravity * (vz > 0.0f ? 1.0f : fallMult) * h;
@@ -479,18 +492,18 @@ namespace CB::feature {
                     floor = prevFloor;
                     z     = prevZ;
                 } else if (!airborne) {
-                    floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + ch::SlopeRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                    floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + ch::SlopeRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z, pogo);
                     if (floor.ground == ch::Ground::Airborne) {
                         airborne = true;
                         vx += sx, vy += sy;
                         sx = sy = 0.0f;
                         vz       = -gravity * fallMult * kPathStep;
-                        z        = prevZ - 0.5f * gravity * fallMult * kPathStep * kPathStep;
+                        z        = prevFz - 0.5f * gravity * fallMult * kPathStep * kPathStep;
                     }
                 }
                 if (airborne) {
                     float zLand = 0.0f;
-                    if (vz <= 0.0f && Land(ctrl, hull, at.x, at.y, prevZ, z, zLand, floor)) {
+                    if (vz <= 0.0f && Land(ctrl, hull, at.x, at.y, prevFz, z, zLand, floor)) {
                         z        = zLand;
                         vz       = 0.0f;
                         airborne = false;
@@ -559,41 +572,58 @@ namespace CB::feature {
                     }
                     if (at.x != start.x || at.y != start.y) {
                         px = at.x, py = at.y;
-                        if (!airborne) floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + ch::SlopeRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z);
+                        if (!airborne)
+                            floor = SettleFloor(ctrl, hull, at.x, at.y, prevZ + ch::SlopeRise(prevFloor, at.x - prev.x, at.y - prev.y), prevZ, z, pogo);
                     }
                     if (blocked) {
                         vx = vy = ax = ay = sx = sy = 0.0f;
-                        if (horizon) {
-                            path.blocked   = true;
-                            path.blockedAt = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
-                        }
+                        blockedNow = true;
                     }
+                }
+                /// @note A leg grounded throughout runs the pogo over its substeps toward the floor between its ends (the
+                ///       floor is resolved only at the points); one that left or reached the ground puts the feet on its
+                ///       height, as the ground states' landing does.
+                if (pogo && !legAir && !airborne) {
+                    float feet = prevFz;
+                    for (int k = 1; k <= kSubstepsPerPoint; k++) {
+                        const float target = prevZ + (z - prevZ) * static_cast<float>(k) / kSubstepsPerPoint;
+                        feet += CB::engine::locomotion::PogoStep(pogoRate, feet - target, kPogo, true, kSubstep) * kSubstep;
+                    }
+                    fz = feet;
+                } else {
+                    fz       = z;
+                    pogoRate = 0.0f;
+                }
+                if (blockedNow && horizon) {
+                    path.blocked   = true;
+                    path.blockedAt = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + fz };
                 }
                 if (floor.ground != ch::Ground::Airborne) prevFloor = floor;
                 for (int d = 0; d < dueCount; d++) {
                     Sample& out = tr.query[due[d].index];
                     out.time    = queryTimes[due[d].index];
                     toLocal(prev.x + (at.x - prev.x) * due[d].frac, prev.y + (at.y - prev.y) * due[d].frac, out);
-                    out.up      = prevZ + (z - prevZ) * due[d].frac;
+                    out.up      = prevFz + (fz - prevFz) * due[d].frac;
                     out.facing  = WrapAngle(due[d].facing - heading);
                     out.ground  = floor.ground;
                     out.support = floor.support;
                     out.valid   = true;
                 }
                 if (!horizon) {
-                    prev  = at;
-                    prevZ = z;
-                    prevT = (i + 1) * kPathStep;
+                    prev   = at;
+                    prevZ  = z;
+                    prevFz = fz;
+                    prevT  = (i + 1) * kPathStep;
                     continue;
                 }
-                path.at[i]     = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + z };
+                path.at[i]     = { hull.cx + at.x, hull.cy + at.y, hull.feetZ + fz };
                 path.ground[i]  = floor.ground;
                 path.support[i] = floor.support;
                 if (sample < kFutureSamples && i == kSampleIndex[sample]) {
                     Sample& out = tr.future[sample];
                     out.time    = kSampleTimes[sample];
                     toLocal(at.x, at.y, out);
-                    out.up           = z;
+                    out.up           = fz;
                     out.facing       = WrapAngle(f - heading);
                     out.ground       = floor.ground;
                     out.support      = floor.support;
@@ -601,9 +631,10 @@ namespace CB::feature {
                     worldOut[sample] = { hull.cx + at.x, hull.cy + at.y };
                     ++sample;
                 }
-                prev  = at;
-                prevZ = z;
-                prevT = (i + 1) * kPathStep;
+                prev   = at;
+                prevZ  = z;
+                prevFz = fz;
+                prevT  = (i + 1) * kPathStep;
             }
             return tr;
         }
@@ -756,6 +787,8 @@ namespace CB::feature {
             Path                             path;
             ch::GroundNote note;
             ch::PublishedGroundNote(ctrl, note);
+            /// @note The body's velocity carries the pogo's last correction, which is no velocity of the character's.
+            if (note.pogo && hull.lift > 0.0f) v(2) -= note.pogoRate;
             /// @note A clip playing at `rate` reaches its horizon h after h / rate real seconds: the query is where the
             ///       prediction is then, so turns compare as well as distances.
             static_assert(kFutureSamples == CB::engine::anim::features::kHorizons.size());

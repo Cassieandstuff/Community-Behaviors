@@ -131,6 +131,15 @@ namespace CB::core::debug {
           "Step query",
           "Step 5 of the character controller spec: for the player, an up-forward-down sweep steps over obstacles "
           "within step height when the slide falls short. Unproven in game." },
+        { "char_pogo", FlagKind::IniBool, "Character", "bPogo", false, false,
+          "Floating hull (pogo)",
+          "For the player (and the ridden horse) under bGroundStates: the collision hull floats one step height above "
+          "the feet, and a spring (3 Hz, damping 0.8, Box3D's dynamic mover) holds the feet on the floor the rays find "
+          "under them, so stairs, kerbs and drops within step height are ridden smoothly instead of snapped; it replaces "
+          "the step query and stick-to-floor. The floor is the one under the hull's axis while it is walkable, else the "
+          "walkable ray nearest the feet (ledges, rails). A capsule hull keeps its top: its bottom moves up, and its "
+          "height and radius come from the character file (characterControllerInfo) when it states them; any other hull "
+          "(the horse's) floats whole, its top rising too. Unproven in game." },
         { "char_variable_jump", FlagKind::IniBool, "Character", "bVariableJump", false, false,
           "Variable jump height",
           "For the player under bGroundStates: releasing Jump early cuts the jump short. iJumpMode=1 (default) "
@@ -191,8 +200,10 @@ namespace CB::core::debug {
           "unaffected. AE only. Unproven in game." },
         { "char_debug_hud", FlagKind::IniBool, "Character", "bDebugHud", false, false,
           "Character debug HUD",
-          "Draws the player's controller state over the game: the floor-query rays (green walkable, red steep or "
-          "wall, grey miss), the output, desired and slide (orange) velocity arrows, the stick's direction (yellow arrowhead) and the "
+          "Draws the player's controller state over the game: the collision shape's capsules (cyan; its box when part of "
+          "it is no capsule), the floor-query rays (green walkable, red steep or "
+          "wall, grey miss), under bPogo the pogo spring from the floating hull down to the floor it stands on (green "
+          "pushing up, blue pulling down, grey at rest; a white cross at the feet), the output, desired and slide (orange) velocity arrows, the stick's direction (yellow arrowhead) and the "
           "body's facing (white tick) on the ring (needs bMovementModel), the ring and predicted path shaded by support (green "
           "holds, orange slides, blue airborne), falls "
           "and jumps included (needs bPredictorObserve), and a text panel (mode, verdict, timers, the movement model's "

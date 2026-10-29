@@ -20,11 +20,18 @@ namespace CB::feature::controller::hud {
 
     /// @brief One floor-query ray as cast: from `top` straight down to `bottom`, and what it hit.
     struct Ray {
+        bool  cast = false;   ///< false: skipped (the pogo's axis was sure), not drawn
         Point top, bottom;
         bool  hit      = false;
         float hitZ     = 0;
         bool  walkable = false;
         bool  wall     = false;   ///< steeper than wallNormalZ, or another character: never support
+    };
+
+    /// @brief One capsule of the collision shape, in world space: the segment between `a` and `b`, swept by `radius`.
+    struct Capsule {
+        Point a, b;
+        float radius = 0;
     };
 
     /// @brief The ground states' step: what they decided and the motion they handed the proxy.
@@ -45,6 +52,15 @@ namespace CB::feature::controller::hud {
         int                 rayCount = 0;
         std::array<Point, 2> ends{};         ///< a long body's fore and hind footprint centres
         int                 endCount = 0;
+        std::array<Capsule, 6> capsules{};   ///< the collision shape's capsules (a list shape's children)
+        int                 capsuleCount = 0;
+        /// @brief Part of the shape is no capsule (or there are more than `capsules` holds): the shape's box is drawn.
+        bool                otherShape = false;
+        Point               boxMin, boxMax;   ///< the shape's world AABB
+        float               lift = 0;         ///< how far the shape floats above the feet (char_pogo)
+        bool                pogo = false;     ///< the pogo held the feet this step
+        int                 pogoRay  = -1;    ///< the ray it stands on (index into `rays`)
+        float               pogoRate = 0;     ///< its correction rate, Havok units/s (+ pushes up, - pulls down)
     };
 
     /// @brief The predictor's trajectory (P1) and the path through it, in world space.
