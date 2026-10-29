@@ -428,7 +428,8 @@ std::shared_ptr<SchemaObject> FindVariant(const SchemaObject& root, std::string_
 bool RoundtripHkx(const std::vector<std::uint8_t>& in,
                   const SchemaRegistry&            reg,
                   std::vector<std::uint8_t>&       out,
-                  std::string&                     err) {
+                  std::string&                     err,
+                  bool                             vanillaSignatures) {
     try {
         BinaryReaderEx br(in);
         PackFileDeserializer des;
@@ -437,6 +438,7 @@ bool RoundtripHkx(const std::vector<std::uint8_t>& in,
         if (!root) { err = "havok-io: null root object"; return false; }
 
         PackFileSerializer ser;
+        ser.VanillaSignatures = vanillaSignatures;
         BinaryWriterEx bw(des._header.Endian == 0, des._header.PointerSize == 8);
         ser.Serialize(root, bw, des._header);
         out = bw.Data();

@@ -15,6 +15,9 @@ class IHavokObject {
 public:
     virtual ~IHavokObject() = default;
     virtual std::uint32_t Signature() const noexcept = 0;
+    /// @brief The signature the game's own exe registers for this class: Signature() except for a vanilla class CB
+    ///        extends; 0 when there is none (a class only CB registers, or one whose schema stores no signature).
+    virtual std::uint32_t VanillaSignature() const noexcept { return Signature(); }
     virtual const char*   ClassName() const noexcept = 0;
     virtual void Write(PackFileSerializer& s, BinaryWriterEx& bw) const = 0;
     virtual void Read(PackFileDeserializer& des, BinaryReaderEx& br) = 0;
