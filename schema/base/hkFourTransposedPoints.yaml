@@ -1,7 +1,8 @@
 name:      hkFourTransposedPoints
 parent:    null
-size:      64
-# Value type (no signature): 4 packed Vector4 (transposed vertex block). Used as the
-# element of hkpConvexVerticesShape.m_rotatedVertices.
+size:      48
+# Value type (no signature): 3 packed Vector4, four vertices transposed (the x, y and z rows). The
+# element of hkpConvexVerticesShape.m_rotatedVertices; the exe reflects it as
+# hkpConvexVerticesShapeFourVectors (m_x, m_y, m_z), 48 bytes (havok/.../hkpConvexVerticesShapeFourVectors.h).
 fields:
-  - { name: vertices, type: vector4, count: 4 }
+  - { name: vertices, type: vector4, count: 3 }
