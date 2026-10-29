@@ -2368,6 +2368,8 @@ BaseBuildResult buildBaseBundle(const MeshSource& src, const std::string& outHky
             say("== regen rules ==");
             rules::DirUnitStore store(stageHky.string(), [&](const std::string& key) { return bonesFor(PathKey(key)); });
             rules::Context      ctx(store, *sreg);
+            /// @note The source's other files (loose and archived): CapsuleFromBound reads each rig's skeleton.nif.
+            ctx.SetLooseFiles([&src](const std::string& rel) { return src.Read(rel); });
             auto run = std::make_shared<rules::RunResult>();
             if (!rules::ApplyRules(ctx, regenRules, *run, rerr)) { r.error = "regen rules: " + rerr; return r; }
             for (const auto& line : run->log) say("  " + line);
