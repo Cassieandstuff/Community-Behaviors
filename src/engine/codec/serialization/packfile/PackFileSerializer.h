@@ -184,10 +184,13 @@ public:
         _pendingGlobals[key].push_back(pos);
     }
 
-    void WriteStringPointer(BinaryWriterEx& bw, const std::string& d, int padding = 16) {
+    /// @param null an empty `d` is written as the null pointer with no local fixup (a string read as null, see
+    ///        PackFileDeserializer::ReadOptionalStringPointer); otherwise "" is written as a string, as before.
+    void WriteStringPointer(BinaryWriterEx& bw, const std::string& d, int padding = 16, bool null = false) {
         PadToPointerSizeIfPaddingOption(bw);
         const std::uint32_t src = static_cast<std::uint32_t>(bw.Position());
         bw.WriteUSize(0);
+        if (null && d.empty()) return;
         const std::size_t idx = _localFixups.size();
         _localFixups.push_back(LocalFixup{src, 0});
         const std::string copy = d;
