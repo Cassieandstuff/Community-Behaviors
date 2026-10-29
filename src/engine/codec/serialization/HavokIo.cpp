@@ -409,6 +409,7 @@ std::shared_ptr<SchemaObject> DeserializeSchema(std::span<const std::uint8_t> by
                                                 bool tolerateUnregistered) {
     PackFileDeserializer des;
     des.ObjectFactory = MakeSchemaFactory(reg);
+    des.TagfileSchema = &reg;
     if (tolerateUnregistered) des.SetTolerateUnregistered(true);
     BinaryReaderEx br(/*bigEndian*/ false, /*uSizeLong*/ true, bytes);   // Deserialize re-reads both from the header
     return AsSchema(des.Deserialize(br));
@@ -433,6 +434,7 @@ bool RoundtripHkx(const std::vector<std::uint8_t>& in,
         BinaryReaderEx br(in);
         PackFileDeserializer des;
         des.ObjectFactory = MakeSchemaFactory(reg);
+        des.TagfileSchema = &reg;
         std::shared_ptr<IHavokObject> root = des.Deserialize(br);
         if (!root) { err = "havok-io: null root object"; return false; }
 

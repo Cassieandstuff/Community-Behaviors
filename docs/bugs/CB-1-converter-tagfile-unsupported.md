@@ -1,6 +1,6 @@
 # CB-1: converter can't read Havok tagfile-format .hkx
 
-**Status:** INVESTIGATING (deferred — known limitation, low priority)
+**Status:** INVESTIGATING (fix landed; the master build needs a re-run to confirm the 6 failures are gone)
 **First seen:** 2026-09-06   **Area:** converter / havok-framing
 
 ## Symptom
@@ -37,7 +37,13 @@ different binary container. CB's `PackFileDeserializer` only implements the pack
 
 ## Disposition
 
-**Deferred.** A tagfile reader is a separate parser (distinct section/fixup layout from the packfile
-path), and the only affected content is niche CC fishing + giantcrab assets that no current load order
-compiles. Revisit only if those CC creatures need to enter a compiled load order — at which point the
-fix is a tagfile deserializer feeding the same object model the packfile path builds.
+**Fix landed:** `codec/serialization/tagfile/BinaryTagfile` reads binary tagfiles (versions 0 and 3) into schema
+objects, by member name onto the schema's fields, and `PackFileDeserializer::DeserializePartially` transcodes one to a
+packfile before reading it, so every packfile reader (sections, fixups, read order, `AssignIdentity`) takes it unchanged.
+
+Measured on the 18 tagfiles in `ccBGSSSE001-Fish.bsa` (the 6 `.hkx` above plus 12 `.hkt`), against hkxcmd's `-v:AMD64`
+packfile of each: 12 byte-identical, 6 equal content. Those 6 (2 behaviors, 4 characters) are byte-identical to CB's own
+round trip of hkxcmd's file, so the remaining difference is the writer's, not the reader's.
+
+Not exercised: the master build itself (`--build-base` / `generate-base-master`), tuple members, vec4 arrays, and
+tagfile versions other than 0 and 3 (refused with the version named).
