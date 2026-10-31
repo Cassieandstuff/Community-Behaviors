@@ -1619,8 +1619,8 @@ void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml
         return v;
     };
     struct Changer { const VocabLayer* layer; const X::Node* param; };
-    // The changers bashMerge picks for param P of node `id`: delta layers of the node's class that changed P and
-    // differ from the base. `held` keeps the layer list alive for the returned pointers.
+    /// The changers bashMerge picks for param P of node `id`: delta layers of the node's class that changed P and
+    /// differ from the base. `held` keeps the layer list alive for the returned pointers.
     const auto changersOf = [&](const std::string& id, const std::string& P, std::vector<VocabLayer>& held,
                                 const X::Node*& baseP) {
         std::vector<Changer> out;
@@ -1628,7 +1628,7 @@ void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml
         baseP = nullptr;
         const X::Node* baseNode = nullptr;
         for (const VocabLayer& L : held) if (!L.isDelta) baseNode = L.node;
-        if (!baseNode) return out;   // a new node: no base prefix, nothing appended tail-wise
+        if (!baseNode) return out;   ///< a new node: no base prefix, nothing appended tail-wise
         baseP = paramByName(*baseNode, P);
         const std::string_view cls = merged[id].attr("class");
         for (const VocabLayer& L : held) {
@@ -1645,8 +1645,8 @@ void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml
         std::vector<VocabLayer> nHeld;
         const X::Node* nb = nullptr;
         const auto names = changersOf(sdId, r.names, nHeld, nb);
-        if (names.size() < 2 || !nb) continue;   // one changer is copied whole: its names and infos stay in step
-        // Replay mergeArrayInto's union: each code's tail length, and the tail positions whose name was already there.
+        if (names.size() < 2 || !nb) continue;   ///< one changer is copied whole: its names and infos stay in step
+        /// Replay mergeArrayInto's union: each code's tail length, and the tail positions whose name was already there.
         std::vector<std::string> have;
         for (const X::Node* c : items(*nb, "hkcstring")) have.push_back(c->text);
         const std::size_t baseN = have.size();
@@ -1659,14 +1659,14 @@ void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml
             tailLen[ch.layer->code] = v.size() - baseN;
             for (std::size_t k = 0; k < v.size() && exact; ++k) {
                 const bool present = std::find(have.begin(), have.end(), v[k]->text) != have.end();
-                if (k < baseN) { exact = present; continue; }   // a renamed base name appends without an info: not ours
+                if (k < baseN) { exact = present; continue; }   ///< a renamed base name appends without an info: not ours
                 if (present) dropped[ch.layer->code].insert(k - baseN);
                 else         have.push_back(v[k]->text);
             }
             if (!exact) break;
         }
         if (!exact || dropped.empty()) continue;
-        // Drop the paired tail entries from an info / value array, when it was appended tail-wise by the same codes.
+        /// Drop the paired tail entries from an info / value array, when it was appended tail-wise by the same codes.
         const auto dropPaired = [&](const std::string& ownerId, const char* P, bool checkTypes) {
             if (ownerId.empty() || !merged.count(ownerId)) return false;
             std::vector<VocabLayer> held;
@@ -1679,7 +1679,7 @@ void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml
             for (const Changer& c : ch) {
                 const std::size_t n = items(*c.param, "hkobject").size();
                 const auto t = tailLen.find(c.layer->code);
-                if (n < B || t == tailLen.end() || n - B != t->second) return false;   // not paired name for name
+                if (n < B || t == tailLen.end() || n - B != t->second) return false;   ///< not paired name for name
                 expect += n - B;
             }
             if (items(*mp, "hkobject").size() != expect) return false;
@@ -1692,7 +1692,7 @@ void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml
                 at += n;
             }
             const auto all = items(*mp, "hkobject");
-            if (checkTypes)   // a vector / quaternion / pointer variable's value indexes another array: leave those alone
+            if (checkTypes)   ///< a vector / quaternion / pointer variable's value indexes another array: leave those alone
                 for (const std::size_t k : remove)
                     if (const X::Node* tp = paramByName(*all[k], "type"))
                         if (tp->text.find("VECTOR") != std::string::npos || tp->text.find("QUATERNION") != std::string::npos ||
@@ -1706,7 +1706,7 @@ void reconcileVocabulary(std::unordered_map<std::string, CB::engine::common::xml
             return true;
         };
         if (r.values) {
-            // Variables: the infos and the word values must both pair, or neither changes.
+            /// Variables: the infos and the word values must both pair, or neither changes.
             std::vector<VocabLayer> h1, h2;
             const X::Node* b1 = nullptr;
             const X::Node* b2 = nullptr;
@@ -1810,6 +1810,9 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
     // class differs from the object (source drift) are dropped from the merge, preserving the old skip.
     std::unordered_map<std::string, CB::engine::common::xml::Node> mergedById;
     mergedById.reserve(order.size());
+    /// @note A snippet patch as bashMerge saw it (anchorSnippets' expansion), keyed by its source node, so
+    ///       reconcileVocabulary replays the same arrays the merge unioned.
+    std::unordered_map<const CB::engine::common::xml::Node*, CB::engine::common::xml::Node> expandedOf;
     for (const std::string& id : order) {
         const std::vector<Layer>& ls = layers[id];
         const std::string objCls(idMap[id]->ClassName());
@@ -1828,6 +1831,7 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
             std::string aerr;
             const bool expanded = seedSkip == 0 && anchorSnippets(*baseNode, *L.node, L.orig, anchored, aerr);
             if (!aerr.empty()) { err = "parseSourcesMerged: " + aerr; return false; }
+            if (expanded) expandedOf[L.node] = anchored;
             pls.push_back({ expanded ? std::move(anchored) : *L.node, L.changed ? *L.changed : std::unordered_set<std::string>{} });
         }
         std::vector<const CB::engine::merge::PatchLayer*> ptrs; ptrs.reserve(pls.size());
@@ -1840,16 +1844,19 @@ bool parseSourcesMerged(const std::vector<std::pair<const std::string*, bool>>& 
                                : CB::engine::merge::bashMerge(*baseNode, ptrs, composePred));
     }
 
-    // The vocabulary is three PARALLEL arrays held by three nodes (names in hkbBehaviorGraphStringData, infos in
-    // hkbBehaviorGraphData, word values in hkbVariableValueSet), and bashMerge merges each node on its own: a name
-    // array edited by 2+ codes unions BY VALUE (a name two codes both add is kept once), while their info / value
-    // arrays append each code's tail VERBATIM (BR-37). So a name two codes both add leaves one info (and value) too
-    // many, every index after it is off by one, and the bundle's vocabulary can't render as name-keyed records. Drop
-    // the info / value paired with each tail name the union dropped, pairing a code's names with its own infos by the
-    // patch's MOD_CODE (the duplicate Pandora drops). Anything this can't pair exactly is left as merged.
+    /// The vocabulary is three PARALLEL arrays held by three nodes (names in hkbBehaviorGraphStringData, infos in
+    /// hkbBehaviorGraphData, word values in hkbVariableValueSet), and bashMerge merges each node on its own: a name
+    /// array edited by 2+ codes unions BY VALUE (a name two codes both add is kept once), while their info / value
+    /// arrays append each code's tail VERBATIM (mergeArrayInto). So a name two codes both add leaves one info (and value) too
+    /// many, every index after it is off by one, and the bundle's vocabulary can't render as name-keyed records. Drop
+    /// the info / value paired with each tail name the union dropped, pairing a code's names with its own infos by the
+    /// patch's MOD_CODE (the duplicate Pandora drops). Anything this can't pair exactly is left as merged.
     reconcileVocabulary(mergedById, order, [&](const std::string& id) {
         std::vector<VocabLayer> v;
-        for (const Layer& L : layers[id]) v.push_back({ L.node, L.isDelta, L.changed, L.code });
+        for (const Layer& L : layers[id]) {
+            const auto x = expandedOf.find(L.node);
+            v.push_back({ x == expandedOf.end() ? L.node : &x->second, L.isDelta, L.changed, L.code });
+        }
         return v;
     });
 
