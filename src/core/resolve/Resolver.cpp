@@ -1117,7 +1117,8 @@ namespace CB {
                     if (di.depth() == 0) {
                         const std::string fn = PathKey(di->path().filename().string());
                         if (fn == "animationdatasinglefile.txt" || fn == "animationsetdatasinglefile.txt" ||
-                            fn == "animations.ledger" || fn == "cache.ready")
+                            fn == "animations.ledger" || fn == "cache.ready" ||
+                            fn == PathKey(CB::core::discover::kMotionMatchingCacheFile))
                             continue;
                     }
                     if (!keep.count(PathKey(di->path().lexically_relative(dataRoot).lexically_normal().generic_string())))
