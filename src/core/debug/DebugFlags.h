@@ -146,6 +146,11 @@ namespace CB::core::debug {
           "rises under fJumpReleaseGravity x gravity once released; iJumpMode=2 picks a short hop "
           "(fShortHopFraction of the full height) when released within fShortHopWindow seconds of the press, else a "
           "full hop. Holding Jump always reaches vanilla's height. Unproven in game." },
+        { "adv_input", FlagKind::IniBool, "Input", "bAdvancedInput", false, false,
+          "Advanced Input",
+          "CB reads every input event before the game does (the dispatch in PollInputDevices) into its own buffer: "
+          "each button's press/release times and the sticks and mouse over the last frames, for CB's controller to "
+          "query. Passes every event on to the game unchanged. AE only. Unproven in game." },
         { "camera", FlagKind::IniBool, "Camera", "bEnable", false, false,
           "CB camera",
           "CB drives the third-person camera: it keeps its own world yaw and pitch, so the body never snaps to the "
