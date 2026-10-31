@@ -2,17 +2,21 @@
 // vanilla). Pandora is the in-game-proven oracle; any place CB diverges (that isn't a deliberate CB
 // feature) is a CB bug.
 //
+// Reads both caches through the schema ($SCT_HAVOK_SCHEMA_DIR, else schema/ beside the exe).
+//
 // Modes:
 //   cbdiff adsf <ref.txt> <cb.txt>                        animationdatasinglefile.txt — per-clip diff
 //   cbdiff asd  <ref.txt> <cb.txt>                        animationsetdatasinglefile.txt — per-set diff
 //   cbdiff asdcrc <ref.txt> <cb.txt> <proj> <set>         dump a set's CB-only CRCs
 
-#include <interface/AnimationData.h>              // CB::engine::animdata::ParseSingleFile
-#include <codec/format/AnimationSetData.h>        // CB::engine::animsetdata::ParseSingleFile
+#include <interface/AnimationData.h>
+#include <codec/format/AnimationSetData.h>
+#include <interface/reflection/HavokSchema.h>
 #include <disk/Disk.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -30,14 +34,21 @@ std::string readFile(const std::string& p) {
     if (!text) { std::fprintf(stderr, "cbdiff: cannot open '%s'\n", p.c_str()); return {}; }
     return std::move(*text);
 }
+/// @brief The schema registry the caches are read through: $SCT_HAVOK_SCHEMA_DIR, else schema/ beside the exe.
+const CB::engine::schema::SchemaRegistry& reg() {
+    const auto* r = CB::engine::schema::SharedRegistry();
+    if (!r) { std::fprintf(stderr, "cbdiff: schema: %s
+", CB::engine::schema::SharedRegistryError().c_str()); std::exit(2); }
+    return *r;
+}
 std::string join(const std::vector<std::string>& v, const char* sep = " | ") {
     std::string o; for (std::size_t i = 0; i < v.size(); ++i) { if (i) o += sep; o += v[i]; } return o;
 }
 
 // ── animationdatasinglefile.txt ──────────────────────────────────────────────────────────────────
 int diffAdsf(const std::string& refPath, const std::string& cbPath) {
-    const auto refSF = CB::engine::animdata::ParseSingleFile(readFile(refPath));
-    const auto cbSF  = CB::engine::animdata::ParseSingleFile(readFile(cbPath));
+    const auto refSF = CB::engine::animdata::ReadSingleFile(reg(), readFile(refPath));
+    const auto cbSF  = CB::engine::animdata::ReadSingleFile(reg(), readFile(cbPath));
     std::printf("== adsf: %zu ref project(s) vs %zu cb project(s) ==\n", refSF.projects.size(), cbSF.projects.size());
     std::unordered_map<std::string, const CB::engine::animdata::Project*> cbByName;
     for (const auto& p : cbSF.projects) cbByName[p.name] = &p;
@@ -63,8 +74,8 @@ int diffAdsf(const std::string& refPath, const std::string& cbPath) {
 
 // ── animationsetdatasinglefile.txt ───────────────────────────────────────────────────────────────
 int diffAsd(const std::string& refPath, const std::string& cbPath) {
-    const auto refSF = CB::engine::animsetdata::ParseSingleFile(readFile(refPath));
-    const auto cbSF  = CB::engine::animsetdata::ParseSingleFile(readFile(cbPath));
+    const auto refSF = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(refPath));
+    const auto cbSF  = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(cbPath));
     std::printf("== asd: %zu ref project(s) vs %zu cb project(s) ==\n", refSF.projects.size(), cbSF.projects.size());
     std::unordered_map<std::string, const CB::engine::animsetdata::Project*> cbByHdr;
     for (const auto& p : cbSF.projects) cbByHdr[p.header] = &p;
@@ -94,8 +105,8 @@ int diffAsd(const std::string& refPath, const std::string& cbPath) {
 }
 
 int dumpAsdCrc(const std::string& refPath, const std::string& cbPath, const std::string& proj, const std::string& set) {
-    const auto refSF = CB::engine::animsetdata::ParseSingleFile(readFile(refPath));
-    const auto cbSF  = CB::engine::animsetdata::ParseSingleFile(readFile(cbPath));
+    const auto refSF = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(refPath));
+    const auto cbSF  = CB::engine::animsetdata::ReadSingleFile(reg(), readFile(cbPath));
     auto findSet = [&](const CB::engine::animsetdata::SingleFile& sf) -> const CB::engine::animsetdata::SetFile* {
         for (const auto& p : sf.projects) if (p.header.find(proj) != std::string::npos)
             for (const auto& s : p.sets) if (s.name.find(set) != std::string::npos) return &s;
@@ -120,6 +131,8 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::string mode = argv[1];
+    if (CB::engine::schema::SharedSchemaDir().empty())
+        CB::engine::schema::SetSharedSchemaDir((fs::path(argv[0]).parent_path() / "schema").string());
     try {
         if      (mode == "adsf"   && argc >= 4) diffAdsf(argv[2], argv[3]);
         else if (mode == "asd"    && argc >= 4) diffAsd(argv[2], argv[3]);

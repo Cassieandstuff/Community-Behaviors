@@ -1,99 +1,44 @@
 #include "interface/AnimationData.h"
 
-#include <text/Text.h>
-
-#include <charconv>
+#include <codec/serialization/MetaText.h>
 
 namespace CB::engine::animdata {
 
-    namespace {
-
-        // Cursor over a line vector with checked reads.
-        struct Cursor {
-            const std::vector<std::string_view>& lines;
-            std::size_t                          p = 0;
-            std::string_view next(const char* what)
-            {
-                if (p >= lines.size()) throw ParseError(std::string("unexpected EOF reading ") + what);
-                return lines[p++];
-            }
-            bool done() const { return p >= lines.size(); }
-        };
-
-        std::size_t AsCount(std::string_view s, const char* what)
-        {
-            long long v = 0;
-            const char* b = s.data();
-            const char* e = b + s.size();
-            auto [ptr, ec] = std::from_chars(b, e, v);
-            if (ec != std::errc{} || ptr != e || v < 0)
-                throw ParseError(std::string("expected a count for ") + what + ", got '" + std::string(s) + "'");
-            return static_cast<std::size_t>(v);
-        }
-
-    }  // namespace
-
-    // ── whole-file parse ─────────────────────────────────────────────────────────
-    SingleFile ParseSingleFile(std::string_view text)
+    SingleFile ReadSingleFile(const schema::SchemaRegistry& reg, std::string_view text)
     {
-        const std::vector<std::string_view> lines = CB::engine::text::SplitLines(text);
-        Cursor                              cur{ lines };
+        using codec::io::SchemaObject;
+        const auto obj = [](const auto& o) -> const SchemaObject& { return static_cast<const SchemaObject&>(*o); };
+        const auto str = [](const SchemaObject& o, std::string_view f) -> const std::string& { return o.FindField(f)->str; };
 
+        std::string err;
+        const auto  root = codec::io::ReadMetaText(reg, "AnimationDataSingleFile", text, err);
+        if (!root) throw ParseError(err);
         SingleFile sf;
-        const std::size_t N = AsCount(cur.next("project count"), "project count");
-
-        std::vector<std::string> names;
-        names.reserve(N);
-        for (std::size_t i = 0; i < N; ++i) names.emplace_back(cur.next("project name"));
-
-        sf.projects.reserve(N);
-        for (std::size_t i = 0; i < N; ++i) {
-            Project proj;
-            proj.name = names[i];
-
-            const std::size_t aLineCount = AsCount(cur.next("aLineCount"), "aLineCount");
-            const std::size_t aStart     = cur.p;
-            proj.fieldX = cur.next("fieldX");
-            const std::size_t K = AsCount(cur.next("assetCount"), "assetCount");
-            for (std::size_t k = 0; k < K; ++k) proj.assetPaths.emplace_back(cur.next("assetPath"));
-            proj.hasAnimData = (cur.next("hasAnimData") == "1");
-
-            if (proj.hasAnimData) {
-                while (cur.p - aStart < aLineCount) {
-                    ClipGenerator c;
-                    c.name          = cur.next("clip name");
-                    c.animIndex     = cur.next("clip animIndex");
-                    c.playbackSpeed = cur.next("clip playbackSpeed");
-                    c.cropStart     = cur.next("clip cropStart");
-                    c.cropEnd       = cur.next("clip cropEnd");
-                    const std::size_t T = AsCount(cur.next("triggerCount"), "triggerCount");
-                    for (std::size_t t = 0; t < T; ++t) c.triggers.emplace_back(cur.next("trigger"));
-                    cur.next("clip separator");  // blank line, counted
-                    proj.clips.push_back(std::move(c));
-                }
+        for (const auto& po : root->Children("projects")) {
+            const auto& p_ = obj(po);
+            Project&    p  = sf.projects.emplace_back();
+            p.name         = str(p_, "name");
+            p.fieldX       = str(p_, "fieldX");
+            p.assetPaths   = p_.FindField("assetPaths")->strs;
+            p.hasAnimData  = str(p_, "hasAnimData") == "1";
+            for (const auto& co : p_.Children("clips")) {
+                const auto& c_ = obj(co);
+                ClipGenerator& c = p.clips.emplace_back();
+                c.name          = str(c_, "name");
+                c.animIndex     = str(c_, "animIndex");
+                c.playbackSpeed = str(c_, "playbackSpeed");
+                c.cropStart     = str(c_, "cropStart");
+                c.cropEnd       = str(c_, "cropEnd");
+                c.triggers      = c_.FindField("triggers")->strs;
             }
-            if (cur.p - aStart != aLineCount)
-                throw ParseError("section A line-count mismatch for project '" + proj.name + "'");
-
-            if (proj.hasAnimData) {
-                const std::size_t bLineCount = AsCount(cur.next("bLineCount"), "bLineCount");
-                const std::size_t bStart     = cur.p;
-                while (cur.p - bStart < bLineCount) {
-                    MotionRecord m;
-                    m.animIndex = cur.next("motion animIndex");
-                    m.duration  = cur.next("motion duration");
-                    const std::size_t TC = AsCount(cur.next("translationCount"), "translationCount");
-                    for (std::size_t t = 0; t < TC; ++t) m.translations.emplace_back(cur.next("translationKey"));
-                    const std::size_t RC = AsCount(cur.next("rotationCount"), "rotationCount");
-                    for (std::size_t r = 0; r < RC; ++r) m.rotations.emplace_back(cur.next("rotationKey"));
-                    cur.next("motion separator");  // blank line, counted
-                    proj.motions.push_back(std::move(m));
-                }
-                if (cur.p - bStart != bLineCount)
-                    throw ParseError("section B line-count mismatch for project '" + proj.name + "'");
+            for (const auto& mo : p_.Children("motions")) {
+                const auto& m_ = obj(mo);
+                MotionRecord& m = p.motions.emplace_back();
+                m.animIndex     = str(m_, "animIndex");
+                m.duration      = str(m_, "duration");
+                m.translations  = m_.FindField("translations")->strs;
+                m.rotations     = m_.FindField("rotations")->strs;
             }
-
-            sf.projects.push_back(std::move(proj));
         }
         return sf;
     }
