@@ -4,7 +4,7 @@
 
 /// @file
 /// @brief The ground's pull on a character: how a slope rises along a move, changes the run speed, drags (the slide),
-///        clips an uphill request and shapes a jump's launch. Pure math over the ground under the feet, which the
+///        shapes a jump's launch. Pure math over the ground under the feet, which the
 ///        caller measures (the game: its floor query's verdict).
 /// @note  Havok units (1 per 70 game units), z up, unlike the movement step's game units.
 
@@ -41,24 +41,25 @@ namespace CB::engine::locomotion {
     /// @brief How much the slope along a heading (dirX, dirY, horizontal, unit length) changes the run speed: gravity's
     ///        share along the run. Downhill 1 + slopeSpeedDown x sin(slope) up to 1.5; uphill 1 - slopeSpeedUp x
     ///        sin(slope) down to 0.7; 1 in the air.
-    /// @note Gravity along the slope is split by support: the share the ground holds (support) changes how fast the
-    ///       character runs (this), the share it does not (1 - support) drags them (SlideStep). So on ground too steep to
-    ///       stand on the speed change fades out and the slide takes over, and gravity is never counted twice.
+    /// @note Scales the request, not the motion: the grip (GripStep) cancels gravity's own pull, so this is the one
+    ///       place a slope changes the run speed; it fades with support so steep ground leaves it to the slide.
     float SlopeSpeedScale(const Surface& g, float dirX, float dirY, const Tuning& tuning);
 
-    /// @brief The slide: a horizontal velocity the character does not control, added to its own on the ground. It gains
-    ///        gravity's pull along the ground scaled by 1 - support, bleeds off at a rate scaled by support, and never
-    ///        exceeds kMaxSlideSpeed.
+    /// @brief One ground step of Box3D's dynamic mover (samples/dynamic_mover.cpp, its mover joint): gravity always
+    ///        pulls along the ground, and the character's grip, a force budget, counters it before it moves them.
+    /// @param grip 0-1: the share of the budget the ground lends (1 on walkable ground, 0 on ground too steep to stand on).
+    /// @param gripAccel the full budget (Havok units/s^2), well above gravity's pull on any walkable slope.
     /// @param gx gravity (Havok units/s^2, already scaled by the controller's gravity factor).
-    /// @note The gain is horizontal at gravity's along-slope magnitude because the ground step lays the horizontal
-    ///       velocity onto the plane at the same speed, so the body accelerates down the fall line at g sin(slope)
-    ///       times 1 - support.
-    void SlideStep(const Surface& g, float gx, float gy, float gz, float& sx, float& sy, float dt);
-
-    /// @brief Removes 1 - support of the uphill part of a horizontal request: on ground that does not hold the
-    ///        character, it can steer across and down it but not climb it (Jolt's CharacterVirtual sample does the same
-    ///        on steep ground).
-    void ClipUphill(const Surface& g, float& dx, float& dy);
+    /// @param vx the character's own horizontal velocity, sprung toward the request (dx, dy) with rates (ax, ay).
+    /// @param sx the slide: the horizontal velocity gravity has given that the grip has not cancelled, capped at
+    ///        kMaxSlideSpeed.
+    /// @note  The budget first cancels the slide, then pays for the spring's change; what it cannot pay is not made. So
+    ///        walkable ground holds the character still and runs it as the flat does, and steep ground (no grip) leaves
+    ///        input no force to climb with: gravity slides them down, with no wall plane or clipped request.
+    /// @note  The gain is horizontal at gravity's along-slope magnitude because the ground step lays the horizontal
+    ///        velocity onto the plane at the same speed, so the body accelerates down the fall line at g sin(slope).
+    void GripStep(const Surface& g, float grip, float gripAccel, float gx, float gy, float gz, float dx, float dy, float& vx, float& vy,
+                  float& ax, float& ay, float& sx, float& sy, float dt);
 
     /// @brief A jump's launch velocity from ground `g` at horizontal ground velocity (hx, hy) and jump speed `speed`
     ///        (Havok units/s): the whole ground velocity (it lies along the slope, SlopeRise its vertical part) plus the

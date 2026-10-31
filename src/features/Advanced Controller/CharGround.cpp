@@ -500,6 +500,28 @@ namespace CB::feature::controller {
         return 1.0f - u * u * (3.0f - 2.0f * u);
     }
 
+    float Grip(const hk::bhkCharacterController& ctrl, float groundNz)
+    {
+        constexpr float    kDegToRad = 0.017453292f;
+        static const float start    = std::clamp(SettingFloat("fSlidePullStart", 5.0f), 0.5f, 45.0f) * kDegToRad;
+        const float        maxSlope = std::acos(std::clamp(WalkableZ(ctrl), -1.0f, 1.0f));
+        const float        slope    = std::acos(std::clamp(groundNz, -1.0f, 1.0f));
+        const float        lo       = maxSlope - start;
+        if (slope <= lo) return 1.0f;
+        if (slope >= maxSlope) return 0.0f;
+        const float u = (slope - lo) / start;
+        return 1.0f - u * u * (3.0f - 2.0f * u);
+    }
+
+    void GripStep(const hk::bhkCharacterController& ctrl, const FloorVerdict& v, float gx, float gy, float gz, float dx, float dy, float& vx,
+                  float& vy, float& ax, float& ay, float& sx, float& sy, float dt)
+    {
+        /// @note Havok units/s^2: about 4x gravity, so it holds any walkable slope and stops a slide in a few tenths
+        ///       of a second, yet never binds the ground spring on the flat.
+        static const float accel = (std::max)(0.0f, SettingFloat("fGroundGripAccel", 40.0f));
+        CB::engine::locomotion::GripStep(SurfaceOf(v), Grip(ctrl, v.groundNz), accel, gx, gy, gz, dx, dy, vx, vy, ax, ay, sx, sy, dt);
+    }
+
     namespace {
         /// @brief Each managed controller's latest verdict and ground note (the player's, the ridden horse's).
         /// @note Keyed by the controller's address; a horse's controller is freed when it unloads, so past a handful of

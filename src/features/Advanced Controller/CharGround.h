@@ -194,11 +194,15 @@ namespace CB::feature::controller {
         return { v.ground == Ground::Grounded, v.support, v.groundNx, v.groundNy, v.groundNz };
     }
 
-    /// @brief locomotion::SlideStep on the ground of `v`.
-    inline void SlideStep(const FloorVerdict& v, float gx, float gy, float gz, float& sx, float& sy, float dt)
-    {
-        CB::engine::locomotion::SlideStep(SurfaceOf(v), gx, gy, gz, sx, sy, dt);
-    }
+    /// @brief How much grip ground of normal z `groundNz` lends the managed controller (locomotion::GripStep): 1 up
+    ///        to fSlidePullStart degrees (default 5) below its max slope, easing to 0 AT the max slope.
+    /// @note  Ends at the max slope, not past it like Support: any grip left on steeper ground would out-pull gravity and
+    ///        walk the character up it.
+    float Grip(const hk::bhkCharacterController& ctrl, float groundNz);
+
+    /// @brief locomotion::GripStep on the ground of `v`, at the managed controller's grip and fGroundGripAccel.
+    void GripStep(const hk::bhkCharacterController& ctrl, const FloorVerdict& v, float gx, float gy, float gz, float dx, float dy, float& vx,
+                  float& vy, float& ax, float& ay, float& sx, float& sy, float dt);
 
     /// @brief locomotion::SlopeRise on the ground of `v`.
     inline float SlopeRise(const FloorVerdict& v, float dx, float dy) { return CB::engine::locomotion::SlopeRise(SurfaceOf(v), dx, dy); }
@@ -219,8 +223,6 @@ namespace CB::feature::controller {
         CB::engine::locomotion::JumpLaunch(SurfaceOf(g), hx, hy, speed, ox, oy, oz);
     }
 
-    /// @brief locomotion::ClipUphill on the ground of `v`.
-    inline void ClipUphill(const FloorVerdict& v, float& dx, float& dy) { CB::engine::locomotion::ClipUphill(SurfaceOf(v), dx, dy); }
 
     /// @brief What the ground states hand the predictor each step.
     struct GroundNote {

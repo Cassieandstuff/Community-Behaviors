@@ -323,8 +323,8 @@ namespace CB::feature {
         ///       the leg falls from its start. In the air, gravity is 1x rising and fInAirFallingCharGravityMult:HAVOK
         ///       falling (the Airborne state's), a held jump is assumed, and the horizontal velocity holds (air control
         ///       is weak and not modelled).
-        /// @note Steep ground: the ground states' own slide (ch::SlideStep from the last resolved point's floor, starting
-        ///       from the published slide velocity) and uphill clip (ch::ClipUphill) run here too.
+        /// @note Steep ground: the ground states' own grip (ch::GripStep from the last resolved point's floor, starting
+        ///       from the published slide velocity) runs here too.
         /// @param note the ground states' note (PublishedGroundNote): the slide velocity, and a pending jump that launches
         ///        at note.jumpIn seconds with note.jumpSpeed upward; empty without them.
         /// @param worldOut the future samples' positions in Havok world space, for the gate.
@@ -466,9 +466,8 @@ namespace CB::feature {
                     }
                     const float ox = vx + sx, oy = vy + sy, oz = vz;
                     if (!airborne) {
-                        ch::ClipUphill(prevFloor, d.x, d.y);
-                        ch::GroundVelocityStep(vx, vy, ax, ay, d.x, d.y, h);
-                        if (!blocked) ch::SlideStep(prevFloor, gx, gy, gz, sx, sy, h);
+                        if (!blocked) ch::GripStep(ctrl, prevFloor, gx, gy, gz, d.x, d.y, vx, vy, ax, ay, sx, sy, h);
+                        else ch::GroundVelocityStep(vx, vy, ax, ay, d.x, d.y, h);
                     } else {
                         vz -= gravity * (vz > 0.0f ? 1.0f : fallMult) * h;
                         z += (oz + vz) * 0.5f * h;
